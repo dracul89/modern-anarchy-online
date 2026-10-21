@@ -88,3 +88,79 @@ pub fn parse_old(object: &[u8]) -> Result<OldTilemap, Error> {
     let (archive, used) = Archive::parse_prefix(&object[at..])?;
     Ok(OldTilemap { width, height, tile_size, second, tile_types, archive, rest: object[at + used..].to_vec() })
 }
+
+/// A chunk after the head: its tag and its body (the size's 12-byte head
+/// excluded).
+#[derive(Debug, Clone)]
+pub struct Chunk {
+    pub tag: [u8; 4],
+    pub version: u32,
+    pub body: Vec<u8>,
+}
+
+/// A newer-style tile-map (`GNDA` or `UOHA`): a header, the tile types'
+/// tables and then image and data chunks.
+#[derive(Debug)]
+pub struct NewTilemap {
+    /// The first chunk's tag.
+    pub tag: [u8; 4],
+    pub width: u16,
+    pub height: u16,
+    pub scale: f32,
+    pub second: f32,
+    pub tile_types: Vec<u16>,
+    /// The chunks after the types, in order (`DCGA`, `DHGA`, `HCDA`, `IRHA`,
+    /// optionally `TAHA`, `XTHA`, `THSA`).
+    pub chunks: Vec<Chunk>,
+}
+
+pub fn parse_new(object: &[u8]) -> Result<NewTilemap, Error> {
+    let mut at = OBJECT_HEAD;
+    let take = |at: &mut usize, n: usize, what| -> Result<&[u8], Error> {
+        let b = object.get(*at..*at + n).ok_or(Error::Truncated(what))?;
+        *at += n;
+        Ok(b)
+    };
+    let word = |b: &[u8]| u32::from_le_bytes(b[..4].try_into().unwrap());
+    let short = |b: &[u8]| u16::from_le_bytes(b[..2].try_into().unwrap());
+    let tag: [u8; 4] = take(&mut at, 4, "the tag")?.try_into().unwrap();
+    if &tag != b"GNDA" && &tag != b"UOHA" {
+        return Err(Error::Chunk(u32::from_le_bytes(tag)));
+    }
+    let version = word(take(&mut at, 8, "the chunk head")?[4..].as_ref());
+    if version != 1 {
+        return Err(Error::Chunk(version));
+    }
+    let width = short(take(&mut at, 2, "the width")?);
+    let height = short(take(&mut at, 2, "the height")?);
+    let scale = f32::from_bits(word(take(&mut at, 4, "the scale")?));
+    let second = f32::from_bits(word(take(&mut at, 4, "a float")?));
+    let count = short(take(&mut at, 2, "the type count")?) as usize;
+    if count >= 0x4000 {
+        return Err(Error::Truncated("too many tile types"));
+    }
+    let mut tile_types = Vec::new();
+    for _ in 0..count {
+        tile_types.push(short(take(&mut at, 2, "a tile type")?));
+    }
+    // Each type: how many neighbours it lists and how many heights it has,
+    // each neighbour a type number and 16 shorts, then the heights.
+    for _ in 0..count {
+        let head = take(&mut at, 2, "a tile type's counts")?;
+        let (neighbours, heights) = (head[0] as usize, head[1] as usize);
+        take(&mut at, neighbours * (2 + 16 * 2), "a tile type's neighbours")?;
+        take(&mut at, heights * 2, "a tile type's heights")?;
+    }
+    let mut chunks = Vec::new();
+    while at + 12 <= object.len() {
+        let tag: [u8; 4] = object[at..at + 4].try_into().unwrap();
+        let size = word(&object[at + 4..]) as usize;
+        let version = word(&object[at + 8..]);
+        if size < 12 || at + size > object.len() {
+            break;
+        }
+        chunks.push(Chunk { tag, version, body: object[at + 12..at + size].to_vec() });
+        at += size + ((4 - (size & 3)) & 3);
+    }
+    Ok(NewTilemap { tag: *b"GNDA", width, height, scale, second, tile_types, chunks })
+}

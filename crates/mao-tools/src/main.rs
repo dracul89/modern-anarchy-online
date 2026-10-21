@@ -1,4 +1,4 @@
-//! `mao-db <game dir> info | scan-tilemaps | tilemap <playfield> | list <type> [count] | chunks <type> <instance> | find-meshes <max parts> <min triangles> | mesh-preview <type> <instance> <out.png> | dump-mesh <type> <instance> | survey-meshes | verify | texture <type> <instance> <out.png> | scan-textures | get <type> <instance> (hex) | count-types`
+//! `mao-db <game dir> info | tilemap-new <playfield> <dir> | scan-tilemaps | tilemap <playfield> | list <type> [count] | chunks <type> <instance> | find-meshes <max parts> <min triangles> | mesh-preview <type> <instance> <out.png> | dump-mesh <type> <instance> | survey-meshes | verify | texture <type> <instance> <out.png> | scan-textures | get <type> <instance> (hex) | count-types`
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -16,7 +16,7 @@ fn number(text: &str) -> Option<u32> {
 
 fn run(args: &[String]) -> Result<(), String> {
     let [game, command, rest @ ..] = args else {
-        return Err("usage: mao-db <game dir> info | scan-tilemaps | tilemap <playfield> | list <type> [count] | chunks <type> <instance> | find-meshes <max parts> <min triangles> | mesh-preview <type> <instance> <out.png> | dump-mesh <type> <instance> | survey-meshes | verify | texture <type> <instance> <out.png> | scan-textures | get <type> <instance> (hex) | count-types".into());
+        return Err("usage: mao-db <game dir> info | tilemap-new <playfield> <dir> | scan-tilemaps | tilemap <playfield> | list <type> [count] | chunks <type> <instance> | find-meshes <max parts> <min triangles> | mesh-preview <type> <instance> <out.png> | dump-mesh <type> <instance> | survey-meshes | verify | texture <type> <instance> <out.png> | scan-textures | get <type> <instance> (hex) | count-types".into());
     };
     let db = ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?;
     match (command.as_str(), rest) {
@@ -118,6 +118,23 @@ fn run(args: &[String]) -> Result<(), String> {
             }
             println!("root: {:?}", map.archive.root.fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>());
         }
+        ("tilemap-new", [instance, dir]) => {
+            let id = Id { kind: 0xf4249, instance: number(instance).ok_or("bad instance")? };
+            let object = db.get(id).map_err(|e| e.to_string())?.ok_or("no such object")?;
+            let map = mao_formats::tilemap::parse_new(&object).map_err(|e| e.to_string())?;
+            println!("{}x{} scale {} second {} types {}", map.width, map.height, map.scale, map.second, map.tile_types.len());
+            for c in &map.chunks {
+                let png = c.body.windows(4).position(|w| w == [0x89, b'P', b'N', b'G'] || w == [0xff, 0xd8, 0xff, 0xe0]);
+                println!("{} v{} {} bytes, image at {png:?}", String::from_utf8_lossy(&c.tag), c.version, c.body.len());
+                if let Some(at) = png {
+                    let name = format!("{dir}/{}_{}.png", instance, String::from_utf8_lossy(&c.tag));
+                    if let Ok(img) = image::load_from_memory(&c.body[at..]) {
+                        println!("   {}x{} {:?}", img.width(), img.height(), img.color());
+                        let _ = img.save(&name);
+                    }
+                }
+            }
+        }
         ("scan-tilemaps", []) => {
             let (mut old, mut other, mut bad) = (0, 0, 0);
             for id in db.ids().map_err(|e| e.to_string())? {
@@ -140,7 +157,12 @@ fn run(args: &[String]) -> Result<(), String> {
                             println!("playfield {:#x}: terrain failed: {e}", id.instance);
                         }
                     },
-                    Err(mao_formats::tilemap::Error::Chunk(_)) => other += 1,
+                    Err(mao_formats::tilemap::Error::Chunk(tag)) => {
+                        other += 1;
+                        if other <= 6 {
+                            println!("other: {:#x} {:?} {} bytes", id.instance, tag.to_le_bytes().map(|b| b as char), object.len());
+                        }
+                    }
                     Err(e) => {
                         bad += 1;
                         println!("playfield {:#x}: {e}", id.instance);
