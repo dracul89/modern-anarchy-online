@@ -7,9 +7,12 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+image.workspace = true
 mao-formats.workspace = true
 mao-net.workspace = true
 mao-render.workspace = true
+pollster = "1.0.1"
+winit = "0.30.13"
 
 [lints]
 workspace = true

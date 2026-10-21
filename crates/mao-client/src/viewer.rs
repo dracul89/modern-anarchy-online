@@ -1,0 +1,114 @@
+//! The mesh viewer: headless to an image, or in a window.
+
+use std::sync::Arc;
+
+use mao_formats::model::Model;
+use mao_render::wgpu;
+use mao_render::{Camera, Gpu, Renderer, Scene};
+use winit::application::ApplicationHandler;
+use winit::dpi::PhysicalSize;
+use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
+use winit::event_loop::{ActiveEventLoop, EventLoop};
+use winit::window::{Window, WindowId};
+
+use crate::Textures;
+
+/// Renders the model once to `out`.
+pub fn headless(model: &Model, textures: &Textures, out: &str) -> Result<(), String> {
+    let gpu = Gpu::headless()?;
+    eprintln!("adapter: {:?}", gpu.adapter.get_info());
+    let mut renderer = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8UnormSrgb);
+    let scene = renderer.upload(&gpu, model, &mut |k, i| textures.get(k, i));
+    let camera = Camera::fit(&scene);
+    let (w, h) = (960, 720);
+    let pixels = renderer.render_to_image(&gpu, &scene, &camera, w, h);
+    image::save_buffer(out, &pixels, w, h, image::ColorType::Rgba8).map_err(|e| e.to_string())
+}
+
+struct View {
+    window: Arc<Window>,
+    surface: wgpu::Surface<'static>,
+    config: wgpu::SurfaceConfiguration,
+    gpu: Gpu,
+    renderer: Renderer,
+    scene: Scene,
+    camera: Camera,
+}
+
+struct App {
+    model: Model,
+    textures: Textures,
+    state: Option<View>,
+    dragging: bool,
+    last: (f64, f64),
+}
+
+pub fn window(model: Model, textures: Textures) -> Result<(), String> {
+    let event_loop = EventLoop::new().map_err(|e| e.to_string())?;
+    let mut app = App { model, textures, state: None, dragging: false, last: (0.0, 0.0) };
+    event_loop.run_app(&mut app).map_err(|e| e.to_string())
+}
+
+impl ApplicationHandler for App {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.state.is_some() {
+            return;
+        }
+        let window = Arc::new(event_loop.create_window(Window::default_attributes().with_title("Modern Anarchy Online").with_inner_size(PhysicalSize::new(1100, 800))).expect("a window"));
+        let instance = wgpu::Instance::default();
+        let surface = instance.create_surface(window.clone()).expect("a surface");
+        let gpu = Gpu::new(instance, Some(&surface)).expect("a graphics device");
+        let size = window.inner_size();
+        let config = surface.get_default_config(&gpu.adapter, size.width.max(1), size.height.max(1)).expect("a surface format");
+        surface.configure(&gpu.device, &config);
+        let renderer = Renderer::new(&gpu, config.format);
+        let scene = renderer.upload(&gpu, &self.model, &mut |k, i| self.textures.get(k, i));
+        let camera = Camera::fit(&scene);
+        window.request_redraw();
+        self.state = Some(View { window, surface, config, gpu, renderer, scene, camera });
+    }
+
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+        let Some(w) = self.state.as_mut() else { return };
+        match event {
+            WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::Resized(size) => {
+                w.config.width = size.width.max(1);
+                w.config.height = size.height.max(1);
+                w.surface.configure(&w.gpu.device, &w.config);
+                w.window.request_redraw();
+            }
+            WindowEvent::MouseInput { state, button: MouseButton::Left, .. } => self.dragging = state == ElementState::Pressed,
+            WindowEvent::CursorMoved { position, .. } => {
+                if self.dragging {
+                    w.camera.yaw -= (position.x - self.last.0) as f32 * 0.01;
+                    w.camera.pitch = (w.camera.pitch + (position.y - self.last.1) as f32 * 0.01).clamp(-1.5, 1.5);
+                    w.window.request_redraw();
+                }
+                self.last = (position.x, position.y);
+            }
+            WindowEvent::MouseWheel { delta, .. } => {
+                let lines = match delta {
+                    MouseScrollDelta::LineDelta(_, y) => y,
+                    MouseScrollDelta::PixelDelta(p) => p.y as f32 / 40.0,
+                };
+                w.camera.distance = (w.camera.distance * (1.0 - lines * 0.1)).max(w.scene.radius * 0.1);
+                w.window.request_redraw();
+            }
+            WindowEvent::RedrawRequested => {
+                let frame = match w.surface.get_current_texture() {
+                    wgpu::CurrentSurfaceTexture::Success(frame) | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
+                    _ => {
+                        w.surface.configure(&w.gpu.device, &w.config);
+                        return;
+                    }
+                };
+                let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
+                w.renderer.draw(&w.gpu, &w.scene, &w.camera, &view, (w.config.width, w.config.height));
+                w.window.pre_present_notify();
+                w.gpu.queue.present(frame);
+            }
+            _ => {}
+        }
+    }
+}

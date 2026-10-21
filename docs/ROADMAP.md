@@ -32,3 +32,11 @@ was derived from.
   bytes). World matrices put the tree and lamp meshes Z-up; character meshes
   don't assemble yet (their frames animate; to do with the animations).
   `mao-db mesh-preview` draws wireframes for checking.
+
+## Milestone 2 (done): a window
+`mao-client <game> <type> <instance>` opens a `wgpu` window with an orbit
+camera (drag, scroll); `--image out.png` renders headless. One WGSL pipeline
+draws every mesh (position, normal, one texture pair); textures come from the
+resource database through the original's fallback order (0xf6954, 0xf6960,
+0xf6961); leaves and other cut-outs are alpha-tested. Checked on the tree
+(f6951:1893) and a turret (f6951:19a8) on an AMD GPU through Vulkan.
