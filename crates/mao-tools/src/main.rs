@@ -26,7 +26,7 @@ fn run(args: &[String]) -> Result<(), String> {
             match db.get(id).map_err(|e| e.to_string())? {
                 Some(data) => {
                     println!("{} bytes", data.len());
-                    let head: Vec<String> = data.iter().take(32).map(|b| format!("{b:02x}")).collect();
+                    let head: Vec<String> = data.iter().take(std::env::var("MAO_BYTES").ok().and_then(|n| n.parse().ok()).unwrap_or(32)).map(|b| format!("{b:02x}")).collect();
                     println!("{}", head.join(" "));
                 }
                 None => return Err("no such object".into()),

@@ -51,3 +51,13 @@ instance comes from the tile-map's own list. Playfield 0x254 (97x97 points)
 shows grass, dirt, rock, cliffs and fences. 125 tile-maps use the newer
 `GNDA`/`UOHA` chunk layout, not read yet. The height scale (0.2 per 8-bit step)
 is a guess that looks right.
+- The 125 `GNDA`/`UOHA` tile-maps (instances such as 0x79, 0x7e, 0x132) parse
+  into chunks (`tilemap::parse_new`): `DCGA` and `DHGA` and `HCDA` are 8-bit PNGs the
+  size of the map, `IRHA` a table of words, `TAHA` lists plus an 8-bit PNG,
+  `XTHA` an RGB PNG (tile layers?) and `HSTA` per-type scales. What each means
+  for the ground isn't worked out; they look like indoor/dungeon maps (DHGA is
+  room-shaped). `mao-db tilemap-new <playfield> <dir>` dumps the images.
+- Playfield contents (types 0xf424d with the playfield in the instance's top
+  half, 0xf4254, 0xf4248, ...) are not decoded: 0xf424d records are packed
+  bytes behind a small head (not zlib); the format lives in code the drop-ins
+  never ported (the statel/dynel loaders in N3/Gamecode).
