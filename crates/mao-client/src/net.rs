@@ -196,6 +196,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut keys = crate::viewer::Input::default();
         let (mut position, mut heading) = (start, heading);
         let (mut moving, mut turning) = (0i8, 0i8);
+        const JUMP_SPEED: f32 = 7.0;
+        const GRAVITY: f32 = 10.0;
+        let (mut airborne, mut rise, mut vy, mut was_jumping) = (false, 0.0f32, 0.0f32, false);
         let mut last_tick = Instant::now();
         let mut last_send = Instant::now();
         let mut last_overlay = Instant::now() - Duration::from_secs(1);
@@ -225,13 +228,29 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             let speed = if walk > 0 { SPEED } else { BACK_SPEED } * walk as f32;
             position[0] += heading.sin() * speed * dt;
             position[2] += heading.cos() * speed * dt;
-            position[1] = ground(position) + offset;
+            let start_jump = keys.jump && !was_jumping && !airborne;
+            was_jumping = keys.jump;
+            let mut landed = false;
+            if airborne {
+                rise += vy * dt;
+                vy -= GRAVITY * dt;
+                if rise <= 0.0 {
+                    (airborne, rise, landed) = (false, 0.0, true);
+                }
+            }
+            if start_jump {
+                (airborne, vy) = (true, JUMP_SPEED);
+            }
+            position[1] = ground(position) + offset + rise;
             let mut ok = true;
             let due = last_send.elapsed() >= Duration::from_millis(400);
             let mut send_kind = |kind: u8, connection: &mut Connection| {
                 last_send = Instant::now();
                 ok &= send(connection, kind, heading, position, &mut sent);
             };
+            if start_jump {
+                send_kind(movement::JUMP, &mut connection);
+            }
             if walk != moving {
                 match (moving, walk) {
                     (_, 1) => send_kind(movement::FORWARD_START, &mut connection),
@@ -246,7 +265,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     1 => send_kind(movement::TURN_RIGHT_START, &mut connection),
                     _ => send_kind(movement::TURN_STOP, &mut connection),
                 }
-            } else if (walk != 0 || keys.turn != 0) && due {
+            } else if ((walk != 0 || keys.turn != 0 || airborne) && due) || landed {
                 send_kind(movement::UPDATE, &mut connection);
             }
             if !ok {
@@ -255,7 +274,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             moving = walk;
             turning = keys.turn;
             state.rotations.insert(own, [0.0, (heading * 0.5).sin(), 0.0, (heading * 0.5).cos()]);
-            if walk != 0 || keys.turn != 0 || moving != 0 {
+            if walk != 0 || keys.turn != 0 || moving != 0 || airborne {
                 state.entities.insert(own, (position, 0));
             } else if let Some(e) = state.entities.get(&own) {
                 position = e.0;

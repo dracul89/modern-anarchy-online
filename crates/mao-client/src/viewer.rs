@@ -20,6 +20,7 @@ use crate::Textures;
 pub struct Input {
     pub forward: bool,
     pub back: bool,
+    pub jump: bool,
     pub turn: i8,
 }
 
@@ -139,11 +140,12 @@ impl ApplicationHandler for App {
                 self.last = (position.x, position.y);
             }
             // Playing (a live window): W/Up walk, S/Down back, A/Left and D/Right turn.
-            WindowEvent::KeyboardInput { event, .. } if self.live.is_some() && matches!(event.physical_key, PhysicalKey::Code(KeyCode::ArrowUp | KeyCode::ArrowDown | KeyCode::ArrowLeft | KeyCode::ArrowRight | KeyCode::KeyW | KeyCode::KeyA | KeyCode::KeyS | KeyCode::KeyD)) => {
+            WindowEvent::KeyboardInput { event, .. } if self.live.is_some() && matches!(event.physical_key, PhysicalKey::Code(KeyCode::ArrowUp | KeyCode::ArrowDown | KeyCode::ArrowLeft | KeyCode::ArrowRight | KeyCode::KeyW | KeyCode::KeyA | KeyCode::KeyS | KeyCode::KeyD | KeyCode::Space)) => {
                 let down = event.state == ElementState::Pressed;
                 match event.physical_key {
                     PhysicalKey::Code(KeyCode::ArrowUp | KeyCode::KeyW) => self.keys.forward = down,
                     PhysicalKey::Code(KeyCode::ArrowDown | KeyCode::KeyS) => self.keys.back = down,
+                    PhysicalKey::Code(KeyCode::Space) => self.keys.jump = down,
                     PhysicalKey::Code(KeyCode::ArrowLeft | KeyCode::KeyA) => self.keys.turn = if down { -1 } else { self.keys.turn.max(0) },
                     _ => self.keys.turn = if down { 1 } else { self.keys.turn.min(0) },
                 }

@@ -23,6 +23,9 @@ pub mod movement {
     pub const TURN_LEFT_START: u8 = 9;
     pub const TURN_RIGHT_START: u8 = 11;
     pub const TURN_STOP: u8 = 12;
+    /// Jump (sent as the jump starts; the capture's heights rise about 2.5
+    /// units and fall back in about a second).
+    pub const JUMP: u8 = 22;
     /// A new heading while standing.
     pub const HEADING: u8 = 14;
     /// The periodic update while moving.
