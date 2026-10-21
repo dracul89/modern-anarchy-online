@@ -14,10 +14,27 @@ use winit::window::{Window, WindowId};
 
 use crate::Textures;
 
+/// What the player is doing with the keyboard: forward held, and turning
+/// (-1 left, 1 right).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Input {
+    pub forward: bool,
+    pub turn: i8,
+}
+
+/// The overlay to draw and where the player's character is (the view
+/// follows it).
+pub struct Update {
+    pub model: Model,
+    pub own: Option<[f32; 3]>,
+}
+
 /// Something that changes while the window is open: models to draw over the
 /// scene (the latest one is shown) and where to start looking.
 pub struct Live {
-    pub overlays: std::sync::mpsc::Receiver<Model>,
+    pub overlays: std::sync::mpsc::Receiver<Update>,
+    /// Where the arrow keys' state goes.
+    pub input: std::sync::mpsc::Sender<Input>,
     /// The view point (Z-up), if known.
     pub focus: Option<[f32; 3]>,
 }
@@ -61,11 +78,12 @@ struct App {
     state: Option<View>,
     dragging: bool,
     last: (f64, f64),
+    keys: Input,
 }
 
 pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<(), String> {
     let event_loop = EventLoop::new().map_err(|e| e.to_string())?;
-    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0) };
+    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), keys: Input::default() };
     event_loop.run_app(&mut app).map_err(|e| e.to_string())
 }
 
@@ -119,6 +137,17 @@ impl ApplicationHandler for App {
                 }
                 self.last = (position.x, position.y);
             }
+            WindowEvent::KeyboardInput { event, .. } if matches!(event.physical_key, PhysicalKey::Code(KeyCode::ArrowUp | KeyCode::ArrowLeft | KeyCode::ArrowRight)) => {
+                let down = event.state == ElementState::Pressed;
+                match event.physical_key {
+                    PhysicalKey::Code(KeyCode::ArrowUp) => self.keys.forward = down,
+                    PhysicalKey::Code(KeyCode::ArrowLeft) => self.keys.turn = if down { -1 } else { self.keys.turn.max(0) },
+                    _ => self.keys.turn = if down { 1 } else { self.keys.turn.min(0) },
+                }
+                if let Some(live) = &self.live {
+                    let _ = live.input.send(self.keys);
+                }
+            }
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
                 // WASD moves the view point over the ground (relative to where the
                 // camera faces), Q and E down and up; the step grows with the distance.
@@ -153,9 +182,12 @@ impl ApplicationHandler for App {
             WindowEvent::RedrawRequested => {
                 if let Some(live) = &self.live {
                     let latest = live.overlays.try_iter().last();
-                    if let Some(model) = latest {
-                        let overlay = w.renderer.upload(&w.gpu, &model, &mut |_, _| None);
+                    if let Some(update) = latest {
+                        let overlay = w.renderer.upload(&w.gpu, &update.model, &mut |_, _| None);
                         w.scene.set_overlay(overlay);
+                        if let Some([x, y, z]) = update.own {
+                            w.camera.target = mao_render::glam::Vec3::new(x, z, y);
+                        }
                     }
                 }
                 let frame = match w.surface.get_current_texture() {

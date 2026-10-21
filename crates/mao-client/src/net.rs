@@ -47,6 +47,7 @@ fn login(game: &str) -> Result<(Connection, Vec<Character>), String> {
 #[derive(Default)]
 struct World {
     own: u32,
+    rotations: BTreeMap<u32, [f32; 4]>,
     kinds: BTreeMap<u32, usize>,
     entities: BTreeMap<u32, ([f32; 3], usize)>,
 }
@@ -55,6 +56,9 @@ impl World {
     fn add(&mut self, frame: &frame::Frame) {
         let Some(m) = Message::parse(frame) else { return };
         *self.kinds.entry(m.kind).or_default() += 1;
+        if let Some(q) = m.rotation() {
+            self.rotations.insert(m.identity.1, q);
+        }
         let position = m.position().or_else(|| m.movement().map(|(_, _, p)| p));
         if let Some(p) = position {
             let e = self.entities.entry(m.identity.1).or_insert((p, 0));
@@ -148,7 +152,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let ground = scene.parts.len();
         scene.instances.extend((0..ground).map(|i| (i, model::IDENTITY)));
     }
-    connection.set_timeout(Duration::from_millis(500)).map_err(|e| e.to_string())?;
+    connection.set_timeout(Duration::from_millis(50)).map_err(|e| e.to_string())?;
     // The first couple of seconds say where the character is.
     let until = Instant::now() + Duration::from_secs(3);
     while Instant::now() < until && !state.entities.contains_key(&state.own) {
@@ -160,8 +164,26 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     }
     let focus = state.entities.get(&state.own).map(|&([x, y, z], _)| [x, z, y]);
     let (tx, rx) = std::sync::mpsc::channel();
+    let (input_tx, input_rx) = std::sync::mpsc::channel::<crate::viewer::Input>();
+    let own = state.own;
+    let start = state.entities.get(&own).map(|e| e.0).unwrap_or([0.0; 3]);
+    let heading = state.rotations.get(&own).map(|q| 2.0 * q[1].atan2(q[3])).unwrap_or(0.0);
     std::thread::spawn(move || {
-        let mut last = Instant::now() - Duration::from_secs(1);
+        use mao_net::n3::movement;
+        const SPEED: f32 = 7.5; // units per second, from the capture
+        const TURN: f32 = 2.0; // radians per second
+        let mut keys = crate::viewer::Input::default();
+        let (mut position, mut heading) = (start, heading);
+        let (mut moving, mut turning) = (false, 0i8);
+        let mut last_tick = Instant::now();
+        let mut last_send = Instant::now();
+        let mut last_overlay = Instant::now() - Duration::from_secs(1);
+        let send = |connection: &mut Connection, kind: u8, heading: f32, position: [f32; 3], since: &mut Instant| {
+            let ms = since.elapsed().as_millis().min(u32::MAX as u128) as u32;
+            *since = Instant::now();
+            connection.send(&n3::position_update(own, kind, heading, position, ms)).is_ok()
+        };
+        let mut sent = Instant::now();
         loop {
             match connection.receive() {
                 Ok(frame) => state.add(&frame),
@@ -171,15 +193,47 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     break;
                 }
             }
-            if last.elapsed() >= Duration::from_millis(100) {
-                last = Instant::now();
-                if tx.send(overlay_model(&state)).is_err() {
+            while let Ok(k) = input_rx.try_recv() {
+                keys = k;
+            }
+            // Walk: integrate the position and tell the server.
+            let dt = last_tick.elapsed().as_secs_f32();
+            last_tick = Instant::now();
+            heading += keys.turn as f32 * TURN * dt;
+            if keys.forward {
+                position[0] += heading.sin() * SPEED * dt;
+                position[2] += heading.cos() * SPEED * dt;
+            }
+            let ok = if keys.forward && !moving {
+                send(&mut connection, movement::FORWARD_START, heading, position, &mut sent)
+            } else if !keys.forward && moving {
+                send(&mut connection, movement::FORWARD_STOP, heading, position, &mut sent)
+            } else if (keys.forward || keys.turn != turning) && last_send.elapsed() >= Duration::from_millis(400) {
+                last_send = Instant::now();
+                send(&mut connection, if keys.forward { movement::UPDATE } else { movement::HEADING }, heading, position, &mut sent)
+            } else {
+                true
+            };
+            if !ok {
+                break;
+            }
+            moving = keys.forward;
+            turning = keys.turn;
+            if keys.forward || keys.turn != 0 {
+                state.entities.insert(own, (position, 0));
+            } else if let Some(e) = state.entities.get(&own) {
+                position = e.0;
+            }
+            if last_overlay.elapsed() >= Duration::from_millis(60) {
+                last_overlay = Instant::now();
+                let update = crate::viewer::Update { model: overlay_model(&state), own: Some(position) };
+                if tx.send(update).is_err() {
                     break;
                 }
             }
         }
     });
-    crate::viewer::window(scene, crate::Textures::new(db), Some(crate::viewer::Live { overlays: rx, focus }))
+    crate::viewer::window(scene, crate::Textures::new(db), Some(crate::viewer::Live { overlays: rx, input: input_tx, focus }))
 }
 
 pub fn run(args: &[String]) -> Result<(), String> {
