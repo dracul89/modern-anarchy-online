@@ -141,6 +141,11 @@ fn show_world(game: &str, playfield: u32, world: &World, image: Option<&str>) ->
         let ground = scene.parts.len();
         scene.instances.extend((0..ground).map(|i| (i, model::IDENTITY)));
     }
+    if let Ok(t) = crate::load_terrain_data(&db, playfield) {
+        for (id, (p, _)) in world.entities.iter().take(6) {
+            eprintln!("entity {id}: server y {:.2}, ground model {:.2}", p[1], t.height_at(p[0], p[2], crate::HEIGHT_SCALE));
+        }
+    }
     let overlay = overlay_model(world);
     let offset = scene.parts.len();
     scene.parts.extend(overlay.parts);
@@ -157,6 +162,7 @@ fn show_world(game: &str, playfield: u32, world: &World, image: Option<&str>) ->
 fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World) -> Result<(), String> {
     let db = Arc::new(ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?);
     let mut scene = crate::load_terrain(&db, playfield)?;
+    let terrain = crate::load_terrain_data(&db, playfield)?;
     crate::add_props(game, &db, playfield, &mut scene);
     if scene.instances.is_empty() {
         let ground = scene.parts.len();
@@ -183,6 +189,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         const SPEED: f32 = 7.5; // units per second, from the capture
         const BACK_SPEED: f32 = 3.0;
         const TURN: f32 = 2.0; // radians per second
+        // The server's heights sit a little off the ground model's; walk at
+        // the ground's height plus the offset seen at the start.
+        let ground = |p: [f32; 3]| terrain.height_at(p[0], p[2], crate::HEIGHT_SCALE);
+        let offset = start[1] - ground(start);
         let mut keys = crate::viewer::Input::default();
         let (mut position, mut heading) = (start, heading);
         let (mut moving, mut turning) = (0i8, 0i8);
@@ -215,6 +225,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             let speed = if walk > 0 { SPEED } else { BACK_SPEED } * walk as f32;
             position[0] += heading.sin() * speed * dt;
             position[2] += heading.cos() * speed * dt;
+            position[1] = ground(position) + offset;
             let mut ok = true;
             let due = last_send.elapsed() >= Duration::from_millis(400);
             let mut send_kind = |kind: u8, connection: &mut Connection| {

@@ -76,12 +76,20 @@ fn load_model(db: &ResourceDatabase, id: Id) -> Result<Model, String> {
 }
 
 /// The ground of a playfield.
-pub(crate) fn load_terrain(db: &ResourceDatabase, playfield: u32) -> Result<Model, String> {
+/// The ground's height grid of a playfield.
+pub(crate) fn load_terrain_data(db: &ResourceDatabase, playfield: u32) -> Result<mao_formats::terrain::Terrain, String> {
     let object = db.get(Id { kind: 0xf4249, instance: playfield }).map_err(|e| e.to_string())?.ok_or("no tile-map for that playfield")?;
     let map = mao_formats::tilemap::parse_old(&object).map_err(|e| e.to_string())?;
-    let terrain = mao_formats::terrain::build(&map).map_err(|e| e.to_string())?;
+    mao_formats::terrain::build(&map).map_err(|e| e.to_string())
+}
+
+/// The vertical scale of the ground model.
+pub(crate) const HEIGHT_SCALE: f32 = 0.2;
+
+pub(crate) fn load_terrain(db: &ResourceDatabase, playfield: u32) -> Result<Model, String> {
+    let terrain = load_terrain_data(db, playfield)?;
     eprintln!("terrain {}x{} points, {} tile types", terrain.width, terrain.height, terrain.tile_types.len());
-    let model = terrain.model(0xf6966, 0.2);
+    let model = terrain.model(0xf6966, HEIGHT_SCALE);
     for p in model.parts.iter().take(4) {
         eprintln!("part {} {} vertices, textures {:?}", p.name, p.vertices.len(), p.material.textures);
     }

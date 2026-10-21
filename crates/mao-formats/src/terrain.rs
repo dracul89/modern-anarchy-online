@@ -142,6 +142,21 @@ pub fn build(map: &OldTilemap) -> Result<Terrain, Error> {
 }
 
 impl Terrain {
+    /// The ground's height at the horizontal position (`x`, `y`) in the
+    /// units of [`Terrain::model`] (bilinear between grid points; outside
+    /// the grid the nearest edge).
+    pub fn height_at(&self, x: f32, y: f32, height_scale: f32) -> f32 {
+        let fx = (x / self.tile_size).clamp(0.0, (self.width - 1) as f32);
+        let fy = (y / self.tile_size).clamp(0.0, (self.height - 1) as f32);
+        let (x0, y0) = (fx.floor() as usize, fy.floor() as usize);
+        let (x1, y1) = ((x0 + 1).min(self.width - 1), (y0 + 1).min(self.height - 1));
+        let (tx, ty) = (fx - x0 as f32, fy - y0 as f32);
+        let h = |x: usize, y: usize| self.heights[y * self.width + x] as f32 / 256.0 * height_scale;
+        let top = h(x0, y0) * (1.0 - tx) + h(x1, y0) * tx;
+        let bottom = h(x0, y1) * (1.0 - tx) + h(x1, y1) * tx;
+        top * (1.0 - ty) + bottom * ty
+    }
+
     /// The ground as drawable parts, one per tile texture. A height unit of
     /// 1/256 of an eight-bit step is `height_scale` world units.
     pub fn model(&self, quality_type: u32, height_scale: f32) -> Model {
