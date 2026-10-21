@@ -9,3 +9,4 @@ pub mod mesh;
 pub mod model;
 pub mod tilemap;
 pub mod terrain;
+pub mod statels;

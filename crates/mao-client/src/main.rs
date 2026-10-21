@@ -24,6 +24,15 @@ fn number(text: &str) -> Option<u32> {
     u32::from_str_radix(text.strip_prefix("0x").unwrap_or(text), 16).ok()
 }
 
+/// A playfield number: decimal (the statel files are named so), or hex with
+/// `0x`.
+fn playfield_number(text: &str) -> Option<u32> {
+    match text.strip_prefix("0x") {
+        Some(hex) => u32::from_str_radix(hex, 16).ok(),
+        None => text.parse().ok(),
+    }
+}
+
 /// The textures of a game, decoded on request.
 pub struct Textures {
     db: Arc<ResourceDatabase>,
@@ -71,11 +80,39 @@ fn load_terrain(db: &ResourceDatabase, playfield: u32) -> Result<Model, String> 
     Ok(model)
 }
 
+/// The playfield's static objects (its `.pf` statel file), as parts placed on
+/// the ground. The world is Y-up, the viewer Z-up, so a statel's (x, y, z)
+/// goes to (x, z, y).
+fn add_props(game: &str, db: &ResourceDatabase, playfield: u32, model: &mut Model) {
+    let path = Path::new(game).join(format!("cd_image/data/statels/{playfield}.pf"));
+    let Ok(file) = std::fs::read(&path) else { return };
+    let Ok(statels) = mao_formats::statels::parse(&file) else { return };
+    let mut meshes: std::collections::HashMap<u32, Option<Model>> = std::collections::HashMap::new();
+    let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
+    let mut placed = 0;
+    for s in &statels {
+        let mesh = meshes.entry(s.mesh).or_insert_with(|| load_model(db, Id { kind: 0xf6951, instance: s.mesh }).ok());
+        let Some(mesh) = mesh else { continue };
+        let place = model::multiply(&model::trs_matrix(s.position, s.rotation, s.scale), &swap);
+        for part in &mesh.parts {
+            let mut part = part.clone();
+            part.world = model::multiply(&part.world, &place);
+            model.parts.push(part);
+        }
+        placed += 1;
+    }
+    eprintln!("{placed} of {} statels placed ({} meshes)", statels.len(), meshes.len());
+}
+
 fn run(args: &[String]) -> Result<(), String> {
     if let [game, word, playfield, rest @ ..] = args {
         if word == "map" {
             let db = Arc::new(ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?);
-            let model = load_terrain(&db, number(playfield).ok_or("bad playfield")?)?;
+            let number = playfield_number(playfield).ok_or("bad playfield")?;
+            let mut model = load_terrain(&db, number)?;
+            if std::env::var_os("MAO_NO_PROPS").is_none() {
+                add_props(game, &db, number, &mut model);
+            }
             let textures = Textures { db };
             return match rest {
                 [flag, out] if flag == "--image" => viewer::headless(&model, &textures, out),

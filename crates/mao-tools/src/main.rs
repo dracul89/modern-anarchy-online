@@ -135,6 +135,17 @@ fn run(args: &[String]) -> Result<(), String> {
                 }
             }
         }
+        ("statels", [playfield]) => {
+            let pf = std::path::Path::new(game).join(format!("cd_image/data/statels/{}.pf", playfield.parse::<u32>().map_err(|_| "decimal playfield")?));
+            let file = std::fs::read(&pf).map_err(|e| format!("{}: {e}", pf.display()))?;
+            let list = mao_formats::statels::parse(&file).map_err(|e| e.to_string())?;
+            let unread = list.iter().filter(|s| s.unread_rotation).count();
+            let present = list.iter().filter(|s| db.get(Id { kind: 0xf6951, instance: s.mesh }).ok().flatten().is_some()).count();
+            println!("{} statels, {unread} with the other rotation layout, {present} with a mesh in the database", list.len());
+            for s in list.iter().take(8) {
+                println!("{:.1?} mesh {:#x} scale {:.2} rot {:.2?}", s.position, s.mesh, s.scale, s.rotation);
+            }
+        }
         ("scan-tilemaps", []) => {
             let (mut old, mut other, mut bad) = (0, 0, 0);
             for id in db.ids().map_err(|e| e.to_string())? {

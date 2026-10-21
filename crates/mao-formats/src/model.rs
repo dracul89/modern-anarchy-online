@@ -113,6 +113,27 @@ fn string(s: &Stream, name: &str) -> String {
     s.field("", name).and_then(|f| f.values.first()).map(|v| String::from_utf8_lossy(v).trim_end_matches('\0').to_string()).unwrap_or_default()
 }
 
+/// The matrix (for row vectors) that scales by `scale`, rotates by the
+/// quaternion (x, y, z, w) and moves by `position`.
+pub fn trs_matrix(position: [f32; 3], q: [f32; 4], scale: f32) -> Matrix {
+    let (x, y, z, w) = (q[0], q[1], q[2], q[3]);
+    let r = [
+        [1.0 - 2.0 * (y * y + z * z), 2.0 * (x * y + z * w), 2.0 * (x * z - y * w)],
+        [2.0 * (x * y - z * w), 1.0 - 2.0 * (x * x + z * z), 2.0 * (y * z + x * w)],
+        [2.0 * (x * z + y * w), 2.0 * (y * z - x * w), 1.0 - 2.0 * (x * x + y * y)],
+    ];
+    let mut m = IDENTITY;
+    for i in 0..3 {
+        for j in 0..3 {
+            m[i * 4 + j] = r[i][j] * scale;
+        }
+    }
+    m[12] = position[0];
+    m[13] = position[1];
+    m[14] = position[2];
+    m
+}
+
 /// A frame's own matrix.
 fn local_matrix(frame: &Stream) -> Matrix {
     let animated = frame.int("0", "anim").is_some_and(|a| a >= 0);

@@ -89,3 +89,17 @@ fn a_playfield_terrain() {
     assert!(t.heights.iter().max() > t.heights.iter().min());
     assert_eq!(t.tiles.len(), 96 * 96);
 }
+
+#[test]
+fn playfield_statels() {
+    use mao_formats::statels;
+    let Some(db) = database() else { return };
+    let game = PathBuf::from(std::env::var_os("MAO_GAME").unwrap());
+    let file = std::fs::read(game.join("cd_image/data/statels/100.pf")).unwrap();
+    let list = statels::parse(&file).unwrap();
+    assert_eq!(list.len(), 474);
+    // Every statel names a mesh that is in the database: the layout is right.
+    for s in &list {
+        assert!(db.get(Id { kind: 0xf6951, instance: s.mesh }).unwrap().is_some(), "mesh {:#x}", s.mesh);
+    }
+}

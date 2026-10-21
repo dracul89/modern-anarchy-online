@@ -61,3 +61,16 @@ is a guess that looks right.
   half, 0xf4254, 0xf4248, ...) are not decoded: 0xf424d records are packed
   bytes behind a small head (not zlib); the format lives in code the drop-ins
   never ported (the statel/dynel loaders in N3/Gamecode).
+
+## Milestone 4 (partly done): props on the ground
+A playfield's static objects ("statels") are in `cd_image/data/statels/<n>.pf`,
+not in the database (`statels.rs`; read from `N3.dll`'s `n3StatelController_t`
+and zone readers). Each statel is a position (Y-up world), packed flags, the
+instance of its mesh (type 0xf6951), a scale byte and optional extras. Playfield
+100 has 474 and every one names a mesh that exists in the database, which is
+what confirms the record layout. `mao-client <game> map <playfield>` (decimal)
+draws terrain plus props. 596 shows rocks, trees and bushes in place.
+Rotation is unpacked from the flags for the common layout (a pitch, yaw and
+roll in degrees); statels with flag bit 0 (a second layout that also squashes
+the scale) get the identity rotation. Zones of the other layout (a packed block
+and lights) and the room objects at the end of each zone aren't read.
