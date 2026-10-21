@@ -7,9 +7,13 @@
 //! mao-client <game dir> <mesh type> <instance> --image out.png  headless
 //! ```
 //!
+//! mao-client net <game dir> chars                               log in, list characters
+//! mao-client net parse-capture <capture.log>                    read a proxy capture
+//!
 //! The type and instance are hexadecimal (for example `f6951 1893`). Drag to
 //! orbit, scroll to zoom, WASD to move the view point, Q/E down and up.
 
+mod net;
 mod viewer;
 
 use std::path::Path;
@@ -146,6 +150,11 @@ fn list(db: &ResourceDatabase, filter: Option<&str>) {
 }
 
 fn run(args: &[String]) -> Result<(), String> {
+    if let [word, rest @ ..] = args {
+        if word == "net" {
+            return net::run(rest);
+        }
+    }
     if let [game, word, rest @ ..] = args {
         if word == "list" {
             let db = ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?;
