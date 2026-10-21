@@ -19,6 +19,7 @@ use crate::Textures;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Input {
     pub forward: bool,
+    pub back: bool,
     pub turn: i8,
 }
 
@@ -137,10 +138,11 @@ impl ApplicationHandler for App {
                 }
                 self.last = (position.x, position.y);
             }
-            WindowEvent::KeyboardInput { event, .. } if matches!(event.physical_key, PhysicalKey::Code(KeyCode::ArrowUp | KeyCode::ArrowLeft | KeyCode::ArrowRight)) => {
+            WindowEvent::KeyboardInput { event, .. } if matches!(event.physical_key, PhysicalKey::Code(KeyCode::ArrowUp | KeyCode::ArrowDown | KeyCode::ArrowLeft | KeyCode::ArrowRight)) => {
                 let down = event.state == ElementState::Pressed;
                 match event.physical_key {
                     PhysicalKey::Code(KeyCode::ArrowUp) => self.keys.forward = down,
+                    PhysicalKey::Code(KeyCode::ArrowDown) => self.keys.back = down,
                     PhysicalKey::Code(KeyCode::ArrowLeft) => self.keys.turn = if down { -1 } else { self.keys.turn.max(0) },
                     _ => self.keys.turn = if down { 1 } else { self.keys.turn.min(0) },
                 }

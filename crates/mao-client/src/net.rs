@@ -59,6 +59,9 @@ impl World {
         if let Some(q) = m.rotation() {
             self.rotations.insert(m.identity.1, q);
         }
+        if let Some((_, q, _)) = m.movement() {
+            self.rotations.insert(m.identity.1, q);
+        }
         let position = m.position().or_else(|| m.movement().map(|(_, _, p)| p));
         if let Some(p) = position {
             let e = self.entities.entry(m.identity.1).or_insert((p, 0));
@@ -105,14 +108,25 @@ fn marker(colour: [f32; 3]) -> Part {
     Part { name: "marker".into(), world: model::IDENTITY, vertices, indices, material }
 }
 
+/// A small box on the front (+z) of a marker, to show which way it faces.
+fn nose() -> Part {
+    let mut part = marker([1.0, 0.9, 0.2]);
+    for v in &mut part.vertices {
+        v.position = [v.position[0] * 0.35, 1.0 + (v.position[1] / 1.8) * 0.4, 0.3 + (v.position[2] + 0.3) * 1.0];
+    }
+    part
+}
+
 /// The entities' markers alone (own character red, the others blue): two
 /// parts and an instance per entity, placed Z-up.
 fn overlay_model(world: &World) -> Model {
-    let mut model = Model { parts: vec![marker([0.9, 0.1, 0.1]), marker([0.2, 0.4, 0.95])], instances: Vec::new() };
+    let mut model = Model { parts: vec![marker([0.9, 0.1, 0.1]), marker([0.2, 0.4, 0.95]), nose()], instances: Vec::new() };
     let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     for (&id, &(position, _)) in &world.entities {
-        let place = model::multiply(&model::trs_matrix(position, [0.0, 0.0, 0.0, 1.0], [1.0; 3]), &swap);
+        let q = world.rotations.get(&id).copied().unwrap_or([0.0, 0.0, 0.0, 1.0]);
+        let place = model::multiply(&model::trs_matrix(position, q, [1.0; 3]), &swap);
         model.instances.push((usize::from(id != world.own), place));
+        model.instances.push((2, place));
     }
     model
 }
@@ -127,14 +141,10 @@ fn show_world(game: &str, playfield: u32, world: &World, image: Option<&str>) ->
         let ground = scene.parts.len();
         scene.instances.extend((0..ground).map(|i| (i, model::IDENTITY)));
     }
-    let (own, other) = (scene.parts.len(), scene.parts.len() + 1);
-    scene.parts.push(marker([0.9, 0.1, 0.1]));
-    scene.parts.push(marker([0.2, 0.4, 0.95]));
-    let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
-    for (&id, &(position, _)) in &world.entities {
-        let place = model::multiply(&model::trs_matrix(position, [0.0, 0.0, 0.0, 1.0], [1.0; 3]), &swap);
-        scene.instances.push((if id == world.own { own } else { other }, place));
-    }
+    let overlay = overlay_model(world);
+    let offset = scene.parts.len();
+    scene.parts.extend(overlay.parts);
+    scene.instances.extend(overlay.instances.into_iter().map(|(i, m)| (i + offset, m)));
     let textures = crate::Textures::new(db);
     match image {
         Some(out) => crate::viewer::headless(&scene, &textures, out),
@@ -171,10 +181,11 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     std::thread::spawn(move || {
         use mao_net::n3::movement;
         const SPEED: f32 = 7.5; // units per second, from the capture
+        const BACK_SPEED: f32 = 3.0;
         const TURN: f32 = 2.0; // radians per second
         let mut keys = crate::viewer::Input::default();
         let (mut position, mut heading) = (start, heading);
-        let (mut moving, mut turning) = (false, 0i8);
+        let (mut moving, mut turning) = (0i8, 0i8);
         let mut last_tick = Instant::now();
         let mut last_send = Instant::now();
         let mut last_overlay = Instant::now() - Duration::from_secs(1);
@@ -200,26 +211,40 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             let dt = last_tick.elapsed().as_secs_f32();
             last_tick = Instant::now();
             heading += keys.turn as f32 * TURN * dt;
-            if keys.forward {
-                position[0] += heading.sin() * SPEED * dt;
-                position[2] += heading.cos() * SPEED * dt;
-            }
-            let ok = if keys.forward && !moving {
-                send(&mut connection, movement::FORWARD_START, heading, position, &mut sent)
-            } else if !keys.forward && moving {
-                send(&mut connection, movement::FORWARD_STOP, heading, position, &mut sent)
-            } else if (keys.forward || keys.turn != turning) && last_send.elapsed() >= Duration::from_millis(400) {
+            let walk = keys.forward as i8 - keys.back as i8;
+            let speed = if walk > 0 { SPEED } else { BACK_SPEED } * walk as f32;
+            position[0] += heading.sin() * speed * dt;
+            position[2] += heading.cos() * speed * dt;
+            let mut ok = true;
+            let due = last_send.elapsed() >= Duration::from_millis(400);
+            let mut send_kind = |kind: u8, connection: &mut Connection| {
                 last_send = Instant::now();
-                send(&mut connection, if keys.forward { movement::UPDATE } else { movement::HEADING }, heading, position, &mut sent)
-            } else {
-                true
+                ok &= send(connection, kind, heading, position, &mut sent);
             };
+            if walk != moving {
+                match (moving, walk) {
+                    (_, 1) => send_kind(movement::FORWARD_START, &mut connection),
+                    (_, -1) => send_kind(movement::BACKWARD_START, &mut connection),
+                    (1, 0) => send_kind(movement::FORWARD_STOP, &mut connection),
+                    _ => send_kind(movement::BACKWARD_STOP, &mut connection),
+                }
+            }
+            if keys.turn != turning {
+                match keys.turn {
+                    -1 => send_kind(movement::TURN_LEFT_START, &mut connection),
+                    1 => send_kind(movement::TURN_RIGHT_START, &mut connection),
+                    _ => send_kind(movement::TURN_STOP, &mut connection),
+                }
+            } else if (walk != 0 || keys.turn != 0) && due {
+                send_kind(movement::UPDATE, &mut connection);
+            }
             if !ok {
                 break;
             }
-            moving = keys.forward;
+            moving = walk;
             turning = keys.turn;
-            if keys.forward || keys.turn != 0 {
+            state.rotations.insert(own, [0.0, (heading * 0.5).sin(), 0.0, (heading * 0.5).cos()]);
+            if walk != 0 || keys.turn != 0 || moving != 0 {
                 state.entities.insert(own, (position, 0));
             } else if let Some(e) = state.entities.get(&own) {
                 position = e.0;

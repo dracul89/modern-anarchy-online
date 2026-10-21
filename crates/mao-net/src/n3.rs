@@ -18,6 +18,8 @@ pub const POSITION_UPDATE: u32 = 0x54111123;
 pub mod movement {
     pub const FORWARD_START: u8 = 1;
     pub const FORWARD_STOP: u8 = 2;
+    pub const BACKWARD_START: u8 = 3;
+    pub const BACKWARD_STOP: u8 = 4;
     pub const TURN_LEFT_START: u8 = 9;
     pub const TURN_RIGHT_START: u8 = 11;
     pub const TURN_STOP: u8 = 12;
