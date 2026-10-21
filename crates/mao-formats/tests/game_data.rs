@@ -47,3 +47,33 @@ fn textures_decode() {
     assert_eq!((t.width, t.height, t.format), (128, 64, texture::Format::Jpeg));
     assert_eq!(t.rgba.len(), 128 * 64 * 4);
 }
+
+#[test]
+fn a_tree_mesh() {
+    use mao_formats::{mesh, model};
+    let Some(db) = database() else { return };
+    let object = db.get(Id { kind: 0xf6951, instance: 0x1893 }).unwrap().unwrap();
+    let built = model::build(&mesh::parse(&object).unwrap()).unwrap();
+    assert_eq!(built.parts.len(), 2);
+    assert_eq!(built.parts.iter().map(|p| p.indices.len() / 3).sum::<usize>(), 812);
+    for part in &built.parts {
+        assert!(part.indices.iter().all(|&i| (i as usize) < part.vertices.len()));
+    }
+}
+
+#[test]
+fn every_mesh_parses() {
+    use mao_formats::mesh;
+    let Some(db) = database() else { return };
+    let mut count = 0;
+    for id in db.ids().unwrap() {
+        let id = id.unwrap();
+        if id.kind != 0xf6951 && id.kind != 0xf696a {
+            continue;
+        }
+        let Ok(Some(object)) = db.get(id) else { continue };
+        mesh::parse(&object).unwrap_or_else(|e| panic!("{id:?}: {e}"));
+        count += 1;
+    }
+    assert!(count > 11_000);
+}

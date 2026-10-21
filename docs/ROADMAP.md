@@ -23,3 +23,12 @@ was derived from.
 - Textures (types 0xf6954, 0xf6959, 0xf695b, 0xf6960, 0xf6961, 0xf6963,
   0xf6964, 0xf6967, 0xf6968): every readable one (32,892) decodes: 24,598
   JPEG and 8,294 PNG, none BMP. `mao-db texture <type> <instance> <out.png>`.
+- Meshes (types 0xf6951, 0xf696a): the object is a small head and an object
+  archive (`archive.rs`) of frames. All 11,896 parse. The classes involved are
+  few (RRefFrame_t, RTriMesh_t, FAFTriMeshData_t, SimpleMesh, TriList,
+  FAFMaterial_t, RDeltaState, FAFTexture_t, AnarchyTexCreator_t, animations,
+  lights, collision shapes); `model.rs` turns frames into drawable parts. Every
+  vertex buffer is format 0x152 (XYZ, normal, diffuse, one texture pair, 36
+  bytes). World matrices put the tree and lamp meshes Z-up; character meshes
+  don't assemble yet (their frames animate; to do with the animations).
+  `mao-db mesh-preview` draws wireframes for checking.

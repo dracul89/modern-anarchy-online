@@ -4,3 +4,6 @@
 pub mod ctree;
 pub mod resource;
 pub mod texture;
+pub mod archive;
+pub mod mesh;
+pub mod model;
