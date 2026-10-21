@@ -7,3 +7,5 @@ pub mod texture;
 pub mod archive;
 pub mod mesh;
 pub mod model;
+pub mod tilemap;
+pub mod terrain;

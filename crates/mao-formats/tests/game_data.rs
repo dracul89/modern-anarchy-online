@@ -77,3 +77,15 @@ fn every_mesh_parses() {
     }
     assert!(count > 11_000);
 }
+
+#[test]
+fn a_playfield_terrain() {
+    use mao_formats::{terrain, tilemap};
+    let Some(db) = database() else { return };
+    let object = db.get(Id { kind: 0xf4249, instance: 0x254 }).unwrap().unwrap();
+    let map = tilemap::parse_old(&object).unwrap();
+    let t = terrain::build(&map).unwrap();
+    assert_eq!((t.width, t.height), (97, 97));
+    assert!(t.heights.iter().max() > t.heights.iter().min());
+    assert_eq!(t.tiles.len(), 96 * 96);
+}

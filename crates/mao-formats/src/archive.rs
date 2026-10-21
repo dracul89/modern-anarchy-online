@@ -166,6 +166,12 @@ fn stream(bytes: &[u8], symbols: &[(String, String)]) -> Result<Stream, Error> {
 
 impl Archive {
     pub fn parse(bytes: &[u8]) -> Result<Archive, Error> {
+        Ok(Archive::parse_prefix(bytes)?.0)
+    }
+
+    /// Reads an archive from the start of `bytes`, which may go on after it;
+    /// how many bytes it took.
+    pub fn parse_prefix(bytes: &[u8]) -> Result<(Archive, usize), Error> {
         let mut r = Reader { data: bytes, at: 0 };
         let version = r.u32("the version")?;
         if version != 1 {
@@ -185,7 +191,7 @@ impl Archive {
             streams.push(stream(r.take(size, "a stream")?, &symbols)?);
         }
         let root = streams.remove(0);
-        Ok(Archive { symbols, root, objects: streams })
+        Ok((Archive { symbols, root, objects: streams }, r.at))
     }
 
     /// An object's class name.

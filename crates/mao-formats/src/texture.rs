@@ -99,3 +99,38 @@ pub fn decode_after(object: &[u8], head: usize) -> Result<Texture, Error> {
     let rgba = decoded.to_rgba8();
     Ok(Texture { width: rgba.width(), height: rgba.height(), format, rgba: rgba.into_raw() })
 }
+
+/// The header before the image in a ground texture object
+/// (`RDBGroundTexture_t`, types 0xf6956, 0xf6965 and 0xf6966) after the
+/// object head.
+pub const GROUND_HEADER: usize = 0x18;
+
+/// Decodes a ground texture object: the head, a 0x18-byte header, then an
+/// image whose first byte, when below 16, was replaced (the rest of the
+/// first four bytes made a PNG or, for an odd byte, JPEG signature). A file
+/// starting with 'B' is a BMP, one with 'P' second a PNG, else a JPEG.
+pub fn decode_ground(object: &[u8]) -> Result<Texture, Error> {
+    let start = OBJECT_HEAD + GROUND_HEADER;
+    let mut file = object.get(start..).filter(|f| f.len() >= 4).ok_or(Error::Short)?.to_vec();
+    if file[0] & 0xf0 == 0 {
+        let signature: [u8; 4] = if file[0] & 1 != 0 { [0xff, 0xd8, 0xff, 0xe0] } else { [0x89, b'P', b'N', b'G'] };
+        file[..4].copy_from_slice(&signature);
+    }
+    let format = if file[0] == b'B' {
+        Format::Bmp
+    } else if file[1] == b'P' {
+        Format::Png
+    } else {
+        Format::Jpeg
+    };
+    let decoded = image::load_from_memory_with_format(
+        &file,
+        match format {
+            Format::Bmp => image::ImageFormat::Bmp,
+            Format::Png => image::ImageFormat::Png,
+            Format::Jpeg => image::ImageFormat::Jpeg,
+        },
+    )?;
+    let rgba = decoded.to_rgba8();
+    Ok(Texture { width: rgba.width(), height: rgba.height(), format, rgba: rgba.into_raw() })
+}

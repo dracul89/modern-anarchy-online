@@ -40,3 +40,14 @@ draws every mesh (position, normal, one texture pair); textures come from the
 resource database through the original's fallback order (0xf6954, 0xf6960,
 0xf6961); leaves and other cut-outs are alpha-tested. Checked on the tree
 (f6951:1893) and a turret (f6951:19a8) on an AMD GPU through Vulkan.
+
+## Milestone 3 (partly done): terrain
+`mao-client <game> map <playfield>` draws a playfield's ground. 336 of the 461
+tile-maps (type 0xf4249; the instance is the playfield number) are the older
+`CHGA` layout and decode: an object archive holding `AnarchyGroundDataDB_t`,
+whose patches carry zlib-packed height and tile maps (see `terrain.rs`). Ground
+textures are 0xf6966/0xf6965/0xf6956 objects (low to high quality) whose
+instance comes from the tile-map's own list. Playfield 0x254 (97x97 points)
+shows grass, dirt, rock, cliffs and fences. 125 tile-maps use the newer
+`GNDA`/`UOHA` chunk layout, not read yet. The height scale (0.2 per 8-bit step)
+is a guess that looks right.
