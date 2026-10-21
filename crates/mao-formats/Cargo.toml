@@ -1,0 +1,10 @@
+[package]
+name = "mao-formats"
+description = "Reading Anarchy Online's game data: the resource database and the objects in it."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

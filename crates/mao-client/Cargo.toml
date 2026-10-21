@@ -1,0 +1,15 @@
+[package]
+name = "mao-client"
+description = "The client: window, input and the game loop."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+mao-formats.workspace = true
+mao-net.workspace = true
+mao-render.workspace = true
+
+[lints]
+workspace = true

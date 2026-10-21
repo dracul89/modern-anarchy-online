@@ -1,0 +1,10 @@
+[package]
+name = "mao-render"
+description = "The wgpu renderer (Vulkan, Metal and Direct3D 12 through one code path)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
