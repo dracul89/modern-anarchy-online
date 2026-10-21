@@ -20,3 +20,6 @@ was derived from.
 - 6,910 index entries (almost all type 0xf6954 textures) point at a position
   that holds no such record. The original client fails on the same keys too
   (it falls back to types 0xf6960/0xf6961); treat them as absent.
+- Textures (types 0xf6954, 0xf6959, 0xf695b, 0xf6960, 0xf6961, 0xf6963,
+  0xf6964, 0xf6967, 0xf6968): every readable one (32,892) decodes: 24,598
+  JPEG and 8,294 PNG, none BMP. `mao-db texture <type> <instance> <out.png>`.

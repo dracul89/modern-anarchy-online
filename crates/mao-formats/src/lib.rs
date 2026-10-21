@@ -3,3 +3,4 @@
 
 pub mod ctree;
 pub mod resource;
+pub mod texture;

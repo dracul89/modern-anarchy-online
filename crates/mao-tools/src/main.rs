@@ -1,10 +1,13 @@
-//! `mao-db <game dir> info | verify | get <type> <instance> (hex) | count-types`
+//! `mao-db <game dir> info | verify | texture <type> <instance> <out.png> | scan-textures | get <type> <instance> (hex) | count-types`
 
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::ExitCode;
 
 use mao_formats::resource::{Id, ResourceDatabase};
+use mao_formats::texture;
+
+const TEXTURE_TYPES: [u32; 9] = [0xf6954, 0xf6959, 0xf695b, 0xf6960, 0xf6961, 0xf6963, 0xf6964, 0xf6967, 0xf6968];
 
 /// A hexadecimal number, with or without `0x`.
 fn number(text: &str) -> Option<u32> {
@@ -13,7 +16,7 @@ fn number(text: &str) -> Option<u32> {
 
 fn run(args: &[String]) -> Result<(), String> {
     let [game, command, rest @ ..] = args else {
-        return Err("usage: mao-db <game dir> info | verify | get <type> <instance> (hex) | count-types".into());
+        return Err("usage: mao-db <game dir> info | verify | texture <type> <instance> <out.png> | scan-textures | get <type> <instance> (hex) | count-types".into());
     };
     let db = ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?;
     match (command.as_str(), rest) {
@@ -27,6 +30,34 @@ fn run(args: &[String]) -> Result<(), String> {
                     println!("{}", head.join(" "));
                 }
                 None => return Err("no such object".into()),
+            }
+        }
+        ("texture", [kind, instance, out]) => {
+            let id = Id { kind: number(kind).ok_or("bad type")?, instance: number(instance).ok_or("bad instance")? };
+            let object = db.get(id).map_err(|e| e.to_string())?.ok_or("no such object")?;
+            let t = texture::decode(&object).map_err(|e| e.to_string())?;
+            println!("{}x{} {:?}", t.width, t.height, t.format);
+            image::save_buffer(out, &t.rgba, t.width, t.height, image::ColorType::Rgba8).map_err(|e| e.to_string())?;
+        }
+        ("scan-textures", []) => {
+            let (mut ok, mut formats, mut failed) = (0u64, BTreeMap::new(), Vec::new());
+            for id in db.ids().map_err(|e| e.to_string())? {
+                let id = id.map_err(|e| e.to_string())?;
+                if !TEXTURE_TYPES.contains(&id.kind) {
+                    continue;
+                }
+                let Ok(Some(object)) = db.get(id) else { continue };
+                match texture::decode(&object) {
+                    Ok(t) => {
+                        ok += 1;
+                        *formats.entry(format!("{:?}", t.format)).or_insert(0u64) += 1;
+                    }
+                    Err(e) => failed.push((id, e.to_string())),
+                }
+            }
+            println!("{ok} decoded {formats:?}, {} failed", failed.len());
+            for (id, why) in failed.iter().take(10) {
+                println!("failed {:#x}:{:#x}: {why}", id.kind, id.instance);
             }
         }
         ("verify", []) => {

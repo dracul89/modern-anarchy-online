@@ -37,3 +37,13 @@ fn every_index_entry_is_walked_in_order() {
     }
     assert_eq!(count, db.len());
 }
+
+#[test]
+fn textures_decode() {
+    use mao_formats::texture;
+    let Some(db) = database() else { return };
+    let object = db.get(Id { kind: 0xf6960, instance: 0x30e9c }).unwrap().unwrap();
+    let t = texture::decode(&object).unwrap();
+    assert_eq!((t.width, t.height, t.format), (128, 64, texture::Format::Jpeg));
+    assert_eq!(t.rgba.len(), 128 * 64 * 4);
+}

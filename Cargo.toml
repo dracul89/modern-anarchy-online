@@ -15,3 +15,4 @@ unsafe_code = "forbid"
 mao-formats = { path = "crates/mao-formats" }
 mao-net = { path = "crates/mao-net" }
 mao-render = { path = "crates/mao-render" }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp"] }
