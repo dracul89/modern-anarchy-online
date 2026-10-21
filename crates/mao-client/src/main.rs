@@ -14,7 +14,7 @@
 //! orbit, scroll to zoom, WASD to move the view point, Q/E down and up.
 
 mod net;
-mod viewer;
+pub(crate) mod viewer;
 
 use std::path::Path;
 use std::process::ExitCode;
@@ -44,6 +44,10 @@ pub struct Textures {
 }
 
 impl Textures {
+    pub fn new(db: Arc<ResourceDatabase>) -> Self {
+        Textures { db }
+    }
+
     pub fn get(&self, kind: u32, instance: u32) -> Option<Texture> {
         // The original falls back through the other texture types when one
         // is missing; try the object itself and then those.
@@ -72,7 +76,7 @@ fn load_model(db: &ResourceDatabase, id: Id) -> Result<Model, String> {
 }
 
 /// The ground of a playfield.
-fn load_terrain(db: &ResourceDatabase, playfield: u32) -> Result<Model, String> {
+pub(crate) fn load_terrain(db: &ResourceDatabase, playfield: u32) -> Result<Model, String> {
     let object = db.get(Id { kind: 0xf4249, instance: playfield }).map_err(|e| e.to_string())?.ok_or("no tile-map for that playfield")?;
     let map = mao_formats::tilemap::parse_old(&object).map_err(|e| e.to_string())?;
     let terrain = mao_formats::terrain::build(&map).map_err(|e| e.to_string())?;
@@ -88,7 +92,7 @@ fn load_terrain(db: &ResourceDatabase, playfield: u32) -> Result<Model, String> 
 /// The playfield's static objects (its `.pf` statel file), as parts placed on
 /// the ground. The world is Y-up, the viewer Z-up, so a statel's (x, y, z)
 /// goes to (x, z, y).
-fn add_props(game: &str, db: &ResourceDatabase, playfield: u32, model: &mut Model) {
+pub(crate) fn add_props(game: &str, db: &ResourceDatabase, playfield: u32, model: &mut Model) {
     let path = Path::new(game).join(format!("cd_image/data/statels/{playfield}.pf"));
     let Ok(file) = std::fs::read(&path) else { return };
     let Ok(statels) = mao_formats::statels::parse(&file) else { return };

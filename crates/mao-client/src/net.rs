@@ -13,6 +13,10 @@ use mao_net::n3::{self, Message};
 use mao_net::session::{self, Connection};
 use mao_net::system::{self, Character};
 
+use mao_formats::model::{self, Material, Model, Part, Vertex};
+use mao_formats::resource::ResourceDatabase;
+use std::sync::Arc;
+
 fn show(list: &[Character]) {
     for c in list {
         println!("{:>10} {:<16} level {:>3} profession {} breed {} sex {} in {:?} (proxy {:x?})", c.id, c.name, c.level, c.profession, c.breed, c.sex, c.area, &c.proxy[..2]);
@@ -42,6 +46,7 @@ fn login(game: &str) -> Result<(Connection, Vec<Character>), String> {
 /// Tallies of what the world sends.
 #[derive(Default)]
 struct World {
+    own: u32,
     kinds: BTreeMap<u32, usize>,
     entities: BTreeMap<u32, ([f32; 3], usize)>,
 }
@@ -66,6 +71,57 @@ impl World {
         for (id, (p, _)) in &self.entities {
             println!("  {id:>10} at ({:.1}, {:.1}, {:.1})", p[0], p[1], p[2]);
         }
+    }
+}
+
+
+/// A box of 0.6 x 1.8 x 0.6 standing on the origin (Y-up), in `colour`.
+fn marker(colour: [f32; 3]) -> Part {
+    let (hx, h) = (0.3f32, 1.8f32);
+    let mut vertices = Vec::new();
+    let mut indices: Vec<u16> = Vec::new();
+    // Each face: its normal and four corners.
+    let faces: [([f32; 3], [[f32; 3]; 4]); 6] = [
+        ([0.0, 0.0, 1.0], [[-hx, 0.0, hx], [hx, 0.0, hx], [hx, h, hx], [-hx, h, hx]]),
+        ([0.0, 0.0, -1.0], [[hx, 0.0, -hx], [-hx, 0.0, -hx], [-hx, h, -hx], [hx, h, -hx]]),
+        ([1.0, 0.0, 0.0], [[hx, 0.0, hx], [hx, 0.0, -hx], [hx, h, -hx], [hx, h, hx]]),
+        ([-1.0, 0.0, 0.0], [[-hx, 0.0, -hx], [-hx, 0.0, hx], [-hx, h, hx], [-hx, h, -hx]]),
+        ([0.0, 1.0, 0.0], [[-hx, h, hx], [hx, h, hx], [hx, h, -hx], [-hx, h, -hx]]),
+        ([0.0, -1.0, 0.0], [[-hx, 0.0, -hx], [hx, 0.0, -hx], [hx, 0.0, hx], [-hx, 0.0, hx]]),
+    ];
+    for (normal, corners) in faces {
+        let base = vertices.len() as u16;
+        for c in corners {
+            vertices.push(Vertex { position: c, normal, uv: [0.0, 0.0] });
+        }
+        indices.extend([base, base + 1, base + 2, base, base + 2, base + 3]);
+    }
+    let material = Material { name: "marker".into(), diffuse: colour, specular: [0.0; 3], ambient: colour, emissive: [0.0; 3], opacity: 1.0, textures: Vec::new() };
+    Part { name: "marker".into(), world: model::IDENTITY, vertices, indices, material }
+}
+
+/// The playfield with a marker at each entity (the character in red, the
+/// others in blue).
+fn show_world(game: &str, playfield: u32, world: &World, image: Option<&str>) -> Result<(), String> {
+    let db = Arc::new(ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?);
+    let mut scene: Model = crate::load_terrain(&db, playfield)?;
+    crate::add_props(game, &db, playfield, &mut scene);
+    if scene.instances.is_empty() {
+        let ground = scene.parts.len();
+        scene.instances.extend((0..ground).map(|i| (i, model::IDENTITY)));
+    }
+    let (own, other) = (scene.parts.len(), scene.parts.len() + 1);
+    scene.parts.push(marker([0.9, 0.1, 0.1]));
+    scene.parts.push(marker([0.2, 0.4, 0.95]));
+    let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
+    for (&id, &(position, _)) in &world.entities {
+        let place = model::multiply(&model::trs_matrix(position, [0.0, 0.0, 0.0, 1.0], [1.0; 3]), &swap);
+        scene.instances.push((if id == world.own { own } else { other }, place));
+    }
+    let textures = crate::Textures::new(db);
+    match image {
+        Some(out) => crate::viewer::headless(&scene, &textures, out),
+        None => crate::viewer::window(scene, textures),
     }
 }
 
@@ -95,17 +151,31 @@ pub fn run(args: &[String]) -> Result<(), String> {
                     Err(e) => return Err(e.to_string()),
                 }
             }
+            state.own = character.id;
             state.print();
+            if let Some(i) = rest.iter().position(|a| a == "--show") {
+                let image = rest.get(i + 1).filter(|a| a.as_str() == "--image").and(rest.get(i + 2)).map(String::as_str);
+                return show_world(game, character.proxy[1], &state, image);
+            }
             Ok(())
         }
         [word, log] if word == "parse-capture" => parse_capture(log),
-        _ => Err("usage: mao-client net <game dir> chars | net <game dir> enter <name or id> [seconds] | net parse-capture <capture.log>".into()),
+        [game, word, log, rest @ ..] if word == "capture-map" => {
+            let world = parse_capture_world(log)?;
+            show_world(game, 540, &world, rest.first().map(String::as_str))
+        }
+        _ => Err("usage: mao-client net <game dir> chars | net <game dir> enter <name or id> [seconds] | net parse-capture <capture.log> | net <game dir> capture-map <capture.log> [out.png]".into()),
     }
 }
 
 /// The server's side of a `tools/capture_proxy.py` log: its messages, the
 /// characters of any list among them and the world's traffic.
 fn parse_capture(log: &str) -> Result<(), String> {
+    parse_capture_world(log)?.print();
+    Ok(())
+}
+
+fn parse_capture_world(log: &str) -> Result<World, String> {
     let text = std::fs::read_to_string(log).map_err(|e| e.to_string())?;
     let mut readers: BTreeMap<String, Reader> = BTreeMap::new();
     let mut world = World::default();
@@ -139,7 +209,7 @@ fn parse_capture(log: &str) -> Result<(), String> {
             _ => {}
         }
     }
-    world.print();
+    world.own = 598284;
     let _ = n3::CHARACTER;
-    Ok(())
+    Ok(world)
 }
