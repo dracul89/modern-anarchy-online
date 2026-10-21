@@ -267,3 +267,60 @@ mod tests {
         assert_eq!(rest, 8i32.to_be_bytes());
     }
 }
+
+/// Log the character in (system message 0x16: its id).
+pub fn login_character(id: u32) -> Frame {
+    system(LOGIN_CHARACTER, &id.to_be_bytes())
+}
+
+pub const CHARACTER_TICKET: u32 = 0x17;
+pub const ENTER_GAME_SERVER: u32 = 0x1b;
+
+/// Where the character's game server is, and the key to enter it
+/// (system message 0x17).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Ticket {
+    pub id: u32,
+    pub address: [u8; 4],
+    pub port: u16,
+    /// Eight bytes the server made for this login; the client hands them
+    /// back to the game server.
+    pub key: [u8; 8],
+    /// What follows the key (a zero word and a four-byte value of unknown
+    /// meaning; the original doesn't send them on).
+    pub rest: Vec<u8>,
+}
+
+impl Ticket {
+    pub fn host(&self) -> String {
+        let a = self.address;
+        format!("{}.{}.{}.{}:{}", a[0], a[1], a[2], a[3], self.port)
+    }
+}
+
+pub fn ticket(frame: &Frame) -> Result<Ticket, Error> {
+    let (kind, payload) = split(frame)?;
+    if kind != CHARACTER_TICKET {
+        return Err(Error::Type { expected: CHARACTER_TICKET, got: kind });
+    }
+    let mut s = Stream::new(payload);
+    let id = s.i32("the id")? as u32;
+    let ip = s.i32("the address")?.to_be_bytes();
+    let port = u16::from_be_bytes([s.u8("the port")?, s.u8("the port")?]);
+    let mut key = [0u8; 8];
+    for b in &mut key {
+        *b = s.u8("the key")?;
+    }
+    Ok(Ticket { id, address: ip, port, key, rest: s.remaining().to_vec() })
+}
+
+/// The first message to the game server: the character and the key. It
+/// is sent from the character (source) to destination 2.
+pub fn enter_game_server(ticket: &Ticket) -> Frame {
+    let mut p = ticket.id.to_be_bytes().to_vec();
+    p.extend_from_slice(&ticket.key);
+    let mut f = system(ENTER_GAME_SERVER, &p);
+    f.source = ticket.id;
+    f.destination = 2;
+    f
+}

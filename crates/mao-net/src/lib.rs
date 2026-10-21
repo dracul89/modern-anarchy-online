@@ -9,9 +9,11 @@
 //! * [`frame`]: the 16-byte framing every message travels in.
 //! * [`crypto`]: the login's challenge response.
 //! * [`system`]: the system messages of the login, and the character list.
+//! * [`n3`]: the game world's messages.
 //! * [`session`]: a blocking connection that logs in and lists characters.
 
 pub mod crypto;
 pub mod frame;
+pub mod n3;
 pub mod session;
 pub mod system;

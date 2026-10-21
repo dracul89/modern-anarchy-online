@@ -90,7 +90,7 @@ impl Connection {
             if n == 0 {
                 return Err(Error::Closed);
             }
-            self.reader.push(&buffer[..n]);
+            self.reader.push(&buffer[..n])?;
         }
     }
 }
@@ -110,4 +110,19 @@ pub fn login(connection: &mut Connection, user: &str, password: &str, version: &
             Err(Error::Refused { kind, text: String::from_utf8_lossy(payload).chars().filter(|c| !c.is_control()).collect() })
         }
     }
+}
+
+/// Log a character in on the chat server: the game server to go to.
+pub fn login_character(connection: &mut Connection, id: u32) -> Result<system::Ticket, Error> {
+    connection.send(&system::login_character(id))?;
+    Ok(system::ticket(&connection.receive()?)?)
+}
+
+/// Enter the world on the game server named in the ticket. The connection
+/// is returned with the first messages still to read.
+pub fn enter_world(ticket: &system::Ticket) -> Result<Connection, Error> {
+    let mut connection = Connection::connect(ticket.host().as_str())?;
+    connection.send(&system::enter_game_server(ticket))?;
+    connection.send(&crate::n3::ready(ticket.id))?;
+    Ok(connection)
 }
