@@ -142,6 +142,10 @@ fn show_world(game: &str, playfield: u32, world: &World, image: Option<&str>) ->
         scene.instances.extend((0..ground).map(|i| (i, model::IDENTITY)));
     }
     if let Ok(t) = crate::load_terrain_data(&db, playfield) {
+        let started = Instant::now();
+        let ground_parts = crate::load_terrain(&db, playfield).map(|m| m.parts.len()).unwrap_or(0);
+        let collision = build_collision(&scene, ground_parts, &crate::Textures::new(db.clone()));
+        eprintln!("collision: {} triangles in {:?}", collision.len(), started.elapsed());
         for (id, (p, _)) in world.entities.iter().take(6) {
             eprintln!("entity {id}: server y {:.2}, ground model {:.2}", p[1], t.height_at(p[0], p[2], crate::HEIGHT_SCALE));
         }
@@ -157,17 +161,51 @@ fn show_world(game: &str, playfield: u32, world: &World, image: Option<&str>) ->
     }
 }
 
+/// What blocks a walking character: the props' opaque triangles (a part
+/// whose texture has see-through pixels, such as foliage, is left out).
+fn build_collision(scene: &Model, ground_parts: usize, textures: &crate::Textures) -> mao_formats::collision::Collision {
+    let mut texture_opaque: std::collections::HashMap<(u32, u32), bool> = std::collections::HashMap::new();
+    let mut part_opaque: std::collections::HashMap<usize, bool> = std::collections::HashMap::new();
+    let mut collision = mao_formats::collision::Collision::default();
+    for &(i, m) in &scene.instances {
+        if i < ground_parts {
+            continue;
+        }
+        let part = &scene.parts[i];
+        let opaque = *part_opaque.entry(i).or_insert_with(|| {
+            part.material.opacity >= 0.99
+                && part.material.textures.first().is_none_or(|&(kind, instance)| {
+                    *texture_opaque.entry((kind, instance)).or_insert_with(|| textures.get(kind, instance).is_none_or(|t| t.rgba.chunks_exact(4).all(|p| p[3] >= 250)))
+                })
+        });
+        if !opaque {
+            continue;
+        }
+        let w = model::multiply(&part.world, &m);
+        let at = |k: u16| {
+            let p = part.vertices[k as usize].position;
+            [p[0] * w[0] + p[1] * w[4] + p[2] * w[8] + w[12], p[0] * w[1] + p[1] * w[5] + p[2] * w[9] + w[13], p[0] * w[2] + p[1] * w[6] + p[2] * w[10] + w[14]]
+        };
+        for t in part.indices.chunks_exact(3) {
+            collision.add([at(t[0]), at(t[1]), at(t[2])]);
+        }
+    }
+    collision
+}
+
 /// The window with the world updating in it: a thread reads the game
 /// server and sends the entities' markers over.
 fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World) -> Result<(), String> {
     let db = Arc::new(ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?);
     let mut scene = crate::load_terrain(&db, playfield)?;
     let terrain = crate::load_terrain_data(&db, playfield)?;
+    let ground_parts = scene.parts.len();
     crate::add_props(game, &db, playfield, &mut scene);
     if scene.instances.is_empty() {
-        let ground = scene.parts.len();
-        scene.instances.extend((0..ground).map(|i| (i, model::IDENTITY)));
+        scene.instances.extend((0..ground_parts).map(|i| (i, model::IDENTITY)));
     }
+    let collision = build_collision(&scene, ground_parts, &crate::Textures::new(db.clone()));
+    eprintln!("collision: {} triangles", collision.len());
     connection.set_timeout(Duration::from_millis(50)).map_err(|e| e.to_string())?;
     // The first couple of seconds say where the character is.
     let until = Instant::now() + Duration::from_secs(3);
@@ -193,6 +231,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         // the ground's height plus the offset seen at the start.
         let ground = |p: [f32; 3]| terrain.height_at(p[0], p[2], crate::HEIGHT_SCALE);
         let offset = start[1] - ground(start);
+        let mut base = start[1];
         let mut keys = crate::viewer::Input::default();
         let (mut position, mut heading) = (start, heading);
         let (mut moving, mut turning) = (0i8, 0i8);
@@ -226,8 +265,18 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             heading += keys.turn as f32 * TURN * dt;
             let walk = keys.forward as i8 - keys.back as i8;
             let speed = if walk > 0 { SPEED } else { BACK_SPEED } * walk as f32;
-            position[0] += heading.sin() * speed * dt;
-            position[2] += heading.cos() * speed * dt;
+            // Walls stop the step (sliding along them where one axis is free).
+            let (dx, dz) = (heading.sin() * speed * dt, heading.cos() * speed * dt);
+            for (tx, tz) in [(dx, dz), (dx, 0.0), (0.0, dz)] {
+                if tx == 0.0 && tz == 0.0 {
+                    continue;
+                }
+                let (nx, nz) = (position[0] + tx, position[2] + tz);
+                if !collision.blocked(nx, nz, base, 0.4, 1.8, 0.5) {
+                    (position[0], position[2]) = (nx, nz);
+                    break;
+                }
+            }
             let start_jump = keys.jump && !was_jumping && !airborne;
             was_jumping = keys.jump;
             let mut landed = false;
@@ -241,7 +290,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             if start_jump {
                 (airborne, vy) = (true, JUMP_SPEED);
             }
-            position[1] = ground(position) + offset + rise;
+            // Stand on the ground or on a floor or step within reach.
+            let floor = collision.floor(position[0], position[2], base, 0.6, 0.6).unwrap_or(f32::MIN);
+            base = (ground(position) + offset).max(floor);
+            position[1] = base + rise;
             let mut ok = true;
             let due = last_send.elapsed() >= Duration::from_millis(400);
             let mut send_kind = |kind: u8, connection: &mut Connection| {
