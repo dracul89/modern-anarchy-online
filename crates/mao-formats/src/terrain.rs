@@ -190,6 +190,6 @@ impl Terrain {
             }
         }
         let parts = groups.into_values().flatten().collect();
-        Model { parts }
+        Model { parts, instances: Vec::new() }
     }
 }

@@ -7,7 +7,7 @@
 //! ```
 //!
 //! The type and instance are hexadecimal (for example `f6951 1893`). Drag to
-//! orbit, scroll to zoom.
+//! orbit, scroll to zoom, WASD to move the view point, Q/E down and up.
 
 mod viewer;
 
@@ -87,18 +87,26 @@ fn add_props(game: &str, db: &ResourceDatabase, playfield: u32, model: &mut Mode
     let path = Path::new(game).join(format!("cd_image/data/statels/{playfield}.pf"));
     let Ok(file) = std::fs::read(&path) else { return };
     let Ok(statels) = mao_formats::statels::parse(&file) else { return };
-    let mut meshes: std::collections::HashMap<u32, Option<Model>> = std::collections::HashMap::new();
+    // Each mesh's parts go in once; a statel is an instance of each.
+    let mut meshes: std::collections::HashMap<u32, Option<std::ops::Range<usize>>> = std::collections::HashMap::new();
     let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
+    // The ground itself is one instance of each of its parts.
+    let ground = model.parts.len();
+    model.instances.extend((0..ground).map(|i| (i, model::IDENTITY)));
     let mut placed = 0;
     for s in &statels {
-        let mesh = meshes.entry(s.mesh).or_insert_with(|| load_model(db, Id { kind: 0xf6951, instance: s.mesh }).ok());
-        let Some(mesh) = mesh else { continue };
+        let range = meshes
+            .entry(s.mesh)
+            .or_insert_with(|| {
+                let m = load_model(db, Id { kind: 0xf6951, instance: s.mesh }).ok()?;
+                let start = model.parts.len();
+                model.parts.extend(m.parts);
+                Some(start..model.parts.len())
+            })
+            .clone();
+        let Some(range) = range else { continue };
         let place = model::multiply(&model::trs_matrix(s.position, s.rotation, s.scale), &swap);
-        for part in &mesh.parts {
-            let mut part = part.clone();
-            part.world = model::multiply(&part.world, &place);
-            model.parts.push(part);
-        }
+        model.instances.extend(range.map(|i| (i, place)));
         placed += 1;
     }
     eprintln!("{placed} of {} statels placed ({} meshes)", statels.len(), meshes.len());

@@ -80,6 +80,10 @@ pub struct Part {
 #[derive(Clone, Debug, Default)]
 pub struct Model {
     pub parts: Vec<Part>,
+    /// Extra placements: each `(part index, matrix)` draws that part again with
+    /// its world matrix followed by `matrix`. When there are any, the parts are
+    /// drawn only through them (so a prop's geometry is stored once).
+    pub instances: Vec<(usize, Matrix)>,
 }
 
 pub const IDENTITY: Matrix = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
@@ -286,5 +290,5 @@ pub fn build(mesh: &MeshObject) -> Result<Model, Error> {
         walk(a, root, &IDENTITY, 0, &mut parts)?;
     }
     let _ = kind::OBJECT;
-    Ok(Model { parts })
+    Ok(Model { parts, instances: Vec::new() })
 }

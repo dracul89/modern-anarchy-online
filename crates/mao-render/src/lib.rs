@@ -15,6 +15,7 @@ use mao_formats::model::{Model, Vertex};
 use mao_formats::texture::Texture;
 use wgpu::util::DeviceExt;
 
+pub use glam;
 pub use wgpu;
 
 /// A device and its queue.
@@ -131,12 +132,33 @@ pub struct Renderer {
 
 const DEPTH: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
-fn world_matrix_bounds(model: &Model) -> (Vec3, f32) {
+/// What is drawn: each part with its final world matrix.
+fn draws(model: &Model) -> Vec<(usize, [f32; 16])> {
+    if model.instances.is_empty() {
+        model.parts.iter().enumerate().map(|(i, p)| (i, p.world)).collect()
+    } else {
+        model.instances.iter().filter_map(|(i, m)| model.parts.get(*i).map(|p| (*i, mao_formats::model::multiply(&p.world, m)))).collect()
+    }
+}
+
+fn world_matrix_bounds(model: &Model, draws: &[(usize, [f32; 16])]) -> (Vec3, f32) {
     let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
-    for part in &model.parts {
-        let m = Mat4::from_cols_array(&part.world);
+    for (i, world) in draws {
+        let m = Mat4::from_cols_array(world);
+        // The corners of the part's box suffice and cost far less than every vertex.
+        let part = &model.parts[*i];
+        let (mut plo, mut phi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
         for v in &part.vertices {
-            let p = m.transform_point3(Vec3::from(v.position));
+            let p = Vec3::from(v.position);
+            plo = plo.min(p);
+            phi = phi.max(p);
+        }
+        if plo.x > phi.x {
+            continue;
+        }
+        for corner in 0..8 {
+            let c = Vec3::new(if corner & 1 == 0 { plo.x } else { phi.x }, if corner & 2 == 0 { plo.y } else { phi.y }, if corner & 4 == 0 { plo.z } else { phi.z });
+            let p = m.transform_point3(c);
             lo = lo.min(p);
             hi = hi.max(p);
         }
@@ -210,26 +232,32 @@ impl Renderer {
     }
 
     /// Puts a model on the GPU. `texture` finds a texture by (type, instance).
+    /// Each part's geometry and texture are uploaded once however many times it is drawn.
     pub fn upload(&self, gpu: &Gpu, model: &Model, texture: &mut dyn FnMut(u32, u32) -> Option<Texture>) -> Scene {
-        let (center, radius) = world_matrix_bounds(model);
+        let draw_list = draws(model);
+        let (center, radius) = world_matrix_bounds(model, &draw_list);
         let mut cache: HashMap<(u32, u32), Option<wgpu::TextureView>> = HashMap::new();
+        let mut geometry: HashMap<usize, Option<(wgpu::Buffer, wgpu::Buffer, u32, Option<wgpu::TextureView>)>> = HashMap::new();
         let mut parts = Vec::new();
-        for part in &model.parts {
-            if part.indices.is_empty() || part.vertices.is_empty() {
-                continue;
-            }
-            let vertices: Vec<GpuVertex> = part.vertices.iter().map(|v: &Vertex| GpuVertex { position: v.position, normal: v.normal, uv: v.uv }).collect();
-            let vb = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: bytemuck::cast_slice(&vertices), usage: wgpu::BufferUsages::VERTEX });
-            let mut indices = part.indices.clone();
-            if indices.len() % 2 == 1 {
-                indices.push(0);
-            }
-            let ib = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: bytemuck::cast_slice(&indices), usage: wgpu::BufferUsages::INDEX });
-            let view = part.material.textures.first().and_then(|&(kind, instance)| {
-                cache.entry((kind, instance)).or_insert_with(|| texture(kind, instance).map(|t| upload_texture(gpu, &t))).clone()
+        for (index, world) in draw_list {
+            let entry = geometry.entry(index).or_insert_with(|| {
+                let part = &model.parts[index];
+                if part.indices.is_empty() || part.vertices.is_empty() {
+                    return None;
+                }
+                let vertices: Vec<GpuVertex> = part.vertices.iter().map(|v: &Vertex| GpuVertex { position: v.position, normal: v.normal, uv: v.uv }).collect();
+                let vb = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: bytemuck::cast_slice(&vertices), usage: wgpu::BufferUsages::VERTEX });
+                let mut indices = part.indices.clone();
+                if indices.len() % 2 == 1 {
+                    indices.push(0);
+                }
+                let ib = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: bytemuck::cast_slice(&indices), usage: wgpu::BufferUsages::INDEX });
+                let view = part.material.textures.first().and_then(|&(kind, instance)| cache.entry((kind, instance)).or_insert_with(|| texture(kind, instance).map(|t| upload_texture(gpu, &t))).clone());
+                Some((vb, ib, part.indices.len() as u32, view))
             });
-            let d = part.material.diffuse;
-            let uniform = PartUniform { model: part.world, colour: [d[0], d[1], d[2], 1.0], flags: [view.is_some() as u32 as f32, 0.0, 0.0, 0.0] };
+            let Some((vb, ib, count, view)) = entry else { continue };
+            let d = model.parts[index].material.diffuse;
+            let uniform = PartUniform { model: world, colour: [d[0], d[1], d[2], 1.0], flags: [view.is_some() as u32 as f32, 0.0, 0.0, 0.0] };
             let ub = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: bytemuck::bytes_of(&uniform), usage: wgpu::BufferUsages::UNIFORM });
             let bind = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: None,
@@ -240,7 +268,7 @@ impl Renderer {
                     wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(&self.sampler) },
                 ],
             });
-            parts.push(GpuPart { vertices: vb, indices: ib, index_count: part.indices.len() as u32, bind });
+            parts.push(GpuPart { vertices: vb.clone(), indices: ib.clone(), index_count: *count, bind });
         }
         Scene { parts, center, radius }
     }

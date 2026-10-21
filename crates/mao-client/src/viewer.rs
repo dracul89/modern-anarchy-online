@@ -1,4 +1,4 @@
-//! The mesh viewer: headless to an image, or in a window.
+//! The viewer (a mesh or a playfield); keys: WASD move, Q/E down/up, Esc quits: headless to an image, or in a window.
 
 use std::sync::Arc;
 
@@ -8,6 +8,7 @@ use mao_render::{Camera, Gpu, Renderer, Scene};
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
+use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::{Window, WindowId};
 
@@ -86,6 +87,29 @@ impl ApplicationHandler for App {
                     w.window.request_redraw();
                 }
                 self.last = (position.x, position.y);
+            }
+            WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
+                // WASD moves the view point over the ground (relative to where the
+                // camera faces), Q and E down and up; the step grows with the distance.
+                let step = w.camera.distance * 0.05;
+                let (sin, cos) = w.camera.yaw.sin_cos();
+                let forward = mao_render::glam::Vec3::new(-cos, -sin, 0.0);
+                let right = mao_render::glam::Vec3::new(sin, -cos, 0.0);
+                let delta = match event.physical_key {
+                    PhysicalKey::Code(KeyCode::KeyW) => forward * step,
+                    PhysicalKey::Code(KeyCode::KeyS) => -forward * step,
+                    PhysicalKey::Code(KeyCode::KeyA) => -right * step,
+                    PhysicalKey::Code(KeyCode::KeyD) => right * step,
+                    PhysicalKey::Code(KeyCode::KeyE) => mao_render::glam::Vec3::Z * step,
+                    PhysicalKey::Code(KeyCode::KeyQ) => -mao_render::glam::Vec3::Z * step,
+                    PhysicalKey::Code(KeyCode::Escape) => {
+                        event_loop.exit();
+                        return;
+                    }
+                    _ => return,
+                };
+                w.camera.target += delta;
+                w.window.request_redraw();
             }
             WindowEvent::MouseWheel { delta, .. } => {
                 let lines = match delta {
