@@ -22,3 +22,10 @@ version = "0.1.0"
 [[package]]
 name = "mao-render"
 version = "0.1.0"
+
+[[package]]
+name = "mao-tools"
+version = "0.1.0"
+dependencies = [
+ "mao-formats",
+]

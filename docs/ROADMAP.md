@@ -11,3 +11,12 @@
 
 Every format reader records, in its module docs, which original function it
 was derived from.
+
+## Findings
+- `ResourceDatabase` holds 460,193 objects in 16 one-GiB segments; records
+  sit at positions up to 0x3fee582ec (~16 GiB). The original client opens the
+  files without c-tree's huge-file mode, so it cannot reach positions past
+  4 GiB; this reader uses the full 64-bit positions.
+- 6,910 index entries (almost all type 0xf6954 textures) point at a position
+  that holds no such record. The original client fails on the same keys too
+  (it falls back to types 0xf6960/0xf6961); treat them as absent.
