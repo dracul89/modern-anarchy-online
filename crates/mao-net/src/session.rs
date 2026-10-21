@@ -70,6 +70,12 @@ impl Connection {
         Ok(Connection { stream, reader: Reader::default(), sequence: 0 })
     }
 
+    /// How long `receive` waits for data before failing with a timeout
+    /// error (the connection stays usable).
+    pub fn set_timeout(&mut self, timeout: Duration) -> Result<(), Error> {
+        Ok(self.stream.set_read_timeout(Some(timeout))?)
+    }
+
     pub fn send(&mut self, frame: &Frame) -> Result<(), Error> {
         self.sequence = self.sequence.wrapping_add(1);
         if self.sequence == 0xffff {

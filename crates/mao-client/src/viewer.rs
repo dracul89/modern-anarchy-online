@@ -14,6 +14,14 @@ use winit::window::{Window, WindowId};
 
 use crate::Textures;
 
+/// Something that changes while the window is open: models to draw over the
+/// scene (the latest one is shown) and where to start looking.
+pub struct Live {
+    pub overlays: std::sync::mpsc::Receiver<Model>,
+    /// The view point (Z-up), if known.
+    pub focus: Option<[f32; 3]>,
+}
+
 /// Renders the model once to `out`.
 /// `MAO_CAMERA=x,y,z,distance,yaw,pitch` overrides the fitted camera.
 fn camera_override(camera: &mut Camera) {
@@ -49,18 +57,28 @@ struct View {
 struct App {
     model: Model,
     textures: Textures,
+    live: Option<Live>,
     state: Option<View>,
     dragging: bool,
     last: (f64, f64),
 }
 
-pub fn window(model: Model, textures: Textures) -> Result<(), String> {
+pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<(), String> {
     let event_loop = EventLoop::new().map_err(|e| e.to_string())?;
-    let mut app = App { model, textures, state: None, dragging: false, last: (0.0, 0.0) };
+    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0) };
     event_loop.run_app(&mut app).map_err(|e| e.to_string())
 }
 
 impl ApplicationHandler for App {
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        if self.live.is_some() {
+            event_loop.set_control_flow(winit::event_loop::ControlFlow::WaitUntil(std::time::Instant::now() + std::time::Duration::from_millis(50)));
+            if let Some(w) = &self.state {
+                w.window.request_redraw();
+            }
+        }
+    }
+
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.state.is_some() {
             return;
@@ -74,7 +92,10 @@ impl ApplicationHandler for App {
         surface.configure(&gpu.device, &config);
         let renderer = Renderer::new(&gpu, config.format);
         let scene = renderer.upload(&gpu, &self.model, &mut |k, i| self.textures.get(k, i));
-        let camera = Camera::fit(&scene);
+        let mut camera = Camera::fit(&scene);
+        if let Some([x, y, z]) = self.live.as_ref().and_then(|l| l.focus) {
+            camera = Camera { target: mao_render::glam::Vec3::new(x, y, z), distance: 30.0, yaw: 0.6, pitch: 0.5 };
+        }
         window.request_redraw();
         self.state = Some(View { window, surface, config, gpu, renderer, scene, camera });
     }
@@ -130,6 +151,13 @@ impl ApplicationHandler for App {
                 w.window.request_redraw();
             }
             WindowEvent::RedrawRequested => {
+                if let Some(live) = &self.live {
+                    let latest = live.overlays.try_iter().last();
+                    if let Some(model) = latest {
+                        let overlay = w.renderer.upload(&w.gpu, &model, &mut |_, _| None);
+                        w.scene.set_overlay(overlay);
+                    }
+                }
                 let frame = match w.surface.get_current_texture() {
                     wgpu::CurrentSurfaceTexture::Success(frame) | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
                     _ => {

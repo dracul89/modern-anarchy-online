@@ -177,7 +177,7 @@ fn run(args: &[String]) -> Result<(), String> {
             let textures = Textures { db };
             return match rest {
                 [flag, out] if flag == "--image" => viewer::headless(&model, &textures, out),
-                [] => viewer::window(model, textures),
+                [] => viewer::window(model, textures, None),
                 _ => Err("unknown arguments".into()),
             };
         }
@@ -192,7 +192,7 @@ fn run(args: &[String]) -> Result<(), String> {
     let textures = Textures { db };
     match rest {
         [flag, out] if flag == "--image" => viewer::headless(&model, &textures, out),
-        [] => viewer::window(model, textures),
+        [] => viewer::window(model, textures, None),
         _ => Err("unknown arguments".into()),
     }
 }

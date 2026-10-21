@@ -55,7 +55,8 @@ impl World {
     fn add(&mut self, frame: &frame::Frame) {
         let Some(m) = Message::parse(frame) else { return };
         *self.kinds.entry(m.kind).or_default() += 1;
-        if let Some(p) = m.position() {
+        let position = m.position().or_else(|| m.movement().map(|(_, _, p)| p));
+        if let Some(p) = position {
             let e = self.entities.entry(m.identity.1).or_insert((p, 0));
             e.0 = p;
             e.1 += 1;
@@ -100,6 +101,18 @@ fn marker(colour: [f32; 3]) -> Part {
     Part { name: "marker".into(), world: model::IDENTITY, vertices, indices, material }
 }
 
+/// The entities' markers alone (own character red, the others blue): two
+/// parts and an instance per entity, placed Z-up.
+fn overlay_model(world: &World) -> Model {
+    let mut model = Model { parts: vec![marker([0.9, 0.1, 0.1]), marker([0.2, 0.4, 0.95])], instances: Vec::new() };
+    let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
+    for (&id, &(position, _)) in &world.entities {
+        let place = model::multiply(&model::trs_matrix(position, [0.0, 0.0, 0.0, 1.0], [1.0; 3]), &swap);
+        model.instances.push((usize::from(id != world.own), place));
+    }
+    model
+}
+
 /// The playfield with a marker at each entity (the character in red, the
 /// others in blue).
 fn show_world(game: &str, playfield: u32, world: &World, image: Option<&str>) -> Result<(), String> {
@@ -121,8 +134,52 @@ fn show_world(game: &str, playfield: u32, world: &World, image: Option<&str>) ->
     let textures = crate::Textures::new(db);
     match image {
         Some(out) => crate::viewer::headless(&scene, &textures, out),
-        None => crate::viewer::window(scene, textures),
+        None => crate::viewer::window(scene, textures, None),
     }
+}
+
+/// The window with the world updating in it: a thread reads the game
+/// server and sends the entities' markers over.
+fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World) -> Result<(), String> {
+    let db = Arc::new(ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?);
+    let mut scene = crate::load_terrain(&db, playfield)?;
+    crate::add_props(game, &db, playfield, &mut scene);
+    if scene.instances.is_empty() {
+        let ground = scene.parts.len();
+        scene.instances.extend((0..ground).map(|i| (i, model::IDENTITY)));
+    }
+    connection.set_timeout(Duration::from_millis(500)).map_err(|e| e.to_string())?;
+    // The first couple of seconds say where the character is.
+    let until = Instant::now() + Duration::from_secs(3);
+    while Instant::now() < until && !state.entities.contains_key(&state.own) {
+        match connection.receive() {
+            Ok(frame) => state.add(&frame),
+            Err(session::Error::Io(e)) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => {}
+            Err(e) => return Err(e.to_string()),
+        }
+    }
+    let focus = state.entities.get(&state.own).map(|&([x, y, z], _)| [x, z, y]);
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut last = Instant::now() - Duration::from_secs(1);
+        loop {
+            match connection.receive() {
+                Ok(frame) => state.add(&frame),
+                Err(session::Error::Io(e)) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => {}
+                Err(e) => {
+                    eprintln!("connection ended: {e}");
+                    break;
+                }
+            }
+            if last.elapsed() >= Duration::from_millis(100) {
+                last = Instant::now();
+                if tx.send(overlay_model(&state)).is_err() {
+                    break;
+                }
+            }
+        }
+    });
+    crate::viewer::window(scene, crate::Textures::new(db), Some(crate::viewer::Live { overlays: rx, focus }))
 }
 
 pub fn run(args: &[String]) -> Result<(), String> {
@@ -142,7 +199,10 @@ pub fn run(args: &[String]) -> Result<(), String> {
             let ticket = session::login_character(&mut chat, character.id).map_err(|e| e.to_string())?;
             eprintln!("game server {}", ticket.host());
             let mut world = session::enter_world(&ticket).map_err(|e| e.to_string())?;
-            let mut state = World::default();
+            let mut state = World { own: character.id, ..World::default() };
+            if rest.iter().any(|a| a == "--live") {
+                return live(game, character.proxy[1], world, state);
+            }
             let until = Instant::now() + Duration::from_secs(seconds);
             while Instant::now() < until {
                 match world.receive() {

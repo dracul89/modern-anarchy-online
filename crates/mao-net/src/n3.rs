@@ -41,6 +41,17 @@ impl Message {
         Frame { kind: N3, source, destination: 2, body }
     }
 
+    /// The position of a [`POSITION_UPDATE`]: the movement type, the
+    /// rotation (a quaternion, x y z w) and the position. The same message
+    /// goes both ways (the server sends other characters' to the client).
+    pub fn movement(&self) -> Option<(u8, [f32; 4], [f32; 3])> {
+        if self.kind != POSITION_UPDATE || self.data.len() < 30 {
+            return None;
+        }
+        let f = |at: usize| f32::from_be_bytes(self.data[at..at + 4].try_into().unwrap());
+        Some((self.data[1], [f(2), f(6), f(10), f(14)], [f(18), f(22), f(26)]))
+    }
+
     /// The position of an [`ENTITY_INFO`]: `x y z` (the world is Y-up).
     /// Found by where the captures put it; the fields before it
     /// (a byte, a flag byte, a word, the playfield instance) aren't

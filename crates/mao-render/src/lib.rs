@@ -78,8 +78,18 @@ struct GpuPart {
 /// A model on the GPU, with its bounds.
 pub struct Scene {
     parts: Vec<GpuPart>,
+    /// Parts drawn after the others and replaceable (see [`Scene::set_overlay`]).
+    overlay: Vec<GpuPart>,
     pub center: Vec3,
     pub radius: f32,
+}
+
+impl Scene {
+    /// Replaces the overlay with the parts of `other` (which keeps this
+    /// scene's bounds).
+    pub fn set_overlay(&mut self, other: Scene) {
+        self.overlay = other.parts;
+    }
 }
 
 /// An orbiting camera looking at a point, Z up.
@@ -270,7 +280,7 @@ impl Renderer {
             });
             parts.push(GpuPart { vertices: vb.clone(), indices: ib.clone(), index_count: *count, bind });
         }
-        Scene { parts, center, radius }
+        Scene { parts, overlay: Vec::new(), center, radius }
     }
 
     fn depth_view(&mut self, gpu: &Gpu, size: (u32, u32)) {
@@ -322,7 +332,7 @@ impl Renderer {
             });
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &globals_bind, &[]);
-            for part in &scene.parts {
+            for part in scene.parts.iter().chain(&scene.overlay) {
                 pass.set_bind_group(1, &part.bind, &[]);
                 pass.set_vertex_buffer(0, part.vertices.slice(..));
                 pass.set_index_buffer(part.indices.slice(..), wgpu::IndexFormat::Uint16);
