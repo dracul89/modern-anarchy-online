@@ -105,7 +105,7 @@ fn add_props(game: &str, db: &ResourceDatabase, playfield: u32, model: &mut Mode
             })
             .clone();
         let Some(range) = range else { continue };
-        let place = model::multiply(&model::trs_matrix(s.position, s.rotation, s.scale), &swap);
+        let place = model::multiply(&model::trs_matrix(s.position, s.rotation, s.scale_xyz), &swap);
         model.instances.extend(range.map(|i| (i, place)));
         placed += 1;
     }

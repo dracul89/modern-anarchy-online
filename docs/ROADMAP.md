@@ -74,3 +74,7 @@ Rotation is unpacked from the flags for the common layout (a pitch, yaw and
 roll in degrees); statels with flag bit 0 (a second layout that also squashes
 the scale) get the identity rotation. Zones of the other layout (a packed block
 and lights) and the room objects at the end of each zone aren't read.
+- Statels with flag bit 0 now get their rotation about Y and a stretch along X
+  from the flags; the extra matrix the original also builds for them is not
+  applied. Props are drawn as instances of one copy of each mesh, and the
+  window has WASD/QE movement.

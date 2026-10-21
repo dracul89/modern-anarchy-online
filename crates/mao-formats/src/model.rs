@@ -119,7 +119,7 @@ fn string(s: &Stream, name: &str) -> String {
 
 /// The matrix (for row vectors) that scales by `scale`, rotates by the
 /// quaternion (x, y, z, w) and moves by `position`.
-pub fn trs_matrix(position: [f32; 3], q: [f32; 4], scale: f32) -> Matrix {
+pub fn trs_matrix(position: [f32; 3], q: [f32; 4], scale: [f32; 3]) -> Matrix {
     let (x, y, z, w) = (q[0], q[1], q[2], q[3]);
     let r = [
         [1.0 - 2.0 * (y * y + z * z), 2.0 * (x * y + z * w), 2.0 * (x * z - y * w)],
@@ -129,7 +129,7 @@ pub fn trs_matrix(position: [f32; 3], q: [f32; 4], scale: f32) -> Matrix {
     let mut m = IDENTITY;
     for i in 0..3 {
         for j in 0..3 {
-            m[i * 4 + j] = r[i][j] * scale;
+            m[i * 4 + j] = r[i][j] * scale[i];
         }
     }
     m[12] = position[0];

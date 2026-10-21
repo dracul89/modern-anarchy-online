@@ -53,11 +53,14 @@ pub struct Statel {
     /// The instance of its mesh (type 0xf6951).
     pub mesh: u32,
     pub scale: f32,
+    /// The scale along each local axis (the same three for a plain statel).
+    pub scale_xyz: [f32; 3],
     /// A quaternion (x, y, z, w).
     pub rotation: [f32; 4],
     pub colour: u32,
-    /// Whether the rotation is of the layout this module doesn't read
-    /// (flag bit 0: a squashed scale too): the rotation is then the identity.
+    /// Whether the flags use the second layout (bit 0), of which only the
+    /// rotation about Y and the stretch along X are read (its further matrix
+    /// is left out).
     pub unread_rotation: bool,
 }
 
@@ -153,8 +156,18 @@ fn statel(r: &mut Reader) -> Result<Option<Statel>, Error> {
         return Ok(None);
     }
     let unread = flags & 1 != 0;
-    let rotation = if unread { [0.0, 0.0, 0.0, 1.0] } else { Statel::unpack_rotation(flags) };
-    Ok(Some(Statel { position, flags, mesh, scale: scale_byte as f32 / 100.0 + 0.1, rotation, colour, unread_rotation: unread }))
+    let scale = scale_byte as f32 / 100.0 + 0.1;
+    let (rotation, scale_xyz) = if unread {
+        // `A >> 7` is a turn about Y (v % 630 of 630 to the circle) and a
+        // stretch s = (v / 630 % 211) / 100 + 0.5 along X.
+        let v = (flags as u32) >> 7;
+        let turn = (v % 630) as f32 * std::f32::consts::TAU / 630.0;
+        let s = ((v / 630) % 211) as f32 / 100.0 + 0.5;
+        (axis_angle([0.0, 1.0, 0.0], turn), [scale * s, scale, scale])
+    } else {
+        (Statel::unpack_rotation(flags), [scale; 3])
+    };
+    Ok(Some(Statel { position, flags, mesh, scale, scale_xyz, rotation, colour, unread_rotation: unread }))
 }
 
 fn statels(r: &mut Reader, out: &mut Vec<Statel>) -> Result<(), Error> {
