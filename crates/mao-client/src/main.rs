@@ -1,7 +1,8 @@
 //! The Modern Anarchy Online client. For now a mesh viewer:
 //!
 //! ```text
-//! mao-client <game dir> map <playfield>                         the ground (add --image)
+//! mao-client <game dir> list [name]                             the playfields
+//! mao-client <game dir> map <number or name>                    the ground (add --image)
 //! mao-client <game dir> <mesh type> <instance>                  a window
 //! mao-client <game dir> <mesh type> <instance> --image out.png  headless
 //! ```
@@ -112,11 +113,50 @@ fn add_props(game: &str, db: &ResourceDatabase, playfield: u32, model: &mut Mode
     eprintln!("{placed} of {} statels placed ({} meshes)", statels.len(), meshes.len());
 }
 
+/// A playfield by number (decimal, or hex with `0x`) or by part of its name.
+fn find_playfield(db: &ResourceDatabase, text: &str) -> Result<u32, String> {
+    if let Some(n) = playfield_number(text) {
+        return Ok(n);
+    }
+    let wanted = text.to_lowercase();
+    let matches: Vec<_> = mao_formats::playfield::all(db).into_iter().filter(|p| p.name.to_lowercase().contains(&wanted)).collect();
+    if let Some(exact) = matches.iter().find(|p| p.name.trim().to_lowercase() == wanted) {
+        return Ok(exact.number);
+    }
+    match matches.as_slice() {
+        [one] => Ok(one.number),
+        [] => Err(format!("no playfield matches {text:?} (try `list`)")),
+        many => Err(format!("{text:?} matches {}: {}", many.len(), many.iter().take(8).map(|p| format!("{} {}", p.number, p.name)).collect::<Vec<_>>().join(", "))),
+    }
+}
+
+fn list(db: &ResourceDatabase, filter: Option<&str>) {
+    let wanted = filter.map(str::to_lowercase);
+    for p in mao_formats::playfield::all(db) {
+        if wanted.as_ref().is_some_and(|w| !p.name.to_lowercase().contains(w)) {
+            continue;
+        }
+        let kind = match db.get(Id { kind: 0xf4249, instance: p.number }).ok().flatten() {
+            Some(o) if o.get(12..16) == Some(b"CHGA") => "ground",
+            Some(_) => "other ground layout (not drawn yet)",
+            None => "no ground",
+        };
+        println!("{:>6} {} [{kind}]", p.number, p.name);
+    }
+}
+
 fn run(args: &[String]) -> Result<(), String> {
+    if let [game, word, rest @ ..] = args {
+        if word == "list" {
+            let db = ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?;
+            list(&db, rest.first().map(String::as_str));
+            return Ok(());
+        }
+    }
     if let [game, word, playfield, rest @ ..] = args {
         if word == "map" {
             let db = Arc::new(ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?);
-            let number = playfield_number(playfield).ok_or("bad playfield")?;
+            let number = find_playfield(&db, playfield)?;
             let mut model = load_terrain(&db, number)?;
             if std::env::var_os("MAO_NO_PROPS").is_none() {
                 add_props(game, &db, number, &mut model);

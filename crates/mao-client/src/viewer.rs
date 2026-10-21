@@ -15,12 +15,22 @@ use winit::window::{Window, WindowId};
 use crate::Textures;
 
 /// Renders the model once to `out`.
+/// `MAO_CAMERA=x,y,z,distance,yaw,pitch` overrides the fitted camera.
+fn camera_override(camera: &mut Camera) {
+    let Ok(text) = std::env::var("MAO_CAMERA") else { return };
+    let v: Vec<f32> = text.split(',').filter_map(|n| n.trim().parse().ok()).collect();
+    if let [x, y, z, distance, yaw, pitch] = v[..] {
+        *camera = Camera { target: mao_render::glam::Vec3::new(x, y, z), distance, yaw, pitch };
+    }
+}
+
 pub fn headless(model: &Model, textures: &Textures, out: &str) -> Result<(), String> {
     let gpu = Gpu::headless()?;
     eprintln!("adapter: {:?}", gpu.adapter.get_info());
     let mut renderer = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8UnormSrgb);
     let scene = renderer.upload(&gpu, model, &mut |k, i| textures.get(k, i));
-    let camera = Camera::fit(&scene);
+    let mut camera = Camera::fit(&scene);
+    camera_override(&mut camera);
     let (w, h) = (960, 720);
     let pixels = renderer.render_to_image(&gpu, &scene, &camera, w, h);
     image::save_buffer(out, &pixels, w, h, image::ColorType::Rgba8).map_err(|e| e.to_string())

@@ -125,6 +125,10 @@ fn run(args: &[String]) -> Result<(), String> {
             println!("{}x{} scale {} second {} types {}", map.width, map.height, map.scale, map.second, map.tile_types.len());
             for c in &map.chunks {
                 let png = c.body.windows(4).position(|w| w == [0x89, b'P', b'N', b'G'] || w == [0xff, 0xd8, 0xff, 0xe0]);
+                if &c.tag == b"IRHA" || &c.tag == b"HSTA" {
+                    println!("   words {:?}", c.body.chunks_exact(4).take(40).map(|w| u32::from_le_bytes(w.try_into().unwrap())).collect::<Vec<_>>());
+                    println!("   floats {:?}", c.body.chunks_exact(4).take(12).map(|w| f32::from_le_bytes(w.try_into().unwrap())).collect::<Vec<_>>());
+                }
                 println!("{} v{} {} bytes, image at {png:?}", String::from_utf8_lossy(&c.tag), c.version, c.body.len());
                 if let Some(at) = png {
                     let name = format!("{dir}/{}_{}.png", instance, String::from_utf8_lossy(&c.tag));
@@ -138,13 +142,34 @@ fn run(args: &[String]) -> Result<(), String> {
         ("statels", [playfield]) => {
             let pf = std::path::Path::new(game).join(format!("cd_image/data/statels/{}.pf", playfield.parse::<u32>().map_err(|_| "decimal playfield")?));
             let file = std::fs::read(&pf).map_err(|e| format!("{}: {e}", pf.display()))?;
-            let list = mao_formats::statels::parse(&file).map_err(|e| e.to_string())?;
+            let (list, zones, failed) = mao_formats::statels::parse_report(&file).map_err(|e| e.to_string())?;
+            println!("{zones} zones, {failed} unreadable");
             let unread = list.iter().filter(|s| s.unread_rotation).count();
             let present = list.iter().filter(|s| db.get(Id { kind: 0xf6951, instance: s.mesh }).ok().flatten().is_some()).count();
             println!("{} statels, {unread} with the other rotation layout, {present} with a mesh in the database", list.len());
             for s in list.iter().take(8) {
                 println!("{:.1?} mesh {:#x} scale {:.2} rot {:.2?}", s.position, s.mesh, s.scale, s.rotation);
             }
+        }
+        ("scan-statels", []) => {
+            let dir = Path::new(game).join("cd_image/data/statels");
+            let (mut files, mut zones, mut bad_zones, mut statels, mut bad_files) = (0, 0, 0, 0, 0);
+            for entry in std::fs::read_dir(&dir).map_err(|e| e.to_string())? {
+                let path = entry.map_err(|e| e.to_string())?.path();
+                if path.extension().is_none_or(|e| e != "pf") {
+                    continue;
+                }
+                files += 1;
+                match mao_formats::statels::parse_report(&std::fs::read(&path).map_err(|e| e.to_string())?) {
+                    Ok((list, z, bad)) => {
+                        zones += z;
+                        bad_zones += bad;
+                        statels += list.len();
+                    }
+                    Err(_) => bad_files += 1,
+                }
+            }
+            println!("{files} files ({bad_files} unreadable), {zones} zones ({bad_zones} unreadable), {statels} statels");
         }
         ("scan-tilemaps", []) => {
             let (mut old, mut other, mut bad) = (0, 0, 0);

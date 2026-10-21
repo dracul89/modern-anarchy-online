@@ -14,7 +14,7 @@
 //! the end of the file).
 //!
 //! # A zone
-//! Counts are `u16`. Its first list is a count of `i32`s, then four lists of
+//! Counts are `u16`. Its first list is a count of `u16`s, then four lists of
 //! statels (a count and that many each) and a list of objects of another
 //! kind (rooms). A zone of the other layout (it starts with a packed block
 //! and lights instead) isn't read here.
@@ -182,6 +182,12 @@ fn statels(r: &mut Reader, out: &mut Vec<Statel>) -> Result<(), Error> {
 
 /// All the statels of a playfield's file.
 pub fn parse(file: &[u8]) -> Result<Vec<Statel>, Error> {
+    Ok(parse_report(file)?.0)
+}
+
+/// The statels, how many zones the file has and how many of them couldn't
+/// be read as the layout this module knows (their statels are left out).
+pub fn parse_report(file: &[u8]) -> Result<(Vec<Statel>, usize, usize), Error> {
     let mut r = Reader { data: file, at: 0 };
     let version = r.u32("the version")?;
     if version != 1 {
@@ -189,6 +195,11 @@ pub fn parse(file: &[u8]) -> Result<Vec<Statel>, Error> {
     }
     let mut offsets: Vec<usize> = Vec::new();
     loop {
+        // The table ends where the first zone begins (or earlier, where a
+        // value can't be an offset).
+        if offsets.first().is_some_and(|&first| r.at >= first) {
+            break;
+        }
         let v = u32::from_le_bytes(file.get(r.at..r.at + 4).ok_or(Error::Truncated("the zone table"))?.try_into().unwrap()) as usize;
         if v < r.at + 4 || offsets.last().is_some_and(|&l| v < l) {
             break;
@@ -198,7 +209,7 @@ pub fn parse(file: &[u8]) -> Result<Vec<Statel>, Error> {
     }
     let mut out = Vec::new();
     // The playfield's global statels (a count) follow the table.
-    let global = r.u32("the global data")?;
+    let global = if r.at < offsets.first().copied().unwrap_or(0) { r.u32("the global data")? } else { 4 };
     if global != 4 {
         let count = r.u16("the global statel count")?;
         for _ in 0..count {
@@ -209,22 +220,57 @@ pub fn parse(file: &[u8]) -> Result<Vec<Statel>, Error> {
             }
         }
     }
+    let mut failed = 0;
     for (k, &start) in offsets.iter().enumerate() {
         let end = offsets.get(k + 1).copied().unwrap_or(file.len());
         let Some(zone) = file.get(start..end.min(file.len())) else { continue };
-        let mut z = Reader { data: zone, at: 0 };
-        let mut zone_statels = Vec::new();
-        let result = (|| -> Result<(), Error> {
+        // A zone has one of two layouts, told apart here by which one reads
+        // exactly to the zone's end (the room objects at the end of the zone
+        // can't be skipped, so a zone that has some is taken as it stands).
+        let full = |z: &mut Reader| -> Result<Vec<Statel>, Error> {
+            let mut list = Vec::new();
             let ints = z.u16("a zone's int count")?;
-            z.take(ints as usize * 4, "a zone's ints")?;
-            for _ in 0..4 {
-                statels(&mut z, &mut zone_statels)?;
+            z.take(ints as usize * 2, "a zone's shorts")?;
+            for _ in 0..2 {
+                statels(z, &mut list)?;
             }
-            Ok(())
-        })();
-        if result.is_ok() {
-            out.extend(zone_statels);
+            Ok(list)
+        };
+        let lite = |z: &mut Reader| -> Result<Vec<Statel>, Error> {
+            // A packed block (a size, a count and the bytes), then two lists of lights.
+            let size = z.u32("a packed block's size")? as usize;
+            if size != 0 {
+                z.u32("a packed block's length")?;
+                z.take(size.checked_sub(4).ok_or(Error::Truncated("a packed block"))?, "a packed block")?;
+            }
+            for _ in 0..2 {
+                let count = z.u16("a light count")?;
+                z.take(count as usize * 18, "lights")?;
+            }
+            Ok(Vec::new())
+        };
+        let tail = |z: &mut Reader, mut list: Vec<Statel>| -> Result<(Vec<Statel>, bool), Error> {
+            for _ in 0..2 {
+                statels(z, &mut list)?;
+            }
+            let rooms = z.u16("a room count")?;
+            Ok((list, rooms == 0 && z.at == z.data.len() || rooms != 0))
+        };
+        let mut result = None;
+        for layout in [0, 1] {
+            let mut z = Reader { data: zone, at: 0 };
+            let first = if layout == 0 { full(&mut z) } else { lite(&mut z) };
+            if let Ok((list, exact)) = first.and_then(|l| tail(&mut z, l)) {
+                if exact {
+                    result = Some(list);
+                    break;
+                }
+            }
+        }
+        match result {
+            Some(list) => out.extend(list),
+            None => failed += 1,
         }
     }
-    Ok(out)
+    Ok((out, offsets.len(), failed))
 }

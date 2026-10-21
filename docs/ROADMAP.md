@@ -78,3 +78,13 @@ and lights) and the room objects at the end of each zone aren't read.
   from the flags; the extra matrix the original also builds for them is not
   applied. Props are drawn as instances of one copy of each mesh, and the
   window has WASD/QE movement.
+
+## MVP: the offline world explorer (reached)
+`mao-client <game> map "<name>"` opens a playfield by name or number in a
+`wgpu` window with ground, textures, and every static object. Statels turned
+out to be fully readable once the zone's first list was read as 16-bit values
+(not 32): all 515,020 zones in the 624 readable files read exactly to their
+ends (2,067,644 statels; 5 files unreadable) and all but a few dozen of the
+statels name meshes that exist in the database.
+Not in the MVP: interiors and the 294 playfields with other tile-map layouts,
+characters and animation, lights, sky, water, sound, UI, and the network.
