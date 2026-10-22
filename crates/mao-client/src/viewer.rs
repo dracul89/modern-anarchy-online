@@ -10,10 +10,10 @@ use mao_render::wgpu;
 use mao_render::{Camera, Gpu, Renderer, Scene};
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
-use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
+use winit::event::{DeviceEvent, DeviceId, ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::event_loop::{ActiveEventLoop, EventLoop};
-use winit::window::{Fullscreen, Window, WindowId};
+use winit::window::{CursorGrabMode, Fullscreen, Window, WindowId};
 
 use crate::settings::{Action, Binding, Settings, WindowMode};
 use crate::ui::{Hud, Label, Ui};
@@ -21,7 +21,7 @@ use crate::Textures;
 
 /// What the player is doing with the keyboard: forward held, and turning
 /// (-1 left, 1 right).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Input {
     pub forward: bool,
     pub back: bool,
@@ -32,6 +32,8 @@ pub struct Input {
     /// Counters that step each time the key is pressed (the live loop acts on a change):
     /// next/previous hostile, next/previous friendly target, attack.
     pub commands: [u8; 5],
+    /// The heading the character should face (the camera's, while the right mouse button steers).
+    pub face: Option<f32>,
 }
 
 /// The overlay to draw and where the player's character is (the view
@@ -52,6 +54,8 @@ pub struct Update {
     pub target: Option<String>,
     /// The character's items, when they arrive.
     pub gear: Option<Vec<crate::gear::GearItem>>,
+    /// The way the character faces (radians about the vertical, 0 along +Z of the server's world).
+    pub heading: Option<f32>,
 }
 
 /// Something that changes while the window is open: models to draw over the
@@ -133,6 +137,12 @@ struct App {
     state: Option<View>,
     dragging: bool,
     last: (f64, f64),
+    /// The left and right mouse buttons, in a live view (the camera is steered like a third-person game's).
+    buttons: [bool; 2],
+    /// The character's heading, and whether the camera has been put behind it yet.
+    heading: f32,
+    behind_set: bool,
+    last_follow: std::time::Instant,
     keys: Input,
     settings: Settings,
     modifiers: winit::keyboard::ModifiersState,
@@ -173,11 +183,38 @@ fn apply_mode(window: &Window, mode: WindowMode) {
 pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<(), String> {
     let event_loop = EventLoop::new().map_err(|e| e.to_string())?;
     let settings = Settings::load();
-    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), keys: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default() };
+    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), keys: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default() };
     event_loop.run_app(&mut app).map_err(|e| e.to_string())
 }
 
+/// The heading (about the vertical, 0 along the server's +Z) a camera at `yaw` looks along, and the yaw
+/// of a camera right behind a character facing `heading`. (The same function both ways.)
+fn heading_from_yaw(yaw: f32) -> f32 {
+    (-yaw.cos()).atan2(-yaw.sin())
+}
+
+fn yaw_behind(heading: f32) -> f32 {
+    heading_from_yaw(heading)
+}
+
 impl ApplicationHandler for App {
+    fn device_event(&mut self, _: &ActiveEventLoop, _: DeviceId, event: DeviceEvent) {
+        let DeviceEvent::MouseMotion { delta: (dx, dy) } = event else { return };
+        if self.live.is_none() || self.buttons == [false; 2] {
+            return;
+        }
+        let Some(w) = self.state.as_mut() else { return };
+        w.camera.yaw -= dx as f32 * 0.005;
+        w.camera.pitch = (w.camera.pitch + dy as f32 * 0.005).clamp(-0.6, 1.45);
+        if self.buttons[1] {
+            self.keys.face = Some(heading_from_yaw(w.camera.yaw));
+            if let Some(live) = &self.live {
+                let _ = live.input.send(self.keys);
+            }
+        }
+        w.window.request_redraw();
+    }
+
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         if self.live.is_some() {
             // No frame cap: draw as fast as the present mode allows (the original stopped at 100 fps).
@@ -233,6 +270,15 @@ impl ApplicationHandler for App {
             if !capturing && !matches!(event, WindowEvent::RedrawRequested | WindowEvent::ModifiersChanged(_) | WindowEvent::CloseRequested | WindowEvent::Resized(_)) && ui.event(&w.window, &event) {
                 if matches!(event, WindowEvent::MouseInput { state: ElementState::Released, .. }) {
                     self.dragging = false;
+                    if self.buttons != [false; 2] {
+                        self.buttons = [false; 2];
+                        w.window.set_cursor_visible(true);
+                        let _ = w.window.set_cursor_grab(CursorGrabMode::None);
+                        self.keys.face = None;
+                        if let Some(live) = &self.live {
+                            let _ = live.input.send(self.keys);
+                        }
+                    }
                 }
                 w.window.request_redraw();
                 return;
@@ -245,6 +291,25 @@ impl ApplicationHandler for App {
                 w.config.height = size.height.max(1);
                 w.surface.configure(&w.gpu.device, &w.config);
                 w.window.request_redraw();
+            }
+            // Playing: the left button orbits the camera, the right one steers the character
+            // with it, both together walk forward (as in WoW).
+            WindowEvent::MouseInput { state, button: button @ (MouseButton::Left | MouseButton::Right), .. } if self.live.is_some() => {
+                self.buttons[(button == MouseButton::Right) as usize] = state == ElementState::Pressed;
+                let any = self.buttons[0] || self.buttons[1];
+                w.window.set_cursor_visible(!any);
+                if any {
+                    if w.window.set_cursor_grab(CursorGrabMode::Locked).is_err() {
+                        let _ = w.window.set_cursor_grab(CursorGrabMode::Confined);
+                    }
+                } else {
+                    let _ = w.window.set_cursor_grab(CursorGrabMode::None);
+                }
+                self.keys.face = self.buttons[1].then(|| heading_from_yaw(w.camera.yaw));
+                self.keys.forward = self.held.contains(&Action::Forward) || (self.buttons[0] && self.buttons[1]);
+                if let Some(live) = &self.live {
+                    let _ = live.input.send(self.keys);
+                }
             }
             WindowEvent::MouseInput { state, button: MouseButton::Left, .. } => self.dragging = state == ElementState::Pressed,
             WindowEvent::CursorMoved { position, .. } => {
@@ -345,7 +410,7 @@ impl ApplicationHandler for App {
                     }
                 }
                 let held = |a: Action| self.held.contains(&a);
-                self.keys.forward = held(Action::Forward);
+                self.keys.forward = held(Action::Forward) || (self.buttons[0] && self.buttons[1]);
                 self.keys.back = held(Action::Back);
                 self.keys.jump = held(Action::Jump);
                 self.keys.turn = held(Action::TurnRight) as i8 - held(Action::TurnLeft) as i8;
@@ -400,6 +465,13 @@ impl ApplicationHandler for App {
                 w.window.request_redraw();
             }
             WindowEvent::RedrawRequested => {
+                // Walking, the camera swings round behind the character, unless the mouse is steering it.
+                let dt = self.last_follow.elapsed().as_secs_f32().min(0.1);
+                self.last_follow = std::time::Instant::now();
+                if self.live.is_some() && self.behind_set && self.buttons == [false; 2] && (self.keys.forward || self.keys.back || self.keys.turn != 0) {
+                    let difference = (yaw_behind(self.heading) - w.camera.yaw + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+                    w.camera.yaw += difference * (1.0 - (-6.0 * dt).exp());
+                }
                 if let Some(live) = &self.live {
                     // Every update's messages count; the last one's picture is drawn.
                     let mut updates: Vec<Update> = live.overlays.try_iter().collect();
@@ -421,6 +493,13 @@ impl ApplicationHandler for App {
                     let latest = updates.into_iter().last();
                     if let Some(update) = latest {
                         self.hud.position = update.own;
+                        if let Some(h) = update.heading {
+                            self.heading = h;
+                            if !self.behind_set {
+                                self.behind_set = true;
+                                w.camera.yaw = yaw_behind(h);
+                            }
+                        }
                         if let Some(model) = &update.scene {
                             w.scene = w.renderer.upload(&w.gpu, model, &mut |k, i| self.textures.get(k, i));
                             w.scene.fog = (250.0, 1800.0);
@@ -479,6 +558,26 @@ impl ApplicationHandler for App {
                 w.gpu.queue.present(frame);
             }
             _ => {}
+        }
+    }
+}
+
+#[cfg(test)]
+mod camera_tests {
+    use super::*;
+
+    #[test]
+    fn the_camera_sits_behind_the_character() {
+        // A character facing +Z (heading 0) is looked at from -Z: the camera's offset from it points to -Y of the Z-up world.
+        let yaw = yaw_behind(0.0);
+        assert!((yaw.cos()).abs() < 1e-5 && (yaw.sin() + 1.0).abs() < 1e-5);
+        // Facing +X (heading pi/2): the camera is at -X.
+        let yaw = yaw_behind(std::f32::consts::FRAC_PI_2);
+        assert!((yaw.cos() + 1.0).abs() < 1e-5 && yaw.sin().abs() < 1e-5);
+        // Steering with the camera and reading the heading back round-trips.
+        for h in [-2.5f32, -0.7, 0.0, 1.3, 3.0] {
+            let back = heading_from_yaw(yaw_behind(h));
+            assert!(((back - h + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI).abs() < 1e-4, "{h} -> {back}");
         }
     }
 }

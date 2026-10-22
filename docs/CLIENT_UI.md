@@ -80,6 +80,16 @@ view, and the true water data.
 * **Not possible:** DLSS (NVIDIA-only SDK; this machine has an AMD GPU). FSR 2/3 need motion vectors, depth and jitter (a larger renderer change; TAA is the first step).
 * **Next:** instancing the repeated props (about 3,000 placed from 156 meshes), cheaper shadow casters at a distance, TAA.
 
+## 4d. Camera (WoW style, live view)
+The camera follows the character. **Left button drag** orbits it (the character
+doesn't turn); **right button drag** turns the camera and the character with it
+(the character faces where the camera looks); **both buttons** walk forward;
+**scroll** zooms. While walking or turning with the keys the camera swings round
+behind the character (unless the mouse is steering). The cursor is hidden and
+confined while a button is held. Not done: strafing (A/D turn; the server's
+strafe messages aren't decoded), camera collision with the ground and walls,
+a first-person view, an option for inverted mouse. Not tried in the live window.
+
 ## 5. The AOU mod against the original GUI
 The original GUI folder (`cd_image/gui/Default`) is 50 files: 27 small XML
 views (login, character selection, mail, trade, research, raid ...), 10 action

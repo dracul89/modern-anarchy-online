@@ -697,6 +697,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             // Walk: integrate the position and tell the server.
             let dt = last_tick.elapsed().as_secs_f32();
             last_tick = Instant::now();
+            if let Some(face) = keys.face {
+                heading = face;
+            }
             heading += keys.turn as f32 * TURN * dt;
             let walk = keys.forward as i8 - keys.back as i8;
             let speed = if walk > 0 { SPEED } else { BACK_SPEED } * walk as f32;
@@ -760,7 +763,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     1 => send_kind(movement::TURN_RIGHT_START, &mut connection),
                     _ => send_kind(movement::TURN_STOP, &mut connection),
                 }
-            } else if ((walk != 0 || keys.turn != 0 || airborne) && due) || landed {
+            } else if ((walk != 0 || keys.turn != 0 || keys.face.is_some() || airborne) && due) || landed {
                 send_kind(movement::UPDATE, &mut connection);
             }
             if !ok {
@@ -788,6 +791,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     labels: pending_labels.take(),
                     messages: std::mem::take(&mut pending_messages),
                     gear: pending_gear.take(),
+                    heading: Some(heading),
                     target: target.and_then(|t| Some(format!("{}  ({:.0} m)", state.names.get(&t)?.0, ((state.entities.get(&t)?.0[0] - position[0]).powi(2) + (state.entities.get(&t)?.0[2] - position[2]).powi(2)).sqrt()))),
                 };
                 if tx.send(update).is_err() {
