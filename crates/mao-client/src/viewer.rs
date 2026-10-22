@@ -193,7 +193,9 @@ impl ApplicationHandler for App {
                     MouseScrollDelta::LineDelta(_, y) => y,
                     MouseScrollDelta::PixelDelta(p) => p.y as f32 / 40.0,
                 };
-                w.camera.distance = (w.camera.distance * (1.0 - lines * 0.1)).max(w.scene.radius * 0.1);
+                // A live view (following a character) zooms in close; a viewer's limit depends on the scene.
+                let closest = if self.live.is_some() { 1.5 } else { w.scene.radius * 0.1 };
+                w.camera.distance = (w.camera.distance * (1.0 - lines * 0.1)).max(closest);
                 w.window.request_redraw();
             }
             WindowEvent::RedrawRequested => {
@@ -206,7 +208,7 @@ impl ApplicationHandler for App {
                         let overlay = w.renderer.upload(&w.gpu, &update.model, &mut |k, i| self.textures.get(k, i));
                         w.scene.set_overlay(overlay);
                         if let Some([x, y, z]) = update.own {
-                            w.camera.target = mao_render::glam::Vec3::new(x, z, y);
+                            w.camera.target = mao_render::glam::Vec3::new(x, z, y + 1.3);
                         }
                     }
                 }
