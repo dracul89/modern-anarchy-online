@@ -27,10 +27,44 @@ buildings, 2 million objects across the game); the other 294 are interiors and
 other layouts not read yet. `mao-db` (in `mao-tools`) inspects the database:
 `info`, `verify`, `list`, `get`, `texture`, `mesh-preview`, `dump-mesh`, ...
 
+## What works (the live client)
+Log in to a real server with an account of your own. The credentials come from
+the environment only, never from arguments or files that are committed:
+`MAO_USER` and `MAO_PASSWORD` (a `.env` in this folder is git-ignored; load it
+with `set -a; . ./.env; set +a`). `MAO_SERVER=host:port` overrides Rubi-Ka.
+```
+mao-client net <game> chars                       the account's characters
+mao-client net <game> enter <name> --live         the live window: walk the world
+mao-client net <game> enter <name> [secs] [--show [--image out.png]]   a snapshot of the world
+mao-client net <game> walk <name> <x> <z> [secs]  headless: walk a line, report zoning
+mao-client net <game> attack <name> [secs] [x z ...]   headless: patrol and fight a creature
+mao-client net <game> hop <name> <addr>           log in as a redirect does, report the area
+```
+Live window: W/Up, S/Down walk, A/D or Left/Right turn, Space jump, C toggles
+walking through props, drag to orbit the camera, scroll to zoom. `MAO_TRACE=1`
+prints the server's non-bulk messages and the walked position.
+
+What the client does today: logs in (the Diffie-Hellman and TEA exchange of the
+original), enters a character, loads the playfield (ground, props, collision),
+shows players, NPCs and creatures with their meshes, clothes and walk cycles,
+walks and jumps with the server accepting the movement, zones through whompahs
+and shop doors (including the 0x3c redirect to another game server), answers
+pings, and sends the original's select/target/attack messages.
+
+Hard-won protocol facts (see `crates/mao-net` and the notes in the other repo):
+- ready (`570c2039`) goes out only after the world burst has arrived;
+- every login starts SITTING: the server ignores movement until the client
+  sends the stand-up action (`5e477770`, action 0x57);
+- the address in a 0x3c redirect is not a login server: log in again at the
+  normal one and take the ticket it hands out;
+- a creature's mesh and animations come from its NPC template (object type
+  0xfde97), whose id sits in the entity message;
+- too many logins in a row are throttled (system message 0xd): wait a few minutes.
+
 ## Layout
 - `mao-formats` – the resource database (c-tree, 64-bit positions), textures,
   object archives, meshes, tile-maps, terrain, statels, playfields
-- `mao-net` – the network protocol (empty so far)
+- `mao-net` – the network protocol: framing, login crypto, system and N3 messages, sessions
 - `mao-render` – the `wgpu` renderer
 - `mao-client` – window, input, the viewer
 - `mao-tools` – `mao-db`
