@@ -462,7 +462,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     continue;
                 }
                 let (nx, nz) = (position[0] + tx, position[2] + tz);
-                if !collision.blocked(nx, nz, base, 0.4, 1.8, 0.5) {
+                if keys.noclip || !collision.blocked(nx, nz, base, 0.4, 1.8, 0.5) {
                     (position[0], position[2]) = (nx, nz);
                     break;
                 }
@@ -481,7 +481,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 (airborne, vy) = (true, JUMP_SPEED);
             }
             // Stand on the ground or on a floor or step within reach.
-            let floor = collision.floor(position[0], position[2], base, 0.6, 0.6).unwrap_or(f32::MIN);
+            let floor = if keys.noclip { f32::MIN } else { collision.floor(position[0], position[2], base, 0.6, 0.6).unwrap_or(f32::MIN) };
             base = (ground(&terrain, position) + offset).max(floor);
             position[1] = base + rise;
             let mut ok = true;

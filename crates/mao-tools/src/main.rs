@@ -102,6 +102,15 @@ fn run(args: &[String]) -> Result<(), String> {
                 println!("{kind:#x} {instance:#x} {name}");
             }
         }
+        ("statels-in", [pf, x, z, r]) => {
+            let (x, z, r): (f32, f32, f32) = (x.parse().map_err(|_| "x")?, z.parse().map_err(|_| "z")?, r.parse().map_err(|_| "r")?);
+            let file = std::fs::read(Path::new(game).join(format!("cd_image/data/statels/{pf}.pf"))).map_err(|e| e.to_string())?;
+            let list = mao_formats::statels::parse(&file).map_err(|e| e.to_string())?;
+            for s in list.iter().filter(|s| (s.position[0] - x).hypot(s.position[2] - z) < r) {
+                let tilted = s.rotation[0].abs() > 0.05 || s.rotation[2].abs() > 0.05;
+                println!("{:?} mesh {:#x} scale {:?} rot {:.2?} layout{} {}", s.position.map(|v| (v * 10.0).round() / 10.0), s.mesh, s.scale_xyz, s.rotation, if s.unread_rotation { "2" } else { "1" }, if tilted { "TILTED" } else { "" });
+            }
+        }
         ("cat", [kind, instance]) => {
             let id = Id { kind: number(kind).ok_or("bad type")?, instance: number(instance).ok_or("bad instance")? };
             let object = db.get(id).map_err(|e| e.to_string())?.ok_or("no such object")?;
