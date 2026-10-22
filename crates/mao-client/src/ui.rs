@@ -12,6 +12,7 @@ use winit::event::WindowEvent;
 use winit::window::Window;
 
 use crate::settings::{Action, Settings, WindowMode, ACTIONS};
+use crate::theme::{self, Palette};
 
 /// Text floating over a point of the world (a whompah booth's destination).
 pub struct Label {
@@ -43,6 +44,8 @@ impl Hud {
 /// What the options window asks the window to do.
 #[derive(Default)]
 pub struct Requests {
+    /// A theme picked in the options window.
+    pub theme: Option<String>,
     pub mode: Option<WindowMode>,
     pub size: Option<(u32, u32)>,
     pub save: bool,
@@ -63,29 +66,37 @@ pub struct Ui {
     pub options_open: bool,
     /// The action the options window is waiting for a key for.
     pub rebinding: Option<Action>,
+    /// The colours in use, and the themes the options window offers.
+    pub palette: Palette,
+    themes: Vec<String>,
     last_frame: Instant,
     fps: f32,
 }
 
-const GOLD: egui::Color32 = egui::Color32::from_rgb(212, 175, 55);
-const SILVER: egui::Color32 = egui::Color32::from_rgb(190, 192, 200);
-const PANEL: egui::Color32 = egui::Color32::from_rgba_premultiplied(18, 14, 10, 215);
+fn rgb(c: [u8; 3]) -> egui::Color32 {
+    egui::Color32::from_rgb(c[0], c[1], c[2])
+}
 
-/// The AOU mod's translucent theme.
-fn theme(ctx: &egui::Context) {
+fn lifted(c: [u8; 3], by: u8) -> egui::Color32 {
+    egui::Color32::from_rgb(c[0].saturating_add(by), c[1].saturating_add(by), c[2].saturating_add(by))
+}
+
+/// Dresses the interface in a palette (a theme's GUIColors.xml).
+fn theme(ctx: &egui::Context, p: &Palette) {
     let mut visuals = egui::Visuals::dark();
-    visuals.window_fill = PANEL;
-    visuals.panel_fill = PANEL;
-    visuals.window_stroke = egui::Stroke::new(1.0, SILVER);
-    visuals.override_text_color = Some(egui::Color32::from_rgb(230, 226, 214));
-    visuals.selection.bg_fill = egui::Color32::from_rgb(120, 96, 24);
-    visuals.selection.stroke = egui::Stroke::new(1.0, GOLD);
-    visuals.hyperlink_color = GOLD;
-    visuals.widgets.inactive.bg_fill = egui::Color32::from_rgb(44, 38, 30);
-    visuals.widgets.inactive.weak_bg_fill = egui::Color32::from_rgb(44, 38, 30);
-    visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, GOLD);
-    visuals.widgets.active.bg_stroke = egui::Stroke::new(1.0, GOLD);
-    visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(70, 64, 54));
+    let panel = egui::Color32::from_rgba_unmultiplied(p.panel[0], p.panel[1], p.panel[2], 215);
+    visuals.window_fill = panel;
+    visuals.panel_fill = panel;
+    visuals.window_stroke = egui::Stroke::new(1.0, rgb(p.accent));
+    visuals.override_text_color = Some(rgb(p.text));
+    visuals.selection.bg_fill = rgb(p.accent.map(|v| (v as f32 * 0.4) as u8));
+    visuals.selection.stroke = egui::Stroke::new(1.0, rgb(p.text_selected));
+    visuals.hyperlink_color = rgb(p.accent);
+    visuals.widgets.inactive.bg_fill = lifted(p.panel, 26);
+    visuals.widgets.inactive.weak_bg_fill = lifted(p.panel, 26);
+    visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, rgb(p.hover));
+    visuals.widgets.active.bg_stroke = egui::Stroke::new(1.0, rgb(p.hover));
+    visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, lifted(p.panel, 60));
     ctx.set_visuals(visuals);
 }
 
@@ -99,12 +110,19 @@ fn pretty(name: &str) -> String {
 }
 
 impl Ui {
-    pub fn new(window: &Window, gpu: &Gpu, format: wgpu::TextureFormat) -> Ui {
+    pub fn new(window: &Window, gpu: &Gpu, format: wgpu::TextureFormat, settings: &Settings) -> Ui {
         let ctx = egui::Context::default();
-        theme(&ctx);
+        let palette = theme::load(&settings.theme, &settings.aou_mod);
+        theme(&ctx, &palette);
         let state = egui_winit::State::new(ctx.clone(), egui::ViewportId::ROOT, window, Some(window.scale_factor() as f32), window.theme(), None);
         let renderer = egui_wgpu::Renderer::new(&gpu.device, format, egui_wgpu::RendererOptions::default());
-        Ui { ctx, state, renderer, options_open: false, rebinding: None, last_frame: Instant::now(), fps: 60.0 }
+        Ui { ctx, state, renderer, options_open: false, rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0 }
+    }
+
+    /// Switches to the theme `name` (a `theme =` setting).
+    pub fn set_theme(&mut self, name: &str, aou_mod: &str) {
+        self.palette = theme::load(name, aou_mod);
+        theme(&self.ctx, &self.palette);
     }
 
     /// Gives the interface a window event; true when it used the event (the
@@ -122,12 +140,12 @@ impl Ui {
         self.fps += (1.0 / dt - self.fps) * 0.05;
         let raw = self.state.take_egui_input(window);
         let mut requests = Requests::default();
-        let (options_open, rebinding, fps) = (&mut self.options_open, &mut self.rebinding, self.fps);
+        let (options_open, rebinding, fps, palette, themes) = (&mut self.options_open, &mut self.rebinding, self.fps, &self.palette, &self.themes);
         let output = self.ctx.run_ui(raw, |ui| {
             let ctx = ui.ctx().clone();
-            hud_layer(&ctx, hud, project, fps, settings.mode);
+            hud_layer(&ctx, hud, project, fps, settings.mode, palette);
             if *options_open {
-                options_window(&ctx, options_open, rebinding, settings, &mut requests);
+                options_window(&ctx, options_open, rebinding, settings, &mut requests, palette, themes);
             }
         });
         self.state.handle_platform_output(window, output.platform_output);
@@ -169,7 +187,9 @@ impl Ui {
 /// preview): the heads-up display, and the options window when asked.
 pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::TextureFormat, size: (u32, u32), settings: &mut Settings, hud: &Hud, project: &dyn Fn(Vec3) -> Option<[f32; 2]>, options: bool) {
     let ctx = egui::Context::default();
-    theme(&ctx);
+    let palette = theme::load(&settings.theme, &settings.aou_mod);
+    let themes = theme::available(&settings.aou_mod);
+    theme(&ctx, &palette);
     let mut renderer = egui_wgpu::Renderer::new(&gpu.device, format, egui_wgpu::RendererOptions::default());
     let screen = egui_wgpu::ScreenDescriptor { size_in_pixels: [size.0, size.1], pixels_per_point: 1.0 };
     let (mut open, mut rebinding, mut requests) = (options, None, Requests::default());
@@ -180,9 +200,9 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
         let raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(size.0 as f32, size.1 as f32))), time: Some(frame as f64 * 0.1), ..Default::default() };
         let output = ctx.run_ui(raw, |ui| {
             let ctx = ui.ctx().clone();
-            hud_layer(&ctx, hud, project, 60.0, settings.mode);
+            hud_layer(&ctx, hud, project, 60.0, settings.mode, &palette);
             if open {
-                options_window(&ctx, &mut open, &mut rebinding, settings, &mut requests);
+                options_window(&ctx, &mut open, &mut rebinding, settings, &mut requests, &palette, &themes);
             }
         });
         for (id, deltas) in &output.textures_delta.set {
@@ -213,7 +233,8 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
 }
 
 /// Where you are, the messages and the labels over the world.
-fn hud_layer(ctx: &egui::Context, hud: &Hud, project: &dyn Fn(Vec3) -> Option<[f32; 2]>, fps: f32, mode: WindowMode) {
+fn hud_layer(ctx: &egui::Context, hud: &Hud, project: &dyn Fn(Vec3) -> Option<[f32; 2]>, fps: f32, mode: WindowMode, palette: &Palette) {
+    let accent = rgb(palette.accent);
     let screen = ctx.content_rect();
     let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Background, egui::Id::new("labels")));
     for label in &hud.labels {
@@ -222,14 +243,14 @@ fn hud_layer(ctx: &egui::Context, hud: &Hud, project: &dyn Fn(Vec3) -> Option<[f
         let galley = painter.layout_no_wrap(label.text.clone(), egui::FontId::proportional(14.0), egui::Color32::WHITE);
         let rect = egui::Rect::from_min_size(egui::pos2(at.x - galley.size().x * 0.5, at.y - galley.size().y), galley.size());
         painter.rect_filled(rect.expand(4.0), 4.0, egui::Color32::from_black_alpha(150));
-        painter.rect_stroke(rect.expand(4.0), 4.0, egui::Stroke::new(1.0, GOLD), egui::StrokeKind::Outside);
+        painter.rect_stroke(rect.expand(4.0), 4.0, egui::Stroke::new(1.0, accent), egui::StrokeKind::Outside);
         painter.galley(rect.min, galley, egui::Color32::WHITE);
     }
     let frame = || egui::Frame::new().fill(egui::Color32::from_black_alpha(130)).corner_radius(4).inner_margin(6);
     egui::Area::new(egui::Id::new("info")).anchor(egui::Align2::LEFT_TOP, egui::vec2(8.0, 8.0)).interactable(false).show(ctx, |ui| {
         frame().show(ui, |ui| {
             if !hud.location.is_empty() {
-                ui.label(egui::RichText::new(&hud.location).color(GOLD).strong());
+                ui.label(egui::RichText::new(&hud.location).color(accent).strong());
             }
             if let Some([x, y, z]) = hud.position {
                 ui.label(format!("{x:.0}, {z:.0}  (height {y:.1})"));
@@ -252,10 +273,10 @@ fn hud_layer(ctx: &egui::Context, hud: &Hud, project: &dyn Fn(Vec3) -> Option<[f
 }
 
 /// The options window: how the window is shown, its size, and the keys.
-fn options_window(ctx: &egui::Context, open: &mut bool, rebinding: &mut Option<Action>, settings: &mut Settings, requests: &mut Requests) {
+fn options_window(ctx: &egui::Context, open: &mut bool, rebinding: &mut Option<Action>, settings: &mut Settings, requests: &mut Requests, palette: &Palette, themes: &[String]) {
     let mut is_open = *open;
     let mut close = false;
-    egui::Window::new(egui::RichText::new("Options").color(GOLD)).open(&mut is_open).collapsible(false).resizable(true).default_width(520.0).anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0)).show(ctx, |ui| {
+    egui::Window::new(egui::RichText::new("Options").color(rgb(palette.accent))).open(&mut is_open).collapsible(false).resizable(true).default_width(520.0).anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0)).show(ctx, |ui| {
         ui.heading("Window");
         ui.horizontal(|ui| {
             for mode in [WindowMode::Windowed, WindowMode::Borderless, WindowMode::Fullscreen] {
@@ -272,6 +293,19 @@ fn options_window(ctx: &egui::Context, open: &mut bool, rebinding: &mut Option<A
             if ui.button("Apply").clicked() {
                 requests.size = Some((settings.width, settings.height));
             }
+        });
+        ui.separator();
+        ui.heading("Interface");
+        ui.horizontal(|ui| {
+            ui.label("Theme");
+            egui::ComboBox::from_id_salt("theme").selected_text(&settings.theme).show_ui(ui, |ui| {
+                for name in themes {
+                    if ui.selectable_label(&settings.theme == name, name).clicked() && &settings.theme != name {
+                        requests.theme = Some(name.clone());
+                    }
+                }
+            });
+            ui.label(egui::RichText::new("(the AOU mod's themes need its folder in the settings)").weak());
         });
         ui.separator();
         ui.heading("Keys");

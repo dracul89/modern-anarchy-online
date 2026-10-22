@@ -95,7 +95,7 @@ pub fn headless_with(model: &Model, textures: &Textures, out: &str, ui: Option<(
         if let Some((hud, options)) = ui {
             let aspect = w as f32 / h as f32;
             let project = |p: mao_render::glam::Vec3| camera.project(p, aspect, radius);
-            let mut settings = Settings::default();
+            let mut settings = Settings::load();
             crate::ui::paint_headless(&gpu, view, format, (w, h), &mut settings, hud, &project, options);
         }
     });
@@ -200,7 +200,7 @@ impl ApplicationHandler for App {
         }
         window.request_redraw();
         self.home = Some(camera);
-        let ui = self.live.as_ref().map(|_| Ui::new(&window, &gpu, config.format));
+        let ui = self.live.as_ref().map(|_| Ui::new(&window, &gpu, config.format, &self.settings));
         self.state = Some(View { window, surface, config, gpu, renderer, scene, camera, ui });
     }
 
@@ -410,6 +410,11 @@ impl ApplicationHandler for App {
                     let project = |p: mao_render::glam::Vec3| camera.project(p, aspect, radius);
                     let (frame, requests) = ui.run(&w.window, &mut self.settings, &self.hud, &project);
                     ui.paint(&w.gpu, &view, size, frame);
+                    if let Some(theme) = requests.theme {
+                        ui.set_theme(&theme, &self.settings.aou_mod);
+                        self.settings.theme = theme;
+                        self.settings.save();
+                    }
                     if let Some(mode) = requests.mode {
                         self.settings.mode = mode;
                         apply_mode(&w.window, mode);

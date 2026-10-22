@@ -339,12 +339,17 @@ pub struct Settings {
     pub mode: WindowMode,
     pub width: u32,
     pub height: u32,
+    /// The interface colours: `built-in`, `original`, `aou_translucent` ... or a folder
+    /// (see [`crate::theme`]).
+    pub theme: String,
+    /// The AOU mod's folder (the one with `Gui` in it), for its themes.
+    pub aou_mod: String,
     pub keymap: Keymap,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { mode: WindowMode::Windowed, width: 1280, height: 800, keymap: Keymap::default() }
+        Settings { mode: WindowMode::Windowed, width: 1280, height: 800, theme: "built-in".into(), aou_mod: String::new(), keymap: Keymap::default() }
     }
 }
 
@@ -352,7 +357,9 @@ impl Settings {
     /// The settings text: the window options, then every action's keys.
     pub fn to_text(&self) -> String {
         let mut out = String::from("; Modern Anarchy Online settings\n[window]\n; windowed | borderless | fullscreen (F11 / Alt+Enter change it while playing)\n");
-        out += &format!("mode = {}\nwidth = {}\nheight = {}\n\n[keys]\n; one or more keys per action, separated by commas; Shift+, Ctrl+ and Alt+ combine\n", self.mode.name(), self.width, self.height);
+        out += &format!("mode = {}\nwidth = {}\nheight = {}\n\n", self.mode.name(), self.width, self.height);
+        out += &format!("[interface]\n; built-in | original | aou_translucent | aou_cyt | aou_slim_cni | aou_slim_cnt | a folder with GUIColors.xml\ntheme = {}\n; the AOU mod's folder (the one with Gui in it), for its themes\naou_mod = {}\n\n", self.theme, self.aou_mod);
+        out += "[keys]\n; one or more keys per action, separated by commas; Shift+, Ctrl+ and Alt+ combine\n";
         for &(action, name, _) in ACTIONS {
             out += &format!("{name} = {}\n", self.keymap.keys(action));
         }
@@ -384,6 +391,8 @@ impl Settings {
                 },
                 ("window", "width") => settings.width = value.parse().unwrap_or(settings.width).clamp(320, 16384),
                 ("window", "height") => settings.height = value.parse().unwrap_or(settings.height).clamp(240, 16384),
+                ("interface", "theme") => settings.theme = value.to_string(),
+                ("interface", "aou_mod") => settings.aou_mod = value.to_string(),
                 ("keys", name) => match ACTIONS.iter().find(|(_, n, _)| *n == name) {
                     Some(&(action, _, _)) => {
                         let bad: Vec<&str> = value.split(',').map(str::trim).filter(|k| !k.is_empty() && parse_binding(k).is_none()).collect();
@@ -501,7 +510,9 @@ mod tests {
         for &(action, _, _) in ACTIONS {
             assert_eq!(again.keymap.keys(action), defaults.keymap.keys(action));
         }
-        let custom = Settings::from_text("[window]\nmode = Borderless ; fine\nwidth = 1920\n[keys]\nforward = Up\njump = Ctrl+Space\n");
+        let custom = Settings::from_text("[window]\nmode = Borderless ; fine\nwidth = 1920\n[interface]\ntheme = aou_cyt\naou_mod = C:/mods/aou\n[keys]\nforward = Up\njump = Ctrl+Space\n");
+        assert_eq!((custom.theme.as_str(), custom.aou_mod.as_str()), ("aou_cyt", "C:/mods/aou"));
+        assert_eq!(Settings::from_text(&custom.to_text()).theme, "aou_cyt");
         assert_eq!(custom.mode, WindowMode::Borderless);
         assert_eq!(custom.width, 1920);
         assert_eq!(custom.keymap.action(KeyCode::KeyW, ModifiersState::empty()), None);

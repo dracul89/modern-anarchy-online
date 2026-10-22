@@ -16,6 +16,7 @@
 mod anim;
 mod net;
 mod settings;
+mod theme;
 mod ui;
 mod whompah;
 pub(crate) mod viewer;
@@ -247,6 +248,7 @@ fn run(args: &[String]) -> Result<(), String> {
             let textures = Textures { db: db.clone() };
             // MAO_UI_PREVIEW=1 (or `options`) paints the interface over the image.
             let preview = std::env::var("MAO_UI_PREVIEW").ok();
+            theme::set_game_dir(game);
             return match rest {
                 [flag, out] if flag == "--image" && preview.is_some() => {
                     let names: std::collections::HashMap<u32, String> = mao_formats::playfield::all(&db).into_iter().map(|p| (p.number, p.name.trim().to_string())).collect();

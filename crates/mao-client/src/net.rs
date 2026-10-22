@@ -477,6 +477,7 @@ pub(crate) fn booth_labels(playfield: u32, booths: &[[f32; 3]], destinations: &c
 /// The window with the world updating in it: a thread reads the game
 /// server and sends the entities' markers over.
 fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World) -> Result<(), String> {
+    crate::theme::set_game_dir(game);
     let db = Arc::new(ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?);
     let Area { scene, terrain, collision, booths } = load_area(game, &db, playfield)?;
     let (mut terrain, mut collision) = (terrain, collision);
