@@ -342,7 +342,8 @@ struct Area {
 }
 
 fn load_area(game: &str, db: &Arc<ResourceDatabase>, playfield: u32) -> Result<Area, String> {
-    let mut scene = crate::load_terrain(db, playfield)?;
+    // An interior has no ground at all (only props).
+    let mut scene = crate::load_terrain(db, playfield).unwrap_or_default();
     let terrain = crate::load_terrain_data(db, playfield).ok();
     let ground_parts = scene.parts.len();
     let part_mesh = crate::add_props(game, db, playfield, &mut scene);

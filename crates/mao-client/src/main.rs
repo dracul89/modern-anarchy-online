@@ -206,7 +206,7 @@ fn run(args: &[String]) -> Result<(), String> {
         if word == "map" {
             let db = Arc::new(ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?);
             let number = find_playfield(&db, playfield)?;
-            let mut model = load_terrain(&db, number)?;
+            let mut model = load_terrain(&db, number).unwrap_or_default();
             if std::env::var_os("MAO_NO_PROPS").is_none() {
                 add_props(game, &db, number, &mut model);
             }

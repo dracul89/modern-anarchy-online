@@ -277,13 +277,17 @@ fn cloth_list(rest: &[u8]) -> Vec<(String, u32)> {
 impl Message {
     /// The playfield announced by a [`PLAYFIELD`] message and where the
     /// character arrives in it: after the identity, a zero word, a flags
-    /// byte and the position (three floats).
+    /// byte, the position (three floats) and a playfield proxy (`'a'` and six
+    /// words). The playfield to draw is the proxy's second word: for an
+    /// ordinary playfield the same as the identity's instance, for an
+    /// instanced one (a shop interior) the template the instance is of.
     pub fn arrival(&self) -> Option<(u32, [f32; 3])> {
         if self.kind != PLAYFIELD || self.data.len() < 17 {
             return None;
         }
         let f = |at: usize| f32::from_be_bytes(self.data[at..at + 4].try_into().unwrap());
-        Some((self.identity.1, [f(5), f(9), f(13)]))
+        let template = (self.data.len() >= 26 && self.data[17] == b'a').then(|| u32::from_be_bytes(self.data[22..26].try_into().unwrap())).filter(|&t| t != 0);
+        Some((template.unwrap_or(self.identity.1), [f(5), f(9), f(13)]))
     }
 
     pub fn entity_info(&self) -> Option<EntityInfo> {
@@ -378,5 +382,25 @@ mod zoning_tests {
         let (playfield, at) = m.arrival().unwrap();
         assert_eq!(playfield, 545);
         assert!((at[0] - 703.5).abs() < 0.01 && (at[1] - 10.007).abs() < 0.01 && (at[2] - 424.76).abs() < 0.01);
+    }
+}
+
+#[cfg(test)]
+mod instance_tests {
+    use super::*;
+
+    /// A shop interior: an instance (0x20d8c4) of playfield 0x1260.
+    #[test]
+    fn instanced_playfield_uses_its_template() {
+        let mut data = vec![0u8, 0, 0, 0, 4];
+        for v in [192.2f32, 9.06, 153.99] {
+            data.extend_from_slice(&v.to_be_bytes());
+        }
+        data.push(b'a');
+        for w in [0xc79eu32, 0x1260, 0, 0xc02b021c, 0x9c50, 0x20d8c4] {
+            data.extend_from_slice(&w.to_be_bytes());
+        }
+        let m = Message { kind: PLAYFIELD, identity: (0x9c50, 0x20d8c4), data };
+        assert_eq!(m.arrival().unwrap().0, 0x1260);
     }
 }
