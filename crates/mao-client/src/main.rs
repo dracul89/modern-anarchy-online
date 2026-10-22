@@ -65,7 +65,7 @@ impl Textures {
         let object = self.db.get(Id { kind, instance }).ok()??;
         match kind {
             0xf6956 | 0xf6965 | 0xf6966 => texture::decode_ground(&object).ok(),
-            _ => texture::decode(&object).ok(),
+            _ => texture::decode(&object).ok().map(skin_tint),
         }
     }
 }
@@ -76,6 +76,21 @@ fn load_cat(db: &ResourceDatabase, id: Id) -> Result<Model, String> {
     let cat = mao_formats::catmesh::parse(&object).map_err(|e| e.to_string())?;
     eprintln!("{:?}: {} parts, {} bones", cat.name, cat.groups.iter().map(|g| g.lists.len()).sum::<usize>(), cat.bones.len());
     Ok(cat.rest_model(0xf6954))
+}
+
+/// The game paints a character's skin colour into the pure-green areas of
+/// its textures at runtime; until that colour is known, they get a plain tan.
+fn skin_tint(mut t: Texture) -> Texture {
+    const SKIN: [u8; 3] = [214, 164, 128];
+    for p in t.rgba.chunks_exact_mut(4) {
+        if p[0] < 70 && p[1] > 190 && p[2] < 70 {
+            let shade = p[1] as f32 / 255.0;
+            p[0] = (SKIN[0] as f32 * shade) as u8;
+            p[1] = (SKIN[1] as f32 * shade) as u8;
+            p[2] = (SKIN[2] as f32 * shade) as u8;
+        }
+    }
+    t
 }
 
 pub(crate) fn load_model(db: &ResourceDatabase, id: Id) -> Result<Model, String> {

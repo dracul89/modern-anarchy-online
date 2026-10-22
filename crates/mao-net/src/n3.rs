@@ -172,6 +172,9 @@ pub struct EntityInfo {
     /// instance (type 0xf6954). Found by scanning for the vector's marker,
     /// not by decoding the fields before it.
     pub textures: Vec<(String, u32)>,
+    /// The worn clothes: body part name and the texture's instance (types
+    /// 0xf6954, 0xf6960, 0xf6961 share instances). Found like `textures`.
+    pub clothes: Vec<(String, u32)>,
 }
 
 impl EntityInfo {
@@ -221,6 +224,51 @@ fn texture_overrides(rest: &[u8]) -> Vec<(String, u32)> {
     Vec::new()
 }
 
+/// The body parts a cloth record's slot indexes (`ClothData_t::GetName`).
+const CLOTH_PARTS: [&str; 6] = ["hands", "body", "feet", "arms", "legs", "head"];
+
+/// The cloth list in the rest of an entity message: the same counted-vector
+/// marker as the textures, then a record per slot 0, 1, 2...: an `i32` id (the
+/// slot; its high 16 bits above 0 mean two more `i32`s follow the record), the
+/// texture's instance and a second number. Slot 0 and above with a nonzero
+/// instance are kept.
+fn cloth_list(rest: &[u8]) -> Vec<(String, u32)> {
+    let int = |at: usize| rest.get(at..at + 4).map(|b| i32::from_be_bytes(b.try_into().unwrap()));
+    for start in 0..rest.len().saturating_sub(16) {
+        let Some(marker) = int(start) else { break };
+        if marker <= 0 || marker % 0x3f1 != 0 || !(2..=7).contains(&(marker / 0x3f1)) {
+            continue;
+        }
+        let count = (marker / 0x3f1 - 1) as usize;
+        let mut at = start + 4;
+        let mut out = Vec::new();
+        let mut valid = true;
+        for slot in 0..count {
+            let (Some(packed), Some(instance), Some(_)) = (int(at), int(at + 4), int(at + 8)) else {
+                valid = false;
+                break;
+            };
+            if packed & 0xffff != slot as i32 {
+                valid = false;
+                break;
+            }
+            at += 12;
+            if (packed >> 16) > 0 {
+                at += 8;
+            }
+            if instance > 0 {
+                if let Some(part) = CLOTH_PARTS.get(slot) {
+                    out.push((part.to_string(), instance as u32));
+                }
+            }
+        }
+        if valid && !out.is_empty() {
+            return out;
+        }
+    }
+    Vec::new()
+}
+
 impl Message {
     pub fn entity_info(&self) -> Option<EntityInfo> {
         if self.kind != ENTITY_INFO {
@@ -254,8 +302,10 @@ impl Message {
         let flags2 = u32_at(&mut at)?;
         u32_at(&mut at)?;
         let model = if flags & 1 == 0 { u32_at(&mut at) } else { None };
-        let textures = if flags & 0x10 != 0 { texture_overrides(&d[at.min(d.len())..]) } else { Vec::new() };
-        Some(EntityInfo { version, flags, playfield, position, rotation, breed, sex, name, flags2, unknown_a0: model, textures })
+        let tail = &d[at.min(d.len())..];
+        let textures = if flags & 0x10 != 0 { texture_overrides(tail) } else { Vec::new() };
+        let clothes = cloth_list(tail);
+        Some(EntityInfo { version, flags, playfield, position, rotation, breed, sex, name, flags2, unknown_a0: model, textures, clothes })
     }
 }
 

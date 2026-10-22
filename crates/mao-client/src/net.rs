@@ -99,7 +99,7 @@ impl World {
             println!("  {kind:#010x} x{n}");
         }
         for (id, i) in &self.infos {
-            println!("  info {id:>10} {:<18} flags {:#010x} flags2 {:#010x} breed {} sex {} a0 {:?}", i.name, i.flags, i.flags2, i.breed, i.sex, i.unknown_a0);
+            println!("  info {id:>10} {:<18} flags {:#010x} flags2 {:#010x} breed {} sex {} a0 {:?} textures {} clothes {:?}", i.name, i.flags, i.flags2, i.breed, i.sex, i.unknown_a0, i.textures.len(), i.clothes);
         }
         println!("{} entities with positions:", self.entities.len());
         for (id, (p, _)) in &self.entities {
@@ -167,7 +167,7 @@ impl Characters {
 
     /// The parts of a player of this breed and sex at `t` ms into the walk,
     /// in Y-up local space (world matrices identity), if its meshes exist.
-    fn parts(&mut self, breed: u8, sex: u8, action: mao_formats::appearance::Action, phase: f32, textures: &[(String, u32)]) -> Option<Vec<Part>> {
+    fn parts(&mut self, breed: u8, sex: u8, action: mao_formats::appearance::Action, phase: f32, textures: &[(String, u32)], clothes: &[(String, u32)]) -> Option<Vec<Part>> {
         use mao_formats::resource::Id;
         let db = self.db.clone();
         let index = &self.index;
@@ -192,7 +192,9 @@ impl Characters {
         let mut model = body.skinned_model(&bones, 0xf6954);
         // The character's own textures (its clothes) replace the mesh's by material name.
         for part in &mut model.parts {
-            if let Some((_, instance)) = textures.iter().find(|(n, i)| *i != 0 && n.eq_ignore_ascii_case(&part.material.name)) {
+            // Worn clothes win over the base textures.
+            let wanted = clothes.iter().chain(textures.iter()).find(|(n, i)| *i != 0 && n.eq_ignore_ascii_case(&part.material.name));
+            if let Some((_, instance)) = wanted {
                 part.material.textures = vec![(0xf6954, *instance)];
             }
         }
@@ -222,7 +224,7 @@ fn overlay_model(world: &World, characters: &mut Option<Characters>) -> Model {
             let speed = world.speeds.get(&id).copied().unwrap_or(0.0);
             let action = if !moving { mao_formats::appearance::Action::Idle } else if speed > 5.5 { mao_formats::appearance::Action::Run } else { mao_formats::appearance::Action::Walk };
             // (A phase per entity keeps a crowd from moving in step.)
-            if let Some(parts) = chars.parts(info.breed, info.sex, action, (id % 997) as f32 * 3.0, &info.textures) {
+            if let Some(parts) = chars.parts(info.breed, info.sex, action, (id % 997) as f32 * 3.0, &info.textures, &info.clothes) {
                 let base = model.parts.len();
                 for (k, p) in parts.into_iter().enumerate() {
                     model.parts.push(p);
