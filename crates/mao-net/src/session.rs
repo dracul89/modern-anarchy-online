@@ -125,10 +125,12 @@ pub fn login_character(connection: &mut Connection, id: u32) -> Result<system::T
 }
 
 /// Enter the world on the game server named in the ticket. The connection
-/// is returned with the first messages still to read.
+/// is returned with the first messages still to read. The caller sends
+/// [`crate::n3::ready`] once the world has arrived, as the original does
+/// after loading: the server ignores a ready that comes earlier, and then
+/// accepts no movement.
 pub fn enter_world(ticket: &system::Ticket) -> Result<Connection, Error> {
     let mut connection = Connection::connect(ticket.host().as_str())?;
     connection.send(&system::enter_game_server(ticket))?;
-    connection.send(&crate::n3::ready(ticket.id))?;
     Ok(connection)
 }

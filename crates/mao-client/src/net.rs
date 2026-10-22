@@ -473,6 +473,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             Err(e) => return Err(e.to_string()),
         }
     }
+    // The world has loaded: now the server may move us.
+    connection.send(&n3::ready(state.own)).map_err(|e| e.to_string())?;
     let focus = state.entities.get(&state.own).map(|&([x, y, z], _)| [x, z, y]);
     let mut characters = Characters::new(db.clone()).ok();
     let (tx, rx) = std::sync::mpsc::channel();
@@ -712,6 +714,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
             }
             Ok(())
         }
+        [game, word, who, x, z, rest @ ..] if word == "walk" => walk(game, who, x.parse().map_err(|_| "bad x")?, z.parse().map_err(|_| "bad z")?, rest.first().and_then(|s| s.parse().ok()).unwrap_or(90)),
         [word, log] if word == "parse-capture" => parse_capture(log),
         [game, word, log, rest @ ..] if word == "capture-map" => {
             let world = parse_capture_world(log)?;
@@ -719,6 +722,138 @@ pub fn run(args: &[String]) -> Result<(), String> {
         }
         _ => Err("usage: mao-client net <game dir> chars | net <game dir> enter <name or id> [seconds] | net parse-capture <capture.log> | net <game dir> capture-map <capture.log> [out.png]".into()),
     }
+}
+
+/// `net <game> walk <name> <x> <z> [seconds]`: log in, walk in a straight
+/// line to (x, z) the way the live window reports it, and say what the server
+/// does (zoning, redirects). No window and no collision: a way to test
+/// zone lines against the live server.
+fn walk(game: &str, who: &str, target_x: f32, target_z: f32, seconds: u64) -> Result<(), String> {
+    use mao_net::n3::movement;
+    let (mut chat, list) = login(game)?;
+    let character = list.iter().find(|c| c.name.eq_ignore_ascii_case(who) || c.id.to_string() == who).ok_or_else(|| format!("no character {who:?} on the account"))?;
+    let own = character.id;
+    let ticket = session::login_character(&mut chat, own).map_err(|e| e.to_string())?;
+    let mut connection = session::enter_world(&ticket).map_err(|e| e.to_string())?;
+    connection.set_timeout(Duration::from_millis(50)).map_err(|e| e.to_string())?;
+    let mut state = World { own, ..World::default() };
+    let clock = Instant::now();
+    let until = Instant::now() + Duration::from_secs(4);
+    while Instant::now() < until && !state.entities.contains_key(&own) {
+        match connection.receive() {
+            Ok(frame) => state.add(&frame),
+            Err(session::Error::Io(e)) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => {}
+            Err(e) => return Err(e.to_string()),
+        }
+    }
+    let mut position = state.entities.get(&own).map(|e| e.0).ok_or("the character's position never arrived")?;
+    state.arrival = None;
+    connection.send(&n3::ready(own)).map_err(|e| e.to_string())?;
+    std::thread::sleep(Duration::from_millis(std::env::var("MAO_WALK_DELAY").ok().and_then(|v| v.parse().ok()).unwrap_or(600)));
+    let mut playfield = character.proxy[1];
+    eprintln!("start at ({:.1}, {:.1}, {:.1}) in playfield {playfield}; walking to ({target_x}, {target_z})", position[0], position[1], position[2]);
+    let (dx, dz) = (target_x - position[0], target_z - position[2]);
+    let heading = dx.atan2(dz);
+    // Heights follow the ground model, offset as the live window does.
+    let db = Arc::new(ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?);
+    let area = load_area(game, &db, playfield)?;
+    let (terrain, collision) = (area.terrain, area.collision);
+    let mut base = position[1];
+    let ground = |p: [f32; 3]| terrain.as_ref().map_or(0.0, |t| t.height_at(p[0], p[2], crate::HEIGHT_SCALE));
+    let offset = position[1] - ground(position);
+    let mut since = clock;
+    let mut send = |connection: &mut Connection, kind: u8, position: [f32; 3], since: &mut Instant| -> Result<(), String> {
+        let ms = since.elapsed().as_millis().min(u32::MAX as u128) as u32;
+        *since = Instant::now();
+        let frame = n3::position_update(own, kind, heading, position, ms);
+        if std::env::var("MAO_TRACE").is_ok() {
+            eprintln!("  sent {}", frame.body.iter().map(|b| format!("{b:02x}")).collect::<String>());
+        }
+        connection.send(&frame).map_err(|e| e.to_string())
+    };
+    if std::env::var("MAO_WALK_NOHEAD").is_err() {
+        send(&mut connection, movement::HEADING, position, &mut since)?;
+    }
+    send(&mut connection, movement::FORWARD_START, position, &mut since)?;
+    let (mut last_tick, mut last_send, mut walking) = (Instant::now(), Instant::now(), true);
+    let mut last_report = Instant::now();
+    let end = Instant::now() + Duration::from_secs(seconds);
+    while Instant::now() < end {
+        match connection.receive() {
+            Ok(frame) => {
+                if let Some(reply) = frame::ping_reply(&frame, own, 70_000_000 + clock.elapsed().as_millis() as u32) {
+                    connection.send(&reply).map_err(|e| e.to_string())?;
+                }
+                if let Some(target) = system::redirect(&frame) {
+                    eprintln!("[{:6.1}] the server redirects us to {target}", clock.elapsed().as_secs_f32());
+                    return Ok(());
+                }
+                trace(&frame, clock);
+                if let Some(m) = Message::parse(&frame).filter(|m| m.kind == n3::POSITION_UPDATE && m.identity.1 == own) {
+                    eprintln!("[{:6.1}] server says WE are at {:?}", clock.elapsed().as_secs_f32(), m.movement().map(|x| (x.0, x.2)));
+                    if std::env::var("MAO_TRACE").is_ok() {
+                        eprintln!("  echo {}", frame.body.iter().map(|b| format!("{b:02x}")).collect::<String>());
+                    }
+                }
+                state.add(&frame);
+                if let Some((pf, at)) = state.arrival.take() {
+                    eprintln!("[{:6.1}] ZONED to playfield {pf}, arrival ({:.1}, {:.1}, {:.1}) (from {playfield} at ({:.1}, {:.1}))", clock.elapsed().as_secs_f32(), at[0], at[1], at[2], position[0], position[2]);
+                    playfield = pf;
+                    return Ok(());
+                }
+            }
+            Err(session::Error::Io(e)) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => {}
+            Err(e) => return Err(format!("connection ended: {e}")),
+        }
+        let dt = last_tick.elapsed().as_secs_f32();
+        last_tick = Instant::now();
+        if walking {
+            let (rx, rz) = (target_x - position[0], target_z - position[2]);
+            let left = (rx * rx + rz * rz).sqrt();
+            let step = std::env::var("MAO_WALK_SPEED").ok().and_then(|v| v.parse::<f32>().ok()).unwrap_or(7.5) * dt;
+            if left <= step {
+                (position[0], position[2]) = (target_x, target_z);
+                walking = false;
+                if std::env::var("MAO_WALK_STEP").is_ok() {
+                    // As the original at a door: stop just short, start again from there, stop at the spot.
+                    let mut short = position;
+                    short[0] -= heading.sin() * 1.1;
+                    short[2] -= heading.cos() * 1.1;
+                    send(&mut connection, movement::FORWARD_STOP, short, &mut since)?;
+                    send(&mut connection, movement::FORWARD_START, short, &mut since)?;
+                    std::thread::sleep(Duration::from_millis(440));
+                }
+                if std::env::var("MAO_WALK_JUMP").is_ok() {
+                    // As the original: a jump at the spot, the apex height 2.78 above.
+                    let mut apex = position;
+                    apex[1] += 2.78;
+                    send(&mut connection, movement::JUMP, apex, &mut since)?;
+                    eprintln!("[{:6.1}] jumped at ({:.1}, {:.2}, {:.1})", clock.elapsed().as_secs_f32(), apex[0], apex[1], apex[2]);
+                }
+                send(&mut connection, movement::FORWARD_STOP, position, &mut since)?;
+                eprintln!("[{:6.1}] arrived at ({target_x}, {:.1}, {target_z}); waiting for the server", clock.elapsed().as_secs_f32(), position[1]);
+            } else {
+                position[0] += rx / left * step;
+                position[2] += rz / left * step;
+                let floor = collision.floor(position[0], position[2], base, 0.6, 0.6).unwrap_or(f32::MIN);
+                base = (ground(position) + offset).max(floor);
+                position[1] = base;
+                if let Some(y) = std::env::var("MAO_WALK_Y").ok().and_then(|v| v.parse::<f32>().ok()) {
+                    position[1] = y;
+                }
+                if last_send.elapsed() >= Duration::from_millis(400) {
+                    last_send = Instant::now();
+                    send(&mut connection, movement::UPDATE, position, &mut since)?;
+                }
+            }
+            if last_report.elapsed() >= Duration::from_secs(5) {
+                last_report = Instant::now();
+                eprintln!("[{:6.1}] at ({:.1}, {:.1}, {:.1})", clock.elapsed().as_secs_f32(), position[0], position[1], position[2]);
+            }
+        }
+    }
+    eprintln!("no zone within {seconds} s; ended at ({:.1}, {:.1})", position[0], position[2]);
+    Ok(())
 }
 
 /// The server's side of a `tools/capture_proxy.py` log: its messages, the
