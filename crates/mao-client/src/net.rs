@@ -723,6 +723,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
             }
             Ok(())
         }
+        [game, word, who, rest @ ..] if word == "attack" => fight(game, who, rest.first().and_then(|s| s.parse().ok()).unwrap_or(40), rest.get(1..).unwrap_or(&[]).chunks_exact(2).filter_map(|c| Some((c[0].parse().ok()?, c[1].parse().ok()?))).collect()),
         [game, word, who, target] if word == "hop" => {
             // Log the character in at a redirect's address and say where the world puts it.
             let (_, list) = login(game)?;
@@ -752,6 +753,150 @@ pub fn run(args: &[String]) -> Result<(), String> {
         }
         _ => Err("usage: mao-client net <game dir> chars | net <game dir> enter <name or id> [seconds] | net parse-capture <capture.log> | net <game dir> capture-map <capture.log> [out.png]".into()),
     }
+}
+
+/// `net <game> attack <name> [seconds]`: log in, find the nearest creature,
+/// walk up to it, attack it as the original does (select, target, attack)
+/// and print the combat the server reports.
+fn fight(game: &str, who: &str, seconds: u64, waypoints: Vec<(f32, f32)>) -> Result<(), String> {
+    use mao_net::n3::movement;
+    let (mut chat, list) = login(game)?;
+    let character = list.iter().find(|c| c.name.eq_ignore_ascii_case(who) || c.id.to_string() == who).ok_or_else(|| format!("no character {who:?} on the account"))?;
+    let own = character.id;
+    let ticket = session::login_character(&mut chat, own).map_err(|e| e.to_string())?;
+    let mut connection = session::enter_world(&ticket).map_err(|e| e.to_string())?;
+    connection.set_timeout(Duration::from_millis(50)).map_err(|e| e.to_string())?;
+    let mut state = World { own, ..World::default() };
+    let clock = Instant::now();
+    let pump = |connection: &mut Connection, state: &mut World, millis: u64, print: bool| -> Result<(), String> {
+        let until = Instant::now() + Duration::from_millis(millis);
+        while Instant::now() < until {
+            match connection.receive() {
+                Ok(frame) => {
+                    if let Some(reply) = frame::ping_reply(&frame, own, 70_000_000 + clock.elapsed().as_millis() as u32) {
+                        connection.send(&reply).map_err(|e| e.to_string())?;
+                    }
+                    if print {
+                        if let Some(m) = Message::parse(&frame) {
+                            if !matches!(m.kind, 0x54111123 | 0x2b333d6e | 0x271b3a6b | 0x3b1d2268 | 0x36510078 | 0x4c7d403b | 0x3b11256f | 0x465a5d73 | 0x260f3671 | 0x195e496e | 0x7f544905) {
+                                let head: String = m.data.iter().take(40).map(|b| format!("{b:02x}")).collect();
+                                eprintln!("[{:6.1}] {:08x} from {:x}:{:x} {head}", clock.elapsed().as_secs_f32(), m.kind, m.identity.0, m.identity.1);
+                            }
+                        }
+                    }
+                    state.add(&frame);
+                }
+                Err(session::Error::Io(e)) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => {}
+                Err(e) => return Err(e.to_string()),
+            }
+        }
+        Ok(())
+    };
+    let until = Instant::now() + Duration::from_secs(4);
+    while Instant::now() < until && !state.entities.contains_key(&own) {
+        pump(&mut connection, &mut state, 100, false)?;
+    }
+    connection.send(&n3::ready(own)).map_err(|e| e.to_string())?;
+    connection.send(&n3::action(own, n3::STAND)).map_err(|e| e.to_string())?;
+    pump(&mut connection, &mut state, 1500, false)?;
+    let mut position = state.entities.get(&own).map(|e| e.0).ok_or("the character's position never arrived")?;
+    let friendly = |name: &str| ["Vanguard", "Watcher", "Commander", "Guard", "Merchant", "Trader", "Recruiter", "Helper"].iter().any(|w| name.contains(w));
+    let dist = |a: [f32; 3], b: [f32; 3]| ((a[0] - b[0]).powi(2) + (a[2] - b[2]).powi(2)).sqrt();
+    let hostile_near = |state: &World, position: [f32; 3]| state.infos.iter().any(|(id, i)| *id != own && !i.is_player() && !friendly(&i.name) && state.entities.get(id).is_some_and(|e| dist(position, e.0) < 60.0));
+    for (gx, gz) in waypoints {
+        if hostile_near(&state, position) {
+            break;
+        }
+        // Walk to the next waypoint first (straight, at the starting height).
+        eprintln!("walking to ({gx}, {gz})");
+        let heading = (gx - position[0]).atan2(gz - position[2]);
+        let mut since = clock;
+        let mut last_tick = Instant::now();
+        let mut last_send = Instant::now();
+        let ms = |since: &mut Instant| {
+            let m = since.elapsed().as_millis().min(u32::MAX as u128) as u32;
+            *since = Instant::now();
+            m
+        };
+        connection.send(&n3::position_update(own, movement::FORWARD_START, heading, position, ms(&mut since))).map_err(|e| e.to_string())?;
+        loop {
+            pump(&mut connection, &mut state, 50, false)?;
+            let (dx, dz) = (gx - position[0], gz - position[2]);
+            let left = (dx * dx + dz * dz).sqrt();
+            let dt = last_tick.elapsed().as_secs_f32();
+            last_tick = Instant::now();
+            if left <= 1.0 {
+                connection.send(&n3::position_update(own, movement::FORWARD_STOP, heading, position, ms(&mut since))).map_err(|e| e.to_string())?;
+                break;
+            }
+            let step = (7.5 * dt).min(left);
+            position[0] += dx / left * step;
+            position[2] += dz / left * step;
+            if last_send.elapsed() >= Duration::from_millis(400) {
+                last_send = Instant::now();
+                connection.send(&n3::position_update(own, movement::UPDATE, heading, position, ms(&mut since))).map_err(|e| e.to_string())?;
+            }
+        }
+        pump(&mut connection, &mut state, 2500, false)?;
+        let mut seen: Vec<String> = state.infos.iter().filter(|(id, i)| **id != own && !i.is_player()).filter_map(|(id, i)| Some(format!("{} ({:.0})", i.name, dist(position, state.entities.get(id)?.0)))).collect();
+        seen.sort();
+        eprintln!("  at ({:.0}, {:.0}): {} creatures: {}", position[0], position[2], seen.len(), seen.join(", "));
+    }
+    // The hostile creatures in view, nearest first.
+    let mut mobs: Vec<(f32, u32, String)> = state.infos.iter().filter(|(id, i)| **id != own && !i.is_player() && !friendly(&i.name) && state.entities.contains_key(id)).map(|(id, i)| (dist(position, state.entities[id].0), *id, i.name.clone())).collect();
+    mobs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+    eprintln!("at ({:.1}, {:.1}, {:.1}); creatures in view:", position[0], position[1], position[2]);
+    for (d, id, name) in mobs.iter().take(8) {
+        eprintln!("  {d:7.1} {id:>10} {name}");
+    }
+    let Some(&(_, target, ref name)) = mobs.first() else { return Err("no creature in view".into()) };
+    eprintln!("going for {name} ({target})");
+    let mut since = clock;
+    let mut send = |connection: &mut Connection, kind: u8, heading: f32, position: [f32; 3], since: &mut Instant| -> Result<(), String> {
+        let ms = since.elapsed().as_millis().min(u32::MAX as u128) as u32;
+        *since = Instant::now();
+        connection.send(&n3::position_update(own, kind, heading, position, ms)).map_err(|e| e.to_string())
+    };
+    let (mut last_tick, mut last_send, mut started) = (Instant::now(), Instant::now(), false);
+    let give_up = Instant::now() + Duration::from_secs(60);
+    loop {
+        pump(&mut connection, &mut state, 50, false)?;
+        let goal = state.entities.get(&target).map(|e| e.0).ok_or("the creature went out of view")?;
+        let (dx, dz) = (goal[0] - position[0], goal[2] - position[2]);
+        let left = (dx * dx + dz * dz).sqrt();
+        let heading = dx.atan2(dz);
+        if left <= 2.5 {
+            if started {
+                send(&mut connection, movement::FORWARD_STOP, heading, position, &mut since)?;
+            }
+            break;
+        }
+        if Instant::now() > give_up {
+            return Err("could not reach the creature".into());
+        }
+        let dt = last_tick.elapsed().as_secs_f32();
+        last_tick = Instant::now();
+        if !started {
+            started = true;
+            send(&mut connection, movement::FORWARD_START, heading, position, &mut since)?;
+        }
+        let step = (7.5 * dt).min(left);
+        position[0] += dx / left * step;
+        position[2] += dz / left * step;
+        position[1] = goal[1];
+        if last_send.elapsed() >= Duration::from_millis(400) {
+            last_send = Instant::now();
+            send(&mut connection, movement::UPDATE, heading, position, &mut since)?;
+        }
+    }
+    eprintln!("[{:6.1}] next to it; attacking", clock.elapsed().as_secs_f32());
+    connection.send(&n3::select_target(own, target)).map_err(|e| e.to_string())?;
+    connection.send(&n3::set_target(own, target)).map_err(|e| e.to_string())?;
+    connection.send(&n3::attack(own, target)).map_err(|e| e.to_string())?;
+    pump(&mut connection, &mut state, seconds * 1000, true)?;
+    connection.send(&n3::set_target(own, 0)).map_err(|e| e.to_string())?;
+    eprintln!("[{:6.1}] done", clock.elapsed().as_secs_f32());
+    Ok(())
 }
 
 /// `net <game> walk <name> <x> <z> [seconds]`: log in, walk in a straight

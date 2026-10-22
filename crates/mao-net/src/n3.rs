@@ -117,6 +117,35 @@ pub fn action(character: u32, code: u8) -> Frame {
     Message { kind: 0x5e477770, identity: (CHARACTER, character), data }.frame(character)
 }
 
+/// Select a target (an `0x69` action naming it): the server answers with its
+/// name and level (`4d38242e`).
+pub fn select_target(character: u32, target: u32) -> Frame {
+    let mut data = vec![0u8; 27];
+    data[4] = 0x69;
+    data[9..13].copy_from_slice(&CHARACTER.to_be_bytes());
+    data[13..17].copy_from_slice(&target.to_be_bytes());
+    Message { kind: 0x5e477770, identity: (CHARACTER, character), data }.frame(character)
+}
+
+/// `2252445f`: make `target` the current target (0 clears it).
+pub fn set_target(character: u32, target: u32) -> Frame {
+    let mut data = vec![0u8; 13];
+    if target != 0 {
+        data[1..5].copy_from_slice(&CHARACTER.to_be_bytes());
+        data[5..9].copy_from_slice(&target.to_be_bytes());
+        data[12] = 1;
+    }
+    Message { kind: 0x2252445f, identity: (CHARACTER, character), data }.frame(character)
+}
+
+/// `28494070`: attack the target (the server's auto-attack then runs).
+pub fn attack(character: u32, target: u32) -> Frame {
+    let mut data = vec![0u8; 10];
+    data[1..5].copy_from_slice(&CHARACTER.to_be_bytes());
+    data[5..9].copy_from_slice(&target.to_be_bytes());
+    Message { kind: 0x28494070, identity: (CHARACTER, character), data }.frame(character)
+}
+
 /// The client's position update: `movement` type, the heading (radians
 /// about Y; 0 faces +z), the position, and the milliseconds since the last
 /// update.
@@ -136,6 +165,16 @@ mod tests {
     use super::*;
 
     /// The client's first update in the capture.
+    #[test]
+    fn combat_messages_match_the_capture() {
+        let hex = |s: &str| -> Vec<u8> { (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect() };
+        // Captured: select, target and attack a creature (7af69bd8) as character 0x4c2de.
+        assert_eq!(select_target(0x4c2de, 0x7af69bd8).body, hex("5e4777700000c350 0004c2de 0000000069000000000000c3507af69bd800000000000000000000".replace(' ', "").as_str()));
+        assert_eq!(set_target(0x4c2de, 0x7af69bd8).body, hex("2252445f0000c3500004c2de000000c3507af69bd800000001"));
+        assert_eq!(set_target(0x4c2de, 0).body, hex("2252445f0000c3500004c2de00000000000000000000000000"));
+        assert_eq!(attack(0x4c2de, 0x7af69bd8).body, hex("284940700000c3500004c2de000000c3507af69bd800"));
+    }
+
     #[test]
     fn update_matches_the_capture() {
         let hex = "541111230000c3500009210c010c000000003f741240000000003e9a782c43f6c8ec410028f643dfae6e00001ded0000000000000000";
