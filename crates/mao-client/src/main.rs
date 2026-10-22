@@ -138,11 +138,26 @@ pub(crate) fn add_props(game: &str, db: &ResourceDatabase, playfield: u32, model
     let ground = model.parts.len();
     model.instances.extend((0..ground).map(|i| (i, model::IDENTITY)));
     let mut placed = 0;
+    // The plants are found by their mesh's file name.
+    let plant_meshes: std::collections::HashSet<u32> = db
+        .get(Id { kind: 0xf424a, instance: 1 })
+        .ok()
+        .flatten()
+        .and_then(|o| mao_formats::instances::Instances::parse(&o).ok())
+        .map(|index| index.iter().filter(|&(kind, name, _)| kind == 0xf6951 && model::is_foliage_name(name)).map(|(_, _, instance)| instance).collect())
+        .unwrap_or_default();
+    let mut plants = 0usize;
     for s in &statels {
         let range = meshes
             .entry(s.mesh)
             .or_insert_with(|| {
-                let m = load_model(db, Id { kind: 0xf6951, instance: s.mesh }).ok()?;
+                let mut m = load_model(db, Id { kind: 0xf6951, instance: s.mesh }).ok()?;
+                if plant_meshes.contains(&s.mesh) {
+                    plants += 1;
+                    for part in &mut m.parts {
+                        part.material.foliage = true;
+                    }
+                }
                 let start = model.parts.len();
                 model.parts.extend(m.parts);
                 part_mesh.extend((start..model.parts.len()).map(|i| (i, s.mesh)));
@@ -154,7 +169,7 @@ pub(crate) fn add_props(game: &str, db: &ResourceDatabase, playfield: u32, model
         model.instances.extend(range.map(|i| (i, place)));
         placed += 1;
     }
-    eprintln!("{placed} of {} statels placed ({} meshes)", statels.len(), meshes.len());
+    eprintln!("{placed} of {} statels placed ({} meshes, {plants} of them plants)", statels.len(), meshes.len());
     part_mesh
 }
 

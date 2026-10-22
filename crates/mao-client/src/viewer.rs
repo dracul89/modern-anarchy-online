@@ -65,7 +65,13 @@ pub fn headless(model: &Model, textures: &Textures, out: &str) -> Result<(), Str
     let gpu = Gpu::headless()?;
     eprintln!("adapter: {:?}", gpu.adapter.get_info());
     let mut renderer = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8UnormSrgb);
-    let scene = renderer.upload(&gpu, model, &mut |k, i| textures.get(k, i));
+    let mut scene = renderer.upload(&gpu, model, &mut |k, i| textures.get(k, i));
+    // `MAO_PLAYER=x,y,z` (world, Z up) puts a player in the scene: plants near it bend away.
+    if let Some(v) = std::env::var("MAO_PLAYER").ok().map(|t| t.split(',').filter_map(|n| n.trim().parse::<f32>().ok()).collect::<Vec<_>>()) {
+        if let [x, y, z] = v[..] {
+            scene.player = Some(mao_render::glam::Vec3::new(x, y, z));
+        }
+    }
     let mut camera = Camera::fit(&scene);
     camera_override(&mut camera);
     let (w, h) = (960, 720);
@@ -136,7 +142,7 @@ pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<()
 impl ApplicationHandler for App {
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         if self.live.is_some() {
-            event_loop.set_control_flow(winit::event_loop::ControlFlow::WaitUntil(std::time::Instant::now() + std::time::Duration::from_millis(50)));
+            event_loop.set_control_flow(winit::event_loop::ControlFlow::WaitUntil(std::time::Instant::now() + std::time::Duration::from_millis(16)));
             if let Some(w) = &self.state {
                 w.window.request_redraw();
             }
@@ -157,7 +163,11 @@ impl ApplicationHandler for App {
         let config = surface.get_default_config(&gpu.adapter, size.width.max(1), size.height.max(1)).expect("a surface format");
         surface.configure(&gpu.device, &config);
         let renderer = Renderer::new(&gpu, config.format);
-        let scene = renderer.upload(&gpu, &self.model, &mut |k, i| self.textures.get(k, i));
+        let mut scene = renderer.upload(&gpu, &self.model, &mut |k, i| self.textures.get(k, i));
+        if self.live.is_some() {
+            // Close-up view: distance fades into the sky.
+            scene.fog = (250.0, 1800.0);
+        }
         let mut camera = Camera::fit(&scene);
         if let Some(([x, y, z], distance)) = self.live.as_ref().and_then(|l| l.focus.map(|f| (f, l.distance))) {
             camera = Camera { target: mao_render::glam::Vec3::new(x, y, z), distance, yaw: 0.6, pitch: 0.5 };
@@ -299,11 +309,14 @@ impl ApplicationHandler for App {
                     if let Some(update) = latest {
                         if let Some(model) = &update.scene {
                             w.scene = w.renderer.upload(&w.gpu, model, &mut |k, i| self.textures.get(k, i));
+                            w.scene.fog = (250.0, 1800.0);
                         }
                         let overlay = w.renderer.upload(&w.gpu, &update.model, &mut |k, i| self.textures.get(k, i));
                         w.scene.set_overlay(overlay);
                         if let Some([x, y, z]) = update.own {
                             w.camera.target = mao_render::glam::Vec3::new(x, z, y + 1.3);
+                            // The player's feet: plants bend away from them.
+                            w.scene.player = Some(mao_render::glam::Vec3::new(x, z, y));
                         }
                     }
                 }

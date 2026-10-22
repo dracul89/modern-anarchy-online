@@ -61,6 +61,35 @@ pub struct Material {
     /// Draw the texture opaque: its alpha channel isn't a cut-out mask (the
     /// character meshes' textures).
     pub ignore_alpha: bool,
+    /// Plants (trees, bushes, grass ...): the renderer sways them in the wind
+    /// and bends them away from the player.
+    pub foliage: bool,
+}
+
+/// Whether a mesh's file name is a plant. The name is split into words at
+/// anything but a letter, and a word counts when it ends (or, for a few, starts)
+/// with a plant: `tropical_palmtree01` and `Nascense_wierdtrees_01` are plants,
+/// `street_lights`, `Inferno_trophy` and `corner` are not.
+pub fn is_foliage_name(name: &str) -> bool {
+    const ENDS: &[&str] = &["tree", "trees", "bush", "bushes", "palm", "plant", "plants", "grass", "flower", "flowers", "shrub", "shrubs", "weed", "weeds", "vine", "vines", "cactus", "cacti", "fern", "ferns", "ivy", "wheat", "pine", "kelp", "seaweed"];
+    const STARTS: &[&str] = &["grass", "flower", "shrub", "palm", "cactus", "weed", "bush"];
+    let lower = name.to_ascii_lowercase();
+    lower.split(|c: char| !c.is_ascii_alphabetic()).filter(|w| w.len() >= 3).any(|w| ENDS.iter().any(|e| w.ends_with(e)) || STARTS.iter().any(|s| w.starts_with(s)))
+}
+
+#[cfg(test)]
+mod foliage_tests {
+    use super::is_foliage_name;
+
+    #[test]
+    fn plants_are_told_from_lookalikes() {
+        for plant in ["tropical_palmtree01.abiff", "Nascense_wierdtrees_01.abiff", "athens_grasspatch1.abiff", "Tir_fern2.abiff", "apt_plant01.abiff", "athens_cactus3.abiff", "hanging_ivy_dense.abiff", "enigma_bush1.abiff", "shadowlands_shrub0_new.abiff"] {
+            assert!(is_foliage_name(plant), "{plant}");
+        }
+        for other in ["adonis_street_lights.abiff", "Inferno_dragon_trophy.abiff", "acg_machinery_corner-in1.abiff", "Alien_breeding_room.abiff", "ai_cloaktower.abiff", "treepinehut.abiff", "weapon_xan_1hedged.abiff"] {
+            assert!(!is_foliage_name(other), "{other}");
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -200,6 +229,7 @@ fn material(a: &Archive, index: i32) -> Material {
         opacity: float_field(m, "opac").and_then(|v| v.first().copied()).unwrap_or(1.0),
         textures,
         ignore_alpha: false,
+        foliage: false,
     }
 }
 

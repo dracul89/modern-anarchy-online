@@ -411,7 +411,7 @@ impl CatMesh {
                         })
                         .collect(),
                     indices: triangles,
-                    material: ModelMaterial { name: m.name.clone(), diffuse: m.diffuse, specular: m.specular, ambient: m.ambient, emissive: m.emissive, opacity: 1.0, textures: instance.map(|i| vec![(texture_kind, i)]).unwrap_or_default(), ignore_alpha: true },
+                    material: ModelMaterial { name: m.name.clone(), diffuse: m.diffuse, specular: m.specular, ambient: m.ambient, emissive: m.emissive, opacity: 1.0, textures: instance.map(|i| vec![(texture_kind, i)]).unwrap_or_default(), ignore_alpha: true, foliage: false },
                 });
             }
         }
