@@ -44,14 +44,16 @@ fn login(game: &str) -> Result<(Connection, Vec<Character>), String> {
 }
 
 /// Follow a 0x3c redirect (entering a shop and the like): log in again at the
-/// server it names (the default one if that fails), ask for the same
+/// default server (the redirect's address if that fails), ask for the same
 /// character and enter the world there.
 fn hop(game: &str, target: &str, character: u32) -> Result<Connection, String> {
     let (user, password) = credentials()?;
     let version = version(game)?;
     let default = std::env::var("MAO_SERVER").unwrap_or_else(|_| session::RUBI_KA.to_string());
     let mut last = String::new();
-    for server in [target, default.as_str()] {
+    // (The address in a redirect is not a login server: it closes the connection. The normal
+    // login hands out a ticket for the right game server; the redirect address is the fallback.)
+    for server in [default.as_str(), target] {
         let attempt = (|| -> Result<Connection, String> {
             let mut chat = Connection::connect(server).map_err(|e| e.to_string())?;
             session::login(&mut chat, &user, &password, &version).map_err(|e| e.to_string())?;
@@ -718,6 +720,27 @@ pub fn run(args: &[String]) -> Result<(), String> {
             if let Some(i) = rest.iter().position(|a| a == "--show") {
                 let image = rest.get(i + 1).filter(|a| a.as_str() == "--image").and(rest.get(i + 2)).map(String::as_str);
                 return show_world(game, character.proxy[1], &state, image);
+            }
+            Ok(())
+        }
+        [game, word, who, target] if word == "hop" => {
+            // Log the character in at a redirect's address and say where the world puts it.
+            let (_, list) = login(game)?;
+            let character = list.iter().find(|c| c.name.eq_ignore_ascii_case(who) || c.id.to_string() == *who).ok_or("no such character")?;
+            let mut connection = hop(game, target, character.id)?;
+            connection.set_timeout(Duration::from_millis(50)).map_err(|e| e.to_string())?;
+            let mut state = World { own: character.id, ..World::default() };
+            let until = Instant::now() + Duration::from_secs(6);
+            while Instant::now() < until {
+                match connection.receive() {
+                    Ok(f) => state.add(&f),
+                    Err(session::Error::Io(e)) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => {}
+                    Err(e) => return Err(e.to_string()),
+                }
+            }
+            match state.arrival {
+                Some((pf, at)) => eprintln!("IN the new area: playfield {pf}, arrival ({:.1}, {:.1}, {:.1}), {} entities", at[0], at[1], at[2], state.entities.len()),
+                None => eprintln!("the server sent no playfield"),
             }
             Ok(())
         }
