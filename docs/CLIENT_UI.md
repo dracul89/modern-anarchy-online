@@ -48,7 +48,26 @@ Sky gradient, distance fog into the horizon colour (live view), hemisphere
 ambient light with a warm sun, 4x MSAA (where the device supports it), mip
 chains and 16x anisotropic filtering for every texture, and character textures
 drawn opaque (their alpha channel is not a cut-out mask: that fixed the Waste
-Collector). Not done: shadows, water, per-playfield sky and fog, bloom.
+Collector). Not done: per-playfield sky and fog, bloom.
+
+## 4b. Shadows and water
+**Shadows (done):** a 4096x4096 sun shadow map is drawn each frame around the
+player (70 units; the whole scene in an overview), snapped to texels so it
+doesn't shimmer, with a 3x3 soft comparison, a normal offset against acne, a fade
+at the map's edge, and plants bending and cut-out leaves in the shadow pass as
+in the main one. Parts outside the box are skipped. Verified offscreen (the
+whompah plaza); `Renderer.shadows = false` turns them off.
+
+**Water (partly done):** a translucent animated sheet (crossing swells, Fresnel
+sky reflection, sun glint, fog; it flattens with distance so it doesn't
+shimmer). *Where the water is* is a guess: the original builds its liquid from
+"water triangles" (`VisualWater_t`) this client can't read yet. The heuristic
+(`Terrain::water`): a playfield whose ground has a flat floor holding a fifth of
+its points, at the bottom of the height range and well below the land, is a
+seabed and the water lies 1.5 units above it. That finds Coast of Peace and
+draws the shore along its beaches; Old Athens has none. `MAO_WATER=<level>`
+overrides the level. Not done: shoreline foam, depth tint, caustics, underwater
+view, and the true water data.
 
 ## 5. The AOU mod against the original GUI
 The original GUI folder (`cd_image/gui/Default`) is 50 files: 27 small XML
@@ -95,4 +114,4 @@ matching names.
 - Decode the key-binding providers (verify the assumed defaults).
 - Decode the zone-line records so every booth's destination is known up front.
 - Chat window, target and hotbars on the same `egui` layer.
-- Shadows, water and per-playfield sky; the AOU skin archive.
+- Real water data (decode the ground's water triangles), per-playfield sky; the AOU skin archive.

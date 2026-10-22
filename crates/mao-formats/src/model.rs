@@ -116,6 +116,16 @@ pub struct Model {
     /// its world matrix followed by `matrix`. When there are any, the parts are
     /// drawn only through them (so a prop's geometry is stored once).
     pub instances: Vec<(usize, Matrix)>,
+    /// A sheet of water over the ground, where the playfield has any.
+    pub water: Option<Water>,
+}
+
+/// A sheet of water: its level (world Z) and the box it fills (world X, Y).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Water {
+    pub level: f32,
+    pub min: [f32; 2],
+    pub max: [f32; 2],
 }
 
 pub const IDENTITY: Matrix = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
@@ -327,5 +337,5 @@ pub fn build(mesh: &MeshObject) -> Result<Model, Error> {
         walk(a, root, &IDENTITY, 0, &mut parts)?;
     }
     let _ = kind::OBJECT;
-    Ok(Model { parts, instances: Vec::new() })
+    Ok(Model { parts, instances: Vec::new(), water: None })
 }

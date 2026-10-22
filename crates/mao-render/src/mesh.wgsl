@@ -1,5 +1,7 @@
 struct Globals {
     view_proj: mat4x4<f32>,
+    // The sun's view and projection (the shadow map's).
+    light_vp: mat4x4<f32>,
     light: vec4<f32>,
     // xyz: the player (world, Z up); w: seconds since the renderer started.
     player: vec4<f32>,
@@ -9,6 +11,11 @@ struct Globals {
     horizon: vec4<f32>,
     // rgb: the sky overhead.
     zenith: vec4<f32>,
+    // x: 1 when shadows are drawn; y: a shadow texel in world units;
+    // z: the water's level; w: 1 when there is water.
+    params: vec4<f32>,
+    // The water's box: min x, min y, max x, max y.
+    rect: vec4<f32>,
 }
 
 struct Part {
@@ -25,6 +32,8 @@ struct Part {
 @group(1) @binding(0) var<uniform> part: Part;
 @group(1) @binding(1) var tex: texture_2d<f32>;
 @group(1) @binding(2) var samp: sampler;
+@group(2) @binding(0) var shadow_map: texture_depth_2d;
+@group(2) @binding(1) var shadow_samp: sampler_comparison;
 
 struct VertexIn {
     @location(0) position: vec3<f32>,
@@ -76,6 +85,42 @@ fn vs_main(v: VertexIn) -> VertexOut {
     return out;
 }
 
+// How much of the sun reaches a point: 1 in the light, 0 in shadow (a soft
+// 3x3 comparison, the point nudged along its normal against acne).
+fn shadow_at(world: vec3<f32>, n: vec3<f32>) -> f32 {
+    if globals.params.x < 0.5 {
+        return 1.0;
+    }
+    let sun = normalize(globals.light.xyz);
+    let facing = select(-1.0, 1.0, dot(n, sun) >= 0.0);
+    let p = world + n * (facing * globals.params.y * 2.0);
+    let clip = globals.light_vp * vec4<f32>(p, 1.0);
+    let uv = vec2<f32>(clip.x * 0.5 + 0.5, 0.5 - clip.y * 0.5);
+    let step = 1.0 / 4096.0;
+    var sum = 0.0;
+    for (var i = -1; i <= 1; i = i + 1) {
+        for (var j = -1; j <= 1; j = j + 1) {
+            sum = sum + textureSampleCompareLevel(shadow_map, shadow_samp, uv + vec2<f32>(f32(i), f32(j)) * step, clip.z - 0.0005);
+        }
+    }
+    let lit = sum / 9.0;
+    // Outside the map there are no shadows; they fade out towards its edge.
+    let edge = max(abs(clip.x), abs(clip.y));
+    let inside = 1.0 - smoothstep(0.85, 1.0, edge);
+    return mix(1.0, lit, inside * select(0.0, 1.0, clip.z > 0.0 && clip.z < 1.0));
+}
+
+// The depth-only pass: plants cut out as they are in the main pass.
+@fragment
+fn fs_shadow(in: VertexOut) {
+    if part.flags.x > 0.5 && part.flags.y < 0.5 {
+        let t = textureSampleLevel(tex, samp, in.uv, 0.0);
+        if t.a < 0.5 {
+            discard;
+        }
+    }
+}
+
 @fragment
 fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     var base = part.colour;
@@ -89,7 +134,8 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     let n = normalize(in.normal);
     // Lit from both sides: the winding of the original's meshes isn't
     // relied on. Sky light from above, a warmer bounce from below, and a sun.
-    let diffuse = abs(dot(n, normalize(globals.light.xyz)));
+    let sun = normalize(globals.light.xyz);
+    let diffuse = abs(dot(n, sun)) * shadow_at(in.world, n);
     let ambient = mix(vec3<f32>(0.34, 0.32, 0.30), vec3<f32>(0.60, 0.66, 0.76), n.z * 0.5 + 0.5);
     var colour = base.rgb * (ambient + vec3<f32>(0.60, 0.56, 0.48) * diffuse);
     // Distance fades into the horizon's colour.
@@ -120,4 +166,61 @@ fn vs_sky(@builtin(vertex_index) index: u32) -> SkyOut {
 fn fs_sky(in: SkyOut) -> @location(0) vec4<f32> {
     let t = clamp(in.height * 0.5 + 0.5, 0.0, 1.0);
     return vec4<f32>(mix(globals.horizon.rgb, globals.zenith.rgb, pow(t, 0.8)), 1.0);
+}
+
+struct WaterOut {
+    @builtin(position) clip: vec4<f32>,
+    @location(0) world: vec3<f32>,
+}
+
+// The water's box as two triangles at its level.
+@vertex
+fn vs_water(@builtin(vertex_index) index: u32) -> WaterOut {
+    var corners = array<vec2<f32>, 6>(vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 0.0), vec2<f32>(1.0, 1.0), vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 1.0), vec2<f32>(0.0, 1.0));
+    let c = corners[index];
+    let xy = mix(globals.rect.xy, globals.rect.zw, c);
+    var out: WaterOut;
+    out.world = vec3<f32>(xy, globals.params.z);
+    out.clip = globals.view_proj * vec4<f32>(out.world, 1.0);
+    return out;
+}
+
+// The waves at a point: two crossing swells and a ripple (the fine ones
+// scaled by `detail`). x: the height; yz: its slope along x and y.
+fn wave(p: vec2<f32>, t: f32, detail: f32) -> vec3<f32> {
+    let a = 0.9 * p.x + 1.3 * t;
+    let b = 1.1 * p.y - t + 0.3 * p.x;
+    let c = 2.3 * (p.x + p.y) + 2.1 * t;
+    let d = 3.7 * (p.x - p.y) - 2.7 * t;
+    let h = 0.5 * sin(a) + 0.5 * sin(b) + detail * (0.25 * sin(c) + 0.15 * sin(d));
+    let dx = 0.45 * cos(a) + 0.15 * cos(b) + detail * (0.575 * cos(c) + 0.555 * cos(d));
+    let dy = 0.55 * cos(b) + detail * (0.575 * cos(c) - 0.555 * cos(d));
+    return vec3<f32>(h, dx, dy);
+}
+
+@fragment
+fn fs_water(in: WaterOut) -> @location(0) vec4<f32> {
+    let t = globals.player.w;
+    let dist = distance(in.world, globals.eye.xyz);
+    // The fine ripples fade with distance (they would only shimmer).
+    let detail = 1.0 - smoothstep(10.0, 45.0, dist);
+    let w = wave(in.world.xy, t, detail);
+    let h = w.x;
+    // Past a while even the swells would alias: the surface flattens into a mirror.
+    let calm = 1.0 - smoothstep(30.0, 220.0, dist);
+    let n = normalize(vec3<f32>(-w.y, -w.z, 0.0) * (0.12 * calm) + vec3<f32>(0.0, 0.0, 1.0));
+    let view = normalize(globals.eye.xyz - in.world);
+    let fresnel = 0.04 + 0.96 * pow(1.0 - max(dot(n, view), 0.0), 5.0);
+    let r = reflect(-view, n);
+    let sky = mix(globals.horizon.rgb, globals.zenith.rgb, pow(clamp(r.z, 0.0, 1.0), 0.6));
+    let deep = vec3<f32>(0.03, 0.20, 0.27);
+    let shallow = vec3<f32>(0.10, 0.42, 0.45);
+    var colour = mix(mix(deep, shallow, 0.5 + 0.5 * h * 0.5), sky, fresnel);
+    let sun = normalize(globals.light.xyz);
+    colour = colour + vec3<f32>(1.0, 0.92, 0.75) * pow(max(dot(r, sun), 0.0), 140.0) * 1.5;
+    let far = globals.horizon.w;
+    let near = globals.eye.w;
+    let fog = clamp((distance(in.world, globals.eye.xyz) - near) / max(far - near, 1.0), 0.0, 1.0);
+    colour = mix(colour, globals.horizon.rgb, fog * fog * (3.0 - 2.0 * fog));
+    return vec4<f32>(colour, mix(0.62, 0.94, fresnel));
 }

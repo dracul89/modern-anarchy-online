@@ -415,7 +415,7 @@ impl CatMesh {
                 });
             }
         }
-        Model { parts, instances: Vec::new() }
+        Model { parts, instances: Vec::new(), water: None }
     }
 }
 

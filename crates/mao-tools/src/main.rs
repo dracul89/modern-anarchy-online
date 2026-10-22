@@ -32,6 +32,70 @@ fn run(args: &[String]) -> Result<(), String> {
                 None => return Err("no such object".into()),
             }
         }
+        ("heights", [playfield]) => {
+            // The ground's height histogram (a sea floor is a big flat plateau) and where it lies.
+            let number = number(playfield).ok_or("bad playfield")?;
+            let object = db.get(Id { kind: 0xf4249, instance: number }).map_err(|e| e.to_string())?.ok_or("no tile-map")?;
+            let map = mao_formats::tilemap::parse_old(&object).map_err(|e| e.to_string())?;
+            let terrain = mao_formats::terrain::build(&map).map_err(|e| e.to_string())?;
+            let mut counts: std::collections::BTreeMap<u16, usize> = std::collections::BTreeMap::new();
+            for &h in &terrain.heights {
+                *counts.entry(h).or_default() += 1;
+            }
+            let total = terrain.heights.len();
+            println!("{}x{} points, {} distinct heights; raw/256 * 0.2 = world units", terrain.width, terrain.height, counts.len());
+            let mut top: Vec<_> = counts.iter().collect();
+            top.sort_by_key(|&(_, n)| std::cmp::Reverse(*n));
+            for (h, n) in top.iter().take(6) {
+                // Where this height lies: the box of its points.
+                let (mut lo, mut hi) = ((usize::MAX, usize::MAX), (0, 0));
+                for (i, &v) in terrain.heights.iter().enumerate() {
+                    if v == **h {
+                        let (x, y) = (i % terrain.width, i / terrain.width);
+                        lo = (lo.0.min(x), lo.1.min(y));
+                        hi = (hi.0.max(x), hi.1.max(y));
+                    }
+                }
+                println!("  height {h:>6} ({:.2} units): {n} points ({:.1}%), x {}..{}, z {}..{} (cells; x tile size {})", **h as f32 / 256.0 * 0.2, 100.0 * **n as f32 / total as f32, lo.0, hi.0, lo.1, hi.1, terrain.tile_size);
+            }
+            // Which tile types cover the lowest plateau, and what their textures are called.
+            if let Some((&floor, _)) = top.first().map(|&(h, n)| (h, n)) {
+                let names: std::collections::HashMap<u32, String> = db.get(Id { kind: 0xf424a, instance: 1 }).ok().flatten().and_then(|o| mao_formats::instances::Instances::parse(&o).ok()).map(|i| i.iter().filter(|&(k, _, _)| k == 0xf6966 || k == 0xf6954).map(|(_, n, inst)| (inst, n.to_string())).collect()).unwrap_or_default();
+                let mut tiles: std::collections::BTreeMap<u16, usize> = std::collections::BTreeMap::new();
+                for y in 0..terrain.height - 1 {
+                    for x in 0..terrain.width - 1 {
+                        if terrain.heights[y * terrain.width + x] == floor {
+                            *tiles.entry(terrain.tiles[y * (terrain.width - 1) + x] & terrain.mask).or_default() += 1;
+                        }
+                    }
+                }
+                let mut tiles: Vec<_> = tiles.into_iter().collect();
+                tiles.sort_by_key(|&(_, n)| std::cmp::Reverse(n));
+                println!("  tile types on the height-{floor} plateau:");
+                for (index, n) in tiles.iter().take(5) {
+                    let instance = terrain.tile_types.get(*index as usize).copied().unwrap_or(0) as u32;
+                    println!("    tile {index}: {n} cells, ground texture instance {instance:#x} {}", names.get(&instance).map(String::as_str).unwrap_or("(unnamed)"));
+                }
+            }
+            // The tile word's top bits (the type index uses the low 14): flags per cell?
+            {
+                let floor = top.first().map(|&(h, _)| *h).unwrap_or(0);
+                let (mut on_floor, mut elsewhere) = ([0usize; 4], [0usize; 4]);
+                for y in 0..terrain.height - 1 {
+                    for x in 0..terrain.width - 1 {
+                        let flags = (terrain.tiles[y * (terrain.width - 1) + x] >> 14) as usize;
+                        if terrain.heights[y * terrain.width + x] == floor {
+                            on_floor[flags] += 1;
+                        } else {
+                            elsewhere[flags] += 1;
+                        }
+                    }
+                }
+                println!("  tile-word top bits (00, 01, 10, 11): on the lowest plateau {on_floor:?}, elsewhere {elsewhere:?}");
+            }
+            let (min, max) = (counts.keys().next().unwrap(), counts.keys().next_back().unwrap());
+            println!("  range {min}..{max} ({:.2}..{:.2} units)", *min as f32 / 256.0 * 0.2, *max as f32 / 256.0 * 0.2);
+        }
         ("anim", [kind, instance]) => {
             let id = Id { kind: number(kind).ok_or("bad type")?, instance: number(instance).ok_or("bad instance")? };
             let object = db.get(id).map_err(|e| e.to_string())?.ok_or("no such object")?;
