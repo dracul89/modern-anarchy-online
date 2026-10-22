@@ -58,11 +58,16 @@ struct World {
     /// When each was last heard of and its speed in units a second.
     last_seen: BTreeMap<u32, Instant>,
     speeds: BTreeMap<u32, f32>,
+    /// A playfield announcement not yet acted on: (playfield, arrival).
+    arrival: Option<(u32, [f32; 3])>,
 }
 
 impl World {
     fn add(&mut self, frame: &frame::Frame) {
         let Some(m) = Message::parse(frame) else { return };
+        if let Some(arrival) = m.arrival() {
+            self.arrival = Some(arrival);
+        }
         *self.kinds.entry(m.kind).or_default() += 1;
         if let Some(q) = m.rotation() {
             self.rotations.insert(m.identity.1, q);
@@ -303,19 +308,47 @@ fn build_collision(scene: &Model, ground_parts: usize, textures: &crate::Texture
     collision
 }
 
-/// The window with the world updating in it: a thread reads the game
-/// server and sends the entities' markers over.
-fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World) -> Result<(), String> {
-    let db = Arc::new(ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?);
-    let mut scene = crate::load_terrain(&db, playfield)?;
-    let terrain = crate::load_terrain_data(&db, playfield)?;
+/// A map that can be emptied (to clear several of different types at once).
+trait ClearMap {
+    fn clear_all(&mut self);
+}
+
+impl<V> ClearMap for BTreeMap<u32, V> {
+    fn clear_all(&mut self) {
+        self.clear();
+    }
+}
+
+/// A playfield loaded for walking in: what to draw, the ground's heights (when
+/// its tile-map is of a layout we can read) and what blocks.
+struct Area {
+    scene: Model,
+    terrain: Option<mao_formats::terrain::Terrain>,
+    collision: mao_formats::collision::Collision,
+}
+
+fn load_area(game: &str, db: &Arc<ResourceDatabase>, playfield: u32) -> Result<Area, String> {
+    let mut scene = crate::load_terrain(db, playfield)?;
+    let terrain = crate::load_terrain_data(db, playfield).ok();
     let ground_parts = scene.parts.len();
-    crate::add_props(game, &db, playfield, &mut scene);
+    crate::add_props(game, db, playfield, &mut scene);
     if scene.instances.is_empty() {
         scene.instances.extend((0..ground_parts).map(|i| (i, model::IDENTITY)));
     }
     let collision = build_collision(&scene, ground_parts, &crate::Textures::new(db.clone()));
-    eprintln!("collision: {} triangles", collision.len());
+    eprintln!("playfield {playfield}: collision {} triangles", collision.len());
+    Ok(Area { scene, terrain, collision })
+}
+
+/// The window with the world updating in it: a thread reads the game
+/// server and sends the entities' markers over.
+fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World) -> Result<(), String> {
+    let db = Arc::new(ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?);
+    let Area { scene, terrain, collision } = load_area(game, &db, playfield)?;
+    let (mut terrain, mut collision) = (terrain, collision);
+    let game_dir = game.to_string();
+    let thread_db = db.clone();
+    let mut current = playfield;
     connection.set_timeout(Duration::from_millis(50)).map_err(|e| e.to_string())?;
     // The first couple of seconds say where the character is.
     let until = Instant::now() + Duration::from_secs(3);
@@ -340,9 +373,12 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         const TURN: f32 = 2.0; // radians per second
         // The server's heights sit a little off the ground model's; walk at
         // the ground's height plus the offset seen at the start.
-        let ground = |p: [f32; 3]| terrain.height_at(p[0], p[2], crate::HEIGHT_SCALE);
-        let offset = start[1] - ground(start);
+        let ground = |terrain: &Option<mao_formats::terrain::Terrain>, p: [f32; 3]| terrain.as_ref().map_or(0.0, |t| t.height_at(p[0], p[2], crate::HEIGHT_SCALE));
+        let mut offset = start[1] - ground(&terrain, start);
         let mut base = start[1];
+        let clock = Instant::now();
+        state.arrival = None;
+        let mut pending_scene: Option<Model> = None;
         let mut keys = crate::viewer::Input::default();
         let (mut position, mut heading) = (start, heading);
         let (mut moving, mut turning) = (0i8, 0i8);
@@ -360,11 +396,54 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut sent = Instant::now();
         loop {
             match connection.receive() {
-                Ok(frame) => state.add(&frame),
+                Ok(frame) => {
+                    // The server's pings are answered (or it ends the connection).
+                    if let Some(reply) = frame::ping_reply(&frame, own, 70_000_000 + clock.elapsed().as_millis() as u32) {
+                        if connection.send(&reply).is_err() {
+                            break;
+                        }
+                    }
+                    state.add(&frame);
+                }
                 Err(session::Error::Io(e)) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => {}
                 Err(e) => {
                     eprintln!("connection ended: {e}");
                     break;
+                }
+            }
+            // Zoning: the server announces the new playfield and where we arrive.
+            if let Some((playfield, arrival)) = state.arrival.take() {
+                if playfield != current {
+                    eprintln!("zoning to playfield {playfield}");
+                    current = playfield;
+                    state.last_move.clear_all();
+                    state.last_seen.clear_all();
+                    state.speeds.clear_all();
+                    state.names.clear_all();
+                    state.infos.clear_all();
+                    state.rotations.clear_all();
+                    state.entities.clear();
+                    match load_area(&game_dir, &thread_db, playfield) {
+                        Ok(area) => {
+                            (terrain, collision) = (area.terrain, area.collision);
+                            pending_scene = Some(area.scene);
+                        }
+                        Err(e) => {
+                            eprintln!("can't draw playfield {playfield}: {e}");
+                            (terrain, collision) = (None, Default::default());
+                            pending_scene = Some(Model::default());
+                        }
+                    }
+                    position = arrival;
+                    offset = arrival[1] - ground(&terrain, arrival);
+                    base = arrival[1];
+                    airborne = false;
+                    rise = 0.0;
+                    state.entities.insert(own, (position, 0));
+                    // Ready again, as the original does after loading.
+                    if connection.send(&n3::ready(own)).is_err() {
+                        break;
+                    }
                 }
             }
             while let Ok(k) = input_rx.try_recv() {
@@ -403,7 +482,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             }
             // Stand on the ground or on a floor or step within reach.
             let floor = collision.floor(position[0], position[2], base, 0.6, 0.6).unwrap_or(f32::MIN);
-            base = (ground(position) + offset).max(floor);
+            base = (ground(&terrain, position) + offset).max(floor);
             position[1] = base + rise;
             let mut ok = true;
             let due = last_send.elapsed() >= Duration::from_millis(400);
@@ -448,7 +527,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             }
             if last_overlay.elapsed() >= Duration::from_millis(60) {
                 last_overlay = Instant::now();
-                let update = crate::viewer::Update { model: overlay_model(&state, &mut characters), own: Some(position) };
+                let update = crate::viewer::Update { scene: pending_scene.take(), model: overlay_model(&state, &mut characters), own: Some(position) };
                 if tx.send(update).is_err() {
                     break;
                 }

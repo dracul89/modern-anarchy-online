@@ -193,3 +193,35 @@ mod tests {
         assert!(matches!(r.next(), Err(Error::Sequence { .. })));
     }
 }
+
+/// The reply to a server's ping (frame kind 11): the request's body is
+/// `[1][0][originator stamp][0][0][sequence]` (six big-endian words); the
+/// reply is `[2][0][the same stamp][receive][transmit][the same sequence]`
+/// from the character to the sender, the stamps being the client's own
+/// millisecond clock.
+pub fn ping_reply(request: &Frame, character: u32, clock_ms: u32) -> Option<Frame> {
+    if request.kind != PING || request.body.len() < 24 || request.body[..4] != [0, 0, 0, 1] {
+        return None;
+    }
+    let mut body = Vec::with_capacity(24);
+    body.extend_from_slice(&2u32.to_be_bytes());
+    body.extend_from_slice(&request.body[4..12]);
+    body.extend_from_slice(&clock_ms.to_be_bytes());
+    body.extend_from_slice(&clock_ms.to_be_bytes());
+    body.extend_from_slice(&request.body[20..24]);
+    Some(Frame { kind: PING, source: character, destination: request.source, body })
+}
+
+#[cfg(test)]
+mod ping_tests {
+    use super::*;
+
+    /// A ping and its reply from a capture.
+    #[test]
+    fn ping_reply_matches_the_capture() {
+        let request = Frame { kind: PING, source: 0x0dc1, destination: 0x4c2de, body: vec![0, 0, 0, 1, 0, 0, 0, 0, 0, 0x90, 0x30, 0x3d, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x85, 0x5d, 0x3c] };
+        let reply = ping_reply(&request, 0x4c2de, 0x044fdd67).unwrap();
+        assert_eq!(reply.destination, 0x0dc1);
+        assert_eq!(reply.body, [0, 0, 0, 2, 0, 0, 0, 0, 0, 0x90, 0x30, 0x3d, 4, 0x4f, 0xdd, 0x67, 4, 0x4f, 0xdd, 0x67, 0, 0x85, 0x5d, 0x3c]);
+    }
+}

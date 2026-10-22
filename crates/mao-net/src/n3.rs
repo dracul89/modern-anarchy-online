@@ -32,6 +32,11 @@ pub mod movement {
     pub const UPDATE: u8 = 15;
 }
 
+/// The server's announcement of the playfield the character is in (at login
+/// and after zoning): the identity's instance is the playfield number and
+/// the data holds the arrival position.
+pub const PLAYFIELD: u32 = 0x5f4b1a39;
+
 /// The first thing the client sends after entering.
 pub const READY: u32 = 0x570c2039;
 
@@ -270,6 +275,17 @@ fn cloth_list(rest: &[u8]) -> Vec<(String, u32)> {
 }
 
 impl Message {
+    /// The playfield announced by a [`PLAYFIELD`] message and where the
+    /// character arrives in it: after the identity, a zero word, a flags
+    /// byte and the position (three floats).
+    pub fn arrival(&self) -> Option<(u32, [f32; 3])> {
+        if self.kind != PLAYFIELD || self.data.len() < 17 {
+            return None;
+        }
+        let f = |at: usize| f32::from_be_bytes(self.data[at..at + 4].try_into().unwrap());
+        Some((self.identity.1, [f(5), f(9), f(13)]))
+    }
+
     pub fn entity_info(&self) -> Option<EntityInfo> {
         if self.kind != ENTITY_INFO {
             return None;
@@ -347,5 +363,20 @@ mod entity_tests {
         assert!(info.is_player());
         assert_eq!(info.unknown_a0, Some(365));
         assert!(info.textures.is_empty() || info.textures.iter().all(|t| !t.0.is_empty()));
+    }
+}
+
+#[cfg(test)]
+mod zoning_tests {
+    use super::*;
+
+    /// The announcement of West Athens from a capture.
+    #[test]
+    fn arrival_from_capture() {
+        let data: Vec<u8> = [0u8, 0, 0, 0, 4, 0x44, 0x2f, 0xdf, 0xf2, 0x41, 0x20, 0x1d, 0x07, 0x43, 0xd4, 0x61, 0x42, 0x61, 0, 0, 0xc7, 0x9c, 0, 0, 2, 0x21].to_vec();
+        let m = Message { kind: PLAYFIELD, identity: (0x9c50, 0x221), data };
+        let (playfield, at) = m.arrival().unwrap();
+        assert_eq!(playfield, 545);
+        assert!((at[0] - 704.0).abs() < 0.1 && (at[1] - 10.0).abs() < 0.1 && (at[2] - 424.76).abs() < 0.1);
     }
 }

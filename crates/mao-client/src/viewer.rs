@@ -27,6 +27,8 @@ pub struct Input {
 /// The overlay to draw and where the player's character is (the view
 /// follows it).
 pub struct Update {
+    /// A new playfield to replace the one drawn (zoning).
+    pub scene: Option<Model>,
     pub model: Model,
     pub own: Option<[f32; 3]>,
 }
@@ -190,6 +192,9 @@ impl ApplicationHandler for App {
                 if let Some(live) = &self.live {
                     let latest = live.overlays.try_iter().last();
                     if let Some(update) = latest {
+                        if let Some(model) = &update.scene {
+                            w.scene = w.renderer.upload(&w.gpu, model, &mut |k, i| self.textures.get(k, i));
+                        }
                         let overlay = w.renderer.upload(&w.gpu, &update.model, &mut |k, i| self.textures.get(k, i));
                         w.scene.set_overlay(overlay);
                         if let Some([x, y, z]) = update.own {
