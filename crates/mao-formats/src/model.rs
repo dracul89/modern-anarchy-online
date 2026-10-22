@@ -138,14 +138,11 @@ pub fn trs_matrix(position: [f32; 3], q: [f32; 4], scale: [f32; 3]) -> Matrix {
     m
 }
 
-/// A frame's own matrix.
+/// A frame's own matrix, as the original's `UpdateWorldMatrix` makes it: the
+/// rotation, scale and position as a matrix, taken through the frame's
+/// `anim_matrix` first (`anim_matrix * TRS`; a frame keeps one when it isn't
+/// the identity, with or without an animation).
 fn local_matrix(frame: &Stream) -> Matrix {
-    let animated = frame.int("0", "anim").is_some_and(|a| a >= 0);
-    if animated {
-        if let Some(m) = float_field(frame, "anim_matrix").filter(|m| m.len() == 16) {
-            return m.try_into().unwrap();
-        }
-    }
     let scale = float_field(frame, "scale").and_then(|v| v.first().copied()).unwrap_or(1.0);
     let q = float_field(frame, "local_rot").filter(|q| q.len() == 4).unwrap_or(vec![0.0, 0.0, 0.0, 1.0]);
     let p = float_field(frame, "local_pos").filter(|p| p.len() == 3).unwrap_or(vec![0.0; 3]);
@@ -165,7 +162,13 @@ fn local_matrix(frame: &Stream) -> Matrix {
     m[12] = p[0];
     m[13] = p[1];
     m[14] = p[2];
-    m
+    match float_field(frame, "anim_matrix").filter(|a| a.len() == 16) {
+        Some(a) => {
+            let a: Matrix = a.try_into().unwrap();
+            multiply(&a, &m)
+        }
+        None => m,
+    }
 }
 
 fn rgb(s: &Stream, name: &str) -> [f32; 3] {
