@@ -90,6 +90,8 @@ pub enum Action {
     PrevFriendlyTarget,
     /// Attack the current target.
     Attack,
+    /// The inventory window.
+    InventoryWindow,
     ChatInput,
     ChatCommand,
     ChatReply,
@@ -130,6 +132,7 @@ pub const ACTIONS: &[(Action, &str, &str)] = &[
     (Action::NextFriendlyTarget, "next_friendly_target", "Ctrl+Tab"),
     (Action::PrevFriendlyTarget, "prev_friendly_target", "Ctrl+Shift+Tab"),
     (Action::Attack, "attack", "F"),
+    (Action::InventoryWindow, "inventory", "I"),
     // The original's fixed chat commands (default keys assumed).
     (Action::ChatInput, "chat_input", "Enter"),
     (Action::ChatCommand, "chat_command", "Slash"),

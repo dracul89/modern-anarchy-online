@@ -32,6 +32,32 @@ fn run(args: &[String]) -> Result<(), String> {
                 None => return Err("no such object".into()),
             }
         }
+        ("item", [id]) => {
+            // An item template's name, description and stats; "scan" tries every item and counts the ones that don't parse.
+            if id == "scan" {
+                let (mut ok, mut bad) = (0, 0);
+                for instance in db.ids().map_err(|e| e.to_string())?.filter_map(|i| i.ok()).filter(|i| i.kind == 0xf4254).map(|i| i.instance).take(20000) {
+                    match db.get(Id { kind: 0xf4254, instance }).ok().flatten().and_then(|d| mao_formats::item::Item::parse(&d)) {
+                        Some(_) => ok += 1,
+                        None => {
+                            bad += 1;
+                            if bad <= 5 {
+                                println!("unparsed item {instance:#x}");
+                            }
+                        }
+                    }
+                }
+                println!("{ok} parsed, {bad} not");
+            } else {
+                let instance = number(id).ok_or("bad id")?;
+                let data = db.get(Id { kind: 0xf4254, instance }).map_err(|e| e.to_string())?.ok_or("no such item")?;
+                let item = mao_formats::item::Item::parse(&data).ok_or("not parseable")?;
+                println!("{:#x} {:?}
+{}
+icon {:?}
+stats {:?}", item.id, item.name, item.description, item.icon(), item.stats);
+            }
+        }
         ("heights", [playfield]) => {
             // The ground's height histogram (a sea floor is a big flat plateau) and where it lies.
             let number = number(playfield).ok_or("bad playfield")?;

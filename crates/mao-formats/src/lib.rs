@@ -8,6 +8,7 @@ pub mod resource;
 pub mod texture;
 pub mod appearance;
 pub mod npc;
+pub mod item;
 pub mod archive;
 pub mod catanim;
 pub mod catmesh;

@@ -9,6 +9,7 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use mao_net::frame::{self, Reader};
+use mao_net::inventory;
 use mao_net::n3::{self, Message};
 use mao_net::session::{self, Connection};
 use mao_net::system::{self, Character};
@@ -105,6 +106,8 @@ struct World {
     speeds: BTreeMap<u32, f32>,
     /// A playfield announcement not yet acted on: (playfield, arrival).
     arrival: Option<(u32, [f32; 3])>,
+    /// The character's items, from the world-entry message (until taken).
+    inventory: Option<Vec<inventory::Entry>>,
 }
 
 impl World {
@@ -114,6 +117,9 @@ impl World {
             self.arrival = Some(arrival);
         }
         *self.kinds.entry(m.kind).or_default() += 1;
+        if m.kind == inventory::WORLD_ENTRY && m.identity.1 == self.own {
+            self.inventory = Some(inventory::parse(&m.data));
+        }
         if let Some(q) = m.rotation() {
             self.rotations.insert(m.identity.1, q);
         }
@@ -514,6 +520,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     let own = state.own;
     let start = state.entities.get(&own).map(|e| e.0).unwrap_or([0.0; 3]);
     let heading = state.rotations.get(&own).map(|q| 2.0 * q[1].atan2(q[3])).unwrap_or(0.0);
+    let (gear_db, gear_textures) = (db.clone(), crate::Textures::new(db.clone()));
     std::thread::spawn(move || {
         use mao_net::n3::movement;
         const SPEED: f32 = 7.5; // units per second, from the capture
@@ -530,6 +537,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut fresh = false;
         state.arrival = None;
         let mut pending_scene: Option<Model> = None;
+        let mut pending_gear = state.inventory.take().map(|e| crate::gear::from_entries(&gear_db, &gear_textures, &e));
         let mut keys = crate::viewer::Input::default();
         let (mut seen, mut target): ([u8; 5], Option<u32>) = ([0; 5], None);
         let (mut position, mut heading) = (start, heading);
@@ -575,6 +583,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         trace(&frame, clock);
                     }
                     state.add(&frame);
+                    if let Some(entries) = state.inventory.take() {
+                        pending_gear = Some(crate::gear::from_entries(&gear_db, &gear_textures, &entries));
+                    }
                 }
                 Err(session::Error::Io(e)) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => {}
                 Err(e) => {
@@ -776,6 +787,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     location: pending_location.take(),
                     labels: pending_labels.take(),
                     messages: std::mem::take(&mut pending_messages),
+                    gear: pending_gear.take(),
                     target: target.and_then(|t| Some(format!("{}  ({:.0} m)", state.names.get(&t)?.0, ((state.entities.get(&t)?.0[0] - position[0]).powi(2) + (state.entities.get(&t)?.0[2] - position[2]).powi(2)).sqrt()))),
                 };
                 if tx.send(update).is_err() {
@@ -848,11 +860,14 @@ pub fn run(args: &[String]) -> Result<(), String> {
         }
         [game, word, who, x, z, rest @ ..] if word == "walk" => walk(game, who, x.parse().map_err(|_| "bad x")?, z.parse().map_err(|_| "bad z")?, rest.first().and_then(|s| s.parse().ok()).unwrap_or(90)),
         [word, log] if word == "parse-capture" => parse_capture(log),
+        [word, log] if word == "msg-stats" => msg_stats(log),
+        [game, word, log] if word == "inventory" => inventory_from_capture(game, log),
+        [word, log, kind, rest @ ..] if word == "msg-dump" => msg_dump(log, kind, rest.first().and_then(|n| n.parse().ok()).unwrap_or(3)),
         [game, word, log, rest @ ..] if word == "capture-map" => {
             let world = parse_capture_world(log)?;
             show_world(game, 540, &world, rest.first().map(String::as_str))
         }
-        _ => Err("usage: mao-client net <game dir> chars | net <game dir> enter <name or id> [seconds] | net parse-capture <capture.log> | net <game dir> capture-map <capture.log> [out.png]".into()),
+        _ => Err("usage: mao-client net <game dir> chars | net <game dir> enter <name or id> [seconds] | net parse-capture <capture.log> | net msg-stats <capture.log> | net <game dir> capture-map <capture.log> [out.png]".into()),
     }
 }
 
@@ -1157,6 +1172,148 @@ fn walk(game: &str, who: &str, target_x: f32, target_z: f32, seconds: u64) -> Re
 
 /// The server's side of a `tools/capture_proxy.py` log: its messages, the
 /// characters of any list among them and the world's traffic.
+/// `net msg-stats <capture.log>`: every kind of N3 message in a proxy
+/// capture, by direction: how many, their sizes, the identity types they
+/// carry and the start of an example. A way to find the windows' traffic
+/// (inventory, nano, missions) in a real client's session.
+fn msg_stats(log: &str) -> Result<(), String> {
+    let text = std::fs::read_to_string(log).map_err(|e| e.to_string())?;
+    let mut readers: BTreeMap<(String, bool), Reader> = BTreeMap::new();
+    // (direction, kind) -> (count, min size, max size, identity types, example)
+    let mut stats: BTreeMap<(bool, u32), (usize, usize, usize, std::collections::BTreeSet<u32>, Vec<u8>)> = BTreeMap::new();
+    for line in text.lines() {
+        let f: Vec<&str> = line.split_whitespace().collect();
+        let (Some(tag), Some(connection)) = (f.get(1), f.last()) else { continue };
+        let server = match *tag {
+            "S>C" => true,
+            "C>S" => false,
+            "OPEN" => {
+                readers.remove(&(connection.to_string(), true));
+                readers.remove(&(connection.to_string(), false));
+                continue;
+            }
+            _ => continue,
+        };
+        if f.len() < 5 {
+            continue;
+        }
+        let hex = f[3];
+        let bytes: Vec<u8> = (0..hex.len() / 2).filter_map(|i| u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).ok()).collect();
+        let reader = readers.entry((connection.to_string(), server)).or_default();
+        if reader.push(&bytes).is_err() {
+            continue;
+        }
+        while let Ok(Some(m)) = reader.next() {
+            if m.kind != frame::N3 {
+                continue;
+            }
+            if let Some(msg) = Message::parse(&m) {
+                let entry = stats.entry((server, msg.kind)).or_insert((0, usize::MAX, 0, Default::default(), msg.data.iter().take(48).copied().collect()));
+                entry.0 += 1;
+                entry.1 = entry.1.min(msg.data.len());
+                entry.2 = entry.2.max(msg.data.len());
+                entry.3.insert(msg.identity.0);
+            }
+        }
+    }
+    for ((server, kind), (count, min, max, types, example)) in &stats {
+        println!("{} {kind:08x} x{count:<5} {min}..{max} bytes, identity types {:x?}  {}", if *server { "S>C" } else { "C>S" }, types, example.iter().map(|b| format!("{b:02x}")).collect::<String>());
+    }
+    Ok(())
+}
+
+/// `net msg-dump <capture.log> <kind hex | text | system> [count]`: the first
+/// messages of a kind in full (an N3 kind as 8 hex digits, `text` for the
+/// text frames, `system` for the system ones), with direction and identity.
+fn msg_dump(log: &str, kind: &str, count: usize) -> Result<(), String> {
+    let text = std::fs::read_to_string(log).map_err(|e| e.to_string())?;
+    let want = u32::from_str_radix(kind, 16).ok();
+    let mut readers: BTreeMap<(String, bool), Reader> = BTreeMap::new();
+    let mut shown = 0;
+    for line in text.lines() {
+        let f: Vec<&str> = line.split_whitespace().collect();
+        let (Some(tag), Some(connection)) = (f.get(1), f.last()) else { continue };
+        let server = match *tag {
+            "S>C" => true,
+            "C>S" => false,
+            "OPEN" => {
+                readers.remove(&(connection.to_string(), true));
+                readers.remove(&(connection.to_string(), false));
+                continue;
+            }
+            _ => continue,
+        };
+        if f.len() < 5 {
+            continue;
+        }
+        let bytes: Vec<u8> = (0..f[3].len() / 2).filter_map(|i| u8::from_str_radix(&f[3][2 * i..2 * i + 2], 16).ok()).collect();
+        let reader = readers.entry((connection.to_string(), server)).or_default();
+        if reader.push(&bytes).is_err() {
+            continue;
+        }
+        while let Ok(Some(m)) = reader.next() {
+            let hex = |b: &[u8]| b.iter().map(|x| format!("{x:02x}")).collect::<String>();
+            let matches = match kind {
+                "text" => m.kind == frame::TEXT,
+                "system" => m.kind == frame::SYSTEM,
+                _ => m.kind == frame::N3 && Message::parse(&m).is_some_and(|x| Some(x.kind) == want),
+            };
+            if matches && shown < count {
+                shown += 1;
+                let dir = if server { "S>C" } else { "C>S" };
+                match Message::parse(&m) {
+                    Some(x) if m.kind == frame::N3 => println!("{dir} {connection} identity ({:x},{:x}) {} bytes: {}", x.identity.0, x.identity.1, x.data.len(), hex(&x.data)),
+                    _ => println!("{dir} {connection} frame kind {} src {:x} dst {:x} {} bytes: {}", m.kind, m.source, m.destination, m.body.len(), hex(&m.body)),
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The items in the first world-entry message of a proxy capture.
+pub(crate) fn capture_entries(log: &str) -> Result<Vec<inventory::Entry>, String> {
+    let text = std::fs::read_to_string(log).map_err(|e| e.to_string())?;
+    let mut readers: BTreeMap<String, Reader> = BTreeMap::new();
+    for line in text.lines() {
+        let f: Vec<&str> = line.split_whitespace().collect();
+        let (Some(tag), Some(connection)) = (f.get(1), f.last()) else { continue };
+        if *tag == "OPEN" {
+            readers.remove(*connection);
+        }
+        if *tag != "S>C" || f.len() < 5 {
+            continue;
+        }
+        let bytes: Vec<u8> = (0..f[3].len() / 2).filter_map(|i| u8::from_str_radix(&f[3][2 * i..2 * i + 2], 16).ok()).collect();
+        let reader = readers.entry(connection.to_string()).or_default();
+        if reader.push(&bytes).is_err() {
+            continue;
+        }
+        while let Ok(Some(m)) = reader.next() {
+            if let Some(msg) = Message::parse(&m).filter(|x| m.kind == frame::N3 && x.kind == inventory::WORLD_ENTRY) {
+                return Ok(inventory::parse(&msg.data));
+            }
+        }
+    }
+    Err("no world-entry message in the capture".into())
+}
+
+/// `net <game dir> inventory <capture.log>`: the items in the first
+/// world-entry message of a capture, with the names from the game's database.
+fn inventory_from_capture(game: &str, log: &str) -> Result<(), String> {
+    let db = Arc::new(ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?);
+    let items = crate::gear::from_entries(&db, &crate::Textures::new(db.clone()), &capture_entries(log)?);
+    for i in &items {
+        let place = match crate::gear::slot_name(i.slot) {
+            Some(n) => n.to_string(),
+            None if i.slot >= inventory::BACKPACK_FIRST => format!("backpack {}", i.slot - inventory::BACKPACK_FIRST),
+            None => format!("slot {}", i.slot),
+        };
+        println!("{place:<20} {} x{:<5} QL{:<4} {}  icon {}", if i.bag { "BAG" } else { "   " }, i.count, i.quality, i.name, if i.icon.is_some() { "yes" } else { "no" });
+    }
+    Ok(())
+}
+
 fn parse_capture(log: &str) -> Result<(), String> {
     parse_capture_world(log)?.print();
     Ok(())

@@ -14,6 +14,7 @@
 //! orbit, scroll to zoom, WASD to move the view point, Q/E down and up.
 
 mod anim;
+mod gear;
 mod net;
 mod settings;
 mod theme;
@@ -256,6 +257,13 @@ fn run(args: &[String]) -> Result<(), String> {
                     let mut hud = ui::Hud { location: names.get(&number).cloned().unwrap_or_default(), position: Some([449.0, 8.0, 313.0]), ..Default::default() };
                     hud.labels = net::booth_labels(number, &whompah_booths(game, &db, number), &destinations, &names).into_iter().map(|(p, text)| ui::Label { world: mao_render::glam::Vec3::from(p), text }).collect();
                     hud.target = Some("Rollerrat  (12 m)".into());
+                    // MAO_UI_PREVIEW=gear + MAO_CAPTURE=<capture.log>: the inventory window from a captured session.
+                    if preview.as_deref() == Some("gear") {
+                        if let Some(log) = std::env::var_os("MAO_CAPTURE") {
+                            hud.gear = net::capture_entries(&log.to_string_lossy()).map(|e| gear::from_entries(&db, &textures, &e)).unwrap_or_default();
+                            hud.gear_open = true;
+                        }
+                    }
                     hud.say("Welcome to Old Athens");
                     hud.say("Whom-Pah: this booth leads to Tir (remembered)");
                     viewer::headless_with(&model, &textures, out, Some((&hud, preview.as_deref() == Some("options"))))

@@ -31,6 +31,9 @@ pub struct Hud {
     pub log: VecDeque<(Instant, String)>,
     /// The current target, for the target frame.
     pub target: Option<String>,
+    /// The character's items (the inventory window), and whether a headless preview shows it.
+    pub gear: Vec<crate::gear::GearItem>,
+    pub gear_open: bool,
 }
 
 impl Hud {
@@ -66,6 +69,8 @@ pub struct Ui {
     state: egui_winit::State,
     renderer: egui_wgpu::Renderer,
     pub options_open: bool,
+    pub gear_open: bool,
+    gear: crate::gear::GearWindow,
     /// The action the options window is waiting for a key for.
     pub rebinding: Option<Action>,
     /// The colours in use, and the themes the options window offers.
@@ -118,7 +123,7 @@ impl Ui {
         theme(&ctx, &palette);
         let state = egui_winit::State::new(ctx.clone(), egui::ViewportId::ROOT, window, Some(window.scale_factor() as f32), window.theme(), None);
         let renderer = egui_wgpu::Renderer::new(&gpu.device, format, egui_wgpu::RendererOptions::default());
-        Ui { ctx, state, renderer, options_open: false, rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0 }
+        Ui { ctx, state, renderer, options_open: false, gear_open: false, gear: Default::default(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0 }
     }
 
     /// Switches to the theme `name` (a `theme =` setting).
@@ -143,9 +148,13 @@ impl Ui {
         let raw = self.state.take_egui_input(window);
         let mut requests = Requests::default();
         let (options_open, rebinding, fps, palette, themes) = (&mut self.options_open, &mut self.rebinding, self.fps, &self.palette, &self.themes);
+        let (gear_open, gear) = (&mut self.gear_open, &mut self.gear);
         let output = self.ctx.run_ui(raw, |ui| {
             let ctx = ui.ctx().clone();
             hud_layer(&ctx, hud, project, fps, settings.mode, palette);
+            if *gear_open {
+                gear.show(&ctx, gear_open, &hud.gear, palette);
+            }
             if *options_open {
                 options_window(&ctx, options_open, rebinding, settings, &mut requests, palette, themes);
             }
@@ -195,6 +204,7 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
     let mut renderer = egui_wgpu::Renderer::new(&gpu.device, format, egui_wgpu::RendererOptions::default());
     let screen = egui_wgpu::ScreenDescriptor { size_in_pixels: [size.0, size.1], pixels_per_point: 1.0 };
     let (mut open, mut rebinding, mut requests) = (options, None, Requests::default());
+    let (mut gear_open, mut gear) = (hud.gear_open, crate::gear::GearWindow::default());
     let mut last = None;
     // Several frames: the first lays out and uploads the fonts, and the windows
     // fade in over the next ones; the last is what is drawn.
@@ -203,6 +213,9 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
         let output = ctx.run_ui(raw, |ui| {
             let ctx = ui.ctx().clone();
             hud_layer(&ctx, hud, project, 60.0, settings.mode, &palette);
+            if gear_open {
+                gear.show(&ctx, &mut gear_open, &hud.gear, &palette);
+            }
             if open {
                 options_window(&ctx, &mut open, &mut rebinding, settings, &mut requests, &palette, &themes);
             }

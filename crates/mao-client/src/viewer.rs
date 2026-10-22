@@ -50,6 +50,8 @@ pub struct Update {
     pub messages: Vec<String>,
     /// The current target (name and distance), for the target frame.
     pub target: Option<String>,
+    /// The character's items, when they arrive.
+    pub gear: Option<Vec<crate::gear::GearItem>>,
 }
 
 /// Something that changes while the window is open: models to draw over the
@@ -294,6 +296,11 @@ impl ApplicationHandler for App {
                             apply_mode(&w.window, self.settings.mode);
                             eprintln!("window mode: {} (set `mode` in {} to keep it)", self.settings.mode.name(), Settings::path().display());
                         }
+                        Action::InventoryWindow if !event.repeat => {
+                            if let Some(ui) = w.ui.as_mut() {
+                                ui.gear_open = !ui.gear_open;
+                            }
+                        }
                         Action::ToggleOptions if !event.repeat => {
                             if let Some(ui) = w.ui.as_mut() {
                                 ui.options_open = !ui.options_open;
@@ -396,6 +403,9 @@ impl ApplicationHandler for App {
                             self.hud.say(m);
                         }
                         self.hud.target = u.target.take();
+                        if let Some(items) = u.gear.take() {
+                            self.hud.gear = items;
+                        }
                         if let Some(name) = u.location.take() {
                             self.hud.location = name;
                         }
