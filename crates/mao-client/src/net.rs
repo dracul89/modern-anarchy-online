@@ -161,7 +161,7 @@ impl Characters {
 
     /// The parts of a player of this breed and sex at `t` ms into the walk,
     /// in Y-up local space (world matrices identity), if its meshes exist.
-    fn parts(&mut self, breed: u8, sex: u8, t: f32) -> Option<Vec<Part>> {
+    fn parts(&mut self, breed: u8, sex: u8, t: f32, textures: &[(String, u32)]) -> Option<Vec<Part>> {
         use mao_formats::resource::Id;
         let db = self.db.clone();
         let index = &self.index;
@@ -175,6 +175,12 @@ impl Characters {
         let (body, head, attractor) = entry.as_ref()?;
         let bones = body.pose(&self.walk, t);
         let mut model = body.skinned_model(&bones, 0xf6954);
+        // The character's own textures (its clothes) replace the mesh's by material name.
+        for part in &mut model.parts {
+            if let Some((_, instance)) = textures.iter().find(|(n, i)| *i != 0 && n.eq_ignore_ascii_case(&part.material.name)) {
+                part.material.textures = vec![(0xf6954, *instance)];
+            }
+        }
         if let Some(a) = attractor {
             model.parts.extend(body.attach(&bones, a, head));
         }
@@ -194,12 +200,12 @@ fn overlay_model(world: &World, characters: &mut Option<Characters>) -> Model {
     for (&id, &(position, _)) in &world.entities {
         let q = world.rotations.get(&id).copied().unwrap_or([0.0, 0.0, 0.0, 1.0]);
         let place = model::multiply(&model::trs_matrix(position, q, [1.0; 3]), &swap);
-        let info = world.infos.get(&id).filter(|i| i.is_player());
+        let info = world.infos.get(&id).filter(|i| i.is_humanoid());
         if let (Some(info), Some(chars)) = (info, characters.as_mut()) {
             // The walk cycle runs while it moves (and a second after), else the first frame.
             let walking = world.last_move.get(&id).is_some_and(|t| t.elapsed() < Duration::from_millis(1200));
             let t = if walking { chars.started.elapsed().as_secs_f32() * 1000.0 % chars.length } else { 0.0 };
-            if let Some(parts) = chars.parts(info.breed, info.sex, t) {
+            if let Some(parts) = chars.parts(info.breed, info.sex, t, &info.textures) {
                 let base = model.parts.len();
                 for (k, p) in parts.into_iter().enumerate() {
                     model.parts.push(p);

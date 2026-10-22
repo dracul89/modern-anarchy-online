@@ -168,6 +168,10 @@ pub struct EntityInfo {
     /// 20838 in the capture; probably health). NOT a model id. Absent for
     /// creatures whose flags have bit 0 set.
     pub unknown_a0: Option<u32>,
+    /// The texture overrides (flag bit 4): material name and the texture's
+    /// instance (type 0xf6954). Found by scanning for the vector's marker,
+    /// not by decoding the fields before it.
+    pub textures: Vec<(String, u32)>,
 }
 
 impl EntityInfo {
@@ -177,6 +181,44 @@ impl EntityInfo {
     pub fn is_player(&self) -> bool {
         self.unknown_a0.is_some() && (1..=4).contains(&self.breed)
     }
+
+    /// Whether the breed and sex tables dress it (players and the human
+    /// characters among the NPCs alike).
+    pub fn is_humanoid(&self) -> bool {
+        matches!((self.breed, self.sex), (1..=3, 2 | 3) | (4, 1))
+    }
+}
+
+/// The texture list in the rest of an entity message: an `i32` of
+/// `(count + 1) * 0x3f1`, then per texture a 32-byte NUL-padded name and
+/// three `i32`s (the instance, a second number, a flag). Searched for byte by
+/// byte: a marker for 1 to 12 entries followed by a plausible name.
+fn texture_overrides(rest: &[u8]) -> Vec<(String, u32)> {
+    for start in 0..rest.len().saturating_sub(48) {
+        let marker = u32::from_be_bytes(rest[start..start + 4].try_into().unwrap());
+        if marker % 0x3f1 != 0 || !(2..=13).contains(&(marker / 0x3f1)) {
+            continue;
+        }
+        let count = (marker / 0x3f1 - 1) as usize;
+        let mut at = start + 4;
+        let mut out = Vec::new();
+        for _ in 0..count {
+            let Some(entry) = rest.get(at..at + 44) else { break };
+            let name = &entry[..32];
+            let end = name.iter().position(|&c| c == 0).unwrap_or(32);
+            let plausible = end > 0 && name[..end].iter().all(|c| c.is_ascii_alphanumeric() || *c == b'_') && name[end..].iter().all(|&c| c == 0);
+            if !plausible {
+                out.clear();
+                break;
+            }
+            out.push((String::from_utf8_lossy(&name[..end]).into_owned(), u32::from_be_bytes(entry[32..36].try_into().unwrap())));
+            at += 44;
+        }
+        if out.len() == count && count > 0 {
+            return out;
+        }
+    }
+    Vec::new()
 }
 
 impl Message {
@@ -212,7 +254,8 @@ impl Message {
         let flags2 = u32_at(&mut at)?;
         u32_at(&mut at)?;
         let model = if flags & 1 == 0 { u32_at(&mut at) } else { None };
-        Some(EntityInfo { version, flags, playfield, position, rotation, breed, sex, name, flags2, unknown_a0: model })
+        let textures = if flags & 0x10 != 0 { texture_overrides(&d[at.min(d.len())..]) } else { Vec::new() };
+        Some(EntityInfo { version, flags, playfield, position, rotation, breed, sex, name, flags2, unknown_a0: model, textures })
     }
 }
 
@@ -253,5 +296,6 @@ mod entity_tests {
         assert_eq!((info.breed, info.sex), (1, 2));
         assert!(info.is_player());
         assert_eq!(info.unknown_a0, Some(365));
+        assert!(info.textures.is_empty() || info.textures.iter().all(|t| !t.0.is_empty()));
     }
 }
