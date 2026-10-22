@@ -15,6 +15,7 @@
 
 mod anim;
 mod gear;
+mod hotbar;
 mod net;
 mod settings;
 mod theme;
