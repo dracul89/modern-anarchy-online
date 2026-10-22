@@ -438,6 +438,12 @@ impl Renderer {
 
     /// Draws the scene to a `width` x `height` RGBA image (headless).
     pub fn render_to_image(&mut self, gpu: &Gpu, scene: &Scene, camera: &Camera, width: u32, height: u32) -> Vec<u8> {
+        self.render_to_image_with(gpu, scene, camera, width, height, &mut |_| {})
+    }
+
+    /// [`Renderer::render_to_image`] with `overlay` called on the image after
+    /// the scene is drawn (to paint an interface over it).
+    pub fn render_to_image_with(&mut self, gpu: &Gpu, scene: &Scene, camera: &Camera, width: u32, height: u32, overlay: &mut dyn FnMut(&wgpu::TextureView)) -> Vec<u8> {
         let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("image"),
             size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
@@ -450,6 +456,7 @@ impl Renderer {
         });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         self.draw(gpu, scene, camera, &view, (width, height));
+        overlay(&view);
         let row = (width * 4).next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
         let buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor { label: None, size: (row * height) as u64, usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ, mapped_at_creation: false });
         let mut encoder = gpu.device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());

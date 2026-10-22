@@ -460,7 +460,7 @@ fn load_area(game: &str, db: &Arc<ResourceDatabase>, playfield: u32) -> Result<A
 }
 
 /// The label over each whompah booth: where it leads, when that is known.
-fn booth_labels(playfield: u32, booths: &[[f32; 3]], destinations: &crate::whompah::Destinations, names: &std::collections::HashMap<u32, String>) -> Vec<([f32; 3], String)> {
+pub(crate) fn booth_labels(playfield: u32, booths: &[[f32; 3]], destinations: &crate::whompah::Destinations, names: &std::collections::HashMap<u32, String>) -> Vec<([f32; 3], String)> {
     booths
         .iter()
         .map(|b| {

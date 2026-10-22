@@ -244,8 +244,19 @@ fn run(args: &[String]) -> Result<(), String> {
             if std::env::var_os("MAO_NO_PROPS").is_none() {
                 add_props(game, &db, number, &mut model);
             }
-            let textures = Textures { db };
+            let textures = Textures { db: db.clone() };
+            // MAO_UI_PREVIEW=1 (or `options`) paints the interface over the image.
+            let preview = std::env::var("MAO_UI_PREVIEW").ok();
             return match rest {
+                [flag, out] if flag == "--image" && preview.is_some() => {
+                    let names: std::collections::HashMap<u32, String> = mao_formats::playfield::all(&db).into_iter().map(|p| (p.number, p.name.trim().to_string())).collect();
+                    let destinations = whompah::Destinations::load();
+                    let mut hud = ui::Hud { location: names.get(&number).cloned().unwrap_or_default(), position: Some([449.0, 8.0, 313.0]), ..Default::default() };
+                    hud.labels = net::booth_labels(number, &whompah_booths(game, &db, number), &destinations, &names).into_iter().map(|(p, text)| ui::Label { world: mao_render::glam::Vec3::from(p), text }).collect();
+                    hud.say("Welcome to Old Athens");
+                    hud.say("Whom-Pah: this booth leads to Tir (remembered)");
+                    viewer::headless_with(&model, &textures, out, Some((&hud, preview.as_deref() == Some("options"))))
+                }
                 [flag, out] if flag == "--image" => viewer::headless(&model, &textures, out),
                 [] => viewer::window(model, textures, None),
                 _ => Err("unknown arguments".into()),

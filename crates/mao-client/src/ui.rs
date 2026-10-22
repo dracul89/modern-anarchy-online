@@ -165,6 +165,53 @@ impl Ui {
     }
 }
 
+/// Paints the interface over `target` with no window behind it (a headless
+/// preview): the heads-up display, and the options window when asked.
+pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::TextureFormat, size: (u32, u32), settings: &mut Settings, hud: &Hud, project: &dyn Fn(Vec3) -> Option<[f32; 2]>, options: bool) {
+    let ctx = egui::Context::default();
+    theme(&ctx);
+    let mut renderer = egui_wgpu::Renderer::new(&gpu.device, format, egui_wgpu::RendererOptions::default());
+    let screen = egui_wgpu::ScreenDescriptor { size_in_pixels: [size.0, size.1], pixels_per_point: 1.0 };
+    let (mut open, mut rebinding, mut requests) = (options, None, Requests::default());
+    let mut last = None;
+    // Several frames: the first lays out and uploads the fonts, and the windows
+    // fade in over the next ones; the last is what is drawn.
+    for frame in 0..12 {
+        let raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(size.0 as f32, size.1 as f32))), time: Some(frame as f64 * 0.1), ..Default::default() };
+        let output = ctx.run_ui(raw, |ui| {
+            let ctx = ui.ctx().clone();
+            hud_layer(&ctx, hud, project, 60.0, settings.mode);
+            if open {
+                options_window(&ctx, &mut open, &mut rebinding, settings, &mut requests);
+            }
+        });
+        for (id, deltas) in &output.textures_delta.set {
+            for delta in deltas {
+                renderer.update_texture(&gpu.device, &gpu.queue, *id, delta);
+            }
+        }
+        let jobs = ctx.tessellate(output.shapes, 1.0);
+        last = Some(jobs);
+    }
+    let jobs = last.unwrap_or_default();
+    let mut encoder = gpu.device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    let extra = renderer.update_buffers(&gpu.device, &gpu.queue, &mut encoder, &jobs, &screen);
+    {
+        let mut pass = encoder
+            .begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("interface"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment { view: target, depth_slice: None, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store } })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            })
+            .forget_lifetime();
+        renderer.render(&mut pass, &jobs, &screen);
+    }
+    gpu.queue.submit(extra.into_iter().chain(Some(encoder.finish())));
+}
+
 /// Where you are, the messages and the labels over the world.
 fn hud_layer(ctx: &egui::Context, hud: &Hud, project: &dyn Fn(Vec3) -> Option<[f32; 2]>, fps: f32, mode: WindowMode) {
     let screen = ctx.content_rect();

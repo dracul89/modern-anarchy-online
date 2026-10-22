@@ -70,6 +70,12 @@ fn camera_override(camera: &mut Camera) {
 }
 
 pub fn headless(model: &Model, textures: &Textures, out: &str) -> Result<(), String> {
+    headless_with(model, textures, out, None)
+}
+
+/// [`headless`] with the interface painted over the image: the heads-up
+/// display and, when the flag is set, the options window.
+pub fn headless_with(model: &Model, textures: &Textures, out: &str, ui: Option<(&Hud, bool)>) -> Result<(), String> {
     let gpu = Gpu::headless()?;
     eprintln!("adapter: {:?}", gpu.adapter.get_info());
     let mut renderer = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8UnormSrgb);
@@ -83,7 +89,16 @@ pub fn headless(model: &Model, textures: &Textures, out: &str) -> Result<(), Str
     let mut camera = Camera::fit(&scene);
     camera_override(&mut camera);
     let (w, h) = (960, 720);
-    let pixels = renderer.render_to_image(&gpu, &scene, &camera, w, h);
+    let format = wgpu::TextureFormat::Rgba8UnormSrgb;
+    let radius = scene.radius;
+    let pixels = renderer.render_to_image_with(&gpu, &scene, &camera, w, h, &mut |view| {
+        if let Some((hud, options)) = ui {
+            let aspect = w as f32 / h as f32;
+            let project = |p: mao_render::glam::Vec3| camera.project(p, aspect, radius);
+            let mut settings = Settings::default();
+            crate::ui::paint_headless(&gpu, view, format, (w, h), &mut settings, hud, &project, options);
+        }
+    });
     image::save_buffer(out, &pixels, w, h, image::ColorType::Rgba8).map_err(|e| e.to_string())
 }
 
