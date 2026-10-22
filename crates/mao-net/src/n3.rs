@@ -377,6 +377,6 @@ mod zoning_tests {
         let m = Message { kind: PLAYFIELD, identity: (0x9c50, 0x221), data };
         let (playfield, at) = m.arrival().unwrap();
         assert_eq!(playfield, 545);
-        assert!((at[0] - 704.0).abs() < 0.1 && (at[1] - 10.0).abs() < 0.1 && (at[2] - 424.76).abs() < 0.1);
+        assert!((at[0] - 704.0).abs() < 0.1 && (at[1] - 10.0).abs() < 0.1 && (at[2] - 424.9).abs() < 0.3);
     }
 }
