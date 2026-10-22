@@ -186,7 +186,7 @@ struct Characters {
     /// By (breed, sex): the body, its head and the head's attractor.
     bodies: std::collections::HashMap<(u8, u8), Option<(mao_formats::catmesh::CatMesh, Model, Option<mao_formats::catmesh::Attractor>)>>,
     /// Creatures by NPC template: the template and its CAT mesh.
-    creatures: std::collections::HashMap<u32, Option<(mao_formats::npc::Template, mao_formats::catmesh::CatMesh)>>,
+    creatures: std::collections::HashMap<u32, Option<(mao_formats::npc::Template, mao_formats::catmesh::CatMesh, Option<Model>)>>,
     /// Creature animations by instance.
     creature_anims: std::collections::HashMap<u32, Option<(mao_formats::catanim::CatAnim, f32)>>,
     started: Instant,
@@ -203,15 +203,17 @@ impl Characters {
 
     /// The parts of a creature or NPC from its template (the CAT mesh and
     /// animations its record names), in Y-up local space.
-    fn creature_parts(&mut self, template: u32, action: mao_formats::appearance::Action, phase: f32) -> Option<Vec<Part>> {
+    fn creature_parts(&mut self, template: u32, action: mao_formats::appearance::Action, phase: f32, textures: &[(String, u32)], clothes: &[(String, u32)]) -> Option<Vec<Part>> {
         use mao_formats::resource::Id;
         let db = self.db.clone();
         let entry = self.creatures.entry(template).or_insert_with(|| {
             let record = mao_formats::npc::Template::parse(&db.get(Id { kind: mao_formats::npc::TEMPLATE, instance: template }).ok()??)?;
             let mesh = mao_formats::catmesh::parse(&db.get(Id { kind: 0xf6952, instance: record.mesh? }).ok()??).ok()?;
-            Some((record, mesh))
+            // A humanoid's head is a separate mesh on the body's head attractor.
+            let head = record.head.filter(|&h| h != 0).and_then(|h| crate::load_model(&db, Id { kind: 0xf6951, instance: h }).ok());
+            Some((record, mesh, head))
         });
-        let (record, mesh) = entry.as_ref()?;
+        let (record, mesh, head) = entry.as_ref()?;
         let id = record.animation(action).or_else(|| record.animation(mao_formats::appearance::Action::Idle))?;
         let anim_entry = self.creature_anims.entry(id).or_insert_with(|| {
             let anim = mao_formats::catanim::parse(&db.get(Id { kind: 0xf6953, instance: id }).ok()??).ok()?;
@@ -222,6 +224,15 @@ impl Characters {
         let t = (self.started.elapsed().as_secs_f32() * 1000.0 + phase) % length;
         let bones = mesh.pose(anim, t);
         let mut parts = mesh.skinned_model(&bones, 0xf6954).parts;
+        for part in &mut parts {
+            let wanted = clothes.iter().chain(textures.iter()).find(|(n, i)| *i != 0 && n.eq_ignore_ascii_case(&part.material.name));
+            if let Some((_, instance)) = wanted {
+                part.material.textures = vec![(0xf6954, *instance)];
+            }
+        }
+        if let (Some(head), Some(attractor)) = (head, mesh.attractor("head")) {
+            parts.extend(mesh.attach(&bones, attractor, head));
+        }
         for p in &mut parts {
             p.world = model::IDENTITY;
         }
@@ -280,14 +291,10 @@ fn overlay_model(world: &World, characters: &mut Option<Characters>) -> Model {
     for (&id, &(position, _)) in &world.entities {
         let q = world.rotations.get(&id).copied().unwrap_or([0.0, 0.0, 0.0, 1.0]);
         let place = model::multiply(&model::trs_matrix(position, q, [1.0; 3]), &swap);
-        let info = world.infos.get(&id).filter(|i| i.is_humanoid());
-        if let (Some(info), Some(chars)) = (info, characters.as_mut()) {
-            // The walk cycle runs while it moves (and a second after), else the first frame.
+        if let (Some(info), Some(chars)) = (world.infos.get(&id).filter(|i| i.template.is_some()), characters.as_mut()) {
             let moving = world.last_move.get(&id).is_some_and(|t| t.elapsed() < Duration::from_millis(900));
-            let speed = world.speeds.get(&id).copied().unwrap_or(0.0);
-            let action = if !moving { mao_formats::appearance::Action::Idle } else if speed > 5.5 { mao_formats::appearance::Action::Run } else { mao_formats::appearance::Action::Walk };
-            // (A phase per entity keeps a crowd from moving in step.)
-            if let Some(parts) = chars.parts(info.breed, info.sex, action, (id % 997) as f32 * 3.0, &info.textures, &info.clothes) {
+            let action = if moving { mao_formats::appearance::Action::Walk } else { mao_formats::appearance::Action::Idle };
+            if let Some(parts) = chars.creature_parts(info.template.unwrap(), action, (id % 997) as f32 * 3.0, &info.textures, &info.clothes) {
                 let base = model.parts.len();
                 for (k, p) in parts.into_iter().enumerate() {
                     model.parts.push(p);
@@ -296,10 +303,14 @@ fn overlay_model(world: &World, characters: &mut Option<Characters>) -> Model {
                 continue;
             }
         }
-        if let (Some(template), Some(chars)) = (world.infos.get(&id).and_then(|i| i.template.filter(|_| !i.is_humanoid())), characters.as_mut()) {
+        let info = world.infos.get(&id).filter(|i| i.is_humanoid());
+        if let (Some(info), Some(chars)) = (info, characters.as_mut()) {
+            // The walk cycle runs while it moves (and a second after), else the first frame.
             let moving = world.last_move.get(&id).is_some_and(|t| t.elapsed() < Duration::from_millis(900));
-            let action = if moving { mao_formats::appearance::Action::Walk } else { mao_formats::appearance::Action::Idle };
-            if let Some(parts) = chars.creature_parts(template, action, (id % 997) as f32 * 3.0) {
+            let speed = world.speeds.get(&id).copied().unwrap_or(0.0);
+            let action = if !moving { mao_formats::appearance::Action::Idle } else if speed > 5.5 { mao_formats::appearance::Action::Run } else { mao_formats::appearance::Action::Walk };
+            // (A phase per entity keeps a crowd from moving in step.)
+            if let Some(parts) = chars.parts(info.breed, info.sex, action, (id % 997) as f32 * 3.0, &info.textures, &info.clothes) {
                 let base = model.parts.len();
                 for (k, p) in parts.into_iter().enumerate() {
                     model.parts.push(p);
