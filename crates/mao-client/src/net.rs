@@ -53,6 +53,8 @@ struct World {
     infos: BTreeMap<u32, mao_net::n3::EntityInfo>,
     kinds: BTreeMap<u32, usize>,
     entities: BTreeMap<u32, ([f32; 3], usize)>,
+    /// When each entity last changed position (for the walk cycle).
+    last_move: BTreeMap<u32, Instant>,
 }
 
 impl World {
@@ -73,6 +75,9 @@ impl World {
         let position = m.position().or_else(|| m.movement().map(|(_, _, p)| p));
         if let Some(p) = position {
             let e = self.entities.entry(m.identity.1).or_insert((p, 0));
+            if (e.0[0] - p[0]).abs() + (e.0[2] - p[2]).abs() > 0.05 {
+                self.last_move.insert(m.identity.1, Instant::now());
+            }
             e.0 = p;
             e.1 += 1;
         }
@@ -129,14 +134,80 @@ fn nose() -> Part {
     part
 }
 
+/// The players' models: bodies and heads by breed and sex (found by name
+/// in the instance index), posed by a walk cycle.
+struct Characters {
+    db: Arc<ResourceDatabase>,
+    index: mao_formats::instances::Instances,
+    walk: mao_formats::catanim::CatAnim,
+    length: f32,
+    /// By (breed, sex): the body, its head and the head's attractor.
+    bodies: std::collections::HashMap<(u8, u8), Option<(mao_formats::catmesh::CatMesh, Model, Option<mao_formats::catmesh::Attractor>)>>,
+    started: Instant,
+}
+
+/// The walk cycle used for every player (until animations are chosen by state).
+const WALK_ANIMATION: u32 = 0x24a6;
+
+impl Characters {
+    fn new(db: Arc<ResourceDatabase>) -> Result<Characters, String> {
+        use mao_formats::resource::Id;
+        let get = |kind: u32, instance: u32| db.get(Id { kind, instance }).map_err(|e| e.to_string())?.ok_or_else(|| format!("no object {kind:#x}:{instance:#x}"));
+        let index = mao_formats::instances::Instances::parse(&get(0xf424a, 1)?).map_err(|e| e.to_string())?;
+        let walk = mao_formats::catanim::parse(&get(0xf6953, WALK_ANIMATION)?).map_err(|e| e.to_string())?;
+        let length = walk.tracks.iter().flat_map(|t| t.rotations.iter().map(|k| k.0)).fold(1.0f32, f32::max);
+        Ok(Characters { db, index, walk, length, bodies: Default::default(), started: Instant::now() })
+    }
+
+    /// The parts of a player of this breed and sex at `t` ms into the walk,
+    /// in Y-up local space (world matrices identity), if its meshes exist.
+    fn parts(&mut self, breed: u8, sex: u8, t: f32) -> Option<Vec<Part>> {
+        use mao_formats::resource::Id;
+        let db = self.db.clone();
+        let index = &self.index;
+        let entry = self.bodies.entry((breed, sex)).or_insert_with(|| {
+            let (body_name, head_name) = mao_formats::appearance::player_meshes(breed, sex)?;
+            let body = mao_formats::catmesh::parse(&db.get(Id { kind: 0xf6952, instance: index.find(0xf6952, body_name)? }).ok()??).ok()?;
+            let head = crate::load_model(&db, Id { kind: 0xf6951, instance: index.find(0xf6951, head_name)? }).ok()?;
+            let attractor = body.attractor("head").cloned();
+            Some((body, head, attractor))
+        });
+        let (body, head, attractor) = entry.as_ref()?;
+        let bones = body.pose(&self.walk, t);
+        let mut model = body.skinned_model(&bones, 0xf6954);
+        if let Some(a) = attractor {
+            model.parts.extend(body.attach(&bones, a, head));
+        }
+        let mut parts = model.parts;
+        for p in &mut parts {
+            p.world = model::IDENTITY;
+        }
+        Some(parts)
+    }
+}
+
 /// The entities' markers alone (own character red, the others blue): two
 /// parts and an instance per entity, placed Z-up.
-fn overlay_model(world: &World) -> Model {
+fn overlay_model(world: &World, characters: &mut Option<Characters>) -> Model {
     let mut model = Model { parts: vec![marker([0.9, 0.1, 0.1]), marker([0.2, 0.4, 0.95]), nose(), marker([0.2, 0.8, 0.3])], instances: Vec::new() };
     let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     for (&id, &(position, _)) in &world.entities {
         let q = world.rotations.get(&id).copied().unwrap_or([0.0, 0.0, 0.0, 1.0]);
         let place = model::multiply(&model::trs_matrix(position, q, [1.0; 3]), &swap);
+        let info = world.infos.get(&id).filter(|i| i.is_player());
+        if let (Some(info), Some(chars)) = (info, characters.as_mut()) {
+            // The walk cycle runs while it moves (and a second after), else the first frame.
+            let walking = world.last_move.get(&id).is_some_and(|t| t.elapsed() < Duration::from_millis(1200));
+            let t = if walking { chars.started.elapsed().as_secs_f32() * 1000.0 % chars.length } else { 0.0 };
+            if let Some(parts) = chars.parts(info.breed, info.sex, t) {
+                let base = model.parts.len();
+                for (k, p) in parts.into_iter().enumerate() {
+                    model.parts.push(p);
+                    model.instances.push((base + k, place));
+                }
+                continue;
+            }
+        }
         let player = world.names.get(&id).is_some_and(|n| n.1);
         model.instances.push((if id == world.own { 0 } else if player { 3 } else { 1 }, place));
         model.instances.push((2, place));
@@ -163,7 +234,8 @@ fn show_world(game: &str, playfield: u32, world: &World, image: Option<&str>) ->
             eprintln!("entity {id}: server y {:.2}, ground model {:.2}", p[1], t.height_at(p[0], p[2], crate::HEIGHT_SCALE));
         }
     }
-    let overlay = overlay_model(world);
+    let mut characters = Characters::new(db.clone()).ok();
+    let overlay = overlay_model(world, &mut characters);
     let offset = scene.parts.len();
     scene.parts.extend(overlay.parts);
     scene.instances.extend(overlay.instances.into_iter().map(|(i, m)| (i + offset, m)));
@@ -230,6 +302,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         }
     }
     let focus = state.entities.get(&state.own).map(|&([x, y, z], _)| [x, z, y]);
+    let mut characters = Characters::new(db.clone()).ok();
     let (tx, rx) = std::sync::mpsc::channel();
     let (input_tx, input_rx) = std::sync::mpsc::channel::<crate::viewer::Input>();
     let own = state.own;
@@ -346,7 +419,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             }
             if last_overlay.elapsed() >= Duration::from_millis(60) {
                 last_overlay = Instant::now();
-                let update = crate::viewer::Update { model: overlay_model(&state), own: Some(position) };
+                let update = crate::viewer::Update { model: overlay_model(&state, &mut characters), own: Some(position) };
                 if tx.send(update).is_err() {
                     break;
                 }
