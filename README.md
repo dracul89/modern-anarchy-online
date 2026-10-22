@@ -40,9 +40,12 @@ mao-client net <game> walk <name> <x> <z> [secs]  headless: walk a line, report 
 mao-client net <game> attack <name> [secs] [x z ...]   headless: patrol and fight a creature
 mao-client net <game> hop <name> <addr>           log in as a redirect does, report the area
 ```
-Live window: W/Up, S/Down walk, A/D or Left/Right turn, Space jump, C toggles
-walking through props, drag to orbit the camera, scroll to zoom. `MAO_TRACE=1`
-prints the server's non-bulk messages and the walked position.
+Live window (every key is rebindable; Esc opens the options window): W/Up, S/Down walk,
+A/D or Left/Right turn, Space jump, C toggles walking through props, drag to orbit the
+camera, scroll to zoom, F11 / Alt+Enter change the window mode (windowed, borderless,
+fullscreen). Settings live in `mao.ini`; see `docs/CLIENT_UI.md` for the window modes,
+key bindings, themes (the original GUI and the AOU mod) and the whompah labels.
+`MAO_TRACE=1` prints the server's non-bulk messages and the walked position.
 
 What the client does today: logs in (the Diffie-Hellman and TEA exchange of the
 original), enters a character, loads the playfield (ground, props, collision),
