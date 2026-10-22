@@ -436,7 +436,8 @@ impl CatMesh {
         use crate::model::{multiply, trs_matrix};
         let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
         let v = attractor.values;
-        let placement = trs_matrix([v[0], v[1], v[2]], [v[3], v[4], v[5], v[6]], [v[7]; 3]);
+        let quat = [v[3], v[4], v[5], v[6]];
+        let placement = trs_matrix([v[0], v[1], v[2]], quat, [v[7]; 3]);
         let bone = usize::try_from(attractor.extra).ok().and_then(|i| bones.get(i)).copied().unwrap_or(IDENTITY_BONE);
         let bone4 = [bone[0], bone[1], bone[2], 0.0, bone[3], bone[4], bone[5], 0.0, bone[6], bone[7], bone[8], 0.0, bone[9], bone[10], bone[11], 1.0];
         let mut parts = Vec::new();
