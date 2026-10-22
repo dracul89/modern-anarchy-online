@@ -104,6 +104,19 @@ pub fn ready(character: u32) -> Frame {
     Message { kind: READY, identity: (CHARACTER, character), data: vec![1] }.frame(character)
 }
 
+/// The action a new connection starts with (`0x57`, sent after ready as the
+/// original does): characters enter the world in a state where the server
+/// ignores their movement, and this frees them.
+pub const STAND: u8 = 0x57;
+
+/// A `5e477770` action message (the action byte after four zero bytes, 27
+/// bytes of data).
+pub fn action(character: u32, code: u8) -> Frame {
+    let mut data = vec![0u8; 27];
+    data[4] = code;
+    Message { kind: 0x5e477770, identity: (CHARACTER, character), data }.frame(character)
+}
+
 /// The client's position update: `movement` type, the heading (radians
 /// about Y; 0 faces +z), the position, and the milliseconds since the last
 /// update.

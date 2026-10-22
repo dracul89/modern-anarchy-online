@@ -475,6 +475,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     }
     // The world has loaded: now the server may move us.
     connection.send(&n3::ready(state.own)).map_err(|e| e.to_string())?;
+    connection.send(&n3::action(state.own, n3::STAND)).map_err(|e| e.to_string())?;
     let focus = state.entities.get(&state.own).map(|&([x, y, z], _)| [x, z, y]);
     let mut characters = Characters::new(db.clone()).ok();
     let (tx, rx) = std::sync::mpsc::channel();
@@ -495,6 +496,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let clock = Instant::now();
         let tracing = std::env::var("MAO_TRACE").is_ok_and(|v| v == "1");
         let mut last_report = Instant::now();
+        let mut fresh = false;
         state.arrival = None;
         let mut pending_scene: Option<Model> = None;
         let mut keys = crate::viewer::Input::default();
@@ -528,6 +530,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                 connection = next;
                                 // The new playfield is loaded even if its number repeats.
                                 current = u32::MAX;
+                                fresh = true;
                                 continue;
                             }
                             Err(e) => {
@@ -578,6 +581,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     state.entities.insert(own, (position, 0));
                     // Ready again, as the original does after loading.
                     if connection.send(&n3::ready(own)).is_err() {
+                        break;
+                    }
+                    // A new connection (a redirect) also starts with the stand-up.
+                    if std::mem::take(&mut fresh) && connection.send(&n3::action(own, n3::STAND)).is_err() {
                         break;
                     }
                 }
@@ -749,6 +756,9 @@ fn walk(game: &str, who: &str, target_x: f32, target_z: f32, seconds: u64) -> Re
     let mut position = state.entities.get(&own).map(|e| e.0).ok_or("the character's position never arrived")?;
     state.arrival = None;
     connection.send(&n3::ready(own)).map_err(|e| e.to_string())?;
+    if std::env::var("MAO_WALK_NOSTAND").is_err() {
+        connection.send(&n3::action(own, n3::STAND)).map_err(|e| e.to_string())?;
+    }
     std::thread::sleep(Duration::from_millis(std::env::var("MAO_WALK_DELAY").ok().and_then(|v| v.parse().ok()).unwrap_or(600)));
     let mut playfield = character.proxy[1];
     eprintln!("start at ({:.1}, {:.1}, {:.1}) in playfield {playfield}; walking to ({target_x}, {target_z})", position[0], position[1], position[2]);
@@ -786,6 +796,21 @@ fn walk(game: &str, who: &str, target_x: f32, target_z: f32, seconds: u64) -> Re
                 }
                 if let Some(target) = system::redirect(&frame) {
                     eprintln!("[{:6.1}] the server redirects us to {target}", clock.elapsed().as_secs_f32());
+                    let mut next = hop(game, &target, own)?;
+                    next.set_timeout(Duration::from_millis(50)).map_err(|e| e.to_string())?;
+                    let mut inside = World { own, ..World::default() };
+                    let until = Instant::now() + Duration::from_secs(5);
+                    while Instant::now() < until && inside.arrival.is_none() {
+                        match next.receive() {
+                            Ok(f) => inside.add(&f),
+                            Err(session::Error::Io(e)) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => {}
+                            Err(e) => return Err(format!("the shop connection ended: {e}")),
+                        }
+                    }
+                    match inside.arrival {
+                        Some((pf, at)) => eprintln!("[{:6.1}] IN the new area: playfield {pf}, arrival ({:.1}, {:.1}, {:.1})", clock.elapsed().as_secs_f32(), at[0], at[1], at[2]),
+                        None => eprintln!("the new server sent no playfield"),
+                    }
                     return Ok(());
                 }
                 trace(&frame, clock);
