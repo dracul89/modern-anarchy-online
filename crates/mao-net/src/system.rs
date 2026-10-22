@@ -84,6 +84,19 @@ pub fn split(frame: &Frame) -> Result<(u32, &[u8]), Error> {
     Ok((u32::from_be_bytes(b.try_into().unwrap()), &frame.body[4..]))
 }
 
+/// System message 0x3c: log in again at another server (an address and port),
+/// as when the character enters a shop.
+pub const REDIRECT: u32 = 0x3c;
+
+/// The login server a 0x3c message names, as `host:port`.
+pub fn redirect(frame: &Frame) -> Option<String> {
+    let (kind, payload) = split(frame).ok()?;
+    if kind != REDIRECT || payload.len() < 6 {
+        return None;
+    }
+    Some(format!("{}.{}.{}.{}:{}", payload[0], payload[1], payload[2], payload[3], u16::from_be_bytes([payload[4], payload[5]])))
+}
+
 /// The challenge text of a 0x24 message.
 pub fn challenge(frame: &Frame) -> Result<String, Error> {
     let (kind, payload) = split(frame)?;
@@ -206,6 +219,20 @@ pub fn character_list(frame: &Frame) -> Result<(Vec<Character>, Vec<u8>), Error>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn redirect_to_the_shop_server() {
+        // Captured: the server sends the character to log in at 37.18.193.19:7513.
+        let bytes = hex("015500010001001a00000dc10004c2de0000003c2512c1131d590000");
+        let mut reader = crate::frame::Reader::default();
+        reader.push(&bytes).unwrap();
+        let frame = reader.next().unwrap().unwrap();
+        assert_eq!(redirect(&frame).as_deref(), Some("37.18.193.19:7513"));
+    }
+
+    fn hex(s: &str) -> Vec<u8> {
+        (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap()).collect()
+    }
 
     #[test]
     fn init_auth_layout() {

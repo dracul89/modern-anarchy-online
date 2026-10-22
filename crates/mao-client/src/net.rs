@@ -43,6 +43,33 @@ fn login(game: &str) -> Result<(Connection, Vec<Character>), String> {
     Ok((connection, list))
 }
 
+/// Follow a 0x3c redirect (entering a shop and the like): log in again at the
+/// server it names (the default one if that fails), ask for the same
+/// character and enter the world there.
+fn hop(game: &str, target: &str, character: u32) -> Result<Connection, String> {
+    let (user, password) = credentials()?;
+    let version = version(game)?;
+    let default = std::env::var("MAO_SERVER").unwrap_or_else(|_| session::RUBI_KA.to_string());
+    let mut last = String::new();
+    for server in [target, default.as_str()] {
+        let attempt = (|| -> Result<Connection, String> {
+            let mut chat = Connection::connect(server).map_err(|e| e.to_string())?;
+            session::login(&mut chat, &user, &password, &version).map_err(|e| e.to_string())?;
+            let ticket = session::login_character(&mut chat, character).map_err(|e| e.to_string())?;
+            eprintln!("game server {} (login at {server})", ticket.host());
+            session::enter_world(&ticket).map_err(|e| e.to_string())
+        })();
+        match attempt {
+            Ok(connection) => return Ok(connection),
+            Err(e) => {
+                eprintln!("login at {server} failed: {e}");
+                last = e;
+            }
+        }
+    }
+    Err(last)
+}
+
 /// Tallies of what the world sends.
 #[derive(Default)]
 struct World {
@@ -418,6 +445,21 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     if let Some(reply) = frame::ping_reply(&frame, own, 70_000_000 + clock.elapsed().as_millis() as u32) {
                         if connection.send(&reply).is_err() {
                             break;
+                        }
+                    }
+                    if let Some(target) = system::redirect(&frame) {
+                        eprintln!("the server sends us to {target}");
+                        match hop(&game_dir, &target, own).and_then(|mut c| c.set_timeout(Duration::from_millis(50)).map(|_| c).map_err(|e| e.to_string())) {
+                            Ok(next) => {
+                                connection = next;
+                                // The new playfield is loaded even if its number repeats.
+                                current = u32::MAX;
+                                continue;
+                            }
+                            Err(e) => {
+                                eprintln!("can't follow the redirect: {e}");
+                                break;
+                            }
                         }
                     }
                     state.add(&frame);
