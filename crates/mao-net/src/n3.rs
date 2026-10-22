@@ -180,6 +180,18 @@ pub struct EntityInfo {
     /// The worn clothes: body part name and the texture's instance (types
     /// 0xf6954, 0xf6960, 0xf6961 share instances). Found like `textures`.
     pub clothes: Vec<(String, u32)>,
+    /// The NPC template (an object of type 0xfde97) of a creature or NPC:
+    /// its record names the CAT mesh (entry 12) and the animations.
+    pub template: Option<u32>,
+}
+
+/// Where the template id sits after the flags: a few bytes after the second
+/// flags word and always before a level (`00 level 00 1f`), at a position
+/// that moves by a byte with the fields in front.
+fn npc_template(post: &[u8]) -> Option<u32> {
+    (8..post.len().saturating_sub(7).min(40)).find_map(|p| {
+        (post[p + 4] == 0 && post[p + 6] == 0 && post[p + 7] == 0x1f).then(|| u32::from_be_bytes(post[p..p + 4].try_into().unwrap()))
+    })
 }
 
 impl EntityInfo {
@@ -325,13 +337,24 @@ impl Message {
         let tail = &d[at.min(d.len())..];
         let textures = if flags & 0x10 != 0 { texture_overrides(tail) } else { Vec::new() };
         let clothes = cloth_list(tail);
-        Some(EntityInfo { version, flags, playfield, position, rotation, breed, sex, name, flags2, unknown_a0: model, textures, clothes })
+        let template = if flags & 1 != 0 { d.get(at - 8..).and_then(npc_template) } else { None };
+        Some(EntityInfo { version, flags, playfield, position, rotation, breed, sex, name, flags2, unknown_a0: model, textures, clothes, template })
     }
 }
 
 #[cfg(test)]
 mod entity_tests {
     use super::*;
+
+    /// The template ids of creatures from the capture (the bytes after the name).
+    #[test]
+    fn creature_templates() {
+        let h = |s: &str| -> Vec<u8> { s.split_whitespace().map(|x| u8::from_str_radix(x, 16).unwrap()).collect() };
+        // Waste Collector, Draculeet, Female High Commander (the last is dressed by the tables)
+        assert_eq!(npc_template(&h("10 08 12 01 00 00 00 00 4b 00 00 00 00 05 00 a1 00 00 45 32 00 5d 00 1f 00 00 00 00 1c")), Some(0x4532));
+        assert_eq!(npc_template(&h("10 0a 12 01 00 00 00 00 24 00 00 00 00 01 00 14 00 00 03 ea 06 00 b4 00 1f 00 00 00 00 1c")), Some(0x3ea06));
+        assert_eq!(npc_template(&h("10 08 12 01 00 00 00 00 01 00 00 00 00 c8 8e 52 00 00 00 65 ea 00 79 00 1f 00 00 00 00 1c")), Some(0x65ea));
+    }
 
     fn bytes(hex: &str) -> Vec<u8> {
         let hex: String = hex.split_whitespace().collect();

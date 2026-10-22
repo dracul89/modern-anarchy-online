@@ -7,6 +7,7 @@ pub mod instances;
 pub mod resource;
 pub mod texture;
 pub mod appearance;
+pub mod npc;
 pub mod archive;
 pub mod catanim;
 pub mod catmesh;
