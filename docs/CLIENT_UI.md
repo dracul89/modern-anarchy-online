@@ -92,7 +92,7 @@ a first-person view, an option for inverted mouse. Not tried in the live window.
 
 ## 4e. Controls added for playing
 `Z` / `C` strafe left / right (the position is reported with ordinary updates; the strafe start and stop
-types, probably 5-8, are a guess behind `MAO_STRAFE_TYPES=1`); `N` toggles walking through props (was `C`);
+types, probably 5-8, are a guess behind `MAO_STRAFE_TYPES=1`); `Ctrl+Shift+C` toggles walking through props (was `C`);
 `X` sits or stands (sit = action `0x78`, tested live: the server broadcasts `0x7a`; stand = `0x57`;
 moving stands you up); `E` uses the target (message `52526858`, action 3, decoded from the capture and
 byte-exact in a test; not yet confirmed live because the test character stands in an interior with no

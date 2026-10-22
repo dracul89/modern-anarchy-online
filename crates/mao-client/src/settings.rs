@@ -122,7 +122,7 @@ pub const ACTIONS: &[(Action, &str, &str)] = &[
     (Action::TurnLeft, "turn_left", "A, Left"),
     (Action::TurnRight, "turn_right", "D, Right"),
     (Action::Jump, "jump", "Space"),
-    (Action::NoClip, "noclip", "N"),
+    (Action::NoClip, "noclip", "Ctrl+Shift+C"),
     (Action::StrafeLeft, "strafe_left", "Z"),
     (Action::StrafeRight, "strafe_right", "C"),
     // The original's fixed camera commands (default keys assumed).
