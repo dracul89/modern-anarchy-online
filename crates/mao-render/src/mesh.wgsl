@@ -44,7 +44,7 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     var base = part.colour;
     if part.flags.x > 0.5 {
         let t = textureSample(tex, samp, in.uv);
-        if t.a < 0.5 {
+        if t.a < 0.5 && part.flags.y < 0.5 {
             discard;
         }
         base = vec4<f32>(base.rgb * t.rgb, 1.0);

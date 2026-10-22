@@ -269,7 +269,7 @@ impl Renderer {
             });
             let Some((vb, ib, count, view)) = entry else { continue };
             let d = model.parts[index].material.diffuse;
-            let uniform = PartUniform { model: world, colour: [d[0], d[1], d[2], 1.0], flags: [view.is_some() as u32 as f32, 0.0, 0.0, 0.0] };
+            let uniform = PartUniform { model: world, colour: [d[0], d[1], d[2], 1.0], flags: [view.is_some() as u32 as f32, model.parts[index].material.ignore_alpha as u32 as f32, 0.0, 0.0] };
             let ub = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: bytemuck::bytes_of(&uniform), usage: wgpu::BufferUsages::UNIFORM });
             let bind = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: None,

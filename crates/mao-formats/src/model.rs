@@ -58,6 +58,9 @@ pub struct Material {
     pub opacity: f32,
     /// The resource (type, instance) of each texture, in channel order.
     pub textures: Vec<(u32, u32)>,
+    /// Draw the texture opaque: its alpha channel isn't a cut-out mask (the
+    /// character meshes' textures).
+    pub ignore_alpha: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -196,6 +199,7 @@ fn material(a: &Archive, index: i32) -> Material {
         emissive: rgb(m, "emis"),
         opacity: float_field(m, "opac").and_then(|v| v.first().copied()).unwrap_or(1.0),
         textures,
+        ignore_alpha: false,
     }
 }
 

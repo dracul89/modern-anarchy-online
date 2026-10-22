@@ -163,7 +163,7 @@ fn marker(colour: [f32; 3]) -> Part {
         }
         indices.extend([base, base + 1, base + 2, base, base + 2, base + 3]);
     }
-    let material = Material { name: "marker".into(), diffuse: colour, specular: [0.0; 3], ambient: colour, emissive: [0.0; 3], opacity: 1.0, textures: Vec::new() };
+    let material = Material { name: "marker".into(), diffuse: colour, specular: [0.0; 3], ambient: colour, emissive: [0.0; 3], opacity: 1.0, textures: Vec::new(), ignore_alpha: false };
     Part { name: "marker".into(), world: model::IDENTITY, vertices, indices, material }
 }
 
