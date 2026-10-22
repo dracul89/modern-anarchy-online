@@ -86,6 +86,10 @@ pub fn headless_with(model: &Model, textures: &Textures, out: &str, ui: Option<(
     let gpu = Gpu::headless()?;
     eprintln!("adapter: {:?}", gpu.adapter.get_info());
     let mut renderer = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8UnormSrgb);
+    // `MAO_RENDER_SCALE=0.67` draws at that share of the image and upscales it with FSR 1.
+    if let Some(s) = std::env::var("MAO_RENDER_SCALE").ok().and_then(|v| v.parse().ok()) {
+        renderer.render_scale = s;
+    }
     let mut scene = renderer.upload(&gpu, model, &mut |k, i| textures.get(k, i));
     // `MAO_PLAYER=x,y,z` (world, Z up) puts a player in the scene: plants near it bend away.
     if let Some(v) = std::env::var("MAO_PLAYER").ok().map(|t| t.split(',').filter_map(|n| n.trim().parse::<f32>().ok()).collect::<Vec<_>>()) {
@@ -439,6 +443,8 @@ impl ApplicationHandler for App {
                 };
                 let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
                 let size = (w.config.width, w.config.height);
+                w.renderer.render_scale = self.settings.render_scale;
+                w.renderer.sharpness = self.settings.sharpness;
                 w.renderer.draw(&w.gpu, &w.scene, &w.camera, &view, size);
                 let stats = w.renderer.stats;
                 self.hud.draw_info = format!("{} of {} parts, {} in shadow", stats.drawn, stats.parts, stats.shadow_drawn);

@@ -324,6 +324,15 @@ fn options_window(ctx: &egui::Context, open: &mut bool, rebinding: &mut Option<A
                 requests.size = Some((settings.width, settings.height));
             }
         });
+        ui.horizontal(|ui| {
+            ui.label("Render scale");
+            ui.add(egui::Slider::new(&mut settings.render_scale, 0.4..=1.0).step_by(0.01).custom_formatter(|v, _| format!("{:.0}%", v * 100.0)));
+            ui.label(egui::RichText::new("(below 100% the scene is upscaled with AMD FSR 1)").weak());
+        });
+        ui.horizontal(|ui| {
+            ui.label("Sharpness");
+            ui.add(egui::Slider::new(&mut settings.sharpness, 0.0..=2.0).text("stops down").step_by(0.05));
+        });
         ui.separator();
         ui.heading("Interface");
         ui.horizontal(|ui| {

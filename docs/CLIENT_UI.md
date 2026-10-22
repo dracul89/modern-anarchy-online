@@ -73,6 +73,13 @@ draws the shore along its beaches; Old Athens has none. `MAO_WATER=<level>`
 overrides the level. Not done: shoreline foam, depth tint, caustics, underwater
 view, and the true water data.
 
+## 4c. Performance
+* **Frame rate:** uncapped by default (`[window] vsync = off`; `on` waits for the monitor).
+* **Frustum culling:** the camera pass skips parts outside the view (a plaza view draws 376 of 5,698 parts); the HUD shows the counts.
+* **FSR 1 upscaling:** `[window] render_scale = 0.4..1.0` (also a slider in the options window, `MAO_RENDER_SCALE` for headless) draws the scene at that share of the window and upscales it with AMD FidelityFX Super Resolution 1 (EASU + RCAS, ported to WGSL from AMD's MIT-licensed `ffx_fsr1.h`; the notice is in `fsr.wgsl`), then sharpens (`sharpness`, in stops). At 60% a 960x720 frame is drawn at 576x432 and still looks sharp. Verified offscreen; the live gain isn't measured.
+* **Not possible:** DLSS (NVIDIA-only SDK; this machine has an AMD GPU). FSR 2/3 need motion vectors, depth and jitter (a larger renderer change; TAA is the first step).
+* **Next:** instancing the repeated props (about 3,000 placed from 156 meshes), cheaper shadow casters at a distance, TAA.
+
 ## 5. The AOU mod against the original GUI
 The original GUI folder (`cd_image/gui/Default`) is 50 files: 27 small XML
 views (login, character selection, mail, trade, research, raid ...), 10 action

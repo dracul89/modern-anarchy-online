@@ -175,6 +175,13 @@ fn perspective(fov_y: f32, aspect: f32, near: f32, far: f32) -> Mat4 {
     Mat4::from_cols_array(&[f / aspect, 0.0, 0.0, 0.0, 0.0, f, 0.0, 0.0, 0.0, 0.0, far / (near - far), -1.0, 0.0, 0.0, near * far / (near - far), 0.0])
 }
 
+struct FsrTargets {
+    input: (u32, u32),
+    output: (u32, u32),
+    scene: wgpu::TextureView,
+    mid: wgpu::TextureView,
+}
+
 /// What a frame drew: the parts and draw calls in the camera's pass and the shadow pass.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Stats {
@@ -213,6 +220,16 @@ pub struct Renderer {
     pub shadows: bool,
     /// What the last frame drew.
     pub stats: Stats,
+    /// The share of the window's size the scene is drawn at (1 = native); less is upscaled with FSR 1.
+    pub render_scale: f32,
+    /// FSR's sharpening in stops (0 = maximum, each stop halves it).
+    pub sharpness: f32,
+    fsr_easu: wgpu::RenderPipeline,
+    fsr_rcas: wgpu::RenderPipeline,
+    fsr_layout: wgpu::BindGroupLayout,
+    fsr_sampler: wgpu::Sampler,
+    /// The scaled scene and the upscaled frame, for the sizes they were made for.
+    fsr: Option<FsrTargets>,
     /// Samples per pixel (4 where the device supports it, else 1).
     samples: u32,
     msaa: Option<((u32, u32), wgpu::TextureView)>,
@@ -422,8 +439,39 @@ impl Renderer {
             anisotropy_clamp: 16,
             ..Default::default()
         });
+        // FSR 1: upscale the scaled scene (EASU), then sharpen (RCAS).
+        let fsr_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("fsr"), source: wgpu::ShaderSource::Wgsl(include_str!("fsr.wgsl").into()) });
+        let fsr_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("fsr"),
+            entries: &[
+                uniform(0, wgpu::ShaderStages::FRAGMENT),
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: true }, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry { binding: 2, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering), count: None },
+            ],
+        });
+        let fsr_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("fsr"), bind_group_layouts: &[Some(&fsr_layout)], immediate_size: 0 });
+        let fsr_pipeline = |entry: &'static str| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(entry),
+                layout: Some(&fsr_pipeline_layout),
+                vertex: wgpu::VertexState { module: &fsr_shader, entry_point: Some("vs_fsr"), compilation_options: Default::default(), buffers: &[] },
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                fragment: Some(wgpu::FragmentState { module: &fsr_shader, entry_point: Some(entry), compilation_options: Default::default(), targets: &[Some(wgpu::ColorTargetState { format, blend: None, write_mask: wgpu::ColorWrites::ALL })] }),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let (fsr_easu, fsr_rcas) = (fsr_pipeline("fs_easu"), fsr_pipeline("fs_rcas"));
+        let fsr_sampler = device.create_sampler(&wgpu::SamplerDescriptor { mag_filter: wgpu::FilterMode::Nearest, min_filter: wgpu::FilterMode::Nearest, ..Default::default() });
         let white = upload_texture(gpu, &Texture { width: 1, height: 1, format: mao_formats::texture::Format::Png, rgba: vec![255; 4] });
-        Renderer { pipeline, sky_pipeline, shadow_pipeline, water_pipeline, shadow_view, shadow_bind, shadows: true, stats: Stats::default(), samples, msaa: None, started: std::time::Instant::now(), globals_layout, part_layout, sampler, white, format, depth: None, textures: Default::default() }
+        Renderer { pipeline, sky_pipeline, shadow_pipeline, water_pipeline, shadow_view, shadow_bind, shadows: true, stats: Stats::default(), render_scale: 1.0, sharpness: 0.2, fsr_easu, fsr_rcas, fsr_layout, fsr_sampler, fsr: None, samples, msaa: None, started: std::time::Instant::now(), globals_layout, part_layout, sampler, white, format, depth: None, textures: Default::default() }
     }
 
     /// Puts a model on the GPU. `texture` finds a texture by (type, instance).
@@ -519,9 +567,36 @@ impl Renderer {
         }
     }
 
+    /// The scaled scene and the upscaled frame for these sizes (made once per size).
+    fn fsr_targets(&mut self, gpu: &Gpu, input: (u32, u32), output: (u32, u32)) -> (wgpu::TextureView, wgpu::TextureView) {
+        if self.fsr.as_ref().is_none_or(|f| f.input != input || f.output != output) {
+            let make = |label: &str, size: (u32, u32)| {
+                gpu.device
+                    .create_texture(&wgpu::TextureDescriptor {
+                        label: Some(label),
+                        size: wgpu::Extent3d { width: size.0, height: size.1, depth_or_array_layers: 1 },
+                        mip_level_count: 1,
+                        sample_count: 1,
+                        dimension: wgpu::TextureDimension::D2,
+                        format: self.format,
+                        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+                        view_formats: &[],
+                    })
+                    .create_view(&wgpu::TextureViewDescriptor::default())
+            };
+            self.fsr = Some(FsrTargets { input, output, scene: make("scaled scene", input), mid: make("upscaled", output) });
+        }
+        let f = self.fsr.as_ref().unwrap();
+        (f.scene.clone(), f.mid.clone())
+    }
+
     /// Draws the scene into `target`, of `size` pixels.
     pub fn draw(&mut self, gpu: &Gpu, scene: &Scene, camera: &Camera, target: &wgpu::TextureView, size: (u32, u32)) {
         let aspect = size.0 as f32 / size.1.max(1) as f32;
+        // Below native, the scene is drawn small and upscaled afterwards.
+        let scale = self.render_scale.clamp(0.4, 1.0);
+        let upscale = scale < 0.999;
+        let render_size = if upscale { (((size.0 as f32 * scale).round() as u32).max(2), ((size.1 as f32 * scale).round() as u32).max(2)) } else { size };
         let eye = camera.eye();
         let player = scene.player.unwrap_or(Vec3::splat(1.0e9));
         // The sun's box: around the player (or the whole scene with none),
@@ -564,13 +639,15 @@ impl Renderer {
             layout: &self.globals_layout,
             entries: &[wgpu::BindGroupEntry { binding: 0, resource: shadow_buffer.as_entire_binding() }],
         });
-        self.depth_view(gpu, size);
-        self.msaa_view(gpu, size);
+        self.depth_view(gpu, render_size);
+        self.msaa_view(gpu, render_size);
+        let fsr_views = if upscale { Some(self.fsr_targets(gpu, render_size, size)) } else { None };
+        let scene_target: &wgpu::TextureView = fsr_views.as_ref().map_or(target, |v| &v.0);
         let depth = &self.depth.as_ref().unwrap().1;
         // Multisampled: draw into the MSAA target and resolve into `target`.
         let (colour_view, resolve) = match &self.msaa {
-            Some((_, msaa)) if self.samples > 1 => (msaa, Some(target)),
-            _ => (target, None),
+            Some((_, msaa)) if self.samples > 1 => (msaa, Some(scene_target)),
+            _ => (scene_target, None),
         };
         let mut encoder = gpu.device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
         {
@@ -648,6 +725,42 @@ impl Renderer {
             }
         }
         self.stats = Stats { parts, drawn, shadow_drawn };
+        if let Some((scene_view, mid_view)) = &fsr_views {
+            let (inw, inh) = (render_size.0 as f32, render_size.1 as f32);
+            let (outw, outh) = (size.0 as f32, size.1 as f32);
+            let params: [f32; 20] = [
+                inw / outw, inh / outh, 0.5 * inw / outw - 0.5, 0.5 * inh / outh - 0.5,
+                1.0 / inw, 1.0 / inh, 1.0 / inw, -1.0 / inh,
+                -1.0 / inw, 2.0 / inh, 1.0 / inw, 2.0 / inh,
+                0.0, 4.0 / inh, 0.0, 0.0,
+                (-self.sharpness).exp2(), 0.0, 0.0, 0.0,
+            ];
+            let buffer = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: bytemuck::cast_slice(&params), usage: wgpu::BufferUsages::UNIFORM });
+            let bind = |view: &wgpu::TextureView| {
+                gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: None,
+                    layout: &self.fsr_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry { binding: 0, resource: buffer.as_entire_binding() },
+                        wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(view) },
+                        wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(&self.fsr_sampler) },
+                    ],
+                })
+            };
+            for (pipeline, input, output) in [(&self.fsr_easu, scene_view, mid_view), (&self.fsr_rcas, mid_view, target)] {
+                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("fsr"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment { view: output, depth_slice: None, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), store: wgpu::StoreOp::Store } })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                    multiview_mask: None,
+                });
+                pass.set_pipeline(pipeline);
+                pass.set_bind_group(0, &bind(input), &[]);
+                pass.draw(0..3, 0..1);
+            }
+        }
         gpu.queue.submit(Some(encoder.finish()));
     }
 
