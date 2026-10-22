@@ -97,7 +97,8 @@ fn run(args: &[String]) -> Result<(), String> {
             let filter = rest.first().map(|s| s.to_lowercase());
             let mut rows: Vec<_> = index.iter().filter(|(_, n, _)| filter.as_ref().is_none_or(|f| n.to_lowercase().contains(f))).collect();
             rows.sort();
-            for (kind, name, instance) in rows.into_iter().take(60) {
+            let kind_filter: Option<u32> = rest.get(1).and_then(|k| number(k));
+            for (kind, name, instance) in rows.into_iter().filter(|r| kind_filter.is_none_or(|k| r.0 == k)).take(100000) {
                 println!("{kind:#x} {instance:#x} {name}");
             }
         }

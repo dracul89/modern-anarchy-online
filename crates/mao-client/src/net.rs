@@ -55,6 +55,9 @@ struct World {
     entities: BTreeMap<u32, ([f32; 3], usize)>,
     /// When each entity last changed position (for the walk cycle).
     last_move: BTreeMap<u32, Instant>,
+    /// When each was last heard of and its speed in units a second.
+    last_seen: BTreeMap<u32, Instant>,
+    speeds: BTreeMap<u32, f32>,
 }
 
 impl World {
@@ -75,9 +78,16 @@ impl World {
         let position = m.position().or_else(|| m.movement().map(|(_, _, p)| p));
         if let Some(p) = position {
             let e = self.entities.entry(m.identity.1).or_insert((p, 0));
-            if (e.0[0] - p[0]).abs() + (e.0[2] - p[2]).abs() > 0.05 {
+            let moved = ((e.0[0] - p[0]).powi(2) + (e.0[2] - p[2]).powi(2)).sqrt();
+            if moved > 0.05 {
                 self.last_move.insert(m.identity.1, Instant::now());
+                if let Some(before) = self.last_seen.get(&m.identity.1) {
+                    let speed = moved / before.elapsed().as_secs_f32().max(0.05);
+                    let old = self.speeds.get(&m.identity.1).copied().unwrap_or(speed);
+                    self.speeds.insert(m.identity.1, 0.6 * old + 0.4 * speed);
+                }
             }
+            self.last_seen.insert(m.identity.1, Instant::now());
             e.0 = p;
             e.1 += 1;
         }
@@ -139,29 +149,25 @@ fn nose() -> Part {
 struct Characters {
     db: Arc<ResourceDatabase>,
     index: mao_formats::instances::Instances,
-    walk: mao_formats::catanim::CatAnim,
-    length: f32,
+    /// Animations by file name, with their lengths.
+    anims: std::collections::HashMap<String, Option<(mao_formats::catanim::CatAnim, f32)>>,
     /// By (breed, sex): the body, its head and the head's attractor.
     bodies: std::collections::HashMap<(u8, u8), Option<(mao_formats::catmesh::CatMesh, Model, Option<mao_formats::catmesh::Attractor>)>>,
     started: Instant,
 }
-
-/// The walk cycle used for every player (until animations are chosen by state).
-const WALK_ANIMATION: u32 = 0x24a6;
 
 impl Characters {
     fn new(db: Arc<ResourceDatabase>) -> Result<Characters, String> {
         use mao_formats::resource::Id;
         let get = |kind: u32, instance: u32| db.get(Id { kind, instance }).map_err(|e| e.to_string())?.ok_or_else(|| format!("no object {kind:#x}:{instance:#x}"));
         let index = mao_formats::instances::Instances::parse(&get(0xf424a, 1)?).map_err(|e| e.to_string())?;
-        let walk = mao_formats::catanim::parse(&get(0xf6953, WALK_ANIMATION)?).map_err(|e| e.to_string())?;
-        let length = walk.tracks.iter().flat_map(|t| t.rotations.iter().map(|k| k.0)).fold(1.0f32, f32::max);
-        Ok(Characters { db, index, walk, length, bodies: Default::default(), started: Instant::now() })
+        let _ = get;
+        Ok(Characters { db, index, anims: Default::default(), bodies: Default::default(), started: Instant::now() })
     }
 
     /// The parts of a player of this breed and sex at `t` ms into the walk,
     /// in Y-up local space (world matrices identity), if its meshes exist.
-    fn parts(&mut self, breed: u8, sex: u8, t: f32, textures: &[(String, u32)]) -> Option<Vec<Part>> {
+    fn parts(&mut self, breed: u8, sex: u8, action: mao_formats::appearance::Action, phase: f32, textures: &[(String, u32)]) -> Option<Vec<Part>> {
         use mao_formats::resource::Id;
         let db = self.db.clone();
         let index = &self.index;
@@ -173,7 +179,16 @@ impl Characters {
             Some((body, head, attractor))
         });
         let (body, head, attractor) = entry.as_ref()?;
-        let bones = body.pose(&self.walk, t);
+        let name = mao_formats::appearance::animation_name(breed, sex, action);
+        let anim_entry = self.anims.entry(name.clone()).or_insert_with(|| {
+            let id = index.find(0xf6953, &name)?;
+            let anim = mao_formats::catanim::parse(&db.get(Id { kind: 0xf6953, instance: id }).ok()??).ok()?;
+            let length = anim.tracks.iter().flat_map(|t| t.rotations.iter().map(|k| k.0)).fold(1.0f32, f32::max);
+            Some((anim, length))
+        });
+        let (anim, length) = anim_entry.as_ref()?;
+        let t = (self.started.elapsed().as_secs_f32() * 1000.0 + phase) % length;
+        let bones = body.pose(anim, t);
         let mut model = body.skinned_model(&bones, 0xf6954);
         // The character's own textures (its clothes) replace the mesh's by material name.
         for part in &mut model.parts {
@@ -203,9 +218,11 @@ fn overlay_model(world: &World, characters: &mut Option<Characters>) -> Model {
         let info = world.infos.get(&id).filter(|i| i.is_humanoid());
         if let (Some(info), Some(chars)) = (info, characters.as_mut()) {
             // The walk cycle runs while it moves (and a second after), else the first frame.
-            let walking = world.last_move.get(&id).is_some_and(|t| t.elapsed() < Duration::from_millis(1200));
-            let t = if walking { chars.started.elapsed().as_secs_f32() * 1000.0 % chars.length } else { 0.0 };
-            if let Some(parts) = chars.parts(info.breed, info.sex, t, &info.textures) {
+            let moving = world.last_move.get(&id).is_some_and(|t| t.elapsed() < Duration::from_millis(900));
+            let speed = world.speeds.get(&id).copied().unwrap_or(0.0);
+            let action = if !moving { mao_formats::appearance::Action::Idle } else if speed > 5.5 { mao_formats::appearance::Action::Run } else { mao_formats::appearance::Action::Walk };
+            // (A phase per entity keeps a crowd from moving in step.)
+            if let Some(parts) = chars.parts(info.breed, info.sex, action, (id % 997) as f32 * 3.0, &info.textures) {
                 let base = model.parts.len();
                 for (k, p) in parts.into_iter().enumerate() {
                     model.parts.push(p);
@@ -420,6 +437,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             state.rotations.insert(own, [0.0, (heading * 0.5).sin(), 0.0, (heading * 0.5).cos()]);
             if walk != 0 || keys.turn != 0 || moving != 0 || airborne {
                 state.entities.insert(own, (position, 0));
+                if walk != 0 {
+                    state.last_move.insert(own, Instant::now());
+                    state.speeds.insert(own, speed.abs());
+                }
             } else if let Some(e) = state.entities.get(&own) {
                 position = e.0;
             }

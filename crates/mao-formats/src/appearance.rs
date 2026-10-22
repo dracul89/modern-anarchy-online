@@ -26,3 +26,37 @@ pub fn player_meshes(breed: u8, sex: u8) -> Option<(&'static str, &'static str)>
         _ => return None,
     })
 }
+
+/// What a character is doing, as far as the animation choice goes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Action {
+    Idle,
+    Walk,
+    Run,
+}
+
+/// The file name of a human character's animation for an action, as the
+/// database names them: `male_idle-stand_01_01.ani`, `female_walk_01_01.ani`,
+/// `athrox_run_01_01.ani`. (Solitus, Opifex and Nanomage share the male and
+/// female sets; the Atrox has its own.)
+pub fn animation_name(breed: u8, sex: u8, action: Action) -> String {
+    let prefix = if breed == ATROX { "athrox" } else if sex == FEMALE { "female" } else { "male" };
+    let stem = match action {
+        Action::Idle => "idle-stand",
+        Action::Walk => "walk",
+        Action::Run => "run",
+    };
+    format!("{prefix}_{stem}_01_01.ani")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn animation_names() {
+        assert_eq!(animation_name(SOLITUS, FEMALE, Action::Idle), "female_idle-stand_01_01.ani");
+        assert_eq!(animation_name(OPIFEX, MALE, Action::Walk), "male_walk_01_01.ani");
+        assert_eq!(animation_name(ATROX, 1, Action::Run), "athrox_run_01_01.ani");
+    }
+}
