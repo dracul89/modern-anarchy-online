@@ -16,6 +16,8 @@
 mod anim;
 mod net;
 mod settings;
+mod ui;
+mod whompah;
 pub(crate) mod viewer;
 
 use std::path::Path;
@@ -171,6 +173,22 @@ pub(crate) fn add_props(game: &str, db: &ResourceDatabase, playfield: u32, model
     }
     eprintln!("{placed} of {} statels placed ({} meshes, {plants} of them plants)", statels.len(), meshes.len());
     part_mesh
+}
+
+/// Where the whompah booths stand in a playfield (x, height, z as the statels
+/// give them): the statels of the booth mesh `whompa_entrance_default`.
+pub(crate) fn whompah_booths(game: &str, db: &ResourceDatabase, playfield: u32) -> Vec<[f32; 3]> {
+    let booth_meshes: std::collections::HashSet<u32> = db
+        .get(Id { kind: 0xf424a, instance: 1 })
+        .ok()
+        .flatten()
+        .and_then(|o| mao_formats::instances::Instances::parse(&o).ok())
+        .map(|index| index.iter().filter(|&(kind, name, _)| kind == 0xf6951 && name == "whompa_entrance_default.abiff").map(|(_, _, instance)| instance).collect())
+        .unwrap_or_default();
+    let path = Path::new(game).join(format!("cd_image/data/statels/{playfield}.pf"));
+    let Ok(file) = std::fs::read(&path) else { return Vec::new() };
+    let Ok(statels) = mao_formats::statels::parse(&file) else { return Vec::new() };
+    statels.iter().filter(|s| booth_meshes.contains(&s.mesh)).map(|s| s.position).collect()
 }
 
 /// A playfield by number (decimal, or hex with `0x`) or by part of its name.

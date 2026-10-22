@@ -124,6 +124,17 @@ impl Camera {
         self.target + direction * self.distance
     }
 
+    /// Where a world point lands on the screen, as (x, y) in 0..1 from the top
+    /// left, or none when it is behind the camera or off the view.
+    pub fn project(&self, point: Vec3, aspect: f32, radius: f32) -> Option<[f32; 2]> {
+        let clip = self.view_proj(aspect, radius) * point.extend(1.0);
+        if clip.w <= 0.0 {
+            return None;
+        }
+        let (x, y) = (clip.x / clip.w, clip.y / clip.w);
+        (x.abs() <= 1.2 && y.abs() <= 1.2).then(|| [x * 0.5 + 0.5, 0.5 - y * 0.5])
+    }
+
     fn view_proj(&self, aspect: f32, radius: f32) -> Mat4 {
         let eye = self.eye();
         let far = (self.distance + radius * 4.0).max(1.0);

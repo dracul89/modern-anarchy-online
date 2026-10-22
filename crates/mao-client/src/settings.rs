@@ -98,6 +98,8 @@ pub enum Action {
     /// Cycle windowed, borderless, fullscreen.
     CycleWindowMode,
     ToggleFullscreen,
+    /// The options window (window mode, keys).
+    ToggleOptions,
     Quit,
 }
 
@@ -136,7 +138,8 @@ pub const ACTIONS: &[(Action, &str, &str)] = &[
     // This client.
     (Action::CycleWindowMode, "cycle_window_mode", "Alt+Enter"),
     (Action::ToggleFullscreen, "toggle_fullscreen", "F11"),
-    (Action::Quit, "quit", "Escape"),
+    (Action::ToggleOptions, "options", "Escape, F10"),
+    (Action::Quit, "quit", "Ctrl+Q"),
 ];
 
 /// A key with the modifiers that must be held.
@@ -314,6 +317,14 @@ impl Keymap {
         ACTIONS.iter().map(|&(a, _, _)| a).filter(|a| self.bindings.get(a).is_some_and(|list| list.iter().any(|b| b.key == key))).collect()
     }
 
+    /// Makes `binding` the only key of `action`, taking it from any other action.
+    pub fn assign(&mut self, action: Action, binding: Binding) {
+        for list in self.bindings.values_mut() {
+            list.retain(|b| *b != binding);
+        }
+        self.bindings.insert(action, vec![binding]);
+    }
+
     pub fn set(&mut self, action: Action, keys: &str) {
         self.bindings.insert(action, keys.split(',').filter_map(parse_binding).collect());
     }
@@ -387,6 +398,17 @@ impl Settings {
             }
         }
         settings
+    }
+
+    /// Writes the settings to the file (what the options window does).
+    pub fn save(&self) {
+        let path = Settings::path();
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        if let Err(e) = std::fs::write(&path, self.to_text()) {
+            eprintln!("can't save the settings to {}: {e}", path.display());
+        }
     }
 
     /// Where the file is: `MAO_SETTINGS`, else `mao.ini` here if it exists, else
@@ -485,6 +507,16 @@ mod tests {
         assert_eq!(custom.keymap.action(KeyCode::KeyW, ModifiersState::empty()), None);
         assert_eq!(custom.keymap.action(KeyCode::ArrowUp, ModifiersState::empty()), Some(Action::Forward));
         assert_eq!(custom.keymap.action(KeyCode::Space, ModifiersState::CONTROL), Some(Action::Jump));
+    }
+
+    #[test]
+    fn assigning_a_key_takes_it_from_the_other_action() {
+        let mut keymap = Keymap::default();
+        let space = parse_binding("Space").unwrap();
+        keymap.assign(Action::NoClip, space);
+        assert_eq!(keymap.action(KeyCode::Space, ModifiersState::empty()), Some(Action::NoClip));
+        assert_eq!(keymap.keys(Action::Jump), "");
+        assert_eq!(keymap.keys(Action::NoClip), "Space");
     }
 
     #[test]

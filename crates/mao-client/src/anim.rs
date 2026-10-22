@@ -43,7 +43,7 @@ pub fn run(db: Arc<ResourceDatabase>, mesh_kind: u32, mesh: u32, anim: u32, imag
         let start = Instant::now();
         loop {
             let t = (start.elapsed().as_secs_f32() * 1000.0) % length;
-            if tx.send(viewer::Update { scene: None, model: pose(t), own: None }).is_err() {
+            if tx.send(viewer::Update { model: pose(t), ..Default::default() }).is_err() {
                 break;
             }
             std::thread::sleep(Duration::from_millis(33));
@@ -83,7 +83,7 @@ pub fn player(db: Arc<ResourceDatabase>, breed: u8, sex: u8, anim: u32, image: O
         let start = Instant::now();
         loop {
             let t = (start.elapsed().as_secs_f32() * 1000.0) % length;
-            if tx.send(viewer::Update { scene: None, model: pose(t), own: None }).is_err() {
+            if tx.send(viewer::Update { model: pose(t), ..Default::default() }).is_err() {
                 break;
             }
             std::thread::sleep(Duration::from_millis(33));

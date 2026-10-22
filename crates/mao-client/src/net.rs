@@ -438,6 +438,8 @@ struct Area {
     scene: Model,
     terrain: Option<mao_formats::terrain::Terrain>,
     collision: mao_formats::collision::Collision,
+    /// The whompah booths (x, height, z).
+    booths: Vec<[f32; 3]>,
 }
 
 fn load_area(game: &str, db: &Arc<ResourceDatabase>, playfield: u32) -> Result<Area, String> {
@@ -453,15 +455,41 @@ fn load_area(game: &str, db: &Arc<ResourceDatabase>, playfield: u32) -> Result<A
     let passable = passable_parts(db, &part_mesh);
     let collision = build_collision(&scene, ground_parts, &crate::Textures::new(db.clone()), &passable);
     eprintln!("playfield {playfield}: collision {} triangles", collision.len());
-    Ok(Area { scene, terrain, collision })
+    let booths = crate::whompah_booths(game, db, playfield);
+    Ok(Area { scene, terrain, collision, booths })
+}
+
+/// The label over each whompah booth: where it leads, when that is known.
+fn booth_labels(playfield: u32, booths: &[[f32; 3]], destinations: &crate::whompah::Destinations, names: &std::collections::HashMap<u32, String>) -> Vec<([f32; 3], String)> {
+    booths
+        .iter()
+        .map(|b| {
+            let text = match destinations.get(playfield, b[0], b[2]) {
+                Some(to) => format!("Whom-Pah  >  {}", names.get(&to).cloned().unwrap_or_else(|| format!("playfield {to}"))),
+                None => "Whom-Pah".to_string(),
+            };
+            // Over the booth, Z-up.
+            ([b[0], b[2], b[1] + 3.4], text)
+        })
+        .collect()
 }
 
 /// The window with the world updating in it: a thread reads the game
 /// server and sends the entities' markers over.
 fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World) -> Result<(), String> {
     let db = Arc::new(ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?);
-    let Area { scene, terrain, collision } = load_area(game, &db, playfield)?;
+    let Area { scene, terrain, collision, booths } = load_area(game, &db, playfield)?;
     let (mut terrain, mut collision) = (terrain, collision);
+    // The interface: the names of the playfields, and where the booths lead.
+    let names: std::collections::HashMap<u32, String> = mao_formats::playfield::all(&db).into_iter().map(|p| (p.number, p.name.trim().to_string())).collect();
+    let mut destinations = crate::whompah::Destinations::load();
+    let mut booths = booths;
+    let mut booth_playfield = playfield;
+    let mut pending_labels = Some(booth_labels(playfield, &booths, &destinations, &names));
+    let mut pending_location = names.get(&playfield).cloned();
+    let mut pending_messages: Vec<String> = Vec::new();
+    // The booth the character stood at last, and when.
+    let mut near_booth: Option<(u32, [f32; 3], Instant)> = None;
     let game_dir = game.to_string();
     let thread_db = db.clone();
     let mut current = playfield;
@@ -564,15 +592,32 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     state.infos.clear_all();
                     state.rotations.clear_all();
                     state.entities.clear();
+                    // Zoned from a booth: that booth leads here.
+                    if let Some((pf, booth, when)) = near_booth.take() {
+                        if when.elapsed() < Duration::from_secs(20) && pf != playfield {
+                            let to = names.get(&playfield).cloned().unwrap_or_else(|| format!("playfield {playfield}"));
+                            if destinations.learn(pf, booth[0], booth[2], playfield) {
+                                pending_messages.push(format!("Whom-Pah: this booth leads to {to} (remembered)"));
+                            } else {
+                                pending_messages.push(format!("Whom-Pah to {to}"));
+                            }
+                        }
+                    }
+                    pending_location = Some(names.get(&playfield).cloned().unwrap_or_else(|| format!("playfield {playfield}")));
                     match load_area(&game_dir, &thread_db, playfield) {
                         Ok(area) => {
                             (terrain, collision) = (area.terrain, area.collision);
                             pending_scene = Some(area.scene);
+                            booths = area.booths;
+                            booth_playfield = playfield;
+                            pending_labels = Some(booth_labels(playfield, &booths, &destinations, &names));
                         }
                         Err(e) => {
                             eprintln!("can't draw playfield {playfield}: {e}");
                             (terrain, collision) = (None, Default::default());
                             pending_scene = Some(Model::default());
+                            booths = Vec::new();
+                            pending_labels = Some(Vec::new());
                         }
                     }
                     position = arrival;
@@ -629,6 +674,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             let floor = if keys.noclip { f32::MIN } else { collision.floor(position[0], position[2], base, 0.6, 0.6).unwrap_or(f32::MIN) };
             base = (ground(&terrain, position) + offset).max(floor);
             position[1] = base + rise;
+            // Standing at a booth?
+            if let Some(b) = booths.iter().find(|b| ((b[0] - position[0]).powi(2) + (b[2] - position[2]).powi(2)).sqrt() < 4.0) {
+                near_booth = Some((booth_playfield, *b, Instant::now()));
+            }
             if tracing && walk != 0 && last_report.elapsed() >= Duration::from_secs(1) {
                 last_report = Instant::now();
                 eprintln!("[{:7.2}] walking at ({:.1}, {:.1}, {:.1}) heading {:.2} in playfield {current}", clock.elapsed().as_secs_f32(), position[0], position[1], position[2], heading);
@@ -676,7 +725,14 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             }
             if last_overlay.elapsed() >= Duration::from_millis(60) {
                 last_overlay = Instant::now();
-                let update = crate::viewer::Update { scene: pending_scene.take(), model: overlay_model(&state, &mut characters), own: Some(position) };
+                let update = crate::viewer::Update {
+                    scene: pending_scene.take(),
+                    model: overlay_model(&state, &mut characters),
+                    own: Some(position),
+                    location: pending_location.take(),
+                    labels: pending_labels.take(),
+                    messages: std::mem::take(&mut pending_messages),
+                };
                 if tx.send(update).is_err() {
                     break;
                 }

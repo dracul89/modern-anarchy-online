@@ -15,7 +15,8 @@ use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::{Fullscreen, Window, WindowId};
 
-use crate::settings::{Action, Settings, WindowMode};
+use crate::settings::{Action, Binding, Settings, WindowMode};
+use crate::ui::{Hud, Label, Ui};
 use crate::Textures;
 
 /// What the player is doing with the keyboard: forward held, and turning
@@ -32,11 +33,18 @@ pub struct Input {
 
 /// The overlay to draw and where the player's character is (the view
 /// follows it).
+#[derive(Default)]
 pub struct Update {
     /// A new playfield to replace the one drawn (zoning).
     pub scene: Option<Model>,
     pub model: Model,
     pub own: Option<[f32; 3]>,
+    /// The playfield's name, when it changes.
+    pub location: Option<String>,
+    /// The labels over the world (Z-up positions), when they change.
+    pub labels: Option<Vec<([f32; 3], String)>>,
+    /// Messages for the log.
+    pub messages: Vec<String>,
 }
 
 /// Something that changes while the window is open: models to draw over the
@@ -87,6 +95,8 @@ struct View {
     renderer: Renderer,
     scene: Scene,
     camera: Camera,
+    /// The interface (heads-up display, options): in a live window.
+    ui: Option<Ui>,
 }
 
 struct App {
@@ -104,6 +114,7 @@ struct App {
     /// The camera as first set, and as the player saved it.
     home: Option<Camera>,
     preferred: Option<Camera>,
+    hud: Hud,
 }
 
 /// Shows the window the way `mode` says: a framed window, a borderless one
@@ -135,7 +146,7 @@ fn apply_mode(window: &Window, mode: WindowMode) {
 pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<(), String> {
     let event_loop = EventLoop::new().map_err(|e| e.to_string())?;
     let settings = Settings::load();
-    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), keys: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None };
+    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), keys: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default() };
     event_loop.run_app(&mut app).map_err(|e| e.to_string())
 }
 
@@ -174,11 +185,23 @@ impl ApplicationHandler for App {
         }
         window.request_redraw();
         self.home = Some(camera);
-        self.state = Some(View { window, surface, config, gpu, renderer, scene, camera });
+        let ui = self.live.as_ref().map(|_| Ui::new(&window, &gpu, config.format));
+        self.state = Some(View { window, surface, config, gpu, renderer, scene, camera, ui });
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
         let Some(w) = self.state.as_mut() else { return };
+        if let Some(ui) = w.ui.as_mut() {
+            // The key the options window waits for goes to it, not to the interface.
+            let capturing = ui.rebinding.is_some() && matches!(event, WindowEvent::KeyboardInput { .. });
+            if !capturing && !matches!(event, WindowEvent::RedrawRequested | WindowEvent::ModifiersChanged(_) | WindowEvent::CloseRequested | WindowEvent::Resized(_)) && ui.event(&w.window, &event) {
+                if matches!(event, WindowEvent::MouseInput { state: ElementState::Released, .. }) {
+                    self.dragging = false;
+                }
+                w.window.request_redraw();
+                return;
+            }
+        }
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(size) => {
@@ -201,6 +224,22 @@ impl ApplicationHandler for App {
             WindowEvent::KeyboardInput { event, .. } if self.live.is_some() => {
                 let PhysicalKey::Code(code) = event.physical_key else { return };
                 let down = event.state == ElementState::Pressed;
+                if let Some(action) = w.ui.as_ref().and_then(|u| u.rebinding).filter(|_| down) {
+                    // The options window is waiting for this key.
+                    let modifier_only = matches!(code, KeyCode::ShiftLeft | KeyCode::ShiftRight | KeyCode::ControlLeft | KeyCode::ControlRight | KeyCode::AltLeft | KeyCode::AltRight | KeyCode::SuperLeft | KeyCode::SuperRight);
+                    if !modifier_only {
+                        if let Some(ui) = w.ui.as_mut() {
+                            ui.rebinding = None;
+                        }
+                        if code != KeyCode::Escape || self.modifiers.shift_key() || self.modifiers.control_key() || self.modifiers.alt_key() {
+                            let binding = Binding { key: code, shift: self.modifiers.shift_key(), ctrl: self.modifiers.control_key(), alt: self.modifiers.alt_key() };
+                            self.settings.keymap.assign(action, binding);
+                            self.settings.save();
+                        }
+                        w.window.request_redraw();
+                    }
+                    return;
+                }
                 if !down {
                     // A released key ends every held action it started.
                     for action in self.settings.keymap.actions_for_key(code) {
@@ -225,6 +264,12 @@ impl ApplicationHandler for App {
                             };
                             apply_mode(&w.window, self.settings.mode);
                             eprintln!("window mode: {} (set `mode` in {} to keep it)", self.settings.mode.name(), Settings::path().display());
+                        }
+                        Action::ToggleOptions if !event.repeat => {
+                            if let Some(ui) = w.ui.as_mut() {
+                                ui.options_open = !ui.options_open;
+                                ui.rebinding = None;
+                            }
                         }
                         Action::Quit => {
                             event_loop.exit();
@@ -305,8 +350,22 @@ impl ApplicationHandler for App {
             }
             WindowEvent::RedrawRequested => {
                 if let Some(live) = &self.live {
-                    let latest = live.overlays.try_iter().last();
+                    // Every update's messages count; the last one's picture is drawn.
+                    let mut updates: Vec<Update> = live.overlays.try_iter().collect();
+                    for u in &mut updates {
+                        for m in std::mem::take(&mut u.messages) {
+                            self.hud.say(m);
+                        }
+                        if let Some(name) = u.location.take() {
+                            self.hud.location = name;
+                        }
+                        if let Some(labels) = u.labels.take() {
+                            self.hud.labels = labels.into_iter().map(|(p, text)| Label { world: mao_render::glam::Vec3::from(p), text }).collect();
+                        }
+                    }
+                    let latest = updates.into_iter().last();
                     if let Some(update) = latest {
+                        self.hud.position = update.own;
                         if let Some(model) = &update.scene {
                             w.scene = w.renderer.upload(&w.gpu, model, &mut |k, i| self.textures.get(k, i));
                             w.scene.fog = (250.0, 1800.0);
@@ -328,7 +387,30 @@ impl ApplicationHandler for App {
                     }
                 };
                 let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
-                w.renderer.draw(&w.gpu, &w.scene, &w.camera, &view, (w.config.width, w.config.height));
+                let size = (w.config.width, w.config.height);
+                w.renderer.draw(&w.gpu, &w.scene, &w.camera, &view, size);
+                if let Some(ui) = w.ui.as_mut() {
+                    let (camera, radius) = (w.camera, w.scene.radius);
+                    let aspect = size.0 as f32 / size.1.max(1) as f32;
+                    let project = |p: mao_render::glam::Vec3| camera.project(p, aspect, radius);
+                    let (frame, requests) = ui.run(&w.window, &mut self.settings, &self.hud, &project);
+                    ui.paint(&w.gpu, &view, size, frame);
+                    if let Some(mode) = requests.mode {
+                        self.settings.mode = mode;
+                        apply_mode(&w.window, mode);
+                        self.settings.save();
+                    }
+                    if let Some((width, height)) = requests.size {
+                        let _ = w.window.request_inner_size(PhysicalSize::new(width, height));
+                        self.settings.save();
+                    }
+                    if requests.save {
+                        self.settings.save();
+                    }
+                    if requests.quit {
+                        event_loop.exit();
+                    }
+                }
                 w.window.pre_present_notify();
                 w.gpu.queue.present(frame);
             }
