@@ -13,7 +13,7 @@ address of the game server, the proxy rewrites that address to 127.0.0.1 (the
 message keeps its length), listens on the game server's port and relays that
 connection too, so the whole session is captured.
 """
-import socket, struct, sys, threading, time
+import socket, struct, sys, threading, time, zlib
 
 listen = int(sys.argv[1]) if len(sys.argv) > 1 else 7505
 host, _, port = (sys.argv[2] if len(sys.argv) > 2 else "cm.d1.funcom.com:7505").partition(":")
@@ -38,7 +38,53 @@ def rewrite(data):
     return data, None
 
 
-def pump(src, dst, tag, cid, intercept):
+class GameRewriter:
+    """The server's side of a game connection: after the control packet that
+    switches compression on, the frames are inflated, a system message 0x3c
+    (go to another game server: type, an IPv4 address, a port) has its
+    address replaced by 127.0.0.1 (and a proxy started for that server), and
+    the frames are deflated again for the client."""
+
+    def __init__(self):
+        self.head = b""
+        self.dec = None
+        self.comp = None
+        self.plain = b""
+
+    def feed(self, data):
+        if self.dec is None:
+            self.head += data
+            if len(self.head) < 16:
+                return b"", None
+            data, self.head = self.head, b""
+            if data[:2] == b"\xdf\xdf" and data[8] | data[9] << 8:
+                self.dec = zlib.decompressobj()
+                self.comp = zlib.compressobj()
+                return data[:16] + self.feed(data[16:])[0], self.target
+            self.dec = False
+        if self.dec is False:
+            return data, None
+        self.plain += self.dec.decompress(data)
+        out = b""
+        self.target = None
+        while len(self.plain) >= 16:
+            size = struct.unpack(">H", self.plain[6:8])[0]
+            if size < 16 or len(self.plain) < size:
+                break
+            frame, self.plain = self.plain[:size], self.plain[size:]
+            if struct.unpack(">H", frame[2:4])[0] == 1 and frame[16:20] == b"\x00\x00\x00\x3c" and size >= 26:
+                ip = socket.inet_ntoa(frame[20:24])
+                port = struct.unpack(">H", frame[24:26])[0]
+                self.target = (ip, port)
+                frame = frame[:20] + bytes([127, 0, 0, 1]) + frame[24:]
+            out += frame
+        return (self.comp.compress(out) + self.comp.flush(zlib.Z_SYNC_FLUSH) if out else b""), self.target
+
+    target = None
+
+
+def pump(src, dst, tag, cid, intercept, game=False):
+    rewriter = GameRewriter() if game and tag == "S>C" else None
     try:
         while d := src.recv(65536):
             log(tag, cid, d)
@@ -47,6 +93,13 @@ def pump(src, dst, tag, cid, intercept):
                 if target:
                     print(f"c{cid}: game server {target[0]}:{target[1]}", flush=True)
                     serve(target[1], target[0], target[1])
+            elif rewriter:
+                d, target = rewriter.feed(d)
+                if target:
+                    print(f"c{cid}: another game server {target[0]}:{target[1]}", flush=True)
+                    serve(target[1], target[0], target[1])
+                if not d:
+                    continue
             dst.sendall(d)
     except OSError:
         pass
@@ -75,7 +128,7 @@ def serve(local_port, remote_host, remote_port):
             r = socket.create_connection((remote_host, remote_port))
             log("OPEN", cid, b"")
             threading.Thread(target=pump, args=(c, r, "C>S", cid, False), daemon=True).start()
-            threading.Thread(target=pump, args=(r, c, "S>C", cid, local_port == listen), daemon=True).start()
+            threading.Thread(target=pump, args=(r, c, "S>C", cid, local_port == listen, local_port != listen), daemon=True).start()
 
     threading.Thread(target=accept, daemon=True).start()
 
