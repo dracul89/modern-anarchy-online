@@ -250,7 +250,7 @@ fn overlay_model(world: &World, characters: &mut Option<Characters>) -> Model {
 fn show_world(game: &str, playfield: u32, world: &World, image: Option<&str>) -> Result<(), String> {
     let db = Arc::new(ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?);
     let mut scene: Model = crate::load_terrain(&db, playfield)?;
-    crate::add_props(game, &db, playfield, &mut scene);
+    let part_mesh = crate::add_props(game, &db, playfield, &mut scene);
     if scene.instances.is_empty() {
         let ground = scene.parts.len();
         scene.instances.extend((0..ground).map(|i| (i, model::IDENTITY)));
@@ -258,7 +258,7 @@ fn show_world(game: &str, playfield: u32, world: &World, image: Option<&str>) ->
     if let Ok(t) = crate::load_terrain_data(&db, playfield) {
         let started = Instant::now();
         let ground_parts = crate::load_terrain(&db, playfield).map(|m| m.parts.len()).unwrap_or(0);
-        let collision = build_collision(&scene, ground_parts, &crate::Textures::new(db.clone()));
+        let collision = build_collision(&scene, ground_parts, &crate::Textures::new(db.clone()), &passable_parts(&db, &part_mesh));
         eprintln!("collision: {} triangles in {:?}", collision.len(), started.elapsed());
         for (id, (p, _)) in world.entities.iter().take(6) {
             eprintln!("entity {id}: server y {:.2}, ground model {:.2}", p[1], t.height_at(p[0], p[2], crate::HEIGHT_SCALE));
@@ -278,12 +278,12 @@ fn show_world(game: &str, playfield: u32, world: &World, image: Option<&str>) ->
 
 /// What blocks a walking character: the props' opaque triangles (a part
 /// whose texture has see-through pixels, such as foliage, is left out).
-fn build_collision(scene: &Model, ground_parts: usize, textures: &crate::Textures) -> mao_formats::collision::Collision {
+fn build_collision(scene: &Model, ground_parts: usize, textures: &crate::Textures, passable: &std::collections::HashSet<usize>) -> mao_formats::collision::Collision {
     let mut texture_opaque: std::collections::HashMap<(u32, u32), bool> = std::collections::HashMap::new();
     let mut part_opaque: std::collections::HashMap<usize, bool> = std::collections::HashMap::new();
     let mut collision = mao_formats::collision::Collision::default();
     for &(i, m) in &scene.instances {
-        if i < ground_parts {
+        if i < ground_parts || passable.contains(&i) {
             continue;
         }
         let part = &scene.parts[i];
@@ -319,6 +319,20 @@ impl<V> ClearMap for BTreeMap<u32, V> {
     }
 }
 
+/// The prop parts that are not solid: the meshes whose names say they are
+/// whompah entrances, doors or gates (the server zones a character that
+/// walks into them).
+fn passable_parts(db: &ResourceDatabase, part_mesh: &std::collections::HashMap<usize, u32>) -> std::collections::HashSet<usize> {
+    let object = db.get(mao_formats::resource::Id { kind: 0xf424a, instance: 1 }).ok().flatten();
+    let Some(index) = object.and_then(|o| mao_formats::instances::Instances::parse(&o).ok()) else { return Default::default() };
+    let names: std::collections::HashMap<u32, String> = index.iter().filter(|(kind, _, _)| *kind == 0xf6951).map(|(_, name, instance)| (instance, name.to_lowercase())).collect();
+    part_mesh
+        .iter()
+        .filter(|(_, mesh)| names.get(mesh).is_some_and(|n| n.contains("whompa_entrance") || n.contains("_door") || n.contains("wallgate")))
+        .map(|(&part, _)| part)
+        .collect()
+}
+
 /// A playfield loaded for walking in: what to draw, the ground's heights (when
 /// its tile-map is of a layout we can read) and what blocks.
 struct Area {
@@ -331,11 +345,13 @@ fn load_area(game: &str, db: &Arc<ResourceDatabase>, playfield: u32) -> Result<A
     let mut scene = crate::load_terrain(db, playfield)?;
     let terrain = crate::load_terrain_data(db, playfield).ok();
     let ground_parts = scene.parts.len();
-    crate::add_props(game, db, playfield, &mut scene);
+    let part_mesh = crate::add_props(game, db, playfield, &mut scene);
     if scene.instances.is_empty() {
         scene.instances.extend((0..ground_parts).map(|i| (i, model::IDENTITY)));
     }
-    let collision = build_collision(&scene, ground_parts, &crate::Textures::new(db.clone()));
+    // Trigger areas are walked into, not blocked by: whompah entrances, doors and gates.
+    let passable = passable_parts(db, &part_mesh);
+    let collision = build_collision(&scene, ground_parts, &crate::Textures::new(db.clone()), &passable);
     eprintln!("playfield {playfield}: collision {} triangles", collision.len());
     Ok(Area { scene, terrain, collision })
 }

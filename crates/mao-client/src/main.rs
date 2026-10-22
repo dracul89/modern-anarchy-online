@@ -124,10 +124,12 @@ pub(crate) fn load_terrain(db: &ResourceDatabase, playfield: u32) -> Result<Mode
 /// The playfield's static objects (its `.pf` statel file), as parts placed on
 /// the ground. The world is Y-up, the viewer Z-up, so a statel's (x, y, z)
 /// goes to (x, z, y).
-pub(crate) fn add_props(game: &str, db: &ResourceDatabase, playfield: u32, model: &mut Model) {
+/// Returns, for each prop part added, the instance of the mesh it came from.
+pub(crate) fn add_props(game: &str, db: &ResourceDatabase, playfield: u32, model: &mut Model) -> std::collections::HashMap<usize, u32> {
+    let mut part_mesh = std::collections::HashMap::new();
     let path = Path::new(game).join(format!("cd_image/data/statels/{playfield}.pf"));
-    let Ok(file) = std::fs::read(&path) else { return };
-    let Ok(statels) = mao_formats::statels::parse(&file) else { return };
+    let Ok(file) = std::fs::read(&path) else { return part_mesh };
+    let Ok(statels) = mao_formats::statels::parse(&file) else { return part_mesh };
     // Each mesh's parts go in once; a statel is an instance of each.
     let mut meshes: std::collections::HashMap<u32, Option<std::ops::Range<usize>>> = std::collections::HashMap::new();
     let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
@@ -142,6 +144,7 @@ pub(crate) fn add_props(game: &str, db: &ResourceDatabase, playfield: u32, model
                 let m = load_model(db, Id { kind: 0xf6951, instance: s.mesh }).ok()?;
                 let start = model.parts.len();
                 model.parts.extend(m.parts);
+                part_mesh.extend((start..model.parts.len()).map(|i| (i, s.mesh)));
                 Some(start..model.parts.len())
             })
             .clone();
@@ -151,6 +154,7 @@ pub(crate) fn add_props(game: &str, db: &ResourceDatabase, playfield: u32, model
         placed += 1;
     }
     eprintln!("{placed} of {} statels placed ({} meshes)", statels.len(), meshes.len());
+    part_mesh
 }
 
 /// A playfield by number (decimal, or hex with `0x`) or by part of its name.
