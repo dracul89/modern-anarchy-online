@@ -138,6 +138,8 @@ pub struct Renderer {
     white: wgpu::TextureView,
     format: wgpu::TextureFormat,
     depth: Option<((u32, u32), wgpu::TextureView)>,
+    /// The textures uploaded so far, by (type, instance), kept between uploads.
+    textures: std::cell::RefCell<HashMap<(u32, u32), Option<wgpu::TextureView>>>,
 }
 
 const DEPTH: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
@@ -238,7 +240,7 @@ impl Renderer {
             ..Default::default()
         });
         let white = upload_texture(gpu, &Texture { width: 1, height: 1, format: mao_formats::texture::Format::Png, rgba: vec![255; 4] });
-        Renderer { pipeline, globals_layout, part_layout, sampler, white, format, depth: None }
+        Renderer { pipeline, globals_layout, part_layout, sampler, white, format, depth: None, textures: Default::default() }
     }
 
     /// Puts a model on the GPU. `texture` finds a texture by (type, instance).
@@ -246,7 +248,7 @@ impl Renderer {
     pub fn upload(&self, gpu: &Gpu, model: &Model, texture: &mut dyn FnMut(u32, u32) -> Option<Texture>) -> Scene {
         let draw_list = draws(model);
         let (center, radius) = world_matrix_bounds(model, &draw_list);
-        let mut cache: HashMap<(u32, u32), Option<wgpu::TextureView>> = HashMap::new();
+        let mut cache = self.textures.borrow_mut();
         let mut geometry: HashMap<usize, Option<(wgpu::Buffer, wgpu::Buffer, u32, Option<wgpu::TextureView>)>> = HashMap::new();
         let mut parts = Vec::new();
         for (index, world) in draw_list {

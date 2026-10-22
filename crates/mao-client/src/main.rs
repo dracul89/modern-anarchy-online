@@ -13,6 +13,7 @@
 //! The type and instance are hexadecimal (for example `f6951 1893`). Drag to
 //! orbit, scroll to zoom, WASD to move the view point, Q/E down and up.
 
+mod anim;
 mod net;
 pub(crate) mod viewer;
 
@@ -196,6 +197,20 @@ fn run(args: &[String]) -> Result<(), String> {
                 [] => viewer::window(model, textures, None),
                 _ => Err("unknown arguments".into()),
             };
+        }
+    }
+    // A character mesh with an animation: <game> <mesh type> <mesh> <animation> [--image out.png [ms]]
+    if let [game, kind, mesh, animation, rest @ ..] = args {
+        if let (Some(k), Some(m), Some(a)) = (number(kind), number(mesh), number(animation)) {
+            if matches!(k, 0xf6952 | 0xf696b) {
+                let db = Arc::new(ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?);
+                let image = match rest {
+                    [flag, out] if flag == "--image" => Some((out.as_str(), 0.0)),
+                    [flag, out, ms] if flag == "--image" => Some((out.as_str(), ms.parse().map_err(|_| "bad time")?)),
+                    _ => None,
+                };
+                return anim::run(db, k, m, a, image);
+            }
         }
     }
     let (game, kind, instance, rest) = match args {

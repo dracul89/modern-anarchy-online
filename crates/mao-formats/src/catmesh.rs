@@ -300,18 +300,99 @@ pub fn parse(object: &[u8]) -> Result<CatMesh, Error> {
     Ok(mesh)
 }
 
+/// A bone's matrix: three rotation rows and a translation row (row vectors).
+pub type BoneMatrix = [f32; 12];
+
+const IDENTITY_BONE: BoneMatrix = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0];
+
+/// A point through a bone's matrix (its translation added).
+fn place(b: &BoneMatrix, p: [f32; 3]) -> [f32; 3] {
+    [0, 1, 2].map(|c| p[0] * b[c] + p[1] * b[3 + c] + p[2] * b[6 + c] + b[9 + c])
+}
+
+/// A direction through a bone's rotation.
+fn turn(b: &BoneMatrix, p: [f32; 3]) -> [f32; 3] {
+    [0, 1, 2].map(|c| p[0] * b[c] + p[1] * b[3 + c] + p[2] * b[6 + c])
+}
+
 impl CatMesh {
+    /// The bones' matrices when `anim` is at `time`: from the root, each
+    /// bone's rotation and (scaled) translation composed with its parent's,
+    /// as the original's `CATRender_t::Pose`.
+    pub fn pose(&self, anim: &crate::catanim::CatAnim, time: f32) -> Vec<BoneMatrix> {
+        let mut out = vec![IDENTITY_BONE; self.bones.len()];
+        if !self.bones.is_empty() {
+            self.pose_bone(anim, time, 0, &IDENTITY_BONE, 1.0, &mut out, 0);
+        }
+        out
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn pose_bone(&self, anim: &crate::catanim::CatAnim, time: f32, bone: usize, parent: &BoneMatrix, scale: f32, out: &mut [BoneMatrix], depth: usize) {
+        if depth > 64 {
+            return;
+        }
+        let [x, y, z, w] = anim.rotation(bone, time);
+        let t = anim.translation(bone, time);
+        let (xx, xy, xz, xw) = (2.0 * x * x, 2.0 * x * y, 2.0 * x * z, 2.0 * x * w);
+        let (yy, yz, yw) = (2.0 * y * y, 2.0 * y * z, 2.0 * y * w);
+        let (zz, zw) = (2.0 * z * z, 2.0 * z * w);
+        let rows = [[1.0 - yy - zz, zw + xy, xz - yw], [xy - zw, 1.0 - xx - zz, yz + xw], [yw + xz, yz - xw, 1.0 - xx - yy]];
+        let combine = |r: &[f32; 3], c: usize| r[0] * parent[c] + r[1] * parent[3 + c] + r[2] * parent[6 + c];
+        let mut m = [0.0f32; 12];
+        for (r, row) in rows.iter().enumerate() {
+            for c in 0..3 {
+                m[r * 3 + c] = combine(row, c);
+            }
+        }
+        let scaled = [t[0] * scale, t[1] * scale, t[2] * scale];
+        for c in 0..3 {
+            m[9 + c] = combine(&scaled, c) + parent[9 + c];
+        }
+        out[bone] = m;
+        let child_scale = self.bones[bone].scale * scale;
+        for &child in &self.bones[bone].children {
+            if child >= 0 && (child as usize) < self.bones.len() {
+                self.pose_bone(anim, time, child as usize, &m, child_scale, out, depth + 1);
+            }
+        }
+    }
+
+    /// The mesh drawn with `bones` (from [`CatMesh::pose`]): each vertex
+    /// blended between its two bones by its weight (the first only when the
+    /// weight is above 0.99). Z-up.
+    pub fn skinned_model(&self, bones: &[BoneMatrix], texture_kind: u32) -> crate::model::Model {
+        self.build_model(texture_kind, |v| {
+            let (b1, b2) = (v.bones[0], v.bones[1]);
+            let (Some(first), Some(second)) = (usize::try_from(b1).ok().and_then(|i| bones.get(i)), usize::try_from(b2).ok().and_then(|i| bones.get(i))) else {
+                return (v.rest, v.normal);
+            };
+            let w = v.weight;
+            let position = if w > 0.99 {
+                place(first, v.first)
+            } else {
+                let (a, b) = (place(first, v.first), place(second, v.second));
+                [0, 1, 2].map(|c| b[c] * (1.0 - w) + a[c] * w)
+            };
+            (position, turn(first, v.normal))
+        })
+    }
+
     /// The mesh as drawable parts in its unskinned (rest) pose, one part per
     /// triangle list, Z-up (the meshes are Y-up). `texture_kind` is the
     /// resource type the texture instances are of (0xf6954 for these).
     pub fn rest_model(&self, texture_kind: u32) -> crate::model::Model {
-        use crate::model::{Material as ModelMaterial, Model, Part, Vertex as ModelVertex, IDENTITY};
+        self.build_model(texture_kind, |v| (v.rest, v.normal))
+    }
+
+    fn build_model(&self, texture_kind: u32, vertex: impl Fn(&Vertex) -> ([f32; 3], [f32; 3])) -> crate::model::Model {
+        use crate::model::{Material as ModelMaterial, Model, Part, Vertex as ModelVertex};
         // Y-up to Z-up.
         let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
         let mut parts = Vec::new();
         for g in &self.groups {
             for l in &g.lists {
-                let m = &self.materials[l.material.min(self.materials.len() - 1)];
+                let Some(m) = self.materials.get(l.material) else { continue };
                 // The object's texture list names the instance of each texture.
                 let instance = self.textures.iter().find(|t| t.name.eq_ignore_ascii_case(&m.name)).map(|t| t.value1 as u32);
                 let triangles: Vec<u16> = l.indices.iter().copied().filter(|&i| (i as usize) < l.vertices.len()).collect();
@@ -320,8 +401,15 @@ impl CatMesh {
                 }
                 parts.push(Part {
                     name: format!("{}:{}", g.name, m.name),
-                    world: if self.version < 0x68 || l.vertices.iter().all(|v| v.rest == [0.0; 3]) { IDENTITY } else { swap },
-                    vertices: l.vertices.iter().map(|v| ModelVertex { position: v.rest, normal: v.normal, uv: v.uv }).collect(),
+                    world: swap,
+                    vertices: l
+                        .vertices
+                        .iter()
+                        .map(|v| {
+                            let (position, normal) = vertex(v);
+                            ModelVertex { position, normal, uv: v.uv }
+                        })
+                        .collect(),
                     indices: triangles,
                     material: ModelMaterial { name: m.name.clone(), diffuse: m.diffuse, specular: m.specular, ambient: m.ambient, emissive: m.emissive, opacity: 1.0, textures: instance.map(|i| vec![(texture_kind, i)]).unwrap_or_default() },
                 });

@@ -32,6 +32,37 @@ fn run(args: &[String]) -> Result<(), String> {
                 None => return Err("no such object".into()),
             }
         }
+        ("anim", [kind, instance]) => {
+            let id = Id { kind: number(kind).ok_or("bad type")?, instance: number(instance).ok_or("bad instance")? };
+            let object = db.get(id).map_err(|e| e.to_string())?.ok_or("no such object")?;
+            let a = mao_formats::catanim::parse(&object).map_err(|e| e.to_string())?;
+            println!("{:?}: {} tracks, duration {}, first {}, {} notes", a.name, a.tracks.len(), a.duration, a.first, a.notes.len());
+            for n in a.notes.iter().take(6) {
+                println!("  note {} at {}", n.name, n.time);
+            }
+            let keys: Vec<usize> = a.tracks.iter().map(|t| t.rotations.len()).collect();
+            println!("  rotation keys per track: {keys:?}");
+            if let Some(t) = a.tracks.get(1) {
+                println!("  track 1 times {:?}", t.rotations.iter().map(|k| k.0).collect::<Vec<_>>());
+                println!("  track 1 first rotation {:?} translation {:?}", t.rotations.first().map(|k| k.1), t.translations.first().map(|k| k.1));
+            }
+        }
+        ("anims", [kind, count]) => {
+            let kind = number(kind).ok_or("bad type")?;
+            let mut shown = 0;
+            for id in db.ids().map_err(|e| e.to_string())?.filter_map(|i| i.ok()).filter(|i| i.kind == kind) {
+                if let Some(object) = db.get(id).map_err(|e| e.to_string())? {
+                    match mao_formats::catanim::parse(&object) {
+                        Ok(a) => println!("{:#x} tracks {} len {} notes {:?}", id.instance, a.tracks.len(), a.first, a.notes.iter().map(|n| n.name.as_str()).collect::<Vec<_>>()),
+                        Err(e) => println!("{:#x} error {e}", id.instance),
+                    }
+                    shown += 1;
+                    if shown >= count.parse().unwrap_or(10) {
+                        break;
+                    }
+                }
+            }
+        }
         ("cat", [kind, instance]) => {
             let id = Id { kind: number(kind).ok_or("bad type")?, instance: number(instance).ok_or("bad instance")? };
             let object = db.get(id).map_err(|e| e.to_string())?.ok_or("no such object")?;

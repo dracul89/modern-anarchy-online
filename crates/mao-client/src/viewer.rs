@@ -39,6 +39,8 @@ pub struct Live {
     pub input: std::sync::mpsc::Sender<Input>,
     /// The view point (Z-up), if known.
     pub focus: Option<[f32; 3]>,
+    /// The starting distance from it.
+    pub distance: f32,
 }
 
 /// Renders the model once to `out`.
@@ -113,8 +115,8 @@ impl ApplicationHandler for App {
         let renderer = Renderer::new(&gpu, config.format);
         let scene = renderer.upload(&gpu, &self.model, &mut |k, i| self.textures.get(k, i));
         let mut camera = Camera::fit(&scene);
-        if let Some([x, y, z]) = self.live.as_ref().and_then(|l| l.focus) {
-            camera = Camera { target: mao_render::glam::Vec3::new(x, y, z), distance: 30.0, yaw: 0.6, pitch: 0.5 };
+        if let Some(([x, y, z], distance)) = self.live.as_ref().and_then(|l| l.focus.map(|f| (f, l.distance))) {
+            camera = Camera { target: mao_render::glam::Vec3::new(x, y, z), distance, yaw: 0.6, pitch: 0.5 };
         }
         window.request_redraw();
         self.state = Some(View { window, surface, config, gpu, renderer, scene, camera });
@@ -188,7 +190,7 @@ impl ApplicationHandler for App {
                 if let Some(live) = &self.live {
                     let latest = live.overlays.try_iter().last();
                     if let Some(update) = latest {
-                        let overlay = w.renderer.upload(&w.gpu, &update.model, &mut |_, _| None);
+                        let overlay = w.renderer.upload(&w.gpu, &update.model, &mut |k, i| self.textures.get(k, i));
                         w.scene.set_overlay(overlay);
                         if let Some([x, y, z]) = update.own {
                             w.camera.target = mao_render::glam::Vec3::new(x, z, y);
