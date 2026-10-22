@@ -106,6 +106,7 @@ pub fn headless_with(model: &Model, textures: &Textures, out: &str, ui: Option<(
             crate::ui::paint_headless(&gpu, view, format, (w, h), &mut settings, hud, &project, options);
         }
     });
+    eprintln!("drew {} of {} parts ({} in the shadow pass)", renderer.stats.drawn, renderer.stats.parts, renderer.stats.shadow_drawn);
     image::save_buffer(out, &pixels, w, h, image::ColorType::Rgba8).map_err(|e| e.to_string())
 }
 
@@ -439,6 +440,8 @@ impl ApplicationHandler for App {
                 let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
                 let size = (w.config.width, w.config.height);
                 w.renderer.draw(&w.gpu, &w.scene, &w.camera, &view, size);
+                let stats = w.renderer.stats;
+                self.hud.draw_info = format!("{} of {} parts, {} in shadow", stats.drawn, stats.parts, stats.shadow_drawn);
                 if let Some(ui) = w.ui.as_mut() {
                     let (camera, radius) = (w.camera, w.scene.radius);
                     let aspect = size.0 as f32 / size.1.max(1) as f32;

@@ -34,6 +34,8 @@ pub struct Hud {
     /// The character's items (the inventory window), and whether a headless preview shows it.
     pub gear: Vec<crate::gear::GearItem>,
     pub gear_open: bool,
+    /// What the last frame drew (parts), shown beside the frame rate.
+    pub draw_info: String,
 }
 
 impl Hud {
@@ -273,7 +275,12 @@ fn hud_layer(ctx: &egui::Context, hud: &Hud, project: &dyn Fn(Vec3) -> Option<[f
         });
     });
     egui::Area::new(egui::Id::new("fps")).anchor(egui::Align2::RIGHT_TOP, egui::vec2(-8.0, 8.0)).interactable(false).show(ctx, |ui| {
-        frame().show(ui, |ui| ui.label(format!("{fps:.0} fps  {}  (Esc: options)", mode.name())));
+        frame().show(ui, |ui| {
+            ui.label(format!("{fps:.0} fps  {}  (Esc: options)", mode.name()));
+            if !hud.draw_info.is_empty() {
+                ui.label(egui::RichText::new(&hud.draw_info).small());
+            }
+        });
     });
     if let Some(target) = &hud.target {
         egui::Area::new(egui::Id::new("target")).anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 8.0)).interactable(false).show(ctx, |ui| {

@@ -175,6 +175,30 @@ fn perspective(fov_y: f32, aspect: f32, near: f32, far: f32) -> Mat4 {
     Mat4::from_cols_array(&[f / aspect, 0.0, 0.0, 0.0, 0.0, f, 0.0, 0.0, 0.0, 0.0, far / (near - far), -1.0, 0.0, 0.0, near * far / (near - far), 0.0])
 }
 
+/// What a frame drew: the parts and draw calls in the camera's pass and the shadow pass.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Stats {
+    pub parts: usize,
+    pub drawn: usize,
+    pub shadow_drawn: usize,
+}
+
+/// The six planes (normal xyz, distance w; inside is positive) of a
+/// view-projection matrix to depth 0..1.
+fn frustum(m: &Mat4) -> [glam::Vec4; 6] {
+    let row = |i: usize| glam::Vec4::new(m.x_axis[i], m.y_axis[i], m.z_axis[i], m.w_axis[i]);
+    let (r0, r1, r2, r3) = (row(0), row(1), row(2), row(3));
+    [r3 + r0, r3 - r0, r3 + r1, r3 - r1, r2, r3 - r2]
+}
+
+/// Whether a sphere is at least partly inside the planes.
+fn sphere_visible(planes: &[glam::Vec4; 6], center: Vec3, radius: f32) -> bool {
+    planes.iter().all(|p| {
+        let n = p.truncate();
+        n.dot(center) + p.w >= -radius * n.length()
+    })
+}
+
 /// The shadow map's side in texels.
 const SHADOW_SIZE: u32 = 4096;
 
@@ -187,6 +211,8 @@ pub struct Renderer {
     shadow_bind: wgpu::BindGroup,
     /// Draw the sun's shadows (on by default).
     pub shadows: bool,
+    /// What the last frame drew.
+    pub stats: Stats,
     /// Samples per pixel (4 where the device supports it, else 1).
     samples: u32,
     msaa: Option<((u32, u32), wgpu::TextureView)>,
@@ -397,7 +423,7 @@ impl Renderer {
             ..Default::default()
         });
         let white = upload_texture(gpu, &Texture { width: 1, height: 1, format: mao_formats::texture::Format::Png, rgba: vec![255; 4] });
-        Renderer { pipeline, sky_pipeline, shadow_pipeline, water_pipeline, shadow_view, shadow_bind, shadows: true, samples, msaa: None, started: std::time::Instant::now(), globals_layout, part_layout, sampler, white, format, depth: None, textures: Default::default() }
+        Renderer { pipeline, sky_pipeline, shadow_pipeline, water_pipeline, shadow_view, shadow_bind, shadows: true, stats: Stats::default(), samples, msaa: None, started: std::time::Instant::now(), globals_layout, part_layout, sampler, white, format, depth: None, textures: Default::default() }
     }
 
     /// Puts a model on the GPU. `texture` finds a texture by (type, instance).
@@ -512,6 +538,8 @@ impl Renderer {
         let snap = Vec3::new((c.x / texel).round() * texel - c.x, (c.y / texel).round() * texel - c.y, 0.0);
         let light_vp = orthographic(extent, 0.1, depth_range * 2.0) * Mat4::from_translation(snap) * light_view;
         let water = scene.water;
+        let planes = frustum(&camera.view_proj(aspect, scene.radius));
+        let (mut parts, mut drawn, mut shadow_drawn) = (0usize, 0usize, 0usize);
         let globals = Globals {
             view_proj: camera.view_proj(aspect, scene.radius).to_cols_array(),
             light_vp: light_vp.to_cols_array(),
@@ -569,6 +597,7 @@ impl Renderer {
                     if d.truncate().length() > reach + part.radius {
                         continue;
                     }
+                    shadow_drawn += 1;
                     pass.set_bind_group(1, &part.bind, &[]);
                     pass.set_vertex_buffer(0, part.vertices.slice(..));
                     pass.set_index_buffer(part.indices.slice(..), wgpu::IndexFormat::Uint16);
@@ -601,6 +630,12 @@ impl Renderer {
             pass.set_bind_group(0, &globals_bind, &[]);
             pass.set_bind_group(2, &self.shadow_bind, &[]);
             for part in scene.parts.iter().chain(&scene.overlay) {
+                parts += 1;
+                // Plants bend up to a couple of units out of their box.
+                if !sphere_visible(&planes, part.center, part.radius + 2.0) {
+                    continue;
+                }
+                drawn += 1;
                 pass.set_bind_group(1, &part.bind, &[]);
                 pass.set_vertex_buffer(0, part.vertices.slice(..));
                 pass.set_index_buffer(part.indices.slice(..), wgpu::IndexFormat::Uint16);
@@ -612,6 +647,7 @@ impl Renderer {
                 pass.draw(0..6, 0..1);
             }
         }
+        self.stats = Stats { parts, drawn, shadow_drawn };
         gpu.queue.submit(Some(encoder.finish()));
     }
 
