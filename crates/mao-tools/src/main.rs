@@ -63,6 +63,21 @@ fn run(args: &[String]) -> Result<(), String> {
                 }
             }
         }
+        ("cats", [kind]) => {
+            let kind = number(kind).ok_or("bad type")?;
+            for id in db.ids().map_err(|e| e.to_string())?.filter_map(|i| i.ok()).filter(|i| i.kind == kind) {
+                if let Some(object) = db.get(id).map_err(|e| e.to_string())? {
+                    match mao_formats::catmesh::parse(&object) {
+                        Ok(m) => {
+                            let vertices: usize = m.groups.iter().flat_map(|g| &g.lists).map(|l| l.vertices.len()).sum();
+                            let textures: Vec<&str> = m.textures.iter().map(|t| t.name.as_str()).collect();
+                            println!("{:#x} {:?} bones {} vertices {vertices} textures {textures:?}", id.instance, m.name, m.bones.len());
+                        }
+                        Err(e) => println!("{:#x} error {e}", id.instance),
+                    }
+                }
+            }
+        }
         ("cat", [kind, instance]) => {
             let id = Id { kind: number(kind).ok_or("bad type")?, instance: number(instance).ok_or("bad instance")? };
             let object = db.get(id).map_err(|e| e.to_string())?.ok_or("no such object")?;
@@ -80,6 +95,9 @@ fn run(args: &[String]) -> Result<(), String> {
             }
             for g in &m.groups {
                 println!("  group {:?}: {} attractors", g.name, g.attractors.len());
+                for a in &g.attractors {
+                    println!("    attractor {:?} {:.2?} extra {}", a.name, a.values, a.extra);
+                }
                 for l in &g.lists {
                     let (lo, hi) = l.vertices.iter().fold((i32::MAX, i32::MIN), |(lo, hi), v| (lo.min(v.bones[0]).min(v.bones[1]), hi.max(v.bones[0]).max(v.bones[1])));
                     let (mn, mx) = l.vertices.iter().fold(([f32::MAX; 3], [f32::MIN; 3]), |(mn, mx), v| ([mn[0].min(v.rest[0]), mn[1].min(v.rest[1]), mn[2].min(v.rest[2])], [mx[0].max(v.rest[0]), mx[1].max(v.rest[1]), mx[2].max(v.rest[2])]));
