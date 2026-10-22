@@ -168,7 +168,8 @@ pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<()
 impl ApplicationHandler for App {
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         if self.live.is_some() {
-            event_loop.set_control_flow(winit::event_loop::ControlFlow::WaitUntil(std::time::Instant::now() + std::time::Duration::from_millis(16)));
+            // No frame cap: draw as fast as the present mode allows (the original stopped at 100 fps).
+            event_loop.set_control_flow(winit::event_loop::ControlFlow::Poll);
             if let Some(w) = &self.state {
                 w.window.request_redraw();
             }
@@ -186,7 +187,15 @@ impl ApplicationHandler for App {
         let surface = instance.create_surface(window.clone()).expect("a surface");
         let gpu = Gpu::new(instance, Some(&surface)).expect("a graphics device");
         let size = window.inner_size();
-        let config = surface.get_default_config(&gpu.adapter, size.width.max(1), size.height.max(1)).expect("a surface format");
+        let mut config = surface.get_default_config(&gpu.adapter, size.width.max(1), size.height.max(1)).expect("a surface format");
+        // Uncapped unless `vsync = on`: Immediate, else Mailbox, else the always-available Fifo.
+        let modes = surface.get_capabilities(&gpu.adapter).present_modes;
+        config.present_mode = if self.settings.vsync {
+            wgpu::PresentMode::Fifo
+        } else {
+            [wgpu::PresentMode::Immediate, wgpu::PresentMode::Mailbox].into_iter().find(|m| modes.contains(m)).unwrap_or(wgpu::PresentMode::Fifo)
+        };
+        eprintln!("present mode: {:?}", config.present_mode);
         surface.configure(&gpu.device, &config);
         let renderer = Renderer::new(&gpu, config.format);
         let mut scene = renderer.upload(&gpu, &self.model, &mut |k, i| self.textures.get(k, i));

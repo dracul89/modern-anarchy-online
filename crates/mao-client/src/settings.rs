@@ -339,6 +339,8 @@ pub struct Settings {
     pub mode: WindowMode,
     pub width: u32,
     pub height: u32,
+    /// Wait for the monitor's refresh (capped at its rate); off = uncapped.
+    pub vsync: bool,
     /// The interface colours: `built-in`, `original`, `aou_translucent` ... or a folder
     /// (see [`crate::theme`]).
     pub theme: String,
@@ -349,7 +351,7 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { mode: WindowMode::Windowed, width: 1280, height: 800, theme: "built-in".into(), aou_mod: String::new(), keymap: Keymap::default() }
+        Settings { mode: WindowMode::Windowed, width: 1280, height: 800, vsync: false, theme: "built-in".into(), aou_mod: String::new(), keymap: Keymap::default() }
     }
 }
 
@@ -357,7 +359,7 @@ impl Settings {
     /// The settings text: the window options, then every action's keys.
     pub fn to_text(&self) -> String {
         let mut out = String::from("; Modern Anarchy Online settings\n[window]\n; windowed | borderless | fullscreen (F11 / Alt+Enter change it while playing)\n");
-        out += &format!("mode = {}\nwidth = {}\nheight = {}\n\n", self.mode.name(), self.width, self.height);
+        out += &format!("mode = {}\nwidth = {}\nheight = {}\nvsync = {}\n\n", self.mode.name(), self.width, self.height, if self.vsync { "on" } else { "off" });
         out += &format!("[interface]\n; built-in | original | aou_translucent | aou_cyt | aou_slim_cni | aou_slim_cnt | a folder with GUIColors.xml\ntheme = {}\n; the AOU mod's folder (the one with Gui in it), for its themes\naou_mod = {}\n\n", self.theme, self.aou_mod);
         out += "[keys]\n; one or more keys per action, separated by commas; Shift+, Ctrl+ and Alt+ combine\n";
         for &(action, name, _) in ACTIONS {
@@ -390,6 +392,7 @@ impl Settings {
                     None => eprintln!("settings line {}: unknown window mode {value:?}", n + 1),
                 },
                 ("window", "width") => settings.width = value.parse().unwrap_or(settings.width).clamp(320, 16384),
+                ("window", "vsync") => settings.vsync = matches!(value.to_ascii_lowercase().as_str(), "on" | "true" | "1" | "yes"),
                 ("window", "height") => settings.height = value.parse().unwrap_or(settings.height).clamp(240, 16384),
                 ("interface", "theme") => settings.theme = value.to_string(),
                 ("interface", "aou_mod") => settings.aou_mod = value.to_string(),
