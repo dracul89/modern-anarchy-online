@@ -70,6 +70,22 @@ fn hop(game: &str, target: &str, character: u32) -> Result<Connection, String> {
     Err(last)
 }
 
+/// `MAO_TRACE=1`: print the server messages that matter for zoning and
+/// the like (not the bulk of entity and position traffic), with the time.
+fn trace(frame: &frame::Frame, clock: Instant) {
+    const BULK: [u32; 12] = [0x54111123, 0x2b333d6e, 0x271b3a6b, 0x3b1d2268, 0x36510078, 0x4c7d403b, 0x3b11256f, 0x46002f16, 0x465a5d73, 0x260f3671, 0x195e496e, 0x1d3c0f1c];
+    let t = clock.elapsed().as_secs_f32();
+    if let Some(m) = Message::parse(frame) {
+        if !BULK.contains(&m.kind) {
+            let head: String = m.data.iter().take(28).map(|b| format!("{b:02x}")).collect();
+            eprintln!("[{t:7.2}] server n3 {:08x} from {:x}:{:x} ({} bytes) {head}", m.kind, m.identity.0, m.identity.1, m.data.len());
+        }
+    } else if frame.kind != frame::PING {
+        let head: String = frame.body.iter().take(28).map(|b| format!("{b:02x}")).collect();
+        eprintln!("[{t:7.2}] server frame kind {} ({} bytes) {head}", frame.kind, frame.body.len());
+    }
+}
+
 /// Tallies of what the world sends.
 #[derive(Default)]
 struct World {
@@ -475,6 +491,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut offset = start[1] - ground(&terrain, start);
         let mut base = start[1];
         let clock = Instant::now();
+        let tracing = std::env::var("MAO_TRACE").is_ok_and(|v| v == "1");
+        let mut last_report = Instant::now();
         state.arrival = None;
         let mut pending_scene: Option<Model> = None;
         let mut keys = crate::viewer::Input::default();
@@ -515,6 +533,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                 break;
                             }
                         }
+                    }
+                    if tracing {
+                        trace(&frame, clock);
                     }
                     state.add(&frame);
                 }
@@ -597,6 +618,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             let floor = if keys.noclip { f32::MIN } else { collision.floor(position[0], position[2], base, 0.6, 0.6).unwrap_or(f32::MIN) };
             base = (ground(&terrain, position) + offset).max(floor);
             position[1] = base + rise;
+            if tracing && walk != 0 && last_report.elapsed() >= Duration::from_secs(1) {
+                last_report = Instant::now();
+                eprintln!("[{:7.2}] walking at ({:.1}, {:.1}, {:.1}) heading {:.2} in playfield {current}", clock.elapsed().as_secs_f32(), position[0], position[1], position[2], heading);
+            }
             let mut ok = true;
             let due = last_send.elapsed() >= Duration::from_millis(400);
             let mut send_kind = |kind: u8, connection: &mut Connection| {
