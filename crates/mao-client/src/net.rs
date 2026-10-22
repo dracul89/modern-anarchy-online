@@ -108,6 +108,8 @@ struct World {
     arrival: Option<(u32, [f32; 3])>,
     /// The character's items, from the world-entry message (until taken).
     inventory: Option<Vec<inventory::Entry>>,
+    /// The identity type each entity was first heard of with (what a use message names it by).
+    types: BTreeMap<u32, u32>,
 }
 
 impl World {
@@ -117,6 +119,9 @@ impl World {
             self.arrival = Some(arrival);
         }
         *self.kinds.entry(m.kind).or_default() += 1;
+        if m.identity.0 != 0 {
+            self.types.entry(m.identity.1).or_insert(m.identity.0);
+        }
         if m.kind == inventory::WORLD_ENTRY && m.identity.1 == self.own {
             self.inventory = Some(inventory::parse(&m.data));
         }
@@ -539,9 +544,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut pending_scene: Option<Model> = None;
         let mut pending_gear = state.inventory.take().map(|e| crate::gear::from_entries(&gear_db, &gear_textures, &e));
         let mut keys = crate::viewer::Input::default();
-        let (mut seen, mut target): ([u8; 5], Option<u32>) = ([0; 5], None);
+        let (mut seen, mut target): ([u8; 7], Option<u32>) = ([0; 7], None);
+        let (mut sitting, mut uses) = (false, 0u32);
         let (mut position, mut heading) = (start, heading);
-        let (mut moving, mut turning) = (0i8, 0i8);
+        let (mut moving, mut turning, mut strafing) = (0i8, 0i8, 0i8);
         const JUMP_SPEED: f32 = 7.0;
         const GRAVITY: f32 = 10.0;
         let (mut airborne, mut rise, mut vy, mut was_jumping) = (false, 0.0f32, 0.0f32, false);
@@ -659,6 +665,25 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 if presses == 0 {
                     continue;
                 }
+                if slot == 6 {
+                    // E: use the target (talk to it, open it).
+                    match target {
+                        Some(t) => {
+                            uses += 1;
+                            let kind = state.types.get(&t).copied().unwrap_or(n3::CHARACTER);
+                            let _ = connection.send(&n3::use_object(own, uses, (kind, t)));
+                            pending_messages.push(format!("Using {}", state.names.get(&t).map_or("the target", |n| n.0.as_str())));
+                        }
+                        None => pending_messages.push("Nothing targeted to use (Tab selects)".into()),
+                    }
+                    continue;
+                }
+                if slot == 5 {
+                    // X: sit down, or stand up.
+                    sitting = !sitting;
+                    let _ = connection.send(&n3::action(own, if sitting { n3::SIT } else { n3::STAND }));
+                    continue;
+                }
                 if slot == 4 {
                     match target {
                         Some(t) => {
@@ -694,6 +719,11 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             if target.is_some_and(|t| !state.entities.contains_key(&t)) {
                 target = None;
             }
+            // Moving stands a seated character up first.
+            if sitting && (keys.forward || keys.back || keys.strafe != 0 || keys.turn != 0 || keys.jump) {
+                sitting = false;
+                let _ = connection.send(&n3::action(own, n3::STAND));
+            }
             // Walk: integrate the position and tell the server.
             let dt = last_tick.elapsed().as_secs_f32();
             last_tick = Instant::now();
@@ -704,7 +734,15 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             let walk = keys.forward as i8 - keys.back as i8;
             let speed = if walk > 0 { SPEED } else { BACK_SPEED } * walk as f32;
             // Walls stop the step (sliding along them where one axis is free).
-            let (dx, dz) = (heading.sin() * speed * dt, heading.cos() * speed * dt);
+            // Strafing adds a step to the right of the heading; diagonals aren't faster.
+            let sideways = keys.strafe as f32 * SPEED;
+            let (mut vx, mut vz) = (heading.sin() * speed + heading.cos() * sideways, heading.cos() * speed - heading.sin() * sideways);
+            let total = (vx * vx + vz * vz).sqrt();
+            if total > SPEED {
+                (vx, vz) = (vx * SPEED / total, vz * SPEED / total);
+            }
+            let speed = if walk == 0 && keys.strafe != 0 { SPEED } else { speed };
+            let (dx, dz) = (vx * dt, vz * dt);
             for (tx, tz) in [(dx, dz), (dx, 0.0), (0.0, dz)] {
                 if tx == 0.0 && tz == 0.0 {
                     continue;
@@ -763,18 +801,34 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     1 => send_kind(movement::TURN_RIGHT_START, &mut connection),
                     _ => send_kind(movement::TURN_STOP, &mut connection),
                 }
-            } else if ((walk != 0 || keys.turn != 0 || keys.face.is_some() || airborne) && due) || landed {
+            } else if ((walk != 0 || keys.turn != 0 || keys.strafe != 0 || keys.face.is_some() || airborne) && due) || landed {
                 send_kind(movement::UPDATE, &mut connection);
+            }
+            if keys.strafe != strafing {
+                // The strafe start / stop types (5..8) are a guess from the numbering; until verified the
+                // server is told with ordinary position updates (MAO_STRAFE_TYPES=1 sends the guesses).
+                if std::env::var_os("MAO_STRAFE_TYPES").is_some() {
+                    let kind = match (strafing, keys.strafe) {
+                        (_, -1) => 5,
+                        (_, 1) => 7,
+                        (-1, _) => 6,
+                        _ => 8,
+                    };
+                    send_kind(kind, &mut connection);
+                } else if !(keys.turn != turning) {
+                    send_kind(movement::UPDATE, &mut connection);
+                }
             }
             if !ok {
                 break;
             }
             moving = walk;
             turning = keys.turn;
+            strafing = keys.strafe;
             state.rotations.insert(own, [0.0, (heading * 0.5).sin(), 0.0, (heading * 0.5).cos()]);
-            if walk != 0 || keys.turn != 0 || moving != 0 || airborne {
+            if walk != 0 || keys.turn != 0 || keys.strafe != 0 || moving != 0 || airborne {
                 state.entities.insert(own, (position, 0));
-                if walk != 0 {
+                if walk != 0 || keys.strafe != 0 {
                     state.last_move.insert(own, Instant::now());
                     state.speeds.insert(own, speed.abs());
                 }
@@ -807,6 +861,62 @@ pub fn run(args: &[String]) -> Result<(), String> {
     match args {
         [game, word] if word == "chars" => {
             show(&login(game)?.1);
+            Ok(())
+        }
+        // `net <game> action <name> <hex code> [seconds]`: enter, stand, send one action and show what the server does (an experiment for action codes).
+        [game, word, who, code, rest @ ..] if word == "action" => {
+            let code = u8::from_str_radix(code.trim_start_matches("0x"), 16).map_err(|_| "bad action code")?;
+            let seconds: u64 = rest.first().and_then(|s| s.parse().ok()).unwrap_or(6);
+            let (mut chat, list) = login(game)?;
+            let character = list.iter().find(|c| c.name.eq_ignore_ascii_case(who) || c.id.to_string() == *who).ok_or("no such character")?;
+            let ticket = session::login_character(&mut chat, character.id).map_err(|e| e.to_string())?;
+            let mut world = session::enter_world(&ticket).map_err(|e| e.to_string())?;
+            world.set_timeout(Duration::from_millis(50)).map_err(|e| e.to_string())?;
+            let mut state = World { own: character.id, ..World::default() };
+            let clock = Instant::now();
+            let mut phase = 0;
+            let mut sent_at = Instant::now();
+            loop {
+                let t = clock.elapsed().as_secs_f32();
+                if phase == 0 && t > 3.0 {
+                    world.send(&n3::ready(character.id)).map_err(|e| e.to_string())?;
+                    world.send(&n3::action(character.id, n3::STAND)).map_err(|e| e.to_string())?;
+                    eprintln!("[{t:5.1}] ready + stand sent");
+                    phase = 1;
+                } else if phase == 1 && t > 6.0 {
+                    world.send(&n3::action(character.id, code)).map_err(|e| e.to_string())?;
+                    eprintln!("[{t:5.1}] ACTION {code:#x} sent");
+                    sent_at = Instant::now();
+                    phase = 2;
+                } else if phase == 2 && sent_at.elapsed() > Duration::from_secs(seconds) {
+                    world.send(&n3::action(character.id, n3::STAND)).map_err(|e| e.to_string())?;
+                    eprintln!("[{t:5.1}] STAND (0x57) sent again");
+                    sent_at = Instant::now();
+                    phase = 3;
+                } else if phase == 3 && sent_at.elapsed() > Duration::from_secs(4) {
+                    break;
+                }
+                match world.receive() {
+                    Ok(frame) => {
+                        if let Some(reply) = frame::ping_reply(&frame, character.id, 70_000_000 + clock.elapsed().as_millis() as u32) {
+                            let _ = world.send(&reply);
+                        }
+                        if phase >= 1 {
+                            if let Some(m) = Message::parse(&frame) {
+                                if ![0x54111123, 0x2b333d6e, 0x271b3a6b, 0x3b1d2268, 0x36510078, 0x4c7d403b, 0x3b11256f, 0x46002f16, 0x465a5d73, 0x260f3671, 0x195e496e, 0x1d3c0f1c].contains(&m.kind) {
+                                    eprintln!("[{:5.1}] <- {:08x} identity ({:x},{:x}) {} bytes: {}", t, m.kind, m.identity.0, m.identity.1, m.data.len(), m.data.iter().take(40).map(|b| format!("{b:02x}")).collect::<String>());
+                                }
+                            }
+                        }
+                        state.add(&frame);
+                    }
+                    Err(session::Error::Io(e)) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => {}
+                    Err(e) => {
+                        eprintln!("[{t:5.1}] connection ended: {e}");
+                        break;
+                    }
+                }
+            }
             Ok(())
         }
         [game, word, who, rest @ ..] if word == "enter" => {

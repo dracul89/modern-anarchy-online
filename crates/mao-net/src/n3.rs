@@ -109,12 +109,28 @@ pub fn ready(character: u32) -> Frame {
 /// ignores their movement, and this frees them.
 pub const STAND: u8 = 0x57;
 
+/// The sit action: tried live, the server answers it with a `0x7a` action broadcast and stays
+/// connected; `STAND` then answers with `0x57`. (The original client sends it at the end of a
+/// session: players sit to log out.)
+pub const SIT: u8 = 0x78;
+
 /// A `5e477770` action message (the action byte after four zero bytes, 27
 /// bytes of data).
 pub fn action(character: u32, code: u8) -> Frame {
     let mut data = vec![0u8; 27];
     data[4] = code;
     Message { kind: 0x5e477770, identity: (CHARACTER, character), data }.frame(character)
+}
+
+/// `52526858`: use something (a door, a terminal, an item; talk to an NPC): action 3 on the
+/// target's identity. `sequence` counts the character's uses from 1 (as the original's capture
+/// shows); the server echoes the message back with the first byte 0.
+pub fn use_object(character: u32, sequence: u32, target: (u32, u32)) -> Frame {
+    let mut data = vec![1u8];
+    for word in [0, sequence, 3, 1, CHARACTER, character, target.0, target.1] {
+        data.extend_from_slice(&word.to_be_bytes());
+    }
+    Message { kind: 0x52526858, identity: (CHARACTER, character), data }.frame(character)
 }
 
 /// Select a target (an `0x69` action naming it): the server answers with its
@@ -162,6 +178,14 @@ pub fn position_update(character: u32, movement: u8, heading: f32, position: [f3
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn use_matches_the_capture() {
+        // The client's first use in the capture: character 0x4c2de, target (0xc76a, 0x0101e30a).
+        let frame = use_object(0x4c2de, 1, (0xc76a, 0x0101e30a));
+        let hex: String = Message::parse(&frame).unwrap().data.iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(hex, "01000000000000000100000003000000010000c3500004c2de0000c76a0101e30a");
+    }
+
     use super::*;
 
     /// The client's first update in the capture.

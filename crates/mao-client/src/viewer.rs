@@ -29,9 +29,11 @@ pub struct Input {
     /// Walk through props (toggled with C).
     pub noclip: bool,
     pub turn: i8,
+    /// Sideways: -1 left, 1 right.
+    pub strafe: i8,
     /// Counters that step each time the key is pressed (the live loop acts on a change):
     /// next/previous hostile, next/previous friendly target, attack.
-    pub commands: [u8; 5],
+    pub commands: [u8; 7],
     /// The heading the character should face (the camera's, while the right mouse button steers).
     pub face: Option<f32>,
 }
@@ -348,7 +350,7 @@ impl ApplicationHandler for App {
                     }
                 } else if let Some(action) = self.settings.keymap.action(code, self.modifiers) {
                     match action {
-                        Action::Forward | Action::Back | Action::TurnLeft | Action::TurnRight | Action::Jump => {
+                        Action::Forward | Action::Back | Action::TurnLeft | Action::TurnRight | Action::StrafeLeft | Action::StrafeRight | Action::Jump => {
                             self.held.insert(action);
                         }
                         Action::NoClip if !event.repeat => {
@@ -381,13 +383,15 @@ impl ApplicationHandler for App {
                             event_loop.exit();
                             return;
                         }
-                        Action::NextHostileTarget | Action::PrevHostileTarget | Action::NextFriendlyTarget | Action::PrevFriendlyTarget | Action::Attack if !event.repeat => {
+                        Action::NextHostileTarget | Action::PrevHostileTarget | Action::NextFriendlyTarget | Action::PrevFriendlyTarget | Action::Attack | Action::SitStand | Action::Use if !event.repeat => {
                             let slot = match action {
                                 Action::NextHostileTarget => 0,
                                 Action::PrevHostileTarget => 1,
                                 Action::NextFriendlyTarget => 2,
                                 Action::PrevFriendlyTarget => 3,
-                                _ => 4,
+                                Action::Attack => 4,
+                                Action::SitStand => 5,
+                                _ => 6,
                             };
                             self.keys.commands[slot] = self.keys.commands[slot].wrapping_add(1);
                         }
@@ -414,6 +418,7 @@ impl ApplicationHandler for App {
                 self.keys.back = held(Action::Back);
                 self.keys.jump = held(Action::Jump);
                 self.keys.turn = held(Action::TurnRight) as i8 - held(Action::TurnLeft) as i8;
+                self.keys.strafe = held(Action::StrafeRight) as i8 - held(Action::StrafeLeft) as i8;
                 if let Some(live) = &self.live {
                     let _ = live.input.send(self.keys);
                 }

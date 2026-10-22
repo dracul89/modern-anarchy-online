@@ -76,6 +76,8 @@ pub enum Action {
     Jump,
     /// Walk through props (a debugging aid).
     NoClip,
+    StrafeLeft,
+    StrafeRight,
     CameraRotateLeft,
     CameraRotateRight,
     CameraRotateUp,
@@ -92,6 +94,10 @@ pub enum Action {
     Attack,
     /// The inventory window.
     InventoryWindow,
+    /// Sit down or stand up.
+    SitStand,
+    /// Use the targeted thing (talk to an NPC, open a door).
+    Use,
     ChatInput,
     ChatCommand,
     ChatReply,
@@ -116,7 +122,9 @@ pub const ACTIONS: &[(Action, &str, &str)] = &[
     (Action::TurnLeft, "turn_left", "A, Left"),
     (Action::TurnRight, "turn_right", "D, Right"),
     (Action::Jump, "jump", "Space"),
-    (Action::NoClip, "noclip", "C"),
+    (Action::NoClip, "noclip", "N"),
+    (Action::StrafeLeft, "strafe_left", "Z"),
+    (Action::StrafeRight, "strafe_right", "C"),
     // The original's fixed camera commands (default keys assumed).
     (Action::CameraRotateLeft, "camera_rotate_left", "Numpad4"),
     (Action::CameraRotateRight, "camera_rotate_right", "Numpad6"),
@@ -133,6 +141,8 @@ pub const ACTIONS: &[(Action, &str, &str)] = &[
     (Action::PrevFriendlyTarget, "prev_friendly_target", "Ctrl+Shift+Tab"),
     (Action::Attack, "attack", "F"),
     (Action::InventoryWindow, "inventory", "I"),
+    (Action::SitStand, "sit_stand", "X"),
+    (Action::Use, "use", "E"),
     // The original's fixed chat commands (default keys assumed).
     (Action::ChatInput, "chat_input", "Enter"),
     (Action::ChatCommand, "chat_command", "Slash"),
