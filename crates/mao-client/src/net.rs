@@ -48,6 +48,8 @@ fn login(game: &str) -> Result<(Connection, Vec<Character>), String> {
 struct World {
     own: u32,
     rotations: BTreeMap<u32, [f32; 4]>,
+    /// What the entity messages say about each: (name, is a player).
+    names: BTreeMap<u32, (String, bool)>,
     kinds: BTreeMap<u32, usize>,
     entities: BTreeMap<u32, ([f32; 3], usize)>,
 }
@@ -58,6 +60,10 @@ impl World {
         *self.kinds.entry(m.kind).or_default() += 1;
         if let Some(q) = m.rotation() {
             self.rotations.insert(m.identity.1, q);
+        }
+        if let Some(info) = m.entity_info() {
+            let player = info.is_player();
+            self.names.insert(m.identity.1, (info.name, player));
         }
         if let Some((_, q, _)) = m.movement() {
             self.rotations.insert(m.identity.1, q);
@@ -77,7 +83,8 @@ impl World {
         }
         println!("{} entities with positions:", self.entities.len());
         for (id, (p, _)) in &self.entities {
-            println!("  {id:>10} at ({:.1}, {:.1}, {:.1})", p[0], p[1], p[2]);
+            let (name, player) = self.names.get(id).map(|(n, p)| (n.as_str(), *p)).unwrap_or(("?", false));
+            println!("  {id:>10} {name:<20} {} at ({:.1}, {:.1}, {:.1})", if player { "player" } else { "      " }, p[0], p[1], p[2]);
         }
     }
 }
@@ -120,12 +127,13 @@ fn nose() -> Part {
 /// The entities' markers alone (own character red, the others blue): two
 /// parts and an instance per entity, placed Z-up.
 fn overlay_model(world: &World) -> Model {
-    let mut model = Model { parts: vec![marker([0.9, 0.1, 0.1]), marker([0.2, 0.4, 0.95]), nose()], instances: Vec::new() };
+    let mut model = Model { parts: vec![marker([0.9, 0.1, 0.1]), marker([0.2, 0.4, 0.95]), nose(), marker([0.2, 0.8, 0.3])], instances: Vec::new() };
     let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     for (&id, &(position, _)) in &world.entities {
         let q = world.rotations.get(&id).copied().unwrap_or([0.0, 0.0, 0.0, 1.0]);
         let place = model::multiply(&model::trs_matrix(position, q, [1.0; 3]), &swap);
-        model.instances.push((usize::from(id != world.own), place));
+        let player = world.names.get(&id).is_some_and(|n| n.1);
+        model.instances.push((if id == world.own { 0 } else if player { 3 } else { 1 }, place));
         model.instances.push((2, place));
     }
     model

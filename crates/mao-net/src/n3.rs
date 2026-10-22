@@ -135,3 +135,120 @@ mod tests {
         assert_eq!(mine.data[30..34], 7661u32.to_be_bytes());
     }
 }
+
+/// What an [`ENTITY_INFO`] says about a character or creature, as far as
+/// it is decoded. Derived from the reader of `SimpleCharFullUpdateIIR_t`
+/// in `Gamecode.dll` (big-endian `BinaryStream`) and checked against a
+/// capture.
+///
+/// After the identity: a byte 0 (header), a version byte (0x39 or 0x3a), a
+/// flags `i32`, then, by the flags:
+/// * bit 6: the playfield (`i32`);
+/// * bit 5: an identity (not decoded here: a capture without it);
+/// * always the position (three floats);
+/// * bit 9: the rotation (four floats, x y z w);
+/// * always a packed `i32`: breed (3 bits), two bits, three bits, sex (2
+///   bits at 8), two bits, five bits from bit 12;
+/// * the name: a length byte (counting the NUL) and the bytes;
+/// * `i32` flags 2, an `i32` of two 16-bit values, and (without flag bit 0)
+///   an `i32` model number, an `i32`, then seven `i16`s; the rest (stats,
+///   textures, clothing and more) is not decoded.
+#[derive(Clone, Debug, PartialEq)]
+pub struct EntityInfo {
+    pub version: u8,
+    pub flags: u32,
+    pub playfield: Option<u32>,
+    pub position: [f32; 3],
+    pub rotation: Option<[f32; 4]>,
+    pub breed: u8,
+    pub sex: u8,
+    pub name: String,
+    pub flags2: u32,
+    /// The number after the flags that differs per kind of creature (365
+    /// for a player, 3966 for a monster in the capture).
+    pub model: Option<u32>,
+}
+
+impl EntityInfo {
+    /// Players are sex 1 or 2 (3 is "neuter": creatures).
+    pub fn is_player(&self) -> bool {
+        matches!(self.sex, 1 | 2)
+    }
+}
+
+impl Message {
+    pub fn entity_info(&self) -> Option<EntityInfo> {
+        if self.kind != ENTITY_INFO {
+            return None;
+        }
+        let d = &self.data;
+        let mut at = 1usize; // the header byte
+        let take = |at: &mut usize, n: usize| -> Option<&[u8]> {
+            let b = d.get(*at..*at + n)?;
+            *at += n;
+            Some(b)
+        };
+        let version = take(&mut at, 1)?[0];
+        if !matches!(version, 0x39 | 0x3a) {
+            return None;
+        }
+        let u32_at = |at: &mut usize| take(at, 4).map(|b| u32::from_be_bytes(b.try_into().unwrap()));
+        let f32_at = |at: &mut usize| take(at, 4).map(|b| f32::from_be_bytes(b.try_into().unwrap()));
+        let flags = u32_at(&mut at)?;
+        let playfield = if flags & 0x40 != 0 { Some(u32_at(&mut at)?) } else { None };
+        if flags & 0x20 != 0 {
+            return None;
+        }
+        let position = [f32_at(&mut at)?, f32_at(&mut at)?, f32_at(&mut at)?];
+        let rotation = if flags & 0x200 != 0 { Some([f32_at(&mut at)?, f32_at(&mut at)?, f32_at(&mut at)?, f32_at(&mut at)?]) } else { None };
+        let packed = u32_at(&mut at)?;
+        let (breed, sex) = ((packed & 7) as u8, ((packed >> 8) & 3) as u8);
+        let length = take(&mut at, 1)?[0] as usize;
+        let text = take(&mut at, length)?;
+        let name = String::from_utf8_lossy(text).trim_end_matches('\0').to_string();
+        let flags2 = u32_at(&mut at)?;
+        u32_at(&mut at)?;
+        let model = if flags & 1 == 0 { u32_at(&mut at) } else { None };
+        Some(EntityInfo { version, flags, playfield, position, rotation, breed, sex, name, flags2, model })
+    }
+}
+
+#[cfg(test)]
+mod entity_tests {
+    use super::*;
+
+    fn bytes(hex: &str) -> Vec<u8> {
+        let hex: String = hex.split_whitespace().collect();
+        (0..hex.len() / 2).map(|i| u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).unwrap()).collect()
+    }
+
+    /// The start of a monster's entity message from a capture.
+    #[test]
+    fn monster_from_capture() {
+        let data = bytes(
+            "00 3a 04 20 6a ca 00 00 02 1c 43 f5 f0 c7 41 00 28 f6 43 dc 31 c6 00 00 00 00 3f 38 be c4 00 00 00 00 3f 31 37 16 \
+             00 00 07 41 09 4d 6f 70 68 69 6e 67 34 00 00 18 12 41 00 01 00 01 00 00 0f 7e 00 00 00 00",
+        );
+        let info = Message { kind: ENTITY_INFO, identity: (CHARACTER, 1933326420), data }.entity_info().unwrap();
+        assert_eq!(info.name, "Mophing4");
+        assert_eq!(info.playfield, Some(0x21c));
+        assert!((info.position[0] - 491.9).abs() < 0.1 && (info.position[1] - 8.0).abs() < 0.1);
+        assert_eq!((info.breed, info.sex), (1, 3));
+        assert!(!info.is_player());
+        assert_eq!(info.model, Some(0xf7e));
+    }
+
+    /// The character from the capture (a player: sex 2).
+    #[test]
+    fn player_from_capture() {
+        let data = bytes(
+            "00 3a 00 00 4a c8 00 00 02 1c 43 f6 c8 ec 41 00 28 f6 43 df ae 6e 00 00 00 00 3f 74 12 40 00 00 00 00 3e 9a 78 2f \
+             00 00 06 29 0d 42 72 61 73 73 63 61 73 69 6e 67 73 00 00 18 12 41 00 01 00 01 00 00 01 6d 00 00 00 00",
+        );
+        let info = Message { kind: ENTITY_INFO, identity: (CHARACTER, 598284), data }.entity_info().unwrap();
+        assert_eq!(info.name, "Brasscasings");
+        assert_eq!((info.breed, info.sex), (1, 2));
+        assert!(info.is_player());
+        assert_eq!(info.model, Some(365));
+    }
+}
