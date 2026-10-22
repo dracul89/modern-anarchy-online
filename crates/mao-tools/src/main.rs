@@ -78,6 +78,29 @@ fn run(args: &[String]) -> Result<(), String> {
                 }
             }
         }
+        ("grep", [kind, hex]) => {
+            // Objects of a type containing the bytes (hex).
+            let kind = number(kind).ok_or("bad type")?;
+            let needle: Vec<u8> = (0..hex.len() / 2).filter_map(|i| u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).ok()).collect();
+            for id in db.ids().map_err(|e| e.to_string())?.filter_map(|i| i.ok()).filter(|i| i.kind == kind) {
+                if let Some(object) = db.get(id).map_err(|e| e.to_string())? {
+                    if let Some(at) = object.windows(needle.len()).position(|w| w == needle.as_slice()) {
+                        println!("{:#x}:{:#x} at {at} (of {})", id.kind, id.instance, object.len());
+                    }
+                }
+            }
+        }
+        ("names", rest) => {
+            let object = db.get(Id { kind: 0xf424a, instance: 1 }).map_err(|e| e.to_string())?.ok_or("no instance index")?;
+            let index = mao_formats::instances::Instances::parse(&object).map_err(|e| e.to_string())?;
+            println!("{} names", index.len());
+            let filter = rest.first().map(|s| s.to_lowercase());
+            let mut rows: Vec<_> = index.iter().filter(|(_, n, _)| filter.as_ref().is_none_or(|f| n.to_lowercase().contains(f))).collect();
+            rows.sort();
+            for (kind, name, instance) in rows.into_iter().take(60) {
+                println!("{kind:#x} {instance:#x} {name}");
+            }
+        }
         ("cat", [kind, instance]) => {
             let id = Id { kind: number(kind).ok_or("bad type")?, instance: number(instance).ok_or("bad instance")? };
             let object = db.get(id).map_err(|e| e.to_string())?.ok_or("no such object")?;

@@ -50,6 +50,7 @@ struct World {
     rotations: BTreeMap<u32, [f32; 4]>,
     /// What the entity messages say about each: (name, is a player).
     names: BTreeMap<u32, (String, bool)>,
+    infos: BTreeMap<u32, mao_net::n3::EntityInfo>,
     kinds: BTreeMap<u32, usize>,
     entities: BTreeMap<u32, ([f32; 3], usize)>,
 }
@@ -63,7 +64,8 @@ impl World {
         }
         if let Some(info) = m.entity_info() {
             let player = info.is_player();
-            self.names.insert(m.identity.1, (info.name, player));
+            self.names.insert(m.identity.1, (info.name.clone(), player));
+            self.infos.insert(m.identity.1, info);
         }
         if let Some((_, q, _)) = m.movement() {
             self.rotations.insert(m.identity.1, q);
@@ -80,6 +82,9 @@ impl World {
         println!("N3 messages by type:");
         for (kind, n) in &self.kinds {
             println!("  {kind:#010x} x{n}");
+        }
+        for (id, i) in &self.infos {
+            println!("  info {id:>10} {:<18} flags {:#010x} flags2 {:#010x} breed {} sex {} a0 {:?}", i.name, i.flags, i.flags2, i.breed, i.sex, i.unknown_a0);
         }
         println!("{} entities with positions:", self.entities.len());
         for (id, (p, _)) in &self.entities {

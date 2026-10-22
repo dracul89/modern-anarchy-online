@@ -3,8 +3,10 @@
 
 pub mod collision;
 pub mod ctree;
+pub mod instances;
 pub mod resource;
 pub mod texture;
+pub mod appearance;
 pub mod archive;
 pub mod catanim;
 pub mod catmesh;

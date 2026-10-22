@@ -151,7 +151,7 @@ mod tests {
 ///   bits at 8), two bits, five bits from bit 12;
 /// * the name: a length byte (counting the NUL) and the bytes;
 /// * `i32` flags 2, an `i32` of two 16-bit values, and (without flag bit 0)
-///   an `i32` model number, an `i32`, then seven `i16`s; the rest (stats,
+///   an `i32` (not a model id), an `i32`, then seven `i16`s; the rest (stats,
 ///   textures, clothing and more) is not decoded.
 #[derive(Clone, Debug, PartialEq)]
 pub struct EntityInfo {
@@ -164,15 +164,18 @@ pub struct EntityInfo {
     pub sex: u8,
     pub name: String,
     pub flags2: u32,
-    /// The number after the flags that differs per kind of creature (365
-    /// for a player, 3966 for a monster in the capture).
-    pub model: Option<u32>,
+    /// A number after the flags that varies widely per character (365 to
+    /// 20838 in the capture; probably health). NOT a model id. Absent for
+    /// creatures whose flags have bit 0 set.
+    pub unknown_a0: Option<u32>,
 }
 
 impl EntityInfo {
-    /// Players are sex 1 or 2 (3 is "neuter": creatures).
+    /// Whether it is dressed from the breed and sex tables: the characters
+    /// (flag bit 0 clear) of a breed 1 to 4. Sex is the game's `Sex` stat:
+    /// 1 neuter, 2 male, 3 female.
     pub fn is_player(&self) -> bool {
-        matches!(self.sex, 1 | 2)
+        self.unknown_a0.is_some() && (1..=4).contains(&self.breed)
     }
 }
 
@@ -209,7 +212,7 @@ impl Message {
         let flags2 = u32_at(&mut at)?;
         u32_at(&mut at)?;
         let model = if flags & 1 == 0 { u32_at(&mut at) } else { None };
-        Some(EntityInfo { version, flags, playfield, position, rotation, breed, sex, name, flags2, model })
+        Some(EntityInfo { version, flags, playfield, position, rotation, breed, sex, name, flags2, unknown_a0: model })
     }
 }
 
@@ -234,8 +237,8 @@ mod entity_tests {
         assert_eq!(info.playfield, Some(0x21c));
         assert!((info.position[0] - 491.9).abs() < 0.1 && (info.position[1] - 8.0).abs() < 0.1);
         assert_eq!((info.breed, info.sex), (1, 3));
-        assert!(!info.is_player());
-        assert_eq!(info.model, Some(0xf7e));
+        assert!(info.is_player());
+        assert_eq!(info.unknown_a0, Some(0xf7e));
     }
 
     /// The character from the capture (a player: sex 2).
@@ -249,6 +252,6 @@ mod entity_tests {
         assert_eq!(info.name, "Brasscasings");
         assert_eq!((info.breed, info.sex), (1, 2));
         assert!(info.is_player());
-        assert_eq!(info.model, Some(365));
+        assert_eq!(info.unknown_a0, Some(365));
     }
 }

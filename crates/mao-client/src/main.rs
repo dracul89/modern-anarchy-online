@@ -78,7 +78,7 @@ fn load_cat(db: &ResourceDatabase, id: Id) -> Result<Model, String> {
     Ok(cat.rest_model(0xf6954))
 }
 
-fn load_model(db: &ResourceDatabase, id: Id) -> Result<Model, String> {
+pub(crate) fn load_model(db: &ResourceDatabase, id: Id) -> Result<Model, String> {
     let object = db.get(id).map_err(|e| e.to_string())?.ok_or("no such object")?;
     let mesh = mesh::parse(&object).map_err(|e| e.to_string())?;
     model::build(&mesh).map_err(|e| e.to_string())
@@ -197,6 +197,18 @@ fn run(args: &[String]) -> Result<(), String> {
                 [] => viewer::window(model, textures, None),
                 _ => Err("unknown arguments".into()),
             };
+        }
+    }
+    // A player: <game> player <breed> <sex> <animation> [--image out.png [ms]]
+    if let [game, word, breed, sex, animation, rest @ ..] = args {
+        if word == "player" {
+            let db = Arc::new(ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?);
+            let image = match rest {
+                [flag, out] if flag == "--image" => Some((out.as_str(), 0.0)),
+                [flag, out, ms] if flag == "--image" => Some((out.as_str(), ms.parse().map_err(|_| "bad time")?)),
+                _ => None,
+            };
+            return anim::player(db, breed.parse().map_err(|_| "bad breed")?, sex.parse().map_err(|_| "bad sex")?, number(animation).ok_or("bad animation")?, image);
         }
     }
     // A character mesh with an animation: <game> <mesh type> <mesh> <animation> [--image out.png [ms]]
