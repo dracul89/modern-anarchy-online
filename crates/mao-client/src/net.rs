@@ -1031,6 +1031,11 @@ fn walk(game: &str, who: &str, target_x: f32, target_z: f32, seconds: u64) -> Re
                 let floor = collision.floor(position[0], position[2], base, 0.6, 0.6).unwrap_or(f32::MIN);
                 base = (ground(position) + offset).max(floor);
                 position[1] = base;
+                // MAO_WALK_RAMP="x0,y0,x1,y1": the height follows a ramp along x (as at a gate).
+                if let Some([x0, y0, x1, y1]) = std::env::var("MAO_WALK_RAMP").ok().and_then(|v| { let n: Vec<f32> = v.split(',').filter_map(|p| p.parse().ok()).collect(); <[f32; 4]>::try_from(n).ok() }) {
+                    let t = ((position[0] - x0) / (x1 - x0)).clamp(0.0, 1.0);
+                    position[1] = y0 + (y1 - y0) * t;
+                }
                 if let Some(y) = std::env::var("MAO_WALK_Y").ok().and_then(|v| v.parse::<f32>().ok()) {
                     position[1] = y;
                 }
