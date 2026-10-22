@@ -36,6 +36,8 @@ pub struct Input {
     pub commands: [u8; 7],
     /// The heading the character should face (the camera's, while the right mouse button steers).
     pub face: Option<f32>,
+    /// A hotbar item to use: a counter that steps with each, and the inventory slot.
+    pub fire: (u8, u32),
 }
 
 /// The overlay to draw and where the player's character is (the view
@@ -191,6 +193,31 @@ pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<()
 
 /// The heading (about the vertical, 0 along the server's +Z) a camera at `yaw` looks along, and the yaw
 /// of a camera right behind a character facing `heading`. (The same function both ways.)
+/// Does what a hotbar action says: use an item from the backpack, or attack.
+fn fire_action(action: &crate::hotbar::Action, keys: &mut Input, hud: &mut Hud) {
+    match action {
+        crate::hotbar::Action::Attack => keys.commands[4] = keys.commands[4].wrapping_add(1),
+        crate::hotbar::Action::Item { id, name, .. } => {
+            // The first stack of that item (the backpack before anything worn).
+            let found = hud.gear.iter().filter(|i| i.item_id == *id).max_by_key(|i| i.slot >= mao_net::inventory::BACKPACK_FIRST).map(|i| i.slot);
+            match found {
+                Some(slot) => keys.fire = (keys.fire.0.wrapping_add(1), slot),
+                None => hud.say(format!("{name} is not in your inventory")),
+            }
+        }
+    }
+}
+
+/// A press of slot `slot` of the shown hotbar: fire, or tell the player it is not ready (the press is queued).
+fn press_slot(ui: &mut Ui, slot: usize, keys: &mut Input, hud: &mut Hud) {
+    let now = ui.now();
+    match ui.hotbars.press(slot, now) {
+        crate::hotbar::Press::Fire(action) => fire_action(&action, keys, hud),
+        crate::hotbar::Press::NotReady(message) => hud.say(message),
+        crate::hotbar::Press::Empty => {}
+    }
+}
+
 fn heading_from_yaw(yaw: f32) -> f32 {
     (-yaw.cos()).atan2(-yaw.sin())
 }
@@ -368,6 +395,16 @@ impl ApplicationHandler for App {
                             apply_mode(&w.window, self.settings.mode);
                             eprintln!("window mode: {} (set `mode` in {} to keep it)", self.settings.mode.name(), Settings::path().display());
                         }
+                        Action::HotbarBar(n) if !event.repeat => {
+                            if let Some(ui) = w.ui.as_mut() {
+                                ui.hotbars.current = (n as usize).min(crate::hotbar::BARS - 1);
+                            }
+                        }
+                        Action::HotbarSlot(n) if !event.repeat => {
+                            if let Some(ui) = w.ui.as_mut() {
+                                press_slot(ui, n as usize, &mut self.keys, &mut self.hud);
+                            }
+                        }
                         Action::InventoryWindow if !event.repeat => {
                             if let Some(ui) = w.ui.as_mut() {
                                 ui.gear_open = !ui.gear_open;
@@ -470,6 +507,16 @@ impl ApplicationHandler for App {
                 w.window.request_redraw();
             }
             WindowEvent::RedrawRequested => {
+                // Queued hotbar presses fire as soon as something in their slot is ready.
+                if let Some(ui) = w.ui.as_mut() {
+                    let now = ui.now();
+                    for action in ui.hotbars.tick(now) {
+                        fire_action(&action, &mut self.keys, &mut self.hud);
+                    }
+                    if let Some(live) = &self.live {
+                        let _ = live.input.send(self.keys);
+                    }
+                }
                 // Walking, the camera swings round behind the character, unless the mouse is steering it.
                 let dt = self.last_follow.elapsed().as_secs_f32().min(0.1);
                 self.last_follow = std::time::Instant::now();
@@ -537,6 +584,12 @@ impl ApplicationHandler for App {
                     let aspect = size.0 as f32 / size.1.max(1) as f32;
                     let project = |p: mao_render::glam::Vec3| camera.project(p, aspect, radius);
                     let (frame, requests) = ui.run(&w.window, &mut self.settings, &self.hud, &project);
+                    if let Some(slot) = requests.press {
+                        press_slot(ui, slot, &mut self.keys, &mut self.hud);
+                    }
+                    if requests.hotbars_changed {
+                        crate::hotbar::save(&ui.hotbars);
+                    }
                     ui.paint(&w.gpu, &view, size, frame);
                     if let Some(theme) = requests.theme {
                         ui.set_theme(&theme, &self.settings.aou_mod);

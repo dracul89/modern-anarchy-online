@@ -259,6 +259,26 @@ fn run(args: &[String]) -> Result<(), String> {
                     hud.labels = net::booth_labels(number, &whompah_booths(game, &db, number), &destinations, &names).into_iter().map(|(p, text)| ui::Label { world: mao_render::glam::Vec3::from(p), text }).collect();
                     hud.target = Some("Rollerrat  (12 m)".into());
                     // MAO_UI_PREVIEW=gear + MAO_CAPTURE=<capture.log>: the inventory window from a captured session.
+                    if preview.as_deref() == Some("hotbar") {
+                        // A sample: stims then an attack in slot 1 (the stim cooling down, so the attack shows), a recharger in slot 2.
+                        if let Some(log) = std::env::var_os("MAO_CAPTURE") {
+                            hud.gear = net::capture_entries(&log.to_string_lossy()).map(|e| gear::from_entries(&db, &textures, &e)).unwrap_or_default();
+                            let pick = |name: &str| hud.gear.iter().find(|i| i.name.starts_with(name)).map(|i| hotbar::Action::Item { id: i.item_id, name: i.name.clone(), icon: i.icon.as_ref().map(|c| c.id) });
+                            let mut bars = hotbar::Hotbars::default();
+                            if let Some(stim) = pick("Health and Nano Stim") {
+                                bars.add(0, 0, stim, 6.0);
+                            }
+                            bars.add(0, 0, hotbar::Action::Attack, 2.0);
+                            if let Some(recharger) = pick("Health and Nano Recharger") {
+                                bars.add(0, 1, recharger.clone(), 10.0);
+                                bars.add(0, 1, recharger, 10.0);
+                            }
+                            bars.slot_mut(0, 0).entries[0].ready_at = 4.0;
+                            bars.slot_mut(0, 1).entries[0].ready_at = 3.5;
+                            bars.slot_mut(0, 1).entries[1].ready_at = 5.0;
+                            hud.preview_hotbars = bars;
+                        }
+                    }
                     if preview.as_deref() == Some("gear") {
                         if let Some(log) = std::env::var_os("MAO_CAPTURE") {
                             hud.gear = net::capture_entries(&log.to_string_lossy()).map(|e| gear::from_entries(&db, &textures, &e)).unwrap_or_default();

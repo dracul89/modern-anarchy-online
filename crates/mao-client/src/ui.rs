@@ -12,6 +12,8 @@ use winit::event::WindowEvent;
 use winit::window::Window;
 
 use crate::settings::{Action, Settings, WindowMode, ACTIONS};
+use crate::gear::{GearItem, GearWindow};
+use crate::hotbar::{self, Hotbars};
 use crate::theme::{self, Palette};
 
 /// Text floating over a point of the world (a whompah booth's destination).
@@ -34,6 +36,8 @@ pub struct Hud {
     /// The character's items (the inventory window), and whether a headless preview shows it.
     pub gear: Vec<crate::gear::GearItem>,
     pub gear_open: bool,
+    /// Hotbars shown by a headless preview (a live window keeps its own in the `Ui`).
+    pub preview_hotbars: Hotbars,
     /// What the last frame drew (parts), shown beside the frame rate.
     pub draw_info: String,
 }
@@ -57,6 +61,10 @@ pub struct Requests {
     pub size: Option<(u32, u32)>,
     pub save: bool,
     pub quit: bool,
+    /// A hotbar slot clicked with the mouse.
+    pub press: Option<usize>,
+    /// The hotbars were edited (to be saved).
+    pub hotbars_changed: bool,
 }
 
 /// One frame of interface, ready to paint.
@@ -73,6 +81,9 @@ pub struct Ui {
     pub options_open: bool,
     pub gear_open: bool,
     gear: crate::gear::GearWindow,
+    /// The hotbars, and the clock their cooldowns run on.
+    pub hotbars: Hotbars,
+    clock: Instant,
     /// The action the options window is waiting for a key for.
     pub rebinding: Option<Action>,
     /// The colours in use, and the themes the options window offers.
@@ -125,7 +136,7 @@ impl Ui {
         theme(&ctx, &palette);
         let state = egui_winit::State::new(ctx.clone(), egui::ViewportId::ROOT, window, Some(window.scale_factor() as f32), window.theme(), None);
         let renderer = egui_wgpu::Renderer::new(&gpu.device, format, egui_wgpu::RendererOptions::default());
-        Ui { ctx, state, renderer, options_open: false, gear_open: false, gear: Default::default(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0 }
+        Ui { ctx, state, renderer, options_open: false, gear_open: false, gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0 }
     }
 
     /// Switches to the theme `name` (a `theme =` setting).
@@ -140,6 +151,11 @@ impl Ui {
         self.state.on_window_event(window, event).consumed
     }
 
+    /// Seconds on the hotbars' clock.
+    pub fn now(&self) -> f64 {
+        self.clock.elapsed().as_secs_f64()
+    }
+
     /// Lays the interface out for one frame.
     /// `project` finds where a world point lands on the screen (0..1 from the top left).
     pub fn run(&mut self, window: &Window, settings: &mut Settings, hud: &Hud, project: &dyn Fn(Vec3) -> Option<[f32; 2]>) -> (Frame, Requests) {
@@ -151,9 +167,11 @@ impl Ui {
         let mut requests = Requests::default();
         let (options_open, rebinding, fps, palette, themes) = (&mut self.options_open, &mut self.rebinding, self.fps, &self.palette, &self.themes);
         let (gear_open, gear) = (&mut self.gear_open, &mut self.gear);
+        let (hotbars, clock_now) = (&mut self.hotbars, self.clock.elapsed().as_secs_f64());
         let output = self.ctx.run_ui(raw, |ui| {
             let ctx = ui.ctx().clone();
             hud_layer(&ctx, hud, project, fps, settings.mode, palette);
+            hotbar_layer(&ctx, hotbars, gear, &hud.gear, clock_now, palette, &mut requests);
             if *gear_open {
                 gear.show(&ctx, gear_open, &hud.gear, palette);
             }
@@ -207,6 +225,7 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
     let screen = egui_wgpu::ScreenDescriptor { size_in_pixels: [size.0, size.1], pixels_per_point: 1.0 };
     let (mut open, mut rebinding, mut requests) = (options, None, Requests::default());
     let (mut gear_open, mut gear) = (hud.gear_open, crate::gear::GearWindow::default());
+    let mut hotbars = hud.preview_hotbars.clone();
     let mut last = None;
     // Several frames: the first lays out and uploads the fonts, and the windows
     // fade in over the next ones; the last is what is drawn.
@@ -215,6 +234,7 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
         let output = ctx.run_ui(raw, |ui| {
             let ctx = ui.ctx().clone();
             hud_layer(&ctx, hud, project, 60.0, settings.mode, &palette);
+            hotbar_layer(&ctx, &mut hotbars, &mut gear, &hud.gear, 1.5, &palette, &mut requests);
             if gear_open {
                 gear.show(&ctx, &mut gear_open, &hud.gear, &palette);
             }
@@ -250,6 +270,134 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
 }
 
 /// Where you are, the messages and the labels over the world.
+/// The hotbar: tabs for the six bars and ten slots. A slot shows the action that would fire (its icon,
+/// a cooldown sweep and the time left); a yellow frame means a press is queued. Left click presses,
+/// right click edits the slot's list, and items dragged from the inventory window are added to it.
+fn hotbar_layer(ctx: &egui::Context, bars: &mut Hotbars, gear: &mut GearWindow, items: &[GearItem], now: f64, palette: &Palette, requests: &mut Requests) {
+    let accent = rgb(palette.accent);
+    let bar = bars.current;
+    egui::Area::new(egui::Id::new("hotbar")).anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -12.0)).show(ctx, |ui| {
+        egui::Frame::new().fill(egui::Color32::from_black_alpha(130)).corner_radius(4).inner_margin(6).show(ui, |ui| {
+            ui.horizontal(|ui| {
+                for b in 0..hotbar::BARS {
+                    if ui.selectable_label(bars.current == b, format!("{}", b + 1)).clicked() {
+                        bars.current = b;
+                    }
+                }
+                ui.label(egui::RichText::new("F1-F6 bars, 1-0 slots, drag items here, right-click to edit").small().weak());
+            });
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing = egui::vec2(3.0, 3.0);
+                for slot in 0..hotbar::SLOTS {
+                    let (rect, response) = ui.allocate_exact_size(egui::vec2(46.0, 46.0), egui::Sense::click());
+                    let queued = bars.is_queued(bar, slot);
+                    let shown = bars.slot(bar, slot).display(now).map(|d| (d.entry.action.clone(), d.entry.cooldown, d.remaining));
+                    let count = bars.slot(bar, slot).entries.len();
+                    let hovering = response.dnd_hover_payload::<hotbar::Action>().is_some();
+                    let painter = ui.painter();
+                    painter.rect_filled(rect, 3.0, egui::Color32::from_black_alpha(140));
+                    let border = if queued { egui::Color32::YELLOW } else if hovering { accent } else if shown.is_some() { lifted(palette.panel, 90) } else { egui::Color32::from_white_alpha(30) };
+                    if let Some((action, cooldown, remaining)) = &shown {
+                        let icon = match action {
+                            hotbar::Action::Item { icon: Some(id), .. } => items.iter().find_map(|i| i.icon.as_ref().filter(|ic| ic.id == *id)).cloned(),
+                            _ => None,
+                        };
+                        match icon {
+                            Some(icon) => {
+                                let id = gear.texture(ctx, &icon);
+                                ui.painter().image(id, rect.shrink(3.0), egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
+                            }
+                            None => {
+                                let letter = action.name().chars().next().unwrap_or('?');
+                                ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, letter, egui::FontId::proportional(20.0), accent);
+                            }
+                        }
+                        if *remaining > 0.0 {
+                            // The cooldown sweeps down from the top as it runs out.
+                            let fraction = (remaining / cooldown.max(0.1)).clamp(0.0, 1.0);
+                            let cover = egui::Rect::from_min_max(rect.min, egui::pos2(rect.max.x, rect.min.y + rect.height() * fraction));
+                            ui.painter().rect_filled(cover, 3.0, egui::Color32::from_black_alpha(170));
+                            ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, format!("{remaining:.1}"), egui::FontId::proportional(13.0), egui::Color32::WHITE);
+                        }
+                        if count > 1 {
+                            ui.painter().text(rect.right_bottom() - egui::vec2(3.0, 2.0), egui::Align2::RIGHT_BOTTOM, format!("+{}", count - 1), egui::FontId::proportional(10.0), egui::Color32::LIGHT_GRAY);
+                        }
+                    }
+                    ui.painter().rect_stroke(rect, 3.0, egui::Stroke::new(if queued || hovering { 2.0 } else { 1.0 }, border), egui::StrokeKind::Inside);
+                    ui.painter().text(rect.left_top() + egui::vec2(3.0, 2.0), egui::Align2::LEFT_TOP, format!("{}", (slot + 1) % 10), egui::FontId::proportional(10.0), egui::Color32::from_white_alpha(160));
+                    if let Some(payload) = response.dnd_release_payload::<hotbar::Action>() {
+                        bars.add(bar, slot, (*payload).clone(), 5.0);
+                        requests.hotbars_changed = true;
+                    }
+                    if response.clicked() {
+                        requests.press = Some(slot);
+                    }
+                    let tooltip: Vec<String> = bars.slot(bar, slot).entries.iter().enumerate().map(|(i, e)| format!("{}. {} ({:.0}s){}", i + 1, e.action.name(), e.cooldown, if e.ready_at > now { format!(", {:.1}s left", e.ready_at - now) } else { String::new() })).collect();
+                    if !tooltip.is_empty() {
+                        response.clone().on_hover_text(tooltip.join("\n"));
+                    }
+                    response.context_menu(|ui| {
+                        ui.label(egui::RichText::new(format!("Bar {} slot {}: the first ready action fires", bar + 1, (slot + 1) % 10)).small());
+                        let mut changed = false;
+                        let (mut remove, mut up, mut down) = (None, None, None);
+                        let entries = &mut bars.slot_mut(bar, slot).entries;
+                        let last = entries.len().saturating_sub(1);
+                        for (i, entry) in entries.iter_mut().enumerate() {
+                            ui.horizontal(|ui| {
+                                ui.label(format!("{}. {}", i + 1, entry.action.name()));
+                                changed |= ui.add(egui::DragValue::new(&mut entry.cooldown).range(0.0..=3600.0).speed(0.1).suffix(" s")).changed();
+                                if i > 0 && ui.small_button("^").clicked() {
+                                    up = Some(i);
+                                }
+                                if i < last && ui.small_button("v").clicked() {
+                                    down = Some(i);
+                                }
+                                if ui.small_button("x").clicked() {
+                                    remove = Some(i);
+                                }
+                            });
+                        }
+                        if let Some(i) = up {
+                            entries.swap(i, i - 1);
+                            changed = true;
+                        }
+                        if let Some(i) = down {
+                            entries.swap(i, i + 1);
+                            changed = true;
+                        }
+                        if let Some(i) = remove {
+                            entries.remove(i);
+                            changed = true;
+                        }
+                        if ui.button("Add Attack").clicked() {
+                            entries.push(hotbar::Entry::new(hotbar::Action::Attack, 2.0));
+                            changed = true;
+                            ui.close();
+                        }
+                        if ui.button("Clear slot").clicked() {
+                            entries.clear();
+                            changed = true;
+                            ui.close();
+                        }
+                        if changed {
+                            requests.hotbars_changed = true;
+                            if bars.slot(bar, slot).entries.is_empty() {
+                                bars.cleared(bar, slot);
+                            }
+                        }
+                    });
+                }
+            });
+        });
+    });
+    // While an item is being dragged, say what to do with it.
+    if egui::DragAndDrop::has_payload_of_type::<hotbar::Action>(ctx) {
+        if let Some(pos) = ctx.pointer_interact_pos() {
+            ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("drag-hint"))).text(pos + egui::vec2(14.0, 14.0), egui::Align2::LEFT_TOP, "Drop on a hotbar slot", egui::FontId::proportional(12.0), egui::Color32::WHITE);
+        }
+    }
+}
+
 fn hud_layer(ctx: &egui::Context, hud: &Hud, project: &dyn Fn(Vec3) -> Option<[f32; 2]>, fps: f32, mode: WindowMode, palette: &Palette) {
     let accent = rgb(palette.accent);
     let screen = ctx.content_rect();
@@ -292,7 +440,7 @@ fn hud_layer(ctx: &egui::Context, hud: &Hud, project: &dyn Fn(Vec3) -> Option<[f
     }
     let recent: Vec<&String> = hud.log.iter().filter(|(t, _)| t.elapsed() < Duration::from_secs(14)).map(|(_, m)| m).collect();
     if !recent.is_empty() {
-        egui::Area::new(egui::Id::new("log")).anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(8.0, -8.0)).interactable(false).show(ctx, |ui| {
+        egui::Area::new(egui::Id::new("log")).anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(8.0, -72.0)).interactable(false).show(ctx, |ui| {
             frame().show(ui, |ui| {
                 for line in recent {
                     ui.label(line);

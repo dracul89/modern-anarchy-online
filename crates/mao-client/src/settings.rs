@@ -98,6 +98,10 @@ pub enum Action {
     SitStand,
     /// Use the targeted thing (talk to an NPC, open a door).
     Use,
+    /// Press slot n (0..10) of the shown hotbar.
+    HotbarSlot(u8),
+    /// Show hotbar n (0..6).
+    HotbarBar(u8),
     ChatInput,
     ChatCommand,
     ChatReply,
@@ -143,6 +147,22 @@ pub const ACTIONS: &[(Action, &str, &str)] = &[
     (Action::InventoryWindow, "inventory", "I"),
     (Action::SitStand, "sit_stand", "X"),
     (Action::Use, "use", "E"),
+    (Action::HotbarSlot(0), "hotbar_slot_1", "1"),
+    (Action::HotbarSlot(1), "hotbar_slot_2", "2"),
+    (Action::HotbarSlot(2), "hotbar_slot_3", "3"),
+    (Action::HotbarSlot(3), "hotbar_slot_4", "4"),
+    (Action::HotbarSlot(4), "hotbar_slot_5", "5"),
+    (Action::HotbarSlot(5), "hotbar_slot_6", "6"),
+    (Action::HotbarSlot(6), "hotbar_slot_7", "7"),
+    (Action::HotbarSlot(7), "hotbar_slot_8", "8"),
+    (Action::HotbarSlot(8), "hotbar_slot_9", "9"),
+    (Action::HotbarSlot(9), "hotbar_slot_10", "0"),
+    (Action::HotbarBar(0), "hotbar_bar_1", "F1"),
+    (Action::HotbarBar(1), "hotbar_bar_2", "F2"),
+    (Action::HotbarBar(2), "hotbar_bar_3", "F3"),
+    (Action::HotbarBar(3), "hotbar_bar_4", "F4"),
+    (Action::HotbarBar(4), "hotbar_bar_5", "F5"),
+    (Action::HotbarBar(5), "hotbar_bar_6", "F6"),
     // The original's fixed chat commands (default keys assumed).
     (Action::ChatInput, "chat_input", "Enter"),
     (Action::ChatCommand, "chat_command", "Slash"),

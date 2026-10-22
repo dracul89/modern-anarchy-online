@@ -23,6 +23,8 @@ pub struct Icon {
 /// One item ready to show.
 pub struct GearItem {
     pub slot: u32,
+    /// The item's template id (what a hotbar slot remembers it by).
+    pub item_id: u32,
     pub count: u16,
     pub quality: u32,
     pub bag: bool,
@@ -104,6 +106,7 @@ pub fn from_entries(db: &ResourceDatabase, textures: &crate::Textures, entries: 
             });
             GearItem {
                 slot: e.slot,
+                item_id: e.low_id,
                 count: e.count,
                 quality: e.quality,
                 bag: e.is_bag(),
@@ -124,7 +127,7 @@ pub struct GearWindow {
 const CELL: f32 = 42.0;
 
 impl GearWindow {
-    fn texture(&mut self, ctx: &egui::Context, icon: &Icon) -> egui::TextureId {
+    pub fn texture(&mut self, ctx: &egui::Context, icon: &Icon) -> egui::TextureId {
         self.textures
             .entry(icon.id)
             .or_insert_with(|| ctx.load_texture(format!("item-icon-{}", icon.id), egui::ColorImage::from_rgba_unmultiplied([icon.width, icon.height], &icon.rgba), egui::TextureOptions::LINEAR))
@@ -133,7 +136,7 @@ impl GearWindow {
 
     /// One square: the item's icon (and stack size), or an empty frame.
     fn cell(&mut self, ui: &mut egui::Ui, item: Option<&GearItem>, label: &str, accent: egui::Color32) {
-        let (rect, response) = ui.allocate_exact_size(egui::vec2(CELL, CELL), egui::Sense::hover());
+        let (rect, response) = ui.allocate_exact_size(egui::vec2(CELL, CELL), egui::Sense::drag());
         let painter = ui.painter();
         painter.rect_filled(rect, 3.0, egui::Color32::from_black_alpha(110));
         painter.rect_stroke(rect, 3.0, egui::Stroke::new(1.0, if item.is_some() { accent } else { egui::Color32::from_white_alpha(30) }), egui::StrokeKind::Inside);
@@ -153,6 +156,10 @@ impl GearWindow {
         if item.count > 1 {
             let text = if item.count >= 10000 { format!("{}k", item.count / 1000) } else { item.count.to_string() };
             ui.painter().text(rect.right_bottom() - egui::vec2(3.0, 2.0), egui::Align2::RIGHT_BOTTOM, text, egui::FontId::proportional(11.0), egui::Color32::WHITE);
+        }
+        // Drag an item onto a hotbar slot to add it to that slot's list.
+        if response.drag_started() {
+            response.dnd_set_drag_payload(crate::hotbar::Action::Item { id: item.item_id, name: item.name.clone(), icon: item.icon.as_ref().map(|i| i.id) });
         }
         response.on_hover_ui(|ui| {
             ui.set_max_width(320.0);

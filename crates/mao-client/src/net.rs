@@ -564,7 +564,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut pending_gear = state.inventory.take().map(|e| crate::gear::from_entries(&gear_db, &gear_textures, &e));
         let mut keys = crate::viewer::Input::default();
         let (mut seen, mut target): ([u8; 7], Option<u32>) = ([0; 7], None);
-        let (mut sitting, mut uses) = (false, 0u32);
+        let (mut sitting, mut uses, mut fired) = (false, 0u32, 0u8);
         let (mut position, mut heading) = (start, heading);
         let (mut moving, mut turning, mut strafing) = (0i8, 0i8, 0i8);
         const JUMP_SPEED: f32 = 7.0;
@@ -740,6 +740,12 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     let _ = connection.send(&n3::select_target(own, id));
                     let _ = connection.send(&n3::set_target(own, id));
                 }
+            }
+            // A hotbar item: use the inventory slot it sits in.
+            if keys.fire.0 != fired {
+                fired = keys.fire.0;
+                uses += 1;
+                let _ = connection.send(&n3::use_object(own, uses, (0x68, keys.fire.1)));
             }
             if target.is_some_and(|t| state.position_of(t).is_none()) {
                 target = None;

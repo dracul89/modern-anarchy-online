@@ -100,6 +100,19 @@ announced objects). `Tab` cycles creatures, `Ctrl+Tab` players, friendly NPCs an
 server announces (`4f474e05`, identity type `0xc76a`: doors, mail terminals, booths) shown as "Object xxxx"
 until their names are decoded.
 
+## 4f. Smart hotbars
+Six bars of ten slots (keys `1`-`0` for slots, `F1`-`F6` for bars, all rebindable; mouse click works too).
+A slot is a **priority list** of actions, each with its own cooldown. A press fires the first ready action
+and starts its cooldown, so while it recovers the slot offers the next one (opener, filler, finisher). If
+nothing in the slot is ready the press is **queued** (yellow frame) and a "not ready" message shows; the
+slot fires the moment something frees up. The slot shows the action that would fire, a cooldown sweep and
+the seconds left. Edit: drag items from the inventory window onto a slot to append them; right-click a
+slot to set cooldowns, reorder, remove, add Attack or clear. Saved in `hotbar.ini` beside `mao.ini`.
+The rules are in `hotbar.rs` with tests (priority, skipping, queueing, round trip).
+Actions today: use an inventory item (message 52526858 with the inventory slot as target, type 0x68, as
+the capture shows for backpack items; not yet confirmed live) and attack. Nano programs and special attacks
+wait for their messages to be decoded. Cooldowns are client-side (the server's timer messages aren't decoded).
+
 ## 5. The AOU mod against the original GUI
 The original GUI folder (`cd_image/gui/Default`) is 50 files: 27 small XML
 views (login, character selection, mail, trade, research, raid ...), 10 action
