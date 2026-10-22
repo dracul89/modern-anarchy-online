@@ -21,8 +21,12 @@ names are the original's own (found in its DLLs): `KEY_COMMAND_ROTATE_CAMERA_*`
 `CAMERA_SET_PREFERRED_POS`, `KEY_NEXT/PREV_FRIENDLY/HOSTILE_TARGET`,
 `START_CHAT_INPUT/CMD_INPUT/REPLY_INPUT`, `CHAT_HISTORY_PAGE_UP/DOWN`,
 `OPEN_PERK_WINDOW`, `OPEN_VEHICLE_WINDOW`, plus this client's movement.
-The camera, window and movement actions work; targeting, chat and the perk /
-vehicle windows are reserved (no interface for them yet).
+The camera, window, movement and targeting actions work (Tab / Shift+Tab step
+through nearby hostile NPCs nearest first, Ctrl+Tab through players and friendly
+NPCs, `F` attacks the target; a target frame shows its name and distance; the
+same select / set-target / attack messages as the tested `attack` command, not
+yet verified in the live window). Chat and the perk / vehicle windows are
+reserved (no interface for them yet).
 
 **Open:** the default *keys* of the original's commands are not in its data
 files. The AOU mod's `HotKeys.xml` is byte-identical to the original's and only

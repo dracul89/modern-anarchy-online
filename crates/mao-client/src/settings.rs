@@ -88,6 +88,8 @@ pub enum Action {
     PrevHostileTarget,
     NextFriendlyTarget,
     PrevFriendlyTarget,
+    /// Attack the current target.
+    Attack,
     ChatInput,
     ChatCommand,
     ChatReply,
@@ -127,6 +129,7 @@ pub const ACTIONS: &[(Action, &str, &str)] = &[
     (Action::PrevHostileTarget, "prev_hostile_target", "Shift+Tab"),
     (Action::NextFriendlyTarget, "next_friendly_target", "Ctrl+Tab"),
     (Action::PrevFriendlyTarget, "prev_friendly_target", "Ctrl+Shift+Tab"),
+    (Action::Attack, "attack", "F"),
     // The original's fixed chat commands (default keys assumed).
     (Action::ChatInput, "chat_input", "Enter"),
     (Action::ChatCommand, "chat_command", "Slash"),

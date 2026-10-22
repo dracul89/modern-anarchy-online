@@ -29,6 +29,8 @@ pub struct Hud {
     pub position: Option<[f32; 3]>,
     pub labels: Vec<Label>,
     pub log: VecDeque<(Instant, String)>,
+    /// The current target, for the target frame.
+    pub target: Option<String>,
 }
 
 impl Hud {
@@ -260,6 +262,14 @@ fn hud_layer(ctx: &egui::Context, hud: &Hud, project: &dyn Fn(Vec3) -> Option<[f
     egui::Area::new(egui::Id::new("fps")).anchor(egui::Align2::RIGHT_TOP, egui::vec2(-8.0, 8.0)).interactable(false).show(ctx, |ui| {
         frame().show(ui, |ui| ui.label(format!("{fps:.0} fps  {}  (Esc: options)", mode.name())));
     });
+    if let Some(target) = &hud.target {
+        egui::Area::new(egui::Id::new("target")).anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 8.0)).interactable(false).show(ctx, |ui| {
+            frame().show(ui, |ui| {
+                ui.label(egui::RichText::new("Target").small().color(accent));
+                ui.label(egui::RichText::new(target).strong());
+            });
+        });
+    }
     let recent: Vec<&String> = hud.log.iter().filter(|(t, _)| t.elapsed() < Duration::from_secs(14)).map(|(_, m)| m).collect();
     if !recent.is_empty() {
         egui::Area::new(egui::Id::new("log")).anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(8.0, -8.0)).interactable(false).show(ctx, |ui| {

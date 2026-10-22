@@ -29,6 +29,9 @@ pub struct Input {
     /// Walk through props (toggled with C).
     pub noclip: bool,
     pub turn: i8,
+    /// Counters that step each time the key is pressed (the live loop acts on a change):
+    /// next/previous hostile, next/previous friendly target, attack.
+    pub commands: [u8; 5],
 }
 
 /// The overlay to draw and where the player's character is (the view
@@ -45,6 +48,8 @@ pub struct Update {
     pub labels: Option<Vec<([f32; 3], String)>>,
     /// Messages for the log.
     pub messages: Vec<String>,
+    /// The current target (name and distance), for the target frame.
+    pub target: Option<String>,
 }
 
 /// Something that changes while the window is open: models to draw over the
@@ -299,6 +304,16 @@ impl ApplicationHandler for App {
                             event_loop.exit();
                             return;
                         }
+                        Action::NextHostileTarget | Action::PrevHostileTarget | Action::NextFriendlyTarget | Action::PrevFriendlyTarget | Action::Attack if !event.repeat => {
+                            let slot = match action {
+                                Action::NextHostileTarget => 0,
+                                Action::PrevHostileTarget => 1,
+                                Action::NextFriendlyTarget => 2,
+                                Action::PrevFriendlyTarget => 3,
+                                _ => 4,
+                            };
+                            self.keys.commands[slot] = self.keys.commands[slot].wrapping_add(1);
+                        }
                         Action::CameraRotateLeft => w.camera.yaw += 0.08,
                         Action::CameraRotateRight => w.camera.yaw -= 0.08,
                         Action::CameraRotateUp => w.camera.pitch = (w.camera.pitch + 0.06).clamp(-1.5, 1.5),
@@ -380,6 +395,7 @@ impl ApplicationHandler for App {
                         for m in std::mem::take(&mut u.messages) {
                             self.hud.say(m);
                         }
+                        self.hud.target = u.target.take();
                         if let Some(name) = u.location.take() {
                             self.hud.location = name;
                         }

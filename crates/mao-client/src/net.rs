@@ -531,6 +531,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         state.arrival = None;
         let mut pending_scene: Option<Model> = None;
         let mut keys = crate::viewer::Input::default();
+        let (mut seen, mut target): ([u8; 5], Option<u32>) = ([0; 5], None);
         let (mut position, mut heading) = (start, heading);
         let (mut moving, mut turning) = (0i8, 0i8);
         const JUMP_SPEED: f32 = 7.0;
@@ -640,6 +641,48 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             while let Ok(k) = input_rx.try_recv() {
                 keys = k;
             }
+            // Targeting: Tab and friends step through the nearby ones, nearest first; F attacks.
+            for (slot, count) in keys.commands.iter().enumerate() {
+                let presses = count.wrapping_sub(seen[slot]);
+                seen[slot] = *count;
+                if presses == 0 {
+                    continue;
+                }
+                if slot == 4 {
+                    match target {
+                        Some(t) => {
+                            let _ = connection.send(&n3::attack(own, t));
+                            pending_messages.push(format!("Attacking {}", state.names.get(&t).map_or("the target", |n| n.0.as_str())));
+                        }
+                        None => pending_messages.push("No target (Tab selects one)".into()),
+                    }
+                    continue;
+                }
+                let friendly_name = |name: &str| ["Vanguard", "Watcher", "Commander", "Guard", "Merchant", "Trader", "Recruiter", "Helper"].iter().any(|w| name.contains(w));
+                let wants_friendly = slot >= 2;
+                let near = |p: [f32; 3]| ((p[0] - position[0]).powi(2) + (p[2] - position[2]).powi(2)).sqrt();
+                let mut candidates: Vec<(f32, u32)> = state.infos.iter().filter(|(id, i)| **id != own && (i.is_player() || friendly_name(&i.name)) == wants_friendly).filter_map(|(id, _)| Some((near(state.entities.get(id)?.0), *id))).filter(|(d, _)| *d < 80.0).collect();
+                candidates.sort_by(|a, b| a.0.total_cmp(&b.0));
+                if candidates.is_empty() {
+                    pending_messages.push("Nothing to target nearby".into());
+                    continue;
+                }
+                let index = target.and_then(|t| candidates.iter().position(|c| c.1 == t));
+                let forward = slot % 2 == 0;
+                let next = match (index, forward) {
+                    (Some(i), true) => (i + 1) % candidates.len(),
+                    (Some(i), false) => (i + candidates.len() - 1) % candidates.len(),
+                    (None, true) => 0,
+                    (None, false) => candidates.len() - 1,
+                };
+                let id = candidates[next].1;
+                target = Some(id);
+                let _ = connection.send(&n3::select_target(own, id));
+                let _ = connection.send(&n3::set_target(own, id));
+            }
+            if target.is_some_and(|t| !state.entities.contains_key(&t)) {
+                target = None;
+            }
             // Walk: integrate the position and tell the server.
             let dt = last_tick.elapsed().as_secs_f32();
             last_tick = Instant::now();
@@ -733,6 +776,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     location: pending_location.take(),
                     labels: pending_labels.take(),
                     messages: std::mem::take(&mut pending_messages),
+                    target: target.and_then(|t| Some(format!("{}  ({:.0} m)", state.names.get(&t)?.0, ((state.entities.get(&t)?.0[0] - position[0]).powi(2) + (state.entities.get(&t)?.0[2] - position[2]).powi(2)).sqrt()))),
                 };
                 if tx.send(update).is_err() {
                     break;

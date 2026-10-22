@@ -255,6 +255,7 @@ fn run(args: &[String]) -> Result<(), String> {
                     let destinations = whompah::Destinations::load();
                     let mut hud = ui::Hud { location: names.get(&number).cloned().unwrap_or_default(), position: Some([449.0, 8.0, 313.0]), ..Default::default() };
                     hud.labels = net::booth_labels(number, &whompah_booths(game, &db, number), &destinations, &names).into_iter().map(|(p, text)| ui::Label { world: mao_render::glam::Vec3::from(p), text }).collect();
+                    hud.target = Some("Rollerrat  (12 m)".into());
                     hud.say("Welcome to Old Athens");
                     hud.say("Whom-Pah: this booth leads to Tir (remembered)");
                     viewer::headless_with(&model, &textures, out, Some((&hud, preview.as_deref() == Some("options"))))
