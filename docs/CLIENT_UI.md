@@ -90,6 +90,16 @@ confined while a button is held. Not done: strafing (A/D turn; the server's
 strafe messages aren't decoded), camera collision with the ground and walls,
 a first-person view, an option for inverted mouse. Not tried in the live window.
 
+## 4e. Controls added for playing
+`Z` / `C` strafe left / right (the position is reported with ordinary updates; the strafe start and stop
+types, probably 5-8, are a guess behind `MAO_STRAFE_TYPES=1`); `N` toggles walking through props (was `C`);
+`X` sits or stands (sit = action `0x78`, tested live: the server broadcasts `0x7a`; stand = `0x57`;
+moving stands you up); `E` uses the target (message `52526858`, action 3, decoded from the capture and
+byte-exact in a test; not yet confirmed live because the test character stands in an interior with no
+announced objects). `Tab` cycles creatures, `Ctrl+Tab` players, friendly NPCs and the usable objects the
+server announces (`4f474e05`, identity type `0xc76a`: doors, mail terminals, booths) shown as "Object xxxx"
+until their names are decoded.
+
 ## 5. The AOU mod against the original GUI
 The original GUI folder (`cd_image/gui/Default`) is 50 files: 27 small XML
 views (login, character selection, mail, trade, research, raid ...), 10 action

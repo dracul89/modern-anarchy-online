@@ -110,15 +110,34 @@ struct World {
     inventory: Option<Vec<inventory::Entry>>,
     /// The identity type each entity was first heard of with (what a use message names it by).
     types: BTreeMap<u32, u32>,
+    /// The usable objects the server announces (doors, mail terminals, booths: identity type
+    /// 0xc76a, message `4f474e05`) with their positions; targeted with Ctrl+Tab and used with E.
+    objects: BTreeMap<u32, [f32; 3]>,
 }
 
+/// The server's announcement of a usable object, and the identity type of those objects.
+const OBJECT_ANNOUNCE: u32 = 0x4f474e05;
+const OBJECT_TYPE: u32 = 0xc76a;
+
 impl World {
+    /// Where an entity or usable object is.
+    fn position_of(&self, id: u32) -> Option<[f32; 3]> {
+        self.entities.get(&id).map(|e| e.0).or_else(|| self.objects.get(&id).copied())
+    }
+
     fn add(&mut self, frame: &frame::Frame) {
         let Some(m) = Message::parse(frame) else { return };
         if let Some(arrival) = m.arrival() {
             self.arrival = Some(arrival);
         }
         *self.kinds.entry(m.kind).or_default() += 1;
+        if m.kind == OBJECT_ANNOUNCE && m.identity.0 == OBJECT_TYPE && m.data.len() >= 29 {
+            // The position follows 17 bytes of header (the capture's objects stand where a
+            // terminal or door of that playfield does).
+            let f = |at: usize| f32::from_be_bytes(m.data[at..at + 4].try_into().unwrap());
+            self.objects.insert(m.identity.1, [f(17), f(21), f(25)]);
+            self.names.entry(m.identity.1).or_insert_with(|| (format!("Object {:x}", m.identity.1 & 0xffff), false));
+        }
         if m.identity.0 != 0 {
             self.types.entry(m.identity.1).or_insert(m.identity.0);
         }
@@ -165,7 +184,7 @@ impl World {
         println!("{} entities with positions:", self.entities.len());
         for (id, (p, _)) in &self.entities {
             let (name, player) = self.names.get(id).map(|(n, p)| (n.as_str(), *p)).unwrap_or(("?", false));
-            println!("  {id:>10} {name:<20} {} at ({:.1}, {:.1}, {:.1})", if player { "player" } else { "      " }, p[0], p[1], p[2]);
+            println!("  {id:>10} {name:<20} {} type {:#x} at ({:.1}, {:.1}, {:.1})", if player { "player" } else { "      " }, self.types.get(id).copied().unwrap_or(0), p[0], p[1], p[2]);
         }
     }
 }
@@ -698,6 +717,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 let wants_friendly = slot >= 2;
                 let near = |p: [f32; 3]| ((p[0] - position[0]).powi(2) + (p[2] - position[2]).powi(2)).sqrt();
                 let mut candidates: Vec<(f32, u32)> = state.infos.iter().filter(|(id, i)| **id != own && (i.is_player() || friendly_name(&i.name)) == wants_friendly).filter_map(|(id, _)| Some((near(state.entities.get(id)?.0), *id))).filter(|(d, _)| *d < 80.0).collect();
+                if wants_friendly {
+                    candidates.extend(state.objects.iter().map(|(id, p)| (near(*p), *id)).filter(|(d, _)| *d < 80.0));
+                }
                 candidates.sort_by(|a, b| a.0.total_cmp(&b.0));
                 if candidates.is_empty() {
                     pending_messages.push("Nothing to target nearby".into());
@@ -713,10 +735,13 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 };
                 let id = candidates[next].1;
                 target = Some(id);
-                let _ = connection.send(&n3::select_target(own, id));
-                let _ = connection.send(&n3::set_target(own, id));
+                // Objects are targeted here only: the server's select names characters and creatures.
+                if !state.objects.contains_key(&id) {
+                    let _ = connection.send(&n3::select_target(own, id));
+                    let _ = connection.send(&n3::set_target(own, id));
+                }
             }
-            if target.is_some_and(|t| !state.entities.contains_key(&t)) {
+            if target.is_some_and(|t| state.position_of(t).is_none()) {
                 target = None;
             }
             // Moving stands a seated character up first.
@@ -846,7 +871,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     messages: std::mem::take(&mut pending_messages),
                     gear: pending_gear.take(),
                     heading: Some(heading),
-                    target: target.and_then(|t| Some(format!("{}  ({:.0} m)", state.names.get(&t)?.0, ((state.entities.get(&t)?.0[0] - position[0]).powi(2) + (state.entities.get(&t)?.0[2] - position[2]).powi(2)).sqrt()))),
+                    target: target.and_then(|t| Some(format!("{}  ({:.0} m)", state.names.get(&t)?.0, ((state.position_of(t)?[0] - position[0]).powi(2) + (state.position_of(t)?[2] - position[2]).powi(2)).sqrt()))),
                 };
                 if tx.send(update).is_err() {
                     break;
@@ -884,7 +909,18 @@ pub fn run(args: &[String]) -> Result<(), String> {
                     eprintln!("[{t:5.1}] ready + stand sent");
                     phase = 1;
                 } else if phase == 1 && t > 6.0 {
-                    world.send(&n3::action(character.id, code)).map_err(|e| e.to_string())?;
+                    if code == 0 {
+                        // Code 0: use the nearest announced object instead.
+                        let me = state.entities.get(&character.id).map(|e| e.0).unwrap_or([0.0; 3]);
+                        let nearest = state.objects.iter().min_by(|a, b| ((a.1[0] - me[0]).powi(2) + (a.1[2] - me[2]).powi(2)).total_cmp(&((b.1[0] - me[0]).powi(2) + (b.1[2] - me[2]).powi(2))));
+                        eprintln!("[{t:5.1}] {} usable objects announced; me at {me:?}", state.objects.len());
+                        if let Some((id, p)) = nearest {
+                            eprintln!("[{t:5.1}] USE object {id:#x} at {p:?}");
+                            world.send(&n3::use_object(character.id, 1, (0xc76a, *id))).map_err(|e| e.to_string())?;
+                        }
+                    } else {
+                        world.send(&n3::action(character.id, code)).map_err(|e| e.to_string())?;
+                    }
                     eprintln!("[{t:5.1}] ACTION {code:#x} sent");
                     sent_at = Instant::now();
                     phase = 2;
@@ -917,6 +953,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
                     }
                 }
             }
+            state.print();
             Ok(())
         }
         [game, word, who, rest @ ..] if word == "enter" => {
