@@ -32,6 +32,30 @@ fn run(args: &[String]) -> Result<(), String> {
                 None => return Err("no such object".into()),
             }
         }
+        ("cat", [kind, instance]) => {
+            let id = Id { kind: number(kind).ok_or("bad type")?, instance: number(instance).ok_or("bad instance")? };
+            let object = db.get(id).map_err(|e| e.to_string())?.ok_or("no such object")?;
+            let m = mao_formats::catmesh::parse(&object).map_err(|e| e.to_string())?;
+            println!("{:?} version {:#x}, colour {:#010x}", m.name, m.version, m.colour);
+            for t in &m.textures {
+                println!("  texture {:?} {:#x} {:#x} flag {}", t.name, t.value1, t.value2, t.flag);
+            }
+            for (i, mat) in m.materials.iter().enumerate() {
+                println!("  material {i} {:?} flags {:#x} texture {:?} env {:?} diffuse {:?} opacity {}", mat.name, mat.flags, mat.texture, mat.environment, mat.diffuse, mat.opacity);
+            }
+            println!("  {} bones, {} spheres", m.bones.len(), m.spheres.len());
+            for b in m.bones.iter().take(6) {
+                println!("    bone {:?} scale {} children {:?}", b.name, b.scale, b.children);
+            }
+            for g in &m.groups {
+                println!("  group {:?}: {} attractors", g.name, g.attractors.len());
+                for l in &g.lists {
+                    let (lo, hi) = l.vertices.iter().fold((i32::MAX, i32::MIN), |(lo, hi), v| (lo.min(v.bones[0]).min(v.bones[1]), hi.max(v.bones[0]).max(v.bones[1])));
+                    let (mn, mx) = l.vertices.iter().fold(([f32::MAX; 3], [f32::MIN; 3]), |(mn, mx), v| ([mn[0].min(v.rest[0]), mn[1].min(v.rest[1]), mn[2].min(v.rest[2])], [mx[0].max(v.rest[0]), mx[1].max(v.rest[1]), mx[2].max(v.rest[2])]));
+                    println!("    list material {} {} vertices {} indices, bones {lo}..{hi}, rest box {:.2?}..{:.2?}", l.material, l.vertices.len(), l.indices.len(), mn, mx);
+                }
+            }
+        }
         ("texture", [kind, instance, out]) => {
             let id = Id { kind: number(kind).ok_or("bad type")?, instance: number(instance).ok_or("bad instance")? };
             let object = db.get(id).map_err(|e| e.to_string())?.ok_or("no such object")?;

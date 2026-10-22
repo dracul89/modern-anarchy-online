@@ -69,6 +69,14 @@ impl Textures {
     }
 }
 
+/// A character mesh (type 0xf6952 or 0xf696b) in its rest pose.
+fn load_cat(db: &ResourceDatabase, id: Id) -> Result<Model, String> {
+    let object = db.get(id).map_err(|e| e.to_string())?.ok_or("no such object")?;
+    let cat = mao_formats::catmesh::parse(&object).map_err(|e| e.to_string())?;
+    eprintln!("{:?}: {} parts, {} bones", cat.name, cat.groups.iter().map(|g| g.lists.len()).sum::<usize>(), cat.bones.len());
+    Ok(cat.rest_model(0xf6954))
+}
+
 fn load_model(db: &ResourceDatabase, id: Id) -> Result<Model, String> {
     let object = db.get(id).map_err(|e| e.to_string())?.ok_or("no such object")?;
     let mesh = mesh::parse(&object).map_err(|e| e.to_string())?;
@@ -196,7 +204,7 @@ fn run(args: &[String]) -> Result<(), String> {
     };
     let db = Arc::new(ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?);
     let id = Id { kind: number(kind).ok_or("bad type")?, instance: number(instance).ok_or("bad instance")? };
-    let model = load_model(&db, id)?;
+    let model = if matches!(id.kind, 0xf6952 | 0xf696b) { load_cat(&db, id)? } else { load_model(&db, id)? };
     let textures = Textures { db };
     match rest {
         [flag, out] if flag == "--image" => viewer::headless(&model, &textures, out),
