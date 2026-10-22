@@ -1,4 +1,7 @@
-//! The viewer (a mesh or a playfield); keys: WASD move, Q/E down/up, Esc quits: headless to an image, or in a window.
+//! The viewer (a mesh or a playfield): headless to an image, or in a window.
+//! In a plain viewer W/A/S/D move the view point, Q/E go down/up, Esc quits;
+//! in the live window the keys come from [`crate::settings`] (`mao.ini`), and
+//! F11 / Alt+Enter change the window mode.
 
 use std::sync::Arc;
 
@@ -10,8 +13,9 @@ use winit::dpi::PhysicalSize;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::event_loop::{ActiveEventLoop, EventLoop};
-use winit::window::{Window, WindowId};
+use winit::window::{Fullscreen, Window, WindowId};
 
+use crate::settings::{Action, Settings, WindowMode};
 use crate::Textures;
 
 /// What the player is doing with the keyboard: forward held, and turning
@@ -87,11 +91,45 @@ struct App {
     dragging: bool,
     last: (f64, f64),
     keys: Input,
+    settings: Settings,
+    modifiers: winit::keyboard::ModifiersState,
+    /// The movement actions whose keys are down.
+    held: std::collections::HashSet<Action>,
+    /// The camera as first set, and as the player saved it.
+    home: Option<Camera>,
+    preferred: Option<Camera>,
+}
+
+/// Shows the window the way `mode` says: a framed window, a borderless one
+/// covering the screen, or exclusive fullscreen at the monitor's best video
+/// mode (falling back to borderless where there is none).
+fn apply_mode(window: &Window, mode: WindowMode) {
+    match mode {
+        WindowMode::Windowed => {
+            window.set_fullscreen(None);
+            window.set_decorations(true);
+        }
+        WindowMode::Borderless => window.set_fullscreen(Some(Fullscreen::Borderless(None))),
+        WindowMode::Fullscreen => {
+            let best = window.current_monitor().and_then(|monitor| {
+                let size = monitor.size();
+                monitor.video_modes().filter(|m| m.size() == size).max_by_key(|m| (m.refresh_rate_millihertz(), m.bit_depth()))
+            });
+            match best {
+                Some(video_mode) => window.set_fullscreen(Some(Fullscreen::Exclusive(video_mode))),
+                None => {
+                    eprintln!("no exclusive video mode for this monitor: using a borderless window instead");
+                    window.set_fullscreen(Some(Fullscreen::Borderless(None)));
+                }
+            }
+        }
+    }
 }
 
 pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<(), String> {
     let event_loop = EventLoop::new().map_err(|e| e.to_string())?;
-    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), keys: Input::default() };
+    let settings = Settings::load();
+    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), keys: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None };
     event_loop.run_app(&mut app).map_err(|e| e.to_string())
 }
 
@@ -109,7 +147,9 @@ impl ApplicationHandler for App {
         if self.state.is_some() {
             return;
         }
-        let window = Arc::new(event_loop.create_window(Window::default_attributes().with_title("Modern Anarchy Online").with_inner_size(PhysicalSize::new(1100, 800))).expect("a window"));
+        let window = Arc::new(event_loop.create_window(Window::default_attributes().with_title("Modern Anarchy Online").with_inner_size(PhysicalSize::new(self.settings.width, self.settings.height))).expect("a window"));
+        apply_mode(&window, self.settings.mode);
+        eprintln!("window mode: {} (F11 or Alt+Enter change it)", self.settings.mode.name());
         let instance = wgpu::Instance::default();
         let surface = instance.create_surface(window.clone()).expect("a surface");
         let gpu = Gpu::new(instance, Some(&surface)).expect("a graphics device");
@@ -123,6 +163,7 @@ impl ApplicationHandler for App {
             camera = Camera { target: mao_render::glam::Vec3::new(x, y, z), distance, yaw: 0.6, pitch: 0.5 };
         }
         window.request_redraw();
+        self.home = Some(camera);
         self.state = Some(View { window, surface, config, gpu, renderer, scene, camera });
     }
 
@@ -145,25 +186,79 @@ impl ApplicationHandler for App {
                 }
                 self.last = (position.x, position.y);
             }
-            // Playing (a live window): W/Up walk, S/Down back, A/Left and D/Right turn.
-            WindowEvent::KeyboardInput { event, .. } if self.live.is_some() && matches!(event.physical_key, PhysicalKey::Code(KeyCode::ArrowUp | KeyCode::ArrowDown | KeyCode::ArrowLeft | KeyCode::ArrowRight | KeyCode::KeyW | KeyCode::KeyA | KeyCode::KeyS | KeyCode::KeyD | KeyCode::Space | KeyCode::KeyC)) => {
+            WindowEvent::ModifiersChanged(modifiers) => self.modifiers = modifiers.state(),
+            // Playing (a live window): the keys come from the settings.
+            WindowEvent::KeyboardInput { event, .. } if self.live.is_some() => {
+                let PhysicalKey::Code(code) = event.physical_key else { return };
                 let down = event.state == ElementState::Pressed;
-                match event.physical_key {
-                    PhysicalKey::Code(KeyCode::ArrowUp | KeyCode::KeyW) => self.keys.forward = down,
-                    PhysicalKey::Code(KeyCode::ArrowDown | KeyCode::KeyS) => self.keys.back = down,
-                    PhysicalKey::Code(KeyCode::Space) => self.keys.jump = down,
-                    PhysicalKey::Code(KeyCode::KeyC) => {
-                        if down && !event.repeat {
+                if !down {
+                    // A released key ends every held action it started.
+                    for action in self.settings.keymap.actions_for_key(code) {
+                        self.held.remove(&action);
+                    }
+                } else if let Some(action) = self.settings.keymap.action(code, self.modifiers) {
+                    match action {
+                        Action::Forward | Action::Back | Action::TurnLeft | Action::TurnRight | Action::Jump => {
+                            self.held.insert(action);
+                        }
+                        Action::NoClip if !event.repeat => {
                             self.keys.noclip = !self.keys.noclip;
                             eprintln!("walking through props: {}", if self.keys.noclip { "on" } else { "off" });
                         }
+                        Action::CycleWindowMode | Action::ToggleFullscreen if !event.repeat => {
+                            self.settings.mode = if action == Action::CycleWindowMode {
+                                self.settings.mode.next()
+                            } else if self.settings.mode == WindowMode::Windowed {
+                                WindowMode::Borderless
+                            } else {
+                                WindowMode::Windowed
+                            };
+                            apply_mode(&w.window, self.settings.mode);
+                            eprintln!("window mode: {} (set `mode` in {} to keep it)", self.settings.mode.name(), Settings::path().display());
+                        }
+                        Action::Quit => {
+                            event_loop.exit();
+                            return;
+                        }
+                        Action::CameraRotateLeft => w.camera.yaw += 0.08,
+                        Action::CameraRotateRight => w.camera.yaw -= 0.08,
+                        Action::CameraRotateUp => w.camera.pitch = (w.camera.pitch + 0.06).clamp(-1.5, 1.5),
+                        Action::CameraRotateDown => w.camera.pitch = (w.camera.pitch - 0.06).clamp(-1.5, 1.5),
+                        Action::CameraZoomIn => w.camera.distance = (w.camera.distance * 0.9).max(1.5),
+                        Action::CameraZoomOut => w.camera.distance *= 1.1,
+                        Action::CameraSavePreferred if !event.repeat => {
+                            self.preferred = Some(w.camera);
+                            eprintln!("camera saved");
+                        }
+                        Action::CameraReset if !event.repeat => {
+                            if let Some(c) = self.preferred.or(self.home) {
+                                (w.camera.yaw, w.camera.pitch, w.camera.distance) = (c.yaw, c.pitch, c.distance);
+                            }
+                        }
+                        _ => {}
                     }
-                    PhysicalKey::Code(KeyCode::ArrowLeft | KeyCode::KeyA) => self.keys.turn = if down { -1 } else { self.keys.turn.max(0) },
-                    _ => self.keys.turn = if down { 1 } else { self.keys.turn.min(0) },
                 }
+                let held = |a: Action| self.held.contains(&a);
+                self.keys.forward = held(Action::Forward);
+                self.keys.back = held(Action::Back);
+                self.keys.jump = held(Action::Jump);
+                self.keys.turn = held(Action::TurnRight) as i8 - held(Action::TurnLeft) as i8;
                 if let Some(live) = &self.live {
                     let _ = live.input.send(self.keys);
                 }
+                w.window.request_redraw();
+            }
+            WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed && !event.repeat && matches!(self.settings.keymap.action_any(event.physical_key, self.modifiers), Some(Action::CycleWindowMode | Action::ToggleFullscreen)) => {
+                let action = self.settings.keymap.action_any(event.physical_key, self.modifiers);
+                self.settings.mode = if action == Some(Action::CycleWindowMode) {
+                    self.settings.mode.next()
+                } else if self.settings.mode == WindowMode::Windowed {
+                    WindowMode::Borderless
+                } else {
+                    WindowMode::Windowed
+                };
+                apply_mode(&w.window, self.settings.mode);
+                eprintln!("window mode: {}", self.settings.mode.name());
             }
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
                 // WASD moves the view point over the ground (relative to where the

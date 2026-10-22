@@ -15,6 +15,7 @@
 
 mod anim;
 mod net;
+mod settings;
 pub(crate) mod viewer;
 
 use std::path::Path;
@@ -260,7 +261,16 @@ fn run(args: &[String]) -> Result<(), String> {
 }
 
 fn main() -> ExitCode {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    // The display flags are read by the settings (settings.rs); the commands never see them.
+    let mut args: Vec<String> = Vec::new();
+    let mut raw = std::env::args().skip(1);
+    while let Some(arg) = raw.next() {
+        if matches!(arg.as_str(), "--window-mode" | "--width" | "--height") {
+            raw.next();
+        } else {
+            args.push(arg);
+        }
+    }
     match run(&args) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
