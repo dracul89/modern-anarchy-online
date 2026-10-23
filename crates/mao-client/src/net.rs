@@ -579,6 +579,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     let result = (|| -> Result<(), mao_net::chat::Error> {
                         let mut chat = mao_net::chat::Chat::connect(server.as_str())?;
                         chat.login(own, &user, &password)?;
+                        // An idle chat connection is normal: a read timeout just waits on.
+                        chat.set_timeout(Duration::from_secs(60 * 60))?;
                         let mut names: BTreeMap<u32, String> = BTreeMap::new();
                         let mut channels: BTreeMap<u32, String> = BTreeMap::new();
                         loop {
@@ -713,6 +715,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     }
                     if let Some(target) = system::redirect(&frame) {
                         eprintln!("the server sends us to {target}");
+                        // The old session must be gone first, or the login is refused (the character is still logged in).
+                        connection.close();
+                        std::thread::sleep(Duration::from_millis(1500));
                         match hop(&game_dir, &target, own).and_then(|mut c| c.set_timeout(Duration::from_millis(50)).map(|_| c).map_err(|e| e.to_string())) {
                             Ok(next) => {
                                 connection = next;

@@ -85,6 +85,11 @@ impl Connection {
         Ok(())
     }
 
+    /// Closes the connection (the server must see it go before the character logs in again).
+    pub fn close(&self) {
+        let _ = self.stream.shutdown(std::net::Shutdown::Both);
+    }
+
     /// The next message, waiting for it.
     pub fn receive(&mut self) -> Result<Frame, Error> {
         loop {
