@@ -93,3 +93,25 @@ Next steps this enables: a **whompah destination window** (use a booth, show `37
 fixes the booth labels), a **chat/system log** from `5f4b442a`, **nano casting** as a hotbar action (action `0x13`),
 and the **NCU window** from `4d450114` (the original shows "NCU (used/capacity)" with the active programs' icons).
 The destination choice message needs a second sample to be sure of its fields.
+
+## Third capture (booths, with the chat server relayed) and the AOSharp names
+`capture-221539.log`: a login through the proxy (game and chat connections both captured), a shop booth, a mission
+booth and the logout. Read with `net msg-check` / `net msg-parse` (named fields). What it shows:
+
+* **Shop booth** (`GenericCmd` Use on `(0xc75b, 0xc000021c)`): the server answers `ShopUpdate` (the stock, a list of
+  item stacks), `Trade` with `Action = Open` naming the booth and a temp bag (`0xc767`), and the `GenericCmd` echo.
+  The client closes the window with a `Trade` of `Action = Decline`, which the server echoes.
+* **Mission booth** (`GenericCmd` Use on `(0xdac1, 0xc000021c)`): the server only echoes (and, from our own test,
+  sends a `Feedback` with category 110 / message 172594057, text ids from the client's string table). The window is
+  client side. The mission log (`QuestFullUpdate`: title, long text, rewards, objectives) arrives in the login burst.
+* **Asking for missions** is `QuestAlternative` (`5c436609`): the seven slider bytes, the scope (1 solo, 2 team) and
+  the terminal identity; the server answers with the same message holding the offered `MissionInfo`s; taking one is
+  `CreateQuest` (`291f361b`, the mission's identity), deleting one `Quest` (`212c487a`, action 1). Both request
+  messages are in `mao_net::n3` (from the AOSharp definitions). **Tried live** with the test character (level 8) at the
+  Old Athens booth, with solo and team scope, after a use: no answer. Either the layout differs, the booth type
+  needs a different scope, or a level 8 character gets no offers; a capture of the real roll is needed.
+* **Logout**: the red "...This will take 30 seconds." line in the original shows the sit is the logout countdown.
+* **The chat server** (`chat.d1.funcom.com:7105`, reached through the system `0x43` ChatServerInfo): a salt (type 0),
+  the client's login (type 2, the character id, the name and a hashed credential), `LoginOK` (type 5), then the friend
+  list, the vicinity / org notices, the channel list. Nothing was refused: the original's "stops on login" was the
+  debug launcher's 30 second limit (`dbg_launch.py --seconds`).

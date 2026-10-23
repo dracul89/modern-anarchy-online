@@ -634,7 +634,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     if tracing {
                         trace(&frame, clock);
                     }
-                    if let Some(m) = Message::parse(&frame).filter(|m| matches!(m.kind, 0x5c436609 | 0x465a4061 | 0x212c487a | 0x333b2867 | 0x36284f6e | 0x58362220)) {
+                    if let Some(m) = Message::parse(&frame).filter(|m| matches!(m.kind, 0x5c436609 | 0x465a4061 | 0x212c487a | 0x333b2867 | 0x36284f6e | 0x58362220 | 0x50544d19 | 0x206b4b73 | 0x5f4b442a)) {
                         if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
                             eprintln!("[{:6.1}] {} identity ({:x},{:x}) left {}{}", clock.elapsed().as_secs_f32(), p.name, m.identity.0, m.identity.1, p.left, p.value.pretty());
                         }
