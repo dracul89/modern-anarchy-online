@@ -16,6 +16,7 @@
 mod anim;
 mod gear;
 mod mailbox;
+mod shop;
 mod mission;
 mod hotbar;
 mod net;
@@ -266,6 +267,35 @@ fn run(args: &[String]) -> Result<(), String> {
                     hud.labels = net::booth_labels(number, &whompah_booths(game, &db, number), &destinations, &names).into_iter().map(|(p, text)| ui::Label { world: mao_render::glam::Vec3::from(p), text }).collect();
                     hud.target = Some("Rollerrat  (12 m)".into());
                     // MAO_UI_PREVIEW=gear + MAO_CAPTURE=<capture.log>: the inventory window from a captured session.
+                    if preview.as_deref() == Some("shop") {
+                        // The captured stock (MAO_CAPTURE=<capture.log>) in the window.
+                        if let Some(log) = std::env::var_os("MAO_CAPTURE") {
+                            if let Some(value) = net::capture_message(&log.to_string_lossy(), 0x58362220) {
+                                let tex = textures.clone_handle();
+                                let int = |v: &mao_net::schema::Value, f: &str| v.get(f).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
+                                let mut window = shop::ShopWindow::default();
+                                if let Some(mao_net::schema::Value::List(list)) = value.get("VendingMachineSlots") {
+                                    let stock = list
+                                        .iter()
+                                        .map(|s| {
+                                            let (low, high, quality) = (int(s, "ItemLowId"), int(s, "ItemHighId"), int(s, "Quality"));
+                                            let template = db.get(mao_formats::resource::Id { kind: mao_formats::item::TEMPLATE, instance: low }).ok().flatten().and_then(|d| mao_formats::item::Item::parse(&d));
+                                            match template {
+                                                Some(t) => {
+                                                    let icon = t.icon().and_then(|id| tex.get(mao_formats::item::ICON_TYPE, id).map(|x| std::sync::Arc::new(gear::Icon { id, width: x.width as usize, height: x.height as usize, rgba: x.rgba })));
+                                                    shop::Slot { low, high, quality, name: t.name, description: t.description, icon }
+                                                }
+                                                None => shop::Slot { low, high, quality, name: format!("Item #{low:x}"), description: String::new(), icon: None },
+                                            }
+                                        })
+                                        .collect();
+                                    window.set(shop::ShopState { shop: (0xc75b, 0xc000021c), stock });
+                                    window.selected = Some(0);
+                                }
+                                *hud.shop_preview.lock().unwrap() = Some(window);
+                            }
+                        }
+                    }
                     if preview.as_deref() == Some("mail") {
                         // The recipient's inbox and the opened mail from the capture (the bytes are in mao_net::mail's tests).
                         let hex = |s: &str| -> Vec<u8> { (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect() };

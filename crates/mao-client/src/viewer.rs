@@ -77,6 +77,9 @@ pub struct Update {
     pub mail_entries: Option<Vec<mao_net::mail::Entry>>,
     pub mail_opened: Option<crate::mailbox::Opened>,
     pub mail_flags: Option<(u32, u32)>,
+    /// A shop the server opened (stock), and a note for the shop window.
+    pub shop: Option<crate::shop::ShopState>,
+    pub shop_status: Option<String>,
 }
 
 /// Something that changes while the window is open: models to draw over the
@@ -87,6 +90,8 @@ pub struct Live {
     pub input: std::sync::mpsc::Sender<Input>,
     /// Mail commands (send, check the inbox).
     pub mail: std::sync::mpsc::Sender<crate::mailbox::MailCommand>,
+    /// Shop commands (buy, close).
+    pub shop: std::sync::mpsc::Sender<crate::shop::ShopCommand>,
     /// The view point (Z-up), if known.
     pub focus: Option<[f32; 3]>,
     /// The starting distance from it.
@@ -588,6 +593,12 @@ impl ApplicationHandler for App {
                             if let Some(opened) = u.mail_opened.take() {
                                 ui.mail.opened = Some(opened);
                             }
+                            if let Some(state) = u.shop.take() {
+                                ui.shop.set(state);
+                            }
+                            if let Some(status) = u.shop_status.take() {
+                                ui.shop.status = status;
+                            }
                             if let Some((id, flags)) = u.mail_flags.take() {
                                 ui.mail.set_flags(id, flags);
                             }
@@ -651,6 +662,11 @@ impl ApplicationHandler for App {
                     let aspect = size.0 as f32 / size.1.max(1) as f32;
                     let project = |p: mao_render::glam::Vec3| camera.project(p, aspect, radius);
                     let (frame, mut requests) = ui.run(&w.window, &mut self.settings, &self.hud, &project);
+                    if let Some(command) = requests.shop.take() {
+                        if let Some(live) = &self.live {
+                            let _ = live.shop.send(command);
+                        }
+                    }
                     if let Some(command) = requests.mail.take() {
                         if let Some(live) = &self.live {
                             let _ = live.mail.send(command);

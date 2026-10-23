@@ -183,6 +183,15 @@ booth at (444.2, 313.0) leads to Tir (640); the other three booths show
 (`sign_jobe-whompa_borealis / old_athend / rome_green`) were rendered and show
 matching names.
 
+## 4j. Shop window (use a booth with `E`)
+
+Booths (vending machines, identity `0xc75b`) are now targetable (Ctrl+Tab) and usable (`E`). Using one makes the server
+send `ShopUpdate` (the stock: low id, high id, quality) and a `Trade` open (booth + a temporary bag `0xc767`). The window
+shows the stock as an icon grid with the selected item's name and description from the item templates; Close sends a
+`Trade` decline, as the original does. **Buy is unverified**: it puts `(0x767, index)` into the bag (`ClientContainerAddItem`)
+and accepts the trade with the booth's identity. Prices are not in the stock message, so none are shown; selling is not
+built. A purchase capture from a paid account would settle both. Preview: `MAO_UI_PREVIEW=shop MAO_CAPTURE=<log>`.
+
 ## Next
 - Decode the key-binding providers (verify the assumed defaults).
 - Decode the zone-line records so every booth's destination is known up front.

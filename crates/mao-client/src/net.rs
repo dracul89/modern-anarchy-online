@@ -143,6 +143,9 @@ impl World {
                         _ => 0.0,
                     };
                     self.vendors.insert(m.identity.1, [f("X"), f("Y"), f("Z")]);
+                    // Shops can be targeted (Ctrl+Tab) and used (E) like the other objects.
+                    self.objects.insert(m.identity.1, [f("X"), f("Y"), f("Z")]);
+                    self.names.entry(m.identity.1).or_insert_with(|| (format!("Booth {:x}", m.identity.1 & 0xffff), false));
                 }
             }
         }
@@ -560,6 +563,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     let (tx, rx) = std::sync::mpsc::channel();
     let (input_tx, input_rx) = std::sync::mpsc::channel::<crate::viewer::Input>();
     let (mail_tx, mail_rx) = std::sync::mpsc::channel::<crate::mailbox::MailCommand>();
+    let (shop_tx, shop_rx) = std::sync::mpsc::channel::<crate::shop::ShopCommand>();
     let own = state.own;
     let start = state.entities.get(&own).map(|e| e.0).unwrap_or([0.0; 3]);
     let heading = state.rotations.get(&own).map(|q| 2.0 * q[1].atan2(q[3])).unwrap_or(0.0);
@@ -608,6 +612,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let (mut mission_seen, mut pending_missions, mut pending_mission_status): (u8, Option<Vec<crate::mission::Offer>>, Option<String>) = (0, None, None);
         // Mail: the answer's count and notes for the window, when the inbox request is due, and when the last send went out.
         let (mut pending_mail_count, mut pending_mail_status): (Option<usize>, Option<String>) = (None, None);
+        // Shops: the stock to show, a note, the open booth and the trade's bag (from the server's Trade open).
+        let (mut pending_shop, mut pending_shop_status): (Option<crate::shop::ShopState>, Option<String>) = (None, None);
+        let (mut shop_booth, mut shop_bag): (Option<(u32, u32)>, Option<(u32, u32)>) = (None, None);
         let (mut pending_mail_entries, mut pending_mail_opened, mut pending_mail_flags): (Option<Vec<mao_net::mail::Entry>>, Option<crate::mailbox::Opened>, Option<(u32, u32)>) = (None, None, None);
         let (mut inbox_due, mut mail_sent): (Option<Instant>, Option<Instant>) = (None, None);
         // `MAO_MISSION=type,instance[,scope[,difficulty]]` (decimal or 0x hex) asks that mission terminal
@@ -706,6 +713,36 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                 let code = m.data.get(21..25).map_or(0, |b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]));
                                 pending_mail_status = Some(format!("The server declined the mail (message code {code})."));
                             }
+                        }
+                    }
+                    if let Some(m) = Message::parse(&frame).filter(|m| m.kind == 0x58362220) {
+                        if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
+                            let int = |v: &mao_net::schema::Value, f: &str| v.get(f).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
+                            if let Some(mao_net::schema::Value::List(list)) = p.value.get("VendingMachineSlots") {
+                                let stock = list
+                                    .iter()
+                                    .map(|s| {
+                                        let (low, high, quality) = (int(s, "ItemLowId"), int(s, "ItemHighId"), int(s, "Quality"));
+                                        let lookup = |id: u32| gear_db.get(mao_formats::resource::Id { kind: mao_formats::item::TEMPLATE, instance: id }).ok().flatten().and_then(|d| mao_formats::item::Item::parse(&d));
+                                        match lookup(low).or_else(|| lookup(high)) {
+                                            Some(t) => {
+                                                let icon = t.icon().and_then(|id| gear_textures.get(mao_formats::item::ICON_TYPE, id).map(|x| std::sync::Arc::new(crate::gear::Icon { id, width: x.width as usize, height: x.height as usize, rgba: x.rgba })));
+                                                crate::shop::Slot { low, high, quality, name: t.name, description: t.description, icon }
+                                            }
+                                            None => crate::shop::Slot { low, high, quality, name: format!("Item #{low:x}"), description: String::new(), icon: None },
+                                        }
+                                    })
+                                    .collect();
+                                shop_booth = Some(m.identity);
+                                pending_shop = Some(crate::shop::ShopState { shop: m.identity, stock });
+                            }
+                        }
+                    }
+                    // The server's Trade open names the booth and the temporary bag (identity 0xc767) a purchase goes into.
+                    if let Some(m) = Message::parse(&frame).filter(|m| m.kind == 0x36284f6e && m.data.get(5) == Some(&0)) {
+                        let word = |at: usize| m.data.get(at..at + 4).map_or(0, |b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]));
+                        if word(14) == 0xc767 {
+                            shop_bag = Some((word(14), word(18)));
                         }
                     }
                     if let Some(m) = Message::parse(&frame).filter(|m| m.kind == 0x5c436609) {
@@ -939,6 +976,23 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     }
                 }
             }
+            while let Ok(command) = shop_rx.try_recv() {
+                match command {
+                    crate::shop::ShopCommand::Close => {
+                        let _ = connection.send(&n3::trade_decline(own));
+                        shop_booth = None;
+                    }
+                    // Unverified: put the stock item into the trade's bag, then accept the trade.
+                    crate::shop::ShopCommand::Buy(index) => match (shop_booth, shop_bag) {
+                        (Some(booth), Some(bag)) => {
+                            let _ = connection.send(&n3::container_add_item(own, bag, (0x767, index as u32)));
+                            let _ = connection.send(&n3::trade(own, 1, [booth.0, booth.1, 0, 0]));
+                            pending_shop_status = Some("Purchase asked for (unverified: check your inventory and credits).".into());
+                        }
+                        _ => pending_shop_status = Some("No open trade to buy in.".into()),
+                    },
+                }
+            }
             if inbox_due.is_some_and(|t| Instant::now() >= t) {
                 inbox_due = None;
                 let _ = connection.send(&n3::mail_request(own));
@@ -1137,6 +1191,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     mail_count: pending_mail_count.take(),
                     mail_entries: pending_mail_entries.take(),
                     mail_opened: pending_mail_opened.take(),
+                    shop: pending_shop.take(),
+                    shop_status: pending_shop_status.take(),
                     mail_flags: pending_mail_flags.take(),
                     mail_status: pending_mail_status.take(),
                     destinations: pending_destinations.take(),
@@ -1149,7 +1205,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             }
         }
     });
-    crate::viewer::window(scene, crate::Textures::new(db), Some(crate::viewer::Live { overlays: rx, input: input_tx, mail: mail_tx, focus, distance: 6.0 }))
+    crate::viewer::window(scene, crate::Textures::new(db), Some(crate::viewer::Live { overlays: rx, input: input_tx, mail: mail_tx, shop: shop_tx, focus, distance: 6.0 }))
 }
 
 pub fn run(args: &[String]) -> Result<(), String> {
@@ -1737,6 +1793,11 @@ pub(crate) fn capture_entries(log: &str) -> Result<Vec<inventory::Entry>, String
 
 /// The first server `QuestAlternative` (the offered missions) of a proxy capture, parsed.
 pub(crate) fn capture_quest_alternative(log: &str) -> Option<mao_net::schema::Value> {
+    capture_message(log, 0x5c436609)
+}
+
+/// The first server N3 message of this kind in a capture, parsed by the schema.
+pub(crate) fn capture_message(log: &str, kind: u32) -> Option<mao_net::schema::Value> {
     let text = std::fs::read_to_string(log).ok()?;
     let mut readers: BTreeMap<String, Reader> = BTreeMap::new();
     for line in text.lines() {
@@ -1754,7 +1815,7 @@ pub(crate) fn capture_quest_alternative(log: &str) -> Option<mao_net::schema::Va
             continue;
         }
         while let Ok(Some(m)) = reader.next() {
-            if let Some(msg) = Message::parse(&m).filter(|x| m.kind == frame::N3 && x.kind == 0x5c436609) {
+            if let Some(msg) = Message::parse(&m).filter(|x| m.kind == frame::N3 && x.kind == kind) {
                 if let Ok(p) = mao_net::schema::Schema::global().parse_n3(msg.kind, &msg.data) {
                     return Some(p.value);
                 }

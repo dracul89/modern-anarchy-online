@@ -143,6 +143,35 @@ pub fn mail_request(character: u32) -> Frame {
     Message { kind: 0x333b2867, identity: (CHARACTER, character), data }.frame(character)
 }
 
+/// `Trade` (`36284f6e`): the header byte, an `i32` 2, an action byte (0 open, 1 accept, 2 decline, 3 confirm,
+/// 4 complete, 5 add item, 6 remove item, 7 update credits) and four `i32` parameters. A shop is a trade with the
+/// booth: the server opens it (parameters: the booth's identity, then the temporary bag's), the client closes it
+/// with a decline (`0, 1`: as captured) and, from the AOSharp definitions, accepts with the booth's identity.
+pub fn trade(character: u32, action: u8, params: [u32; 4]) -> Frame {
+    let mut data = vec![0u8];
+    data.extend_from_slice(&2u32.to_be_bytes());
+    data.push(action);
+    for p in params {
+        data.extend_from_slice(&p.to_be_bytes());
+    }
+    Message { kind: 0x36284f6e, identity: (CHARACTER, character), data }.frame(character)
+}
+
+/// Closes a shop (or declines a trade): action 2 with parameters `0, 1`, as the original sends it.
+pub fn trade_decline(character: u32) -> Frame {
+    trade(character, 2, [0, 1, 0, 0])
+}
+
+/// `ClientContainerAddItem` (`1f4d5f7e`): puts the item at `source` into the container `target` (the
+/// capture: an inventory item `(0x68, slot)` into a bag `(0xc749, id)`).
+pub fn container_add_item(character: u32, target: (u32, u32), source: (u32, u32)) -> Frame {
+    let mut data = vec![0u8];
+    for word in [target.0, target.1, source.0, source.1] {
+        data.extend_from_slice(&word.to_be_bytes());
+    }
+    Message { kind: 0x1f4d5f7e, identity: (CHARACTER, character), data }.frame(character)
+}
+
 /// The action and the number of messages in a `Mail` reply (`333b2867`, server to client): a header byte,
 /// an `i16` action and an array counted the way the protocol counts (`(n + 1) * 0x3f1`). The captured
 /// reply to an empty inbox is `00 | 00 00 | 00 00 03 f1`: action 0, no messages.
@@ -242,6 +271,15 @@ mod tests {
     fn the_empty_inbox_reply_has_no_messages() {
         assert_eq!(mail_count(&[0, 0, 0, 0, 0, 3, 0xf1]), Some((0, 0)));
         assert_eq!(mail_count(&[0, 0, 0]), None);
+    }
+
+    #[test]
+    fn trade_and_container_messages_match_the_capture() {
+        let hex = |m: Frame| -> String { Message::parse(&m).unwrap().data.iter().map(|b| format!("{b:02x}")).collect() };
+        // The captured close of a shop: unknown 2, decline, parameters 0, 1, 0, 0.
+        assert_eq!(hex(trade_decline(0x4c2e2)), "00000000020200000000000000010000000000000000");
+        // The captured move of the inventory item in slot 0x5a into the bag (0xc749, 0xbccf0).
+        assert_eq!(hex(container_add_item(0x4c2de, (0xc749, 0xbccf0), (0x68, 0x5a))), "000000c749000bccf0000000680000005a");
     }
 
     #[test]

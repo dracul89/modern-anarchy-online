@@ -46,6 +46,8 @@ pub struct Hud {
     pub mission_preview: std::sync::Mutex<Option<crate::mission::MissionWindow>>,
     /// A mail window a headless preview shows.
     pub mail_preview: std::sync::Mutex<Option<crate::mailbox::MailWindow>>,
+    /// A shop window a headless preview shows.
+    pub shop_preview: std::sync::Mutex<Option<crate::shop::ShopWindow>>,
     /// What the last frame drew (parts), shown beside the frame rate.
     pub draw_info: String,
 }
@@ -75,6 +77,8 @@ pub struct Requests {
     pub mission: Option<crate::mission::Command>,
     /// A mail command (check the inbox, send).
     pub mail: Option<crate::mailbox::MailCommand>,
+    /// A shop command (buy, close).
+    pub shop: Option<crate::shop::ShopCommand>,
     /// A place to walk to (world x, z), from the Whom-Pah window.
     pub goto: Option<[f32; 2]>,
     /// The hotbars were edited (to be saved).
@@ -97,6 +101,7 @@ pub struct Ui {
     pub whompah_open: bool,
     pub mission: crate::mission::MissionWindow,
     pub mail: crate::mailbox::MailWindow,
+    pub shop: crate::shop::ShopWindow,
     gear: crate::gear::GearWindow,
     /// The hotbars, and the clock their cooldowns run on.
     pub hotbars: Hotbars,
@@ -153,7 +158,7 @@ impl Ui {
         theme(&ctx, &palette);
         let state = egui_winit::State::new(ctx.clone(), egui::ViewportId::ROOT, window, Some(window.scale_factor() as f32), window.theme(), None);
         let renderer = egui_wgpu::Renderer::new(&gpu.device, format, egui_wgpu::RendererOptions::default());
-        Ui { ctx, state, renderer, options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0 }
+        Ui { ctx, state, renderer, options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), shop: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0 }
     }
 
     /// Switches to the theme `name` (a `theme =` setting).
@@ -184,7 +189,7 @@ impl Ui {
         let mut requests = Requests::default();
         let (options_open, rebinding, fps, palette, themes) = (&mut self.options_open, &mut self.rebinding, self.fps, &self.palette, &self.themes);
         let (gear_open, gear, whompah_open) = (&mut self.gear_open, &mut self.gear, &mut self.whompah_open);
-        let (mission, mail) = (&mut self.mission, &mut self.mail);
+        let (mission, mail, shop) = (&mut self.mission, &mut self.mail, &mut self.shop);
         let (hotbars, clock_now) = (&mut self.hotbars, self.clock.elapsed().as_secs_f64());
         let output = self.ctx.run_ui(raw, |ui| {
             let ctx = ui.ctx().clone();
@@ -197,6 +202,11 @@ impl Ui {
                 let command = mission.show(&ctx, gear, palette);
                 if command.what != 0 {
                     requests.mission = Some(command);
+                }
+            }
+            if shop.open {
+                if let Some(command) = shop.show(&ctx, gear, palette) {
+                    requests.shop = Some(command);
                 }
             }
             if mail.open || mail.compose_open {
@@ -260,6 +270,7 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
     let mut hotbars = hud.preview_hotbars.clone();
     let mut preview_mission = hud.mission_preview.lock().ok().and_then(|mut m| m.take());
     let mut preview_mail = hud.mail_preview.lock().ok().and_then(|mut m| m.take());
+    let mut preview_shop = hud.shop_preview.lock().ok().and_then(|mut m| m.take());
     let mut last = None;
     // Several frames: the first lays out and uploads the fonts, and the windows
     // fade in over the next ones; the last is what is drawn.
@@ -273,6 +284,9 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
                 whompah_window(&ctx, &mut true, hud, &palette, &mut requests);
             }
             if let Some(window) = preview_mission.as_mut() {
+                window.show(&ctx, &mut gear, &palette);
+            }
+            if let Some(window) = preview_shop.as_mut() {
                 window.show(&ctx, &mut gear, &palette);
             }
             if let Some(window) = preview_mail.as_mut() {
