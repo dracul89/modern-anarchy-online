@@ -876,6 +876,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         });
         let (mut seen, mut target): ([u8; 7], Option<u32>) = ([0; 7], None);
         let (mut sitting, mut uses, mut fired) = (false, 0u32, 0u8);
+        let (mut special_seen, mut social_seen) = (0u8, 0u8);
         let (mut position, mut heading) = (start, heading);
         let (mut moving, mut turning, mut strafing) = (0i8, 0i8, 0i8);
         const JUMP_SPEED: f32 = 7.0;
@@ -1313,6 +1314,39 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         let _ = connection.send(&n3::mail_request(own));
                     }
                 }
+            }
+            // The Action window and the hotbar: special actions and social actions.
+            if keys.special.0 != special_seen {
+                special_seen = keys.special.0;
+                let id = keys.special.1;
+                let name = crate::actions_data::ACTIONS.iter().find(|a| a.0 == id).map_or("that action", |a| a.2);
+                match name {
+                    "Stand" => {
+                        let _ = connection.send(&n3::action(own, n3::STAND));
+                    }
+                    "Sneak" => {
+                        let _ = connection.send(&n3::action(own, 0xa3));
+                    }
+                    "Search" => {
+                        let _ = connection.send(&n3::action(own, 0x66));
+                    }
+                    "Reload" => {
+                        let _ = connection.send(&n3::action(own, 0xd2));
+                    }
+                    "Start Combat" => match target {
+                        Some(t) => {
+                            let _ = connection.send(&n3::attack(own, t));
+                            pending_messages.push(format!("Attacking {}", state.names.get(&t).map_or("the target", |n| n.0.as_str())));
+                        }
+                        None => pending_messages.push("No target (Tab selects one)".into()),
+                    },
+                    other => pending_messages.push(format!("{other}: its network message is not captured yet")),
+                }
+            }
+            if keys.social.0 != social_seen {
+                social_seen = keys.social.0;
+                let name = crate::actions_data::SOCIAL.iter().find(|a| a.0 == keys.social.1).map_or("that", |a| a.1);
+                pending_messages.push(format!("/{name}: its network message is not captured yet"));
             }
             // A hotbar item: use the inventory slot it sits in.
             if keys.fire.0 != fired {

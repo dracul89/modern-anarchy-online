@@ -38,6 +38,10 @@ pub struct Input {
     pub face: Option<f32>,
     /// A hotbar item to use: a counter that steps with each, and the inventory slot.
     pub fire: (u8, u32),
+    /// A special action of the Action window to do (a counter that steps with each, and its id), and a social
+    /// action or dance (the same).
+    pub special: (u8, u32),
+    pub social: (u8, u32),
     /// A place to walk to (a counter that steps with each, and the world's x, z).
     pub goto: (u8, [f32; 2]),
     /// A mission window command: a counter that steps with each, and the command.
@@ -236,6 +240,8 @@ pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<()
 fn fire_action(action: &crate::hotbar::Action, keys: &mut Input, hud: &mut Hud) {
     match action {
         crate::hotbar::Action::Attack => keys.commands[4] = keys.commands[4].wrapping_add(1),
+        crate::hotbar::Action::Special { id, .. } => keys.special = (keys.special.0.wrapping_add(1), *id),
+        crate::hotbar::Action::Social { id, .. } => keys.social = (keys.social.0.wrapping_add(1), *id),
         crate::hotbar::Action::Item { id, name, .. } => {
             // The first stack of that item (the backpack before anything worn).
             let found = hud.gear.iter().filter(|i| i.item_id == *id).max_by_key(|i| i.slot >= mao_net::inventory::BACKPACK_FIRST).map(|i| i.slot);
@@ -442,6 +448,14 @@ impl ApplicationHandler for App {
                         Action::HotbarSlot(n) if !event.repeat => {
                             if let Some(ui) = w.ui.as_mut() {
                                 press_slot(ui, n as usize, &mut self.keys, &mut self.hud);
+                            }
+                        }
+                        Action::ActionsWindow if !event.repeat => {
+                            if let Some(ui) = w.ui.as_mut() {
+                                ui.actions.open = !ui.actions.open;
+                                if ui.actions.open {
+                                    ui.actions.load_icons(&self.textures);
+                                }
                             }
                         }
                         Action::MailWindow if !event.repeat => {
@@ -729,6 +743,12 @@ impl ApplicationHandler for App {
                     }
                     if let Some(slot) = requests.press {
                         press_slot(ui, slot, &mut self.keys, &mut self.hud);
+                    }
+                    if let Some(action) = requests.action.take() {
+                        fire_action(&action, &mut self.keys, &mut self.hud);
+                        if let Some(live) = &self.live {
+                            let _ = live.input.send(self.keys);
+                        }
                     }
                     if requests.hotbars_changed {
                         crate::hotbar::save(&ui.hotbars);

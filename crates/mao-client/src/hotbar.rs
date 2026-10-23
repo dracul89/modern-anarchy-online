@@ -19,6 +19,11 @@ pub enum Action {
     Item { id: u32, name: String, icon: Option<u32> },
     /// Attack the current target.
     Attack,
+    /// A special action of the Action window (a weapon attack, a basic action, a perk), by its id; `icon` is the
+    /// instance of its icon.
+    Special { id: u32, name: String, icon: Option<u32> },
+    /// A social action or dance (by its `AbstractAnimID`).
+    Social { id: u32, name: String },
 }
 
 impl Action {
@@ -26,6 +31,7 @@ impl Action {
         match self {
             Action::Item { name, .. } => name,
             Action::Attack => "Attack",
+            Action::Special { name, .. } | Action::Social { name, .. } => name,
         }
     }
 }
@@ -188,6 +194,8 @@ pub fn to_text(bars: &Hotbars) -> String {
                 .map(|e| match &e.action {
                     Action::Item { id, name, icon } => format!("item {id} {} {} {name}", e.cooldown, icon.map_or("-".to_string(), |i| i.to_string())),
                     Action::Attack => format!("attack {}", e.cooldown),
+                    Action::Special { id, name, icon } => format!("special {id} {} {} {name}", e.cooldown, icon.map_or("-".to_string(), |i| i.to_string())),
+                    Action::Social { id, name } => format!("social {id} {} {name}", e.cooldown),
                 })
                 .collect();
             out += &format!("{}.{} = {}\n", bar + 1, slot + 1, parts.join(" | "));
@@ -218,6 +226,8 @@ pub fn from_text(text: &str) -> Hotbars {
             let words: Vec<&str> = part.split_whitespace().collect();
             let entry = match words.as_slice() {
                 ["attack", cooldown] => cooldown.parse().ok().map(|c| Entry::new(Action::Attack, c)),
+                ["special", id, cooldown, icon, name @ ..] => (|| Some(Entry::new(Action::Special { id: id.parse().ok()?, name: name.join(" "), icon: icon.parse().ok() }, cooldown.parse().ok()?)))(),
+                ["social", id, cooldown, name @ ..] => (|| Some(Entry::new(Action::Social { id: id.parse().ok()?, name: name.join(" ") }, cooldown.parse().ok()?)))(),
                 ["item", id, cooldown, icon, name @ ..] => (|| Some(Entry::new(Action::Item { id: id.parse().ok()?, name: name.join(" "), icon: icon.parse().ok() }, cooldown.parse().ok()?)))(),
                 _ => None,
             };

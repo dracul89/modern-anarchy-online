@@ -13,6 +13,8 @@
 //! The type and instance are hexadecimal (for example `f6951 1893`). Drag to
 //! orbit, scroll to zoom, WASD to move the view point, Q/E down and up.
 
+mod actions;
+mod actions_data;
 mod anim;
 mod gear;
 mod mailbox;
@@ -51,16 +53,26 @@ fn playfield_number(text: &str) -> Option<u32> {
 /// The textures of a game, decoded on request.
 pub struct Textures {
     db: Arc<ResourceDatabase>,
+    /// The name index of the database (read once), for icons found by file name.
+    index: Arc<std::sync::OnceLock<Option<mao_formats::instances::Instances>>>,
 }
 
 impl Textures {
     pub fn new(db: Arc<ResourceDatabase>) -> Self {
-        Textures { db }
+        Textures { db, index: Default::default() }
+    }
+
+    /// An icon (type 0xf6958) by its file name, e.g. `action_burst.png`.
+    pub fn icon_named(&self, name: &str) -> Option<Arc<gear::Icon>> {
+        let index = self.index.get_or_init(|| self.db.get(Id { kind: 0xf424a, instance: 1 }).ok().flatten().and_then(|o| mao_formats::instances::Instances::parse(&o).ok())).as_ref()?;
+        let id = index.find(0xf6958, name)?;
+        let t = self.get(0xf6958, id)?;
+        Some(Arc::new(gear::Icon { id, width: t.width as usize, height: t.height as usize, rgba: t.rgba }))
     }
 
     /// Another handle on the same database.
     pub fn clone_handle(&self) -> Textures {
-        Textures { db: self.db.clone() }
+        Textures { db: self.db.clone(), index: self.index.clone() }
     }
 
     pub fn get(&self, kind: u32, instance: u32) -> Option<Texture> {
@@ -323,7 +335,7 @@ fn run(args: &[String]) -> Result<(), String> {
             if std::env::var_os("MAO_NO_PROPS").is_none() {
                 add_props(game, &db, number, &mut model);
             }
-            let textures = Textures { db: db.clone() };
+            let textures = Textures::new(db.clone());
             // MAO_UI_PREVIEW=1 (or `options`) paints the interface over the image.
             let preview = std::env::var("MAO_UI_PREVIEW").ok();
             theme::set_game_dir(game);
@@ -335,6 +347,12 @@ fn run(args: &[String]) -> Result<(), String> {
                     hud.labels = net::booth_labels(number, &whompah_booths(game, &db, number), &destinations, &names).into_iter().map(|(p, text)| ui::Label { world: mao_render::glam::Vec3::from(p), text }).collect();
                     hud.target = Some("Rollerrat  (12 m)".into());
                     // MAO_UI_PREVIEW=gear + MAO_CAPTURE=<capture.log>: the inventory window from a captured session.
+                    if preview.as_deref() == Some("actions") {
+                        let mut window = actions::ActionsWindow::default();
+                        window.open = true;
+                        window.load_icons(&textures.clone_handle());
+                        *hud.actions_preview.lock().unwrap() = Some(window);
+                    }
                     if preview.as_deref() == Some("shop") {
                         // The captured stock (MAO_CAPTURE=<capture.log>) in the window.
                         if let Some(log) = std::env::var_os("MAO_CAPTURE") {
@@ -478,7 +496,7 @@ fn run(args: &[String]) -> Result<(), String> {
     let db = Arc::new(ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?);
     let id = Id { kind: number(kind).ok_or("bad type")?, instance: number(instance).ok_or("bad instance")? };
     let model = if matches!(id.kind, 0xf6952 | 0xf696b) { load_cat(&db, id)? } else { load_model(&db, id)? };
-    let textures = Textures { db };
+    let textures = Textures::new(db);
     match rest {
         [flag, out] if flag == "--image" => viewer::headless(&model, &textures, out),
         [] => viewer::window(model, textures, None),

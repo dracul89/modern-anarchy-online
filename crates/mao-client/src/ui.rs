@@ -48,6 +48,8 @@ pub struct Hud {
     pub mail_preview: std::sync::Mutex<Option<crate::mailbox::MailWindow>>,
     /// A shop window a headless preview shows.
     pub shop_preview: std::sync::Mutex<Option<crate::shop::ShopWindow>>,
+    /// An Action window a headless preview shows.
+    pub actions_preview: std::sync::Mutex<Option<crate::actions::ActionsWindow>>,
     /// What the last frame drew (parts), shown beside the frame rate.
     pub draw_info: String,
 }
@@ -79,6 +81,8 @@ pub struct Requests {
     pub mail: Option<crate::mailbox::MailCommand>,
     /// A shop command (buy, close).
     pub shop: Option<crate::shop::ShopCommand>,
+    /// An action clicked in the Action window.
+    pub action: Option<hotbar::Action>,
     /// A place to walk to (world x, z), from the Whom-Pah window.
     pub goto: Option<[f32; 2]>,
     /// The hotbars were edited (to be saved).
@@ -102,6 +106,7 @@ pub struct Ui {
     pub mission: crate::mission::MissionWindow,
     pub mail: crate::mailbox::MailWindow,
     pub shop: crate::shop::ShopWindow,
+    pub actions: crate::actions::ActionsWindow,
     gear: crate::gear::GearWindow,
     /// The hotbars, and the clock their cooldowns run on.
     pub hotbars: Hotbars,
@@ -158,7 +163,7 @@ impl Ui {
         theme(&ctx, &palette);
         let state = egui_winit::State::new(ctx.clone(), egui::ViewportId::ROOT, window, Some(window.scale_factor() as f32), window.theme(), None);
         let renderer = egui_wgpu::Renderer::new(&gpu.device, format, egui_wgpu::RendererOptions::default());
-        Ui { ctx, state, renderer, options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), shop: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0 }
+        Ui { ctx, state, renderer, options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), shop: Default::default(), actions: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0 }
     }
 
     /// Switches to the theme `name` (a `theme =` setting).
@@ -189,12 +194,18 @@ impl Ui {
         let mut requests = Requests::default();
         let (options_open, rebinding, fps, palette, themes) = (&mut self.options_open, &mut self.rebinding, self.fps, &self.palette, &self.themes);
         let (gear_open, gear, whompah_open) = (&mut self.gear_open, &mut self.gear, &mut self.whompah_open);
-        let (mission, mail, shop) = (&mut self.mission, &mut self.mail, &mut self.shop);
+        let (mission, mail, shop, actions) = (&mut self.mission, &mut self.mail, &mut self.shop, &mut self.actions);
         let (hotbars, clock_now) = (&mut self.hotbars, self.clock.elapsed().as_secs_f64());
         let output = self.ctx.run_ui(raw, |ui| {
             let ctx = ui.ctx().clone();
             hud_layer(&ctx, hud, project, fps, settings.mode, palette);
-            hotbar_layer(&ctx, hotbars, gear, &hud.gear, clock_now, palette, &mut requests);
+            hotbar_layer(&ctx, hotbars, gear, &hud.gear, &*actions, clock_now, palette, &mut requests);
+            if actions.open {
+                actions.show(&ctx, gear, palette);
+                if let Some(a) = actions.clicked.take() {
+                    requests.action = Some(a);
+                }
+            }
             if *whompah_open {
                 whompah_window(&ctx, whompah_open, hud, palette, &mut requests);
             }
@@ -271,6 +282,7 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
     let mut preview_mission = hud.mission_preview.lock().ok().and_then(|mut m| m.take());
     let mut preview_mail = hud.mail_preview.lock().ok().and_then(|mut m| m.take());
     let mut preview_shop = hud.shop_preview.lock().ok().and_then(|mut m| m.take());
+    let mut preview_actions = hud.actions_preview.lock().ok().and_then(|mut m| m.take());
     let mut last = None;
     // Several frames: the first lays out and uploads the fonts, and the windows
     // fade in over the next ones; the last is what is drawn.
@@ -279,11 +291,14 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
         let output = ctx.run_ui(raw, |ui| {
             let ctx = ui.ctx().clone();
             hud_layer(&ctx, hud, project, 60.0, settings.mode, &palette);
-            hotbar_layer(&ctx, &mut hotbars, &mut gear, &hud.gear, 1.5, &palette, &mut requests);
+            hotbar_layer(&ctx, &mut hotbars, &mut gear, &hud.gear, &crate::actions::ActionsWindow::default(), 1.5, &palette, &mut requests);
             if hud.whompah_open {
                 whompah_window(&ctx, &mut true, hud, &palette, &mut requests);
             }
             if let Some(window) = preview_mission.as_mut() {
+                window.show(&ctx, &mut gear, &palette);
+            }
+            if let Some(window) = preview_actions.as_mut() {
                 window.show(&ctx, &mut gear, &palette);
             }
             if let Some(window) = preview_shop.as_mut() {
@@ -355,7 +370,7 @@ fn whompah_window(ctx: &egui::Context, open: &mut bool, hud: &Hud, palette: &Pal
 /// The hotbar: tabs for the six bars and ten slots. A slot shows the action that would fire (its icon,
 /// a cooldown sweep and the time left); a yellow frame means a press is queued. Left click presses,
 /// right click edits the slot's list, and items dragged from the inventory window are added to it.
-fn hotbar_layer(ctx: &egui::Context, bars: &mut Hotbars, gear: &mut GearWindow, items: &[GearItem], now: f64, palette: &Palette, requests: &mut Requests) {
+fn hotbar_layer(ctx: &egui::Context, bars: &mut Hotbars, gear: &mut GearWindow, items: &[GearItem], actions: &crate::actions::ActionsWindow, now: f64, palette: &Palette, requests: &mut Requests) {
     let accent = rgb(palette.accent);
     let bar = bars.current;
     // Drag it by its frame or the grip; the button beside the bar numbers turns it between horizontal and vertical.
@@ -395,6 +410,7 @@ fn hotbar_layer(ctx: &egui::Context, bars: &mut Hotbars, gear: &mut GearWindow, 
                     if let Some((action, cooldown, remaining)) = &shown {
                         let icon = match action {
                             hotbar::Action::Item { icon: Some(id), .. } => items.iter().find_map(|i| i.icon.as_ref().filter(|ic| ic.id == *id)).cloned(),
+                            hotbar::Action::Special { icon: Some(id), .. } => actions.icon_by_instance(*id).cloned(),
                             _ => None,
                         };
                         match icon {
