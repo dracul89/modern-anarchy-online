@@ -570,6 +570,15 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut keys = crate::viewer::Input::default();
         let mut raw = crate::viewer::Input::default();
         let (mut goto, mut goto_seen): (Option<[f32; 2]>, u8) = (None, 0);
+        // Walking round obstacles: the best distance so far, when it last improved, the detour being tried
+        // (a turn away from the straight line, until when) and how many have been tried.
+        let (mut goto_best, mut goto_progress, mut detour, mut detours) = (f32::MAX, Instant::now(), None::<(f32, Instant)>, 0usize);
+        // `MAO_GOTO=x,z` starts a walk as the Whom-Pah window's Go button does (for testing without a click).
+        if let Some(v) = std::env::var("MAO_GOTO").ok().map(|t| t.split(',').filter_map(|n| n.trim().parse::<f32>().ok()).collect::<Vec<_>>()) {
+            if let [x, z] = v[..] {
+                goto = Some([x, z]);
+            }
+        }
         let mut pending_destinations = state.destinations.take();
         let (mut seen, mut target): ([u8; 7], Option<u32>) = ([0; 7], None);
         let (mut sitting, mut uses, mut fired) = (false, 0u32, 0u8);
@@ -686,14 +695,19 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     }
                 }
             }
-            while let Ok(k) = input_rx.try_recv() {
-                raw = k;
+            // (Bounded: the newest state is what counts, and a flood of them must not starve the connection.)
+            for _ in 0..256 {
+                match input_rx.try_recv() {
+                    Ok(k) => raw = k,
+                    Err(_) => break,
+                }
             }
             keys = raw;
             // Go (the Whom-Pah window): walk to a place; any movement key of the player's own stops it.
             if raw.goto.0 != goto_seen {
                 goto_seen = raw.goto.0;
                 goto = Some(raw.goto.1);
+                (goto_best, goto_progress, detour, detours) = (f32::MAX, Instant::now(), None, 0);
                 pending_messages.push("Walking to the booth (any movement key stops)".into());
             }
             if goto.is_some() && (raw.forward || raw.back || raw.strafe != 0 || raw.turn != 0 || raw.jump) {
@@ -701,10 +715,28 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 pending_messages.push("Stopped walking".into());
             }
             if let Some(g) = goto {
-                if ((g[0] - position[0]).powi(2) + (g[1] - position[2]).powi(2)).sqrt() < 1.2 {
+                let distance = ((g[0] - position[0]).powi(2) + (g[1] - position[2]).powi(2)).sqrt();
+                if distance < 1.2 {
                     goto = None;
                 } else {
-                    keys.face = Some((g[0] - position[0]).atan2(g[1] - position[2]));
+                    if distance < goto_best - 0.5 {
+                        (goto_best, goto_progress) = (distance, Instant::now());
+                    }
+                    // No progress for a second: turn away from the line for a moment, trying one side then the other.
+                    if detour.is_none() && goto_progress.elapsed() > Duration::from_millis(900) {
+                        let turns = [1.2f32, -1.2, 2.0, -2.0, 0.6, -0.6];
+                        detour = Some((turns[detours % turns.len()], Instant::now() + Duration::from_millis(1600)));
+                        detours += 1;
+                    }
+                    if detour.is_some_and(|d| Instant::now() > d.1) {
+                        detour = None;
+                        goto_progress = Instant::now();
+                    }
+                    if detours > 12 {
+                        goto = None;
+                        pending_messages.push("Can't find a way round (stopped)".into());
+                    }
+                    keys.face = Some((g[0] - position[0]).atan2(g[1] - position[2]) + detour.map_or(0.0, |d| d.0));
                     keys.forward = true;
                 }
             }
@@ -1050,6 +1082,14 @@ pub fn run(args: &[String]) -> Result<(), String> {
         [game, word, who, x, z, rest @ ..] if word == "walk" => walk(game, who, x.parse().map_err(|_| "bad x")?, z.parse().map_err(|_| "bad z")?, rest.first().and_then(|s| s.parse().ok()).unwrap_or(90)),
         [word, log] if word == "parse-capture" => parse_capture(log),
         [word, log] if word == "msg-stats" => msg_stats(log),
+        // `net <game dir> area <playfield>`: load a playfield as the live client does on zoning, and time it.
+        [game, word, pf] if word == "area" => {
+            let db = Arc::new(ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?);
+            let start = Instant::now();
+            let area = load_area(game, &db, pf.parse().map_err(|_| "bad playfield")?)?;
+            eprintln!("loaded in {:.1}s: {} parts, {} booths", start.elapsed().as_secs_f32(), area.scene.parts.len(), area.booths.len());
+            Ok(())
+        }
         [game, word, log] if word == "inventory" => inventory_from_capture(game, log),
         [word, log, kind, rest @ ..] if word == "msg-dump" => msg_dump(log, kind, rest.first().and_then(|n| n.parse().ok()).unwrap_or(3)),
         [game, word, log, rest @ ..] if word == "capture-map" => {

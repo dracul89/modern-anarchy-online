@@ -152,6 +152,8 @@ struct App {
     behind_set: bool,
     last_follow: std::time::Instant,
     keys: Input,
+    /// The keys as last sent to the network thread.
+    last_sent: Input,
     settings: Settings,
     modifiers: winit::keyboard::ModifiersState,
     /// The movement actions whose keys are down.
@@ -191,7 +193,7 @@ fn apply_mode(window: &Window, mode: WindowMode) {
 pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<(), String> {
     let event_loop = EventLoop::new().map_err(|e| e.to_string())?;
     let settings = Settings::load();
-    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), keys: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default() };
+    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default() };
     event_loop.run_app(&mut app).map_err(|e| e.to_string())
 }
 
@@ -522,8 +524,12 @@ impl ApplicationHandler for App {
                     for action in ui.hotbars.tick(now) {
                         fire_action(&action, &mut self.keys, &mut self.hud);
                     }
+                    // Only a change goes to the network thread (a redraw can come thousands of times a second).
                     if let Some(live) = &self.live {
-                        let _ = live.input.send(self.keys);
+                        if self.keys != self.last_sent {
+                            self.last_sent = self.keys;
+                            let _ = live.input.send(self.keys);
+                        }
                     }
                 }
                 // Walking, the camera swings round behind the character, unless the mouse is steering it.
