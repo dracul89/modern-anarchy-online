@@ -73,6 +73,10 @@ pub struct Update {
     /// The inbox's message count when the server reports it, and a note for the mail window.
     pub mail_count: Option<usize>,
     pub mail_status: Option<String>,
+    /// The inbox's entries, an opened mail and a flag change, when the server sends them.
+    pub mail_entries: Option<Vec<mao_net::mail::Entry>>,
+    pub mail_opened: Option<crate::mailbox::Opened>,
+    pub mail_flags: Option<(u32, u32)>,
 }
 
 /// Something that changes while the window is open: models to draw over the
@@ -577,6 +581,15 @@ impl ApplicationHandler for App {
                             }
                             if let Some(status) = u.mission_status.take() {
                                 ui.mission.status = status;
+                            }
+                            if let Some(entries) = u.mail_entries.take() {
+                                ui.mail.set_entries(entries);
+                            }
+                            if let Some(opened) = u.mail_opened.take() {
+                                ui.mail.opened = Some(opened);
+                            }
+                            if let Some((id, flags)) = u.mail_flags.take() {
+                                ui.mail.set_flags(id, flags);
                             }
                             if let Some(n) = u.mail_count.take() {
                                 ui.mail.count = Some(n);

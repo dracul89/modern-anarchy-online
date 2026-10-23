@@ -139,8 +139,7 @@ from the backpack, Standard / Express, Total cost, Send, Close). Check mail uses
 the captures) and asks for the inbox (`Mail`, action 1, byte-exact with the capture); the reply's message count is
 shown. Send builds the captured message (action 6, recipient, subject, body, the item as `(0x68, slot)`, credits,
 express; byte-exact in a test). Free accounts are refused by the server (the window says so when a notice follows
-the send). **Not done:** the inbox rows (the only captured reply is an empty list), reading / taking / deleting a
-mail, C.O.D. (the captured message has no field for it), the total cost (the server's). Needs a capture with a
+the send). **Not done:** (now done:) the inbox rows, reading, taking and deleting come from the fourth capture. Still not done: C.O.D. (the captured message has no field for it), the total cost (the server's). Needs a capture with a
 paying account sending to, and the receiver opening, a mail with an item and credits.
 
 ## 5. The AOU mod against the original GUI

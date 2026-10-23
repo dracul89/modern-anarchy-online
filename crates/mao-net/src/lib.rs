@@ -17,6 +17,7 @@ pub mod crypto;
 pub mod destinations;
 pub mod frame;
 pub mod inventory;
+pub mod mail;
 pub mod n3;
 pub mod schema;
 pub mod session;

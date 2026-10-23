@@ -130,3 +130,13 @@ booth and the logout. Read with `net msg-check` / `net msg-parse` (named fields)
   declined is not known (the credits? the empty body is not it: the second had one).
 * **Still missing:** the receiving side: logging in as the recipient and opening the inbox (the list rows), reading
   a mail, taking the item and credits, deleting it.
+
+## Mail, fully (fourth capture, the receiving side)
+Written up in `crates/mao-net/src/mail.rs` (tested against the captured bytes). Client to server: action 1 with id 0 =
+list the inbox, with a mail id = open it; 3 + id = take the attachments; 5 + id = delete; 6 = send. Server to client:
+action 0 = the inbox (entries: `i32 0, id, sender id, sender name, subject, sent, expires, flags, express`), 2 = a mail in
+full (the same fields, a byte, the credits, the item's low id / high id / quality, two words, the body), 4 + id + flags =
+the flags changed (`0x28` unread with item and credits, `0x29` read, `0x2b` taken), 8 = a mail accepted for sending.
+Taking sends `TemplateAction` + `ContainerAddItem` (the item lands in the backpack). Times are unix seconds (the mail's
+sent and expiry times). Mail terminals seen: `(0xc773, serial)` at Old Athens (two), playfield 655 (`0xc000028f`) and
+playfield 4682 (`0xc000124a`). The window (`Ctrl+M`) now lists the inbox, opens a mail on click, and takes / deletes.

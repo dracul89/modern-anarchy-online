@@ -7,12 +7,15 @@
 //! reply is an empty list, so the list shows the count the server reports and no rows until a capture with
 //! mail in it shows their layout. Sending needs a paying account (the server refuses a free one).
 
-use crate::gear::{GearItem, GearWindow};
+use std::sync::Arc;
+
+use crate::gear::{GearItem, GearWindow, Icon};
+use mao_net::mail::{self, Entry, Mail};
 use crate::theme::Palette;
 
 /// A mail terminal's serial (the identity is `(0xc773, serial)`) seen in a capture, with where the player stood.
 /// The server does not announce mail terminals, so these come from captures: (playfield, x, z, serial).
-pub const KNOWN_TERMINALS: &[(u32, f32, f32, u32)] = &[(540, 445.4, 456.1, 0xc003_021c), (540, 408.1, 407.3, 0xc002_021c)];
+pub const KNOWN_TERMINALS: &[(u32, f32, f32, u32)] = &[(540, 445.4, 456.1, 0xc003_021c), (540, 408.1, 407.3, 0xc002_021c), (655, 3237.6, 771.4, 0xc000_028f), (4682, 351.5, 378.7, 0xc000_124a)];
 
 /// The known terminal nearest to a place in a playfield (within 25 units).
 pub fn nearest_terminal(playfield: u32, x: f32, z: f32) -> Option<u32> {
@@ -24,7 +27,18 @@ pub fn nearest_terminal(playfield: u32, x: f32, z: f32) -> Option<u32> {
 pub enum MailCommand {
     /// Use the nearest known mail terminal and ask for the inbox.
     Inbox,
+    /// Read a mail (by its id).
+    Open(u32),
+    /// Take a mail's item and credits.
+    Take(u32),
+    Delete(u32),
     Send { recipient: String, subject: String, body: String, item: (u32, u32), credits: u32, express: bool },
+}
+
+/// A mail that was opened, with its attached item's name and icon from the game's database.
+pub struct Opened {
+    pub mail: Mail,
+    pub item: Option<(String, Option<Arc<Icon>>)>,
 }
 
 pub struct MailWindow {
@@ -33,6 +47,9 @@ pub struct MailWindow {
     pub compose_open: bool,
     /// Messages in the inbox, as the server last reported (None before it answered).
     pub count: Option<usize>,
+    pub entries: Vec<Entry>,
+    pub selected: Option<u32>,
+    pub opened: Option<Opened>,
     pub status: String,
     to: String,
     subject: String,
@@ -46,7 +63,7 @@ pub struct MailWindow {
 
 impl Default for MailWindow {
     fn default() -> MailWindow {
-        MailWindow { open: false, compose_open: false, count: None, status: String::new(), to: String::new(), subject: String::new(), body: String::new(), credits: 0, cod: 0, item: None, express: false }
+        MailWindow { open: false, compose_open: false, count: None, entries: Vec::new(), selected: None, opened: None, status: String::new(), to: String::new(), subject: String::new(), body: String::new(), credits: 0, cod: 0, item: None, express: false }
     }
 }
 
@@ -54,6 +71,27 @@ impl MailWindow {
     /// A sample for a headless preview.
     pub fn sample() -> MailWindow {
         MailWindow { open: true, compose_open: true, count: Some(0), to: "muggles".into(), subject: "hi".into(), express: true, ..Default::default() }
+    }
+
+    /// A new inbox from the server.
+    pub fn set_entries(&mut self, entries: Vec<Entry>) {
+        self.count = Some(entries.len());
+        self.status = format!("The inbox holds {} messages.", entries.len());
+        if self.selected.is_some_and(|id| !entries.iter().any(|e| e.id == id)) {
+            self.selected = None;
+            self.opened = None;
+        }
+        self.entries = entries;
+    }
+
+    /// A mail's flags changed (read, taken ...).
+    pub fn set_flags(&mut self, id: u32, flags: u32) {
+        if let Some(e) = self.entries.iter_mut().find(|e| e.id == id) {
+            e.flags = flags;
+        }
+        if let Some(o) = self.opened.as_mut().filter(|o| o.mail.id == id) {
+            o.mail.flags = flags;
+        }
     }
 
     /// Draws the windows; returns what to send, if anything.
@@ -79,18 +117,61 @@ impl MailWindow {
                         ui.label(egui::RichText::new("Sent").weak());
                     });
                     ui.separator();
-                    match self.count {
-                        None => {
-                            ui.label(egui::RichText::new("Press Check mail at a mail terminal.").weak());
-                        }
-                        Some(0) => {
-                            ui.label(egui::RichText::new("No messages.").weak());
-                        }
-                        Some(n) => {
-                            ui.label(egui::RichText::new(format!("{n} messages on the server (their layout isn't decoded yet).")).weak());
-                        }
+                    if self.entries.is_empty() {
+                        ui.label(egui::RichText::new(if self.count.is_none() { "Press Check mail at a mail terminal." } else { "No messages." }).weak());
                     }
+                    egui::ScrollArea::vertical().max_height(150.0).show(ui, |ui| {
+                        for e in &self.entries {
+                            let unread = e.flags & mail::READ == 0;
+                            let mut label = egui::RichText::new(&e.subject);
+                            if unread {
+                                label = label.strong();
+                            }
+                            let mark = format!("{}{}", if e.flags & mail::HAS_ITEM != 0 && e.flags & mail::TAKEN == 0 { " [item]" } else { "" }, if e.flags & mail::HAS_CREDITS != 0 && e.flags & mail::TAKEN == 0 { " [credits]" } else { "" });
+                            ui.horizontal(|ui| {
+                                if ui.selectable_label(self.selected == Some(e.id), label).clicked() {
+                                    self.selected = Some(e.id);
+                                    command = Some(MailCommand::Open(e.id));
+                                }
+                                ui.label(egui::RichText::new(mail::time_text(e.sent)).small().weak());
+                            });
+                            if !mark.is_empty() {
+                                ui.label(egui::RichText::new(format!("   from {}{}", e.sender, mark)).small().weak());
+                            }
+                        }
+                    });
                 });
+                if let Some(o) = self.opened.as_ref().filter(|o| Some(o.mail.id) == self.selected) {
+                    let m = &o.mail;
+                    ui.separator();
+                    ui.label(egui::RichText::new(&m.subject).strong().color(accent));
+                    ui.label(egui::RichText::new(format!("From {} on {}", m.sender, mail::time_text(m.sent))).small().weak());
+                    if !m.body.is_empty() {
+                        ui.label(&m.body);
+                    }
+                    let taken = m.flags & mail::TAKEN != 0;
+                    if m.credits > 0 {
+                        ui.label(format!("Credits: {}{}", m.credits, if taken { " (taken)" } else { "" }));
+                    }
+                    if let (Some((low, _, quality)), Some((name, icon))) = (m.item, o.item.as_ref()) {
+                        ui.horizontal(|ui| {
+                            if let Some(icon) = icon {
+                                let id = gear.texture(ctx, icon);
+                                ui.add(egui::Image::new((id, egui::vec2(32.0, 32.0))));
+                            }
+                            ui.label(format!("{name} (QL {quality}, #{low:x}){}", if taken { " (taken)" } else { "" }));
+                        });
+                    }
+                    ui.horizontal(|ui| {
+                        let can_take = !taken && (m.credits > 0 || m.item.is_some());
+                        if ui.add_enabled(can_take, egui::Button::new("Take")).on_hover_text("Takes the item and the credits").clicked() {
+                            command = Some(MailCommand::Take(m.id));
+                        }
+                        if ui.button("Delete").clicked() {
+                            command = Some(MailCommand::Delete(m.id));
+                        }
+                    });
+                }
                 ui.horizontal(|ui| {
                     if ui.button("Check mail").on_hover_text("Uses the nearest known mail terminal and asks for the inbox").clicked() {
                         command = Some(MailCommand::Inbox);
@@ -99,7 +180,6 @@ impl MailWindow {
                     if ui.button("New").clicked() {
                         self.compose_open = true;
                     }
-                    ui.add_enabled(false, egui::Button::new("Delete"));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.button("Close").clicked() {
                             close = true;

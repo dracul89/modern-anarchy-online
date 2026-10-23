@@ -608,6 +608,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let (mut mission_seen, mut pending_missions, mut pending_mission_status): (u8, Option<Vec<crate::mission::Offer>>, Option<String>) = (0, None, None);
         // Mail: the answer's count and notes for the window, when the inbox request is due, and when the last send went out.
         let (mut pending_mail_count, mut pending_mail_status): (Option<usize>, Option<String>) = (None, None);
+        let (mut pending_mail_entries, mut pending_mail_opened, mut pending_mail_flags): (Option<Vec<mao_net::mail::Entry>>, Option<crate::mailbox::Opened>, Option<(u32, u32)>) = (None, None, None);
         let (mut inbox_due, mut mail_sent): (Option<Instant>, Option<Instant>) = (None, None);
         // `MAO_MISSION=type,instance[,scope[,difficulty]]` (decimal or 0x hex) asks that mission terminal
         // for missions once the character has arrived (or 6 s into the session without a walk), and prints the offers.
@@ -668,6 +669,21 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         trace(&frame, clock);
                     }
                     if let Some(m) = Message::parse(&frame).filter(|m| m.kind == 0x333b2867) {
+                        if let Some(entries) = mao_net::mail::parse_list(&m.data) {
+                            pending_mail_entries = Some(entries);
+                        }
+                        if let Some(mail) = mao_net::mail::parse_mail(&m.data) {
+                            let item = mail.item.and_then(|(low, high, _)| {
+                                let lookup = |id: u32| gear_db.get(mao_formats::resource::Id { kind: mao_formats::item::TEMPLATE, instance: id }).ok().flatten().and_then(|d| mao_formats::item::Item::parse(&d));
+                                let template = lookup(low).or_else(|| lookup(high))?;
+                                let icon = template.icon().and_then(|id| gear_textures.get(mao_formats::item::ICON_TYPE, id).map(|t| std::sync::Arc::new(crate::gear::Icon { id, width: t.width as usize, height: t.height as usize, rgba: t.rgba })));
+                                Some((template.name, icon))
+                            });
+                            pending_mail_opened = Some(crate::mailbox::Opened { mail, item });
+                        }
+                        if let Some(change) = mao_net::mail::parse_flags(&m.data) {
+                            pending_mail_flags = Some(change);
+                        }
                         match n3::mail_count(&m.data) {
                             Some((0, n)) => pending_mail_count = Some(n),
                             // Action 8: the mail was accepted (the capture's successful send).
@@ -906,6 +922,17 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         }
                         None => pending_mail_status = Some("No known mail terminal here (they come from captures: Old Athens has two).".into()),
                     },
+                    crate::mailbox::MailCommand::Open(id) => {
+                        let _ = connection.send(&mao_net::mail::open(own, id));
+                    }
+                    crate::mailbox::MailCommand::Take(id) => {
+                        let _ = connection.send(&mao_net::mail::take(own, id));
+                    }
+                    crate::mailbox::MailCommand::Delete(id) => {
+                        let _ = connection.send(&mao_net::mail::delete(own, id));
+                        // The list again, a moment later (the server doesn't push it).
+                        inbox_due = Some(Instant::now() + Duration::from_millis(600));
+                    }
                     crate::mailbox::MailCommand::Send { recipient, subject, body, item, credits, express } => {
                         let _ = connection.send(&n3::mail_send(own, &recipient, &subject, &body, item, credits, express));
                         mail_sent = Some(Instant::now());
@@ -1108,6 +1135,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     missions: pending_missions.take(),
                     mission_status: pending_mission_status.take(),
                     mail_count: pending_mail_count.take(),
+                    mail_entries: pending_mail_entries.take(),
+                    mail_opened: pending_mail_opened.take(),
+                    mail_flags: pending_mail_flags.take(),
                     mail_status: pending_mail_status.take(),
                     destinations: pending_destinations.take(),
                     heading: Some(heading),
