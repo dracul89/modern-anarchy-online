@@ -32,11 +32,21 @@ pub struct Item {
 /// `N3Msg_GetSkill` (see `docs/STAT_ENGINE.md`): the sleeves "Strong Armor Sleeves" give 230 melee AC, 250
 /// projectile AC and so on. Effects of other spell types (and their requirements) are not read.
 pub fn modifiers(template: &[u8]) -> Vec<(u32, i32)> {
-    let words: Vec<u32> = template.chunks_exact(4).map(|c| u32::from_le_bytes(c.try_into().unwrap())).collect();
+    // The tables follow the text, so they are not aligned to the record's words: look at every byte offset.
+    const HEAD: [u32; 8] = [0xcf35, 0, 4, 0, 1, 0, 2, 9];
+    let mut head = Vec::with_capacity(32);
+    for w in HEAD {
+        head.extend_from_slice(&w.to_le_bytes());
+    }
     let mut out = Vec::new();
-    for i in 0..words.len().saturating_sub(9) {
-        if words[i] == 0xcf35 && words[i + 1..i + 8] == [0, 4, 0, 1, 0, 2, 9] {
-            out.push((words[i + 8], words[i + 9] as i32));
+    let mut at = 0;
+    while at + 40 <= template.len() {
+        if template[at..at + 32] == head[..] {
+            let word = |o: usize| u32::from_le_bytes(template[at + o..at + o + 4].try_into().unwrap());
+            out.push((word(32), word(36) as i32));
+            at += 40;
+        } else {
+            at += 1;
         }
     }
     out

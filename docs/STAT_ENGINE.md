@@ -37,3 +37,33 @@ So the items explain roughly a quarter to a third of each bonus; the rest must c
 perks and the implants' own effects. Also seen: `AddAllDef` shows 1001 (an all-defence modifier, 0 stored), so some
 bonuses are percentages or are applied to several stats at once. Next: the active nano list
 (`N3Msg_GetNanoTemplateInfoList`) and the same effect tables of those nanos.
+
+## Correction and second comparison (byte offsets, and the active nanos)
+
+The effect records are **not word-aligned** in the template (they follow the text, whose length is arbitrary), so the
+first comparison, which read whole words from the start, missed many records. `item::modifiers` now looks at every
+byte offset. Active nanos are objects of type `0xfde85` (the list comes from `N3Msg_GetNanoTemplateInfoList`, 8 buffs
+here, identity type 0xcf1b) with the same effect records.
+
+Shown bonus (detail 2 minus detail 0) against the sum of the worn items' effects (40 items, none with a quality
+range) plus the 8 active nanos:
+
+| stat | shown | items | nanos | still missing |
+|---|---|---|---|---|
+| Melee AC | 14516 | 13339 | 0 | 1177 |
+| Projectile AC | 15106 | 13499 | 0 | 1607 |
+| Energy AC | 14446 | 13124 | 0 | 1322 |
+| Chemical AC | 14266 | 13376 | 0 | 890 |
+| Radiation AC | 14516 | 13626 | 0 | 890 |
+| Cold AC | 14751 | 13159 | 415 | 1177 |
+| Poison AC | 14376 | 13054 | 0 | 1322 |
+| Fire AC | 14646 | 13324 | 0 | 1322 |
+| Strength | 411 | 293 | 0 | 118 |
+| Max nano | 6950 | 6450 | 0 | 500 |
+| Max health | 26922 | 13054 | 510 | 13358 |
+
+The items account for about 92% of each armour class. What is left (890 to 1607) is not one constant: it is not just
+`AddAllDef` (shown 1001, items 869). Candidates: the perks' standing effects, effects of other spell types or with
+requirements that this reader skips, the item "armour class" attribute scaling, and the modifier map's own caps. Max
+health is far off (the shown value also includes a body-development and level formula, which the attribute trickle
+term in `FUN_10064b51` for the six attributes feeds).
