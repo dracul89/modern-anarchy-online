@@ -1462,7 +1462,7 @@ fn inventory_from_capture(game: &str, log: &str) -> Result<(), String> {
     let items = crate::gear::from_entries(&db, &crate::Textures::new(db.clone()), &capture_entries(log)?);
     for i in &items {
         let place = match crate::gear::slot_name(i.slot) {
-            Some(n) => n.to_string(),
+            Some(n) => n,
             None if i.slot >= inventory::BACKPACK_FIRST => format!("backpack {}", i.slot - inventory::BACKPACK_FIRST),
             None => format!("slot {}", i.slot),
         };

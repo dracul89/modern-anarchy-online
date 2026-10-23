@@ -70,3 +70,26 @@ the capture. The conversation text of mission NPCs uses the same `5d70532a` /
 through a local proxy). Doing one pass in the original with the windows opened
 (NCU, nano programs, a mission terminal, a tell and a shout) and then running
 `msg-stats` on it is the fastest way to find the remaining messages.
+
+## Second capture (the debug session with screenshots)
+`capture-180803.log` grew with a session that used terminals and cast nanos. Screenshots of the original
+windows gave the exact **Wear** layout (four tabs of three columns: Weap, Cloth, Impl, Social; the belt
+"Deck" holds Deck 1-6; the social tab starts at placement 49), now used by the inventory window.
+New messages, as far as they are understood:
+
+| message | direction | what it is |
+|---|---|---|
+| `5e477770` action `0x13` | client | **cast a nano**: data = target identity (c350, id) then the nano identity (0xcf1b, nano id) |
+| `5e477770` action `0x41` | client | a nano-related action with only a nano identity (0xcf1b, id): probably learn / remove (unconfirmed) |
+| `5e477770` action `0x07`, `0x86` | client | seen once each, unknown |
+| `4d450114` | server | a nano effect: nano id (0xaad6 = "Summon Rage Materialization"), source and target identities, the name as a length-prefixed string. The NCU window's list is built from these |
+| `36284f6e` | both | **using a terminal**: the server answers a `52526858` use on a terminal (identity type 0xc75b, id = serial << 16 | playfield) with this, naming the terminal and the user; the client's `36284f6e` with `02 02` ... answers it (a choice) |
+| `371d0542` | server | a **whompah destination list**: entries of (u32 id, u16 name length, name, 2 flag bytes) e.g. "Styx Magma", "Charred Groove", "North of Yuttos", "West of Perdition", "Dust Bank" ... what a booth offers when used |
+| `58362220` | server | a list of item stacks (low id, high id, count) attached to a terminal identity: the contents of a mission or shop terminal (unconfirmed which) |
+| `5f4b442a` | server | a **system chat line** ("Tarasque is no longer immortal."): u16 0, a length byte, the text, trailer |
+| `333b2867` | both | a small request (`00 00 01 ...`) answered with `3f1`: unknown |
+
+Next steps this enables: a **whompah destination window** (use a booth, show `371d0542`, send the choice back; also
+fixes the booth labels), a **chat/system log** from `5f4b442a`, **nano casting** as a hotbar action (action `0x13`),
+and the **NCU window** from `4d450114` (the original shows "NCU (used/capacity)" with the active programs' icons).
+The destination choice message needs a second sample to be sure of its fields.

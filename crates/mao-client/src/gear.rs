@@ -33,62 +33,56 @@ pub struct GearItem {
     pub icon: Option<Arc<Icon>>,
 }
 
-/// The placements the original numbers, as far as the first capture shows
-/// them (the armour, implant and NCU rows hold the items the names say).
-pub fn slot_name(slot: u32) -> Option<&'static str> {
-    Some(match slot {
-        1 => "HUD 1",
-        2 => "HUD 3",
-        3 => "Utility 1",
-        4 => "Utility 2",
-        5 => "Utility 3",
-        6 => "Right hand",
-        7 => "Belt",
-        8 => "Left hand",
-        9 => "NCU 1",
-        10 => "NCU 2",
-        11 => "NCU 3",
-        12 => "NCU 4",
-        13 => "NCU 5",
-        17 => "Neck",
-        18 => "Head",
-        19 => "Back",
-        20 => "Right shoulder",
-        21 => "Chest",
-        22 => "Left shoulder",
-        23 => "Right arm",
-        24 => "Hands",
-        25 => "Left arm",
-        26 => "Right wrist",
-        27 => "Legs",
-        28 => "Left wrist",
-        30 => "Feet",
-        31 => "Right finger",
-        32 => "Left finger",
-        33 => "Eye implant",
-        34 => "Head implant",
-        35 => "Ear implant",
-        36 => "Right-arm implant",
-        37 => "Chest implant",
-        38 => "Left-arm implant",
-        39 => "Right-wrist implant",
-        40 => "Waist implant",
-        41 => "Left-wrist implant",
-        42 => "Right-hand implant",
-        43 => "Leg implant",
-        44 => "Left-hand implant",
-        45 => "Feet implant",
-        _ => return None,
-    })
-}
-
-/// The rows of the equipment panel: a title and its slots.
-const SECTIONS: &[(&str, &[u32])] = &[
-    ("Weapons and utilities", &[1, 2, 3, 4, 5, 6, 8]),
-    ("Belt and NCU", &[7, 9, 10, 11, 12, 13]),
-    ("Armour", &[17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 30, 31, 32]),
-    ("Implants", &[33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45]),
+/// The original's "Wear" window: four tabs of three columns, with each cell's placement
+/// (from the original client's own window and the capture: the belt "Deck" holds the NCU units
+/// "Deck 1-6", the social tab starts at placement 49). `None` is a cell whose placement is not known.
+pub const TABS: &[(&str, &[(&str, Option<u32>)])] = &[
+    (
+        "Weap",
+        &[
+            ("Hud 1", Some(1)), ("Hud 2", None), ("Hud 3", Some(2)),
+            ("Utils 1", Some(3)), ("Utils 2", Some(4)), ("Utils 3", Some(5)),
+            ("Right Hand", Some(6)), ("Deck", Some(7)), ("Left Hand", Some(8)),
+            ("Deck 1", Some(9)), ("Deck 2", Some(10)), ("Deck 3", Some(11)),
+            ("Deck 4", Some(12)), ("Deck 5", Some(13)), ("Deck 6", Some(14)),
+        ],
+    ),
+    (
+        "Cloth",
+        &[
+            ("Neck", Some(17)), ("Head", Some(18)), ("Back", Some(19)),
+            ("Right Shoulder", Some(20)), ("Chest", Some(21)), ("Left Shoulder", Some(22)),
+            ("Right Arm", Some(23)), ("Hands", Some(24)), ("Left Arm", Some(25)),
+            ("Right Wrist", Some(26)), ("Legs", Some(27)), ("Left Wrist", Some(28)),
+            ("Right Finger", Some(29)), ("Feet", Some(30)), ("Left Finger", Some(31)),
+        ],
+    ),
+    (
+        "Impl",
+        &[
+            ("Eyes", Some(33)), ("Head", Some(34)), ("Ears", Some(35)),
+            ("Right Arm", Some(36)), ("Chest", Some(37)), ("Left Arm", Some(38)),
+            ("Right Wrist", Some(39)), ("Waist", Some(40)), ("Left Wrist", Some(41)),
+            ("Right Hand", Some(42)), ("Legs", Some(43)), ("Left Hand", Some(44)),
+            ("", None), ("Feet", Some(45)), ("", None),
+        ],
+    ),
+    (
+        "Social",
+        &[
+            ("Neck", Some(49)), ("Head", Some(50)), ("Back", Some(51)),
+            ("Right Shoulder", Some(52)), ("Chest", Some(53)), ("Left Shoulder", Some(54)),
+            ("Right Arm", Some(55)), ("Hands", Some(56)), ("Left Arm", Some(57)),
+            ("Right Wrist", Some(58)), ("Legs", Some(59)), ("Left Wrist", Some(60)),
+            ("Right Hand", Some(61)), ("Feet", Some(62)), ("Left Hand", Some(63)),
+        ],
+    ),
 ];
+
+/// A placement's name, with its tab ("Weap: Right Hand").
+pub fn slot_name(slot: u32) -> Option<String> {
+    TABS.iter().find_map(|(tab, cells)| cells.iter().find(|c| c.1 == Some(slot)).map(|c| format!("{tab}: {}", c.0)))
+}
 
 /// The items of a world-entry message with their names and icons.
 pub fn from_entries(db: &ResourceDatabase, textures: &crate::Textures, entries: &[Entry]) -> Vec<GearItem> {
@@ -122,6 +116,8 @@ pub fn from_entries(db: &ResourceDatabase, textures: &crate::Textures, entries: 
 #[derive(Default)]
 pub struct GearWindow {
     textures: HashMap<u32, egui::TextureHandle>,
+    /// The wear tab shown.
+    tab: usize,
 }
 
 const CELL: f32 = 42.0;
@@ -199,27 +195,28 @@ impl GearWindow {
             }
             ui.horizontal_top(|ui| {
                 ui.vertical(|ui| {
-                    ui.set_width(330.0);
-                    for (title, slots) in SECTIONS {
-                        ui.label(egui::RichText::new(*title).small().color(accent));
-                        ui.horizontal_wrapped(|ui| {
-                            ui.spacing_mut().item_spacing = egui::vec2(3.0, 3.0);
-                            for &slot in *slots {
-                                self.cell(ui, by_slot.get(&slot).copied(), slot_name(slot).unwrap_or(""), accent);
+                    ui.set_width(3.0 * (CELL + 3.0) + 8.0);
+                    ui.horizontal(|ui| {
+                        for (i, (tab, _)) in TABS.iter().enumerate() {
+                            if ui.selectable_label(self.tab == i, *tab).clicked() {
+                                self.tab = i;
                             }
-                        });
-                        ui.add_space(4.0);
-                    }
-                    let social: Vec<&GearItem> = items.iter().filter(|i| i.slot >= 46 && i.slot < inventory::BACKPACK_FIRST).collect();
-                    if !social.is_empty() {
-                        ui.label(egui::RichText::new("Social").small().color(accent));
-                        ui.horizontal_wrapped(|ui| {
-                            ui.spacing_mut().item_spacing = egui::vec2(3.0, 3.0);
-                            for item in social {
-                                self.cell(ui, Some(item), "Social", accent);
+                        }
+                    });
+                    let (_, cells) = TABS[self.tab.min(TABS.len() - 1)];
+                    egui::Grid::new("wear").spacing(egui::vec2(3.0, 3.0)).show(ui, |ui| {
+                        for (n, (label, slot)) in cells.iter().enumerate() {
+                            match slot {
+                                Some(slot) if !label.is_empty() => self.cell(ui, by_slot.get(slot).copied(), label, accent),
+                                _ => {
+                                    ui.allocate_exact_size(egui::vec2(CELL, CELL), egui::Sense::hover());
+                                }
                             }
-                        });
-                    }
+                            if n % 3 == 2 {
+                                ui.end_row();
+                            }
+                        }
+                    });
                 });
                 ui.separator();
                 ui.vertical(|ui| {
