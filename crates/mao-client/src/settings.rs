@@ -98,6 +98,8 @@ pub enum Action {
     SitStand,
     /// Use the targeted thing (talk to an NPC, open a door).
     Use,
+    /// The Whom-Pah window: the booths here, with a button that walks to one.
+    WhompahWindow,
     /// Press slot n (0..10) of the shown hotbar.
     HotbarSlot(u8),
     /// Show hotbar n (0..6).
@@ -147,6 +149,7 @@ pub const ACTIONS: &[(Action, &str, &str)] = &[
     (Action::InventoryWindow, "inventory", "I"),
     (Action::SitStand, "sit_stand", "X"),
     (Action::Use, "use", "E"),
+    (Action::WhompahWindow, "whompah_window", "B"),
     (Action::HotbarSlot(0), "hotbar_slot_1", "1"),
     (Action::HotbarSlot(1), "hotbar_slot_2", "2"),
     (Action::HotbarSlot(2), "hotbar_slot_3", "3"),

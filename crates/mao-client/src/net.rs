@@ -110,6 +110,8 @@ struct World {
     inventory: Option<Vec<inventory::Entry>>,
     /// The identity type each entity was first heard of with (what a use message names it by).
     types: BTreeMap<u32, u32>,
+    /// The travel list of the playfield, from the server (until taken).
+    destinations: Option<mao_net::destinations::DestinationList>,
     /// The usable objects the server announces (doors, mail terminals, booths: identity type
     /// 0xc76a, message `4f474e05`) with their positions; targeted with Ctrl+Tab and used with E.
     objects: BTreeMap<u32, [f32; 3]>,
@@ -131,6 +133,9 @@ impl World {
             self.arrival = Some(arrival);
         }
         *self.kinds.entry(m.kind).or_default() += 1;
+        if m.kind == mao_net::destinations::DESTINATION_LIST {
+            self.destinations = mao_net::destinations::parse(&m.data);
+        }
         if m.kind == OBJECT_ANNOUNCE && m.identity.0 == OBJECT_TYPE && m.data.len() >= 29 {
             // The position follows 17 bytes of header (the capture's objects stand where a
             // terminal or door of that playfield does).
@@ -563,6 +568,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut pending_scene: Option<Model> = None;
         let mut pending_gear = state.inventory.take().map(|e| crate::gear::from_entries(&gear_db, &gear_textures, &e));
         let mut keys = crate::viewer::Input::default();
+        let mut raw = crate::viewer::Input::default();
+        let (mut goto, mut goto_seen): (Option<[f32; 2]>, u8) = (None, 0);
+        let mut pending_destinations = state.destinations.take();
         let (mut seen, mut target): ([u8; 7], Option<u32>) = ([0; 7], None);
         let (mut sitting, mut uses, mut fired) = (false, 0u32, 0u8);
         let (mut position, mut heading) = (start, heading);
@@ -608,6 +616,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         trace(&frame, clock);
                     }
                     state.add(&frame);
+                    if let Some(list) = state.destinations.take() {
+                        pending_destinations = Some(list);
+                    }
                     if let Some(entries) = state.inventory.take() {
                         pending_gear = Some(crate::gear::from_entries(&gear_db, &gear_textures, &entries));
                     }
@@ -649,6 +660,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             booths = area.booths;
                             booth_playfield = playfield;
                             pending_labels = Some(booth_labels(playfield, &booths, &destinations, &names));
+                            goto = None;
                         }
                         Err(e) => {
                             eprintln!("can't draw playfield {playfield}: {e}");
@@ -675,7 +687,26 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 }
             }
             while let Ok(k) = input_rx.try_recv() {
-                keys = k;
+                raw = k;
+            }
+            keys = raw;
+            // Go (the Whom-Pah window): walk to a place; any movement key of the player's own stops it.
+            if raw.goto.0 != goto_seen {
+                goto_seen = raw.goto.0;
+                goto = Some(raw.goto.1);
+                pending_messages.push("Walking to the booth (any movement key stops)".into());
+            }
+            if goto.is_some() && (raw.forward || raw.back || raw.strafe != 0 || raw.turn != 0 || raw.jump) {
+                goto = None;
+                pending_messages.push("Stopped walking".into());
+            }
+            if let Some(g) = goto {
+                if ((g[0] - position[0]).powi(2) + (g[1] - position[2]).powi(2)).sqrt() < 1.2 {
+                    goto = None;
+                } else {
+                    keys.face = Some((g[0] - position[0]).atan2(g[1] - position[2]));
+                    keys.forward = true;
+                }
             }
             // Targeting: Tab and friends step through the nearby ones, nearest first; F attacks.
             for (slot, count) in keys.commands.iter().enumerate() {
@@ -876,6 +907,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     labels: pending_labels.take(),
                     messages: std::mem::take(&mut pending_messages),
                     gear: pending_gear.take(),
+                    destinations: pending_destinations.take(),
                     heading: Some(heading),
                     target: target.and_then(|t| Some(format!("{}  ({:.0} m)", state.names.get(&t)?.0, ((state.position_of(t)?[0] - position[0]).powi(2) + (state.position_of(t)?[2] - position[2]).powi(2)).sqrt()))),
                 };
@@ -1387,6 +1419,7 @@ fn msg_dump(log: &str, kind: &str, count: usize) -> Result<(), String> {
     let want = u32::from_str_radix(kind, 16).ok();
     let mut readers: BTreeMap<(String, bool), Reader> = BTreeMap::new();
     let mut shown = 0;
+    let mut ordinal = 0usize;
     for line in text.lines() {
         let f: Vec<&str> = line.split_whitespace().collect();
         let (Some(tag), Some(connection)) = (f.get(1), f.last()) else { continue };
@@ -1409,17 +1442,19 @@ fn msg_dump(log: &str, kind: &str, count: usize) -> Result<(), String> {
             continue;
         }
         while let Ok(Some(m)) = reader.next() {
+            ordinal += 1;
             let hex = |b: &[u8]| b.iter().map(|x| format!("{x:02x}")).collect::<String>();
             let matches = match kind {
                 "text" => m.kind == frame::TEXT,
                 "system" => m.kind == frame::SYSTEM,
+                "all" => true,
                 _ => m.kind == frame::N3 && Message::parse(&m).is_some_and(|x| Some(x.kind) == want),
             };
             if matches && shown < count {
                 shown += 1;
                 let dir = if server { "S>C" } else { "C>S" };
                 match Message::parse(&m) {
-                    Some(x) if m.kind == frame::N3 => println!("{dir} {connection} identity ({:x},{:x}) {} bytes: {}", x.identity.0, x.identity.1, x.data.len(), hex(&x.data)),
+                    Some(x) if m.kind == frame::N3 => println!("#{ordinal} {dir} {connection} identity ({:x},{:x}) {} bytes: {}", x.identity.0, x.identity.1, x.data.len(), hex(&x.data)),
                     _ => println!("{dir} {connection} frame kind {} src {:x} dst {:x} {} bytes: {}", m.kind, m.source, m.destination, m.body.len(), hex(&m.body)),
                 }
             }

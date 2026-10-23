@@ -113,6 +113,16 @@ Actions today: use an inventory item (message 52526858 with the inventory slot a
 the capture shows for backpack items; not yet confirmed live) and attack. Nano programs and special attacks
 wait for their messages to be decoded. Cooldowns are client-side (the server's timer messages aren't decoded).
 
+## 4g. Whom-Pah window (`B`)
+Lists the booths of the area (their floating labels say where each leads, once learned), the distance, and a
+**Go** button that walks the character to the booth (the server zones a character that walks into a booth: no
+menu or message is involved, as the capture and the live tests show). Any movement key stops the walk; a new
+playfield cancels it. Below it, the **travel list** some playfields send on entry (`371d0542`, parsed in
+`mao_net::destinations`; the capture's Pandemonium list: Styx Magma, Charred Groove, North of Yuttos ...) is shown
+for information: how a destination is chosen from that list is not in any capture (no client message followed
+it), so those entries aren't clickable yet. Not tried live: the Go button walks by the same code as the movement
+keys, but only a window session can confirm it.
+
 ## 5. The AOU mod against the original GUI
 The original GUI folder (`cd_image/gui/Default`) is 50 files: 27 small XML
 views (login, character selection, mail, trade, research, raid ...), 10 action

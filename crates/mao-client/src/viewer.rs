@@ -38,6 +38,8 @@ pub struct Input {
     pub face: Option<f32>,
     /// A hotbar item to use: a counter that steps with each, and the inventory slot.
     pub fire: (u8, u32),
+    /// A place to walk to (a counter that steps with each, and the world's x, z).
+    pub goto: (u8, [f32; 2]),
 }
 
 /// The overlay to draw and where the player's character is (the view
@@ -60,6 +62,8 @@ pub struct Update {
     pub gear: Option<Vec<crate::gear::GearItem>>,
     /// The way the character faces (radians about the vertical, 0 along +Z of the server's world).
     pub heading: Option<f32>,
+    /// The travel list the server sent for this playfield, when it arrives.
+    pub destinations: Option<mao_net::destinations::DestinationList>,
 }
 
 /// Something that changes while the window is open: models to draw over the
@@ -405,6 +409,11 @@ impl ApplicationHandler for App {
                                 press_slot(ui, n as usize, &mut self.keys, &mut self.hud);
                             }
                         }
+                        Action::WhompahWindow if !event.repeat => {
+                            if let Some(ui) = w.ui.as_mut() {
+                                ui.whompah_open = !ui.whompah_open;
+                            }
+                        }
                         Action::InventoryWindow if !event.repeat => {
                             if let Some(ui) = w.ui.as_mut() {
                                 ui.gear_open = !ui.gear_open;
@@ -532,6 +541,9 @@ impl ApplicationHandler for App {
                             self.hud.say(m);
                         }
                         self.hud.target = u.target.take();
+                        if let Some(d) = u.destinations.take() {
+                            self.hud.destinations = Some(d);
+                        }
                         if let Some(items) = u.gear.take() {
                             self.hud.gear = items;
                         }
@@ -584,6 +596,12 @@ impl ApplicationHandler for App {
                     let aspect = size.0 as f32 / size.1.max(1) as f32;
                     let project = |p: mao_render::glam::Vec3| camera.project(p, aspect, radius);
                     let (frame, requests) = ui.run(&w.window, &mut self.settings, &self.hud, &project);
+                    if let Some(g) = requests.goto {
+                        self.keys.goto = (self.keys.goto.0.wrapping_add(1), g);
+                        if let Some(live) = &self.live {
+                            let _ = live.input.send(self.keys);
+                        }
+                    }
                     if let Some(slot) = requests.press {
                         press_slot(ui, slot, &mut self.keys, &mut self.hud);
                     }

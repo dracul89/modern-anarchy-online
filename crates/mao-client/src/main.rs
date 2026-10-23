@@ -259,6 +259,13 @@ fn run(args: &[String]) -> Result<(), String> {
                     hud.labels = net::booth_labels(number, &whompah_booths(game, &db, number), &destinations, &names).into_iter().map(|(p, text)| ui::Label { world: mao_render::glam::Vec3::from(p), text }).collect();
                     hud.target = Some("Rollerrat  (12 m)".into());
                     // MAO_UI_PREVIEW=gear + MAO_CAPTURE=<capture.log>: the inventory window from a captured session.
+                    if preview.as_deref() == Some("whompah") {
+                        hud.whompah_open = true;
+                        hud.destinations = mao_net::destinations::parse(&{
+                            let hex = "000000c79c00000227000023790000001b000a53747978204d61676d61010100000015000e436861727265642047726f6f7665010100000019000f4e6f727468206f6620597574746f7301010000001f001157657374206f6620506572646974696f6e0101";
+                            (0..hex.len() / 2).map(|i| u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>()
+                        });
+                    }
                     if preview.as_deref() == Some("hotbar") {
                         // A sample: stims then an attack in slot 1 (the stim cooling down, so the attack shows), a recharger in slot 2.
                         if let Some(log) = std::env::var_os("MAO_CAPTURE") {

@@ -38,6 +38,10 @@ pub struct Hud {
     pub gear_open: bool,
     /// Hotbars shown by a headless preview (a live window keeps its own in the `Ui`).
     pub preview_hotbars: Hotbars,
+    /// The travel list the server sent for this playfield.
+    pub destinations: Option<mao_net::destinations::DestinationList>,
+    /// Whether a headless preview shows the Whom-Pah window.
+    pub whompah_open: bool,
     /// What the last frame drew (parts), shown beside the frame rate.
     pub draw_info: String,
 }
@@ -63,6 +67,8 @@ pub struct Requests {
     pub quit: bool,
     /// A hotbar slot clicked with the mouse.
     pub press: Option<usize>,
+    /// A place to walk to (world x, z), from the Whom-Pah window.
+    pub goto: Option<[f32; 2]>,
     /// The hotbars were edited (to be saved).
     pub hotbars_changed: bool,
 }
@@ -80,6 +86,7 @@ pub struct Ui {
     renderer: egui_wgpu::Renderer,
     pub options_open: bool,
     pub gear_open: bool,
+    pub whompah_open: bool,
     gear: crate::gear::GearWindow,
     /// The hotbars, and the clock their cooldowns run on.
     pub hotbars: Hotbars,
@@ -136,7 +143,7 @@ impl Ui {
         theme(&ctx, &palette);
         let state = egui_winit::State::new(ctx.clone(), egui::ViewportId::ROOT, window, Some(window.scale_factor() as f32), window.theme(), None);
         let renderer = egui_wgpu::Renderer::new(&gpu.device, format, egui_wgpu::RendererOptions::default());
-        Ui { ctx, state, renderer, options_open: false, gear_open: false, gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0 }
+        Ui { ctx, state, renderer, options_open: false, gear_open: false, whompah_open: false, gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0 }
     }
 
     /// Switches to the theme `name` (a `theme =` setting).
@@ -166,12 +173,15 @@ impl Ui {
         let raw = self.state.take_egui_input(window);
         let mut requests = Requests::default();
         let (options_open, rebinding, fps, palette, themes) = (&mut self.options_open, &mut self.rebinding, self.fps, &self.palette, &self.themes);
-        let (gear_open, gear) = (&mut self.gear_open, &mut self.gear);
+        let (gear_open, gear, whompah_open) = (&mut self.gear_open, &mut self.gear, &mut self.whompah_open);
         let (hotbars, clock_now) = (&mut self.hotbars, self.clock.elapsed().as_secs_f64());
         let output = self.ctx.run_ui(raw, |ui| {
             let ctx = ui.ctx().clone();
             hud_layer(&ctx, hud, project, fps, settings.mode, palette);
             hotbar_layer(&ctx, hotbars, gear, &hud.gear, clock_now, palette, &mut requests);
+            if *whompah_open {
+                whompah_window(&ctx, whompah_open, hud, palette, &mut requests);
+            }
             if *gear_open {
                 gear.show(&ctx, gear_open, &hud.gear, palette);
             }
@@ -235,6 +245,9 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
             let ctx = ui.ctx().clone();
             hud_layer(&ctx, hud, project, 60.0, settings.mode, &palette);
             hotbar_layer(&ctx, &mut hotbars, &mut gear, &hud.gear, 1.5, &palette, &mut requests);
+            if hud.whompah_open {
+                whompah_window(&ctx, &mut true, hud, &palette, &mut requests);
+            }
             if gear_open {
                 gear.show(&ctx, &mut gear_open, &hud.gear, &palette);
             }
@@ -270,6 +283,39 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
 }
 
 /// Where you are, the messages and the labels over the world.
+/// The Whom-Pah window: the booths of this area (their labels say where each leads, once known), how
+/// far they are, and a button that walks to one (the server zones a character that walks into a booth).
+/// Below it, the travel list the server sent for this playfield, when there is one.
+fn whompah_window(ctx: &egui::Context, open: &mut bool, hud: &Hud, palette: &Palette, requests: &mut Requests) {
+    let accent = rgb(palette.accent);
+    let mut is_open = *open;
+    egui::Window::new(egui::RichText::new("Whom-Pah").color(accent)).open(&mut is_open).collapsible(false).resizable(true).default_width(340.0).anchor(egui::Align2::RIGHT_CENTER, egui::vec2(-16.0, 0.0)).show(ctx, |ui| {
+        let here = hud.position;
+        let mut booths: Vec<(f32, &Label)> = hud.labels.iter().map(|l| (here.map_or(0.0, |p| ((l.world.x - p[0]).powi(2) + (l.world.y - p[2]).powi(2)).sqrt()), l)).collect();
+        booths.sort_by(|a, b| a.0.total_cmp(&b.0));
+        if booths.is_empty() {
+            ui.label("No Whom-Pah booths in this area.");
+        }
+        for (distance, label) in booths {
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new(&label.text).strong());
+                ui.label(egui::RichText::new(format!("{distance:.0} m")).weak());
+                if ui.button("Go").on_hover_text("Walk to the booth (any movement key stops)").clicked() {
+                    requests.goto = Some([label.world.x, label.world.y]);
+                }
+            });
+        }
+        if let Some(list) = &hud.destinations {
+            ui.separator();
+            ui.label(egui::RichText::new("Travel list for this area (from the server)").small().color(accent));
+            for d in &list.entries {
+                ui.label(&d.name);
+            }
+        }
+    });
+    *open = is_open;
+}
+
 /// The hotbar: tabs for the six bars and ten slots. A slot shows the action that would fire (its icon,
 /// a cooldown sweep and the time left); a yellow frame means a press is queued. Left click presses,
 /// right click edits the slot's list, and items dragged from the inventory window are added to it.
