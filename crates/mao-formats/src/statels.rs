@@ -218,10 +218,11 @@ pub fn parse_report(file: &[u8]) -> Result<(Vec<Statel>, usize, usize), Error> {
     if global != 4 {
         let count = r.u16("the global statel count")?;
         for _ in 0..count {
-            // (Only the zones' statels are collected; a global statel that
-            // can't be read ends the global data.)
-            if statel(&mut r).is_err() {
-                break;
+            // (A global statel that can't be read ends the global data.)
+            match statel(&mut r) {
+                Ok(Some(s)) => out.push(s),
+                Ok(None) => {}
+                Err(_) => break,
             }
         }
     }
