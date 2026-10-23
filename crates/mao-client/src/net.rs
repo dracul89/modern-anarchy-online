@@ -303,6 +303,9 @@ struct Motion {
 /// How long a jump is in the air (twice the rise time) and how long the landing plays, in ms.
 const AIR_MS: f32 = 1400.0;
 const LAND_MS: f32 = 350.0;
+/// The first step and the stop play faster than the files' own pace so a short tap doesn't outlast the movement.
+const START_RATE: f32 = 2.2;
+const STOP_RATE: f32 = 2.8;
 
 impl Characters {
     fn new(db: Arc<ResourceDatabase>) -> Result<Characters, String> {
@@ -416,20 +419,20 @@ impl Characters {
         let elapsed = since.elapsed().as_secs_f32() * 1000.0;
         let Some(st) = self.motions.get_mut(&id) else { return (Idle, None) };
         match stage {
-            Stage::Start if elapsed < start => (action, Some(elapsed)),
+            Stage::Start if elapsed * START_RATE < start => (action, Some(elapsed * START_RATE)),
             Stage::Start | Stage::Loop => {
-                let into = if stage == Stage::Start { elapsed - start } else { elapsed };
+                let into = if stage == Stage::Start { elapsed - start / START_RATE } else { elapsed };
                 if stage == Stage::Start {
                     *st = Motion { stage: Stage::Loop, action, since: now - Duration::from_secs_f32(into / 1000.0) };
                 }
                 (action, Some(start + into % cycle))
             }
             _ => {
-                if end + elapsed >= length {
+                if end + elapsed * STOP_RATE >= length {
                     st.stage = Stage::Idle;
                     (Idle, None)
                 } else {
-                    (action, Some(end + elapsed))
+                    (action, Some(end + elapsed * STOP_RATE))
                 }
             }
         }
@@ -509,7 +512,7 @@ fn overlay_model(world: &World, characters: &mut Option<Characters>, include: &d
         let info = world.infos.get(&id).filter(|i| i.is_humanoid());
         if let (Some(info), Some(chars)) = (info, characters.as_mut()) {
             // Movement animates while the position changes (our own is sampled every frame, the others' every few hundred ms).
-            let moving = world.last_move.get(&id).is_some_and(|t| t.elapsed() < Duration::from_millis(if id == world.own { 220 } else { 700 }));
+            let moving = world.last_move.get(&id).is_some_and(|t| t.elapsed() < Duration::from_millis(if id == world.own { 90 } else { 700 }));
             let speed = world.speeds.get(&id).copied().unwrap_or(0.0);
             let action = if !moving { None } else if speed > 5.5 { Some(mao_formats::appearance::Action::Run) } else { Some(mao_formats::appearance::Action::Walk) };
             let jumped = world.jumped.get(&id).map(|t| t.elapsed());
