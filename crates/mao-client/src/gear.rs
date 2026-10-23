@@ -33,6 +33,9 @@ pub struct GearItem {
     pub icon: Option<Arc<Icon>>,
 }
 
+/// How many places the backpack has.
+pub const PACK_SLOTS: u32 = 30;
+
 /// The original's "Wear" window: four tabs of three columns, with each cell's placement
 /// (from the original client's own window and the capture: the belt "Deck" holds the NCU units
 /// "Deck 1-6", the social tab starts at placement 49). `None` is a cell whose placement is not known.
@@ -225,9 +228,15 @@ impl GearWindow {
                     pack.sort_by_key(|i| i.slot);
                     egui::ScrollArea::vertical().max_height(440.0).show(ui, |ui| {
                         ui.horizontal_wrapped(|ui| {
-                            ui.set_width(7.0 * (CELL + 3.0));
+                            ui.set_width(6.0 * (CELL + 3.0));
                             ui.spacing_mut().item_spacing = egui::vec2(3.0, 3.0);
-                            for item in pack {
+                            // The pack has 30 places: each item sits in its own, and the free ones are drawn empty.
+                            for place in 0..PACK_SLOTS {
+                                let item = pack.iter().find(|i| i.slot == inventory::BACKPACK_FIRST + place).copied();
+                                self.cell(ui, item, "", accent);
+                            }
+                            // Anything outside those places (a larger pack, a bag's contents) follows.
+                            for item in pack.iter().filter(|i| i.slot >= inventory::BACKPACK_FIRST + PACK_SLOTS) {
                                 self.cell(ui, Some(item), "", accent);
                             }
                         });
