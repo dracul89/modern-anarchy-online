@@ -367,7 +367,12 @@ fn run(args: &[String]) -> Result<(), String> {
                         // MAO_CAPTURE=<capture.log> as well: the worn items of that session build the shown values (stored level 8).
                         if let Some(entries) = std::env::var_os("MAO_CAPTURE").and_then(|log| net::capture_entries(&log.to_string_lossy()).ok()) {
                             let level: i64 = std::env::var("MAO_LEVEL").ok().and_then(|l| l.parse().ok()).unwrap_or(8);
-                            let modifiers = derived::worn_modifiers(&db, &entries, level);
+                            let perks: Vec<u32> = std::env::var_os("MAO_CAPTURE").and_then(|log| net::capture_message(&log.to_string_lossy(), mao_net::inventory::WORLD_ENTRY)).map(|v| match v.get("Perks") {
+                                Some(mao_net::schema::Value::List(items)) => items.iter().filter_map(|i| i.get("SkillId").and_then(mao_net::schema::Value::as_int)).map(|x| x as u32).collect(),
+                                _ => Vec::new(),
+                            }).unwrap_or_default();
+                            eprintln!("perks: {perks:?}");
+                            let modifiers = derived::modifiers(&db, &entries, &perks, level);
                             eprintln!("worn modifiers: {modifiers:?}");
                             hud.stats = derived::shown(&[(LEVEL, level)].into(), &modifiers);
                         }

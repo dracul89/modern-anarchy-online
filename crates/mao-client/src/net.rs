@@ -127,6 +127,8 @@ struct World {
     stats_changed: bool,
     /// The summed effects of the worn items (see `derived`), added to the stored stats for display.
     item_mods: BTreeMap<u32, i64>,
+    /// The perks (and research ranks) the world-entry message lists for the character.
+    perks: Vec<u32>,
     /// The identity type each entity was first heard of with (what a use message names it by).
     types: BTreeMap<u32, u32>,
     /// The vending machines (booths: shops, and the mission booths' companions) with their positions.
@@ -145,6 +147,12 @@ const DYNAMIC_NPC: u32 = 0x7a00_0000;
 /// The server's announcement of a usable object, and the identity type of those objects.
 const OBJECT_ANNOUNCE: u32 = 0x4f474e05;
 const OBJECT_TYPE: u32 = 0xc76a;
+
+/// The perk ids of a parsed world-entry message's `Perks` list.
+fn perk_ids(list: Option<&mao_net::schema::Value>) -> Vec<u32> {
+    let Some(mao_net::schema::Value::List(items)) = list else { return Vec::new() };
+    items.iter().filter_map(|i| i.get("SkillId").and_then(mao_net::schema::Value::as_int)).map(|v| v as u32).collect()
+}
 
 impl World {
     /// Where an entity or usable object is.
@@ -203,6 +211,7 @@ impl World {
                 for list in ["Stats1", "Stats2", "Stats3", "Stats4"] {
                     self.read_stats(p.value.get(list));
                 }
+                self.perks = perk_ids(p.value.get("Perks"));
             }
         }
         // A stat of the character changed.
@@ -856,7 +865,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut pending_scene: Option<Model> = None;
         let first_inventory = state.inventory.take();
         if let Some(entries) = &first_inventory {
-            state.item_mods = crate::derived::worn_modifiers(&gear_db, entries, state.stats.get(&0x36).copied().unwrap_or(1));
+            state.item_mods = crate::derived::modifiers(&gear_db, entries, &state.perks, state.stats.get(&0x36).copied().unwrap_or(1));
             state.stats_changed = true;
         }
         let mut pending_gear = first_inventory.map(|e| crate::gear::from_entries(&gear_db, &gear_textures, &e));
@@ -1069,7 +1078,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         pending_destinations = Some(list);
                     }
                     if let Some(entries) = state.inventory.take() {
-                        state.item_mods = crate::derived::worn_modifiers(&gear_db, &entries, state.stats.get(&0x36).copied().unwrap_or(1));
+                        state.item_mods = crate::derived::modifiers(&gear_db, &entries, &state.perks, state.stats.get(&0x36).copied().unwrap_or(1));
                         state.stats_changed = true;
                         pending_gear = Some(crate::gear::from_entries(&gear_db, &gear_textures, &entries));
                     }

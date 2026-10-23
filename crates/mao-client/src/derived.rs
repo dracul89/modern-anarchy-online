@@ -46,6 +46,33 @@ fn effects(db: &ResourceDatabase, entry: &Entry, level: i64) -> Vec<(u32, i64)> 
         .collect()
 }
 
+/// The perk-record type; its instance is the perk id and the template of the perk's item is the word at byte 12.
+const PERK_RECORD: u32 = 0xf4264;
+
+/// The summed standing effects of the perks (and research ranks) the server lists for the character, by stat. Each perk
+/// rank is an item-type template reached through its perk record.
+pub fn perk_modifiers(db: &ResourceDatabase, perks: &[u32], level: i64) -> BTreeMap<u32, i64> {
+    let mut sum = BTreeMap::new();
+    for &perk in perks {
+        let Some(record) = db.get(Id { kind: PERK_RECORD, instance: perk }).ok().flatten() else { continue };
+        let Some(template) = record.get(12..16).map(|b| u32::from_le_bytes(b.try_into().unwrap())) else { continue };
+        let Some(data) = db.get(Id { kind: item::TEMPLATE, instance: template }).ok().flatten() else { continue };
+        for (stat, amount) in item::modifiers_at(&data, level) {
+            *sum.entry(stat).or_insert(0) += amount as i64;
+        }
+    }
+    sum
+}
+
+/// Everything that adds to the stored stats: what is worn and the perks.
+pub fn modifiers(db: &ResourceDatabase, entries: &[Entry], perks: &[u32], level: i64) -> BTreeMap<u32, i64> {
+    let mut sum = worn_modifiers(db, entries, level);
+    for (stat, amount) in perk_modifiers(db, perks, level) {
+        *sum.entry(stat).or_insert(0) += amount;
+    }
+    sum
+}
+
 /// The summed effects of everything worn, by stat.
 pub fn worn_modifiers(db: &ResourceDatabase, entries: &[Entry], level: i64) -> BTreeMap<u32, i64> {
     let mut sum = BTreeMap::new();
