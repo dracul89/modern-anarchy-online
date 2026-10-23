@@ -159,3 +159,27 @@ A perk's data is an item-type record: `FUN_1002bce7` looks it up as database typ
 can already parse. What remains is the list of owned perks: `N3Msg_GetCompletedPersonalResearchGoals` is not it (8 goals). The perk
 manager is the singleton from `FUN_1002c0d5()` (vector of 28-byte records at `+0x34..+0x38`, flags at `+0xc`, bit 7 = perk, owned
 count at `+0x1c` of the entry from `FUN_1002be1a`); its records and `GetSkill(0x21, 2)` have not been dumped yet.
+
+## The perk manager (dumped live) and the 702 events
+
+The perk manager singleton is the pointer at `Gamecode.dll + 0x2e35b8` (image address `0x102e35b8`). Its vector at `+0x34..+0x38` holds
+**2063 records of 28 bytes**: `perk id, item template id (type 0xf4254), previous rank's id, 0, flags, aux, cost`
+(`docs/perk_records.json`). Ids 100-109, 110-113, ... are the ranks of one line (each rank's `previous` is the rank below).
+The research goals are the same kind of record (ids 2300-2369 and 10002-10004, flags 64). The three maps at `+0, +0x10, +0x20`
+list the 54 research definitions (3000-range, cost in the last field), not what the character owns.
+
+Each template carries its effects in the `0xcf35, 0, 4, N, (stat, value, op)*N, 1, 0, 2, 9, stat, amount` form; for perks the
+stat and amount are in the tail after the `1, 0, 2, 9` marker (`N` is 0). Parsed for all of them: `docs/perk_effects.json`
+(1951 records with at least one effect; e.g. perk 100 is max health +15 and stat 221 +50, perk 109 is +45 and +280).
+
+Matching against the 702 unexplained events:
+
+* The completed research (the 8 goals from `GetCompletedPersonalResearchGoals`, plus every lower rank in their `previous` chains:
+  2300-2369 and 10002-10004) yields 221 events, **every one inside the unexplained set** (no overshoot).
+* Nine whole perk lines (170-179, 200-209, 270-279, 420-429, 510-513, 550-554, 1070-1079, 1150-1159, 1180-1189) also fit,
+  and together with the research cover 651 of the 702 events (34 over, 51 left, which is the ambiguity of a multiset match:
+  several lines share the same amounts). So the source is confirmed: the **rank ladders of research and perk lines**, read from
+  the perk records' item templates, applied when the character has them.
+* Still unknown is which perk ranks the server says the character owns (the research list is read from a map at the
+  `FUN_10058ff8()` object, state flag bit 6 of the entry at `+0x1c`). The perk side needs the same read (bit 7 flag entries of
+  `FUN_1002be1a` with count `+0x1c`).
