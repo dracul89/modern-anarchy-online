@@ -185,12 +185,21 @@ matching names.
 
 ## 4j. Shop window (use a booth with `E`)
 
-Booths (vending machines, identity `0xc75b`) are now targetable (Ctrl+Tab) and usable (`E`). Using one makes the server
-send `ShopUpdate` (the stock: low id, high id, quality) and a `Trade` open (booth + a temporary bag `0xc767`). The window
-shows the stock as an icon grid with the selected item's name and description from the item templates; Close sends a
-`Trade` decline, as the original does. **Buy is unverified**: it puts `(0x767, index)` into the bag (`ClientContainerAddItem`)
-and accepts the trade with the booth's identity. Prices are not in the stock message, so none are shown; selling is not
-built. A purchase capture from a paid account would settle both. Preview: `MAO_UI_PREVIEW=shop MAO_CAPTURE=<log>`.
+Booths (vending machines, identity `0xc75b`) are targetable (Ctrl+Tab) and usable (`E`). Using one makes the server send
+`ShopUpdate` (the stock: low id, high id, quality) and a `Trade` open. The window shows the stock as an icon grid with the
+selected item's name and description from the item templates; Close sends a `Trade` decline, as the original does.
+**Buying and selling are from the fifth capture** (`capture-225436.log`): `Trade` action 5 (add) with
+`(0xc75b, booth, 0x6f, stock index)` to buy or `(0xc350, character, 0x68, inventory slot)` to sell, then action 1 (accept);
+the server answers action 4 (complete), a credits update and the item changes, and the client uses the booth again for the
+next trade (so does this one). Prices are not in the messages, so none are shown. The Sell list shows the backpack (slots
+from 64). Not yet checked live. Preview: `MAO_UI_PREVIEW=shop MAO_CAPTURE=<log>`.
+
+## 4k. Chat server
+
+A second connection to `chat.d1.funcom.com:7105` (`mao_net::chat`, decoded from the captures, login tested live): salt,
+login with the same challenge response, then names, channel lists, notices and channel messages. Channel messages and
+notices go to the on-screen log. Vicinity, tell and sending are not decoded yet (no capture with a spoken line);
+`MAO_NO_CHAT=1` disables it, `net <game> chat [seconds]` prints what arrives.
 
 ## Next
 - Decode the key-binding providers (verify the assumed defaults).
