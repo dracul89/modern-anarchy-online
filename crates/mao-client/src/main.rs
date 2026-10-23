@@ -15,6 +15,7 @@
 
 mod actions;
 mod stats;
+mod vitals;
 mod automap;
 mod actions_data;
 mod anim;
@@ -363,7 +364,7 @@ fn run(args: &[String]) -> Result<(), String> {
                     if preview.as_deref() == Some("stats") {
                         use stats::stat::*;
                         hud.character_name = "Conjecture".into();
-                        hud.stats = [(LEVEL, 220), (HEALTH, 35196), (MAX_HEALTH, 35196), (CURRENT_NANO, 11380), (MAX_NANO, 11380), (ADD_ALL_OFF, 2865), (MELEE_AC, 14516), (PROJECTILE_AC, 15106), (ENERGY_AC, 14446), (POISON_AC, 14376), (CHEMICAL_AC, 14266), (RADIATION_AC, 14266), (COLD_AC, 14751), (FIRE_AC, 14646)].into_iter().collect();
+                        hud.stats = [(LEVEL, 220), (HEALTH, 35196), (MAX_HEALTH, 35196), (CURRENT_NANO, 11380), (MAX_NANO, 11380), (ADD_ALL_OFF, 2865), (XP, 14935041 + 1500000), (LAST_XP, 14935041), (NEXT_XP, 18002049), (ALIEN_XP, 306522), (ALIEN_NEXT_XP, 400000), (ALIEN_LEVEL, 30), (MELEE_AC, 14516), (PROJECTILE_AC, 15106), (ENERGY_AC, 14446), (POISON_AC, 14376), (CHEMICAL_AC, 14266), (RADIATION_AC, 14266), (COLD_AC, 14751), (FIRE_AC, 14646)].into_iter().collect();
                         // MAO_CAPTURE=<capture.log> as well: the worn items of that session build the shown values (stored level 8).
                         if let Some(entries) = std::env::var_os("MAO_CAPTURE").and_then(|log| net::capture_entries(&log.to_string_lossy()).ok()) {
                             let level: i64 = std::env::var("MAO_LEVEL").ok().and_then(|l| l.parse().ok()).unwrap_or(8);

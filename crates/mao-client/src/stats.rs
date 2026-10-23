@@ -23,6 +23,12 @@ pub mod stat {
     pub const CURRENT_NANO: u32 = 0xd6;
     pub const MAX_NANO: u32 = 0xdd;
     pub const ADD_ALL_OFF: u32 = 0x114;
+    pub const XP: u32 = 0x34;
+    pub const LAST_XP: u32 = 0x39;
+    pub const NEXT_XP: u32 = 0x15e;
+    pub const ALIEN_XP: u32 = 0x28;
+    pub const ALIEN_NEXT_XP: u32 = 0xb2;
+    pub const ALIEN_LEVEL: u32 = 0xa9;
 }
 
 /// The rows under the bars, in the original's order.
@@ -43,7 +49,7 @@ pub struct StatsWindow {
     pub open: bool,
 }
 
-fn bar(ui: &mut egui::Ui, fill: egui::Color32, value: Option<i64>, max: Option<i64>) {
+pub(crate) fn bar(ui: &mut egui::Ui, fill: egui::Color32, value: Option<i64>, max: Option<i64>) {
     let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 18.0), egui::Sense::hover());
     let painter = ui.painter();
     painter.rect_filled(rect, 3.0, egui::Color32::from_black_alpha(170));

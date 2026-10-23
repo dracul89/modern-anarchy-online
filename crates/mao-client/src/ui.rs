@@ -214,6 +214,7 @@ impl Ui {
             hud_layer(&ctx, hud, project, fps, settings.mode, palette);
             let booths: Vec<[f32; 2]> = hud.labels.iter().map(|l| [l.world.x, l.world.y]).collect();
             automap.show(&ctx, hud.position.map(|p| ([p[0], p[2]], hud.heading)), hud.camera_yaw, &hud.map_dots, &booths, &hud.location);
+            crate::vitals::show(&ctx, &hud.stats, palette);
             hotbar_layer(&ctx, hotbars, gear, &hud.gear, &*actions, clock_now, palette, &mut requests);
             if stats_window.open {
                 stats_window.show(&ctx, &hud.character_name, &hud.stats, palette);
@@ -311,6 +312,7 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
         let output = ctx.run_ui(raw, |ui| {
             let ctx = ui.ctx().clone();
             hud_layer(&ctx, hud, project, 60.0, settings.mode, &palette);
+            crate::vitals::show(&ctx, &hud.stats, &palette);
             hotbar_layer(&ctx, &mut hotbars, &mut gear, &hud.gear, &crate::actions::ActionsWindow::default(), 1.5, &palette, &mut requests);
             if hud.whompah_open {
                 whompah_window(&ctx, &mut true, hud, &palette, &mut requests);
