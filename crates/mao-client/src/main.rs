@@ -200,6 +200,20 @@ pub(crate) fn whompah_booths(game: &str, db: &ResourceDatabase, playfield: u32) 
     statels.iter().filter(|s| booth_meshes.contains(&s.mesh)).map(|s| s.position).collect()
 }
 
+/// The door blockers of an interior (the statels that stand in its doorway), x, height, z.
+pub(crate) fn door_markers(game: &str, db: &ResourceDatabase, playfield: u32) -> Vec<[f32; 3]> {
+    let meshes: std::collections::HashSet<u32> = db
+        .get(Id { kind: 0xf424a, instance: 1 })
+        .ok()
+        .flatten()
+        .and_then(|o| mao_formats::instances::Instances::parse(&o).ok())
+        .map(|index| index.iter().filter(|&(kind, name, _)| kind == 0xf6951 && name == "door_blocker.abiff").map(|(_, _, instance)| instance).collect())
+        .unwrap_or_default();
+    let Ok(file) = std::fs::read(Path::new(game).join(format!("cd_image/data/statels/{playfield}.pf"))) else { return Vec::new() };
+    let Ok(statels) = mao_formats::statels::parse(&file) else { return Vec::new() };
+    statels.iter().filter(|s| meshes.contains(&s.mesh)).map(|s| s.position).collect()
+}
+
 /// A playfield by number (decimal, or hex with `0x`) or by part of its name.
 fn find_playfield(db: &ResourceDatabase, text: &str) -> Result<u32, String> {
     if let Some(n) = playfield_number(text) {

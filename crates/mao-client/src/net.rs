@@ -231,6 +231,16 @@ impl World {
 }
 
 
+/// A flat floor under an interior whose own floor this client can't read (its ground is of the unread tile-map
+/// layout): a square of 200 units around (`x`, `z`) at `height`, drawn from both sides.
+fn floor_part(x: f32, z: f32, height: f32) -> Part {
+    let corners = [(-100.0, -100.0), (100.0, -100.0), (100.0, 100.0), (-100.0, 100.0)];
+    let vertices = corners.iter().map(|(dx, dz)| Vertex { position: [x + dx, height, z + dz], normal: [0.0, 1.0, 0.0], uv: [0.0, 0.0] }).collect();
+    let colour = [0.42, 0.40, 0.38];
+    let material = Material { name: "floor".into(), diffuse: colour, specular: [0.0; 3], ambient: colour, emissive: [0.0; 3], opacity: 1.0, textures: Vec::new(), ignore_alpha: false, foliage: false };
+    Part { name: "floor".into(), world: model::IDENTITY, vertices, indices: vec![0, 1, 2, 0, 2, 3, 0, 2, 1, 0, 3, 2], material }
+}
+
 /// A box of 0.6 x 1.8 x 0.6 standing on the origin (Y-up), in `colour`.
 fn marker(colour: [f32; 3]) -> Part {
     let (hx, h) = (0.3f32, 1.8f32);
@@ -319,7 +329,8 @@ const AIR_MS: f32 = 1400.0;
 const LAND_MS: f32 = 350.0;
 /// The first step and the stop play faster than the files' own pace so a short tap doesn't outlast the movement.
 const START_RATE: f32 = 2.2;
-const STOP_RATE: f32 = 2.8;
+/// The stop part plays through in this many ms however long the file's is (the character has already stopped).
+const STOP_MS: f32 = 280.0;
 
 impl Characters {
     fn new(db: Arc<ResourceDatabase>) -> Result<Characters, String> {
@@ -449,11 +460,12 @@ impl Characters {
                 (action, Some(start + into % cycle))
             }
             _ => {
-                if end + elapsed * STOP_RATE >= length {
+                let rate = ((length - end) / STOP_MS).max(1.0);
+                if end + elapsed * rate >= length {
                     st.stage = Stage::Idle;
                     (Idle, None)
                 } else {
-                    (action, Some(end + elapsed * STOP_RATE))
+                    (action, Some(end + elapsed * rate))
                 }
             }
         }
@@ -672,7 +684,11 @@ fn load_area(game: &str, db: &Arc<ResourceDatabase>, playfield: u32) -> Result<A
     let passable = passable_parts(db, &part_mesh);
     let collision = build_collision(&scene, ground_parts, &crate::Textures::new(db.clone()), &passable);
     eprintln!("playfield {playfield}: collision {} triangles", collision.len());
-    let booths = crate::whompah_booths(game, db, playfield);
+    let mut booths = crate::whompah_booths(game, db, playfield);
+    if terrain.is_none() {
+        // An interior's way out is marked by its door blocker: offer it like a booth (labelled, and the Go button walks there).
+        booths.extend(crate::door_markers(game, db, playfield));
+    }
     Ok(Area { scene, terrain, collision, booths })
 }
 
@@ -1047,7 +1063,13 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     match load_area(&game_dir, &thread_db, playfield) {
                         Ok(area) => {
                             (terrain, collision) = (area.terrain, area.collision);
-                            pending_scene = Some(area.scene);
+                            let mut scene = area.scene;
+                            if terrain.is_none() {
+                                // An interior: the floor isn't readable, so lay a plain one at the arrival height.
+                                scene.parts.push(floor_part(arrival[0], arrival[2], arrival[1] - 0.03));
+                                scene.instances.push((scene.parts.len() - 1, model::IDENTITY));
+                            }
+                            pending_scene = Some(scene);
                             booths = area.booths;
                             booth_playfield = playfield;
                             pending_labels = Some(booth_labels(playfield, &booths, &destinations, &names));
