@@ -121,6 +121,10 @@ struct World {
     arrival: Option<(u32, [f32; 3])>,
     /// The character's items, from the world-entry message (until taken).
     inventory: Option<Vec<inventory::Entry>>,
+    /// The character's stats by stat number (the world-entry message and the later `Stat` messages), and whether
+    /// they changed since they were last sent to the interface.
+    stats: BTreeMap<u32, i64>,
+    stats_changed: bool,
     /// The identity type each entity was first heard of with (what a use message names it by).
     types: BTreeMap<u32, u32>,
     /// The vending machines (booths: shops, and the mission booths' companions) with their positions.
@@ -144,6 +148,18 @@ impl World {
     /// Where an entity or usable object is.
     fn position_of(&self, id: u32) -> Option<[f32; 3]> {
         self.entities.get(&id).map(|e| e.0).or_else(|| self.objects.get(&id).copied())
+    }
+
+    /// Takes a list of (stat, value) pairs of a parsed message into the character's stats.
+    fn read_stats(&mut self, list: Option<&mao_net::schema::Value>) {
+        let Some(mao_net::schema::Value::List(items)) = list else { return };
+        for item in items {
+            if let (Some(s), Some(v)) = (item.get("Item1").and_then(mao_net::schema::Value::as_int), item.get("Item2").and_then(mao_net::schema::Value::as_int)) {
+                if self.stats.insert(s as u32, v) != Some(v) {
+                    self.stats_changed = true;
+                }
+            }
+        }
     }
 
     fn add(&mut self, frame: &frame::Frame) {
@@ -181,6 +197,17 @@ impl World {
         }
         if m.kind == inventory::WORLD_ENTRY && m.identity.1 == self.own {
             self.inventory = Some(inventory::parse(&m.data));
+            if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
+                for list in ["Stats1", "Stats2", "Stats3", "Stats4"] {
+                    self.read_stats(p.value.get(list));
+                }
+            }
+        }
+        // A stat of the character changed.
+        if m.kind == 0x2b333d6e && m.identity.1 == self.own {
+            if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
+                self.read_stats(p.value.get("Stats"));
+            }
         }
         if let Some(q) = m.rotation() {
             self.rotations.insert(m.identity.1, q);
@@ -1547,6 +1574,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     own_model,
                     own_velocity,
                     map: pending_map.take(),
+                    stats: std::mem::take(&mut state.stats_changed).then(|| (state.names.get(&own).map(|n| n.0.clone()).unwrap_or_default(), state.stats.clone())),
                     map_dots: {
                         let friendly_name = |name: &str| ["Vanguard", "Watcher", "Commander", "Guard", "Merchant", "Trader", "Recruiter", "Helper"].iter().any(|w| name.contains(w));
                         state

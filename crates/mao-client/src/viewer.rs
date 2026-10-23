@@ -63,6 +63,8 @@ pub struct Update {
     pub own_velocity: [f32; 3],
     /// New cells of the map (fog of war), and the people about (for its dots).
     pub map: Option<crate::automap::MapPatch>,
+    /// The character's name and stats, when they change.
+    pub stats: Option<(String, std::collections::BTreeMap<u32, i64>)>,
     pub map_dots: Vec<([f32; 2], crate::automap::DotKind)>,
     /// The ground (and how far the server's heights sit above it), to keep the camera above it.
     pub ground: Option<(std::sync::Arc<mao_formats::terrain::Terrain>, f32)>,
@@ -453,6 +455,11 @@ impl ApplicationHandler for App {
                                 press_slot(ui, n as usize, &mut self.keys, &mut self.hud);
                             }
                         }
+                        Action::StatsWindow if !event.repeat => {
+                            if let Some(ui) = w.ui.as_mut() {
+                                ui.stats.open = !ui.stats.open;
+                            }
+                        }
                         Action::MapOverlay if !event.repeat => {
                             if let Some(ui) = w.ui.as_mut() {
                                 ui.automap.overlay = !ui.automap.overlay;
@@ -644,6 +651,10 @@ impl ApplicationHandler for App {
                             if let Some(status) = u.mail_status.take() {
                                 ui.mail.status = status;
                             }
+                        }
+                        if let Some((name, stats)) = u.stats.take() {
+                            self.hud.character_name = name;
+                            self.hud.stats = stats;
                         }
                         if let (Some(patch), Some(ui)) = (u.map.take(), w.ui.as_mut()) {
                             ui.automap.apply(patch);

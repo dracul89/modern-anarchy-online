@@ -14,6 +14,7 @@
 //! orbit, scroll to zoom, WASD to move the view point, Q/E down and up.
 
 mod actions;
+mod stats;
 mod automap;
 mod actions_data;
 mod anim;
@@ -348,6 +349,14 @@ fn run(args: &[String]) -> Result<(), String> {
                     hud.labels = net::booth_labels(number, &whompah_booths(game, &db, number), &destinations, &names).into_iter().map(|(p, text)| ui::Label { world: mao_render::glam::Vec3::from(p), text }).collect();
                     hud.target = Some("Rollerrat  (12 m)".into());
                     // MAO_UI_PREVIEW=gear + MAO_CAPTURE=<capture.log>: the inventory window from a captured session.
+                    if preview.as_deref() == Some("stats") {
+                        use stats::stat::*;
+                        hud.character_name = "Conjecture".into();
+                        hud.stats = [(LEVEL, 220), (HEALTH, 35196), (MAX_HEALTH, 35196), (CURRENT_NANO, 11380), (MAX_NANO, 11380), (ADD_ALL_OFF, 2865), (MELEE_AC, 14516), (PROJECTILE_AC, 15106), (ENERGY_AC, 14446), (POISON_AC, 14376), (CHEMICAL_AC, 14266), (RADIATION_AC, 14266), (COLD_AC, 14751), (FIRE_AC, 14646)].into_iter().collect();
+                        let mut window = stats::StatsWindow::default();
+                        window.open = true;
+                        *hud.stats_preview.lock().unwrap() = Some(window);
+                    }
                     if preview.as_deref() == Some("map") {
                         // MAO_UI_PREVIEW=map: walk a path through the playfield, revealing the map as the game would.
                         let area = net::load_area(game, &db, number)?;

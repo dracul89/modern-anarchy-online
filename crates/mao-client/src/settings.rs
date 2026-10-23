@@ -106,6 +106,8 @@ pub enum Action {
     MailWindow,
     /// The Action window: special actions, perks, social actions and dances.
     ActionsWindow,
+    /// The Stats window: health, nano and armour classes.
+    StatsWindow,
     /// The big map over the view (the corner map is always there).
     MapOverlay,
     /// Press slot n (0..10) of the shown hotbar.
@@ -162,6 +164,7 @@ pub const ACTIONS: &[(Action, &str, &str)] = &[
     (Action::MailWindow, "mail_window", "Ctrl+M"),
     (Action::ActionsWindow, "actions_window", "K"),
     (Action::MapOverlay, "map_overlay", "O"),
+    (Action::StatsWindow, "stats_window", "U"),
     (Action::HotbarSlot(0), "hotbar_slot_1", "1"),
     (Action::HotbarSlot(1), "hotbar_slot_2", "2"),
     (Action::HotbarSlot(2), "hotbar_slot_3", "3"),

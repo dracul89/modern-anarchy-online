@@ -31,6 +31,9 @@ pub struct Hud {
     pub position: Option<[f32; 3]>,
     pub heading: f32,
     pub camera_yaw: f32,
+    /// The character's name and stats (by stat number), for the Stats window.
+    pub character_name: String,
+    pub stats: std::collections::BTreeMap<u32, i64>,
     /// Who is about, for the map: (x, z) and what.
     pub map_dots: Vec<([f32; 2], crate::automap::DotKind)>,
     pub labels: Vec<Label>,
@@ -56,6 +59,8 @@ pub struct Hud {
     pub actions_preview: std::sync::Mutex<Option<crate::actions::ActionsWindow>>,
     /// A map a headless preview shows.
     pub map_preview: std::sync::Mutex<Option<crate::automap::AutoMap>>,
+    /// A Stats window a headless preview shows.
+    pub stats_preview: std::sync::Mutex<Option<crate::stats::StatsWindow>>,
     /// What the last frame drew (parts), shown beside the frame rate.
     pub draw_info: String,
 }
@@ -114,6 +119,7 @@ pub struct Ui {
     pub shop: crate::shop::ShopWindow,
     pub actions: crate::actions::ActionsWindow,
     pub automap: crate::automap::AutoMap,
+    pub stats: crate::stats::StatsWindow,
     gear: crate::gear::GearWindow,
     /// The hotbars, and the clock their cooldowns run on.
     pub hotbars: Hotbars,
@@ -170,7 +176,7 @@ impl Ui {
         theme(&ctx, &palette);
         let state = egui_winit::State::new(ctx.clone(), egui::ViewportId::ROOT, window, Some(window.scale_factor() as f32), window.theme(), None);
         let renderer = egui_wgpu::Renderer::new(&gpu.device, format, egui_wgpu::RendererOptions::default());
-        Ui { ctx, state, renderer, options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), shop: Default::default(), actions: Default::default(), automap: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0 }
+        Ui { ctx, state, renderer, options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), shop: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0 }
     }
 
     /// Switches to the theme `name` (a `theme =` setting).
@@ -201,7 +207,7 @@ impl Ui {
         let mut requests = Requests::default();
         let (options_open, rebinding, fps, palette, themes) = (&mut self.options_open, &mut self.rebinding, self.fps, &self.palette, &self.themes);
         let (gear_open, gear, whompah_open) = (&mut self.gear_open, &mut self.gear, &mut self.whompah_open);
-        let (mission, mail, shop, actions, automap) = (&mut self.mission, &mut self.mail, &mut self.shop, &mut self.actions, &mut self.automap);
+        let (mission, mail, shop, actions, automap, stats_window) = (&mut self.mission, &mut self.mail, &mut self.shop, &mut self.actions, &mut self.automap, &mut self.stats);
         let (hotbars, clock_now) = (&mut self.hotbars, self.clock.elapsed().as_secs_f64());
         let output = self.ctx.run_ui(raw, |ui| {
             let ctx = ui.ctx().clone();
@@ -209,6 +215,9 @@ impl Ui {
             let booths: Vec<[f32; 2]> = hud.labels.iter().map(|l| [l.world.x, l.world.y]).collect();
             automap.show(&ctx, hud.position.map(|p| ([p[0], p[2]], hud.heading)), hud.camera_yaw, &hud.map_dots, &booths, &hud.location);
             hotbar_layer(&ctx, hotbars, gear, &hud.gear, &*actions, clock_now, palette, &mut requests);
+            if stats_window.open {
+                stats_window.show(&ctx, &hud.character_name, &hud.stats, palette);
+            }
             if actions.open {
                 actions.show(&ctx, gear, palette);
                 if let Some(a) = actions.clicked.take() {
@@ -293,6 +302,7 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
     let mut preview_shop = hud.shop_preview.lock().ok().and_then(|mut m| m.take());
     let mut preview_actions = hud.actions_preview.lock().ok().and_then(|mut m| m.take());
     let mut preview_map = hud.map_preview.lock().ok().and_then(|mut m| m.take());
+    let mut preview_stats = hud.stats_preview.lock().ok().and_then(|mut m| m.take());
     let mut last = None;
     // Several frames: the first lays out and uploads the fonts, and the windows
     // fade in over the next ones; the last is what is drawn.
@@ -307,6 +317,9 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
             }
             if let Some(window) = preview_mission.as_mut() {
                 window.show(&ctx, &mut gear, &palette);
+            }
+            if let Some(window) = preview_stats.as_mut() {
+                window.show(&ctx, &hud.character_name, &hud.stats, &palette);
             }
             if let Some(map) = preview_map.as_mut() {
                 let at = hud.position.unwrap_or([0.0; 3]);
