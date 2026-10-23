@@ -127,6 +127,10 @@ struct World {
     objects: BTreeMap<u32, [f32; 3]>,
 }
 
+/// Entities spawned by the game (the backyard's monsters, which are dressed like players) have ids from here up;
+/// characters have lower ones (seen in the captures and live).
+const DYNAMIC_NPC: u32 = 0x7a00_0000;
+
 /// The server's announcement of a usable object, and the identity type of those objects.
 const OBJECT_ANNOUNCE: u32 = 0x4f474e05;
 const OBJECT_TYPE: u32 = 0xc76a;
@@ -1110,7 +1114,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 let friendly_name = |name: &str| ["Vanguard", "Watcher", "Commander", "Guard", "Merchant", "Trader", "Recruiter", "Helper"].iter().any(|w| name.contains(w));
                 let wants_friendly = slot >= 2;
                 let near = |p: [f32; 3]| ((p[0] - position[0]).powi(2) + (p[2] - position[2]).powi(2)).sqrt();
-                let mut candidates: Vec<(f32, u32)> = state.infos.iter().filter(|(id, i)| **id != own && (i.is_player() || friendly_name(&i.name)) == wants_friendly).filter_map(|(id, _)| Some((near(state.entities.get(id)?.0), *id))).filter(|(d, _)| *d < 80.0).collect();
+                let mut candidates: Vec<(f32, u32)> = state.infos.iter().filter(|(id, i)| **id != own && ((i.is_player() && **id < DYNAMIC_NPC) || friendly_name(&i.name)) == wants_friendly).filter_map(|(id, _)| Some((near(state.entities.get(id)?.0), *id))).filter(|(d, _)| *d < 80.0).collect();
                 if wants_friendly {
                     candidates.extend(state.objects.iter().map(|(id, p)| (near(*p), *id)).filter(|(d, _)| *d < 80.0));
                 }
@@ -1292,7 +1296,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     continue;
                 }
                 let (nx, nz) = (position[0] + tx, position[2] + tz);
-                if keys.noclip || !collision.blocked(nx, nz, base, 0.4, 1.8, 0.5) {
+                if keys.noclip || !collision.blocked(nx, nz, base + rise, 0.4, 1.8, 0.5) {
                     (position[0], position[2]) = (nx, nz);
                     break;
                 }
@@ -1303,16 +1307,23 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             if airborne {
                 rise += vy * dt;
                 vy -= GRAVITY * dt;
-                if rise <= 0.0 {
-                    (airborne, rise, landed) = (false, 0.0, true);
-                }
             }
             if start_jump {
                 (airborne, vy) = (true, JUMP_SPEED);
             }
             // Stand on the ground or on a floor or step within reach.
-            let floor = if keys.noclip { f32::MIN } else { collision.floor(position[0], position[2], base, 0.6, 0.6).unwrap_or(f32::MIN) };
+            // (In the air the surfaces under the feet count too: a jump clears a rock and lands on top of it.)
+            let height = base + rise;
+            let floor = if keys.noclip { f32::MIN } else { collision.floor(position[0], position[2], height, 0.6, if airborne { rise + 0.6 } else { 0.6 }).unwrap_or(f32::MIN) };
             base = (ground(&terrain, position) + offset).max(floor);
+            rise = height - base;
+            if airborne && vy <= 0.0 && rise <= 0.0 {
+                (airborne, rise, landed) = (false, 0.0, true);
+            } else if airborne && rise < 0.0 {
+                rise = 0.0;
+            } else if !airborne {
+                rise = 0.0;
+            }
             position[1] = base + rise;
             // Standing at a booth?
             if let Some(b) = booths.iter().find(|b| ((b[0] - position[0]).powi(2) + (b[2] - position[2]).powi(2)).sqrt() < 4.0) {

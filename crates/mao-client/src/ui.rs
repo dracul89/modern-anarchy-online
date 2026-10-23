@@ -358,17 +358,30 @@ fn whompah_window(ctx: &egui::Context, open: &mut bool, hud: &Hud, palette: &Pal
 fn hotbar_layer(ctx: &egui::Context, bars: &mut Hotbars, gear: &mut GearWindow, items: &[GearItem], now: f64, palette: &Palette, requests: &mut Requests) {
     let accent = rgb(palette.accent);
     let bar = bars.current;
-    egui::Area::new(egui::Id::new("hotbar")).anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -12.0)).show(ctx, |ui| {
+    // Drag it by its frame or the grip; the button beside the bar numbers turns it between horizontal and vertical.
+    let screen = ctx.content_rect();
+    let pos = bars.pos.map_or(egui::pos2(screen.center().x, screen.bottom() - 12.0), |p| egui::pos2(p[0], p[1]));
+    let pos = egui::pos2(pos.x.clamp(screen.left() + 20.0, screen.right() - 20.0), pos.y.clamp(screen.top() + 60.0, screen.bottom()));
+    let vertical = bars.vertical;
+    let mut rotate = false;
+    let area = egui::Area::new(egui::Id::new("hotbar")).pivot(egui::Align2::CENTER_BOTTOM).current_pos(pos).movable(true).show(ctx, |ui| {
         egui::Frame::new().fill(egui::Color32::from_black_alpha(130)).corner_radius(4).inner_margin(6).show(ui, |ui| {
             ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("::").weak()).on_hover_text("Drag the bar by here or its edge");
+                if ui.small_button(if vertical { "=" } else { "||" }).on_hover_text("Turn the bar between horizontal and vertical").clicked() {
+                    rotate = true;
+                }
                 for b in 0..hotbar::BARS {
                     if ui.selectable_label(bars.current == b, format!("{}", b + 1)).clicked() {
                         bars.current = b;
                     }
                 }
-                ui.label(egui::RichText::new("F1-F6 bars, 1-0 slots, drag items here, right-click to edit").small().weak());
+                if !vertical {
+                    ui.label(egui::RichText::new("F1-F6 bars, 1-0 slots, drag items here, right-click to edit").small().weak());
+                }
             });
-            ui.horizontal(|ui| {
+            let direction = if vertical { egui::Direction::TopDown } else { egui::Direction::LeftToRight };
+            ui.with_layout(egui::Layout::from_main_dir_and_cross_align(direction, egui::Align::Min), |ui| {
                 ui.spacing_mut().item_spacing = egui::vec2(3.0, 3.0);
                 for slot in 0..hotbar::SLOTS {
                     let (rect, response) = ui.allocate_exact_size(egui::vec2(46.0, 46.0), egui::Sense::click());
@@ -472,6 +485,17 @@ fn hotbar_layer(ctx: &egui::Context, bars: &mut Hotbars, gear: &mut GearWindow, 
             });
         });
     });
+    // Where the bar was dropped (or turned) is kept.
+    let rect = area.response.rect;
+    if area.response.dragged() || area.response.drag_stopped() {
+        bars.pos = Some([rect.center().x, rect.bottom()]);
+        requests.hotbars_changed = area.response.drag_stopped();
+    }
+    if rotate {
+        bars.vertical = !bars.vertical;
+        bars.pos = Some(bars.pos.unwrap_or([rect.center().x, rect.bottom()]));
+        requests.hotbars_changed = true;
+    }
     // While an item is being dragged, say what to do with it.
     if egui::DragAndDrop::has_payload_of_type::<hotbar::Action>(ctx) {
         if let Some(pos) = ctx.pointer_interact_pos() {

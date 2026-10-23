@@ -96,13 +96,17 @@ pub struct Hotbars {
     pub slots: Vec<Slot>,
     /// The bar shown.
     pub current: usize,
+    /// Where the bar sits (the middle of its bottom edge, in points; `None` = bottom centre) and whether it is
+    /// laid out vertically.
+    pub pos: Option<[f32; 2]>,
+    pub vertical: bool,
     /// Presses waiting for something to become ready: (bar, slot).
     queued: VecDeque<(usize, usize)>,
 }
 
 impl Default for Hotbars {
     fn default() -> Hotbars {
-        Hotbars { slots: vec![Slot::default(); BARS * SLOTS], current: 0, queued: VecDeque::new() }
+        Hotbars { slots: vec![Slot::default(); BARS * SLOTS], current: 0, pos: None, vertical: false, queued: VecDeque::new() }
     }
 }
 
@@ -166,6 +170,13 @@ impl Hotbars {
 /// One line per slot: `bar.slot = item 123 6.0 icon 456 Health Stim | attack 2.0`.
 pub fn to_text(bars: &Hotbars) -> String {
     let mut out = String::from("; Hotbars: bar.slot = action | action ...   (an action: `item <id> <cooldown> <icon or -> <name>` or `attack <cooldown>`)\n");
+    if let Some([x, y]) = bars.pos {
+        out += &format!("layout = {x:.0} {y:.0} {}
+", if bars.vertical { "vertical" } else { "horizontal" });
+    } else if bars.vertical {
+        out += "layout = - - vertical
+";
+    }
     for bar in 0..BARS {
         for slot in 0..SLOTS {
             let entries = &bars.slot(bar, slot).entries;
@@ -190,6 +201,14 @@ pub fn from_text(text: &str) -> Hotbars {
     for line in text.lines() {
         let line = line.trim();
         let Some((place, list)) = line.split_once('=') else { continue };
+        if place.trim() == "layout" {
+            let words: Vec<&str> = list.split_whitespace().collect();
+            if let [x, y, how] = words.as_slice() {
+                bars.pos = x.parse().ok().zip(y.parse().ok()).map(|(x, y)| [x, y]);
+                bars.vertical = *how == "vertical";
+            }
+            continue;
+        }
         let Some((bar, slot)) = place.trim().split_once('.') else { continue };
         let (Ok(bar), Ok(slot)) = (bar.trim().parse::<usize>(), slot.trim().parse::<usize>()) else { continue };
         if !(1..=BARS).contains(&bar) || !(1..=SLOTS).contains(&slot) {
@@ -299,5 +318,15 @@ mod tests {
         b.add(2, 9, Action::Item { id: 77, name: "Health and Nano Stim".into(), icon: Some(1234) }, 6.5);
         let again = from_text(&to_text(&b));
         assert_eq!(again.slots, b.slots);
+    }
+
+    #[test]
+    fn the_layout_is_kept() {
+        let mut b = Hotbars::default();
+        b.pos = Some([400.0, 300.0]);
+        b.vertical = true;
+        let back = from_text(&to_text(&b));
+        assert_eq!((back.pos, back.vertical), (Some([400.0, 300.0]), true));
+        assert_eq!(from_text(&to_text(&Hotbars::default())).pos, None);
     }
 }
