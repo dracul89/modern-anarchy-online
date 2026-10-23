@@ -28,13 +28,30 @@ def log(tag, cid, data):
         out.write(f"{time.time():.3f} {tag} {len(data)} {data.hex()} c{cid}\n")
 
 
+ports = {}
+
+
+def local_port(ip, port, chat=False):
+    """The loopback port that relays to (ip, port): the same number when it is free, else 1000 higher
+    (a game server can use the login port: sending the client there would reach the login server)."""
+    key = (ip, port)
+    if key not in ports:
+        local = port
+        while local in listening or local == listen:
+            local += 1000
+        ports[key] = local
+        serve(local, ip, port, chat=chat)
+    return ports[key]
+
+
 def rewrite(data):
     """The game-server hand-off (system message 0x17) with 127.0.0.1 for its
     address. Returns (data, (ip, port) or None)."""
     if len(data) >= 32 and data[6:8] == b"\x00\x2e" and data[16:20] == b"\x00\x00\x00\x17":
         ip = socket.inet_ntoa(data[24:28])
         game_port = struct.unpack(">H", data[28:30])[0]
-        return data[:24] + bytes([127, 0, 0, 1]) + data[28:], (ip, game_port)
+        local = local_port(ip, game_port)
+        return data[:24] + bytes([127, 0, 0, 1]) + struct.pack(">H", local) + data[30:], (ip, game_port)
     return data, None
 
 
@@ -79,7 +96,7 @@ class GameRewriter:
                 ip = socket.inet_ntoa(frame[20:24])
                 port = struct.unpack(">H", frame[24:26])[0]
                 self.target = (ip, port)
-                frame = frame[:20] + bytes([127, 0, 0, 1]) + frame[24:]
+                frame = frame[:20] + bytes([127, 0, 0, 1]) + struct.pack(">H", local_port(ip, port)) + frame[26:]
             elif struct.unpack(">H", frame[2:4])[0] == 1 and frame[16:20] == b"\x00\x00\x00C" and size >= 32:
                 # ChatServerInfo: the chat server the client opens a second connection to: (u32 1,
                 # a length-prefixed address string, a u32 port). The address becomes 127.0.0.1 padded
@@ -91,7 +108,7 @@ class GameRewriter:
                     port = struct.unpack(">I", frame[28 + n:32 + n])[0]
                     self.target = (ip, port)
                     self.chat = True
-                    frame = frame[:28] + b"127.0.0.1".ljust(n, b"\x00") + frame[28 + n:]
+                    frame = frame[:28] + b"127.0.0.1".ljust(n, b"\x00") + struct.pack(">I", local_port(ip, port, chat=True)) + frame[32 + n:]
             out += frame
         if plain_mode:
             return out, self.target
@@ -109,13 +126,11 @@ def pump(src, dst, tag, cid, intercept, game=False):
             if intercept:
                 d, target = rewrite(d)
                 if target:
-                    print(f"c{cid}: game server {target[0]}:{target[1]}", flush=True)
-                    serve(target[1], target[0], target[1])
+                    print(f"c{cid}: game server {target[0]}:{target[1]} -> local {ports[target]}", flush=True)
             elif rewriter:
                 d, target = rewriter.feed(d)
                 if target:
-                    print(f"c{cid}: another {'chat' if rewriter.chat else 'game'} server {target[0]}:{target[1]}", flush=True)
-                    serve(target[1], target[0], target[1], chat=rewriter.chat)
+                    print(f"c{cid}: another {'chat' if rewriter.chat else 'game'} server {target[0]}:{target[1]} -> local {ports[target]}", flush=True)
                 if not d:
                     continue
             dst.sendall(d)
