@@ -195,7 +195,7 @@ pub(crate) fn add_props(game: &str, db: &ResourceDatabase, playfield: u32, model
         .unwrap_or_default();
     let mut plants = 0usize;
     for s in &statels {
-        if hidden.contains(&s.mesh) {
+        if hidden.contains(&s.mesh) && std::env::var_os("MAO_HIDE_PRIMITIVES").is_some() {
             continue;
         }
         // The extras of the first mask are the materials' textures (bit = the material's number).
