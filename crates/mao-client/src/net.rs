@@ -580,6 +580,16 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             }
         }
         let mut pending_destinations = state.destinations.take();
+        let (mut mission_wait, mut mission_used): (Option<Instant>, bool) = (None, false);
+        // `MAO_MISSION=type,instance[,scope[,difficulty]]` (decimal or 0x hex) asks that mission terminal
+        // for missions once the character has arrived (or 6 s into the session without a walk), and prints the offers.
+        let mut mission_request: Option<(u32, u32, u8, u8)> = std::env::var("MAO_MISSION").ok().and_then(|t| {
+            let n: Vec<u32> = t.split(',').filter_map(|v| {
+                let v = v.trim();
+                v.strip_prefix("0x").map_or_else(|| v.parse().ok(), |h| u32::from_str_radix(h, 16).ok())
+            }).collect();
+            Some((*n.first()?, *n.get(1)?, n.get(2).copied().unwrap_or(1) as u8, n.get(3).copied().unwrap_or(6) as u8))
+        });
         let (mut seen, mut target): ([u8; 7], Option<u32>) = ([0; 7], None);
         let (mut sitting, mut uses, mut fired) = (false, 0u32, 0u8);
         let (mut position, mut heading) = (start, heading);
@@ -623,6 +633,11 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     }
                     if tracing {
                         trace(&frame, clock);
+                    }
+                    if let Some(m) = Message::parse(&frame).filter(|m| matches!(m.kind, 0x5c436609 | 0x465a4061 | 0x212c487a | 0x333b2867 | 0x36284f6e | 0x58362220)) {
+                        if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
+                            eprintln!("[{:6.1}] {} identity ({:x},{:x}) left {}{}", clock.elapsed().as_secs_f32(), p.name, m.identity.0, m.identity.1, p.left, p.value.pretty());
+                        }
                     }
                     state.add(&frame);
                     if let Some(list) = state.destinations.take() {
@@ -718,6 +733,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 let distance = ((g[0] - position[0]).powi(2) + (g[1] - position[2]).powi(2)).sqrt();
                 if distance < 1.2 {
                     goto = None;
+                    mission_wait = Some(Instant::now());
                 } else {
                     if distance < goto_best - 0.5 {
                         (goto_best, goto_progress) = (distance, Instant::now());
@@ -810,6 +826,24 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 fired = keys.fire.0;
                 uses += 1;
                 let _ = connection.send(&n3::use_object(own, uses, (0x68, keys.fire.1)));
+            }
+            // The mission request goes out a second after the walk ends (or 6 s into a session without one).
+            if mission_request.is_some() && mission_wait.is_none() && goto.is_none() && clock.elapsed() > Duration::from_secs(6) {
+                mission_wait = Some(Instant::now());
+            }
+            if let (Some(t), Some((kind, id, scope, difficulty))) = (mission_wait, mission_request) {
+                if t.elapsed() > Duration::from_secs(1) && !mission_used {
+                    // The original uses the terminal first (the server echoes it), then asks for missions.
+                    mission_used = true;
+                    mission_wait = Some(Instant::now());
+                    eprintln!("using mission terminal ({kind:#x}, {id:#x})");
+                    uses += 1;
+                    let _ = connection.send(&n3::use_object(own, uses, (kind, id)));
+                } else if t.elapsed() > Duration::from_secs(2) && mission_used {
+                    mission_request = None;
+                    eprintln!("asking mission terminal ({kind:#x}, {id:#x}) for missions");
+                    let _ = connection.send(&n3::quest_alternative(own, [difficulty, 255, 255, 255, 255, 255, 255], scope, (kind, id)));
+                }
             }
             if target.is_some_and(|t| state.position_of(t).is_none()) {
                 target = None;

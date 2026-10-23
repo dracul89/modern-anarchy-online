@@ -134,6 +134,30 @@ pub fn use_object(character: u32, sequence: u32, target: (u32, u32)) -> Frame {
     Message { kind: 0x52526858, identity: (CHARACTER, character), data }.frame(character)
 }
 
+/// `QuestAlternative` (`5c436609`): asks a mission terminal for missions. The sliders are the
+/// terminal window's seven (difficulty, good/bad, order/chaos, open/hidden, physical/mystical,
+/// head-on/stealth, credits/xp; 255 leaves one to the server), `scope` is 1 for a solo booth and 2 for
+/// a team one, `terminal` the terminal's identity (type 0xdac1). The server answers with the same
+/// message holding the offered missions. (From the AOSharp definitions; not yet seen in a capture.)
+pub fn quest_alternative(character: u32, sliders: [u8; 7], scope: u8, terminal: (u32, u32)) -> Frame {
+    let mut data = vec![1u8, 4];
+    data.extend_from_slice(&sliders);
+    data.extend_from_slice(&0u32.to_be_bytes());
+    data.push(scope);
+    data.extend_from_slice(&terminal.0.to_be_bytes());
+    data.extend_from_slice(&terminal.1.to_be_bytes());
+    data.push(0);
+    Message { kind: 0x5c436609, identity: (CHARACTER, character), data }.frame(character)
+}
+
+/// `CreateQuest` (`291f361b`): takes one of the offered missions (its identity from the offer).
+pub fn create_quest(character: u32, mission: (u32, u32)) -> Frame {
+    let mut data = vec![1u8];
+    data.extend_from_slice(&mission.0.to_be_bytes());
+    data.extend_from_slice(&mission.1.to_be_bytes());
+    Message { kind: 0x291f361b, identity: (CHARACTER, character), data }.frame(character)
+}
+
 /// Select a target (an `0x69` action naming it): the server answers with its
 /// name and level (`4d38242e`).
 pub fn select_target(character: u32, target: u32) -> Frame {
