@@ -131,3 +131,13 @@ the effect object, for a whole rebuild after zoning. Findings (`docs/modifier_so
 * Not yet identified: the data this ladder is read from (`N3Msg_PersonalResearchGoals` returns only the current goal, 10005; the
   completed research would come from the server's research update message). The next step is to read the list's owner and the
   spell data of those events, or to find what the server sends that selects which ranks apply.
+
+## Research check (live)
+
+Calling `N3Msg_GetCompletedPersonalResearchGoals` on the live client returns only 8 ids (2309, 2319, 2329, 2339, 2349, 2359,
+2369, 10004). That is far too few to be the source of 702 events, so the ladders are **not** the completed personal research as such.
+The executor object seen in the hook (`esi`) is the same for items and for the extras, so it only identifies the shared apply
+routine (`FUN_100a5f4b`, called by the iterator `FUN_100026d0`), not the list. Remaining leads: the callers of `FUN_10080fc3`
+(`FUN_1004bc13`, `FUN_100532f6`, `FUN_10052cfd`, `FUN_100533aa`, `FUN_100538f7`, `FUN_1004709c`), which hold the container the
+iterator walks; and whether the research map (`FUN_10058ff8`, entries keyed by goal id with spell lists) holds a spell list per
+rank that all apply up to the completed one (which would multiply 8 goals into hundreds of events).
