@@ -57,6 +57,8 @@ pub struct Update {
     /// (units a second, server coordinates) for the prediction.
     pub own_model: Model,
     pub own_velocity: [f32; 3],
+    /// The ground (and how far the server's heights sit above it), to keep the camera above it.
+    pub ground: Option<(std::sync::Arc<mao_formats::terrain::Terrain>, f32)>,
     pub own: Option<[f32; 3]>,
     /// The playfield's name, when it changes.
     pub location: Option<String>,
@@ -181,6 +183,7 @@ struct App {
     own_base: [f32; 3],
     own_velocity: [f32; 3],
     own_at: std::time::Instant,
+    ground: Option<(std::sync::Arc<mao_formats::terrain::Terrain>, f32)>,
     keys: Input,
     /// The keys as last sent to the network thread.
     last_sent: Input,
@@ -223,7 +226,7 @@ fn apply_mode(window: &Window, mode: WindowMode) {
 pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<(), String> {
     let event_loop = EventLoop::new().map_err(|e| e.to_string())?;
     let settings = Settings::load();
-    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default() };
+    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default() };
     event_loop.run_app(&mut app).map_err(|e| e.to_string())
 }
 
@@ -631,7 +634,7 @@ impl ApplicationHandler for App {
                         }
                     }
                     let latest = updates.into_iter().filter(|u| !u.messages_only).last();
-                    if let Some(update) = latest {
+                    if let Some(mut update) = latest {
                         self.hud.position = update.own;
                         if let Some(h) = update.heading {
                             self.heading = h;
@@ -640,6 +643,7 @@ impl ApplicationHandler for App {
                                 w.camera.yaw = yaw_behind(h);
                             }
                         }
+                        self.ground = update.ground.take();
                         if let Some(model) = &update.scene {
                             w.scene = w.renderer.upload(&w.gpu, model, &mut |k, i| self.textures.get(k, i));
                             w.scene.fog = (250.0, 1800.0);
@@ -682,7 +686,18 @@ impl ApplicationHandler for App {
                 let size = (w.config.width, w.config.height);
                 w.renderer.render_scale = self.settings.render_scale;
                 w.renderer.sharpness = self.settings.sharpness;
-                w.renderer.draw(&w.gpu, &w.scene, &w.camera, &view, size);
+                // The camera stays above the ground (else the ground's back is culled and the sky shows through it).
+                let mut camera = w.camera;
+                if let Some((terrain, offset)) = &self.ground {
+                    for _ in 0..24 {
+                        let eye = camera.eye();
+                        if eye.z >= terrain.height_at(eye.x, eye.y, terrain.height_scale) + offset + 0.6 || camera.distance < 0.8 {
+                            break;
+                        }
+                        camera.distance *= 0.88;
+                    }
+                }
+                w.renderer.draw(&w.gpu, &w.scene, &camera, &view, size);
                 let stats = w.renderer.stats;
                 self.hud.draw_info = format!("{} of {} parts, {} in shadow", stats.drawn, stats.parts, stats.shadow_drawn);
                 if let Some(ui) = w.ui.as_mut() {

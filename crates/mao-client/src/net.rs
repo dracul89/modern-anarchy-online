@@ -57,11 +57,11 @@ fn hop(game: &str, target: &str, character: u32, say: &dyn Fn(String)) -> Result
     // The old session lingers a moment on the server (the login is refused until it is gone): try again a few times.
     // (After a real zone line the server takes a while to let go of the character: the logins are refused for
     // some seconds, so keep trying for a minute and say so.)
-    for attempt in 0..25 {
+    for attempt in 0..90 {
         if attempt > 0 {
-            std::thread::sleep(Duration::from_secs(3));
-            if attempt % 3 == 1 {
-                say(format!("Zoning: waiting for the server to let go of the character ({}s)...", attempt * 3));
+            std::thread::sleep(Duration::from_secs(1));
+            if attempt % 8 == 1 {
+                say(format!("Zoning: waiting for the server to let go of the character ({attempt}s)..."));
             }
         }
     for server in [default.as_str(), target] {
@@ -622,7 +622,7 @@ fn passable_parts(db: &ResourceDatabase, part_mesh: &std::collections::HashMap<u
 /// its tile-map is of a layout we can read) and what blocks.
 struct Area {
     scene: Model,
-    terrain: Option<mao_formats::terrain::Terrain>,
+    terrain: Option<Arc<mao_formats::terrain::Terrain>>,
     collision: mao_formats::collision::Collision,
     /// The whompah booths (x, height, z).
     booths: Vec<[f32; 3]>,
@@ -631,7 +631,7 @@ struct Area {
 fn load_area(game: &str, db: &Arc<ResourceDatabase>, playfield: u32) -> Result<Area, String> {
     // An interior has no ground at all (only props).
     let mut scene = crate::load_terrain(db, playfield).unwrap_or_default();
-    let terrain = crate::load_terrain_data(db, playfield).ok();
+    let terrain = crate::load_terrain_data(db, playfield).ok().map(Arc::new);
     let ground_parts = scene.parts.len();
     let part_mesh = crate::add_props(game, db, playfield, &mut scene);
     if scene.instances.is_empty() {
@@ -765,7 +765,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         const TURN: f32 = 2.0; // radians per second
         // The server's heights sit a little off the ground model's; walk at
         // the ground's height plus the offset seen at the start.
-        let ground = |terrain: &Option<mao_formats::terrain::Terrain>, p: [f32; 3]| terrain.as_ref().map_or(0.0, |t| t.height_at(p[0], p[2], t.height_scale));
+        let ground = |terrain: &Option<Arc<mao_formats::terrain::Terrain>>, p: [f32; 3]| terrain.as_ref().map_or(0.0, |t| t.height_at(p[0], p[2], t.height_scale));
         let mut offset = start[1] - ground(&terrain, start);
         let mut base = start[1];
         let clock = Instant::now();
@@ -1430,6 +1430,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     model,
                     own_model,
                     own_velocity,
+                    ground: terrain.clone().map(|t| (t, offset)),
                     own: Some(position),
                     location: pending_location.take(),
                     labels: pending_labels.take(),
