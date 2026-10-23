@@ -1084,6 +1084,8 @@ pub fn run(args: &[String]) -> Result<(), String> {
         [game, word, who, x, z, rest @ ..] if word == "walk" => walk(game, who, x.parse().map_err(|_| "bad x")?, z.parse().map_err(|_| "bad z")?, rest.first().and_then(|s| s.parse().ok()).unwrap_or(90)),
         [word, log] if word == "parse-capture" => parse_capture(log),
         [word, log] if word == "msg-stats" => msg_stats(log),
+        [word, log] if word == "msg-check" => msg_check(log, None, 0),
+        [word, log, kind, rest @ ..] if word == "msg-parse" => msg_check(log, u32::from_str_radix(kind, 16).ok(), rest.first().and_then(|n| n.parse().ok()).unwrap_or(2)),
         // `net <game dir> area <playfield>`: load a playfield as the live client does on zoning, and time it.
         [game, word, pf] if word == "area" => {
             let db = Arc::new(ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?);
@@ -1548,6 +1550,81 @@ fn inventory_from_capture(game: &str, log: &str) -> Result<(), String> {
         };
         println!("{place:<20} {} x{:<5} QL{:<4} {}  icon {}", if i.bag { "BAG" } else { "   " }, i.count, i.quality, i.name, if i.icon.is_some() { "yes" } else { "no" });
     }
+    Ok(())
+}
+
+/// `net msg-check <capture.log>`: parses every N3 message of a capture with the protocol schema
+/// and tells, per message kind and direction, how many parsed exactly, how many left bytes over
+/// and how many failed (with the first error). `net msg-parse <log> <kind hex> [n]` prints the first
+/// `n` messages of a kind as named fields.
+fn msg_check(log: &str, only: Option<u32>, show: usize) -> Result<(), String> {
+    use mao_net::schema::Schema;
+    let schema = Schema::global();
+    let text = std::fs::read_to_string(log).map_err(|e| e.to_string())?;
+    let mut readers: BTreeMap<(String, bool), Reader> = BTreeMap::new();
+    // (direction, kind) -> (ok, leftover, failed, undefined, first error)
+    let mut stats: BTreeMap<(bool, u32), (usize, usize, usize, usize, String)> = BTreeMap::new();
+    let mut shown = 0;
+    for line in text.lines() {
+        let f: Vec<&str> = line.split_whitespace().collect();
+        let (Some(tag), Some(connection)) = (f.get(1), f.last()) else { continue };
+        let server = match *tag {
+            "S>C" => true,
+            "C>S" => false,
+            "OPEN" => {
+                readers.remove(&(connection.to_string(), true));
+                readers.remove(&(connection.to_string(), false));
+                continue;
+            }
+            _ => continue,
+        };
+        if f.len() < 5 {
+            continue;
+        }
+        let bytes: Vec<u8> = (0..f[3].len() / 2).filter_map(|i| u8::from_str_radix(&f[3][2 * i..2 * i + 2], 16).ok()).collect();
+        let reader = readers.entry((connection.to_string(), server)).or_default();
+        if reader.push(&bytes).is_err() {
+            continue;
+        }
+        while let Ok(Some(m)) = reader.next() {
+            let Some(msg) = Message::parse(&m).filter(|_| m.kind == frame::N3) else { continue };
+            let entry = stats.entry((server, msg.kind)).or_default();
+            match schema.parse_n3(msg.kind, &msg.data) {
+                Ok(p) => {
+                    if p.left == 0 {
+                        entry.0 += 1;
+                    } else {
+                        entry.1 += 1;
+                        if entry.4.is_empty() {
+                            entry.4 = format!("{} bytes left over of {}", p.left, msg.data.len());
+                        }
+                    }
+                    if only == Some(msg.kind) && shown < show {
+                        shown += 1;
+                        println!("{} {} identity ({:x},{:x}), {} bytes, {} left over:{}", if server { "S>C" } else { "C>S" }, p.name, msg.identity.0, msg.identity.1, msg.data.len(), p.left, p.value.pretty());
+                    }
+                }
+                Err(e) if e.starts_with("no definition") => entry.3 += 1,
+                Err(e) => {
+                    entry.2 += 1;
+                    if entry.4.is_empty() {
+                        entry.4 = e;
+                    }
+                }
+            }
+        }
+    }
+    if only.is_some() {
+        return Ok(());
+    }
+    let (mut ok, mut all) = (0, 0);
+    for ((server, kind), (good, left, failed, undefined, error)) in &stats {
+        let name = schema.n3_name(*kind).unwrap_or("?");
+        ok += good;
+        all += good + left + failed + undefined;
+        println!("{} {kind:08x} {name:<28} ok {good:<5} left {left:<4} failed {failed:<4} undefined {undefined:<4} {error}", if *server { "S>C" } else { "C>S" });
+    }
+    println!("{ok} of {all} messages parsed exactly");
     Ok(())
 }
 

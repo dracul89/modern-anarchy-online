@@ -18,5 +18,6 @@ pub mod destinations;
 pub mod frame;
 pub mod inventory;
 pub mod n3;
+pub mod schema;
 pub mod session;
 pub mod system;

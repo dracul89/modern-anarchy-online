@@ -1,0 +1,6467 @@
+{
+ "classes": {
+  "AOTransportSignalMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "flag": "action",
+     "name": "Action",
+     "type": "AOSignalAction"
+    },
+    {
+     "name": "TransportSignalMessage",
+     "type": "IAOTransportSignalMessage",
+     "when": [
+      {
+       "criteria": "EqualsToAny",
+       "flag": "action",
+       "type": "CityInfo",
+       "values": [
+        5
+       ]
+      },
+      {
+       "criteria": "EqualsToAny",
+       "flag": "action",
+       "type": "CityCreditsUpkeep",
+       "values": [
+        10
+       ]
+      },
+      {
+       "criteria": "EqualsToAny",
+       "flag": "action",
+       "type": "CloakInfo",
+       "values": [
+        14
+       ]
+      },
+      {
+       "criteria": "EqualsToAny",
+       "flag": "action",
+       "type": "CityNextUpkeep",
+       "values": [
+        13
+       ]
+      },
+      {
+       "criteria": "EqualsToAny",
+       "flag": "action",
+       "type": "CityCharge",
+       "values": [
+        15
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  "AbsorbMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Amount",
+     "type": "int"
+    },
+    {
+     "name": "DmgType",
+     "type": "Stat"
+    }
+   ]
+  },
+  "AcceptBSInviteMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "UnkIdentity",
+     "type": "Identity"
+    },
+    {
+     "name": "UnkByte",
+     "type": "byte"
+    }
+   ]
+  },
+  "ActiveNano": {
+   "base": null,
+   "fields": []
+  },
+  "AddTemplateMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "HighId",
+     "type": "int"
+    },
+    {
+     "name": "LowId",
+     "type": "int"
+    },
+    {
+     "name": "Quality",
+     "type": "int"
+    },
+    {
+     "name": "Count",
+     "type": "int"
+    }
+   ]
+  },
+  "AdvantagesItem": {
+   "base": null,
+   "fields": [
+    {
+     "name": "LowId",
+     "type": "int"
+    },
+    {
+     "name": "HighId",
+     "type": "int"
+    },
+    {
+     "name": "Ql",
+     "type": "int"
+    },
+    {
+     "name": "Status",
+     "type": "int"
+    }
+   ]
+  },
+  "AnimationEffect": {
+   "base": null,
+   "fields": [
+    {
+     "name": "IdentityType",
+     "type": "int"
+    },
+    {
+     "name": "NanoId",
+     "type": "int"
+    },
+    {
+     "name": "NanoInstance",
+     "type": "int"
+    },
+    {
+     "name": "Time1",
+     "type": "int"
+    },
+    {
+     "name": "Time2",
+     "type": "int"
+    },
+    {
+     "name": "Unknown1",
+     "type": "int"
+    },
+    {
+     "name": "Unknown2",
+     "type": "int"
+    },
+    {
+     "name": "Unknown3",
+     "type": "int"
+    },
+    {
+     "name": "Unknown4",
+     "type": "int"
+    },
+    {
+     "name": "Unknown5",
+     "type": "int"
+    },
+    {
+     "name": "Unknown6",
+     "type": "int"
+    },
+    {
+     "name": "Unknown7",
+     "type": "int"
+    },
+    {
+     "name": "Unknown8",
+     "type": "int"
+    },
+    {
+     "name": "VisualDataId",
+     "type": "int"
+    },
+    {
+     "name": "Unknown9",
+     "type": "int"
+    }
+   ]
+  },
+  "Appearance": {
+   "base": null,
+   "fields": []
+  },
+  "AppearanceUpdateMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Textures",
+     "size": "x3f1",
+     "type": "Texture[]"
+    },
+    {
+     "name": "Meshes",
+     "size": "x3f1",
+     "type": "Mesh[]"
+    },
+    {
+     "name": "VisualFlags",
+     "type": "short"
+    },
+    {
+     "name": "Unknown1",
+     "type": "byte"
+    }
+   ]
+  },
+  "AttackInfoMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Amount",
+     "type": "int"
+    },
+    {
+     "name": "AmmoCount",
+     "type": "int"
+    },
+    {
+     "name": "WeaponSlot",
+     "type": "int"
+    },
+    {
+     "name": "Target",
+     "type": "Identity"
+    },
+    {
+     "name": "Unk1",
+     "type": "int"
+    },
+    {
+     "name": "HitType",
+     "type": "HitType"
+    },
+    {
+     "name": "WeaponInstance",
+     "type": "int"
+    }
+   ]
+  },
+  "AttackMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Target",
+     "type": "Identity"
+    },
+    {
+     "name": "Unknown1",
+     "type": "byte"
+    }
+   ]
+  },
+  "BankMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "BankSlots",
+     "size": "x3f1",
+     "type": "InventorySlot[]"
+    }
+   ]
+  },
+  "BankSlot": {
+   "base": null,
+   "fields": [
+    {
+     "name": "Placement",
+     "type": "int"
+    },
+    {
+     "name": "Flags",
+     "type": "short"
+    },
+    {
+     "name": "Count",
+     "type": "short"
+    },
+    {
+     "name": "Identity",
+     "type": "Identity"
+    },
+    {
+     "name": "ItemLowId",
+     "type": "int"
+    },
+    {
+     "name": "ItemHighId",
+     "type": "int"
+    },
+    {
+     "name": "Quality",
+     "type": "int"
+    },
+    {
+     "name": "Unknown",
+     "type": "int"
+    }
+   ]
+  },
+  "BuffMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Unknown1",
+     "type": "short"
+    },
+    {
+     "name": "Buff",
+     "type": "Identity"
+    }
+   ]
+  },
+  "CastNanoSpellMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "NanoId",
+     "type": "int"
+    },
+    {
+     "name": "Target",
+     "type": "Identity"
+    },
+    {
+     "name": "Unknown1",
+     "type": "int"
+    },
+    {
+     "name": "Caster",
+     "type": "Identity"
+    }
+   ]
+  },
+  "ChannelListMessage": {
+   "base": "ChatMessageBody",
+   "fields": [
+    {
+     "name": "Unk1",
+     "type": "byte"
+    },
+    {
+     "name": "ChannelId",
+     "type": "int"
+    },
+    {
+     "name": "ChannelName",
+     "size": "int16",
+     "type": "string"
+    },
+    {
+     "name": "Unk2",
+     "type": "short"
+    },
+    {
+     "name": "Unk3",
+     "type": "short"
+    },
+    {
+     "name": "Unk4",
+     "type": "short"
+    }
+   ]
+  },
+  "CharDCMoveMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "MoveType",
+     "type": "MovementAction"
+    },
+    {
+     "name": "Heading",
+     "type": "Quaternion"
+    },
+    {
+     "name": "Position",
+     "type": "Vector3"
+    },
+    {
+     "name": "DeltaTime",
+     "type": "int"
+    },
+    {
+     "name": "Unknown2",
+     "type": "int"
+    },
+    {
+     "name": "Unknown3",
+     "type": "int"
+    }
+   ]
+  },
+  "CharInPlayMessage": {
+   "base": "N3Message",
+   "fields": []
+  },
+  "CharSecSpecAttackMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Target",
+     "type": "Identity"
+    },
+    {
+     "name": "Stat",
+     "type": "Stat"
+    }
+   ]
+  },
+  "CharacterActionMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Action",
+     "type": "CharacterActionType"
+    },
+    {
+     "name": "Unknown1",
+     "type": "int"
+    },
+    {
+     "name": "Target",
+     "type": "Identity"
+    },
+    {
+     "name": "Parameter1",
+     "type": "int"
+    },
+    {
+     "name": "Parameter2",
+     "type": "int"
+    },
+    {
+     "name": "Unknown2",
+     "type": "short"
+    }
+   ]
+  },
+  "CharacterCreatedMessage": {
+   "base": "SystemMessage",
+   "fields": [
+    {
+     "name": "CharacterId",
+     "type": "int"
+    },
+    {
+     "name": "Unknown",
+     "type": "uint"
+    }
+   ]
+  },
+  "CharacterDeletedMessage": {
+   "base": "SystemMessage",
+   "fields": [
+    {
+     "name": "CharacterId",
+     "type": "int"
+    }
+   ]
+  },
+  "CharacterInfo": {
+   "base": null,
+   "fields": [
+    {
+     "name": "MissionIdentity",
+     "type": "Identity"
+    },
+    {
+     "name": "Name",
+     "size": "nullterm",
+     "type": "string"
+    }
+   ]
+  },
+  "CharacterInfoPacket": {
+   "base": "InfoPacket",
+   "fields": [
+    {
+     "name": "Unknown1",
+     "type": "byte"
+    },
+    {
+     "name": "Profession",
+     "type": "Profession",
+     "when": [
+      {
+       "criteria": "Default",
+       "flag": "flags",
+       "type": "byte",
+       "values": []
+      }
+     ]
+    },
+    {
+     "name": "Level",
+     "type": "byte"
+    },
+    {
+     "name": "TitleLevel",
+     "type": "byte"
+    },
+    {
+     "name": "VisualProfession",
+     "type": "Profession",
+     "when": [
+      {
+       "criteria": "Default",
+       "flag": "flags",
+       "type": "byte",
+       "values": []
+      }
+     ]
+    },
+    {
+     "name": "SideXp",
+     "type": "short"
+    },
+    {
+     "name": "Health",
+     "type": "int"
+    },
+    {
+     "name": "MaxHealth",
+     "type": "int"
+    },
+    {
+     "name": "BreedHostility",
+     "type": "int"
+    },
+    {
+     "name": "OrganizationId",
+     "type": "int?",
+     "when": [
+      {
+       "criteria": "EqualsToAny",
+       "flag": "flags",
+       "type": "int",
+       "values": [
+        65,
+        67,
+        71
+       ]
+      }
+     ]
+    },
+    {
+     "name": "FirstName",
+     "size": "int16",
+     "type": "string"
+    },
+    {
+     "name": "LastName",
+     "size": "int16",
+     "type": "string"
+    },
+    {
+     "name": "LegacyTitle",
+     "size": "int16",
+     "type": "string"
+    },
+    {
+     "name": "Unknown2",
+     "type": "short"
+    },
+    {
+     "name": "OrganizationRank",
+     "size": "int16",
+     "type": "string",
+     "when": [
+      {
+       "criteria": "EqualsToAny",
+       "flag": "flags",
+       "type": "string",
+       "values": [
+        65,
+        67,
+        71
+       ]
+      }
+     ]
+    },
+    {
+     "name": "TowerFields",
+     "size": "x3f1",
+     "type": "TowerField[]",
+     "when": [
+      {
+       "criteria": "EqualsToAny",
+       "flag": "flags",
+       "type": "TowerField[]",
+       "values": [
+        67,
+        71
+       ]
+      }
+     ]
+    },
+    {
+     "name": "CityPlayfieldId",
+     "type": "int"
+    },
+    {
+     "name": "Towers",
+     "size": "x3f1",
+     "type": "Tower[]",
+     "when": [
+      {
+       "criteria": "EqualsToAny",
+       "flag": "flags",
+       "type": "Tower[]",
+       "values": [
+        71
+       ]
+      }
+     ]
+    },
+    {
+     "name": "InvadersKilled",
+     "type": "int"
+    },
+    {
+     "name": "KilledByInvaders",
+     "type": "int"
+    },
+    {
+     "name": "AiLevel",
+     "type": "int"
+    },
+    {
+     "name": "PvpDuelWins",
+     "type": "int"
+    },
+    {
+     "name": "PvpDuelLoses",
+     "type": "int"
+    },
+    {
+     "name": "PvpProfessionDuelLoses",
+     "type": "int"
+    },
+    {
+     "name": "PvpSoloKills",
+     "type": "int"
+    },
+    {
+     "name": "PvpTeamKills",
+     "type": "int"
+    },
+    {
+     "name": "PvpSoloScore",
+     "type": "int"
+    },
+    {
+     "name": "PvpTeamScore",
+     "type": "int"
+    },
+    {
+     "name": "PvpDuelScore",
+     "type": "int"
+    }
+   ]
+  },
+  "CharacterListMessage": {
+   "base": "SystemMessage",
+   "fields": [
+    {
+     "name": "Characters",
+     "size": "int32",
+     "type": "LoginCharacterInfo[]"
+    },
+    {
+     "name": "AllowedCharacters",
+     "type": "int"
+    },
+    {
+     "name": "Expansions",
+     "type": "int"
+    }
+   ]
+  },
+  "CharacterNameMessage": {
+   "base": "ChatMessageBody",
+   "fields": [
+    {
+     "name": "Id",
+     "type": "uint"
+    },
+    {
+     "name": "Name",
+     "size": "int16",
+     "type": "string"
+    }
+   ]
+  },
+  "ChatCharacter": {
+   "base": null,
+   "fields": []
+  },
+  "ChatCharacterListMessage": {
+   "base": "ChatMessageBody",
+   "fields": [
+    {
+     "name": "Ids",
+     "size": "int16",
+     "type": "uint[]"
+    },
+    {
+     "name": "Names",
+     "size": "int16",
+     "type": "string[]"
+    },
+    {
+     "name": "Levels",
+     "size": "int16",
+     "type": "int[]"
+    },
+    {
+     "name": "Online",
+     "size": "int16",
+     "type": "bool[]"
+    }
+   ]
+  },
+  "ChatCmdMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Unknown1",
+     "type": "int"
+    },
+    {
+     "name": "Target",
+     "type": "Identity"
+    },
+    {
+     "name": "Command",
+     "size": "int32",
+     "type": "string"
+    }
+   ]
+  },
+  "ChatHeader": {
+   "base": null,
+   "fields": []
+  },
+  "ChatLoginErrorMessage": {
+   "base": "ChatMessageBody",
+   "fields": [
+    {
+     "name": "Message",
+     "size": "int16",
+     "type": "string"
+    }
+   ]
+  },
+  "ChatLoginOKMessage": {
+   "base": "ChatMessageBody",
+   "fields": []
+  },
+  "ChatLoginRequestMessage": {
+   "base": "ChatMessageBody",
+   "fields": [
+    {
+     "name": "Unk",
+     "type": "int"
+    },
+    {
+     "name": "Username",
+     "size": "int16",
+     "type": "string"
+    },
+    {
+     "name": "Credentials",
+     "size": "int16",
+     "type": "string"
+    }
+   ]
+  },
+  "ChatMessage": {
+   "base": null,
+   "fields": []
+  },
+  "ChatMessageBody": {
+   "base": null,
+   "fields": []
+  },
+  "ChatPingMessage": {
+   "base": "ChatMessageBody",
+   "fields": [
+    {
+     "name": "Data",
+     "type": "byte[]"
+    }
+   ]
+  },
+  "ChatSelectCharacterMessage": {
+   "base": "ChatMessageBody",
+   "fields": [
+    {
+     "name": "CharacterId",
+     "type": "uint"
+    }
+   ]
+  },
+  "ChatServerInfoMessage": {
+   "base": "SystemMessage",
+   "fields": [
+    {
+     "name": "Unknown1",
+     "type": "int"
+    },
+    {
+     "name": "HostName",
+     "size": "int32",
+     "type": "string"
+    },
+    {
+     "name": "Port",
+     "type": "int"
+    },
+    {
+     "name": "Unknown2",
+     "type": "int"
+    }
+   ]
+  },
+  "ChatServerSaltMessage": {
+   "base": "ChatMessageBody",
+   "fields": [
+    {
+     "name": "ServerSalt",
+     "size": "int16",
+     "type": "byte[]"
+    }
+   ]
+  },
+  "ChatTextMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Text",
+     "size": "int16",
+     "type": "string"
+    },
+    {
+     "name": "Unknown1",
+     "type": "short"
+    },
+    {
+     "name": "Unknown2",
+     "type": "int"
+    }
+   ]
+  },
+  "ChestFullUpdateMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Unknown1",
+     "type": "int"
+    },
+    {
+     "name": "Owner",
+     "type": "Identity"
+    },
+    {
+     "name": "PlayfieldId",
+     "type": "int"
+    },
+    {
+     "name": "StateMachine",
+     "type": "Identity"
+    },
+    {
+     "name": "Unknown5",
+     "type": "short"
+    },
+    {
+     "name": "Stats",
+     "size": "x3f1",
+     "type": "GameTuple<Stat,int>[]"
+    },
+    {
+     "name": "Unknown6",
+     "type": "int"
+    },
+    {
+     "name": "Unknown7",
+     "type": "int"
+    },
+    {
+     "name": "Unknown8",
+     "type": "int"
+    },
+    {
+     "name": "UnknownArray",
+     "size": "x3f1",
+     "type": "int[]"
+    }
+   ]
+  },
+  "CityAdvantagesMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Advantages",
+     "size": "int32",
+     "type": "AdvantagesItem[]"
+    }
+   ]
+  },
+  "CityCharge": {
+   "base": "IAOTransportSignalMessage",
+   "fields": [
+    {
+     "name": "CityControllerCharge",
+     "type": "float"
+    }
+   ]
+  },
+  "CityCreditsUpkeep": {
+   "base": "IAOTransportSignalMessage",
+   "fields": [
+    {
+     "name": "CreditsUpkeep",
+     "type": "int"
+    }
+   ]
+  },
+  "CityInfo": {
+   "base": "IAOTransportSignalMessage",
+   "fields": [
+    {
+     "name": "UnknownIdentity1",
+     "type": "Identity"
+    },
+    {
+     "name": "Unknown1",
+     "type": "int"
+    },
+    {
+     "name": "UnknownIdentity2",
+     "type": "Identity"
+    },
+    {
+     "name": "User",
+     "type": "Identity"
+    },
+    {
+     "name": "Unknown2",
+     "type": "int"
+    },
+    {
+     "name": "Unknown3",
+     "type": "int"
+    },
+    {
+     "name": "OrgName",
+     "size": "int32",
+     "type": "string"
+    }
+   ]
+  },
+  "CityNextUpkeep": {
+   "base": "IAOTransportSignalMessage",
+   "fields": [
+    {
+     "name": "NextUpkeepPaymentInSeconds",
+     "type": "int"
+    }
+   ]
+  },
+  "ClientContainerAddItem": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Target",
+     "type": "Identity"
+    },
+    {
+     "name": "Source",
+     "type": "Identity"
+    }
+   ]
+  },
+  "ClientMoveItemToInventory": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "SourceContainer",
+     "type": "Identity"
+    },
+    {
+     "name": "Slot",
+     "type": "int"
+    }
+   ]
+  },
+  "CloakInfo": {
+   "base": "IAOTransportSignalMessage",
+   "fields": [
+    {
+     "name": "CloakState",
+     "type": "CloakStatus"
+    },
+    {
+     "name": "ShieldTimerInSeconds",
+     "type": "int"
+    }
+   ]
+  },
+  "ContainerAddItem": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Source",
+     "type": "Identity"
+    },
+    {
+     "name": "Target",
+     "type": "Identity"
+    },
+    {
+     "name": "Slot",
+     "type": "int"
+    }
+   ]
+  },
+  "ContractIdCollisionException": {
+   "base": "Exception",
+   "fields": []
+  },
+  "ContractsInfo": {
+   "base": "IOrgServerMessage",
+   "fields": [
+    {
+     "name": "Contracts",
+     "size": "x3f1",
+     "type": "OrgContractSlot[]"
+    }
+   ]
+  },
+  "ControlledArea": {
+   "base": null,
+   "fields": [
+    {
+     "name": "PlayfieldId",
+     "type": "PlayfieldId"
+    },
+    {
+     "name": "Identity",
+     "type": "Identity"
+    },
+    {
+     "name": "Area",
+     "size": "int16",
+     "type": "string"
+    },
+    {
+     "name": "Level",
+     "type": "int"
+    },
+    {
+     "name": "Type",
+     "type": "int"
+    }
+   ]
+  },
+  "CorpseFullUpdateMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Unknown1",
+     "type": "int"
+    },
+    {
+     "name": "Unknown2",
+     "type": "int"
+    },
+    {
+     "name": "Owner",
+     "type": "Identity"
+    },
+    {
+     "name": "Position",
+     "type": "Vector3"
+    },
+    {
+     "name": "Heading",
+     "type": "Quaternion"
+    },
+    {
+     "name": "PlayfieldId",
+     "type": "int"
+    },
+    {
+     "name": "StateMachine",
+     "type": "Identity"
+    },
+    {
+     "name": "Unknown3",
+     "type": "short"
+    },
+    {
+     "name": "Stats",
+     "size": "x3f1",
+     "type": "GameTuple<Stat, int>[]"
+    },
+    {
+     "name": "Name",
+     "size": "int32",
+     "type": "string"
+    },
+    {
+     "name": "Unknown4",
+     "type": "int"
+    },
+    {
+     "name": "Unknown5",
+     "type": "int"
+    },
+    {
+     "name": "UnknownArray",
+     "size": "x3f1",
+     "type": "int[]"
+    },
+    {
+     "name": "Unknown6",
+     "type": "int"
+    },
+    {
+     "name": "AnimationEffects",
+     "size": "x3f1",
+     "type": "AnimationEffect[]"
+    },
+    {
+     "name": "UnknownIdentity",
+     "type": "Identity"
+    },
+    {
+     "name": "Textures",
+     "size": "x3f1",
+     "type": "Texture[]"
+    }
+   ]
+  },
+  "CreateCharacterMessage": {
+   "base": "SystemMessage",
+   "fields": [
+    {
+     "fixed": 49,
+     "name": "Unknown1",
+     "type": "byte[]"
+    },
+    {
+     "name": "Name",
+     "size": "int32",
+     "type": "string"
+    },
+    {
+     "name": "Breed",
+     "type": "Breed"
+    },
+    {
+     "name": "Gender",
+     "type": "Gender"
+    },
+    {
+     "name": "Profession",
+     "type": "Profession"
+    },
+    {
+     "name": "Level",
+     "type": "int"
+    },
+    {
+     "name": "AreaName",
+     "size": "int32",
+     "type": "string"
+    },
+    {
+     "name": "Unknown2",
+     "type": "int"
+    },
+    {
+     "name": "Unknown3",
+     "type": "int"
+    },
+    {
+     "name": "HeadMesh",
+     "type": "int"
+    },
+    {
+     "name": "MonsterScale",
+     "type": "int"
+    },
+    {
+     "name": "Fatness",
+     "type": "Fatness"
+    },
+    {
+     "name": "StarterArea",
+     "type": "StarterArea"
+    }
+   ]
+  },
+  "CreateQuestMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "MissionId",
+     "type": "Identity"
+    }
+   ]
+  },
+  "DeleteCharacterMessage": {
+   "base": "SystemMessage",
+   "fields": [
+    {
+     "name": "CharacterId",
+     "type": "int"
+    }
+   ]
+  },
+  "DespawnMessage": {
+   "base": "N3Message",
+   "fields": []
+  },
+  "DestinationInfo": {
+   "base": null,
+   "fields": [
+    {
+     "name": "PlayfieldId",
+     "type": "PlayfieldId"
+    },
+    {
+     "name": "Unknown0",
+     "type": "int"
+    },
+    {
+     "name": "Unknown1",
+     "type": "int"
+    }
+   ]
+  },
+  "DoorFullUpdateMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Door",
+     "type": "Identity"
+    },
+    {
+     "name": "Unk1",
+     "type": "int"
+    },
+    {
+     "name": "Position",
+     "type": "Vector3"
+    },
+    {
+     "name": "Heading",
+     "type": "Quaternion"
+    },
+    {
+     "name": "Playfield",
+     "type": "int"
+    }
+   ]
+  },
+  "DoorStatusUpdateMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Unknown1",
+     "type": "int"
+    },
+    {
+     "name": "Unknown2",
+     "type": "int"
+    },
+    {
+     "name": "Unknown3",
+     "type": "byte"
+    },
+    {
+     "name": "Unknown4",
+     "type": "short"
+    },
+    {
+     "name": "UnknownArray",
+     "size": "x3f1",
+     "type": "int"
+    }
+   ]
+  },
+  "DropTemplateMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Item",
+     "type": "Identity"
+    },
+    {
+     "name": "Position",
+     "type": "Vector3"
+    }
+   ]
+  },
+  "FeedbackMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Unknown1",
+     "type": "int"
+    },
+    {
+     "name": "CategoryId",
+     "type": "int"
+    },
+    {
+     "name": "MessageId",
+     "type": "int"
+    }
+   ]
+  },
+  "FightModeName": {
+   "base": null,
+   "fields": [
+    {
+     "name": "Unknown1",
+     "type": "int"
+    },
+    {
+     "name": "Text",
+     "size": "int16",
+     "type": "string"
+    },
+    {
+     "name": "Unknown2",
+     "type": "byte"
+    },
+    {
+     "name": "Unknown3",
+     "type": "byte"
+    }
+   ]
+  },
+  "FightModeUpdate": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "ResourceIdentity",
+     "type": "Identity"
+    },
+    {
+     "name": "Name",
+     "size": "x3f1",
+     "type": "FightModeName[]"
+    }
+   ]
+  },
+  "FollowTargetMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "flag": "Type",
+     "name": "Type",
+     "type": "FollowTargetType"
+    },
+    {
+     "name": "Unknown1",
+     "type": "byte"
+    },
+    {
+     "name": "Info",
+     "type": "IInfo",
+     "when": [
+      {
+       "criteria": "EqualsToAny",
+       "flag": "Type",
+       "type": "PathInfo",
+       "values": [
+        1
+       ]
+      },
+      {
+       "criteria": "EqualsToAny",
+       "flag": "Type",
+       "type": "TargetInfo",
+       "values": [
+        2
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  "FollowTargetMessage.IInfo": {
+   "fields": [],
+   "interface": true
+  },
+  "FollowTargetMessage.PathInfo": {
+   "base": "IInfo",
+   "fields": [
+    {
+     "name": "Waypoints",
+     "size": "byte",
+     "type": "Vector3[]"
+    }
+   ]
+  },
+  "FollowTargetMessage.TargetInfo": {
+   "base": "IInfo",
+   "fields": [
+    {
+     "name": "Target",
+     "type": "Identity"
+    },
+    {
+     "name": "Unknown1",
+     "type": "int"
+    },
+    {
+     "name": "Unknown2",
+     "type": "int"
+    },
+    {
+     "name": "Unknown3",
+     "type": "int"
+    },
+    {
+     "name": "Unknown4",
+     "type": "int"
+    }
+   ]
+  },
+  "FormatFeedbackMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Unknown1",
+     "type": "int"
+    },
+    {
+     "name": "Message",
+     "size": "int16",
+     "type": "string"
+    },
+    {
+     "name": "Unknown2",
+     "type": "int"
+    }
+   ]
+  },
+  "FriendRemoveMessage": {
+   "base": "ChatMessageBody",
+   "fields": [
+    {
+     "name": "Id",
+     "type": "uint"
+    }
+   ]
+  },
+  "FriendStatusMessage": {
+   "base": "ChatMessageBody",
+   "fields": [
+    {
+     "name": "Id",
+     "type": "uint"
+    },
+    {
+     "name": "Online",
+     "type": "bool"
+    }
+   ]
+  },
+  "FullCharacterMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Version",
+     "type": "int"
+    },
+    {
+     "name": "InventorySlots",
+     "size": "x3f1",
+     "type": "InventorySlot[]"
+    },
+    {
+     "name": "UploadedNanoIds",
+     "size": "x3f1",
+     "type": "int[]"
+    },
+    {
+     "name": "Unknown2",
+     "size": "x3f1",
+     "type": "UnknownDataType1[]"
+    },
+    {
+     "name": "Unknown3",
+     "type": "int"
+    },
+    {
+     "name": "Unknown4",
+     "size": "int32",
+     "type": "UnknownDataType2[]"
+    },
+    {
+     "name": "Unknown5",
+     "type": "int"
+    },
+    {
+     "name": "Unknown6",
+     "size": "int32",
+     "type": "UnknownDataType2[]"
+    },
+    {
+     "name": "Unknown7",
+     "type": "int"
+    },
+    {
+     "name": "Unknown8",
+     "size": "int32",
+     "type": "UnknownDataType2[]"
+    },
+    {
+     "name": "Stats1",
+     "size": "x3f1",
+     "type": "GameTuple<int, int>[]"
+    },
+    {
+     "name": "Stats2",
+     "size": "x3f1",
+     "type": "GameTuple<int, int>[]"
+    },
+    {
+     "name": "Stats3",
+     "size": "x3f1",
+     "type": "GameTuple<byte, byte>[]"
+    },
+    {
+     "name": "Stats4",
+     "size": "x3f1",
+     "type": "GameTuple<byte, short>[]"
+    },
+    {
+     "name": "AbsorbStats",
+     "size": "int32",
+     "type": "GameTuple<int, int>[]"
+    },
+    {
+     "name": "UnknownIdentities",
+     "size": "int32",
+     "type": "Identity[]"
+    },
+    {
+     "name": "TeamMembers",
+     "size": "x3f1",
+     "type": "TeamMember[]"
+    },
+    {
+     "name": "Unknown12",
+     "size": "x3f1",
+     "type": "UnknownDataType4[]"
+    },
+    {
+     "name": "Perks",
+     "size": "x3f1",
+     "type": "Perk[]"
+    }
+   ]
+  },
+  "FullCharacterMessage.Perk": {
+   "base": null,
+   "fields": [
+    {
+     "name": "SkillId",
+     "type": "int"
+    },
+    {
+     "name": "Unknown1",
+     "type": "int"
+    },
+    {
+     "name": "Unknown2",
+     "type": "int"
+    },
+    {
+     "name": "Unknown3",
+     "type": "int"
+    }
+   ]
+  },
+  "FullCharacterMessage.TeamMember": {
+   "base": null,
+   "fields": [
+    {
+     "name": "Identity",
+     "type": "Identity"
+    },
+    {
+     "name": "Name",
+     "size": "int16",
+     "type": "string"
+    },
+    {
+     "name": "Unknown1",
+     "type": "int"
+    },
+    {
+     "name": "Unknown2",
+     "type": "byte"
+    },
+    {
+     "name": "Level",
+     "type": "short"
+    },
+    {
+     "name": "Profession",
+     "type": "short"
+    }
+   ]
+  },
+  "FullCharacterMessage.UnknownDataType1": {
+   "base": null,
+   "fields": [
+    {
+     "name": "Unknown1",
+     "type": "byte"
+    },
+    {
+     "name": "Unknown2",
+     "type": "byte"
+    },
+    {
+     "name": "Unknown3",
+     "type": "byte"
+    }
+   ]
+  },
+  "FullCharacterMessage.UnknownDataType2": {
+   "base": null,
+   "fields": [
+    {
+     "name": "Unknown1",
+     "type": "int"
+    },
+    {
+     "name": "Unknown2",
+     "type": "Identity"
+    },
+    {
+     "name": "Unknown3",
+     "type": "int"
+    },
+    {
+     "name": "Unknown4",
+     "type": "int"
+    }
+   ]
+  },
+  "FullCharacterMessage.UnknownDataType4": {
+   "base": null,
+   "fields": [
+    {
+     "name": "Unknown1",
+     "type": "int"
+    },
+    {
+     "name": "Unknown2",
+     "type": "int"
+    },
+    {
+     "name": "Unknown3",
+     "type": "int"
+    },
+    {
+     "name": "Unknown4",
+     "type": "int"
+    },
+    {
+     "name": "Unknown5",
+     "type": "int"
+    },
+    {
+     "name": "Unknown6",
+     "type": "int"
+    },
+    {
+     "name": "Unknown7",
+     "type": "int"
+    },
+    {
+     "name": "Unknown8",
+     "type": "int"
+    },
+    {
+     "name": "Unknown9",
+     "type": "int"
+    },
+    {
+     "name": "Unknown10",
+     "type": "int"
+    }
+   ]
+  },
+  "GameTimeMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Unknown1",
+     "type": "float"
+    },
+    {
+     "name": "Unknown2",
+     "type": "int"
+    },
+    {
+     "name": "Unknown3",
+     "type": "int"
+    },
+    {
+     "name": "Unknown4",
+     "type": "float"
+    }
+   ]
+  },
+  "GameTuple": {
+   "base": null,
+   "fields": [
+    {
+     "name": "Value1",
+     "type": "T1"
+    },
+    {
+     "name": "Value2",
+     "type": "T2"
+    }
+   ]
+  },
+  "GenericCmdMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Temp1",
+     "type": "int"
+    },
+    {
+     "name": "Count",
+     "type": "int"
+    },
+    {
+     "flag": "action",
+     "name": "Action",
+     "type": "GenericCmdAction"
+    },
+    {
+     "name": "Temp4",
+     "type": "int"
+    },
+    {
+     "name": "User",
+     "type": "Identity"
+    },
+    {
+     "name": "Source",
+     "type": "Identity?",
+     "when": [
+      {
+       "criteria": "EqualsToAny",
+       "flag": "action",
+       "type": "Identity",
+       "values": [
+        4,
+        5,
+        32
+       ]
+      }
+     ]
+    },
+    {
+     "name": "Target",
+     "type": "Identity"
+    }
+   ]
+  },
+  "GridDestinationInfo": {
+   "base": null,
+   "fields": [
+    {
+     "name": "DestinationInfo",
+     "type": "DestinationInfo"
+    },
+    {
+     "name": "Location",
+     "size": "int16",
+     "type": "string"
+    },
+    {
+     "name": "Unknown1",
+     "type": "int"
+    },
+    {
+     "name": "Unknown2",
+     "type": "int"
+    }
+   ]
+  },
+  "GridDestinationSelectMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "GridDestinations",
+     "size": "x3f1",
+     "type": "GridDestinationInfo[]"
+    },
+    {
+     "name": "Token",
+     "type": "GridInteractionToken"
+    }
+   ]
+  },
+  "GridInteractionToken": {
+   "base": null,
+   "fields": [
+    {
+     "name": "Unknown0",
+     "type": "byte"
+    },
+    {
+     "name": "Unknown1",
+     "type": "int"
+    },
+    {
+     "name": "Unknown2",
+     "type": "int"
+    }
+   ]
+  },
+  "GridSelectedMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Token",
+     "type": "GridInteractionToken"
+    },
+    {
+     "name": "Unknown0",
+     "type": "int"
+    },
+    {
+     "name": "Destination",
+     "type": "DestinationInfo"
+    }
+   ]
+  },
+  "GroupMsgMessage": {
+   "base": "ChatMessageBody",
+   "fields": [
+    {
+     "name": "MessageType",
+     "type": "GroupMessageType"
+    },
+    {
+     "name": "ChannelId",
+     "type": "int"
+    },
+    {
+     "name": "SenderId",
+     "type": "uint"
+    },
+    {
+     "name": "Text",
+     "size": "int16",
+     "type": "string"
+    }
+   ]
+  },
+  "Header": {
+   "base": null,
+   "fields": []
+  },
+  "HealthDamageMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "TargetHp",
+     "type": "int"
+    },
+    {
+     "name": "Amount",
+     "type": "int"
+    },
+    {
+     "name": "Stat",
+     "type": "Stat"
+    },
+    {
+     "name": "Unk1",
+     "type": "int"
+    },
+    {
+     "name": "Target",
+     "type": "Identity"
+    },
+    {
+     "name": "Unk2",
+     "type": "int"
+    }
+   ]
+  },
+  "IAOTransportSignalMessage": {
+   "fields": [],
+   "interface": true
+  },
+  "IInfo": {
+   "fields": [],
+   "interface": true
+  },
+  "IOrgClientMessage": {
+   "fields": [],
+   "interface": true
+  },
+  "IOrgServerMessage": {
+   "fields": [],
+   "interface": true
+  },
+  "InfoPacket": {
+   "base": null,
+   "fields": []
+  },
+  "InfoPacketMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "flag": "flags",
+     "name": "Type",
+     "type": "InfoPacketType"
+    },
+    {
+     "name": "Info",
+     "type": "InfoPacket",
+     "when": [
+      {
+       "criteria": "EqualsToAny",
+       "flag": "flags",
+       "type": "CharacterInfoPacket",
+       "values": [
+        64,
+        65,
+        67,
+        71
+       ]
+      },
+      {
+       "criteria": "EqualsToAny",
+       "flag": "flags",
+       "type": "MonsterInfoPacket",
+       "values": [
+        80
+       ]
+      },
+      {
+       "criteria": "EqualsToAny",
+       "flag": "flags",
+       "type": "TowerInfoPacket",
+       "values": [
+        84,
+        92
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  "InfromPlayerMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "UnkIdentity",
+     "type": "Identity"
+    }
+   ]
+  },
+  "InitiateCompressionMessage": {
+   "base": "MessageBody",
+   "fields": []
+  },
+  "InspectMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Target",
+     "type": "Identity"
+    },
+    {
+     "name": "Slot",
+     "size": "x3f1",
+     "type": "InspectSlotInfo[]"
+    }
+   ]
+  },
+  "InspectSlotInfo": {
+   "base": null,
+   "fields": [
+    {
+     "name": "EquipSlot",
+     "type": "EquipSlot"
+    },
+    {
+     "name": "Unk1",
+     "type": "int"
+    },
+    {
+     "name": "UniqueIdentity",
+     "type": "Identity"
+    },
+    {
+     "name": "LowId",
+     "type": "int"
+    },
+    {
+     "name": "HighId",
+     "type": "int"
+    },
+    {
+     "name": "Ql",
+     "type": "int"
+    },
+    {
+     "name": "Unk2",
+     "type": "int"
+    }
+   ]
+  },
+  "InventorySlot": {
+   "base": null,
+   "fields": [
+    {
+     "name": "Placement",
+     "type": "int"
+    },
+    {
+     "name": "Flags",
+     "type": "short"
+    },
+    {
+     "name": "Count",
+     "type": "short"
+    },
+    {
+     "name": "Identity",
+     "type": "Identity"
+    },
+    {
+     "name": "ItemLowId",
+     "type": "int"
+    },
+    {
+     "name": "ItemHighId",
+     "type": "int"
+    },
+    {
+     "name": "Quality",
+     "type": "int"
+    },
+    {
+     "name": "Unknown",
+     "type": "int"
+    }
+   ]
+  },
+  "InventoryUpdateMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Unknown1",
+     "type": "int"
+    },
+    {
+     "name": "Unknown2",
+     "type": "int"
+    },
+    {
+     "name": "Items",
+     "size": "x3f1",
+     "type": "InventorySlot[]"
+    },
+    {
+     "name": "InventoryIdentity",
+     "type": "Identity"
+    },
+    {
+     "name": "Handle",
+     "type": "int"
+    },
+    {
+     "name": "Unknown3",
+     "type": "int"
+    }
+   ]
+  },
+  "KnuBotAnswerListMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Unknown1",
+     "type": "short"
+    },
+    {
+     "name": "Target",
+     "type": "Identity"
+    },
+    {
+     "name": "DialogOptions",
+     "size": "int32",
+     "type": "KnuBotDialogOption[]"
+    }
+   ]
+  },
+  "KnuBotAnswerMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Unknown1",
+     "type": "short"
+    },
+    {
+     "name": "Target",
+     "type": "Identity"
+    },
+    {
+     "name": "Answer",
+     "type": "int"
+    }
+   ]
+  },
+  "KnuBotAppendTextMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Unknown1",
+     "type": "short"
+    },
+    {
+     "name": "Target",
+     "type": "Identity"
+    },
+    {
+     "name": "Unknown2",
+     "type": "int"
+    },
+    {
+     "name": "Text",
+     "size": "int32",
+     "type": "string"
+    },
+    {
+     "name": "Unknown3",
+     "type": "int"
+    }
+   ]
+  },
+  "KnuBotCloseChatWindowMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Unknown1",
+     "type": "short"
+    },
+    {
+     "name": "Target",
+     "type": "Identity"
+    },
+    {
+     "name": "Unknown2",
+     "type": "int"
+    },
+    {
+     "name": "Unknown3",
+     "type": "int"
+    }
+   ]
+  },
+  "KnuBotDialogOption": {
+   "base": null,
+   "fields": [
+    {
+     "name": "Text",
+     "size": "int32",
+     "type": "string"
+    }
+   ]
+  },
+  "KnuBotFinishTradeMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Unknown1",
+     "type": "short"
+    },
+    {
+     "name": "Target",
+     "type": "Identity"
+    },
+    {
+     "name": "Decline",
+     "type": "int"
+    },
+    {
+     "name": "Amount",
+     "type": "int"
+    }
+   ]
+  },
+  "KnuBotOpenChatWindowMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Unknown1",
+     "type": "short"
+    },
+    {
+     "name": "Target",
+     "type": "Identity"
+    },
+    {
+     "name": "Unknown2",
+     "type": "int"
+    },
+    {
+     "name": "Unknown3",
+     "type": "int"
+    }
+   ]
+  },
+  "KnuBotRejectedItem": {
+   "base": null,
+   "fields": [
+    {
+     "name": "LowId",
+     "type": "int"
+    },
+    {
+     "name": "HighId",
+     "type": "int"
+    },
+    {
+     "name": "Quality",
+     "type": "int"
+    },
+    {
+     "name": "Unknown",
+     "type": "int"
+    }
+   ]
+  },
+  "KnuBotRejectedItemsMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Unknown1",
+     "type": "short"
+    },
+    {
+     "name": "Target",
+     "type": "Identity"
+    },
+    {
+     "name": "Items",
+     "type": "KnuBotRejectedItem[]"
+    },
+    {
+     "name": "Unknown2",
+     "type": "int"
+    }
+   ]
+  },
+  "KnuBotStartTradeMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Unknown1",
+     "type": "short"
+    },
+    {
+     "name": "Target",
+     "type": "Identity"
+    },
+    {
+     "name": "NumberOfItemSlotsInTradeWindow",
+     "type": "int"
+    },
+    {
+     "name": "Message",
+     "size": "int32",
+     "type": "string"
+    }
+   ]
+  },
+  "KnuBotTradeMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Unknown1",
+     "type": "short"
+    },
+    {
+     "name": "Target",
+     "type": "Identity"
+    },
+    {
+     "name": "Action",
+     "type": "KnuBotTradeAction"
+    },
+    {
+     "name": "Unknown3",
+     "type": "int"
+    },
+    {
+     "name": "Unknown4",
+     "type": "int"
+    },
+    {
+     "name": "Slot",
+     "type": "Identity"
+    }
+   ]
+  },
+  "LftActivateMessage": {
+   "base": "ChatMessageBody",
+   "fields": [
+    {
+     "name": "Message",
+     "size": "int16",
+     "type": "string"
+    }
+   ]
+  },
+  "LftDeactivateMessage": {
+   "base": "ChatMessageBody",
+   "fields": []
+  },
+  "LftQueryMessage": {
+   "base": "ChatMessageBody",
+   "fields": [
+    {
+     "name": "Side",
+     "type": "uint"
+    },
+    {
+     "name": "Profession",
+     "type": "uint"
+    },
+    {
+     "name": "Location",
+     "type": "uint"
+    },
+    {
+     "name": "Unknown1",
+     "type": "uint"
+    }
+   ]
+  },
+  "LftQueryResponseMessage": {
+   "base": "ChatMessageBody",
+   "fields": [
+    {
+     "name": "Unknown",
+     "type": "byte"
+    },
+    {
+     "name": "Id",
+     "type": "uint"
+    },
+    {
+     "name": "Name",
+     "size": "int16",
+     "type": "string"
+    },
+    {
+     "name": "Level",
+     "type": "uint"
+    },
+    {
+     "name": "Playfield",
+     "type": "uint"
+    },
+    {
+     "name": "Side",
+     "type": "byte"
+    },
+    {
+     "name": "Profession",
+     "type": "byte"
+    },
+    {
+     "name": "Message",
+     "size": "int16",
+     "type": "string"
+    }
+   ]
+  },
+  "LoginCharacterInfo": {
+   "base": null,
+   "fields": [
+    {
+     "name": "Unknown1",
+     "type": "int"
+    },
+    {
+     "name": "Id",
+     "type": "int"
+    },
+    {
+     "name": "PlayfieldProxyVersion",
+     "type": "byte"
+    },
+    {
+     "name": "PlayfieldId",
+     "type": "Identity"
+    },
+    {
+     "name": "PlayfieldAttribute",
+     "type": "int"
+    },
+    {
+     "name": "ExitDoor",
+     "type": "int"
+    },
+    {
+     "name": "ExitDoorId",
+     "type": "Identity"
+    },
+    {
+     "name": "Unknown2",
+     "type": "int"
+    },
+    {
+     "name": "CharacterInfoVersion",
+     "type": "int"
+    },
+    {
+     "name": "CharacterId",
+     "type": "int"
+    },
+    {
+     "name": "Unknown3",
+     "type": "int"
+    },
+    {
+     "name": "Name",
+     "size": "int32",
+     "type": "string"
+    },
+    {
+     "name": "Breed",
+     "type": "Breed"
+    },
+    {
+     "name": "Gender",
+     "type": "Gender"
+    },
+    {
+     "name": "Profession",
+     "type": "Profession"
+    },
+    {
+     "name": "Level",
+     "type": "int"
+    },
+    {
+     "name": "AreaName",
+     "size": "int32",
+     "type": "string"
+    },
+    {
+     "name": "Unknown4",
+     "type": "int"
+    },
+    {
+     "name": "Unknown5",
+     "type": "int"
+    },
+    {
+     "name": "Unknown6",
+     "type": "int"
+    },
+    {
+     "name": "Unknown7",
+     "type": "int"
+    },
+    {
+     "name": "Unknown8",
+     "type": "int"
+    },
+    {
+     "name": "Status",
+     "type": "CharacterStatus"
+    }
+   ]
+  },
+  "LoginErrorMessage": {
+   "base": "SystemMessage",
+   "fields": [
+    {
+     "name": "Error",
+     "type": "LoginError"
+    }
+   ]
+  },
+  "LookAtMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Target",
+     "type": "Identity"
+    },
+    {
+     "name": "Unk",
+     "type": "int"
+    }
+   ]
+  },
+  "LookupMessage": {
+   "base": "ChatMessageBody",
+   "fields": [
+    {
+     "name": "Id",
+     "type": "uint"
+    },
+    {
+     "name": "Name",
+     "size": "int16",
+     "type": "string"
+    }
+   ]
+  },
+  "MailMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Unknown1",
+     "type": "short"
+    },
+    {
+     "name": "Recipient",
+     "size": "int16",
+     "type": "string"
+    },
+    {
+     "name": "Subject",
+     "size": "int16",
+     "type": "string"
+    },
+    {
+     "name": "Body",
+     "size": "int16",
+     "type": "string"
+    },
+    {
+     "name": "Item",
+     "type": "Identity"
+    },
+    {
+     "name": "Credits",
+     "type": "int"
+    },
+    {
+     "name": "Express",
+     "type": "bool"
+    }
+   ]
+  },
+  "MarketSendMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Sender",
+     "type": "Identity"
+    },
+    {
+     "name": "Credits",
+     "type": "int"
+    },
+    {
+     "name": "Items",
+     "size": "x3f1",
+     "type": "MarketSendSlot[]"
+    }
+   ]
+  },
+  "MarketSendSlot": {
+   "base": null,
+   "fields": [
+    {
+     "name": "Slot",
+     "type": "Identity"
+    }
+   ]
+  },
+  "Mesh": {
+   "base": null,
+   "fields": [
+    {
+     "name": "Position",
+     "type": "byte"
+    },
+    {
+     "name": "Id",
+     "type": "uint"
+    },
+    {
+     "name": "OverrideTextureId",
+     "type": "int"
+    },
+    {
+     "name": "Layer",
+     "type": "byte"
+    }
+   ]
+  },
+  "Message": {
+   "base": null,
+   "fields": []
+  },
+  "MessageBody": {
+   "base": null,
+   "fields": []
+  },
+  "MissedAttackInfoMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Unknown1",
+     "type": "int"
+    },
+    {
+     "name": "Unknown2",
+     "type": "int"
+    },
+    {
+     "name": "Attacker",
+     "type": "Identity"
+    },
+    {
+     "name": "Defender",
+     "type": "Identity"
+    },
+    {
+     "name": "Unknown3",
+     "type": "int"
+    }
+   ]
+  },
+  "MissionInfo": {
+   "base": null,
+   "fields": [
+    {
+     "name": "MissionIdentity",
+     "type": "Identity"
+    },
+    {
+     "fixed": 16,
+     "name": "UnkChunk1",
+     "type": "byte[]"
+    },
+    {
+     "name": "Title",
+     "size": "nullterm",
+     "type": "string"
+    },
+    {
+     "name": "Description",
+     "size": "int32",
+     "type": "string"
+    },
+    {
+     "name": "TerminalIdentity",
+     "type": "Identity"
+    },
+    {
+     "name": "RewardDescriptorVersion",
+     "type": "int"
+    },
+    {
+     "name": "Credits",
+     "type": "int"
+    },
+    {
+     "name": "Unk1",
+     "type": "int"
+    },
+    {
+     "name": "XpReward",
+     "type": "int"
+    },
+    {
+     "fixed": 8,
+     "name": "UnkChunk2",
+     "type": "byte[]"
+    },
+    {
+     "name": "MissionItemData",
+     "size": "x3f1",
+     "type": "MissionItemReward[]"
+    },
+    {
+     "fixed": 44,
+     "name": "UnkChunk3",
+     "type": "byte[]"
+    },
+    {
+     "name": "MissionIcon",
+     "type": "int"
+    },
+    {
+     "fixed": 120,
+     "name": "UnkChunk4",
+     "type": "byte[]"
+    },
+    {
+     "name": "Playfield",
+     "type": "Identity"
+    },
+    {
+     "fixed": 8,
+     "name": "UnkChunk5",
+     "type": "byte[]"
+    },
+    {
+     "name": "Location",
+     "type": "Vector3"
+    },
+    {
+     "fixed": 61,
+     "name": "UnkChunk6",
+     "type": "byte[]"
+    }
+   ]
+  },
+  "MissionItemReward": {
+   "base": null,
+   "fields": [
+    {
+     "name": "LowId",
+     "type": "int"
+    },
+    {
+     "name": "HighId",
+     "type": "int"
+    },
+    {
+     "name": "Ql",
+     "type": "int"
+    },
+    {
+     "name": "Unk",
+     "type": "int"
+    }
+   ]
+  },
+  "MissionSliders": {
+   "base": null,
+   "fields": [
+    {
+     "name": "Difficulty",
+     "type": "byte"
+    },
+    {
+     "name": "GoodBad",
+     "type": "byte"
+    },
+    {
+     "name": "OrderChaos",
+     "type": "byte"
+    },
+    {
+     "name": "OpenHidden",
+     "type": "byte"
+    },
+    {
+     "name": "PhysicalMystical",
+     "type": "byte"
+    },
+    {
+     "name": "HeadonStealth",
+     "type": "byte"
+    },
+    {
+     "name": "CreditsXp",
+     "type": "byte"
+    }
+   ]
+  },
+  "MonsterInfoPacket": {
+   "base": "InfoPacket",
+   "fields": []
+  },
+  "MovementInfo": {
+   "base": null,
+   "fields": [
+    {
+     "name": "Unk1",
+     "type": "float"
+    },
+    {
+     "name": "Unk2",
+     "type": "float"
+    },
+    {
+     "name": "Unk3",
+     "type": "float"
+    },
+    {
+     "name": "State",
+     "type": "MovementState"
+    }
+   ]
+  },
+  "N3Message": {
+   "base": "MessageBody",
+   "fields": [
+    {
+     "name": "N3MessageType",
+     "type": "N3MessageType"
+    },
+    {
+     "name": "Identity",
+     "type": "Identity"
+    },
+    {
+     "name": "Unknown",
+     "type": "byte"
+    }
+   ]
+  },
+  "N3TeleportMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Destination",
+     "type": "Vector3"
+    },
+    {
+     "name": "Heading",
+     "type": "Quaternion"
+    },
+    {
+     "name": "Unknown1",
+     "type": "byte"
+    },
+    {
+     "name": "Playfield",
+     "type": "Identity"
+    },
+    {
+     "name": "GameServerId",
+     "type": "int"
+    },
+    {
+     "name": "SgId",
+     "type": "int"
+    },
+    {
+     "name": "ChangePlayfield",
+     "type": "Identity"
+    },
+    {
+     "name": "Unknown4",
+     "type": "int"
+    },
+    {
+     "name": "Unknown5",
+     "type": "int"
+    },
+    {
+     "name": "Playfield2",
+     "type": "Identity"
+    },
+    {
+     "name": "Unknown6",
+     "type": "int"
+    }
+   ]
+  },
+  "NPCInfo": {
+   "base": "SimpleCharInfo",
+   "fields": []
+  },
+  "NameInUseMessage": {
+   "base": "SystemMessage",
+   "fields": [
+    {
+     "name": "Unknown",
+     "type": "int"
+    }
+   ]
+  },
+  "NanoEffect": {
+   "base": null,
+   "fields": [
+    {
+     "name": "Effect",
+     "type": "Identity"
+    },
+    {
+     "name": "Unknown1",
+     "type": "int"
+    },
+    {
+     "name": "CriterionCount",
+     "type": "int"
+    },
+    {
+     "name": "Hits",
+     "type": "int"
+    },
+    {
+     "name": "Delay",
+     "type": "int"
+    },
+    {
+     "name": "Unknown2",
+     "type": "int"
+    },
+    {
+     "name": "Unknown3",
+     "type": "int"
+    },
+    {
+     "name": "GfxValue",
+     "type": "int"
+    },
+    {
+     "name": "GfxLife",
+     "type": "int"
+    },
+    {
+     "name": "GfxSize",
+     "type": "int"
+    },
+    {
+     "name": "GfxRed",
+     "type": "int"
+    },
+    {
+     "name": "GfxGreen",
+     "type": "int"
+    },
+    {
+     "name": "GfxBlue",
+     "type": "int"
+    },
+    {
+     "name": "GfxFade",
+     "type": "int"
+    }
+   ]
+  },
+  "NewLevelMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Level",
+     "type": "int"
+    },
+    {
+     "name": "AvailableIp",
+     "type": "int"
+    },
+    {
+     "name": "CurrentXp",
+     "type": "int"
+    },
+    {
+     "name": "LastLevelXp",
+     "type": "int"
+    },
+    {
+     "name": "NextLevelXp",
+     "type": "int"
+    },
+    {
+     "name": "IpResetPointsGained",
+     "type": "int"
+    },
+    {
+     "name": "XpKillRange",
+     "type": "int"
+    },
+    {
+     "name": "LastAwardedXp",
+     "type": "int"
+    }
+   ]
+  },
+  "NpcMessage": {
+   "base": "ChatMessageBody",
+   "fields": [
+    {
+     "name": "Unk1",
+     "type": "short"
+    },
+    {
+     "name": "Text",
+     "size": "int16",
+     "type": "string"
+    },
+    {
+     "name": "Unk2",
+     "size": "int16",
+     "type": "short"
+    }
+   ]
+  },
+  "OperatorMessage": {
+   "base": "MessageBody",
+   "fields": []
+  },
+  "OrgClientCommandArgsMessage": {
+   "base": "IOrgClientMessage",
+   "fields": [
+    {
+     "name": "CommandArgs",
+     "size": "int16",
+     "type": "string"
+    }
+   ]
+  },
+  "OrgClientMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "flag": "action",
+     "name": "Command",
+     "type": "OrgClientCommand"
+    },
+    {
+     "name": "Target",
+     "type": "Identity"
+    },
+    {
+     "name": "Unknown1",
+     "type": "int"
+    },
+    {
+     "name": "IOrgClientMessage",
+     "type": "IOrgClientMessage",
+     "when": [
+      {
+       "criteria": "EqualsToAny",
+       "flag": "action",
+       "type": "OrgClientNoCommandArgsMessage",
+       "values": [
+        5,
+        14
+       ]
+      },
+      {
+       "criteria": "EqualsToAny",
+       "flag": "action",
+       "type": "OrgClientCommandArgsMessage",
+       "values": [
+        1,
+        7,
+        9,
+        13,
+        17,
+        19,
+        20,
+        21,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  "OrgClientNoCommandArgsMessage": {
+   "base": "IOrgClientMessage",
+   "fields": []
+  },
+  "OrgContractSlot": {
+   "base": null,
+   "fields": [
+    {
+     "name": "Slot",
+     "type": "int"
+    },
+    {
+     "name": "Unknown1",
+     "type": "int"
+    },
+    {
+     "name": "Unknown2",
+     "type": "int"
+    },
+    {
+     "name": "Unknown3",
+     "type": "int"
+    },
+    {
+     "name": "LowId",
+     "type": "int"
+    },
+    {
+     "name": "HighId",
+     "type": "int"
+    },
+    {
+     "name": "Ql",
+     "type": "int"
+    },
+    {
+     "name": "Unknown4",
+     "type": "int"
+    }
+   ]
+  },
+  "OrgInfoPacketMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "OrgId",
+     "type": "int"
+    },
+    {
+     "name": "Name",
+     "size": "int16",
+     "type": "string"
+    }
+   ]
+  },
+  "OrgInvite": {
+   "base": "IOrgServerMessage",
+   "fields": [
+    {
+     "name": "Unknown3",
+     "type": "int"
+    }
+   ]
+  },
+  "OrgServerMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "flag": "orgmessagetype",
+     "name": "OrgServerMessageType",
+     "type": "OrgServerMessageType"
+    },
+    {
+     "name": "Unknown1",
+     "type": "int"
+    },
+    {
+     "name": "Unknown2",
+     "type": "int"
+    },
+    {
+     "name": "Organization",
+     "type": "Identity"
+    },
+    {
+     "name": "IOrgServerMessage",
+     "type": "IOrgServerMessage",
+     "when": [
+      {
+       "criteria": "EqualsToAny",
+       "flag": "orgmessagetype",
+       "type": "OrgInvite",
+       "values": [
+        5
+       ]
+      },
+      {
+       "criteria": "EqualsToAny",
+       "flag": "orgmessagetype",
+       "type": "OrganizationInfo",
+       "values": [
+        2
+       ]
+      },
+      {
+       "criteria": "EqualsToAny",
+       "flag": "orgmessagetype",
+       "type": "ContractsInfo",
+       "values": [
+        1
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  "OrganizationInfo": {
+   "base": "IOrgServerMessage",
+   "fields": [
+    {
+     "name": "OrganizationName",
+     "size": "int16",
+     "type": "string"
+    },
+    {
+     "name": "Description",
+     "size": "int16",
+     "type": "string"
+    },
+    {
+     "name": "Objective",
+     "size": "int16",
+     "type": "string"
+    },
+    {
+     "name": "History",
+     "size": "int16",
+     "type": "string"
+    },
+    {
+     "name": "GoverningForm",
+     "size": "int16",
+     "type": "string"
+    },
+    {
+     "name": "LeaderName",
+     "size": "int16",
+     "type": "string"
+    },
+    {
+     "name": "Rank",
+     "size": "int16",
+     "type": "string"
+    },
+    {
+     "name": "ControlledAreas",
+     "size": "x3f1",
+     "type": "ControlledArea[]"
+    }
+   ]
+  },
+  "PathInfo": {
+   "base": "IInfo",
+   "fields": [
+    {
+     "name": "Waypoints",
+     "size": "byte",
+     "type": "Vector3[]"
+    }
+   ]
+  },
+  "Perk": {
+   "base": null,
+   "fields": [
+    {
+     "name": "SkillId",
+     "type": "int"
+    },
+    {
+     "name": "Unknown1",
+     "type": "int"
+    },
+    {
+     "name": "Unknown2",
+     "type": "int"
+    },
+    {
+     "name": "Unknown3",
+     "type": "int"
+    }
+   ]
+  },
+  "PetBase": {
+   "base": null,
+   "fields": [
+    {
+     "name": "Identity",
+     "type": "Identity"
+    }
+   ]
+  },
+  "PetCommandMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Unk1",
+     "type": "int"
+    },
+    {
+     "name": "Command",
+     "type": "PetCommand"
+    },
+    {
+     "name": "Unk2",
+     "type": "int"
+    },
+    {
+     "name": "Pets",
+     "size": "x3f1",
+     "type": "PetBase[]"
+    },
+    {
+     "name": "Unk3",
+     "type": "int"
+    },
+    {
+     "name": "Unk4",
+     "type": "int"
+    }
+   ]
+  },
+  "PickUpMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Target",
+     "type": "Identity"
+    }
+   ]
+  },
+  "PingMessage": {
+   "base": "MessageBody",
+   "fields": [
+    {
+     "name": "PingMessageType",
+     "type": "PingMessageType"
+    },
+    {
+     "name": "Unk1",
+     "type": "int"
+    },
+    {
+     "name": "ServerTime",
+     "type": "uint"
+    },
+    {
+     "name": "UpTime1",
+     "type": "uint"
+    },
+    {
+     "name": "UpTime2",
+     "type": "uint"
+    },
+    {
+     "name": "Unk2",
+     "type": "uint"
+    }
+   ]
+  },
+  "PlayerInfo": {
+   "base": "SimpleCharInfo",
+   "fields": []
+  },
+  "PlayfieldAllCitiesMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Unknown1",
+     "type": "short"
+    }
+   ]
+  },
+  "PlayfieldAllTowersMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "TowerInfo",
+     "size": "x3f1",
+     "type": "TowerInfo[]"
+    }
+   ]
+  },
+  "PlayfieldAnarchyFMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Unknown1",
+     "type": "int"
+    },
+    {
+     "name": "CharacterCoordinates",
+     "type": "Vector3"
+    },
+    {
+     "name": "Unknown2",
+     "type": "byte"
+    },
+    {
+     "name": "PlayfieldId1",
+     "type": "Identity"
+    },
+    {
+     "name": "Unknown3",
+     "type": "int"
+    },
+    {
+     "name": "SG",
+     "type": "int"
+    },
+    {
+     "name": "ProxyId",
+     "type": "Identity"
+    },
+    {
+     "flag": "flags",
+     "name": "UnknownIdType",
+     "type": "int"
+    },
+    {
+     "name": "UnknownIdInstance",
+     "type": "int"
+    },
+    {
+     "name": "Unknown5",
+     "type": "int"
+    },
+    {
+     "name": "Unknown6",
+     "type": "int"
+    },
+    {
+     "name": "Unknown7",
+     "type": "UnknownStruct1",
+     "when": [
+      {
+       "criteria": "EqualsToAny",
+       "flag": "flags",
+       "type": "UnknownStruct1",
+       "values": [
+        51067
+       ]
+      }
+     ]
+    },
+    {
+     "name": "Dynels",
+     "size": "int32",
+     "type": "PlayfieldDynelInfo[]",
+     "when": [
+      {
+       "criteria": "EqualsToAny",
+       "flag": "flags",
+       "type": "PlayfieldDynelInfo[]",
+       "values": [
+        51067,
+        51069
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  "PlayfieldAnarchyFMessage.PlayfieldDynelInfo": {
+   "base": null,
+   "fields": [
+    {
+     "name": "IdentityType",
+     "type": "IdentityType"
+    },
+    {
+     "name": "Unknown1",
+     "type": "int"
+    },
+    {
+     "name": "Unknown2",
+     "type": "int"
+    },
+    {
+     "name": "Unknown3",
+     "type": "int"
+    },
+    {
+     "name": "Instance",
+     "type": "int"
+    }
+   ]
+  },
+  "PlayfieldAnarchyFMessage.UnknownStruct1": {
+   "base": null,
+   "fields": [
+    {
+     "name": "Unknown1",
+     "type": "int"
+    },
+    {
+     "name": "Unknown2",
+     "type": "Identity"
+    },
+    {
+     "name": "Unknown3",
+     "type": "int"
+    },
+    {
+     "name": "Unknown4",
+     "type": "Vector3"
+    },
+    {
+     "name": "Unknown5",
+     "type": "int"
+    },
+    {
+     "name": "Unknown6",
+     "type": "int"
+    },
+    {
+     "name": "Unknown7",
+     "type": "float"
+    },
+    {
+     "name": "Unknown8",
+     "type": "int"
+    },
+    {
+     "name": "Unknown9",
+     "type": "int"
+    }
+   ]
+  },
+  "PlayfieldDynelInfo": {
+   "base": null,
+   "fields": [
+    {
+     "name": "IdentityType",
+     "type": "IdentityType"
+    },
+    {
+     "name": "Unknown1",
+     "type": "int"
+    },
+    {
+     "name": "Unknown2",
+     "type": "int"
+    },
+    {
+     "name": "Unknown3",
+     "type": "int"
+    },
+    {
+     "name": "Instance",
+     "type": "int"
+    }
+   ]
+  },
+  "PlayfieldTowerUpdateClientMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "TowerId",
+     "type": "Identity"
+    },
+    {
+     "name": "UpdateType",
+     "type": "PlayfieldUpdateClientType"
+    },
+    {
+     "name": "Tower",
+     "size": "x3f1",
+     "type": "TowerInfo"
+    }
+   ]
+  },
+  "PlayfieldVendorInfo": {
+   "base": null,
+   "fields": [
+    {
+     "name": "Unknown1",
+     "type": "Identity"
+    },
+    {
+     "name": "Unknown2",
+     "type": "int"
+    },
+    {
+     "name": "FirstVendorId",
+     "type": "int"
+    },
+    {
+     "name": "VendorCount",
+     "type": "int"
+    }
+   ]
+  },
+  "PrivateGroupInviteAcceptMessage": {
+   "base": "ChatMessageBody",
+   "fields": [
+    {
+     "name": "Sender",
+     "type": "uint"
+    }
+   ]
+  },
+  "PrivateGroupInviteMessage": {
+   "base": "ChatMessageBody",
+   "fields": [
+    {
+     "name": "Sender",
+     "type": "uint"
+    }
+   ]
+  },
+  "PrivateGroupMessage": {
+   "base": "ChatMessageBody",
+   "fields": [
+    {
+     "name": "ChannelId",
+     "type": "uint"
+    },
+    {
+     "name": "Sender",
+     "type": "uint"
+    },
+    {
+     "name": "Text",
+     "size": "int16",
+     "type": "string"
+    },
+    {
+     "name": "Unk1",
+     "type": "byte"
+    },
+    {
+     "name": "Unk2",
+     "type": "byte"
+    }
+   ]
+  },
+  "PrivateMsgMessage": {
+   "base": "ChatMessageBody",
+   "fields": [
+    {
+     "name": "Sender",
+     "type": "uint"
+    },
+    {
+     "name": "Text",
+     "size": "int16",
+     "type": "string"
+    },
+    {
+     "name": "Unk1",
+     "type": "short"
+    },
+    {
+     "name": "Unk2",
+     "type": "byte"
+    }
+   ]
+  },
+  "Quest": {
+   "base": null,
+   "fields": [
+    {
+     "name": "QuestId",
+     "type": "Identity"
+    },
+    {
+     "name": "Unknown1",
+     "type": "int"
+    },
+    {
+     "name": "Unknown2",
+     "type": "int"
+    },
+    {
+     "name": "Unknown3",
+     "type": "int"
+    },
+    {
+     "name": "Unknown4",
+     "type": "int"
+    },
+    {
+     "name": "ShortInfo",
+     "size": "nullterm",
+     "type": "string"
+    },
+    {
+     "name": "LongInfo",
+     "size": "int32",
+     "type": "string"
+    },
+    {
+     "name": "UnknownId1",
+     "type": "Identity"
+    },
+    {
+     "name": "Unknown5",
+     "type": "int"
+    },
+    {
+     "name": "Unknown6",
+     "type": "int"
+    },
+    {
+     "name": "Unknown7",
+     "type": "int"
+    },
+    {
+     "name": "Unknown8",
+     "type": "int"
+    },
+    {
+     "name": "Unknown9",
+     "type": "int"
+    },
+    {
+     "name": "Unknown10",
+     "type": "int"
+    },
+    {
+     "name": "MissionItemData",
+     "size": "x3f1",
+     "type": "MissionItemReward[]"
+    },
+    {
+     "name": "Unknown11",
+     "type": "int"
+    },
+    {
+     "name": "Unknown14",
+     "type": "int"
+    },
+    {
+     "name": "Unknown12",
+     "type": "int"
+    },
+    {
+     "name": "Unknown15",
+     "type": "int"
+    },
+    {
+     "name": "Unknown13",
+     "type": "int"
+    },
+    {
+     "name": "Unknown16",
+     "type": "int"
+    },
+    {
+     "fixed": 4,
+     "name": "UnknownHash1",
+     "size": "none",
+     "type": "string"
+    },
+    {
+     "name": "Unknown17",
+     "type": "int"
+    },
+    {
+     "name": "Unknown18",
+     "type": "int"
+    },
+    {
+     "name": "UnknownId2",
+     "type": "Identity"
+    },
+    {
+     "name": "MissionIconId",
+     "type": "int"
+    },
+    {
+     "name": "Unknown20",
+     "type": "int"
+    },
+    {
+     "name": "Unknown21",
+     "type": "int"
+    },
+    {
+     "name": "QuestActions",
+     "size": "x3f1",
+     "type": "QuestActionInfo[]"
+    },
+    {
+     "name": "PlayerIds",
+     "size": "x3f1",
+     "type": "Identity[]"
+    },
+    {
+     "name": "UnknownArray1",
+     "size": "int32",
+     "type": "int[]"
+    },
+    {
+     "name": "UnknownArray2",
+     "size": "int32",
+     "type": "int[]"
+    },
+    {
+     "name": "CharacterInfos",
+     "size": "int32",
+     "type": "CharacterInfo[]"
+    },
+    {
+     "name": "Unknown22",
+     "type": "int"
+    },
+    {
+     "name": "PlayerIds2",
+     "size": "x3f1",
+     "type": "Identity[]"
+    },
+    {
+     "name": "Unknown23",
+     "type": "int"
+    },
+    {
+     "name": "Unknown24",
+     "type": "int"
+    },
+    {
+     "name": "UnknownId3",
+     "type": "Identity"
+    },
+    {
+     "name": "Unknown25",
+     "type": "int"
+    },
+    {
+     "name": "Unknown26",
+     "type": "int"
+    },
+    {
+     "name": "QuestIdentities",
+     "size": "int32",
+     "type": "QuestIdentity[]"
+    },
+    {
+     "name": "Unknown27",
+     "type": "int"
+    },
+    {
+     "name": "FactionInfos",
+     "size": "x3f1",
+     "type": "Identity[]"
+    },
+    {
+     "name": "Unknown28",
+     "type": "byte"
+    }
+   ]
+  },
+  "QuestActionInfo": {
+   "base": null,
+   "fields": [
+    {
+     "name": "Version",
+     "type": "int"
+    },
+    {
+     "name": "Action",
+     "type": "Identity"
+    },
+    {
+     "name": "UnknownId1",
+     "type": "Identity"
+    },
+    {
+     "name": "UnknownId2",
+     "type": "Identity"
+    },
+    {
+     "name": "UnknownId3",
+     "type": "Identity"
+    },
+    {
+     "name": "UnknownId4",
+     "type": "Identity"
+    },
+    {
+     "name": "Unknown1",
+     "type": "float"
+    },
+    {
+     "name": "Unknown2",
+     "type": "float"
+    },
+    {
+     "name": "Unknown3",
+     "type": "float"
+    },
+    {
+     "name": "Unknown4",
+     "type": "float"
+    },
+    {
+     "name": "UnknownId5",
+     "type": "Identity"
+    },
+    {
+     "name": "Unknown5",
+     "type": "float"
+    },
+    {
+     "name": "Unknown6",
+     "type": "float"
+    },
+    {
+     "name": "Unknown7",
+     "type": "float"
+    },
+    {
+     "name": "Unknown8",
+     "type": "float"
+    },
+    {
+     "name": "UnknownId6",
+     "type": "Identity"
+    },
+    {
+     "fixed": 4,
+     "name": "UnknownHash1",
+     "size": "none",
+     "type": "string"
+    },
+    {
+     "name": "Unknown9",
+     "type": "int"
+    },
+    {
+     "name": "UnknownId7",
+     "type": "Identity"
+    },
+    {
+     "name": "PlayfieldId",
+     "type": "Identity"
+    },
+    {
+     "name": "Unknown10",
+     "type": "int"
+    },
+    {
+     "name": "Unknown11",
+     "type": "int"
+    },
+    {
+     "name": "Position",
+     "type": "Vector3"
+    }
+   ]
+  },
+  "QuestAlternativeMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Unknown1",
+     "type": "byte"
+    },
+    {
+     "name": "MissionSliders",
+     "type": "MissionSliders"
+    },
+    {
+     "name": "Unknown2",
+     "type": "int"
+    },
+    {
+     "name": "Scope",
+     "type": "MissionScope"
+    },
+    {
+     "name": "Terminal",
+     "type": "Identity"
+    },
+    {
+     "name": "MissionDetails",
+     "size": "byte",
+     "type": "MissionInfo[]"
+    }
+   ]
+  },
+  "QuestFullUpdateMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Quests",
+     "size": "x3f1",
+     "type": "Quest[]"
+    }
+   ]
+  },
+  "QuestIdentity": {
+   "base": null,
+   "fields": [
+    {
+     "name": "Identity",
+     "type": "Identity"
+    },
+    {
+     "name": "Unknown1",
+     "type": "int"
+    }
+   ]
+  },
+  "QuestMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Action",
+     "type": "QuestAction"
+    },
+    {
+     "name": "Unknown1",
+     "type": "int"
+    },
+    {
+     "name": "Mission",
+     "type": "Identity"
+    },
+    {
+     "name": "Unknown2",
+     "type": "int"
+    },
+    {
+     "name": "Unknown3",
+     "type": "int"
+    }
+   ]
+  },
+  "RaidCmdMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "CommandType",
+     "type": "RaidCmdType"
+    },
+    {
+     "name": "Unknown2",
+     "type": "int"
+    },
+    {
+     "name": "Unknown3",
+     "type": "int"
+    }
+   ]
+  },
+  "RandomNameRequestMessage": {
+   "base": "SystemMessage",
+   "fields": [
+    {
+     "name": "Profession",
+     "type": "Profession"
+    }
+   ]
+  },
+  "ReflectAttackMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Amount",
+     "type": "int"
+    },
+    {
+     "name": "Target",
+     "type": "Identity"
+    },
+    {
+     "name": "Stat",
+     "type": "Stat"
+    }
+   ]
+  },
+  "ReloadMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "AmmoSlot",
+     "type": "Identity"
+    },
+    {
+     "name": "WeaponIdentity",
+     "type": "Identity"
+    },
+    {
+     "name": "AmmoCount",
+     "type": "int"
+    },
+    {
+     "name": "WeaponAmmoCount",
+     "type": "int"
+    }
+   ]
+  },
+  "ResearchLine": {
+   "base": null,
+   "fields": [
+    {
+     "name": "ResearchId",
+     "type": "int"
+    },
+    {
+     "name": "Unknown1",
+     "type": "int"
+    },
+    {
+     "name": "Unknown2",
+     "type": "int"
+    },
+    {
+     "name": "Unknown3",
+     "type": "int"
+    }
+   ]
+  },
+  "ResearchUpdateMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Unknown1",
+     "type": "byte"
+    },
+    {
+     "fixed": 54,
+     "name": "ResearchLine",
+     "size": "none",
+     "type": "ResearchLine[]"
+    },
+    {
+     "name": "Unknown2",
+     "type": "int"
+    }
+   ]
+  },
+  "SelectCharacterMessage": {
+   "base": "SystemMessage",
+   "fields": [
+    {
+     "name": "CharacterId",
+     "type": "int"
+    }
+   ]
+  },
+  "SendScoreMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Unknown1",
+     "type": "int"
+    },
+    {
+     "name": "A",
+     "type": "BattlestationSide"
+    },
+    {
+     "name": "B",
+     "type": "BattlestationSide"
+    },
+    {
+     "name": "C",
+     "type": "BattlestationSide"
+    },
+    {
+     "name": "Core",
+     "type": "BattlestationSide"
+    },
+    {
+     "name": "Unknown2",
+     "type": "int"
+    },
+    {
+     "name": "RedScore",
+     "type": "int"
+    },
+    {
+     "name": "BlueScore",
+     "type": "int"
+    }
+   ]
+  },
+  "ServerSaltMessage": {
+   "base": "SystemMessage",
+   "fields": [
+    {
+     "fixed": 32,
+     "name": "ServerSalt",
+     "type": "byte[]"
+    }
+   ]
+  },
+  "SetPosMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Position",
+     "type": "Vector3"
+    }
+   ]
+  },
+  "SetStatMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Value",
+     "type": "int"
+    },
+    {
+     "name": "Stat",
+     "type": "Stat"
+    }
+   ]
+  },
+  "ShieldAttackMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Amount",
+     "type": "int"
+    },
+    {
+     "name": "Target",
+     "type": "Identity"
+    },
+    {
+     "name": "Stat",
+     "type": "Stat"
+    }
+   ]
+  },
+  "ShopUpdateMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "VendingMachineSlots",
+     "size": "x3f1",
+     "type": "VendingMachineSlot[]"
+    }
+   ]
+  },
+  "SimpleCharFullUpdateMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Version",
+     "type": "byte"
+    },
+    {
+     "name": "Flags",
+     "type": "SimpleCharFullUpdateFlags"
+    },
+    {
+     "name": "PlayfieldId",
+     "type": "int?"
+    },
+    {
+     "name": "FightingTarget",
+     "type": "Identity?"
+    },
+    {
+     "name": "Position",
+     "type": "Vector3"
+    },
+    {
+     "name": "Heading",
+     "type": "Quaternion"
+    },
+    {
+     "name": "Appearance",
+     "type": "Appearance"
+    },
+    {
+     "name": "Name",
+     "type": "string"
+    },
+    {
+     "name": "CharacterFlags",
+     "type": "CharacterFlags"
+    },
+    {
+     "name": "AccountFlags",
+     "type": "short"
+    },
+    {
+     "name": "Expansions",
+     "type": "short"
+    },
+    {
+     "name": "CharacterInfo",
+     "type": "SimpleCharInfo"
+    },
+    {
+     "name": "Level",
+     "type": "short"
+    },
+    {
+     "name": "Health",
+     "type": "int"
+    },
+    {
+     "name": "HealthDamage",
+     "type": "int"
+    },
+    {
+     "name": "MonsterData",
+     "type": "uint"
+    },
+    {
+     "name": "MonsterScale",
+     "type": "short"
+    },
+    {
+     "name": "VisualFlags",
+     "type": "short"
+    },
+    {
+     "name": "VisibleTitle",
+     "type": "byte"
+    },
+    {
+     "name": "ScfuUnk1",
+     "size": "int32",
+     "type": "byte[]"
+    },
+    {
+     "name": "HeadMesh",
+     "type": "int?"
+    },
+    {
+     "name": "RunSpeedBase",
+     "type": "short"
+    },
+    {
+     "name": "ActiveNanos",
+     "size": "x3f1",
+     "type": "SimpleCharInfo.ActiveNano[]"
+    },
+    {
+     "name": "Textures",
+     "size": "x3f1",
+     "type": "Texture[]"
+    },
+    {
+     "name": "Meshes",
+     "size": "x3f1",
+     "type": "Mesh[]"
+    },
+    {
+     "name": "Flags2",
+     "type": "ScfuFlags2"
+    },
+    {
+     "name": "SpecialAttacks",
+     "type": "SimpleCharInfo.SpecialAttackData[]"
+    },
+    {
+     "name": "ScfuUnk2",
+     "type": "byte"
+    },
+    {
+     "name": "ScfuUnk3",
+     "type": "float"
+    },
+    {
+     "name": "ScfuUnk4",
+     "type": "byte"
+    },
+    {
+     "name": "TextureOverrides",
+     "type": "SimpleCharInfo.TextureOverride[]"
+    },
+    {
+     "name": "Waypoints",
+     "type": "List<Vector3>"
+    },
+    {
+     "name": "Owner",
+     "type": "Identity?"
+    },
+    {
+     "name": "ScfuTowerUnk",
+     "type": "byte"
+    }
+   ]
+  },
+  "SimpleCharFullUpdateMessage.MovementInfo": {
+   "base": null,
+   "fields": [
+    {
+     "name": "Unk1",
+     "type": "float"
+    },
+    {
+     "name": "Unk2",
+     "type": "float"
+    },
+    {
+     "name": "Unk3",
+     "type": "float"
+    },
+    {
+     "name": "State",
+     "type": "MovementState"
+    }
+   ]
+  },
+  "SimpleCharInfo": {
+   "base": null,
+   "fields": []
+  },
+  "SimpleCharInfo.ActiveNano": {
+   "base": null,
+   "fields": []
+  },
+  "SimpleCharInfo.NPCInfo": {
+   "base": "SimpleCharInfo",
+   "fields": []
+  },
+  "SimpleCharInfo.PlayerInfo": {
+   "base": "SimpleCharInfo",
+   "fields": []
+  },
+  "SimpleCharInfo.SpecialAttackData": {
+   "base": null,
+   "fields": []
+  },
+  "SimpleCharInfo.TextureOverride": {
+   "base": null,
+   "fields": []
+  },
+  "SimpleItemFullUpdateMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Unknown1",
+     "type": "int"
+    },
+    {
+     "flag": "OwnerType",
+     "name": "OwnerType",
+     "type": "int"
+    },
+    {
+     "name": "OwnerInstance",
+     "type": "int"
+    },
+    {
+     "name": "Position",
+     "type": "Vector3?",
+     "when": [
+      {
+       "criteria": "EqualsToAny",
+       "flag": "OwnerType",
+       "type": "Vector3",
+       "values": [
+        0
+       ]
+      }
+     ]
+    },
+    {
+     "name": "Rotation",
+     "type": "Quaternion?",
+     "when": [
+      {
+       "criteria": "EqualsToAny",
+       "flag": "OwnerType",
+       "type": "Quaternion",
+       "values": [
+        0
+       ]
+      }
+     ]
+    },
+    {
+     "name": "PlayfieldId",
+     "type": "int"
+    },
+    {
+     "name": "StateMachine",
+     "type": "Identity"
+    },
+    {
+     "name": "Unknown2",
+     "type": "short"
+    },
+    {
+     "name": "Stats",
+     "size": "x3f1",
+     "type": "GameTuple<Stat, int>[]"
+    }
+   ]
+  },
+  "SkillMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Skills",
+     "size": "int32",
+     "type": "GameTuple<Stat, uint>[]"
+    }
+   ]
+  },
+  "SocialActionCmdMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Unknown1",
+     "type": "byte"
+    },
+    {
+     "name": "Unknown2",
+     "type": "byte"
+    },
+    {
+     "name": "Unknown3",
+     "type": "byte"
+    },
+    {
+     "name": "Unknown4",
+     "type": "byte"
+    },
+    {
+     "name": "Unknown5",
+     "type": "int"
+    },
+    {
+     "name": "Action",
+     "type": "SocialAction"
+    }
+   ]
+  },
+  "SpecialAttackData": {
+   "base": null,
+   "fields": []
+  },
+  "SpecialAttackInfo": {
+   "base": null,
+   "fields": [
+    {
+     "name": "Unknown1",
+     "type": "int"
+    },
+    {
+     "name": "Unknown2",
+     "type": "int"
+    },
+    {
+     "name": "Unknown3",
+     "type": "int"
+    },
+    {
+     "fixed": 4,
+     "name": "Unknown4",
+     "type": "string"
+    }
+   ]
+  },
+  "SpecialAttackInfoMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "EquipSlot",
+     "type": "EquipSlot"
+    },
+    {
+     "name": "Amount",
+     "type": "int"
+    },
+    {
+     "name": "AmmoCount",
+     "type": "int"
+    },
+    {
+     "name": "Target",
+     "type": "Identity"
+    },
+    {
+     "name": "Stat",
+     "type": "Stat"
+    },
+    {
+     "name": "Unk1",
+     "type": "int"
+    }
+   ]
+  },
+  "SpecialAttackWeaponMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Specials",
+     "size": "x3f1",
+     "type": "SpecialAttackInfo[]"
+    },
+    {
+     "name": "Unknown1",
+     "type": "int"
+    },
+    {
+     "name": "Unknown2",
+     "type": "int"
+    },
+    {
+     "name": "Unknown3",
+     "type": "int"
+    },
+    {
+     "name": "Unknown4",
+     "type": "int"
+    },
+    {
+     "name": "Unknown5",
+     "type": "int"
+    }
+   ]
+  },
+  "SpellListMessage": {
+   "base": "N3Message",
+   "fields": []
+  },
+  "StatMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Stats",
+     "size": "int32",
+     "type": "GameTuple<Stat, uint>[]"
+    }
+   ]
+  },
+  "StopFightMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Unk",
+     "type": "int"
+    }
+   ]
+  },
+  "SuggestNameMessage": {
+   "base": "SystemMessage",
+   "fields": [
+    {
+     "name": "Name",
+     "size": "int16",
+     "type": "string"
+    }
+   ]
+  },
+  "SystemMessage": {
+   "base": "MessageBody",
+   "fields": [
+    {
+     "name": "SystemMessageType",
+     "type": "SystemMessageType"
+    }
+   ]
+  },
+  "TargetInfo": {
+   "base": "IInfo",
+   "fields": [
+    {
+     "name": "Target",
+     "type": "Identity"
+    },
+    {
+     "name": "Unknown1",
+     "type": "int"
+    },
+    {
+     "name": "Unknown2",
+     "type": "int"
+    },
+    {
+     "name": "Unknown3",
+     "type": "int"
+    },
+    {
+     "name": "Unknown4",
+     "type": "int"
+    }
+   ]
+  },
+  "TeamInviteMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Requestor",
+     "type": "Identity"
+    },
+    {
+     "name": "Unknown1",
+     "type": "byte"
+    },
+    {
+     "name": "Name",
+     "size": "int16",
+     "type": "string"
+    }
+   ]
+  },
+  "TeamMember": {
+   "base": null,
+   "fields": [
+    {
+     "name": "Identity",
+     "type": "Identity"
+    },
+    {
+     "name": "Name",
+     "size": "int16",
+     "type": "string"
+    },
+    {
+     "name": "Unknown1",
+     "type": "int"
+    },
+    {
+     "name": "Unknown2",
+     "type": "byte"
+    },
+    {
+     "name": "Level",
+     "type": "short"
+    },
+    {
+     "name": "Profession",
+     "type": "short"
+    }
+   ]
+  },
+  "TeamMemberInfoMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Character",
+     "type": "Identity"
+    },
+    {
+     "name": "Unknown2",
+     "type": "int"
+    },
+    {
+     "name": "Unknown4",
+     "type": "int"
+    },
+    {
+     "name": "Unknown6",
+     "type": "int"
+    },
+    {
+     "name": "Unknown8",
+     "type": "int"
+    }
+   ]
+  },
+  "TeamMemberMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Character",
+     "type": "Identity"
+    },
+    {
+     "name": "Team",
+     "type": "Identity"
+    },
+    {
+     "name": "Unknown1",
+     "type": "uint"
+    },
+    {
+     "name": "Unknown2",
+     "type": "int"
+    },
+    {
+     "name": "Unknown3",
+     "type": "int"
+    },
+    {
+     "name": "Name",
+     "size": "int16",
+     "type": "string"
+    }
+   ]
+  },
+  "TemplateActionMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "ItemLowId",
+     "type": "int"
+    },
+    {
+     "name": "ItemHighId",
+     "type": "int"
+    },
+    {
+     "name": "Quality",
+     "type": "int"
+    },
+    {
+     "name": "Unknown1",
+     "type": "int"
+    },
+    {
+     "name": "Unknown2",
+     "type": "int"
+    },
+    {
+     "name": "Placement",
+     "type": "Identity"
+    },
+    {
+     "name": "Unknown3",
+     "type": "int"
+    },
+    {
+     "name": "Unknown4",
+     "type": "int"
+    }
+   ]
+  },
+  "TextMessage": {
+   "base": "MessageBody",
+   "fields": [
+    {
+     "name": "TextMessageType",
+     "type": "TextMessageType"
+    },
+    {
+     "name": "Unk",
+     "type": "Identity"
+    },
+    {
+     "name": "PayloadSize",
+     "type": "int"
+    },
+    {
+     "name": "Text",
+     "size": "int16",
+     "type": "string"
+    },
+    {
+     "name": "Range",
+     "type": "TextMessageRange"
+    }
+   ]
+  },
+  "Texture": {
+   "base": null,
+   "fields": [
+    {
+     "name": "Place",
+     "type": "int"
+    },
+    {
+     "name": "Id",
+     "type": "int"
+    },
+    {
+     "name": "Unknown",
+     "type": "int"
+    }
+   ]
+  },
+  "TextureOverride": {
+   "base": null,
+   "fields": []
+  },
+  "ToggleCloakMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Unknown1",
+     "type": "int"
+    }
+   ]
+  },
+  "Tower": {
+   "base": null,
+   "fields": [
+    {
+     "name": "LowId",
+     "type": "int"
+    },
+    {
+     "name": "HighId",
+     "type": "int"
+    },
+    {
+     "name": "Quality",
+     "type": "int"
+    },
+    {
+     "name": "Unknown",
+     "type": "int"
+    }
+   ]
+  },
+  "TowerField": {
+   "base": null,
+   "fields": [
+    {
+     "name": "Unknown1",
+     "type": "int"
+    },
+    {
+     "name": "Identity",
+     "type": "Identity"
+    },
+    {
+     "name": "Name",
+     "size": "int16",
+     "type": "string"
+    },
+    {
+     "name": "Unknown2",
+     "type": "int"
+    },
+    {
+     "name": "Unknown3",
+     "type": "int"
+    }
+   ]
+  },
+  "TowerInfo": {
+   "base": null,
+   "fields": [
+    {
+     "name": "PlaceholderId",
+     "type": "Identity"
+    },
+    {
+     "name": "TowerCharId",
+     "type": "Identity"
+    },
+    {
+     "name": "Position",
+     "type": "Vector3"
+    },
+    {
+     "name": "MeshId",
+     "type": "int"
+    },
+    {
+     "name": "Side",
+     "type": "Side"
+    },
+    {
+     "name": "DestroyedMeshId",
+     "type": "int"
+    },
+    {
+     "name": "Scale",
+     "type": "float"
+    },
+    {
+     "name": "Class",
+     "type": "TowerClass"
+    }
+   ]
+  },
+  "TowerInfoPacket": {
+   "base": "InfoPacket",
+   "fields": [
+    {
+     "name": "Unknown1",
+     "type": "byte"
+    },
+    {
+     "name": "Unknown2",
+     "type": "byte"
+    },
+    {
+     "name": "Unknown3",
+     "type": "byte"
+    },
+    {
+     "name": "Unknown4",
+     "type": "byte"
+    },
+    {
+     "name": "Unknown5",
+     "type": "byte"
+    },
+    {
+     "name": "Unknown6",
+     "type": "byte"
+    },
+    {
+     "name": "Unknown7",
+     "type": "byte"
+    },
+    {
+     "name": "Health",
+     "type": "int"
+    },
+    {
+     "name": "MaxHealth",
+     "type": "int"
+    },
+    {
+     "name": "Unknown8",
+     "type": "int"
+    },
+    {
+     "name": "OrganizationId",
+     "type": "int"
+    },
+    {
+     "name": "Unknown9",
+     "type": "short"
+    },
+    {
+     "name": "Unknown10",
+     "type": "short"
+    },
+    {
+     "name": "Unknown11",
+     "type": "short"
+    },
+    {
+     "name": "FormattedText",
+     "size": "int16",
+     "type": "byte[]"
+    },
+    {
+     "name": "TowerCount3F1",
+     "type": "int"
+    },
+    {
+     "name": "TowerLowId",
+     "type": "int"
+    },
+    {
+     "name": "TowerHighId",
+     "type": "int"
+    },
+    {
+     "name": "TowerQuality",
+     "type": "int"
+    },
+    {
+     "name": "Unknown12",
+     "type": "int"
+    },
+    {
+     "name": "Timer",
+     "type": "int?",
+     "when": [
+      {
+       "criteria": "EqualsToAny",
+       "flag": "flags",
+       "type": "int",
+       "values": [
+        92
+       ]
+      }
+     ]
+    },
+    {
+     "name": "NextSuppressionGas",
+     "type": "byte?",
+     "when": [
+      {
+       "criteria": "EqualsToAny",
+       "flag": "flags",
+       "type": "byte",
+       "values": [
+        92
+       ]
+      }
+     ]
+    },
+    {
+     "name": "Unknown14",
+     "type": "int"
+    },
+    {
+     "name": "Unknown15",
+     "type": "int"
+    },
+    {
+     "name": "Unknown16",
+     "type": "int"
+    }
+   ]
+  },
+  "TradeMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Unknown1",
+     "type": "int"
+    },
+    {
+     "name": "Action",
+     "type": "TradeAction"
+    },
+    {
+     "name": "Param1",
+     "type": "int"
+    },
+    {
+     "name": "Param2",
+     "type": "int"
+    },
+    {
+     "name": "Param3",
+     "type": "int"
+    },
+    {
+     "name": "Param4",
+     "type": "int"
+    }
+   ]
+  },
+  "UnknownDataType1": {
+   "base": null,
+   "fields": [
+    {
+     "name": "Unknown1",
+     "type": "byte"
+    },
+    {
+     "name": "Unknown2",
+     "type": "byte"
+    },
+    {
+     "name": "Unknown3",
+     "type": "byte"
+    }
+   ]
+  },
+  "UnknownDataType2": {
+   "base": null,
+   "fields": [
+    {
+     "name": "Unknown1",
+     "type": "int"
+    },
+    {
+     "name": "Unknown2",
+     "type": "Identity"
+    },
+    {
+     "name": "Unknown3",
+     "type": "int"
+    },
+    {
+     "name": "Unknown4",
+     "type": "int"
+    }
+   ]
+  },
+  "UnknownDataType4": {
+   "base": null,
+   "fields": [
+    {
+     "name": "Unknown1",
+     "type": "int"
+    },
+    {
+     "name": "Unknown2",
+     "type": "int"
+    },
+    {
+     "name": "Unknown3",
+     "type": "int"
+    },
+    {
+     "name": "Unknown4",
+     "type": "int"
+    },
+    {
+     "name": "Unknown5",
+     "type": "int"
+    },
+    {
+     "name": "Unknown6",
+     "type": "int"
+    },
+    {
+     "name": "Unknown7",
+     "type": "int"
+    },
+    {
+     "name": "Unknown8",
+     "type": "int"
+    },
+    {
+     "name": "Unknown9",
+     "type": "int"
+    },
+    {
+     "name": "Unknown10",
+     "type": "int"
+    }
+   ]
+  },
+  "UnknownStruct1": {
+   "base": null,
+   "fields": [
+    {
+     "name": "Unknown1",
+     "type": "int"
+    },
+    {
+     "name": "Unknown2",
+     "type": "Identity"
+    },
+    {
+     "name": "Unknown3",
+     "type": "int"
+    },
+    {
+     "name": "Unknown4",
+     "type": "Vector3"
+    },
+    {
+     "name": "Unknown5",
+     "type": "int"
+    },
+    {
+     "name": "Unknown6",
+     "type": "int"
+    },
+    {
+     "name": "Unknown7",
+     "type": "float"
+    },
+    {
+     "name": "Unknown8",
+     "type": "int"
+    },
+    {
+     "name": "Unknown9",
+     "type": "int"
+    }
+   ]
+  },
+  "UserCredentialsMessage": {
+   "base": "SystemMessage",
+   "fields": [
+    {
+     "fixed": 40,
+     "name": "UserName",
+     "type": "string"
+    },
+    {
+     "name": "Credentials",
+     "size": "int32",
+     "type": "string"
+    }
+   ]
+  },
+  "UserLoginMessage": {
+   "base": "SystemMessage",
+   "fields": [
+    {
+     "name": "Unknown",
+     "type": "int"
+    },
+    {
+     "fixed": 40,
+     "name": "UserName",
+     "type": "string"
+    },
+    {
+     "fixed": 20,
+     "name": "ClientVersion",
+     "type": "string"
+    }
+   ]
+  },
+  "VendingMachineFullUpdateMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Unknown1",
+     "type": "int"
+    },
+    {
+     "flag": "OwnerType",
+     "name": "OwnerType",
+     "type": "int"
+    },
+    {
+     "name": "OwnerInstance",
+     "type": "int"
+    },
+    {
+     "name": "Position",
+     "type": "Vector3?",
+     "when": [
+      {
+       "criteria": "EqualsToAny",
+       "flag": "OwnerType",
+       "type": "Vector3",
+       "values": [
+        0
+       ]
+      }
+     ]
+    },
+    {
+     "name": "Rotation",
+     "type": "Quaternion?",
+     "when": [
+      {
+       "criteria": "EqualsToAny",
+       "flag": "OwnerType",
+       "type": "Quaternion",
+       "values": [
+        0
+       ]
+      }
+     ]
+    },
+    {
+     "name": "PlayfieldId",
+     "type": "int"
+    },
+    {
+     "name": "StateMachine",
+     "type": "Identity"
+    },
+    {
+     "name": "Unknown4",
+     "type": "short"
+    },
+    {
+     "name": "Stats",
+     "size": "x3f1",
+     "type": "GameTuple<Stat, int>[]"
+    },
+    {
+     "name": "Unknown6",
+     "type": "int"
+    },
+    {
+     "name": "Unknown7",
+     "type": "int"
+    },
+    {
+     "name": "Unknown8",
+     "type": "int"
+    },
+    {
+     "name": "UnknownArray",
+     "size": "x3f1",
+     "type": "int[]"
+    },
+    {
+     "name": "Unknown9",
+     "type": "int"
+    }
+   ]
+  },
+  "VendingMachineSlot": {
+   "base": null,
+   "fields": [
+    {
+     "name": "ItemLowId",
+     "type": "int"
+    },
+    {
+     "name": "ItemHighId",
+     "type": "int"
+    },
+    {
+     "name": "Quality",
+     "type": "int"
+    }
+   ]
+  },
+  "VicinityMessage": {
+   "base": "ChatMessageBody",
+   "fields": [
+    {
+     "name": "Sender",
+     "type": "uint"
+    },
+    {
+     "name": "Text",
+     "size": "int16",
+     "type": "string"
+    },
+    {
+     "name": "Unk1",
+     "type": "short"
+    },
+    {
+     "name": "Unk2",
+     "type": "byte"
+    }
+   ]
+  },
+  "WeaponItemFullUpdateMessage": {
+   "base": "N3Message",
+   "fields": [
+    {
+     "name": "Unknown1",
+     "type": "int"
+    },
+    {
+     "name": "Owner",
+     "type": "Identity"
+    },
+    {
+     "name": "PlayfieldId",
+     "type": "int"
+    },
+    {
+     "name": "StateMachine",
+     "type": "Identity"
+    },
+    {
+     "name": "Unknown2",
+     "type": "short"
+    },
+    {
+     "name": "Stats",
+     "size": "x3f1",
+     "type": "GameTuple<Stat, int>[]"
+    },
+    {
+     "name": "Unknown3",
+     "type": "int"
+    }
+   ]
+  },
+  "ZoneInfoMessage": {
+   "base": "SystemMessage",
+   "fields": [
+    {
+     "name": "CharacterId",
+     "type": "int"
+    },
+    {
+     "name": "ServerIpAddress",
+     "type": "IPAddress"
+    },
+    {
+     "name": "ServerPort",
+     "type": "ushort"
+    },
+    {
+     "name": "Cookie1",
+     "type": "uint"
+    },
+    {
+     "name": "Cookie2",
+     "type": "uint"
+    }
+   ]
+  },
+  "ZoneLoginMessage": {
+   "base": "SystemMessage",
+   "fields": [
+    {
+     "name": "CharacterId",
+     "type": "int"
+    },
+    {
+     "name": "Cookie1",
+     "type": "uint"
+    },
+    {
+     "name": "Cookie2",
+     "type": "uint"
+    }
+   ]
+  },
+  "ZoneRedirectionMessage": {
+   "base": "SystemMessage",
+   "fields": [
+    {
+     "name": "ServerIpAddress",
+     "type": "IPAddress"
+    },
+    {
+     "name": "ServerPort",
+     "type": "ushort"
+    }
+   ]
+  }
+ },
+ "enums": {
+  "AOSignalAction": {
+   "under": "int",
+   "values": {
+    "ChargeInfo": 15,
+    "CityInfo": 5,
+    "CloakInfo": 14,
+    "Close": 7,
+    "CreditsUpkeepInfo": 10,
+    "UpkeepInfo": 13
+   }
+  },
+  "CharacterActionType": {
+   "under": "int",
+   "values": {
+    "AcceptTeamRequest": 35,
+    "CastNano": 19,
+    "ChangeAnimationAndStance": 167,
+    "ChangeVisualFlag": 166,
+    "Death": 99,
+    "DeleteItem": 112,
+    "Die": 152,
+    "DisableXP": 165,
+    "DuelUpdate": 262,
+    "Equip": 131,
+    "FinishNanoCasting": 107,
+    "InfoRequest": 105,
+    "Inspect": 261,
+    "InterruptNanoCasting": 108,
+    "JoinBattlestationQueue": 253,
+    "LeaveBattlestationQueue": 255,
+    "LeaveTeam": 24,
+    "Logout": 120,
+    "PerkAvailable": 206,
+    "PerkUnavailable": 207,
+    "QueuePerk": 80,
+    "Reload": 210,
+    "RemoveFriendlyNano": 65,
+    "Search": 102,
+    "SetNanoDuration": 98,
+    "ShipInvite": 186,
+    "SpecialAvailable": 164,
+    "SpecialUnavailable": 132,
+    "SpecialUsed": 170,
+    "Split": 34,
+    "SplitItem": 52,
+    "StandUp": 87,
+    "StartSneak": 163,
+    "StartedSneaking": 162,
+    "StopLogout": 122,
+    "TeamKickMember": 22,
+    "TeamMemberLeft": 32,
+    "TeamRequest": 26,
+    "TeamRequestInvite": 26,
+    "TeamRequestReply": 28,
+    "TeamRequestResponse": 35,
+    "TradeskillBuildPressed": 222,
+    "TradeskillNotValid": 225,
+    "TradeskillOutOfRange": 226,
+    "TradeskillRequirement": 227,
+    "TradeskillResult": 228,
+    "TradeskillSource": 223,
+    "TradeskillSourceChanged": 220,
+    "TradeskillTarget": 224,
+    "TradeskillTargetChanged": 221,
+    "TrainPerk": 187,
+    "TransferLeader": 25,
+    "Unknown3": 97,
+    "UploadNano": 204,
+    "UseItemOnItem": 81,
+    "UsePerk": 179
+   }
+  },
+  "ChatMessageType": {
+   "under": "short",
+   "values": {
+    "ChannelList": 60,
+    "CharacterList": 7,
+    "CharacterName": 20,
+    "FriendAdd": 40,
+    "FriendRemove": 41,
+    "FriendStatus": 40,
+    "GroupMessage": 65,
+    "LftActivate": 1500,
+    "LftDeactivate": 1501,
+    "LftQuery": 1502,
+    "LftQueryResponse": 1501,
+    "LoginError": 6,
+    "LoginOK": 5,
+    "LoginRequest": 2,
+    "LookupMessage": 21,
+    "NpcMessage": 35,
+    "Ping": 100,
+    "PrivateGroupInvite": 50,
+    "PrivateGroupInviteAccept": 52,
+    "PrivateGroupInviteDecline": 53,
+    "PrivateGroupMessage": 57,
+    "PrivateMessage": 30,
+    "SelectCharacter": 3,
+    "ServerSalt": 0,
+    "VicinityMessage": 34
+   }
+  },
+  "CloakStatus": {
+   "under": "int",
+   "values": {
+    "Disabled": -1,
+    "Enabled": 1,
+    "Unknown": 0
+   }
+  },
+  "FollowTargetType": {
+   "under": "byte",
+   "values": {
+    "NpcPath": 1,
+    "Target": 2
+   }
+  },
+  "GenericCmdAction": {
+   "under": "int",
+   "values": {
+    "Drop": 2,
+    "Get": 1,
+    "None": 0,
+    "Repair": 4,
+    "Use": 3,
+    "UseItemOnCharacter": 32,
+    "UseItemOnItem": 5
+   }
+  },
+  "InfoPacketType": {
+   "under": "byte",
+   "values": {
+    "Character": 64,
+    "CharacterOrg": 65,
+    "CharacterOrgSite": 67,
+    "CharacterOrgSiteTower": 71,
+    "ControlTower": 92,
+    "Monster": 80,
+    "Tower": 84
+   }
+  },
+  "KnuBotTradeAction": {
+   "under": "int",
+   "values": {
+    "AddItem": 0,
+    "RemoveItem": 1
+   }
+  },
+  "LoginError": {
+   "under": "int",
+   "values": {
+    "AlreadyLoggedIn": 20,
+    "InvalidUserNamePassword": 106,
+    "PlayerBannedOrNotPaid": 108
+   }
+  },
+  "N3MessageType": {
+   "under": "int",
+   "values": {
+    "AOTransportSignal": 1651777045,
+    "Absorb": 642670433,
+    "AcceptBSInvite": 376062814,
+    "Action": 541676156,
+    "AddPet": 424562550,
+    "AddTemplate": 86912780,
+    "AppearanceUpdate": 1096961805,
+    "ApplySpells": 875306269,
+    "AreaFormula": 824779579,
+    "ArriveAtBs": 1410218791,
+    "Attack": 675889264,
+    "AttackInfo": 1174417174,
+    "Bank": 876357759,
+    "BankCorpse": 1377907744,
+    "BattleOver": 1258694937,
+    "Buff": 959724648,
+    "CastNanoSpell": 623988077,
+    "CentralControllerFullUpdate": 354759431,
+    "CentralControllerState": 139685733,
+    "CharDCMove": 1410404643,
+    "CharInPlay": 1460412473,
+    "CharSecSpecAttack": 1363747104,
+    "CharacterAction": 1581741936,
+    "ChatCmd": 1548900987,
+    "ChatText": 1598768170,
+    "ChestFullUpdate": 1180327283,
+    "CityAdvantages": 912151899,
+    "ClientContainerAddItem": 525164414,
+    "ClientMoveItemToInventory": 1416181567,
+    "Clone": 1009144185,
+    "ConstructBuilding": 1392579606,
+    "ContainerAddItem": 1196653092,
+    "CorpseFullUpdate": 1330073093,
+    "CreateQuest": 689911323,
+    "Despawn": 911278200,
+    "DoorFullUpdate": 911888497,
+    "DoorStatusUpdate": 1283276859,
+    "DropDynel": 1195914803,
+    "DropTemplate": 975454017,
+    "Feedback": 1347702041,
+    "FightModeUpdate": 924648770,
+    "FlushRDBCaches": 276329306,
+    "FollowTarget": 638531185,
+    "FormatFeedback": 543902579,
+    "Fov": 707345679,
+    "FullAuto": 1548372282,
+    "FullCharacter": 691028809,
+    "GameTime": 1599226158,
+    "GenericCmd": 1381132376,
+    "GfxTrigger": 2049057282,
+    "GiveQuestToMembers": 1998784807,
+    "GridDestinationSelect": 104417101,
+    "GridSelected": 976366154,
+    "HealthDamage": 923805036,
+    "Impulse": 1598704748,
+    "InfoPacket": 1295524910,
+    "InfromPlayer": 855716730,
+    "Inspect": 1515741029,
+    "InventoryUpdate": 1314089334,
+    "InventoryUpdated": 1214149122,
+    "ItemReplaced": 975321936,
+    "KnubotAnswer": 553854077,
+    "KnubotAnswerList": 1433423153,
+    "KnubotAppendText": 1567642410,
+    "KnubotCloseChatWindow": 654986338,
+    "KnubotFinishTrade": 1432890148,
+    "KnubotNPCDescription": 658522,
+    "KnubotOpenChatWindow": 991112548,
+    "KnubotRejectedItems": 757146631,
+    "KnubotStartTrade": 2019835933,
+    "KnubotTrade": 974859276,
+    "LaserTagList": 691213647,
+    "LeaveBattle": 1060772116,
+    "LookAt": 575816799,
+    "Mail": 859514983,
+    "MarketSend": 1191915028,
+    "MechInfo": 1482113593,
+    "MentorInvite": 536950654,
+    "MineFullUpdate": 559634040,
+    "MissedAttackInfo": 1550142248,
+    "N3Teleport": 1125743906,
+    "NewLevel": 2134923798,
+    "OrgClient": 2135634184,
+    "OrgInfoPacket": 774523499,
+    "OrgServer": 1683499527,
+    "PerkUpdate": 1130328099,
+    "PetCommand": 1798517507,
+    "PetToMaster": 221781762,
+    "PickUp": 924019819,
+    "PlaySound": 1163733304,
+    "PlayfieldAllCities": 1495335206,
+    "PlayfieldAllTowers": 1428293414,
+    "PlayfieldAnarchyF": 1598757433,
+    "PlayfieldTowerUpdateClient": 1528694060,
+    "Quest": 556550266,
+    "QuestAlternative": 1547920905,
+    "QuestFullUpdate": 1180319841,
+    "QueueUpdate": 741279260,
+    "Raid": 993732728,
+    "RaidCmd": 1314020952,
+    "ReflectAttack": 473583479,
+    "Reload": 642866785,
+    "RelocateDynels": 642470219,
+    "RemovePet": 1484007951,
+    "ResearchUpdate": 624755264,
+    "Resurrect": 1147087371,
+    "Script": 542066801,
+    "SendScore": 1145584442,
+    "ServerPathPosDebugInfo": 1031040112,
+    "ServerPosDebugInfo": 1545864196,
+    "SetName": 1934514811,
+    "SetPos": 425609582,
+    "SetStat": 1851741806,
+    "SetWantedDirection": 1612717326,
+    "ShadowLevel": 1008609283,
+    "ShieldAttack": 622404726,
+    "ShopUpdate": 1479942688,
+    "SimpleCharFullUpdate": 656095851,
+    "SimpleItemFullUpdate": 990979439,
+    "Skill": 1042306656,
+    "SocialActionCmd": 992544625,
+    "SpawnMech": 1179451402,
+    "SpecialAttackInfo": 1968115989,
+    "SpecialAttackWeapon": 490475292,
+    "SpellList": 1296367892,
+    "StartLogout": 673521409,
+    "Stat": 724778350,
+    "StopFight": 1245782078,
+    "StopLogout": 1446326328,
+    "StopMovingCmd": 1949180692,
+    "TeamInvite": 1294610747,
+    "TeamMember": 1177627950,
+    "TeamMemberInfo": 678969928,
+    "TemplateAction": 894457412,
+    "ToggleCloak": 1063144262,
+    "Trade": 908611438,
+    "TrapDisarmed": 707084127,
+    "TrapItemFullUpdate": 1496398120,
+    "UpdateClientVisual": 1158097453,
+    "VendingMachineFullUpdate": 2136230149,
+    "Visibility": 1226974738,
+    "WaypointPath": 858857538,
+    "WeaponItemFullUpdate": 991765096,
+    "WeatherControl": 207248749,
+    "n3PlayfieldFullUpdate": 806753109
+   }
+  },
+  "OrgClientCommand": {
+   "under": "byte",
+   "values": {
+    "Bank": 18,
+    "BankAdd": 19,
+    "BankPaymembers": 21,
+    "BankRemove": 20,
+    "Benefits": 31,
+    "Contract": 3,
+    "Create": 1,
+    "Debt": 22,
+    "Demote": 11,
+    "Description": 25,
+    "Disband": 6,
+    "GoverningForm": 27,
+    "History": 23,
+    "Info": 5,
+    "Invite": 14,
+    "Join": 15,
+    "Kick": 13,
+    "Leave": 16,
+    "Name": 26,
+    "None": 0,
+    "Objective": 24,
+    "Promote": 10,
+    "Ranks": 2,
+    "StartVote": 7,
+    "StopVote": 28,
+    "Tax": 17,
+    "Unknown1": 4,
+    "Unknown2": 12,
+    "Vote": 9,
+    "VoteInfo": 8
+   }
+  },
+  "OrgServerMessageType": {
+   "under": "byte",
+   "values": {
+    "OrgContract": 1,
+    "OrgInfo": 2,
+    "OrgInvite": 5
+   }
+  },
+  "PacketType": {
+   "under": "short",
+   "values": {
+    "InitiateCompressionMessage": 32512,
+    "N3Message": 10,
+    "OperatorMessage": 14,
+    "PingMessage": 11,
+    "SystemMessage": 1,
+    "TextMessage": 5
+   }
+  },
+  "PetCommand": {
+   "under": "int",
+   "values": {
+    "Attack": 7,
+    "Behind": 2,
+    "Chat": 16,
+    "Follow": 1,
+    "Guard": 6,
+    "Heal": 12,
+    "Release": 11,
+    "Report": 14,
+    "Social": 9,
+    "Terminate": 10,
+    "Wait": 4
+   }
+  },
+  "PingMessageType": {
+   "under": "int",
+   "values": {
+    "Ping": 1,
+    "Pong": 2
+   }
+  },
+  "PlayfieldUpdateClientType": {
+   "under": "int",
+   "values": {
+    "Destroyed": 1,
+    "Planted": 2
+   }
+  },
+  "QuestAction": {
+   "under": "int",
+   "values": {
+    "Delete": 1
+   }
+  },
+  "RaidCmdType": {
+   "under": "int",
+   "values": {
+    "CreateRaid": 1,
+    "MoveMember": 4,
+    "RequestLocks": 6,
+    "ShowMemberList": 2
+   }
+  },
+  "ScfuFlags2": {
+   "under": "int",
+   "values": {
+    "HasOwner": 4,
+    "Unknown1": 2,
+    "Unknown3": 64,
+    "Unknown4": 128,
+    "Unknown5": 256,
+    "Unknown6": 512,
+    "Unknown7": 1024,
+    "Unknown8": 2048
+   }
+  },
+  "SimpleCharFullUpdateFlags": {
+   "under": "int",
+   "values": {
+    "HasExtendedLevel": 4096,
+    "HasExtendedRunSpeed": 8192,
+    "HasExtendedTextures": 16,
+    "HasFightingTarget": 32,
+    "HasHeadMesh": 128,
+    "HasHeading": 512,
+    "HasNoWeaponPairs": 256,
+    "HasOrgName": 67108864,
+    "HasPlayfieldId": 64,
+    "HasSmallHealth": 2048,
+    "HasSmallHealthDamage": 16384,
+    "HasSmallNpcFamily": 131072,
+    "HasSmallNpcLosHeight": 524288,
+    "HasWaypoints": 65536,
+    "IsImmune": 8388608,
+    "IsNpc": 1,
+    "IsPet": 134217728,
+    "IsUnderAttack": 1024,
+    "None": 0,
+    "UnknownDataFlag": 33554432,
+    "UnknownFlag": 2,
+    "UnknownFlag2": 2097152,
+    "UnknownFlag3": 16777216,
+    "UnknownFlag4": 536870912,
+    "UnknownFlag5": 268435456,
+    "UnknownFlag6": 8,
+    "UnknownFlag7": 2097152
+   }
+  },
+  "SocialAction": {
+   "under": "int",
+   "values": {
+    "ApprovalApplause": 4,
+    "ApprovalBlowkiss": 8,
+    "ApprovalGiggle": 23,
+    "ApprovalKisshigh": 66,
+    "ApprovalKisslow": 65,
+    "ApprovalLaughB": 28,
+    "ApprovalLaughS": 29,
+    "ApprovalProstrate": 1,
+    "ApprovalSwroyal": 59,
+    "ApprovalThumbs": 61,
+    "AthleteBackflip": 6,
+    "AthleteStrong1": 53,
+    "AthleteStrong2": 54,
+    "AthleteStrong3": 55,
+    "AthleteStrong4": 56,
+    "DanceBallet": 7,
+    "DanceChicken": 11,
+    "DanceDisco": 16,
+    "DanceFlamenco": 21,
+    "DancePulp": 42,
+    "DanceRocky": 44,
+    "DanceYmca": 63,
+    "DirectionsApachi": 3,
+    "DirectionsLookout": 31,
+    "DirectionsPointba": 35,
+    "DirectionsPointfor": 36,
+    "DirectionsPointlef": 37,
+    "DirectionsPointrig": 38,
+    "DirectionsPointup": 39,
+    "DislikeAngry": 2,
+    "DislikeBulge": 10,
+    "DislikeFblock": 19,
+    "DislikeFlip": 22,
+    "DislikeMoon": 32,
+    "DislikePuke": 41,
+    "DislikeShake": 48,
+    "DislikeSlap": 50,
+    "DislikeSpit": 52,
+    "GesturesCross": 12,
+    "GesturesFishsize": 20,
+    "GesturesGloat": 24,
+    "GesturesItalian": 26,
+    "GesturesNod": 33,
+    "GesturesNono": 34,
+    "GesturesPray": 40,
+    "GesturesShrug": 49,
+    "GesturesSpeech": 51,
+    "GesturesThinker": 60,
+    "GreetingBow": 9,
+    "GreetingCurt": 15,
+    "GreetingGreet": 25,
+    "GreetingKneel": 27,
+    "GreetingSalute": 45,
+    "GreetingScared": 46,
+    "GreetingSurprised": 57,
+    "GreetingSurrender": 58,
+    "GreetingWave": 62,
+    "RelaxingAdjust": 14,
+    "RelaxingDrink": 17,
+    "RelaxingEat": 18,
+    "RelaxingItch": 5,
+    "RelaxingLegshake": 30,
+    "RelaxingLounge": 69,
+    "RelaxingRead": 43,
+    "RelaxingScratch": 47
+   }
+  },
+  "StarterArea": {
+   "under": "int",
+   "values": {
+    "RubiKa": 0,
+    "Shadowlands": 1
+   }
+  },
+  "SystemMessageType": {
+   "under": "int",
+   "values": {
+    "CharacterCreated": 17,
+    "CharacterDeleted": 21,
+    "CharacterList": 14,
+    "ChatServerInfo": 67,
+    "CreateCharacter": 15,
+    "DeleteCharacter": 20,
+    "LoginError": 13,
+    "NameInUse": 16,
+    "RandomNameRequest": 85,
+    "SelectCharacter": 22,
+    "ServerSalt": 36,
+    "SuggestName": 86,
+    "UserCredentials": 37,
+    "UserLogin": 34,
+    "ZoneInfo": 23,
+    "ZoneLogin": 27,
+    "ZoneRedirection": 60
+   }
+  },
+  "TeamRequestResponseAction": {
+   "under": "int",
+   "values": {
+    "Accept": 1,
+    "Decline": 0
+   }
+  },
+  "TextMessageRange": {
+   "under": "byte",
+   "values": {
+    "RP": 3,
+    "Shout": 2,
+    "Vicinity": 0,
+    "Whisper": 1
+   }
+  },
+  "TextMessageType": {
+   "under": "int",
+   "values": {
+    "Say": 3,
+    "Shout": 4,
+    "Whisper": 2
+   }
+  },
+  "TradeAction": {
+   "under": "byte",
+   "values": {
+    "Accept": 1,
+    "AddItem": 5,
+    "Complete": 4,
+    "Confirm": 3,
+    "Decline": 2,
+    "Open": 0,
+    "OtherPlayerAddItem": 8,
+    "RemoveItem": 6,
+    "UpdateCredits": 7
+   }
+  }
+ },
+ "n3": {
+  "052e2f0c": {
+   "class": "AddTemplateMessage",
+   "name": "AddTemplate"
+  },
+  "0639474d": {
+   "class": "GridDestinationSelectMessage",
+   "name": "GridDestinationSelect"
+  },
+  "166a435e": {
+   "class": "AcceptBSInviteMessage",
+   "name": "AcceptBSInvite"
+  },
+  "195e496e": {
+   "class": "SetPosMessage",
+   "name": "SetPos"
+  },
+  "1c3a4f77": {
+   "class": "ReflectAttackMessage",
+   "name": "ReflectAttack"
+  },
+  "1d3c0f1c": {
+   "class": "SpecialAttackWeaponMessage",
+   "name": "SpecialAttackWeapon"
+  },
+  "1f4d5f7e": {
+   "class": "ClientContainerAddItem",
+   "name": "ClientContainerAddItem"
+  },
+  "206b4b73": {
+   "class": "FormatFeedbackMessage",
+   "name": "FormatFeedback"
+  },
+  "2103247d": {
+   "class": "KnuBotAnswerMessage",
+   "name": "KnubotAnswer"
+  },
+  "212c487a": {
+   "class": "QuestMessage",
+   "name": "Quest"
+  },
+  "2252445f": {
+   "class": "LookAtMessage",
+   "name": "LookAt"
+  },
+  "25192476": {
+   "class": "ShieldAttackMessage",
+   "name": "ShieldAttack"
+  },
+  "25314d6d": {
+   "class": "CastNanoSpellMessage",
+   "name": "CastNanoSpell"
+  },
+  "253d0240": {
+   "class": "ResearchUpdateMessage",
+   "name": "ResearchUpdate"
+  },
+  "260f3671": {
+   "class": "FollowTargetMessage",
+   "name": "FollowTarget"
+  },
+  "264e5f61": {
+   "class": "AbsorbMessage",
+   "name": "Absorb"
+  },
+  "26515e61": {
+   "class": "ReloadMessage",
+   "name": "Reload"
+  },
+  "270a4c62": {
+   "class": "KnuBotCloseChatWindowMessage",
+   "name": "KnubotCloseChatWindow"
+  },
+  "271b3a6b": {
+   "class": "SimpleCharFullUpdateMessage",
+   "name": "SimpleCharFullUpdate"
+  },
+  "28494070": {
+   "class": "AttackMessage",
+   "name": "Attack"
+  },
+  "28784248": {
+   "class": "TeamMemberInfoMessage",
+   "name": "TeamMemberInfo"
+  },
+  "291f361b": {
+   "class": "CreateQuestMessage",
+   "name": "CreateQuest"
+  },
+  "29304349": {
+   "class": "FullCharacterMessage",
+   "name": "FullCharacter"
+  },
+  "2b333d6e": {
+   "class": "StatMessage",
+   "name": "Stat"
+  },
+  "2d212407": {
+   "class": "KnuBotRejectedItemsMessage",
+   "name": "KnubotRejectedItems"
+  },
+  "2e2a4a6b": {
+   "class": "OrgInfoPacketMessage",
+   "name": "OrgInfoPacket"
+  },
+  "3301337a": {
+   "class": "InfromPlayerMessage",
+   "name": "InfromPlayer"
+  },
+  "333b2867": {
+   "class": "MailMessage",
+   "name": "Mail"
+  },
+  "343c287f": {
+   "class": "BankMessage",
+   "name": "Bank"
+  },
+  "35505644": {
+   "class": "TemplateActionMessage",
+   "name": "TemplateAction"
+  },
+  "36284f6e": {
+   "class": "TradeMessage",
+   "name": "Trade"
+  },
+  "36510078": {
+   "class": "DespawnMessage",
+   "name": "Despawn"
+  },
+  "365a5071": {
+   "class": "DoorFullUpdateMessage",
+   "name": "DoorFullUpdate"
+  },
+  "365e555b": {
+   "class": "CityAdvantagesMessage",
+   "name": "CityAdvantages"
+  },
+  "3710256c": {
+   "class": "HealthDamageMessage",
+   "name": "HealthDamage"
+  },
+  "37136c6b": {
+   "class": "PickUpMessage",
+   "name": "PickUp"
+  },
+  "371d0542": {
+   "class": "FightModeUpdate",
+   "name": "FightModeUpdate"
+  },
+  "39343c68": {
+   "class": "BuffMessage",
+   "name": "Buff"
+  },
+  "3a1b2c0c": {
+   "class": "KnuBotTradeMessage",
+   "name": "KnubotTrade"
+  },
+  "3a243f41": {
+   "class": "DropTemplateMessage",
+   "name": "DropTemplate"
+  },
+  "3a322a4a": {
+   "class": "GridSelectedMessage",
+   "name": "GridSelected"
+  },
+  "3b11256f": {
+   "class": "SimpleItemFullUpdateMessage",
+   "name": "SimpleItemFullUpdate"
+  },
+  "3b132d64": {
+   "class": "KnuBotOpenChatWindowMessage",
+   "name": "KnubotOpenChatWindow"
+  },
+  "3b1d2268": {
+   "class": "WeaponItemFullUpdateMessage",
+   "name": "WeaponItemFullUpdate"
+  },
+  "3b290771": {
+   "class": "SocialActionCmdMessage",
+   "name": "SocialActionCmd"
+  },
+  "3e205660": {
+   "class": "SkillMessage",
+   "name": "Skill"
+  },
+  "3f5e4b46": {
+   "class": "ToggleCloakMessage",
+   "name": "ToggleCloak"
+  },
+  "41624f0d": {
+   "class": "AppearanceUpdateMessage",
+   "name": "AppearanceUpdate"
+  },
+  "43197d22": {
+   "class": "N3TeleportMessage",
+   "name": "N3Teleport"
+  },
+  "44483b3a": {
+   "class": "SendScoreMessage",
+   "name": "SendScore"
+  },
+  "46002f16": {
+   "class": "AttackInfoMessage",
+   "name": "AttackInfo"
+  },
+  "46312d2e": {
+   "class": "TeamMemberMessage",
+   "name": "TeamMember"
+  },
+  "465a4061": {
+   "class": "QuestFullUpdateMessage",
+   "name": "QuestFullUpdate"
+  },
+  "465a5d73": {
+   "class": "ChestFullUpdateMessage",
+   "name": "ChestFullUpdate"
+  },
+  "470b2e14": {
+   "class": "MarketSendMessage",
+   "name": "MarketSend"
+  },
+  "47537a24": {
+   "class": "ContainerAddItem",
+   "name": "ContainerAddItem"
+  },
+  "4a41203e": {
+   "class": "StopFightMessage",
+   "name": "StopFight"
+  },
+  "4c7d403b": {
+   "class": "DoorStatusUpdateMessage",
+   "name": "DoorStatusUpdate"
+  },
+  "4d2a313b": {
+   "class": "TeamInviteMessage",
+   "name": "TeamInvite"
+  },
+  "4d38242e": {
+   "class": "InfoPacketMessage",
+   "name": "InfoPacket"
+  },
+  "4d450114": {
+   "class": "SpellListMessage",
+   "name": "SpellList"
+  },
+  "4e525e58": {
+   "class": "RaidCmdMessage",
+   "name": "RaidCmd"
+  },
+  "4e536976": {
+   "class": "InventoryUpdateMessage",
+   "name": "InventoryUpdate"
+  },
+  "4f474e05": {
+   "class": "CorpseFullUpdateMessage",
+   "name": "CorpseFullUpdate"
+  },
+  "50544d19": {
+   "class": "FeedbackMessage",
+   "name": "Feedback"
+  },
+  "51492120": {
+   "class": "CharSecSpecAttackMessage",
+   "name": "CharSecSpecAttack"
+  },
+  "52526858": {
+   "class": "GenericCmdMessage",
+   "name": "GenericCmd"
+  },
+  "54111123": {
+   "class": "CharDCMoveMessage",
+   "name": "CharDCMove"
+  },
+  "5469373f": {
+   "class": "ClientMoveItemToInventory",
+   "name": "ClientMoveItemToInventory"
+  },
+  "55220726": {
+   "class": "PlayfieldAllTowersMessage",
+   "name": "PlayfieldAllTowers"
+  },
+  "55682b24": {
+   "class": "KnuBotFinishTradeMessage",
+   "name": "KnubotFinishTrade"
+  },
+  "55704d31": {
+   "class": "KnuBotAnswerListMessage",
+   "name": "KnubotAnswerList"
+  },
+  "570c2039": {
+   "class": "CharInPlayMessage",
+   "name": "CharInPlay"
+  },
+  "58362220": {
+   "class": "ShopUpdateMessage",
+   "name": "ShopUpdate"
+  },
+  "59210126": {
+   "class": "PlayfieldAllCitiesMessage",
+   "name": "PlayfieldAllCities"
+  },
+  "5a585f65": {
+   "class": "InspectMessage",
+   "name": "Inspect"
+  },
+  "5b1e052c": {
+   "class": "PlayfieldTowerUpdateClientMessage",
+   "name": "PlayfieldTowerUpdateClient"
+  },
+  "5c436609": {
+   "class": "QuestAlternativeMessage",
+   "name": "QuestAlternative"
+  },
+  "5c525a7b": {
+   "class": "ChatCmdMessage",
+   "name": "ChatCmd"
+  },
+  "5c654b28": {
+   "class": "MissedAttackInfoMessage",
+   "name": "MissedAttackInfo"
+  },
+  "5d70532a": {
+   "class": "KnuBotAppendTextMessage",
+   "name": "KnubotAppendText"
+  },
+  "5e477770": {
+   "class": "CharacterActionMessage",
+   "name": "CharacterAction"
+  },
+  "5f4b1a39": {
+   "class": "PlayfieldAnarchyFMessage",
+   "name": "PlayfieldAnarchyF"
+  },
+  "5f4b442a": {
+   "class": "ChatTextMessage",
+   "name": "ChatText"
+  },
+  "5f52412e": {
+   "class": "GameTimeMessage",
+   "name": "GameTime"
+  },
+  "62741e15": {
+   "class": "AOTransportSignalMessage",
+   "name": "AOTransportSignal"
+  },
+  "64582a07": {
+   "class": "OrgServerMessage",
+   "name": "OrgServer"
+  },
+  "6b333303": {
+   "class": "PetCommandMessage",
+   "name": "PetCommand"
+  },
+  "6e5f566e": {
+   "class": "SetStatMessage",
+   "name": "SetStat"
+  },
+  "754f1115": {
+   "class": "SpecialAttackInfoMessage",
+   "name": "SpecialAttackInfo"
+  },
+  "7864401d": {
+   "class": "KnuBotStartTradeMessage",
+   "name": "KnubotStartTrade"
+  },
+  "7f405a16": {
+   "class": "NewLevelMessage",
+   "name": "NewLevel"
+  },
+  "7f4b3108": {
+   "class": "OrgClientMessage",
+   "name": "OrgClient"
+  },
+  "7f544905": {
+   "class": "VendingMachineFullUpdateMessage",
+   "name": "VendingMachineFullUpdate"
+  }
+ }
+}
