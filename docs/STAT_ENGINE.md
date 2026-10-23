@@ -183,3 +183,17 @@ Matching against the 702 unexplained events:
 * Still unknown is which perk ranks the server says the character owns (the research list is read from a map at the
   `FUN_10058ff8()` object, state flag bit 6 of the entry at `+0x1c`). The perk side needs the same read (bit 7 flag entries of
   `FUN_1002be1a` with count `+0x1c`).
+
+## The owned perk list (read live)
+
+The character's own perk and research state is an object at `*(char + 500)` (built lazily by `FUN_10058ff8`; `+0xc` is the
+character, `+4` points at a `std::map` object whose head is at `+4` and size at `+8`). Its nodes are 0x34 bytes: key at `+0xc`,
+`id` `+0x10`, template `+0x14`, previous rank `+0x18`, flags `+0x1c`, state `+0x2c` (0 = owned/applied; the current research goal
+10005 has a non-zero state). The map had 144 nodes, **143 owned** (`docs/owned_perks.json`): perk lines 170-179, 200-209, 270-279,
+420-429, 1070-1079, 1150-1159, 1180-1189 (ten ranks each) and research ranks 2300-2369 and 10002-10004.
+
+Applying exactly these ranks' effects (`docs/perk_effects.json`) gives 651 events, **all inside the 702 unexplained events, none
+over**. The 51 left are effects this parse does not read yet (other spell types or requirement-gated records). So the stat engine for
+this character is: item effects + active nanos + the effects of every owned perk and research rank. The new client needs the same
+owned list from the server (it is rebuilt from the world-entry message and the research update; not captured yet), then it can
+sum these templates for the Stats window.
