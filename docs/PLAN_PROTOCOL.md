@@ -80,3 +80,20 @@ Phase 4 only where a question remains.
 1. OK to build the recorder / clientless tools, given the terms-of-service caution, or stay with the proxy?
 2. Priority among mail, mission terminal, chat and NCU?
 3. Should the original client's "stops on login" be looked at now (proxy the chat server and see)?
+
+## Status (first cut of Phase 1 and the proxy)
+* `tools/gen_protocol_schema.py` turns the SmokeLounge definitions into `crates/mao-net/schema/protocol.json`
+  (233 classes, 78 enums, 94 N3 messages) and `mao_net::schema` interprets it: `Schema::global().parse_n3(kind, data)`
+  gives named fields with enum members named.
+* `mao-client net msg-check <capture.log>` parses a whole capture and reports per message kind how many parsed
+  exactly: **4,598 of 5,078 (90.6 %) on the first capture**. `net msg-parse <log> <kind> [n]` prints messages as
+  named fields.
+* What still fails, and why: `SimpleCharFullUpdate` (a custom serializer in the C#; `EntityInfo` covers it by hand),
+  `Mail` (the C# models only sending: the list request is `action = 1` and eight zero bytes, the reply an empty
+  array; the items of a non-empty mailbox need a capture with mail in it), `SpellList` (the C# class is empty),
+  a few trailing unknown fields (4 bytes on item / chest / corpse updates), and messages the C# names but doesn't
+  define (`AddPet`, `Action`, `SetWantedDirection`).
+* The capture proxy now also relays the **chat server**: it rewrites the system `0x43` ChatServerInfo (plain or
+  compressed frames, the address kept the same length with NUL padding) and relays that connection untouched.
+  To use it: stop the old proxies, run `python tools/capture_proxy.py`, start the original as before; the log then holds
+  the chat login (chat packet types are in `SmokeLounge/.../ChatMessages`) and whatever makes the client stop.

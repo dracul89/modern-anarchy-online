@@ -224,6 +224,17 @@ for path in sorted(root.rglob("*.cs")):
 for name in list(classes):
     pass
 
+# Enums defined elsewhere in the sources (Stat, MovementAction, Profession ...) give the width of their fields.
+extra = Path(sys.argv[3]) if len(sys.argv) > 3 else root.parents[3] / "GameData"
+if extra.exists():
+    for path in sorted(extra.rglob("*.cs")):
+        text = strip_comments(path.read_text(encoding="utf-8-sig", errors="replace"))
+        for m in re.finditer(r"public\s+enum\s+(\w+)([^{;]*)\{", text):
+            if m.group(1) in enums:
+                continue
+            brace = m.end() - 1
+            add_type("enum", m.group(1), m.group(2), text[brace + 1:match_brace(text, brace)])
+
 kinds = {}
 src = (root / "Messages/N3MessageType.cs").read_text(encoding="utf-8-sig")
 for name, val in re.findall(r"(\w+)\s*=\s*(0x[0-9A-Fa-f]+)", src):
