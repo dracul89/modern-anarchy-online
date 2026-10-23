@@ -280,6 +280,10 @@ mod tests {
         assert_eq!(hex(trade_decline(0x4c2e2)), "00000000020200000000000000010000000000000000");
         // The captured move of the inventory item in slot 0x5a into the bag (0xc749, 0xbccf0).
         assert_eq!(hex(container_add_item(0x4c2de, (0xc749, 0xbccf0), (0x68, 0x5a))), "000000c749000bccf0000000680000005a");
+        // The fifth capture: buying stock item 2 (add, then accept), and selling the item in slot 0x50.
+        assert_eq!(hex(trade(0x1323e, 5, [0xc75b, 0xc006021c, 0x6f, 2])), "0000000002050000c75bc006021c0000006f00000002");
+        assert_eq!(hex(trade(0x1323e, 1, [0; 4])), "00000000020100000000000000000000000000000000");
+        assert_eq!(hex(trade(0x1323e, 5, [0xc350, 0x1323e, 0x68, 0x50])), "0000000002050000c3500001323e0000006800000050");
     }
 
     #[test]

@@ -13,6 +13,7 @@
 //! * [`inventory`]: the character's items, from the world burst.
 //! * [`session`]: a blocking connection that logs in and lists characters.
 
+pub mod chat;
 pub mod crypto;
 pub mod destinations;
 pub mod frame;

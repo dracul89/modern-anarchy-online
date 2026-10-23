@@ -205,7 +205,7 @@ impl Ui {
                 }
             }
             if shop.open {
-                if let Some(command) = shop.show(&ctx, gear, palette) {
+                if let Some(command) = shop.show(&ctx, gear, &hud.gear, palette) {
                     requests.shop = Some(command);
                 }
             }
@@ -287,7 +287,7 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
                 window.show(&ctx, &mut gear, &palette);
             }
             if let Some(window) = preview_shop.as_mut() {
-                window.show(&ctx, &mut gear, &palette);
+                window.show(&ctx, &mut gear, &hud.gear, &palette);
             }
             if let Some(window) = preview_mail.as_mut() {
                 window.show(&ctx, &mut gear, &hud.gear, &palette);

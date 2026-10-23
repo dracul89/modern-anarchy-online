@@ -568,6 +568,59 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     let start = state.entities.get(&own).map(|e| e.0).unwrap_or([0.0; 3]);
     let heading = state.rotations.get(&own).map(|q| 2.0 * q[1].atan2(q[3])).unwrap_or(0.0);
     let (gear_db, gear_textures) = (db.clone(), crate::Textures::new(db.clone()));
+    // The chat server (once per run, kept across zonings): its channel lines and notices go to the log.
+    let chat_rx = {
+        static STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        let (tx, rx) = std::sync::mpsc::channel::<String>();
+        if std::env::var_os("MAO_NO_CHAT").is_none() && !STARTED.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            if let Ok((user, password)) = credentials() {
+                std::thread::spawn(move || {
+                    let server = std::env::var("MAO_CHAT_SERVER").unwrap_or_else(|_| mao_net::chat::SERVER.to_string());
+                    let result = (|| -> Result<(), mao_net::chat::Error> {
+                        let mut chat = mao_net::chat::Chat::connect(server.as_str())?;
+                        chat.login(own, &user, &password)?;
+                        let mut names: BTreeMap<u32, String> = BTreeMap::new();
+                        let mut channels: BTreeMap<u32, String> = BTreeMap::new();
+                        loop {
+                            use mao_net::chat::Packet;
+                            let line = match chat.receive()? {
+                                Packet::Name { id, name } => {
+                                    names.insert(id, name);
+                                    None
+                                }
+                                Packet::Channel { id, name, .. } => {
+                                    channels.insert(id, name);
+                                    None
+                                }
+                                Packet::Notice { text } => Some(mao_net::chat::plain(&text)),
+                                Packet::ChannelLine { text, .. } => Some(mao_net::chat::plain(&text)),
+                                Packet::Message { channel, sender, text } => {
+                                    let who = names.get(&sender).cloned().unwrap_or_else(|| format!("{sender:x}"));
+                                    let place = channels.get(&channel.1).cloned().unwrap_or_default();
+                                    Some(format!("[{place}] {who}: {}", mao_net::chat::plain(&text)))
+                                }
+                                Packet::Other { kind, data } => {
+                                    eprintln!("chat packet {kind}: {}", data.iter().map(|b| format!("{b:02x}")).collect::<String>());
+                                    None
+                                }
+                                _ => None,
+                            };
+                            // A line with control characters is a packet of another layout read wrongly (seen once live): skip it.
+                            if let Some(line) = line.filter(|l| !l.chars().any(char::is_control)) {
+                                if tx.send(line).is_err() {
+                                    return Ok(());
+                                }
+                            }
+                        }
+                    })();
+                    if let Err(e) = result {
+                        eprintln!("chat: {e}");
+                    }
+                });
+            }
+        }
+        rx
+    };
     std::thread::spawn(move || {
         use mao_net::n3::movement;
         const SPEED: f32 = 7.5; // units per second, from the capture
@@ -614,7 +667,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let (mut pending_mail_count, mut pending_mail_status): (Option<usize>, Option<String>) = (None, None);
         // Shops: the stock to show, a note, the open booth and the trade's bag (from the server's Trade open).
         let (mut pending_shop, mut pending_shop_status): (Option<crate::shop::ShopState>, Option<String>) = (None, None);
-        let (mut shop_booth, mut shop_bag): (Option<(u32, u32)>, Option<(u32, u32)>) = (None, None);
+        let mut shop_booth: Option<(u32, u32)> = None;
+        // After a trade completes the server wants the booth used again (as the original does) for the next one.
+        let mut shop_reuse: Option<Instant> = None;
         let (mut pending_mail_entries, mut pending_mail_opened, mut pending_mail_flags): (Option<Vec<mao_net::mail::Entry>>, Option<crate::mailbox::Opened>, Option<(u32, u32)>) = (None, None, None);
         let (mut inbox_due, mut mail_sent): (Option<Instant>, Option<Instant>) = (None, None);
         // `MAO_MISSION=type,instance[,scope[,difficulty]]` (decimal or 0x hex) asks that mission terminal
@@ -738,12 +793,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             }
                         }
                     }
-                    // The server's Trade open names the booth and the temporary bag (identity 0xc767) a purchase goes into.
-                    if let Some(m) = Message::parse(&frame).filter(|m| m.kind == 0x36284f6e && m.data.get(5) == Some(&0)) {
-                        let word = |at: usize| m.data.get(at..at + 4).map_or(0, |b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]));
-                        if word(14) == 0xc767 {
-                            shop_bag = Some((word(14), word(18)));
-                        }
+                    // Trade action 4 from the server (captured after both a purchase and a sale): the trade completed.
+                    if Message::parse(&frame).is_some_and(|m| m.kind == 0x36284f6e && m.identity.0 == 0xc350 && m.data.get(5) == Some(&4)) && shop_booth.is_some() {
+                        pending_shop_status = Some("Trade complete.".into());
+                        shop_reuse = Some(Instant::now() + Duration::from_millis(300));
                     }
                     if let Some(m) = Message::parse(&frame).filter(|m| m.kind == 0x5c436609) {
                         if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
@@ -982,15 +1035,31 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         let _ = connection.send(&n3::trade_decline(own));
                         shop_booth = None;
                     }
-                    // Unverified: put the stock item into the trade's bag, then accept the trade.
-                    crate::shop::ShopCommand::Buy(index) => match (shop_booth, shop_bag) {
-                        (Some(booth), Some(bag)) => {
-                            let _ = connection.send(&n3::container_add_item(own, bag, (0x767, index as u32)));
-                            let _ = connection.send(&n3::trade(own, 1, [booth.0, booth.1, 0, 0]));
-                            pending_shop_status = Some("Purchase asked for (unverified: check your inventory and credits).".into());
+                    // As captured: add the stock item (action 5: the booth, 0x6f, the stock index), then accept (action 1).
+                    crate::shop::ShopCommand::Buy(index) => match shop_booth {
+                        Some(booth) => {
+                            let _ = connection.send(&n3::trade(own, 5, [booth.0, booth.1, 0x6f, index as u32]));
+                            let _ = connection.send(&n3::trade(own, 1, [0, 0, 0, 0]));
+                            pending_shop_status = Some("Buying...".into());
                         }
-                        _ => pending_shop_status = Some("No open trade to buy in.".into()),
+                        None => pending_shop_status = Some("No open trade to buy in.".into()),
                     },
+                    // As captured: add one of your own items (action 5: yourself, the inventory page 0x68, the slot), then accept.
+                    crate::shop::ShopCommand::Sell(slot) => match shop_booth {
+                        Some(_) => {
+                            let _ = connection.send(&n3::trade(own, 5, [0xc350, own, 0x68, slot]));
+                            let _ = connection.send(&n3::trade(own, 1, [0, 0, 0, 0]));
+                            pending_shop_status = Some("Selling...".into());
+                        }
+                        None => pending_shop_status = Some("No open trade to sell in.".into()),
+                    },
+                }
+            }
+            if shop_reuse.is_some_and(|t| Instant::now() >= t) {
+                shop_reuse = None;
+                if let Some(booth) = shop_booth {
+                    uses += 1;
+                    let _ = connection.send(&n3::use_object(own, uses, booth));
                 }
             }
             if inbox_due.is_some_and(|t| Instant::now() >= t) {
@@ -1184,7 +1253,12 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     own: Some(position),
                     location: pending_location.take(),
                     labels: pending_labels.take(),
-                    messages: std::mem::take(&mut pending_messages),
+                    messages: {
+                        while let Ok(line) = chat_rx.try_recv() {
+                            pending_messages.push(line);
+                        }
+                        std::mem::take(&mut pending_messages)
+                    },
                     gear: pending_gear.take(),
                     missions: pending_missions.take(),
                     mission_status: pending_mission_status.take(),
@@ -1348,6 +1422,25 @@ pub fn run(args: &[String]) -> Result<(), String> {
             eprintln!("loaded in {:.1}s: {} parts, {} booths", start.elapsed().as_secs_f32(), area.scene.parts.len(), area.booths.len());
             for b in &area.booths {
                 eprintln!("booth at ({:.1}, {:.1}, {:.1})", b[0], b[1], b[2]);
+            }
+            Ok(())
+        }
+        // `net <game dir> chat [seconds]`: log in on the chat server as the first character and print what arrives.
+        [game, word, rest @ ..] if word == "chat" => {
+            let (_conn, list) = login(game)?;
+            let character = list.first().ok_or("no characters")?;
+            let (user, password) = credentials()?;
+            let mut chat = mao_net::chat::Chat::connect(std::env::var("MAO_CHAT_SERVER").unwrap_or_else(|_| mao_net::chat::SERVER.to_string()).as_str()).map_err(|e| e.to_string())?;
+            chat.login(character.id, &user, &password).map_err(|e| e.to_string())?;
+            eprintln!("chat login ok for {}", character.name);
+            chat.set_timeout(Duration::from_secs(2)).map_err(|e| e.to_string())?;
+            let end = Instant::now() + Duration::from_secs(rest.first().and_then(|n| n.parse().ok()).unwrap_or(10));
+            while Instant::now() < end {
+                match chat.receive() {
+                    Ok(p) => println!("{p:?}"),
+                    Err(mao_net::chat::Error::Io(e)) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => {}
+                    Err(e) => return Err(e.to_string()),
+                }
             }
             Ok(())
         }

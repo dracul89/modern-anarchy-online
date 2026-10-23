@@ -1,13 +1,13 @@
 //! The shop booth's window. What the captures show: using a booth (`GenericCmd` Use on `(0xc75b, serial)`)
 //! makes the server send the stock (`ShopUpdate`: a list of `(low id, high id, quality)`) and open a trade
 //! (`Trade`, action 0, naming the booth and a temporary bag `0xc767`); the client closes the window with a
-//! `Trade` decline. **Buying** is not in any capture: it is built from the protocol definitions (put the
-//! stock item `(0x767, index)` into the bag with `ClientContainerAddItem`, then accept the trade with the
-//! booth's identity) and is unverified. Selling (dragging your items into the bag) is not built.
+//! `Trade` decline. **Buying** and **selling** are from the fifth capture: a `Trade` action 5 (add) naming the
+//! stock item (booth, 0x6f, stock index) or your own item (yourself, page 0x68, slot), then action 1 (accept);
+//! the server answers action 4 (complete) and the booth has to be used again for the next trade.
 
 use std::sync::Arc;
 
-use crate::gear::{GearWindow, Icon};
+use crate::gear::{GearItem, GearWindow, Icon};
 use crate::theme::Palette;
 
 /// One item for sale.
@@ -25,6 +25,8 @@ pub struct Slot {
 pub enum ShopCommand {
     /// Buy the stock item at this index.
     Buy(usize),
+    /// Sell the inventory item in this slot.
+    Sell(u32),
     /// Close the shop (a trade decline).
     Close,
 }
@@ -46,15 +48,17 @@ pub struct ShopWindow {
 
 impl ShopWindow {
     pub fn set(&mut self, state: ShopState) {
-        self.open = true;
         self.shop = state.shop;
-        self.status = format!("{} items for sale.", state.stock.len());
+        if !self.open || self.status.is_empty() {
+            self.status = format!("{} items for sale.", state.stock.len());
+        }
         self.stock = state.stock;
+        self.open = true;
         self.selected = None;
     }
 
     /// Draws the window; returns what to send, if anything.
-    pub fn show(&mut self, ctx: &egui::Context, gear: &mut GearWindow, palette: &Palette) -> Option<ShopCommand> {
+    pub fn show(&mut self, ctx: &egui::Context, gear: &mut GearWindow, items: &[GearItem], palette: &Palette) -> Option<ShopCommand> {
         let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
         let mut command = None;
         let mut is_open = self.open;
@@ -100,8 +104,24 @@ impl ShopWindow {
             if !self.status.is_empty() {
                 ui.label(egui::RichText::new(&self.status).small());
             }
+            egui::CollapsingHeader::new("Sell").show(ui, |ui| {
+                egui::ScrollArea::vertical().max_height(120.0).id_salt("shop-sell").show(ui, |ui| {
+                    // The backpack (inventory slots from 64) holds what can be sold.
+                    for item in items.iter().filter(|i| i.slot >= 64) {
+                        ui.horizontal(|ui| {
+                            ui.label(format!("{} x{}", item.name, item.count));
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                if ui.small_button("Sell").clicked() {
+                                    command = Some(ShopCommand::Sell(item.slot));
+                                    self.status = format!("Selling {} ...", item.name);
+                                }
+                            });
+                        });
+                    }
+                });
+            });
             ui.horizontal(|ui| {
-                if ui.add_enabled(self.selected.is_some(), egui::Button::new("Buy")).on_hover_text("Unverified: not in any capture yet").clicked() {
+                if ui.add_enabled(self.selected.is_some(), egui::Button::new("Buy")).clicked() {
                     if let Some(i) = self.selected {
                         command = Some(ShopCommand::Buy(i));
                         self.status = format!("Asking to buy {} ...", self.stock.get(i).map_or("", |s| s.name.as_str()));
