@@ -197,3 +197,15 @@ over**. The 51 left are effects this parse does not read yet (other spell types 
 this character is: item effects + active nanos + the effects of every owned perk and research rank. The new client needs the same
 owned list from the server (it is rebuilt from the world-entry message and the research update; not captured yet), then it can
 sum these templates for the Stats window.
+
+## The 51 leftover events (narrowed, not identified)
+
+* All 651 modify-stat records in the owned templates parse. The 34 `0xcfbe` records in them are perk **actions** (cast a nano such as
+  Bio Shield on use), not standing effects, so they add nothing.
+* The leftover events are not in any perk or research template (only `(1, 230)` appears in unowned perk 344).
+* 50 of the 51 come from one heap block of the live client (spell structs of 0x48 bytes, from about `0x8261ee8`, 218 events in
+  that block, 168 of them the owned perks and research): one further list of about 50 modify-stat spells applied in the same batch
+  (stat 1 +230, ACs 90-97, skills at 58/87/144, stats 226-234 at 9/14/22, 319 +3, 343 +30, 168 +500, 181 +15 ...).
+* A byte search for the pairs `(90,717)`, `(91,287)`, `(96,432)` in every object of the 25 small database types
+  (`0xf4241` ... `0xf4312`, including the perk records `0xf4264`) found nothing. So the list is either in an item-type
+  (`0xf4254`, 120842 objects, not searched) template, or built by code at run time from the character's level and profession.
