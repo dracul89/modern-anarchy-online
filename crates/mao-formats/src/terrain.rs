@@ -56,6 +56,8 @@ pub struct Terrain {
     pub tiles: Vec<u16>,
     /// The ground texture instance of each tile index (the tile-map's list).
     pub tile_types: Vec<u16>,
+    /// World units of one eight-bit height step: the tile-map's second float (0.2 in Old Athens, 0.3 and 0.4 elsewhere).
+    pub height_scale: f32,
     /// The mask for a tile word's index: 0x3fff when the ground data has
     /// tile-type data, else 0xff.
     pub mask: u16,
@@ -138,7 +140,7 @@ pub fn build(map: &OldTilemap) -> Result<Terrain, Error> {
         }
     }
     let has_types = ground.field("", "tile_type_data").and_then(|f| f.values.first()).is_some_and(|v| v.len() >= 2);
-    Ok(Terrain { width, height, heights, tiles, tile_types: map.tile_types.clone(), mask: if has_types { 0x3fff } else { 0xff }, tile_size: map.tile_size })
+    Ok(Terrain { width, height, heights, tiles, tile_types: map.tile_types.clone(), height_scale: if map.second > 0.0 { map.second } else { 0.2 }, mask: if has_types { 0x3fff } else { 0xff }, tile_size: map.tile_size })
 }
 
 impl Terrain {

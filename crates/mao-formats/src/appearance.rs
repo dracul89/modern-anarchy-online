@@ -33,6 +33,12 @@ pub enum Action {
     Idle,
     Walk,
     Run,
+    /// A jump from standing and one while moving, and the landings (from idle, a walk and a run).
+    JumpStand,
+    JumpForward,
+    LandIdle,
+    LandWalk,
+    LandRun,
 }
 
 /// The file name of a human character's animation for an action, as the
@@ -45,6 +51,11 @@ pub fn animation_name(breed: u8, sex: u8, action: Action) -> String {
         Action::Idle => "idle-stand",
         Action::Walk => "walk",
         Action::Run => "run",
+        Action::JumpStand => "jump-stand",
+        Action::JumpForward => "jump-forward",
+        Action::LandIdle => "jump-land-idle",
+        Action::LandWalk => "jump-land-walk",
+        Action::LandRun => "jump-land-run",
     };
     format!("{prefix}_{stem}_01_01.ani")
 }
@@ -58,5 +69,6 @@ mod tests {
         assert_eq!(animation_name(SOLITUS, FEMALE, Action::Idle), "female_idle-stand_01_01.ani");
         assert_eq!(animation_name(OPIFEX, MALE, Action::Walk), "male_walk_01_01.ani");
         assert_eq!(animation_name(ATROX, 1, Action::Run), "athrox_run_01_01.ani");
+        assert_eq!(animation_name(SOLITUS, MALE, Action::LandRun), "male_jump-land-run_01_01.ani");
     }
 }

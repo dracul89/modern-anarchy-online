@@ -51,6 +51,10 @@ pub struct Update {
     /// A new playfield to replace the one drawn (zoning).
     pub scene: Option<Model>,
     pub model: Model,
+    /// The player's own character, drawn separately so it can move smoothly between updates, and its speed
+    /// (units a second, server coordinates) for the prediction.
+    pub own_model: Model,
+    pub own_velocity: [f32; 3],
     pub own: Option<[f32; 3]>,
     /// The playfield's name, when it changes.
     pub location: Option<String>,
@@ -171,6 +175,10 @@ struct App {
     heading: f32,
     behind_set: bool,
     last_follow: std::time::Instant,
+    /// The character's position and speed at the last update, and when it arrived (for the prediction).
+    own_base: [f32; 3],
+    own_velocity: [f32; 3],
+    own_at: std::time::Instant,
     keys: Input,
     /// The keys as last sent to the network thread.
     last_sent: Input,
@@ -213,7 +221,7 @@ fn apply_mode(window: &Window, mode: WindowMode) {
 pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<(), String> {
     let event_loop = EventLoop::new().map_err(|e| e.to_string())?;
     let settings = Settings::load();
-    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default() };
+    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default() };
     event_loop.run_app(&mut app).map_err(|e| e.to_string())
 }
 
@@ -634,13 +642,31 @@ impl ApplicationHandler for App {
                             w.scene = w.renderer.upload(&w.gpu, model, &mut |k, i| self.textures.get(k, i));
                             w.scene.fog = (250.0, 1800.0);
                         }
+                        let own_scene = w.renderer.upload(&w.gpu, &update.own_model, &mut |k, i| self.textures.get(k, i));
+                        w.scene.set_follow(own_scene);
+                        if let Some(p) = update.own {
+                            self.own_base = p;
+                            self.own_velocity = update.own_velocity;
+                            self.own_at = std::time::Instant::now();
+                        }
+                        let uploading = std::time::Instant::now();
                         let overlay = w.renderer.upload(&w.gpu, &update.model, &mut |k, i| self.textures.get(k, i));
                         w.scene.set_overlay(overlay);
-                        if let Some([x, y, z]) = update.own {
-                            w.camera.target = mao_render::glam::Vec3::new(x, z, y + 1.3);
-                            // The player's feet: plants bend away from them.
-                            w.scene.player = Some(mao_render::glam::Vec3::new(x, z, y));
+                        if std::env::var_os("MAO_PROFILE").is_some() && uploading.elapsed() > std::time::Duration::from_millis(2) {
+                            eprintln!("[profile] overlay upload {:?}", uploading.elapsed());
                         }
+                    }
+                    // Between updates the character and the camera move on at the speed it was walking at,
+                    // so they glide at the frame rate instead of stepping with the network.
+                    if self.hud.position.is_some() {
+                        let ahead = self.own_at.elapsed().as_secs_f32().min(0.12);
+                        let [x, y, z] = self.own_base;
+                        let [vx, _, vz] = self.own_velocity;
+                        let (px, pz) = (x + vx * ahead, z + vz * ahead);
+                        w.scene.move_follow(&w.gpu, mao_render::glam::Vec3::new(vx * ahead, vz * ahead, 0.0));
+                        w.camera.target = mao_render::glam::Vec3::new(px, pz, y + 1.3);
+                        // The player's feet: plants bend away from them.
+                        w.scene.player = Some(mao_render::glam::Vec3::new(px, pz, y));
                     }
                 }
                 let frame = match w.surface.get_current_texture() {

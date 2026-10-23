@@ -54,21 +54,27 @@ fn hop(game: &str, target: &str, character: u32) -> Result<Connection, String> {
     let mut last = String::new();
     // (The address in a redirect is not a login server: it closes the connection. The normal
     // login hands out a ticket for the right game server; the redirect address is the fallback.)
+    // The old session lingers a moment on the server (the login is refused until it is gone): try again a few times.
+    for attempt in 0..6 {
+        if attempt > 0 {
+            std::thread::sleep(Duration::from_secs(2));
+        }
     for server in [default.as_str(), target] {
-        let attempt = (|| -> Result<Connection, String> {
+        let outcome = (|| -> Result<Connection, String> {
             let mut chat = Connection::connect(server).map_err(|e| e.to_string())?;
             session::login(&mut chat, &user, &password, &version).map_err(|e| e.to_string())?;
             let ticket = session::login_character(&mut chat, character).map_err(|e| e.to_string())?;
             eprintln!("game server {} (login at {server})", ticket.host());
             session::enter_world(&ticket).map_err(|e| e.to_string())
         })();
-        match attempt {
+        match outcome {
             Ok(connection) => return Ok(connection),
             Err(e) => {
                 eprintln!("login at {server} failed: {e}");
                 last = e;
             }
         }
+    }
     }
     Err(last)
 }
@@ -101,6 +107,8 @@ struct World {
     entities: BTreeMap<u32, ([f32; 3], usize)>,
     /// When each entity last changed position (for the walk cycle).
     last_move: BTreeMap<u32, Instant>,
+    /// When each last jumped (the jump and landing animations).
+    jumped: BTreeMap<u32, Instant>,
     /// When each was last heard of and its speed in units a second.
     last_seen: BTreeMap<u32, Instant>,
     speeds: BTreeMap<u32, f32>,
@@ -173,8 +181,11 @@ impl World {
             self.names.insert(m.identity.1, (info.name.clone(), player));
             self.infos.insert(m.identity.1, info);
         }
-        if let Some((_, q, _)) = m.movement() {
+        if let Some((kind, q, _)) = m.movement() {
             self.rotations.insert(m.identity.1, q);
+            if kind == mao_net::n3::movement::JUMP {
+                self.jumped.insert(m.identity.1, Instant::now());
+            }
         }
         let position = m.position().or_else(|| m.movement().map(|(_, _, p)| p));
         if let Some(p) = position {
@@ -258,8 +269,31 @@ struct Characters {
     creatures: std::collections::HashMap<u32, Option<(mao_formats::npc::Template, mao_formats::catmesh::CatMesh, Option<Model>)>>,
     /// Creature animations by instance.
     creature_anims: std::collections::HashMap<u32, Option<(mao_formats::catanim::CatAnim, f32)>>,
+    /// Where each character is in its movement animation (start, loop, stop).
+    motions: std::collections::HashMap<u32, Motion>,
     started: Instant,
 }
+
+/// The parts of a movement animation: the original's walk and run animations carry `loopstart` and `loopend`
+/// notes: from the start to `loopstart` is the first step, between the notes is the cycle, the rest is the stop.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Stage {
+    Idle,
+    Start,
+    Loop,
+    Stop,
+}
+
+#[derive(Clone, Copy)]
+struct Motion {
+    stage: Stage,
+    action: mao_formats::appearance::Action,
+    since: Instant,
+}
+
+/// How long a jump is in the air (twice the rise time) and how long the landing plays, in ms.
+const AIR_MS: f32 = 1400.0;
+const LAND_MS: f32 = 350.0;
 
 impl Characters {
     fn new(db: Arc<ResourceDatabase>) -> Result<Characters, String> {
@@ -267,7 +301,7 @@ impl Characters {
         let get = |kind: u32, instance: u32| db.get(Id { kind, instance }).map_err(|e| e.to_string())?.ok_or_else(|| format!("no object {kind:#x}:{instance:#x}"));
         let index = mao_formats::instances::Instances::parse(&get(0xf424a, 1)?).map_err(|e| e.to_string())?;
         let _ = get;
-        Ok(Characters { db, index, anims: Default::default(), bodies: Default::default(), creatures: Default::default(), creature_anims: Default::default(), started: Instant::now() })
+        Ok(Characters { db, index, anims: Default::default(), bodies: Default::default(), creatures: Default::default(), creature_anims: Default::default(), motions: Default::default(), started: Instant::now() })
     }
 
     /// The parts of a creature or NPC from its template (the CAT mesh and
@@ -308,10 +342,95 @@ impl Characters {
         Some(parts)
     }
 
+    /// Loads a player animation by action (cached) and returns its file name.
+    fn ensure_anim(&mut self, breed: u8, sex: u8, action: mao_formats::appearance::Action) -> String {
+        use mao_formats::resource::Id;
+        let name = mao_formats::appearance::animation_name(breed, sex, action);
+        if !self.anims.contains_key(&name) {
+            let loaded = (|| {
+                let id = self.index.find(0xf6953, &name)?;
+                let anim = mao_formats::catanim::parse(&self.db.get(Id { kind: 0xf6953, instance: id }).ok()??).ok()?;
+                let length = anim.tracks.iter().flat_map(|t| t.rotations.iter().map(|k| k.0)).fold(1.0f32, f32::max);
+                Some((anim, length))
+            })();
+            self.anims.insert(name.clone(), loaded);
+        }
+        name
+    }
+
+    /// An animation's `loopstart`, `loopend` and length in ms (the whole length as the loop if it has no notes).
+    fn loop_points(&mut self, breed: u8, sex: u8, action: mao_formats::appearance::Action) -> Option<(f32, f32, f32)> {
+        let name = self.ensure_anim(breed, sex, action);
+        let (anim, length) = self.anims.get(&name)?.as_ref()?;
+        let note = |n: &str| anim.notes.iter().find(|x| x.name == n).map(|x| x.time);
+        Some(match (note("loopstart"), note("loopend")) {
+            (Some(s), Some(e)) if e > s => (s, e.min(*length), *length),
+            _ => (0.0, *length, *length),
+        })
+    }
+
+    /// The animation and time (ms; `None` = the idle loop on the clock) for a character: a jump and its landing, else
+    /// the movement in three parts, a start, the cycle and a stop, each played once and the cycle repeated.
+    fn motion(&mut self, id: u32, breed: u8, sex: u8, moving: Option<mao_formats::appearance::Action>, jumped: Option<Duration>) -> (mao_formats::appearance::Action, Option<f32>) {
+        use mao_formats::appearance::Action::*;
+        let now = Instant::now();
+        if let Some(since) = jumped {
+            let ms = since.as_secs_f32() * 1000.0;
+            if ms < AIR_MS + LAND_MS {
+                // After the jump the movement carries on as a cycle (or idles).
+                self.motions.insert(id, Motion { stage: if moving.is_some() { Stage::Loop } else { Stage::Idle }, action: moving.unwrap_or(Idle), since: now });
+                let (jump, land) = match moving {
+                    Some(Run) => (JumpForward, LandRun),
+                    Some(_) => (JumpForward, LandWalk),
+                    None => (JumpStand, LandIdle),
+                };
+                if ms < AIR_MS {
+                    let length = self.loop_points(breed, sex, jump).map_or(1.0, |p| p.2);
+                    return (jump, Some(ms / AIR_MS * length));
+                }
+                return (land, Some(ms - AIR_MS));
+            }
+        }
+        let st = self.motions.entry(id).or_insert(Motion { stage: Stage::Idle, action: Idle, since: now });
+        match (st.stage, moving) {
+            (Stage::Idle | Stage::Stop, Some(a)) => *st = Motion { stage: Stage::Start, action: a, since: now },
+            (Stage::Start | Stage::Loop, Some(a)) if a != st.action => *st = Motion { stage: Stage::Loop, action: a, since: now },
+            (Stage::Start | Stage::Loop, None) => *st = Motion { stage: Stage::Stop, action: st.action, since: now },
+            _ => {}
+        }
+        let Motion { stage, action, since } = *st;
+        if stage == Stage::Idle {
+            return (Idle, None);
+        }
+        let Some((start, end, length)) = self.loop_points(breed, sex, action) else { return (Idle, None) };
+        let cycle = (end - start).max(1.0);
+        let elapsed = since.elapsed().as_secs_f32() * 1000.0;
+        let Some(st) = self.motions.get_mut(&id) else { return (Idle, None) };
+        match stage {
+            Stage::Start if elapsed < start => (action, Some(elapsed)),
+            Stage::Start | Stage::Loop => {
+                let into = if stage == Stage::Start { elapsed - start } else { elapsed };
+                if stage == Stage::Start {
+                    *st = Motion { stage: Stage::Loop, action, since: now - Duration::from_secs_f32(into / 1000.0) };
+                }
+                (action, Some(start + into % cycle))
+            }
+            _ => {
+                if end + elapsed >= length {
+                    st.stage = Stage::Idle;
+                    (Idle, None)
+                } else {
+                    (action, Some(end + elapsed))
+                }
+            }
+        }
+    }
+
     /// The parts of a player of this breed and sex at `t` ms into the walk,
     /// in Y-up local space (world matrices identity), if its meshes exist.
-    fn parts(&mut self, breed: u8, sex: u8, action: mao_formats::appearance::Action, phase: f32, textures: &[(String, u32)], clothes: &[(String, u32)]) -> Option<Vec<Part>> {
+    fn parts(&mut self, id: u32, breed: u8, sex: u8, moving: Option<mao_formats::appearance::Action>, jumped: Option<Duration>, phase: f32, textures: &[(String, u32)], clothes: &[(String, u32)]) -> Option<Vec<Part>> {
         use mao_formats::resource::Id;
+        let (action, at) = self.motion(id, breed, sex, moving, jumped);
         let db = self.db.clone();
         let index = &self.index;
         let entry = self.bodies.entry((breed, sex)).or_insert_with(|| {
@@ -330,7 +449,10 @@ impl Characters {
             Some((anim, length))
         });
         let (anim, length) = anim_entry.as_ref()?;
-        let t = (self.started.elapsed().as_secs_f32() * 1000.0 + phase) % length;
+        let t = match at {
+            Some(t) => t.min(*length),
+            None => (self.started.elapsed().as_secs_f32() * 1000.0 + phase) % length,
+        };
         let bones = body.pose(anim, t);
         let mut model = body.skinned_model(&bones, 0xf6954);
         // The character's own textures (its clothes) replace the mesh's by material name.
@@ -354,10 +476,13 @@ impl Characters {
 
 /// The entities' markers alone (own character red, the others blue): two
 /// parts and an instance per entity, placed Z-up.
-fn overlay_model(world: &World, characters: &mut Option<Characters>) -> Model {
+fn overlay_model(world: &World, characters: &mut Option<Characters>, include: &dyn Fn(u32) -> bool) -> Model {
     let mut model = Model { parts: vec![marker([0.9, 0.1, 0.1]), marker([0.2, 0.4, 0.95]), nose(), marker([0.2, 0.8, 0.3])], instances: Vec::new(), water: None };
     let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     for (&id, &(position, _)) in &world.entities {
+        if !include(id) {
+            continue;
+        }
         let q = world.rotations.get(&id).copied().unwrap_or([0.0, 0.0, 0.0, 1.0]);
         let place = model::multiply(&model::trs_matrix(position, q, [1.0; 3]), &swap);
         if let (Some(info), Some(chars)) = (world.infos.get(&id).filter(|i| i.template.is_some()), characters.as_mut()) {
@@ -374,12 +499,13 @@ fn overlay_model(world: &World, characters: &mut Option<Characters>) -> Model {
         }
         let info = world.infos.get(&id).filter(|i| i.is_humanoid());
         if let (Some(info), Some(chars)) = (info, characters.as_mut()) {
-            // The walk cycle runs while it moves (and a second after), else the first frame.
-            let moving = world.last_move.get(&id).is_some_and(|t| t.elapsed() < Duration::from_millis(900));
+            // Movement animates while the position changes (our own is sampled every frame, the others' every few hundred ms).
+            let moving = world.last_move.get(&id).is_some_and(|t| t.elapsed() < Duration::from_millis(if id == world.own { 220 } else { 700 }));
             let speed = world.speeds.get(&id).copied().unwrap_or(0.0);
-            let action = if !moving { mao_formats::appearance::Action::Idle } else if speed > 5.5 { mao_formats::appearance::Action::Run } else { mao_formats::appearance::Action::Walk };
+            let action = if !moving { None } else if speed > 5.5 { Some(mao_formats::appearance::Action::Run) } else { Some(mao_formats::appearance::Action::Walk) };
+            let jumped = world.jumped.get(&id).map(|t| t.elapsed());
             // (A phase per entity keeps a crowd from moving in step.)
-            if let Some(parts) = chars.parts(info.breed, info.sex, action, (id % 997) as f32 * 3.0, &info.textures, &info.clothes) {
+            if let Some(parts) = chars.parts(id, info.breed, info.sex, action, jumped, (id % 997) as f32 * 3.0, &info.textures, &info.clothes) {
                 let base = model.parts.len();
                 for (k, p) in parts.into_iter().enumerate() {
                     model.parts.push(p);
@@ -411,11 +537,11 @@ fn show_world(game: &str, playfield: u32, world: &World, image: Option<&str>) ->
         let collision = build_collision(&scene, ground_parts, &crate::Textures::new(db.clone()), &passable_parts(&db, &part_mesh));
         eprintln!("collision: {} triangles in {:?}", collision.len(), started.elapsed());
         for (id, (p, _)) in world.entities.iter().take(6) {
-            eprintln!("entity {id}: server y {:.2}, ground model {:.2}", p[1], t.height_at(p[0], p[2], crate::HEIGHT_SCALE));
+            eprintln!("entity {id}: server y {:.2}, ground model {:.2}", p[1], t.height_at(p[0], p[2], t.height_scale));
         }
     }
     let mut characters = Characters::new(db.clone()).ok();
-    let overlay = overlay_model(world, &mut characters);
+    let overlay = overlay_model(world, &mut characters, &|_| true);
     let offset = scene.parts.len();
     scene.parts.extend(overlay.parts);
     scene.instances.extend(overlay.instances.into_iter().map(|(i, m)| (i + offset, m)));
@@ -545,7 +671,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     let game_dir = game.to_string();
     let thread_db = db.clone();
     let mut current = playfield;
-    connection.set_timeout(Duration::from_millis(50)).map_err(|e| e.to_string())?;
+    connection.set_timeout(Duration::from_millis(12)).map_err(|e| e.to_string())?;
     // The first couple of seconds say where the character is.
     let until = Instant::now() + Duration::from_secs(3);
     while Instant::now() < until && !state.entities.contains_key(&state.own) {
@@ -630,7 +756,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         const TURN: f32 = 2.0; // radians per second
         // The server's heights sit a little off the ground model's; walk at
         // the ground's height plus the offset seen at the start.
-        let ground = |terrain: &Option<mao_formats::terrain::Terrain>, p: [f32; 3]| terrain.as_ref().map_or(0.0, |t| t.height_at(p[0], p[2], crate::HEIGHT_SCALE));
+        let ground = |terrain: &Option<mao_formats::terrain::Terrain>, p: [f32; 3]| terrain.as_ref().map_or(0.0, |t| t.height_at(p[0], p[2], t.height_scale));
         let mut offset = start[1] - ground(&terrain, start);
         let mut base = start[1];
         let clock = Instant::now();
@@ -698,6 +824,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut last_tick = Instant::now();
         let mut last_send = Instant::now();
         let mut last_overlay = Instant::now() - Duration::from_secs(1);
+        let profile = std::env::var_os("MAO_PROFILE").is_some();
+        let mut last_own = (start, Instant::now());
         let send = |connection: &mut Connection, kind: u8, heading: f32, position: [f32; 3], since: &mut Instant| {
             let ms = since.elapsed().as_millis().min(u32::MAX as u128) as u32;
             *since = Instant::now();
@@ -718,7 +846,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         // The old session must be gone first, or the login is refused (the character is still logged in).
                         connection.close();
                         std::thread::sleep(Duration::from_millis(1500));
-                        match hop(&game_dir, &target, own).and_then(|mut c| c.set_timeout(Duration::from_millis(50)).map(|_| c).map_err(|e| e.to_string())) {
+                        match hop(&game_dir, &target, own).and_then(|mut c| c.set_timeout(Duration::from_millis(12)).map(|_| c).map_err(|e| e.to_string())) {
                             Ok(next) => {
                                 connection = next;
                                 // The new playfield is loaded even if its number repeats.
@@ -844,6 +972,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     eprintln!("zoning to playfield {playfield}");
                     current = playfield;
                     state.last_move.clear_all();
+                    state.jumped.clear_all();
                     state.last_seen.clear_all();
                     state.speeds.clear_all();
                     state.names.clear_all();
@@ -1200,6 +1329,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 ok &= send(connection, kind, heading, position, &mut sent);
             };
             if start_jump {
+                state.jumped.insert(own, Instant::now());
                 send_kind(movement::JUMP, &mut connection);
             }
             if walk != moving {
@@ -1250,11 +1380,26 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             } else if let Some(e) = state.entities.get(&own) {
                 position = e.0;
             }
-            if last_overlay.elapsed() >= Duration::from_millis(60) {
+            if last_overlay.elapsed() >= Duration::from_millis(33) {
                 last_overlay = Instant::now();
+                let built = Instant::now();
+                let model = overlay_model(&state, &mut characters, &|id| id != own);
+                let own_model = overlay_model(&state, &mut characters, &|id| id == own);
+                let own_velocity = if walk == 0 && keys.strafe == 0 && !airborne {
+                    [0.0; 3]
+                } else {
+                    let dt = last_own.1.elapsed().as_secs_f32().max(0.001);
+                    [(position[0] - last_own.0[0]) / dt, 0.0, (position[2] - last_own.0[2]) / dt]
+                };
+                last_own = (position, Instant::now());
+                if profile && built.elapsed() > Duration::from_millis(4) {
+                    eprintln!("[profile] overlay_model {:?} ({} parts, {} instances)", built.elapsed(), model.parts.len(), model.instances.len());
+                }
                 let update = crate::viewer::Update {
                     scene: pending_scene.take(),
-                    model: overlay_model(&state, &mut characters),
+                    model,
+                    own_model,
+                    own_velocity,
                     own: Some(position),
                     location: pending_location.take(),
                     labels: pending_labels.take(),
@@ -1641,7 +1786,7 @@ fn walk(game: &str, who: &str, target_x: f32, target_z: f32, seconds: u64) -> Re
     let area = load_area(game, &db, playfield)?;
     let (terrain, collision) = (area.terrain, area.collision);
     let mut base = position[1];
-    let ground = |p: [f32; 3]| terrain.as_ref().map_or(0.0, |t| t.height_at(p[0], p[2], crate::HEIGHT_SCALE));
+    let ground = |p: [f32; 3]| terrain.as_ref().map_or(0.0, |t| t.height_at(p[0], p[2], t.height_scale));
     let offset = position[1] - ground(position);
     let mut since = clock;
     let mut send = |connection: &mut Connection, kind: u8, position: [f32; 3], since: &mut Instant| -> Result<(), String> {

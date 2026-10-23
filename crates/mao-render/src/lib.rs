@@ -90,6 +90,11 @@ struct GpuPart {
     /// A sphere around the part in the world (to skip it in the shadow pass).
     center: Vec3,
     radius: f32,
+    /// The part's uniform and what was written in it (so the part can be moved without uploading it again).
+    uniform_buffer: wgpu::Buffer,
+    uniform: PartUniform,
+    /// How far the part is moved from where it was uploaded.
+    shift: Vec3,
 }
 
 pub use mao_formats::model::Water;
@@ -99,6 +104,8 @@ pub struct Scene {
     parts: Vec<GpuPart>,
     /// Parts drawn after the others and replaceable (see [`Scene::set_overlay`]).
     overlay: Vec<GpuPart>,
+    /// Parts that follow a moving point between uploads (the player's character): see [`Scene::set_follow`].
+    follow: Vec<GpuPart>,
     pub center: Vec3,
     pub radius: f32,
     /// Where the player stands (world, Z up): plants near it bend away.
@@ -113,6 +120,23 @@ impl Scene {
     /// scene's bounds).
     pub fn set_overlay(&mut self, other: Scene) {
         self.overlay = other.parts;
+    }
+
+    /// Replaces the followers: parts drawn like the overlay but movable every frame with [`Scene::move_follow`]
+    /// (the character between two network updates).
+    pub fn set_follow(&mut self, other: Scene) {
+        self.follow = other.parts;
+    }
+
+    /// Moves the followers by `delta` (world, Z up) from where they were uploaded.
+    pub fn move_follow(&mut self, gpu: &Gpu, delta: Vec3) {
+        for part in &mut self.follow {
+            let mut u = part.uniform;
+            let m = Mat4::from_translation(delta) * Mat4::from_cols_array(&u.model);
+            u.model = m.to_cols_array();
+            gpu.queue.write_buffer(&part.uniform_buffer, 0, bytemuck::bytes_of(&u));
+            part.shift = delta;
+        }
     }
 }
 
@@ -519,7 +543,7 @@ impl Renderer {
             let d = model.parts[index].material.diffuse;
             let material = &model.parts[index].material;
             let uniform = PartUniform { model: world, colour: [d[0], d[1], d[2], 1.0], flags: [view.is_some() as u32 as f32, material.ignore_alpha as u32 as f32, material.foliage as u32 as f32, *height] };
-            let ub = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: bytemuck::bytes_of(&uniform), usage: wgpu::BufferUsages::UNIFORM });
+            let ub = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: bytemuck::bytes_of(&uniform), usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST });
             let bind = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: None,
                 layout: &self.part_layout,
@@ -529,9 +553,9 @@ impl Renderer {
                     wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(&self.sampler) },
                 ],
             });
-            parts.push(GpuPart { vertices: vb.clone(), indices: ib.clone(), index_count: *count, bind, center, radius });
+            parts.push(GpuPart { vertices: vb.clone(), indices: ib.clone(), index_count: *count, bind, center, radius, uniform_buffer: ub, uniform, shift: Vec3::ZERO });
         }
-        Scene { parts, overlay: Vec::new(), center, radius, player: None, fog: (1.0e9, 2.0e9), water: model.water }
+        Scene { parts, overlay: Vec::new(), follow: Vec::new(), center, radius, player: None, fog: (1.0e9, 2.0e9), water: model.water }
     }
 
     fn depth_view(&mut self, gpu: &Gpu, size: (u32, u32)) {
@@ -669,8 +693,8 @@ impl Renderer {
                 pass.set_bind_group(0, &shadow_globals_bind, &[]);
                 // Anything that can throw a shadow into the box: within it horizontally, a little beyond for the slant.
                 let reach = extent * 1.6;
-                for part in scene.parts.iter().chain(&scene.overlay) {
-                    let d = part.center - focus;
+                for part in scene.parts.iter().chain(&scene.overlay).chain(&scene.follow) {
+                    let d = part.center + part.shift - focus;
                     if d.truncate().length() > reach + part.radius {
                         continue;
                     }
@@ -706,10 +730,10 @@ impl Renderer {
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &globals_bind, &[]);
             pass.set_bind_group(2, &self.shadow_bind, &[]);
-            for part in scene.parts.iter().chain(&scene.overlay) {
+            for part in scene.parts.iter().chain(&scene.overlay).chain(&scene.follow) {
                 parts += 1;
                 // Plants bend up to a couple of units out of their box.
-                if !sphere_visible(&planes, part.center, part.radius + 2.0) {
+                if !sphere_visible(&planes, part.center + part.shift, part.radius + 2.0) {
                     continue;
                 }
                 drawn += 1;

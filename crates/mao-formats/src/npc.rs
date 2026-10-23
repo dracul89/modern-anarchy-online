@@ -49,9 +49,9 @@ impl Template {
     pub fn animation(&self, action: Action) -> Option<u32> {
         let find = |key: u32| self.animations.iter().find(|a| a.0 == key).map(|a| a.1);
         match action {
-            Action::Idle => find(120),
             Action::Walk => find(100),
             Action::Run => find(101).or_else(|| find(100)),
+            _ => find(120),
         }
     }
 }
