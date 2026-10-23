@@ -82,3 +82,26 @@ term in `FUN_10064b51` for the six attributes feeds).
 * So the remaining 890-1607 per class is not in items or buffs. Not yet examined: the 35 perks' standing effects, and the
   helper object that `FUN_10064b51` reads (its two maps: a stat-to-node map and a stat-to-modifier map; the modifier
   is `map[stat] - trickle`), which can be read directly from the live game through the bridge.
+
+## The modifier map, read from the live client
+
+`GetSkill`'s detail 2/3 is `stored value + modifier map[stat] - trickle`. The map is a `std::map<int,int>` reached as
+**`*(*(*(engine + 0x?`**... concretely: `char = n3EngineClientAnarchy_t::GetClientChar(engine)`, `H = *(char + 0x1bc)`,
+`map = *(H + 4)`; the map object has the tree head at `+4` and the size at `+8`; nodes are `{left, parent, right, key
+(+0xc), value (+0x10), colour (+0x14), isnil (+0x15)}` (MSVC 2010 layout). For Conjecture it holds **120 entries**
+(`docs/modifier_map.json`).
+
+For every armour class, attribute, max health and max nano, the map entry equals the shown bonus exactly (Melee AC 14516,
+Strength 411, Max health 26922, ...); for skills the shown bonus is the map entry plus the attribute trickle-down.
+
+How much of the map the worn items (40) and active nanos (8) explain:
+* **30 stats exactly**: BeltSlots 6, SharpObject 289, Grenade 32, HeavyWeapons 234, Bow 231, the guns 32/90, ...
+* **16 stats only in the map** (no item or nano effect found): Reflect*AC 3 each, ShieldNanoAC 80, ElectricalEngineering,
+  QuantumFT and Chemistry 50 each, NanoPool 9, Scale 12.
+* **74 stats partly**: the armour classes (89% to 93%), attributes (Strength 293 of 411, Stamina 247 of 448, ...), max
+  health (13564 of 26922), the Shield*AC (70 of ~180), AddAllOff/AddAllDef and most skills. The missing part is always
+  positive.
+So some source other than the worn items and the 8 listed nanos adds to the map. The login message carries no seed values
+for it (`Stats3`/`Stats4` hold only the state stats and the absorb values, all 0). Perks are the main suspect, as their
+definitions are not in the game database (the names are not in the instance index), so they are the server's or the
+client code's. Unread effect records (requirements other than level) may account for a little.
