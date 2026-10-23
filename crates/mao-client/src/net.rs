@@ -559,6 +559,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     let mut characters = Characters::new(db.clone()).ok();
     let (tx, rx) = std::sync::mpsc::channel();
     let (input_tx, input_rx) = std::sync::mpsc::channel::<crate::viewer::Input>();
+    let (mail_tx, mail_rx) = std::sync::mpsc::channel::<crate::mailbox::MailCommand>();
     let own = state.own;
     let start = state.entities.get(&own).map(|e| e.0).unwrap_or([0.0; 3]);
     let heading = state.rotations.get(&own).map(|q| 2.0 * q[1].atan2(q[3])).unwrap_or(0.0);
@@ -605,6 +606,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut pending_destinations = state.destinations.take();
         let (mut mission_wait, mut mission_used): (Option<Instant>, bool) = (None, false);
         let (mut mission_seen, mut pending_missions, mut pending_mission_status): (u8, Option<Vec<crate::mission::Offer>>, Option<String>) = (0, None, None);
+        // Mail: the answer's count and notes for the window, when the inbox request is due, and when the last send went out.
+        let (mut pending_mail_count, mut pending_mail_status): (Option<usize>, Option<String>) = (None, None);
+        let (mut inbox_due, mut mail_sent): (Option<Instant>, Option<Instant>) = (None, None);
         // `MAO_MISSION=type,instance[,scope[,difficulty]]` (decimal or 0x hex) asks that mission terminal
         // for missions once the character has arrived (or 6 s into the session without a walk), and prints the offers.
         let mut mission_request: Option<(u32, u32, u8, [u8; 7])> = std::env::var("MAO_MISSION").ok().and_then(|t| {
@@ -662,6 +666,16 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     }
                     if tracing {
                         trace(&frame, clock);
+                    }
+                    if let Some(m) = Message::parse(&frame).filter(|m| m.kind == 0x333b2867) {
+                        if let Some((0, n)) = n3::mail_count(&m.data) {
+                            pending_mail_count = Some(n);
+                        }
+                    }
+                    // A notice right after a send: the server declined (a free account can't send mail).
+                    if mail_sent.is_some_and(|t| t.elapsed() < Duration::from_secs(5)) && Message::parse(&frame).is_some_and(|m| m.kind == 0x206b4b73) {
+                        mail_sent = None;
+                        pending_mail_status = Some("The server declined the mail (sending is limited to paying accounts).".into());
                     }
                     if let Some(m) = Message::parse(&frame).filter(|m| m.kind == 0x5c436609) {
                         if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
@@ -866,6 +880,27 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     let _ = connection.send(&n3::set_target(own, id));
                 }
             }
+            // The mail windows: check the inbox at the nearest known terminal, or send a mail.
+            while let Ok(command) = mail_rx.try_recv() {
+                match command {
+                    crate::mailbox::MailCommand::Inbox => match crate::mailbox::nearest_terminal(current, position[0], position[2]) {
+                        Some(serial) => {
+                            uses += 1;
+                            let _ = connection.send(&n3::use_object(own, uses, (0xc773, serial)));
+                            inbox_due = Some(Instant::now() + Duration::from_millis(900));
+                        }
+                        None => pending_mail_status = Some("No known mail terminal here (they come from captures: Old Athens has two).".into()),
+                    },
+                    crate::mailbox::MailCommand::Send { recipient, subject, body, item, credits, express } => {
+                        let _ = connection.send(&n3::mail_send(own, &recipient, &subject, &body, item, credits, express));
+                        mail_sent = Some(Instant::now());
+                    }
+                }
+            }
+            if inbox_due.is_some_and(|t| Instant::now() >= t) {
+                inbox_due = None;
+                let _ = connection.send(&n3::mail_request(own));
+            }
             // The mission window: ask the nearest booth for missions, or accept an offer.
             if raw.mission.0 != mission_seen {
                 mission_seen = raw.mission.0;
@@ -1057,6 +1092,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     gear: pending_gear.take(),
                     missions: pending_missions.take(),
                     mission_status: pending_mission_status.take(),
+                    mail_count: pending_mail_count.take(),
+                    mail_status: pending_mail_status.take(),
                     destinations: pending_destinations.take(),
                     heading: Some(heading),
                     target: target.and_then(|t| Some(format!("{}  ({:.0} m)", state.names.get(&t)?.0, ((state.position_of(t)?[0] - position[0]).powi(2) + (state.position_of(t)?[2] - position[2]).powi(2)).sqrt()))),
@@ -1067,7 +1104,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             }
         }
     });
-    crate::viewer::window(scene, crate::Textures::new(db), Some(crate::viewer::Live { overlays: rx, input: input_tx, focus, distance: 6.0 }))
+    crate::viewer::window(scene, crate::Textures::new(db), Some(crate::viewer::Live { overlays: rx, input: input_tx, mail: mail_tx, focus, distance: 6.0 }))
 }
 
 pub fn run(args: &[String]) -> Result<(), String> {

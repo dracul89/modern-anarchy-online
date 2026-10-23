@@ -143,6 +143,15 @@ pub fn mail_request(character: u32) -> Frame {
     Message { kind: 0x333b2867, identity: (CHARACTER, character), data }.frame(character)
 }
 
+/// The action and the number of messages in a `Mail` reply (`333b2867`, server to client): a header byte,
+/// an `i16` action and an array counted the way the protocol counts (`(n + 1) * 0x3f1`). The captured
+/// reply to an empty inbox is `00 | 00 00 | 00 00 03 f1`: action 0, no messages.
+pub fn mail_count(data: &[u8]) -> Option<(i16, usize)> {
+    let action = i16::from_be_bytes(data.get(1..3)?.try_into().ok()?);
+    let marker = i32::from_be_bytes(data.get(3..7)?.try_into().ok()?);
+    usize::try_from(marker / 0x3f1 - 1).ok().map(|n| (action, n))
+}
+
 /// `Mail` (`333b2867`) sending a mail: action 6, the recipient, subject and body (each with an `i16`
 /// length), the attached item's identity (an inventory slot is `(0x68, slot)`; `(0, 0)` for none), the
 /// credits and whether it goes express. Free accounts are refused ("Sending mail is limited to paying
@@ -229,6 +238,12 @@ pub fn position_update(character: u32, movement: u8, heading: f32, position: [f3
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_empty_inbox_reply_has_no_messages() {
+        assert_eq!(mail_count(&[0, 0, 0, 0, 0, 3, 0xf1]), Some((0, 0)));
+        assert_eq!(mail_count(&[0, 0, 0]), None);
+    }
+
     #[test]
     fn mail_matches_the_capture() {
         let hex = |m: Frame| -> String { Message::parse(&m).unwrap().data.iter().map(|b| format!("{b:02x}")).collect() };

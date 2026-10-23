@@ -131,6 +131,18 @@ Accept sends `CreateQuest`. The captured offers render correctly offscreen (`MAO
 so the request has only been checked against the capture; the slider ranges (difficulty 0-7, others 0-255) and the
 scope's meaning are guesses from one capture; the mission log (`QuestFullUpdate`) isn't shown yet.
 
+## 4i. Mail windows (`Ctrl+M`)
+Two windows laid out as in the original's screenshots: the **inbox** (Messages, "Size: n/30", a Subject / Sent
+list, Check mail, New, Delete, Close) and the **compose window** (To, Subject, body, Credits, C.O.D., an item picked
+from the backpack, Standard / Express, Total cost, Send, Close). Check mail uses the nearest *known* mail terminal
+(`mailbox::KNOWN_TERMINALS`: the server doesn't announce mail terminals, so the two in Old Athens come from
+the captures) and asks for the inbox (`Mail`, action 1, byte-exact with the capture); the reply's message count is
+shown. Send builds the captured message (action 6, recipient, subject, body, the item as `(0x68, slot)`, credits,
+express; byte-exact in a test). Free accounts are refused by the server (the window says so when a notice follows
+the send). **Not done:** the inbox rows (the only captured reply is an empty list), reading / taking / deleting a
+mail, C.O.D. (the captured message has no field for it), the total cost (the server's). Needs a capture with a
+paying account sending to, and the receiver opening, a mail with an item and credits.
+
 ## 5. The AOU mod against the original GUI
 The original GUI folder (`cd_image/gui/Default`) is 50 files: 27 small XML
 views (login, character selection, mail, trade, research, raid ...), 10 action

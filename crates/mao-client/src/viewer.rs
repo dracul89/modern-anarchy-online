@@ -70,6 +70,9 @@ pub struct Update {
     pub missions: Option<Vec<crate::mission::Offer>>,
     /// A message for the mission window's status line.
     pub mission_status: Option<String>,
+    /// The inbox's message count when the server reports it, and a note for the mail window.
+    pub mail_count: Option<usize>,
+    pub mail_status: Option<String>,
 }
 
 /// Something that changes while the window is open: models to draw over the
@@ -78,6 +81,8 @@ pub struct Live {
     pub overlays: std::sync::mpsc::Receiver<Update>,
     /// Where the arrow keys' state goes.
     pub input: std::sync::mpsc::Sender<Input>,
+    /// Mail commands (send, check the inbox).
+    pub mail: std::sync::mpsc::Sender<crate::mailbox::MailCommand>,
     /// The view point (Z-up), if known.
     pub focus: Option<[f32; 3]>,
     /// The starting distance from it.
@@ -417,6 +422,11 @@ impl ApplicationHandler for App {
                                 press_slot(ui, n as usize, &mut self.keys, &mut self.hud);
                             }
                         }
+                        Action::MailWindow if !event.repeat => {
+                            if let Some(ui) = w.ui.as_mut() {
+                                ui.mail.open = !ui.mail.open;
+                            }
+                        }
                         Action::MissionWindow if !event.repeat => {
                             if let Some(ui) = w.ui.as_mut() {
                                 ui.mission.open = !ui.mission.open;
@@ -568,6 +578,13 @@ impl ApplicationHandler for App {
                             if let Some(status) = u.mission_status.take() {
                                 ui.mission.status = status;
                             }
+                            if let Some(n) = u.mail_count.take() {
+                                ui.mail.count = Some(n);
+                                ui.mail.status = format!("The inbox holds {n} messages.");
+                            }
+                            if let Some(status) = u.mail_status.take() {
+                                ui.mail.status = status;
+                            }
                         }
                         if let Some(items) = u.gear.take() {
                             self.hud.gear = items;
@@ -620,7 +637,12 @@ impl ApplicationHandler for App {
                     let (camera, radius) = (w.camera, w.scene.radius);
                     let aspect = size.0 as f32 / size.1.max(1) as f32;
                     let project = |p: mao_render::glam::Vec3| camera.project(p, aspect, radius);
-                    let (frame, requests) = ui.run(&w.window, &mut self.settings, &self.hud, &project);
+                    let (frame, mut requests) = ui.run(&w.window, &mut self.settings, &self.hud, &project);
+                    if let Some(command) = requests.mail.take() {
+                        if let Some(live) = &self.live {
+                            let _ = live.mail.send(command);
+                        }
+                    }
                     if let Some(command) = requests.mission {
                         self.keys.mission = (self.keys.mission.0.wrapping_add(1), command);
                         if let Some(live) = &self.live {

@@ -44,6 +44,8 @@ pub struct Hud {
     pub whompah_open: bool,
     /// A mission window a headless preview shows.
     pub mission_preview: std::sync::Mutex<Option<crate::mission::MissionWindow>>,
+    /// A mail window a headless preview shows.
+    pub mail_preview: std::sync::Mutex<Option<crate::mailbox::MailWindow>>,
     /// What the last frame drew (parts), shown beside the frame rate.
     pub draw_info: String,
 }
@@ -71,6 +73,8 @@ pub struct Requests {
     pub press: Option<usize>,
     /// A mission window command (request missions / accept one).
     pub mission: Option<crate::mission::Command>,
+    /// A mail command (check the inbox, send).
+    pub mail: Option<crate::mailbox::MailCommand>,
     /// A place to walk to (world x, z), from the Whom-Pah window.
     pub goto: Option<[f32; 2]>,
     /// The hotbars were edited (to be saved).
@@ -92,6 +96,7 @@ pub struct Ui {
     pub gear_open: bool,
     pub whompah_open: bool,
     pub mission: crate::mission::MissionWindow,
+    pub mail: crate::mailbox::MailWindow,
     gear: crate::gear::GearWindow,
     /// The hotbars, and the clock their cooldowns run on.
     pub hotbars: Hotbars,
@@ -148,7 +153,7 @@ impl Ui {
         theme(&ctx, &palette);
         let state = egui_winit::State::new(ctx.clone(), egui::ViewportId::ROOT, window, Some(window.scale_factor() as f32), window.theme(), None);
         let renderer = egui_wgpu::Renderer::new(&gpu.device, format, egui_wgpu::RendererOptions::default());
-        Ui { ctx, state, renderer, options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0 }
+        Ui { ctx, state, renderer, options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0 }
     }
 
     /// Switches to the theme `name` (a `theme =` setting).
@@ -179,7 +184,7 @@ impl Ui {
         let mut requests = Requests::default();
         let (options_open, rebinding, fps, palette, themes) = (&mut self.options_open, &mut self.rebinding, self.fps, &self.palette, &self.themes);
         let (gear_open, gear, whompah_open) = (&mut self.gear_open, &mut self.gear, &mut self.whompah_open);
-        let mission = &mut self.mission;
+        let (mission, mail) = (&mut self.mission, &mut self.mail);
         let (hotbars, clock_now) = (&mut self.hotbars, self.clock.elapsed().as_secs_f64());
         let output = self.ctx.run_ui(raw, |ui| {
             let ctx = ui.ctx().clone();
@@ -192,6 +197,11 @@ impl Ui {
                 let command = mission.show(&ctx, gear, palette);
                 if command.what != 0 {
                     requests.mission = Some(command);
+                }
+            }
+            if mail.open || mail.compose_open {
+                if let Some(command) = mail.show(&ctx, gear, &hud.gear, palette) {
+                    requests.mail = Some(command);
                 }
             }
             if *gear_open {
@@ -249,6 +259,7 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
     let (mut gear_open, mut gear) = (hud.gear_open, crate::gear::GearWindow::default());
     let mut hotbars = hud.preview_hotbars.clone();
     let mut preview_mission = hud.mission_preview.lock().ok().and_then(|mut m| m.take());
+    let mut preview_mail = hud.mail_preview.lock().ok().and_then(|mut m| m.take());
     let mut last = None;
     // Several frames: the first lays out and uploads the fonts, and the windows
     // fade in over the next ones; the last is what is drawn.
@@ -263,6 +274,9 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
             }
             if let Some(window) = preview_mission.as_mut() {
                 window.show(&ctx, &mut gear, &palette);
+            }
+            if let Some(window) = preview_mail.as_mut() {
+                window.show(&ctx, &mut gear, &hud.gear, &palette);
             }
             if gear_open {
                 gear.show(&ctx, &mut gear_open, &hud.gear, &palette);
