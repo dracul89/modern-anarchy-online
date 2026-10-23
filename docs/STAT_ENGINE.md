@@ -67,3 +67,18 @@ The items account for about 92% of each armour class. What is left (890 to 1607)
 requirements that this reader skips, the item "armour class" attribute scaling, and the modifier map's own caps. Max
 health is far off (the shown value also includes a body-development and level formula, which the attribute trickle
 term in `FUN_10064b51` for the six attributes feeds).
+
+## More findings (third pass)
+
+* **Records with requirements.** The effect record is `0xcf35, 0, 4, N, (requirement: stat, value, operator) x N, 1, 0, 2, 9,
+  stat, amount`; `N = 0` is the form `item::modifiers` reads. Two worn items (281199) have `N = 1` with the requirement
+  `stat 0x36 (Level) value 0xc8/0xc9`, giving NanoResist (0xa8) +500 / +200 at level >= 200. `modifiers` does not read
+  these yet.
+* **No other encoding of an armour class** exists in the 40 worn items or the 8 active nanos: a scan for stats 0x5a..0x61
+  next to a stat marker finds only the records already counted. The active nanos add armour only through Ice Burn
+  (cold +415).
+* **Items do not carry armour classes as stats.** `N3Msg_GetSkill` with an inventory item's identity `(0x68, slot)`
+  returns the sentinel 1234567890 ("no such stat on this item") for every worn slot.
+* So the remaining 890-1607 per class is not in items or buffs. Not yet examined: the 35 perks' standing effects, and the
+  helper object that `FUN_10064b51` reads (its two maps: a stat-to-node map and a stat-to-modifier map; the modifier
+  is `map[stat] - trickle`), which can be read directly from the live game through the bridge.
