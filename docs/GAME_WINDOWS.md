@@ -115,3 +115,18 @@ booth and the logout. Read with `net msg-check` / `net msg-parse` (named fields)
   the client's login (type 2, the character id, the name and a hashed credential), `LoginOK` (type 5), then the friend
   list, the vicinity / org notices, the channel list. Nothing was refused: the original's "stops on login" was the
   debug launcher's 30 second limit (`dbg_launch.py --seconds`).
+
+## Fourth capture: sending mail with a paying account (`capture-225436.log`)
+* **Terminal:** `GenericCmd` Use on `(0xc773, 0xc000028f)` (a mail terminal serial in playfield 0x28f), echoed; the
+  inbox request (`Mail`, action 1) answers an empty list again.
+* **Attaching an item from a stack:** `CharacterAction` `SplitItem` (0x34) on the stack `(0x68, 0x40)` with count 1
+  (Parameter2) makes a one-item stack in the next free slot (0x54), which the mail then names as its item.
+* **Sending** (`Mail` action 6): recipient, subject, body, item `(0x68, 0x54)`, credits, express flag; three attempts:
+  the first two (200 credits, standard) were **declined** with `CharacterAction` `0xba` carrying a message code
+  (183823060, 96374740: text ids; the AOSharp name `ShipInvite` is wrong here), the third (20,000 credits) was
+  **accepted**: the server sent `CharacterAction` `DeleteItem` (0x70) for `(0x68, 0x54)` (the item left the
+  inventory), a `SpecialUsed` (0xaa) bar update, and `Mail` action 8 (`00 | 00 08 | 00 06 | 00 00 00 00 | 01 |
+  55 a8 17 00 | 00 00 00 00`: 14 bytes after the action, a number that looks like a time). Why the first two were
+  declined is not known (the credits? the empty body is not it: the second had one).
+* **Still missing:** the receiving side: logging in as the recipient and opening the inbox (the list rows), reading
+  a mail, taking the item and credits, deleting it.

@@ -668,14 +668,29 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         trace(&frame, clock);
                     }
                     if let Some(m) = Message::parse(&frame).filter(|m| m.kind == 0x333b2867) {
-                        if let Some((0, n)) = n3::mail_count(&m.data) {
-                            pending_mail_count = Some(n);
+                        match n3::mail_count(&m.data) {
+                            Some((0, n)) => pending_mail_count = Some(n),
+                            // Action 8: the mail was accepted (the capture's successful send).
+                            Some((8, _)) => {
+                                mail_sent = None;
+                                pending_mail_status = Some("Mail sent.".into());
+                            }
+                            _ => {}
                         }
                     }
-                    // A notice right after a send: the server declined (a free account can't send mail).
-                    if mail_sent.is_some_and(|t| t.elapsed() < Duration::from_secs(5)) && Message::parse(&frame).is_some_and(|m| m.kind == 0x206b4b73) {
-                        mail_sent = None;
-                        pending_mail_status = Some("The server declined the mail (sending is limited to paying accounts).".into());
+                    // Right after a send: a notice (a free account is refused) or action 0xba with a message code (the
+                    // capture's declined attempts) means the server did not take the mail.
+                    if mail_sent.is_some_and(|t| t.elapsed() < Duration::from_secs(5)) {
+                        if let Some(m) = Message::parse(&frame) {
+                            if m.kind == 0x206b4b73 {
+                                mail_sent = None;
+                                pending_mail_status = Some("The server declined the mail (sending is limited to paying accounts).".into());
+                            } else if m.kind == 0x5e477770 && m.data.get(4) == Some(&0xba) {
+                                mail_sent = None;
+                                let code = m.data.get(21..25).map_or(0, |b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]));
+                                pending_mail_status = Some(format!("The server declined the mail (message code {code})."));
+                            }
+                        }
                     }
                     if let Some(m) = Message::parse(&frame).filter(|m| m.kind == 0x5c436609) {
                         if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
