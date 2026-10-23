@@ -1088,6 +1088,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
             let start = Instant::now();
             let area = load_area(game, &db, pf.parse().map_err(|_| "bad playfield")?)?;
             eprintln!("loaded in {:.1}s: {} parts, {} booths", start.elapsed().as_secs_f32(), area.scene.parts.len(), area.booths.len());
+            for b in &area.booths {
+                eprintln!("booth at ({:.1}, {:.1}, {:.1})", b[0], b[1], b[2]);
+            }
             Ok(())
         }
         [game, word, log] if word == "inventory" => inventory_from_capture(game, log),

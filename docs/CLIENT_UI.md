@@ -120,8 +120,7 @@ menu or message is involved, as the capture and the live tests show). Any moveme
 playfield cancels it. Below it, the **travel list** some playfields send on entry (`371d0542`, parsed in
 `mao_net::destinations`; the capture's Pandemonium list: Styx Magma, Charred Groove, North of Yuttos ...) is shown
 for information: how a destination is chosen from that list is not in any capture (no client message followed
-it), so those entries aren't clickable yet. Not tried live: the Go button walks by the same code as the movement
-keys, but only a window session can confirm it.
+it), so those entries aren't clickable yet. Tried live (character Beetlez, level 8, in Old Athens, `MAO_GOTO=x,z` starts the same walk as the Go button): it walks 70+ units across the plaza, steers round an obstacle (it stalled once at a wall before the detour logic) and arrives within a unit of the booth centre. The server did **not** zone that character at any of the booths tried ((444.2, 313.0) and (454.0, 313.0)), with `net walk` either, so whether booths need something this character lacks (level, a previous visit) or the trigger is elsewhere is open. Another test character is needed, or a capture of a booth being used in the original.
 
 ## 5. The AOU mod against the original GUI
 The original GUI folder (`cd_image/gui/Default`) is 50 files: 27 small XML
