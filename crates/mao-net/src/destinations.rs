@@ -1,5 +1,6 @@
-//! The destination list the server sends on entering some playfields (`371d0542`): the
-//! places a travel network there reaches. After a nine-byte header (a zero byte, the
+//! `FightModeUpdate` (`371d0542`, named so in the AOSharp sources), sent on entering some
+//! playfields: a list of names (Pandemonium's "Styx Magma", "Charred Groove" ...: area names,
+//! **not** travel destinations, which an earlier reading of it wrongly took them for). After a nine-byte header (a zero byte, the
 //! playfield's identity type 0xc79c and number, and a word) come entries of a `u32` id, a
 //! `u16` name length, the name and two flag bytes.
 

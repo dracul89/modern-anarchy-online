@@ -763,7 +763,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 if slot == 5 {
                     // X: sit down, or stand up.
                     sitting = !sitting;
-                    let _ = connection.send(&n3::action(own, if sitting { n3::SIT } else { n3::STAND }));
+                    let _ = connection.send(&n3::action(own, if sitting { n3::LOGOUT } else { n3::STAND }));
+                    pending_messages.push(if sitting { "Sitting: the server logs you out in about 30 s. Press X or move to stand up and stay.".into() } else { "Standing up: logout cancelled.".to_string() });
                     continue;
                 }
                 if slot == 4 {
@@ -817,6 +818,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             if sitting && (keys.forward || keys.back || keys.strafe != 0 || keys.turn != 0 || keys.jump) {
                 sitting = false;
                 let _ = connection.send(&n3::action(own, n3::STAND));
+                pending_messages.push("Standing up: logout cancelled.".into());
             }
             // Walk: integrate the position and tell the server.
             let dt = last_tick.elapsed().as_secs_f32();
@@ -1497,7 +1499,7 @@ fn msg_dump(log: &str, kind: &str, count: usize) -> Result<(), String> {
                 shown += 1;
                 let dir = if server { "S>C" } else { "C>S" };
                 match Message::parse(&m) {
-                    Some(x) if m.kind == frame::N3 => println!("#{ordinal} {dir} {connection} identity ({:x},{:x}) {} bytes: {}", x.identity.0, x.identity.1, x.data.len(), hex(&x.data)),
+                    Some(x) if m.kind == frame::N3 => println!("#{ordinal} {dir} {connection} kind {:08x} identity ({:x},{:x}) {} bytes: {}", x.kind, x.identity.0, x.identity.1, x.data.len(), hex(&x.data)),
                     _ => println!("{dir} {connection} frame kind {} src {:x} dst {:x} {} bytes: {}", m.kind, m.source, m.destination, m.body.len(), hex(&m.body)),
                 }
             }

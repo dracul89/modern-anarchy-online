@@ -285,7 +285,6 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
 /// Where you are, the messages and the labels over the world.
 /// The Whom-Pah window: the booths of this area (their labels say where each leads, once known), how
 /// far they are, and a button that walks to one (the server zones a character that walks into a booth).
-/// Below it, the travel list the server sent for this playfield, when there is one.
 fn whompah_window(ctx: &egui::Context, open: &mut bool, hud: &Hud, palette: &Palette, requests: &mut Requests) {
     let accent = rgb(palette.accent);
     let mut is_open = *open;
@@ -304,13 +303,6 @@ fn whompah_window(ctx: &egui::Context, open: &mut bool, hud: &Hud, palette: &Pal
                     requests.goto = Some([label.world.x, label.world.y]);
                 }
             });
-        }
-        if let Some(list) = &hud.destinations {
-            ui.separator();
-            ui.label(egui::RichText::new("Travel list for this area (from the server)").small().color(accent));
-            for d in &list.entries {
-                ui.label(&d.name);
-            }
         }
     });
     *open = is_open;

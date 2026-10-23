@@ -83,11 +83,11 @@ New messages, as far as they are understood:
 | `5e477770` action `0x41` | client | a nano-related action with only a nano identity (0xcf1b, id): probably learn / remove (unconfirmed) |
 | `5e477770` action `0x07`, `0x86` | client | seen once each, unknown |
 | `4d450114` | server | a nano effect: nano id (0xaad6 = "Summon Rage Materialization"), source and target identities, the name as a length-prefixed string. The NCU window's list is built from these |
-| `36284f6e` | both | **using a terminal**: the server answers a `52526858` use on a terminal (identity type 0xc75b, id = serial << 16 | playfield) with this, naming the terminal and the user; the client's `36284f6e` with `02 02` ... answers it (a choice) |
-| `371d0542` | server | a **whompah destination list**: entries of (u32 id, u16 name length, name, 2 flag bytes) e.g. "Styx Magma", "Charred Groove", "North of Yuttos", "West of Perdition", "Dust Bank" ... what a booth offers when used |
-| `58362220` | server | a list of item stacks (low id, high id, count) attached to a terminal identity: the contents of a mission or shop terminal (unconfirmed which) |
+| `36284f6e` | both | `Trade` (named so in the AOSharp sources) |
+| `371d0542` | server | `FightModeUpdate`: entries of (u32 id, u16 name length, name, 2 flag bytes) e.g. "Styx Magma", "Charred Groove" ...: area names of a playfield (an earlier reading took them for whompah destinations: wrong) |
+| `58362220` | server | `ShopUpdate`: a vendor's stock (low id, high id, count ...) for the vending machine (0xc75b) that was used |
 | `5f4b442a` | server | a **system chat line** ("Tarasque is no longer immortal."): u16 0, a length byte, the text, trailer |
-| `333b2867` | both | a small request (`00 00 01 ...`) answered with `3f1`: unknown |
+| `333b2867` | both | `Mail`: the request after using a mail terminal (0xc773) and the reply (an empty list: `00 00 | 00 00 00 03f1`) |
 
 Next steps this enables: a **whompah destination window** (use a booth, show `371d0542`, send the choice back; also
 fixes the booth labels), a **chat/system log** from `5f4b442a`, **nano casting** as a hotbar action (action `0x13`),

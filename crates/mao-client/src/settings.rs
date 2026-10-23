@@ -94,7 +94,7 @@ pub enum Action {
     Attack,
     /// The inventory window.
     InventoryWindow,
-    /// Sit down or stand up.
+    /// Sit down (which starts the 30 s logout countdown) or stand up (which cancels it).
     SitStand,
     /// Use the targeted thing (talk to an NPC, open a door).
     Use,

@@ -93,8 +93,8 @@ a first-person view, an option for inverted mouse. Not tried in the live window.
 ## 4e. Controls added for playing
 `Z` / `C` strafe left / right (the position is reported with ordinary updates; the strafe start and stop
 types, probably 5-8, are a guess behind `MAO_STRAFE_TYPES=1`); `Ctrl+Shift+C` toggles walking through props (was `C`);
-`X` sits or stands (sit = action `0x78`, tested live: the server broadcasts `0x7a`; stand = `0x57`;
-moving stands you up); `E` uses the target (message `52526858`, action 3, decoded from the capture and
+`X` sits or stands (sit = action `0x78`, which the protocol names **Logout**: the server starts a ~30 s logout
+countdown and broadcasts `0x7a`; stand = `0x57` cancels it; moving stands you up, and the log says so); `E` uses the target (message `52526858`, action 3, decoded from the capture and
 byte-exact in a test; not yet confirmed live because the test character stands in an interior with no
 announced objects). `Tab` cycles creatures, `Ctrl+Tab` players, friendly NPCs and the usable objects the
 server announces (`4f474e05`, identity type `0xc76a`: doors, mail terminals, booths) shown as "Object xxxx"
@@ -117,10 +117,7 @@ wait for their messages to be decoded. Cooldowns are client-side (the server's t
 Lists the booths of the area (their floating labels say where each leads, once learned), the distance, and a
 **Go** button that walks the character to the booth (the server zones a character that walks into a booth: no
 menu or message is involved, as the capture and the live tests show). Any movement key stops the walk; a new
-playfield cancels it. Below it, the **travel list** some playfields send on entry (`371d0542`, parsed in
-`mao_net::destinations`; the capture's Pandemonium list: Styx Magma, Charred Groove, North of Yuttos ...) is shown
-for information: how a destination is chosen from that list is not in any capture (no client message followed
-it), so those entries aren't clickable yet. Tried live (character Beetlez, level 8, in Old Athens, `MAO_GOTO=x,z` starts the same walk as the Go button): it walks 70+ units across the plaza, steers round an obstacle (it stalled once at a wall before the detour logic) and arrives within a unit of the booth centre. The server did **not** zone that character at any of the booths tried ((444.2, 313.0) and (454.0, 313.0)), with `net walk` either, so whether booths need something this character lacks (level, a previous visit) or the trigger is elsewhere is open. Another test character is needed, or a capture of a booth being used in the original.
+playfield cancels it. (`371d0542` is `FightModeUpdate`, a list of area names, not destinations: it is no longer shown.) Tried live (character Beetlez, level 8, in Old Athens, `MAO_GOTO=x,z` starts the same walk as the Go button): it walks 70+ units across the plaza, steers round an obstacle (it stalled once at a wall before the detour logic) and arrives within a unit of the booth centre. The server did **not** zone that character at any of the booths tried ((444.2, 313.0) and (454.0, 313.0)), with `net walk` either, so whether booths need something this character lacks (level, a previous visit) or the trigger is elsewhere is open. Another test character is needed, or a capture of a booth being used in the original.
 
 ## 5. The AOU mod against the original GUI
 The original GUI folder (`cd_image/gui/Default`) is 50 files: 27 small XML

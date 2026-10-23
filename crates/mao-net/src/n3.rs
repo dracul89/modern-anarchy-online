@@ -109,10 +109,11 @@ pub fn ready(character: u32) -> Frame {
 /// ignores their movement, and this frees them.
 pub const STAND: u8 = 0x57;
 
-/// The sit action: tried live, the server answers it with a `0x7a` action broadcast and stays
-/// connected; `STAND` then answers with `0x57`. (The original client sends it at the end of a
-/// session: players sit to log out.)
-pub const SIT: u8 = 0x78;
+/// `CharacterActionType.Logout` (named so in the AOSharp sources): the character sits and the
+/// server starts a logout countdown (about 30 s) that standing up (`STAND`) cancels. The server
+/// answers with a `0x7a` (StopLogout) broadcast. This is what the original sends at the end of a
+/// session: players sit to log out.
+pub const LOGOUT: u8 = 0x78;
 
 /// A `5e477770` action message (the action byte after four zero bytes, 27
 /// bytes of data).

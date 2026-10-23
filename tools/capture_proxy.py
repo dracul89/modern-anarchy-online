@@ -41,7 +41,7 @@ def rewrite(data):
 class GameRewriter:
     """The server's side of a game connection: after the control packet that
     switches compression on, the frames are inflated, a system message 0x3c
-    (go to another game server: type, an IPv4 address, a port) has its
+    (go to another game server: type, an IPv4 address, a port) or 0x43 (the chat server) has its
     address replaced by 127.0.0.1 (and a proxy started for that server), and
     the frames are deflated again for the client."""
 
@@ -62,25 +62,43 @@ class GameRewriter:
                 self.comp = zlib.compressobj()
                 return data[:16] + self.feed(data[16:])[0], self.target
             self.dec = False
-        if self.dec is False:
-            return data, None
-        self.plain += self.dec.decompress(data)
+        # Plain frames (before compression starts, or when it never does) are parsed too; they are
+        # padded to a multiple of four bytes, compressed ones are not.
+        plain_mode = self.dec is False
+        self.plain += data if plain_mode else self.dec.decompress(data)
         out = b""
         self.target = None
+        self.chat = False
         while len(self.plain) >= 16:
             size = struct.unpack(">H", self.plain[6:8])[0]
-            if size < 16 or len(self.plain) < size:
+            take = (size + 3) & ~3 if plain_mode else size
+            if size < 16 or len(self.plain) < take:
                 break
-            frame, self.plain = self.plain[:size], self.plain[size:]
-            if struct.unpack(">H", frame[2:4])[0] == 1 and frame[16:20] == b"\x00\x00\x00\x3c" and size >= 26:
+            frame, self.plain = self.plain[:take], self.plain[take:]
+            if struct.unpack(">H", frame[2:4])[0] == 1 and frame[16:20] == b"\x00\x00\x00<" and size >= 26:
                 ip = socket.inet_ntoa(frame[20:24])
                 port = struct.unpack(">H", frame[24:26])[0]
                 self.target = (ip, port)
                 frame = frame[:20] + bytes([127, 0, 0, 1]) + frame[24:]
+            elif struct.unpack(">H", frame[2:4])[0] == 1 and frame[16:20] == b"\x00\x00\x00C" and size >= 32:
+                # ChatServerInfo: the chat server the client opens a second connection to: (u32 1,
+                # a length-prefixed address string, a u32 port). The address becomes 127.0.0.1 padded
+                # with NULs to the same length (the message keeps its size) and a proxy is started
+                # for that server, so the chat traffic is captured too.
+                n = struct.unpack(">I", frame[24:28])[0]
+                if 9 <= n <= 40 and 28 + n + 4 <= size:
+                    ip = frame[28:28 + n].rstrip(b"\x00").decode("ascii", "replace")
+                    port = struct.unpack(">I", frame[28 + n:32 + n])[0]
+                    self.target = (ip, port)
+                    self.chat = True
+                    frame = frame[:28] + b"127.0.0.1".ljust(n, b"\x00") + frame[28 + n:]
             out += frame
+        if plain_mode:
+            return out, self.target
         return (self.comp.compress(out) + self.comp.flush(zlib.Z_SYNC_FLUSH) if out else b""), self.target
 
     target = None
+    chat = False
 
 
 def pump(src, dst, tag, cid, intercept, game=False):
@@ -96,8 +114,8 @@ def pump(src, dst, tag, cid, intercept, game=False):
             elif rewriter:
                 d, target = rewriter.feed(d)
                 if target:
-                    print(f"c{cid}: another game server {target[0]}:{target[1]}", flush=True)
-                    serve(target[1], target[0], target[1])
+                    print(f"c{cid}: another {'chat' if rewriter.chat else 'game'} server {target[0]}:{target[1]}", flush=True)
+                    serve(target[1], target[0], target[1], chat=rewriter.chat)
                 if not d:
                     continue
             dst.sendall(d)
@@ -111,7 +129,7 @@ def pump(src, dst, tag, cid, intercept, game=False):
                 pass
 
 
-def serve(local_port, remote_host, remote_port):
+def serve(local_port, remote_host, remote_port, chat=False):
     if local_port in listening:
         return
     listening.add(local_port)
@@ -128,7 +146,7 @@ def serve(local_port, remote_host, remote_port):
             r = socket.create_connection((remote_host, remote_port))
             log("OPEN", cid, b"")
             threading.Thread(target=pump, args=(c, r, "C>S", cid, False), daemon=True).start()
-            threading.Thread(target=pump, args=(r, c, "S>C", cid, local_port == listen, local_port != listen), daemon=True).start()
+            threading.Thread(target=pump, args=(r, c, "S>C", cid, local_port == listen, local_port != listen and not chat), daemon=True).start()
 
     threading.Thread(target=accept, daemon=True).start()
 
