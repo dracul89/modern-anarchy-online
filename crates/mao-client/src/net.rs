@@ -222,6 +222,10 @@ impl World {
         for (id, i) in &self.infos {
             println!("  info {id:>10} {:<18} flags {:#010x} flags2 {:#010x} breed {} sex {} a0 {:?} template {:?} textures {} clothes {:?}", i.name, i.flags, i.flags2, i.breed, i.sex, i.unknown_a0, i.template.map(|t| format!("{t:#x}")), i.textures.len(), i.clothes);
         }
+        println!("{} usable objects:", self.objects.len());
+        for (id, p) in &self.objects {
+            println!("  object {id:>10x} type {:#x} at ({:.1}, {:.1}, {:.1})", self.types.get(id).copied().unwrap_or(0), p[0], p[1], p[2]);
+        }
         println!("{} entities with positions:", self.entities.len());
         for (id, (p, _)) in &self.entities {
             let (name, player) = self.names.get(id).map(|(n, p)| (n.as_str(), *p)).unwrap_or(("?", false));

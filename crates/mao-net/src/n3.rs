@@ -344,7 +344,7 @@ mod tests {
 /// * bit 5: an identity (not decoded here: a capture without it);
 /// * always the position (three floats);
 /// * bit 9: the rotation (four floats, x y z w);
-/// * always a packed `i32`: breed (3 bits), two bits, three bits, sex (2
+/// * always a packed `i32`: three bits, two bits, breed (3 bits at 5), sex (2
 ///   bits at 8), two bits, five bits from bit 12;
 /// * the name: a length byte (counting the NUL) and the bytes;
 /// * `i32` flags 2, an `i32` of two 16-bit values, and (without flag bit 0)
@@ -519,10 +519,8 @@ impl Message {
         let position = [f32_at(&mut at)?, f32_at(&mut at)?, f32_at(&mut at)?];
         let rotation = if flags & 0x200 != 0 { Some([f32_at(&mut at)?, f32_at(&mut at)?, f32_at(&mut at)?, f32_at(&mut at)?]) } else { None };
         let packed = u32_at(&mut at)?;
-        let (breed, sex) = ((packed & 7) as u8, ((packed >> 8) & 3) as u8);
-        // Some characters pack a breed of 0 (seen with a female player, 0x768): they are dressed from the Solitus
-        // table like the rest until the real field is known (the breed's bits are not all understood).
-        let breed = if breed == 0 && flags & 1 == 0 && matches!(sex, 2 | 3) { 1 } else { breed };
+        // The breed is the three bits at 5 (a Nanomage female packs 0x768, a Solitus female 0x729); the sex the two at 8.
+        let (breed, sex) = (((packed >> 5) & 7) as u8, ((packed >> 8) & 3) as u8);
         let length = take(&mut at, 1)?[0] as usize;
         let text = take(&mut at, length)?;
         let name = String::from_utf8_lossy(text).trim_end_matches('\0').to_string();
@@ -567,7 +565,8 @@ mod entity_tests {
         assert_eq!(info.name, "Mophing4");
         assert_eq!(info.playfield, Some(0x21c));
         assert!((info.position[0] - 491.9).abs() < 0.1 && (info.position[1] - 8.0).abs() < 0.1);
-        assert_eq!((info.breed, info.sex), (1, 3));
+        // (Packed 0x741: bits 5-7 give 2, an Opifex; a Nanomage female packs 3 there, which the user's character confirmed.)
+        assert_eq!((info.breed, info.sex), (2, 3));
         assert!(info.is_player());
         assert_eq!(info.unknown_a0, Some(0xf7e));
     }
