@@ -138,12 +138,33 @@ pub struct AutoMap {
     pub zoom: f32,
     /// Where the overlay is panned to from the character (world units).
     pan: [f32; 2],
+    /// Where the corner map's top left is (kept in `automap.ini`); `None` is the top right of the window.
+    pub mini_at: Option<[f32; 2]>,
 }
 
 impl Default for AutoMap {
     fn default() -> Self {
-        AutoMap { grid: None, texture: None, dirty: false, last_upload: std::time::Instant::now(), overlay: false, mini_span: 150.0, zoom: 3.0, pan: [0.0; 2] }
+        AutoMap { grid: None, texture: None, dirty: false, last_upload: std::time::Instant::now(), overlay: false, mini_span: 150.0, zoom: 3.0, pan: [0.0; 2], mini_at: load_position() }
     }
+}
+
+fn position_path() -> std::path::PathBuf {
+    crate::settings::Settings::path().with_file_name("automap.ini")
+}
+
+fn load_position() -> Option<[f32; 2]> {
+    let text = std::fs::read_to_string(position_path()).ok()?;
+    let v: Vec<f32> = text.split_whitespace().filter_map(|t| t.parse().ok()).collect();
+    (v.len() >= 2).then(|| [v[0], v[1]])
+}
+
+fn save_position(at: [f32; 2]) {
+    let path = position_path();
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let _ = std::fs::write(path, format!("{:.0} {:.0}
+", at[0], at[1]));
 }
 
 impl AutoMap {
@@ -206,7 +227,7 @@ impl AutoMap {
 
     /// Paints the map into `rect`: the world point `center` in its middle, `px_per_unit` pixels to a world unit,
     /// turned so that the camera's way (`yaw`) is up, or north up without one.
-    fn paint(&self, painter: &egui::Painter, rect: egui::Rect, center: [f32; 2], px_per_unit: f32, yaw: Option<f32>) {
+    fn paint(&self, painter: &egui::Painter, rect: egui::Rect, center: [f32; 2], px_per_unit: f32, yaw: Option<f32>, circle: bool) {
         let (Some(grid), Some(texture)) = (&self.grid, &self.texture) else { return };
         let (fwd, right) = Self::basis(yaw);
         let corner = |u: f32, v: f32| -> ([f32; 2], egui::Pos2) {
@@ -215,10 +236,25 @@ impl AutoMap {
         };
         let (hw, hh) = (rect.width() / 2.0, rect.height() / 2.0);
         let mut mesh = egui::Mesh::with_texture(texture.id());
-        for (u, v, pos) in [(-hw, -hh, rect.left_top()), (hw, -hh, rect.right_top()), (hw, hh, rect.right_bottom()), (-hw, hh, rect.left_bottom())] {
-            mesh.vertices.push(egui::epaint::Vertex { pos, uv: corner(u, v).1, color: egui::Color32::WHITE });
+        if circle {
+            // A fan of triangles round the middle: the map shows through a round window.
+            let radius = hw.min(hh);
+            mesh.vertices.push(egui::epaint::Vertex { pos: rect.center(), uv: corner(0.0, 0.0).1, color: egui::Color32::WHITE });
+            const SEGMENTS: usize = 72;
+            for k in 0..=SEGMENTS {
+                let a = k as f32 / SEGMENTS as f32 * std::f32::consts::TAU;
+                let (u, v) = (a.cos() * radius, a.sin() * radius);
+                mesh.vertices.push(egui::epaint::Vertex { pos: rect.center() + egui::vec2(u, v), uv: corner(u, v).1, color: egui::Color32::WHITE });
+                if k > 0 {
+                    mesh.indices.extend_from_slice(&[0, k as u32, k as u32 + 1]);
+                }
+            }
+        } else {
+            for (u, v, pos) in [(-hw, -hh, rect.left_top()), (hw, -hh, rect.right_top()), (hw, hh, rect.right_bottom()), (-hw, hh, rect.left_bottom())] {
+                mesh.vertices.push(egui::epaint::Vertex { pos, uv: corner(u, v).1, color: egui::Color32::WHITE });
+            }
+            mesh.indices.extend_from_slice(&[0, 1, 2, 0, 2, 3]);
         }
-        mesh.indices.extend_from_slice(&[0, 1, 2, 0, 2, 3]);
         painter.add(egui::Shape::mesh(mesh));
     }
 
@@ -238,8 +274,9 @@ impl AutoMap {
         rect.center() + egui::vec2(d[0] * right[0] + d[1] * right[1], -(d[0] * fwd[0] + d[1] * fwd[1]))
     }
 
-    fn dots(&self, painter: &egui::Painter, rect: egui::Rect, center: [f32; 2], px_per_unit: f32, yaw: Option<f32>, me: ([f32; 2], f32), dots: &[([f32; 2], DotKind)], booths: &[[f32; 2]]) {
-        let inside = |p: egui::Pos2| rect.shrink(4.0).contains(p);
+    #[allow(clippy::too_many_arguments)]
+    fn dots(&self, painter: &egui::Painter, rect: egui::Rect, center: [f32; 2], px_per_unit: f32, yaw: Option<f32>, me: ([f32; 2], f32), dots: &[([f32; 2], DotKind)], booths: &[[f32; 2]], circle: bool) {
+        let inside = |p: egui::Pos2| if circle { (p - rect.center()).length() < rect.width().min(rect.height()) / 2.0 - 5.0 } else { rect.shrink(4.0).contains(p) };
         for b in booths {
             let p = Self::to_screen(rect, center, px_per_unit, yaw, *b);
             if inside(p) {
@@ -290,8 +327,8 @@ impl AutoMap {
                 }
                 ui.painter().rect_filled(rect, 0.0, egui::Color32::from_black_alpha(110));
                 let center = [pos[0] + self.pan[0], pos[1] + self.pan[1]];
-                self.paint(ui.painter(), rect, center, self.zoom, None);
-                self.dots(ui.painter(), rect, center, self.zoom, None, (pos, heading), dots, booths);
+                self.paint(ui.painter(), rect, center, self.zoom, None, false);
+                self.dots(ui.painter(), rect, center, self.zoom, None, (pos, heading), dots, booths, false);
                 ui.painter().text(rect.left_top() + egui::vec2(16.0, 14.0), egui::Align2::LEFT_TOP, place, egui::FontId::proportional(18.0), egui::Color32::from_rgb(255, 205, 70));
                 ui.painter().text(rect.left_top() + egui::vec2(16.0, 38.0), egui::Align2::LEFT_TOP, "Drag to pan, wheel to zoom, O to close, Space re-centres", egui::FontId::proportional(12.0), egui::Color32::from_white_alpha(150));
             });
@@ -299,17 +336,37 @@ impl AutoMap {
                 self.pan = [0.0; 2];
             }
         } else {
-            let size = 210.0;
-            let rect = egui::Rect::from_min_size(egui::pos2(screen.right() - size - 12.0, 44.0), egui::vec2(size, size));
-            egui::Area::new(egui::Id::new("automap-mini")).order(egui::Order::Background).fixed_pos(rect.min).interactable(false).show(ctx, |ui| {
-                let (rect, _) = ui.allocate_exact_size(rect.size(), egui::Sense::hover());
-                ui.painter().rect_filled(rect, 6.0, egui::Color32::from_black_alpha(120));
-                let clipped = ui.painter().with_clip_rect(rect);
+            // The corner map: round, turning with the camera, and movable (drag it; the wheel over it zooms).
+            let size = 220.0;
+            let at = self.mini_at.map_or(egui::pos2(screen.right() - size - 12.0, 44.0), |p| egui::pos2(p[0], p[1]));
+            let at = egui::pos2(at.x.clamp(screen.left(), (screen.right() - size).max(screen.left())), at.y.clamp(screen.top(), (screen.bottom() - size).max(screen.top())));
+            let area = egui::Area::new(egui::Id::new("automap-mini")).order(egui::Order::Background).current_pos(at).movable(true).show(ctx, |ui| {
+                let (rect, response) = ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::hover());
+                let (c, r) = (rect.center(), size / 2.0);
+                ui.painter().circle_filled(c, r, egui::Color32::from_black_alpha(130));
                 let px = size / self.mini_span;
-                self.paint(&clipped, rect, pos, px, Some(yaw));
-                self.dots(&clipped, rect, pos, px, Some(yaw), (pos, heading), dots, booths);
-                ui.painter().rect_stroke(rect, 6.0, egui::Stroke::new(1.5, egui::Color32::from_rgb(120, 170, 210)), egui::StrokeKind::Inside);
+                self.paint(ui.painter(), rect, pos, px, Some(yaw), true);
+                self.dots(ui.painter(), rect, pos, px, Some(yaw), (pos, heading), dots, booths, true);
+                ui.painter().circle_stroke(c, r, egui::Stroke::new(2.5, egui::Color32::from_rgb(120, 170, 210)));
+                ui.painter().circle_stroke(c, r + 1.5, egui::Stroke::new(1.0, egui::Color32::from_black_alpha(160)));
+                // North (the map's +z) is marked on the ring.
+                let north = Self::to_screen(rect, pos, 1.0, Some(yaw), [pos[0], pos[1] + 1.0]) - c;
+                let n = if north.length() > 0.0 { north.normalized() } else { egui::vec2(0.0, -1.0) };
+                ui.painter().text(c + n * (r - 9.0), egui::Align2::CENTER_CENTER, "N", egui::FontId::proportional(12.0), egui::Color32::from_rgb(255, 205, 70));
+                if response.hovered() {
+                    let scroll = ui.input(|i| i.smooth_scroll_delta.y);
+                    if scroll != 0.0 {
+                        self.mini_span = (self.mini_span * (1.0 - scroll * 0.002)).clamp(50.0, 600.0);
+                    }
+                }
             });
+            if area.response.dragged() || area.response.drag_stopped() {
+                let min = area.response.rect.min;
+                self.mini_at = Some([min.x, min.y]);
+                if area.response.drag_stopped() {
+                    save_position([min.x, min.y]);
+                }
+            }
         }
     }
 }
