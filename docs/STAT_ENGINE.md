@@ -25,3 +25,15 @@ All 383 non-zero stats are in `docs/stat_compare.json` (stat, name, detail 0, de
   Those tables are read by the rebuilt `GameData.dll` (`SpellData_t`, `spell_formats.rs`), which is the next place to
   look to rebuild the modifier map; the result can be checked against detail 2 for any stat.
 * Not rebuilt (not among the drop-ins): `Gamecode.dll`, `N3.dll`, `GUI.dll`, `Interfaces.dll`.
+
+## First rebuild step: what the worn items give
+
+An item template's trailing tables hold its effects. The "modify a stat" effect (spell type 0xcf35) is ten words,
+`0xcf35, 0, 4, 0, 1, 0, 2, 9, stat, amount`; `mao_formats::item::modifiers` reads them. Summing the 40 worn items
+of the character gives (shown value in brackets): Melee AC 4049 (14516), Projectile 3569 (15106), Energy 3904 (14446),
+Strength +197 (+411), Stamina +197 (+448), max health +4269 (+26922), max nano +1750 (+6950).
+
+So the items explain roughly a quarter to a third of each bonus; the rest must come from the active nanos (buffs),
+perks and the implants' own effects. Also seen: `AddAllDef` shows 1001 (an all-defence modifier, 0 stored), so some
+bonuses are percentages or are applied to several stats at once. Next: the active nano list
+(`N3Msg_GetNanoTemplateInfoList`) and the same effect tables of those nanos.

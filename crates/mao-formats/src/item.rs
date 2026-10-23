@@ -26,6 +26,22 @@ pub struct Item {
     pub stats: Vec<(u32, u32)>,
 }
 
+/// The "modify a stat" effects in an item template's trailing tables: `(stat, amount)`. In the tables each such
+/// spell (type 0xcf35) is ten little-endian words, `0xcf35, 0, 4, 0, 1, 0, 2, 9, stat, amount`, found in the
+/// events that apply when the item is worn. Read from the items' templates and checked against the original's
+/// `N3Msg_GetSkill` (see `docs/STAT_ENGINE.md`): the sleeves "Strong Armor Sleeves" give 230 melee AC, 250
+/// projectile AC and so on. Effects of other spell types (and their requirements) are not read.
+pub fn modifiers(template: &[u8]) -> Vec<(u32, i32)> {
+    let words: Vec<u32> = template.chunks_exact(4).map(|c| u32::from_le_bytes(c.try_into().unwrap())).collect();
+    let mut out = Vec::new();
+    for i in 0..words.len().saturating_sub(9) {
+        if words[i] == 0xcf35 && words[i + 1..i + 8] == [0, 4, 0, 1, 0, 2, 9] {
+            out.push((words[i + 8], words[i + 9] as i32));
+        }
+    }
+    out
+}
+
 impl Item {
     pub fn parse(data: &[u8]) -> Option<Item> {
         let words: Vec<u32> = data.chunks_exact(4).map(|c| u32::from_le_bytes(c.try_into().unwrap())).collect();
@@ -91,5 +107,13 @@ mod tests {
     #[test]
     fn other_objects_are_refused() {
         assert_eq!(Item::parse(&[0; 64]), None);
+    }
+
+    #[test]
+    fn the_wear_effects_are_found() {
+        // Two of the sleeves' effects: +230 melee AC (stat 0x5b) and +250 projectile AC (0x5a).
+        let words: Vec<u32> = vec![2, 0xe, 0x8211, 0xcf35, 0, 4, 0, 1, 0, 2, 9, 0x5b, 0xe6, 0xcf35, 0, 4, 0, 1, 0, 2, 9, 0x5a, 0xfa, 0xcf2f];
+        let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
+        assert_eq!(modifiers(&bytes), vec![(0x5b, 230), (0x5a, 250)]);
     }
 }
