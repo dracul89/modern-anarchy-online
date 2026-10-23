@@ -53,6 +53,12 @@ pub(crate) fn bar(ui: &mut egui::Ui, fill: egui::Color32, value: Option<i64>, ma
     let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 18.0), egui::Sense::hover());
     let painter = ui.painter();
     painter.rect_filled(rect, 3.0, egui::Color32::from_black_alpha(170));
+    // A current value above the computed maximum means the maximum is short of something this client does not know yet
+    // (the active nano buffs): the bar then counts the current value as the maximum rather than overflowing.
+    let max = match (value, max) {
+        (Some(v), Some(m)) => Some(m.max(v)),
+        (_, m) => m,
+    };
     let fraction = match (value, max) {
         (Some(v), Some(m)) if m > 0 => (v as f32 / m as f32).clamp(0.0, 1.0),
         _ => 0.0,
