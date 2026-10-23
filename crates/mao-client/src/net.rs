@@ -2255,6 +2255,38 @@ fn msg_dump(log: &str, kind: &str, count: usize) -> Result<(), String> {
 }
 
 /// The items in the first world-entry message of a proxy capture.
+/// Every server-to-client N3 message of one type in a capture log, as (connection, parsed text).
+pub(crate) fn capture_n3(log: &str, kind: u32) -> Result<Vec<String>, String> {
+    let text = std::fs::read_to_string(log).map_err(|e| e.to_string())?;
+    let mut readers: BTreeMap<String, Reader> = BTreeMap::new();
+    let mut out = Vec::new();
+    for line in text.lines() {
+        let f: Vec<&str> = line.split_whitespace().collect();
+        let (Some(tag), Some(connection)) = (f.get(1), f.last()) else { continue };
+        if *tag == "OPEN" {
+            readers.remove(*connection);
+        }
+        if *tag != "S>C" || f.len() < 5 {
+            continue;
+        }
+        let bytes: Vec<u8> = (0..f[3].len() / 2).filter_map(|i| u8::from_str_radix(&f[3][2 * i..2 * i + 2], 16).ok()).collect();
+        let reader = readers.entry(connection.to_string()).or_default();
+        if reader.push(&bytes).is_err() {
+            continue;
+        }
+        while let Ok(Some(m)) = reader.next() {
+            if let Some(msg) = Message::parse(&m).filter(|x| m.kind == frame::N3 && x.kind == kind) {
+                let parsed = mao_net::schema::Schema::global().parse_n3(kind, &msg.data);
+                out.push(match parsed {
+                    Ok(p) => format!("{} on {connection}:{}", f[0], p.value.pretty()),
+                    Err(e) => format!("{} on {connection}: parse error {e}: {}", f[0], msg.data.iter().map(|b| format!("{b:02x}")).collect::<String>()),
+                });
+            }
+        }
+    }
+    Ok(out)
+}
+
 pub(crate) fn capture_entries(log: &str) -> Result<Vec<inventory::Entry>, String> {
     let text = std::fs::read_to_string(log).map_err(|e| e.to_string())?;
     let mut readers: BTreeMap<String, Reader> = BTreeMap::new();

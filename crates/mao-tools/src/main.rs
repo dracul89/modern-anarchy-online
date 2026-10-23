@@ -490,8 +490,8 @@ stats {:?}", item.id, item.name, item.description, item.icon(), item.stats);
             std::fs::write(file, &object).map_err(|e| e.to_string())?;
             println!("{} bytes", object.len());
         }
-        // `grep <type> <stat:amount>...`: the objects of a type that hold at least two of the little-endian u32 pairs.
-        ("grep", [kind, pairs @ ..]) => {
+        // `grep-pairs <type> <stat:amount>...`: the objects of a type that hold at least two of the little-endian u32 pairs.
+        ("grep-pairs", [kind, pairs @ ..]) => {
             let kind = number(kind).ok_or("bad type")?;
             let pats: Vec<[u8; 8]> = pairs
                 .iter()

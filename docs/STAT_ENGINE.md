@@ -212,7 +212,7 @@ sum these templates for the Stats window.
 
 ## The 51 leftover events: three symbiants
 
-`mao-db <game> grep 0xf4254 <stat:amount>...` (new) lists the item templates that hold at least two of the given little-endian
+`mao-db <game> grep-pairs 0xf4254 <stat:amount>...` (new) lists the item templates that hold at least two of the given little-endian
 stat/amount pairs; it scans all 120842 item templates in about two seconds. With the leftover pairs it found the family of "Xan"
 symbiants (template ids 278918-279110, 0x44186-0x44206), and a greedy cover over them gives exactly:
 
@@ -228,3 +228,20 @@ worn item or implant that is also missing from the list). The complete stat mode
 (including the symbiants) + active nanos + owned perk and research ranks, which accounts for all but one modifier.
 Next for the new client: take the worn items from the server's equipment list (it must include the implant/symbiant slots)
 rather than from a fixed list.
+
+## Where the server sends the perk list
+
+* **`FullCharacter` (`29304349`), field `Perks`** (`Perk[]`, 16 bytes each: `SkillId, -254, SkillId, 0`; in the client it is read into the
+  perk map by `FUN_10053ce9`, "inconsistent PerkMap!" on a bad count). The captured entries of Conjecture (identity `c350,4bc80`,
+  level 220, stored max health 8265, as in the live client) are exactly the first four perk lines of the live list: 170-179,
+  200-209, 270-279, 420-429. The ids are the perk-record ids (`docs/perk_records.json`).
+* **`ResearchUpdate` (`253d0240`, `ResearchUpdateMessage`)**: one byte, then research lines `(ResearchId, three ints)`, ids 3000-3218
+  (the 54 research definitions); every captured copy (the level-8 character's sessions) has all-zero fields. The registered
+  info items in the client are `PerkUpdateIIR` and `ResearchUpdateIIR`.
+* **Not yet seen on the wire**: the three further perk lines the live Conjecture owns (1070, 1150, 1180) and the 73 research ranks
+  (2300-2369, 10002-10004). No capture contains Conjecture's own world entry or a research update with progress, so either they
+  come in `FullCharacter.Perks` of a later login (the captured one is from the character list), in a `ResearchUpdate` with
+  non-zero fields, or the client derives the ranks from a research level. **One capture of Conjecture entering the world
+  through the proxy would settle it.**
+* New tool: `mao-client n3 <capture.log> <type hex>` prints every server message of one type in a capture, parsed with the schema
+  (`net::capture_n3`).

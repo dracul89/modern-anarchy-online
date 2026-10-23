@@ -323,6 +323,16 @@ fn run(args: &[String]) -> Result<(), String> {
             return net::run(rest);
         }
     }
+    // `n3 <capture.log> <type hex>`: the parsed messages of one type in a capture.
+    if let [word, log, kind] = args {
+        if word == "n3" {
+            let kind = u32::from_str_radix(kind.trim_start_matches("0x"), 16).map_err(|e| e.to_string())?;
+            for m in net::capture_n3(log, kind)? {
+                println!("{m}");
+            }
+            return Ok(());
+        }
+    }
     if let [game, word, rest @ ..] = args {
         if word == "list" {
             let db = ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?;
