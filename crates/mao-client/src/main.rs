@@ -130,6 +130,13 @@ pub(crate) fn load_terrain(db: &ResourceDatabase, playfield: u32) -> Result<Mode
     }
     eprintln!("heights {:?}", &terrain.heights[..8.min(terrain.heights.len())]);
     eprintln!("water: {:?}", terrain.water(terrain.height_scale).map(|w| w.level));
+    // MAO_PROBE=x,z,x,z...: the ground's height at those places (to compare with the props standing there).
+    if let Ok(v) = std::env::var("MAO_PROBE") {
+        let n: Vec<f32> = v.split(',').filter_map(|t| t.trim().parse().ok()).collect();
+        for p in n.chunks(2).filter(|c| c.len() == 2) {
+            eprintln!("ground at ({}, {}): {:.2} (scale {})", p[0], p[1], terrain.height_at(p[0], p[1], terrain.height_scale), terrain.height_scale);
+        }
+    }
     {
         let mut beyond: std::collections::BTreeMap<u16, usize> = std::collections::BTreeMap::new();
         for w in &terrain.tiles {
@@ -168,7 +175,10 @@ pub(crate) fn add_props(game: &str, db: &ResourceDatabase, playfield: u32, model
     let mut part_mesh = std::collections::HashMap::new();
     let path = Path::new(game).join(format!("cd_image/data/statels/{playfield}.pf"));
     let Ok(file) = std::fs::read(&path) else { return part_mesh };
-    let Ok(statels) = mao_formats::statels::parse(&file) else { return part_mesh };
+    let Ok((statels, zones, failed)) = mao_formats::statels::parse_report(&file) else { return part_mesh };
+    if failed > 0 {
+        eprintln!("{failed} of {zones} statel zones could not be read (their props are missing)");
+    }
     // Each mesh's parts go in once; a statel is an instance of each.
     // (A statel may carry texture overrides for some of its mesh's materials: those get their own copy of the parts.)
     let mut meshes: std::collections::HashMap<(u32, Vec<(u32, u32)>), Option<std::ops::Range<usize>>> = std::collections::HashMap::new();
