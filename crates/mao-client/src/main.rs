@@ -14,6 +14,7 @@
 //! orbit, scroll to zoom, WASD to move the view point, Q/E down and up.
 
 mod actions;
+mod automap;
 mod actions_data;
 mod anim;
 mod gear;
@@ -347,6 +348,28 @@ fn run(args: &[String]) -> Result<(), String> {
                     hud.labels = net::booth_labels(number, &whompah_booths(game, &db, number), &destinations, &names).into_iter().map(|(p, text)| ui::Label { world: mao_render::glam::Vec3::from(p), text }).collect();
                     hud.target = Some("Rollerrat  (12 m)".into());
                     // MAO_UI_PREVIEW=gear + MAO_CAPTURE=<capture.log>: the inventory window from a captured session.
+                    if preview.as_deref() == Some("map") {
+                        // MAO_UI_PREVIEW=map: walk a path through the playfield, revealing the map as the game would.
+                        let area = net::load_area(game, &db, number)?;
+                        let (cx, cz) = (hud.position.map_or(449.0, |p| p[0]), hud.position.map_or(313.0, |p| p[2]));
+                        let mut builder = automap::MapBuilder::new(area.terrain.as_deref(), [cx, 8.0, cz]);
+                        let mut map = automap::AutoMap::default();
+                        let offset = area.terrain.as_deref().map_or(0.0, |t| 8.0 - t.height_at(cx, cz, t.height_scale));
+                        for step in 0..30 {
+                            let (x, z) = (cx - 90.0 + step as f32 * 6.0, cz - 60.0 + (step as f32 * 0.4).sin() * 40.0);
+                            if let Some(patch) = builder.reveal([x, 8.0, z], area.terrain.as_deref(), offset, &area.collision) {
+                                map.apply(patch);
+                            }
+                        }
+                        if let Some(patch) = builder.reveal([cx, 8.0, cz], area.terrain.as_deref(), offset, &area.collision) {
+                            map.apply(patch);
+                        }
+                        map.overlay = std::env::var_os("MAO_MAP_OVERLAY").is_some();
+                        hud.heading = 0.6;
+                        hud.camera_yaw = 4.0;
+                        hud.map_dots = vec![([cx + 20.0, cz + 10.0], automap::DotKind::Player), ([cx - 15.0, cz + 25.0], automap::DotKind::Hostile), ([cx + 5.0, cz - 30.0], automap::DotKind::Friendly)];
+                        *hud.map_preview.lock().unwrap() = Some(map);
+                    }
                     if preview.as_deref() == Some("actions") {
                         let mut window = actions::ActionsWindow::default();
                         window.open = true;

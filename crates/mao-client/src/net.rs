@@ -667,15 +667,15 @@ fn passable_parts(db: &ResourceDatabase, part_mesh: &std::collections::HashMap<u
 
 /// A playfield loaded for walking in: what to draw, the ground's heights (when
 /// its tile-map is of a layout we can read) and what blocks.
-struct Area {
-    scene: Model,
-    terrain: Option<Arc<mao_formats::terrain::Terrain>>,
-    collision: mao_formats::collision::Collision,
+pub(crate) struct Area {
+    pub(crate) scene: Model,
+    pub(crate) terrain: Option<Arc<mao_formats::terrain::Terrain>>,
+    pub(crate) collision: mao_formats::collision::Collision,
     /// The whompah booths (x, height, z).
-    booths: Vec<[f32; 3]>,
+    pub(crate) booths: Vec<[f32; 3]>,
 }
 
-fn load_area(game: &str, db: &Arc<ResourceDatabase>, playfield: u32) -> Result<Area, String> {
+pub(crate) fn load_area(game: &str, db: &Arc<ResourceDatabase>, playfield: u32) -> Result<Area, String> {
     // An interior has no ground at all (only props).
     let mut scene = crate::load_terrain(db, playfield).unwrap_or_default();
     let terrain = crate::load_terrain_data(db, playfield).ok().map(Arc::new);
@@ -885,6 +885,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut last_tick = Instant::now();
         let mut last_send = Instant::now();
         let mut last_overlay = Instant::now() - Duration::from_secs(1);
+        // The map: fog of war revealed as the character walks (see `automap`).
+        let mut map = crate::automap::MapBuilder::new(terrain.as_deref(), start);
+        let mut pending_map: Option<crate::automap::MapPatch> = None;
+        let mut last_reveal = Instant::now() - Duration::from_secs(1);
         let profile = std::env::var_os("MAO_PROFILE").is_some();
         let mut fake_done = false;
         let mut last_own = (start, Instant::now());
@@ -1090,6 +1094,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     }
                     position = arrival;
                     offset = arrival[1] - ground(&terrain, arrival);
+                    map = crate::automap::MapBuilder::new(terrain.as_deref(), arrival);
+                    pending_map = None;
                     base = arrival[1];
                     airborne = false;
                     rise = 0.0;
@@ -1500,6 +1506,25 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             } else if let Some(e) = state.entities.get(&own) {
                 position = e.0;
             }
+            if last_reveal.elapsed() >= Duration::from_millis(120) {
+                last_reveal = Instant::now();
+                if let Some(patch) = map.reveal(position, terrain.as_deref(), offset, &collision) {
+                    // (Patches pile up until the interface takes them; a new grid replaces what came before.)
+                    pending_map = Some(match pending_map.take() {
+                        Some(mut old) if patch.reset.is_none() => {
+                            old.cells.extend(patch.cells);
+                            old
+                        }
+                        Some(mut old) => {
+                            old.cells.clear();
+                            old.cells.extend(patch.cells);
+                            old.reset = patch.reset;
+                            old
+                        }
+                        None => patch,
+                    });
+                }
+            }
             if last_overlay.elapsed() >= Duration::from_millis(33) {
                 last_overlay = Instant::now();
                 let built = Instant::now();
@@ -1521,6 +1546,28 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     model,
                     own_model,
                     own_velocity,
+                    map: pending_map.take(),
+                    map_dots: {
+                        let friendly_name = |name: &str| ["Vanguard", "Watcher", "Commander", "Guard", "Merchant", "Trader", "Recruiter", "Helper"].iter().any(|w| name.contains(w));
+                        state
+                            .entities
+                            .iter()
+                            .filter(|(id, _)| **id != own)
+                            .filter_map(|(id, (p, _))| {
+                                let info = state.infos.get(id)?;
+                                let kind = if target == Some(*id) {
+                                    crate::automap::DotKind::Target
+                                } else if info.is_player() && *id < DYNAMIC_NPC {
+                                    crate::automap::DotKind::Player
+                                } else if friendly_name(&info.name) {
+                                    crate::automap::DotKind::Friendly
+                                } else {
+                                    crate::automap::DotKind::Hostile
+                                };
+                                Some(([p[0], p[2]], kind))
+                            })
+                            .collect()
+                    },
                     ground: terrain.clone().map(|t| (t, offset)),
                     own: Some(position),
                     location: pending_location.take(),

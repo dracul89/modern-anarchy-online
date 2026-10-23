@@ -201,6 +201,12 @@ login with the same challenge response, then names, channel lists, notices and c
 notices go to the on-screen log. Vicinity, tell and sending are not decoded yet (no capture with a spoken line);
 `MAO_NO_CHAT=1` disables it, `net <game> chat [seconds]` prints what arrives.
 
+## 4l. Action window (`K`) and the map (`O`)
+
+**Actions.** The catalogue is what the running original client reports (`docs/GAME_MECHANICS.md`): 3 weapon attacks, 12 character actions, 35 perks, 63 social ids with 9 dances, each tile with the original's `action_*` icon (perks get a `perk_*` family by name, a guess). Click a tile or drag it onto a hotbar slot (the hotbar file now stores `special` and `social` entries). Doing one sends Stand, Sneak, Search, Reload and Start Combat; the rest (the weapon attacks, Brawl, Dimach, perks, emotes) say their network message is not captured yet. Preview: `MAO_UI_PREVIEW=actions`.
+
+**Map.** Diablo-style fog of war: the network thread classifies the cells around the character as it walks (floor, or wall from the collision data and steep ground) and sends only what changed; walls are bright outlines on a faint floor. A corner map (210 px, 150 units across, turning with the camera) is always shown; `O` opens the translucent overlay (drag to pan, wheel to zoom, Space re-centres). Dots: players blue, friendly NPCs green, monsters red, target yellow, Whom-Pah booths cyan rings, the character a gold arrow. Preview: `MAO_UI_PREVIEW=map` (`MAO_MAP_OVERLAY=1` for the overlay). Not saved between sessions yet.
+
 ## Next
 - Decode the key-binding providers (verify the assumed defaults).
 - Decode the zone-line records so every booth's destination is known up front.

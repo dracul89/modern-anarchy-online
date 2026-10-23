@@ -61,6 +61,9 @@ pub struct Update {
     /// (units a second, server coordinates) for the prediction.
     pub own_model: Model,
     pub own_velocity: [f32; 3],
+    /// New cells of the map (fog of war), and the people about (for its dots).
+    pub map: Option<crate::automap::MapPatch>,
+    pub map_dots: Vec<([f32; 2], crate::automap::DotKind)>,
     /// The ground (and how far the server's heights sit above it), to keep the camera above it.
     pub ground: Option<(std::sync::Arc<mao_formats::terrain::Terrain>, f32)>,
     pub own: Option<[f32; 3]>,
@@ -450,6 +453,11 @@ impl ApplicationHandler for App {
                                 press_slot(ui, n as usize, &mut self.keys, &mut self.hud);
                             }
                         }
+                        Action::MapOverlay if !event.repeat => {
+                            if let Some(ui) = w.ui.as_mut() {
+                                ui.automap.overlay = !ui.automap.overlay;
+                            }
+                        }
                         Action::ActionsWindow if !event.repeat => {
                             if let Some(ui) = w.ui.as_mut() {
                                 ui.actions.open = !ui.actions.open;
@@ -637,6 +645,9 @@ impl ApplicationHandler for App {
                                 ui.mail.status = status;
                             }
                         }
+                        if let (Some(patch), Some(ui)) = (u.map.take(), w.ui.as_mut()) {
+                            ui.automap.apply(patch);
+                        }
                         if let Some(items) = u.gear.take() {
                             self.hud.gear = items;
                         }
@@ -650,6 +661,8 @@ impl ApplicationHandler for App {
                     let latest = updates.into_iter().filter(|u| !u.messages_only).last();
                     if let Some(mut update) = latest {
                         self.hud.position = update.own;
+                        self.hud.heading = self.heading;
+                        self.hud.map_dots = std::mem::take(&mut update.map_dots);
                         if let Some(h) = update.heading {
                             self.heading = h;
                             if !self.behind_set {
@@ -718,6 +731,7 @@ impl ApplicationHandler for App {
                     let (camera, radius) = (w.camera, w.scene.radius);
                     let aspect = size.0 as f32 / size.1.max(1) as f32;
                     let project = |p: mao_render::glam::Vec3| camera.project(p, aspect, radius);
+                    self.hud.camera_yaw = w.camera.yaw;
                     let (frame, mut requests) = ui.run(&w.window, &mut self.settings, &self.hud, &project);
                     if let Some(command) = requests.shop.take() {
                         if let Some(live) = &self.live {
