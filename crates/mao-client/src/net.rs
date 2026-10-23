@@ -1528,6 +1528,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
             let ticket = session::login_character(&mut chat, character.id).map_err(|e| e.to_string())?;
             eprintln!("game server {}", ticket.host());
             let mut world = session::enter_world(&ticket).map_err(|e| e.to_string())?;
+            // The login connection must go: while it is open the server refuses the login a zoning needs.
+            chat.close();
+            drop(chat);
             let mut state = World { own: character.id, ..World::default() };
             if rest.iter().any(|a| a == "--live") {
                 return live(game, character.proxy[1], world, state);
@@ -1588,8 +1591,10 @@ pub fn run(args: &[String]) -> Result<(), String> {
         }
         // `net <game dir> chat [seconds]`: log in on the chat server as the first character and print what arrives.
         [game, word, rest @ ..] if word == "chat" => {
-            let (_conn, list) = login(game)?;
+            let (conn, list) = login(game)?;
             let character = list.first().ok_or("no characters")?;
+            conn.close();
+            drop(conn);
             let (user, password) = credentials()?;
             let mut chat = mao_net::chat::Chat::connect(std::env::var("MAO_CHAT_SERVER").unwrap_or_else(|_| mao_net::chat::SERVER.to_string()).as_str()).map_err(|e| e.to_string())?;
             chat.login(character.id, &user, &password).map_err(|e| e.to_string())?;
