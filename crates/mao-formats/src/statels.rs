@@ -62,6 +62,8 @@ pub struct Statel {
     /// rotation about Y and the stretch along X are read (its further matrix
     /// is left out).
     pub unread_rotation: bool,
+    /// The extras: (mask number, bit, value) for each set bit of each mask.
+    pub extras: Vec<(u32, u32, u32)>,
 }
 
 struct Reader<'a> {
@@ -141,12 +143,15 @@ fn statel(r: &mut Reader) -> Result<Option<Statel>, Error> {
     let c = r.take(2, "a statel's bytes")?;
     let (scale_byte, extras) = (c[0], c[1]);
     let mut left = extras as i32;
+    let mut kept = Vec::new();
+    let mut mask_number = 0;
     while left != 0 {
         let mask = r.u32("an extra mask")?;
-        for _ in 0..mask.count_ones() {
-            r.u32("an extra")?;
+        for bit in (0..32).filter(|b| mask & (1 << b) != 0) {
+            kept.push((mask_number, bit, r.u32("an extra")?));
             left -= 1;
         }
+        mask_number += 1;
         if mask == 0 && left != 0 && r.at >= r.data.len() {
             return Err(Error::Truncated("the extras"));
         }
@@ -167,7 +172,7 @@ fn statel(r: &mut Reader) -> Result<Option<Statel>, Error> {
     } else {
         (Statel::unpack_rotation(flags), [scale; 3])
     };
-    Ok(Some(Statel { position, flags, mesh, scale, scale_xyz, rotation, colour, unread_rotation: unread }))
+    Ok(Some(Statel { position, flags, mesh, scale, scale_xyz, rotation, colour, unread_rotation: unread, extras: kept }))
 }
 
 fn statels(r: &mut Reader, out: &mut Vec<Statel>) -> Result<(), Error> {

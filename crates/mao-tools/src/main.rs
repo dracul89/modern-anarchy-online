@@ -201,6 +201,9 @@ stats {:?}", item.id, item.name, item.description, item.icon(), item.stats);
                 let v = (s.flags as u32) >> 7;
                 let (turn, q2, q3) = (v % 630, (v / 630) % 211, v / 630 / 211);
                 println!("{:?} mesh {:#x} scale {:?} rot {:.2?} layout{} {} flags {:#x} (layout2: turn {turn} q2 {q2} q3 {q3} shear {:.2})", s.position.map(|v| (v * 10.0).round() / 10.0), s.mesh, s.scale_xyz, s.rotation, if s.unread_rotation { "2" } else { "1" }, if tilted { "TILTED" } else { "" }, s.flags, q3 as f32 / 100.0 - 1.25);
+                if !s.extras.is_empty() {
+                    println!("   extras {:?}", s.extras);
+                }
             }
         }
         ("cat", [kind, instance]) => {

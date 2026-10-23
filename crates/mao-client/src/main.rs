@@ -138,6 +138,23 @@ pub(crate) fn load_terrain(db: &ResourceDatabase, playfield: u32) -> Result<Mode
                 *beyond.entry(i).or_default() += 1;
             }
         }
+        if std::env::var_os("MAO_TILE_STATS").is_some() {
+            // The tile indices of the steep cells (cliffs), to compare with the original's look.
+            let mut steep: std::collections::BTreeMap<u16, usize> = std::collections::BTreeMap::new();
+            let w = terrain.width;
+            for cy in 0..terrain.height - 1 {
+                for cx in 0..w - 1 {
+                    let h = |x: usize, y: usize| terrain.heights[y * w + x] as f32 / 256.0 * terrain.height_scale;
+                    let rise = (h(cx + 1, cy) - h(cx, cy)).abs().max((h(cx, cy + 1) - h(cx, cy)).abs());
+                    if rise > 3.0 {
+                        *steep.entry(terrain.tiles[cy * (w - 1) + cx] & terrain.mask).or_default() += 1;
+                    }
+                }
+            }
+            let mut v: Vec<_> = steep.into_iter().collect();
+            v.sort_by_key(|e| std::cmp::Reverse(e.1));
+            eprintln!("steep cell tiles: {:?}", &v[..v.len().min(12)]);
+        }
         eprintln!("tile indices past the list ({}): mask {:#x}, {:?}", terrain.tile_types.len(), terrain.mask, beyond.iter().take(12).collect::<Vec<_>>());
     }
     Ok(model)
@@ -153,7 +170,8 @@ pub(crate) fn add_props(game: &str, db: &ResourceDatabase, playfield: u32, model
     let Ok(file) = std::fs::read(&path) else { return part_mesh };
     let Ok(statels) = mao_formats::statels::parse(&file) else { return part_mesh };
     // Each mesh's parts go in once; a statel is an instance of each.
-    let mut meshes: std::collections::HashMap<u32, Option<std::ops::Range<usize>>> = std::collections::HashMap::new();
+    // (A statel may carry texture overrides for some of its mesh's materials: those get their own copy of the parts.)
+    let mut meshes: std::collections::HashMap<(u32, Vec<(u32, u32)>), Option<std::ops::Range<usize>>> = std::collections::HashMap::new();
     let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     // The ground itself is one instance of each of its parts.
     let ground = model.parts.len();
@@ -180,10 +198,17 @@ pub(crate) fn add_props(game: &str, db: &ResourceDatabase, playfield: u32, model
         if hidden.contains(&s.mesh) {
             continue;
         }
+        // The extras of the first mask are the materials' textures (bit = the material's number).
+        let overrides: Vec<(u32, u32)> = s.extras.iter().filter(|e| e.0 == 0).map(|e| (e.1, e.2)).collect();
         let range = meshes
-            .entry(s.mesh)
+            .entry((s.mesh, overrides.clone()))
             .or_insert_with(|| {
                 let mut m = load_model(db, Id { kind: 0xf6951, instance: s.mesh }).ok()?;
+                for (material, texture) in &overrides {
+                    if let Some(part) = m.parts.get_mut(*material as usize) {
+                        part.material.textures = vec![(0xf6954, *texture)];
+                    }
+                }
                 if plant_meshes.contains(&s.mesh) {
                     plants += 1;
                     for part in &mut m.parts {
@@ -201,7 +226,7 @@ pub(crate) fn add_props(game: &str, db: &ResourceDatabase, playfield: u32, model
         model.instances.extend(range.map(|i| (i, place)));
         placed += 1;
     }
-    eprintln!("{placed} of {} statels placed ({} meshes, {plants} of them plants)", statels.len(), meshes.len());
+    eprintln!("{placed} of {} statels placed ({} meshes, {plants} of them plants)", statels.len(), meshes.keys().map(|k| k.0).collect::<std::collections::HashSet<_>>().len());
     part_mesh
 }
 
