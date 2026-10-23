@@ -105,3 +105,29 @@ So some source other than the worn items and the 8 listed nanos adds to the map.
 for it (`Stats3`/`Stats4` hold only the state stats and the absorb values, all 0). Perks are the main suspect, as their
 definitions are not in the game database (the names are not in the instance index), so they are the server's or the
 client code's. Unread effect records (requirements other than level) may account for a little.
+
+## The hook log: where every modifier comes from (live, after a zone change)
+
+Hooks on `AddModifier` (`FUN_10064a0e`) and `RemoveModifier` (`FUN_10064be1`), logging the holder (`ecx`), the caller chain and
+the effect object, for a whole rebuild after zoning. Findings (`docs/modifier_sources.json`, `docs/unexplained_modifiers.json`):
+
+* The client keeps one stat holder per character it can see and re-applies other characters' buffs in bursts; filter by the
+  holder of the controlled character (`*(char + 0x1bc)`).
+* **On our holder, the net of the logged adds and removes equals the live modifier map for all 120 stats.** So the hooks see every
+  source.
+* The sources, by caller: items and the other spell lists all go through `FUN_100a517a` (return `0x100a51f4`), a spell executor; a
+  second route (`0x1004b974` / `0x1004b937`, `FUN_1004b81e`) adds and removes the same 42 item effects as a pair and nets zero;
+  a third route (`0x100a8db3`, `FUN_100a8d0b`) is a level-scaled spell.
+* **Named nano buffs** carry their nano id in the spell data (`[effect + 0x20] + 0x10`): Ice Burn 269460, Composite Nano Expertise
+  223380, Composite Melee Expertise 223360, Composite Physical Special Expertise 215264, Calling of Thor 202846, Vlad's Revenge
+  202858, Improved Essence of Behemoth 273629 (the 8th buff's effects did not show).
+* **All 567 item records** (`item::modifiers`) of the 40 worn items appear among the logged events: the item reader is complete.
+* **702 more events** (509 non-zero) come from one further effect object with no nano id. They are not items. Their totals per stat
+  are *exactly* the part the items and nanos did not explain: Projectile AC 1607, Melee 1177, Energy 1322, Chemical 890,
+  Radiation 890, Cold 1177 (after Ice Burn's 415), Poison 1322, Fire 1322, MaxNano 500, AddAllDef 132, MaxHealth 11360. They arrive
+  as ladders of rising amounts for the same stat (armour classes +40, +32, +68, +70, +70, +70, +108, +109, +110, +213 ...; health
+  +50, +85, +115, +150, +210 ... together with +3 ... +11 heal delta; shield +2, +5, +6, +11, +20 ...), which is the shape of a
+  rank-based table, such as personal research or a similar per-level reward list.
+* Not yet identified: the data this ladder is read from (`N3Msg_PersonalResearchGoals` returns only the current goal, 10005; the
+  completed research would come from the server's research update message). The next step is to read the list's owner and the
+  spell data of those events, or to find what the server sends that selects which ranks apply.
