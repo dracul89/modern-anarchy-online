@@ -15,6 +15,7 @@
 
 mod anim;
 mod gear;
+mod mission;
 mod hotbar;
 mod net;
 mod settings;
@@ -53,6 +54,11 @@ pub struct Textures {
 impl Textures {
     pub fn new(db: Arc<ResourceDatabase>) -> Self {
         Textures { db }
+    }
+
+    /// Another handle on the same database.
+    pub fn clone_handle(&self) -> Textures {
+        Textures { db: self.db.clone() }
     }
 
     pub fn get(&self, kind: u32, instance: u32) -> Option<Texture> {
@@ -259,6 +265,24 @@ fn run(args: &[String]) -> Result<(), String> {
                     hud.labels = net::booth_labels(number, &whompah_booths(game, &db, number), &destinations, &names).into_iter().map(|(p, text)| ui::Label { world: mao_render::glam::Vec3::from(p), text }).collect();
                     hud.target = Some("Rollerrat  (12 m)".into());
                     // MAO_UI_PREVIEW=gear + MAO_CAPTURE=<capture.log>: the inventory window from a captured session.
+                    if preview.as_deref() == Some("mission") {
+                        // The captured offers (MAO_CAPTURE=<capture.log>) in the window.
+                        if let Some(log) = std::env::var_os("MAO_CAPTURE") {
+                            let textures2 = textures.clone_handle();
+                            let item = |low: i64| {
+                                let t = db.get(mao_formats::resource::Id { kind: mao_formats::item::TEMPLATE, instance: low as u32 }).ok().flatten().and_then(|d| mao_formats::item::Item::parse(&d))?;
+                                let icon = t.icon().and_then(|id| textures2.get(mao_formats::item::ICON_TYPE, id).map(|x| std::sync::Arc::new(gear::Icon { id, width: x.width as usize, height: x.height as usize, rgba: x.rgba })));
+                                Some((t.name, icon))
+                            };
+                            let icon = |id: u32| textures2.get(mao_formats::item::ICON_TYPE, id).map(|x| std::sync::Arc::new(gear::Icon { id, width: x.width as usize, height: x.height as usize, rgba: x.rgba }));
+                            if let Some(value) = net::capture_quest_alternative(&log.to_string_lossy()) {
+                                let mut window = mission::MissionWindow { open: true, ..Default::default() };
+                                window.set_offers(mission::offers_from(&value, &item, &icon));
+                                window.selected = Some(3);
+                                *hud.mission_preview.lock().unwrap() = Some(window);
+                            }
+                        }
+                    }
                     if preview.as_deref() == Some("whompah") {
                         hud.whompah_open = true;
                         hud.destinations = mao_net::destinations::parse(&{

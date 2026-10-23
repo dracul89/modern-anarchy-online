@@ -40,6 +40,8 @@ pub struct Input {
     pub fire: (u8, u32),
     /// A place to walk to (a counter that steps with each, and the world's x, z).
     pub goto: (u8, [f32; 2]),
+    /// A mission window command: a counter that steps with each, and the command.
+    pub mission: (u8, crate::mission::Command),
 }
 
 /// The overlay to draw and where the player's character is (the view
@@ -64,6 +66,10 @@ pub struct Update {
     pub heading: Option<f32>,
     /// The travel list the server sent for this playfield, when it arrives.
     pub destinations: Option<mao_net::destinations::DestinationList>,
+    /// The missions a booth offered, when it answers.
+    pub missions: Option<Vec<crate::mission::Offer>>,
+    /// A message for the mission window's status line.
+    pub mission_status: Option<String>,
 }
 
 /// Something that changes while the window is open: models to draw over the
@@ -411,6 +417,11 @@ impl ApplicationHandler for App {
                                 press_slot(ui, n as usize, &mut self.keys, &mut self.hud);
                             }
                         }
+                        Action::MissionWindow if !event.repeat => {
+                            if let Some(ui) = w.ui.as_mut() {
+                                ui.mission.open = !ui.mission.open;
+                            }
+                        }
                         Action::WhompahWindow if !event.repeat => {
                             if let Some(ui) = w.ui.as_mut() {
                                 ui.whompah_open = !ui.whompah_open;
@@ -550,6 +561,14 @@ impl ApplicationHandler for App {
                         if let Some(d) = u.destinations.take() {
                             self.hud.destinations = Some(d);
                         }
+                        if let Some(ui) = w.ui.as_mut() {
+                            if let Some(offers) = u.missions.take() {
+                                ui.mission.set_offers(offers);
+                            }
+                            if let Some(status) = u.mission_status.take() {
+                                ui.mission.status = status;
+                            }
+                        }
                         if let Some(items) = u.gear.take() {
                             self.hud.gear = items;
                         }
@@ -602,6 +621,12 @@ impl ApplicationHandler for App {
                     let aspect = size.0 as f32 / size.1.max(1) as f32;
                     let project = |p: mao_render::glam::Vec3| camera.project(p, aspect, radius);
                     let (frame, requests) = ui.run(&w.window, &mut self.settings, &self.hud, &project);
+                    if let Some(command) = requests.mission {
+                        self.keys.mission = (self.keys.mission.0.wrapping_add(1), command);
+                        if let Some(live) = &self.live {
+                            let _ = live.input.send(self.keys);
+                        }
+                    }
                     if let Some(g) = requests.goto {
                         self.keys.goto = (self.keys.goto.0.wrapping_add(1), g);
                         if let Some(live) = &self.live {

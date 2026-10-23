@@ -110,6 +110,8 @@ struct World {
     inventory: Option<Vec<inventory::Entry>>,
     /// The identity type each entity was first heard of with (what a use message names it by).
     types: BTreeMap<u32, u32>,
+    /// The vending machines (booths: shops, and the mission booths' companions) with their positions.
+    vendors: BTreeMap<u32, [f32; 3]>,
     /// The travel list of the playfield, from the server (until taken).
     destinations: Option<mao_net::destinations::DestinationList>,
     /// The usable objects the server announces (doors, mail terminals, booths: identity type
@@ -133,6 +135,17 @@ impl World {
             self.arrival = Some(arrival);
         }
         *self.kinds.entry(m.kind).or_default() += 1;
+        if m.kind == 0x7f544905 && m.identity.0 == 0xc75b {
+            if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
+                if let Some(pos) = p.value.get("Position") {
+                    let f = |n: &str| match pos.get(n) {
+                        Some(mao_net::schema::Value::Float(x)) => *x as f32,
+                        _ => 0.0,
+                    };
+                    self.vendors.insert(m.identity.1, [f("X"), f("Y"), f("Z")]);
+                }
+            }
+        }
         if m.kind == mao_net::destinations::DESTINATION_LIST {
             self.destinations = mao_net::destinations::parse(&m.data);
         }
@@ -581,14 +594,20 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         }
         let mut pending_destinations = state.destinations.take();
         let (mut mission_wait, mut mission_used): (Option<Instant>, bool) = (None, false);
+        let (mut mission_seen, mut pending_missions, mut pending_mission_status): (u8, Option<Vec<crate::mission::Offer>>, Option<String>) = (0, None, None);
         // `MAO_MISSION=type,instance[,scope[,difficulty]]` (decimal or 0x hex) asks that mission terminal
         // for missions once the character has arrived (or 6 s into the session without a walk), and prints the offers.
-        let mut mission_request: Option<(u32, u32, u8, u8)> = std::env::var("MAO_MISSION").ok().and_then(|t| {
+        let mut mission_request: Option<(u32, u32, u8, [u8; 7])> = std::env::var("MAO_MISSION").ok().and_then(|t| {
             let n: Vec<u32> = t.split(',').filter_map(|v| {
                 let v = v.trim();
                 v.strip_prefix("0x").map_or_else(|| v.parse().ok(), |h| u32::from_str_radix(h, 16).ok())
             }).collect();
-            Some((*n.first()?, *n.get(1)?, n.get(2).copied().unwrap_or(1) as u8, n.get(3).copied().unwrap_or(6) as u8))
+            // type, instance, scope, then up to seven sliders (the captured values by default).
+            let mut sliders = [2u8, 20, 161, 30, 184, 28, 0];
+            for (i, v) in n.iter().skip(3).take(7).enumerate() {
+                sliders[i] = *v as u8;
+            }
+            Some((*n.first()?, *n.get(1)?, n.get(2).copied().unwrap_or(5) as u8, sliders))
         });
         let (mut seen, mut target): ([u8; 7], Option<u32>) = ([0; 7], None);
         let (mut sitting, mut uses, mut fired) = (false, 0u32, 0u8);
@@ -633,6 +652,20 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     }
                     if tracing {
                         trace(&frame, clock);
+                    }
+                    if let Some(m) = Message::parse(&frame).filter(|m| m.kind == 0x5c436609) {
+                        if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
+                            let item = |low: i64| {
+                                let template = gear_db.get(mao_formats::resource::Id { kind: mao_formats::item::TEMPLATE, instance: low as u32 }).ok().flatten().and_then(|d| mao_formats::item::Item::parse(&d))?;
+                                let icon = template.icon().and_then(|id| gear_textures.get(mao_formats::item::ICON_TYPE, id).map(|t| std::sync::Arc::new(crate::gear::Icon { id, width: t.width as usize, height: t.height as usize, rgba: t.rgba })));
+                                Some((template.name, icon))
+                            };
+                            let icon = |id: u32| gear_textures.get(mao_formats::item::ICON_TYPE, id).map(|t| std::sync::Arc::new(crate::gear::Icon { id, width: t.width as usize, height: t.height as usize, rgba: t.rgba }));
+                            let offers = crate::mission::offers_from(&p.value, &item, &icon);
+                            if !offers.is_empty() {
+                                pending_missions = Some(offers);
+                            }
+                        }
                     }
                     if let Some(m) = Message::parse(&frame).filter(|m| matches!(m.kind, 0x5c436609 | 0x465a4061 | 0x212c487a | 0x333b2867 | 0x36284f6e | 0x58362220 | 0x50544d19 | 0x206b4b73 | 0x5f4b442a)) {
                         if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
@@ -821,6 +854,26 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     let _ = connection.send(&n3::set_target(own, id));
                 }
             }
+            // The mission window: ask the nearest booth for missions, or accept an offer.
+            if raw.mission.0 != mission_seen {
+                mission_seen = raw.mission.0;
+                let cmd = raw.mission.1;
+                if cmd.what == 1 {
+                    let nearest = state.vendors.iter().map(|(id, p)| (((p[0] - position[0]).powi(2) + (p[2] - position[2]).powi(2)).sqrt(), *id)).filter(|(d, _)| *d < 40.0).min_by(|a, b| a.0.total_cmp(&b.0));
+                    match nearest {
+                        Some((_, serial)) => {
+                            uses += 1;
+                            let _ = connection.send(&n3::use_object(own, uses, (0xdac1, serial)));
+                            let scope = std::env::var("MAO_MISSION_SCOPE").ok().and_then(|v| v.parse().ok()).unwrap_or(crate::mission::DEFAULT_SCOPE);
+                            let _ = connection.send(&n3::quest_alternative(own, cmd.sliders, scope, (0xdac1, serial)));
+                        }
+                        None => pending_mission_status = Some("No mission booth in reach (walk up to one).".into()),
+                    }
+                } else if cmd.what == 2 {
+                    let _ = connection.send(&n3::create_quest(own, cmd.mission));
+                    pending_mission_status = Some("Mission requested; see the mission log.".into());
+                }
+            }
             // A hotbar item: use the inventory slot it sits in.
             if keys.fire.0 != fired {
                 fired = keys.fire.0;
@@ -831,7 +884,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             if mission_request.is_some() && mission_wait.is_none() && goto.is_none() && clock.elapsed() > Duration::from_secs(6) {
                 mission_wait = Some(Instant::now());
             }
-            if let (Some(t), Some((kind, id, scope, difficulty))) = (mission_wait, mission_request) {
+            if let (Some(t), Some((kind, id, scope, sliders))) = (mission_wait, mission_request) {
                 if t.elapsed() > Duration::from_secs(1) && !mission_used {
                     // The original uses the terminal first (the server echoes it), then asks for missions.
                     mission_used = true;
@@ -842,7 +895,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 } else if t.elapsed() > Duration::from_secs(2) && mission_used {
                     mission_request = None;
                     eprintln!("asking mission terminal ({kind:#x}, {id:#x}) for missions");
-                    let _ = connection.send(&n3::quest_alternative(own, [difficulty, 255, 255, 255, 255, 255, 255], scope, (kind, id)));
+                    let _ = connection.send(&n3::quest_alternative(own, sliders, scope, (kind, id)));
                 }
             }
             if target.is_some_and(|t| state.position_of(t).is_none()) {
@@ -975,6 +1028,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     labels: pending_labels.take(),
                     messages: std::mem::take(&mut pending_messages),
                     gear: pending_gear.take(),
+                    missions: pending_missions.take(),
+                    mission_status: pending_mission_status.take(),
                     destinations: pending_destinations.take(),
                     heading: Some(heading),
                     target: target.and_then(|t| Some(format!("{}  ({:.0} m)", state.names.get(&t)?.0, ((state.position_of(t)?[0] - position[0]).powi(2) + (state.position_of(t)?[2] - position[2]).powi(2)).sqrt()))),
@@ -1569,6 +1624,35 @@ pub(crate) fn capture_entries(log: &str) -> Result<Vec<inventory::Entry>, String
         }
     }
     Err("no world-entry message in the capture".into())
+}
+
+/// The first server `QuestAlternative` (the offered missions) of a proxy capture, parsed.
+pub(crate) fn capture_quest_alternative(log: &str) -> Option<mao_net::schema::Value> {
+    let text = std::fs::read_to_string(log).ok()?;
+    let mut readers: BTreeMap<String, Reader> = BTreeMap::new();
+    for line in text.lines() {
+        let f: Vec<&str> = line.split_whitespace().collect();
+        let (Some(tag), Some(connection)) = (f.get(1), f.last()) else { continue };
+        if *tag == "OPEN" {
+            readers.remove(*connection);
+        }
+        if *tag != "S>C" || f.len() < 5 {
+            continue;
+        }
+        let bytes: Vec<u8> = (0..f[3].len() / 2).filter_map(|i| u8::from_str_radix(&f[3][2 * i..2 * i + 2], 16).ok()).collect();
+        let reader = readers.entry(connection.to_string()).or_default();
+        if reader.push(&bytes).is_err() {
+            continue;
+        }
+        while let Ok(Some(m)) = reader.next() {
+            if let Some(msg) = Message::parse(&m).filter(|x| m.kind == frame::N3 && x.kind == 0x5c436609) {
+                if let Ok(p) = mao_net::schema::Schema::global().parse_n3(msg.kind, &msg.data) {
+                    return Some(p.value);
+                }
+            }
+        }
+    }
+    None
 }
 
 /// `net <game dir> inventory <capture.log>`: the items in the first

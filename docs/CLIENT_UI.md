@@ -119,6 +119,18 @@ Lists the booths of the area (their floating labels say where each leads, once l
 menu or message is involved, as the capture and the live tests show). Any movement key stops the walk; a new
 playfield cancels it. (`371d0542` is `FightModeUpdate`, a list of area names, not destinations: it is no longer shown.) Tried live (character Beetlez, level 8, in Old Athens, `MAO_GOTO=x,z` starts the same walk as the Go button): it walks 70+ units across the plaza, steers round an obstacle (it stalled once at a wall before the detour logic) and arrives within a unit of the booth centre. The server did **not** zone that character at any of the booths tried ((444.2, 313.0) and (454.0, 313.0)), with `net walk` either, so whether booths need something this character lacks (level, a previous visit) or the trigger is elsewhere is open. Another test character is needed, or a capture of a booth being used in the original.
 
+## 4h. Mission booth window (`M`)
+Built from the real exchange in the third capture (see `GAME_WINDOWS.md`): six offer boxes with the mission icons,
+seven sliders (Easy/Hard, Good/Bad, Order/Chaos, Open/Hidden, Physical/Mystical, Head on/Stealth, Credits/XP),
+**Request Missions**, a detail pane for the selected offer (text, credits, xp, reward items with their icons, the
+destination) and **Accept Mission** / **Cancel**, laid out as in the original. `M` opens it; Request uses the nearest
+announced booth (within 40 units: the vending machines the server announces share their serial with the booth),
+then sends `QuestAlternative` (scope 5, the value in the capture; `MAO_MISSION_SCOPE` overrides) and shows the answer;
+Accept sends `CreateQuest`. The captured offers render correctly offscreen (`MAO_UI_PREVIEW=mission MAO_CAPTURE=<log>`).
+**Not confirmed live**: the only test character (level 8, probably the wrong faction) gets a rejection from the booth,
+so the request has only been checked against the capture; the slider ranges (difficulty 0-7, others 0-255) and the
+scope's meaning are guesses from one capture; the mission log (`QuestFullUpdate`) isn't shown yet.
+
 ## 5. The AOU mod against the original GUI
 The original GUI folder (`cd_image/gui/Default`) is 50 files: 27 small XML
 views (login, character selection, mail, trade, research, raid ...), 10 action
