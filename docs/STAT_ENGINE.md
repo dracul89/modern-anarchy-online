@@ -245,3 +245,19 @@ rather than from a fixed list.
   through the proxy would settle it.**
 * New tool: `mao-client n3 <capture.log> <type hex>` prints every server message of one type in a capture, parsed with the schema
   (`net::capture_n3`).
+
+## Active nano buffs
+
+The server lists a character's active nanos in its own `SimpleCharFullUpdate` (`271b3a6b`): a count word `(n + 1) * 0x3f1`, then per nano
+`(type 0xcf1b, nano id, a word, two times)`; the schema parser cannot read the message (custom layout), so
+`Message::active_nanos` finds the list by that shape (tested on a captured player: 15 nanos, e.g. Retool NCU 163005, Nano Boost
+81885). The nano's effects are the same modify-stat records as items' (database type `0xfde85`), but a buff's record has the
+third word of its tail (`1, 0, x, 9`) 2 **or 3** (3 is the most common in nanos: 12549 against 3493 and 2056 for 1); all 51 effects
+of the 8 buffs read from the live Conjecture matched with either (`item::nano_modifiers_at`). `mao-db <game> tail-kinds <type>`
+counts the kinds. The client keeps the list in `World.nanos` and works the bonuses out again when it, the worn items or the perks
+change (`World::refresh_mods`).
+
+Live check (Brasscasings, level 25, 4 composite-expertise/attribute nanos): the nanos add skills and attributes (strength +12
+...) but no health or nano energy, so the maxima stay at 734 and 360 against a current 1085 and 365. The 351 health and 5 nano
+that are still missing are not in the worn items' modify-stat records (none are skipped for requirements) nor in the nanos; the
+vitals bars keep counting a current value above the computed maximum as the maximum.

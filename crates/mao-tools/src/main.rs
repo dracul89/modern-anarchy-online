@@ -513,6 +513,23 @@ stats {:?}", item.id, item.name, item.description, item.icon(), item.stats);
                 }
             }
         }
+        // `tail-kinds <type>`: how often each value of the third word of the 1,0,x,9 tail of a modify-stat record occurs.
+        ("tail-kinds", [kind]) => {
+            let kind = number(kind).ok_or("bad type")?;
+            let mut counts: BTreeMap<u32, u64> = BTreeMap::new();
+            for id in db.ids().map_err(|e| e.to_string())?.filter(|i| i.as_ref().is_ok_and(|i| i.kind == kind)) {
+                let id = id.map_err(|e| e.to_string())?;
+                if let Ok(Some(object)) = db.get(id) {
+                    let word = |at: usize| u32::from_le_bytes(object[at..at + 4].try_into().unwrap());
+                    for at in 0..object.len().saturating_sub(40) {
+                        if word(at) == 0xcf35 && word(at + 4) == 0 && word(at + 8) == 4 && word(at + 12) == 0 && word(at + 16) == 1 && word(at + 20) == 0 && word(at + 28) == 9 {
+                            *counts.entry(word(at + 24)).or_default() += 1;
+                        }
+                    }
+                }
+            }
+            println!("{counts:?}");
+        }
         ("verify", []) => {
             let (count, bytes, highest, failures, failed) = db.verify().map_err(|e| e.to_string())?;
             println!("{count} objects, {bytes} bytes, highest position {highest:#x}, {failures} unreadable");

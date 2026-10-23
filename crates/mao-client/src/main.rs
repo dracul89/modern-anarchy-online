@@ -373,7 +373,7 @@ fn run(args: &[String]) -> Result<(), String> {
                                 _ => Vec::new(),
                             }).unwrap_or_default();
                             eprintln!("perks: {perks:?}");
-                            let modifiers = derived::modifiers(&db, &entries, &perks, level);
+                            let modifiers = derived::modifiers(&db, &entries, &perks, &[], level);
                             eprintln!("worn modifiers: {modifiers:?}");
                             hud.stats = derived::shown(&[(LEVEL, level)].into(), &modifiers);
                         }

@@ -64,11 +64,28 @@ pub fn perk_modifiers(db: &ResourceDatabase, perks: &[u32], level: i64) -> BTree
     sum
 }
 
-/// Everything that adds to the stored stats: what is worn and the perks.
-pub fn modifiers(db: &ResourceDatabase, entries: &[Entry], perks: &[u32], level: i64) -> BTreeMap<u32, i64> {
+/// The nano type of the database; its instance is the nano's id.
+const NANO_TEMPLATE: u32 = 0xfde85;
+
+/// The summed stat effects of the active nano programs, by stat (the same effect records as items carry).
+pub fn nano_modifiers(db: &ResourceDatabase, nanos: &[u32], level: i64) -> BTreeMap<u32, i64> {
+    let mut sum = BTreeMap::new();
+    for &nano in nanos {
+        let Some(data) = db.get(Id { kind: NANO_TEMPLATE, instance: nano }).ok().flatten() else { continue };
+        for (stat, amount) in item::nano_modifiers_at(&data, level) {
+            *sum.entry(stat).or_insert(0) += amount as i64;
+        }
+    }
+    sum
+}
+
+/// Everything that adds to the stored stats: what is worn, the perks and the active nanos.
+pub fn modifiers(db: &ResourceDatabase, entries: &[Entry], perks: &[u32], nanos: &[u32], level: i64) -> BTreeMap<u32, i64> {
     let mut sum = worn_modifiers(db, entries, level);
-    for (stat, amount) in perk_modifiers(db, perks, level) {
-        *sum.entry(stat).or_insert(0) += amount;
+    for part in [perk_modifiers(db, perks, level), nano_modifiers(db, nanos, level)] {
+        for (stat, amount) in part {
+            *sum.entry(stat).or_insert(0) += amount;
+        }
     }
     sum
 }

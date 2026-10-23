@@ -129,6 +129,11 @@ struct World {
     item_mods: BTreeMap<u32, i64>,
     /// The perks (and research ranks) the world-entry message lists for the character.
     perks: Vec<u32>,
+    /// The nano programs active on the character (`SimpleCharFullUpdate`), the inventory the effects are summed over, and
+    /// whether any of the three changed since `item_mods` was last worked out.
+    nanos: Vec<u32>,
+    worn: Vec<inventory::Entry>,
+    mods_dirty: bool,
     /// The identity type each entity was first heard of with (what a use message names it by).
     types: BTreeMap<u32, u32>,
     /// The vending machines (booths: shops, and the mission booths' companions) with their positions.
@@ -155,6 +160,14 @@ fn perk_ids(list: Option<&mao_net::schema::Value>) -> Vec<u32> {
 }
 
 impl World {
+    /// Works out the bonuses to the stored stats again when the worn items, perks or active nanos changed.
+    fn refresh_mods(&mut self, db: &ResourceDatabase) {
+        if std::mem::take(&mut self.mods_dirty) {
+            self.item_mods = crate::derived::modifiers(db, &self.worn, &self.perks, &self.nanos, self.stats.get(&0x36).copied().unwrap_or(1));
+            self.stats_changed = true;
+        }
+    }
+
     /// Where an entity or usable object is.
     fn position_of(&self, id: u32) -> Option<[f32; 3]> {
         self.entities.get(&id).map(|e| e.0).or_else(|| self.objects.get(&id).copied())
@@ -165,6 +178,9 @@ impl World {
         let Some(mao_net::schema::Value::List(items)) = list else { return };
         for item in items {
             if let (Some(s), Some(v)) = (item.get("Item1").and_then(mao_net::schema::Value::as_int), item.get("Item2").and_then(mao_net::schema::Value::as_int)) {
+                if std::env::var_os("MAO_STATS").is_some() && matches!(s, 1 | 11 | 27 | 214 | 221) {
+                    eprintln!("stat {s} = {v} (was {:?})", self.stats.get(&(s as u32)));
+                }
                 if self.stats.insert(s as u32, v) != Some(v) {
                     self.stats_changed = true;
                 }
@@ -205,6 +221,13 @@ impl World {
         if m.identity.0 != 0 {
             self.types.entry(m.identity.1).or_insert(m.identity.0);
         }
+        if m.kind == mao_net::n3::ENTITY_INFO && m.identity.1 == self.own {
+            let nanos = m.active_nanos();
+            if nanos != self.nanos {
+                self.nanos = nanos;
+                self.mods_dirty = true;
+            }
+        }
         if m.kind == inventory::WORLD_ENTRY && m.identity.1 == self.own {
             self.inventory = Some(inventory::parse(&m.data));
             if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
@@ -212,6 +235,7 @@ impl World {
                     self.read_stats(p.value.get(list));
                 }
                 self.perks = perk_ids(p.value.get("Perks"));
+                self.mods_dirty = true;
             }
         }
         // A stat of the character changed.
@@ -865,9 +889,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut pending_scene: Option<Model> = None;
         let first_inventory = state.inventory.take();
         if let Some(entries) = &first_inventory {
-            state.item_mods = crate::derived::modifiers(&gear_db, entries, &state.perks, state.stats.get(&0x36).copied().unwrap_or(1));
-            state.stats_changed = true;
+            state.worn = entries.clone();
+            state.mods_dirty = true;
         }
+        state.refresh_mods(&gear_db);
         let mut pending_gear = first_inventory.map(|e| crate::gear::from_entries(&gear_db, &gear_textures, &e));
         let mut keys = crate::viewer::Input::default();
         let mut raw = crate::viewer::Input::default();
@@ -1074,12 +1099,13 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         }
                     }
                     state.add(&frame);
+                    state.refresh_mods(&gear_db);
                     if let Some(list) = state.destinations.take() {
                         pending_destinations = Some(list);
                     }
                     if let Some(entries) = state.inventory.take() {
-                        state.item_mods = crate::derived::modifiers(&gear_db, &entries, &state.perks, state.stats.get(&0x36).copied().unwrap_or(1));
-                        state.stats_changed = true;
+                        state.worn = entries.clone();
+                        state.mods_dirty = true;
                         pending_gear = Some(crate::gear::from_entries(&gear_db, &gear_textures, &entries));
                     }
                 }
@@ -1588,7 +1614,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 if state.stats_changed && std::env::var_os("MAO_STATS").is_some() {
                     let shown = crate::derived::shown(&state.stats, &state.item_mods);
                     let pick = |ids: &[u32]| ids.iter().map(|i| format!("{i:#x}={}", shown.get(i).map_or("-".to_string(), |v| v.to_string()))).collect::<Vec<_>>().join(" ");
-                    eprintln!("stored: {:?} mods: {:?} perks {}", [1u32, 0x1b, 0xd6, 0xdd, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15].map(|i| (i, state.stats.get(&i).copied())), [1u32, 0xdd, 0x10, 0x12].map(|i| (i, state.item_mods.get(&i).copied())), state.perks.len());
+                    eprintln!("stored: {:?} mods: {:?} perks {} nanos {:?}", [1u32, 0x1b, 0xd6, 0xdd, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15].map(|i| (i, state.stats.get(&i).copied())), [1u32, 0xdd, 0x10, 0x12].map(|i| (i, state.item_mods.get(&i).copied())), state.perks.len(), state.nanos);
+                    eprintln!("worn: {:?}", state.worn.iter().map(|e| (e.slot, e.low_id, e.high_id, e.quality)).collect::<Vec<_>>());
                     eprintln!("stats: {} stored, {} modifiers; {}", state.stats.len(), state.item_mods.len(), pick(&[0x1b, 0x01, 0xd6, 0xdd, 0x36, 0x34, 0x39, 0x15e, 0x28, 0xb2, 0xa9, 0x5b]));
                 }
                 let update = crate::viewer::Update {
@@ -2293,7 +2320,7 @@ pub(crate) fn capture_n3(log: &str, kind: u32) -> Result<Vec<String>, String> {
             if let Some(msg) = Message::parse(&m).filter(|x| m.kind == frame::N3 && x.kind == kind) {
                 let parsed = mao_net::schema::Schema::global().parse_n3(kind, &msg.data);
                 out.push(match parsed {
-                    Ok(p) => format!("{} on {connection}:{}", f[0], p.value.pretty()),
+                    Ok(p) => format!("{} on {connection} from {:x}:{:x} raw {}:{}", f[0], msg.identity.0, msg.identity.1, msg.data.iter().map(|b| format!("{b:02x}")).collect::<String>(), p.value.pretty()),
                     Err(e) => format!("{} on {connection}: parse error {e}: {}", f[0], msg.data.iter().map(|b| format!("{b:02x}")).collect::<String>()),
                 });
             }

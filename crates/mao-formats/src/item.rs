@@ -57,6 +57,16 @@ pub fn modifiers(template: &[u8]) -> Vec<(u32, i32)> {
 /// "below" and 2 is "at least", from the two records of item template 281199: +200 below 201, +500 from 200).
 /// Requirements on other stats, or with other operators, are not known to hold, so those records are left out.
 pub fn modifiers_at(template: &[u8], level: i64) -> Vec<(u32, i32)> {
+    modifiers_with(template, level, &[2])
+}
+
+/// The same for a nano program: its buffs carry the third word of the record's tail (`1, 0, x, 9`) as 2 or 3, both checked
+/// against the live client (all 51 effects of the 8 buffs of one character appeared in its modifier map).
+pub fn nano_modifiers_at(template: &[u8], level: i64) -> Vec<(u32, i32)> {
+    modifiers_with(template, level, &[2, 3])
+}
+
+fn modifiers_with(template: &[u8], level: i64, tails: &[u32]) -> Vec<(u32, i32)> {
     let word = |at: usize| u32::from_le_bytes(template[at..at + 4].try_into().unwrap());
     let mut out = Vec::new();
     let mut at = 0;
@@ -64,7 +74,7 @@ pub fn modifiers_at(template: &[u8], level: i64) -> Vec<(u32, i32)> {
         if word(at) == 0xcf35 && word(at + 4) == 0 && word(at + 8) == 4 && word(at + 12) < 8 {
             let n = word(at + 12) as usize;
             let tail = at + 16 + 12 * n;
-            if tail + 24 <= template.len() && [word(tail), word(tail + 4), word(tail + 8), word(tail + 12)] == [1, 0, 2, 9] {
+            if tail + 24 <= template.len() && [word(tail), word(tail + 4), word(tail + 12)] == [1, 0, 9] && tails.contains(&word(tail + 8)) {
                 let holds = (0..n).all(|i| {
                     let (stat, value, op) = (word(at + 16 + 12 * i), word(at + 20 + 12 * i) as i64, word(at + 24 + 12 * i));
                     stat == 0x36 && match op {
@@ -168,5 +178,14 @@ mod tests {
         assert_eq!(modifiers_at(&bytes, 220), vec![(168, 500), (0x5b, 7)]);
         assert_eq!(modifiers_at(&bytes, 150), vec![(168, 200), (0x5b, 7)]);
         assert_eq!(modifiers_at(&bytes, 200), vec![(168, 500), (168, 200), (0x5b, 7)]);
+    }
+
+    #[test]
+    fn nano_buffs_use_either_tail() {
+        // "Composite Attribute Boost": +12 strength (stat 16) with the tail's third word 3; an item's wear effect uses 2.
+        let words: Vec<u32> = vec![0xcf35, 0, 4, 0, 1, 0, 3, 9, 16, 12, 0xcf35, 0, 4, 0, 1, 0, 2, 9, 18, 5];
+        let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
+        assert_eq!(nano_modifiers_at(&bytes, 25), vec![(16, 12), (18, 5)]);
+        assert_eq!(modifiers_at(&bytes, 25), vec![(18, 5)]);
     }
 }
