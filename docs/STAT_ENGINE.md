@@ -141,3 +141,21 @@ routine (`FUN_100a5f4b`, called by the iterator `FUN_100026d0`), not the list. R
 (`FUN_1004bc13`, `FUN_100532f6`, `FUN_10052cfd`, `FUN_100533aa`, `FUN_100538f7`, `FUN_1004709c`), which hold the container the
 iterator walks; and whether the research map (`FUN_10058ff8`, entries keyed by goal id with spell lists) holds a spell list per
 rank that all apply up to the completed one (which would multiply 8 goals into hundreds of events).
+
+## The callers of FUN_10080fc3 (read)
+
+`FUN_10080fc3(char, 0, 0, 0)` is the "apply the standing effects of one perk" routine (it is where the unexplained events are added,
+return `0x10081087`). It is called from:
+
+* `FUN_100533aa` / `FUN_100532f6` / `FUN_10053241` (perk manager, `this+0xc` = the character): they walk the perk map and the
+  per-type lists of owned perks (`FUN_1002be73(type, out)`, `type` = `GetSkill(0x21, 2)` = 1 for this character), look each perk
+  up with `FUN_1002bdf5` and apply it if its vtable `+0x5c` check passes. `FUN_10052cfd` and `FUN_100538f7` (which carries the string
+  `Feedback_PerkDoesntExist`) do the same for one perk when it is bought or switched.
+* `FUN_1004bc13` (equip an item, wraps the call in a stat-`0x37` flag) and `FUN_1004709c` (loop over slots `0x20..0x2f`) apply the
+  item side.
+
+A perk's data is an item-type record: `FUN_1002bce7` looks it up as database type `0xf4254` by the id at `perk_record + 4`. So the
+702 events are the **standing effects of the owned perks, read from item-type templates**, which the item reader (`item::modifiers`)
+can already parse. What remains is the list of owned perks: `N3Msg_GetCompletedPersonalResearchGoals` is not it (8 goals). The perk
+manager is the singleton from `FUN_1002c0d5()` (vector of 28-byte records at `+0x34..+0x38`, flags at `+0xc`, bit 7 = perk, owned
+count at `+0x1c` of the entry from `FUN_1002be1a`); its records and `GetSkill(0x21, 2)` have not been dumped yet.
