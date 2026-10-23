@@ -220,7 +220,7 @@ impl World {
             println!("  {kind:#010x} x{n}");
         }
         for (id, i) in &self.infos {
-            println!("  info {id:>10} {:<18} flags {:#010x} flags2 {:#010x} breed {} sex {} a0 {:?} textures {} clothes {:?}", i.name, i.flags, i.flags2, i.breed, i.sex, i.unknown_a0, i.textures.len(), i.clothes);
+            println!("  info {id:>10} {:<18} flags {:#010x} flags2 {:#010x} breed {} sex {} a0 {:?} template {:?} textures {} clothes {:?}", i.name, i.flags, i.flags2, i.breed, i.sex, i.unknown_a0, i.template.map(|t| format!("{t:#x}")), i.textures.len(), i.clothes);
         }
         println!("{} entities with positions:", self.entities.len());
         for (id, (p, _)) in &self.entities {

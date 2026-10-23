@@ -520,6 +520,9 @@ impl Message {
         let rotation = if flags & 0x200 != 0 { Some([f32_at(&mut at)?, f32_at(&mut at)?, f32_at(&mut at)?, f32_at(&mut at)?]) } else { None };
         let packed = u32_at(&mut at)?;
         let (breed, sex) = ((packed & 7) as u8, ((packed >> 8) & 3) as u8);
+        // Some characters pack a breed of 0 (seen with a female player, 0x768): they are dressed from the Solitus
+        // table like the rest until the real field is known (the breed's bits are not all understood).
+        let breed = if breed == 0 && flags & 1 == 0 && matches!(sex, 2 | 3) { 1 } else { breed };
         let length = take(&mut at, 1)?[0] as usize;
         let text = take(&mut at, length)?;
         let name = String::from_utf8_lossy(text).trim_end_matches('\0').to_string();
