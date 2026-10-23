@@ -271,3 +271,22 @@ between an item's low and high template rounded to the nearest whole number (it 
 **exactly equal to the server's current values: 1085 / 1085 health and 365 / 365 nano**. The other spell types seen in worn items
 (`0xcf2b`, `0xcf2d`, `0xcf2f`, `0xcf48`, `0xcf8a`, `0xcf34`, `0xcf49`, `0xcf61`) are not stat modifiers (conditions, damage, text, the
 clan-merit machinery), so nothing more needs reading for stat bonuses so far.
+
+## The computed stats against the original, stat by stat (live, Conjecture)
+
+`mao-client <game> stats-check <capture.log> <character instance hex> <inputs.txt> <compare.txt> [level]` works out
+`stored + modifiers` with the client's own code (`derived::modifiers`) and lists every stat that differs from what the original
+shows. Inputs read from the running original in one pass (`docs/live_inputs_conjecture.txt`: the 80 inventory entries from
+`N3Msg_GetInventoryVec`, the 9 active nanos from `N3Msg_GetNanoTemplateInfoList`, the 143 owned perks and research ranks) and every
+stat's stored (detail 0) and shown (detail 2) value from `N3Msg_GetSkill` (`docs/live_compare_conjecture.txt`), level 220:
+
+* **190 of 270 stats equal**, including **all eight armour classes**, attack rating's inputs, nano energy and most skills' map parts.
+* Reading the modifier map itself (`*(*(char + 0x1bc) + 4)`, 119 entries) shows what the 80 differences are:
+  * **Skills 100-168: the shown value is `stored + map + trickle-down`**, with a trickle of about 220-290 per skill from the
+    attributes (`FUN_10062a6c`, weights per skill not yet read); the map parts of skills match except 14 small ones.
+    This is the missing piece for the skills window.
+  * **11 non-skill stats differ in the map itself**: max health +250, strength +29, stamina and agility +9, intelligence and sense
+    +15 and +15, psychic +9 (stats 16-21), 277 +50, 343 +19, 364 +39, 318 -6. They look like one more small buff or a few more
+    ranks that appear in no worn item, nano or perk template read so far (the pairs are in no single template).
+* **Nano buffs** need the tail kinds 1, 2 and 3 (Mongo's Kraken, +20000 health, uses 1: without it max health was 20250 short;
+  with it 250 short).

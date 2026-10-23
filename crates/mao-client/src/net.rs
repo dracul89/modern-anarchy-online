@@ -2337,6 +2337,34 @@ pub(crate) fn capture_n3(log: &str, kind: u32) -> Result<Vec<String>, String> {
     Ok(out)
 }
 
+/// The last world-entry message of the character `instance` in a capture: its items.
+pub(crate) fn capture_entries_of(log: &str, instance: u32) -> Result<Vec<inventory::Entry>, String> {
+    let text = std::fs::read_to_string(log).map_err(|e| e.to_string())?;
+    let mut readers: BTreeMap<String, Reader> = BTreeMap::new();
+    let mut found = None;
+    for line in text.lines() {
+        let f: Vec<&str> = line.split_whitespace().collect();
+        let (Some(tag), Some(connection)) = (f.get(1), f.last()) else { continue };
+        if *tag == "OPEN" {
+            readers.remove(*connection);
+        }
+        if *tag != "S>C" || f.len() < 5 {
+            continue;
+        }
+        let bytes: Vec<u8> = (0..f[3].len() / 2).filter_map(|i| u8::from_str_radix(&f[3][2 * i..2 * i + 2], 16).ok()).collect();
+        let reader = readers.entry(connection.to_string()).or_default();
+        if reader.push(&bytes).is_err() {
+            continue;
+        }
+        while let Ok(Some(m)) = reader.next() {
+            if let Some(msg) = Message::parse(&m).filter(|x| m.kind == frame::N3 && x.kind == inventory::WORLD_ENTRY && x.identity.1 == instance) {
+                found = Some(inventory::parse(&msg.data));
+            }
+        }
+    }
+    found.ok_or_else(|| "no world-entry message of that character in the capture".into())
+}
+
 pub(crate) fn capture_entries(log: &str) -> Result<Vec<inventory::Entry>, String> {
     let text = std::fs::read_to_string(log).map_err(|e| e.to_string())?;
     let mut readers: BTreeMap<String, Reader> = BTreeMap::new();

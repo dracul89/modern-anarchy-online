@@ -60,10 +60,10 @@ pub fn modifiers_at(template: &[u8], level: i64) -> Vec<(u32, i32)> {
     modifiers_with(template, level, &[2])
 }
 
-/// The same for a nano program: its buffs carry the third word of the record's tail (`1, 0, x, 9`) as 2 or 3, both checked
-/// against the live client (all 51 effects of the 8 buffs of one character appeared in its modifier map).
+/// The same for a nano program: its buffs carry the third word of the record's tail (`1, 0, x, 9`) as 1, 2 or 3 (checked
+/// against the live client: 2 and 3 for 51 effects of 8 buffs, 1 for Mongo's Kraken's +20000 health).
 pub fn nano_modifiers_at(template: &[u8], level: i64) -> Vec<(u32, i32)> {
-    modifiers_with(template, level, &[2, 3])
+    modifiers_with(template, level, &[1, 2, 3])
 }
 
 fn modifiers_with(template: &[u8], level: i64, tails: &[u32]) -> Vec<(u32, i32)> {

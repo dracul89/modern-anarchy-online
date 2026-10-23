@@ -334,6 +334,51 @@ fn run(args: &[String]) -> Result<(), String> {
             return Ok(());
         }
     }
+    // `stats-check <game> <capture.log> <instance hex> <extras.txt> <compare.txt> [level]`: the computed shown stats of a character
+    // (its captured items plus the extras file's `perks`, `nanos` and `items` lines) against the original's own values
+    // (compare.txt lines: `stat stored shown`), per stat.
+    if let [game, word, log, instance, extras, compare, rest @ ..] = args {
+        if word == "stats-check" {
+            let db = ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?;
+            let instance = u32::from_str_radix(instance.trim_start_matches("0x"), 16).map_err(|e| e.to_string())?;
+            let mut entries = net::capture_entries_of(log, instance)?;
+            let level: i64 = rest.first().and_then(|l| l.parse().ok()).unwrap_or(220);
+            let (mut perks, mut nanos) = (Vec::new(), Vec::new());
+            for line in std::fs::read_to_string(extras).map_err(|e| e.to_string())?.lines() {
+                let (key, list) = line.split_once(' ').unwrap_or((line, ""));
+                let ids: Vec<u32> = list.split(',').filter_map(|v| v.trim().parse().ok()).collect();
+                match key {
+                    "perks" => perks = ids,
+                    "nanos" => nanos = ids,
+                    "worn" => {
+                        // `worn slot,low,high,quality;...` replaces the captured items (a live read of the inventory).
+                        entries = list.split(';').filter_map(|e| {
+                            let v: Vec<u32> = e.split(',').filter_map(|n| n.trim().parse().ok()).collect();
+                            let [slot, low_id, high_id, quality] = v[..] else { return None };
+                            Some(mao_net::inventory::Entry { slot, flags: 1, count: 1, container: (0, 0), low_id, high_id, quality, extra: 0 })
+                        }).collect();
+                    }
+                    "items" => entries.extend(ids.iter().map(|&id| mao_net::inventory::Entry { slot: 33, flags: 1, count: 1, container: (0, 0), low_id: id, high_id: id, quality: 1, extra: 0 })),
+                    _ => {}
+                }
+            }
+            let mods = derived::modifiers(&db, &entries, &perks, &nanos, level);
+            let (mut same, mut different) = (0, 0);
+            for line in std::fs::read_to_string(compare).map_err(|e| e.to_string())?.lines() {
+                let f: Vec<i64> = line.split_whitespace().take(3).filter_map(|v| v.parse().ok()).collect();
+                let [stat, stored, shown] = f[..] else { continue };
+                let computed = stored + mods.get(&(stat as u32)).copied().unwrap_or(0);
+                if computed == shown {
+                    same += 1;
+                } else {
+                    different += 1;
+                    println!("stat {stat:#x} ({stat}): stored {stored}, original shows {shown}, computed {computed} (off by {})", computed - shown);
+                }
+            }
+            println!("{same} stats equal, {different} different; {} modifiers computed", mods.len());
+            return Ok(());
+        }
+    }
     if let [game, word, rest @ ..] = args {
         if word == "list" {
             let db = ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?;
