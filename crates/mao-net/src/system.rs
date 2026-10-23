@@ -88,6 +88,13 @@ pub fn split(frame: &Frame) -> Result<(u32, &[u8]), Error> {
 /// as when the character enters a shop.
 pub const REDIRECT: u32 = 0x3c;
 
+/// A 0x3c message (as the server sends it; for tests of the hop).
+pub fn redirect_frame(address: [u8; 4], port: u16) -> Frame {
+    let mut payload = address.to_vec();
+    payload.extend_from_slice(&port.to_be_bytes());
+    system(REDIRECT, &payload)
+}
+
 /// The login server a 0x3c message names, as `host:port`.
 pub fn redirect(frame: &Frame) -> Option<String> {
     let (kind, payload) = split(frame).ok()?;

@@ -48,6 +48,8 @@ pub struct Input {
 /// follows it).
 #[derive(Default)]
 pub struct Update {
+    /// An update that only carries messages (nothing to draw): the picture stays as it was.
+    pub messages_only: bool,
     /// A new playfield to replace the one drawn (zoning).
     pub scene: Option<Model>,
     pub model: Model,
@@ -628,7 +630,7 @@ impl ApplicationHandler for App {
                             self.hud.labels = labels.into_iter().map(|(p, text)| Label { world: mao_render::glam::Vec3::from(p), text }).collect();
                         }
                     }
-                    let latest = updates.into_iter().last();
+                    let latest = updates.into_iter().filter(|u| !u.messages_only).last();
                     if let Some(update) = latest {
                         self.hud.position = update.own;
                         if let Some(h) = update.heading {

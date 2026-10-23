@@ -47,7 +47,7 @@ fn login(game: &str) -> Result<(Connection, Vec<Character>), String> {
 /// Follow a 0x3c redirect (entering a shop and the like): log in again at the
 /// default server (the redirect's address if that fails), ask for the same
 /// character and enter the world there.
-fn hop(game: &str, target: &str, character: u32) -> Result<Connection, String> {
+fn hop(game: &str, target: &str, character: u32, say: &dyn Fn(String)) -> Result<Connection, String> {
     let (user, password) = credentials()?;
     let version = version(game)?;
     let default = std::env::var("MAO_SERVER").unwrap_or_else(|_| session::RUBI_KA.to_string());
@@ -55,9 +55,14 @@ fn hop(game: &str, target: &str, character: u32) -> Result<Connection, String> {
     // (The address in a redirect is not a login server: it closes the connection. The normal
     // login hands out a ticket for the right game server; the redirect address is the fallback.)
     // The old session lingers a moment on the server (the login is refused until it is gone): try again a few times.
-    for attempt in 0..6 {
+    // (After a real zone line the server takes a while to let go of the character: the logins are refused for
+    // some seconds, so keep trying for a minute and say so.)
+    for attempt in 0..25 {
         if attempt > 0 {
-            std::thread::sleep(Duration::from_secs(2));
+            std::thread::sleep(Duration::from_secs(3));
+            if attempt % 3 == 1 {
+                say(format!("Zoning: waiting for the server to let go of the character ({}s)...", attempt * 3));
+            }
         }
     for server in [default.as_str(), target] {
         let outcome = (|| -> Result<Connection, String> {
@@ -829,6 +834,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut last_send = Instant::now();
         let mut last_overlay = Instant::now() - Duration::from_secs(1);
         let profile = std::env::var_os("MAO_PROFILE").is_some();
+        let mut fake_done = false;
         let mut last_own = (start, Instant::now());
         let send = |connection: &mut Connection, kind: u8, heading: f32, position: [f32; 3], since: &mut Instant| {
             let ms = since.elapsed().as_millis().min(u32::MAX as u128) as u32;
@@ -837,7 +843,15 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         };
         let mut sent = Instant::now();
         loop {
-            match connection.receive() {
+            // MAO_FAKE_REDIRECT=<seconds>: behave as if the server sent a redirect then (to test the hop without a zone line).
+            let fake_due = !fake_done && std::env::var("MAO_FAKE_REDIRECT").ok().and_then(|v| v.parse::<u64>().ok()).is_some_and(|s| clock.elapsed() > Duration::from_secs(s));
+            let received = if fake_due {
+                fake_done = true;
+                Ok(system::redirect_frame([37, 18, 193, 19], 7509))
+            } else {
+                connection.receive()
+            };
+            match received {
                 Ok(frame) => {
                     // The server's pings are answered (or it ends the connection).
                     if let Some(reply) = frame::ping_reply(&frame, own, 70_000_000 + clock.elapsed().as_millis() as u32) {
@@ -850,7 +864,11 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         // The old session must be gone first, or the login is refused (the character is still logged in).
                         connection.close();
                         std::thread::sleep(Duration::from_millis(1500));
-                        match hop(&game_dir, &target, own).and_then(|mut c| c.set_timeout(Duration::from_millis(12)).map(|_| c).map_err(|e| e.to_string())) {
+                        let say = |text: String| {
+                            let _ = tx.send(crate::viewer::Update { messages: vec![text], messages_only: true, ..Default::default() });
+                        };
+                        say("Zoning...".into());
+                        match hop(&game_dir, &target, own, &say).and_then(|mut c| c.set_timeout(Duration::from_millis(12)).map(|_| c).map_err(|e| e.to_string())) {
                             Ok(next) => {
                                 connection = next;
                                 // The new playfield is loaded even if its number repeats.
@@ -1407,6 +1425,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     eprintln!("[profile] overlay_model {:?} ({} parts, {} instances)", built.elapsed(), model.parts.len(), model.instances.len());
                 }
                 let update = crate::viewer::Update {
+                    messages_only: false,
                     scene: pending_scene.take(),
                     model,
                     own_model,
@@ -1517,6 +1536,42 @@ pub fn run(args: &[String]) -> Result<(), String> {
             state.print();
             Ok(())
         }
+        // `net <game dir> relogin <name> [chat]`: log in, enter the world, leave and log in again (what a zoning needs), to see what the server refuses.
+        [game, word, who, rest @ ..] if word == "relogin" => {
+            let (mut first, list) = login(game)?;
+            let character = list.iter().find(|c| c.name.eq_ignore_ascii_case(who)).ok_or("no such character")?;
+            let ticket = session::login_character(&mut first, character.id).map_err(|e| e.to_string())?;
+            let world = session::enter_world(&ticket).map_err(|e| e.to_string())?;
+            let (user, password) = credentials()?;
+            let mut chat = None;
+            if rest.iter().any(|a| a == "chat") {
+                let mut c = mao_net::chat::Chat::connect(mao_net::chat::SERVER).map_err(|e| e.to_string())?;
+                c.login(character.id, &user, &password).map_err(|e| e.to_string())?;
+                eprintln!("chat session open");
+                chat = Some(c);
+            }
+            std::thread::sleep(Duration::from_secs(4));
+            if !rest.iter().any(|a| a == "keep-login") {
+                first.close();
+                drop(first);
+            }
+            if !rest.iter().any(|a| a == "keep-game") {
+                world.close();
+                drop(world);
+            }
+            for n in 0..4 {
+                std::thread::sleep(Duration::from_secs(2));
+                match login(game) {
+                    Ok(_) => {
+                        eprintln!("login {n}: accepted");
+                        break;
+                    }
+                    Err(e) => eprintln!("login {n}: {e}"),
+                }
+            }
+            drop(chat);
+            Ok(())
+        }
         [game, word, who, rest @ ..] if word == "enter" => {
             let seconds: u64 = rest.first().and_then(|s| s.parse().ok()).unwrap_or(10);
             let (mut chat, list) = login(game)?;
@@ -1556,7 +1611,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
             // Log the character in at a redirect's address and say where the world puts it.
             let (_, list) = login(game)?;
             let character = list.iter().find(|c| c.name.eq_ignore_ascii_case(who) || c.id.to_string() == *who).ok_or("no such character")?;
-            let mut connection = hop(game, target, character.id)?;
+            let mut connection = hop(game, target, character.id, &|t| eprintln!("{t}"))?;
             connection.set_timeout(Duration::from_millis(50)).map_err(|e| e.to_string())?;
             let mut state = World { own: character.id, ..World::default() };
             let until = Instant::now() + Duration::from_secs(6);
@@ -1829,7 +1884,7 @@ fn walk(game: &str, who: &str, target_x: f32, target_z: f32, seconds: u64) -> Re
                 }
                 if let Some(target) = system::redirect(&frame) {
                     eprintln!("[{:6.1}] the server redirects us to {target}", clock.elapsed().as_secs_f32());
-                    let mut next = hop(game, &target, own)?;
+                    let mut next = hop(game, &target, own, &|t| eprintln!("{t}"))?;
                     next.set_timeout(Duration::from_millis(50)).map_err(|e| e.to_string())?;
                     let mut inside = World { own, ..World::default() };
                     let until = Instant::now() + Duration::from_secs(5);
