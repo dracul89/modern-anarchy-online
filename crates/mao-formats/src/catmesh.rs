@@ -320,20 +320,41 @@ impl CatMesh {
     /// bone's rotation and (scaled) translation composed with its parent's,
     /// as the original's `CATRender_t::Pose`.
     pub fn pose(&self, anim: &crate::catanim::CatAnim, time: f32) -> Vec<BoneMatrix> {
+        self.pose_with(&|bone| (anim.rotation(bone, time), anim.translation(bone, time)))
+    }
+
+    /// The pose cross-faded from `a` at `ta` to `b` at `tb` (`weight` 0 is all `a`, 1 all `b`): each bone's
+    /// rotation and translation blended, so a change of animation doesn't pop.
+    pub fn pose_blend(&self, a: &crate::catanim::CatAnim, ta: f32, b: &crate::catanim::CatAnim, tb: f32, weight: f32) -> Vec<BoneMatrix> {
+        self.pose_with(&|bone| {
+            let (ra, rb) = (a.rotation(bone, ta), b.rotation(bone, tb));
+            // The shorter way round, then normalised.
+            let dot: f32 = (0..4).map(|i| ra[i] * rb[i]).sum();
+            let sign = if dot < 0.0 { -1.0 } else { 1.0 };
+            let mut r = [0.0f32; 4];
+            for i in 0..4 {
+                r[i] = ra[i] * (1.0 - weight) + rb[i] * sign * weight;
+            }
+            let length = r.iter().map(|v| v * v).sum::<f32>().sqrt().max(1e-6);
+            let (ta_, tb_) = (a.translation(bone, ta), b.translation(bone, tb));
+            (r.map(|v| v / length), [0, 1, 2].map(|i| ta_[i] * (1.0 - weight) + tb_[i] * weight))
+        })
+    }
+
+    fn pose_with(&self, sample: &dyn Fn(usize) -> ([f32; 4], [f32; 3])) -> Vec<BoneMatrix> {
         let mut out = vec![IDENTITY_BONE; self.bones.len()];
         if !self.bones.is_empty() {
-            self.pose_bone(anim, time, 0, &IDENTITY_BONE, 1.0, &mut out, 0);
+            self.pose_bone(sample, 0, &IDENTITY_BONE, 1.0, &mut out, 0);
         }
         out
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn pose_bone(&self, anim: &crate::catanim::CatAnim, time: f32, bone: usize, parent: &BoneMatrix, scale: f32, out: &mut [BoneMatrix], depth: usize) {
+    fn pose_bone(&self, sample: &dyn Fn(usize) -> ([f32; 4], [f32; 3]), bone: usize, parent: &BoneMatrix, scale: f32, out: &mut [BoneMatrix], depth: usize) {
         if depth > 64 {
             return;
         }
-        let [x, y, z, w] = anim.rotation(bone, time);
-        let t = anim.translation(bone, time);
+        let ([x, y, z, w], t) = sample(bone);
         let (xx, xy, xz, xw) = (2.0 * x * x, 2.0 * x * y, 2.0 * x * z, 2.0 * x * w);
         let (yy, yz, yw) = (2.0 * y * y, 2.0 * y * z, 2.0 * y * w);
         let (zz, zw) = (2.0 * z * z, 2.0 * z * w);
@@ -353,7 +374,7 @@ impl CatMesh {
         let child_scale = self.bones[bone].scale * scale;
         for &child in &self.bones[bone].children {
             if child >= 0 && (child as usize) < self.bones.len() {
-                self.pose_bone(anim, time, child as usize, &m, child_scale, out, depth + 1);
+                self.pose_bone(sample, child as usize, &m, child_scale, out, depth + 1);
             }
         }
     }

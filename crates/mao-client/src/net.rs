@@ -280,7 +280,21 @@ struct Characters {
     creature_anims: std::collections::HashMap<u32, Option<(mao_formats::catanim::CatAnim, f32)>>,
     /// Where each character is in its movement animation (start, loop, stop).
     motions: std::collections::HashMap<u32, Motion>,
+    /// The segment `motion` last chose (0 idle, 1 start, 2 cycle, 3 stop, 10 jump, 11 landing), and each character's
+    /// last pose, to cross-fade when the segment changes.
+    segment: u8,
+    poses: std::collections::HashMap<u32, PoseState>,
     started: Instant,
+}
+
+/// How long a change of animation is cross-faded, in seconds.
+const FADE: f32 = 0.16;
+
+struct PoseState {
+    key: (mao_formats::appearance::Action, u8),
+    last: (mao_formats::appearance::Action, f32),
+    from: Option<(mao_formats::appearance::Action, f32)>,
+    at: Instant,
 }
 
 /// The parts of a movement animation: the original's walk and run animations carry `loopstart` and `loopend`
@@ -313,7 +327,7 @@ impl Characters {
         let get = |kind: u32, instance: u32| db.get(Id { kind, instance }).map_err(|e| e.to_string())?.ok_or_else(|| format!("no object {kind:#x}:{instance:#x}"));
         let index = mao_formats::instances::Instances::parse(&get(0xf424a, 1)?).map_err(|e| e.to_string())?;
         let _ = get;
-        Ok(Characters { db, index, anims: Default::default(), bodies: Default::default(), creatures: Default::default(), creature_anims: Default::default(), motions: Default::default(), started: Instant::now() })
+        Ok(Characters { db, index, anims: Default::default(), bodies: Default::default(), creatures: Default::default(), creature_anims: Default::default(), motions: Default::default(), segment: 0, poses: Default::default(), started: Instant::now() })
     }
 
     /// The parts of a creature or NPC from its template (the CAT mesh and
@@ -396,6 +410,7 @@ impl Characters {
                     Some(_) => (JumpForward, LandWalk),
                     None => (JumpStand, LandIdle),
                 };
+                self.segment = if ms < AIR_MS { 10 } else { 11 };
                 if ms < AIR_MS {
                     let length = self.loop_points(breed, sex, jump).map_or(1.0, |p| p.2);
                     return (jump, Some(ms / AIR_MS * length));
@@ -411,6 +426,12 @@ impl Characters {
             _ => {}
         }
         let Motion { stage, action, since } = *st;
+        self.segment = match stage {
+            Stage::Idle => 0,
+            Stage::Start => 1,
+            Stage::Loop => 2,
+            Stage::Stop => 3,
+        };
         if stage == Stage::Idle {
             return (Idle, None);
         }
@@ -443,6 +464,16 @@ impl Characters {
     fn parts(&mut self, id: u32, breed: u8, sex: u8, moving: Option<mao_formats::appearance::Action>, jumped: Option<Duration>, phase: f32, textures: &[(String, u32)], clothes: &[(String, u32)]) -> Option<Vec<Part>> {
         use mao_formats::resource::Id;
         let (action, at) = self.motion(id, breed, sex, moving, jumped);
+        let key = (action, self.segment);
+        // A change of segment is cross-faded from where the last pose was.
+        let (from, fade_at) = match self.poses.get(&id) {
+            Some(p) if p.key != key => (Some(p.last), Instant::now()),
+            Some(p) => (p.from, p.at),
+            None => (None, Instant::now()),
+        };
+        let from = from.filter(|_| fade_at.elapsed().as_secs_f32() < FADE);
+        let name = self.ensure_anim(breed, sex, action);
+        let from_name = from.map(|(a, _)| self.ensure_anim(breed, sex, a));
         let db = self.db.clone();
         let index = &self.index;
         let entry = self.bodies.entry((breed, sex)).or_insert_with(|| {
@@ -453,19 +484,16 @@ impl Characters {
             Some((body, head, attractor))
         });
         let (body, head, attractor) = entry.as_ref()?;
-        let name = mao_formats::appearance::animation_name(breed, sex, action);
-        let anim_entry = self.anims.entry(name.clone()).or_insert_with(|| {
-            let id = index.find(0xf6953, &name)?;
-            let anim = mao_formats::catanim::parse(&db.get(Id { kind: 0xf6953, instance: id }).ok()??).ok()?;
-            let length = anim.tracks.iter().flat_map(|t| t.rotations.iter().map(|k| k.0)).fold(1.0f32, f32::max);
-            Some((anim, length))
-        });
-        let (anim, length) = anim_entry.as_ref()?;
+        let (anim, length) = self.anims.get(&name)?.as_ref()?;
         let t = match at {
             Some(t) => t.min(*length),
             None => (self.started.elapsed().as_secs_f32() * 1000.0 + phase) % length,
         };
-        let bones = body.pose(anim, t);
+        self.poses.insert(id, PoseState { key, last: (action, t), from: self.poses.get(&id).and_then(|p| if p.key != key { Some(p.last) } else { p.from }).filter(|_| fade_at.elapsed().as_secs_f32() < FADE), at: fade_at });
+        let bones = match (from, from_name.as_ref().and_then(|n| self.anims.get(n)).and_then(|a| a.as_ref())) {
+            (Some((_, from_time)), Some((from_anim, _))) => body.pose_blend(from_anim, from_time, anim, t, (fade_at.elapsed().as_secs_f32() / FADE).clamp(0.0, 1.0)),
+            _ => body.pose(anim, t),
+        };
         let mut model = body.skinned_model(&bones, 0xf6954);
         // The character's own textures (its clothes) replace the mesh's by material name.
         for part in &mut model.parts {
