@@ -134,6 +134,32 @@ pub fn use_object(character: u32, sequence: u32, target: (u32, u32)) -> Frame {
     Message { kind: 0x52526858, identity: (CHARACTER, character), data }.frame(character)
 }
 
+/// `Mail` (`333b2867`) asking a mail terminal for the inbox: action 1 and eight zero bytes (as the
+/// original sends it, after using the terminal). The answer is a `Mail` with action 0 and a list
+/// (empty in the capture: `00 00 00 | 00 00 03 f1`).
+pub fn mail_request(character: u32) -> Frame {
+    let mut data = vec![0u8, 0, 1];
+    data.extend_from_slice(&[0; 8]);
+    Message { kind: 0x333b2867, identity: (CHARACTER, character), data }.frame(character)
+}
+
+/// `Mail` (`333b2867`) sending a mail: action 6, the recipient, subject and body (each with an `i16`
+/// length), the attached item's identity (an inventory slot is `(0x68, slot)`; `(0, 0)` for none), the
+/// credits and whether it goes express. Free accounts are refused ("Sending mail is limited to paying
+/// customers"): the server answers with a `FormatFeedback`.
+pub fn mail_send(character: u32, recipient: &str, subject: &str, body: &str, item: (u32, u32), credits: u32, express: bool) -> Frame {
+    let mut data = vec![0u8, 0, 6];
+    for text in [recipient, subject, body] {
+        data.extend_from_slice(&(text.len() as u16).to_be_bytes());
+        data.extend_from_slice(text.as_bytes());
+    }
+    data.extend_from_slice(&item.0.to_be_bytes());
+    data.extend_from_slice(&item.1.to_be_bytes());
+    data.extend_from_slice(&credits.to_be_bytes());
+    data.push(express as u8);
+    Message { kind: 0x333b2867, identity: (CHARACTER, character), data }.frame(character)
+}
+
 /// `QuestAlternative` (`5c436609`): asks a mission terminal for missions. The sliders are the
 /// terminal window's seven (difficulty, good/bad, order/chaos, open/hidden, physical/mystical,
 /// head-on/stealth, credits/xp; 255 leaves one to the server), `scope` is 1 for a solo booth and 2 for
@@ -203,6 +229,14 @@ pub fn position_update(character: u32, movement: u8, heading: f32, position: [f3
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn mail_matches_the_capture() {
+        let hex = |m: Frame| -> String { Message::parse(&m).unwrap().data.iter().map(|b| format!("{b:02x}")).collect() };
+        assert_eq!(hex(mail_request(0x4c2e2)), "0000010000000000000000");
+        // The captured send: to "Muggles", subject "hi", no body, the item in inventory slot 0x44, express.
+        assert_eq!(hex(mail_send(0x4c2e2, "Muggles", "hi", "", (0x68, 0x44), 0, true)), "00000600074d7567676c657300026869000000000068000000440000000001");
+    }
+
     #[test]
     fn use_matches_the_capture() {
         // The client's first use in the capture: character 0x4c2de, target (0xc76a, 0x0101e30a).

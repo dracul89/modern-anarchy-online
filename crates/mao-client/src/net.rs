@@ -582,6 +582,16 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut pending_gear = state.inventory.take().map(|e| crate::gear::from_entries(&gear_db, &gear_textures, &e));
         let mut keys = crate::viewer::Input::default();
         let mut raw = crate::viewer::Input::default();
+        // `MAO_MAILBOX=type,instance` (a mail terminal, 0xc773 and its serial) uses it 8 s into the session (or
+        // after the walk) and asks for the inbox; the answer is printed (raw when the schema can't read it).
+        let mut mailbox: Option<(u32, u32)> = std::env::var("MAO_MAILBOX").ok().and_then(|t| {
+            let n: Vec<u32> = t.split(',').filter_map(|v| {
+                let v = v.trim();
+                v.strip_prefix("0x").map_or_else(|| v.parse().ok(), |h| u32::from_str_radix(h, 16).ok())
+            }).collect();
+            Some((*n.first()?, *n.get(1)?))
+        });
+        let mut mailbox_stage: (u8, Instant) = (0, Instant::now());
         let (mut goto, mut goto_seen): (Option<[f32; 2]>, u8) = (None, 0);
         // Walking round obstacles: the best distance so far, when it last improved, the detour being tried
         // (a turn away from the straight line, until when) and how many have been tried.
@@ -668,8 +678,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         }
                     }
                     if let Some(m) = Message::parse(&frame).filter(|m| matches!(m.kind, 0x5c436609 | 0x465a4061 | 0x212c487a | 0x333b2867 | 0x36284f6e | 0x58362220 | 0x50544d19 | 0x206b4b73 | 0x5f4b442a)) {
-                        if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
-                            eprintln!("[{:6.1}] {} identity ({:x},{:x}) left {}{}", clock.elapsed().as_secs_f32(), p.name, m.identity.0, m.identity.1, p.left, p.value.pretty());
+                        match mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
+                            Ok(p) if m.kind != 0x333b2867 => eprintln!("[{:6.1}] {} identity ({:x},{:x}) left {}{}", clock.elapsed().as_secs_f32(), p.name, m.identity.0, m.identity.1, p.left, p.value.pretty()),
+                            // Mail is shown raw too: the schema only models sending.
+                            _ => eprintln!("[{:6.1}] kind {:08x} identity ({:x},{:x}) {} bytes: {}", clock.elapsed().as_secs_f32(), m.kind, m.identity.0, m.identity.1, m.data.len(), m.data.iter().map(|b| format!("{b:02x}")).collect::<String>()),
                         }
                     }
                     state.add(&frame);
@@ -872,6 +884,21 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 } else if cmd.what == 2 {
                     let _ = connection.send(&n3::create_quest(own, cmd.mission));
                     pending_mission_status = Some("Mission requested; see the mission log.".into());
+                }
+            }
+            // The mailbox test: use the terminal once nothing is walking, then ask for the inbox.
+            if let Some((kind, id)) = mailbox {
+                if goto.is_none() && clock.elapsed() > Duration::from_secs(8) {
+                    if mailbox_stage.0 == 0 {
+                        mailbox_stage = (1, Instant::now());
+                        eprintln!("using mail terminal ({kind:#x}, {id:#x})");
+                        uses += 1;
+                        let _ = connection.send(&n3::use_object(own, uses, (kind, id)));
+                    } else if mailbox_stage.0 == 1 && mailbox_stage.1.elapsed() > Duration::from_secs(2) {
+                        mailbox = None;
+                        eprintln!("asking for the inbox");
+                        let _ = connection.send(&n3::mail_request(own));
+                    }
                 }
             }
             // A hotbar item: use the inventory slot it sits in.
