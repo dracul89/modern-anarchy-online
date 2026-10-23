@@ -175,7 +175,8 @@ impl Camera {
     fn view_proj(&self, aspect: f32, radius: f32) -> Mat4 {
         let eye = self.eye();
         let far = (self.distance + radius * 4.0).max(1.0);
-        let near = (far * 0.001).max(0.01);
+        // (Not a fixed share of the far plane: on a big playfield that cut the ground within 8 units of the camera away.)
+        let near = (far * 0.001).clamp(0.01, 0.2);
         perspective(0.9, aspect, near, far) * look_at(eye, self.target, Vec3::Z)
     }
 }
