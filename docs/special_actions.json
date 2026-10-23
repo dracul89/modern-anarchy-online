@@ -1,0 +1,662 @@
+[
+ {
+  "id": 82211,
+  "kind": "weapon",
+  "name": "Burst",
+  "stats": [
+   "Burst",
+   "Burst",
+   "Flags"
+  ],
+  "raw": [
+   148,
+   148,
+   0
+  ],
+  "hash": ""
+ },
+ {
+  "id": 82208,
+  "kind": "weapon",
+  "name": "Fling Shot",
+  "stats": [
+   "FlingShot",
+   "FlingShot",
+   "Flags"
+  ],
+  "raw": [
+   150,
+   150,
+   0
+  ],
+  "hash": ""
+ },
+ {
+  "id": 82209,
+  "kind": "weapon",
+  "name": "Full Auto",
+  "stats": [
+   "FullAuto",
+   "FullAuto",
+   "Flags"
+  ],
+  "raw": [
+   167,
+   167,
+   0
+  ],
+  "hash": ""
+ },
+ {
+  "id": 245003,
+  "kind": "character",
+  "name": "Reload",
+  "stats": [
+   "HeavyWeapons",
+   "HeavyWeapons",
+   "Flags"
+  ],
+  "raw": [
+   110,
+   110,
+   0
+  ],
+  "hash": ""
+ },
+ {
+  "id": 49571,
+  "kind": "character",
+  "name": "Use",
+  "stats": [
+   "AttackSpeed",
+   "AttackSpeed",
+   "Flags"
+  ],
+  "raw": [
+   3,
+   3,
+   0
+  ],
+  "hash": ""
+ },
+ {
+  "id": 49578,
+  "kind": "character",
+  "name": "Pick-Up",
+  "stats": [
+   "MaxHealth",
+   "MaxHealth",
+   "Flags"
+  ],
+  "raw": [
+   1,
+   1,
+   0
+  ],
+  "hash": ""
+ },
+ {
+  "id": 49573,
+  "kind": "character",
+  "name": "Start Combat",
+  "stats": [
+   "PreviousHealth",
+   "PreviousHealth",
+   "CurrentMass"
+  ],
+  "raw": [
+   11,
+   11,
+   78
+  ],
+  "hash": ""
+ },
+ {
+  "id": 49574,
+  "kind": "character",
+  "name": "Stand",
+  "stats": [
+   "RepairSkill",
+   "ItemClass",
+   "RepairSkill"
+  ],
+  "raw": [
+   77,
+   76,
+   77
+  ],
+  "hash": ""
+ },
+ {
+  "id": 49570,
+  "kind": "character",
+  "name": "Walk",
+  "stats": [
+   "Agility",
+   "Agility",
+   "Stamina"
+  ],
+  "raw": [
+   17,
+   17,
+   18
+  ],
+  "hash": ""
+ },
+ {
+  "id": 49575,
+  "kind": "character",
+  "name": "Sneak",
+  "stats": [
+   "Intelligence",
+   "Intelligence",
+   "Icon"
+  ],
+  "raw": [
+   19,
+   19,
+   79
+  ],
+  "hash": ""
+ },
+ {
+  "id": 82212,
+  "kind": "character",
+  "name": "Suspended Animation",
+  "stats": [
+   "PrimaryItemInstance",
+   "PrimaryItemInstance",
+   "SecondaryItemType"
+  ],
+  "raw": [
+   81,
+   81,
+   82
+  ],
+  "hash": ""
+ },
+ {
+  "id": 236669,
+  "kind": "character",
+  "name": "Crawl",
+  "stats": [
+   "Sense",
+   "Sense",
+   "Tutoring"
+  ],
+  "raw": [
+   20,
+   20,
+   141
+  ],
+  "hash": ""
+ },
+ {
+  "id": 121303,
+  "kind": "character",
+  "name": "Search",
+  "stats": [
+   "MultiRanged",
+   "MultiRanged",
+   "MultiRanged"
+  ],
+  "raw": [
+   134,
+   134,
+   134
+  ],
+  "hash": ""
+ },
+ {
+  "id": 82213,
+  "kind": "character",
+  "name": "Dimach",
+  "stats": [
+   "Dimach",
+   "Dimach",
+   "Flags"
+  ],
+  "raw": [
+   144,
+   144,
+   0
+  ],
+  "hash": ""
+ },
+ {
+  "id": 82210,
+  "kind": "character",
+  "name": "Brawl",
+  "stats": [
+   "Brawl",
+   "Brawl",
+   "Flags"
+  ],
+  "raw": [
+   142,
+   142,
+   0
+  ],
+  "hash": ""
+ },
+ {
+  "id": 266141,
+  "kind": "perk",
+  "name": "Reconditioned",
+  "stats": [],
+  "raw": [
+   12854,
+   12854,
+   0
+  ],
+  "hash": "SUBD"
+ },
+ {
+  "id": 266188,
+  "kind": "perk",
+  "name": "Successful Targeting",
+  "stats": [],
+  "raw": [
+   12840,
+   12840,
+   0
+  ],
+  "hash": "CVSH"
+ },
+ {
+  "id": 266215,
+  "kind": "perk",
+  "name": "Fuse Body Armor",
+  "stats": [],
+  "raw": [
+   12839,
+   12839,
+   0
+  ],
+  "hash": "RSME"
+ },
+ {
+  "id": 266191,
+  "kind": "perk",
+  "name": "Gear Assault Absorption",
+  "stats": [],
+  "raw": [
+   12833,
+   12833,
+   0
+  ],
+  "hash": "CETM"
+ },
+ {
+  "id": 266031,
+  "kind": "perk",
+  "name": "Concussive Shot",
+  "stats": [],
+  "raw": [
+   12832,
+   12832,
+   0
+  ],
+  "hash": "AGAM"
+ },
+ {
+  "id": 266034,
+  "kind": "perk",
+  "name": "Emergency Bandages",
+  "stats": [],
+  "raw": [
+   12822,
+   12822,
+   0
+  ],
+  "hash": "ERAM"
+ },
+ {
+  "id": 266138,
+  "kind": "perk",
+  "name": "Deep Six Initiative",
+  "stats": [],
+  "raw": [
+   12811,
+   12811,
+   0
+  ],
+  "hash": "EMBA"
+ },
+ {
+  "id": 266093,
+  "kind": "perk",
+  "name": "Shoot Artery",
+  "stats": [],
+  "raw": [
+   12810,
+   12810,
+   0
+  ],
+  "hash": "SRAY"
+ },
+ {
+  "id": 266040,
+  "kind": "perk",
+  "name": "Furious Ammunition",
+  "stats": [],
+  "raw": [
+   12809,
+   12809,
+   0
+  ],
+  "hash": "INAM"
+ },
+ {
+  "id": 266212,
+  "kind": "perk",
+  "name": "Graze Jugular Vein",
+  "stats": [],
+  "raw": [
+   12806,
+   12806,
+   0
+  ],
+  "hash": "RTMO"
+ },
+ {
+  "id": 266037,
+  "kind": "perk",
+  "name": "On The Double",
+  "stats": [],
+  "raw": [
+   12797,
+   12797,
+   0
+  ],
+  "hash": "FUAM"
+ },
+ {
+  "id": 266096,
+  "kind": "perk",
+  "name": "Target Acquired",
+  "stats": [],
+  "raw": [
+   12795,
+   12795,
+   0
+  ],
+  "hash": "GRDR"
+ },
+ {
+  "id": 253107,
+  "kind": "perk",
+  "name": "Fire Frenzy",
+  "stats": [],
+  "raw": [
+   11179,
+   11179,
+   0
+  ],
+  "hash": "FRFR"
+ },
+ {
+  "id": 253104,
+  "kind": "perk",
+  "name": "Fuzz",
+  "stats": [],
+  "raw": [
+   11174,
+   11174,
+   0
+  ],
+  "hash": "CXWZ"
+ },
+ {
+  "id": 248201,
+  "kind": "perk",
+  "name": "Muzzle Overload",
+  "stats": [],
+  "raw": [
+   11029,
+   11029,
+   0
+  ],
+  "hash": "MZOV"
+ },
+ {
+  "id": 248196,
+  "kind": "perk",
+  "name": "Clipfever",
+  "stats": [],
+  "raw": [
+   11025,
+   11025,
+   0
+  ],
+  "hash": "CLFE"
+ },
+ {
+  "id": 248183,
+  "kind": "perk",
+  "name": "Supressive Horde",
+  "stats": [],
+  "raw": [
+   11020,
+   11020,
+   0
+  ],
+  "hash": "SPHO"
+ },
+ {
+  "id": 227338,
+  "kind": "perk",
+  "name": "Guardian",
+  "stats": [],
+  "raw": [
+   10739,
+   10739,
+   0
+  ],
+  "hash": "ARDI"
+ },
+ {
+  "id": 227336,
+  "kind": "perk",
+  "name": "Violence",
+  "stats": [],
+  "raw": [
+   10737,
+   10737,
+   0
+  ],
+  "hash": "EEED"
+ },
+ {
+  "id": 226195,
+  "kind": "perk",
+  "name": "Contained Burst",
+  "stats": [],
+  "raw": [
+   10735,
+   10735,
+   0
+  ],
+  "hash": "CNBU"
+ },
+ {
+  "id": 226184,
+  "kind": "perk",
+  "name": "Tracer",
+  "stats": [],
+  "raw": [
+   10732,
+   10732,
+   0
+  ],
+  "hash": "TRAC"
+ },
+ {
+  "id": 227329,
+  "kind": "perk",
+  "name": "Field Bandage",
+  "stats": [],
+  "raw": [
+   10730,
+   10730,
+   0
+  ],
+  "hash": "FEBN"
+ },
+ {
+  "id": 227191,
+  "kind": "perk",
+  "name": "Detonate Stoneworks",
+  "stats": [],
+  "raw": [
+   10544,
+   10544,
+   0
+  ],
+  "hash": "DTSN"
+ },
+ {
+  "id": 227190,
+  "kind": "perk",
+  "name": "Encase in Stone",
+  "stats": [],
+  "raw": [
+   10542,
+   10542,
+   0
+  ],
+  "hash": "ENIS"
+ },
+ {
+  "id": 226700,
+  "kind": "perk",
+  "name": "Napalm Spray",
+  "stats": [],
+  "raw": [
+   10486,
+   10486,
+   0
+  ],
+  "hash": "NPSR"
+ },
+ {
+  "id": 226699,
+  "kind": "perk",
+  "name": "Triangulate Target",
+  "stats": [],
+  "raw": [
+   10484,
+   10484,
+   0
+  ],
+  "hash": "TRTA"
+ },
+ {
+  "id": 225869,
+  "kind": "perk",
+  "name": "Weapon Bash",
+  "stats": [],
+  "raw": [
+   10482,
+   10482,
+   0
+  ],
+  "hash": "WEBS"
+ },
+ {
+  "id": 226688,
+  "kind": "perk",
+  "name": "Laser Paint Target",
+  "stats": [],
+  "raw": [
+   10481,
+   10481,
+   0
+  ],
+  "hash": "LAPI"
+ },
+ {
+  "id": 227714,
+  "kind": "perk",
+  "name": "Grip of Colossus",
+  "stats": [],
+  "raw": [
+   10432,
+   10432,
+   0
+  ],
+  "hash": "GIOC"
+ },
+ {
+  "id": 227713,
+  "kind": "perk",
+  "name": "Bearhug",
+  "stats": [],
+  "raw": [
+   10431,
+   10431,
+   0
+  ],
+  "hash": "EARH"
+ },
+ {
+  "id": 227712,
+  "kind": "perk",
+  "name": "Grasp",
+  "stats": [],
+  "raw": [
+   10430,
+   10430,
+   0
+  ],
+  "hash": "BFEI"
+ },
+ {
+  "id": 227223,
+  "kind": "perk",
+  "name": "Heal",
+  "stats": [],
+  "raw": [
+   10401,
+   10401,
+   0
+  ],
+  "hash": "BDNB"
+ },
+ {
+  "id": 216613,
+  "kind": "perk",
+  "name": "Draw Blood",
+  "stats": [],
+  "raw": [
+   10278,
+   10278,
+   0
+  ],
+  "hash": "DRBO"
+ },
+ {
+  "id": 216612,
+  "kind": "perk",
+  "name": "Lifeblood",
+  "stats": [],
+  "raw": [
+   10274,
+   10274,
+   0
+  ],
+  "hash": "LIFE"
+ },
+ {
+  "id": 216602,
+  "kind": "perk",
+  "name": "Blessing of Life",
+  "stats": [],
+  "raw": [
+   10272,
+   10272,
+   0
+  ],
+  "hash": "BNOI"
+ }
+]
