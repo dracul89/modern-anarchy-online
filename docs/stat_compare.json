@@ -1,0 +1,2887 @@
+[
+{
+"stat": 0,
+"name": "Flags",
+"d0": 1577537,
+"d2": 1577537,
+"server": {
+"Stats1": 1577537
+}
+},
+{
+"stat": 1,
+"name": "MaxHealth",
+"d0": 8265,
+"d2": 35187,
+"server": {
+"Stats2": 8265
+}
+},
+{
+"stat": 2,
+"name": "Mass",
+"d0": 50,
+"d2": 50,
+"server": {}
+},
+{
+"stat": 3,
+"name": "AttackSpeed",
+"d0": 5,
+"d2": 5,
+"server": {}
+},
+{
+"stat": 4,
+"name": "Breed",
+"d0": 2,
+"d2": 2,
+"server": {
+"Stats2": 2
+}
+},
+{
+"stat": 5,
+"name": "Clan",
+"d0": 4614,
+"d2": 4614,
+"server": {}
+},
+{
+"stat": 6,
+"name": "Team",
+"d0": 0,
+"d2": 0,
+"server": {
+"Stats2": 0
+}
+},
+{
+"stat": 7,
+"name": "State",
+"d0": 1000001,
+"d2": 1000001,
+"server": {
+"Stats1": 1000001
+}
+},
+{
+"stat": 8,
+"name": "TimeExist",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 9,
+"name": "MapFlags",
+"d0": 0,
+"d2": 0,
+"server": {
+"Stats4": 0
+}
+},
+{
+"stat": 10,
+"name": "ProfessionLevel",
+"d0": 200,
+"d2": 200,
+"server": {
+"Stats3": 200
+}
+},
+{
+"stat": 11,
+"name": "PreviousHealth",
+"d0": 35187,
+"d2": 35187,
+"server": {
+"Stats2": 35196
+}
+},
+{
+"stat": 12,
+"name": "Mesh",
+"d0": 15222,
+"d2": 15222,
+"server": {
+"Stats2": 15222
+}
+},
+{
+"stat": 13,
+"name": "Anim",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 15,
+"name": "Info",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 16,
+"name": "Strength",
+"d0": 764,
+"d2": 1175,
+"server": {
+"Stats2": 764
+}
+},
+{
+"stat": 17,
+"name": "Agility",
+"d0": 944,
+"d2": 1026,
+"server": {
+"Stats2": 944
+}
+},
+{
+"stat": 18,
+"name": "Stamina",
+"d0": 680,
+"d2": 1128,
+"server": {
+"Stats2": 680
+}
+},
+{
+"stat": 19,
+"name": "Intelligence",
+"d0": 764,
+"d2": 904,
+"server": {
+"Stats2": 764
+}
+},
+{
+"stat": 20,
+"name": "Sense",
+"d0": 912,
+"d2": 1001,
+"server": {
+"Stats2": 912
+}
+},
+{
+"stat": 21,
+"name": "Psychic",
+"d0": 748,
+"d2": 873,
+"server": {
+"Stats2": 748
+}
+},
+{
+"stat": 22,
+"name": "AMS",
+"d0": 2862,
+"d2": 2862,
+"server": {}
+},
+{
+"stat": 23,
+"name": "StaticInstance",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 25,
+"name": "StaticType",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 27,
+"name": "Health",
+"d0": 35187,
+"d2": 35187,
+"server": {
+"Stats2": 35187
+}
+},
+{
+"stat": 28,
+"name": "Height",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 29,
+"name": "DMS",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 30,
+"name": "Can",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 31,
+"name": "Face",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 32,
+"name": "HairMesh",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 33,
+"name": "Side",
+"d0": 1,
+"d2": 1,
+"server": {
+"Stats2": 1
+}
+},
+{
+"stat": 34,
+"name": "DeadTimer",
+"d0": 75,
+"d2": 75,
+"server": {
+"Stats2": 75
+}
+},
+{
+"stat": 35,
+"name": "AccessCount",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 36,
+"name": "AttackCount",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 37,
+"name": "TitleLevel",
+"d0": 7,
+"d2": 7,
+"server": {}
+},
+{
+"stat": 38,
+"name": "BackMesh",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 39,
+"name": "ShoulderMesh",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 40,
+"name": "AlienXP",
+"d0": 306522,
+"d2": 306522,
+"server": {}
+},
+{
+"stat": 41,
+"name": "FabricType",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 42,
+"name": "CATMesh",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 43,
+"name": "ParentType",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 44,
+"name": "ParentInstance",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 45,
+"name": "BeltSlots",
+"d0": 0,
+"d2": 6,
+"server": {
+"Stats3": 0
+}
+},
+{
+"stat": 46,
+"name": "BandolierSlots",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 47,
+"name": "Fatness",
+"d0": 1,
+"d2": 1,
+"server": {
+"Stats3": 1
+}
+},
+{
+"stat": 48,
+"name": "ClanLevel",
+"d0": 2,
+"d2": 2,
+"server": {}
+},
+{
+"stat": 49,
+"name": "InsuranceTime",
+"d0": 0,
+"d2": 0,
+"server": {
+"Stats4": 0
+}
+},
+{
+"stat": 50,
+"name": "InventoryTimeout",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 51,
+"name": "AggDef",
+"d0": -99,
+"d2": -99,
+"server": {
+"Stats2": -99
+}
+},
+{
+"stat": 52,
+"name": "XP",
+"d0": 2061374766,
+"d2": 2061374766,
+"server": {
+"Stats2": 2061374766
+}
+},
+{
+"stat": 53,
+"name": "IP",
+"d0": 55977,
+"d2": 55977,
+"server": {
+"Stats2": 55977
+}
+},
+{
+"stat": 54,
+"name": "Level",
+"d0": 220,
+"d2": 220,
+"server": {
+"Stats2": 220
+}
+},
+{
+"stat": 56,
+"name": "TimeSinceCreation",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 57,
+"name": "LastXP",
+"d0": 14935041,
+"d2": 14935041,
+"server": {
+"Stats2": 14935041
+}
+},
+{
+"stat": 58,
+"name": "Age",
+"d0": 6160406,
+"d2": 6160406,
+"server": {
+"Stats2": 6160244
+}
+},
+{
+"stat": 59,
+"name": "Sex",
+"d0": 2,
+"d2": 2,
+"server": {
+"Stats2": 2
+}
+},
+{
+"stat": 60,
+"name": "Profession",
+"d0": 9,
+"d2": 9,
+"server": {
+"Stats2": 9
+}
+},
+{
+"stat": 61,
+"name": "Cash",
+"d0": 414828034,
+"d2": 414828034,
+"server": {
+"Stats2": 414828034
+}
+},
+{
+"stat": 62,
+"name": "AlignmentClanTokens",
+"d0": 10004,
+"d2": 10004,
+"server": {
+"Stats2": 10004
+}
+},
+{
+"stat": 63,
+"name": "Attitude",
+"d0": 0,
+"d2": 0,
+"server": {
+"Stats2": 0
+}
+},
+{
+"stat": 64,
+"name": "HeadMesh",
+"d0": 40272,
+"d2": 40272,
+"server": {}
+},
+{
+"stat": 65,
+"name": "HairTexture",
+"d0": -536084466,
+"d2": -536084466,
+"server": {}
+},
+{
+"stat": 66,
+"name": "MissionBits6",
+"d0": 121618457,
+"d2": 121618457,
+"server": {}
+},
+{
+"stat": 67,
+"name": "HairColourRGB",
+"d0": 192,
+"d2": 192,
+"server": {
+"Stats1": 192
+}
+},
+{
+"stat": 68,
+"name": "NumConstructedQuest",
+"d0": 31,
+"d2": 31,
+"server": {
+"Stats2": 31
+}
+},
+{
+"stat": 69,
+"name": "MaxConstructedQuest",
+"d0": 56,
+"d2": 56,
+"server": {
+"Stats2": 56
+}
+},
+{
+"stat": 70,
+"name": "SpeedPenalty",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 71,
+"name": "TotalMass",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 72,
+"name": "ItemType",
+"d0": 0,
+"d2": 0,
+"server": {
+"Stats2": 0
+}
+},
+{
+"stat": 73,
+"name": "RepairDifficulty",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 74,
+"name": "Value",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 76,
+"name": "ItemClass",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 77,
+"name": "RepairSkill",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 78,
+"name": "CurrentMass",
+"d0": 0,
+"d2": 0,
+"server": {
+"Stats2": 0
+}
+},
+{
+"stat": 79,
+"name": "Icon",
+"d0": 0,
+"d2": 0,
+"server": {
+"Stats2": 0
+}
+},
+{
+"stat": 88,
+"name": "DefaultPos",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 89,
+"name": "Race",
+"d0": 1,
+"d2": 1,
+"server": {
+"Stats3": 1
+}
+},
+{
+"stat": 90,
+"name": "ProjectileAC",
+"d0": 0,
+"d2": 15106,
+"server": {}
+},
+{
+"stat": 91,
+"name": "MeleeAC",
+"d0": 0,
+"d2": 14516,
+"server": {}
+},
+{
+"stat": 92,
+"name": "EnergyAC",
+"d0": 0,
+"d2": 14446,
+"server": {}
+},
+{
+"stat": 93,
+"name": "ChemicalAC",
+"d0": 0,
+"d2": 14266,
+"server": {}
+},
+{
+"stat": 94,
+"name": "RadiationAC",
+"d0": 0,
+"d2": 14516,
+"server": {}
+},
+{
+"stat": 95,
+"name": "ColdAC",
+"d0": 0,
+"d2": 14751,
+"server": {}
+},
+{
+"stat": 96,
+"name": "PoisonAC",
+"d0": 0,
+"d2": 14376,
+"server": {}
+},
+{
+"stat": 97,
+"name": "FireAC",
+"d0": 0,
+"d2": 14646,
+"server": {}
+},
+{
+"stat": 98,
+"name": "StateAction",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 99,
+"name": "ItemAnim",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 100,
+"name": "MartialArts",
+"d0": 5,
+"d2": 818,
+"server": {}
+},
+{
+"stat": 101,
+"name": "MultiMelee",
+"d0": 930,
+"d2": 1660,
+"server": {}
+},
+{
+"stat": 102,
+"name": "_1hBlunt",
+"d0": 1100,
+"d2": 2481,
+"server": {}
+},
+{
+"stat": 103,
+"name": "_1hEdged",
+"d0": 5,
+"d2": 1056,
+"server": {}
+},
+{
+"stat": 104,
+"name": "MeleeEnergy",
+"d0": 5,
+"d2": 760,
+"server": {}
+},
+{
+"stat": 105,
+"name": "Skill2hEdged",
+"d0": 5,
+"d2": 955,
+"server": {}
+},
+{
+"stat": 106,
+"name": "Piercing",
+"d0": 1100,
+"d2": 2092,
+"server": {}
+},
+{
+"stat": 107,
+"name": "_2hBlunt",
+"d0": 5,
+"d2": 953,
+"server": {}
+},
+{
+"stat": 108,
+"name": "SharpObject",
+"d0": 5,
+"d2": 556,
+"server": {}
+},
+{
+"stat": 109,
+"name": "Grenade",
+"d0": 5,
+"d2": 284,
+"server": {}
+},
+{
+"stat": 110,
+"name": "HeavyWeapons",
+"d0": 5,
+"d2": 510,
+"server": {}
+},
+{
+"stat": 111,
+"name": "Bow",
+"d0": 5,
+"d2": 497,
+"server": {}
+},
+{
+"stat": 112,
+"name": "Pistol",
+"d0": 5,
+"d2": 291,
+"server": {}
+},
+{
+"stat": 113,
+"name": "Rifle",
+"d0": 5,
+"d2": 349,
+"server": {}
+},
+{
+"stat": 114,
+"name": "MGSMG",
+"d0": 5,
+"d2": 311,
+"server": {}
+},
+{
+"stat": 115,
+"name": "Shotgun",
+"d0": 5,
+"d2": 308,
+"server": {}
+},
+{
+"stat": 116,
+"name": "AssaultRifle",
+"d0": 5,
+"d2": 306,
+"server": {}
+},
+{
+"stat": 117,
+"name": "VehicleWater",
+"d0": 5,
+"d2": 540,
+"server": {
+"Stats2": 5
+}
+},
+{
+"stat": 118,
+"name": "MeleeInit",
+"d0": 808,
+"d2": 1476,
+"server": {}
+},
+{
+"stat": 119,
+"name": "RangedInit",
+"d0": 5,
+"d2": 247,
+"server": {}
+},
+{
+"stat": 120,
+"name": "PhysicalInit",
+"d0": 5,
+"d2": 536,
+"server": {}
+},
+{
+"stat": 121,
+"name": "BowSpecialAttack",
+"d0": 5,
+"d2": 551,
+"server": {}
+},
+{
+"stat": 122,
+"name": "SensoryImprovement",
+"d0": 232,
+"d2": 985,
+"server": {}
+},
+{
+"stat": 123,
+"name": "FirstAid",
+"d0": 940,
+"d2": 1492,
+"server": {}
+},
+{
+"stat": 124,
+"name": "Treatment",
+"d0": 940,
+"d2": 1506,
+"server": {}
+},
+{
+"stat": 125,
+"name": "MechanicalEngineering",
+"d0": 5,
+"d2": 440,
+"server": {}
+},
+{
+"stat": 126,
+"name": "ElectricalEngineering",
+"d0": 5,
+"d2": 301,
+"server": {}
+},
+{
+"stat": 127,
+"name": "MaterialMetamorphosis",
+"d0": 780,
+"d2": 1548,
+"server": {}
+},
+{
+"stat": 128,
+"name": "BiologicalMetamorphosis",
+"d0": 780,
+"d2": 1593,
+"server": {}
+},
+{
+"stat": 129,
+"name": "PsychologicalModification",
+"d0": 780,
+"d2": 1604,
+"server": {}
+},
+{
+"stat": 130,
+"name": "MaterialCreation",
+"d0": 780,
+"d2": 1581,
+"server": {}
+},
+{
+"stat": 131,
+"name": "SpaceTime",
+"d0": 5,
+"d2": 751,
+"server": {}
+},
+{
+"stat": 132,
+"name": "NanoPool",
+"d0": 940,
+"d2": 1177,
+"server": {}
+},
+{
+"stat": 133,
+"name": "RangedEnergy",
+"d0": 5,
+"d2": 327,
+"server": {}
+},
+{
+"stat": 134,
+"name": "MultiRanged",
+"d0": 5,
+"d2": 249,
+"server": {}
+},
+{
+"stat": 135,
+"name": "TrapDisarm",
+"d0": 5,
+"d2": 251,
+"server": {}
+},
+{
+"stat": 136,
+"name": "Perception",
+"d0": 5,
+"d2": 736,
+"server": {}
+},
+{
+"stat": 137,
+"name": "Adventuring",
+"d0": 5,
+"d2": 565,
+"server": {}
+},
+{
+"stat": 138,
+"name": "Swimming",
+"d0": 5,
+"d2": 573,
+"server": {}
+},
+{
+"stat": 139,
+"name": "VehicleAir",
+"d0": 5,
+"d2": 599,
+"server": {}
+},
+{
+"stat": 140,
+"name": "MapNavigation",
+"d0": 5,
+"d2": 531,
+"server": {}
+},
+{
+"stat": 141,
+"name": "Tutoring",
+"d0": 5,
+"d2": 516,
+"server": {}
+},
+{
+"stat": 142,
+"name": "Brawl",
+"d0": 632,
+"d2": 1622,
+"server": {}
+},
+{
+"stat": 143,
+"name": "Riposte",
+"d0": 5,
+"d2": 667,
+"server": {}
+},
+{
+"stat": 144,
+"name": "Dimach",
+"d0": 10,
+"d2": 682,
+"server": {}
+},
+{
+"stat": 145,
+"name": "Parry",
+"d0": 5,
+"d2": 719,
+"server": {}
+},
+{
+"stat": 146,
+"name": "SneakAttack",
+"d0": 940,
+"d2": 1690,
+"server": {}
+},
+{
+"stat": 147,
+"name": "FastAttack",
+"d0": 399,
+"d2": 1268,
+"server": {}
+},
+{
+"stat": 148,
+"name": "Burst",
+"d0": 5,
+"d2": 277,
+"server": {}
+},
+{
+"stat": 149,
+"name": "NanoCInit",
+"d0": 5,
+"d2": 1099,
+"server": {}
+},
+{
+"stat": 150,
+"name": "FlingShot",
+"d0": 5,
+"d2": 261,
+"server": {}
+},
+{
+"stat": 151,
+"name": "AimedShot",
+"d0": 5,
+"d2": 399,
+"server": {}
+},
+{
+"stat": 152,
+"name": "BodyDevelopment",
+"d0": 1100,
+"d2": 1870,
+"server": {}
+},
+{
+"stat": 153,
+"name": "DuckExp",
+"d0": 5,
+"d2": 542,
+"server": {}
+},
+{
+"stat": 154,
+"name": "DodgeRanged",
+"d0": 940,
+"d2": 1477,
+"server": {}
+},
+{
+"stat": 155,
+"name": "EvadeClsC",
+"d0": 940,
+"d2": 1477,
+"server": {}
+},
+{
+"stat": 156,
+"name": "RunSpeed",
+"d0": 940,
+"d2": 2127,
+"server": {
+"Stats2": 940
+}
+},
+{
+"stat": 157,
+"name": "QuantumFT",
+"d0": 5,
+"d2": 277,
+"server": {}
+},
+{
+"stat": 158,
+"name": "WeaponSmithing",
+"d0": 5,
+"d2": 603,
+"server": {}
+},
+{
+"stat": 159,
+"name": "Pharmaceuticals",
+"d0": 5,
+"d2": 237,
+"server": {}
+},
+{
+"stat": 160,
+"name": "NanoProgramming",
+"d0": 565,
+"d2": 1116,
+"server": {}
+},
+{
+"stat": 161,
+"name": "ComputerLiteracy",
+"d0": 940,
+"d2": 1839,
+"server": {}
+},
+{
+"stat": 162,
+"name": "Psychology",
+"d0": 722,
+"d2": 1299,
+"server": {}
+},
+{
+"stat": 163,
+"name": "Chemistry",
+"d0": 272,
+"d2": 576,
+"server": {}
+},
+{
+"stat": 164,
+"name": "Concealment",
+"d0": 498,
+"d2": 1037,
+"server": {}
+},
+{
+"stat": 165,
+"name": "BreakingEntry",
+"d0": 753,
+"d2": 1335,
+"server": {}
+},
+{
+"stat": 166,
+"name": "VehicleGround",
+"d0": 5,
+"d2": 540,
+"server": {}
+},
+{
+"stat": 167,
+"name": "FullAuto",
+"d0": 5,
+"d2": 294,
+"server": {}
+},
+{
+"stat": 168,
+"name": "NanoResist",
+"d0": 940,
+"d2": 2129,
+"server": {}
+},
+{
+"stat": 169,
+"name": "AlienLevel",
+"d0": 30,
+"d2": 30,
+"server": {}
+},
+{
+"stat": 170,
+"name": "HealthChangeBest",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 171,
+"name": "HealthChangeWorst",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 172,
+"name": "HealthChange",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 173,
+"name": "CurrentMovementMode",
+"d0": 8,
+"d2": 8,
+"server": {
+"Stats3": 8
+}
+},
+{
+"stat": 174,
+"name": "PrevMovementMode",
+"d0": 3,
+"d2": 3,
+"server": {
+"Stats3": 3
+}
+},
+{
+"stat": 175,
+"name": "AutoLockTimeDefault",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 176,
+"name": "AutoUnlockTimeDefault",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 177,
+"name": "MoreFlags",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 179,
+"name": "NPCFlags",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 180,
+"name": "CurrentNCU",
+"d0": 223,
+"d2": 223,
+"server": {}
+},
+{
+"stat": 181,
+"name": "MaxNCU",
+"d0": 8,
+"d2": 721,
+"server": {
+"Stats4": 8
+}
+},
+{
+"stat": 182,
+"name": "Specialization",
+"d0": 15,
+"d2": 15,
+"server": {
+"Stats1": 15
+}
+},
+{
+"stat": 183,
+"name": "EffectIcon",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 184,
+"name": "BuildingType",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 185,
+"name": "BuildingInstance",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 186,
+"name": "CardOwnerType",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 187,
+"name": "CardOwnerInstance",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 188,
+"name": "BuildingComplexInst",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 189,
+"name": "ExitInstance",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 190,
+"name": "NextDoorInBuilding",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 191,
+"name": "LastConcretePlayfieldInstance",
+"d0": 4682,
+"d2": 4682,
+"server": {}
+},
+{
+"stat": 192,
+"name": "ExtenalPlayfieldInstance",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 193,
+"name": "ExtenalDoorInstance",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 194,
+"name": "InPlay",
+"d0": 1,
+"d2": 1,
+"server": {
+"Stats2": 0
+}
+},
+{
+"stat": 195,
+"name": "AccessKey",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 196,
+"name": "ConflictReputation",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 198,
+"name": "SessionTime",
+"d0": 1050624,
+"d2": 1050624,
+"server": {}
+},
+{
+"stat": 199,
+"name": "RP",
+"d0": 20,
+"d2": 20,
+"server": {}
+},
+{
+"stat": 200,
+"name": "Conformity",
+"d0": 70,
+"d2": 70,
+"server": {}
+},
+{
+"stat": 201,
+"name": "Aggressiveness",
+"d0": 60,
+"d2": 60,
+"server": {}
+},
+{
+"stat": 202,
+"name": "Stability",
+"d0": 80,
+"d2": 80,
+"server": {}
+},
+{
+"stat": 203,
+"name": "Extroverty",
+"d0": 30,
+"d2": 30,
+"server": {}
+},
+{
+"stat": 205,
+"name": "ReflectProjectileAC",
+"d0": 0,
+"d2": 3,
+"server": {}
+},
+{
+"stat": 206,
+"name": "ReflectMeleeAC",
+"d0": 0,
+"d2": 3,
+"server": {}
+},
+{
+"stat": 207,
+"name": "ReflectEnergyAC",
+"d0": 0,
+"d2": 3,
+"server": {}
+},
+{
+"stat": 208,
+"name": "ReflectChemicalAC",
+"d0": 0,
+"d2": 3,
+"server": {}
+},
+{
+"stat": 209,
+"name": "WeaponMesh",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 210,
+"name": "RechargeDelay",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 211,
+"name": "EquipDelay",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 213,
+"name": "TeamSide",
+"d0": 1,
+"d2": 1,
+"server": {
+"Stats3": 1
+}
+},
+{
+"stat": 214,
+"name": "CurrentNano",
+"d0": 11371,
+"d2": 11371,
+"server": {}
+},
+{
+"stat": 216,
+"name": "ReflectRadiationAC",
+"d0": 0,
+"d2": 3,
+"server": {}
+},
+{
+"stat": 217,
+"name": "ReflectColdAC",
+"d0": 0,
+"d2": 3,
+"server": {}
+},
+{
+"stat": 218,
+"name": "ReflectNanoAC",
+"d0": 0,
+"d2": 3,
+"server": {}
+},
+{
+"stat": 219,
+"name": "ReflectFireAC",
+"d0": 0,
+"d2": 3,
+"server": {}
+},
+{
+"stat": 220,
+"name": "CurrBodyLocation",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 221,
+"name": "MaxNanoEnergy",
+"d0": 4421,
+"d2": 11371,
+"server": {}
+},
+{
+"stat": 222,
+"name": "AccumulatedDamage",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 223,
+"name": "CanChangeClothes",
+"d0": 1,
+"d2": 1,
+"server": {}
+},
+{
+"stat": 224,
+"name": "Features",
+"d0": 16777222,
+"d2": 16777222,
+"server": {}
+},
+{
+"stat": 225,
+"name": "ReflectPoisonAC",
+"d0": 0,
+"d2": 3,
+"server": {}
+},
+{
+"stat": 226,
+"name": "ShieldProjectileAC",
+"d0": 0,
+"d2": 173,
+"server": {}
+},
+{
+"stat": 227,
+"name": "ShieldMeleeAC",
+"d0": 0,
+"d2": 186,
+"server": {}
+},
+{
+"stat": 228,
+"name": "ShieldEnergyAC",
+"d0": 0,
+"d2": 173,
+"server": {}
+},
+{
+"stat": 229,
+"name": "ShieldChemicalAC",
+"d0": 0,
+"d2": 186,
+"server": {}
+},
+{
+"stat": 230,
+"name": "ShieldRadiationAC",
+"d0": 0,
+"d2": 173,
+"server": {}
+},
+{
+"stat": 231,
+"name": "ShieldColdAC",
+"d0": 0,
+"d2": 186,
+"server": {}
+},
+{
+"stat": 232,
+"name": "ShieldNanoAC",
+"d0": 0,
+"d2": 80,
+"server": {}
+},
+{
+"stat": 233,
+"name": "ShieldFireAC",
+"d0": 0,
+"d2": 173,
+"server": {}
+},
+{
+"stat": 234,
+"name": "ShieldPoisonAC",
+"d0": 0,
+"d2": 186,
+"server": {}
+},
+{
+"stat": 236,
+"name": "InsurancePercentage",
+"d0": 0,
+"d2": 0,
+"server": {
+"Stats3": 0
+}
+},
+{
+"stat": 237,
+"name": "ChangeSideCount",
+"d0": 0,
+"d2": 0,
+"server": {
+"Stats4": 0
+}
+},
+{
+"stat": 238,
+"name": "AbsorbProjectileAC",
+"d0": 0,
+"d2": 0,
+"server": {
+"Stats4": 0
+}
+},
+{
+"stat": 239,
+"name": "AbsorbMeleeAC",
+"d0": 0,
+"d2": 0,
+"server": {
+"Stats4": 0
+}
+},
+{
+"stat": 240,
+"name": "AbsorbEnergyAC",
+"d0": 0,
+"d2": 0,
+"server": {
+"Stats4": 0
+}
+},
+{
+"stat": 241,
+"name": "AbsorbChemicalAC",
+"d0": 0,
+"d2": 0,
+"server": {
+"Stats4": 0
+}
+},
+{
+"stat": 242,
+"name": "AbsorbRadiationAC",
+"d0": 0,
+"d2": 0,
+"server": {
+"Stats4": 0
+}
+},
+{
+"stat": 243,
+"name": "AbsorbColdAC",
+"d0": 0,
+"d2": 0,
+"server": {
+"Stats4": 0
+}
+},
+{
+"stat": 244,
+"name": "AbsorbFireAC",
+"d0": 0,
+"d2": 0,
+"server": {
+"Stats4": 0
+}
+},
+{
+"stat": 245,
+"name": "AbsorbPoisonAC",
+"d0": 0,
+"d2": 0,
+"server": {
+"Stats4": 0
+}
+},
+{
+"stat": 246,
+"name": "AbsorbNanoAC",
+"d0": 0,
+"d2": 0,
+"server": {
+"Stats4": 0
+}
+},
+{
+"stat": 247,
+"name": "TemporarySkillReduction",
+"d0": 0,
+"d2": 0,
+"server": {
+"Stats4": 0
+}
+},
+{
+"stat": 250,
+"name": "SoundVolume",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 252,
+"name": "MetersWalked",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 253,
+"name": "QuestLevelsSolved",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 254,
+"name": "MonsterLevelsKilled",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 255,
+"name": "PvPLevelsKilled",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 256,
+"name": "MissionBits1",
+"d0": 1380319546,
+"d2": 1380319546,
+"server": {
+"Stats1": 1380319546
+}
+},
+{
+"stat": 257,
+"name": "MissionBits2",
+"d0": 991249,
+"d2": 991249,
+"server": {}
+},
+{
+"stat": 258,
+"name": "AccessGrant",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 259,
+"name": "DoorFlags",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 260,
+"name": "ClanHierarchy",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 261,
+"name": "QuestStat",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 263,
+"name": "PersonalResearchLevel",
+"d0": 100,
+"d2": 100,
+"server": {}
+},
+{
+"stat": 264,
+"name": "GlobalResearchLevel",
+"d0": 0,
+"d2": 0,
+"server": {
+"Stats1": 0
+}
+},
+{
+"stat": 265,
+"name": "PersonalResearchGoal",
+"d0": 10005,
+"d2": 10005,
+"server": {}
+},
+{
+"stat": 266,
+"name": "GlobalResearchGoal",
+"d0": 3072,
+"d2": 3072,
+"server": {}
+},
+{
+"stat": 269,
+"name": "GatherSound",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 270,
+"name": "CastSound",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 271,
+"name": "TravelSound",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 272,
+"name": "HitSound",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 273,
+"name": "SecondaryItemTemplate",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 274,
+"name": "EquippedWeapons",
+"d0": 578,
+"d2": 578,
+"server": {}
+},
+{
+"stat": 275,
+"name": "XPKillRange",
+"d0": 25,
+"d2": 25,
+"server": {
+"Stats2": 25
+}
+},
+{
+"stat": 276,
+"name": "AddAllOff",
+"d0": 0,
+"d2": 381,
+"server": {}
+},
+{
+"stat": 277,
+"name": "AddAllDef",
+"d0": 0,
+"d2": 1001,
+"server": {}
+},
+{
+"stat": 278,
+"name": "ProjectileDamageModifier",
+"d0": 0,
+"d2": 268,
+"server": {}
+},
+{
+"stat": 279,
+"name": "MeleeDamageModifier",
+"d0": 0,
+"d2": 307,
+"server": {}
+},
+{
+"stat": 280,
+"name": "EnergyDamageModifier",
+"d0": 0,
+"d2": 280,
+"server": {}
+},
+{
+"stat": 281,
+"name": "ChemicalDamageModifier",
+"d0": 0,
+"d2": 300,
+"server": {}
+},
+{
+"stat": 282,
+"name": "RadiationDamageModifier",
+"d0": 0,
+"d2": 280,
+"server": {}
+},
+{
+"stat": 283,
+"name": "ItemHateValue",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 284,
+"name": "CriticalBonus",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 285,
+"name": "MaxDamage",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 286,
+"name": "MinDamage",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 288,
+"name": "HateValueModifier",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 289,
+"name": "TrapDifficulty",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 290,
+"name": "StatOne",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 291,
+"name": "NumAttackEffects",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 292,
+"name": "DefaultAttackType",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 293,
+"name": "ItemSkill",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 294,
+"name": "AttackDelay",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 295,
+"name": "ItemOpposedSkill",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 296,
+"name": "ItemSIS",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 297,
+"name": "InteractionRadius",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 298,
+"name": "Slot",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 299,
+"name": "LockDifficulty",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 300,
+"name": "Members",
+"d0": 999,
+"d2": 999,
+"server": {}
+},
+{
+"stat": 301,
+"name": "MinMembers",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 302,
+"name": "ClanPrice",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 304,
+"name": "ClanType",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 305,
+"name": "ClanInstance",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 306,
+"name": "VoteCount",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 307,
+"name": "MemberType",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 308,
+"name": "MemberInstance",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 309,
+"name": "GlobalClanType",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 310,
+"name": "GlobalClanInstance",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 311,
+"name": "ColdDamageModifier",
+"d0": 0,
+"d2": 268,
+"server": {}
+},
+{
+"stat": 312,
+"name": "ClanUpkeepInterval",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 313,
+"name": "TimeSinceUpkeep",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 314,
+"name": "ClanFinalized",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 316,
+"name": "FireDamageModifier",
+"d0": 0,
+"d2": 307,
+"server": {}
+},
+{
+"stat": 317,
+"name": "PoisonDamageModifier",
+"d0": 0,
+"d2": 300,
+"server": {}
+},
+{
+"stat": 318,
+"name": "NPCostModifier",
+"d0": 100,
+"d2": 69,
+"server": {}
+},
+{
+"stat": 319,
+"name": "XPModifier",
+"d0": 100,
+"d2": 126,
+"server": {}
+},
+{
+"stat": 320,
+"name": "BreedLimit",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 321,
+"name": "GenderLimit",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 322,
+"name": "LevelLimit",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 323,
+"name": "PlayerKilling",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 324,
+"name": "TeamAllowed",
+"d0": 1,
+"d2": 1,
+"server": {}
+},
+{
+"stat": 325,
+"name": "WeaponDisallowedType",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 326,
+"name": "WeaponDisallowedInstance",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 327,
+"name": "Taboo",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 328,
+"name": "Compulsion",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 329,
+"name": "SkillDisabled",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 330,
+"name": "ClanItemType",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 331,
+"name": "ClanItemInstance",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 332,
+"name": "DebuffFormula",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 333,
+"name": "PvP_Rating",
+"d0": 1300,
+"d2": 1300,
+"server": {}
+},
+{
+"stat": 334,
+"name": "SavedXP",
+"d0": 14935530,
+"d2": 14935530,
+"server": {}
+},
+{
+"stat": 335,
+"name": "DoorBlockTime",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 336,
+"name": "OverrideTexture",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 337,
+"name": "OverrideMaterial",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 342,
+"name": "HealInterval",
+"d0": 2,
+"d2": 2,
+"server": {}
+},
+{
+"stat": 343,
+"name": "HealDelta",
+"d0": 3,
+"d2": 218,
+"server": {}
+},
+{
+"stat": 346,
+"name": "TradeLimit",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 348,
+"name": "SpecialCondition",
+"d0": 7,
+"d2": 7,
+"server": {}
+},
+{
+"stat": 349,
+"name": "AutoAttackFlags",
+"d0": 16,
+"d2": 16,
+"server": {
+"Stats2": 16
+}
+},
+{
+"stat": 350,
+"name": "NextXP",
+"d0": 18002049,
+"d2": 18002049,
+"server": {
+"Stats2": 18002049
+}
+},
+{
+"stat": 351,
+"name": "TeleportPauseMilliSeconds",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 352,
+"name": "SISCap",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 353,
+"name": "AnimSet",
+"d0": 1,
+"d2": 1,
+"server": {}
+},
+{
+"stat": 354,
+"name": "AttackType",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 355,
+"name": "NanoFocusLevel",
+"d0": 96,
+"d2": 96,
+"server": {
+"Stats1": 96
+}
+},
+{
+"stat": 356,
+"name": "NPCHash",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 357,
+"name": "CollisionRadius",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 358,
+"name": "OuterRadius",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 359,
+"name": "MonsterData",
+"d0": 17655,
+"d2": 17655,
+"server": {}
+},
+{
+"stat": 360,
+"name": "Scale",
+"d0": 100,
+"d2": 112,
+"server": {}
+},
+{
+"stat": 361,
+"name": "HitEffectType",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 362,
+"name": "ResurrectDest",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 363,
+"name": "NanoInterval",
+"d0": 2,
+"d2": 2,
+"server": {}
+},
+{
+"stat": 364,
+"name": "NanoDelta",
+"d0": 3,
+"d2": 51,
+"server": {}
+},
+{
+"stat": 365,
+"name": "ReclaimItem",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 366,
+"name": "GatherEffectType",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 367,
+"name": "VisualBreed",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 368,
+"name": "VisualProfession",
+"d0": 9,
+"d2": 9,
+"server": {}
+},
+{
+"stat": 369,
+"name": "VisualSex",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 370,
+"name": "RitualTargetInst",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 371,
+"name": "SkillTimeOnSelectedTarget",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 372,
+"name": "LastSaveXP",
+"d0": 14935530,
+"d2": 14935530,
+"server": {
+"Stats2": 14935530
+}
+},
+{
+"stat": 373,
+"name": "ExtendedTime",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 374,
+"name": "BurstRecharge",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 375,
+"name": "FullAutoRecharge",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 376,
+"name": "GatherAbstractAnim",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 377,
+"name": "CastTargetAbstractAnim",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 378,
+"name": "CastSelfAbstractAnim",
+"d0": 1234567890,
+"d2": 1234567890,
+"server": {}
+},
+{
+"stat": 379,
+"name": "CriticalIncrease",
+"d0": 0,
+"d2": 6,
+"server": {}
+},
+{
+"stat": 380,
+"name": "RangeIncreaserWeapon",
+"d0": 0,
+"d2": 37,
+"server": {}
+},
+{
+"stat": 381,
+"name": "NanoRange",
+"d0": 0,
+"d2": 150,
+"server": {}
+},
+{
+"stat": 418,
+"name": "UnarmedTemplateInstance",
+"d0": 0,
+"d2": 0,
+"server": {
+"Stats1": 0
+}
+},
+{
+"stat": 423,
+"name": "CurrentState",
+"d0": 0,
+"d2": 0,
+"server": {
+"Stats2": 0
+}
+},
+{
+"stat": 430,
+"name": "WaitState",
+"d0": 0,
+"d2": 0,
+"server": {
+"Stats2": 2
+}
+},
+{
+"stat": 470,
+"name": "MapOptions",
+"d0": 31,
+"d2": 31,
+"server": {
+"Stats1": 31
+}
+},
+{
+"stat": 521,
+"name": "SocialStatus",
+"d0": 4,
+"d2": 4,
+"server": {
+"Stats1": 4
+}
+},
+{
+"stat": 532,
+"name": "ShadowBreed",
+"d0": 0,
+"d2": 0,
+"server": {
+"Stats1": 0
+}
+},
+{
+"stat": 576,
+"name": "PlayerOptions",
+"d0": 1,
+"d2": 1,
+"server": {
+"Stats1": 1
+}
+},
+{
+"stat": 577,
+"name": "LastPerkResetTime",
+"d0": 1353139712,
+"d2": 1353139712,
+"server": {
+"Stats1": 1353139712
+}
+},
+{
+"stat": 579,
+"name": "ShadowBreedTemplate",
+"d0": 215411,
+"d2": 215411,
+"server": {
+"Stats1": 215411
+}
+},
+{
+"stat": 592,
+"name": "UnsavedXP",
+"d0": 0,
+"d2": 0,
+"server": {
+"Stats1": 0
+}
+},
+{
+"stat": 594,
+"name": "TempSaveTeamID",
+"d0": 4614422,
+"d2": 4614422,
+"server": {
+"Stats1": 4614422
+}
+},
+{
+"stat": 595,
+"name": "TempSavePlayfield",
+"d0": 201682,
+"d2": 201682,
+"server": {
+"Stats1": 201682
+}
+},
+{
+"stat": 596,
+"name": "TempSaveX",
+"d0": 104,
+"d2": 104,
+"server": {
+"Stats1": 104
+}
+},
+{
+"stat": 597,
+"name": "TempSaveY",
+"d0": 103,
+"d2": 103,
+"server": {
+"Stats1": 103
+}
+},
+{
+"stat": 615,
+"name": "InvadersKilled",
+"d0": 12664,
+"d2": 12664,
+"server": {
+"Stats1": 12664
+}
+},
+{
+"stat": 616,
+"name": "KilledByInvaders",
+"d0": 58,
+"d2": 58,
+"server": {
+"Stats1": 58
+}
+},
+{
+"stat": 649,
+"name": "HasUnreadMail",
+"d0": 0,
+"d2": 0,
+"server": {
+"Stats1": 0
+}
+},
+{
+"stat": 650,
+"name": "?",
+"d0": 1365484573,
+"d2": 1365484573,
+"server": {
+"Stats1": 1365484573
+}
+},
+{
+"stat": 660,
+"name": "AccountFlags",
+"d0": 0,
+"d2": 0,
+"server": {
+"Stats1": 0
+}
+},
+{
+"stat": 669,
+"name": "VP",
+"d0": 1277,
+"d2": 1277,
+"server": {
+"Stats1": 1277
+}
+},
+{
+"stat": 672,
+"name": "PaidPoints",
+"d0": 0,
+"d2": 0,
+"server": {
+"Stats2": 0
+}
+},
+{
+"stat": 673,
+"name": "VisualFlags",
+"d0": 32,
+"d2": 32,
+"server": {
+"Stats1": 32
+}
+},
+{
+"stat": 674,
+"name": "PVPDuelKills",
+"d0": 5,
+"d2": 5,
+"server": {
+"Stats1": 5
+}
+},
+{
+"stat": 675,
+"name": "PVPDuelDeaths",
+"d0": 1,
+"d2": 1,
+"server": {
+"Stats1": 1
+}
+},
+{
+"stat": 676,
+"name": "PVPProfessionDuelKills",
+"d0": 0,
+"d2": 0,
+"server": {
+"Stats1": 0
+}
+},
+{
+"stat": 677,
+"name": "PVPProfessionDuelDeaths",
+"d0": 0,
+"d2": 0,
+"server": {
+"Stats1": 0
+}
+},
+{
+"stat": 678,
+"name": "PVPRankedSoloKills",
+"d0": 8,
+"d2": 8,
+"server": {
+"Stats1": 8
+}
+},
+{
+"stat": 679,
+"name": "PVPRankedSoloDeaths",
+"d0": 13,
+"d2": 13,
+"server": {
+"Stats1": 13
+}
+},
+{
+"stat": 680,
+"name": "PVPRankedTeamKills",
+"d0": 5,
+"d2": 5,
+"server": {
+"Stats1": 5
+}
+},
+{
+"stat": 681,
+"name": "PVPRankedTeamDeaths",
+"d0": 5,
+"d2": 5,
+"server": {
+"Stats1": 5
+}
+},
+{
+"stat": 682,
+"name": "PVPSoloScore",
+"d0": 748,
+"d2": 748,
+"server": {
+"Stats1": 748
+}
+},
+{
+"stat": 683,
+"name": "PVPTeamScore",
+"d0": 556,
+"d2": 556,
+"server": {
+"Stats1": 556
+}
+},
+{
+"stat": 684,
+"name": "PVPDuelScore",
+"d0": 444,
+"d2": 444,
+"server": {
+"Stats1": 444
+}
+},
+{
+"stat": 695,
+"name": "Commendations",
+"d0": 0,
+"d2": 0,
+"server": {
+"Stats1": 0
+}
+},
+{
+"stat": 696,
+"name": "DailyMissionResets",
+"d0": 0,
+"d2": 0,
+"server": {
+"Stats1": 0
+}
+},
+{
+"stat": 697,
+"name": "VeteranMonths",
+"d0": 84,
+"d2": 84,
+"server": {
+"Stats1": 84
+}
+}
+]
