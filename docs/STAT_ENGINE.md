@@ -261,3 +261,13 @@ Live check (Brasscasings, level 25, 4 composite-expertise/attribute nanos): the 
 ...) but no health or nano energy, so the maxima stay at 734 and 360 against a current 1085 and 365. The 351 health and 5 nano
 that are still missing are not in the worn items' modify-stat records (none are skipped for requirements) nor in the nanos; the
 vitals bars keep counting a current value above the computed maximum as the maximum.
+
+## The missing health: the belt and its NCU units (found by checking the live character)
+
+The 351 health and 5 nano that were short for Brasscasings were not another effect type: the filter of worn places left out the
+**belt (slot 7) and the NCU units on it (slots 9-14)**, which add health and nano like any worn item (belt "Dream Mesh Circuit"
++100 health, +12 stat 181, +5 stat 45; each "Dark Dreams" unit +50 health, +20 stat 181). With them, and with the interpolation
+between an item's low and high template rounded to the nearest whole number (it was truncated), the computed maxima come out
+**exactly equal to the server's current values: 1085 / 1085 health and 365 / 365 nano**. The other spell types seen in worn items
+(`0xcf2b`, `0xcf2d`, `0xcf2f`, `0xcf48`, `0xcf8a`, `0xcf34`, `0xcf49`, `0xcf61`) are not stat modifiers (conditions, damage, text, the
+clan-merit machinery), so nothing more needs reading for stat bonuses so far.

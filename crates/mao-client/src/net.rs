@@ -221,6 +221,14 @@ impl World {
         if m.identity.0 != 0 {
             self.types.entry(m.identity.1).or_insert(m.identity.0);
         }
+        if m.kind == 0x253d0240 && std::env::var_os("MAO_STATS").is_some() {
+            if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
+                if let Some(mao_net::schema::Value::List(lines)) = p.value.get("ResearchLine") {
+                    let nonzero: Vec<_> = lines.iter().filter_map(|l| Some((l.get("ResearchId")?.as_int()?, l.get("Unknown1")?.as_int()?, l.get("Unknown2")?.as_int()?, l.get("Unknown3")?.as_int()?))).filter(|l| l.1 != 0 || l.2 != 0 || l.3 != 0).collect();
+                    eprintln!("research update from {:x}:{:x}: {} lines, non-zero {nonzero:?}", m.identity.0, m.identity.1, lines.len());
+                }
+            }
+        }
         if m.kind == mao_net::n3::ENTITY_INFO && m.identity.1 == self.own {
             let nanos = m.active_nanos();
             if nanos != self.nanos {
