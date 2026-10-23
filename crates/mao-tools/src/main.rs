@@ -480,6 +480,13 @@ stats {:?}", item.id, item.name, item.description, item.icon(), item.stats);
                 }
             }
         }
+        // `dump <type> <instance> <file>`: an object's bytes, whole.
+        ("dump", [kind, instance, file]) => {
+            let id = Id { kind: number(kind).ok_or("bad type")?, instance: number(instance).ok_or("bad instance")? };
+            let object = db.get(id).map_err(|e| e.to_string())?.ok_or("no such object")?;
+            std::fs::write(file, &object).map_err(|e| e.to_string())?;
+            println!("{} bytes", object.len());
+        }
         ("verify", []) => {
             let (count, bytes, highest, failures, failed) = db.verify().map_err(|e| e.to_string())?;
             println!("{count} objects, {bytes} bytes, highest position {highest:#x}, {failures} unreadable");

@@ -130,6 +130,16 @@ pub(crate) fn load_terrain(db: &ResourceDatabase, playfield: u32) -> Result<Mode
     }
     eprintln!("heights {:?}", &terrain.heights[..8.min(terrain.heights.len())]);
     eprintln!("water: {:?}", terrain.water(terrain.height_scale).map(|w| w.level));
+    {
+        let mut beyond: std::collections::BTreeMap<u16, usize> = std::collections::BTreeMap::new();
+        for w in &terrain.tiles {
+            let i = w & terrain.mask;
+            if i as usize >= terrain.tile_types.len() {
+                *beyond.entry(i).or_default() += 1;
+            }
+        }
+        eprintln!("tile indices past the list ({}): mask {:#x}, {:?}", terrain.tile_types.len(), terrain.mask, beyond.iter().take(12).collect::<Vec<_>>());
+    }
     Ok(model)
 }
 
@@ -157,8 +167,19 @@ pub(crate) fn add_props(game: &str, db: &ResourceDatabase, playfield: u32, model
         .and_then(|o| mao_formats::instances::Instances::parse(&o).ok())
         .map(|index| index.iter().filter(|&(kind, name, _)| kind == 0xf6951 && model::is_foliage_name(name)).map(|(_, _, instance)| instance).collect())
         .unwrap_or_default();
+    // Marker volumes (`primitive_*`: zone and trigger boxes, left in the data with a placeholder texture) are not drawn.
+    let hidden: std::collections::HashSet<u32> = db
+        .get(Id { kind: 0xf424a, instance: 1 })
+        .ok()
+        .flatten()
+        .and_then(|o| mao_formats::instances::Instances::parse(&o).ok())
+        .map(|index| index.iter().filter(|&(kind, name, _)| kind == 0xf6951 && name.to_lowercase().starts_with("primitive_")).map(|(_, _, instance)| instance).collect())
+        .unwrap_or_default();
     let mut plants = 0usize;
     for s in &statels {
+        if hidden.contains(&s.mesh) {
+            continue;
+        }
         let range = meshes
             .entry(s.mesh)
             .or_insert_with(|| {
