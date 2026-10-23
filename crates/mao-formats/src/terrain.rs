@@ -145,8 +145,8 @@ pub fn build(map: &OldTilemap) -> Result<Terrain, Error> {
 
 impl Terrain {
     /// The water over the ground, found the only way the data allows: a
-    /// playfield whose ground has a big flat floor (a fifth of its points at one
-    /// height, at the bottom of its range, well below the land) is a seabed,
+    /// playfield whose ground has a big flat floor (a third of its points at the lowest
+    /// height, well below the land) is a seabed,
     /// and the water lies a little above it. (The original builds its liquid
     /// from triangles this client can't read yet; `MAO_WATER=level` overrides.)
     pub fn water(&self, height_scale: f32) -> Option<crate::model::Water> {
@@ -160,7 +160,7 @@ impl Terrain {
         let bottom = *counts.keys().next()?;
         let level = match std::env::var("MAO_WATER").ok().and_then(|v| v.trim().parse::<f32>().ok()) {
             Some(level) => level,
-            None if n * 5 >= self.heights.len() && (floor - bottom) as f32 * unit < 2.0 && (top - floor) as f32 * unit > 5.0 => floor as f32 * unit + 1.5,
+            None if n * 3 >= self.heights.len() && floor == bottom && (top - floor) as f32 * unit > 5.0 => floor as f32 * unit + 1.5,
             None => return None,
         };
         Some(crate::model::Water { level, min: [0.0, 0.0], max: [(self.width - 1) as f32 * self.tile_size, (self.height - 1) as f32 * self.tile_size] })

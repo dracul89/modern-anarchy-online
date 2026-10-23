@@ -129,6 +129,7 @@ pub(crate) fn load_terrain(db: &ResourceDatabase, playfield: u32) -> Result<Mode
         eprintln!("part {} {} vertices, textures {:?}", p.name, p.vertices.len(), p.material.textures);
     }
     eprintln!("heights {:?}", &terrain.heights[..8.min(terrain.heights.len())]);
+    eprintln!("water: {:?}", terrain.water(terrain.height_scale).map(|w| w.level));
     Ok(model)
 }
 
