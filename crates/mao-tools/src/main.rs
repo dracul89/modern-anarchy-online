@@ -490,6 +490,29 @@ stats {:?}", item.id, item.name, item.description, item.icon(), item.stats);
             std::fs::write(file, &object).map_err(|e| e.to_string())?;
             println!("{} bytes", object.len());
         }
+        // `grep <type> <stat:amount>...`: the objects of a type that hold at least two of the little-endian u32 pairs.
+        ("grep", [kind, pairs @ ..]) => {
+            let kind = number(kind).ok_or("bad type")?;
+            let pats: Vec<[u8; 8]> = pairs
+                .iter()
+                .map(|p| {
+                    let (s, a) = p.split_once(':').ok_or("pair is stat:amount")?;
+                    let mut b = [0u8; 8];
+                    b[..4].copy_from_slice(&s.parse::<u32>().map_err(|e| e.to_string())?.to_le_bytes());
+                    b[4..].copy_from_slice(&a.parse::<u32>().map_err(|e| e.to_string())?.to_le_bytes());
+                    Ok::<_, String>(b)
+                })
+                .collect::<Result<_, _>>()?;
+            for id in db.ids().map_err(|e| e.to_string())?.filter(|i| i.as_ref().is_ok_and(|i| i.kind == kind)) {
+                let id = id.map_err(|e| e.to_string())?;
+                if let Ok(Some(object)) = db.get(id) {
+                    let found = pats.iter().filter(|p| object.windows(8).any(|w| w == &p[..])).count();
+                    if found >= 2 {
+                        println!("{:#x}:{:#x} {} of {} pairs, {} bytes", id.kind, id.instance, found, pats.len(), object.len());
+                    }
+                }
+            }
+        }
         ("verify", []) => {
             let (count, bytes, highest, failures, failed) = db.verify().map_err(|e| e.to_string())?;
             println!("{count} objects, {bytes} bytes, highest position {highest:#x}, {failures} unreadable");

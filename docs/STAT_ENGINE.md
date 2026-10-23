@@ -209,3 +209,22 @@ sum these templates for the Stats window.
 * A byte search for the pairs `(90,717)`, `(91,287)`, `(96,432)` in every object of the 25 small database types
   (`0xf4241` ... `0xf4312`, including the perk records `0xf4264`) found nothing. So the list is either in an item-type
   (`0xf4254`, 120842 objects, not searched) template, or built by code at run time from the character's level and profession.
+
+## The 51 leftover events: three symbiants
+
+`mao-db <game> grep 0xf4254 <stat:amount>...` (new) lists the item templates that hold at least two of the given little-endian
+stat/amount pairs; it scans all 120842 item templates in about two seconds. With the leftover pairs it found the family of "Xan"
+symbiants (template ids 278918-279110, 0x44186-0x44206), and a greedy cover over them gives exactly:
+
+* 278994 Xan Thigh Symbiant, Infantry Unit Alpha (21 events)
+* 278995 Xan Feet Symbiant, Infantry Unit Alpha (16 events)
+* 278988 Xan Left Hand Symbiant, Infantry Unit Alpha (13 events)
+
+with none over. These are worn items that the earlier worn-item list (40 items, templates 206013 ... 302923) did not contain, so
+the hook events looked unexplained. The item reader handles them unchanged.
+
+So **50 of the 51 are explained**; one event is left, `(stat 168, +500)`, in no template of that symbiant range (probably another
+worn item or implant that is also missing from the list). The complete stat model for this character is therefore: worn items
+(including the symbiants) + active nanos + owned perk and research ranks, which accounts for all but one modifier.
+Next for the new client: take the worn items from the server's equipment list (it must include the implant/symbiant slots)
+rather than from a fixed list.
