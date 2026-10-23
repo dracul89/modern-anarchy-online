@@ -1,0 +1,88 @@
+//! The stats the original shows but the server does not send: armour classes, attack rating and the bonuses to the
+//! stored values are built by the client from the effects of what the character wears (see `docs/STAT_ENGINE.md`:
+//! shown value = stored value + the modifier map). This module sums the worn items' effects; perks, research and the
+//! active nanos are not known to this client yet (the server's lists for them are not decoded).
+
+use std::collections::BTreeMap;
+
+use mao_formats::item::{self, Item};
+use mao_formats::resource::{Id, ResourceDatabase};
+use mao_net::inventory::Entry;
+
+/// The item stat that holds an item's quality level.
+const QUALITY_LEVEL: u32 = 54;
+
+/// Whether a placement is worn (weapon and utility slots, clothes, implants); the deck, the NCU units and the social tab
+/// have no standing effects of their own.
+fn worn(slot: u32) -> bool {
+    matches!(slot, 1..=6 | 8 | 17..=31 | 33..=45)
+}
+
+/// An item's effects at its quality: the lowest and highest template of the item are both read and the amounts are
+/// interpolated between them by the item's quality level, as the original does.
+fn effects(db: &ResourceDatabase, entry: &Entry, level: i64) -> Vec<(u32, i64)> {
+    let template = |id: u32| db.get(Id { kind: item::TEMPLATE, instance: id }).ok().flatten();
+    let Some(low) = template(entry.low_id) else { return Vec::new() };
+    let low_mods = item::modifiers_at(&low, level);
+    if entry.high_id == entry.low_id {
+        return low_mods.into_iter().map(|(s, a)| (s, a as i64)).collect();
+    }
+    let Some(high) = template(entry.high_id) else { return low_mods.into_iter().map(|(s, a)| (s, a as i64)).collect() };
+    let high_mods = item::modifiers_at(&high, level);
+    let quality_of = |data: &[u8]| Item::parse(data).and_then(|i| i.stats.iter().find(|s| s.0 == QUALITY_LEVEL).map(|s| s.1 as i64));
+    let (Some(low_ql), Some(high_ql)) = (quality_of(&low), quality_of(&high)) else { return low_mods.into_iter().map(|(s, a)| (s, a as i64)).collect() };
+    let fraction = if high_ql > low_ql { (entry.quality as i64 - low_ql).clamp(0, high_ql - low_ql) } else { 0 };
+    let span = (high_ql - low_ql).max(1);
+    low_mods
+        .iter()
+        .enumerate()
+        .map(|(i, &(stat, a))| {
+            let a = a as i64;
+            match high_mods.get(i) {
+                Some(&(s, b)) if s == stat => (stat, a + (b as i64 - a) * fraction / span),
+                _ => (stat, a),
+            }
+        })
+        .collect()
+}
+
+/// The summed effects of everything worn, by stat.
+pub fn worn_modifiers(db: &ResourceDatabase, entries: &[Entry], level: i64) -> BTreeMap<u32, i64> {
+    let mut sum = BTreeMap::new();
+    for entry in entries.iter().filter(|e| !e.is_bag() && worn(e.slot)) {
+        for (stat, amount) in effects(db, entry, level) {
+            *sum.entry(stat).or_insert(0) += amount;
+        }
+    }
+    sum
+}
+
+/// The shown stats: the stored ones plus the modifiers (stats without a stored value count from zero).
+pub fn shown(stored: &BTreeMap<u32, i64>, modifiers: &BTreeMap<u32, i64>) -> BTreeMap<u32, i64> {
+    let mut out = stored.clone();
+    for (&stat, &amount) in modifiers {
+        *out.entry(stat).or_insert(0) += amount;
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_shown_value_adds_the_modifier_to_the_stored_one() {
+        let stored: BTreeMap<u32, i64> = [(1, 100), (0x36, 8)].into();
+        let modifiers: BTreeMap<u32, i64> = [(1, 25), (0x5b, 230)].into();
+        let shown = shown(&stored, &modifiers);
+        assert_eq!(shown[&1], 125);
+        assert_eq!(shown[&0x5b], 230);
+        assert_eq!(shown[&0x36], 8);
+    }
+
+    #[test]
+    fn only_the_worn_places_count() {
+        assert!(worn(6) && worn(21) && worn(40));
+        assert!(!worn(7) && !worn(9) && !worn(49) && !worn(64));
+    }
+}

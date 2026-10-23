@@ -18,6 +18,7 @@ mod stats;
 mod automap;
 mod actions_data;
 mod anim;
+mod derived;
 mod gear;
 mod mailbox;
 mod shop;
@@ -353,6 +354,13 @@ fn run(args: &[String]) -> Result<(), String> {
                         use stats::stat::*;
                         hud.character_name = "Conjecture".into();
                         hud.stats = [(LEVEL, 220), (HEALTH, 35196), (MAX_HEALTH, 35196), (CURRENT_NANO, 11380), (MAX_NANO, 11380), (ADD_ALL_OFF, 2865), (MELEE_AC, 14516), (PROJECTILE_AC, 15106), (ENERGY_AC, 14446), (POISON_AC, 14376), (CHEMICAL_AC, 14266), (RADIATION_AC, 14266), (COLD_AC, 14751), (FIRE_AC, 14646)].into_iter().collect();
+                        // MAO_CAPTURE=<capture.log> as well: the worn items of that session build the shown values (stored level 8).
+                        if let Some(entries) = std::env::var_os("MAO_CAPTURE").and_then(|log| net::capture_entries(&log.to_string_lossy()).ok()) {
+                            let level: i64 = std::env::var("MAO_LEVEL").ok().and_then(|l| l.parse().ok()).unwrap_or(8);
+                            let modifiers = derived::worn_modifiers(&db, &entries, level);
+                            eprintln!("worn modifiers: {modifiers:?}");
+                            hud.stats = derived::shown(&[(LEVEL, level)].into(), &modifiers);
+                        }
                         let mut window = stats::StatsWindow::default();
                         window.open = true;
                         *hud.stats_preview.lock().unwrap() = Some(window);

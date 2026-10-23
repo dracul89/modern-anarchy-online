@@ -125,6 +125,8 @@ struct World {
     /// they changed since they were last sent to the interface.
     stats: BTreeMap<u32, i64>,
     stats_changed: bool,
+    /// The summed effects of the worn items (see `derived`), added to the stored stats for display.
+    item_mods: BTreeMap<u32, i64>,
     /// The identity type each entity was first heard of with (what a use message names it by).
     types: BTreeMap<u32, u32>,
     /// The vending machines (booths: shops, and the mission booths' companions) with their positions.
@@ -852,7 +854,12 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut fresh = false;
         state.arrival = None;
         let mut pending_scene: Option<Model> = None;
-        let mut pending_gear = state.inventory.take().map(|e| crate::gear::from_entries(&gear_db, &gear_textures, &e));
+        let first_inventory = state.inventory.take();
+        if let Some(entries) = &first_inventory {
+            state.item_mods = crate::derived::worn_modifiers(&gear_db, entries, state.stats.get(&0x36).copied().unwrap_or(1));
+            state.stats_changed = true;
+        }
+        let mut pending_gear = first_inventory.map(|e| crate::gear::from_entries(&gear_db, &gear_textures, &e));
         let mut keys = crate::viewer::Input::default();
         let mut raw = crate::viewer::Input::default();
         // `MAO_MAILBOX=type,instance` (a mail terminal, 0xc773 and its serial) uses it 8 s into the session (or
@@ -1062,6 +1069,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         pending_destinations = Some(list);
                     }
                     if let Some(entries) = state.inventory.take() {
+                        state.item_mods = crate::derived::worn_modifiers(&gear_db, &entries, state.stats.get(&0x36).copied().unwrap_or(1));
+                        state.stats_changed = true;
                         pending_gear = Some(crate::gear::from_entries(&gear_db, &gear_textures, &entries));
                     }
                 }
@@ -1574,7 +1583,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     own_model,
                     own_velocity,
                     map: pending_map.take(),
-                    stats: std::mem::take(&mut state.stats_changed).then(|| (state.names.get(&own).map(|n| n.0.clone()).unwrap_or_default(), state.stats.clone())),
+                    stats: std::mem::take(&mut state.stats_changed).then(|| (state.names.get(&own).map(|n| n.0.clone()).unwrap_or_default(), crate::derived::shown(&state.stats, &state.item_mods))),
                     map_dots: {
                         let friendly_name = |name: &str| ["Vanguard", "Watcher", "Commander", "Guard", "Merchant", "Trader", "Recruiter", "Helper"].iter().any(|w| name.contains(w));
                         state

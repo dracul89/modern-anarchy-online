@@ -52,6 +52,39 @@ pub fn modifiers(template: &[u8]) -> Vec<(u32, i32)> {
     out
 }
 
+/// Like [`modifiers`], but also the records with requirements, `0xcf35, 0, 4, N, (stat, value, operator) x N, 1, 0, 2, 9, stat,
+/// amount`, kept when every requirement holds for `level` (the only requirement stat seen is the level, stat 0x36; operator 1 is
+/// "below" and 2 is "at least", from the two records of item template 281199: +200 below 201, +500 from 200).
+/// Requirements on other stats, or with other operators, are not known to hold, so those records are left out.
+pub fn modifiers_at(template: &[u8], level: i64) -> Vec<(u32, i32)> {
+    let word = |at: usize| u32::from_le_bytes(template[at..at + 4].try_into().unwrap());
+    let mut out = Vec::new();
+    let mut at = 0;
+    while at + 40 <= template.len() {
+        if word(at) == 0xcf35 && word(at + 4) == 0 && word(at + 8) == 4 && word(at + 12) < 8 {
+            let n = word(at + 12) as usize;
+            let tail = at + 16 + 12 * n;
+            if tail + 24 <= template.len() && [word(tail), word(tail + 4), word(tail + 8), word(tail + 12)] == [1, 0, 2, 9] {
+                let holds = (0..n).all(|i| {
+                    let (stat, value, op) = (word(at + 16 + 12 * i), word(at + 20 + 12 * i) as i64, word(at + 24 + 12 * i));
+                    stat == 0x36 && match op {
+                        1 => level < value,
+                        2 => level >= value,
+                        _ => false,
+                    }
+                });
+                if holds {
+                    out.push((word(tail + 16), word(tail + 20) as i32));
+                }
+                at = tail + 24;
+                continue;
+            }
+        }
+        at += 1;
+    }
+    out
+}
+
 impl Item {
     pub fn parse(data: &[u8]) -> Option<Item> {
         let words: Vec<u32> = data.chunks_exact(4).map(|c| u32::from_le_bytes(c.try_into().unwrap())).collect();
@@ -125,5 +158,15 @@ mod tests {
         let words: Vec<u32> = vec![2, 0xe, 0x8211, 0xcf35, 0, 4, 0, 1, 0, 2, 9, 0x5b, 0xe6, 0xcf35, 0, 4, 0, 1, 0, 2, 9, 0x5a, 0xfa, 0xcf2f];
         let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
         assert_eq!(modifiers(&bytes), vec![(0x5b, 230), (0x5a, 250)]);
+    }
+
+    #[test]
+    fn effects_with_a_level_requirement() {
+        // Item 281199: +500 nano resist (stat 168) from level 200 (operator 2), +200 below level 201 (operator 1).
+        let words: Vec<u32> = vec![7, 0xcf35, 0, 4, 1, 0x36, 200, 2, 1, 0, 2, 9, 168, 500, 0xcf35, 0, 4, 1, 0x36, 201, 1, 1, 0, 2, 9, 168, 200, 0xcf35, 0, 4, 0, 1, 0, 2, 9, 0x5b, 7];
+        let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
+        assert_eq!(modifiers_at(&bytes, 220), vec![(168, 500), (0x5b, 7)]);
+        assert_eq!(modifiers_at(&bytes, 150), vec![(168, 200), (0x5b, 7)]);
+        assert_eq!(modifiers_at(&bytes, 200), vec![(168, 500), (168, 200), (0x5b, 7)]);
     }
 }
