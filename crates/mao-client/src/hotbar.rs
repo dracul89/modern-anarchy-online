@@ -118,7 +118,32 @@ impl Default for Hotbars {
     }
 }
 
+/// The skill stat the server names a weapon special by (its `SpecialUsed` and `SpecialAvailable` messages), from the action's name.
+pub fn special_stat(name: &str) -> Option<u32> {
+    Some(match name {
+        "Brawl" => 142,
+        "Dimach" => 144,
+        "Fast Attack" => 147,
+        "Burst" => 148,
+        "Fling Shot" => 150,
+        "Full Auto" => 167,
+        _ => return None,
+    })
+}
+
 impl Hotbars {
+    /// The server says a special was used (it recharges for `seconds`) or is ready again (`seconds` 0): every slot entry for it
+    /// follows.
+    pub fn set_special_cooldown(&mut self, stat: u32, seconds: f64, now: f64) {
+        for slot in &mut self.slots {
+            for entry in &mut slot.entries {
+                if matches!(&entry.action, Action::Special { name, .. } if special_stat(name) == Some(stat)) {
+                    entry.ready_at = now + seconds;
+                }
+            }
+        }
+    }
+
     pub fn slot(&self, bar: usize, slot: usize) -> &Slot {
         &self.slots[bar * SLOTS + slot]
     }
@@ -319,6 +344,21 @@ mod tests {
         let d = b.slot(0, 0).display(0.4).unwrap();
         assert_eq!(d.entry.action, Action::Attack);
         assert!((d.remaining - 0.6).abs() < 1e-4);
+    }
+
+    #[test]
+    fn the_server_sets_a_specials_cooldown() {
+        let mut b = Hotbars::default();
+        b.add(0, 0, Action::Special { id: 82210, name: "Brawl".into(), icon: None }, 1.0);
+        b.add(0, 1, Action::Attack, 1.0);
+        b.set_special_cooldown(142, 15.0, 100.0);
+        assert_eq!(b.slot(0, 0).entries[0].ready_at, 115.0);
+        assert_eq!(b.slot(0, 1).entries[0].ready_at, 0.0);
+        b.set_special_cooldown(142, 0.0, 104.0);
+        assert_eq!(b.slot(0, 0).entries[0].ready_at, 104.0);
+        // another special is left alone
+        b.set_special_cooldown(150, 8.0, 104.0);
+        assert_eq!(b.slot(0, 0).entries[0].ready_at, 104.0);
     }
 
     #[test]

@@ -152,6 +152,8 @@ struct World {
     last_hp: BTreeMap<u32, i64>,
     /// The social action each character is doing: its name and when it began (from `SocialActionCmd`).
     socials: BTreeMap<u32, (&'static str, Instant)>,
+    /// The specials the server timed (skill stat, seconds; 0 = ready again), not yet given to the hotbars.
+    special_events: Vec<(u32, f32)>,
     /// Damage and healing events not yet shown as floating numbers: (target id, amount, stat).
     damage: Vec<(u32, i64, u32)>,
     /// Lines the server's game messages made (damage, healing, "You successfully perform ..."), for the chat window.
@@ -396,6 +398,15 @@ impl World {
             let action = u32::from_be_bytes(m.data[m.data.len() - 4..].try_into().unwrap());
             if let Some(name) = crate::actions_data::SOCIAL.iter().find(|a| a.0 == action).map(|a| a.1) {
                 self.socials.insert(m.identity.1, (name, Instant::now()));
+            }
+        }
+        // The server times the character's special attacks: `SpecialUsed` (the stat and the seconds) and `SpecialAvailable` (the stat).
+        if m.kind == 0x5e477770 && m.identity.1 == self.own && m.data.len() >= 25 {
+            let word = |at: usize| u32::from_be_bytes(m.data[at..at + 4].try_into().unwrap());
+            match m.data[4] {
+                0xaa => self.special_events.push((word(17), word(21) as f32)),
+                0xa4 => self.special_events.push((word(21), 0.0)),
+                _ => {}
             }
         }
         // An info packet: the health and its maximum of the character or creature it describes.
@@ -2324,6 +2335,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             })
                             .collect()
                     },
+                    special_cooldowns: std::mem::take(&mut state.special_events),
                     floaters: std::mem::take(&mut state.damage)
                         .into_iter()
                         .filter(|(_, amount, _)| *amount != 0)
