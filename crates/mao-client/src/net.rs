@@ -1629,6 +1629,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     let shown = crate::derived::shown(&state.stats, &state.item_mods);
                     let pick = |ids: &[u32]| ids.iter().map(|i| format!("{i:#x}={}", shown.get(i).map_or("-".to_string(), |v| v.to_string()))).collect::<Vec<_>>().join(" ");
                     eprintln!("stored: {:?} mods: {:?} perks {} nanos {:?}", [1u32, 0x1b, 0xd6, 0xdd, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15].map(|i| (i, state.stats.get(&i).copied())), [1u32, 0xdd, 0x10, 0x12].map(|i| (i, state.item_mods.get(&i).copied())), state.perks.len(), state.nanos);
+                    for (title, group) in crate::skills::GROUPS {
+                        eprintln!("skills {title}: {}", crate::skills::rows(group, &shown, "").iter().map(|(n, v)| format!("{n}={}", v.map_or("-".to_string(), |v| v.to_string()))).collect::<Vec<_>>().join(", "));
+                    }
                     eprintln!("worn: {:?}", state.worn.iter().map(|e| (e.slot, e.low_id, e.high_id, e.quality)).collect::<Vec<_>>());
                     eprintln!("stats: {} stored, {} modifiers; {}", state.stats.len(), state.item_mods.len(), pick(&[0x1b, 0x01, 0xd6, 0xdd, 0x36, 0x34, 0x39, 0x15e, 0x28, 0xb2, 0xa9, 0x5b]));
                 }
