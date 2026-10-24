@@ -1421,7 +1421,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                         chat.send(&mao_net::chat::lookup_packet(&name))?;
                                     }
                                 },
-                                Out::Camp | Out::Quit | Out::ViewDist(_) | Out::CharDist(_) => {}
+                                Out::Camp | Out::Quit | Out::Follow | Out::ViewDist(_) | Out::CharDist(_) => {}
                                 Out::Befriend { name } => match ids.get(&name.to_lowercase()) {
                                     Some(&id) => {
                                         chat.send(&mao_net::chat::buddy_add_packet(id))?;
@@ -1536,6 +1536,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut put_seen = 0u8;
         let mut delete_seen = 0u8;
         let mut cancel_seen = 0u8;
+        let (mut following, mut follow_seen): (Option<u32>, u8) = (None, 0);
         let (mut position, mut heading) = (start, heading);
         let (mut moving, mut turning, mut strafing) = (0i8, 0i8, 0i8);
         const JUMP_SPEED: f32 = 7.0;
@@ -1782,6 +1783,44 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 }
             }
             keys = raw;
+            // Follow (`/follow`): walk after the target; a movement key of the player's own stops it.
+            if raw.follow != follow_seen {
+                follow_seen = raw.follow;
+                if following.take().is_some() {
+                    goto = None;
+                    pending_messages.push("Stopped following".into());
+                } else if let Some(t) = target.filter(|t| state.entities.contains_key(t)) {
+                    following = Some(t);
+                    pending_messages.push(format!("Following {}", state.names.get(&t).map_or("the target", |n| n.0.as_str())));
+                } else {
+                    pending_messages.push("Nothing to follow (Tab selects a target)".into());
+                }
+            }
+            if following.is_some() && (raw.forward || raw.back || raw.strafe != 0 || raw.turn != 0 || raw.jump) {
+                following = None;
+                pending_messages.push("Stopped following".into());
+            }
+            if let Some(id) = following {
+                match state.entities.get(&id) {
+                    Some((p, _)) => {
+                        let distance = ((p[0] - position[0]).powi(2) + (p[2] - position[2]).powi(2)).sqrt();
+                        if distance > 3.5 {
+                            // (the progress watch only restarts when a walk starts: the target keeps moving)
+                            if goto.is_none() {
+                                (goto_best, goto_progress, detour, detours) = (f32::MAX, Instant::now(), None, 0);
+                            }
+                            goto = Some([p[0], p[2]]);
+                        } else {
+                            goto = None;
+                        }
+                    }
+                    None => {
+                        following = None;
+                        goto = None;
+                        pending_messages.push("The target is gone: stopped following".into());
+                    }
+                }
+            }
             // Go (the Whom-Pah window): walk to a place; any movement key of the player's own stops it.
             if raw.goto.0 != goto_seen {
                 goto_seen = raw.goto.0;

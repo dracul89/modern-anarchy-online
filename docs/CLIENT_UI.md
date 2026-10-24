@@ -397,3 +397,7 @@ The NCU window only knew the nanos running at login. The server also sends `SetN
 ## Auto-loot
 
 The options window's **Take everything from a corpse as soon as it opens** (`auto_loot` in `mao.ini`, off by default): when a corpse's contents arrive the client sends the take message for every item at once (the loot window still opens and empties as the server confirms each). Only corpses (`0xc76a`) are emptied, never bags or bank terminals. Not tried live.
+
+## /follow
+
+`/follow` walks after the current target (a character or creature that is about; it uses the same walking-to-a-place logic as the Whom-Pah Go button and its detours round obstacles), stopping within 3.5 units of it and starting again when it moves away. Typing it again, any movement key of your own, or the target leaving stops it. This is the client doing the walking; the server is told nothing of it. Not tried live.

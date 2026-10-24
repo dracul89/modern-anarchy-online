@@ -19,6 +19,7 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
     ("befriend <name>", "put a character on your friends list (L shows it)"),
     ("ignore [name]", "hide a character's tells and channel lines (again: show them; alone: the list)"),
     ("camp", "sit down to log out (stand up or move to cancel)"),
+    ("follow", "walk after the target (again, or any movement key: stop)"),
     ("chardist [n]", "how far characters are drawn (0 for all)"),
     ("viewdist [n]", "how far the world is seen (200 to 4000)"),
     ("quit", "leave the client"),
@@ -43,6 +44,8 @@ pub enum Parsed {
     ViewDist { distance: Option<u32> },
     /// `/chardist [n]`: how far characters are drawn (0: all).
     CharDist { distance: Option<u32> },
+    /// `/follow`: walk after the current target (again: stop).
+    Follow,
     /// `/camp`: sit down to log out.
     Camp,
     /// `/quit`: leave the client.
@@ -111,6 +114,7 @@ pub fn parse(line: &str) -> Parsed {
         }
         "ignore" => Parsed::Ignore { name: text.split_whitespace().next().unwrap_or("").to_string() },
         "camp" => Parsed::Camp,
+        "follow" => Parsed::Follow,
         "chardist" => Parsed::CharDist { distance: text.split_whitespace().next().and_then(|t| t.parse().ok()) },
         "viewdist" => Parsed::ViewDist { distance: text.split_whitespace().next().and_then(|t| t.parse().ok()) },
         "quit" => Parsed::Quit,
@@ -170,6 +174,7 @@ mod tests {
         assert_eq!(parse("/ignore Abc"), Parsed::Ignore { name: "Abc".into() });
         assert_eq!(parse("/ignore"), Parsed::Ignore { name: String::new() });
         assert_eq!(parse("/camp"), Parsed::Camp);
+        assert_eq!(parse("/follow"), Parsed::Follow);
         assert_eq!(parse("/viewdist 600"), Parsed::ViewDist { distance: Some(600) });
         assert_eq!(parse("/viewdist"), Parsed::ViewDist { distance: None });
         assert_eq!(parse("/QUIT"), Parsed::Quit);

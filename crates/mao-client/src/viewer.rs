@@ -54,6 +54,8 @@ pub struct Input {
     pub mv: (u8, u32, u32),
     /// An item to destroy: a counter that steps with each and the item's place.
     pub delete: (u8, u32),
+    /// Follow the target (a counter that steps with each `/follow`).
+    pub follow: u8,
     /// A running nano to cancel: a counter that steps with each and the nano's id.
     pub cancel: (u8, u32),
     /// How far characters are drawn (0: all), from the settings.
@@ -937,6 +939,7 @@ impl ApplicationHandler for App {
                             // (these two are for the client itself)
                             crate::chatwindow::Out::Camp => self.keys.commands[5] = self.keys.commands[5].wrapping_add(1),
                             crate::chatwindow::Out::Quit => event_loop.exit(),
+                            crate::chatwindow::Out::Follow => self.keys.follow = self.keys.follow.wrapping_add(1),
                             crate::chatwindow::Out::ViewDist(d) => {
                                 self.settings.view_distance = d as f32;
                                 self.settings.save();
