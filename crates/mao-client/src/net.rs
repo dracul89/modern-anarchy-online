@@ -285,6 +285,40 @@ pub fn send_chat(out: crate::chatwindow::Out) {
 }
 
 impl World {
+    /// A nano landed on the character (or its duration changed): it joins the running list with that time, the others' times first
+    /// brought up to now.
+    fn nano_duration(&mut self, nano: u32, ms: u32) {
+        let elapsed = self.nano_times_at.map_or(0, |t| t.elapsed().as_millis().min(u32::MAX as u128) as u32);
+        for entry in &mut self.nano_times {
+            entry.1 = entry.1.saturating_sub(elapsed);
+        }
+        match self.nano_times.iter_mut().find(|e| e.0 == nano) {
+            Some(entry) => entry.1 = ms,
+            None => {
+                self.nano_times.push((nano, ms));
+                self.nanos.push(nano);
+                self.mods_dirty = true;
+            }
+        }
+        self.nano_times_at = Some(Instant::now());
+        self.nano_list_changed = true;
+    }
+
+    /// Takes the nanos whose time has run out off the running list.
+    fn prune_nanos(&mut self) {
+        let Some(at) = self.nano_times_at else { return };
+        let elapsed = at.elapsed().as_millis().min(u32::MAX as u128) as u32;
+        let before = self.nano_times.len();
+        let ended: Vec<u32> = self.nano_times.iter().filter(|e| e.1 <= elapsed).map(|e| e.0).collect();
+        if !ended.is_empty() {
+            self.nano_times.retain(|e| e.1 > elapsed);
+            self.nanos.retain(|n| !ended.contains(n));
+            self.nano_list_changed = true;
+            self.mods_dirty = true;
+        }
+        let _ = before;
+    }
+
     /// Works out the bonuses to the stored stats again when the worn items, perks or active nanos changed.
     fn refresh_mods(&mut self, db: &ResourceDatabase) {
         if std::mem::take(&mut self.mods_dirty) {
@@ -405,6 +439,8 @@ impl World {
             let word = |at: usize| u32::from_be_bytes(m.data[at..at + 4].try_into().unwrap());
             match m.data[4] {
                 0xaa => self.special_events.push((word(17), word(21) as f32)),
+                // `SetNanoDuration`: the nano `(0xcf1b, id)` is on the character (the first parameter) for that long (ms)
+                0x62 if word(9) == 0xcf1b && word(17) == self.own => self.nano_duration(word(13), word(21)),
                 0xa4 => self.special_events.push((word(21), 0.0)),
                 _ => {}
             }
@@ -2294,6 +2330,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     eprintln!("worn: {:?}", state.worn.iter().map(|e| (e.slot, e.low_id, e.high_id, e.quality)).collect::<Vec<_>>());
                     eprintln!("stats: {} stored, {} modifiers; {}", state.stats.len(), state.item_mods.len(), pick(&[0x1b, 0x01, 0xd6, 0xdd, 0x36, 0x34, 0x39, 0x15e, 0x28, 0xb2, 0xa9, 0x5b]));
                 }
+                state.prune_nanos();
+                state.refresh_mods(&gear_db);
                 let mut chat_lines_now: Vec<crate::chatwindow::Line> = std::mem::take(&mut *CHAT_LINES.lock().unwrap());
                 chat_lines_now.extend(std::mem::take(&mut state.game_lines));
                 let friends_now = {
@@ -3399,6 +3437,22 @@ fn parse_capture_world(log: &str) -> Result<World, String> {
 #[cfg(test)]
 mod door_tests {
     use super::*;
+
+    #[test]
+    fn nanos_join_and_leave_the_running_list() {
+        let mut w = World::default();
+        w.nano_duration(10, 5000);
+        w.nano_duration(11, 300);
+        assert_eq!(w.nanos, vec![10, 11]);
+        // a second later the short one has run out, the long one has not
+        w.nano_times_at = Some(Instant::now() - Duration::from_secs(1));
+        w.prune_nanos();
+        assert_eq!(w.nanos, vec![10]);
+        assert_eq!(w.nano_times.len(), 1);
+        // casting it again sets its time
+        w.nano_duration(10, 9000);
+        assert_eq!(w.nano_times, vec![(10, 9000)]);
+    }
 
     #[test]
     fn fight_lines_name_who_and_what() {
