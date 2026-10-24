@@ -1123,7 +1123,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         });
         let (mut seen, mut target): ([u8; 7], Option<u32>) = ([0; 7], None);
         let (mut sitting, mut uses, mut fired) = (false, 0u32, 0u8);
-        let (mut special_seen, mut social_seen) = (0u8, 0u8);
+        let (mut special_seen, mut social_seen, mut pick_seen) = (0u8, 0u8, 0u8);
         let (mut position, mut heading) = (start, heading);
         let (mut moving, mut turning, mut strafing) = (0i8, 0i8, 0i8);
         const JUMP_SPEED: f32 = 7.0;
@@ -1605,6 +1605,22 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 let name = crate::actions_data::SOCIAL.iter().find(|a| a.0 == keys.social.1).map_or("that", |a| a.1);
                 pending_messages.push(format!("/{name}: its network message is not captured yet"));
             }
+            // A click on something in the world selects it; a double click uses it.
+            if keys.pick.0 != pick_seen {
+                pick_seen = keys.pick.0;
+                let (_, id, double) = keys.pick;
+                target = Some(id);
+                if !state.objects.contains_key(&id) {
+                    let _ = connection.send(&n3::select_target(own, id));
+                    let _ = connection.send(&n3::set_target(own, id));
+                }
+                if double {
+                    uses += 1;
+                    let kind = state.types.get(&id).copied().unwrap_or(n3::CHARACTER);
+                    let _ = connection.send(&n3::use_object(own, uses, (kind, id)));
+                    pending_messages.push(format!("Using {}", state.names.get(&id).map_or("the target", |n| n.0.as_str())));
+                }
+            }
             // A hotbar item: use the inventory slot it sits in.
             if keys.fire.0 != fired {
                 fired = keys.fire.0;
@@ -1853,6 +1869,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     own: Some(position),
                     location: pending_location.take(),
                     labels: pending_labels.take(),
+                    pickables: Some(state.objects.iter().map(|(id, p)| (*id, [p[0], p[2], p[1] + 1.2])).chain(state.entities.iter().filter(|(id, _)| **id != own).map(|(id, (p, _))| (*id, [p[0], p[2], p[1] + 1.0]))).collect()),
                     messages: {
                         for line in &chat_lines_now {
                             pending_messages.push(line.text.clone());

@@ -39,6 +39,8 @@ pub struct Hud {
     /// Who is about, for the map: (x, z) and what.
     pub map_dots: Vec<([f32; 2], crate::automap::DotKind)>,
     pub labels: Vec<Label>,
+    /// What can be clicked in the world: ids and Z-up positions.
+    pub pickables: Vec<(u32, [f32; 3])>,
     pub log: VecDeque<(Instant, String)>,
     /// The current target, for the target frame.
     pub target: Option<String>,

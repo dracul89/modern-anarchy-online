@@ -46,6 +46,8 @@ pub struct Input {
     pub goto: (u8, [f32; 2]),
     /// A mission window command: a counter that steps with each, and the command.
     pub mission: (u8, crate::mission::Command),
+    /// Something clicked in the world: a counter that steps with each click, its id, and whether it was a double click (use it).
+    pub pick: (u8, u32, bool),
 }
 
 /// The overlay to draw and where the player's character is (the view
@@ -73,6 +75,8 @@ pub struct Update {
     pub location: Option<String>,
     /// The labels over the world (Z-up positions), when they change.
     pub labels: Option<Vec<([f32; 3], String)>>,
+    /// What can be clicked in the world: ids and Z-up positions.
+    pub pickables: Option<Vec<(u32, [f32; 3])>>,
     /// Messages for the log.
     pub messages: Vec<String>,
     /// The current target (name and distance), for the target frame.
@@ -208,6 +212,9 @@ struct App {
     home: Option<Camera>,
     preferred: Option<Camera>,
     hud: Hud,
+    /// How far the mouse moved since the left button went down (a click is a press that barely moved), and the last click.
+    moved: f32,
+    last_click: Option<(u32, std::time::Instant)>,
 }
 
 /// Shows the window the way `mode` says: a framed window, a borderless one
@@ -239,7 +246,7 @@ fn apply_mode(window: &Window, mode: WindowMode) {
 pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<(), String> {
     let event_loop = EventLoop::new().map_err(|e| e.to_string())?;
     let settings = Settings::load();
-    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default() };
+    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None };
     event_loop.run_app(&mut app).map_err(|e| e.to_string())
 }
 
@@ -286,6 +293,7 @@ impl ApplicationHandler for App {
         if self.live.is_none() || self.buttons == [false; 2] {
             return;
         }
+        self.moved += dx.abs() as f32 + dy.abs() as f32;
         let Some(w) = self.state.as_mut() else { return };
         w.camera.yaw -= dx as f32 * 0.005;
         w.camera.pitch = (w.camera.pitch + dy as f32 * 0.005).clamp(-0.6, 1.45);
@@ -378,7 +386,32 @@ impl ApplicationHandler for App {
             // Playing: the left button orbits the camera, the right one steers the character
             // with it, both together walk forward (as in WoW).
             WindowEvent::MouseInput { state, button: button @ (MouseButton::Left | MouseButton::Right), .. } if self.live.is_some() => {
+                if button == MouseButton::Left && state == ElementState::Pressed {
+                    self.moved = 0.0;
+                }
+                let clicked = button == MouseButton::Left && state == ElementState::Released && self.buttons[0] && !self.buttons[1] && self.moved < 5.0;
                 self.buttons[(button == MouseButton::Right) as usize] = state == ElementState::Pressed;
+                if clicked {
+                    let size = w.window.inner_size();
+                    let (camera, radius) = (w.camera, w.scene.radius);
+                    let aspect = size.width as f32 / size.height.max(1) as f32;
+                    let (cx, cy) = (self.last.0 as f32, self.last.1 as f32);
+                    let nearest = self
+                        .hud
+                        .pickables
+                        .iter()
+                        .filter_map(|&(id, p)| {
+                            let [x, y] = camera.project(mao_render::glam::Vec3::from(p), aspect, radius)?;
+                            Some((((x * size.width as f32 - cx).powi(2) + (y * size.height as f32 - cy).powi(2)).sqrt(), id))
+                        })
+                        .filter(|c| c.0 < 48.0)
+                        .min_by(|a, b| a.0.total_cmp(&b.0));
+                    if let Some((_, id)) = nearest {
+                        let double = self.last_click.is_some_and(|(last, at)| last == id && at.elapsed() < std::time::Duration::from_millis(500));
+                        self.last_click = Some((id, std::time::Instant::now()));
+                        self.keys.pick = (self.keys.pick.0.wrapping_add(1), id, double);
+                    }
+                }
                 let any = self.buttons[0] || self.buttons[1];
                 w.window.set_cursor_visible(!any);
                 if any {
@@ -692,6 +725,9 @@ impl ApplicationHandler for App {
                         }
                         if let Some(name) = u.location.take() {
                             self.hud.location = name;
+                        }
+                        if let Some(p) = u.pickables.take() {
+                            self.hud.pickables = p.into_iter().map(|(id, p)| (id, p)).collect();
                         }
                         if let Some(labels) = u.labels.take() {
                             self.hud.labels = labels.into_iter().map(|(p, text)| Label { world: mao_render::glam::Vec3::from(p), text }).collect();
