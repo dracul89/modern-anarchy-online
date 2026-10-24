@@ -152,6 +152,8 @@ struct World {
     casts: Vec<(u32, u32, u32)>,
     /// The level of the characters (not creatures) whose info packets came.
     levels: BTreeMap<u32, u8>,
+    /// The organization name of the characters an `OrgInfoPacket` told about.
+    orgs: BTreeMap<u32, String>,
     /// Health and maximum from the info packets (the server answers an info request with them).
     health: BTreeMap<u32, (i64, i64)>,
     /// The health each character was last known to have (from the damage events: the target's health after the hit).
@@ -460,6 +462,15 @@ impl World {
                 };
                 if let Some(line) = line {
                     self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
+                }
+            }
+        }
+        if m.kind == 0x2e2a4a6b {
+            if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
+                if let Some(mao_net::schema::Value::Str(name)) = p.value.get("Name") {
+                    if !name.is_empty() {
+                        self.orgs.insert(m.identity.1, name.clone());
+                    }
                 }
             }
         }
@@ -2581,6 +2592,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                 };
                                 // (a character whose level is known carries it)
                                 let name = state.levels.get(id).map_or(name.clone(), |level| format!("{name} ({level})"));
+                                let name = state.orgs.get(id).map_or(name.clone(), |org| format!("{name} <{org}>"));
                                 Some((distance, kind, [p[0], p[2], p[1] + 2.3], name))
                             })
                             .collect();
