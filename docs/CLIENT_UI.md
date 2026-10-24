@@ -434,3 +434,5 @@ Missed attacks at or by the character (`MissedAttackInfo`: the attacker and the 
 - **Reload line**: a `Reload` (`26515e61`: ammo slot, weapon, ammo left 25260, rounds in the weapon 75 in the capture) tells "You reload: 75 rounds in the weapon, 25260 left." in the Combat tab. Not tried live; no reload is sent by the client yet.
 
 - **Backpack count**: the inventory's Backpack heading shows how many of the 30 places are used ("Backpack  12/30").
+
+- **Stop fighting**: a `StopFight` (`4a41203e`) from the character tells "You stop fighting." in the Combat tab (the capture shows the character and each monster sending one at the end of a fight). Not tried live.

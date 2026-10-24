@@ -485,6 +485,10 @@ impl World {
                 self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, reload_line(n("WeaponAmmoCount"), n("AmmoCount"))));
             }
         }
+        // The character's fight is over.
+        if m.kind == 0x4a41203e && m.identity.1 == self.own {
+            self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, "You stop fighting."));
+        }
         // Damage the character's armour absorbed, and a damage shield that struck it.
         if m.kind == 0x264e5f61 && m.identity.1 == self.own {
             if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
