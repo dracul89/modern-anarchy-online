@@ -193,6 +193,16 @@ pub fn parse(file: &[u8]) -> Result<Vec<Statel>, Error> {
 /// The statels, how many zones the file has and how many of them couldn't
 /// be read as the layout this module knows (their statels are left out).
 pub fn parse_report(file: &[u8]) -> Result<(Vec<Statel>, usize, usize), Error> {
+    let (mut out, zones) = parse_zoned(file)?;
+    let failed = zones.iter().filter(|z| z.is_none()).count();
+    let count = zones.len();
+    out.extend(zones.into_iter().flatten().flatten());
+    Ok((out, count, failed))
+}
+
+/// The playfield's global statels and each zone's own (`None` for a zone that couldn't be read). In an instanced interior
+/// the zones are its rooms, in the rooms' order, and a zone's statels sit relative to its room's centre.
+pub fn parse_zoned(file: &[u8]) -> Result<(Vec<Statel>, Vec<Option<Vec<Statel>>>), Error> {
     let mut r = Reader { data: file, at: 0 };
     let version = r.u32("the version")?;
     if version != 1 {
@@ -226,10 +236,13 @@ pub fn parse_report(file: &[u8]) -> Result<(Vec<Statel>, usize, usize), Error> {
             }
         }
     }
-    let mut failed = 0;
+    let mut zones_out: Vec<Option<Vec<Statel>>> = Vec::new();
     for (k, &start) in offsets.iter().enumerate() {
         let end = offsets.get(k + 1).copied().unwrap_or(file.len());
-        let Some(zone) = file.get(start..end.min(file.len())) else { continue };
+        let Some(zone) = file.get(start..end.min(file.len())) else {
+            zones_out.push(None);
+            continue;
+        };
         // A zone has one of two layouts, told apart here by which one reads
         // exactly to the zone's end (the room objects at the end of the zone
         // can't be skipped, so a zone that has some is taken as it stands).
@@ -273,10 +286,7 @@ pub fn parse_report(file: &[u8]) -> Result<(Vec<Statel>, usize, usize), Error> {
                 }
             }
         }
-        match result {
-            Some(list) => out.extend(list),
-            None => failed += 1,
-        }
+        zones_out.push(result);
     }
-    Ok((out, offsets.len(), failed))
+    Ok((out, zones_out))
 }

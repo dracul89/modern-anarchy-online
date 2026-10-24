@@ -188,6 +188,23 @@ pub(crate) fn load_terrain(db: &ResourceDatabase, playfield: u32) -> Result<Mode
     Ok(model)
 }
 
+/// The rooms of an instanced interior (its playfield definition lists them), when it has any.
+pub(crate) fn load_rooms(db: &ResourceDatabase, playfield: u32) -> Option<mao_formats::rooms::RoomPlayfield> {
+    let object = db.get(Id { kind: mao_formats::rooms::KIND, instance: playfield }).ok().flatten()?;
+    mao_formats::rooms::parse(&object).ok().flatten()
+}
+
+/// The shell of an interior: its rooms' floors and walls as a model (Z-up), when the playfield is made of rooms.
+pub(crate) fn load_room_shell(db: &ResourceDatabase, playfield: u32) -> Option<Model> {
+    let rooms = load_rooms(db, playfield)?;
+    let object = db.get(Id { kind: 0xf4249, instance: rooms.tilemap }).ok().flatten()?;
+    let map = mao_formats::tilemap::parse_new(&object).ok()?;
+    let grid = mao_formats::rooms::Grid::new(&map)?;
+    let material = mao_formats::model::Material { name: "room".into(), diffuse: [0.55, 0.52, 0.48], ambient: [0.55, 0.52, 0.48], opacity: 1.0, ..Default::default() };
+    let model = mao_formats::rooms::model(&grid, &rooms, &material);
+    (!model.parts.is_empty()).then_some(model)
+}
+
 /// The playfield's static objects (its `.pf` statel file), as parts placed on
 /// the ground. The world is Y-up, the viewer Z-up, so a statel's (x, y, z)
 /// goes to (x, z, y).
@@ -196,9 +213,20 @@ pub(crate) fn add_props(game: &str, db: &ResourceDatabase, playfield: u32, model
     let mut part_mesh = std::collections::HashMap::new();
     let path = Path::new(game).join(format!("cd_image/data/statels/{playfield}.pf"));
     let Ok(file) = std::fs::read(&path) else { return part_mesh };
-    let Ok((statels, zones, failed)) = mao_formats::statels::parse_report(&file) else { return part_mesh };
+    let Ok((mut statels, zone_lists)) = mao_formats::statels::parse_zoned(&file) else { return part_mesh };
+    let (zones, failed) = (zone_lists.len(), zone_lists.iter().filter(|z| z.is_none()).count());
     if failed > 0 {
         eprintln!("{failed} of {zones} statel zones could not be read (their props are missing)");
+    }
+    // An instanced interior: each zone is a room, and its statels sit relative to the room's centre.
+    let rooms = load_rooms(db, playfield);
+    for (k, zone) in zone_lists.into_iter().enumerate() {
+        for mut s in zone.into_iter().flatten() {
+            if let Some(room) = rooms.as_ref().and_then(|r| r.rooms.get(k)) {
+                (s.position, s.rotation) = mao_formats::rooms::place_statel(room, s.position, s.rotation);
+            }
+            statels.push(s);
+        }
     }
     // Each mesh's parts go in once; a statel is an instance of each.
     // (A statel may carry texture overrides for some of its mesh's materials: those get their own copy of the parts.)
@@ -346,6 +374,30 @@ fn run(args: &[String]) -> Result<(), String> {
     if let [word, rest @ ..] = args {
         if word == "net" {
             return net::run(rest);
+        }
+    }
+    // `rooms-check <game>`: how many playfields are made of rooms, and whether every one reads and builds.
+    if let [game, word] = args {
+        if word == "rooms-check" {
+            let db = ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?;
+            let (mut rooms, mut outdoor, mut broken) = (0, 0, 0);
+            for p in mao_formats::playfield::all(&db) {
+                let Some(object) = db.get(Id { kind: mao_formats::rooms::KIND, instance: p.number }).ok().flatten() else { continue };
+                match mao_formats::rooms::parse(&object) {
+                    Ok(Some(r)) => {
+                        rooms += 1;
+                        let shell = load_room_shell(&db, p.number);
+                        println!("{} {:?}: {} rooms, tile-map {:#x}, shell {}", p.number, p.name, r.rooms.len(), r.tilemap, shell.map_or("none".to_string(), |m| format!("{} parts", m.parts.len())));
+                    }
+                    Ok(None) => outdoor += 1,
+                    Err(e) => {
+                        broken += 1;
+                        println!("{} {:?}: {e}", p.number, p.name);
+                    }
+                }
+            }
+            println!("{rooms} of rooms, {outdoor} outdoor, {broken} unreadable");
+            return Ok(());
         }
     }
     // `n3 <capture.log> <type hex>`: the parsed messages of one type in a capture.

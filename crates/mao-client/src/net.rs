@@ -785,6 +785,11 @@ fn show_world(game: &str, playfield: u32, world: &World, image: Option<&str>) ->
         let ground = scene.parts.len();
         scene.instances.extend((0..ground).map(|i| (i, model::IDENTITY)));
     }
+    if let Some(shell) = crate::load_room_shell(&db, playfield) {
+        let base = scene.parts.len();
+        scene.instances.extend((0..shell.parts.len()).map(|i| (base + i, model::IDENTITY)));
+        scene.parts.extend(shell.parts);
+    }
     if let Ok(t) = crate::load_terrain_data(&db, playfield) {
         let started = Instant::now();
         let ground_parts = crate::load_terrain(&db, playfield).map(|m| m.parts.len()).unwrap_or(0);
@@ -883,6 +888,20 @@ pub(crate) fn load_area(game: &str, db: &Arc<ResourceDatabase>, playfield: u32) 
     if scene.instances.is_empty() {
         scene.instances.extend((0..ground_parts).map(|i| (i, model::IDENTITY)));
     }
+    // An interior made of rooms (a shop instance): their floors and walls.
+    let ground_parts = if terrain.is_none() {
+        let before = scene.parts.len();
+        if let Some(shell) = crate::load_room_shell(db, playfield) {
+            let base = scene.parts.len();
+            scene.instances.extend((0..shell.parts.len()).map(|i| (base + i, model::IDENTITY)));
+            scene.parts.extend(shell.parts);
+        }
+        // (the shell is solid ground, not a prop: collision counts it with the ground)
+        let _ = before;
+        ground_parts
+    } else {
+        ground_parts
+    };
     // Trigger areas are walked into, not blocked by: whompah entrances, doors and gates.
     let passable = passable_parts(db, &part_mesh);
     let collision = build_collision(&scene, ground_parts, &crate::Textures::new(db.clone()), &passable);
@@ -1324,7 +1343,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         Ok(area) => {
                             (terrain, collision) = (area.terrain, area.collision);
                             let mut scene = area.scene;
-                            if terrain.is_none() {
+                            if terrain.is_none() && crate::load_rooms(&thread_db, playfield).is_none() {
                                 // An interior: the floor isn't readable, so lay a plain one at the arrival height.
                                 scene.parts.push(floor_part(arrival[0], arrival[2], arrival[1] - 0.03));
                                 scene.instances.push((scene.parts.len() - 1, model::IDENTITY));
