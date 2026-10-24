@@ -383,3 +383,5 @@ Right-clicking a running nano in the NCU window offers **Cancel this nano**. The
 ## The target's health (info requests)
 
 Choosing a target (Tab, a click) now also sends `CharacterAction` action `0x69` (`InfoRequest`, `n3::info_request`: the target `(0xc350, id)` and zero parameters, byte for byte as in the captures where the original sends one for every target). The server answers with an `InfoPacket` (`4d38242e`) from that character or creature: after the flag byte and the type (64-71 a character, 80 a monster) come five bytes (a flag, the profession, the **level** (200 for the captured character, meaningless for a monster), the title level, the look's profession), the side's experience (a short) and the **health and its maximum**; two captured packets are decoded in the tests (a monster at 92 of 92, a level-200 character at 54304). The target frame shows `HP 54304/54304`, and the damage events keep the current value moving afterwards. The monsters' packets carry no name or level in this layout.
+
+A character whose info packet came (one that was targeted) shows its level in its name plate: `Mothra (200)`.

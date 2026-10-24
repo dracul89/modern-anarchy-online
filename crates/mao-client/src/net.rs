@@ -144,6 +144,8 @@ struct World {
     program_ids: Vec<u32>,
     programs_changed: bool,
     perks_changed: bool,
+    /// The level of the characters (not creatures) whose info packets came.
+    levels: BTreeMap<u32, u8>,
     /// Health and maximum from the info packets (the server answers an info request with them).
     health: BTreeMap<u32, (i64, i64)>,
     /// The health each character was last known to have (from the damage events: the target's health after the hit).
@@ -400,6 +402,9 @@ impl World {
         if m.kind == 0x4d38242e {
             if let Some(info) = mao_net::n3::info_packet(&m.data) {
                 self.health.insert(m.identity.1, (info.health as i64, info.max_health as i64));
+                if !info.monster && info.level > 0 {
+                    self.levels.insert(m.identity.1, info.level);
+                }
             }
         }
         // The game's own text and the fight.
@@ -2351,6 +2356,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                 } else {
                                     crate::automap::DotKind::Hostile
                                 };
+                                // (a character whose level is known carries it)
+                                let name = state.levels.get(id).map_or(name.clone(), |level| format!("{name} ({level})"));
                                 Some((distance, kind, [p[0], p[2], p[1] + 2.3], name))
                             })
                             .collect();
