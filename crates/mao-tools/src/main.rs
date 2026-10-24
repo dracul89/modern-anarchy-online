@@ -530,6 +530,28 @@ stats {:?}", item.id, item.name, item.description, item.icon(), item.stats);
             }
             println!("{counts:?}");
         }
+        // `scaled <type> <level>`: per object, the level-scaled modify-stat effects (`0xcfb7`: stat, percent) as `stat:amount` at that level,
+        // amount = round(level * percent / 200) as the original works it out; one line per object that has any.
+        ("scaled", [kind, level]) => {
+            let kind = number(kind).ok_or("bad type")?;
+            let level: f64 = level.parse().map_err(|_| "bad level")?;
+            for id in db.ids().map_err(|e| e.to_string())?.filter(|i| i.as_ref().is_ok_and(|i| i.kind == kind)) {
+                let id = id.map_err(|e| e.to_string())?;
+                let Ok(Some(object)) = db.get(id) else { continue };
+                let word = |at: usize| u32::from_le_bytes(object[at..at + 4].try_into().unwrap());
+                let mut line = String::new();
+                for at in 0..object.len().saturating_sub(40) {
+                    if word(at) == 0xcfb7 && word(at + 4) == 0 && word(at + 8) == 4 && word(at + 12) == 0 && word(at + 16) == 1 && word(at + 20) == 0 && word(at + 28) == 9 {
+                        let percent = word(at + 36) as i32 as f64;
+                        let amount = (level * percent / 200.0).round() as i64;
+                        line.push_str(&format!(" {}:{}", word(at + 32), amount));
+                    }
+                }
+                if !line.is_empty() {
+                    println!("{:#x}:{:#x}{line}", id.kind, id.instance);
+                }
+            }
+        }
         ("verify", []) => {
             let (count, bytes, highest, failures, failed) = db.verify().map_err(|e| e.to_string())?;
             println!("{count} objects, {bytes} bytes, highest position {highest:#x}, {failures} unreadable");

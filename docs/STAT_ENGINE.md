@@ -324,3 +324,26 @@ produces (worn items, 9 nanos, 143 perks and research ranks) leaves 28 events:
 
 `stats-check` on Conjecture is now 192 stats equal; the remaining differences are these 25 effects and what they pull through the
 attributes into the skills (`docs/live_check_conjecture.txt`).
+
+## The `0xcfb7` handler (`FUN_100a8d0b`, read from the disassembly)
+
+Spell type `0xcfb7` (53175) is a level-scaled modify-stat spell. Its records have the same shape as `0xcf35`'s (`0xcfb7, 0, 4, 0,
+1, 0, 2|3, 9, stat, percent`). The handler, in `Gamecode.dll`:
+
+1. takes the target character (`SimpleChar`), reads its **level** (`GetSkill(0x36, 2)`);
+2. `amount = round(level * param / 200.0)`, where `param` is the spell's second value (spell stat `0x27`; the divisor is the double
+   at `0x10160398` = 200.0, so 100 means "half a point per level"); the stat is the spell's first value (spell stat 0);
+3. adds the amount to the stat's modifier through `AddModifier` (spell flag bit 0 clear), or removes it (`RemoveModifier`) when the
+   spell is being ended; it also keeps the stat's current value consistent (a `GetSkill` before and after, passed to the info
+   signal) and returns the change.
+
+(`mao-db <game> scaled <type> <level>` lists, per object, the `stat:amount` of every `0xcfb7` record at a level; there are 169
+item templates and 42 nano templates with such records.)
+
+The 25 unexplained events of the live Conjecture fit that formula: with level 220 an amount is `1.1 x` the spell's value, i.e. the
+values behind them are 8 (attributes 16-21 give 9), 5, 35 (skills 122-131 give 39), 15, 54, 90, 11, 17 and -5 (318 gives -6). The
+social-tab "Enhanced Dustbrigade Notum Gloves" (place 56) hold exactly the 35 for skills 122-131 and -5 for stat 318 as plain
+modify-stat records, which hints that the 25 are the effects of **items in the social tab** applied in the scaled form, but the other
+social-tab items hold other stats (the 8 and 54 and 90 are in no social item), and no template of the character holds a `0xcfb7`
+record, so the spell is built by the client at run time (the call chain ends in an N3 message handler) and its source list is
+still not identified. Modelling it needs the list of (stat, value) pairs; the formula is known.
