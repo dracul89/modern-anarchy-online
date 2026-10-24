@@ -433,6 +433,24 @@ impl World {
                 }
             }
         }
+        // A missed attack at or by the character.
+        if m.kind == 0x5c654b28 {
+            if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
+                let id = |name: &str| p.value.get(name).and_then(|v| v.get("Instance")).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
+                let (attacker, defender) = (id("Attacker"), id("Defender"));
+                let name = |id: u32| self.names.get(&id).map_or_else(|| "Something".to_string(), |n| n.0.clone());
+                let line = if attacker == self.own {
+                    Some(format!("You miss {}.", name(defender)))
+                } else if defender == self.own {
+                    Some(format!("{} misses you.", name(attacker)))
+                } else {
+                    None
+                };
+                if let Some(line) = line {
+                    self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
+                }
+            }
+        }
         // A nano cast: told when it is the character's own or is cast on it.
         if m.kind == 0x25314d6d {
             if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
