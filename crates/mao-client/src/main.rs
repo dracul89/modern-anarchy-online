@@ -223,6 +223,27 @@ pub(crate) fn static_props(db: &ResourceDatabase, playfield: u32) -> Vec<(u32, (
         .collect()
 }
 
+/// The playfield's built-in doors, terminals and the like (its dynel table) as instances of their models, for the offline views
+/// (the live client draws them with the other machines).
+pub(crate) fn add_static_props(db: &ResourceDatabase, playfield: u32, model: &mut Model) {
+    let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
+    let mut meshes: std::collections::HashMap<u32, Option<std::ops::Range<usize>>> = std::collections::HashMap::new();
+    for (_, (mesh, position, rotation), _) in static_props(db, playfield) {
+        let range = meshes
+            .entry(mesh)
+            .or_insert_with(|| {
+                let m = load_model(db, Id { kind: 0xf6951, instance: mesh }).ok()?;
+                let start = model.parts.len();
+                model.parts.extend(m.parts);
+                Some(start..model.parts.len())
+            })
+            .clone();
+        let Some(range) = range else { continue };
+        let place = model::multiply(&model::trs_matrix(position, rotation, [1.0; 3]), &swap);
+        model.instances.extend(range.map(|i| (i, place)));
+    }
+}
+
 /// The shell of an interior: its rooms' floors and walls as a model (Z-up), when the playfield is made of rooms.
 pub(crate) fn load_room_shell(db: &ResourceDatabase, playfield: u32) -> Option<Model> {
     let rooms = load_rooms(db, playfield)?;
@@ -584,6 +605,13 @@ fn run(args: &[String]) -> Result<(), String> {
             let mut model = load_terrain(&db, number).unwrap_or_default();
             if std::env::var_os("MAO_NO_PROPS").is_none() {
                 add_props(game, &db, number, &mut model);
+            }
+            if std::env::var_os("MAO_NO_PROPS").is_none() {
+                if model.instances.is_empty() {
+                    let ground = model.parts.len();
+                    model.instances.extend((0..ground).map(|i| (i, model::IDENTITY)));
+                }
+                add_static_props(&db, number, &mut model);
             }
             // An interior or dungeon: the shell of its rooms.
             if let Some(shell) = load_room_shell(&db, number) {
