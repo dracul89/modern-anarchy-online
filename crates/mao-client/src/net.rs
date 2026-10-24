@@ -1847,6 +1847,21 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     "Reload" => {
                         let _ = connection.send(&n3::action(own, 0xd2));
                     }
+                    // The weapon specials are skills: the message names the skill's stat.
+                    "Brawl" | "Dimach" | "Burst" | "Fling Shot" | "Full Auto" => match target {
+                        Some(t) => {
+                            let stat = match name {
+                                "Brawl" => 142,
+                                "Dimach" => 144,
+                                "Burst" => 148,
+                                "Fling Shot" => 150,
+                                _ => 167,
+                            };
+                            let _ = connection.send(&n3::special_attack(own, t, stat));
+                            pending_messages.push(format!("{name} at {}", state.names.get(&t).map_or("the target", |n| n.0.as_str())));
+                        }
+                        None => pending_messages.push(format!("{name} needs a target (Tab selects one)")),
+                    },
                     "Start Combat" => match target {
                         Some(t) => {
                             let _ = connection.send(&n3::attack(own, t));
