@@ -247,11 +247,22 @@ pub(crate) fn add_props(game: &str, db: &ResourceDatabase, playfield: u32, model
     let rooms = load_rooms(db, playfield);
     for (k, zone) in zone_lists.into_iter().enumerate() {
         for mut s in zone.into_iter().flatten() {
-            if let Some(room) = rooms.as_ref().and_then(|r| r.rooms.get(k)) {
+            if let Some(rooms) = &rooms {
+                // (a zone without a room has nowhere to stand)
+                let Some(room) = rooms.rooms.get(k) else { continue };
                 (s.position, s.rotation) = mao_formats::rooms::place_statel(room, s.position, s.rotation);
             }
             statels.push(s);
         }
+    }
+    // (a few statels of a room playfield are stray: keep the ones that stand in or near a room)
+    if let Some(rooms) = &rooms {
+        statels.retain(|s| {
+            rooms.rooms.iter().any(|r| {
+                let half = (r.rect[2].saturating_sub(r.rect[0]).max(r.rect[3].saturating_sub(r.rect[1])) as f32) + 10.0;
+                (s.position[0] - r.position[0]).abs() <= half && (s.position[2] - r.position[2]).abs() <= half
+            })
+        });
     }
     // Each mesh's parts go in once; a statel is an instance of each.
     // (A statel may carry texture overrides for some of its mesh's materials: those get their own copy of the parts.)
@@ -261,6 +272,17 @@ pub(crate) fn add_props(game: &str, db: &ResourceDatabase, playfield: u32, model
     let ground = model.parts.len();
     model.instances.extend((0..ground).map(|i| (i, model::IDENTITY)));
     let mut placed = 0;
+    if std::env::var_os("MAO_STATEL_BOUNDS").is_some() {
+        let far = statels.iter().filter(|s| s.position[0].abs() > 600.0 || s.position[2].abs() > 600.0).count();
+        let (mut lo, mut hi) = ([f32::MAX; 3], [f32::MIN; 3]);
+        for s in &statels {
+            for k in 0..3 {
+                lo[k] = lo[k].min(s.position[k]);
+                hi[k] = hi[k].max(s.position[k]);
+            }
+        }
+        eprintln!("{} statels, x/y/z from {lo:?} to {hi:?}, {far} beyond 600", statels.len());
+    }
     // MAO_NEAR=x,y,z,radius: the statels within that distance (to see what stands where the server announces a machine).
     if let Ok(v) = std::env::var("MAO_NEAR") {
         let n: Vec<f32> = v.split(',').filter_map(|t| t.trim().parse().ok()).collect();
@@ -387,6 +409,7 @@ fn list(db: &ResourceDatabase, filter: Option<&str>) {
             continue;
         }
         let kind = match db.get(Id { kind: 0xf4249, instance: p.number }).ok().flatten() {
+            _ if load_rooms(db, p.number).is_some() => "rooms (an interior or dungeon)",
             Some(o) if o.get(12..16) == Some(b"CHGA") => "ground",
             Some(_) => "other ground layout (not drawn yet)",
             None => "no ground",
@@ -521,6 +544,16 @@ fn run(args: &[String]) -> Result<(), String> {
             let mut model = load_terrain(&db, number).unwrap_or_default();
             if std::env::var_os("MAO_NO_PROPS").is_none() {
                 add_props(game, &db, number, &mut model);
+            }
+            // An interior or dungeon: the shell of its rooms.
+            if let Some(shell) = load_room_shell(&db, number) {
+                if model.instances.is_empty() {
+                    let ground = model.parts.len();
+                    model.instances.extend((0..ground).map(|i| (i, model::IDENTITY)));
+                }
+                let base = model.parts.len();
+                model.instances.extend((0..shell.parts.len()).map(|i| (base + i, model::IDENTITY)));
+                model.parts.extend(shell.parts);
             }
             let textures = Textures::new(db.clone());
             // MAO_UI_PREVIEW=1 (or `options`) paints the interface over the image.

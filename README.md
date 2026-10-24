@@ -22,9 +22,10 @@ Window controls: drag to orbit, scroll to zoom, WASD to move the view point,
 Q/E down and up, Esc to quit. `MAO_CAMERA=x,y,z,distance,yaw,pitch` places the
 camera for headless renders; `MAO_NO_PROPS=1` draws only the ground.
 
-336 playfields draw (ground, textures, and their statels: trees, rocks,
-buildings, 2 million objects across the game); the other 294 are interiors and
-other layouts not read yet. `mao-db` (in `mao-tools`) inspects the database:
+336 outdoor playfields draw (ground, textures, and their statels: trees, rocks,
+buildings, 2 million objects across the game) and the 289 made of rooms (the
+shops and every dungeon: floors, ramps, walls, textures, props placed in their
+rooms) draw too; `list` marks them `rooms`. Five playfields have no ground at all. `mao-db` (in `mao-tools`) inspects the database:
 `info`, `verify`, `list`, `get`, `texture`, `mesh-preview`, `dump-mesh`, ...
 
 ## What works (the live client)
