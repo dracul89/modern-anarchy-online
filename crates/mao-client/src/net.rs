@@ -144,6 +144,8 @@ struct World {
     program_ids: Vec<u32>,
     programs_changed: bool,
     perks_changed: bool,
+    /// Damage and healing events not yet shown as floating numbers: (target id, amount, stat).
+    damage: Vec<(u32, i64, u32)>,
     /// Lines the server's game messages made (damage, healing, "You successfully perform ..."), for the chat window.
     game_lines: Vec<crate::chatwindow::Line>,
     /// The container (corpse, bag) the character opened, and whether that changed.
@@ -398,6 +400,7 @@ impl World {
                 let stat = p.value.get("Stat").and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
                 let target = p.value.get("Target").and_then(|t| t.get("Instance")).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
                 let who = if target == self.own { "You".to_string() } else { self.names.get(&target).map_or_else(|| "Something".to_string(), |n| n.0.clone()) };
+                self.damage.push((target, amount, stat));
                 let line = combat_line(&who, target == self.own, amount, stat);
                 self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
             }
@@ -2193,6 +2196,16 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             })
                             .collect()
                     },
+                    floaters: std::mem::take(&mut state.damage)
+                        .into_iter()
+                        .filter(|(_, amount, _)| *amount != 0)
+                        .filter_map(|(id, amount, _)| {
+                            // over the one hit (your own character stands at `position`)
+                            let at = if id == own { position } else { state.entities.get(&id)?.0 };
+                            let kind = if amount > 0 { 2 } else if id == own { 1 } else { 0 };
+                            Some(([at[0], at[2], at[1] + 2.0], amount.abs().to_string(), kind))
+                        })
+                        .collect(),
                     nameplates: {
                         let friendly_name = |name: &str| ["Vanguard", "Watcher", "Commander", "Guard", "Merchant", "Trader", "Recruiter", "Helper"].iter().any(|w| name.contains(w));
                         let mut plates: Vec<(f32, crate::automap::DotKind, [f32; 3], String)> = state

@@ -331,3 +331,7 @@ The launcher's character rows read `level 220 male Solitus Enforcer`: the sex an
 ## Name plates
 
 The names of the characters and creatures within 40 units float over their heads, coloured by what they are as the map's dots are (players blue, friendly NPCs green, hostile creatures red, the target gold), the nearest forty at most. The network thread builds them from the entities it knows (name from the entity info, position plus 2.3 over the head) with every update; `hud_layer` projects each one and draws it with a dark shadow. Preview: `MAO_PLATES=1 MAO_UI_PREVIEW=1 mao-client <game> map 540 --image out.png`. Health bars and levels are not shown (the server's health updates for others are damage events without a maximum).
+
+## Floating combat numbers
+
+Each `HealthDamage` also floats its amount over the one hit for 1.6 seconds, rising and fading: damage to others in yellow, damage you take in red, healing in green (the target's entity, or your own character's place, 2 units up). The numbers come from the same message as the Combat tab's lines. Preview: `MAO_PLATES=1 MAO_UI_PREVIEW=1 ...` draws three samples.

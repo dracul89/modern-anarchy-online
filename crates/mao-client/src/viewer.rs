@@ -79,6 +79,8 @@ pub struct Update {
     pub map_dots: Vec<([f32; 2], crate::automap::DotKind)>,
     /// The names to float over the characters and creatures near (Z-up position over the head).
     pub nameplates: Vec<(crate::automap::DotKind, [f32; 3], String)>,
+    /// Numbers to float over the fight: Z-up position, text and kind (see `ui::Floater`).
+    pub floaters: Vec<([f32; 3], String, u8)>,
     /// The ground (and how far the server's heights sit above it), to keep the camera above it.
     pub ground: Option<(std::sync::Arc<mao_formats::terrain::Terrain>, f32)>,
     pub own: Option<[f32; 3]>,
@@ -785,6 +787,10 @@ impl ApplicationHandler for App {
                         if let Some(p) = u.pickables.take() {
                             self.hud.pickables = p.into_iter().map(|(id, p)| (id, p)).collect();
                         }
+                        for (world, text, kind) in std::mem::take(&mut u.floaters) {
+                            self.hud.floaters.push(crate::ui::Floater { world: mao_render::glam::Vec3::from(world), text, kind, born: std::time::Instant::now() });
+                        }
+                        self.hud.floaters.retain(|f| f.born.elapsed().as_secs_f32() < crate::ui::FLOATER_LIFE);
                         if let Some(labels) = u.labels.take() {
                             self.hud.labels = labels.into_iter().map(|(p, text)| Label { world: mao_render::glam::Vec3::from(p), text }).collect();
                         }

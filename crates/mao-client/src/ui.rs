@@ -22,6 +22,18 @@ pub struct Label {
     pub text: String,
 }
 
+/// A number rising over a point of the world and fading (damage dealt or taken, healing).
+pub struct Floater {
+    pub world: Vec3,
+    pub text: String,
+    /// 0 damage to someone else, 1 damage to you, 2 healing.
+    pub kind: u8,
+    pub born: Instant,
+}
+
+/// How long a floating number lives, in seconds.
+pub const FLOATER_LIFE: f32 = 1.6;
+
 /// What the display shows besides the options.
 #[derive(Default)]
 pub struct Hud {
@@ -38,6 +50,8 @@ pub struct Hud {
     pub stat_parts: std::collections::BTreeMap<u32, crate::derived::Breakdown>,
     /// Who is about, for the map: (x, z) and what.
     pub map_dots: Vec<([f32; 2], crate::automap::DotKind)>,
+    /// Numbers rising over the fight.
+    pub floaters: Vec<Floater>,
     /// The names floating over the characters and creatures near.
     pub nameplates: Vec<(crate::automap::DotKind, [f32; 3], String)>,
     pub labels: Vec<Label>,
@@ -679,6 +693,25 @@ fn hud_layer(ctx: &egui::Context, hud: &Hud, project: &dyn Fn(Vec3) -> Option<[f
         painter.rect_filled(rect.expand(4.0), 4.0, egui::Color32::from_black_alpha(150));
         painter.rect_stroke(rect.expand(4.0), 4.0, egui::Stroke::new(1.0, accent), egui::StrokeKind::Outside);
         painter.galley(rect.min, galley, egui::Color32::WHITE);
+    }
+    // The numbers of the fight: they rise and fade.
+    for f in &hud.floaters {
+        let age = f.born.elapsed().as_secs_f32();
+        if age > FLOATER_LIFE {
+            continue;
+        }
+        let Some([x, y]) = project(f.world) else { continue };
+        let at = egui::pos2(screen.left() + x * screen.width(), screen.top() + y * screen.height() - 10.0 - age * 38.0);
+        let alpha = ((1.0 - age / FLOATER_LIFE) * 255.0) as u8;
+        let (r, g, b) = match f.kind {
+            1 => (255, 90, 80),
+            2 => (110, 235, 120),
+            _ => (255, 230, 120),
+        };
+        let galley = painter.layout_no_wrap(f.text.clone(), egui::FontId::proportional(18.0), egui::Color32::from_rgba_unmultiplied(r, g, b, alpha));
+        let pos = egui::pos2(at.x - galley.size().x * 0.5, at.y - galley.size().y);
+        painter.galley_with_override_text_color(pos + egui::vec2(1.0, 1.0), galley.clone(), egui::Color32::from_black_alpha(alpha));
+        painter.galley(pos, galley, egui::Color32::from_rgba_unmultiplied(r, g, b, alpha));
     }
     // The names over the characters and creatures near, coloured by what they are.
     for (kind, at, name) in &hud.nameplates {
