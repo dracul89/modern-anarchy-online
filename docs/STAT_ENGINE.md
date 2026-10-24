@@ -373,3 +373,27 @@ n3 <log> 0` lists every message with its name and sender, `n3 <log> <kind>` one 
   that time, not one of the nanos listed now; which one stays unknown, but the formula and the reading are in place.
 
 `stats-check` with the server-sent perk list gives the same 192 equal stats as with the live read.
+
+## The last small buff, found: every stat now matches (two level-220 characters, live)
+
+With the bridge on a second original-client session (a different level-220 character, identity `0x4bc7f`) and hooks on `AddModifier`,
+`RemoveModifier` and the `0xcfb7` handler, a zone change gave a full log. What it showed, and what was fixed:
+
+* **The level-scaled batch.** The 25 events are real `0xcfb7` spells whose spell records live in the heap (the hook reads them: a stat, then
+  key/value pairs `3:1, 4:0, 32:3, 35:9, 39:<value>`; the value is spell stat 39). They are *not* in any database object: the call chain ends in
+  `n3Engine_t::AddNetWorkMessage` (N3.dll + 0x6643), so the server hands the client these spells (they are re-run on every zone). The two
+  level-220 characters got **the same 25**: values (stat: value) 123 and 124: 16, 149: 11, 19 and 21: 6 and 9, 16/17/18/20: 9, 132: 9,
+  122 and 127-131: 36, 364: 36, 318: -6, 139/152/161: 54, 156: 90, 343: 18 (`docs/level_bonus_records.json`). **The amount is
+  `level * value / 200` cut toward zero** (16 -> 17, 36 -> 39, 54 -> 59, 90 -> 99, -6 -> -6; the earlier "round" guess was wrong).
+  `derived::level_bonus` applies the table to level 205 and up (title level 7); lower levels are unknown, so nothing is added there. It is
+  shown as "Level bonus" in the hover.
+* **Items use the tail kind 3 as well as 2** (240 item templates; "Research Attunement Device" gives +75 to the nano skills with it). One level-220
+  character was 75 short on skills 122, 127-131 only because of it. `item::modifiers_at` reads kinds 2 and 3.
+* **A second flat spell type, `0xcf14`** (53012), carries the "Weapon Enhancement" nanos' +5 on stats 278-282, 311 and 317; `item` reads it as a
+  flat modify-stat (nano 27189).
+* Spell type `0xcfb7` scales by truncation, not rounding (`item::modifiers_at`).
+
+Result with the client's own code against the original's values (`mao-client <game> stats-check ...`):
+**Conjecture: 270 of 270 stats equal; the second character: 249 of 249** (inputs and values in `docs/live_inputs_*.txt`,
+`docs/live_compare_*.txt`). That includes all armour classes, attributes, skills (with the trickle-down), max health and nano, and the
+attack and damage-modifier stats. The hooks are still installed in the running client; `aoctl unhook 0`, `1`, `2` removes them.

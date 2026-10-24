@@ -114,7 +114,7 @@ pub fn rows<'a>(group: &'a [(u32, &'a str)], stats: &BTreeMap<u32, i64>, search:
 pub fn breakdown_lines(b: &Breakdown) -> Vec<(&'static str, i64)> {
     // A stat nothing trains (the armour classes) has no "Trained" line unless that is all there is.
     let mut lines = if b.stored != 0 || b.total() == 0 { vec![("Trained", b.stored)] } else { Vec::new() };
-    for (what, amount) in [("Equipment", b.worn), ("Perks", b.perks), ("Nano buffs", b.nanos), ("Attributes", b.trickle)] {
+    for (what, amount) in [("Equipment", b.worn), ("Perks", b.perks), ("Nano buffs", b.nanos), ("Attributes", b.trickle), ("Level bonus", b.level_bonus)] {
         if amount != 0 {
             lines.push((what, amount));
         }
@@ -208,9 +208,9 @@ mod tests {
 
     #[test]
     fn the_hover_lists_only_the_parts_that_count() {
-        let b = Breakdown { stored: 40, worn: 7, perks: 0, nanos: 10, trickle: 25 };
-        assert_eq!(breakdown_lines(&b), vec![("Trained", 40), ("Equipment", 7), ("Nano buffs", 10), ("Attributes", 25)]);
-        assert_eq!(b.total(), 82);
+        let b = Breakdown { stored: 40, worn: 7, perks: 0, nanos: 10, trickle: 25, level_bonus: 39 };
+        assert_eq!(breakdown_lines(&b), vec![("Trained", 40), ("Equipment", 7), ("Nano buffs", 10), ("Attributes", 25), ("Level bonus", 39)]);
+        assert_eq!(b.total(), 121);
         let armour = Breakdown { worn: 230, ..Default::default() };
         assert_eq!(breakdown_lines(&armour), vec![("Equipment", 230)]);
     }

@@ -431,7 +431,7 @@ fn run(args: &[String]) -> Result<(), String> {
                             let modifiers = derived::modifiers(&db, &entries, &perks, &[], level);
                             eprintln!("worn modifiers: {modifiers:?}");
                             let stored: std::collections::BTreeMap<u32, i64> = [(LEVEL, level)].into();
-                            hud.stat_parts = derived::breakdown(&stored, &derived::worn_modifiers(&db, &entries, level), &derived::perk_modifiers(&db, &perks, level), &Default::default());
+                            hud.stat_parts = derived::breakdown(&stored, &derived::worn_modifiers(&db, &entries, level), &derived::perk_modifiers(&db, &perks, level), &Default::default(), &derived::level_bonus(level));
                             hud.stats = derived::totals(&hud.stat_parts);
                         }
                         let mut window = stats::StatsWindow::default();

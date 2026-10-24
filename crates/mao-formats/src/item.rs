@@ -57,7 +57,7 @@ pub fn modifiers(template: &[u8]) -> Vec<(u32, i32)> {
 /// "below" and 2 is "at least", from the two records of item template 281199: +200 below 201, +500 from 200).
 /// Requirements on other stats, or with other operators, are not known to hold, so those records are left out.
 pub fn modifiers_at(template: &[u8], level: i64) -> Vec<(u32, i32)> {
-    modifiers_with(template, level, &[2])
+    modifiers_with(template, level, &[2, 3])
 }
 
 /// The same for a nano program: its buffs carry the third word of the record's tail (`1, 0, x, 9`) as 1, 2 or 3 (checked
@@ -68,13 +68,17 @@ pub fn nano_modifiers_at(template: &[u8], level: i64) -> Vec<(u32, i32)> {
 
 fn modifiers_with(template: &[u8], level: i64, tails: &[u32]) -> Vec<(u32, i32)> {
     const FLAT: u32 = 0xcf35;
-    /// Spell type 0xcfb7: the amount is the level times the spell's value over 200, rounded (`FUN_100a8d0b`).
+    /// Spell type 0xcf14 (53012): a second flat modify-stat form, seen in the weapon-enhancement nanos (stats 278-282, 311, 317 +5), whose
+    /// effects appear in the character's modifier map like 0xcf35's.
+    const FLAT_B: u32 = 0xcf14;
+    /// Spell type 0xcfb7: the amount is the level times the spell's value over 200, cut toward zero (`FUN_100a8d0b`; the
+    /// original's own spell records show it: 16 at level 220 gives 17, 36 gives 39, -6 gives -6).
     const SCALED: u32 = 0xcfb7;
     let word = |at: usize| u32::from_le_bytes(template[at..at + 4].try_into().unwrap());
     let mut out = Vec::new();
     let mut at = 0;
     while at + 40 <= template.len() {
-        if (word(at) == FLAT || word(at) == SCALED) && word(at + 4) == 0 && word(at + 8) == 4 && word(at + 12) < 8 {
+        if (word(at) == FLAT || word(at) == FLAT_B || word(at) == SCALED) && word(at + 4) == 0 && word(at + 8) == 4 && word(at + 12) < 8 {
             let n = word(at + 12) as usize;
             let tail = at + 16 + 12 * n;
             if tail + 24 <= template.len() && [word(tail), word(tail + 4), word(tail + 12)] == [1, 0, 9] && tails.contains(&word(tail + 8)) {
@@ -88,7 +92,7 @@ fn modifiers_with(template: &[u8], level: i64, tails: &[u32]) -> Vec<(u32, i32)>
                 });
                 if holds {
                     let value = word(tail + 20) as i32;
-                    let amount = if word(at) == SCALED { (level as f64 * value as f64 / 200.0).round() as i32 } else { value };
+                    let amount = if word(at) == SCALED { (level as f64 * value as f64 / 200.0).trunc() as i32 } else { value };
                     out.push((word(tail + 16), amount));
                 }
                 at = tail + 24;
@@ -192,10 +196,18 @@ mod tests {
         let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
         assert_eq!(modifiers_at(&bytes, 220), vec![(1, 1100), (16, 10)]);
         assert_eq!(modifiers_at(&bytes, 25), vec![(1, 125), (16, 10)]);
-        // a negative value rounds away from zero: -5 at level 220 is -5.5, so -6 (stat 318 of a live character)
-        let words: Vec<u32> = vec![0xcfb7, 0, 4, 0, 1, 0, 2, 9, 318, (-5i32) as u32];
+        // cut toward zero, as the original's records show: values 16, 36, 54, -6 at level 220 give 17, 39, 59, -6
+        let words: Vec<u32> = vec![0xcfb7, 0, 4, 0, 1, 0, 2, 9, 123, 16, 0xcfb7, 0, 4, 0, 1, 0, 2, 9, 122, 36, 0xcfb7, 0, 4, 0, 1, 0, 2, 9, 139, 54, 0xcfb7, 0, 4, 0, 1, 0, 2, 9, 318, (-6i32) as u32];
         let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
-        assert_eq!(modifiers_at(&bytes, 220), vec![(318, -6)]);
+        assert_eq!(modifiers_at(&bytes, 220), vec![(123, 17), (122, 39), (139, 59), (318, -6)]);
+    }
+
+    #[test]
+    fn the_second_flat_form_counts() {
+        // "Weapon Enhancement": 0xcf14 records (stat 278, +5) with the tail's third word 3
+        let words: Vec<u32> = vec![0xcf14, 0, 4, 0, 1, 0, 3, 9, 278, 5, 0, 0xcf14, 0, 4, 0, 1, 0, 3, 9, 279, 5, 0];
+        let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
+        assert_eq!(nano_modifiers_at(&bytes, 220), vec![(278, 5), (279, 5)]);
     }
 
     #[test]
@@ -204,6 +216,6 @@ mod tests {
         let words: Vec<u32> = vec![0xcf35, 0, 4, 0, 1, 0, 3, 9, 16, 12, 0xcf35, 0, 4, 0, 1, 0, 2, 9, 18, 5];
         let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
         assert_eq!(nano_modifiers_at(&bytes, 25), vec![(16, 12), (18, 5)]);
-        assert_eq!(modifiers_at(&bytes, 25), vec![(18, 5)]);
+        assert_eq!(modifiers_at(&bytes, 25), vec![(16, 12), (18, 5)]);
     }
 }

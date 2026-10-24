@@ -80,10 +80,26 @@ pub fn nano_modifiers(db: &ResourceDatabase, nanos: &[u32], level: i64) -> BTree
     sum
 }
 
-/// Everything that adds to the stored stats: what is worn, the perks and the active nanos.
+/// The level-scaled spells the server runs for a character at the top title level (observed on two level-220 characters: spell type
+/// `0xcfb7` records of `(stat, value)` that do not exist in the game database, run when a message arrives; each adds
+/// `level * value / 200` cut toward zero). Below title level 7 (level 205) nothing is known, so nothing is added.
+const LEVEL_BONUS: &[(u32, i32)] = &[(123, 16), (124, 16), (149, 11), (19, 6), (132, 9), (21, 6), (21, 9), (20, 9), (19, 9), (18, 9), (17, 9), (16, 9), (131, 36), (130, 36), (129, 36), (128, 36), (127, 36), (122, 36), (364, 36), (318, -6), (161, 54), (156, 90), (139, 54), (152, 54), (343, 18)];
+
+/// The level bonus of a character of this level.
+pub fn level_bonus(level: i64) -> BTreeMap<u32, i64> {
+    let mut out = BTreeMap::new();
+    if level >= 205 {
+        for &(stat, value) in LEVEL_BONUS {
+            *out.entry(stat).or_insert(0) += (level as f64 * value as f64 / 200.0).trunc() as i64;
+        }
+    }
+    out
+}
+
+/// Everything that adds to the stored stats: what is worn, the perks and the active nanos, and the level bonus.
 pub fn modifiers(db: &ResourceDatabase, entries: &[Entry], perks: &[u32], nanos: &[u32], level: i64) -> BTreeMap<u32, i64> {
     let mut sum = worn_modifiers(db, entries, level);
-    for part in [perk_modifiers(db, perks, level), nano_modifiers(db, nanos, level)] {
+    for part in [perk_modifiers(db, perks, level), nano_modifiers(db, nanos, level), level_bonus(level)] {
         for (stat, amount) in part {
             *sum.entry(stat).or_insert(0) += amount;
         }
@@ -126,24 +142,27 @@ pub struct Breakdown {
     pub perks: i64,
     pub nanos: i64,
     pub trickle: i64,
+    /// The bonus the server's own level-scaled spells give at the top level (see [`level_bonus`]).
+    pub level_bonus: i64,
 }
 
 impl Breakdown {
     pub fn total(&self) -> i64 {
-        self.stored + self.worn + self.perks + self.nanos + self.trickle
+        self.stored + self.worn + self.perks + self.nanos + self.trickle + self.level_bonus
     }
 }
 
 /// Every stat's parts (stats without a stored value count from zero, an untrained skill from 5).
-pub fn breakdown(stored: &BTreeMap<u32, i64>, worn: &BTreeMap<u32, i64>, perks: &BTreeMap<u32, i64>, nanos: &BTreeMap<u32, i64>) -> BTreeMap<u32, Breakdown> {
+pub fn breakdown(stored: &BTreeMap<u32, i64>, worn: &BTreeMap<u32, i64>, perks: &BTreeMap<u32, i64>, nanos: &BTreeMap<u32, i64>, level_bonus: &BTreeMap<u32, i64>) -> BTreeMap<u32, Breakdown> {
     let mut out: BTreeMap<u32, Breakdown> = stored.iter().map(|(&s, &v)| (s, Breakdown { stored: v, ..Default::default() })).collect();
-    for (map, part) in [(worn, 0), (perks, 1), (nanos, 2)] {
+    for (map, part) in [(worn, 0), (perks, 1), (nanos, 2), (level_bonus, 3)] {
         for (&stat, &amount) in map {
             let b = out.entry(stat).or_default();
             match part {
                 0 => b.worn += amount,
                 1 => b.perks += amount,
-                _ => b.nanos += amount,
+                2 => b.nanos += amount,
+                _ => b.level_bonus += amount,
             }
         }
     }
@@ -165,7 +184,7 @@ pub fn totals(parts: &BTreeMap<u32, Breakdown>) -> BTreeMap<u32, i64> {
 /// The shown stats: the stored ones plus the modifiers (stats without a stored value count from zero), and for the skills
 /// the trickle-down of the shown attributes.
 pub fn shown(stored: &BTreeMap<u32, i64>, modifiers: &BTreeMap<u32, i64>) -> BTreeMap<u32, i64> {
-    totals(&breakdown(stored, modifiers, &BTreeMap::new(), &BTreeMap::new()))
+    totals(&breakdown(stored, modifiers, &BTreeMap::new(), &BTreeMap::new(), &BTreeMap::new()))
 }
 
 #[cfg(test)]
@@ -188,7 +207,7 @@ mod tests {
         let worn: BTreeMap<u32, i64> = [(103, 7), (0x10, 20)].into();
         let perks: BTreeMap<u32, i64> = [(103, 3)].into();
         let nanos: BTreeMap<u32, i64> = [(103, 10)].into();
-        let parts = breakdown(&stored, &worn, &perks, &nanos);
+        let parts = breakdown(&stored, &worn, &perks, &nanos, &BTreeMap::new());
         let b = parts[&103];
         assert_eq!((b.stored, b.worn, b.perks, b.nanos), (40, 7, 3, 10));
         assert_eq!(b.trickle, trickle(&[30, 40, 30, 0, 0, 0], &[120, 100, 100, 100, 100, 100]));
@@ -196,6 +215,15 @@ mod tests {
         // an untrained skill starts at 5
         assert_eq!(parts[&100].stored, 5);
         assert_eq!(totals(&parts)[&0x10], 120);
+    }
+
+    #[test]
+    fn the_level_bonus_matches_the_original_at_220() {
+        let b = level_bonus(220);
+        // from the original's own records: 16 -> 17, 36 -> 39, 54 -> 59, 90 -> 99, -6 -> -6, and two records for 19 and 21
+        assert_eq!((b[&123], b[&122], b[&139], b[&156], b[&318]), (17, 39, 59, 99, -6));
+        assert_eq!((b[&19], b[&21], b[&16]), (6 + 9, 6 + 9, 9));
+        assert!(level_bonus(150).is_empty());
     }
 
     #[test]

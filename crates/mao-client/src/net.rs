@@ -128,7 +128,7 @@ struct World {
     /// The summed effects of the worn items (see `derived`), added to the stored stats for display.
     item_mods: BTreeMap<u32, i64>,
     /// The same bonuses by where they come from: worn items, perks, active nanos (for the hover breakdown).
-    mods_by_source: [BTreeMap<u32, i64>; 3],
+    mods_by_source: [BTreeMap<u32, i64>; 4],
     /// The perks (and research ranks) the world-entry message lists for the character.
     perks: Vec<u32>,
     /// The nano programs active on the character (`SimpleCharFullUpdate`), the inventory the effects are summed over, and
@@ -172,7 +172,7 @@ impl World {
     fn refresh_mods(&mut self, db: &ResourceDatabase) {
         if std::mem::take(&mut self.mods_dirty) {
             let level = self.stats.get(&0x36).copied().unwrap_or(1);
-            self.mods_by_source = [crate::derived::worn_modifiers(db, &self.worn, level), crate::derived::perk_modifiers(db, &self.perks, level), crate::derived::nano_modifiers(db, &self.nanos, level)];
+            self.mods_by_source = [crate::derived::worn_modifiers(db, &self.worn, level), crate::derived::perk_modifiers(db, &self.perks, level), crate::derived::nano_modifiers(db, &self.nanos, level), crate::derived::level_bonus(level)];
             self.item_mods = crate::derived::modifiers(db, &self.worn, &self.perks, &self.nanos, level);
             self.stats_changed = true;
         }
@@ -1637,7 +1637,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         eprintln!("skills {title}: {}", crate::skills::rows(group, &shown, "").iter().map(|(_, n, v)| format!("{n}={}", v.map_or("-".to_string(), |v| v.to_string()))).collect::<Vec<_>>().join(", "));
                     }
                     {
-                        let parts = crate::derived::breakdown(&state.stats, &state.mods_by_source[0], &state.mods_by_source[1], &state.mods_by_source[2]);
+                        let parts = crate::derived::breakdown(&state.stats, &state.mods_by_source[0], &state.mods_by_source[1], &state.mods_by_source[2], &state.mods_by_source[3]);
                         for stat in [16u32, 18, 100, 122, 152] {
                             eprintln!("parts {stat}: {:?}", parts.get(&stat));
                         }
@@ -1653,7 +1653,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     own_velocity,
                     map: pending_map.take(),
                     stats: std::mem::take(&mut state.stats_changed).then(|| {
-                        let parts = crate::derived::breakdown(&state.stats, &state.mods_by_source[0], &state.mods_by_source[1], &state.mods_by_source[2]);
+                        let parts = crate::derived::breakdown(&state.stats, &state.mods_by_source[0], &state.mods_by_source[1], &state.mods_by_source[2], &state.mods_by_source[3]);
                         (state.names.get(&own).map(|n| n.0.clone()).unwrap_or_default(), crate::derived::totals(&parts), parts)
                     }),
                     map_dots: {
@@ -2350,7 +2350,7 @@ pub(crate) fn capture_n3(log: &str, kind: u32) -> Result<Vec<String>, String> {
             if kind == 0 {
                 if let Some(msg) = Message::parse(&m).filter(|_| m.kind == frame::N3) {
                     let name = mao_net::schema::Schema::global().n3_name(msg.kind).unwrap_or("?").to_string();
-                    out.push(format!("{} {connection} {:08x} {name} from {:x}:{:x} len {}", f[0], msg.kind, msg.identity.0, msg.identity.1, msg.data.len()));
+                    out.push(format!("{} {connection} {:08x} {name} from {:x}:{:x} len {}{}", f[0], msg.kind, msg.identity.0, msg.identity.1, msg.data.len(), std::env::var("MAO_FIND").ok().and_then(|h| { let pat: Vec<u8> = (0..h.len() / 2).filter_map(|i| u8::from_str_radix(&h[2 * i..2 * i + 2], 16).ok()).collect(); let n = msg.data.windows(pat.len()).filter(|w| *w == &pat[..]).count(); (n > 0).then(|| format!(" HAS {h} x{n}")) }).unwrap_or_default()));
                 }
                 continue;
             }
