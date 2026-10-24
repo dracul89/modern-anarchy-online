@@ -167,6 +167,40 @@ pub fn feedback_text(data: &[u8]) -> Option<String> {
     None
 }
 
+/// `CharacterAction` (`5e477770`) action `0x69` (`InfoRequest`): asks for a character's or creature's info packet (the original sends it
+/// when it targets something: the answer carries the target's health). The target is `(0xc350, id)`; the parameters are zero.
+pub fn info_request(character: u32, target: u32) -> Frame {
+    let mut data = vec![0u8; 5];
+    data[4] = 0x69;
+    data.extend_from_slice(&[0; 4]);
+    for word in [CHARACTER, target, 0, 0] {
+        data.extend_from_slice(&word.to_be_bytes());
+    }
+    data.extend_from_slice(&[0; 2]);
+    Message { kind: 0x5e477770, identity: (CHARACTER, character), data }.frame(character)
+}
+
+/// What an `InfoPacket` (`4d38242e`) says of a character or creature: after the flag byte and the type (64-71 characters, 80 a
+/// monster) come five bytes (a flag, the profession, the level, the title level, the look's profession), the side's experience (a
+/// short) and the health and its maximum (words). The level only means something for a character.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Info {
+    pub monster: bool,
+    pub profession: u8,
+    pub level: u8,
+    pub health: u32,
+    pub max_health: u32,
+}
+
+pub fn info_packet(data: &[u8]) -> Option<Info> {
+    let kind = *data.get(1)?;
+    if !matches!(kind, 64 | 65 | 67 | 71 | 80) {
+        return None;
+    }
+    let word = |at: usize| data.get(at..at + 4).map(|b| u32::from_be_bytes(b.try_into().unwrap()));
+    Some(Info { monster: kind == 80, profession: *data.get(3)?, level: *data.get(4)?, health: word(9)?, max_health: word(13)? })
+}
+
 /// `CharacterAction` (`5e477770`) action `0x41` (`RemoveFriendlyNano`): ends a running nano program. The same layout as a cast with no
 /// target: the nano identity `(0xcf1b, id)` in the two parameters (the captured cancels are `0x42aba`, `0x42af6`...).
 pub fn cancel_nano(character: u32, nano: u32) -> Frame {
@@ -413,6 +447,12 @@ mod tests {
         assert_eq!(hex(trade(0x1323e, 5, [0xc75b, 0xc006021c, 0x6f, 2])), "0000000002050000c75bc006021c0000006f00000002");
         assert_eq!(hex(cast_nano(0x4c2de, Some(0x7af69bd7), 0xaad6)), "0000000013000000000000c3507af69bd70000cf1b0000aad60000");
         assert_eq!(hex(cast_nano(0x4bc80, None, 0x43576)), "00000000130000000000000000000000000000cf1b000435760000");
+        assert_eq!(hex(info_request(0x4c2de, 0x4c2de)), "0000000069000000000000c3500004c2de00000000000000000000");
+        let hexb = |s: &str| -> Vec<u8> { (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect() };
+        // a captured monster (health 92 of 92) and a captured level-200 character (health 54304)
+        assert_eq!(info_packet(&hexb("015001000101000 14b0000005c0000005c00000060".replace(' ', "").as_str())), Some(Info { monster: true, profession: 0, level: 1, health: 92, max_health: 92 }));
+        assert_eq!(info_packet(&hexb("01430109c8070906a00000d4200000d420000000000000120600054265616c7300")).map(|i| (i.monster, i.profession, i.level, i.health, i.max_health)), Some((false, 9, 200, 54304, 54304)));
+        assert_eq!(info_packet(&[1, 0x50]), None);
         assert_eq!(hex(cancel_nano(0x4bc7f, 0x42aba)), "00000000410000000000000000000000000000cf1b00042aba0000");
         assert_eq!(hex(delete_item(0x4bc7f, 0x5b, 0x40d13, 0x40d13)), "000000007000000000000000680000005b00040d1300040d130000");
         assert_eq!(hex(use_perk(0x4bc7f, 0x2991, *b"QISH")), "00000000b3000000000000c3500004bc7f00002991514953480000");

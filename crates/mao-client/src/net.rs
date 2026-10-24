@@ -144,6 +144,8 @@ struct World {
     program_ids: Vec<u32>,
     programs_changed: bool,
     perks_changed: bool,
+    /// Health and maximum from the info packets (the server answers an info request with them).
+    health: BTreeMap<u32, (i64, i64)>,
     /// The health each character was last known to have (from the damage events: the target's health after the hit).
     last_hp: BTreeMap<u32, i64>,
     /// The social action each character is doing: its name and when it began (from `SocialActionCmd`).
@@ -394,6 +396,12 @@ impl World {
                 self.socials.insert(m.identity.1, (name, Instant::now()));
             }
         }
+        // An info packet: the health and its maximum of the character or creature it describes.
+        if m.kind == 0x4d38242e {
+            if let Some(info) = mao_net::n3::info_packet(&m.data) {
+                self.health.insert(m.identity.1, (info.health as i64, info.max_health as i64));
+            }
+        }
         // The game's own text and the fight.
         if m.kind == 0x5f4b442a {
             if let Some(text) = mao_net::n3::chat_text(&m.data) {
@@ -414,6 +422,10 @@ impl World {
                 self.damage.push((target, amount, stat));
                 if let Some(hp) = p.value.get("TargetHp").and_then(mao_net::schema::Value::as_int) {
                     self.last_hp.insert(target, hp);
+                    // (the maximum stays; the health follows the fight)
+                    if let Some(entry) = self.health.get_mut(&target) {
+                        entry.0 = hp;
+                    }
                 }
                 let line = combat_line(&who, target == self.own, amount, stat);
                 self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
@@ -1814,6 +1826,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 if !state.objects.contains_key(&id) {
                     let _ = connection.send(&n3::select_target(own, id));
                     let _ = connection.send(&n3::set_target(own, id));
+                    let _ = connection.send(&n3::info_request(own, id));
                 }
             }
             // The mail windows: check the inbox at the nearest known terminal, or send a mail.
@@ -1980,6 +1993,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 if !state.objects.contains_key(&id) {
                     let _ = connection.send(&n3::select_target(own, id));
                     let _ = connection.send(&n3::set_target(own, id));
+                    let _ = connection.send(&n3::info_request(own, id));
                 }
                 if double {
                     uses += 1;
@@ -2375,7 +2389,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     mail_status: pending_mail_status.take(),
                     destinations: pending_destinations.take(),
                     heading: Some(heading),
-                    target: target.and_then(|t| Some(format!("{}{}  ({:.0} m)", state.names.get(&t)?.0, state.last_hp.get(&t).map_or(String::new(), |hp| format!("  HP {hp}")), ((state.position_of(t)?[0] - position[0]).powi(2) + (state.position_of(t)?[2] - position[2]).powi(2)).sqrt()))),
+                    target: target.and_then(|t| Some(format!("{}{}  ({:.0} m)", state.names.get(&t)?.0, state.health.get(&t).map(|(hp, max)| format!("  HP {hp}/{max}")).or_else(|| state.last_hp.get(&t).map(|hp| format!("  HP {hp}"))).unwrap_or_default(), ((state.position_of(t)?[0] - position[0]).powi(2) + (state.position_of(t)?[2] - position[2]).powi(2)).sqrt()))),
                 };
                 if tx.send(update).is_err() {
                     break;
