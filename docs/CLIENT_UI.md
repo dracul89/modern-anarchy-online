@@ -335,3 +335,7 @@ The names of the characters and creatures within 40 units float over their heads
 ## Floating combat numbers
 
 Each `HealthDamage` also floats its amount over the one hit for 1.6 seconds, rising and fading: damage to others in yellow, damage you take in red, healing in green (the target's entity, or your own character's place, 2 units up). The numbers come from the same message as the Combat tab's lines. Preview: `MAO_PLATES=1 MAO_UI_PREVIEW=1 ...` draws three samples.
+
+## Help window (`Ctrl+H`)
+
+Lists the keys as they are bound now (so a rebinding shows), the mouse controls and the chat commands the client carries out, with a find field that filters all three (`help.rs`). The window's place is remembered like the others'.

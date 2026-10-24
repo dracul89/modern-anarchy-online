@@ -116,6 +116,8 @@ pub enum Action {
     FriendsWindow,
     /// The nano programs window.
     ProgramsWindow,
+    /// The help window: keys, mouse and commands.
+    HelpWindow,
     /// Saves a picture of the world (with the heads-up display) to the `screenshots` folder.
     Screenshot,
     /// The big map over the view (the corner map is always there).
@@ -180,6 +182,7 @@ pub const ACTIONS: &[(Action, &str, &str)] = &[
     (Action::FriendsWindow, "friends_window", "L"),
     (Action::ProgramsWindow, "programs_window", "Ctrl+N"),
     (Action::Screenshot, "screenshot", "F12"),
+    (Action::HelpWindow, "help_window", "Ctrl+H"),
     (Action::HotbarSlot(0), "hotbar_slot_1", "1"),
     (Action::HotbarSlot(1), "hotbar_slot_2", "2"),
     (Action::HotbarSlot(2), "hotbar_slot_3", "3"),

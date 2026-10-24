@@ -521,6 +521,11 @@ impl ApplicationHandler for App {
                                 ui.chat.focus();
                             }
                         }
+                        Action::HelpWindow if !event.repeat => {
+                            if let Some(ui) = w.ui.as_mut() {
+                                ui.help.open = !ui.help.open;
+                            }
+                        }
                         Action::Screenshot if !event.repeat => {
                             self.screenshot = true;
                         }
