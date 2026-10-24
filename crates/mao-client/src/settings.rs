@@ -114,6 +114,8 @@ pub enum Action {
     NcuWindow,
     /// The friends list.
     FriendsWindow,
+    /// The nano programs window.
+    ProgramsWindow,
     /// The big map over the view (the corner map is always there).
     MapOverlay,
     /// Press slot n (0..10) of the shown hotbar.
@@ -174,6 +176,7 @@ pub const ACTIONS: &[(Action, &str, &str)] = &[
     (Action::SkillsWindow, "skills_window", "J"),
     (Action::NcuWindow, "ncu_window", "N"),
     (Action::FriendsWindow, "friends_window", "L"),
+    (Action::ProgramsWindow, "programs_window", "Ctrl+N"),
     (Action::HotbarSlot(0), "hotbar_slot_1", "1"),
     (Action::HotbarSlot(1), "hotbar_slot_2", "2"),
     (Action::HotbarSlot(2), "hotbar_slot_3", "3"),

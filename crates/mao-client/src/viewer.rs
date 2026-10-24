@@ -48,6 +48,8 @@ pub struct Input {
     pub mission: (u8, crate::mission::Command),
     /// Something clicked in the world: a counter that steps with each click, its id, and whether it was a double click (use it).
     pub pick: (u8, u32, bool),
+    /// A nano program to cast: a counter that steps with each, and the program's id.
+    pub cast: (u8, u32),
 }
 
 /// The overlay to draw and where the player's character is (the view
@@ -87,6 +89,8 @@ pub struct Update {
     pub chat_lines: Vec<crate::chatwindow::Line>,
     /// The friends list, when it changes.
     pub friends: Option<Vec<crate::friends::Friend>>,
+    /// The character's nano programs, when they arrive.
+    pub programs: Option<Vec<crate::nanoprograms::Program>>,
     /// The running nano programs, when the list changes (the NCU window).
     pub nanos: Option<Vec<crate::ncu::NanoInfo>>,
     /// The way the character faces (radians about the vertical, 0 along +Z of the server's world).
@@ -260,6 +264,7 @@ fn fire_action(action: &crate::hotbar::Action, keys: &mut Input, hud: &mut Hud) 
         crate::hotbar::Action::Attack => keys.commands[4] = keys.commands[4].wrapping_add(1),
         crate::hotbar::Action::Special { id, .. } => keys.special = (keys.special.0.wrapping_add(1), *id),
         crate::hotbar::Action::Social { id, .. } => keys.social = (keys.social.0.wrapping_add(1), *id),
+        crate::hotbar::Action::Nano { id, .. } => keys.cast = (keys.cast.0.wrapping_add(1), *id),
         crate::hotbar::Action::Item { id, name, .. } => {
             // The first stack of that item (the backpack before anything worn).
             let found = hud.gear.iter().filter(|i| i.item_id == *id).max_by_key(|i| i.slot >= mao_net::inventory::BACKPACK_FIRST).map(|i| i.slot);
@@ -499,6 +504,11 @@ impl ApplicationHandler for App {
                                 ui.chat.focus();
                             }
                         }
+                        Action::ProgramsWindow if !event.repeat => {
+                            if let Some(ui) = w.ui.as_mut() {
+                                ui.programs.open = !ui.programs.open;
+                            }
+                        }
                         Action::FriendsWindow if !event.repeat => {
                             if let Some(ui) = w.ui.as_mut() {
                                 ui.friends.open = !ui.friends.open;
@@ -723,6 +733,9 @@ impl ApplicationHandler for App {
                             for line in std::mem::take(&mut u.chat_lines) {
                                 ui.chat.push(line);
                             }
+                        }
+                        if let Some(programs) = u.programs.take() {
+                            self.hud.programs = programs;
                         }
                         if let Some(friends) = u.friends.take() {
                             self.hud.friends = friends;

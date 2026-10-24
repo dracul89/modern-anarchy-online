@@ -41,6 +41,9 @@ pub struct Hud {
     pub labels: Vec<Label>,
     /// The friends list.
     pub friends: Vec<crate::friends::Friend>,
+    /// The character's nano programs.
+    pub programs: Vec<crate::nanoprograms::Program>,
+    pub programs_preview: std::sync::Mutex<Option<crate::nanoprograms::ProgramsWindow>>,
     pub friends_preview: std::sync::Mutex<Option<crate::friends::FriendsWindow>>,
     /// What can be clicked in the world: ids and Z-up positions.
     pub pickables: Vec<(u32, [f32; 3])>,
@@ -137,6 +140,7 @@ pub struct Ui {
     pub skills: crate::skills::SkillsWindow,
     pub ncu: crate::ncu::NcuWindow,
     pub friends: crate::friends::FriendsWindow,
+    pub programs: crate::nanoprograms::ProgramsWindow,
     pub chat: crate::chatwindow::ChatWindow,
     gear: crate::gear::GearWindow,
     /// The hotbars, and the clock their cooldowns run on.
@@ -194,7 +198,7 @@ impl Ui {
         theme(&ctx, &palette);
         let state = egui_winit::State::new(ctx.clone(), egui::ViewportId::ROOT, window, Some(window.scale_factor() as f32), window.theme(), None);
         let renderer = egui_wgpu::Renderer::new(&gpu.device, format, egui_wgpu::RendererOptions::default());
-        Ui { ctx, state, renderer, options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), shop: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), ncu: Default::default(), friends: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0 }
+        Ui { ctx, state, renderer, options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), shop: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), ncu: Default::default(), friends: Default::default(), programs: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0 }
     }
 
     /// Switches to the theme `name` (a `theme =` setting).
@@ -226,7 +230,7 @@ impl Ui {
         let (options_open, rebinding, fps, palette, themes) = (&mut self.options_open, &mut self.rebinding, self.fps, &self.palette, &self.themes);
         let (gear_open, gear, whompah_open) = (&mut self.gear_open, &mut self.gear, &mut self.whompah_open);
         let (mission, mail, shop, actions, automap, stats_window, skills_window, ncu_window, chat_window) = (&mut self.mission, &mut self.mail, &mut self.shop, &mut self.actions, &mut self.automap, &mut self.stats, &mut self.skills, &mut self.ncu, &mut self.chat);
-        let friends_window = &mut self.friends;
+        let (friends_window, programs_window) = (&mut self.friends, &mut self.programs);
         let (hotbars, clock_now) = (&mut self.hotbars, self.clock.elapsed().as_secs_f64());
         let output = self.ctx.run_ui(raw, |ui| {
             let ctx = ui.ctx().clone();
@@ -240,6 +244,11 @@ impl Ui {
             }
             if let Some(out) = chat_window.show(&ctx, palette) {
                 requests.chat.push(out);
+            }
+            if programs_window.open {
+                if let Some(action) = programs_window.show(&ctx, &hud.programs, palette) {
+                    requests.action = Some(action);
+                }
             }
             if friends_window.open {
                 let (outs, tell) = friends_window.show(&ctx, &hud.friends, palette);
@@ -346,6 +355,7 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
     let mut preview_ncu = hud.ncu_preview.lock().ok().and_then(|mut m| m.take());
     let mut preview_chat = hud.chat_preview.lock().ok().and_then(|mut m| m.take());
     let mut preview_friends = hud.friends_preview.lock().ok().and_then(|mut m| m.take());
+    let mut preview_programs = hud.programs_preview.lock().ok().and_then(|mut m| m.take());
     let mut last = None;
     // Several frames: the first lays out and uploads the fonts, and the windows
     // fade in over the next ones; the last is what is drawn.
@@ -369,6 +379,9 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
             }
             if let Some(window) = preview_stats.as_mut() {
                 window.show(&ctx, &hud.character_name, &hud.stats, &hud.stat_parts, &palette);
+            }
+            if let Some(window) = preview_programs.as_mut() {
+                window.show(&ctx, &hud.programs, &palette);
             }
             if let Some(window) = preview_friends.as_mut() {
                 window.show(&ctx, &hud.friends, &palette);

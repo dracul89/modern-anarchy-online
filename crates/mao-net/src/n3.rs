@@ -123,6 +123,21 @@ pub fn action(character: u32, code: u8) -> Frame {
     Message { kind: 0x5e477770, identity: (CHARACTER, character), data }.frame(character)
 }
 
+/// `5e477770` action `0x13`: cast a nano program (by its id) at a character, or at oneself when `target` is `None`. The layout
+/// is from the captured casts: four zero bytes, the action, four zero bytes, the target identity (type, id; zeros for none), the
+/// nano identity (type `0xcf1b`, id) and two zero bytes.
+pub fn cast_nano(character: u32, target: Option<u32>, nano: u32) -> Frame {
+    let mut data = vec![0u8; 5];
+    data[4] = 0x13;
+    data.extend_from_slice(&[0; 4]);
+    let (kind, id) = target.map_or((0, 0), |t| (CHARACTER, t));
+    for word in [kind, id, 0xcf1b, nano] {
+        data.extend_from_slice(&word.to_be_bytes());
+    }
+    data.extend_from_slice(&[0; 2]);
+    Message { kind: 0x5e477770, identity: (CHARACTER, character), data }.frame(character)
+}
+
 /// `52526858`: use something (a door, a terminal, an item; talk to an NPC): action 3 on the
 /// target's identity. `sequence` counts the character's uses from 1 (as the original's capture
 /// shows); the server echoes the message back with the first byte 0.
@@ -282,6 +297,8 @@ mod tests {
         assert_eq!(hex(container_add_item(0x4c2de, (0xc749, 0xbccf0), (0x68, 0x5a))), "000000c749000bccf0000000680000005a");
         // The fifth capture: buying stock item 2 (add, then accept), and selling the item in slot 0x50.
         assert_eq!(hex(trade(0x1323e, 5, [0xc75b, 0xc006021c, 0x6f, 2])), "0000000002050000c75bc006021c0000006f00000002");
+        assert_eq!(hex(cast_nano(0x4c2de, Some(0x7af69bd7), 0xaad6)), "0000000013000000000000c3507af69bd70000cf1b0000aad60000");
+        assert_eq!(hex(cast_nano(0x4bc80, None, 0x43576)), "00000000130000000000000000000000000000cf1b000435760000");
         assert_eq!(hex(trade(0x1323e, 1, [0; 4])), "00000000020100000000000000000000000000000000");
         assert_eq!(hex(trade(0x1323e, 5, [0xc350, 0x1323e, 0x68, 0x50])), "0000000002050000c3500001323e0000006800000050");
     }

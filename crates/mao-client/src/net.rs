@@ -140,6 +140,9 @@ struct World {
     nano_times: Vec<(u32, u32)>,
     nano_times_at: Option<Instant>,
     nano_list_changed: bool,
+    /// The nano programs the character has (from the world-entry message), and whether the list is new.
+    program_ids: Vec<u32>,
+    programs_changed: bool,
     worn: Vec<inventory::Entry>,
     mods_dirty: bool,
     /// The identity type each entity was first heard of with (what a use message names it by).
@@ -404,6 +407,10 @@ impl World {
                     self.read_stats(p.value.get(list));
                 }
                 self.perks = perk_ids(p.value.get("Perks"));
+                if let Some(mao_net::schema::Value::List(ids)) = p.value.get("UploadedNanoIds") {
+                    self.program_ids = ids.iter().filter_map(mao_net::schema::Value::as_int).map(|v| v as u32).collect();
+                    self.programs_changed = true;
+                }
                 self.mods_dirty = true;
             }
         }
@@ -1253,6 +1260,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let (mut sitting, mut uses, mut fired) = (false, 0u32, 0u8);
         let (mut special_seen, mut social_seen, mut pick_seen) = (0u8, 0u8, 0u8);
         let mut friends_seen = u64::MAX;
+        let mut cast_seen = 0u8;
         let (mut position, mut heading) = (start, heading);
         let (mut moving, mut turning, mut strafing) = (0i8, 0i8, 0i8);
         const JUMP_SPEED: f32 = 7.0;
@@ -1753,6 +1761,14 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     pending_messages.push(format!("Using {}", state.names.get(&id).map_or("the target", |n| n.0.as_str())));
                 }
             }
+            // A nano program to cast, at the target (not a usable object) or at oneself.
+            if keys.cast.0 != cast_seen {
+                cast_seen = keys.cast.0;
+                let aim = target.filter(|t| !state.objects.contains_key(t));
+                let _ = connection.send(&n3::cast_nano(own, aim, keys.cast.1));
+                let name = thread_db.get(mao_formats::resource::Id { kind: 0xfde85, instance: keys.cast.1 }).ok().flatten().and_then(|d| mao_formats::item::Item::parse(&d)).map_or_else(|| format!("nano #{}", keys.cast.1), |t| t.name);
+                pending_messages.push(format!("Casting {name}"));
+            }
             // A hotbar item: use the inventory slot it sits in.
             if keys.fire.0 != fired {
                 fired = keys.fire.0;
@@ -2017,6 +2033,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     },
                     chat_lines: chat_lines_now,
                     friends: friends_now,
+                    programs: std::mem::take(&mut state.programs_changed).then(|| crate::nanoprograms::describe(&gear_db, &gear_textures, &state.program_ids, state.stats.get(&0x36).copied().unwrap_or(1))),
                     gear: pending_gear.take(),
                     nanos: std::mem::take(&mut state.nano_list_changed).then(|| crate::ncu::describe(&gear_db, &gear_textures, &state.nano_times, state.stats.get(&0x36).copied().unwrap_or(1), state.nano_times_at.unwrap_or_else(Instant::now))),
                     missions: pending_missions.take(),
