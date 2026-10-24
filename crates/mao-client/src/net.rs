@@ -205,6 +205,16 @@ fn combat_line(who: &str, you: bool, amount: i64, stat: u32) -> String {
     }
 }
 
+/// The line for an `Absorb` (the character's armour soaked up damage of a type) or a `ShieldAttack` (a damage shield struck the character).
+fn absorb_line(amount: i64, stat: u32) -> String {
+    let kind = if stat == 0 { String::new() } else { format!("{} ", crate::skills::stat_name(stat).trim_end_matches("AC").trim().to_lowercase()) };
+    format!("You absorb {amount} points of {kind}damage.")
+}
+
+fn shield_line(who: &str, amount: i64) -> String {
+    format!("{who}'s damage shield hits you for {amount} points.")
+}
+
 /// What an `InventoryUpdate` lists for a container the character used.
 struct Loot {
     identity: (u32, u32),
@@ -450,6 +460,24 @@ impl World {
                 };
                 if let Some(line) = line {
                     self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
+                }
+            }
+        }
+        // Damage the character's armour absorbed, and a damage shield that struck it.
+        if m.kind == 0x264e5f61 && m.identity.1 == self.own {
+            if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
+                let amount = p.value.get("Amount").and_then(mao_net::schema::Value::as_int).unwrap_or(0);
+                let stat = p.value.get("DmgType").and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
+                self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, absorb_line(amount, stat)));
+            }
+        }
+        if m.kind == 0x25192476 {
+            if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
+                let amount = p.value.get("Amount").and_then(mao_net::schema::Value::as_int).unwrap_or(0);
+                let target = p.value.get("Target").and_then(|t| t.get("Instance")).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
+                if target == self.own {
+                    let who = self.names.get(&m.identity.1).map_or_else(|| "Something".to_string(), |n| n.0.clone());
+                    self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, shield_line(&who, amount)));
                 }
             }
         }
@@ -3605,6 +3633,8 @@ mod door_tests {
         assert_eq!(combat_line("You", true, -1581, 95), "You take 1581 points of cold damage.");
         assert_eq!(combat_line("Rollerrat", false, 49, 0), "Rollerrat is healed for 49 points.");
         assert_eq!(combat_line("You", true, -7, 0), "You take 7 points of damage.");
+        assert_eq!(absorb_line(1581, 95), "You absorb 1581 points of cold damage.");
+        assert_eq!(shield_line("Rat", 173), "Rat's damage shield hits you for 173 points.");
     }
 
     #[test]
