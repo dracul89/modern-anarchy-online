@@ -157,6 +157,30 @@ const DYNAMIC_NPC: u32 = 0x7a00_0000;
 const OBJECT_ANNOUNCE: u32 = 0x4f474e05;
 const OBJECT_TYPE: u32 = 0xc76a;
 
+/// The items of a parsed world-entry message's `InventorySlots` list.
+fn inventory_from_schema(list: Option<&mao_net::schema::Value>) -> Vec<inventory::Entry> {
+    let Some(mao_net::schema::Value::List(items)) = list else { return Vec::new() };
+    let int = |item: &mao_net::schema::Value, name: &str| item.get(name).and_then(mao_net::schema::Value::as_int).unwrap_or(0);
+    items
+        .iter()
+        .map(|i| {
+            let identity = i.get("Identity");
+            let part = |name: &str| identity.and_then(|v| v.get(name)).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
+            inventory::Entry {
+                slot: int(i, "Placement") as u32,
+                flags: int(i, "Flags") as u16,
+                count: int(i, "Count") as u16,
+                container: (part("Type"), part("Instance")),
+                low_id: int(i, "ItemLowId") as u32,
+                high_id: int(i, "ItemHighId") as u32,
+                quality: int(i, "Quality") as u32,
+                extra: int(i, "Unknown") as u32,
+            }
+        })
+        .filter(|e| e.low_id != 0)
+        .collect()
+}
+
 /// The perk ids of a parsed world-entry message's `Perks` list: perks and research ranks the character owns. The entry of a
 /// research goal still in progress carries a time in its last field (`Unknown3`) and does not count yet.
 fn perk_ids(list: Option<&mao_net::schema::Value>) -> Vec<u32> {
@@ -259,6 +283,17 @@ impl World {
         }
         if m.kind == inventory::WORLD_ENTRY && m.identity.1 == self.own {
             self.inventory = Some(inventory::parse(&m.data));
+            // The schema reads every item list (the hand reader stops at the first entry whose flags it does not know).
+            if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
+                let from_schema = inventory_from_schema(p.value.get("InventorySlots"));
+                if from_schema.len() > self.inventory.as_ref().map_or(0, Vec::len) {
+                    self.inventory = Some(from_schema);
+                }
+            }
+            if std::env::var_os("MAO_STATS").is_some() {
+                let parsed = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data);
+                eprintln!("world entry: {} bytes, {} items by the item reader, schema: {}", m.data.len(), self.inventory.as_ref().map_or(0, Vec::len), match &parsed { Ok(p) => format!("ok, {} bytes left, slots {}", p.left, match p.value.get("InventorySlots") { Some(mao_net::schema::Value::List(l)) => l.len(), _ => 0 }), Err(e) => format!("error {e}") });
+            }
             if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
                 for list in ["Stats1", "Stats2", "Stats3", "Stats4"] {
                     self.read_stats(p.value.get(list));
@@ -1643,7 +1678,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 if state.stats_changed && std::env::var_os("MAO_STATS").is_some() {
                     let shown = crate::derived::shown(&state.stats, &state.item_mods);
                     let pick = |ids: &[u32]| ids.iter().map(|i| format!("{i:#x}={}", shown.get(i).map_or("-".to_string(), |v| v.to_string()))).collect::<Vec<_>>().join(" ");
-                    eprintln!("stored: {:?} mods: {:?} perks {} nanos {:?}", [1u32, 0x1b, 0xd6, 0xdd, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15].map(|i| (i, state.stats.get(&i).copied())), [1u32, 0xdd, 0x10, 0x12].map(|i| (i, state.item_mods.get(&i).copied())), state.perks.len(), state.nanos);
+                    eprintln!("stored: {:?} mods: {:?} perks {} nanos {:?} org {}", [1u32, 0x1b, 0xd6, 0xdd, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15].map(|i| (i, state.stats.get(&i).copied())), [1u32, 0xdd, 0x10, 0x12].map(|i| (i, state.item_mods.get(&i).copied())), state.perks.len(), state.nanos, state.org_benefits.len());
                     for (title, group) in crate::skills::GROUPS {
                         eprintln!("skills {title}: {}", crate::skills::rows(group, &shown, "").iter().map(|(_, n, v)| format!("{n}={}", v.map_or("-".to_string(), |v| v.to_string()))).collect::<Vec<_>>().join(", "));
                     }
