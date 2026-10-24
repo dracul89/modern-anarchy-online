@@ -77,6 +77,21 @@ pub fn remember(ctx: &egui::Context) {
     }
 }
 
+/// The windows that were open when the client last ran (`open.ini` beside `layout.ini`, one name per line).
+pub fn load_open() -> Vec<String> {
+    if disabled() {
+        return Vec::new();
+    }
+    std::fs::read_to_string(path().with_file_name("open.ini")).map(|t| t.lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect()).unwrap_or_default()
+}
+
+pub fn save_open(names: &[&str]) {
+    if !disabled() {
+        let _ = std::fs::write(path().with_file_name("open.ini"), names.iter().map(|n| format!("{n}
+")).collect::<String>());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

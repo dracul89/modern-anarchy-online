@@ -162,6 +162,8 @@ pub struct Ui {
     pub options_open: bool,
     pub gear_open: bool,
     pub whompah_open: bool,
+    /// The windows last written to `open.ini`.
+    open_seen: Vec<&'static str>,
     pub mission: crate::mission::MissionWindow,
     pub mail: crate::mailbox::MailWindow,
     pub shop: crate::shop::ShopWindow,
@@ -232,7 +234,21 @@ impl Ui {
         theme(&ctx, &palette);
         let state = egui_winit::State::new(ctx.clone(), egui::ViewportId::ROOT, window, Some(window.scale_factor() as f32), window.theme(), None);
         let renderer = egui_wgpu::Renderer::new(&gpu.device, format, egui_wgpu::RendererOptions::default());
-        Ui { ctx, state, renderer, options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), shop: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), ncu: Default::default(), friends: Default::default(), programs: Default::default(), perks: Default::default(), help: Default::default(), loot: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0 }
+        let mut ui = Ui { ctx, state, renderer, open_seen: Vec::new(), options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), shop: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), ncu: Default::default(), friends: Default::default(), programs: Default::default(), perks: Default::default(), help: Default::default(), loot: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0 };
+        // (the windows the player left open come back open)
+        for name in crate::layout::load_open() {
+            ui.set_window(&name, true);
+        }
+        ui.open_seen = ui.open_names();
+        ui
+    }
+
+    /// The windows worth reopening next time (the ones the player opens by hand).
+    fn open_names(&self) -> Vec<&'static str> {
+        [(self.gear_open, "inventory"), (self.stats.open, "stats"), (self.skills.open, "skills"), (self.ncu.open, "ncu"), (self.friends.open, "friends"), (self.programs.open, "programs"), (self.perks.open, "perks"), (self.help.open, "help"), (self.actions.open, "actions"), (self.mission.open, "missions"), (self.automap.overlay, "map")]
+            .into_iter()
+            .filter_map(|(open, name)| open.then_some(name))
+            .collect()
     }
 
     /// Switches to the theme `name` (a `theme =` setting).
@@ -304,6 +320,11 @@ impl Ui {
         let dt = now.duration_since(self.last_frame).as_secs_f32().max(1e-4);
         self.last_frame = now;
         self.fps += (1.0 / dt - self.fps) * 0.05;
+        let names = self.open_names();
+        if names != self.open_seen {
+            crate::layout::save_open(&names);
+            self.open_seen = names;
+        }
         let raw = self.state.take_egui_input(window);
         let mut requests = Requests::default();
         let (options_open, rebinding, fps, palette, themes) = (&mut self.options_open, &mut self.rebinding, self.fps, &self.palette, &self.themes);
