@@ -290,3 +290,17 @@ stat's stored (detail 0) and shown (detail 2) value from `N3Msg_GetSkill` (`docs
     ranks that appear in no worn item, nano or perk template read so far (the pairs are in no single template).
 * **Nano buffs** need the tail kinds 1, 2 and 3 (Mongo's Kraken, +20000 health, uses 1: without it max health was 20250 short;
   with it 250 short).
+
+## The attribute trickle-down (modelled)
+
+The shown value of a skill is `stored + map + trickle` where (`FUN_10065a27` / `FUN_10065008`, mode 3) the trickle is
+`0.25 * sum(weight_i * attribute_i) / 100` over the six shown attributes (strength, agility, stamina, intelligence, sense,
+psychic; shown = stored + map), cut to a whole number; the weights per skill are a table the client holds in a global map
+(`FUN_100c5a7e`, 69 skills; most rows sum to 100). `stat 0xf7` (247, read by `FUN_10064b51`) is 0 and adds nothing. With the
+original's shown attributes this reproduces **all 69 skills** of the live character exactly (truncation; rounding fails for 26).
+The table is read from the running client and embedded as `crates/mao-client/src/trickle_data.rs`; `derived::shown` adds the
+trickle to those skills (an untrained skill, absent from the stored stats, starts at 5), `derived::trickle` is the formula.
+
+With the missing small buff of the previous section still unknown, the computed attributes are 9 to 29 short and the skills 2
+to 6 short (the 14 skills that were off in the map are the same effect); `stats-check` on Conjecture is 190 equal / 80 off by a
+few where it was 189 / 81 off by about 250.

@@ -102,11 +102,34 @@ pub fn worn_modifiers(db: &ResourceDatabase, entries: &[Entry], level: i64) -> B
     sum
 }
 
-/// The shown stats: the stored ones plus the modifiers (stats without a stored value count from zero).
+/// The attribute stats, in the order of the trickle-down table's columns.
+const ATTRIBUTES: [u32; 6] = [0x10, 0x11, 0x12, 0x13, 0x14, 0x15];
+
+/// What the attributes add to a skill: the skill's share of each attribute (`trickle_data::WEIGHTS`, percent), a quarter of
+/// the weighted sum, cut to a whole number. Worked out as the original does it (doubles for five attributes, floats for the
+/// last), which matched all 69 skills of a live character.
+pub fn trickle(weights: &[u8; 6], attributes: &[i64; 6]) -> i64 {
+    let first_five: f64 = (0..5).map(|i| weights[i] as f64 * attributes[i] as f64 / 100.0).sum();
+    let last = weights[5] as f32 * attributes[5] as f32 / 100.0f32;
+    ((last + first_five as f32) * 0.25f32) as i64
+}
+
+/// A skill nothing has trained has this stored value (the server does not send it).
+const DEFAULT_SKILL: i64 = 5;
+
+/// The shown stats: the stored ones plus the modifiers (stats without a stored value count from zero), and for the skills
+/// the trickle-down of the shown attributes.
 pub fn shown(stored: &BTreeMap<u32, i64>, modifiers: &BTreeMap<u32, i64>) -> BTreeMap<u32, i64> {
     let mut out = stored.clone();
     for (&stat, &amount) in modifiers {
         *out.entry(stat).or_insert(0) += amount;
+    }
+    let attributes = ATTRIBUTES.map(|a| out.get(&a).copied().unwrap_or(0));
+    if attributes.iter().any(|&a| a > 0) {
+        for &(stat, ref weights) in crate::trickle_data::WEIGHTS {
+            let base = if stored.contains_key(&stat) { 0 } else { DEFAULT_SKILL };
+            *out.entry(stat).or_insert(0) += base + trickle(weights, &attributes);
+        }
     }
     out
 }
@@ -123,6 +146,20 @@ mod tests {
         assert_eq!(shown[&1], 125);
         assert_eq!(shown[&0x5b], 230);
         assert_eq!(shown[&0x36], 8);
+    }
+
+    #[test]
+    fn the_trickle_matches_a_live_skill() {
+        // Conjecture (attributes as shown by the original): skill 100 takes 20% strength, 50% agility, 30% psychic.
+        assert_eq!(trickle(&[20, 50, 0, 0, 0, 30], &[1175, 1026, 1128, 904, 1001, 873]), 252);
+        assert_eq!(trickle(&[50, 10, 40, 0, 0, 0], &[1175, 1026, 1128, 904, 1001, 873]), 285);
+    }
+
+    #[test]
+    fn an_untrained_skill_starts_at_five() {
+        let stored: BTreeMap<u32, i64> = [(0x10, 100), (0x11, 100), (0x12, 100), (0x13, 100), (0x14, 100), (0x15, 100)].into();
+        let shown = shown(&stored, &BTreeMap::new());
+        assert_eq!(shown[&100], 5 + 25); // every attribute 100: a quarter of 100
     }
 
     #[test]

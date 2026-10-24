@@ -15,6 +15,7 @@
 
 mod actions;
 mod stats;
+mod trickle_data;
 mod vitals;
 mod automap;
 mod actions_data;
@@ -363,16 +364,24 @@ fn run(args: &[String]) -> Result<(), String> {
                 }
             }
             let mods = derived::modifiers(&db, &entries, &perks, &nanos, level);
+            let rows: Vec<(i64, i64, i64)> = std::fs::read_to_string(compare)
+                .map_err(|e| e.to_string())?
+                .lines()
+                .filter_map(|line| {
+                    let f: Vec<i64> = line.split_whitespace().take(3).filter_map(|v| v.parse().ok()).collect();
+                    <[i64; 3]>::try_from(f).ok().map(|[a, b, c]| (a, b, c))
+                })
+                .collect();
+            let stored: std::collections::BTreeMap<u32, i64> = rows.iter().map(|&(s, d0, _)| (s as u32, d0)).collect();
+            let computed = derived::shown(&stored, &mods);
             let (mut same, mut different) = (0, 0);
-            for line in std::fs::read_to_string(compare).map_err(|e| e.to_string())?.lines() {
-                let f: Vec<i64> = line.split_whitespace().take(3).filter_map(|v| v.parse().ok()).collect();
-                let [stat, stored, shown] = f[..] else { continue };
-                let computed = stored + mods.get(&(stat as u32)).copied().unwrap_or(0);
-                if computed == shown {
+            for &(stat, stored, shown) in &rows {
+                let value = computed.get(&(stat as u32)).copied().unwrap_or(stored);
+                if value == shown {
                     same += 1;
                 } else {
                     different += 1;
-                    println!("stat {stat:#x} ({stat}): stored {stored}, original shows {shown}, computed {computed} (off by {})", computed - shown);
+                    println!("stat {stat:#x} ({stat}): stored {stored}, original shows {shown}, computed {value} (off by {})", value - shown);
                 }
             }
             println!("{same} stats equal, {different} different; {} modifiers computed", mods.len());
