@@ -827,6 +827,7 @@ fn options_window(ctx: &egui::Context, open: &mut bool, rebinding: &mut Option<A
             ui.label("Character distance");
             ui.add(egui::Slider::new(&mut settings.char_distance, 0.0..=400.0).step_by(5.0).custom_formatter(|v, _| if v < 1.0 { "all".to_string() } else { format!("{v:.0}") }));
         });
+        ui.checkbox(&mut settings.auto_loot, "Take everything from a corpse as soon as it opens");
         ui.horizontal(|ui| {
             ui.label("Interface size");
             ui.add(egui::Slider::new(&mut settings.ui_scale, 0.6..=2.0).step_by(0.05).custom_formatter(|v, _| format!("{:.0}%", v * 100.0)));

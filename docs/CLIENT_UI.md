@@ -393,3 +393,7 @@ The hotbar's weapon specials now recharge as the server says, which the earlier 
 ## The NCU window follows nanos cast after login
 
 The NCU window only knew the nanos running at login. The server also sends `SetNanoDuration` (`CharacterAction` action `0x62`: the nano `(0xcf1b, id)` as the target, the character it is on and the duration in milliseconds, which equals the nano template's own duration stat: 5000, 2200 and 600 in three captured ones). A nano that lands on the character now joins the list (or has its time reset), its stat bonuses count at once, and a nano whose time has run out leaves it. The other nanos' remaining times are brought up to date when one is added. Tested with a unit test of the list; not seen live.
+
+## Auto-loot
+
+The options window's **Take everything from a corpse as soon as it opens** (`auto_loot` in `mao.ini`, off by default): when a corpse's contents arrive the client sends the take message for every item at once (the loot window still opens and empties as the server confirms each). Only corpses (`0xc76a`) are emptied, never bags or bank terminals. Not tried live.

@@ -58,6 +58,8 @@ pub struct Input {
     pub cancel: (u8, u32),
     /// How far characters are drawn (0: all), from the settings.
     pub char_distance: f32,
+    /// Take everything from a corpse when it opens (a setting).
+    pub auto_loot: bool,
     /// An item to take from the open container: a counter that steps with each, the container's handle and the item's place
     /// (`u32::MAX` for all of them).
     pub take: (u8, u32, u32),
@@ -884,8 +886,9 @@ impl ApplicationHandler for App {
                 let size = (w.config.width, w.config.height);
                 if self.live.is_some() {
                     w.scene.fog = fog_for(self.settings.view_distance);
-                    if self.keys.char_distance != self.settings.char_distance {
+                    if self.keys.char_distance != self.settings.char_distance || self.keys.auto_loot != self.settings.auto_loot {
                         self.keys.char_distance = self.settings.char_distance;
+                        self.keys.auto_loot = self.settings.auto_loot;
                         if let Some(live) = &self.live {
                             let _ = live.input.send(self.keys);
                         }

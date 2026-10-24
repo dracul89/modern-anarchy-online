@@ -161,6 +161,8 @@ struct World {
     /// The container (corpse, bag) the character opened, and whether that changed.
     loot: Option<Loot>,
     loot_changed: bool,
+    /// A corpse whose contents just arrived and have not been auto-looted yet: its handle and the places to take.
+    fresh_corpse: Option<(u32, Vec<u32>)>,
     worn: Vec<inventory::Entry>,
     mods_dirty: bool,
     /// The identity type each entity was first heard of with (what a use message names it by).
@@ -496,7 +498,11 @@ impl World {
                         self.loot_changed = true;
                     }
                 } else if identity.0 != 0 {
-                    self.loot = Some(Loot { identity, handle: p.value.get("Handle").and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32, entries });
+                    let handle = p.value.get("Handle").and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
+                    if identity.0 == 0xc76a {
+                        self.fresh_corpse = Some((handle, entries.iter().map(|e| e.slot).collect()));
+                    }
+                    self.loot = Some(Loot { identity, handle, entries });
                     self.loot_changed = true;
                 }
             }
@@ -2076,6 +2082,14 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     state.mods_dirty = true;
                     pending_gear = Some(crate::gear::from_entries(&gear_db, &gear_textures, &state.worn, state.stats.get(&0x36).copied().unwrap_or(1)));
                     pending_messages.push("Item deleted".into());
+                }
+            }
+            // A corpse that just opened is emptied when the setting says so.
+            if let Some((handle, places)) = state.fresh_corpse.take() {
+                if keys.auto_loot {
+                    for place in places {
+                        let _ = connection.send(&n3::take_from_container(own, handle, place));
+                    }
                 }
             }
             // An inventory item put into the open container.
