@@ -74,6 +74,19 @@ fn account_path() -> std::path::PathBuf {
     Settings::path().with_file_name("account.ini")
 }
 
+/// What `account.ini` holds: the account's name and, on a second line, the character played last.
+pub fn parse_account(text: &str) -> (String, String) {
+    let mut lines = text.lines().map(str::trim);
+    (lines.next().unwrap_or("").to_string(), lines.next().unwrap_or("").to_string())
+}
+
+/// The characters with the one played last first (the rest keep their order).
+pub fn ordered<'a>(list: &'a [Character], last: &str) -> Vec<&'a Character> {
+    let mut rows: Vec<&Character> = list.iter().collect();
+    rows.sort_by_key(|c| !(!last.is_empty() && c.name.eq_ignore_ascii_case(last)));
+    rows
+}
+
 enum Stage {
     Form,
     Busy,
@@ -94,6 +107,8 @@ struct Launcher {
     gfx: Option<Gfx>,
     stage: Stage,
     user: String,
+    /// The character played last, to list first.
+    last: String,
     password: String,
     server: String,
     message: String,
@@ -109,7 +124,9 @@ impl Launcher {
             self.message = "Enter the account name and the password.".into();
             return;
         }
-        let _ = std::fs::write(account_path(), &user);
+        let _ = std::fs::write(account_path(), format!("{user}
+{}
+", self.last));
         let version = std::fs::read_to_string(std::path::Path::new(&self.game).join("version.id")).map(|t| t.lines().next().unwrap_or("").trim().to_string());
         let (tx, rx) = channel();
         self.answer = Some(rx);
@@ -184,10 +201,11 @@ impl Launcher {
             Stage::Characters(list) => {
                 ui.label(format!("{} characters", list.len()));
                 ui.separator();
-                for c in list {
+                for c in ordered(list, &self.last) {
                     ui.horizontal(|ui| {
                         ui.vertical(|ui| {
-                            ui.label(egui::RichText::new(&c.name).strong());
+                            let last = !self.last.is_empty() && c.name.eq_ignore_ascii_case(&self.last);
+                            ui.label(egui::RichText::new(if last { format!("{} (played last)", c.name) } else { c.name.clone() }).strong());
                             ui.label(egui::RichText::new(describe(c)).small().weak());
                         });
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -215,6 +233,12 @@ impl Launcher {
             self.password.clear();
         }
         if play.is_some() {
+            // (the account's name and the character stay for the next start; the password is never written)
+            if let Some(name) = &play {
+                let _ = std::fs::write(account_path(), format!("{}
+{name}
+", self.user.trim()));
+            }
             self.chosen = play;
         }
     }
@@ -289,8 +313,8 @@ impl ApplicationHandler for Launcher {
 /// Opens the launcher and, when a character is picked, starts the live client for it.
 pub fn run(game: &str) -> Result<(), String> {
     let settings = Settings::load();
-    let user = std::fs::read_to_string(account_path()).map(|t| t.trim().to_string()).unwrap_or_default();
-    let mut launcher = Launcher { game: game.to_string(), settings, gfx: None, stage: Stage::Form, user, password: String::new(), server: std::env::var("MAO_SERVER").unwrap_or_else(|_| session::RUBI_KA.to_string()), message: String::new(), answer: None, chosen: None };
+    let (user, last) = parse_account(&std::fs::read_to_string(account_path()).unwrap_or_default());
+    let mut launcher = Launcher { game: game.to_string(), settings, gfx: None, stage: Stage::Form, user, last, password: String::new(), server: std::env::var("MAO_SERVER").unwrap_or_else(|_| session::RUBI_KA.to_string()), message: String::new(), answer: None, chosen: None };
     let event_loop = EventLoop::new().map_err(|e| e.to_string())?;
     event_loop.run_app(&mut launcher).map_err(|e| e.to_string())?;
     let Some(name) = launcher.chosen.take() else { return Ok(()) };
@@ -320,6 +344,19 @@ mod tests {
         assert_eq!(describe(&c), "level 220 male Solitus Enforcer");
         let c = Character { breed: 3, sex: 3, profession: 10, level: 60, area: "Old Athen".into(), ..c };
         assert_eq!(describe(&c), "level 60 female Nanomage Doctor, Old Athen");
+    }
+
+    #[test]
+    fn the_account_file_holds_the_name_and_the_last_character() {
+        assert_eq!(parse_account("dracul
+Laxative
+"), ("dracul".to_string(), "Laxative".to_string()));
+        assert_eq!(parse_account("dracul"), ("dracul".to_string(), String::new()));
+        assert_eq!(parse_account(""), (String::new(), String::new()));
+        let list = vec![Character { name: "Abe".into(), ..Default::default() }, Character { name: "Zed".into(), ..Default::default() }, Character { name: "Cy".into(), ..Default::default() }];
+        let names: Vec<&str> = ordered(&list, "zed").iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, vec!["Zed", "Abe", "Cy"]);
+        assert_eq!(ordered(&list, "").iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), vec!["Abe", "Zed", "Cy"]);
     }
 
     #[test]

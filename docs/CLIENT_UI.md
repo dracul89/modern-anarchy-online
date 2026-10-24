@@ -339,3 +339,5 @@ Each `HealthDamage` also floats its amount over the one hit for 1.6 seconds, ris
 ## Help window (`Ctrl+H`)
 
 Lists the keys as they are bound now (so a rebinding shows), the mouse controls and the chat commands the client carries out, with a find field that filters all three (`help.rs`). The window's place is remembered like the others'.
+
+The launcher also remembers the character played last (the second line of `account.ini`) and lists it first, marked "(played last)".
