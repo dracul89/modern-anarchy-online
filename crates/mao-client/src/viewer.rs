@@ -79,6 +79,8 @@ pub struct Update {
     pub target: Option<String>,
     /// The character's items, when they arrive.
     pub gear: Option<Vec<crate::gear::GearItem>>,
+    /// The running nano programs, when the list changes (the NCU window).
+    pub nanos: Option<Vec<crate::ncu::NanoInfo>>,
     /// The way the character faces (radians about the vertical, 0 along +Z of the server's world).
     pub heading: Option<f32>,
     /// The travel list the server sent for this playfield, when it arrives.
@@ -455,6 +457,11 @@ impl ApplicationHandler for App {
                                 press_slot(ui, n as usize, &mut self.keys, &mut self.hud);
                             }
                         }
+                        Action::NcuWindow if !event.repeat => {
+                            if let Some(ui) = w.ui.as_mut() {
+                                ui.ncu.open = !ui.ncu.open;
+                            }
+                        }
                         Action::SkillsWindow if !event.repeat => {
                             if let Some(ui) = w.ui.as_mut() {
                                 ui.skills.open = !ui.skills.open;
@@ -667,6 +674,9 @@ impl ApplicationHandler for App {
                         }
                         if let Some(items) = u.gear.take() {
                             self.hud.gear = items;
+                        }
+                        if let Some(nanos) = u.nanos.take() {
+                            self.hud.nanos = nanos;
                         }
                         if let Some(name) = u.location.take() {
                             self.hud.location = name;

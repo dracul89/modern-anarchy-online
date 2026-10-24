@@ -14,6 +14,7 @@
 //! orbit, scroll to zoom, WASD to move the view point, Q/E down and up.
 
 mod actions;
+mod ncu;
 mod skills;
 mod stats;
 mod trickle_data;
@@ -481,6 +482,21 @@ fn run(args: &[String]) -> Result<(), String> {
                         let mut window = skills::SkillsWindow::default();
                         window.open = true;
                         *hud.skills_preview.lock().unwrap() = Some(window);
+                    }
+                    // MAO_UI_PREVIEW=ncu MAO_NANOS=<id:ms,id:ms,...> (MAO_COMPARE=<stat file> for the NCU memory): the NCU window.
+                    if preview.as_deref() == Some("ncu") {
+                        let running: Vec<(u32, u32)> = std::env::var("MAO_NANOS")
+                            .unwrap_or_default()
+                            .split(',')
+                            .filter_map(|e| { let (id, ms) = e.split_once(':')?; Some((id.trim().parse().ok()?, ms.trim().parse().ok()?)) })
+                            .collect();
+                        hud.nanos = ncu::describe(&db, &textures, &running, 220, std::time::Instant::now());
+                        if let Some(t) = std::env::var_os("MAO_COMPARE").and_then(|f| std::fs::read_to_string(f).ok()) {
+                            hud.stats = t.lines().filter_map(|l| { let v: Vec<i64> = l.split_whitespace().take(3).filter_map(|x| x.parse().ok()).collect(); (v.len() == 3).then(|| (v[0] as u32, v[2])) }).collect();
+                        }
+                        let mut window = ncu::NcuWindow::default();
+                        window.open = true;
+                        *hud.ncu_preview.lock().unwrap() = Some(window);
                     }
                     if preview.as_deref() == Some("map") {
                         // MAO_UI_PREVIEW=map: walk a path through the playfield, revealing the map as the game would.

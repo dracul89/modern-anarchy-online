@@ -8,6 +8,8 @@
 
 /// The object type of an item template.
 pub const TEMPLATE: u32 = 0xf4254;
+/// The database type of nano programs: the same record shape as an item's.
+pub const NANO_TEMPLATE: u32 = 0xfde85;
 /// The texture type of an item's icon.
 pub const ICON_TYPE: u32 = 0xf6958;
 
@@ -140,7 +142,7 @@ pub fn actions(template: &[u8]) -> Vec<Action> {
 impl Item {
     pub fn parse(data: &[u8]) -> Option<Item> {
         let words: Vec<u32> = data.chunks_exact(4).map(|c| u32::from_le_bytes(c.try_into().unwrap())).collect();
-        if words.len() < 6 || words[0] != TEMPLATE {
+        if words.len() < 6 || (words[0] != TEMPLATE && words[0] != NANO_TEMPLATE) {
             return None;
         }
         let printable = |bytes: &[u8]| bytes.iter().all(|&b| b >= 0x20 && b != 0x7f || matches!(b, 9 | 10 | 13));

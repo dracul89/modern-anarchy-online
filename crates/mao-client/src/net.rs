@@ -136,6 +136,10 @@ struct World {
     /// The nano programs active on the character (`SimpleCharFullUpdate`), the inventory the effects are summed over, and
     /// whether any of the three changed since `item_mods` was last worked out.
     nanos: Vec<u32>,
+    /// The running nanos with the time each had left when the server told us, and when that was (for the NCU window).
+    nano_times: Vec<(u32, u32)>,
+    nano_times_at: Option<Instant>,
+    nano_list_changed: bool,
     worn: Vec<inventory::Entry>,
     mods_dirty: bool,
     /// The identity type each entity was first heard of with (what a use message names it by).
@@ -275,7 +279,13 @@ impl World {
             }
         }
         if m.kind == mao_net::n3::ENTITY_INFO && m.identity.1 == self.own {
-            let nanos = m.active_nanos();
+            let times = m.active_nano_times();
+            let nanos: Vec<u32> = times.iter().map(|t| t.0).collect();
+            if !times.is_empty() || !self.nanos.is_empty() {
+                self.nano_times = times;
+                self.nano_times_at = Some(Instant::now());
+                self.nano_list_changed = true;
+            }
             if nanos != self.nanos {
                 self.nanos = nanos;
                 self.mods_dirty = true;
@@ -1696,6 +1706,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             eprintln!("requirements slot {} item {} action {}: {} conditions, unmet {:?}, unjudged {}", e.slot, e.low_id, action.kind, lines.len(), unmet, unknown);
                         }
                     }
+                    eprintln!("running nanos (id, ms left): {:?}; NCU {:?} of {:?}", state.nano_times, shown.get(&180), shown.get(&181));
                     eprintln!("worn: {:?}", state.worn.iter().map(|e| (e.slot, e.low_id, e.high_id, e.quality)).collect::<Vec<_>>());
                     eprintln!("stats: {} stored, {} modifiers; {}", state.stats.len(), state.item_mods.len(), pick(&[0x1b, 0x01, 0xd6, 0xdd, 0x36, 0x34, 0x39, 0x15e, 0x28, 0xb2, 0xa9, 0x5b]));
                 }
@@ -1742,6 +1753,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         std::mem::take(&mut pending_messages)
                     },
                     gear: pending_gear.take(),
+                    nanos: std::mem::take(&mut state.nano_list_changed).then(|| crate::ncu::describe(&gear_db, &gear_textures, &state.nano_times, state.stats.get(&0x36).copied().unwrap_or(1), state.nano_times_at.unwrap_or_else(Instant::now))),
                     missions: pending_missions.take(),
                     mission_status: pending_mission_status.take(),
                     mail_count: pending_mail_count.take(),

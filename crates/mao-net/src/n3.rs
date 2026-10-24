@@ -498,6 +498,11 @@ impl Message {
     /// per nano the identity (type 0xcf1b, the nano's id), a word, and two times). The list is not at a fixed place in the
     /// message, so it is found by its shape: a count word followed by `n` entries that each begin with the type 0xcf1b.
     pub fn active_nanos(&self) -> Vec<u32> {
+        self.active_nano_times().into_iter().map(|(id, _)| id).collect()
+    }
+
+    /// The same with the time each nano has left, in milliseconds (the entry's first time; the second is the same at login).
+    pub fn active_nano_times(&self) -> Vec<(u32, u32)> {
         const NANO_TYPE: u32 = 0xcf1b;
         if self.kind != ENTITY_INFO {
             return Vec::new();
@@ -508,7 +513,7 @@ impl Message {
             let Some(count) = word(at).filter(|&c| c % 0x3f1 == 0 && c / 0x3f1 >= 2 && c / 0x3f1 <= 65) else { continue };
             let n = (count / 0x3f1 - 1) as usize;
             if (0..n).all(|i| word(at + 4 + 20 * i) == Some(NANO_TYPE)) {
-                return (0..n).filter_map(|i| word(at + 8 + 20 * i)).collect();
+                return (0..n).filter_map(|i| Some((word(at + 8 + 20 * i)?, word(at + 16 + 20 * i)?))).collect();
             }
         }
         Vec::new()
@@ -659,6 +664,7 @@ mod nano_tests {
         data.extend_from_slice(&[0, 0, 0x17, 0xa6, 0, 0]);
         let m = Message { kind: ENTITY_INFO, identity: (0xc350, 1), data };
         assert_eq!(m.active_nanos(), vec![0x27cbd, 0x23fdd]);
+        assert_eq!(m.active_nano_times(), vec![(0x27cbd, 0x13ad21), (0x23fdd, 0x13a99d)]);
         assert!(Message { kind: ENTITY_INFO, identity: (0xc350, 1), data: vec![0; 40] }.active_nanos().is_empty());
     }
 }
