@@ -236,6 +236,8 @@ struct App {
     /// How far the mouse moved since the left button went down (a click is a press that barely moved), and the last click.
     /// A screenshot was asked for: the next frame saves it.
     screenshot: bool,
+    /// Walking forward on its own (the auto-run key).
+    autorun: bool,
     moved: f32,
     last_click: Option<(u32, std::time::Instant)>,
 }
@@ -269,7 +271,7 @@ fn apply_mode(window: &Window, mode: WindowMode) {
 pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<(), String> {
     let event_loop = EventLoop::new().map_err(|e| e.to_string())?;
     let settings = Settings::load();
-    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false };
+    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false };
     event_loop.run_app(&mut app).map_err(|e| e.to_string())
 }
 
@@ -446,7 +448,7 @@ impl ApplicationHandler for App {
                     let _ = w.window.set_cursor_grab(CursorGrabMode::None);
                 }
                 self.keys.face = self.buttons[1].then(|| heading_from_yaw(w.camera.yaw));
-                self.keys.forward = self.held.contains(&Action::Forward) || (self.buttons[0] && self.buttons[1]);
+                self.keys.forward = self.held.contains(&Action::Forward) || self.autorun || (self.buttons[0] && self.buttons[1]);
                 if let Some(live) = &self.live {
                     let _ = live.input.send(self.keys);
                 }
@@ -488,7 +490,14 @@ impl ApplicationHandler for App {
                     }
                 } else if let Some(action) = self.settings.keymap.action(code, self.modifiers) {
                     match action {
+                        Action::AutoRun if !event.repeat => {
+                            self.autorun = !self.autorun;
+                        }
                         Action::Forward | Action::Back | Action::TurnLeft | Action::TurnRight | Action::StrafeLeft | Action::StrafeRight | Action::Jump => {
+                            // (walking by hand ends the auto-run)
+                            if matches!(action, Action::Forward | Action::Back) {
+                                self.autorun = false;
+                            }
                             self.held.insert(action);
                         }
                         Action::NoClip if !event.repeat => {
@@ -633,7 +642,7 @@ impl ApplicationHandler for App {
                     }
                 }
                 let held = |a: Action| self.held.contains(&a);
-                self.keys.forward = held(Action::Forward) || (self.buttons[0] && self.buttons[1]);
+                self.keys.forward = held(Action::Forward) || self.autorun || (self.buttons[0] && self.buttons[1]);
                 self.keys.back = held(Action::Back);
                 self.keys.jump = held(Action::Jump);
                 self.keys.turn = held(Action::TurnRight) as i8 - held(Action::TurnLeft) as i8;

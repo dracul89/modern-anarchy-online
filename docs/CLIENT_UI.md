@@ -345,3 +345,7 @@ The launcher also remembers the character played last (the second line of `accou
 ## Chat input history
 
 With the input line focused and no command list open, Up and Down walk the lines sent before (the last hundred; a line sent twice in a row is kept once), Down past the newest empties the line.
+
+## Auto-run (`Numpad *`)
+
+The `auto_run` key keeps the character walking forward until it is pressed again or a forward or back key is used (the key is rebindable in the options window). Not tried live.
