@@ -146,6 +146,11 @@ struct World {
     types: BTreeMap<u32, u32>,
     /// The vending machines (booths: shops, and the mission booths' companions) with their positions.
     vendors: BTreeMap<u32, [f32; 3]>,
+    /// The doors of the playfield by number: the key of the door's model in `props` and its position (from the dynel table).
+    door_slots: BTreeMap<u8, (u32, [f32; 3])>,
+    /// The server's ids of the doors (from their status messages) and until when each door (by number) stays open.
+    door_ids: std::collections::BTreeSet<u32>,
+    doors_open: BTreeMap<u8, Instant>,
     /// The machines the server announces with a model (mesh instance, position, rotation): drawn like the other entities.
     props: BTreeMap<u32, (u32, [f32; 3], [f32; 4])>,
     /// The travel list of the playfield, from the server (until taken).
@@ -161,6 +166,11 @@ const DYNAMIC_NPC: u32 = 0x7a00_0000;
 
 /// The server's announcement of a usable object, and the identity type of those objects.
 const OBJECT_ANNOUNCE: u32 = 0x4f474e05;
+/// `DoorStatusUpdate` and the identity type of doors.
+const DOOR_STATUS: u32 = 0x4c7d403b;
+const DOOR_TYPE: u32 = 0xc748;
+/// How long a door that was used stays open.
+const DOOR_OPEN: Duration = Duration::from_secs(5);
 const OBJECT_TYPE: u32 = 0xc76a;
 
 /// The items of a parsed world-entry message's `InventorySlots` list.
@@ -229,6 +239,52 @@ impl World {
         }
     }
 
+    /// The number of a door from its id: `0xc0 | number << 16 | playfield` outdoors, and the ids of an instance's doors run on from
+    /// the lowest one (the shop's seven are `0x10c1a5a5` to `0x10c1a5ab`, in the table's order).
+    fn door_number(&self, id: u32) -> Option<u8> {
+        if id >> 24 == 0xc0 {
+            return Some((id >> 16) as u8);
+        }
+        // the run of consecutive ids this one is in
+        let mut first = id;
+        while first > 0 && self.door_ids.contains(&(first - 1)) {
+            first -= 1;
+        }
+        self.door_ids.contains(&id).then(|| u8::try_from(id - first).ok()).flatten()
+    }
+
+    /// Makes each announced door a usable object at its place.
+    fn register_doors(&mut self) {
+        let ids: Vec<u32> = self.door_ids.iter().copied().collect();
+        for id in ids {
+            let Some((_, position)) = self.door_number(id).and_then(|n| self.door_slots.get(&n).copied()) else { continue };
+            self.objects.insert(id, position);
+            self.names.entry(id).or_insert_with(|| ("Door".to_string(), false));
+        }
+    }
+
+    /// Opens the door that was used, if the id is one.
+    fn door_used(&mut self, id: u32) {
+        if self.types.get(&id) == Some(&DOOR_TYPE) {
+            if let Some(n) = self.door_number(id) {
+                self.doors_open.insert(n, Instant::now() + DOOR_OPEN);
+            }
+        }
+    }
+
+    /// Takes the playfield's built-in props: the doors are also remembered by number.
+    fn set_static_props(&mut self, props: Vec<(u32, (u32, [f32; 3], [f32; 4]), Option<u8>)>) {
+        self.door_slots.clear();
+        self.doors_open.clear();
+        for (key, prop, door) in props {
+            if let Some(n) = door {
+                self.door_slots.insert(n, (key, prop.1));
+            }
+            self.props.insert(key, prop);
+        }
+        self.register_doors();
+    }
+
     /// Where an entity or usable object is.
     fn position_of(&self, id: u32) -> Option<[f32; 3]> {
         self.entities.get(&id).map(|e| e.0).or_else(|| self.objects.get(&id).copied())
@@ -280,6 +336,9 @@ impl World {
                     self.names.entry(m.identity.1).or_insert_with(|| (format!("Booth {:x}", m.identity.1 & 0xffff), false));
                 }
             }
+        }
+        if m.kind == DOOR_STATUS && m.identity.0 == DOOR_TYPE && self.door_ids.insert(m.identity.1) {
+            self.register_doors();
         }
         if m.kind == mao_net::destinations::DESTINATION_LIST {
             self.destinations = mao_net::destinations::parse(&m.data);
@@ -754,8 +813,10 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
     // The machines (shop booths): one copy of each model's parts, an instance of each per machine.
     if let Some(chars) = characters.as_mut() {
         let mut copies: std::collections::HashMap<u32, Option<std::ops::Range<usize>>> = std::collections::HashMap::new();
+        // (the doors that were used and have not closed again are not drawn)
+        let open: std::collections::HashSet<u32> = world.doors_open.iter().filter(|(_, until)| **until > Instant::now()).filter_map(|(n, _)| world.door_slots.get(n).map(|s| s.0)).collect();
         for (&id, &(mesh, position, q)) in props {
-            if !include(id) {
+            if !include(id) || open.contains(&id) {
                 continue;
             }
             let range = copies
@@ -801,7 +862,7 @@ fn show_world(game: &str, playfield: u32, world: &World, image: Option<&str>) ->
     }
     let mut characters = Characters::new(db.clone()).ok();
     let mut world_props = world.props.clone();
-    world_props.extend(crate::static_props(&db, playfield));
+    world_props.extend(crate::static_props(&db, playfield).into_iter().map(|(k, p, _)| (k, p)));
     eprintln!("{} machines with a model", world_props.len());
     let overlay = overlay_model(world, &world_props, &mut characters, &|_| true);
     let offset = scene.parts.len();
@@ -937,7 +998,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     crate::theme::set_game_dir(game);
     let db = Arc::new(ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?);
     let Area { scene, terrain, collision, booths } = load_area(game, &db, playfield)?;
-    state.props.extend(crate::static_props(&db, playfield));
+    state.set_static_props(crate::static_props(&db, playfield));
     let (mut terrain, mut collision) = (terrain, collision);
     // The interface: the names of the playfields, and where the booths lead.
     let names: std::collections::HashMap<u32, String> = mao_formats::playfield::all(&db).into_iter().map(|p| (p.number, p.name.trim().to_string())).collect();
@@ -1345,7 +1406,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     match load_area(&game_dir, &thread_db, playfield) {
                         Ok(area) => {
                             (terrain, collision) = (area.terrain, area.collision);
-                            state.props.extend(crate::static_props(&thread_db, playfield));
+                            state.set_static_props(crate::static_props(&thread_db, playfield));
                             let mut scene = area.scene;
                             if terrain.is_none() && crate::load_rooms(&thread_db, playfield).is_none() {
                                 // An interior: the floor isn't readable, so lay a plain one at the arrival height.
@@ -1444,6 +1505,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             uses += 1;
                             let kind = state.types.get(&t).copied().unwrap_or(n3::CHARACTER);
                             let _ = connection.send(&n3::use_object(own, uses, (kind, t)));
+                            state.door_used(t);
                             pending_messages.push(format!("Using {}", state.names.get(&t).map_or("the target", |n| n.0.as_str())));
                         }
                         None => pending_messages.push("Nothing targeted to use (Tab selects)".into()),
@@ -1641,6 +1703,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     uses += 1;
                     let kind = state.types.get(&id).copied().unwrap_or(n3::CHARACTER);
                     let _ = connection.send(&n3::use_object(own, uses, (kind, id)));
+                    state.door_used(id);
                     pending_messages.push(format!("Using {}", state.names.get(&id).map_or("the target", |n| n.0.as_str())));
                 }
             }
@@ -2863,4 +2926,31 @@ fn parse_capture_world(log: &str) -> Result<World, String> {
     world.own = 598284;
     let _ = n3::CHARACTER;
     Ok(world)
+}
+
+#[cfg(test)]
+mod door_tests {
+    use super::*;
+
+    #[test]
+    fn doors_are_numbered_from_their_ids() {
+        let mut world = World::default();
+        // an instance's doors: consecutive ids, in the dynel table's order
+        for id in 0x10c1a5a5..=0x10c1a5ab {
+            world.door_ids.insert(id);
+        }
+        world.door_ids.insert(0x10c1b000);
+        assert_eq!(world.door_number(0x10c1a5a5), Some(0));
+        assert_eq!(world.door_number(0x10c1a5ab), Some(6));
+        assert_eq!(world.door_number(0x10c1b000), Some(0));
+        assert_eq!(world.door_number(0x10c1a5ac), None);
+        // outdoors the number is in the id
+        assert_eq!(world.door_number(0xc01c028f), Some(0x1c));
+        world.door_slots.insert(2, (0xfe000007, [1.0, 2.0, 3.0]));
+        world.types.insert(0x10c1a5a7, DOOR_TYPE);
+        world.door_used(0x10c1a5a7);
+        assert!(world.doors_open.get(&2).is_some_and(|until| *until > Instant::now()));
+        world.door_used(0x10c1a5a8);
+        assert_eq!(world.doors_open.len(), 1);
+    }
 }
