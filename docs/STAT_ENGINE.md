@@ -418,3 +418,12 @@ With the ten messages of the capture: **Conjecture 270/270 and the second level-
 the level-86 character is in other circumstances (no Universal Advantages, no Swimming Pool, Landing Pad or Guard House benefit, no second HQ
 tier): 200/220 equal when given the same list, the 20 differences being exactly those benefits it does not have (its own list would come from
 its own messages). The hover shows the source as "Organization".
+
+## The level-86 character, with its own organization messages: exact
+
+The proxy had already captured that character entering the world (connection `c65`, identity `c350:4deb97f9`): four `OrgServer` type 6
+messages (quality 300, and the tier-4 templates of Large Org HQ Management Benefit 254409, Grid House Computer Literacy 254387, Notum Silo Nano
+Efficiency 254391 and Mining Operations Nano Powerup 254399; none of the Universal Advantages or the other buildings). With that list
+`mao-client <game> stats-check <log> 4deb97f9 docs/live_inputs_level86.txt docs/live_compare_level86.txt 86` gives **220 of 220 stats
+equal** (worn items, 14 nanos, perks, organization benefits, the trickle-down). Together with the two level-220 characters
+(270/270, 249/249) that is three characters at title levels 3 and 7, all exact.
