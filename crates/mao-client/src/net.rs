@@ -143,6 +143,7 @@ struct World {
     /// The nano programs the character has (from the world-entry message), and whether the list is new.
     program_ids: Vec<u32>,
     programs_changed: bool,
+    perks_changed: bool,
     worn: Vec<inventory::Entry>,
     mods_dirty: bool,
     /// The identity type each entity was first heard of with (what a use message names it by).
@@ -407,6 +408,7 @@ impl World {
                     self.read_stats(p.value.get(list));
                 }
                 self.perks = perk_ids(p.value.get("Perks"));
+                self.perks_changed = true;
                 if let Some(mao_net::schema::Value::List(ids)) = p.value.get("UploadedNanoIds") {
                     self.program_ids = ids.iter().filter_map(mao_net::schema::Value::as_int).map(|v| v as u32).collect();
                     self.programs_changed = true;
@@ -2033,6 +2035,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     },
                     chat_lines: chat_lines_now,
                     friends: friends_now,
+                    perk_list: std::mem::take(&mut state.perks_changed).then(|| crate::perks::describe(&gear_db, &gear_textures, &state.perks, state.stats.get(&0x36).copied().unwrap_or(1))),
                     programs: std::mem::take(&mut state.programs_changed).then(|| crate::nanoprograms::describe(&gear_db, &gear_textures, &state.program_ids, state.stats.get(&0x36).copied().unwrap_or(1))),
                     gear: pending_gear.take(),
                     nanos: std::mem::take(&mut state.nano_list_changed).then(|| crate::ncu::describe(&gear_db, &gear_textures, &state.nano_times, state.stats.get(&0x36).copied().unwrap_or(1), state.nano_times_at.unwrap_or_else(Instant::now))),

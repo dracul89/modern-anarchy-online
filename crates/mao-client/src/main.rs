@@ -18,6 +18,7 @@ mod chat_commands;
 mod chatwindow;
 mod friends;
 mod nanoprograms;
+mod perks;
 mod ncu;
 mod skills;
 mod stats;
@@ -597,6 +598,14 @@ fn run(args: &[String]) -> Result<(), String> {
                     // MAO_UI_PREVIEW=chat (MAO_CHAT_INPUT=/te): the chat window with sample lines and, with an input, the command list.
                     // MAO_UI_PREVIEW=friends MAO_FRIENDS=<name:1,name:0,...> (1 = online): the friends list.
                     // MAO_UI_PREVIEW=nanos MAO_PROGRAMS=<id,id,...>: the nano programs window.
+                    // MAO_UI_PREVIEW=perks MAO_PERKS=<id,id,...> (perk ids): the perks window.
+                    if preview.as_deref() == Some("perks") {
+                        let ids: Vec<u32> = std::env::var("MAO_PERKS").unwrap_or_default().split(',').filter_map(|t| t.trim().parse().ok()).collect();
+                        hud.perk_list = perks::describe(&db, &textures, &ids, 220);
+                        let mut window = perks::PerksWindow::default();
+                        window.open = true;
+                        *hud.perks_preview.lock().unwrap() = Some(window);
+                    }
                     if preview.as_deref() == Some("nanos") {
                         let ids: Vec<u32> = std::env::var("MAO_PROGRAMS").unwrap_or_default().split(',').filter_map(|t| t.trim().parse().ok()).collect();
                         hud.programs = nanoprograms::describe(&db, &textures, &ids, 220);

@@ -91,6 +91,8 @@ pub struct Update {
     pub friends: Option<Vec<crate::friends::Friend>>,
     /// The character's nano programs, when they arrive.
     pub programs: Option<Vec<crate::nanoprograms::Program>>,
+    /// The character's perks, when they arrive.
+    pub perk_list: Option<Vec<crate::perks::PerkInfo>>,
     /// The running nano programs, when the list changes (the NCU window).
     pub nanos: Option<Vec<crate::ncu::NanoInfo>>,
     /// The way the character faces (radians about the vertical, 0 along +Z of the server's world).
@@ -504,6 +506,11 @@ impl ApplicationHandler for App {
                                 ui.chat.focus();
                             }
                         }
+                        Action::PerkWindow if !event.repeat => {
+                            if let Some(ui) = w.ui.as_mut() {
+                                ui.perks.open = !ui.perks.open;
+                            }
+                        }
                         Action::ProgramsWindow if !event.repeat => {
                             if let Some(ui) = w.ui.as_mut() {
                                 ui.programs.open = !ui.programs.open;
@@ -733,6 +740,9 @@ impl ApplicationHandler for App {
                             for line in std::mem::take(&mut u.chat_lines) {
                                 ui.chat.push(line);
                             }
+                        }
+                        if let Some(perks) = u.perk_list.take() {
+                            self.hud.perk_list = perks;
                         }
                         if let Some(programs) = u.programs.take() {
                             self.hud.programs = programs;

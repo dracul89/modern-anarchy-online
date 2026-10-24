@@ -199,7 +199,7 @@ pub const ACTIONS: &[(Action, &str, &str)] = &[
     (Action::ChatReply, "chat_reply", "Ctrl+R"),
     (Action::ChatPageUp, "chat_history_page_up", "Shift+PageUp"),
     (Action::ChatPageDown, "chat_history_page_down", "Shift+PageDown"),
-    (Action::PerkWindow, "open_perk_window", ""),
+    (Action::PerkWindow, "open_perk_window", "P"),
     (Action::VehicleWindow, "open_vehicle_window", ""),
     // This client.
     (Action::CycleWindowMode, "cycle_window_mode", "Alt+Enter"),
