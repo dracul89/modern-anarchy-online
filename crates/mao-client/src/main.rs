@@ -17,6 +17,7 @@ mod actions;
 mod chat_commands;
 mod chatwindow;
 mod friends;
+mod loot;
 mod nanoprograms;
 mod perks;
 mod ncu;
@@ -599,6 +600,17 @@ fn run(args: &[String]) -> Result<(), String> {
                     // MAO_UI_PREVIEW=friends MAO_FRIENDS=<name:1,name:0,...> (1 = online): the friends list.
                     // MAO_UI_PREVIEW=nanos MAO_PROGRAMS=<id,id,...>: the nano programs window.
                     // MAO_UI_PREVIEW=perks MAO_PERKS=<id,id,...> (perk ids): the perks window.
+                    // MAO_UI_PREVIEW=loot MAO_CAPTURE=<log> MAO_LOOT=<n>: the n-th container a capture opened.
+                    if preview.as_deref() == Some("loot") {
+                        let log = std::env::var("MAO_CAPTURE").unwrap_or_default();
+                        let nth = std::env::var("MAO_LOOT").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+                        if let Ok((kind, handle, entries)) = net::capture_loot(&log, nth) {
+                            hud.loot = Some(loot::LootView { title: loot::title(kind).to_string(), handle, items: gear::from_entries(&db, &textures, &entries, 220) });
+                            let mut window = loot::LootWindow::default();
+                            window.open = true;
+                            *hud.loot_preview.lock().unwrap() = Some(window);
+                        }
+                    }
                     if preview.as_deref() == Some("perks") {
                         let ids: Vec<u32> = std::env::var("MAO_PERKS").unwrap_or_default().split(',').filter_map(|t| t.trim().parse().ok()).collect();
                         hud.perk_list = perks::describe(&db, &textures, &ids, 220);

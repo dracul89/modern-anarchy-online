@@ -52,6 +52,9 @@ pub struct Input {
     pub cast: (u8, u32),
     /// An item to move: a counter that steps with each, the place it is in and the place it goes to.
     pub mv: (u8, u32, u32),
+    /// An item to take from the open container: a counter that steps with each, the container's handle and the item's place
+    /// (`u32::MAX` for all of them).
+    pub take: (u8, u32, u32),
 }
 
 /// The overlay to draw and where the player's character is (the view
@@ -95,6 +98,8 @@ pub struct Update {
     pub programs: Option<Vec<crate::nanoprograms::Program>>,
     /// The character's perks, when they arrive.
     pub perk_list: Option<Vec<crate::perks::PerkInfo>>,
+    /// The container (corpse, bag) the character opened: `Some(None)` when it closed.
+    pub loot: Option<Option<crate::loot::LootView>>,
     /// The running nano programs, when the list changes (the NCU window).
     pub nanos: Option<Vec<crate::ncu::NanoInfo>>,
     /// The way the character faces (radians about the vertical, 0 along +Z of the server's world).
@@ -743,6 +748,12 @@ impl ApplicationHandler for App {
                                 ui.chat.push(line);
                             }
                         }
+                        if let Some(loot) = u.loot.take() {
+                            if let Some(ui) = w.ui.as_mut() {
+                                ui.loot.open = loot.is_some();
+                            }
+                            self.hud.loot = loot;
+                        }
                         if let Some(perks) = u.perk_list.take() {
                             self.hud.perk_list = perks;
                         }
@@ -870,6 +881,22 @@ impl ApplicationHandler for App {
                     }
                     if let Some(slot) = requests.press {
                         press_slot(ui, slot, &mut self.keys, &mut self.hud);
+                    }
+                    if let Some(take) = requests.loot_take.take() {
+                        match take {
+                            crate::loot::Take::One { handle, place } => {
+                                self.keys.take = (self.keys.take.0.wrapping_add(1), handle, place);
+                                if let Some(loot) = self.hud.loot.as_mut() {
+                                    loot.items.retain(|i| i.slot != place);
+                                }
+                            }
+                            crate::loot::Take::All { handle } => {
+                                self.keys.take = (self.keys.take.0.wrapping_add(1), handle, u32::MAX);
+                                if let Some(loot) = self.hud.loot.as_mut() {
+                                    loot.items.clear();
+                                }
+                            }
+                        }
                     }
                     for (from, to) in requests.item_moves.drain(..) {
                         self.keys.mv = (self.keys.mv.0.wrapping_add(1), from, to);

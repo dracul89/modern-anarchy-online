@@ -144,6 +144,9 @@ struct World {
     program_ids: Vec<u32>,
     programs_changed: bool,
     perks_changed: bool,
+    /// The container (corpse, bag) the character opened, and whether that changed.
+    loot: Option<Loot>,
+    loot_changed: bool,
     worn: Vec<inventory::Entry>,
     mods_dirty: bool,
     /// The identity type each entity was first heard of with (what a use message names it by).
@@ -164,12 +167,28 @@ struct World {
     objects: BTreeMap<u32, [f32; 3]>,
 }
 
+/// What an `InventoryUpdate` lists for a container the character used.
+struct Loot {
+    identity: (u32, u32),
+    handle: u32,
+    entries: Vec<inventory::Entry>,
+}
+
 /// Entities spawned by the game (the backyard's monsters, which are dressed like players) have ids from here up;
 /// characters have lower ones (seen in the captures and live).
 const DYNAMIC_NPC: u32 = 0x7a00_0000;
 
 /// The server's announcement of a usable object, and the identity type of those objects.
 const OBJECT_ANNOUNCE: u32 = 0x4f474e05;
+/// `InventoryUpdate` (a container's contents), `ContainerAddItem` (an item moved) and the despawn of an object.
+const INVENTORY_UPDATE: u32 = 0x4e536976;
+const CONTAINER_ADD_ITEM: u32 = 0x47537a24;
+
+/// The items of a parsed `InventoryUpdate`'s `Items` list.
+fn inventory_from_schema_items(list: Option<&mao_net::schema::Value>) -> Vec<inventory::Entry> {
+    inventory_from_schema(list)
+}
+
 /// `DoorStatusUpdate` and the identity type of doors.
 const DOOR_STATUS: u32 = 0x4c7d403b;
 const DOOR_TYPE: u32 = 0xc748;
@@ -343,6 +362,48 @@ impl World {
                     self.names.entry(m.identity.1).or_insert_with(|| (format!("Booth {:x}", m.identity.1 & 0xffff), false));
                 }
             }
+        }
+        // A container the character used lists its contents; the server moves an item out with a `ContainerAddItem`; a corpse that
+        // despawns closes the window.
+        if m.kind == INVENTORY_UPDATE && m.identity.1 == self.own {
+            if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
+                let part = |name: &str, field: &str| p.value.get(name).and_then(|v| v.get(field)).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
+                let identity = (part("InventoryIdentity", "Type"), part("InventoryIdentity", "Instance"));
+                let entries = inventory_from_schema_items(p.value.get("Items"));
+                if entries.is_empty() {
+                    if self.loot.as_ref().is_some_and(|l| l.identity == identity) {
+                        self.loot = None;
+                        self.loot_changed = true;
+                    }
+                } else if identity.0 != 0 {
+                    self.loot = Some(Loot { identity, handle: p.value.get("Handle").and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32, entries });
+                    self.loot_changed = true;
+                }
+            }
+        }
+        if m.kind == CONTAINER_ADD_ITEM && m.identity.1 == self.own {
+            if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
+                let source = (p.value.get("Source").and_then(|v| v.get("Type")).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32, p.value.get("Source").and_then(|v| v.get("Instance")).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32);
+                // `(0x6b, handle << 16 | place)`: an item came out of the open container into the backpack
+                if source.0 == 0x6b {
+                    let place = source.1 & 0xffff;
+                    if let Some(loot) = self.loot.as_mut() {
+                        if let Some(at) = loot.entries.iter().position(|e| e.slot == place) {
+                            let mut entry = loot.entries.remove(at);
+                            if let Some(free) = (inventory::BACKPACK_FIRST..inventory::BACKPACK_FIRST + crate::gear::PACK_SLOTS).find(|s| !self.worn.iter().any(|e| e.slot == *s)) {
+                                entry.slot = free;
+                                self.worn.push(entry);
+                                self.inventory = Some(self.worn.clone());
+                            }
+                            self.loot_changed = true;
+                        }
+                    }
+                }
+            }
+        }
+        if m.kind == 0x36510078 && self.loot.as_ref().is_some_and(|l| l.identity == m.identity) {
+            self.loot = None;
+            self.loot_changed = true;
         }
         if m.kind == DOOR_STATUS && m.identity.0 == DOOR_TYPE && self.door_ids.insert(m.identity.1) {
             self.register_doors();
@@ -1264,6 +1325,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut friends_seen = u64::MAX;
         let mut cast_seen = 0u8;
         let mut move_seen = 0u8;
+        let mut take_seen = 0u8;
         let (mut position, mut heading) = (start, heading);
         let (mut moving, mut turning, mut strafing) = (0i8, 0i8, 0i8);
         const JUMP_SPEED: f32 = 7.0;
@@ -1764,6 +1826,15 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     pending_messages.push(format!("Using {}", state.names.get(&id).map_or("the target", |n| n.0.as_str())));
                 }
             }
+            // An item taken from the open container (or all of them).
+            if keys.take.0 != take_seen {
+                take_seen = keys.take.0;
+                let (_, handle, place) = keys.take;
+                let places: Vec<u32> = if place == u32::MAX { state.loot.iter().flat_map(|l| l.entries.iter().map(|e| e.slot)).collect() } else { vec![place] };
+                for place in places {
+                    let _ = connection.send(&n3::take_from_container(own, handle, place));
+                }
+            }
             // An item dragged to another place: ask the server, and show the change at once (the server's answer to a move is not
             // known, so a refused move is not taken back here).
             if keys.mv.0 != move_seen {
@@ -2051,6 +2122,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     },
                     chat_lines: chat_lines_now,
                     friends: friends_now,
+                    loot: std::mem::take(&mut state.loot_changed).then(|| {
+                        state.loot.as_ref().map(|l| crate::loot::LootView { title: crate::loot::title(l.identity.0).to_string(), handle: l.handle, items: crate::gear::from_entries(&gear_db, &gear_textures, &l.entries, state.stats.get(&0x36).copied().unwrap_or(1)) })
+                    }),
                     perk_list: std::mem::take(&mut state.perks_changed).then(|| crate::perks::describe(&gear_db, &gear_textures, &state.perks, state.stats.get(&0x36).copied().unwrap_or(1))),
                     programs: std::mem::take(&mut state.programs_changed).then(|| crate::nanoprograms::describe(&gear_db, &gear_textures, &state.program_ids, state.stats.get(&0x36).copied().unwrap_or(1))),
                     gear: pending_gear.take(),
@@ -2793,6 +2867,42 @@ pub(crate) fn capture_n3(log: &str, kind: u32) -> Result<Vec<String>, String> {
         }
     }
     Ok(out)
+}
+
+/// The `nth` non-empty `InventoryUpdate` of a capture: the container's identity type, its handle and its items (the loot preview).
+pub(crate) fn capture_loot(log: &str, nth: usize) -> Result<(u32, u32, Vec<inventory::Entry>), String> {
+    let text = std::fs::read_to_string(log).map_err(|e| e.to_string())?;
+    let mut readers: BTreeMap<String, Reader> = BTreeMap::new();
+    let mut seen = 0;
+    for line in text.lines() {
+        let f: Vec<&str> = line.split_whitespace().collect();
+        let (Some(tag), Some(connection)) = (f.get(1), f.last()) else { continue };
+        if *tag == "OPEN" {
+            readers.remove(*connection);
+        }
+        if *tag != "S>C" || f.len() < 5 {
+            continue;
+        }
+        let bytes: Vec<u8> = (0..f[3].len() / 2).filter_map(|i| u8::from_str_radix(&f[3][2 * i..2 * i + 2], 16).ok()).collect();
+        let reader = readers.entry(connection.to_string()).or_default();
+        if reader.push(&bytes).is_err() {
+            continue;
+        }
+        while let Ok(Some(m)) = reader.next() {
+            let Some(msg) = Message::parse(&m).filter(|x| m.kind == frame::N3 && x.kind == INVENTORY_UPDATE) else { continue };
+            let Ok(p) = mao_net::schema::Schema::global().parse_n3(msg.kind, &msg.data) else { continue };
+            let entries = inventory_from_schema_items(p.value.get("Items"));
+            let kind = p.value.get("InventoryIdentity").and_then(|v| v.get("Type")).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
+            if entries.is_empty() || kind == 0 {
+                continue;
+            }
+            if seen == nth {
+                return Ok((kind, p.value.get("Handle").and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32, entries));
+            }
+            seen += 1;
+        }
+    }
+    Err(format!("fewer than {} containers in the capture", nth + 1))
 }
 
 /// The last world-entry message of the character `instance` in a capture: its items.

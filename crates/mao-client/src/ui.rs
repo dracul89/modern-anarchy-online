@@ -45,6 +45,9 @@ pub struct Hud {
     pub programs: Vec<crate::nanoprograms::Program>,
     /// The character's perks.
     pub perk_list: Vec<crate::perks::PerkInfo>,
+    /// The open container (corpse, bag).
+    pub loot: Option<crate::loot::LootView>,
+    pub loot_preview: std::sync::Mutex<Option<crate::loot::LootWindow>>,
     pub perks_preview: std::sync::Mutex<Option<crate::perks::PerksWindow>>,
     pub programs_preview: std::sync::Mutex<Option<crate::nanoprograms::ProgramsWindow>>,
     pub friends_preview: std::sync::Mutex<Option<crate::friends::FriendsWindow>>,
@@ -112,6 +115,8 @@ pub struct Requests {
     pub shop: Option<crate::shop::ShopCommand>,
     /// Lines the chat window sends.
     pub chat: Vec<crate::chatwindow::Out>,
+    /// Something taken from the open container.
+    pub loot_take: Option<crate::loot::Take>,
     /// Items dragged onto a place of the inventory window: `(from, to)`.
     pub item_moves: Vec<(u32, u32)>,
     /// An action clicked in the Action window.
@@ -147,6 +152,7 @@ pub struct Ui {
     pub friends: crate::friends::FriendsWindow,
     pub programs: crate::nanoprograms::ProgramsWindow,
     pub perks: crate::perks::PerksWindow,
+    pub loot: crate::loot::LootWindow,
     pub chat: crate::chatwindow::ChatWindow,
     gear: crate::gear::GearWindow,
     /// The hotbars, and the clock their cooldowns run on.
@@ -204,7 +210,7 @@ impl Ui {
         theme(&ctx, &palette);
         let state = egui_winit::State::new(ctx.clone(), egui::ViewportId::ROOT, window, Some(window.scale_factor() as f32), window.theme(), None);
         let renderer = egui_wgpu::Renderer::new(&gpu.device, format, egui_wgpu::RendererOptions::default());
-        Ui { ctx, state, renderer, options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), shop: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), ncu: Default::default(), friends: Default::default(), programs: Default::default(), perks: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0 }
+        Ui { ctx, state, renderer, options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), shop: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), ncu: Default::default(), friends: Default::default(), programs: Default::default(), perks: Default::default(), loot: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0 }
     }
 
     /// Switches to the theme `name` (a `theme =` setting).
@@ -236,7 +242,7 @@ impl Ui {
         let (options_open, rebinding, fps, palette, themes) = (&mut self.options_open, &mut self.rebinding, self.fps, &self.palette, &self.themes);
         let (gear_open, gear, whompah_open) = (&mut self.gear_open, &mut self.gear, &mut self.whompah_open);
         let (mission, mail, shop, actions, automap, stats_window, skills_window, ncu_window, chat_window) = (&mut self.mission, &mut self.mail, &mut self.shop, &mut self.actions, &mut self.automap, &mut self.stats, &mut self.skills, &mut self.ncu, &mut self.chat);
-        let (friends_window, programs_window, perks_window) = (&mut self.friends, &mut self.programs, &mut self.perks);
+        let (friends_window, programs_window, perks_window, loot_window) = (&mut self.friends, &mut self.programs, &mut self.perks, &mut self.loot);
         let (hotbars, clock_now) = (&mut self.hotbars, self.clock.elapsed().as_secs_f64());
         let output = self.ctx.run_ui(raw, |ui| {
             let ctx = ui.ctx().clone();
@@ -250,6 +256,11 @@ impl Ui {
             }
             if let Some(out) = chat_window.show(&ctx, palette) {
                 requests.chat.push(out);
+            }
+            if let (true, Some(view)) = (loot_window.open, hud.loot.as_ref()) {
+                if let Some(take) = loot_window.show(&ctx, view, palette) {
+                    requests.loot_take = Some(take);
+                }
             }
             if perks_window.open {
                 perks_window.show(&ctx, &hud.perk_list, palette);
@@ -366,6 +377,7 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
     let mut preview_friends = hud.friends_preview.lock().ok().and_then(|mut m| m.take());
     let mut preview_programs = hud.programs_preview.lock().ok().and_then(|mut m| m.take());
     let mut preview_perks = hud.perks_preview.lock().ok().and_then(|mut m| m.take());
+    let mut preview_loot = hud.loot_preview.lock().ok().and_then(|mut m| m.take());
     let mut last = None;
     // Several frames: the first lays out and uploads the fonts, and the windows
     // fade in over the next ones; the last is what is drawn.
@@ -389,6 +401,9 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
             }
             if let Some(window) = preview_stats.as_mut() {
                 window.show(&ctx, &hud.character_name, &hud.stats, &hud.stat_parts, &palette);
+            }
+            if let (Some(window), Some(view)) = (preview_loot.as_mut(), hud.loot.as_ref()) {
+                window.show(&ctx, view, &palette);
             }
             if let Some(window) = preview_perks.as_mut() {
                 window.show(&ctx, &hud.perk_list, &palette);

@@ -149,6 +149,17 @@ pub fn move_item(character: u32, from: u32, to: u32) -> Frame {
     Message { kind: 0x5469373f, identity: (CHARACTER, character), data }.frame(character)
 }
 
+/// `ClientMoveItemToInventory` for an item in a container the character used (a corpse, a bag): the source is `(0x6b, handle << 16
+/// | place)`, the container's handle from its `InventoryUpdate` and the item's place in it, and the destination `0x6f` (any free
+/// place). Checked against the captured loot of a corpse (handle `0x70`, places 1, 0, 3, 2).
+pub fn take_from_container(character: u32, handle: u32, place: u32) -> Frame {
+    let mut data = vec![0u8];
+    for word in [0x6b, handle << 16 | (place & 0xffff), 0x6f] {
+        data.extend_from_slice(&word.to_be_bytes());
+    }
+    Message { kind: 0x5469373f, identity: (CHARACTER, character), data }.frame(character)
+}
+
 /// `52526858`: use something (a door, a terminal, an item; talk to an NPC): action 3 on the
 /// target's identity. `sequence` counts the character's uses from 1 (as the original's capture
 /// shows); the server echoes the message back with the first byte 0.
@@ -310,6 +321,9 @@ mod tests {
         assert_eq!(hex(trade(0x1323e, 5, [0xc75b, 0xc006021c, 0x6f, 2])), "0000000002050000c75bc006021c0000006f00000002");
         assert_eq!(hex(cast_nano(0x4c2de, Some(0x7af69bd7), 0xaad6)), "0000000013000000000000c3507af69bd70000cf1b0000aad60000");
         assert_eq!(hex(cast_nano(0x4bc80, None, 0x43576)), "00000000130000000000000000000000000000cf1b000435760000");
+        assert_eq!(hex(take_from_container(0x4bc80, 0x70, 1)), "000000006b007000010000006f");
+        assert_eq!(hex(take_from_container(0x4bc80, 0x70, 0)), "000000006b007000000000006f");
+        assert_eq!(hex(take_from_container(0x4bc7f, 0x7a, 1)), "000000006b007a00010000006f");
         assert_eq!(hex(move_item(0x4bc80, 0x53, 1)), "00000000680000005300000001");
         assert_eq!(hex(move_item(0x4c2de, 0x59, 0x14)), "00000000680000005900000014");
         assert_eq!(hex(trade(0x1323e, 1, [0; 4])), "00000000020100000000000000000000000000000000");
