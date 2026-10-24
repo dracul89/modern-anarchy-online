@@ -197,6 +197,25 @@ fn perk_ids(list: Option<&mao_net::schema::Value>) -> Vec<u32> {
         .collect()
 }
 
+/// The chat connection is opened once per run; the lines it receives wait here for the world loop, and what the chat window sends goes
+/// out through the sender set when it opens.
+static CHAT_STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static CHAT_LINES: std::sync::Mutex<Vec<crate::chatwindow::Line>> = std::sync::Mutex::new(Vec::new());
+static CHAT_OUT: std::sync::OnceLock<std::sync::Mutex<std::sync::mpsc::Sender<crate::chatwindow::Out>>> = std::sync::OnceLock::new();
+
+/// The kind of the chat channel that is the character's organization's (the public chat protocol's group type 3).
+const ORG_CHANNEL_KIND: u8 = 3;
+
+/// Sends what the chat window typed (a tell or a line for the organization channel).
+pub fn send_chat(out: crate::chatwindow::Out) {
+    match CHAT_OUT.get() {
+        Some(tx) => {
+            let _ = tx.lock().unwrap().send(out);
+        }
+        None => CHAT_LINES.lock().unwrap().push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, "The chat server is not connected.")),
+    }
+}
+
 impl World {
     /// Works out the bonuses to the stored stats again when the worn items, perks or active nanos changed.
     fn refresh_mods(&mut self, db: &ResourceDatabase) {
@@ -890,61 +909,103 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     let start = state.entities.get(&own).map(|e| e.0).unwrap_or([0.0; 3]);
     let heading = state.rotations.get(&own).map(|q| 2.0 * q[1].atan2(q[3])).unwrap_or(0.0);
     let (gear_db, gear_textures) = (db.clone(), crate::Textures::new(db.clone()));
-    // The chat server (once per run, kept across zonings): its channel lines and notices go to the log.
-    let chat_rx = {
-        static STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-        let (tx, rx) = std::sync::mpsc::channel::<String>();
-        if std::env::var_os("MAO_NO_CHAT").is_none() && !STARTED.swap(true, std::sync::atomic::Ordering::SeqCst) {
-            if let Ok((user, password)) = credentials() {
-                std::thread::spawn(move || {
-                    let server = std::env::var("MAO_CHAT_SERVER").unwrap_or_else(|_| mao_net::chat::SERVER.to_string());
-                    let result = (|| -> Result<(), mao_net::chat::Error> {
-                        let mut chat = mao_net::chat::Chat::connect(server.as_str())?;
-                        chat.login(own, &user, &password)?;
-                        // An idle chat connection is normal: a read timeout just waits on.
-                        chat.set_timeout(Duration::from_secs(60 * 60))?;
-                        let mut names: BTreeMap<u32, String> = BTreeMap::new();
-                        let mut channels: BTreeMap<u32, String> = BTreeMap::new();
-                        loop {
-                            use mao_net::chat::Packet;
-                            let line = match chat.receive()? {
-                                Packet::Name { id, name } => {
-                                    names.insert(id, name);
-                                    None
+    // The chat server (once per run, kept across zonings): its lines go to the chat window (and the on-screen log), and what the
+    // window sends goes out through `send_chat`.
+    if std::env::var_os("MAO_NO_CHAT").is_none() && !CHAT_STARTED.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        if let Ok((user, password)) = credentials() {
+            let (out_tx, out_rx) = std::sync::mpsc::channel::<crate::chatwindow::Out>();
+            let _ = CHAT_OUT.set(std::sync::Mutex::new(out_tx));
+            std::thread::spawn(move || {
+                let server = std::env::var("MAO_CHAT_SERVER").unwrap_or_else(|_| mao_net::chat::SERVER.to_string());
+                let result = (|| -> Result<(), mao_net::chat::Error> {
+                    use crate::chatwindow::{Kind, Line, Out};
+                    use mao_net::chat::Packet;
+                    let mut chat = mao_net::chat::Chat::connect(server.as_str())?;
+                    chat.login(own, &user, &password)?;
+                    // The read waits a moment, so what the window sends goes out promptly.
+                    chat.set_timeout(Duration::from_millis(200))?;
+                    let mut names: BTreeMap<u32, String> = BTreeMap::new();
+                    let mut ids: BTreeMap<String, u32> = BTreeMap::new();
+                    let mut channels: BTreeMap<u32, (u8, String)> = BTreeMap::new();
+                    // tells waiting for the id of the character they go to: (lower-case name, text)
+                    let mut waiting: Vec<(String, String)> = Vec::new();
+                    loop {
+                        let packet = match chat.receive() {
+                            Ok(p) => Some(p),
+                            Err(mao_net::chat::Error::Io(e)) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => None,
+                            Err(e) => return Err(e),
+                        };
+                        let line = match packet {
+                            Some(Packet::Name { id, name }) => {
+                                ids.insert(name.to_lowercase(), id);
+                                names.insert(id, name.clone());
+                                // the tells that were waiting for this name
+                                let mut sent = Vec::new();
+                                waiting.retain(|(who, text)| {
+                                    if *who == name.to_lowercase() {
+                                        sent.push(text.clone());
+                                        false
+                                    } else {
+                                        true
+                                    }
+                                });
+                                for text in sent {
+                                    chat.send(&mao_net::chat::tell_packet(id, &text))?;
                                 }
-                                Packet::Channel { id, name, .. } => {
-                                    channels.insert(id, name);
-                                    None
-                                }
-                                Packet::Notice { text } => Some(mao_net::chat::plain(&text)),
-                                Packet::ChannelLine { text, .. } => Some(mao_net::chat::plain(&text)),
-                                Packet::Message { channel, sender, text } => {
-                                    let who = names.get(&sender).cloned().unwrap_or_else(|| format!("{sender:x}"));
-                                    let place = channels.get(&channel.1).cloned().unwrap_or_default();
-                                    Some(format!("[{place}] {who}: {}", mao_net::chat::plain(&text)))
-                                }
-                                Packet::Other { kind, data } => {
-                                    eprintln!("chat packet {kind}: {}", data.iter().map(|b| format!("{b:02x}")).collect::<String>());
-                                    None
-                                }
-                                _ => None,
-                            };
-                            // A line with control characters is a packet of another layout read wrongly (seen once live): skip it.
-                            if let Some(line) = line.filter(|l| !l.chars().any(char::is_control)) {
-                                if tx.send(line).is_err() {
-                                    return Ok(());
+                                None
+                            }
+                            Some(Packet::Channel { kind, id, name }) => {
+                                channels.insert(id, (kind, name));
+                                None
+                            }
+                            Some(Packet::Notice { text }) => Some(Line::new(Kind::System, mao_net::chat::plain(&text))),
+                            Some(Packet::Tell { sender, text }) => {
+                                let text = mao_net::chat::plain(&text);
+                                match names.get(&sender) {
+                                    Some(who) => Some(Line { kind: Kind::Tell, text: format!("{who} tells you: {text}"), from: Some(who.clone()) }),
+                                    // the server's own notices (the players online) come the same way
+                                    None => Some(Line::new(Kind::System, text)),
                                 }
                             }
+                            Some(Packet::Message { channel, sender, text }) => {
+                                let who = names.get(&sender).cloned().unwrap_or_else(|| format!("{sender:x}"));
+                                let place = channels.get(&channel.1).map(|c| c.1.clone()).unwrap_or_default();
+                                Some(Line::new(Kind::Channel, format!("[{place}] {who}: {}", mao_net::chat::plain(&text))))
+                            }
+                            Some(Packet::Other { kind, data }) => {
+                                eprintln!("chat packet {kind}: {}", data.iter().map(|b| format!("{b:02x}")).collect::<String>());
+                                None
+                            }
+                            _ => None,
+                        };
+                        // A line with control characters is a packet of another layout read wrongly (seen once live): skip it.
+                        if let Some(line) = line.filter(|l| !l.text.chars().any(char::is_control)) {
+                            CHAT_LINES.lock().unwrap().push(line);
                         }
-                    })();
-                    if let Err(e) = result {
-                        eprintln!("chat: {e}");
+                        while let Ok(out) = out_rx.try_recv() {
+                            match out {
+                                Out::Tell { name, text } => match ids.get(&name.to_lowercase()) {
+                                    Some(&id) => chat.send(&mao_net::chat::tell_packet(id, &text))?,
+                                    None => {
+                                        waiting.push((name.to_lowercase(), text));
+                                        chat.send(&mao_net::chat::lookup_packet(&name))?;
+                                    }
+                                },
+                                Out::Org { text } => match channels.iter().find(|(_, (kind, _))| *kind == ORG_CHANNEL_KIND) {
+                                    Some((&id, _)) => chat.send(&mao_net::chat::channel_packet(ORG_CHANNEL_KIND, id, &text))?,
+                                    None => CHAT_LINES.lock().unwrap().push(Line::new(Kind::System, "You are not in an organization.")),
+                                },
+                            }
+                        }
                     }
-                });
-            }
+                })();
+                if let Err(e) = result {
+                    eprintln!("chat: {e}");
+                    CHAT_LINES.lock().unwrap().push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, format!("The chat connection ended: {e}")));
+                }
+            });
         }
-        rx
-    };
+    }
     std::thread::spawn(move || {
         use mao_net::n3::movement;
         const SPEED: f32 = 7.5; // units per second, from the capture
@@ -1710,6 +1771,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     eprintln!("worn: {:?}", state.worn.iter().map(|e| (e.slot, e.low_id, e.high_id, e.quality)).collect::<Vec<_>>());
                     eprintln!("stats: {} stored, {} modifiers; {}", state.stats.len(), state.item_mods.len(), pick(&[0x1b, 0x01, 0xd6, 0xdd, 0x36, 0x34, 0x39, 0x15e, 0x28, 0xb2, 0xa9, 0x5b]));
                 }
+                let chat_lines_now: Vec<crate::chatwindow::Line> = std::mem::take(&mut *CHAT_LINES.lock().unwrap());
                 let update = crate::viewer::Update {
                     messages_only: false,
                     scene: pending_scene.take(),
@@ -1747,11 +1809,12 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     location: pending_location.take(),
                     labels: pending_labels.take(),
                     messages: {
-                        while let Ok(line) = chat_rx.try_recv() {
-                            pending_messages.push(line);
+                        for line in &chat_lines_now {
+                            pending_messages.push(line.text.clone());
                         }
                         std::mem::take(&mut pending_messages)
                     },
+                    chat_lines: chat_lines_now,
                     gear: pending_gear.take(),
                     nanos: std::mem::take(&mut state.nano_list_changed).then(|| crate::ncu::describe(&gear_db, &gear_textures, &state.nano_times, state.stats.get(&0x36).copied().unwrap_or(1), state.nano_times_at.unwrap_or_else(Instant::now))),
                     missions: pending_missions.take(),
@@ -1973,6 +2036,38 @@ pub fn run(args: &[String]) -> Result<(), String> {
             while Instant::now() < end {
                 match chat.receive() {
                     Ok(p) => println!("{p:?}"),
+                    Err(mao_net::chat::Error::Io(e)) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => {}
+                    Err(e) => return Err(e.to_string()),
+                }
+            }
+            Ok(())
+        }
+        // `net <game dir> chat-tell <from> <to> <text>`: log in on the chat server as <from>, look <to> up and send it a tell, and print what comes
+        // back for a few seconds (a tell to oneself proves the packet layouts both ways).
+        [game, word, from, to, text] if word == "chat-tell" => {
+            let (conn, list) = login(game)?;
+            let character = list.iter().find(|c| c.name.eq_ignore_ascii_case(from)).ok_or_else(|| format!("no character {from:?} on the account"))?;
+            conn.close();
+            drop(conn);
+            let (user, password) = credentials()?;
+            let mut chat = mao_net::chat::Chat::connect(std::env::var("MAO_CHAT_SERVER").unwrap_or_else(|_| mao_net::chat::SERVER.to_string()).as_str()).map_err(|e| e.to_string())?;
+            chat.login(character.id, &user, &password).map_err(|e| e.to_string())?;
+            chat.set_timeout(Duration::from_millis(500)).map_err(|e| e.to_string())?;
+            chat.send(&mao_net::chat::lookup_packet(to)).map_err(|e| e.to_string())?;
+            let end = Instant::now() + Duration::from_secs(8);
+            let mut sent = false;
+            while Instant::now() < end {
+                match chat.receive() {
+                    Ok(p) => {
+                        println!("{p:?}");
+                        if let mao_net::chat::Packet::Name { id, name } = &p {
+                            if !sent && name.eq_ignore_ascii_case(to) {
+                                chat.send(&mao_net::chat::tell_packet(*id, text)).map_err(|e| e.to_string())?;
+                                println!("tell sent to {name} ({id})");
+                                sent = true;
+                            }
+                        }
+                    }
                     Err(mao_net::chat::Error::Io(e)) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => {}
                     Err(e) => return Err(e.to_string()),
                 }

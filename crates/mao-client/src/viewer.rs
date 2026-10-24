@@ -79,6 +79,8 @@ pub struct Update {
     pub target: Option<String>,
     /// The character's items, when they arrive.
     pub gear: Option<Vec<crate::gear::GearItem>>,
+    /// New lines for the chat window.
+    pub chat_lines: Vec<crate::chatwindow::Line>,
     /// The running nano programs, when the list changes (the NCU window).
     pub nanos: Option<Vec<crate::ncu::NanoInfo>>,
     /// The way the character faces (radians about the vertical, 0 along +Z of the server's world).
@@ -457,6 +459,11 @@ impl ApplicationHandler for App {
                                 press_slot(ui, n as usize, &mut self.keys, &mut self.hud);
                             }
                         }
+                        Action::ChatInput | Action::ChatCommand if !event.repeat => {
+                            if let Some(ui) = w.ui.as_mut() {
+                                ui.chat.focus();
+                            }
+                        }
                         Action::NcuWindow if !event.repeat => {
                             if let Some(ui) = w.ui.as_mut() {
                                 ui.ncu.open = !ui.ncu.open;
@@ -672,6 +679,11 @@ impl ApplicationHandler for App {
                         if let (Some(patch), Some(ui)) = (u.map.take(), w.ui.as_mut()) {
                             ui.automap.apply(patch);
                         }
+                        if let Some(ui) = w.ui.as_mut() {
+                            for line in std::mem::take(&mut u.chat_lines) {
+                                ui.chat.push(line);
+                            }
+                        }
                         if let Some(items) = u.gear.take() {
                             self.hud.gear = items;
                         }
@@ -760,6 +772,9 @@ impl ApplicationHandler for App {
                     let project = |p: mao_render::glam::Vec3| camera.project(p, aspect, radius);
                     self.hud.camera_yaw = w.camera.yaw;
                     let (frame, mut requests) = ui.run(&w.window, &mut self.settings, &self.hud, &project);
+                    for out in requests.chat.drain(..) {
+                        crate::net::send_chat(out);
+                    }
                     if let Some(command) = requests.shop.take() {
                         if let Some(live) = &self.live {
                             let _ = live.shop.send(command);

@@ -194,12 +194,17 @@ the server answers action 4 (complete), a credits update and the item changes, a
 next trade (so does this one). Prices are not in the messages, so none are shown. The Sell list shows the backpack (slots
 from 64). Not yet checked live. Preview: `MAO_UI_PREVIEW=shop MAO_CAPTURE=<log>`.
 
-## 4k. Chat server
+## 4k. Chat server and the chat window
 
-A second connection to `chat.d1.funcom.com:7105` (`mao_net::chat`, decoded from the captures, login tested live): salt,
-login with the same challenge response, then names, channel lists, notices and channel messages. Channel messages and
-notices go to the on-screen log. Vicinity, tell and sending are not decoded yet (no capture with a spoken line);
-`MAO_NO_CHAT=1` disables it, `net <game> chat [seconds]` prints what arrives.
+A second connection to `chat.d1.funcom.com:7105` (`mao_net::chat`, decoded from the captures, login tested live): salt, login with the same challenge response, then names, channel lists, notices, tells and channel messages. Packet 30 is a **tell** (`u32 sender, str16 text, str16 blob`; the server's own "Players Online" notice arrives the same way, with a sender that has no name), 20 and 21 are names (21 is the answer to a lookup), 60 a channel, 65 a channel message. The client packets are the public AO chat protocol's, which agree with every number seen: 21 looks a name up, 30 sends a tell, 65 sends to a channel. **A tell to oneself came back as the same text from one's own id** (`net <game> chat-tell <from> <to> <text>`), which proves the lookup, the send and the receive layouts live. `MAO_NO_CHAT=1` disables the connection, `net <game> chat [seconds]` prints what arrives.
+
+**The chat window** (`chatwindow.rs`, open at the start; `Enter` or `/` starts typing in it): tabs All, Tells, Channels and System; lines coloured by kind (system yellow, tells blue, channels pale, what you said green); an input line. Typing a `/` opens the original's list of commands above the input, filtered as you type (the 88 commands of the original's own list, in its order, `chat_commands::COMMANDS`; Up and Down pick, Tab or Enter takes the highlighted one). A line is sent with Enter:
+* `/tell <name> <text>` (`/t`): looks the name up, then sends the tell; it is echoed as "To name: text". `/reply <text>` (`/r`) answers the last character that told you something.
+* `/org <text>` (`/o`): the organization channel (the channel of kind 3 the server announces; "You are not in an organization." without one; not tested live, none of the account's characters is in an organization).
+* `/help` lists what this client carries out; `/version`.
+* Every other command of the list says it is not carried out yet; a word that is not in the list says it is unknown; plain text and `/say`, `/shout`, `/whisper`, `/me` are vicinity chat, which goes through the game connection and is not decoded, so they say so.
+
+The lines also appear in the on-screen log as before, and now survive a zoning (the connection belongs to the run, not to one playfield). Preview: `MAO_UI_PREVIEW=chat` (`MAO_CHAT_INPUT=/te` types into the input and shows the list; set `MSYS_NO_PATHCONV=1` in Git Bash).
 
 ## 4l. Action window (`K`) and the map (`O`)
 

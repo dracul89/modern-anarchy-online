@@ -14,6 +14,8 @@
 //! orbit, scroll to zoom, WASD to move the view point, Q/E down and up.
 
 mod actions;
+mod chat_commands;
+mod chatwindow;
 mod ncu;
 mod skills;
 mod stats;
@@ -497,6 +499,20 @@ fn run(args: &[String]) -> Result<(), String> {
                         let mut window = ncu::NcuWindow::default();
                         window.open = true;
                         *hud.ncu_preview.lock().unwrap() = Some(window);
+                    }
+                    // MAO_UI_PREVIEW=chat (MAO_CHAT_INPUT=/te): the chat window with sample lines and, with an input, the command list.
+                    if preview.as_deref() == Some("chat") {
+                        use chatwindow::{Kind, Line};
+                        let mut window = chatwindow::ChatWindow::default();
+                        window.push(Line::new(Kind::System, "Welcome to AnarchyOnline"));
+                        window.push(Line::new(Kind::Channel, "[Clan OOC] Mothra: anyone want to team?"));
+                        window.push(Line { kind: Kind::Tell, text: "Scurlock tells you: hey, got a minute?".into(), from: Some("Scurlock".into()) });
+                        let _ = window.run("/tell Scurlock sure, what's up");
+                        window.push(Line::new(Kind::Channel, "[Tour Announcements] The shuttle to Newland leaves in five minutes"));
+                        if let Ok(text) = std::env::var("MAO_CHAT_INPUT") {
+                            window.type_text(&text);
+                        }
+                        *hud.chat_preview.lock().unwrap() = Some(window);
                     }
                     if preview.as_deref() == Some("map") {
                         // MAO_UI_PREVIEW=map: walk a path through the playfield, revealing the map as the game would.
