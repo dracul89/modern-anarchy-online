@@ -307,3 +307,7 @@ A perk action of the Action window or a hotbar slot now sends `CharacterAction` 
 ## Chat log
 
 Every line the chat window receives or the player types (tells, channels, game text, combat) is also appended to `chat/<date>.txt` beside `mao.ini` (one file a day, UTC): `[09:15:02] tell: Mothra tells you: hi`, with the line's kind (`system`, `tell`, `channel`, `you`, `combat`). `MAO_NO_CHATLOG=1` turns it off. It is only written by the live client, not by the offline previews.
+
+## Screenshots (`F12`)
+
+`F12` (the `screenshot` binding) saves a picture of the world as drawn, with the heads-up display (target, labels, messages, hotbars) but without the open windows, to `screenshots/<date>-<time>.png` beside `mao.ini` (UTC) and says where in the message log. It draws the scene again off-screen at the window's size with the live camera (`Renderer::render_to_image_with`, the path the headless previews use) and paints the HUD over it with `paint_headless`. **Not run in a live window** (only built; the pieces are the ones the headless images already exercise).

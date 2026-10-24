@@ -230,6 +230,8 @@ struct App {
     preferred: Option<Camera>,
     hud: Hud,
     /// How far the mouse moved since the left button went down (a click is a press that barely moved), and the last click.
+    /// A screenshot was asked for: the next frame saves it.
+    screenshot: bool,
     moved: f32,
     last_click: Option<(u32, std::time::Instant)>,
 }
@@ -263,7 +265,7 @@ fn apply_mode(window: &Window, mode: WindowMode) {
 pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<(), String> {
     let event_loop = EventLoop::new().map_err(|e| e.to_string())?;
     let settings = Settings::load();
-    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None };
+    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false };
     event_loop.run_app(&mut app).map_err(|e| e.to_string())
 }
 
@@ -514,6 +516,9 @@ impl ApplicationHandler for App {
                             if let Some(ui) = w.ui.as_mut() {
                                 ui.chat.focus();
                             }
+                        }
+                        Action::Screenshot if !event.repeat => {
+                            self.screenshot = true;
                         }
                         Action::PerkWindow if !event.repeat => {
                             if let Some(ui) = w.ui.as_mut() {
@@ -847,6 +852,22 @@ impl ApplicationHandler for App {
                         }
                         camera.distance *= 0.88;
                     }
+                }
+                if std::mem::take(&mut self.screenshot) {
+                    let (width, height) = size;
+                    let (aspect, radius, shot_camera) = (width as f32 / height.max(1) as f32, w.scene.radius, camera);
+                    let format = w.config.format;
+                    let pixels = w.renderer.render_to_image_with(&w.gpu, &w.scene, &camera, width, height, &mut |image| {
+                        let project = |p: mao_render::glam::Vec3| shot_camera.project(p, aspect, radius);
+                        let mut settings = Settings::load();
+                        crate::ui::paint_headless(&w.gpu, image, format, (width, height), &mut settings, &self.hud, &project, false);
+                    });
+                    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+                    let (day, time) = crate::chatlog::stamp(now);
+                    let dir = Settings::path().with_file_name("screenshots");
+                    let path = dir.join(format!("{}-{}.png", day.trim_end_matches(".txt"), time.replace(':', "")));
+                    let saved = std::fs::create_dir_all(&dir).is_ok() && image::save_buffer(&path, &pixels, width, height, image::ColorType::Rgba8).is_ok();
+                    self.hud.say(if saved { format!("Screenshot saved: {}", path.display()) } else { "The screenshot could not be saved".to_string() });
                 }
                 w.renderer.draw(&w.gpu, &w.scene, &camera, &view, size);
                 let stats = w.renderer.stats;
