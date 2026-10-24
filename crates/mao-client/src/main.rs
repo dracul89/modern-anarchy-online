@@ -598,6 +598,20 @@ fn run(args: &[String]) -> Result<(), String> {
                             hud.gear = net::capture_entries(&log.to_string_lossy()).map(|e| gear::from_entries(&db, &textures, &e)).unwrap_or_default();
                             hud.gear_open = true;
                         }
+                        // MAO_ENTRIES=<file of `slot low high quality` lines> (what MAO_STATS prints as `worn`): a live character's items.
+                        if let Some(file) = std::env::var_os("MAO_ENTRIES") {
+                            let entries: Vec<mao_net::inventory::Entry> = std::fs::read_to_string(file)
+                                .unwrap_or_default()
+                                .lines()
+                                .filter_map(|l| {
+                                    let v: Vec<u32> = l.split_whitespace().filter_map(|x| x.parse().ok()).collect();
+                                    let [slot, low_id, high_id, quality] = v[..] else { return None };
+                                    Some(mao_net::inventory::Entry { slot, flags: 1, count: 1, container: (0, 0), low_id, high_id, quality, extra: 0 })
+                                })
+                                .collect();
+                            hud.gear = gear::from_entries(&db, &textures, &entries);
+                            hud.gear_open = true;
+                        }
                     }
                     hud.say("Welcome to Old Athens");
                     hud.say("Whom-Pah: this booth leads to Tir (remembered)");
