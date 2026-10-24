@@ -250,7 +250,7 @@ impl ChatWindow {
                     }
                 });
                 self.scroll_to_end = false;
-                let input_id = egui::Id::new("chat-input");
+                let input_id = egui::Id::unique("chat-input");
                 if self.focus_next {
                     ctx.memory_mut(|m| m.request_focus(input_id));
                     self.focus_next = false;
@@ -300,7 +300,7 @@ impl ChatWindow {
                     let fits = (((response.rect.top() - 14.0) / 15.0).max(3.0)) as usize;
                     let rows = suggestions.len().min(fits);
                     let first = if self.selected >= rows { self.selected + 1 - rows } else { 0 };
-                    egui::Area::new(egui::Id::new("chat-commands")).order(egui::Order::Foreground).fixed_pos(egui::pos2(response.rect.left(), response.rect.top() - 4.0 - rows as f32 * 15.0)).show(ctx, |ui| {
+                    egui::Area::new(egui::Id::unique("chat-commands")).order(egui::Order::Foreground).fixed_pos(egui::pos2(response.rect.left(), response.rect.top() - 4.0 - rows as f32 * 15.0)).show(ctx, |ui| {
                         egui::Frame::new().fill(egui::Color32::from_rgb(8, 40, 50)).stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(20, 90, 100))).inner_margin(4.0).show(ui, |ui| {
                             ui.spacing_mut().item_spacing.y = 0.0;
                             for (n, command) in suggestions.iter().enumerate().skip(first).take(rows) {

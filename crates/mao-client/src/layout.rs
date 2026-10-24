@@ -62,7 +62,7 @@ pub fn remember(ctx: &egui::Context) {
     }
     let mut layout = LAYOUT.lock().unwrap();
     for &name in NAMES {
-        if let Some(rect) = ctx.memory(|m| m.area_rect(egui::Id::new(name))) {
+        if let Some(rect) = ctx.memory(|m| m.area_rect(egui::Id::unique(name))) {
             let now = [rect.min.x, rect.min.y];
             if layout.spots.get(name).is_none_or(|old| (old[0] - now[0]).abs() > 1.0 || (old[1] - now[1]).abs() > 1.0) {
                 layout.spots.insert(name.to_string(), now);

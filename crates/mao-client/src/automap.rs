@@ -315,7 +315,7 @@ impl AutoMap {
         let screen = ctx.content_rect();
         if self.overlay {
             // Over the whole view, north up, panned by the mouse and zoomed with the wheel.
-            egui::Area::new(egui::Id::new("automap-overlay")).order(egui::Order::Background).fixed_pos(screen.min).show(ctx, |ui| {
+            egui::Area::new(egui::Id::unique("automap-overlay")).order(egui::Order::Background).fixed_pos(screen.min).show(ctx, |ui| {
                 let (rect, response) = ui.allocate_exact_size(screen.size(), egui::Sense::drag());
                 if response.dragged() {
                     let d = response.drag_delta();
@@ -340,7 +340,7 @@ impl AutoMap {
             let size = 220.0;
             let at = self.mini_at.map_or(egui::pos2(screen.right() - size - 12.0, 44.0), |p| egui::pos2(p[0], p[1]));
             let at = egui::pos2(at.x.clamp(screen.left(), (screen.right() - size).max(screen.left())), at.y.clamp(screen.top(), (screen.bottom() - size).max(screen.top())));
-            let area = egui::Area::new(egui::Id::new("automap-mini")).order(egui::Order::Background).current_pos(at).movable(true).show(ctx, |ui| {
+            let area = egui::Area::new(egui::Id::unique("automap-mini")).order(egui::Order::Background).current_pos(at).movable(true).show(ctx, |ui| {
                 let (rect, response) = ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::hover());
                 let (c, r) = (rect.center(), size / 2.0);
                 ui.painter().circle_filled(c, r, egui::Color32::from_black_alpha(130));

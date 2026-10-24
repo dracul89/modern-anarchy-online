@@ -42,7 +42,7 @@ impl LootWindow {
         let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
         let mut take = None;
         let mut open = self.open;
-        let shown = egui::Window::new(egui::RichText::new(&view.title).color(accent)).id(egui::Id::new("loot")).open(&mut open).collapsible(false).default_pos(crate::layout::pos("loot", egui::pos2(380.0, 140.0))).default_width(280.0).show(ctx, |ui| {
+        let shown = egui::Window::new(egui::RichText::new(&view.title).color(accent)).id(egui::Id::unique("loot")).open(&mut open).collapsible(false).default_pos(crate::layout::pos("loot", egui::pos2(380.0, 140.0))).default_width(280.0).show(ctx, |ui| {
             if view.items.is_empty() {
                 ui.label("Nothing left.");
                 return;

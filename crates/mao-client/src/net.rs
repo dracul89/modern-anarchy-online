@@ -2607,7 +2607,7 @@ fn fight(game: &str, who: &str, seconds: u64, waypoints: Vec<(f32, f32)>) -> Res
     let Some(&(_, target, ref name)) = mobs.first() else { return Err("no creature in view".into()) };
     eprintln!("going for {name} ({target})");
     let mut since = clock;
-    let mut send = |connection: &mut Connection, kind: u8, heading: f32, position: [f32; 3], since: &mut Instant| -> Result<(), String> {
+    let send = |connection: &mut Connection, kind: u8, heading: f32, position: [f32; 3], since: &mut Instant| -> Result<(), String> {
         let ms = since.elapsed().as_millis().min(u32::MAX as u128) as u32;
         *since = Instant::now();
         connection.send(&n3::position_update(own, kind, heading, position, ms)).map_err(|e| e.to_string())
@@ -2695,7 +2695,7 @@ fn walk(game: &str, who: &str, target_x: f32, target_z: f32, seconds: u64) -> Re
     let ground = |p: [f32; 3]| terrain.as_ref().map_or(0.0, |t| t.height_at(p[0], p[2], t.height_scale));
     let offset = position[1] - ground(position);
     let mut since = clock;
-    let mut send = |connection: &mut Connection, kind: u8, position: [f32; 3], since: &mut Instant| -> Result<(), String> {
+    let send = |connection: &mut Connection, kind: u8, position: [f32; 3], since: &mut Instant| -> Result<(), String> {
         let ms = since.elapsed().as_millis().min(u32::MAX as u128) as u32;
         *since = Instant::now();
         let frame = n3::position_update(own, kind, heading, position, ms);

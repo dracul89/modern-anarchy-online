@@ -524,7 +524,7 @@ fn hotbar_layer(ctx: &egui::Context, bars: &mut Hotbars, gear: &mut GearWindow, 
     let pos = egui::pos2(pos.x.clamp(screen.left() + 20.0, screen.right() - 20.0), pos.y.clamp(screen.top() + 60.0, screen.bottom()));
     let vertical = bars.vertical;
     let mut rotate = false;
-    let area = egui::Area::new(egui::Id::new("hotbar")).pivot(egui::Align2::CENTER_BOTTOM).current_pos(pos).movable(true).show(ctx, |ui| {
+    let area = egui::Area::new(egui::Id::unique("hotbar")).pivot(egui::Align2::CENTER_BOTTOM).current_pos(pos).movable(true).show(ctx, |ui| {
         egui::Frame::new().fill(egui::Color32::from_black_alpha(130)).corner_radius(4).inner_margin(6).show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new("::").weak()).on_hover_text("Drag the bar by here or its edge");
@@ -660,7 +660,7 @@ fn hotbar_layer(ctx: &egui::Context, bars: &mut Hotbars, gear: &mut GearWindow, 
     // While an item is being dragged, say what to do with it.
     if egui::DragAndDrop::has_payload_of_type::<hotbar::Action>(ctx) {
         if let Some(pos) = ctx.pointer_interact_pos() {
-            ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("drag-hint"))).text(pos + egui::vec2(14.0, 14.0), egui::Align2::LEFT_TOP, "Drop on a hotbar slot", egui::FontId::proportional(12.0), egui::Color32::WHITE);
+            ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::unique("drag-hint"))).text(pos + egui::vec2(14.0, 14.0), egui::Align2::LEFT_TOP, "Drop on a hotbar slot", egui::FontId::proportional(12.0), egui::Color32::WHITE);
         }
     }
 }
@@ -668,7 +668,7 @@ fn hotbar_layer(ctx: &egui::Context, bars: &mut Hotbars, gear: &mut GearWindow, 
 fn hud_layer(ctx: &egui::Context, hud: &Hud, project: &dyn Fn(Vec3) -> Option<[f32; 2]>, fps: f32, mode: WindowMode, palette: &Palette) {
     let accent = rgb(palette.accent);
     let screen = ctx.content_rect();
-    let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Background, egui::Id::new("labels")));
+    let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Background, egui::Id::unique("labels")));
     for label in &hud.labels {
         let Some([x, y]) = project(label.world) else { continue };
         let at = egui::pos2(screen.left() + x * screen.width(), screen.top() + y * screen.height());
@@ -679,7 +679,7 @@ fn hud_layer(ctx: &egui::Context, hud: &Hud, project: &dyn Fn(Vec3) -> Option<[f
         painter.galley(rect.min, galley, egui::Color32::WHITE);
     }
     let frame = || egui::Frame::new().fill(egui::Color32::from_black_alpha(130)).corner_radius(4).inner_margin(6);
-    egui::Area::new(egui::Id::new("info")).anchor(egui::Align2::LEFT_TOP, egui::vec2(8.0, 8.0)).interactable(false).show(ctx, |ui| {
+    egui::Area::new(egui::Id::unique("info")).anchor(egui::Align2::LEFT_TOP, egui::vec2(8.0, 8.0)).interactable(false).show(ctx, |ui| {
         frame().show(ui, |ui| {
             if !hud.location.is_empty() {
                 ui.label(egui::RichText::new(&hud.location).color(accent).strong());
@@ -689,7 +689,7 @@ fn hud_layer(ctx: &egui::Context, hud: &Hud, project: &dyn Fn(Vec3) -> Option<[f
             }
         });
     });
-    egui::Area::new(egui::Id::new("fps")).anchor(egui::Align2::RIGHT_TOP, egui::vec2(-8.0, 8.0)).interactable(false).show(ctx, |ui| {
+    egui::Area::new(egui::Id::unique("fps")).anchor(egui::Align2::RIGHT_TOP, egui::vec2(-8.0, 8.0)).interactable(false).show(ctx, |ui| {
         frame().show(ui, |ui| {
             ui.label(format!("{fps:.0} fps  {}  (Esc: options)", mode.name()));
             if !hud.draw_info.is_empty() {
@@ -698,7 +698,7 @@ fn hud_layer(ctx: &egui::Context, hud: &Hud, project: &dyn Fn(Vec3) -> Option<[f
         });
     });
     if let Some(target) = &hud.target {
-        egui::Area::new(egui::Id::new("target")).anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 8.0)).interactable(false).show(ctx, |ui| {
+        egui::Area::new(egui::Id::unique("target")).anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 8.0)).interactable(false).show(ctx, |ui| {
             frame().show(ui, |ui| {
                 ui.label(egui::RichText::new("Target").small().color(accent));
                 ui.label(egui::RichText::new(target).strong());
@@ -707,7 +707,7 @@ fn hud_layer(ctx: &egui::Context, hud: &Hud, project: &dyn Fn(Vec3) -> Option<[f
     }
     let recent: Vec<&String> = hud.log.iter().filter(|(t, _)| t.elapsed() < Duration::from_secs(14)).map(|(_, m)| m).collect();
     if !recent.is_empty() {
-        egui::Area::new(egui::Id::new("log")).anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(8.0, -72.0)).interactable(false).show(ctx, |ui| {
+        egui::Area::new(egui::Id::unique("log")).anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(8.0, -72.0)).interactable(false).show(ctx, |ui| {
             frame().show(ui, |ui| {
                 for line in recent {
                     ui.label(line);
