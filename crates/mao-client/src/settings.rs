@@ -443,6 +443,45 @@ impl Default for Settings {
 }
 
 impl Settings {
+    /// `/setoption name value`: sets one of the client's settings and says what happened; without a name, lists them.
+    pub fn set_option(&mut self, name: &str, value: &str) -> String {
+        let on = |v: &str| matches!(v.to_lowercase().as_str(), "on" | "true" | "1" | "yes");
+        let number = |v: &str, lo: f32, hi: f32| v.parse::<f32>().ok().map(|n| n.clamp(lo, hi));
+        if name.is_empty() {
+            return format!(
+                "vsync {}, render_scale {}, sharpness {}, ui_scale {}, view_distance {}, char_distance {}, auto_loot {}",
+                if self.vsync { "on" } else { "off" },
+                self.render_scale,
+                self.sharpness,
+                self.ui_scale,
+                self.view_distance,
+                self.char_distance,
+                if self.auto_loot { "on" } else { "off" }
+            );
+        }
+        let done = match name.to_lowercase().as_str() {
+            "vsync" if !value.is_empty() => {
+                self.vsync = on(value);
+                true
+            }
+            "auto_loot" | "autoloot" if !value.is_empty() => {
+                self.auto_loot = on(value);
+                true
+            }
+            "render_scale" => number(value, 0.4, 1.0).map(|n| self.render_scale = n).is_some(),
+            "sharpness" => number(value, 0.0, 2.0).map(|n| self.sharpness = n).is_some(),
+            "ui_scale" => number(value, 0.6, 2.0).map(|n| self.ui_scale = n).is_some(),
+            "view_distance" | "viewdist" => number(value, 200.0, 4000.0).map(|n| self.view_distance = n).is_some(),
+            "char_distance" | "chardist" => number(value, 0.0, 4000.0).map(|n| self.char_distance = n).is_some(),
+            _ => return format!("No setting called {name:?} (vsync, render_scale, sharpness, ui_scale, view_distance, char_distance, auto_loot)."),
+        };
+        if done {
+            format!("{name} is now {value}.")
+        } else {
+            format!("{name} needs a value (a number, or on/off).")
+        }
+    }
+
     /// The settings text: the window options, then every action's keys.
     pub fn to_text(&self) -> String {
         let mut out = String::from("; Modern Anarchy Online settings\n[window]\n; windowed | borderless | fullscreen (F11 / Alt+Enter change it while playing)\n");
@@ -565,6 +604,20 @@ impl Settings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn options_are_set_by_name() {
+        let mut s = Settings::default();
+        assert_eq!(s.set_option("vsync", "on"), "vsync is now on.");
+        assert!(s.vsync);
+        assert_eq!(s.set_option("render_scale", "0.8"), "render_scale is now 0.8.");
+        assert_eq!(s.render_scale, 0.8);
+        assert_eq!(s.set_option("ui_scale", "9"), "ui_scale is now 9.");
+        assert_eq!(s.ui_scale, 2.0);
+        assert!(s.set_option("render_scale", "x").contains("needs a value"));
+        assert!(s.set_option("colour", "red").contains("No setting"));
+        assert!(s.set_option("", "").contains("render_scale 0.8"));
+    }
 
     #[test]
     fn bindings_round_trip() {

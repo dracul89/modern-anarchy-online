@@ -21,6 +21,11 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
     ("camp", "sit down to log out (stand up or move to cancel)"),
     ("follow", "walk after the target (again, or any movement key: stop)"),
     ("inspect", "level, profession and health of the target"),
+    ("open <window>", "show a window (inventory, stats, skills, ncu, friends, programs, perks, help, map, ...); /items is /open inventory"),
+    ("close [window]", "hide a window, or all of them"),
+    ("waypoint <x> <z>", "walk to a place (any movement key stops)"),
+    ("selectself", "target your own character"),
+    ("setoption [name value]", "a setting of the client; alone, the list"),
     ("chardist [n]", "how far characters are drawn (0 for all)"),
     ("viewdist [n]", "how far the world is seen (200 to 4000)"),
     ("quit", "leave the client"),
@@ -29,7 +34,7 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
 ];
 
 /// What a typed line asks for.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Parsed {
     /// Nothing typed.
     Empty,
@@ -49,6 +54,14 @@ pub enum Parsed {
     Follow,
     /// `/inspect`: say what is known of the current target (level, profession, health).
     Inspect,
+    /// `/open <window>` and `/close [window]`: show or hide a window (`close` alone hides them all).
+    Window { name: String, open: bool },
+    /// `/waypoint <x> <z>`: walk to a place.
+    Waypoint { x: f32, z: f32 },
+    /// `/selectself`: target the character itself.
+    SelectSelf,
+    /// `/setoption [name value]`: a setting of the client (alone: the list).
+    SetOption { name: String, value: String },
     /// `/camp`: sit down to log out.
     Camp,
     /// `/quit`: leave the client.
@@ -119,6 +132,20 @@ pub fn parse(line: &str) -> Parsed {
         "camp" => Parsed::Camp,
         "follow" => Parsed::Follow,
         "inspect" => Parsed::Inspect,
+        "open" | "items" => Parsed::Window { name: if command.eq_ignore_ascii_case("items") { "inventory".to_string() } else { text.to_string() }, open: true },
+        "close" => Parsed::Window { name: text.to_string(), open: false },
+        "selectself" => Parsed::SelectSelf,
+        "setoption" | "option" => {
+            let mut words = text.split_whitespace();
+            Parsed::SetOption { name: words.next().unwrap_or("").to_string(), value: words.next().unwrap_or("").to_string() }
+        }
+        "waypoint" => {
+            let n: Vec<f32> = text.split(|c: char| c.is_whitespace() || c == ',').filter_map(|t| t.parse().ok()).collect();
+            match n[..] {
+                [x, z] => Parsed::Waypoint { x, z },
+                _ => Parsed::Usage("/waypoint <x> <z>"),
+            }
+        }
         "chardist" => Parsed::CharDist { distance: text.split_whitespace().next().and_then(|t| t.parse().ok()) },
         "viewdist" => Parsed::ViewDist { distance: text.split_whitespace().next().and_then(|t| t.parse().ok()) },
         "quit" => Parsed::Quit,
@@ -180,6 +207,13 @@ mod tests {
         assert_eq!(parse("/camp"), Parsed::Camp);
         assert_eq!(parse("/follow"), Parsed::Follow);
         assert_eq!(parse("/inspect"), Parsed::Inspect);
+        assert_eq!(parse("/open skills"), Parsed::Window { name: "skills".into(), open: true });
+        assert_eq!(parse("/items"), Parsed::Window { name: "inventory".into(), open: true });
+        assert_eq!(parse("/close"), Parsed::Window { name: String::new(), open: false });
+        assert_eq!(parse("/waypoint 450.5, 310"), Parsed::Waypoint { x: 450.5, z: 310.0 });
+        assert_eq!(parse("/waypoint 450"), Parsed::Usage("/waypoint <x> <z>"));
+        assert_eq!(parse("/selectself"), Parsed::SelectSelf);
+        assert_eq!(parse("/setoption vsync on"), Parsed::SetOption { name: "vsync".into(), value: "on".into() });
         assert_eq!(parse("/viewdist 600"), Parsed::ViewDist { distance: Some(600) });
         assert_eq!(parse("/viewdist"), Parsed::ViewDist { distance: None });
         assert_eq!(parse("/QUIT"), Parsed::Quit);

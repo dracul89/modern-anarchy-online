@@ -32,7 +32,7 @@ impl Line {
 }
 
 /// Something to send on the chat connection.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Out {
     Tell { name: String, text: String },
     Org { text: String },
@@ -44,6 +44,12 @@ pub enum Out {
     Follow,
     Inspect,
     Quit,
+    /// Show or hide a window by name (empty and hidden: all of them).
+    Window { name: String, open: bool },
+    Waypoint { x: f32, z: f32 },
+    SelectSelf,
+    /// Set a client setting (empty name: say the list).
+    SetOption { name: String, value: String },
     /// The view distance to set (a command line's `/viewdist n`).
     ViewDist(u32),
     /// The character draw distance to set (0: all).
@@ -194,6 +200,13 @@ impl ChatWindow {
             }
             Parsed::Quit => Some(Out::Quit),
             Parsed::Follow => Some(Out::Follow),
+            Parsed::Window { name, open } => Some(Out::Window { name, open }),
+            Parsed::Waypoint { x, z } => {
+                self.push(Line::new(Kind::System, format!("Walking to {x:.0}, {z:.0} (any movement key stops).")));
+                Some(Out::Waypoint { x, z })
+            }
+            Parsed::SelectSelf => Some(Out::SelectSelf),
+            Parsed::SetOption { name, value } => Some(Out::SetOption { name, value }),
             Parsed::Inspect => Some(Out::Inspect),
             Parsed::ViewDist { distance: Some(d) } => {
                 self.push(Line::new(Kind::System, format!("View distance {}.", d.clamp(200, 4000))));

@@ -58,6 +58,8 @@ pub struct Input {
     pub follow: u8,
     /// Say what is known of the target (a counter that steps with each `/inspect`).
     pub inspect: u8,
+    /// Target the character itself (a counter that steps with each `/selectself`).
+    pub select_self: u8,
     /// A running nano to cancel: a counter that steps with each and the nano's id.
     pub cancel: (u8, u32),
     /// How far characters are drawn (0: all), from the settings.
@@ -941,6 +943,22 @@ impl ApplicationHandler for App {
                             // (these two are for the client itself)
                             crate::chatwindow::Out::Camp => self.keys.commands[5] = self.keys.commands[5].wrapping_add(1),
                             crate::chatwindow::Out::Quit => event_loop.exit(),
+                            crate::chatwindow::Out::Window { name, open } => match ui.set_window(&name, open) {
+                                true => {}
+                                false => self.hud.say(format!("No window called {name:?} (inventory, stats, skills, ncu, friends, programs, perks, help, map, actions, missions, mail, chat)")),
+                            },
+                            crate::chatwindow::Out::Waypoint { x, z } => {
+                                self.keys.goto = (self.keys.goto.0.wrapping_add(1), [x, z]);
+                                if let Some(live) = &self.live {
+                                    let _ = live.input.send(self.keys);
+                                }
+                            }
+                            crate::chatwindow::Out::SelectSelf => self.keys.select_self = self.keys.select_self.wrapping_add(1),
+                            crate::chatwindow::Out::SetOption { name, value } => {
+                                let line = self.settings.set_option(&name, &value);
+                                ui.chat.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, line));
+                                self.settings.save();
+                            }
                             crate::chatwindow::Out::Inspect => self.keys.inspect = self.keys.inspect.wrapping_add(1),
                             crate::chatwindow::Out::Follow => self.keys.follow = self.keys.follow.wrapping_add(1),
                             crate::chatwindow::Out::ViewDist(d) => {

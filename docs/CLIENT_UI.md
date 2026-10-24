@@ -405,3 +405,10 @@ The options window's **Take everything from a corpse as soon as it opens** (`aut
 ## /inspect
 
 `/inspect` asks for the current target's info packet and tells what comes in the chat window: `Mothra: level 200 Enforcer, health 54304 of 54304.` for a character, `<name>: health 92 of 92.` for a creature (the packet has no level for those). Not tried live.
+
+## More commands: /open, /close, /items, /waypoint, /selectself, /setoption
+
+* `/open <window>` shows a window by name (`inventory`, `stats`, `skills`, `ncu`, `friends`, `programs`, `perks`, `help`, `actions`, `missions`, `mail`, `map`, `chat`, `whompah`, `loot`); `/items` is `/open inventory`; `/close <window>` hides one and `/close` alone hides them all (`Ui::set_window`).
+* `/waypoint <x> <z>` walks to a place with the same logic as the Whom-Pah Go button (any movement key stops it).
+* `/selectself` targets the character itself (the select and target messages with its own id).
+* `/setoption name value` sets `vsync`, `render_scale`, `sharpness`, `ui_scale`, `view_distance`, `char_distance` or `auto_loot` (values are clamped to the options window's ranges) and saves; `/setoption` or `/option` alone lists them (`Settings::set_option`, tested).

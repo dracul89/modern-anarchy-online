@@ -247,6 +247,51 @@ impl Ui {
         self.state.on_window_event(window, event).consumed
     }
 
+    /// Shows or hides a window by name (`/open`, `/close`); an empty name with `open` false hides them all. False for an unknown name.
+    pub fn set_window(&mut self, name: &str, open: bool) -> bool {
+        let name = name.trim().to_lowercase();
+        if name.is_empty() {
+            if open {
+                return false;
+            }
+            self.gear_open = false;
+            self.whompah_open = false;
+            self.stats.open = false;
+            self.skills.open = false;
+            self.ncu.open = false;
+            self.friends.open = false;
+            self.programs.open = false;
+            self.perks.open = false;
+            self.help.open = false;
+            self.actions.open = false;
+            self.mission.open = false;
+            self.mail.open = false;
+            self.automap.overlay = false;
+            self.loot.open = false;
+            return true;
+        }
+        let flag: &mut bool = match name.as_str() {
+            "inventory" | "items" | "gear" => &mut self.gear_open,
+            "stats" => &mut self.stats.open,
+            "skills" => &mut self.skills.open,
+            "ncu" | "nanos" => &mut self.ncu.open,
+            "friends" => &mut self.friends.open,
+            "programs" | "nano programs" => &mut self.programs.open,
+            "perks" => &mut self.perks.open,
+            "help" => &mut self.help.open,
+            "actions" => &mut self.actions.open,
+            "missions" | "mission" => &mut self.mission.open,
+            "mail" => &mut self.mail.open,
+            "map" => &mut self.automap.overlay,
+            "chat" => &mut self.chat.open,
+            "whompah" | "whom-pah" | "travel" => &mut self.whompah_open,
+            "loot" | "container" => &mut self.loot.open,
+            _ => return false,
+        };
+        *flag = open;
+        true
+    }
+
     /// Seconds on the hotbars' clock.
     pub fn now(&self) -> f64 {
         self.clock.elapsed().as_secs_f64()

@@ -1433,7 +1433,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                         chat.send(&mao_net::chat::lookup_packet(&name))?;
                                     }
                                 },
-                                Out::Camp | Out::Quit | Out::Follow | Out::Inspect | Out::ViewDist(_) | Out::CharDist(_) => {}
+                                Out::Camp | Out::Quit | Out::Follow | Out::Inspect | Out::Window { .. } | Out::Waypoint { .. } | Out::SelectSelf | Out::SetOption { .. } | Out::ViewDist(_) | Out::CharDist(_) => {}
                                 Out::Befriend { name } => match ids.get(&name.to_lowercase()) {
                                     Some(&id) => {
                                         chat.send(&mao_net::chat::buddy_add_packet(id))?;
@@ -1549,6 +1549,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut delete_seen = 0u8;
         let mut cancel_seen = 0u8;
         let mut inspect_seen = 0u8;
+        let mut self_seen = 0u8;
         let (mut following, mut follow_seen): (Option<u32>, u8) = (None, 0);
         let (mut position, mut heading) = (start, heading);
         let (mut moving, mut turning, mut strafing) = (0i8, 0i8, 0i8);
@@ -1796,6 +1797,13 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 }
             }
             keys = raw;
+            // `/selectself`: the character is its own target.
+            if raw.select_self != self_seen {
+                self_seen = raw.select_self;
+                target = Some(own);
+                let _ = connection.send(&n3::select_target(own, own));
+                let _ = connection.send(&n3::set_target(own, own));
+            }
             // `/inspect`: ask for the target's info packet and tell what comes.
             if raw.inspect != inspect_seen {
                 inspect_seen = raw.inspect;
