@@ -144,6 +144,8 @@ struct World {
     program_ids: Vec<u32>,
     programs_changed: bool,
     perks_changed: bool,
+    /// Lines the server's game messages made (damage, healing, "You successfully perform ..."), for the chat window.
+    game_lines: Vec<crate::chatwindow::Line>,
     /// The container (corpse, bag) the character opened, and whether that changed.
     loot: Option<Loot>,
     loot_changed: bool,
@@ -165,6 +167,22 @@ struct World {
     /// The usable objects the server announces (doors, mail terminals, booths: identity type
     /// 0xc76a, message `4f474e05`) with their positions; targeted with Ctrl+Tab and used with E.
     objects: BTreeMap<u32, [f32; 3]>,
+}
+
+/// A fight line from a `HealthDamage`: a negative amount is damage of the stat's type (the armour class it was met by), a positive
+/// one healing.
+fn combat_line(who: &str, you: bool, amount: i64, stat: u32) -> String {
+    let n = amount.abs();
+    if amount > 0 {
+        return if you { format!("You are healed for {n} points.") } else { format!("{who} is healed for {n} points.") };
+    }
+    // (stat 0 is "no type": the damage was not met by an armour class)
+    let kind = if stat == 0 { String::new() } else { format!("{} ", crate::skills::stat_name(stat).trim_end_matches("AC").trim().to_lowercase()) };
+    if you {
+        format!("You take {n} points of {kind}damage.")
+    } else {
+        format!("{who} takes {n} points of {kind}damage.")
+    }
 }
 
 /// What an `InventoryUpdate` lists for a container the character used.
@@ -361,6 +379,27 @@ impl World {
                     self.objects.insert(m.identity.1, [f("X"), f("Y"), f("Z")]);
                     self.names.entry(m.identity.1).or_insert_with(|| (format!("Booth {:x}", m.identity.1 & 0xffff), false));
                 }
+            }
+        }
+        // The game's own text and the fight.
+        if m.kind == 0x5f4b442a {
+            if let Some(text) = mao_net::n3::chat_text(&m.data) {
+                self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, text));
+            }
+        }
+        if m.kind == 0x206b4b73 && m.identity.1 == self.own {
+            if let Some(text) = mao_net::n3::feedback_text(&m.data) {
+                self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, text));
+            }
+        }
+        if m.kind == 0x3710256c {
+            if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
+                let amount = p.value.get("Amount").and_then(mao_net::schema::Value::as_int).unwrap_or(0);
+                let stat = p.value.get("Stat").and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
+                let target = p.value.get("Target").and_then(|t| t.get("Instance")).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
+                let who = if target == self.own { "You".to_string() } else { self.names.get(&target).map_or_else(|| "Something".to_string(), |n| n.0.clone()) };
+                let line = combat_line(&who, target == self.own, amount, stat);
+                self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
             }
         }
         // A container the character used lists its contents; the server moves an item out with a `ContainerAddItem`; a corpse that
@@ -2089,7 +2128,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     eprintln!("worn: {:?}", state.worn.iter().map(|e| (e.slot, e.low_id, e.high_id, e.quality)).collect::<Vec<_>>());
                     eprintln!("stats: {} stored, {} modifiers; {}", state.stats.len(), state.item_mods.len(), pick(&[0x1b, 0x01, 0xd6, 0xdd, 0x36, 0x34, 0x39, 0x15e, 0x28, 0xb2, 0xa9, 0x5b]));
                 }
-                let chat_lines_now: Vec<crate::chatwindow::Line> = std::mem::take(&mut *CHAT_LINES.lock().unwrap());
+                let mut chat_lines_now: Vec<crate::chatwindow::Line> = std::mem::take(&mut *CHAT_LINES.lock().unwrap());
+                chat_lines_now.extend(std::mem::take(&mut state.game_lines));
                 let friends_now = {
                     let buddies = BUDDIES.lock().unwrap();
                     (buddies.0 != friends_seen).then(|| {
@@ -3151,6 +3191,14 @@ fn parse_capture_world(log: &str) -> Result<World, String> {
 #[cfg(test)]
 mod door_tests {
     use super::*;
+
+    #[test]
+    fn fight_lines_name_who_and_what() {
+        assert_eq!(combat_line("Rollerrat", false, -49, 92), "Rollerrat takes 49 points of energy damage.");
+        assert_eq!(combat_line("You", true, -1581, 95), "You take 1581 points of cold damage.");
+        assert_eq!(combat_line("Rollerrat", false, 49, 0), "Rollerrat is healed for 49 points.");
+        assert_eq!(combat_line("You", true, -7, 0), "You take 7 points of damage.");
+    }
 
     #[test]
     fn doors_are_numbered_from_their_ids() {

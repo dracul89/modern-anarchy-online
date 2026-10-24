@@ -138,6 +138,35 @@ pub fn cast_nano(character: u32, target: Option<u32>, nano: u32) -> Frame {
     Message { kind: 0x5e477770, identity: (CHARACTER, character), data }.frame(character)
 }
 
+/// The text of a `ChatText` (`5f4b442a`: the game's own lines, such as "Tarasque is no longer immortal."): two zero bytes, the text's
+/// length and the text.
+pub fn chat_text(data: &[u8]) -> Option<String> {
+    let n = *data.get(2)? as usize;
+    let text = data.get(3..3 + n)?;
+    (data[..2] == [0, 0] && n > 0).then(|| String::from_utf8_lossy(text).into_owned())
+}
+
+/// The plain text of a `FormatFeedback` (`206b4b73`: "You successfully perform a Quick Bash attack."): the message is a compact
+/// markup of tags and strings, and a string is a letter `s`, its length with the closing zero counted, the characters and a zero.
+/// The first such string of printable text is returned (lines made of several parts, with names and numbers, are not rebuilt).
+pub fn feedback_text(data: &[u8]) -> Option<String> {
+    for i in 7..data.len().saturating_sub(3) {
+        if data[i] != b's' {
+            continue;
+        }
+        let n = data[i + 1] as usize;
+        let (start, end) = (i + 2, i + 1 + n);
+        if n < 4 || end >= data.len() || data[end] != 0 {
+            continue;
+        }
+        let text = &data[start..end];
+        if text.iter().all(|b| (0x20..0x7f).contains(b)) && text[0].is_ascii_alphabetic() {
+            return Some(String::from_utf8_lossy(text).into_owned());
+        }
+    }
+    None
+}
+
 /// `ClientMoveItemToInventory` (`5469373f`): moves the item in inventory place `from` to place `to` (a wear slot or a place of the
 /// backpack: wearing, taking off and rearranging). The captured moves are `(0x68, 0x59)` to `0x14` and `(0x68, 0x53)` to `1`: a
 /// zero byte, the source identity (type `0x68` and the place) and the destination place.
@@ -304,6 +333,19 @@ pub fn position_update(character: u32, movement: u8, heading: f32, position: [f3
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn game_text_is_read_from_the_captured_messages() {
+        let hex = |s: &str| -> Vec<u8> { (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect() };
+        assert_eq!(chat_text(&hex("00003254617261737175652077696c6c2072656d61696e20696d6d6f7274616c20666f72203135206d6f7265206d696e757465732e100000000000")).as_deref(), Some("Tarasque will remain immortal for 15 more minutes."));
+        assert_eq!(chat_text(&hex("00001f5461726173717565206973206e6f206c6f6e67657220696d6d6f7274616c2e100000000000")).as_deref(), Some("Tarasque is no longer immortal."));
+        assert_eq!(chat_text(&[1, 2, 3]), None);
+        assert_eq!(
+            feedback_text(&hex("0100000000003b7e26212121223a212121293c732e596f75207375636365737366756c6c7920706572666f726d206120517569636b20426173682061747461636b2e00000000")).as_deref(),
+            Some("You successfully perform a Quick Bash attack.")
+        );
+        assert_eq!(feedback_text(&hex("010000000000267e26212121223a234852624b7318426f78207769746820612050756d706b696e20486561647e00000000")).as_deref(), None);
+    }
+
     #[test]
     fn the_empty_inbox_reply_has_no_messages() {
         assert_eq!(mail_count(&[0, 0, 0, 0, 0, 3, 0xf1]), Some((0, 0)));

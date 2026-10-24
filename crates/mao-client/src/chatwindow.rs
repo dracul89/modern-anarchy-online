@@ -13,6 +13,8 @@ pub enum Kind {
     Channel,
     /// Something this character said (echoed).
     Own,
+    /// Fighting: damage, healing and the actions performed.
+    Combat,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -45,6 +47,7 @@ enum Tab {
     Tells,
     Channels,
     System,
+    Combat,
 }
 
 pub struct ChatWindow {
@@ -169,7 +172,7 @@ impl ChatWindow {
             .default_size([560.0, 230.0])
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    for (tab, name) in [(Tab::All, "All"), (Tab::Tells, "Tells"), (Tab::Channels, "Channels"), (Tab::System, "System")] {
+                    for (tab, name) in [(Tab::All, "All"), (Tab::Tells, "Tells"), (Tab::Channels, "Channels"), (Tab::System, "System"), (Tab::Combat, "Combat")] {
                         ui.selectable_value(&mut self.tab, tab, name);
                     }
                 });
@@ -180,12 +183,14 @@ impl ChatWindow {
                         Tab::Tells => matches!(l.kind, Kind::Tell | Kind::Own),
                         Tab::Channels => l.kind == Kind::Channel,
                         Tab::System => l.kind == Kind::System,
+                        Tab::Combat => l.kind == Kind::Combat,
                     }) {
                         let color = match line.kind {
                             Kind::System => egui::Color32::from_rgb(255, 220, 90),
                             Kind::Tell => egui::Color32::from_rgb(120, 220, 255),
                             Kind::Channel => egui::Color32::from_rgb(200, 235, 235),
                             Kind::Own => egui::Color32::from_rgb(160, 200, 160),
+                            Kind::Combat => egui::Color32::from_rgb(240, 170, 130),
                         };
                         ui.label(egui::RichText::new(&line.text).color(color));
                     }
