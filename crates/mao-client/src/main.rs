@@ -16,6 +16,7 @@
 mod actions;
 mod chat_commands;
 mod chatwindow;
+mod chatlog;
 mod friends;
 mod loot;
 mod nanoprograms;

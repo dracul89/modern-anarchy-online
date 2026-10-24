@@ -747,6 +747,7 @@ impl ApplicationHandler for App {
                         }
                         if let Some(ui) = w.ui.as_mut() {
                             for line in std::mem::take(&mut u.chat_lines) {
+                                ui.chat.log = true;
                                 ui.chat.push(line);
                             }
                         }

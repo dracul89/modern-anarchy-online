@@ -303,3 +303,7 @@ The Action window's and the hotbar's weapon specials now send `CharSecSpecAttack
 ## Using perks
 
 A perk action of the Action window or a hotbar slot now sends `CharacterAction` action `0xb3` (`UsePerk`, `n3::use_perk`). Earlier notes could not tie its parameters to anything: the first is the **perk's id** (`0x2991`, `0x2a0a`, `0x27bc` in the captured uses, the fifth column of `actions_data::ACTIONS`) and the second is its **four-letter hash as ASCII** (`QISH`, `WRTK`, `BICC`: the fourth column), so the "five-letter string" was a misreading of the id's low byte. The target identity is the character itself, as in all the captured uses; the perk acts on the current target the server knows from the target messages Tab sends. Three captured uses are reproduced byte for byte. The table lists the 35 perks of the character the Action data was read from; perks of other characters are in the Perks window but have no row here, so they cannot be fired yet (the table would have to be built from the perk records, which carry the hash). The server's answer and the recharge are not used.
+
+## Chat log
+
+Every line the chat window receives or the player types (tells, channels, game text, combat) is also appended to `chat/<date>.txt` beside `mao.ini` (one file a day, UTC): `[09:15:02] tell: Mothra tells you: hi`, with the line's kind (`system`, `tell`, `channel`, `you`, `combat`). `MAO_NO_CHATLOG=1` turns it off. It is only written by the live client, not by the offline previews.

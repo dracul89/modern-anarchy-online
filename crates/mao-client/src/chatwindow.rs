@@ -52,6 +52,8 @@ enum Tab {
 
 pub struct ChatWindow {
     pub open: bool,
+    /// Whether every line is also written to the chat log (the live client turns it on).
+    pub log: bool,
     lines: Vec<Line>,
     tab: Tab,
     input: String,
@@ -66,7 +68,7 @@ pub struct ChatWindow {
 
 impl Default for ChatWindow {
     fn default() -> Self {
-        ChatWindow { open: true, lines: Vec::new(), tab: Tab::All, input: String::new(), selected: 0, focus_next: false, last_tell: None, scroll_to_end: true, keep_list: false }
+        ChatWindow { open: true, log: false, lines: Vec::new(), tab: Tab::All, input: String::new(), selected: 0, focus_next: false, last_tell: None, scroll_to_end: true, keep_list: false }
     }
 }
 
@@ -75,6 +77,9 @@ const KEEP: usize = 600;
 
 impl ChatWindow {
     pub fn push(&mut self, line: Line) {
+        if self.log {
+            crate::chatlog::append(&line);
+        }
         if line.kind == Kind::Tell {
             if let Some(from) = &line.from {
                 self.last_tell = Some(from.clone());
