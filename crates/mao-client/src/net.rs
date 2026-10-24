@@ -1239,7 +1239,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             Some(Packet::Message { channel, sender, text }) => {
                                 let who = names.get(&sender).cloned().unwrap_or_else(|| format!("{sender:x}"));
                                 let place = channels.get(&channel.1).map(|c| c.1.clone()).unwrap_or_default();
-                                Some(Line::new(Kind::Channel, format!("[{place}] {who}: {}", mao_net::chat::plain(&text))))
+                                Some(Line { kind: Kind::Channel, text: format!("[{place}] {who}: {}", mao_net::chat::plain(&text)), from: Some(who) })
                             }
                             Some(Packet::Buddy { id, online, .. }) => {
                                 let mut buddies = BUDDIES.lock().unwrap();
@@ -1267,6 +1267,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                         chat.send(&mao_net::chat::lookup_packet(&name))?;
                                     }
                                 },
+                                Out::Camp | Out::Quit => {}
                                 Out::Befriend { name } => match ids.get(&name.to_lowercase()) {
                                     Some(&id) => {
                                         chat.send(&mao_net::chat::buddy_add_packet(id))?;

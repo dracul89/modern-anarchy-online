@@ -17,6 +17,9 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
     ("reply <text>", "answer the last tell (also /r)"),
     ("org <text>", "your organization's channel (also /o)"),
     ("befriend <name>", "put a character on your friends list (L shows it)"),
+    ("ignore [name]", "hide a character's tells and channel lines (again: show them; alone: the list)"),
+    ("camp", "sit down to log out (stand up or move to cancel)"),
+    ("quit", "leave the client"),
     ("help", "this list"),
     ("version", "the client's version"),
 ];
@@ -32,6 +35,12 @@ pub enum Parsed {
     Reply { text: String },
     /// `/befriend <name>`: a character to put on the friends list.
     Befriend { name: String },
+    /// `/ignore <name>` (or `/ignore` alone: the list): hide a character's tells and channel lines.
+    Ignore { name: String },
+    /// `/camp`: sit down to log out.
+    Camp,
+    /// `/quit`: leave the client.
+    Quit,
     /// A line for the organization channel.
     Org { text: String },
     /// Plain speech or /say, /shout, /whisper, /me: vicinity chat.
@@ -94,6 +103,9 @@ pub fn parse(line: &str) -> Parsed {
                 Parsed::Reply { text: text.to_string() }
             }
         }
+        "ignore" => Parsed::Ignore { name: text.split_whitespace().next().unwrap_or("").to_string() },
+        "camp" => Parsed::Camp,
+        "quit" => Parsed::Quit,
         "befriend" => {
             if text.is_empty() {
                 Parsed::Usage("/befriend <name>")
@@ -147,13 +159,17 @@ mod tests {
         assert_eq!(parse("/T Abc hi"), Parsed::Tell { name: "Abc".into(), text: "hi".into() });
         assert_eq!(parse("/tell Abc"), Parsed::Usage("/tell <name> <text>"));
         assert_eq!(parse("/r thanks"), Parsed::Reply { text: "thanks".into() });
+        assert_eq!(parse("/ignore Abc"), Parsed::Ignore { name: "Abc".into() });
+        assert_eq!(parse("/ignore"), Parsed::Ignore { name: String::new() });
+        assert_eq!(parse("/camp"), Parsed::Camp);
+        assert_eq!(parse("/QUIT"), Parsed::Quit);
         assert_eq!(parse("/befriend Abc"), Parsed::Befriend { name: "Abc".into() });
         assert_eq!(parse("/befriend"), Parsed::Usage("/befriend <name>"));
         assert_eq!(parse("/o hello org"), Parsed::Org { text: "hello org".into() });
         assert_eq!(parse("hello world"), Parsed::Vicinity { command: "say", text: "hello world".into() });
         assert_eq!(parse("/s HEY"), Parsed::Vicinity { command: "shout", text: "HEY".into() });
         assert_eq!(parse("/help"), Parsed::Help);
-        assert_eq!(parse("/camp"), Parsed::Unsupported("camp".into()));
+        assert_eq!(parse("/afk"), Parsed::Unsupported("afk".into()));
         assert_eq!(parse("/nonsense x"), Parsed::Unknown("nonsense".into()));
         assert_eq!(parse("   "), Parsed::Empty);
     }

@@ -39,6 +39,9 @@ pub enum Out {
     /// Put a character on the friends list / take one off.
     Befriend { name: String },
     Unfriend { id: u32 },
+    /// Sit down to log out / leave the client (handled by the window, not sent to the chat server).
+    Camp,
+    Quit,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -64,11 +67,31 @@ pub struct ChatWindow {
     scroll_to_end: bool,
     /// Keeps the command list shown when the window itself has no keyboard focus (the previews).
     keep_list: bool,
+    /// The characters whose tells and channel lines are hidden (lower case), kept in `ignore.ini` beside `mao.ini`.
+    ignored: std::collections::BTreeSet<String>,
 }
 
 impl Default for ChatWindow {
     fn default() -> Self {
-        ChatWindow { open: true, log: false, lines: Vec::new(), tab: Tab::All, input: String::new(), selected: 0, focus_next: false, last_tell: None, scroll_to_end: true, keep_list: false }
+        ChatWindow { open: true, log: false, lines: Vec::new(), tab: Tab::All, input: String::new(), selected: 0, focus_next: false, last_tell: None, scroll_to_end: true, keep_list: false, ignored: load_ignored() }
+    }
+}
+
+fn ignore_path() -> std::path::PathBuf {
+    crate::settings::Settings::path().with_file_name("ignore.ini")
+}
+
+fn load_ignored() -> std::collections::BTreeSet<String> {
+    // (previews and tests do not read the player's list)
+    if std::env::var_os("MAO_UI_PREVIEW").is_some() || cfg!(test) {
+        return Default::default();
+    }
+    std::fs::read_to_string(ignore_path()).map(|t| t.lines().map(|l| l.trim().to_lowercase()).filter(|l| !l.is_empty()).collect()).unwrap_or_default()
+}
+
+fn save_ignored(list: &std::collections::BTreeSet<String>) {
+    if !cfg!(test) {
+        let _ = std::fs::write(ignore_path(), list.iter().map(|n| format!("{n}\n")).collect::<String>());
     }
 }
 
@@ -77,6 +100,10 @@ const KEEP: usize = 600;
 
 impl ChatWindow {
     pub fn push(&mut self, line: Line) {
+        // (what an ignored character says is not shown)
+        if matches!(line.kind, Kind::Tell | Kind::Channel) && line.from.as_ref().is_some_and(|f| self.ignored.contains(&f.to_lowercase())) {
+            return;
+        }
         if self.log {
             crate::chatlog::append(&line);
         }
@@ -123,6 +150,28 @@ impl ChatWindow {
                     None
                 }
             },
+            Parsed::Camp => {
+                self.push(Line::new(Kind::System, "Sitting down to log out (stand up or move to cancel)."));
+                Some(Out::Camp)
+            }
+            Parsed::Quit => Some(Out::Quit),
+            Parsed::Ignore { name } if name.is_empty() => {
+                let list = if self.ignored.is_empty() { "nobody".to_string() } else { self.ignored.iter().cloned().collect::<Vec<_>>().join(", ") };
+                self.push(Line::new(Kind::System, format!("Ignoring: {list}.")));
+                None
+            }
+            Parsed::Ignore { name } => {
+                let key = name.to_lowercase();
+                let text = if self.ignored.remove(&key) {
+                    format!("{name} is no longer ignored.")
+                } else {
+                    self.ignored.insert(key);
+                    format!("{name} is ignored: their tells and channel lines are hidden.")
+                };
+                save_ignored(&self.ignored);
+                self.push(Line::new(Kind::System, text));
+                None
+            }
             Parsed::Befriend { name } => {
                 self.push(Line::new(Kind::System, format!("Adding {name} to your friends.")));
                 Some(Out::Befriend { name })
@@ -290,10 +339,26 @@ mod tests {
         let mut w = ChatWindow::default();
         assert_eq!(w.run("/help"), None);
         assert!(w.lines.len() >= 6);
-        assert_eq!(w.run("/camp"), None);
+        assert_eq!(w.run("/afk"), None);
         assert!(w.lines.last().unwrap().text.contains("not carried out"));
         assert_eq!(w.run("hello"), None);
         assert!(w.lines.last().unwrap().text.contains("not available"));
+    }
+
+    #[test]
+    fn an_ignored_character_is_not_shown_and_the_command_toggles() {
+        let mut w = ChatWindow::default();
+        assert_eq!(w.run("/ignore Zed"), None);
+        w.push(Line { kind: Kind::Tell, text: "Zed tells you: hi".into(), from: Some("zed".into()) });
+        w.push(Line { kind: Kind::Channel, text: "[OOC] Zed: yo".into(), from: Some("Zed".into()) });
+        w.push(Line::new(Kind::System, "still shown"));
+        let shown: Vec<&str> = w.lines.iter().map(|l| l.text.as_str()).collect();
+        assert_eq!(shown, vec!["Zed is ignored: their tells and channel lines are hidden.", "still shown"]);
+        assert_eq!(w.run("/ignore zed"), None);
+        w.push(Line { kind: Kind::Tell, text: "Zed tells you: back".into(), from: Some("Zed".into()) });
+        assert!(w.lines.last().unwrap().text.contains("back"));
+        assert_eq!(w.run("/camp"), Some(Out::Camp));
+        assert_eq!(w.run("/quit"), Some(Out::Quit));
     }
 
     #[test]

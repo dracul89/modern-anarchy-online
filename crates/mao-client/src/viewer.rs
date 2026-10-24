@@ -879,7 +879,12 @@ impl ApplicationHandler for App {
                     self.hud.camera_yaw = w.camera.yaw;
                     let (frame, mut requests) = ui.run(&w.window, &mut self.settings, &self.hud, &project);
                     for out in requests.chat.drain(..) {
-                        crate::net::send_chat(out);
+                        match out {
+                            // (these two are for the client itself)
+                            crate::chatwindow::Out::Camp => self.keys.commands[5] = self.keys.commands[5].wrapping_add(1),
+                            crate::chatwindow::Out::Quit => event_loop.exit(),
+                            other => crate::net::send_chat(other),
+                        }
                     }
                     if let Some(command) = requests.shop.take() {
                         if let Some(live) = &self.live {
