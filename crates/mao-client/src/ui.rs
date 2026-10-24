@@ -304,6 +304,9 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
     let screen = egui_wgpu::ScreenDescriptor { size_in_pixels: [size.0, size.1], pixels_per_point: 1.0 };
     let (mut open, mut rebinding, mut requests) = (options, None, Requests::default());
     let (mut gear_open, mut gear) = (hud.gear_open, crate::gear::GearWindow::default());
+    if let Ok(tab) = std::env::var("MAO_GEAR_TAB") {
+        gear.select_tab(&tab);
+    }
     let mut hotbars = hud.preview_hotbars.clone();
     let mut preview_mission = hud.mission_preview.lock().ok().and_then(|mut m| m.take());
     let mut preview_mail = hud.mail_preview.lock().ok().and_then(|mut m| m.take());

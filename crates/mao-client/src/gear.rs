@@ -126,6 +126,13 @@ pub struct GearWindow {
 const CELL: f32 = 42.0;
 
 impl GearWindow {
+    /// Shows the wear tab with this name ("Weap", "Cloth", "Impl", "Social"), when there is one (the previews use it).
+    pub fn select_tab(&mut self, name: &str) {
+        if let Some(i) = TABS.iter().position(|(tab, _)| tab.eq_ignore_ascii_case(name)) {
+            self.tab = i;
+        }
+    }
+
     pub fn texture(&mut self, ctx: &egui::Context, icon: &Icon) -> egui::TextureId {
         self.textures
             .entry(icon.id)
