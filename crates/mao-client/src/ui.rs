@@ -538,11 +538,14 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
                 options_window(&ctx, &mut open, &mut rebinding, settings, &mut requests, &palette, &themes);
             }
         });
-        for (id, deltas) in &output.textures_delta.set {
+        let mut textures = output.textures_delta;
+        for (id, deltas) in &textures.set {
             for delta in deltas {
                 renderer.update_texture(&gpu.device, &gpu.queue, *id, delta);
             }
         }
+        // (applied: egui's debug build checks that a delta is not dropped unused)
+        textures.clear();
         let jobs = ctx.tessellate(output.shapes, 1.0);
         last = Some(jobs);
     }
