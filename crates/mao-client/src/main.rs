@@ -14,6 +14,7 @@
 //! orbit, scroll to zoom, WASD to move the view point, Q/E down and up.
 
 mod actions;
+mod skills;
 mod stats;
 mod trickle_data;
 mod vitals;
@@ -434,6 +435,25 @@ fn run(args: &[String]) -> Result<(), String> {
                         let mut window = stats::StatsWindow::default();
                         window.open = true;
                         *hud.stats_preview.lock().unwrap() = Some(window);
+                    }
+                    // MAO_UI_PREVIEW=skills (MAO_COMPARE=<`stat stored shown` file> for real numbers): the Skills window.
+                    if preview.as_deref() == Some("skills") {
+                        hud.character_name = "Conjecture".into();
+                        let shown: std::collections::BTreeMap<u32, i64> = std::env::var_os("MAO_COMPARE")
+                            .and_then(|f| std::fs::read_to_string(f).ok())
+                            .map(|t| {
+                                t.lines()
+                                    .filter_map(|l| {
+                                        let v: Vec<i64> = l.split_whitespace().take(3).filter_map(|x| x.parse().ok()).collect();
+                                        (v.len() == 3).then(|| (v[0] as u32, v[2]))
+                                    })
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+                        hud.stats = shown;
+                        let mut window = skills::SkillsWindow::default();
+                        window.open = true;
+                        *hud.skills_preview.lock().unwrap() = Some(window);
                     }
                     if preview.as_deref() == Some("map") {
                         // MAO_UI_PREVIEW=map: walk a path through the playfield, revealing the map as the game would.

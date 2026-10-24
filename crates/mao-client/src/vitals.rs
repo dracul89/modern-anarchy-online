@@ -9,7 +9,8 @@ use crate::theme::Palette;
 /// How far a stat has come between two others, 0 to 1, and the text for the bar: `value / limit`.
 fn progress(value: Option<i64>, from: i64, to: Option<i64>) -> (Option<i64>, Option<i64>) {
     match (value, to) {
-        (Some(v), Some(t)) if t > from => (Some((v - from).max(0)), Some(t - from)),
+        // Past the next level's figure (a character at the level cap keeps collecting): nothing meaningful to show.
+        (Some(v), Some(t)) if t > from && v <= t => (Some((v - from).max(0)), Some(t - from)),
         _ => (None, None),
     }
 }
@@ -49,5 +50,6 @@ mod tests {
         assert_eq!(progress(Some(50), 100, Some(300)), (Some(0), Some(200)));
         assert_eq!(progress(Some(5), 0, None), (None, None));
         assert_eq!(progress(Some(5), 10, Some(10)), (None, None));
+        assert_eq!(progress(Some(500), 100, Some(300)), (None, None));
     }
 }

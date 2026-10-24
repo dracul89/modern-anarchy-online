@@ -455,6 +455,11 @@ impl ApplicationHandler for App {
                                 press_slot(ui, n as usize, &mut self.keys, &mut self.hud);
                             }
                         }
+                        Action::SkillsWindow if !event.repeat => {
+                            if let Some(ui) = w.ui.as_mut() {
+                                ui.skills.open = !ui.skills.open;
+                            }
+                        }
                         Action::StatsWindow if !event.repeat => {
                             if let Some(ui) = w.ui.as_mut() {
                                 ui.stats.open = !ui.stats.open;
