@@ -892,6 +892,8 @@ impl ApplicationHandler for App {
                 let size = (w.config.width, w.config.height);
                 if self.live.is_some() {
                     w.scene.fog = fog_for(self.settings.view_distance);
+                    // (an interior has no ground: it is seen against the dark, not the daylight sky)
+                    w.scene.sky = if self.ground.is_none() && self.behind_set { mao_render::DARK_SKY } else { mao_render::DAY_SKY };
                     if self.keys.char_distance != self.settings.char_distance || self.keys.auto_loot != self.settings.auto_loot {
                         self.keys.char_distance = self.settings.char_distance;
                         self.keys.auto_loot = self.settings.auto_loot;

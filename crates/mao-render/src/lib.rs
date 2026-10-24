@@ -99,6 +99,11 @@ struct GpuPart {
 
 pub use mao_formats::model::Water;
 
+/// The daylight sky: the horizon's haze and the blue overhead.
+pub const DAY_SKY: ([f32; 3], [f32; 3]) = ([0.66, 0.74, 0.84], [0.20, 0.38, 0.72]);
+/// The dark an interior or a dungeon is seen against (the fog fades into it).
+pub const DARK_SKY: ([f32; 3], [f32; 3]) = ([0.03, 0.035, 0.05], [0.01, 0.012, 0.02]);
+
 /// A model on the GPU, with its bounds.
 pub struct Scene {
     parts: Vec<GpuPart>,
@@ -112,6 +117,8 @@ pub struct Scene {
     pub player: Option<Vec3>,
     /// Where the fog starts and ends (a view that wants none keeps the default).
     pub fog: (f32, f32),
+    /// The sky's colours: at the horizon (the fog's colour too) and overhead.
+    pub sky: ([f32; 3], [f32; 3]),
     pub water: Option<Water>,
 }
 
@@ -556,7 +563,7 @@ impl Renderer {
             });
             parts.push(GpuPart { vertices: vb.clone(), indices: ib.clone(), index_count: *count, bind, center, radius, uniform_buffer: ub, uniform, shift: Vec3::ZERO });
         }
-        Scene { parts, overlay: Vec::new(), follow: Vec::new(), center, radius, player: None, fog: (1.0e9, 2.0e9), water: model.water }
+        Scene { parts, overlay: Vec::new(), follow: Vec::new(), center, radius, player: None, fog: (1.0e9, 2.0e9), sky: DAY_SKY, water: model.water }
     }
 
     fn depth_view(&mut self, gpu: &Gpu, size: (u32, u32)) {
@@ -648,8 +655,8 @@ impl Renderer {
             light: [sun.x, sun.y, sun.z, 0.0],
             player: [player.x, player.y, player.z, self.started.elapsed().as_secs_f32()],
             eye: [eye.x, eye.y, eye.z, scene.fog.0],
-            horizon: [0.66, 0.74, 0.84, scene.fog.1],
-            zenith: [0.20, 0.38, 0.72, 0.0],
+            horizon: [scene.sky.0[0], scene.sky.0[1], scene.sky.0[2], scene.fog.1],
+            zenith: [scene.sky.1[0], scene.sky.1[1], scene.sky.1[2], 0.0],
         };
         let globals_buffer = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: bytemuck::bytes_of(&globals), usage: wgpu::BufferUsages::UNIFORM });
         let globals_bind = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {

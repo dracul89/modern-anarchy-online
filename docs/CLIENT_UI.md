@@ -412,3 +412,7 @@ The options window's **Take everything from a corpse as soon as it opens** (`aut
 * `/waypoint <x> <z>` walks to a place with the same logic as the Whom-Pah Go button (any movement key stops it).
 * `/selectself` targets the character itself (the select and target messages with its own id).
 * `/setoption name value` sets `vsync`, `render_scale`, `sharpness`, `ui_scale`, `view_distance`, `char_distance` or `auto_loot` (values are clamped to the options window's ranges) and saves; `/setoption` or `/option` alone lists them (`Settings::set_option`, tested).
+
+## Interiors against the dark
+
+The sky is a scene setting now (`Scene::sky`: the horizon colour, which is also the fog's, and the zenith). The live view uses the dark one (`mao_render::DARK_SKY`) in a playfield with no ground (the shops and dungeons built from rooms) so a room is not seen against a blue daylight sky with a pale fog, and the daylight one elsewhere. The offline `map` images keep the daylight sky. Not seen in a live window.
