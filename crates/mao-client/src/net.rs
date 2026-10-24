@@ -127,6 +127,8 @@ struct World {
     stats_changed: bool,
     /// The summed effects of the worn items (see `derived`), added to the stored stats for display.
     item_mods: BTreeMap<u32, i64>,
+    /// The same bonuses by where they come from: worn items, perks, active nanos (for the hover breakdown).
+    mods_by_source: [BTreeMap<u32, i64>; 3],
     /// The perks (and research ranks) the world-entry message lists for the character.
     perks: Vec<u32>,
     /// The nano programs active on the character (`SimpleCharFullUpdate`), the inventory the effects are summed over, and
@@ -169,7 +171,9 @@ impl World {
     /// Works out the bonuses to the stored stats again when the worn items, perks or active nanos changed.
     fn refresh_mods(&mut self, db: &ResourceDatabase) {
         if std::mem::take(&mut self.mods_dirty) {
-            self.item_mods = crate::derived::modifiers(db, &self.worn, &self.perks, &self.nanos, self.stats.get(&0x36).copied().unwrap_or(1));
+            let level = self.stats.get(&0x36).copied().unwrap_or(1);
+            self.mods_by_source = [crate::derived::worn_modifiers(db, &self.worn, level), crate::derived::perk_modifiers(db, &self.perks, level), crate::derived::nano_modifiers(db, &self.nanos, level)];
+            self.item_mods = crate::derived::modifiers(db, &self.worn, &self.perks, &self.nanos, level);
             self.stats_changed = true;
         }
     }
@@ -1630,7 +1634,13 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     let pick = |ids: &[u32]| ids.iter().map(|i| format!("{i:#x}={}", shown.get(i).map_or("-".to_string(), |v| v.to_string()))).collect::<Vec<_>>().join(" ");
                     eprintln!("stored: {:?} mods: {:?} perks {} nanos {:?}", [1u32, 0x1b, 0xd6, 0xdd, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15].map(|i| (i, state.stats.get(&i).copied())), [1u32, 0xdd, 0x10, 0x12].map(|i| (i, state.item_mods.get(&i).copied())), state.perks.len(), state.nanos);
                     for (title, group) in crate::skills::GROUPS {
-                        eprintln!("skills {title}: {}", crate::skills::rows(group, &shown, "").iter().map(|(n, v)| format!("{n}={}", v.map_or("-".to_string(), |v| v.to_string()))).collect::<Vec<_>>().join(", "));
+                        eprintln!("skills {title}: {}", crate::skills::rows(group, &shown, "").iter().map(|(_, n, v)| format!("{n}={}", v.map_or("-".to_string(), |v| v.to_string()))).collect::<Vec<_>>().join(", "));
+                    }
+                    {
+                        let parts = crate::derived::breakdown(&state.stats, &state.mods_by_source[0], &state.mods_by_source[1], &state.mods_by_source[2]);
+                        for stat in [16u32, 18, 100, 122, 152] {
+                            eprintln!("parts {stat}: {:?}", parts.get(&stat));
+                        }
                     }
                     eprintln!("worn: {:?}", state.worn.iter().map(|e| (e.slot, e.low_id, e.high_id, e.quality)).collect::<Vec<_>>());
                     eprintln!("stats: {} stored, {} modifiers; {}", state.stats.len(), state.item_mods.len(), pick(&[0x1b, 0x01, 0xd6, 0xdd, 0x36, 0x34, 0x39, 0x15e, 0x28, 0xb2, 0xa9, 0x5b]));
@@ -1642,7 +1652,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     own_model,
                     own_velocity,
                     map: pending_map.take(),
-                    stats: std::mem::take(&mut state.stats_changed).then(|| (state.names.get(&own).map(|n| n.0.clone()).unwrap_or_default(), crate::derived::shown(&state.stats, &state.item_mods))),
+                    stats: std::mem::take(&mut state.stats_changed).then(|| {
+                        let parts = crate::derived::breakdown(&state.stats, &state.mods_by_source[0], &state.mods_by_source[1], &state.mods_by_source[2]);
+                        (state.names.get(&own).map(|n| n.0.clone()).unwrap_or_default(), crate::derived::totals(&parts), parts)
+                    }),
                     map_dots: {
                         let friendly_name = |name: &str| ["Vanguard", "Watcher", "Commander", "Guard", "Merchant", "Trader", "Recruiter", "Helper"].iter().any(|w| name.contains(w));
                         state

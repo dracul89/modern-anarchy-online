@@ -34,6 +34,8 @@ pub struct Hud {
     /// The character's name and stats (by stat number), for the Stats window.
     pub character_name: String,
     pub stats: std::collections::BTreeMap<u32, i64>,
+    /// What each shown value is made of (for the hover text of the Skills window).
+    pub stat_parts: std::collections::BTreeMap<u32, crate::derived::Breakdown>,
     /// Who is about, for the map: (x, z) and what.
     pub map_dots: Vec<([f32; 2], crate::automap::DotKind)>,
     pub labels: Vec<Label>,
@@ -222,7 +224,7 @@ impl Ui {
                 stats_window.show(&ctx, &hud.character_name, &hud.stats, palette);
             }
             if skills_window.open {
-                skills_window.show(&ctx, &hud.character_name, &hud.stats, palette);
+                skills_window.show(&ctx, &hud.character_name, &hud.stats, &hud.stat_parts, palette);
             }
             if actions.open {
                 actions.show(&ctx, gear, palette);
@@ -314,7 +316,12 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
     // Several frames: the first lays out and uploads the fonts, and the windows
     // fade in over the next ones; the last is what is drawn.
     for frame in 0..12 {
-        let raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(size.0 as f32, size.1 as f32))), time: Some(frame as f64 * 0.1), ..Default::default() };
+        // MAO_HOVER=x,y puts the pointer there (pixels) so a tooltip shows in the picture.
+        let events: Vec<egui::Event> = std::env::var("MAO_HOVER").ok().and_then(|v| { let (x, y) = v.split_once(',')?; Some(egui::Event::PointerMoved(egui::pos2(x.trim().parse().ok()?, y.trim().parse().ok()?))) }).into_iter().collect();
+        let raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(size.0 as f32, size.1 as f32))), time: Some(frame as f64 * 0.1), events, ..Default::default() };
+        if std::env::var_os("MAO_HOVER").is_some() {
+            ctx.global_style_mut(|style| { style.interaction.tooltip_delay = 0.0; style.interaction.show_tooltips_only_when_still = false; });
+        }
         let output = ctx.run_ui(raw, |ui| {
             let ctx = ui.ctx().clone();
             hud_layer(&ctx, hud, project, 60.0, settings.mode, &palette);
@@ -330,7 +337,7 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
                 window.show(&ctx, &hud.character_name, &hud.stats, &palette);
             }
             if let Some(window) = preview_skills.as_mut() {
-                window.show(&ctx, &hud.character_name, &hud.stats, &palette);
+                window.show(&ctx, &hud.character_name, &hud.stats, &hud.stat_parts, &palette);
             }
             if let Some(map) = preview_map.as_mut() {
                 let at = hud.position.unwrap_or([0.0; 3]);

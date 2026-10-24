@@ -450,6 +450,12 @@ fn run(args: &[String]) -> Result<(), String> {
                                     .collect()
                             })
                             .unwrap_or_default();
+                        // the stored value from the file's second column, the rest shown as one bonus
+                        let stored: std::collections::BTreeMap<u32, i64> = std::env::var_os("MAO_COMPARE")
+                            .and_then(|f| std::fs::read_to_string(f).ok())
+                            .map(|t| t.lines().filter_map(|l| { let v: Vec<i64> = l.split_whitespace().take(3).filter_map(|x| x.parse().ok()).collect(); (v.len() == 3).then(|| (v[0] as u32, v[1])) }).collect())
+                            .unwrap_or_default();
+                        hud.stat_parts = shown.iter().map(|(&s, &total)| { let base = stored.get(&s).copied().unwrap_or(0); (s, derived::Breakdown { stored: base, worn: total - base, ..Default::default() }) }).collect();
                         hud.stats = shown;
                         let mut window = skills::SkillsWindow::default();
                         window.open = true;

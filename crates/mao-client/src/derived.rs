@@ -117,21 +117,55 @@ pub fn trickle(weights: &[u8; 6], attributes: &[i64; 6]) -> i64 {
 /// A skill nothing has trained has this stored value (the server does not send it).
 const DEFAULT_SKILL: i64 = 5;
 
-/// The shown stats: the stored ones plus the modifiers (stats without a stored value count from zero), and for the skills
-/// the trickle-down of the shown attributes.
-pub fn shown(stored: &BTreeMap<u32, i64>, modifiers: &BTreeMap<u32, i64>) -> BTreeMap<u32, i64> {
-    let mut out = stored.clone();
-    for (&stat, &amount) in modifiers {
-        *out.entry(stat).or_insert(0) += amount;
+/// What a shown value is made of: the stored (trained) value, the bonuses of what is worn, of the perks and of the active
+/// nanos, and for a skill what the attributes trickle down to it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Breakdown {
+    pub stored: i64,
+    pub worn: i64,
+    pub perks: i64,
+    pub nanos: i64,
+    pub trickle: i64,
+}
+
+impl Breakdown {
+    pub fn total(&self) -> i64 {
+        self.stored + self.worn + self.perks + self.nanos + self.trickle
     }
-    let attributes = ATTRIBUTES.map(|a| out.get(&a).copied().unwrap_or(0));
+}
+
+/// Every stat's parts (stats without a stored value count from zero, an untrained skill from 5).
+pub fn breakdown(stored: &BTreeMap<u32, i64>, worn: &BTreeMap<u32, i64>, perks: &BTreeMap<u32, i64>, nanos: &BTreeMap<u32, i64>) -> BTreeMap<u32, Breakdown> {
+    let mut out: BTreeMap<u32, Breakdown> = stored.iter().map(|(&s, &v)| (s, Breakdown { stored: v, ..Default::default() })).collect();
+    for (map, part) in [(worn, 0), (perks, 1), (nanos, 2)] {
+        for (&stat, &amount) in map {
+            let b = out.entry(stat).or_default();
+            match part {
+                0 => b.worn += amount,
+                1 => b.perks += amount,
+                _ => b.nanos += amount,
+            }
+        }
+    }
+    let attributes = ATTRIBUTES.map(|a| out.get(&a).map_or(0, Breakdown::total));
     if attributes.iter().any(|&a| a > 0) {
         for &(stat, ref weights) in crate::trickle_data::WEIGHTS {
-            let base = if stored.contains_key(&stat) { 0 } else { DEFAULT_SKILL };
-            *out.entry(stat).or_insert(0) += base + trickle(weights, &attributes);
+            let b = out.entry(stat).or_insert_with(|| Breakdown { stored: DEFAULT_SKILL, ..Default::default() });
+            b.trickle = trickle(weights, &attributes);
         }
     }
     out
+}
+
+/// The shown values of a set of parts.
+pub fn totals(parts: &BTreeMap<u32, Breakdown>) -> BTreeMap<u32, i64> {
+    parts.iter().map(|(&s, b)| (s, b.total())).collect()
+}
+
+/// The shown stats: the stored ones plus the modifiers (stats without a stored value count from zero), and for the skills
+/// the trickle-down of the shown attributes.
+pub fn shown(stored: &BTreeMap<u32, i64>, modifiers: &BTreeMap<u32, i64>) -> BTreeMap<u32, i64> {
+    totals(&breakdown(stored, modifiers, &BTreeMap::new(), &BTreeMap::new()))
 }
 
 #[cfg(test)]
@@ -146,6 +180,22 @@ mod tests {
         assert_eq!(shown[&1], 125);
         assert_eq!(shown[&0x5b], 230);
         assert_eq!(shown[&0x36], 8);
+    }
+
+    #[test]
+    fn the_parts_add_up_and_name_their_sources() {
+        let stored: BTreeMap<u32, i64> = [(0x10, 100), (0x11, 100), (0x12, 100), (0x13, 100), (0x14, 100), (0x15, 100), (103, 40)].into();
+        let worn: BTreeMap<u32, i64> = [(103, 7), (0x10, 20)].into();
+        let perks: BTreeMap<u32, i64> = [(103, 3)].into();
+        let nanos: BTreeMap<u32, i64> = [(103, 10)].into();
+        let parts = breakdown(&stored, &worn, &perks, &nanos);
+        let b = parts[&103];
+        assert_eq!((b.stored, b.worn, b.perks, b.nanos), (40, 7, 3, 10));
+        assert_eq!(b.trickle, trickle(&[30, 40, 30, 0, 0, 0], &[120, 100, 100, 100, 100, 100]));
+        assert_eq!(b.total(), 60 + b.trickle);
+        // an untrained skill starts at 5
+        assert_eq!(parts[&100].stored, 5);
+        assert_eq!(totals(&parts)[&0x10], 120);
     }
 
     #[test]

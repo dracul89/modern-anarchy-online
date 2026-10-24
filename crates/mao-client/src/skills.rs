@@ -3,6 +3,7 @@
 
 use std::collections::BTreeMap;
 
+use crate::derived::Breakdown;
 use crate::theme::Palette;
 
 /// The groups: a title, and for each skill its stat number and name.
@@ -96,7 +97,7 @@ pub const GROUPS: &[(&str, &[(u32, &str)])] = &[
 
 /// The rows of a group that match the search words (all of the words, in any case), as `(name, value)`; a skill the
 /// server never sent and the client cannot work out has no value and shows a dash.
-pub fn rows<'a>(group: &'a [(u32, &'a str)], stats: &BTreeMap<u32, i64>, search: &str) -> Vec<(&'a str, Option<i64>)> {
+pub fn rows<'a>(group: &'a [(u32, &'a str)], stats: &BTreeMap<u32, i64>, search: &str) -> Vec<(u32, &'a str, Option<i64>)> {
     let words: Vec<String> = search.split_whitespace().map(str::to_lowercase).collect();
     group
         .iter()
@@ -104,8 +105,38 @@ pub fn rows<'a>(group: &'a [(u32, &'a str)], stats: &BTreeMap<u32, i64>, search:
             let lower = name.to_lowercase();
             words.iter().all(|w| lower.contains(w))
         })
-        .map(|&(stat, name)| (name, stats.get(&stat).copied()))
+        .map(|&(stat, name)| (stat, name, stats.get(&stat).copied()))
         .collect()
+}
+
+/// The hover text of a row: the trained (stored) value and every bonus with where it comes from.
+pub fn breakdown_lines(b: &Breakdown) -> Vec<(&'static str, i64)> {
+    let mut lines = vec![("Trained", b.stored)];
+    for (what, amount) in [("Equipment", b.worn), ("Perks", b.perks), ("Nano buffs", b.nanos), ("Attributes", b.trickle)] {
+        if amount != 0 {
+            lines.push((what, amount));
+        }
+    }
+    lines
+}
+
+fn breakdown_text(ui: &mut egui::Ui, skill: &str, b: &Breakdown, accent: egui::Color32) {
+    ui.label(egui::RichText::new(skill).strong().color(accent));
+    for (what, amount) in breakdown_lines(b) {
+        ui.horizontal(|ui| {
+            ui.label(what);
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(if what == "Trained" { amount.to_string() } else { format!("{amount:+}") });
+            });
+        });
+    }
+    ui.separator();
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new("Total").strong());
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.label(egui::RichText::new(b.total().to_string()).strong());
+        });
+    });
 }
 
 #[derive(Default)]
@@ -115,7 +146,7 @@ pub struct SkillsWindow {
 }
 
 impl SkillsWindow {
-    pub fn show(&mut self, ctx: &egui::Context, name: &str, stats: &BTreeMap<u32, i64>, palette: &Palette) {
+    pub fn show(&mut self, ctx: &egui::Context, name: &str, stats: &BTreeMap<u32, i64>, parts: &BTreeMap<u32, Breakdown>, palette: &Palette) {
         let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
         let mut open = self.open;
         egui::Window::new(egui::RichText::new("Skills").color(accent)).open(&mut open).collapsible(false).default_pos(egui::pos2(300.0, 90.0)).default_size([260.0, 420.0]).show(ctx, |ui| {
@@ -139,13 +170,16 @@ impl SkillsWindow {
                         continue;
                     }
                     egui::CollapsingHeader::new(egui::RichText::new(*title).color(accent)).default_open(true).show(ui, |ui| {
-                        for (skill, value) in shown {
-                            ui.horizontal(|ui| {
+                        for (stat, skill, value) in shown {
+                            let row = ui.horizontal(|ui| {
                                 ui.label(skill);
                                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                     ui.label(value.map_or("-".to_string(), |v| v.to_string()));
                                 });
                             });
+                            if let Some(b) = parts.get(&stat) {
+                                row.response.interact(egui::Sense::hover()).on_hover_ui(|ui| breakdown_text(ui, skill, b, accent));
+                            }
                         }
                     });
                 }
@@ -171,11 +205,18 @@ mod tests {
     }
 
     #[test]
+    fn the_hover_lists_only_the_parts_that_count() {
+        let b = Breakdown { stored: 40, worn: 7, perks: 0, nanos: 10, trickle: 25 };
+        assert_eq!(breakdown_lines(&b), vec![("Trained", 40), ("Equipment", 7), ("Nano buffs", 10), ("Attributes", 25)]);
+        assert_eq!(b.total(), 82);
+    }
+
+    #[test]
     fn the_search_narrows_the_rows() {
         let stats: BTreeMap<u32, i64> = [(103, 500), (102, 400)].into();
         let melee = GROUPS.iter().find(|g| g.0 == "Melee Weapons").unwrap().1;
-        assert_eq!(rows(melee, &stats, "edged"), vec![("1h Edged", Some(500)), ("2h Edged", None)]);
-        assert_eq!(rows(melee, &stats, "1H BLUNT"), vec![("1h Blunt", Some(400))]);
+        assert_eq!(rows(melee, &stats, "edged"), vec![(103, "1h Edged", Some(500)), (105, "2h Edged", None)]);
+        assert_eq!(rows(melee, &stats, "1H BLUNT"), vec![(102, "1h Blunt", Some(400))]);
         assert!(rows(melee, &stats, "nothing here").is_empty());
     }
 }

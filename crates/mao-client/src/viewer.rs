@@ -64,7 +64,7 @@ pub struct Update {
     /// New cells of the map (fog of war), and the people about (for its dots).
     pub map: Option<crate::automap::MapPatch>,
     /// The character's name and stats, when they change.
-    pub stats: Option<(String, std::collections::BTreeMap<u32, i64>)>,
+    pub stats: Option<(String, std::collections::BTreeMap<u32, i64>, std::collections::BTreeMap<u32, crate::derived::Breakdown>)>,
     pub map_dots: Vec<([f32; 2], crate::automap::DotKind)>,
     /// The ground (and how far the server's heights sit above it), to keep the camera above it.
     pub ground: Option<(std::sync::Arc<mao_formats::terrain::Terrain>, f32)>,
@@ -657,9 +657,10 @@ impl ApplicationHandler for App {
                                 ui.mail.status = status;
                             }
                         }
-                        if let Some((name, stats)) = u.stats.take() {
+                        if let Some((name, stats, parts)) = u.stats.take() {
                             self.hud.character_name = name;
                             self.hud.stats = stats;
+                            self.hud.stat_parts = parts;
                         }
                         if let (Some(patch), Some(ui)) = (u.map.take(), w.ui.as_mut()) {
                             ui.automap.apply(patch);
