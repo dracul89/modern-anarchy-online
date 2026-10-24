@@ -1869,7 +1869,15 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         }
                         None => pending_messages.push("No target (Tab selects one)".into()),
                     },
-                    other => pending_messages.push(format!("{other}: its network message is not captured yet")),
+                    other => match crate::actions_data::ACTIONS.iter().find(|a| a.0 == id && a.1 == crate::actions::Kind::Perk && a.3.len() == 4) {
+                        // A perk: its id and its four-letter hash name it (the server uses the current target).
+                        Some(&(_, _, perk_name, hash, perk_id)) => {
+                            let h: [u8; 4] = hash.as_bytes().try_into().unwrap_or([0; 4]);
+                            let _ = connection.send(&n3::use_perk(own, perk_id, h));
+                            pending_messages.push(format!("Using {perk_name}"));
+                        }
+                        None => pending_messages.push(format!("{other}: its network message is not captured yet")),
+                    },
                 }
             }
             if keys.social.0 != social_seen {

@@ -167,6 +167,20 @@ pub fn feedback_text(data: &[u8]) -> Option<String> {
     None
 }
 
+/// `CharacterAction` (`5e477770`) action `0xb3` (`UsePerk`): uses a perk. The target is the character itself (the perk acts on the
+/// current target the server knows from `set_target`); the first parameter is the perk's id and the second its four-letter hash as
+/// ASCII (big-endian), as in the captured uses (`0x2991` with `QISH`, `0x2994` with `DBSH`).
+pub fn use_perk(character: u32, perk: u32, hash: [u8; 4]) -> Frame {
+    let mut data = vec![0u8; 5];
+    data[4] = 0xb3;
+    data.extend_from_slice(&[0; 4]);
+    for word in [CHARACTER, character, perk, u32::from_be_bytes(hash)] {
+        data.extend_from_slice(&word.to_be_bytes());
+    }
+    data.extend_from_slice(&[0; 2]);
+    Message { kind: 0x5e477770, identity: (CHARACTER, character), data }.frame(character)
+}
+
 /// `CharSecSpecAttack` (`51492120`): a weapon special attack at a target: a zero byte, the target identity and the skill's stat (the
 /// captured ones: 142 Brawl, 144 Dimach, 147 Fast Attack, 148 Burst, 150 Fling Shot).
 pub fn special_attack(character: u32, target: u32, stat: u32) -> Frame {
@@ -373,6 +387,9 @@ mod tests {
         assert_eq!(hex(trade(0x1323e, 5, [0xc75b, 0xc006021c, 0x6f, 2])), "0000000002050000c75bc006021c0000006f00000002");
         assert_eq!(hex(cast_nano(0x4c2de, Some(0x7af69bd7), 0xaad6)), "0000000013000000000000c3507af69bd70000cf1b0000aad60000");
         assert_eq!(hex(cast_nano(0x4bc80, None, 0x43576)), "00000000130000000000000000000000000000cf1b000435760000");
+        assert_eq!(hex(use_perk(0x4bc7f, 0x2991, *b"QISH")), "00000000b3000000000000c3500004bc7f00002991514953480000");
+        assert_eq!(hex(use_perk(0x4bc7f, 0x2a0a, *b"WRTK")), "00000000b3000000000000c3500004bc7f00002a0a5752544b0000");
+        assert_eq!(hex(use_perk(0x4bc80, 0x27bc, *b"BICC")), "00000000b3000000000000c3500004bc80000027bc424943430000");
         assert_eq!(hex(special_attack(0x4bc80, 0x7b017c2a, 142)), "000000c3507b017c2a0000008e");
         assert_eq!(hex(special_attack(0x4bc80, 0x7b017c2a, 150)), "000000c3507b017c2a00000096");
         assert_eq!(hex(take_from_container(0x4bc80, 0x70, 1)), "000000006b007000010000006f");
