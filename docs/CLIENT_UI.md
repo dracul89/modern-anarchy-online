@@ -371,3 +371,7 @@ How far the live view sees: the options window's **View distance** slider (200 t
 ## Character distance (`/chardist`, options)
 
 Characters and creatures farther than this from you are not drawn (their name plates and the map dots still follow what is known): the options window's **Character distance** slider (0 to 400, 0 meaning all; `char_distance` in `mao.ini`) or `/chardist <n>`. Machines, doors and the other built-in things are always drawn. It is meant for crowded places, where drawing every character costs the most. Not tried live.
+
+## Other characters' social actions (dances, bows, ...)
+
+When the server announces a social action (`SocialActionCmd`, `3b290771`: its last word is the action's number, the same numbers the Action window's social list uses: 6 is the backflip, 62 another; the words before it are a counter and flags), the character it comes from plays that animation once (`<male|female|athrox>_social-<name>.ani`, found in the database by name: 75 male, 74 female and 75 Atrox ones). After the animation ends the character is drawn as usual again. Our own social actions still are **not sent** (the message of the client's side was not in any capture), so they do not animate our own character either.

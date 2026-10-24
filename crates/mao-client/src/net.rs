@@ -146,6 +146,8 @@ struct World {
     perks_changed: bool,
     /// The health each character was last known to have (from the damage events: the target's health after the hit).
     last_hp: BTreeMap<u32, i64>,
+    /// The social action each character is doing: its name and when it began (from `SocialActionCmd`).
+    socials: BTreeMap<u32, (&'static str, Instant)>,
     /// Damage and healing events not yet shown as floating numbers: (target id, amount, stat).
     damage: Vec<(u32, i64, u32)>,
     /// Lines the server's game messages made (damage, healing, "You successfully perform ..."), for the chat window.
@@ -383,6 +385,13 @@ impl World {
                     self.objects.insert(m.identity.1, [f("X"), f("Y"), f("Z")]);
                     self.names.entry(m.identity.1).or_insert_with(|| (format!("Booth {:x}", m.identity.1 & 0xffff), false));
                 }
+            }
+        }
+        // A character's social action (a dance, a bow): the last word of the message is the action's number.
+        if m.kind == 0x3b290771 && m.data.len() >= 13 {
+            let action = u32::from_be_bytes(m.data[m.data.len() - 4..].try_into().unwrap());
+            if let Some(name) = crate::actions_data::SOCIAL.iter().find(|a| a.0 == action).map(|a| a.1) {
+                self.socials.insert(m.identity.1, (name, Instant::now()));
             }
         }
         // The game's own text and the fight.
@@ -768,6 +777,62 @@ impl Characters {
         name
     }
 
+    /// Loads a social action's animation (cached) and returns the key it is stored under, when the files have it.
+    fn ensure_social(&mut self, breed: u8, sex: u8, name: &str) -> Option<String> {
+        use mao_formats::resource::Id;
+        for file in mao_formats::appearance::social_animation_names(breed, sex, name) {
+            if !self.anims.contains_key(&file) {
+                let loaded = (|| {
+                    let id = self.index.find(0xf6953, &file)?;
+                    let anim = mao_formats::catanim::parse(&self.db.get(Id { kind: 0xf6953, instance: id }).ok()??).ok()?;
+                    let length = anim.tracks.iter().flat_map(|t| t.rotations.iter().map(|k| k.0)).fold(1.0f32, f32::max);
+                    Some((anim, length))
+                })();
+                self.anims.insert(file.clone(), loaded);
+            }
+            if self.anims.get(&file).is_some_and(|a| a.is_some()) {
+                return Some(file);
+            }
+        }
+        None
+    }
+
+    /// The parts of a character doing a social action `age_ms` into it, or `None` when the animation is missing or over.
+    fn parts_social(&mut self, breed: u8, sex: u8, name: &str, age_ms: f32, textures: &[(String, u32)], clothes: &[(String, u32)]) -> Option<Vec<Part>> {
+        use mao_formats::resource::Id;
+        let key = self.ensure_social(breed, sex, name)?;
+        let db = self.db.clone();
+        let index = &self.index;
+        let entry = self.bodies.entry((breed, sex)).or_insert_with(|| {
+            let (body_name, head_name) = mao_formats::appearance::player_meshes(breed, sex)?;
+            let body = mao_formats::catmesh::parse(&db.get(Id { kind: 0xf6952, instance: index.find(0xf6952, body_name)? }).ok()??).ok()?;
+            let head = crate::load_model(&db, Id { kind: 0xf6951, instance: index.find(0xf6951, head_name)? }).ok()?;
+            let attractor = body.attractor("head").cloned();
+            Some((body, head, attractor))
+        });
+        let (body, head, attractor) = entry.as_ref()?;
+        let (anim, length) = self.anims.get(&key)?.as_ref()?;
+        if age_ms >= *length {
+            return None;
+        }
+        let bones = body.pose(anim, age_ms);
+        let mut model = body.skinned_model(&bones, 0xf6954);
+        for part in &mut model.parts {
+            let wanted = clothes.iter().chain(textures.iter()).find(|(n, i)| *i != 0 && n.eq_ignore_ascii_case(&part.material.name));
+            if let Some((_, instance)) = wanted {
+                part.material.textures = vec![(0xf6954, *instance)];
+            }
+        }
+        if let Some(a) = attractor {
+            model.parts.extend(body.attach(&bones, a, head));
+        }
+        let mut parts = model.parts;
+        for p in &mut parts {
+            p.world = model::IDENTITY;
+        }
+        Some(parts)
+    }
+
     /// An animation's `loopstart`, `loopend` and length in ms (the whole length as the loop if it has no notes).
     fn loop_points(&mut self, breed: u8, sex: u8, action: mao_formats::appearance::Action) -> Option<(f32, f32, f32)> {
         let name = self.ensure_anim(breed, sex, action);
@@ -923,6 +988,17 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
             }
         }
         let info = world.infos.get(&id).filter(|i| i.is_humanoid());
+        // (a social action in progress plays its own animation)
+        if let (Some(info), Some(chars), Some(&(social, began))) = (info, characters.as_mut(), world.socials.get(&id)) {
+            if let Some(parts) = chars.parts_social(info.breed, info.sex, social, began.elapsed().as_secs_f32() * 1000.0, &info.textures, &info.clothes) {
+                let base = model.parts.len();
+                for (k, p) in parts.into_iter().enumerate() {
+                    model.parts.push(p);
+                    model.instances.push((base + k, place));
+                }
+                continue;
+            }
+        }
         if let (Some(info), Some(chars)) = (info, characters.as_mut()) {
             // Movement animates while the position changes (our own is sampled every frame, the others' every few hundred ms).
             let moving = world.last_move.get(&id).is_some_and(|t| t.elapsed() < Duration::from_millis(if id == world.own { 90 } else { 700 }));

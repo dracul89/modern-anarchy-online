@@ -60,9 +60,22 @@ pub fn animation_name(breed: u8, sex: u8, action: Action) -> String {
     format!("{prefix}_{stem}_01_01.ani")
 }
 
+/// The file names a social action's animation may have (`male_social-backflip.ani`, and a few with the `_01_01` suffix).
+pub fn social_animation_names(breed: u8, sex: u8, name: &str) -> [String; 2] {
+    let prefix = if breed == ATROX { "athrox" } else if sex == FEMALE { "female" } else { "male" };
+    [format!("{prefix}_social-{name}.ani"), format!("{prefix}_social-{name}_01_01.ani")]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn social_animation_names_follow_the_breed_and_sex() {
+        assert_eq!(social_animation_names(SOLITUS, MALE, "backflip")[0], "male_social-backflip.ani");
+        assert_eq!(social_animation_names(OPIFEX, FEMALE, "bow")[0], "female_social-bow.ani");
+        assert_eq!(social_animation_names(ATROX, 1, "disco")[1], "athrox_social-disco_01_01.ani");
+    }
 
     #[test]
     fn animation_names() {
