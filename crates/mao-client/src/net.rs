@@ -213,6 +213,10 @@ fn absorb_line(amount: i64, stat: u32) -> String {
     format!("You absorb {amount} points of {kind}damage.")
 }
 
+fn reload_line(loaded: i64, left: i64) -> String {
+    format!("You reload: {loaded} rounds in the weapon, {left} left.")
+}
+
 fn shield_line(who: &str, amount: i64) -> String {
     format!("{who}'s damage shield hits you for {amount} points.")
 }
@@ -472,6 +476,13 @@ impl World {
                         self.orgs.insert(m.identity.1, name.clone());
                     }
                 }
+            }
+        }
+        // A reload: the rounds now in the weapon and those left in the ammunition stack.
+        if m.kind == 0x26515e61 && m.identity.1 == self.own {
+            if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
+                let n = |name: &str| p.value.get(name).and_then(mao_net::schema::Value::as_int).unwrap_or(0);
+                self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, reload_line(n("WeaponAmmoCount"), n("AmmoCount"))));
             }
         }
         // Damage the character's armour absorbed, and a damage shield that struck it.
@@ -3646,6 +3657,7 @@ mod door_tests {
         assert_eq!(combat_line("Rollerrat", false, 49, 0), "Rollerrat is healed for 49 points.");
         assert_eq!(combat_line("You", true, -7, 0), "You take 7 points of damage.");
         assert_eq!(absorb_line(1581, 95), "You absorb 1581 points of cold damage.");
+        assert_eq!(reload_line(75, 25260), "You reload: 75 rounds in the weapon, 25260 left.");
         assert_eq!(shield_line("Rat", 173), "Rat's damage shield hits you for 173 points.");
     }
 
