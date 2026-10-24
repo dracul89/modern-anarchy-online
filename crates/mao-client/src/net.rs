@@ -215,6 +215,9 @@ static CHAT_STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBo
 static CHAT_LINES: std::sync::Mutex<Vec<crate::chatwindow::Line>> = std::sync::Mutex::new(Vec::new());
 static CHAT_OUT: std::sync::OnceLock<std::sync::Mutex<std::sync::mpsc::Sender<crate::chatwindow::Out>>> = std::sync::OnceLock::new();
 
+/// The friends list as the chat server tells it: a version that steps with each change, and id -> (name, online).
+static BUDDIES: std::sync::Mutex<(u64, BTreeMap<u32, (String, bool)>)> = std::sync::Mutex::new((0, BTreeMap::new()));
+
 /// The kind of the chat channel that is the character's organization's (the public chat protocol's group type 3).
 const ORG_CHANNEL_KIND: u8 = 3;
 
@@ -1056,6 +1059,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     let mut channels: BTreeMap<u32, (u8, String)> = BTreeMap::new();
                     // tells waiting for the id of the character they go to: (lower-case name, text)
                     let mut waiting: Vec<(String, String)> = Vec::new();
+                    // names of characters to put on the friends list once their id is known
+                    let mut befriending: Vec<String> = Vec::new();
                     loop {
                         let packet = match chat.receive() {
                             Ok(p) => Some(p),
@@ -1079,6 +1084,21 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                 for text in sent {
                                     chat.send(&mao_net::chat::tell_packet(id, &text))?;
                                 }
+                                if befriending.contains(&name.to_lowercase()) {
+                                    befriending.retain(|w| *w != name.to_lowercase());
+                                    chat.send(&mao_net::chat::buddy_add_packet(id))?;
+                                    let mut buddies = BUDDIES.lock().unwrap();
+                                    buddies.1.entry(id).or_insert((name.clone(), false));
+                                    buddies.0 += 1;
+                                }
+                                // a friend whose name came after its status
+                                let mut buddies = BUDDIES.lock().unwrap();
+                                if let Some(entry) = buddies.1.get_mut(&id) {
+                                    if entry.0 != name {
+                                        entry.0 = name.clone();
+                                        buddies.0 += 1;
+                                    }
+                                }
                                 None
                             }
                             Some(Packet::Channel { kind, id, name }) => {
@@ -1099,6 +1119,13 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                 let place = channels.get(&channel.1).map(|c| c.1.clone()).unwrap_or_default();
                                 Some(Line::new(Kind::Channel, format!("[{place}] {who}: {}", mao_net::chat::plain(&text))))
                             }
+                            Some(Packet::Buddy { id, online, .. }) => {
+                                let mut buddies = BUDDIES.lock().unwrap();
+                                let name = names.get(&id).cloned().unwrap_or_else(|| format!("#{id}"));
+                                buddies.1.insert(id, (name, online));
+                                buddies.0 += 1;
+                                None
+                            }
                             Some(Packet::Other { kind, data }) => {
                                 eprintln!("chat packet {kind}: {}", data.iter().map(|b| format!("{b:02x}")).collect::<String>());
                                 None
@@ -1118,6 +1145,24 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                         chat.send(&mao_net::chat::lookup_packet(&name))?;
                                     }
                                 },
+                                Out::Befriend { name } => match ids.get(&name.to_lowercase()) {
+                                    Some(&id) => {
+                                        chat.send(&mao_net::chat::buddy_add_packet(id))?;
+                                        let mut buddies = BUDDIES.lock().unwrap();
+                                        buddies.1.entry(id).or_insert((name, false));
+                                        buddies.0 += 1;
+                                    }
+                                    None => {
+                                        befriending.push(name.to_lowercase());
+                                        chat.send(&mao_net::chat::lookup_packet(&name))?;
+                                    }
+                                },
+                                Out::Unfriend { id } => {
+                                    chat.send(&mao_net::chat::buddy_remove_packet(id))?;
+                                    let mut buddies = BUDDIES.lock().unwrap();
+                                    buddies.1.remove(&id);
+                                    buddies.0 += 1;
+                                }
                                 Out::Org { text } => match channels.iter().find(|(_, (kind, _))| *kind == ORG_CHANNEL_KIND) {
                                     Some((&id, _)) => chat.send(&mao_net::chat::channel_packet(ORG_CHANNEL_KIND, id, &text))?,
                                     None => CHAT_LINES.lock().unwrap().push(Line::new(Kind::System, "You are not in an organization.")),
@@ -1207,6 +1252,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let (mut seen, mut target): ([u8; 7], Option<u32>) = ([0; 7], None);
         let (mut sitting, mut uses, mut fired) = (false, 0u32, 0u8);
         let (mut special_seen, mut social_seen, mut pick_seen) = (0u8, 0u8, 0u8);
+        let mut friends_seen = u64::MAX;
         let (mut position, mut heading) = (start, heading);
         let (mut moving, mut turning, mut strafing) = (0i8, 0i8, 0i8);
         const JUMP_SPEED: f32 = 7.0;
@@ -1919,6 +1965,13 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     eprintln!("stats: {} stored, {} modifiers; {}", state.stats.len(), state.item_mods.len(), pick(&[0x1b, 0x01, 0xd6, 0xdd, 0x36, 0x34, 0x39, 0x15e, 0x28, 0xb2, 0xa9, 0x5b]));
                 }
                 let chat_lines_now: Vec<crate::chatwindow::Line> = std::mem::take(&mut *CHAT_LINES.lock().unwrap());
+                let friends_now = {
+                    let buddies = BUDDIES.lock().unwrap();
+                    (buddies.0 != friends_seen).then(|| {
+                        friends_seen = buddies.0;
+                        buddies.1.iter().map(|(&id, (name, online))| crate::friends::Friend { id, name: name.clone(), online: *online }).collect::<Vec<_>>()
+                    })
+                };
                 let update = crate::viewer::Update {
                     messages_only: false,
                     scene: pending_scene.take(),
@@ -1963,6 +2016,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         std::mem::take(&mut pending_messages)
                     },
                     chat_lines: chat_lines_now,
+                    friends: friends_now,
                     gear: pending_gear.take(),
                     nanos: std::mem::take(&mut state.nano_list_changed).then(|| crate::ncu::describe(&gear_db, &gear_textures, &state.nano_times, state.stats.get(&0x36).copied().unwrap_or(1), state.nano_times_at.unwrap_or_else(Instant::now))),
                     missions: pending_missions.take(),

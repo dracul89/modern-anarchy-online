@@ -85,6 +85,8 @@ pub struct Update {
     pub gear: Option<Vec<crate::gear::GearItem>>,
     /// New lines for the chat window.
     pub chat_lines: Vec<crate::chatwindow::Line>,
+    /// The friends list, when it changes.
+    pub friends: Option<Vec<crate::friends::Friend>>,
     /// The running nano programs, when the list changes (the NCU window).
     pub nanos: Option<Vec<crate::ncu::NanoInfo>>,
     /// The way the character faces (radians about the vertical, 0 along +Z of the server's world).
@@ -497,6 +499,11 @@ impl ApplicationHandler for App {
                                 ui.chat.focus();
                             }
                         }
+                        Action::FriendsWindow if !event.repeat => {
+                            if let Some(ui) = w.ui.as_mut() {
+                                ui.friends.open = !ui.friends.open;
+                            }
+                        }
                         Action::NcuWindow if !event.repeat => {
                             if let Some(ui) = w.ui.as_mut() {
                                 ui.ncu.open = !ui.ncu.open;
@@ -716,6 +723,9 @@ impl ApplicationHandler for App {
                             for line in std::mem::take(&mut u.chat_lines) {
                                 ui.chat.push(line);
                             }
+                        }
+                        if let Some(friends) = u.friends.take() {
+                            self.hud.friends = friends;
                         }
                         if let Some(items) = u.gear.take() {
                             self.hud.gear = items;

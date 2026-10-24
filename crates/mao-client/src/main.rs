@@ -16,6 +16,7 @@
 mod actions;
 mod chat_commands;
 mod chatwindow;
+mod friends;
 mod ncu;
 mod skills;
 mod stats;
@@ -593,6 +594,21 @@ fn run(args: &[String]) -> Result<(), String> {
                         *hud.ncu_preview.lock().unwrap() = Some(window);
                     }
                     // MAO_UI_PREVIEW=chat (MAO_CHAT_INPUT=/te): the chat window with sample lines and, with an input, the command list.
+                    // MAO_UI_PREVIEW=friends MAO_FRIENDS=<name:1,name:0,...> (1 = online): the friends list.
+                    if preview.as_deref() == Some("friends") {
+                        hud.friends = std::env::var("MAO_FRIENDS")
+                            .unwrap_or_default()
+                            .split(',')
+                            .enumerate()
+                            .filter_map(|(i, e)| {
+                                let (name, online) = e.split_once(':')?;
+                                Some(friends::Friend { id: i as u32 + 1, name: name.trim().to_string(), online: online.trim() == "1" })
+                            })
+                            .collect();
+                        let mut window = friends::FriendsWindow::default();
+                        window.open = true;
+                        *hud.friends_preview.lock().unwrap() = Some(window);
+                    }
                     if preview.as_deref() == Some("chat") {
                         use chatwindow::{Kind, Line};
                         let mut window = chatwindow::ChatWindow::default();

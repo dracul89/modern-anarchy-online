@@ -16,6 +16,7 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
     ("tell <name> <text>", "a private message (also /t)"),
     ("reply <text>", "answer the last tell (also /r)"),
     ("org <text>", "your organization's channel (also /o)"),
+    ("befriend <name>", "put a character on your friends list (L shows it)"),
     ("help", "this list"),
     ("version", "the client's version"),
 ];
@@ -29,6 +30,8 @@ pub enum Parsed {
     Tell { name: String, text: String },
     /// An answer to the last tell.
     Reply { text: String },
+    /// `/befriend <name>`: a character to put on the friends list.
+    Befriend { name: String },
     /// A line for the organization channel.
     Org { text: String },
     /// Plain speech or /say, /shout, /whisper, /me: vicinity chat.
@@ -91,6 +94,13 @@ pub fn parse(line: &str) -> Parsed {
                 Parsed::Reply { text: text.to_string() }
             }
         }
+        "befriend" => {
+            if text.is_empty() {
+                Parsed::Usage("/befriend <name>")
+            } else {
+                Parsed::Befriend { name: text.split_whitespace().next().unwrap_or(text).to_string() }
+            }
+        }
         "org" | "o" => {
             if text.is_empty() {
                 Parsed::Usage("/org <text>")
@@ -137,6 +147,8 @@ mod tests {
         assert_eq!(parse("/T Abc hi"), Parsed::Tell { name: "Abc".into(), text: "hi".into() });
         assert_eq!(parse("/tell Abc"), Parsed::Usage("/tell <name> <text>"));
         assert_eq!(parse("/r thanks"), Parsed::Reply { text: "thanks".into() });
+        assert_eq!(parse("/befriend Abc"), Parsed::Befriend { name: "Abc".into() });
+        assert_eq!(parse("/befriend"), Parsed::Usage("/befriend <name>"));
         assert_eq!(parse("/o hello org"), Parsed::Org { text: "hello org".into() });
         assert_eq!(parse("hello world"), Parsed::Vicinity { command: "say", text: "hello world".into() });
         assert_eq!(parse("/s HEY"), Parsed::Vicinity { command: "shout", text: "HEY".into() });

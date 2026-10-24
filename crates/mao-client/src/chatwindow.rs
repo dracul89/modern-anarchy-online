@@ -34,6 +34,9 @@ impl Line {
 pub enum Out {
     Tell { name: String, text: String },
     Org { text: String },
+    /// Put a character on the friends list / take one off.
+    Befriend { name: String },
+    Unfriend { id: u32 },
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -112,6 +115,10 @@ impl ChatWindow {
                     None
                 }
             },
+            Parsed::Befriend { name } => {
+                self.push(Line::new(Kind::System, format!("Adding {name} to your friends.")));
+                Some(Out::Befriend { name })
+            }
             Parsed::Org { text } => {
                 self.push(Line::new(Kind::Own, format!("[Org] {text}")));
                 Some(Out::Org { text })
