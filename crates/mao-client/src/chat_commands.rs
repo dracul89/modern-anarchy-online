@@ -19,6 +19,7 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
     ("befriend <name>", "put a character on your friends list (L shows it)"),
     ("ignore [name]", "hide a character's tells and channel lines (again: show them; alone: the list)"),
     ("camp", "sit down to log out (stand up or move to cancel)"),
+    ("viewdist [n]", "how far the world is seen (200 to 4000)"),
     ("quit", "leave the client"),
     ("help", "this list"),
     ("version", "the client's version"),
@@ -37,6 +38,8 @@ pub enum Parsed {
     Befriend { name: String },
     /// `/ignore <name>` (or `/ignore` alone: the list): hide a character's tells and channel lines.
     Ignore { name: String },
+    /// `/viewdist [n]`: how far the world is seen (alone: the setting).
+    ViewDist { distance: Option<u32> },
     /// `/camp`: sit down to log out.
     Camp,
     /// `/quit`: leave the client.
@@ -105,6 +108,7 @@ pub fn parse(line: &str) -> Parsed {
         }
         "ignore" => Parsed::Ignore { name: text.split_whitespace().next().unwrap_or("").to_string() },
         "camp" => Parsed::Camp,
+        "viewdist" => Parsed::ViewDist { distance: text.split_whitespace().next().and_then(|t| t.parse().ok()) },
         "quit" => Parsed::Quit,
         "befriend" => {
             if text.is_empty() {
@@ -162,6 +166,8 @@ mod tests {
         assert_eq!(parse("/ignore Abc"), Parsed::Ignore { name: "Abc".into() });
         assert_eq!(parse("/ignore"), Parsed::Ignore { name: String::new() });
         assert_eq!(parse("/camp"), Parsed::Camp);
+        assert_eq!(parse("/viewdist 600"), Parsed::ViewDist { distance: Some(600) });
+        assert_eq!(parse("/viewdist"), Parsed::ViewDist { distance: None });
         assert_eq!(parse("/QUIT"), Parsed::Quit);
         assert_eq!(parse("/befriend Abc"), Parsed::Befriend { name: "Abc".into() });
         assert_eq!(parse("/befriend"), Parsed::Usage("/befriend <name>"));

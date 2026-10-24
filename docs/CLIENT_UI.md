@@ -363,3 +363,7 @@ The inventory window has a **Find** box: items whose name does not contain the t
 ## Mail terminals from the dynel table
 
 "Check mail" used four mail terminals seen in captures. The playfield's dynel table (`mao-client <game> dynels <playfield> c773` lists a kind) holds **385 mail terminals in 203 playfields**, each with its serial (`0xc0NN` over the playfield: `0xc003021c`), and the ones the captures knew are there at the same places (`0xc003021c` at (446, 454) against the captured (445.4, 456.1)). The client now looks the nearest one up there (within 25 units) and keeps the captured list as the fallback. `dynel-kinds` counts what the tables hold: doors 5084, terminals (`0xc73d`) 3108, mail 385, vending machines 886, and `0xdac6` 2242, `0xdac1` 407, `0xc418` 269, `0xc790` 210 that nothing draws or uses yet.
+
+## View distance (`/viewdist`, options)
+
+How far the live view sees: the options window's **View distance** slider (200 to 4000, `view_distance` in `mao.ini`, 1800 by default) or `/viewdist <n>`. It is where the fog ends; the haze starts a seventh of the way out (250 for 1800), and the scene's fog is set from it every frame, so it takes effect at once. Not tried in a live window.

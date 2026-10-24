@@ -42,6 +42,8 @@ pub enum Out {
     /// Sit down to log out / leave the client (handled by the window, not sent to the chat server).
     Camp,
     Quit,
+    /// The view distance to set (a command line's `/viewdist n`).
+    ViewDist(u32),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -187,6 +189,14 @@ impl ChatWindow {
                 Some(Out::Camp)
             }
             Parsed::Quit => Some(Out::Quit),
+            Parsed::ViewDist { distance: Some(d) } => {
+                self.push(Line::new(Kind::System, format!("View distance {}.", d.clamp(200, 4000))));
+                Some(Out::ViewDist(d.clamp(200, 4000)))
+            }
+            Parsed::ViewDist { distance: None } => {
+                self.push(Line::new(Kind::System, "Usage: /viewdist <200 to 4000>"));
+                None
+            }
             Parsed::Ignore { name } if name.is_empty() => {
                 let list = if self.ignored.is_empty() { "nobody".to_string() } else { self.ignored.iter().cloned().collect::<Vec<_>>().join(", ") };
                 self.push(Line::new(Kind::System, format!("Ignoring: {list}.")));

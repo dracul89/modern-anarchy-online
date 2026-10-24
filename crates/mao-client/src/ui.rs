@@ -816,6 +816,10 @@ fn options_window(ctx: &egui::Context, open: &mut bool, rebinding: &mut Option<A
         ui.separator();
         ui.heading("Interface");
         ui.horizontal(|ui| {
+            ui.label("View distance");
+            ui.add(egui::Slider::new(&mut settings.view_distance, 200.0..=4000.0).logarithmic(true).step_by(10.0));
+        });
+        ui.horizontal(|ui| {
             ui.label("Interface size");
             ui.add(egui::Slider::new(&mut settings.ui_scale, 0.6..=2.0).step_by(0.05).custom_formatter(|v, _| format!("{:.0}%", v * 100.0)));
         });

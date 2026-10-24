@@ -244,6 +244,11 @@ struct App {
     last_click: Option<(u32, std::time::Instant)>,
 }
 
+/// The fog's start and end for a view distance: the haze begins a seventh of the way out (250 of the default 1800), or at 40.
+pub fn fog_for(distance: f32) -> (f32, f32) {
+    ((distance / 7.2).max(40.0), distance)
+}
+
 /// Shows the window the way `mode` says: a framed window, a borderless one
 /// covering the screen, or exclusive fullscreen at the monitor's best video
 /// mode (falling back to borderless where there is none).
@@ -369,7 +374,7 @@ impl ApplicationHandler for App {
         let mut scene = renderer.upload(&gpu, &self.model, &mut |k, i| self.textures.get(k, i));
         if self.live.is_some() {
             // Close-up view: distance fades into the sky.
-            scene.fog = (250.0, 1800.0);
+            scene.fog = fog_for(self.settings.view_distance);
         }
         let mut camera = Camera::fit(&scene);
         if let Some(([x, y, z], distance)) = self.live.as_ref().and_then(|l| l.focus.map(|f| (f, l.distance))) {
@@ -827,7 +832,7 @@ impl ApplicationHandler for App {
                         self.ground = update.ground.take();
                         if let Some(model) = &update.scene {
                             w.scene = w.renderer.upload(&w.gpu, model, &mut |k, i| self.textures.get(k, i));
-                            w.scene.fog = (250.0, 1800.0);
+                            w.scene.fog = fog_for(self.settings.view_distance);
                         }
                         let own_scene = w.renderer.upload(&w.gpu, &update.own_model, &mut |k, i| self.textures.get(k, i));
                         w.scene.set_follow(own_scene);
@@ -865,6 +870,9 @@ impl ApplicationHandler for App {
                 };
                 let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
                 let size = (w.config.width, w.config.height);
+                if self.live.is_some() {
+                    w.scene.fog = fog_for(self.settings.view_distance);
+                }
                 w.renderer.render_scale = self.settings.render_scale;
                 w.renderer.sharpness = self.settings.sharpness;
                 // The camera stays above the ground (else the ground's back is culled and the sky shows through it).
@@ -908,6 +916,10 @@ impl ApplicationHandler for App {
                             // (these two are for the client itself)
                             crate::chatwindow::Out::Camp => self.keys.commands[5] = self.keys.commands[5].wrapping_add(1),
                             crate::chatwindow::Out::Quit => event_loop.exit(),
+                            crate::chatwindow::Out::ViewDist(d) => {
+                                self.settings.view_distance = d as f32;
+                                self.settings.save();
+                            }
                             other => crate::net::send_chat(other),
                         }
                     }

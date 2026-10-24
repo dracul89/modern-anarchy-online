@@ -422,6 +422,8 @@ pub struct Settings {
     pub sharpness: f32,
     /// The interface's size (1.0 is as large as the window's scale makes it).
     pub ui_scale: f32,
+    /// How far the world is seen: where the fog ends (the live view).
+    pub view_distance: f32,
     /// The interface colours: `built-in`, `original`, `aou_translucent` ... or a folder
     /// (see [`crate::theme`]).
     pub theme: String,
@@ -432,7 +434,7 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { mode: WindowMode::Windowed, width: 1280, height: 800, vsync: false, render_scale: 1.0, sharpness: 0.2, ui_scale: 1.0, theme: "built-in".into(), aou_mod: String::new(), keymap: Keymap::default() }
+        Settings { mode: WindowMode::Windowed, width: 1280, height: 800, vsync: false, render_scale: 1.0, sharpness: 0.2, ui_scale: 1.0, view_distance: 1800.0, theme: "built-in".into(), aou_mod: String::new(), keymap: Keymap::default() }
     }
 }
 
@@ -440,7 +442,7 @@ impl Settings {
     /// The settings text: the window options, then every action's keys.
     pub fn to_text(&self) -> String {
         let mut out = String::from("; Modern Anarchy Online settings\n[window]\n; windowed | borderless | fullscreen (F11 / Alt+Enter change it while playing)\n");
-        out += &format!("mode = {}\nwidth = {}\nheight = {}\nvsync = {}\nrender_scale = {}\nsharpness = {}\nui_scale = {}\n\n", self.mode.name(), self.width, self.height, if self.vsync { "on" } else { "off" }, self.render_scale, self.sharpness, self.ui_scale);
+        out += &format!("mode = {}\nwidth = {}\nheight = {}\nvsync = {}\nrender_scale = {}\nsharpness = {}\nui_scale = {}\nview_distance = {}\n\n", self.mode.name(), self.width, self.height, if self.vsync { "on" } else { "off" }, self.render_scale, self.sharpness, self.ui_scale, self.view_distance);
         out += &format!("[interface]\n; built-in | original | aou_translucent | aou_cyt | aou_slim_cni | aou_slim_cnt | a folder with GUIColors.xml\ntheme = {}\n; the AOU mod's folder (the one with Gui in it), for its themes\naou_mod = {}\n\n", self.theme, self.aou_mod);
         out += "[keys]\n; one or more keys per action, separated by commas; Shift+, Ctrl+ and Alt+ combine\n";
         for &(action, name, _) in ACTIONS {
@@ -475,6 +477,7 @@ impl Settings {
                 ("window", "width") => settings.width = value.parse().unwrap_or(settings.width).clamp(320, 16384),
                 ("window", "render_scale") => settings.render_scale = value.parse().unwrap_or(settings.render_scale).clamp(0.4, 1.0),
                 ("window", "sharpness") => settings.sharpness = value.parse().unwrap_or(settings.sharpness).clamp(0.0, 4.0),
+                ("window", "view_distance") => settings.view_distance = value.parse().unwrap_or(settings.view_distance).clamp(150.0, 6000.0),
                 ("window", "ui_scale") => settings.ui_scale = value.parse().unwrap_or(settings.ui_scale).clamp(0.5, 3.0),
                 ("window", "vsync") => settings.vsync = matches!(value.to_ascii_lowercase().as_str(), "on" | "true" | "1" | "yes"),
                 ("window", "height") => settings.height = value.parse().unwrap_or(settings.height).clamp(240, 16384),
