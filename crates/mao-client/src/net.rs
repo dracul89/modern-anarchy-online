@@ -1500,9 +1500,12 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             Some(Packet::Buddy { id, online, .. }) => {
                                 let mut buddies = BUDDIES.lock().unwrap();
                                 let name = names.get(&id).cloned().unwrap_or_else(|| format!("#{id}"));
+                                // (a friend already on the list who comes or goes is told; the first listing is not)
+                                let changed = buddies.1.get(&id).is_some_and(|(_, was)| *was != online);
+                                let shown = buddies.1.get(&id).map_or(name.clone(), |(n, _)| n.clone());
                                 buddies.1.insert(id, (name, online));
                                 buddies.0 += 1;
-                                None
+                                changed.then(|| Line::new(Kind::System, format!("{shown} {}.", if online { "is now online" } else { "has gone offline" })))
                             }
                             Some(Packet::Other { kind, data }) => {
                                 eprintln!("chat packet {kind}: {}", data.iter().map(|b| format!("{b:02x}")).collect::<String>());
