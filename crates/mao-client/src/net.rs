@@ -146,6 +146,8 @@ struct World {
     types: BTreeMap<u32, u32>,
     /// The vending machines (booths: shops, and the mission booths' companions) with their positions.
     vendors: BTreeMap<u32, [f32; 3]>,
+    /// The machines the server announces with a model (mesh instance, position, rotation): drawn like the other entities.
+    props: BTreeMap<u32, (u32, [f32; 3], [f32; 4])>,
     /// The travel list of the playfield, from the server (until taken).
     destinations: Option<mao_net::destinations::DestinationList>,
     /// The usable objects the server announces (doors, mail terminals, booths: identity type
@@ -261,6 +263,18 @@ impl World {
                         _ => 0.0,
                     };
                     self.vendors.insert(m.identity.1, [f("X"), f("Y"), f("Z")]);
+                    // The machine's model is the `Mesh` stat (12); the booth faces the way its rotation says.
+                    let mesh = match p.value.get("Stats") {
+                        Some(mao_net::schema::Value::List(stats)) => stats.iter().find(|s| s.get("Item1").and_then(mao_net::schema::Value::as_int) == Some(12)).and_then(|s| s.get("Item2")?.as_int()),
+                        _ => None,
+                    };
+                    if let Some(mesh) = mesh.filter(|&m| m > 0) {
+                        let r = |n: &str| match p.value.get("Rotation").and_then(|q| q.get(n)) {
+                            Some(mao_net::schema::Value::Float(x)) => *x as f32,
+                            _ => 0.0,
+                        };
+                        self.props.insert(m.identity.1, (mesh as u32, [f("X"), f("Y"), f("Z")], [r("X"), r("Y"), r("Z"), r("W")]));
+                    }
                     // Shops can be targeted (Ctrl+Tab) and used (E) like the other objects.
                     self.objects.insert(m.identity.1, [f("X"), f("Y"), f("Z")]);
                     self.names.entry(m.identity.1).or_insert_with(|| (format!("Booth {:x}", m.identity.1 & 0xffff), false));
@@ -454,6 +468,8 @@ struct Characters {
     segment: u8,
     poses: std::collections::HashMap<u32, PoseState>,
     started: Instant,
+    /// Machine models by mesh instance.
+    props: std::collections::HashMap<u32, Option<Vec<Part>>>,
 }
 
 /// How long a change of animation is cross-faded, in seconds.
@@ -497,7 +513,13 @@ impl Characters {
         let get = |kind: u32, instance: u32| db.get(Id { kind, instance }).map_err(|e| e.to_string())?.ok_or_else(|| format!("no object {kind:#x}:{instance:#x}"));
         let index = mao_formats::instances::Instances::parse(&get(0xf424a, 1)?).map_err(|e| e.to_string())?;
         let _ = get;
-        Ok(Characters { db, index, anims: Default::default(), bodies: Default::default(), creatures: Default::default(), creature_anims: Default::default(), motions: Default::default(), segment: 0, poses: Default::default(), started: Instant::now() })
+        Ok(Characters { db, index, anims: Default::default(), bodies: Default::default(), creatures: Default::default(), creature_anims: Default::default(), motions: Default::default(), segment: 0, poses: Default::default(), started: Instant::now(), props: Default::default() })
+    }
+
+    /// The parts of a machine's model (Y-up local space), loaded once.
+    fn prop_parts(&mut self, mesh: u32) -> Option<&Vec<Part>> {
+        let db = self.db.clone();
+        self.props.entry(mesh).or_insert_with(|| crate::load_model(&db, mao_formats::resource::Id { kind: 0xf6951, instance: mesh }).ok().map(|m| m.parts)).as_ref()
     }
 
     /// The parts of a creature or NPC from its template (the CAT mesh and
@@ -729,6 +751,27 @@ fn overlay_model(world: &World, characters: &mut Option<Characters>, include: &d
         model.instances.push((if id == world.own { 0 } else if player { 3 } else { 1 }, place));
         model.instances.push((2, place));
     }
+    // The machines (shop booths): one copy of each model's parts, an instance of each per machine.
+    if let Some(chars) = characters.as_mut() {
+        let mut copies: std::collections::HashMap<u32, Option<std::ops::Range<usize>>> = std::collections::HashMap::new();
+        for (&id, &(mesh, position, q)) in &world.props {
+            if !include(id) {
+                continue;
+            }
+            let range = copies
+                .entry(mesh)
+                .or_insert_with(|| {
+                    let parts = chars.prop_parts(mesh)?;
+                    let start = model.parts.len();
+                    model.parts.extend(parts.iter().cloned());
+                    Some(start..model.parts.len())
+                })
+                .clone();
+            let Some(range) = range else { continue };
+            let place = model::multiply(&model::trs_matrix(position, q, [1.0; 3]), &swap);
+            model.instances.extend(range.map(|i| (i, place)));
+        }
+    }
     model
 }
 
@@ -736,7 +779,7 @@ fn overlay_model(world: &World, characters: &mut Option<Characters>, include: &d
 /// others in blue).
 fn show_world(game: &str, playfield: u32, world: &World, image: Option<&str>) -> Result<(), String> {
     let db = Arc::new(ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?);
-    let mut scene: Model = crate::load_terrain(&db, playfield)?;
+    let mut scene: Model = crate::load_terrain(&db, playfield).unwrap_or_default();
     let part_mesh = crate::add_props(game, &db, playfield, &mut scene);
     if scene.instances.is_empty() {
         let ground = scene.parts.len();
@@ -752,6 +795,7 @@ fn show_world(game: &str, playfield: u32, world: &World, image: Option<&str>) ->
         }
     }
     let mut characters = Characters::new(db.clone()).ok();
+    eprintln!("{} machines with a model", world.props.len());
     let overlay = overlay_model(world, &mut characters, &|_| true);
     let offset = scene.parts.len();
     scene.parts.extend(overlay.parts);
@@ -1263,6 +1307,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     state.infos.clear_all();
                     state.rotations.clear_all();
                     state.entities.clear();
+                    state.props.clear();
                     // Zoned from a booth: that booth leads here.
                     if let Some((pf, booth, when)) = near_booth.take() {
                         if when.elapsed() < Duration::from_secs(20) && pf != playfield {
@@ -2076,6 +2121,36 @@ pub fn run(args: &[String]) -> Result<(), String> {
         }
         [game, word, log] if word == "inventory" => inventory_from_capture(game, log),
         [word, log, kind, rest @ ..] if word == "msg-dump" => msg_dump(log, kind, rest.first().and_then(|n| n.parse().ok()).unwrap_or(3)),
+        // `net <game dir> props-preview <capture.log> <playfield> <out.png>`: the machines a capture announces for that playfield, drawn on its map.
+        [game, word, log, pf, out] if word == "props-preview" => {
+            let pf: u32 = pf.parse().map_err(|_| "bad playfield")?;
+            let text = std::fs::read_to_string(log).map_err(|e| e.to_string())?;
+            let mut readers: BTreeMap<String, Reader> = BTreeMap::new();
+            let mut world = World::default();
+            for line in text.lines() {
+                let f: Vec<&str> = line.split_whitespace().collect();
+                let (Some(tag), Some(connection)) = (f.get(1), f.last()) else { continue };
+                if *tag == "OPEN" {
+                    readers.remove(*connection);
+                }
+                if *tag != "S>C" || f.len() < 5 {
+                    continue;
+                }
+                let bytes: Vec<u8> = (0..f[3].len() / 2).filter_map(|i| u8::from_str_radix(&f[3][2 * i..2 * i + 2], 16).ok()).collect();
+                let reader = readers.entry(connection.to_string()).or_default();
+                if reader.push(&bytes).is_err() {
+                    continue;
+                }
+                while let Ok(Some(m)) = reader.next() {
+                    let Some(msg) = Message::parse(&m).filter(|x| m.kind == frame::N3 && x.kind == 0x7f544905) else { continue };
+                    let here = mao_net::schema::Schema::global().parse_n3(msg.kind, &msg.data).ok().and_then(|p| p.value.get("PlayfieldId").and_then(mao_net::schema::Value::as_int));
+                    if here == Some(std::env::var("MAO_INSTANCE").ok().and_then(|v| v.parse().ok()).unwrap_or(pf as i64)) {
+                        world.add(&m);
+                    }
+                }
+            }
+            show_world(game, pf, &world, Some(out))
+        }
         [game, word, log, rest @ ..] if word == "capture-map" => {
             let world = parse_capture_world(log)?;
             show_world(game, 540, &world, rest.first().map(String::as_str))

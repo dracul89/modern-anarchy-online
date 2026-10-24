@@ -208,6 +208,25 @@ pub(crate) fn add_props(game: &str, db: &ResourceDatabase, playfield: u32, model
     let ground = model.parts.len();
     model.instances.extend((0..ground).map(|i| (i, model::IDENTITY)));
     let mut placed = 0;
+    // MAO_NEAR=x,y,z,radius: the statels within that distance (to see what stands where the server announces a machine).
+    if let Ok(v) = std::env::var("MAO_NEAR") {
+        let n: Vec<f32> = v.split(',').filter_map(|t| t.trim().parse().ok()).collect();
+        if let [x, y, z, r] = n[..] {
+            let names: std::collections::HashMap<u32, String> = db
+                .get(Id { kind: 0xf424a, instance: 1 })
+                .ok()
+                .flatten()
+                .and_then(|o| mao_formats::instances::Instances::parse(&o).ok())
+                .map(|index| index.iter().filter(|&(kind, _, _)| kind == 0xf6951).map(|(_, name, instance)| (instance, name.to_string())).collect())
+                .unwrap_or_default();
+            for s in &statels {
+                let d = ((s.position[0] - x).powi(2) + (s.position[1] - y).powi(2) + (s.position[2] - z).powi(2)).sqrt();
+                if d < r {
+                    eprintln!("near {d:.1}: mesh {} {:?} at {:?} rot {:?}", s.mesh, names.get(&s.mesh), s.position, s.rotation);
+                }
+            }
+        }
+    }
     // The plants are found by their mesh's file name.
     let plant_meshes: std::collections::HashSet<u32> = db
         .get(Id { kind: 0xf424a, instance: 1 })
