@@ -31,7 +31,7 @@ impl FriendsWindow {
         let (mut outs, mut tell) = (Vec::new(), None);
         let mut open = self.open;
         let online = friends.iter().filter(|f| f.online).count();
-        egui::Window::new(egui::RichText::new("Friends").color(accent)).open(&mut open).collapsible(false).default_pos(egui::pos2(300.0, 120.0)).default_width(260.0).show(ctx, |ui| {
+        egui::Window::new(egui::RichText::new("Friends").color(accent)).open(&mut open).collapsible(false).default_pos(crate::layout::pos("Friends", egui::pos2(300.0, 120.0))).default_width(260.0).show(ctx, |ui| {
             ui.label(egui::RichText::new(format!("{online} of {} online", friends.len())).small().weak());
             ui.separator();
             if friends.is_empty() {

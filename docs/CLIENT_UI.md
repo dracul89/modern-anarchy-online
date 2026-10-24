@@ -311,3 +311,7 @@ Every line the chat window receives or the player types (tells, channels, game t
 ## Screenshots (`F12`)
 
 `F12` (the `screenshot` binding) saves a picture of the world as drawn, with the heads-up display (target, labels, messages, hotbars) but without the open windows, to `screenshots/<date>-<time>.png` beside `mao.ini` (UTC) and says where in the message log. It draws the scene again off-screen at the window's size with the live camera (`Renderer::render_to_image_with`, the path the headless previews use) and paints the HUD over it with `paint_headless`. **Not run in a live window** (only built; the pieces are the ones the headless images already exercise).
+
+## Window positions are remembered
+
+Where the player leaves a window is kept in `layout.ini` beside `mao.ini` (`Nano programs 220 90`, one line per window: Actions, Chat, Friends, Inventory, the container window, Mail, Missions, Nano programs, NCU, Perks, Shop, Skills, Stats and the health panel) and used as the window's starting place next time (`layout.rs`; `crate::layout::pos(name, default)` wraps each window's `default_pos`). The live interface looks at the windows' places every frame and writes the file when something moved, at most every two seconds. `MAO_NO_LAYOUT=1` ignores it; the offline previews (`MAO_UI_PREVIEW`) ignore it too. Window sizes and which windows are open are not kept. The file format and the round trip are tested; the saving itself was only built, not run in a window.

@@ -112,7 +112,7 @@ impl ActionsWindow {
     pub fn show(&mut self, ctx: &egui::Context, gear: &mut GearWindow, palette: &Palette) {
         let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
         let mut open = self.open;
-        egui::Window::new(egui::RichText::new("Actions").color(accent)).open(&mut open).collapsible(false).resizable(false).default_pos(egui::pos2(520.0, 70.0)).show(ctx, |ui| {
+        egui::Window::new(egui::RichText::new("Actions").color(accent)).open(&mut open).collapsible(false).resizable(false).default_pos(crate::layout::pos("Actions", egui::pos2(520.0, 70.0))).show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.selectable_value(&mut self.tab, Tab::Combat, "Combat");
                 ui.selectable_value(&mut self.tab, Tab::Perks, "Perks");

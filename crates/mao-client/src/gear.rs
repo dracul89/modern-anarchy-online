@@ -304,7 +304,7 @@ impl GearWindow {
         let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
         let by_slot: HashMap<u32, &GearItem> = items.iter().map(|i| (i.slot, i)).collect();
         let mut is_open = *open;
-        egui::Window::new(egui::RichText::new("Inventory").color(accent)).open(&mut is_open).collapsible(false).resizable(true).default_pos(egui::pos2(40.0, 70.0)).default_width(760.0).show(ctx, |ui| {
+        egui::Window::new(egui::RichText::new("Inventory").color(accent)).open(&mut is_open).collapsible(false).resizable(true).default_pos(crate::layout::pos("Inventory", egui::pos2(40.0, 70.0))).default_width(760.0).show(ctx, |ui| {
             if items.is_empty() {
                 ui.label("No items yet (they arrive when the world loads).");
                 return;

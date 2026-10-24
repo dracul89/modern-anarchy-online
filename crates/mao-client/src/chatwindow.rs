@@ -173,7 +173,7 @@ impl ChatWindow {
         egui::Window::new(egui::RichText::new("Chat").color(accent))
             .open(&mut open)
             .collapsible(false)
-            .default_pos(egui::pos2(8.0, (screen.height() - 270.0).max(40.0)))
+            .default_pos(crate::layout::pos("Chat", egui::pos2(8.0, (screen.height() - 270.0).max(40.0))))
             .default_size([560.0, 230.0])
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {

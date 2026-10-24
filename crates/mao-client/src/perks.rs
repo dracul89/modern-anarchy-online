@@ -86,7 +86,7 @@ impl PerksWindow {
     pub fn show(&mut self, ctx: &egui::Context, perks: &[PerkInfo], palette: &Palette) {
         let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
         let mut open = self.open;
-        egui::Window::new(egui::RichText::new("Perks").color(accent)).open(&mut open).collapsible(false).default_pos(egui::pos2(260.0, 100.0)).default_size([320.0, 420.0]).show(ctx, |ui| {
+        egui::Window::new(egui::RichText::new("Perks").color(accent)).open(&mut open).collapsible(false).default_pos(crate::layout::pos("Perks", egui::pos2(260.0, 100.0))).default_size([320.0, 420.0]).show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.label("Find");
                 ui.add(egui::TextEdit::singleline(&mut self.filter).desired_width(170.0));

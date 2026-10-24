@@ -93,7 +93,7 @@ impl NcuWindow {
         let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
         let now = Instant::now();
         let mut open = self.open;
-        egui::Window::new(egui::RichText::new("NCU").color(accent)).open(&mut open).collapsible(false).default_pos(egui::pos2(560.0, 90.0)).default_width(300.0).show(ctx, |ui| {
+        egui::Window::new(egui::RichText::new("NCU").color(accent)).open(&mut open).collapsible(false).default_pos(crate::layout::pos("NCU", egui::pos2(560.0, 90.0))).default_width(300.0).show(ctx, |ui| {
             // the memory in use against the maximum (current and maximum NCU)
             // the server does not send the memory in use: the sum of what the running nanos take
             let (used, max) = (stats.get(&180).copied().or_else(|| Some(nanos.iter().map(|n| n.cost as i64).sum())), stats.get(&181).copied());

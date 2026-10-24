@@ -21,7 +21,7 @@ pub fn show(ctx: &egui::Context, stats: &BTreeMap<u32, i64>, parts: &BTreeMap<u3
     }
     let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
     let get = |s: u32| stats.get(&s).copied();
-    egui::Area::new(egui::Id::new("vitals")).movable(true).default_pos(egui::pos2(12.0, 74.0)).show(ctx, |ui| {
+    egui::Area::new(egui::Id::new("vitals")).movable(true).default_pos(crate::layout::pos("vitals", egui::pos2(12.0, 74.0))).show(ctx, |ui| {
         egui::Frame::new().fill(egui::Color32::from_black_alpha(120)).corner_radius(4.0).inner_margin(6.0).show(ui, |ui| {
             ui.set_width(200.0);
             ui.spacing_mut().item_spacing.y = 3.0;

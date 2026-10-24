@@ -244,6 +244,7 @@ impl Ui {
         let (mission, mail, shop, actions, automap, stats_window, skills_window, ncu_window, chat_window) = (&mut self.mission, &mut self.mail, &mut self.shop, &mut self.actions, &mut self.automap, &mut self.stats, &mut self.skills, &mut self.ncu, &mut self.chat);
         let (friends_window, programs_window, perks_window, loot_window) = (&mut self.friends, &mut self.programs, &mut self.perks, &mut self.loot);
         let (hotbars, clock_now) = (&mut self.hotbars, self.clock.elapsed().as_secs_f64());
+        crate::layout::remember(&self.ctx);
         let output = self.ctx.run_ui(raw, |ui| {
             let ctx = ui.ctx().clone();
             hud_layer(&ctx, hud, project, fps, settings.mode, palette);

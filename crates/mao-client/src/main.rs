@@ -18,6 +18,7 @@ mod chat_commands;
 mod chatwindow;
 mod chatlog;
 mod friends;
+mod layout;
 mod loot;
 mod nanoprograms;
 mod perks;

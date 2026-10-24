@@ -188,7 +188,7 @@ impl SkillsWindow {
     pub fn show(&mut self, ctx: &egui::Context, name: &str, stats: &BTreeMap<u32, i64>, parts: &BTreeMap<u32, Breakdown>, palette: &Palette) {
         let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
         let mut open = self.open;
-        egui::Window::new(egui::RichText::new("Skills").color(accent)).open(&mut open).collapsible(false).default_pos(egui::pos2(300.0, 90.0)).default_size([260.0, 420.0]).show(ctx, |ui| {
+        egui::Window::new(egui::RichText::new("Skills").color(accent)).open(&mut open).collapsible(false).default_pos(crate::layout::pos("Skills", egui::pos2(300.0, 90.0))).default_size([260.0, 420.0]).show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.label("Name:");
                 ui.label(egui::RichText::new(if name.is_empty() { "-" } else { name }).color(accent));

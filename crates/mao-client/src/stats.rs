@@ -86,7 +86,7 @@ impl StatsWindow {
     pub fn show(&mut self, ctx: &egui::Context, name: &str, stats: &BTreeMap<u32, i64>, parts: &BTreeMap<u32, Breakdown>, palette: &Palette) {
         let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
         let mut open = self.open;
-        egui::Window::new(egui::RichText::new("Stats").color(accent)).open(&mut open).collapsible(false).resizable(false).default_pos(egui::pos2(40.0, 120.0)).show(ctx, |ui| {
+        egui::Window::new(egui::RichText::new("Stats").color(accent)).open(&mut open).collapsible(false).resizable(false).default_pos(crate::layout::pos("Stats", egui::pos2(40.0, 120.0))).show(ctx, |ui| {
             ui.set_width(210.0);
             let get = |s: u32| stats.get(&s).copied();
             ui.horizontal(|ui| {
