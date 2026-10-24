@@ -12,11 +12,11 @@ use mao_net::inventory::Entry;
 /// The item stat that holds an item's quality level.
 const QUALITY_LEVEL: u32 = 54;
 
-/// Whether a placement is worn: the weapon tab (including the belt in 7, its NCU units in 9-14 and the two places after them, 15 and 16, where a Dreadloch booster sat, which add health and
+/// Whether a placement is worn: the weapon tab (including the belt in 7, its NCU units in 9-14 and the second HUD place, 15 (a Dreadloch booster sat there), which add health and
 /// nano like any worn item: a level-25 character's belt gives +100 health and each unit +50), clothes and implants. The
 /// social tab (49 and up) only changes how the character looks.
 fn worn(slot: u32) -> bool {
-    matches!(slot, 1..=16 | 17..=31 | 33..=45)
+    matches!(slot, 1..=15 | 17..=31 | 33..=45)
 }
 
 /// An item's effects at its quality: the lowest and highest template of the item are both read and the amounts are
@@ -231,6 +231,6 @@ mod tests {
     #[test]
     fn only_the_worn_places_count() {
         assert!(worn(6) && worn(7) && worn(9) && worn(21) && worn(40));
-        assert!(worn(15) && worn(16) && !worn(49) && !worn(64));
+        assert!(worn(15) && !worn(16) && !worn(49) && !worn(64));
     }
 }

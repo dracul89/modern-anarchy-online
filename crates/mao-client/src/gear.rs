@@ -43,9 +43,9 @@ pub const TABS: &[(&str, &[(&str, Option<u32>)])] = &[
     (
         "Weap",
         &[
-            ("Hud 1", Some(1)), ("Hud 2", None), ("Hud 3", Some(2)),
+            ("Hud 1", Some(1)), ("Hud 2", Some(15)), ("Hud 3", Some(2)),
             ("Utils 1", Some(3)), ("Utils 2", Some(4)), ("Utils 3", Some(5)),
-            ("Right Hand", Some(6)), ("Deck", Some(7)), ("Left Hand", Some(8)),
+            ("Right Hand", Some(6)), ("Belt", Some(7)), ("Left Hand", Some(8)),
             ("Deck 1", Some(9)), ("Deck 2", Some(10)), ("Deck 3", Some(11)),
             ("Deck 4", Some(12)), ("Deck 5", Some(13)), ("Deck 6", Some(14)),
         ],
