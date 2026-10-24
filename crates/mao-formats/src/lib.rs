@@ -19,3 +19,4 @@ pub mod terrain;
 pub mod statels;
 pub mod playfield;
 pub mod rooms;
+pub mod dynels;

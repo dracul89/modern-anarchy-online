@@ -709,7 +709,7 @@ impl Characters {
 
 /// The entities' markers alone (own character red, the others blue): two
 /// parts and an instance per entity, placed Z-up.
-fn overlay_model(world: &World, characters: &mut Option<Characters>, include: &dyn Fn(u32) -> bool) -> Model {
+fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>, characters: &mut Option<Characters>, include: &dyn Fn(u32) -> bool) -> Model {
     let mut model = Model { parts: vec![marker([0.9, 0.1, 0.1]), marker([0.2, 0.4, 0.95]), nose(), marker([0.2, 0.8, 0.3])], instances: Vec::new(), water: None };
     let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     for (&id, &(position, _)) in &world.entities {
@@ -754,7 +754,7 @@ fn overlay_model(world: &World, characters: &mut Option<Characters>, include: &d
     // The machines (shop booths): one copy of each model's parts, an instance of each per machine.
     if let Some(chars) = characters.as_mut() {
         let mut copies: std::collections::HashMap<u32, Option<std::ops::Range<usize>>> = std::collections::HashMap::new();
-        for (&id, &(mesh, position, q)) in &world.props {
+        for (&id, &(mesh, position, q)) in props {
             if !include(id) {
                 continue;
             }
@@ -800,8 +800,10 @@ fn show_world(game: &str, playfield: u32, world: &World, image: Option<&str>) ->
         }
     }
     let mut characters = Characters::new(db.clone()).ok();
-    eprintln!("{} machines with a model", world.props.len());
-    let overlay = overlay_model(world, &mut characters, &|_| true);
+    let mut world_props = world.props.clone();
+    world_props.extend(crate::static_props(&db, playfield));
+    eprintln!("{} machines with a model", world_props.len());
+    let overlay = overlay_model(world, &world_props, &mut characters, &|_| true);
     let offset = scene.parts.len();
     scene.parts.extend(overlay.parts);
     scene.instances.extend(overlay.instances.into_iter().map(|(i, m)| (i + offset, m)));
@@ -935,6 +937,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     crate::theme::set_game_dir(game);
     let db = Arc::new(ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?);
     let Area { scene, terrain, collision, booths } = load_area(game, &db, playfield)?;
+    state.props.extend(crate::static_props(&db, playfield));
     let (mut terrain, mut collision) = (terrain, collision);
     // The interface: the names of the playfields, and where the booths lead.
     let names: std::collections::HashMap<u32, String> = mao_formats::playfield::all(&db).into_iter().map(|p| (p.number, p.name.trim().to_string())).collect();
@@ -1342,6 +1345,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     match load_area(&game_dir, &thread_db, playfield) {
                         Ok(area) => {
                             (terrain, collision) = (area.terrain, area.collision);
+                            state.props.extend(crate::static_props(&thread_db, playfield));
                             let mut scene = area.scene;
                             if terrain.is_none() && crate::load_rooms(&thread_db, playfield).is_none() {
                                 // An interior: the floor isn't readable, so lay a plain one at the arrival height.
@@ -1814,8 +1818,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             if last_overlay.elapsed() >= Duration::from_millis(33) {
                 last_overlay = Instant::now();
                 let built = Instant::now();
-                let model = overlay_model(&state, &mut characters, &|id| id != own);
-                let own_model = overlay_model(&state, &mut characters, &|id| id == own);
+                let model = overlay_model(&state, &state.props, &mut characters, &|id| id != own);
+                let own_model = overlay_model(&state, &state.props, &mut characters, &|id| id == own);
                 let own_velocity = if walk == 0 && keys.strafe == 0 && !airborne {
                     [0.0; 3]
                 } else {

@@ -194,6 +194,25 @@ pub(crate) fn load_rooms(db: &ResourceDatabase, playfield: u32) -> Option<mao_fo
     mao_formats::rooms::parse(&object).ok().flatten()
 }
 
+/// The doors, terminals and other machines a playfield has built in (its dynel table), with the mesh of each one's item template:
+/// `(key, (mesh, position, rotation))`. The vending machines are left out: the server announces the ones that are in use.
+pub(crate) fn static_props(db: &ResourceDatabase, playfield: u32) -> Vec<(u32, (u32, [f32; 3], [f32; 4]))> {
+    let Some(object) = db.get(Id { kind: mao_formats::dynels::KIND, instance: playfield }).ok().flatten() else { return Vec::new() };
+    let mut meshes: std::collections::HashMap<u32, Option<u32>> = std::collections::HashMap::new();
+    mao_formats::dynels::parse(&object)
+        .into_iter()
+        .enumerate()
+        .filter(|(_, d)| d.kind != 0xc75b)
+        .filter_map(|(i, d)| {
+            let mesh = (*meshes.entry(d.template).or_insert_with(|| {
+                let data = db.get(Id { kind: mao_formats::item::TEMPLATE, instance: d.template }).ok().flatten()?;
+                mao_formats::item::Item::parse(&data)?.stat(mao_formats::item::stat::MESH).filter(|&m| m > 0)
+            }))?;
+            Some((0xfe00_0000 | i as u32, (mesh, d.position, d.rotation)))
+        })
+        .collect()
+}
+
 /// The shell of an interior: its rooms' floors and walls as a model (Z-up), when the playfield is made of rooms.
 pub(crate) fn load_room_shell(db: &ResourceDatabase, playfield: u32) -> Option<Model> {
     let rooms = load_rooms(db, playfield)?;
