@@ -39,10 +39,32 @@ pub fn profession(id: i32) -> &'static str {
     }
 }
 
-/// One line about a character: `level 220 Enforcer, Old Athen`.
+/// The breeds' names (the breed stat's values).
+pub fn breed(id: i32) -> &'static str {
+    match id {
+        1 => "Solitus",
+        2 => "Opifex",
+        3 => "Nanomage",
+        4 => "Atrox",
+        _ => "",
+    }
+}
+
+/// The sex stat's values: 2 male, 3 female (1 is neuter).
+pub fn sex(id: i32) -> &'static str {
+    match id {
+        2 => "male",
+        3 => "female",
+        _ => "",
+    }
+}
+
+/// One line about a character: `level 220 male Solitus Enforcer, Old Athen`.
 pub fn describe(c: &Character) -> String {
-    let mut text = format!("level {} {}", c.level, profession(c.profession));
-    if !c.area.trim().is_empty() {
+    let who = [sex(c.sex), breed(c.breed), profession(c.profession)].iter().filter(|w| !w.is_empty()).copied().collect::<Vec<_>>().join(" ");
+    let mut text = format!("level {} {who}", c.level);
+    // (the list says "area unknown" when it does not know)
+    if !c.area.trim().is_empty() && !c.area.trim().eq_ignore_ascii_case("area unknown") {
         text += &format!(", {}", c.area.trim());
     }
     text
@@ -290,6 +312,15 @@ pub fn run(game: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_character_is_described_by_level_sex_breed_and_profession() {
+        // Laxative of the captured list: level 220, profession 9, breed 1, sex 2
+        let c = Character { id: 22488, created: true, name: "Laxative".into(), breed: 1, sex: 2, profession: 9, level: 220, area: "area unknown".into(), ..Default::default() };
+        assert_eq!(describe(&c), "level 220 male Solitus Enforcer");
+        let c = Character { breed: 3, sex: 3, profession: 10, level: 60, area: "Old Athen".into(), ..c };
+        assert_eq!(describe(&c), "level 60 female Nanomage Doctor, Old Athen");
+    }
 
     #[test]
     fn professions_have_names() {
