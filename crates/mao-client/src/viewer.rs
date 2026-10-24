@@ -55,6 +55,8 @@ pub struct Input {
     /// An item to take from the open container: a counter that steps with each, the container's handle and the item's place
     /// (`u32::MAX` for all of them).
     pub take: (u8, u32, u32),
+    /// An inventory item to put in the open container: a counter that steps with each, the container's identity and the item's place.
+    pub put: (u8, u32, u32, u32),
 }
 
 /// The overlay to draw and where the player's character is (the view
@@ -889,6 +891,9 @@ impl ApplicationHandler for App {
                                 if let Some(loot) = self.hud.loot.as_mut() {
                                     loot.items.retain(|i| i.slot != place);
                                 }
+                            }
+                            crate::loot::Take::Put { identity, from } => {
+                                self.keys.put = (self.keys.put.0.wrapping_add(1), identity.0, identity.1, from);
                             }
                             crate::loot::Take::All { handle } => {
                                 self.keys.take = (self.keys.take.0.wrapping_add(1), handle, u32::MAX);

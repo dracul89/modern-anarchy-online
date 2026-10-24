@@ -315,6 +315,9 @@ impl Ui {
                 options_window(&ctx, options_open, rebinding, settings, &mut requests, palette, themes);
             }
         });
+        if !self.ctx.input(|i| i.pointer.any_down()) {
+            crate::gear::DRAGGED.store(u32::MAX, std::sync::atomic::Ordering::Relaxed);
+        }
         self.state.handle_platform_output(window, output.platform_output);
         let jobs = self.ctx.tessellate(output.shapes, output.pixels_per_point);
         (Frame { jobs, textures: output.textures_delta, pixels_per_point: output.pixels_per_point }, requests)

@@ -9,17 +9,24 @@ use crate::theme::Palette;
 /// A container's contents, ready to show.
 pub struct LootView {
     pub title: String,
+    /// The container's identity (type, instance): what an item put in names it by.
+    pub identity: (u32, u32),
     /// The container's handle: what a take message names it by.
     pub handle: u32,
     /// The items; `slot` is the item's place in the container.
     pub items: Vec<GearItem>,
 }
 
+/// The identity type of a corpse.
+const CORPSE: u32 = 0xc76a;
+
 /// What the window asks for.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Take {
     One { handle: u32, place: u32 },
     All { handle: u32 },
+    /// An inventory item (its place) dropped on the window: put it in the container.
+    Put { identity: (u32, u32), from: u32 },
 }
 
 #[derive(Default)]
@@ -35,7 +42,7 @@ impl LootWindow {
         let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
         let mut take = None;
         let mut open = self.open;
-        egui::Window::new(egui::RichText::new(&view.title).color(accent)).id(egui::Id::new("loot")).open(&mut open).collapsible(false).default_pos(egui::pos2(380.0, 140.0)).default_width(280.0).show(ctx, |ui| {
+        let shown = egui::Window::new(egui::RichText::new(&view.title).color(accent)).id(egui::Id::new("loot")).open(&mut open).collapsible(false).default_pos(egui::pos2(380.0, 140.0)).default_width(280.0).show(ctx, |ui| {
             if view.items.is_empty() {
                 ui.label("Nothing left.");
                 return;
@@ -72,7 +79,17 @@ impl LootWindow {
             if ui.button("Take all").clicked() {
                 take = Some(Take::All { handle: view.handle });
             }
+            if view.identity.0 != CORPSE {
+                ui.label(egui::RichText::new("Drop an item here to put it in").small().weak());
+            }
         });
+        // An inventory item dropped on the window goes in (not into a corpse).
+        if let Some(shown) = shown {
+            let dragged = crate::gear::DRAGGED.load(std::sync::atomic::Ordering::Relaxed);
+            if dragged != u32::MAX && view.identity.0 != CORPSE && ctx.input(|i| i.pointer.any_released()) && shown.response.contains_pointer() {
+                take = Some(Take::Put { identity: view.identity, from: dragged });
+            }
+        }
         self.open = open;
         take
     }
@@ -81,7 +98,7 @@ impl LootWindow {
 /// The window's title for a container's identity type: a corpse (`0xc76a`), a bag (`0xc749`) or something else.
 pub fn title(kind: u32) -> &'static str {
     match kind {
-        0xc76a => "Corpse",
+        CORPSE => "Corpse",
         0xc749 => "Bag",
         _ => "Container",
     }

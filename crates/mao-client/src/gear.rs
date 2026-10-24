@@ -37,6 +37,9 @@ pub struct GearItem {
     pub actions: Vec<mao_formats::item::Action>,
 }
 
+/// The inventory place of the item being dragged (`u32::MAX` for none): other windows (an open bag) take drops from it.
+pub static DRAGGED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(u32::MAX);
+
 /// How many places the backpack has.
 pub const PACK_SLOTS: u32 = 30;
 
@@ -225,6 +228,7 @@ impl GearWindow {
         // Drag an item onto a hotbar slot to add it to that slot's list.
         if response.drag_started() {
             self.dragging = Some(item.slot);
+            DRAGGED.store(item.slot, std::sync::atomic::Ordering::Relaxed);
             response.dnd_set_drag_payload(crate::hotbar::Action::Item { id: item.item_id, name: item.name.clone(), icon: item.icon.as_ref().map(|i| i.id) });
         }
         response.on_hover_ui(|ui| {

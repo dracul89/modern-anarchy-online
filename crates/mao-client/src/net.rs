@@ -384,6 +384,19 @@ impl World {
         if m.kind == CONTAINER_ADD_ITEM && m.identity.1 == self.own {
             if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
                 let source = (p.value.get("Source").and_then(|v| v.get("Type")).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32, p.value.get("Source").and_then(|v| v.get("Instance")).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32);
+                let target = (p.value.get("Target").and_then(|v| v.get("Type")).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32, p.value.get("Target").and_then(|v| v.get("Instance")).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32);
+                // `(0x68, place)` into the open container: an item went in from the backpack
+                if source.0 == 0x68 && self.loot.as_ref().is_some_and(|l| l.identity == target) {
+                    if let Some(at) = self.worn.iter().position(|e| e.slot == source.1) {
+                        let mut entry = self.worn.remove(at);
+                        if let Some(loot) = self.loot.as_mut() {
+                            entry.slot = loot.entries.iter().map(|e| e.slot + 1).max().unwrap_or(0);
+                            loot.entries.push(entry);
+                        }
+                        self.inventory = Some(self.worn.clone());
+                        self.loot_changed = true;
+                    }
+                }
                 // `(0x6b, handle << 16 | place)`: an item came out of the open container into the backpack
                 if source.0 == 0x6b {
                     let place = source.1 & 0xffff;
@@ -1326,6 +1339,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut cast_seen = 0u8;
         let mut move_seen = 0u8;
         let mut take_seen = 0u8;
+        let mut put_seen = 0u8;
         let (mut position, mut heading) = (start, heading);
         let (mut moving, mut turning, mut strafing) = (0i8, 0i8, 0i8);
         const JUMP_SPEED: f32 = 7.0;
@@ -1826,6 +1840,12 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     pending_messages.push(format!("Using {}", state.names.get(&id).map_or("the target", |n| n.0.as_str())));
                 }
             }
+            // An inventory item put into the open container.
+            if keys.put.0 != put_seen {
+                put_seen = keys.put.0;
+                let (_, kind, id, from) = keys.put;
+                let _ = connection.send(&n3::container_add_item(own, (kind, id), (0x68, from)));
+            }
             // An item taken from the open container (or all of them).
             if keys.take.0 != take_seen {
                 take_seen = keys.take.0;
@@ -2123,7 +2143,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     chat_lines: chat_lines_now,
                     friends: friends_now,
                     loot: std::mem::take(&mut state.loot_changed).then(|| {
-                        state.loot.as_ref().map(|l| crate::loot::LootView { title: crate::loot::title(l.identity.0).to_string(), handle: l.handle, items: crate::gear::from_entries(&gear_db, &gear_textures, &l.entries, state.stats.get(&0x36).copied().unwrap_or(1)) })
+                        state.loot.as_ref().map(|l| crate::loot::LootView { title: crate::loot::title(l.identity.0).to_string(), identity: l.identity, handle: l.handle, items: crate::gear::from_entries(&gear_db, &gear_textures, &l.entries, state.stats.get(&0x36).copied().unwrap_or(1)) })
                     }),
                     perk_list: std::mem::take(&mut state.perks_changed).then(|| crate::perks::describe(&gear_db, &gear_textures, &state.perks, state.stats.get(&0x36).copied().unwrap_or(1))),
                     programs: std::mem::take(&mut state.programs_changed).then(|| crate::nanoprograms::describe(&gear_db, &gear_textures, &state.program_ids, state.stats.get(&0x36).copied().unwrap_or(1))),
