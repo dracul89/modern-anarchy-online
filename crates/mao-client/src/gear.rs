@@ -31,6 +31,8 @@ pub struct GearItem {
     pub name: String,
     pub description: String,
     pub icon: Option<Arc<Icon>>,
+    /// What the item adds to the stats when worn (`derived::effects`: stat, amount), for the tooltip.
+    pub effects: Vec<(u32, i64)>,
 }
 
 /// How many places the backpack has.
@@ -88,7 +90,7 @@ pub fn slot_name(slot: u32) -> Option<String> {
 }
 
 /// The items of a world-entry message with their names and icons.
-pub fn from_entries(db: &ResourceDatabase, textures: &crate::Textures, entries: &[Entry]) -> Vec<GearItem> {
+pub fn from_entries(db: &ResourceDatabase, textures: &crate::Textures, entries: &[Entry], level: i64) -> Vec<GearItem> {
     let mut icons: HashMap<u32, Option<Arc<Icon>>> = HashMap::new();
     let lookup = |id: u32| db.get(Id { kind: item::TEMPLATE, instance: id }).ok().flatten().and_then(|d| Item::parse(&d));
     entries
@@ -110,6 +112,7 @@ pub fn from_entries(db: &ResourceDatabase, textures: &crate::Textures, entries: 
                 name: template.as_ref().map_or_else(|| format!("Item #{:x}", e.low_id), |t| t.name.clone()),
                 description: template.map(|t| t.description).unwrap_or_default(),
                 icon,
+                effects: if e.is_bag() { Vec::new() } else { crate::derived::effects(db, e, level) },
             }
         })
         .collect()
@@ -186,9 +189,29 @@ impl GearWindow {
             if !line.is_empty() {
                 ui.label(egui::RichText::new(line).small());
             }
+            if item.count > 1 {
+                ui.label(egui::RichText::new(format!("{} in the stack", item.count)).small());
+            }
             if !item.description.is_empty() {
                 let text: String = item.description.chars().take(420).collect();
                 ui.label(text.replace("\r\n", "\n"));
+            }
+            if !item.effects.is_empty() {
+                ui.separator();
+                ui.label(egui::RichText::new("When worn").small().color(accent));
+                for &(stat, amount) in item.effects.iter().filter(|e| e.1 != 0).take(10) {
+                    ui.horizontal(|ui| {
+                        ui.label(crate::skills::stat_name(stat));
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            let color = if amount > 0 { egui::Color32::from_rgb(120, 220, 120) } else { egui::Color32::from_rgb(230, 110, 110) };
+                            ui.label(egui::RichText::new(format!("{amount:+}")).color(color));
+                        });
+                    });
+                }
+                let more = item.effects.iter().filter(|e| e.1 != 0).count().saturating_sub(10);
+                if more > 0 {
+                    ui.label(egui::RichText::new(format!("... and {more} more")).small().weak());
+                }
             }
         });
     }

@@ -576,7 +576,7 @@ fn run(args: &[String]) -> Result<(), String> {
                     if preview.as_deref() == Some("hotbar") {
                         // A sample: stims then an attack in slot 1 (the stim cooling down, so the attack shows), a recharger in slot 2.
                         if let Some(log) = std::env::var_os("MAO_CAPTURE") {
-                            hud.gear = net::capture_entries(&log.to_string_lossy()).map(|e| gear::from_entries(&db, &textures, &e)).unwrap_or_default();
+                            hud.gear = net::capture_entries(&log.to_string_lossy()).map(|e| gear::from_entries(&db, &textures, &e, 220)).unwrap_or_default();
                             let pick = |name: &str| hud.gear.iter().find(|i| i.name.starts_with(name)).map(|i| hotbar::Action::Item { id: i.item_id, name: i.name.clone(), icon: i.icon.as_ref().map(|c| c.id) });
                             let mut bars = hotbar::Hotbars::default();
                             if let Some(stim) = pick("Health and Nano Stim") {
@@ -595,7 +595,7 @@ fn run(args: &[String]) -> Result<(), String> {
                     }
                     if preview.as_deref() == Some("gear") {
                         if let Some(log) = std::env::var_os("MAO_CAPTURE") {
-                            hud.gear = net::capture_entries(&log.to_string_lossy()).map(|e| gear::from_entries(&db, &textures, &e)).unwrap_or_default();
+                            hud.gear = net::capture_entries(&log.to_string_lossy()).map(|e| gear::from_entries(&db, &textures, &e, 220)).unwrap_or_default();
                             hud.gear_open = true;
                         }
                         // MAO_ENTRIES=<file of `slot low high quality` lines> (what MAO_STATS prints as `worn`): a live character's items.
@@ -609,7 +609,7 @@ fn run(args: &[String]) -> Result<(), String> {
                                     Some(mao_net::inventory::Entry { slot, flags: 1, count: 1, container: (0, 0), low_id, high_id, quality, extra: 0 })
                                 })
                                 .collect();
-                            hud.gear = gear::from_entries(&db, &textures, &entries);
+                            hud.gear = gear::from_entries(&db, &textures, &entries, std::env::var("MAO_LEVEL").ok().and_then(|l| l.parse().ok()).unwrap_or(220));
                             hud.gear_open = true;
                         }
                     }

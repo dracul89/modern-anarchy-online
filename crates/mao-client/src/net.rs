@@ -957,7 +957,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             state.mods_dirty = true;
         }
         state.refresh_mods(&gear_db);
-        let mut pending_gear = first_inventory.map(|e| crate::gear::from_entries(&gear_db, &gear_textures, &e));
+        let mut pending_gear = first_inventory.map(|e| crate::gear::from_entries(&gear_db, &gear_textures, &e, state.stats.get(&0x36).copied().unwrap_or(1)));
         let mut keys = crate::viewer::Input::default();
         let mut raw = crate::viewer::Input::default();
         // `MAO_MAILBOX=type,instance` (a mail terminal, 0xc773 and its serial) uses it 8 s into the session (or
@@ -1170,7 +1170,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     if let Some(entries) = state.inventory.take() {
                         state.worn = entries.clone();
                         state.mods_dirty = true;
-                        pending_gear = Some(crate::gear::from_entries(&gear_db, &gear_textures, &entries));
+                        pending_gear = Some(crate::gear::from_entries(&gear_db, &gear_textures, &entries, state.stats.get(&0x36).copied().unwrap_or(1)));
                     }
                 }
                 Err(session::Error::Io(e)) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => {}
@@ -2504,7 +2504,7 @@ pub(crate) fn capture_message(log: &str, kind: u32) -> Option<mao_net::schema::V
 /// world-entry message of a capture, with the names from the game's database.
 fn inventory_from_capture(game: &str, log: &str) -> Result<(), String> {
     let db = Arc::new(ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?);
-    let items = crate::gear::from_entries(&db, &crate::Textures::new(db.clone()), &capture_entries(log)?);
+    let items = crate::gear::from_entries(&db, &crate::Textures::new(db.clone()), &capture_entries(log)?, 220);
     for i in &items {
         let place = match crate::gear::slot_name(i.slot) {
             Some(n) => n,

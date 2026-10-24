@@ -95,6 +95,40 @@ pub const GROUPS: &[(&str, &[(u32, &str)])] = &[
     ),
 ];
 
+/// The name of a stat for a tooltip: the skills and attributes by their window names, the common others by hand.
+pub fn stat_name(stat: u32) -> String {
+    if let Some(name) = GROUPS.iter().flat_map(|(_, g)| g.iter()).find(|(s, _)| *s == stat).map(|(_, n)| *n) {
+        return name.to_string();
+    }
+    match stat {
+        1 => "Max Health".into(),
+        221 => "Max Nano Energy".into(),
+        90 => "Projectile AC".into(),
+        91 => "Melee AC".into(),
+        92 => "Energy AC".into(),
+        93 => "Chemical AC".into(),
+        94 => "Radiation AC".into(),
+        95 => "Cold AC".into(),
+        96 => "Poison AC".into(),
+        97 => "Fire AC".into(),
+        276 => "Add. Proj. Damage".into(),
+        277 => "Add. Melee Damage".into(),
+        278 => "Add. Energy Damage".into(),
+        279 => "Add. Chem. Damage".into(),
+        280 => "Add. Rad. Damage".into(),
+        281 => "Add. Cold Damage".into(),
+        282 => "Add. Poison Damage".into(),
+        311 => "Add. Fire Damage".into(),
+        316 => "Add. Nano Damage".into(),
+        317 => "Add. Nano Damage (b)".into(),
+        318 => "Nano Cost Modifier".into(),
+        343 => "Nano Delta".into(),
+        364 => "Nano Interval".into(),
+        181 => "NCU Memory".into(),
+        _ => format!("Stat {stat}"),
+    }
+}
+
 /// The rows of a group that match the search words (all of the words, in any case), as `(name, value)`; a skill the
 /// server never sent and the client cannot work out has no value and shows a dash.
 pub fn rows<'a>(group: &'a [(u32, &'a str)], stats: &BTreeMap<u32, i64>, search: &str) -> Vec<(u32, &'a str, Option<i64>)> {
@@ -204,6 +238,13 @@ mod tests {
         for attribute in 16..=21 {
             assert!(listed.contains(&attribute));
         }
+    }
+
+    #[test]
+    fn stats_have_names() {
+        assert_eq!(stat_name(16), "Strength");
+        assert_eq!(stat_name(91), "Melee AC");
+        assert_eq!(stat_name(9999), "Stat 9999");
     }
 
     #[test]

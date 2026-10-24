@@ -21,7 +21,7 @@ fn worn(slot: u32) -> bool {
 
 /// An item's effects at its quality: the lowest and highest template of the item are both read and the amounts are
 /// interpolated between them by the item's quality level, as the original does.
-fn effects(db: &ResourceDatabase, entry: &Entry, level: i64) -> Vec<(u32, i64)> {
+pub fn effects(db: &ResourceDatabase, entry: &Entry, level: i64) -> Vec<(u32, i64)> {
     let template = |id: u32| db.get(Id { kind: item::TEMPLATE, instance: id }).ok().flatten();
     let Some(low) = template(entry.low_id) else { return Vec::new() };
     let low_mods = item::modifiers_at(&low, level);
