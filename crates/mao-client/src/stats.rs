@@ -5,6 +5,7 @@
 
 use std::collections::BTreeMap;
 
+use crate::derived::Breakdown;
 use crate::theme::Palette;
 
 /// Stat numbers (`GameData.Stat`).
@@ -49,8 +50,8 @@ pub struct StatsWindow {
     pub open: bool,
 }
 
-pub(crate) fn bar(ui: &mut egui::Ui, fill: egui::Color32, value: Option<i64>, max: Option<i64>) {
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 18.0), egui::Sense::hover());
+pub(crate) fn bar(ui: &mut egui::Ui, fill: egui::Color32, value: Option<i64>, max: Option<i64>) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 18.0), egui::Sense::hover());
     let painter = ui.painter();
     painter.rect_filled(rect, 3.0, egui::Color32::from_black_alpha(170));
     // A current value above the computed maximum means the maximum is short of something this client does not know yet
@@ -71,10 +72,18 @@ pub(crate) fn bar(ui: &mut egui::Ui, fill: egui::Color32, value: Option<i64>, ma
         _ => "-".to_string(),
     };
     painter.text(rect.center(), egui::Align2::CENTER_CENTER, text, egui::FontId::proportional(13.0), egui::Color32::WHITE);
+    response
+}
+
+/// Shows what a value is made of when the pointer rests on `response`.
+pub(crate) fn hover(response: egui::Response, title: &str, parts: Option<&Breakdown>, accent: egui::Color32) {
+    if let Some(b) = parts {
+        response.on_hover_ui(|ui| crate::skills::breakdown_text(ui, title, b, accent));
+    }
 }
 
 impl StatsWindow {
-    pub fn show(&mut self, ctx: &egui::Context, name: &str, stats: &BTreeMap<u32, i64>, palette: &Palette) {
+    pub fn show(&mut self, ctx: &egui::Context, name: &str, stats: &BTreeMap<u32, i64>, parts: &BTreeMap<u32, Breakdown>, palette: &Palette) {
         let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
         let mut open = self.open;
         egui::Window::new(egui::RichText::new("Stats").color(accent)).open(&mut open).collapsible(false).resizable(false).default_pos(egui::pos2(40.0, 120.0)).show(ctx, |ui| {
@@ -88,16 +97,19 @@ impl StatsWindow {
                     ui.label("Level:");
                 });
             });
-            bar(ui, egui::Color32::from_rgb(190, 40, 40), get(stat::HEALTH), get(stat::MAX_HEALTH));
-            bar(ui, egui::Color32::from_rgb(40, 90, 200), get(stat::CURRENT_NANO), get(stat::MAX_NANO));
+            let health = bar(ui, egui::Color32::from_rgb(190, 40, 40), get(stat::HEALTH), get(stat::MAX_HEALTH));
+            hover(health, "Max health", parts.get(&stat::MAX_HEALTH), accent);
+            let nano = bar(ui, egui::Color32::from_rgb(40, 90, 200), get(stat::CURRENT_NANO), get(stat::MAX_NANO));
+            hover(nano, "Max nano energy", parts.get(&stat::MAX_NANO), accent);
             ui.add_space(4.0);
             for (label, number) in ROWS {
-                ui.horizontal(|ui| {
+                let row = ui.horizontal(|ui| {
                     ui.label(egui::RichText::new(*label).color(accent));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.label(get(*number).map_or("-".to_string(), |v| v.to_string()));
                     });
                 });
+                hover(row.response.interact(egui::Sense::hover()), label.trim_end_matches(':'), parts.get(number), accent);
             }
         });
         self.open = open;

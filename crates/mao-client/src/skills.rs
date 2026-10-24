@@ -109,9 +109,11 @@ pub fn rows<'a>(group: &'a [(u32, &'a str)], stats: &BTreeMap<u32, i64>, search:
         .collect()
 }
 
-/// The hover text of a row: the trained (stored) value and every bonus with where it comes from.
+/// The hover text of a row: the trained (stored) value and every bonus with where it comes from. The "Trained" line is left out
+/// for a stat whose stored value is 0 but that has bonuses (the armour classes).
 pub fn breakdown_lines(b: &Breakdown) -> Vec<(&'static str, i64)> {
-    let mut lines = vec![("Trained", b.stored)];
+    // A stat nothing trains (the armour classes) has no "Trained" line unless that is all there is.
+    let mut lines = if b.stored != 0 || b.total() == 0 { vec![("Trained", b.stored)] } else { Vec::new() };
     for (what, amount) in [("Equipment", b.worn), ("Perks", b.perks), ("Nano buffs", b.nanos), ("Attributes", b.trickle)] {
         if amount != 0 {
             lines.push((what, amount));
@@ -120,7 +122,7 @@ pub fn breakdown_lines(b: &Breakdown) -> Vec<(&'static str, i64)> {
     lines
 }
 
-fn breakdown_text(ui: &mut egui::Ui, skill: &str, b: &Breakdown, accent: egui::Color32) {
+pub(crate) fn breakdown_text(ui: &mut egui::Ui, skill: &str, b: &Breakdown, accent: egui::Color32) {
     ui.label(egui::RichText::new(skill).strong().color(accent));
     for (what, amount) in breakdown_lines(b) {
         ui.horizontal(|ui| {
@@ -209,6 +211,8 @@ mod tests {
         let b = Breakdown { stored: 40, worn: 7, perks: 0, nanos: 10, trickle: 25 };
         assert_eq!(breakdown_lines(&b), vec![("Trained", 40), ("Equipment", 7), ("Nano buffs", 10), ("Attributes", 25)]);
         assert_eq!(b.total(), 82);
+        let armour = Breakdown { worn: 230, ..Default::default() };
+        assert_eq!(breakdown_lines(&armour), vec![("Equipment", 230)]);
     }
 
     #[test]

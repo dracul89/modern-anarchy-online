@@ -15,7 +15,7 @@ fn progress(value: Option<i64>, from: i64, to: Option<i64>) -> (Option<i64>, Opt
     }
 }
 
-pub fn show(ctx: &egui::Context, stats: &BTreeMap<u32, i64>, palette: &Palette) {
+pub fn show(ctx: &egui::Context, stats: &BTreeMap<u32, i64>, parts: &BTreeMap<u32, crate::derived::Breakdown>, palette: &Palette) {
     if stats.is_empty() {
         return;
     }
@@ -25,8 +25,10 @@ pub fn show(ctx: &egui::Context, stats: &BTreeMap<u32, i64>, palette: &Palette) 
         egui::Frame::new().fill(egui::Color32::from_black_alpha(120)).corner_radius(4.0).inner_margin(6.0).show(ui, |ui| {
             ui.set_width(200.0);
             ui.spacing_mut().item_spacing.y = 3.0;
-            bar(ui, egui::Color32::from_rgb(190, 40, 40), get(stat::HEALTH), get(stat::MAX_HEALTH));
-            bar(ui, egui::Color32::from_rgb(40, 90, 200), get(stat::CURRENT_NANO), get(stat::MAX_NANO));
+            let health = bar(ui, egui::Color32::from_rgb(190, 40, 40), get(stat::HEALTH), get(stat::MAX_HEALTH));
+            crate::stats::hover(health, "Max health", parts.get(&stat::MAX_HEALTH), accent);
+            let nano = bar(ui, egui::Color32::from_rgb(40, 90, 200), get(stat::CURRENT_NANO), get(stat::MAX_NANO));
+            crate::stats::hover(nano, "Max nano energy", parts.get(&stat::MAX_NANO), accent);
             // Experience towards the next level: from the experience at the last level to the next level's.
             let (value, span) = progress(get(stat::XP), get(stat::LAST_XP).unwrap_or(0), get(stat::NEXT_XP));
             bar(ui, egui::Color32::from_rgb(190, 150, 40), value, span);
