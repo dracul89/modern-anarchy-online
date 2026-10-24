@@ -49,6 +49,16 @@ fullscreen). Settings live in `mao.ini`; see `docs/CLIENT_UI.md` for the window 
 key bindings, themes (the original GUI and the AOU mod) and the whompah labels.
 `MAO_TRACE=1` prints the server's non-bulk messages and the walked position.
 
+The windows of the live client (all of them can be moved, and keep their places;
+`Ctrl+H` lists every key): `I` inventory (drag to wear or move, right-click for use
+and delete, a find box), `U` stats, `J` skills, `N` NCU, `Ctrl+N` nano programs
+(click to cast, drag to a hotbar), `P` perks, `L` friends, `K` actions (specials,
+perks, socials, drag to a hotbar), `M` missions, `Ctrl+M` mail, `B` whom-pah list,
+`O` map, `Enter` or `/` chat (tabs for tells, channels, system and combat, a log
+in `chat/`, the original's command list with completion), `F12` screenshot. Shops,
+bags, corpses and bank terminals open their own windows; `mao-client play <game>`
+is a launcher with a login form and the character list.
+
 What the client does today: logs in (the Diffie-Hellman and TEA exchange of the
 original), enters a character, loads the playfield (ground, props, collision),
 shows players, NPCs and creatures with their meshes, clothes and walk cycles,
