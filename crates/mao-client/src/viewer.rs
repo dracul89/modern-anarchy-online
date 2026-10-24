@@ -54,6 +54,8 @@ pub struct Input {
     pub mv: (u8, u32, u32),
     /// An item to destroy: a counter that steps with each and the item's place.
     pub delete: (u8, u32),
+    /// How far characters are drawn (0: all), from the settings.
+    pub char_distance: f32,
     /// An item to take from the open container: a counter that steps with each, the container's handle and the item's place
     /// (`u32::MAX` for all of them).
     pub take: (u8, u32, u32),
@@ -872,6 +874,12 @@ impl ApplicationHandler for App {
                 let size = (w.config.width, w.config.height);
                 if self.live.is_some() {
                     w.scene.fog = fog_for(self.settings.view_distance);
+                    if self.keys.char_distance != self.settings.char_distance {
+                        self.keys.char_distance = self.settings.char_distance;
+                        if let Some(live) = &self.live {
+                            let _ = live.input.send(self.keys);
+                        }
+                    }
                 }
                 w.renderer.render_scale = self.settings.render_scale;
                 w.renderer.sharpness = self.settings.sharpness;
@@ -918,6 +926,10 @@ impl ApplicationHandler for App {
                             crate::chatwindow::Out::Quit => event_loop.exit(),
                             crate::chatwindow::Out::ViewDist(d) => {
                                 self.settings.view_distance = d as f32;
+                                self.settings.save();
+                            }
+                            crate::chatwindow::Out::CharDist(d) => {
+                                self.settings.char_distance = d as f32;
                                 self.settings.save();
                             }
                             other => crate::net::send_chat(other),

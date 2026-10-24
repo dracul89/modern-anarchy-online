@@ -19,6 +19,7 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
     ("befriend <name>", "put a character on your friends list (L shows it)"),
     ("ignore [name]", "hide a character's tells and channel lines (again: show them; alone: the list)"),
     ("camp", "sit down to log out (stand up or move to cancel)"),
+    ("chardist [n]", "how far characters are drawn (0 for all)"),
     ("viewdist [n]", "how far the world is seen (200 to 4000)"),
     ("quit", "leave the client"),
     ("help", "this list"),
@@ -40,6 +41,8 @@ pub enum Parsed {
     Ignore { name: String },
     /// `/viewdist [n]`: how far the world is seen (alone: the setting).
     ViewDist { distance: Option<u32> },
+    /// `/chardist [n]`: how far characters are drawn (0: all).
+    CharDist { distance: Option<u32> },
     /// `/camp`: sit down to log out.
     Camp,
     /// `/quit`: leave the client.
@@ -108,6 +111,7 @@ pub fn parse(line: &str) -> Parsed {
         }
         "ignore" => Parsed::Ignore { name: text.split_whitespace().next().unwrap_or("").to_string() },
         "camp" => Parsed::Camp,
+        "chardist" => Parsed::CharDist { distance: text.split_whitespace().next().and_then(|t| t.parse().ok()) },
         "viewdist" => Parsed::ViewDist { distance: text.split_whitespace().next().and_then(|t| t.parse().ok()) },
         "quit" => Parsed::Quit,
         "befriend" => {

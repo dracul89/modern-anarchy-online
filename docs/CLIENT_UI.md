@@ -367,3 +367,7 @@ The inventory window has a **Find** box: items whose name does not contain the t
 ## View distance (`/viewdist`, options)
 
 How far the live view sees: the options window's **View distance** slider (200 to 4000, `view_distance` in `mao.ini`, 1800 by default) or `/viewdist <n>`. It is where the fog ends; the haze starts a seventh of the way out (250 for 1800), and the scene's fog is set from it every frame, so it takes effect at once. Not tried in a live window.
+
+## Character distance (`/chardist`, options)
+
+Characters and creatures farther than this from you are not drawn (their name plates and the map dots still follow what is known): the options window's **Character distance** slider (0 to 400, 0 meaning all; `char_distance` in `mao.ini`) or `/chardist <n>`. Machines, doors and the other built-in things are always drawn. It is meant for crowded places, where drawing every character costs the most. Not tried live.

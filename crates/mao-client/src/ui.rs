@@ -820,6 +820,10 @@ fn options_window(ctx: &egui::Context, open: &mut bool, rebinding: &mut Option<A
             ui.add(egui::Slider::new(&mut settings.view_distance, 200.0..=4000.0).logarithmic(true).step_by(10.0));
         });
         ui.horizontal(|ui| {
+            ui.label("Character distance");
+            ui.add(egui::Slider::new(&mut settings.char_distance, 0.0..=400.0).step_by(5.0).custom_formatter(|v, _| if v < 1.0 { "all".to_string() } else { format!("{v:.0}") }));
+        });
+        ui.horizontal(|ui| {
             ui.label("Interface size");
             ui.add(egui::Slider::new(&mut settings.ui_scale, 0.6..=2.0).step_by(0.05).custom_formatter(|v, _| format!("{:.0}%", v * 100.0)));
         });

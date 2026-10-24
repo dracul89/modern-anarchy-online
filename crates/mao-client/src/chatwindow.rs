@@ -44,6 +44,8 @@ pub enum Out {
     Quit,
     /// The view distance to set (a command line's `/viewdist n`).
     ViewDist(u32),
+    /// The character draw distance to set (0: all).
+    CharDist(u32),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -192,6 +194,14 @@ impl ChatWindow {
             Parsed::ViewDist { distance: Some(d) } => {
                 self.push(Line::new(Kind::System, format!("View distance {}.", d.clamp(200, 4000))));
                 Some(Out::ViewDist(d.clamp(200, 4000)))
+            }
+            Parsed::CharDist { distance: Some(d) } => {
+                self.push(Line::new(Kind::System, if d == 0 { "Drawing all characters.".to_string() } else { format!("Drawing characters up to {} away.", d.min(4000)) }));
+                Some(Out::CharDist(d.min(4000)))
+            }
+            Parsed::CharDist { distance: None } => {
+                self.push(Line::new(Kind::System, "Usage: /chardist <distance, 0 for all>"));
+                None
             }
             Parsed::ViewDist { distance: None } => {
                 self.push(Line::new(Kind::System, "Usage: /viewdist <200 to 4000>"));

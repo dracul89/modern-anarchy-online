@@ -1275,7 +1275,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                         chat.send(&mao_net::chat::lookup_packet(&name))?;
                                     }
                                 },
-                                Out::Camp | Out::Quit | Out::ViewDist(_) => {}
+                                Out::Camp | Out::Quit | Out::ViewDist(_) | Out::CharDist(_) => {}
                                 Out::Befriend { name } => match ids.get(&name.to_lowercase()) {
                                     Some(&id) => {
                                         chat.send(&mao_net::chat::buddy_add_packet(id))?;
@@ -2136,7 +2136,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             if last_overlay.elapsed() >= Duration::from_millis(33) {
                 last_overlay = Instant::now();
                 let built = Instant::now();
-                let model = overlay_model(&state, &state.props, &mut characters, &|id| id != own);
+                // (characters farther than the setting are not drawn; 0 draws all)
+                let reach = keys.char_distance;
+                let near = |id: u32| reach <= 0.0 || state.entities.get(&id).is_none_or(|e| ((e.0[0] - position[0]).powi(2) + (e.0[2] - position[2]).powi(2)).sqrt() <= reach);
+                let model = overlay_model(&state, &state.props, &mut characters, &|id| id != own && near(id));
                 let own_model = overlay_model(&state, &state.props, &mut characters, &|id| id == own);
                 let own_velocity = if walk == 0 && keys.strafe == 0 && !airborne {
                     [0.0; 3]
