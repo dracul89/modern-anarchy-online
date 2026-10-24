@@ -146,6 +146,8 @@ struct World {
     perks_changed: bool,
     /// The character an `/inspect` waits on: its info packet is told in the chat window when it comes.
     inspecting: Option<u32>,
+    /// Nano casts that involve the character, not yet told: (caster, target, nano).
+    casts: Vec<(u32, u32, u32)>,
     /// The level of the characters (not creatures) whose info packets came.
     levels: BTreeMap<u32, u8>,
     /// Health and maximum from the info packets (the server answers an info request with them).
@@ -428,6 +430,17 @@ impl World {
                     // Shops can be targeted (Ctrl+Tab) and used (E) like the other objects.
                     self.objects.insert(m.identity.1, [f("X"), f("Y"), f("Z")]);
                     self.names.entry(m.identity.1).or_insert_with(|| (format!("Booth {:x}", m.identity.1 & 0xffff), false));
+                }
+            }
+        }
+        // A nano cast: told when it is the character's own or is cast on it.
+        if m.kind == 0x25314d6d {
+            if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
+                let id = |name: &str| p.value.get(name).and_then(|v| v.get("Instance")).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
+                let nano = p.value.get("NanoId").and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
+                let (caster, target) = (id("Caster"), id("Target"));
+                if caster == self.own || target == self.own {
+                    self.casts.push((caster, target, nano));
                 }
             }
         }
@@ -2414,6 +2427,20 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     eprintln!("running nanos (id, ms left): {:?}; NCU {:?} of {:?}", state.nano_times, shown.get(&180), shown.get(&181));
                     eprintln!("worn: {:?}", state.worn.iter().map(|e| (e.slot, e.low_id, e.high_id, e.quality)).collect::<Vec<_>>());
                     eprintln!("stats: {} stored, {} modifiers; {}", state.stats.len(), state.item_mods.len(), pick(&[0x1b, 0x01, 0xd6, 0xdd, 0x36, 0x34, 0x39, 0x15e, 0x28, 0xb2, 0xa9, 0x5b]));
+                }
+                for (caster, tgt, nano) in std::mem::take(&mut state.casts) {
+                    let nano_name = gear_db.get(mao_formats::resource::Id { kind: 0xfde85, instance: nano }).ok().flatten().and_then(|d| mao_formats::item::Item::parse(&d)).map_or_else(|| format!("nano #{nano}"), |t| t.name);
+                    let who = |id: u32| if id == own { "you".to_string() } else { state.names.get(&id).map_or_else(|| "something".to_string(), |n| n.0.clone()) };
+                    let text = if caster == own && tgt == own {
+                        format!("You cast {nano_name}.")
+                    } else if caster == own {
+                        format!("You cast {nano_name} on {}.", who(tgt))
+                    } else if tgt == own && caster != tgt {
+                        format!("{} casts {nano_name} on you.", who(caster))
+                    } else {
+                        format!("{} casts {nano_name}.", who(caster))
+                    };
+                    state.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, text));
                 }
                 state.prune_nanos();
                 state.refresh_mods(&gear_db);

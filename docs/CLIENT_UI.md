@@ -416,3 +416,7 @@ The options window's **Take everything from a corpse as soon as it opens** (`aut
 ## Interiors against the dark
 
 The sky is a scene setting now (`Scene::sky`: the horizon colour, which is also the fog's, and the zenith). The live view uses the dark one (`mao_render::DARK_SKY`) in a playfield with no ground (the shops and dungeons built from rooms) so a room is not seen against a blue daylight sky with a pale fog, and the daylight one elsewhere. The offline `map` images keep the daylight sky. Not seen in a live window.
+
+## Nano casts in the Combat tab
+
+A `CastNanoSpell` (`25314d6d`: the nano, the target and the caster) that involves the character becomes a line in the Combat tab: `You cast Heal Me on Zed.`, `Zed casts Heal Me on you.` (the nano's name is read from the nano table, the names from the entities the client knows). Casts between other characters are not listed.
