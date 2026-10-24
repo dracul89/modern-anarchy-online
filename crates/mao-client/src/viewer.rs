@@ -54,6 +54,8 @@ pub struct Input {
     pub mv: (u8, u32, u32),
     /// An item to destroy: a counter that steps with each and the item's place.
     pub delete: (u8, u32),
+    /// A running nano to cancel: a counter that steps with each and the nano's id.
+    pub cancel: (u8, u32),
     /// How far characters are drawn (0: all), from the settings.
     pub char_distance: f32,
     /// An item to take from the open container: a counter that steps with each, the container's handle and the item's place
@@ -978,6 +980,9 @@ impl ApplicationHandler for App {
                                 }
                             }
                         }
+                    }
+                    if let Some(nano) = requests.cancel_nano.take() {
+                        self.keys.cancel = (self.keys.cancel.0.wrapping_add(1), nano);
                     }
                     for place in requests.item_uses.drain(..) {
                         self.keys.fire = (self.keys.fire.0.wrapping_add(1), place);

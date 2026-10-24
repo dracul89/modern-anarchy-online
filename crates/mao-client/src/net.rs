@@ -1465,6 +1465,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut take_seen = 0u8;
         let mut put_seen = 0u8;
         let mut delete_seen = 0u8;
+        let mut cancel_seen = 0u8;
         let (mut position, mut heading) = (start, heading);
         let (mut moving, mut turning, mut strafing) = (0i8, 0i8, 0i8);
         const JUMP_SPEED: f32 = 7.0;
@@ -1987,6 +1988,17 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     state.door_used(id);
                     pending_messages.push(format!("Using {}", state.names.get(&id).map_or("the target", |n| n.0.as_str())));
                 }
+            }
+            // A running nano cancelled: asked of the server and taken off the NCU window at once.
+            if keys.cancel.0 != cancel_seen {
+                cancel_seen = keys.cancel.0;
+                let nano = keys.cancel.1;
+                let _ = connection.send(&n3::cancel_nano(own, nano));
+                state.nano_times.retain(|t| t.0 != nano);
+                state.nanos.retain(|n| *n != nano);
+                state.nano_list_changed = true;
+                state.mods_dirty = true;
+                pending_messages.push("Nano cancelled".into());
             }
             // An item destroyed: asked of the server and taken out of the inventory window at once.
             if keys.delete.0 != delete_seen {

@@ -89,7 +89,9 @@ pub struct NcuWindow {
 const ICON: f32 = 32.0;
 
 impl NcuWindow {
-    pub fn show(&mut self, ctx: &egui::Context, nanos: &[NanoInfo], stats: &std::collections::BTreeMap<u32, i64>, palette: &Palette) {
+    /// Shows the window; returns the program the player chose to cancel (the row's right-click menu).
+    pub fn show(&mut self, ctx: &egui::Context, nanos: &[NanoInfo], stats: &std::collections::BTreeMap<u32, i64>, palette: &Palette) -> Option<u32> {
+        let mut cancel = None;
         let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
         let now = Instant::now();
         let mut open = self.open;
@@ -130,7 +132,15 @@ impl NcuWindow {
                             ui.painter().rect_filled(egui::Rect::from_min_size(rect.min, egui::vec2(rect.width() * fraction, rect.height())), 2.0, egui::Color32::from_rgb(70, 150, 200));
                         });
                     });
-                    row.response.interact(egui::Sense::hover()).on_hover_ui(|ui| {
+                    let response = row.response.interact(egui::Sense::click());
+                    response.context_menu(|ui| {
+                        ui.label(egui::RichText::new(&nano.name).strong());
+                        if ui.button("Cancel this nano").clicked() {
+                            cancel = Some(nano.id);
+                            ui.close();
+                        }
+                    });
+                    response.on_hover_ui(|ui| {
                         ui.set_max_width(320.0);
                         ui.label(egui::RichText::new(&nano.name).strong().color(accent));
                         if nano.total_ms > 0 {
@@ -161,6 +171,7 @@ impl NcuWindow {
             });
         });
         self.open = open;
+        cancel
     }
 }
 

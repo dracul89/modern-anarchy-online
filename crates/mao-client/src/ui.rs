@@ -135,6 +135,8 @@ pub struct Requests {
     pub loot_take: Option<crate::loot::Take>,
     /// Items dragged onto a place of the inventory window: `(from, to)`.
     pub item_moves: Vec<(u32, u32)>,
+    /// A running nano the player cancelled in the NCU window.
+    pub cancel_nano: Option<u32>,
     /// Items chosen to use or to destroy in the inventory window's menu (by place).
     pub item_uses: Vec<u32>,
     pub item_deletes: Vec<u32>,
@@ -306,7 +308,9 @@ impl Ui {
                 }
             }
             if ncu_window.open {
-                ncu_window.show(&ctx, &hud.nanos, &hud.stats, palette);
+                if let Some(nano) = ncu_window.show(&ctx, &hud.nanos, &hud.stats, palette) {
+                    requests.cancel_nano = Some(nano);
+                }
             }
             if skills_window.open {
                 skills_window.show(&ctx, &hud.character_name, &hud.stats, &hud.stat_parts, palette);

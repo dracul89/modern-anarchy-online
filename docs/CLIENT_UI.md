@@ -375,3 +375,7 @@ Characters and creatures farther than this from you are not drawn (their name pl
 ## Other characters' social actions (dances, bows, ...)
 
 When the server announces a social action (`SocialActionCmd`, `3b290771`: its last word is the action's number, the same numbers the Action window's social list uses: 6 is the backflip, 62 another; the words before it are a counter and flags), the character it comes from plays that animation once (`<male|female|athrox>_social-<name>.ani`, found in the database by name: 75 male, 74 female and 75 Atrox ones). After the animation ends the character is drawn as usual again. Our own social actions still are **not sent** (the message of the client's side was not in any capture), so they do not animate our own character either.
+
+## Cancelling a running nano (NCU window, right-click)
+
+Right-clicking a running nano in the NCU window offers **Cancel this nano**. The message is `CharacterAction` action `0x41` (`RemoveFriendlyNano`, `n3::cancel_nano`): the layout of a cast with no target, the nano identity `(0xcf1b, id)` in the two parameters, reproduced byte for byte from the captured cancels (so the "learn / remove" doubt about action `0x41` in the earlier notes is settled). The nano leaves the window at once and its stat bonuses are taken off; the server's own update of the list is not waited for. Not tried live.

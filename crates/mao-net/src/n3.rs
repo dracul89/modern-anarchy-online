@@ -167,6 +167,19 @@ pub fn feedback_text(data: &[u8]) -> Option<String> {
     None
 }
 
+/// `CharacterAction` (`5e477770`) action `0x41` (`RemoveFriendlyNano`): ends a running nano program. The same layout as a cast with no
+/// target: the nano identity `(0xcf1b, id)` in the two parameters (the captured cancels are `0x42aba`, `0x42af6`...).
+pub fn cancel_nano(character: u32, nano: u32) -> Frame {
+    let mut data = vec![0u8; 5];
+    data[4] = 0x41;
+    data.extend_from_slice(&[0; 4]);
+    for word in [0, 0, 0xcf1b, nano] {
+        data.extend_from_slice(&word.to_be_bytes());
+    }
+    data.extend_from_slice(&[0; 2]);
+    Message { kind: 0x5e477770, identity: (CHARACTER, character), data }.frame(character)
+}
+
 /// `CharacterAction` (`5e477770`) action `0x70` (`DeleteItem`): destroys the item in an inventory place. The target is `(0x68, place)`
 /// and both parameters are the item's id (low and high: the same for a plain item), as in the captured delete.
 pub fn delete_item(character: u32, place: u32, low: u32, high: u32) -> Frame {
@@ -400,6 +413,7 @@ mod tests {
         assert_eq!(hex(trade(0x1323e, 5, [0xc75b, 0xc006021c, 0x6f, 2])), "0000000002050000c75bc006021c0000006f00000002");
         assert_eq!(hex(cast_nano(0x4c2de, Some(0x7af69bd7), 0xaad6)), "0000000013000000000000c3507af69bd70000cf1b0000aad60000");
         assert_eq!(hex(cast_nano(0x4bc80, None, 0x43576)), "00000000130000000000000000000000000000cf1b000435760000");
+        assert_eq!(hex(cancel_nano(0x4bc7f, 0x42aba)), "00000000410000000000000000000000000000cf1b00042aba0000");
         assert_eq!(hex(delete_item(0x4bc7f, 0x5b, 0x40d13, 0x40d13)), "000000007000000000000000680000005b00040d1300040d130000");
         assert_eq!(hex(use_perk(0x4bc7f, 0x2991, *b"QISH")), "00000000b3000000000000c3500004bc7f00002991514953480000");
         assert_eq!(hex(use_perk(0x4bc7f, 0x2a0a, *b"WRTK")), "00000000b3000000000000c3500004bc7f00002a0a5752544b0000");
