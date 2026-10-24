@@ -304,3 +304,23 @@ trickle to those skills (an untrained skill, absent from the stored stats, start
 With the missing small buff of the previous section still unknown, the computed attributes are 9 to 29 short and the skills 2
 to 6 short (the 14 skills that were off in the map are the same effect); `stats-check` on Conjecture is 190 equal / 80 off by a
 few where it was 189 / 81 off by about 250.
+
+## Hunting the last small buff (hook log of the live Conjecture)
+
+The ao-bridge hooks on `AddModifier`/`RemoveModifier` were still installed in the running original (15236 events logged by now, the
+holder of the controlled character changed to `0x7f30bf8` after a zone change). The net of the logged adds and removes on the
+current holder equals the live modifier map for **every** stat, so the log has every source; subtracting what the client's model
+produces (worn items, 9 nanos, 143 perks and research ranks) leaves 28 events:
+
+* **3 events came from the ordinary item route: a Dreadloch Endurance Booster in inventory place 15** (health +250, strength +20,
+  stat 277 +50). The worn places now run 1-16 (place 15 was left out): max health and stat 277 now match the original.
+* **25 events come from a different route**: a spell of type `0xcfb7` (`FUN_100a8d0b`, a level-scaled modify-stat spell) run from
+  a list that the server's N3 traffic delivers (return chain `0x61a06a3d` <- `0x61962bee` <- `0x61a87175` <- `N3.dll + 0x6643`),
+  logged just before the worn items are applied. It is in no template of the character (no worn item, nano or perk holds `0xcfb7`,
+  and no database object holds more than 6 of its 24 stat/amount pairs). For Conjecture (level 220) it adds attributes +9 (intelligence
+  and sense +6 or +9), skills 122-131 +39, 139/152/161 +59, 156 +99, 123/124 +17, 149 +12, 132 +9, 343 +19, 364 +39 and 318 -6.
+  The amounts look like fractions of the level (99 = 0.45 x 220, 39 = 0.18 x 220), so they are probably level-scaled bonuses of an
+  info-item (`n3InfoItemRemote_t`) rather than data; they would need a capture or a second character of another level to model.
+
+`stats-check` on Conjecture is now 192 stats equal; the remaining differences are these 25 effects and what they pull through the
+attributes into the skills (`docs/live_check_conjecture.txt`).
