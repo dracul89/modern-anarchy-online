@@ -157,7 +157,7 @@ mod tests {
     fn the_filter_matches_any_part_of_a_name() {
         let perks = vec![perk("Bio Shielding", 10), perk("Blunt Mastery", 3), perk("Mutate", 1)];
         assert_eq!(matching(&perks, "bl").len(), 1);
-        assert_eq!(matching(&perks, "S").len(), 3);
+        assert_eq!(matching(&perks, "S").len(), 2);
         assert_eq!(matching(&perks, " mut ")[0].name, "Mutate");
     }
 }
