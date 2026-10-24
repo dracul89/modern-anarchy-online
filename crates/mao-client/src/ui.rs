@@ -135,6 +135,9 @@ pub struct Requests {
     pub loot_take: Option<crate::loot::Take>,
     /// Items dragged onto a place of the inventory window: `(from, to)`.
     pub item_moves: Vec<(u32, u32)>,
+    /// Items chosen to use or to destroy in the inventory window's menu (by place).
+    pub item_uses: Vec<u32>,
+    pub item_deletes: Vec<u32>,
     /// An action clicked in the Action window.
     pub action: Option<hotbar::Action>,
     /// A place to walk to (world x, z), from the Whom-Pah window.
@@ -330,7 +333,10 @@ impl Ui {
                 }
             }
             if *gear_open {
-                requests.item_moves.extend(gear.show(&ctx, gear_open, &hud.gear, &hud.stats, palette));
+                let events = gear.show(&ctx, gear_open, &hud.gear, &hud.stats, palette);
+                requests.item_moves.extend(events.moves);
+                requests.item_uses.extend(events.uses);
+                requests.item_deletes.extend(events.deletes);
             }
             if *options_open {
                 options_window(&ctx, options_open, rebinding, settings, &mut requests, palette, themes);

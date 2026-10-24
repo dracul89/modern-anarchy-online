@@ -52,6 +52,8 @@ pub struct Input {
     pub cast: (u8, u32),
     /// An item to move: a counter that steps with each, the place it is in and the place it goes to.
     pub mv: (u8, u32, u32),
+    /// An item to destroy: a counter that steps with each and the item's place.
+    pub delete: (u8, u32),
     /// An item to take from the open container: a counter that steps with each, the container's handle and the item's place
     /// (`u32::MAX` for all of them).
     pub take: (u8, u32, u32),
@@ -952,6 +954,12 @@ impl ApplicationHandler for App {
                                 }
                             }
                         }
+                    }
+                    for place in requests.item_uses.drain(..) {
+                        self.keys.fire = (self.keys.fire.0.wrapping_add(1), place);
+                    }
+                    for place in requests.item_deletes.drain(..) {
+                        self.keys.delete = (self.keys.delete.0.wrapping_add(1), place);
                     }
                     for (from, to) in requests.item_moves.drain(..) {
                         self.keys.mv = (self.keys.mv.0.wrapping_add(1), from, to);

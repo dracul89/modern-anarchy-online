@@ -349,3 +349,7 @@ With the input line focused and no command list open, Up and Down walk the lines
 ## Auto-run (`Numpad *`)
 
 The `auto_run` key keeps the character walking forward until it is pressed again or a forward or back key is used (the key is rebindable in the options window). Not tried live.
+
+## Item menu (right-click in the inventory window)
+
+Right-clicking an item opens a small menu: **Use** (the use message the hotbar sends for an inventory place) and **Delete**, which asks a second click ("Really delete?") before anything is sent. Deleting is `CharacterAction` action `0x70` (`DeleteItem`, `n3::delete_item`): the target `(0x68, place)` and the item's id twice as the two parameters, reproduced byte for byte from the one captured delete. The item leaves the window at once (the server's answer was not identified, so a refused delete is not taken back). Not tried live. Splitting a stack (action `0x34`, captured once) is not wired: its parameters (0 and 1 in the capture) could mean several things.

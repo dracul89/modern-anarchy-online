@@ -1388,6 +1388,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut move_seen = 0u8;
         let mut take_seen = 0u8;
         let mut put_seen = 0u8;
+        let mut delete_seen = 0u8;
         let (mut position, mut heading) = (start, heading);
         let (mut moving, mut turning, mut strafing) = (0i8, 0i8, 0i8);
         const JUMP_SPEED: f32 = 7.0;
@@ -1909,6 +1910,18 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     let _ = connection.send(&n3::use_object(own, uses, (kind, id)));
                     state.door_used(id);
                     pending_messages.push(format!("Using {}", state.names.get(&id).map_or("the target", |n| n.0.as_str())));
+                }
+            }
+            // An item destroyed: asked of the server and taken out of the inventory window at once.
+            if keys.delete.0 != delete_seen {
+                delete_seen = keys.delete.0;
+                let place = keys.delete.1;
+                if let Some(i) = state.worn.iter().position(|e| e.slot == place) {
+                    let entry = state.worn.remove(i);
+                    let _ = connection.send(&n3::delete_item(own, place, entry.low_id, entry.high_id));
+                    state.mods_dirty = true;
+                    pending_gear = Some(crate::gear::from_entries(&gear_db, &gear_textures, &state.worn, state.stats.get(&0x36).copied().unwrap_or(1)));
+                    pending_messages.push("Item deleted".into());
                 }
             }
             // An inventory item put into the open container.

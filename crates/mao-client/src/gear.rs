@@ -40,6 +40,14 @@ pub struct GearItem {
 /// The inventory place of the item being dragged (`u32::MAX` for none): other windows (an open bag) take drops from it.
 pub static DRAGGED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(u32::MAX);
 
+/// What the window asks for besides moves: items to use and to destroy (by inventory place).
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct GearEvents {
+    pub moves: Vec<(u32, u32)>,
+    pub uses: Vec<u32>,
+    pub deletes: Vec<u32>,
+}
+
 /// How many places the backpack has.
 pub const PACK_SLOTS: u32 = 30;
 
@@ -177,6 +185,10 @@ pub struct GearWindow {
     /// The place of the item being dragged, and the moves made (from, to) since the last `show` returned.
     dragging: Option<u32>,
     moves: Vec<(u32, u32)>,
+    uses: Vec<u32>,
+    deletes: Vec<u32>,
+    /// The place an item awaits a second click to be destroyed.
+    confirm: Option<u32>,
 }
 
 const CELL: f32 = 42.0;
@@ -231,6 +243,30 @@ impl GearWindow {
             DRAGGED.store(item.slot, std::sync::atomic::Ordering::Relaxed);
             response.dnd_set_drag_payload(crate::hotbar::Action::Item { id: item.item_id, name: item.name.clone(), icon: item.icon.as_ref().map(|i| i.id) });
         }
+        let menu_slot = item.slot;
+        let menu_name = item.name.clone();
+        let (mut uses, mut deletes, mut confirm) = (Vec::new(), Vec::new(), self.confirm);
+        response.context_menu(|ui| {
+            ui.label(egui::RichText::new(&menu_name).strong());
+            if ui.button("Use").clicked() {
+                uses.push(menu_slot);
+                ui.close();
+            }
+            // A second click destroys it: nothing is asked of the server before.
+            let sure = confirm == Some(menu_slot);
+            if ui.button(if sure { "Really delete?" } else { "Delete" }).clicked() {
+                if sure {
+                    deletes.push(menu_slot);
+                    confirm = None;
+                    ui.close();
+                } else {
+                    confirm = Some(menu_slot);
+                }
+            }
+        });
+        self.uses.extend(uses);
+        self.deletes.extend(deletes);
+        self.confirm = confirm;
         response.on_hover_ui(|ui| {
             ui.set_max_width(320.0);
             ui.label(egui::RichText::new(&item.name).strong().color(accent));
@@ -300,7 +336,7 @@ impl GearWindow {
 
     /// The window: the equipment on the left, the backpack on the right.
     /// Returns the moves made by dragging an item onto a place: `(from, to)` inventory places.
-    pub fn show(&mut self, ctx: &egui::Context, open: &mut bool, items: &[GearItem], stats: &std::collections::BTreeMap<u32, i64>, palette: &Palette) -> Vec<(u32, u32)> {
+    pub fn show(&mut self, ctx: &egui::Context, open: &mut bool, items: &[GearItem], stats: &std::collections::BTreeMap<u32, i64>, palette: &Palette) -> GearEvents {
         let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
         let by_slot: HashMap<u32, &GearItem> = items.iter().map(|i| (i.slot, i)).collect();
         let mut is_open = *open;
@@ -362,7 +398,7 @@ impl GearWindow {
         if ctx.input(|i| i.pointer.any_released()) {
             self.dragging = None;
         }
-        std::mem::take(&mut self.moves)
+        GearEvents { moves: std::mem::take(&mut self.moves), uses: std::mem::take(&mut self.uses), deletes: std::mem::take(&mut self.deletes) }
     }
 }
 
