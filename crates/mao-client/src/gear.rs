@@ -40,6 +40,11 @@ pub struct GearItem {
 /// The inventory place of the item being dragged (`u32::MAX` for none): other windows (an open bag) take drops from it.
 pub static DRAGGED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(u32::MAX);
 
+/// How many of the pack's own places hold an item.
+pub fn pack_used(items: &[GearItem]) -> usize {
+    items.iter().filter(|i| (inventory::BACKPACK_FIRST..inventory::BACKPACK_FIRST + PACK_SLOTS).contains(&i.slot)).count()
+}
+
 /// Whether an item's name matches the find box (an empty box matches everything).
 pub fn matches_filter(name: &str, filter: &str) -> bool {
     let filter = filter.trim().to_lowercase();
@@ -389,7 +394,7 @@ impl GearWindow {
                 });
                 ui.separator();
                 ui.vertical(|ui| {
-                    ui.label(egui::RichText::new("Backpack").small().color(accent));
+                    ui.label(egui::RichText::new(format!("Backpack  {}/{}", pack_used(items), PACK_SLOTS)).small().color(accent));
                     let mut pack: Vec<&GearItem> = items.iter().filter(|i| i.slot >= inventory::BACKPACK_FIRST).collect();
                     pack.sort_by_key(|i| i.slot);
                     egui::ScrollArea::vertical().max_height(440.0).show(ui, |ui| {
@@ -421,6 +426,13 @@ impl GearWindow {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_pack_counts_only_its_own_places() {
+        let item = |slot| GearItem { slot, item_id: 1, count: 1, quality: 1, bag: false, name: String::new(), description: String::new(), icon: None, effects: Vec::new(), actions: Vec::new() };
+        let items = vec![item(0x10), item(inventory::BACKPACK_FIRST), item(inventory::BACKPACK_FIRST + 5), item(inventory::BACKPACK_FIRST + PACK_SLOTS)];
+        assert_eq!(pack_used(&items), 2);
+    }
 
     #[test]
     fn the_find_box_matches_part_of_a_name() {
