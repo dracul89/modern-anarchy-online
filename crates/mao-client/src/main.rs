@@ -393,6 +393,17 @@ fn run(args: &[String]) -> Result<(), String> {
                     println!("stat {stat:#x} ({stat}): stored {stored}, original shows {shown}, computed {value} (off by {})", value - shown);
                 }
             }
+            // The worn items' requirements against the computed stats: a character wears what it can wear, so none should be unmet.
+            let (mut judged, mut unmet) = (0, 0);
+            for e in entries.iter().filter(|e| !e.is_bag() && e.slot < 46) {
+                for action in derived::actions(&db, e).iter().filter(|a| matches!(a.kind, 6 | 8)) {
+                    for (text, met) in gear::requirement_lines(&action.criteria, &computed) {
+                        if met.is_some() { judged += 1; }
+                        if met == Some(false) { unmet += 1; println!("unmet: slot {} item {} needs {text}", e.slot, e.low_id); }
+                    }
+                }
+            }
+            println!("worn items' requirements: {judged} conditions judged, {unmet} unmet");
             println!("{same} stats equal, {different} different; {} modifiers computed", mods.len());
             return Ok(());
         }

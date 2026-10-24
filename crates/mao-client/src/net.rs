@@ -1688,6 +1688,14 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             eprintln!("parts {stat}: {:?}", parts.get(&stat));
                         }
                     }
+                    for e in state.worn.iter().filter(|e| !e.is_bag() && e.slot < 64) {
+                        for action in crate::derived::actions(&gear_db, e).iter().filter(|a| matches!(a.kind, 3 | 6 | 8)) {
+                            let lines = crate::gear::requirement_lines(&action.criteria, &shown);
+                            let unmet: Vec<_> = lines.iter().filter(|l| l.1 == Some(false)).map(|l| l.0.clone()).collect();
+                            let unknown = lines.iter().filter(|l| l.1.is_none()).count();
+                            eprintln!("requirements slot {} item {} action {}: {} conditions, unmet {:?}, unjudged {}", e.slot, e.low_id, action.kind, lines.len(), unmet, unknown);
+                        }
+                    }
                     eprintln!("worn: {:?}", state.worn.iter().map(|e| (e.slot, e.low_id, e.high_id, e.quality)).collect::<Vec<_>>());
                     eprintln!("stats: {} stored, {} modifiers; {}", state.stats.len(), state.item_mods.len(), pick(&[0x1b, 0x01, 0xd6, 0xdd, 0x36, 0x34, 0x39, 0x15e, 0x28, 0xb2, 0xa9, 0x5b]));
                 }
