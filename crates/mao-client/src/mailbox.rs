@@ -17,9 +17,30 @@ use crate::theme::Palette;
 /// The server does not announce mail terminals, so these come from captures: (playfield, x, z, serial).
 pub const KNOWN_TERMINALS: &[(u32, f32, f32, u32)] = &[(540, 445.4, 456.1, 0xc003_021c), (540, 408.1, 407.3, 0xc002_021c), (655, 3237.6, 771.4, 0xc000_028f), (4682, 351.5, 378.7, 0xc000_124a)];
 
-/// The known terminal nearest to a place in a playfield (within 25 units).
-pub fn nearest_terminal(playfield: u32, x: f32, z: f32) -> Option<u32> {
-    KNOWN_TERMINALS.iter().filter(|t| t.0 == playfield).map(|t| (((t.1 - x).powi(2) + (t.2 - z).powi(2)).sqrt(), t.3)).filter(|(d, _)| *d < 25.0).min_by(|a, b| a.0.total_cmp(&b.0)).map(|(_, s)| s)
+/// The terminal nearest to a place among `(x, z, serial)` entries (within 25 units).
+pub fn nearest_in(terminals: &[(f32, f32, u32)], x: f32, z: f32) -> Option<u32> {
+    terminals.iter().map(|t| (((t.0 - x).powi(2) + (t.1 - z).powi(2)).sqrt(), t.2)).filter(|(d, _)| *d < 25.0).min_by(|a, b| a.0.total_cmp(&b.0)).map(|(_, s)| s)
+}
+
+/// The mail terminals of a playfield: the ones built into it (its dynel table lists them with their serials: 385 of them in 203
+/// playfields), else the ones seen in the captures.
+pub fn terminals(db: &mao_formats::resource::ResourceDatabase, playfield: u32) -> Vec<(f32, f32, u32)> {
+    let built_in: Vec<(f32, f32, u32)> = db
+        .get(mao_formats::resource::Id { kind: mao_formats::dynels::KIND, instance: playfield })
+        .ok()
+        .flatten()
+        .map(|table| mao_formats::dynels::parse(&table).into_iter().filter(|d| d.kind == 0xc773).map(|d| (d.position[0], d.position[2], d.instance)).collect())
+        .unwrap_or_default();
+    if built_in.is_empty() {
+        KNOWN_TERMINALS.iter().filter(|t| t.0 == playfield).map(|t| (t.1, t.2, t.3)).collect()
+    } else {
+        built_in
+    }
+}
+
+/// The mail terminal nearest to a place in a playfield (within 25 units).
+pub fn nearest_terminal(db: &mao_formats::resource::ResourceDatabase, playfield: u32, x: f32, z: f32) -> Option<u32> {
+    nearest_in(&terminals(db, playfield), x, z)
 }
 
 /// What the windows ask the network thread to do.
@@ -274,9 +295,9 @@ mod tests {
 
     #[test]
     fn the_nearest_known_terminal() {
-        assert_eq!(nearest_terminal(540, 446.0, 455.0), Some(0xc003_021c));
-        assert_eq!(nearest_terminal(540, 410.0, 405.0), Some(0xc002_021c));
-        assert_eq!(nearest_terminal(540, 300.0, 300.0), None);
-        assert_eq!(nearest_terminal(545, 446.0, 455.0), None);
+        let old_athen: Vec<(f32, f32, u32)> = KNOWN_TERMINALS.iter().filter(|t| t.0 == 540).map(|t| (t.1, t.2, t.3)).collect();
+        assert_eq!(nearest_in(&old_athen, 446.0, 455.0), Some(0xc003_021c));
+        assert_eq!(nearest_in(&old_athen, 410.0, 405.0), Some(0xc002_021c));
+        assert_eq!(nearest_in(&old_athen, 300.0, 300.0), None);
     }
 }

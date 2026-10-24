@@ -1742,7 +1742,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             // The mail windows: check the inbox at the nearest known terminal, or send a mail.
             while let Ok(command) = mail_rx.try_recv() {
                 match command {
-                    crate::mailbox::MailCommand::Inbox => match crate::mailbox::nearest_terminal(current, position[0], position[2]) {
+                    crate::mailbox::MailCommand::Inbox => match crate::mailbox::nearest_terminal(&thread_db, current, position[0], position[2]) {
                         Some(serial) => {
                             uses += 1;
                             let _ = connection.send(&n3::use_object(own, uses, (0xc773, serial)));

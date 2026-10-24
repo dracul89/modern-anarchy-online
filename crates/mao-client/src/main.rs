@@ -479,6 +479,41 @@ fn run(args: &[String]) -> Result<(), String> {
             return Ok(());
         }
     }
+    // `dynels <game> <playfield> <kind hex>`: the built-in things of one identity type in a playfield.
+    if let [game, word, playfield, kind] = args {
+        if word == "dynels" {
+            let db = ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?;
+            let number: u32 = playfield.parse().map_err(|_| "bad playfield")?;
+            let kind = u32::from_str_radix(kind.trim_start_matches("0x"), 16).map_err(|e| e.to_string())?;
+            let table = db.get(Id { kind: mao_formats::dynels::KIND, instance: number }).ok().flatten().ok_or("no dynel table")?;
+            for d in mao_formats::dynels::parse(&table).into_iter().filter(|d| d.kind == kind) {
+                println!("{:#x}:{:#x} at ({:.1}, {:.1}, {:.1}) template {:#x}", d.kind, d.instance, d.position[0], d.position[1], d.position[2], d.template);
+            }
+            return Ok(());
+        }
+    }
+    // `dynel-kinds <game>`: how many built-in things of each identity type the playfields have.
+    if let [game, word] = args {
+        if word == "dynel-kinds" {
+            let db = ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?;
+            let mut tally: std::collections::BTreeMap<u32, (usize, usize)> = std::collections::BTreeMap::new();
+            for p in mao_formats::playfield::all(&db) {
+                let Some(table) = db.get(Id { kind: mao_formats::dynels::KIND, instance: p.number }).ok().flatten() else { continue };
+                let mut seen = std::collections::BTreeSet::new();
+                for d in mao_formats::dynels::parse(&table) {
+                    let entry = tally.entry(d.kind).or_default();
+                    entry.0 += 1;
+                    if seen.insert(d.kind) {
+                        entry.1 += 1;
+                    }
+                }
+            }
+            for (kind, (things, playfields)) in tally {
+                println!("{kind:#x}: {things} things in {playfields} playfields");
+            }
+            return Ok(());
+        }
+    }
     // `play <game>`: the launcher (login form and character list), which starts the live client for the character picked.
     if let [game, word] = args {
         if word == "play" {

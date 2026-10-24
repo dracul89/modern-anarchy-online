@@ -359,3 +359,7 @@ Right-clicking an item opens a small menu: **Use** (the use message the hotbar s
 The options window has an **Interface size** slider (60% to 200%, `ui_scale` under `[window]` in `mao.ini`): it sets egui's zoom factor, which multiplies the window's own scale, so every window, the hotbars and the labels grow together (for a large or high-density screen). Not tried in a live window.
 
 The inventory window has a **Find** box: items whose name does not contain the text are dimmed, so an item is easy to spot in a full backpack.
+
+## Mail terminals from the dynel table
+
+"Check mail" used four mail terminals seen in captures. The playfield's dynel table (`mao-client <game> dynels <playfield> c773` lists a kind) holds **385 mail terminals in 203 playfields**, each with its serial (`0xc0NN` over the playfield: `0xc003021c`), and the ones the captures knew are there at the same places (`0xc003021c` at (446, 454) against the captured (445.4, 456.1)). The client now looks the nearest one up there (within 25 units) and keeps the captured list as the fallback. `dynel-kinds` counts what the tables hold: doors 5084, terminals (`0xc73d`) 3108, mail 385, vending machines 886, and `0xdac6` 2242, `0xdac1` 407, `0xc418` 269, `0xc790` 210 that nothing draws or uses yet.
