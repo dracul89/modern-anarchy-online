@@ -427,6 +427,36 @@ fn run(args: &[String]) -> Result<(), String> {
             return net::run(rest);
         }
     }
+    // `rooms-verify <game>`: of the machines, terminals and doors built into the room playfields, how many stand over a floor cell of
+    // a room as placed, and how many would if the turn went the other way (per number of quarter turns).
+    if let [game, word] = args {
+        if word == "rooms-verify" {
+            let db = ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?;
+            let mut tally = [[(0u32, 0u32, 0u32); 4]; 1];
+            for p in mao_formats::playfield::all(&db) {
+                let Some(rooms) = load_rooms(&db, p.number) else { continue };
+                let Some(map) = db.get(Id { kind: 0xf4249, instance: rooms.tilemap }).ok().flatten().and_then(|o| mao_formats::tilemap::parse_new(&o).ok()) else { continue };
+                let Some(grid) = mao_formats::rooms::Grid::new(&map) else { continue };
+                let Some(table) = db.get(Id { kind: mao_formats::dynels::KIND, instance: p.number }).ok().flatten() else { continue };
+                for d in mao_formats::dynels::parse(&table).into_iter().filter(|d| d.kind != 0xc748) {
+                    // the room it belongs to: the one whose centre is nearest
+                    let Some(room) = rooms.rooms.iter().min_by(|a, b| {
+                        let da = (a.position[0] - d.position[0]).powi(2) + (a.position[2] - d.position[2]).powi(2);
+                        let db_ = (b.position[0] - d.position[0]).powi(2) + (b.position[2] - d.position[2]).powi(2);
+                        da.total_cmp(&db_)
+                    }) else { continue };
+                    let t = &mut tally[0][room.turn() as usize];
+                    t.0 += 1;
+                    t.1 += mao_formats::rooms::covers(&grid, room, d.position[0], d.position[2], false) as u32;
+                    t.2 += mao_formats::rooms::covers(&grid, room, d.position[0], d.position[2], true) as u32;
+                }
+            }
+            for (turn, (n, a, b)) in tally[0].iter().enumerate() {
+                println!("{turn} quarter turns: {n} things, {a} on floor as placed, {b} on floor turned the other way");
+            }
+            return Ok(());
+        }
+    }
     // `play <game>`: the launcher (login form and character list), which starts the live client for the character picked.
     if let [game, word] = args {
         if word == "play" {
