@@ -324,6 +324,18 @@ impl Ui {
         (Frame { jobs, textures: output.textures_delta, pixels_per_point: output.pixels_per_point }, requests)
     }
 
+    /// Lays out a custom interface (the launcher's form) for one frame: `build` draws into the context.
+    pub fn run_custom(&mut self, window: &Window, build: &mut dyn FnMut(&egui::Context)) -> Frame {
+        let raw = self.state.take_egui_input(window);
+        let output = self.ctx.run_ui(raw, |ui| {
+            let ctx = ui.ctx().clone();
+            build(&ctx);
+        });
+        self.state.handle_platform_output(window, output.platform_output);
+        let jobs = self.ctx.tessellate(output.shapes, output.pixels_per_point);
+        Frame { jobs, textures: output.textures_delta, pixels_per_point: output.pixels_per_point }
+    }
+
     /// Paints a frame over what is already in `target`.
     pub fn paint(&mut self, gpu: &Gpu, target: &wgpu::TextureView, size: (u32, u32), frame: Frame) {
         let screen = egui_wgpu::ScreenDescriptor { size_in_pixels: [size.0, size.1], pixels_per_point: frame.pixels_per_point };

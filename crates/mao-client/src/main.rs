@@ -18,6 +18,7 @@ mod chat_commands;
 mod chatwindow;
 mod chatlog;
 mod friends;
+mod launcher;
 mod layout;
 mod loot;
 mod nanoprograms;
@@ -424,6 +425,12 @@ fn run(args: &[String]) -> Result<(), String> {
     if let [word, rest @ ..] = args {
         if word == "net" {
             return net::run(rest);
+        }
+    }
+    // `play <game>`: the launcher (login form and character list), which starts the live client for the character picked.
+    if let [game, word] = args {
+        if word == "play" {
+            return launcher::run(game);
         }
     }
     // `rooms-check <game>`: how many playfields are made of rooms, and whether every one reads and builds.
