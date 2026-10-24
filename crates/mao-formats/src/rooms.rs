@@ -254,8 +254,13 @@ pub fn place_statel(room: &Room, position: [f32; 3], rotation: [f32; 4]) -> ([f3
     ([room.position[0] + dx, position[1], room.position[2] + dz], q)
 }
 
-/// A room's cells as terraces (a flat top for each cell and a wall where a neighbour is lower or missing), in the viewer's
-/// Z-up world (x, the server's z, height). `material` is given to the one part.
+/// The most two neighbouring cells may differ, in height steps, and still be one slope (6 steps of 0.2 is 1.2 units over a cell of
+/// 2: the ramps are 5 steps a cell); a bigger difference is a wall.
+const SLOPE: i32 = 6;
+
+/// A room's cells as a surface (each cell's top follows its neighbours' heights so ramps are smooth, with a wall where the
+/// difference is more than a slope or the neighbour is missing), in the viewer's Z-up world (x, the server's z, height).
+/// `material` is given to the parts.
 pub fn room_parts(grid: &Grid, room: &Room, material: &Material) -> Vec<Part> {
     let [x0, y0, x1, y1] = room.rect.map(|v| v as i64);
     let (w, h) = (x1 - x0, y1 - y0);
@@ -271,6 +276,32 @@ pub fn room_parts(grid: &Grid, room: &Room, material: &Material) -> Vec<Part> {
     let corner = |cx: i64, cy: i64| rotate((cx - x0) as f32 - w as f32 / 2.0, (cy - y0) as f32 - h as f32 / 2.0);
     let height = |value: u8| room.position[1] + value as f32 * grid.step;
     let (cx0, cz0) = (room.position[0], room.position[2]);
+    // The cell's height in steps, when it exists inside the room's rectangle.
+    let steps = |cx: i64, cy: i64| -> Option<i32> {
+        if cx < x0 || cx >= x1 || cy < y0 || cy >= y1 {
+            return None;
+        }
+        grid.at(cx, cy).filter(|&(exists, _)| exists != 0).map(|(_, v)| v as i32)
+    };
+    // The height of one corner of a cell (0: its own (cx, cy), 1: (cx+1, cy), 2: (cx+1, cy+1), 3: (cx, cy+1)): the average of
+    // the cells around that corner that are within a slope of this one.
+    let corner_height = |cx: i64, cy: i64, k: usize| -> f32 {
+        let own = steps(cx, cy).unwrap_or(0);
+        let (vx, vy) = match k {
+            0 => (cx, cy),
+            1 => (cx + 1, cy),
+            2 => (cx + 1, cy + 1),
+            _ => (cx, cy + 1),
+        };
+        let (mut sum, mut n) = (0, 0);
+        for (ax, ay) in [(vx - 1, vy - 1), (vx, vy - 1), (vx - 1, vy), (vx, vy)] {
+            if let Some(v) = steps(ax, ay).filter(|v| (v - own).abs() <= SLOPE) {
+                sum += v;
+                n += 1;
+            }
+        }
+        room.position[1] + sum as f32 / n.max(1) as f32 * grid.step
+    };
     // One part per texture (a new one when the 16-bit indices run out).
     let mut groups: std::collections::BTreeMap<Option<u32>, Vec<Part>> = std::collections::BTreeMap::new();
     let mut quad = |texture: Option<u32>, p: [[f32; 3]; 4], normal: [f32; 3], uv: [[f32; 2]; 4]| {
@@ -298,17 +329,26 @@ pub fn room_parts(grid: &Grid, room: &Room, material: &Material) -> Vec<Part> {
             if exists == 0 {
                 continue;
             }
-            let top = height(value);
+            let _ = (value, height);
+            let tops = [corner_height(cx, cy, 0), corner_height(cx, cy, 1), corner_height(cx, cy, 2), corner_height(cx, cy, 3)];
             let c = [corner(cx, cy), corner(cx + 1, cy), corner(cx + 1, cy + 1), corner(cx, cy + 1)];
             let tile = grid.tile(cx, cy);
-            quad(grid.texture(tile[0]), [world(c[0].0, c[0].1, top), world(c[1].0, c[1].1, top), world(c[2].0, c[2].1, top), world(c[3].0, c[3].1, top)], [0.0, 0.0, 1.0], [[0.0, 1.0], [1.0, 1.0], [1.0, 0.0], [0.0, 0.0]]);
-            // The walls toward each neighbour that is missing or lower.
-            for (nx, ny, a, b) in [(0i64, -1i64, 0usize, 1usize), (1, 0, 1, 2), (0, 1, 2, 3), (-1, 0, 3, 0)] {
-                let low = match grid.at(cx + nx, cy + ny) {
-                    Some((e, v)) if e != 0 => height(v),
-                    _ => room.position[1],
+            let p = [world(c[0].0, c[0].1, tops[0]), world(c[1].0, c[1].1, tops[1]), world(c[2].0, c[2].1, tops[2]), world(c[3].0, c[3].1, tops[3])];
+            // The normal of the (slightly bent) top: across its diagonals.
+            let (d1, d2) = ([p[2][0] - p[0][0], p[2][1] - p[0][1], p[2][2] - p[0][2]], [p[3][0] - p[1][0], p[3][1] - p[1][1], p[3][2] - p[1][2]]);
+            let n = [d1[1] * d2[2] - d1[2] * d2[1], d1[2] * d2[0] - d1[0] * d2[2], d1[0] * d2[1] - d1[1] * d2[0]];
+            let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt().max(1e-6);
+            let top_normal = if n[2] < 0.0 { [-n[0] / len, -n[1] / len, -n[2] / len] } else { [n[0] / len, n[1] / len, n[2] / len] };
+            quad(grid.texture(tile[0]), p, top_normal, [[0.0, 1.0], [1.0, 1.0], [1.0, 0.0], [0.0, 0.0]]);
+            // The walls toward each neighbour that is missing or more than a slope lower.
+            for (nx, ny, a, b, na, nb) in [(0i64, -1i64, 0usize, 1usize, 3usize, 2usize), (1, 0, 1, 2, 0, 3), (0, 1, 2, 3, 1, 0), (-1, 0, 3, 0, 2, 1)] {
+                let (low_a, low_b) = match steps(cx + nx, cy + ny) {
+                    Some(v) if (value as i32 - v) <= SLOPE => continue,
+                    Some(_) => (corner_height(cx + nx, cy + ny, na), corner_height(cx + nx, cy + ny, nb)),
+                    None => (room.position[1], room.position[1]),
                 };
-                if low >= top {
+                let (top_a, top_b) = (tops[a], tops[b]);
+                if low_a >= top_a && low_b >= top_b {
                     continue;
                 }
                 // The outward direction in the world.
@@ -317,8 +357,8 @@ pub fn room_parts(grid: &Grid, room: &Room, material: &Material) -> Vec<Part> {
                 let normal = [ex / len, ez / len, 0.0];
                 let (pa, pb) = (c[a], c[b]);
                 // Wound so the front faces the neighbour.
-                let rise = (top - low) / cell;
-                quad(grid.texture(tile[1]), [world(pb.0, pb.1, low), world(pa.0, pa.1, low), world(pa.0, pa.1, top), world(pb.0, pb.1, top)], normal, [[0.0, rise], [1.0, rise], [1.0, 0.0], [0.0, 0.0]]);
+                let rise = ((top_a - low_a).max(top_b - low_b)) / cell;
+                quad(grid.texture(tile[1]), [world(pb.0, pb.1, low_b), world(pa.0, pa.1, low_a), world(pa.0, pa.1, top_a), world(pb.0, pb.1, top_b)], normal, [[0.0, rise], [1.0, rise], [1.0, 0.0], [0.0, 0.0]]);
             }
         }
     }
@@ -399,6 +439,30 @@ mod tests {
         let xs: Vec<f32> = part.vertices.iter().map(|v| v.position[0]).collect();
         assert!(xs.iter().all(|x| (8.0..=12.0).contains(x)));
         assert!(part.vertices.iter().all(|v| v.position[2] == 5.0));
+    }
+
+    #[test]
+    fn a_ramp_is_smooth_and_a_cliff_is_a_wall() {
+        // three cells in a row rising 5 steps each: one surface, no walls; then a cell 30 steps up: a wall
+        let mut heights = vec![0u8; 16];
+        heights[0] = 0;
+        heights[1] = 5;
+        heights[2] = 10;
+        heights[3] = 40;
+        let grid = Grid { width: 4, height: 4, cells: vec![1; 16], heights, tiles: vec![[0; 3]; 16], scale: 2.0, step: 0.2, palette: Vec::new() };
+        let room = Room { flags: 0, rect: [0, 0, 4, 1], position: [0.0, 0.0, 0.0], links: Vec::new(), name: String::new() };
+        let part = room_parts(&grid, &room, &Material::default()).remove(0);
+        // 4 tops, plus the two end walls up from the floor (the cell at 40 steps and the edge of the ramp's start are at height 0 / 8)
+        let walls = part.vertices.len() / 4 - 4;
+        assert!(walls >= 3, "{walls}");
+        // the ramp's cells meet: the corners between cells 0 and 1 are at the average of the two (0.5), whichever cell they belong to
+        assert!(!heights_at_seam_is_empty(&part));
+        let heights_at_seam: Vec<f32> = part.vertices.iter().filter(|v| (v.position[0] + 2.0).abs() < 1e-4 && v.normal[2] > 0.5).map(|v| v.position[2]).collect();
+        assert!(heights_at_seam.iter().all(|h| (h - 0.5).abs() < 1e-4), "{heights_at_seam:?}");
+    }
+
+    fn heights_at_seam_is_empty(part: &Part) -> bool {
+        part.vertices.iter().filter(|v| (v.position[0] + 2.0).abs() < 1e-4 && v.normal[2] > 0.5).count() == 0
     }
 
     #[test]
