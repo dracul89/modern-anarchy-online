@@ -131,6 +131,8 @@ struct World {
     mods_by_source: [BTreeMap<u32, i64>; 4],
     /// The perks (and research ranks) the world-entry message lists for the character.
     perks: Vec<u32>,
+    /// The organization benefits the server lists (`OrgServer` type 6): quality, low and high item template.
+    org_benefits: Vec<inventory::Entry>,
     /// The nano programs active on the character (`SimpleCharFullUpdate`), the inventory the effects are summed over, and
     /// whether any of the three changed since `item_mods` was last worked out.
     nanos: Vec<u32>,
@@ -172,8 +174,8 @@ impl World {
     fn refresh_mods(&mut self, db: &ResourceDatabase) {
         if std::mem::take(&mut self.mods_dirty) {
             let level = self.stats.get(&0x36).copied().unwrap_or(1);
-            self.mods_by_source = [crate::derived::worn_modifiers(db, &self.worn, level), crate::derived::perk_modifiers(db, &self.perks, level), crate::derived::nano_modifiers(db, &self.nanos, level), crate::derived::level_bonus(level)];
-            self.item_mods = crate::derived::modifiers(db, &self.worn, &self.perks, &self.nanos, level);
+            self.mods_by_source = [crate::derived::worn_modifiers(db, &self.worn, level), crate::derived::perk_modifiers(db, &self.perks, level), crate::derived::nano_modifiers(db, &self.nanos, level), crate::derived::org_modifiers(db, &self.org_benefits, level)];
+            self.item_mods = crate::derived::modifiers(db, &self.worn, &self.perks, &self.nanos, &self.org_benefits, level);
             self.stats_changed = true;
         }
     }
@@ -237,6 +239,15 @@ impl World {
                     let nonzero: Vec<_> = lines.iter().filter_map(|l| Some((l.get("ResearchId")?.as_int()?, l.get("Unknown1")?.as_int()?, l.get("Unknown2")?.as_int()?, l.get("Unknown3")?.as_int()?))).filter(|l| l.1 != 0 || l.2 != 0 || l.3 != 0).collect();
                     eprintln!("research update from {:x}:{:x}: {} lines, non-zero {nonzero:?}", m.identity.0, m.identity.1, lines.len());
                 }
+            }
+        }
+        // An organization benefit: type 6, then (after the organization's identity) a quality and a low and high item template.
+        if m.kind == 0x64582a07 && m.identity.1 == self.own && m.data.len() >= 31 && m.data[..2] == [0, 6] {
+            let word = |at: usize| u32::from_be_bytes(m.data[at..at + 4].try_into().unwrap());
+            let entry = inventory::Entry { slot: 33, flags: 1, count: 1, container: (0, 0), low_id: word(22), high_id: word(26), quality: word(18), extra: 0 };
+            if !self.org_benefits.iter().any(|e| e.low_id == entry.low_id && e.high_id == entry.high_id && e.quality == entry.quality) {
+                self.org_benefits.push(entry);
+                self.mods_dirty = true;
             }
         }
         if m.kind == mao_net::n3::ENTITY_INFO && m.identity.1 == self.own {

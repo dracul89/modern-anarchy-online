@@ -345,13 +345,21 @@ fn run(args: &[String]) -> Result<(), String> {
             let instance = u32::from_str_radix(instance.trim_start_matches("0x"), 16).map_err(|e| e.to_string())?;
             let mut entries = net::capture_entries_of(log, instance)?;
             let level: i64 = rest.first().and_then(|l| l.parse().ok()).unwrap_or(220);
-            let (mut perks, mut nanos) = (Vec::new(), Vec::new());
+            let (mut perks, mut nanos, mut org) = (Vec::new(), Vec::new(), Vec::new());
             for line in std::fs::read_to_string(extras).map_err(|e| e.to_string())?.lines() {
                 let (key, list) = line.split_once(' ').unwrap_or((line, ""));
                 let ids: Vec<u32> = list.split(',').filter_map(|v| v.trim().parse().ok()).collect();
                 match key {
                     "perks" => perks = ids,
                     "nanos" => nanos = ids,
+                    "org" => {
+                        // `org quality,low,high;...`: the organization benefits (the OrgServer type 6 messages)
+                        org = list.split(';').filter_map(|e| {
+                            let v: Vec<u32> = e.split(',').filter_map(|n| n.trim().parse().ok()).collect();
+                            let [quality, low_id, high_id] = v[..] else { return None };
+                            Some(mao_net::inventory::Entry { slot: 33, flags: 1, count: 1, container: (0, 0), low_id, high_id, quality, extra: 0 })
+                        }).collect();
+                    }
                     "worn" => {
                         // `worn slot,low,high,quality;...` replaces the captured items (a live read of the inventory).
                         entries = list.split(';').filter_map(|e| {
@@ -364,7 +372,7 @@ fn run(args: &[String]) -> Result<(), String> {
                     _ => {}
                 }
             }
-            let mods = derived::modifiers(&db, &entries, &perks, &nanos, level);
+            let mods = derived::modifiers(&db, &entries, &perks, &nanos, &org, level);
             let rows: Vec<(i64, i64, i64)> = std::fs::read_to_string(compare)
                 .map_err(|e| e.to_string())?
                 .lines()
@@ -428,10 +436,10 @@ fn run(args: &[String]) -> Result<(), String> {
                                 _ => Vec::new(),
                             }).unwrap_or_default();
                             eprintln!("perks: {perks:?}");
-                            let modifiers = derived::modifiers(&db, &entries, &perks, &[], level);
+                            let modifiers = derived::modifiers(&db, &entries, &perks, &[], &[], level);
                             eprintln!("worn modifiers: {modifiers:?}");
                             let stored: std::collections::BTreeMap<u32, i64> = [(LEVEL, level)].into();
-                            hud.stat_parts = derived::breakdown(&stored, &derived::worn_modifiers(&db, &entries, level), &derived::perk_modifiers(&db, &perks, level), &Default::default(), &derived::level_bonus(level));
+                            hud.stat_parts = derived::breakdown(&stored, &derived::worn_modifiers(&db, &entries, level), &derived::perk_modifiers(&db, &perks, level), &Default::default(), &Default::default());
                             hud.stats = derived::totals(&hud.stat_parts);
                         }
                         let mut window = stats::StatsWindow::default();

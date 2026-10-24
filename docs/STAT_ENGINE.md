@@ -397,3 +397,24 @@ Result with the client's own code against the original's values (`mao-client <ga
 **Conjecture: 270 of 270 stats equal; the second character: 249 of 249** (inputs and values in `docs/live_inputs_*.txt`,
 `docs/live_compare_*.txt`). That includes all armour classes, attributes, skills (with the trickle-down), max health and nano, and the
 attack and damage-modifier stats. The hooks are still installed in the running client; `aoctl unhook 0`, `1`, `2` removes them.
+
+## Correction: the "level bonus" is the organization's benefits (and no table is needed)
+
+A third original-client character, level 86 (title level 3), showed that the 25 effects found on the two level-220 characters were not tied to
+a level: the same stats were present but only some of them. The spell records that the hook read turned out to belong to **organization
+benefit items** in the game database: "Large Org HQ Management Benefit" (attributes 16-21), "Mining Operations Nano Powerup" (skills 122, 127-131),
+"Swimming Pool Body Dev" (152), "Grid House Computer Literacy" (161), "Notum Silo Nano Efficiency" (364, 318), "Landing Pad Vehicle Experience"
+(156, 139), "Guard House Benefit" (343) and the "Universal Advantage - Harmony / Logic / Medical Expertise" items (132 and 21, 149 and 19, 123 and
+124); each exists in four tiers (consecutive template ids, e.g. 0x3e1bc to 0x3e1bf) and the Universal Advantages are interpolated between a
+low and a high template by a quality.
+
+The server tells the client which ones apply: **`OrgServer` messages (`64582a07`) of type 6**, one per benefit, 10 for Conjecture's
+organization: after the type word (2 bytes), two unknown ints and the organization's identity, a **quality (4 bytes), the low template id and
+the high template id (4 bytes each)** and a flag byte. The client runs the benefit item's `0xcfb7` records (level x value / 200, cut toward
+zero) at that quality, which is the "message-driven" call chain seen in the hook (`AddNetWorkMessage`).
+
+So the hard-coded table was removed; `World.org_benefits` collects the messages and `derived::org_modifiers` works them out like an item.
+With the ten messages of the capture: **Conjecture 270/270 and the second level-220 character 249/249 stats equal** (same organization);
+the level-86 character is in other circumstances (no Universal Advantages, no Swimming Pool, Landing Pad or Guard House benefit, no second HQ
+tier): 200/220 equal when given the same list, the 20 differences being exactly those benefits it does not have (its own list would come from
+its own messages). The hover shows the source as "Organization".
