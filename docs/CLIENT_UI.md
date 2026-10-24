@@ -436,3 +436,5 @@ Missed attacks at or by the character (`MissedAttackInfo`: the attacker and the 
 - **Backpack count**: the inventory's Backpack heading shows how many of the 30 places are used ("Backpack  12/30").
 
 - **Stop fighting**: a `StopFight` (`4a41203e`) from the character tells "You stop fighting." in the Combat tab (the capture shows the character and each monster sending one at the end of a fight). Not tried live.
+
+- **Interface size keys**: Ctrl+= and Ctrl+- make the interface a tenth larger or smaller (0.6 to 2.0; the same `ui_scale` as the options slider, saved at once). Rebindable in the options.

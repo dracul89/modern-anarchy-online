@@ -551,6 +551,10 @@ impl ApplicationHandler for App {
                                 ui.chat.focus();
                             }
                         }
+                        Action::UiLarger | Action::UiSmaller => {
+                            self.settings.step_ui_scale(if action == Action::UiLarger { 1 } else { -1 });
+                            self.settings.save();
+                        }
                         Action::HelpWindow if !event.repeat => {
                             if let Some(ui) = w.ui.as_mut() {
                                 ui.help.open = !ui.help.open;

@@ -120,6 +120,9 @@ pub enum Action {
     AutoRun,
     /// The help window: keys, mouse and commands.
     HelpWindow,
+    /// Make the interface larger / smaller (by a tenth).
+    UiLarger,
+    UiSmaller,
     /// Saves a picture of the world (with the heads-up display) to the `screenshots` folder.
     Screenshot,
     /// The big map over the view (the corner map is always there).
@@ -185,6 +188,8 @@ pub const ACTIONS: &[(Action, &str, &str)] = &[
     (Action::ProgramsWindow, "programs_window", "Ctrl+N"),
     (Action::Screenshot, "screenshot", "F12"),
     (Action::HelpWindow, "help_window", "Ctrl+H"),
+    (Action::UiLarger, "ui_larger", "Ctrl+Equal"),
+    (Action::UiSmaller, "ui_smaller", "Ctrl+Minus"),
     (Action::AutoRun, "auto_run", "NumpadMultiply"),
     (Action::HotbarSlot(0), "hotbar_slot_1", "1"),
     (Action::HotbarSlot(1), "hotbar_slot_2", "2"),
@@ -444,6 +449,11 @@ impl Default for Settings {
 
 impl Settings {
     /// `/setoption name value`: sets one of the client's settings and says what happened; without a name, lists them.
+    /// Changes the interface scale by `steps` tenths (kept between 0.6 and 2.0).
+    pub fn step_ui_scale(&mut self, steps: i32) {
+        self.ui_scale = (((self.ui_scale * 10.0).round() + steps as f32) / 10.0).clamp(0.6, 2.0);
+    }
+
     pub fn set_option(&mut self, name: &str, value: &str) -> String {
         let on = |v: &str| matches!(v.to_lowercase().as_str(), "on" | "true" | "1" | "yes");
         let number = |v: &str, lo: f32, hi: f32| v.parse::<f32>().ok().map(|n| n.clamp(lo, hi));
@@ -614,6 +624,10 @@ mod tests {
         assert_eq!(s.render_scale, 0.8);
         assert_eq!(s.set_option("ui_scale", "9"), "ui_scale is now 9.");
         assert_eq!(s.ui_scale, 2.0);
+        s.step_ui_scale(1);
+        assert_eq!(s.ui_scale, 2.0);
+        s.step_ui_scale(-3);
+        assert_eq!(s.ui_scale, 1.7);
         assert!(s.set_option("render_scale", "x").contains("needs a value"));
         assert!(s.set_option("colour", "red").contains("No setting"));
         assert!(s.set_option("", "").contains("render_scale 0.8"));
