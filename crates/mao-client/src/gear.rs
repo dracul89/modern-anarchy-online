@@ -40,6 +40,12 @@ pub struct GearItem {
 /// The inventory place of the item being dragged (`u32::MAX` for none): other windows (an open bag) take drops from it.
 pub static DRAGGED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(u32::MAX);
 
+/// Whether an item's name matches the find box (an empty box matches everything).
+pub fn matches_filter(name: &str, filter: &str) -> bool {
+    let filter = filter.trim().to_lowercase();
+    filter.is_empty() || name.to_lowercase().contains(&filter)
+}
+
 /// What the window asks for besides moves: items to use and to destroy (by inventory place).
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct GearEvents {
@@ -189,6 +195,8 @@ pub struct GearWindow {
     deletes: Vec<u32>,
     /// The place an item awaits a second click to be destroyed.
     confirm: Option<u32>,
+    /// Items whose name does not contain this are dimmed (any case).
+    filter: String,
 }
 
 const CELL: f32 = 42.0;
@@ -232,6 +240,10 @@ impl GearWindow {
             None => {
                 ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, item.name.chars().next().unwrap_or('?'), egui::FontId::proportional(18.0), accent);
             }
+        }
+        // (an item that does not match the find box is dimmed)
+        if !matches_filter(&item.name, &self.filter) {
+            ui.painter().rect_filled(rect, 3.0, egui::Color32::from_black_alpha(185));
         }
         if item.count > 1 {
             let text = if item.count >= 10000 { format!("{}k", item.count / 1000) } else { item.count.to_string() };
@@ -345,7 +357,11 @@ impl GearWindow {
                 ui.label("No items yet (they arrive when the world loads).");
                 return;
             }
-            ui.label(egui::RichText::new("Drag an item onto a place to wear it or move it").small().weak());
+            ui.horizontal(|ui| {
+                ui.label("Find");
+                ui.add(egui::TextEdit::singleline(&mut self.filter).desired_width(160.0));
+                ui.label(egui::RichText::new("drag an item onto a place to wear or move it, right-click for more").small().weak());
+            });
             ui.horizontal_top(|ui| {
                 ui.vertical(|ui| {
                     ui.set_width(3.0 * (CELL + 3.0) + 8.0);
@@ -405,6 +421,13 @@ impl GearWindow {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_find_box_matches_part_of_a_name() {
+        assert!(matches_filter("Dust Brigade Notum Gloves", ""));
+        assert!(matches_filter("Dust Brigade Notum Gloves", " notum "));
+        assert!(!matches_filter("Dust Brigade Notum Gloves", "boots"));
+    }
 
     #[test]
     fn requirements_read_as_conditions_met_or_not() {

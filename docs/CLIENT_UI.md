@@ -357,3 +357,5 @@ Right-clicking an item opens a small menu: **Use** (the use message the hotbar s
 ## Interface size
 
 The options window has an **Interface size** slider (60% to 200%, `ui_scale` under `[window]` in `mao.ini`): it sets egui's zoom factor, which multiplies the window's own scale, so every window, the hotbars and the labels grow together (for a large or high-density screen). Not tried in a live window.
+
+The inventory window has a **Find** box: items whose name does not contain the text are dimmed, so an item is easy to spot in a full backpack.
