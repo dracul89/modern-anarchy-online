@@ -180,7 +180,13 @@ pub struct Grid {
     /// The width of a cell and the height of a step.
     pub scale: f32,
     pub step: f32,
+    /// The texture (an instance of type `0xf6959`, with lower qualities in `0xf6967` and `0xf6968`) of each tile value: the
+    /// table at the head of the `XTHA` chunk (a count, then that many words).
+    pub palette: Vec<u32>,
 }
+
+/// The quality type of the room textures.
+pub const TEXTURE: u32 = 0xf6959;
 
 fn decode(body: &[u8]) -> Option<image::DynamicImage> {
     let start = body.windows(4).position(|w| w == b"\x89PNG")?;
@@ -193,12 +199,18 @@ impl Grid {
         let cells = decode(&chunk(b"DCGA")?.body)?.to_luma8();
         let heights = decode(&chunk(b"DHGA")?.body)?.to_luma8();
         let tiles = chunk(b"XTHA").and_then(|c| decode(&c.body)).map(|i| i.to_rgb8());
+        let palette = chunk(b"XTHA")
+            .and_then(|c| {
+                let count = u16::from_le_bytes(c.body.get(..2)?.try_into().ok()?) as usize;
+                (0..count).map(|i| Some(u32::from_le_bytes(c.body.get(2 + 4 * i..6 + 4 * i)?.try_into().ok()?))).collect::<Option<Vec<u32>>>()
+            })
+            .unwrap_or_default();
         let (width, height) = (cells.width() as usize, cells.height() as usize);
         let tiles = match tiles {
             Some(t) if t.width() as usize == width && t.height() as usize == height => t.pixels().map(|p| p.0).collect(),
             _ => vec![[0; 3]; width * height],
         };
-        Some(Grid { width, height, cells: cells.into_raw(), heights: heights.into_raw(), tiles, scale: map.scale, step: map.second })
+        Some(Grid { width, height, cells: cells.into_raw(), heights: heights.into_raw(), tiles, scale: map.scale, step: map.second, palette })
     }
 
     fn at(&self, x: i64, y: i64) -> Option<(u8, u8)> {
@@ -207,6 +219,18 @@ impl Grid {
         }
         let i = y as usize * self.width + x as usize;
         Some((self.cells[i], self.heights[i]))
+    }
+
+    /// The texture of a tile value (none for 0, which is the default, and for values past the table).
+    fn texture(&self, value: u8) -> Option<u32> {
+        self.palette.get(value as usize).copied().filter(|&t| value != 0 && t > 1)
+    }
+
+    fn tile(&self, x: i64, y: i64) -> [u8; 3] {
+        if x < 0 || y < 0 || x as usize >= self.width || y as usize >= self.height {
+            return [0; 3];
+        }
+        self.tiles[y as usize * self.width + x as usize]
     }
 }
 
@@ -232,7 +256,7 @@ pub fn place_statel(room: &Room, position: [f32; 3], rotation: [f32; 4]) -> ([f3
 
 /// A room's cells as terraces (a flat top for each cell and a wall where a neighbour is lower or missing), in the viewer's
 /// Z-up world (x, the server's z, height). `material` is given to the one part.
-pub fn room_part(grid: &Grid, room: &Room, material: Material) -> Option<Part> {
+pub fn room_parts(grid: &Grid, room: &Room, material: &Material) -> Vec<Part> {
     let [x0, y0, x1, y1] = room.rect.map(|v| v as i64);
     let (w, h) = (x1 - x0, y1 - y0);
     let turn = room.turn();
@@ -247,18 +271,25 @@ pub fn room_part(grid: &Grid, room: &Room, material: Material) -> Option<Part> {
     let corner = |cx: i64, cy: i64| rotate((cx - x0) as f32 - w as f32 / 2.0, (cy - y0) as f32 - h as f32 / 2.0);
     let height = |value: u8| room.position[1] + value as f32 * grid.step;
     let (cx0, cz0) = (room.position[0], room.position[2]);
-    let mut vertices: Vec<Vertex> = Vec::new();
-    let mut indices: Vec<u16> = Vec::new();
-    // A quad from four corners (counter-clockwise seen from the side the normal points to).
-    let mut quad = |p: [[f32; 3]; 4], normal: [f32; 3], uv: [[f32; 2]; 4]| {
-        if vertices.len() + 4 > 65_535 {
-            return;
+    // One part per texture (a new one when the 16-bit indices run out).
+    let mut groups: std::collections::BTreeMap<Option<u32>, Vec<Part>> = std::collections::BTreeMap::new();
+    let mut quad = |texture: Option<u32>, p: [[f32; 3]; 4], normal: [f32; 3], uv: [[f32; 2]; 4]| {
+        let parts = groups.entry(texture).or_default();
+        if parts.last().is_none_or(|part| part.vertices.len() + 4 > 65_535) {
+            let mut material = material.clone();
+            if let Some(t) = texture {
+                material.textures = vec![(TEXTURE, t)];
+                material.diffuse = [1.0; 3];
+                material.ambient = [1.0; 3];
+            }
+            parts.push(Part { name: if room.name.is_empty() { "room".into() } else { room.name.clone() }, world: IDENTITY, vertices: Vec::new(), indices: Vec::new(), material });
         }
-        let base = vertices.len() as u16;
+        let part = parts.last_mut().unwrap();
+        let base = part.vertices.len() as u16;
         for k in 0..4 {
-            vertices.push(Vertex { position: p[k], normal, uv: uv[k] });
+            part.vertices.push(Vertex { position: p[k], normal, uv: uv[k] });
         }
-        indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+        part.indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
     };
     let world = |dx: f32, dz: f32, up: f32| [cx0 + dx, cz0 + dz, up];
     for cy in y0..y1 {
@@ -269,7 +300,8 @@ pub fn room_part(grid: &Grid, room: &Room, material: Material) -> Option<Part> {
             }
             let top = height(value);
             let c = [corner(cx, cy), corner(cx + 1, cy), corner(cx + 1, cy + 1), corner(cx, cy + 1)];
-            quad([world(c[0].0, c[0].1, top), world(c[1].0, c[1].1, top), world(c[2].0, c[2].1, top), world(c[3].0, c[3].1, top)], [0.0, 0.0, 1.0], [[0.0, 1.0], [1.0, 1.0], [1.0, 0.0], [0.0, 0.0]]);
+            let tile = grid.tile(cx, cy);
+            quad(grid.texture(tile[0]), [world(c[0].0, c[0].1, top), world(c[1].0, c[1].1, top), world(c[2].0, c[2].1, top), world(c[3].0, c[3].1, top)], [0.0, 0.0, 1.0], [[0.0, 1.0], [1.0, 1.0], [1.0, 0.0], [0.0, 0.0]]);
             // The walls toward each neighbour that is missing or lower.
             for (nx, ny, a, b) in [(0i64, -1i64, 0usize, 1usize), (1, 0, 1, 2), (0, 1, 2, 3), (-1, 0, 3, 0)] {
                 let low = match grid.at(cx + nx, cy + ny) {
@@ -285,19 +317,17 @@ pub fn room_part(grid: &Grid, room: &Room, material: Material) -> Option<Part> {
                 let normal = [ex / len, ez / len, 0.0];
                 let (pa, pb) = (c[a], c[b]);
                 // Wound so the front faces the neighbour.
-                quad([world(pb.0, pb.1, low), world(pa.0, pa.1, low), world(pa.0, pa.1, top), world(pb.0, pb.1, top)], normal, [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]);
+                let rise = (top - low) / cell;
+                quad(grid.texture(tile[1]), [world(pb.0, pb.1, low), world(pa.0, pa.1, low), world(pa.0, pa.1, top), world(pb.0, pb.1, top)], normal, [[0.0, rise], [1.0, rise], [1.0, 0.0], [0.0, 0.0]]);
             }
         }
     }
-    if vertices.is_empty() {
-        return None;
-    }
-    Some(Part { name: if room.name.is_empty() { "room".into() } else { room.name.clone() }, world: IDENTITY, vertices, indices, material })
+    groups.into_values().flatten().collect()
 }
 
 /// All the rooms of a playfield as one model.
 pub fn model(grid: &Grid, rooms: &RoomPlayfield, material: &Material) -> Model {
-    let parts: Vec<Part> = rooms.rooms.iter().filter_map(|r| room_part(grid, r, material.clone())).collect();
+    let parts: Vec<Part> = rooms.rooms.iter().flat_map(|r| room_parts(grid, r, material)).collect();
     Model { parts, instances: Vec::new(), water: None }
 }
 
@@ -361,9 +391,9 @@ mod tests {
 
     #[test]
     fn a_flat_room_is_a_floor() {
-        let grid = Grid { width: 4, height: 4, cells: vec![1; 16], heights: vec![0; 16], tiles: vec![[0; 3]; 16], scale: 2.0, step: 0.2 };
+        let grid = Grid { width: 4, height: 4, cells: vec![1; 16], heights: vec![0; 16], tiles: vec![[0; 3]; 16], scale: 2.0, step: 0.2, palette: Vec::new() };
         let room = Room { flags: 0, rect: [0, 0, 2, 2], position: [10.0, 5.0, 20.0], links: Vec::new(), name: String::new() };
-        let part = room_part(&grid, &room, Material::default()).unwrap();
+        let part = room_parts(&grid, &room, &Material::default()).remove(0);
         // four cells, no walls (the edge is at the floor's height)
         assert_eq!(part.vertices.len(), 16);
         let xs: Vec<f32> = part.vertices.iter().map(|v| v.position[0]).collect();
@@ -373,9 +403,9 @@ mod tests {
 
     #[test]
     fn a_turned_room_swaps_its_sides() {
-        let grid = Grid { width: 8, height: 8, cells: vec![1; 64], heights: vec![0; 64], tiles: vec![[0; 3]; 64], scale: 2.0, step: 0.2 };
+        let grid = Grid { width: 8, height: 8, cells: vec![1; 64], heights: vec![0; 64], tiles: vec![[0; 3]; 64], scale: 2.0, step: 0.2, palette: Vec::new() };
         let room = Room { flags: 1, rect: [0, 0, 4, 2], position: [0.0, 0.0, 0.0], links: Vec::new(), name: String::new() };
-        let part = room_part(&grid, &room, Material::default()).unwrap();
+        let part = room_parts(&grid, &room, &Material::default()).remove(0);
         let (mut xs, mut zs) = (Vec::new(), Vec::new());
         for v in &part.vertices {
             xs.push(v.position[0]);
