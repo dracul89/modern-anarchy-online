@@ -50,6 +50,8 @@ pub struct Input {
     pub pick: (u8, u32, bool),
     /// A nano program to cast: a counter that steps with each, and the program's id.
     pub cast: (u8, u32),
+    /// An item to move: a counter that steps with each, the place it is in and the place it goes to.
+    pub mv: (u8, u32, u32),
 }
 
 /// The overlay to draw and where the player's character is (the view
@@ -868,6 +870,9 @@ impl ApplicationHandler for App {
                     }
                     if let Some(slot) = requests.press {
                         press_slot(ui, slot, &mut self.keys, &mut self.hud);
+                    }
+                    for (from, to) in requests.item_moves.drain(..) {
+                        self.keys.mv = (self.keys.mv.0.wrapping_add(1), from, to);
                     }
                     if let Some(action) = requests.action.take() {
                         fire_action(&action, &mut self.keys, &mut self.hud);

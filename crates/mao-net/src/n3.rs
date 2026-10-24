@@ -138,6 +138,17 @@ pub fn cast_nano(character: u32, target: Option<u32>, nano: u32) -> Frame {
     Message { kind: 0x5e477770, identity: (CHARACTER, character), data }.frame(character)
 }
 
+/// `ClientMoveItemToInventory` (`5469373f`): moves the item in inventory place `from` to place `to` (a wear slot or a place of the
+/// backpack: wearing, taking off and rearranging). The captured moves are `(0x68, 0x59)` to `0x14` and `(0x68, 0x53)` to `1`: a
+/// zero byte, the source identity (type `0x68` and the place) and the destination place.
+pub fn move_item(character: u32, from: u32, to: u32) -> Frame {
+    let mut data = vec![0u8];
+    for word in [0x68, from, to] {
+        data.extend_from_slice(&word.to_be_bytes());
+    }
+    Message { kind: 0x5469373f, identity: (CHARACTER, character), data }.frame(character)
+}
+
 /// `52526858`: use something (a door, a terminal, an item; talk to an NPC): action 3 on the
 /// target's identity. `sequence` counts the character's uses from 1 (as the original's capture
 /// shows); the server echoes the message back with the first byte 0.
@@ -299,6 +310,8 @@ mod tests {
         assert_eq!(hex(trade(0x1323e, 5, [0xc75b, 0xc006021c, 0x6f, 2])), "0000000002050000c75bc006021c0000006f00000002");
         assert_eq!(hex(cast_nano(0x4c2de, Some(0x7af69bd7), 0xaad6)), "0000000013000000000000c3507af69bd70000cf1b0000aad60000");
         assert_eq!(hex(cast_nano(0x4bc80, None, 0x43576)), "00000000130000000000000000000000000000cf1b000435760000");
+        assert_eq!(hex(move_item(0x4bc80, 0x53, 1)), "00000000680000005300000001");
+        assert_eq!(hex(move_item(0x4c2de, 0x59, 0x14)), "00000000680000005900000014");
         assert_eq!(hex(trade(0x1323e, 1, [0; 4])), "00000000020100000000000000000000000000000000");
         assert_eq!(hex(trade(0x1323e, 5, [0xc350, 0x1323e, 0x68, 0x50])), "0000000002050000c3500001323e0000006800000050");
     }

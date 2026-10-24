@@ -112,6 +112,8 @@ pub struct Requests {
     pub shop: Option<crate::shop::ShopCommand>,
     /// Lines the chat window sends.
     pub chat: Vec<crate::chatwindow::Out>,
+    /// Items dragged onto a place of the inventory window: `(from, to)`.
+    pub item_moves: Vec<(u32, u32)>,
     /// An action clicked in the Action window.
     pub action: Option<hotbar::Action>,
     /// A place to walk to (world x, z), from the Whom-Pah window.
@@ -296,7 +298,7 @@ impl Ui {
                 }
             }
             if *gear_open {
-                gear.show(&ctx, gear_open, &hud.gear, &hud.stats, palette);
+                requests.item_moves.extend(gear.show(&ctx, gear_open, &hud.gear, &hud.stats, palette));
             }
             if *options_open {
                 options_window(&ctx, options_open, rebinding, settings, &mut requests, palette, themes);
@@ -420,7 +422,7 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
                 window.show(&ctx, &mut gear, &hud.gear, &palette);
             }
             if gear_open {
-                gear.show(&ctx, &mut gear_open, &hud.gear, &hud.stats, &palette);
+                let _ = gear.show(&ctx, &mut gear_open, &hud.gear, &hud.stats, &palette);
             }
             if open {
                 options_window(&ctx, &mut open, &mut rebinding, settings, &mut requests, &palette, &themes);

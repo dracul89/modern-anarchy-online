@@ -171,6 +171,9 @@ pub struct GearWindow {
     textures: HashMap<u32, egui::TextureHandle>,
     /// The wear tab shown.
     tab: usize,
+    /// The place of the item being dragged, and the moves made (from, to) since the last `show` returned.
+    dragging: Option<u32>,
+    moves: Vec<(u32, u32)>,
 }
 
 const CELL: f32 = 42.0;
@@ -191,8 +194,14 @@ impl GearWindow {
     }
 
     /// One square: the item's icon (and stack size), or an empty frame.
-    fn cell(&mut self, ui: &mut egui::Ui, item: Option<&GearItem>, label: &str, accent: egui::Color32, stats: &std::collections::BTreeMap<u32, i64>) {
+    fn cell(&mut self, ui: &mut egui::Ui, item: Option<&GearItem>, place: Option<u32>, label: &str, accent: egui::Color32, stats: &std::collections::BTreeMap<u32, i64>) {
         let (rect, response) = ui.allocate_exact_size(egui::vec2(CELL, CELL), egui::Sense::drag());
+        // An item dropped here moves to this place.
+        if let (Some(place), Some(from)) = (place, self.dragging) {
+            if from != place && response.contains_pointer() && ui.input(|i| i.pointer.any_released()) {
+                self.moves.push((from, place));
+            }
+        }
         let painter = ui.painter();
         painter.rect_filled(rect, 3.0, egui::Color32::from_black_alpha(110));
         painter.rect_stroke(rect, 3.0, egui::Stroke::new(1.0, if item.is_some() { accent } else { egui::Color32::from_white_alpha(30) }), egui::StrokeKind::Inside);
@@ -215,6 +224,7 @@ impl GearWindow {
         }
         // Drag an item onto a hotbar slot to add it to that slot's list.
         if response.drag_started() {
+            self.dragging = Some(item.slot);
             response.dnd_set_drag_payload(crate::hotbar::Action::Item { id: item.item_id, name: item.name.clone(), icon: item.icon.as_ref().map(|i| i.id) });
         }
         response.on_hover_ui(|ui| {
@@ -285,7 +295,8 @@ impl GearWindow {
     }
 
     /// The window: the equipment on the left, the backpack on the right.
-    pub fn show(&mut self, ctx: &egui::Context, open: &mut bool, items: &[GearItem], stats: &std::collections::BTreeMap<u32, i64>, palette: &Palette) {
+    /// Returns the moves made by dragging an item onto a place: `(from, to)` inventory places.
+    pub fn show(&mut self, ctx: &egui::Context, open: &mut bool, items: &[GearItem], stats: &std::collections::BTreeMap<u32, i64>, palette: &Palette) -> Vec<(u32, u32)> {
         let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
         let by_slot: HashMap<u32, &GearItem> = items.iter().map(|i| (i.slot, i)).collect();
         let mut is_open = *open;
@@ -294,6 +305,7 @@ impl GearWindow {
                 ui.label("No items yet (they arrive when the world loads).");
                 return;
             }
+            ui.label(egui::RichText::new("Drag an item onto a place to wear it or move it").small().weak());
             ui.horizontal_top(|ui| {
                 ui.vertical(|ui| {
                     ui.set_width(3.0 * (CELL + 3.0) + 8.0);
@@ -308,7 +320,7 @@ impl GearWindow {
                     egui::Grid::new("wear").spacing(egui::vec2(3.0, 3.0)).show(ui, |ui| {
                         for (n, (label, slot)) in cells.iter().enumerate() {
                             match slot {
-                                Some(slot) if !label.is_empty() => self.cell(ui, by_slot.get(slot).copied(), label, accent, stats),
+                                Some(slot) if !label.is_empty() => self.cell(ui, by_slot.get(slot).copied(), Some(*slot), label, accent, stats),
                                 _ => {
                                     ui.allocate_exact_size(egui::vec2(CELL, CELL), egui::Sense::hover());
                                 }
@@ -331,11 +343,11 @@ impl GearWindow {
                             // The pack has 30 places: each item sits in its own, and the free ones are drawn empty.
                             for place in 0..PACK_SLOTS {
                                 let item = pack.iter().find(|i| i.slot == inventory::BACKPACK_FIRST + place).copied();
-                                self.cell(ui, item, "", accent, stats);
+                                self.cell(ui, item, Some(inventory::BACKPACK_FIRST + place), "", accent, stats);
                             }
                             // Anything outside those places (a larger pack, a bag's contents) follows.
                             for item in pack.iter().filter(|i| i.slot >= inventory::BACKPACK_FIRST + PACK_SLOTS) {
-                                self.cell(ui, Some(item), "", accent, stats);
+                                self.cell(ui, Some(item), None, "", accent, stats);
                             }
                         });
                     });
@@ -343,6 +355,10 @@ impl GearWindow {
             });
         });
         *open = is_open;
+        if ctx.input(|i| i.pointer.any_released()) {
+            self.dragging = None;
+        }
+        std::mem::take(&mut self.moves)
     }
 }
 

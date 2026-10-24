@@ -1263,6 +1263,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let (mut special_seen, mut social_seen, mut pick_seen) = (0u8, 0u8, 0u8);
         let mut friends_seen = u64::MAX;
         let mut cast_seen = 0u8;
+        let mut move_seen = 0u8;
         let (mut position, mut heading) = (start, heading);
         let (mut moving, mut turning, mut strafing) = (0i8, 0i8, 0i8);
         const JUMP_SPEED: f32 = 7.0;
@@ -1761,6 +1762,21 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     let _ = connection.send(&n3::use_object(own, uses, (kind, id)));
                     state.door_used(id);
                     pending_messages.push(format!("Using {}", state.names.get(&id).map_or("the target", |n| n.0.as_str())));
+                }
+            }
+            // An item dragged to another place: ask the server, and show the change at once (the server's answer to a move is not
+            // known, so a refused move is not taken back here).
+            if keys.mv.0 != move_seen {
+                move_seen = keys.mv.0;
+                let (from, to) = (keys.mv.1, keys.mv.2);
+                if let Some(i) = state.worn.iter().position(|e| e.slot == from) {
+                    let _ = connection.send(&n3::move_item(own, from, to));
+                    if let Some(j) = state.worn.iter().position(|e| e.slot == to) {
+                        state.worn[j].slot = from;
+                    }
+                    state.worn[i].slot = to;
+                    state.mods_dirty = true;
+                    pending_gear = Some(crate::gear::from_entries(&gear_db, &gear_textures, &state.worn, state.stats.get(&0x36).copied().unwrap_or(1)));
                 }
             }
             // A nano program to cast, at the target (not a usable object) or at oneself.
