@@ -153,10 +153,16 @@ const DYNAMIC_NPC: u32 = 0x7a00_0000;
 const OBJECT_ANNOUNCE: u32 = 0x4f474e05;
 const OBJECT_TYPE: u32 = 0xc76a;
 
-/// The perk ids of a parsed world-entry message's `Perks` list.
+/// The perk ids of a parsed world-entry message's `Perks` list: perks and research ranks the character owns. The entry of a
+/// research goal still in progress carries a time in its last field (`Unknown3`) and does not count yet.
 fn perk_ids(list: Option<&mao_net::schema::Value>) -> Vec<u32> {
     let Some(mao_net::schema::Value::List(items)) = list else { return Vec::new() };
-    items.iter().filter_map(|i| i.get("SkillId").and_then(mao_net::schema::Value::as_int)).map(|v| v as u32).collect()
+    items
+        .iter()
+        .filter(|i| i.get("Unknown3").and_then(mao_net::schema::Value::as_int).unwrap_or(0) == 0)
+        .filter_map(|i| i.get("SkillId").and_then(mao_net::schema::Value::as_int))
+        .map(|v| v as u32)
+        .collect()
 }
 
 impl World {
@@ -2325,6 +2331,13 @@ pub(crate) fn capture_n3(log: &str, kind: u32) -> Result<Vec<String>, String> {
             continue;
         }
         while let Ok(Some(m)) = reader.next() {
+            if kind == 0 {
+                if let Some(msg) = Message::parse(&m).filter(|_| m.kind == frame::N3) {
+                    let name = mao_net::schema::Schema::global().n3_name(msg.kind).unwrap_or("?").to_string();
+                    out.push(format!("{} {connection} {:08x} {name} from {:x}:{:x} len {}", f[0], msg.kind, msg.identity.0, msg.identity.1, msg.data.len()));
+                }
+                continue;
+            }
             if let Some(msg) = Message::parse(&m).filter(|x| m.kind == frame::N3 && x.kind == kind) {
                 let parsed = mao_net::schema::Schema::global().parse_n3(kind, &msg.data);
                 out.push(match parsed {

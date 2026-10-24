@@ -67,11 +67,14 @@ pub fn nano_modifiers_at(template: &[u8], level: i64) -> Vec<(u32, i32)> {
 }
 
 fn modifiers_with(template: &[u8], level: i64, tails: &[u32]) -> Vec<(u32, i32)> {
+    const FLAT: u32 = 0xcf35;
+    /// Spell type 0xcfb7: the amount is the level times the spell's value over 200, rounded (`FUN_100a8d0b`).
+    const SCALED: u32 = 0xcfb7;
     let word = |at: usize| u32::from_le_bytes(template[at..at + 4].try_into().unwrap());
     let mut out = Vec::new();
     let mut at = 0;
     while at + 40 <= template.len() {
-        if word(at) == 0xcf35 && word(at + 4) == 0 && word(at + 8) == 4 && word(at + 12) < 8 {
+        if (word(at) == FLAT || word(at) == SCALED) && word(at + 4) == 0 && word(at + 8) == 4 && word(at + 12) < 8 {
             let n = word(at + 12) as usize;
             let tail = at + 16 + 12 * n;
             if tail + 24 <= template.len() && [word(tail), word(tail + 4), word(tail + 12)] == [1, 0, 9] && tails.contains(&word(tail + 8)) {
@@ -84,7 +87,9 @@ fn modifiers_with(template: &[u8], level: i64, tails: &[u32]) -> Vec<(u32, i32)>
                     }
                 });
                 if holds {
-                    out.push((word(tail + 16), word(tail + 20) as i32));
+                    let value = word(tail + 20) as i32;
+                    let amount = if word(at) == SCALED { (level as f64 * value as f64 / 200.0).round() as i32 } else { value };
+                    out.push((word(tail + 16), amount));
                 }
                 at = tail + 24;
                 continue;
@@ -178,6 +183,19 @@ mod tests {
         assert_eq!(modifiers_at(&bytes, 220), vec![(168, 500), (0x5b, 7)]);
         assert_eq!(modifiers_at(&bytes, 150), vec![(168, 200), (0x5b, 7)]);
         assert_eq!(modifiers_at(&bytes, 200), vec![(168, 500), (168, 200), (0x5b, 7)]);
+    }
+
+    #[test]
+    fn level_scaled_effects() {
+        // "Coalescing Energy Cascade": 0xcfb7 +1000 percent-ish on max health: 1100 at level 220, plus a flat +10 strength.
+        let words: Vec<u32> = vec![0xcfb7, 0, 4, 0, 1, 0, 2, 9, 1, 1000, 0xcf35, 0, 4, 0, 1, 0, 2, 9, 16, 10];
+        let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
+        assert_eq!(modifiers_at(&bytes, 220), vec![(1, 1100), (16, 10)]);
+        assert_eq!(modifiers_at(&bytes, 25), vec![(1, 125), (16, 10)]);
+        // a negative value rounds away from zero: -5 at level 220 is -5.5, so -6 (stat 318 of a live character)
+        let words: Vec<u32> = vec![0xcfb7, 0, 4, 0, 1, 0, 2, 9, 318, (-5i32) as u32];
+        let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
+        assert_eq!(modifiers_at(&bytes, 220), vec![(318, -6)]);
     }
 
     #[test]

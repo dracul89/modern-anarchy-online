@@ -347,3 +347,29 @@ modify-stat records, which hints that the 25 are the effects of **items in the s
 social-tab items hold other stats (the 8 and 54 and 90 are in no social item), and no template of the character holds a `0xcfb7`
 record, so the spell is built by the client at run time (the call chain ends in an N3 message handler) and its source list is
 still not identified. Modelling it needs the list of (stat, value) pairs; the formula is known.
+
+## The capture of Conjecture entering the world (decoded)
+
+Capture `capture-225436.log`, connection `c41` (Conjecture, identity `c350:4bc80`, level 220): 3140 N3 messages in the whole file; `mao-client
+n3 <log> 0` lists every message with its name and sender, `n3 <log> <kind>` one kind.
+
+* **`FullCharacter.Perks` holds the whole list: 144 entries** (`SkillId, -254, SkillId, Unknown3`), the 143 perk and research ranks
+  that the live client owned (`docs/owned_perks.json`, the same set exactly: perk lines 170-429, the alien lines 1070/1150/1180 and
+  research 2300-2369, 10002-10004) plus research goal 10005, still in progress: its `Unknown3` is a time (34939491), all the others'
+  is 0. The "40 entries" seen before was only the schema pretty-printer cutting a list at 40 (`... N more`); the client's parsed
+  value always had all of them. So **nothing has to be inferred**: the stats use that list minus the entries with a non-zero
+  `Unknown3` (`perk_ids` in `net.rs`), which is exactly the 143 (`docs/conjecture_world_entry_perks.json` has the 144 ids).
+* `ResearchUpdate` (`253d0240`, sent 13 times with growing contents): all lines zero. The research state is the perks list's research ranks.
+* **The owned perk actions** arrive as 35 `CharacterAction` messages with action number 180 (not in the schema's enum): the target's
+  instance is the perk action's nano id (a `0xcfbe` record of the perk's template names it), `Parameter1` something else; they are
+  the perk actions the character can use, not needed for the stats. Actions 137 and 146 (28 each, no parameters) and `SpecialUsed`,
+  `SpecialAvailable`, `SetNanoDuration`, `StandUp` are the rest of the login burst.
+* **Own `SimpleCharFullUpdate`** lists 11 active nanos: 268697, 226283, 269460, 273322, 202846, 202858, 223380, 223360, 215264 and
+  two the live read had not shown, **223378** (Composite Attribute Boost) and **293685** (Coalescing Energy Cascade: a `0xcfb7`
+  +1000 to max health and nano, which is 1100 at level 220, and +10 to every attribute, +20 to stat 123).
+* Nothing in the capture delivers a separate list of level-scaled spells: the `0xcfb7` effects come from nano templates such as
+  293685's; spell type `0xcfb7` is now read by `item::modifiers_at` / `nano_modifiers_at` (amount = round(level x value / 200)).
+  The 25 events of the earlier hook log (attributes +9, skills +39 / +59 / +99 ...) were therefore a nano of that kind active at
+  that time, not one of the nanos listed now; which one stays unknown, but the formula and the reading are in place.
+
+`stats-check` with the server-sent perk list gives the same 192 equal stats as with the live read.
