@@ -2193,6 +2193,35 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             })
                             .collect()
                     },
+                    nameplates: {
+                        let friendly_name = |name: &str| ["Vanguard", "Watcher", "Commander", "Guard", "Merchant", "Trader", "Recruiter", "Helper"].iter().any(|w| name.contains(w));
+                        let mut plates: Vec<(f32, crate::automap::DotKind, [f32; 3], String)> = state
+                            .entities
+                            .iter()
+                            .filter(|(id, _)| **id != own)
+                            .filter_map(|(id, (p, _))| {
+                                let info = state.infos.get(id)?;
+                                let name = state.names.get(id).map(|n| n.0.clone()).filter(|n| !n.is_empty()).or_else(|| Some(info.name.clone()).filter(|n| !n.is_empty()))?;
+                                let distance = ((p[0] - position[0]).powi(2) + (p[2] - position[2]).powi(2)).sqrt();
+                                if distance > 40.0 {
+                                    return None;
+                                }
+                                let kind = if target == Some(*id) {
+                                    crate::automap::DotKind::Target
+                                } else if info.is_player() && *id < DYNAMIC_NPC {
+                                    crate::automap::DotKind::Player
+                                } else if friendly_name(&info.name) {
+                                    crate::automap::DotKind::Friendly
+                                } else {
+                                    crate::automap::DotKind::Hostile
+                                };
+                                Some((distance, kind, [p[0], p[2], p[1] + 2.3], name))
+                            })
+                            .collect();
+                        // the nearest forty
+                        plates.sort_by(|a, b| a.0.total_cmp(&b.0));
+                        plates.into_iter().take(40).map(|(_, kind, at, name)| (kind, at, name)).collect()
+                    },
                     ground: terrain.clone().map(|t| (t, offset)),
                     own: Some(position),
                     location: pending_location.take(),

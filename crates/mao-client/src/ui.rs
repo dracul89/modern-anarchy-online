@@ -38,6 +38,8 @@ pub struct Hud {
     pub stat_parts: std::collections::BTreeMap<u32, crate::derived::Breakdown>,
     /// Who is about, for the map: (x, z) and what.
     pub map_dots: Vec<([f32; 2], crate::automap::DotKind)>,
+    /// The names floating over the characters and creatures near.
+    pub nameplates: Vec<(crate::automap::DotKind, [f32; 3], String)>,
     pub labels: Vec<Label>,
     /// The friends list.
     pub friends: Vec<crate::friends::Friend>,
@@ -677,6 +679,22 @@ fn hud_layer(ctx: &egui::Context, hud: &Hud, project: &dyn Fn(Vec3) -> Option<[f
         painter.rect_filled(rect.expand(4.0), 4.0, egui::Color32::from_black_alpha(150));
         painter.rect_stroke(rect.expand(4.0), 4.0, egui::Stroke::new(1.0, accent), egui::StrokeKind::Outside);
         painter.galley(rect.min, galley, egui::Color32::WHITE);
+    }
+    // The names over the characters and creatures near, coloured by what they are.
+    for (kind, at, name) in &hud.nameplates {
+        let Some([x, y]) = project(Vec3::from(*at)) else { continue };
+        let at = egui::pos2(screen.left() + x * screen.width(), screen.top() + y * screen.height());
+        let color = match kind {
+            crate::automap::DotKind::Player => egui::Color32::from_rgb(130, 190, 255),
+            crate::automap::DotKind::Friendly => egui::Color32::from_rgb(120, 230, 120),
+            crate::automap::DotKind::Hostile => egui::Color32::from_rgb(240, 120, 110),
+            crate::automap::DotKind::Target => egui::Color32::from_rgb(255, 220, 90),
+        };
+        let galley = painter.layout_no_wrap(name.clone(), egui::FontId::proportional(13.0), color);
+        let pos = egui::pos2(at.x - galley.size().x * 0.5, at.y - galley.size().y);
+        // a dark shadow keeps the name readable on any ground
+        painter.galley_with_override_text_color(pos + egui::vec2(1.0, 1.0), galley.clone(), egui::Color32::BLACK);
+        painter.galley(pos, galley, color);
     }
     let frame = || egui::Frame::new().fill(egui::Color32::from_black_alpha(130)).corner_radius(4).inner_margin(6);
     egui::Area::new(egui::Id::unique("info")).anchor(egui::Align2::LEFT_TOP, egui::vec2(8.0, 8.0)).interactable(false).show(ctx, |ui| {

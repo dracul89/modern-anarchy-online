@@ -77,6 +77,8 @@ pub struct Update {
     /// The character's name and stats, when they change.
     pub stats: Option<(String, std::collections::BTreeMap<u32, i64>, std::collections::BTreeMap<u32, crate::derived::Breakdown>)>,
     pub map_dots: Vec<([f32; 2], crate::automap::DotKind)>,
+    /// The names to float over the characters and creatures near (Z-up position over the head).
+    pub nameplates: Vec<(crate::automap::DotKind, [f32; 3], String)>,
     /// The ground (and how far the server's heights sit above it), to keep the camera above it.
     pub ground: Option<(std::sync::Arc<mao_formats::terrain::Terrain>, f32)>,
     pub own: Option<[f32; 3]>,
@@ -792,6 +794,7 @@ impl ApplicationHandler for App {
                         self.hud.position = update.own;
                         self.hud.heading = self.heading;
                         self.hud.map_dots = std::mem::take(&mut update.map_dots);
+                        self.hud.nameplates = std::mem::take(&mut update.nameplates);
                         if let Some(h) = update.heading {
                             self.heading = h;
                             if !self.behind_set {

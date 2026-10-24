@@ -603,6 +603,13 @@ fn run(args: &[String]) -> Result<(), String> {
                     let names: std::collections::HashMap<u32, String> = mao_formats::playfield::all(&db).into_iter().map(|p| (p.number, p.name.trim().to_string())).collect();
                     let destinations = whompah::Destinations::load();
                     let mut hud = ui::Hud { location: names.get(&number).cloned().unwrap_or_default(), position: Some([449.0, 8.0, 313.0]), ..Default::default() };
+                    // MAO_PLATES=1: sample names floating over the ground near the point the preview looks at.
+                    if std::env::var_os("MAO_PLATES").is_some() {
+                        use automap::DotKind::*;
+                        for (kind, dx, dz, name) in [(Player, -6.0, 4.0, "Mothra"), (Friendly, 5.0, 8.0, "Vanguard Guard"), (Hostile, 2.0, -7.0, "Rollerrat"), (Target, -3.0, -3.0, "Tsunamisbot")] {
+                            hud.nameplates.push((kind, [449.0 + dx, 313.0 + dz, 10.3], name.to_string()));
+                        }
+                    }
                     hud.labels = net::booth_labels(number, &whompah_booths(game, &db, number), &destinations, &names).into_iter().map(|(p, text)| ui::Label { world: mao_render::glam::Vec3::from(p), text }).collect();
                     hud.target = Some("Rollerrat  (12 m)".into());
                     // MAO_UI_PREVIEW=gear + MAO_CAPTURE=<capture.log>: the inventory window from a captured session.
