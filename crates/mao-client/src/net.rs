@@ -144,6 +144,8 @@ struct World {
     program_ids: Vec<u32>,
     programs_changed: bool,
     perks_changed: bool,
+    /// The character an `/inspect` waits on: its info packet is told in the chat window when it comes.
+    inspecting: Option<u32>,
     /// The level of the characters (not creatures) whose info packets came.
     levels: BTreeMap<u32, u8>,
     /// Health and maximum from the info packets (the server answers an info request with them).
@@ -453,6 +455,16 @@ impl World {
                 self.health.insert(m.identity.1, (info.health as i64, info.max_health as i64));
                 if !info.monster && info.level > 0 {
                     self.levels.insert(m.identity.1, info.level);
+                }
+                if self.inspecting == Some(m.identity.1) {
+                    self.inspecting = None;
+                    let name = self.names.get(&m.identity.1).map_or_else(|| "The target".to_string(), |n| n.0.clone());
+                    let text = if info.monster {
+                        format!("{name}: health {} of {}.", info.health, info.max_health)
+                    } else {
+                        format!("{name}: level {} {}, health {} of {}.", info.level, crate::launcher::profession(info.profession as i32), info.health, info.max_health)
+                    };
+                    self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, text));
                 }
             }
         }
@@ -1421,7 +1433,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                         chat.send(&mao_net::chat::lookup_packet(&name))?;
                                     }
                                 },
-                                Out::Camp | Out::Quit | Out::Follow | Out::ViewDist(_) | Out::CharDist(_) => {}
+                                Out::Camp | Out::Quit | Out::Follow | Out::Inspect | Out::ViewDist(_) | Out::CharDist(_) => {}
                                 Out::Befriend { name } => match ids.get(&name.to_lowercase()) {
                                     Some(&id) => {
                                         chat.send(&mao_net::chat::buddy_add_packet(id))?;
@@ -1536,6 +1548,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut put_seen = 0u8;
         let mut delete_seen = 0u8;
         let mut cancel_seen = 0u8;
+        let mut inspect_seen = 0u8;
         let (mut following, mut follow_seen): (Option<u32>, u8) = (None, 0);
         let (mut position, mut heading) = (start, heading);
         let (mut moving, mut turning, mut strafing) = (0i8, 0i8, 0i8);
@@ -1783,6 +1796,17 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 }
             }
             keys = raw;
+            // `/inspect`: ask for the target's info packet and tell what comes.
+            if raw.inspect != inspect_seen {
+                inspect_seen = raw.inspect;
+                match target.filter(|t| !state.objects.contains_key(t)) {
+                    Some(t) => {
+                        state.inspecting = Some(t);
+                        let _ = connection.send(&n3::info_request(own, t));
+                    }
+                    None => pending_messages.push("Nothing targeted to inspect (Tab selects)".into()),
+                }
+            }
             // Follow (`/follow`): walk after the target; a movement key of the player's own stops it.
             if raw.follow != follow_seen {
                 follow_seen = raw.follow;

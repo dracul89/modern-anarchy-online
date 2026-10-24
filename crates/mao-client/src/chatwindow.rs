@@ -42,6 +42,7 @@ pub enum Out {
     /// Sit down to log out / leave the client (handled by the window, not sent to the chat server).
     Camp,
     Follow,
+    Inspect,
     Quit,
     /// The view distance to set (a command line's `/viewdist n`).
     ViewDist(u32),
@@ -193,6 +194,7 @@ impl ChatWindow {
             }
             Parsed::Quit => Some(Out::Quit),
             Parsed::Follow => Some(Out::Follow),
+            Parsed::Inspect => Some(Out::Inspect),
             Parsed::ViewDist { distance: Some(d) } => {
                 self.push(Line::new(Kind::System, format!("View distance {}.", d.clamp(200, 4000))));
                 Some(Out::ViewDist(d.clamp(200, 4000)))
