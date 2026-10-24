@@ -54,7 +54,8 @@ pub fn modifiers(template: &[u8]) -> Vec<(u32, i32)> {
 
 /// Like [`modifiers`], but also the records with requirements, `0xcf35, 0, 4, N, (stat, value, operator) x N, 1, 0, 2, 9, stat,
 /// amount`, kept when every requirement holds for `level` (the only requirement stat seen is the level, stat 0x36; operator 1 is
-/// "below" and 2 is "at least", from the two records of item template 281199: +200 below 201, +500 from 200).
+/// "below" and 2 is "above" (strictly: the operators are the original's `LessThan` and `GreaterThan`), from the two records of
+/// item template 281199: +200 below level 201, +500 above 200).
 /// Requirements on other stats, or with other operators, are not known to hold, so those records are left out.
 pub fn modifiers_at(template: &[u8], level: i64) -> Vec<(u32, i32)> {
     modifiers_with(template, level, &[2, 3])
@@ -86,7 +87,7 @@ fn modifiers_with(template: &[u8], level: i64, tails: &[u32]) -> Vec<(u32, i32)>
                     let (stat, value, op) = (word(at + 16 + 12 * i), word(at + 20 + 12 * i) as i64, word(at + 24 + 12 * i));
                     stat == 0x36 && match op {
                         1 => level < value,
-                        2 => level >= value,
+                        2 => level > value,
                         _ => false,
                     }
                 });
@@ -97,6 +98,38 @@ fn modifiers_with(template: &[u8], level: i64, tails: &[u32]) -> Vec<(u32, i32)>
                 }
                 at = tail + 24;
                 continue;
+            }
+        }
+        at += 1;
+    }
+    out
+}
+
+/// What an item's action needs: the item's trailing tables hold, after each event's spells, the marker `22, 36, 2018`, the action
+/// (3 = use, 6 = wear, 8 = wield) and a criteria list: `(n + 1) * 0x3f1`, then `n` criteria `(stat, value, operator)` in reverse
+/// Polish order (a comparison pushes its result, operator 4 is AND and 3 is OR of the two before it). Operators: 0 equal, 1 less than,
+/// 2 greater than (strict: a requirement of level 215 is stored as "level > 214"), 24 unequal, 22 bit-and; 93 is "has the perk".
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Action {
+    pub kind: u32,
+    pub criteria: Vec<(u32, i32, u32)>,
+}
+
+pub fn actions(template: &[u8]) -> Vec<Action> {
+    let word = |at: usize| u32::from_le_bytes(template[at..at + 4].try_into().unwrap());
+    let mut out = Vec::new();
+    let mut at = 0;
+    while at + 20 <= template.len() {
+        if [word(at), word(at + 4), word(at + 8)] == [22, 36, 2018] {
+            let (kind, count) = (word(at + 12), word(at + 16));
+            if count % 0x3f1 == 0 && (2..=41).contains(&(count / 0x3f1)) {
+                let n = (count / 0x3f1 - 1) as usize;
+                if at + 20 + 12 * n <= template.len() {
+                    let criteria = (0..n).map(|k| (word(at + 20 + 12 * k), word(at + 24 + 12 * k) as i32, word(at + 28 + 12 * k))).collect();
+                    out.push(Action { kind, criteria });
+                    at += 20 + 12 * n;
+                    continue;
+                }
             }
         }
         at += 1;
@@ -186,7 +219,9 @@ mod tests {
         let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
         assert_eq!(modifiers_at(&bytes, 220), vec![(168, 500), (0x5b, 7)]);
         assert_eq!(modifiers_at(&bytes, 150), vec![(168, 200), (0x5b, 7)]);
-        assert_eq!(modifiers_at(&bytes, 200), vec![(168, 500), (168, 200), (0x5b, 7)]);
+        // the comparisons are strict: "above 200" is level 201 and up, "below 201" is level 200 and down
+        assert_eq!(modifiers_at(&bytes, 200), vec![(168, 200), (0x5b, 7)]);
+        assert_eq!(modifiers_at(&bytes, 201), vec![(168, 500), (0x5b, 7)]);
     }
 
     #[test]
@@ -208,6 +243,14 @@ mod tests {
         let words: Vec<u32> = vec![0xcf14, 0, 4, 0, 1, 0, 3, 9, 278, 5, 0, 0xcf14, 0, 4, 0, 1, 0, 3, 9, 279, 5, 0];
         let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
         assert_eq!(nano_modifiers_at(&bytes, 220), vec![(278, 5), (279, 5)]);
+    }
+
+    #[test]
+    fn the_wear_requirements_are_read() {
+        // Carbonum Breastplate at its lowest quality: wear needs stamina above 10 and agility above 7 (AND).
+        let words: Vec<u32> = vec![53045, 0, 4, 0, 1, 0, 2, 9, 97, 8, 22, 36, 2018, 6, 4 * 0x3f1, 18, 10, 2, 17, 7, 2, 0, 0, 4];
+        let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
+        assert_eq!(actions(&bytes), vec![Action { kind: 6, criteria: vec![(18, 10, 2), (17, 7, 2), (0, 0, 4)] }]);
     }
 
     #[test]

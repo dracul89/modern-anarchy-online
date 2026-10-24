@@ -47,6 +47,39 @@ pub fn effects(db: &ResourceDatabase, entry: &Entry, level: i64) -> Vec<(u32, i6
         .collect()
 }
 
+/// An item's actions (use, wear, wield) with their criteria at the item's quality: like the effects, the values of the lowest and
+/// highest template are interpolated by the quality level.
+pub fn actions(db: &ResourceDatabase, entry: &Entry) -> Vec<item::Action> {
+    let template = |id: u32| db.get(Id { kind: item::TEMPLATE, instance: id }).ok().flatten();
+    let Some(low) = template(entry.low_id) else { return Vec::new() };
+    let low_actions = item::actions(&low);
+    if entry.high_id == entry.low_id {
+        return low_actions;
+    }
+    let Some(high) = template(entry.high_id) else { return low_actions };
+    let high_actions = item::actions(&high);
+    let quality_of = |data: &[u8]| Item::parse(data).and_then(|i| i.stats.iter().find(|s| s.0 == QUALITY_LEVEL).map(|s| s.1 as i64));
+    let (Some(low_ql), Some(high_ql)) = (quality_of(&low), quality_of(&high)) else { return low_actions };
+    let fraction = if high_ql > low_ql { (entry.quality as i64 - low_ql).clamp(0, high_ql - low_ql) } else { 0 };
+    let span = (high_ql - low_ql).max(1);
+    low_actions
+        .into_iter()
+        .zip(high_actions.iter().map(Some).chain(std::iter::repeat(None)))
+        .map(|(mut a, h)| {
+            if let Some(h) = h.filter(|h| h.kind == a.kind && h.criteria.len() == a.criteria.len()) {
+                for (c, hc) in a.criteria.iter_mut().zip(&h.criteria) {
+                    // only the comparisons of a stat are interpolated (the operators and ids are the same on both sides)
+                    if c.0 == hc.0 && c.2 == hc.2 && matches!(c.2, 0..=2) {
+                        let (lo, hi) = (c.1 as i64, hc.1 as i64);
+                        c.1 = (lo + ((hi - lo) * fraction * 2 + span) / (2 * span)) as i32;
+                    }
+                }
+            }
+            a
+        })
+        .collect()
+}
+
 /// The perk-record type; its instance is the perk id and the template of the perk's item is the word at byte 12.
 const PERK_RECORD: u32 = 0xf4264;
 
@@ -149,6 +182,20 @@ impl Breakdown {
     }
 }
 
+/// The title level of a character level (the server does not send it; the original works it out): 1 below level 15, 2 below 50,
+/// 3 below 100, 4 below 150, 5 below 190, 6 below 205, else 7 (checked against characters of level 5 to 220).
+pub fn title_level(level: i64) -> i64 {
+    match level {
+        ..=14 => 1,
+        15..=49 => 2,
+        50..=99 => 3,
+        100..=149 => 4,
+        150..=189 => 5,
+        190..=204 => 6,
+        _ => 7,
+    }
+}
+
 /// Every stat's parts (stats without a stored value count from zero, an untrained skill from 5).
 pub fn breakdown(stored: &BTreeMap<u32, i64>, worn: &BTreeMap<u32, i64>, perks: &BTreeMap<u32, i64>, nanos: &BTreeMap<u32, i64>, org: &BTreeMap<u32, i64>) -> BTreeMap<u32, Breakdown> {
     let mut out: BTreeMap<u32, Breakdown> = stored.iter().map(|(&s, &v)| (s, Breakdown { stored: v, ..Default::default() })).collect();
@@ -162,6 +209,9 @@ pub fn breakdown(stored: &BTreeMap<u32, i64>, worn: &BTreeMap<u32, i64>, perks: 
                 _ => b.org += amount,
             }
         }
+    }
+    if let (Some(level), false) = (out.get(&0x36).map(Breakdown::total), out.contains_key(&37)) {
+        out.insert(37, Breakdown { stored: title_level(level), ..Default::default() });
     }
     let attributes = ATTRIBUTES.map(|a| out.get(&a).map_or(0, Breakdown::total));
     if attributes.iter().any(|&a| a > 0) {
@@ -212,6 +262,14 @@ mod tests {
         // an untrained skill starts at 5
         assert_eq!(parts[&100].stored, 5);
         assert_eq!(totals(&parts)[&0x10], 120);
+    }
+
+    #[test]
+    fn the_title_level_follows_the_level() {
+        // the original's own values: level 86 -> 3, level 220 -> 7
+        assert_eq!((title_level(5), title_level(25), title_level(86), title_level(125), title_level(220)), (1, 2, 3, 4, 7));
+        let stored: BTreeMap<u32, i64> = [(0x36, 86)].into();
+        assert_eq!(shown(&stored, &BTreeMap::new())[&37], 3);
     }
 
     #[test]

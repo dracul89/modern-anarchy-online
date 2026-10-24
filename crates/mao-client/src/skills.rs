@@ -101,6 +101,9 @@ pub fn stat_name(stat: u32) -> String {
         return name.to_string();
     }
     match stat {
+        54 => "Level".into(),
+        37 => "Title Level".into(),
+        169 => "Alien Level".into(),
         1 => "Max Health".into(),
         221 => "Max Nano Energy".into(),
         90 => "Projectile AC".into(),

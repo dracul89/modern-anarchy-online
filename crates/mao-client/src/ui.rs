@@ -252,7 +252,7 @@ impl Ui {
                 }
             }
             if *gear_open {
-                gear.show(&ctx, gear_open, &hud.gear, palette);
+                gear.show(&ctx, gear_open, &hud.gear, &hud.stats, palette);
             }
             if *options_open {
                 options_window(&ctx, options_open, rebinding, settings, &mut requests, palette, themes);
@@ -356,7 +356,7 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
                 window.show(&ctx, &mut gear, &hud.gear, &palette);
             }
             if gear_open {
-                gear.show(&ctx, &mut gear_open, &hud.gear, &palette);
+                gear.show(&ctx, &mut gear_open, &hud.gear, &hud.stats, &palette);
             }
             if open {
                 options_window(&ctx, &mut open, &mut rebinding, settings, &mut requests, &palette, &themes);

@@ -610,6 +610,10 @@ fn run(args: &[String]) -> Result<(), String> {
                                 })
                                 .collect();
                             hud.gear = gear::from_entries(&db, &textures, &entries, std::env::var("MAO_LEVEL").ok().and_then(|l| l.parse().ok()).unwrap_or(220));
+                            // MAO_COMPARE=<`stat stored shown` file>: the character's shown stats, to colour the requirements.
+                            if let Some(t) = std::env::var_os("MAO_COMPARE").and_then(|f| std::fs::read_to_string(f).ok()) {
+                                hud.stats = t.lines().filter_map(|l| { let v: Vec<i64> = l.split_whitespace().take(3).filter_map(|x| x.parse().ok()).collect(); (v.len() == 3).then(|| (v[0] as u32, v[2])) }).collect();
+                            }
                             hud.gear_open = true;
                         }
                     }

@@ -33,6 +33,8 @@ pub struct GearItem {
     pub icon: Option<Arc<Icon>>,
     /// What the item adds to the stats when worn (`derived::effects`: stat, amount), for the tooltip.
     pub effects: Vec<(u32, i64)>,
+    /// What the item needs to be used, worn or wielded, at its quality (`derived::actions`).
+    pub actions: Vec<mao_formats::item::Action>,
 }
 
 /// How many places the backpack has.
@@ -113,9 +115,54 @@ pub fn from_entries(db: &ResourceDatabase, textures: &crate::Textures, entries: 
                 description: template.map(|t| t.description).unwrap_or_default(),
                 icon,
                 effects: if e.is_bag() { Vec::new() } else { crate::derived::effects(db, e, level) },
+                actions: if e.is_bag() { Vec::new() } else { crate::derived::actions(db, e) },
             }
         })
         .collect()
+}
+
+/// A criteria list as lines of text, each with whether the character meets it (`None` when that cannot be told): the list is a
+/// postfix expression, so it is evaluated with a stack; the top-level AND chain gives one line per condition, anything under an OR
+/// is shown as one line.
+pub fn requirement_lines(criteria: &[(u32, i32, u32)], stats: &std::collections::BTreeMap<u32, i64>) -> Vec<(String, Option<bool>)> {
+    // each stack entry: its lines, and whether the whole holds
+    let mut stack: Vec<(Vec<(String, Option<bool>)>, Option<bool>)> = Vec::new();
+    for &(stat, value, op) in criteria {
+        match op {
+            4 | 3 => {
+                let (Some(b), Some(a)) = (stack.pop(), stack.pop()) else { return Vec::new() };
+                let holds = match (a.1, b.1, op) {
+                    (Some(x), Some(y), 4) => Some(x && y),
+                    (Some(x), Some(y), _) => Some(x || y),
+                    _ => None,
+                };
+                if op == 4 {
+                    let mut lines = a.0;
+                    lines.extend(b.0);
+                    stack.push((lines, holds));
+                } else {
+                    let join = |l: &[(String, Option<bool>)]| l.iter().map(|(t, _)| t.clone()).collect::<Vec<_>>().join(" and ");
+                    stack.push((vec![(format!("{} or {}", join(&a.0), join(&b.0)), holds)], holds));
+                }
+            }
+            _ => {
+                let have = stats.get(&stat).copied();
+                let name = crate::skills::stat_name(stat);
+                let (text, met) = match op {
+                    0 => (format!("{name} = {value}"), have.map(|h| h == value as i64)),
+                    1 => (format!("{name} below {value}"), have.map(|h| h < value as i64)),
+                    // a "greater than" criterion is strict: "level above 214" is a requirement of level 215
+                    2 => (format!("{name} {}", value as i64 + 1), have.map(|h| h > value as i64)),
+                    24 => (format!("{name} not {value}"), have.map(|h| h != value as i64)),
+                    22 => (format!("{name} has flag {value}"), have.map(|h| h & value as i64 == value as i64)),
+                    93 => (format!("Perk {value}"), None),
+                    _ => (format!("condition {op} on {name} {value}"), None),
+                };
+                stack.push((vec![(text, met)], met));
+            }
+        }
+    }
+    stack.into_iter().flat_map(|(lines, _)| lines).collect()
 }
 
 /// The window's own state: the icons already handed to the interface.
@@ -144,7 +191,7 @@ impl GearWindow {
     }
 
     /// One square: the item's icon (and stack size), or an empty frame.
-    fn cell(&mut self, ui: &mut egui::Ui, item: Option<&GearItem>, label: &str, accent: egui::Color32) {
+    fn cell(&mut self, ui: &mut egui::Ui, item: Option<&GearItem>, label: &str, accent: egui::Color32, stats: &std::collections::BTreeMap<u32, i64>) {
         let (rect, response) = ui.allocate_exact_size(egui::vec2(CELL, CELL), egui::Sense::drag());
         let painter = ui.painter();
         painter.rect_filled(rect, 3.0, egui::Color32::from_black_alpha(110));
@@ -196,6 +243,27 @@ impl GearWindow {
                 let text: String = item.description.chars().take(420).collect();
                 ui.label(text.replace("\r\n", "\n"));
             }
+            for action in item.actions.iter().filter(|a| a.kind == 6 || a.kind == 8 || a.kind == 3) {
+                let lines = requirement_lines(&action.criteria, stats);
+                if lines.is_empty() {
+                    continue;
+                }
+                ui.separator();
+                let what = match action.kind {
+                    6 => "To wear",
+                    8 => "To wield",
+                    _ => "To use",
+                };
+                ui.label(egui::RichText::new(what).small().color(accent));
+                for (text, met) in lines {
+                    let color = match met {
+                        Some(true) => egui::Color32::from_rgb(120, 220, 120),
+                        Some(false) => egui::Color32::from_rgb(230, 110, 110),
+                        None => ui.visuals().text_color(),
+                    };
+                    ui.label(egui::RichText::new(text).color(color));
+                }
+            }
             if !item.effects.is_empty() {
                 ui.separator();
                 ui.label(egui::RichText::new("When worn").small().color(accent));
@@ -217,7 +285,7 @@ impl GearWindow {
     }
 
     /// The window: the equipment on the left, the backpack on the right.
-    pub fn show(&mut self, ctx: &egui::Context, open: &mut bool, items: &[GearItem], palette: &Palette) {
+    pub fn show(&mut self, ctx: &egui::Context, open: &mut bool, items: &[GearItem], stats: &std::collections::BTreeMap<u32, i64>, palette: &Palette) {
         let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
         let by_slot: HashMap<u32, &GearItem> = items.iter().map(|i| (i.slot, i)).collect();
         let mut is_open = *open;
@@ -240,7 +308,7 @@ impl GearWindow {
                     egui::Grid::new("wear").spacing(egui::vec2(3.0, 3.0)).show(ui, |ui| {
                         for (n, (label, slot)) in cells.iter().enumerate() {
                             match slot {
-                                Some(slot) if !label.is_empty() => self.cell(ui, by_slot.get(slot).copied(), label, accent),
+                                Some(slot) if !label.is_empty() => self.cell(ui, by_slot.get(slot).copied(), label, accent, stats),
                                 _ => {
                                     ui.allocate_exact_size(egui::vec2(CELL, CELL), egui::Sense::hover());
                                 }
@@ -263,11 +331,11 @@ impl GearWindow {
                             // The pack has 30 places: each item sits in its own, and the free ones are drawn empty.
                             for place in 0..PACK_SLOTS {
                                 let item = pack.iter().find(|i| i.slot == inventory::BACKPACK_FIRST + place).copied();
-                                self.cell(ui, item, "", accent);
+                                self.cell(ui, item, "", accent, stats);
                             }
                             // Anything outside those places (a larger pack, a bag's contents) follows.
                             for item in pack.iter().filter(|i| i.slot >= inventory::BACKPACK_FIRST + PACK_SLOTS) {
-                                self.cell(ui, Some(item), "", accent);
+                                self.cell(ui, Some(item), "", accent, stats);
                             }
                         });
                     });
@@ -275,5 +343,24 @@ impl GearWindow {
             });
         });
         *open = is_open;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn requirements_read_as_conditions_met_or_not() {
+        // Dustbrigade Notum Gloves: intelligence above 900 and level above 215 (so "Intelligence 901", "Level 216"), AND.
+        let criteria = [(19, 900, 2), (54, 215, 2), (0, 0, 4)];
+        let stats: std::collections::BTreeMap<u32, i64> = [(19, 1097), (54, 215)].into();
+        assert_eq!(requirement_lines(&criteria, &stats), vec![("Intelligence 901".to_string(), Some(true)), ("Level 216".to_string(), Some(false))]);
+        // an unknown stat cannot be judged
+        assert_eq!(requirement_lines(&[(19, 5, 2)], &Default::default()), vec![("Intelligence 6".to_string(), None)]);
+        // OR: one line, met when either is
+        let either = [(54, 10, 2), (16, 50, 2), (0, 0, 3)];
+        let met: std::collections::BTreeMap<u32, i64> = [(54, 5), (16, 100)].into();
+        assert_eq!(requirement_lines(&either, &met), vec![("Level 11 or Strength 51".to_string(), Some(true))]);
     }
 }
