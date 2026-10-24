@@ -144,6 +144,8 @@ struct World {
     program_ids: Vec<u32>,
     programs_changed: bool,
     perks_changed: bool,
+    /// The health each character was last known to have (from the damage events: the target's health after the hit).
+    last_hp: BTreeMap<u32, i64>,
     /// Damage and healing events not yet shown as floating numbers: (target id, amount, stat).
     damage: Vec<(u32, i64, u32)>,
     /// Lines the server's game messages made (damage, healing, "You successfully perform ..."), for the chat window.
@@ -401,6 +403,9 @@ impl World {
                 let target = p.value.get("Target").and_then(|t| t.get("Instance")).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
                 let who = if target == self.own { "You".to_string() } else { self.names.get(&target).map_or_else(|| "Something".to_string(), |n| n.0.clone()) };
                 self.damage.push((target, amount, stat));
+                if let Some(hp) = p.value.get("TargetHp").and_then(mao_net::schema::Value::as_int) {
+                    self.last_hp.insert(target, hp);
+                }
                 let line = combat_line(&who, target == self.own, amount, stat);
                 self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
             }
@@ -2266,7 +2271,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     mail_status: pending_mail_status.take(),
                     destinations: pending_destinations.take(),
                     heading: Some(heading),
-                    target: target.and_then(|t| Some(format!("{}  ({:.0} m)", state.names.get(&t)?.0, ((state.position_of(t)?[0] - position[0]).powi(2) + (state.position_of(t)?[2] - position[2]).powi(2)).sqrt()))),
+                    target: target.and_then(|t| Some(format!("{}{}  ({:.0} m)", state.names.get(&t)?.0, state.last_hp.get(&t).map_or(String::new(), |hp| format!("  HP {hp}")), ((state.position_of(t)?[0] - position[0]).powi(2) + (state.position_of(t)?[2] - position[2]).powi(2)).sqrt()))),
                 };
                 if tx.send(update).is_err() {
                     break;
