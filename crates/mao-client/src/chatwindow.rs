@@ -69,11 +69,14 @@ pub struct ChatWindow {
     keep_list: bool,
     /// The characters whose tells and channel lines are hidden (lower case), kept in `ignore.ini` beside `mao.ini`.
     ignored: std::collections::BTreeSet<String>,
+    /// The lines sent before, oldest first, and the one recalled with the arrow keys (`None`: the line being typed).
+    history: Vec<String>,
+    recalled: Option<usize>,
 }
 
 impl Default for ChatWindow {
     fn default() -> Self {
-        ChatWindow { open: true, log: false, lines: Vec::new(), tab: Tab::All, input: String::new(), selected: 0, focus_next: false, last_tell: None, scroll_to_end: true, keep_list: false, ignored: load_ignored() }
+        ChatWindow { open: true, log: false, lines: Vec::new(), tab: Tab::All, input: String::new(), selected: 0, focus_next: false, last_tell: None, scroll_to_end: true, keep_list: false, ignored: load_ignored(), history: Vec::new(), recalled: None }
     }
 }
 
@@ -133,7 +136,36 @@ impl ChatWindow {
     }
 
     /// Carries out a typed line: what to send (if anything), and the lines it adds to the window.
+    /// Remembers a sent line for the arrow keys (the same line twice in a row is kept once).
+    fn remember(&mut self, line: &str) {
+        let line = line.trim();
+        if !line.is_empty() && self.history.last().map(String::as_str) != Some(line) {
+            self.history.push(line.to_string());
+            if self.history.len() > 100 {
+                self.history.remove(0);
+            }
+        }
+        self.recalled = None;
+    }
+
+    /// Up (`older`) or Down: the line recalled from the history, or an empty one past the newest.
+    fn recall(&mut self, older: bool) -> Option<String> {
+        if self.history.is_empty() {
+            return None;
+        }
+        let next = match (self.recalled, older) {
+            (None, true) => Some(self.history.len() - 1),
+            (Some(i), true) => Some(i.saturating_sub(1)),
+            (Some(i), false) if i + 1 < self.history.len() => Some(i + 1),
+            (Some(_), false) => None,
+            (None, false) => return None,
+        };
+        self.recalled = next;
+        Some(next.map_or(String::new(), |i| self.history[i].clone()))
+    }
+
     pub fn run(&mut self, line: &str) -> Option<Out> {
+        self.remember(line);
         match chat_commands::parse(line) {
             Parsed::Empty => None,
             Parsed::Tell { name, text } => {
@@ -266,6 +298,19 @@ impl ChatWindow {
                         take = i.consume_key(egui::Modifiers::NONE, egui::Key::Tab);
                     });
                 }
+                // Up and Down walk the lines sent before when no command list is open.
+                if has_focus && suggestions.is_empty() {
+                    let (older, newer) = ctx.input_mut(|i| (i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp), i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown)));
+                    if older || newer {
+                        if let Some(line) = self.recall(older) {
+                            self.input = line;
+                            if let Some(mut state) = egui::TextEdit::load_state(ctx, input_id) {
+                                state.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(self.input.chars().count()))));
+                                state.store(ctx, input_id);
+                            }
+                        }
+                    }
+                }
                 self.selected = self.selected.min(suggestions.len().saturating_sub(1));
                 if up {
                     self.selected = self.selected.saturating_sub(1);
@@ -359,6 +404,22 @@ mod tests {
         assert!(w.lines.last().unwrap().text.contains("back"));
         assert_eq!(w.run("/camp"), Some(Out::Camp));
         assert_eq!(w.run("/quit"), Some(Out::Quit));
+    }
+
+    #[test]
+    fn the_arrow_keys_walk_the_lines_sent_before() {
+        let mut w = ChatWindow::default();
+        assert_eq!(w.recall(true), None);
+        w.run("/help");
+        w.run("hello");
+        w.run("hello");
+        assert_eq!(w.history, vec!["/help", "hello"]);
+        assert_eq!(w.recall(true).as_deref(), Some("hello"));
+        assert_eq!(w.recall(true).as_deref(), Some("/help"));
+        assert_eq!(w.recall(true).as_deref(), Some("/help"));
+        assert_eq!(w.recall(false).as_deref(), Some("hello"));
+        assert_eq!(w.recall(false).as_deref(), Some(""));
+        assert_eq!(w.recall(false), None);
     }
 
     #[test]

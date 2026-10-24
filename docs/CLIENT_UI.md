@@ -341,3 +341,7 @@ Each `HealthDamage` also floats its amount over the one hit for 1.6 seconds, ris
 Lists the keys as they are bound now (so a rebinding shows), the mouse controls and the chat commands the client carries out, with a find field that filters all three (`help.rs`). The window's place is remembered like the others'.
 
 The launcher also remembers the character played last (the second line of `account.ini`) and lists it first, marked "(played last)".
+
+## Chat input history
+
+With the input line focused and no command list open, Up and Down walk the lines sent before (the last hundred; a line sent twice in a row is kept once), Down past the newest empties the line.
