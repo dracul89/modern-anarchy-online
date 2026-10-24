@@ -265,6 +265,10 @@ impl Ui {
         let (friends_window, programs_window, perks_window, loot_window, help_window) = (&mut self.friends, &mut self.programs, &mut self.perks, &mut self.loot, &mut self.help);
         let (hotbars, clock_now) = (&mut self.hotbars, self.clock.elapsed().as_secs_f64());
         crate::layout::remember(&self.ctx);
+        // (the options' slider: `zoom_factor` multiplies the window's own scale)
+        if (self.ctx.zoom_factor() - settings.ui_scale).abs() > 1e-3 {
+            self.ctx.set_zoom_factor(settings.ui_scale);
+        }
         let output = self.ctx.run_ui(raw, |ui| {
             let ctx = ui.ctx().clone();
             hud_layer(&ctx, hud, project, fps, settings.mode, palette);
@@ -811,6 +815,10 @@ fn options_window(ctx: &egui::Context, open: &mut bool, rebinding: &mut Option<A
         });
         ui.separator();
         ui.heading("Interface");
+        ui.horizontal(|ui| {
+            ui.label("Interface size");
+            ui.add(egui::Slider::new(&mut settings.ui_scale, 0.6..=2.0).step_by(0.05).custom_formatter(|v, _| format!("{:.0}%", v * 100.0)));
+        });
         ui.horizontal(|ui| {
             ui.label("Theme");
             egui::ComboBox::from_id_salt("theme").selected_text(&settings.theme).show_ui(ui, |ui| {
