@@ -146,6 +146,8 @@ struct World {
     perks_changed: bool,
     /// The character an `/inspect` waits on: its info packet is told in the chat window when it comes.
     inspecting: Option<u32>,
+    /// The worn items an `Inspect` answer brought, to be named and told.
+    inspected: Option<(u32, Vec<mao_net::n3::Inspected>)>,
     /// Nano casts that involve the character, not yet told: (caster, target, nano).
     casts: Vec<(u32, u32, u32)>,
     /// The level of the characters (not creatures) whose info packets came.
@@ -479,6 +481,9 @@ impl World {
                 0xa4 => self.special_events.push((word(21), 0.0)),
                 _ => {}
             }
+        }
+        if m.kind == 0x5a585f65 {
+            self.inspected = Some((m.identity.1, mao_net::n3::inspect_items(&m.data)));
         }
         // An info packet: the health and its maximum of the character or creature it describes.
         if m.kind == 0x4d38242e {
@@ -2462,6 +2467,16 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 }
                 state.prune_nanos();
                 state.refresh_mods(&gear_db);
+                if let Some((who, items)) = state.inspected.take() {
+                    let name = state.names.get(&who).map_or_else(|| "The target".to_string(), |n| n.0.clone());
+                    state.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, format!("{name} wears {} items:", items.len())));
+                    for it in items {
+                        let template = [it.low_id, it.high_id].into_iter().find_map(|id| gear_db.get(mao_formats::resource::Id { kind: mao_formats::item::TEMPLATE, instance: id }).ok().flatten().and_then(|d| mao_formats::item::Item::parse(&d)));
+                        let item = template.map_or_else(|| format!("item #{}", it.low_id), |t| t.name);
+                        let slot = crate::gear::slot_name(it.slot).unwrap_or_else(|| format!("slot {}", it.slot));
+                        state.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, format!("  {slot}: {item} (QL {})", it.ql)));
+                    }
+                }
                 let mut chat_lines_now: Vec<crate::chatwindow::Line> = std::mem::take(&mut *CHAT_LINES.lock().unwrap());
                 chat_lines_now.extend(std::mem::take(&mut state.game_lines));
                 let friends_now = {

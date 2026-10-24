@@ -201,6 +201,27 @@ pub fn info_packet(data: &[u8]) -> Option<Info> {
     Some(Info { monster: kind == 80, profession: *data.get(3)?, level: *data.get(4)?, health: word(9)?, max_health: word(13)? })
 }
 
+/// One worn item of an `Inspect` answer.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Inspected {
+    pub slot: u32,
+    pub low_id: u32,
+    pub high_id: u32,
+    pub ql: u32,
+}
+
+/// `Inspect` (`5a585f65`): the identity inspected, a count, then 32-byte records (slot, flags, an identity, low id, high id, quality, 0).
+pub fn inspect_items(data: &[u8]) -> Vec<Inspected> {
+    let word = |at: usize| u32::from_be_bytes(data[at..at + 4].try_into().unwrap());
+    let mut items = Vec::new();
+    let mut at = 13;
+    while at + 32 <= data.len() {
+        items.push(Inspected { slot: word(at), low_id: word(at + 16), high_id: word(at + 20), ql: word(at + 24) });
+        at += 32;
+    }
+    items
+}
+
 /// `CharacterAction` (`5e477770`) action `0x41` (`RemoveFriendlyNano`): ends a running nano program. The same layout as a cast with no
 /// target: the nano identity `(0xcf1b, id)` in the two parameters (the captured cancels are `0x42aba`, `0x42af6`...).
 pub fn cancel_nano(character: u32, nano: u32) -> Frame {
@@ -455,6 +476,8 @@ mod tests {
         assert_eq!(info_packet(&[1, 0x50]), None);
         assert_eq!(hex(cancel_nano(0x4bc7f, 0x42aba)), "00000000410000000000000000000000000000cf1b00042aba0000");
         assert_eq!(hex(delete_item(0x4bc7f, 0x5b, 0x40d13, 0x40d13)), "000000007000000000000000680000005b00040d1300040d130000");
+        let inspect: Vec<u8> = (0..("000000c3500020eb3f0000d4d6000000010081000100000000000000000004ab520004ab5200000064000000000000000200810001000000000000000000049f4b00049f4b00000064").len() / 2).map(|i| u8::from_str_radix(&("000000c3500020eb3f0000d4d6000000010081000100000000000000000004ab520004ab5200000064000000000000000200810001000000000000000000049f4b00049f4b00000064")[2 * i..2 * i + 2], 16).unwrap()).collect();
+        assert_eq!(inspect_items(&inspect), vec![Inspected { slot: 1, low_id: 0x4ab52, high_id: 0x4ab52, ql: 100 }]);
         assert_eq!(hex(use_perk(0x4bc7f, 0x2991, *b"QISH")), "00000000b3000000000000c3500004bc7f00002991514953480000");
         assert_eq!(hex(use_perk(0x4bc7f, 0x2a0a, *b"WRTK")), "00000000b3000000000000c3500004bc7f00002a0a5752544b0000");
         assert_eq!(hex(use_perk(0x4bc80, 0x27bc, *b"BICC")), "00000000b3000000000000c3500004bc80000027bc424943430000");
