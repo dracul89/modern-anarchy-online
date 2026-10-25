@@ -421,8 +421,9 @@ pub fn run(game: &str) -> Result<(), String> {
     let mut launcher = Launcher { game: game.to_string(), settings, gfx: None, stage: Stage::Form, user, last, password: String::new(), server: std::env::var("MAO_SERVER").unwrap_or_else(|_| session::RUBI_KA.to_string()), message: String::new(), answer: None, chosen: None, selected: None, shot: std::env::var("MAO_LAUNCHER_SHOT").ok() };
     // MAO_LAUNCHER_DEMO=1: three sample characters instead of a login (for pictures of the character screen).
     if std::env::var_os("MAO_LAUNCHER_DEMO").is_some() {
-        let sample = |name: &str, breed, sex, profession, level| Character { name: name.into(), breed, sex, profession, level, created: true, area: "Old Athen".into(), ..Default::default() };
-        let list = vec![sample("Brasscasings", 1, 2, 9, 220), sample("Mothra", 3, 3, 12, 150), sample("Gorrak", 4, 2, 1, 80)];
+        // (the characters of a capture's list, as the server sent them: name, breed, sex, profession, level)
+        let sample = |name: &str, breed, sex, profession, level| Character { name: name.into(), breed, sex, profession, level, created: true, area: "area unknown".into(), ..Default::default() };
+        let list = vec![sample("Brasscasings", 1, 2, 1, 25), sample("Arctangent", 1, 3, 6, 40), sample("Beetlez", 2, 2, 2, 8), sample("Pregnantmule", 4, 1, 5, 160)];
         launcher.selected = Some(std::env::var("MAO_LAUNCHER_PICK").ok().filter(|n| list.iter().any(|c| &c.name == n)).unwrap_or_else(|| list[0].name.clone()));
         launcher.stage = Stage::Characters(list);
     }
