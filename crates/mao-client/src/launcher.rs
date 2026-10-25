@@ -349,7 +349,7 @@ impl ApplicationHandler for Launcher {
                             }
                             if let Some((db, textures)) = &gfx.db {
                                 if let Some(model) = crate::net::character_model(db, c.breed, c.sex, crate::look::find(&self.looks, &c.name).as_ref()) {
-                                    let mut scene = gfx.renderer.upload(&gfx.gpu, &model, &mut |k, i| textures.get(k, i));
+                                    let mut scene = gfx.renderer.upload(&gfx.gpu, &model, &mut |k, i| textures.get_for_upload(k, i));
                                     scene.sky = ([0.05, 0.09, 0.15], [0.01, 0.03, 0.07]);
                                     scene.fog = (400.0, 800.0);
                                     let mut camera = Camera::fit(&scene);

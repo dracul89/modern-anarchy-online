@@ -13,6 +13,15 @@
 //! The type and instance are hexadecimal (for example `f6951 1893`). Drag to
 //! orbit, scroll to zoom, WASD to move the view point, Q/E down and up.
 
+/// Prints timings (`MAO_PROFILE=1`): how long a playfield takes to load and to reach the graphics card.
+macro_rules! profile {
+    ($($arg:tt)*) => {
+        if std::env::var_os("MAO_PROFILE").is_some() {
+            eprintln!($($arg)*);
+        }
+    };
+}
+
 mod actions;
 mod chat_commands;
 mod chatwindow;
@@ -73,11 +82,13 @@ pub struct Textures {
     db: Arc<ResourceDatabase>,
     /// The name index of the database (read once), for icons found by file name.
     index: Arc<std::sync::OnceLock<Option<mao_formats::instances::Instances>>>,
+    /// Textures decoded ahead (see [`Textures::prefetch`]), taken by the first `get` of each.
+    ready: Arc<std::sync::Mutex<std::collections::HashMap<(u32, u32), Option<Texture>>>>,
 }
 
 impl Textures {
     pub fn new(db: Arc<ResourceDatabase>) -> Self {
-        Textures { db, index: Default::default() }
+        Textures { db, index: Default::default(), ready: Default::default() }
     }
 
     /// An icon (type 0xf6958) by its file name, e.g. `action_burst.png`.
@@ -90,10 +101,52 @@ impl Textures {
 
     /// Another handle on the same database.
     pub fn clone_handle(&self) -> Textures {
-        Textures { db: self.db.clone(), index: self.index.clone() }
+        Textures { db: self.db.clone(), index: self.index.clone(), ready: self.ready.clone() }
+    }
+
+    /// Whether a texture has no see-through pixel (a missing one counts as opaque); looks at a prefetched copy before decoding again.
+    pub fn is_opaque(&self, kind: u32, instance: u32) -> bool {
+        let opaque = |t: &Texture| t.rgba[..(t.width as usize * t.height as usize * 4).min(t.rgba.len())].chunks_exact(4).all(|p| p[3] >= 250);
+        if let Some(texture) = self.ready.lock().unwrap().get(&(kind, instance)) {
+            return texture.as_ref().is_none_or(opaque);
+        }
+        self.get(kind, instance).is_none_or(|t| opaque(&t))
+    }
+
+    /// A texture for the renderer's upload: one decoded ahead by [`Textures::prefetch`] (mip levels and all), else decoded now.
+    pub fn get_for_upload(&self, kind: u32, instance: u32) -> Option<Texture> {
+        if let Some(texture) = self.ready.lock().unwrap().remove(&(kind, instance)) {
+            return texture;
+        }
+        self.get(kind, instance)
+    }
+
+    /// Decodes the textures a model uses on every core, so the upload that follows (on the thread that owns the window) only has to hand
+    /// them to the graphics card; decoding them one by one there froze the window for a second or more on a big playfield.
+    pub fn prefetch(&self, model: &Model) {
+        let mut wanted: Vec<(u32, u32)> = model.parts.iter().filter_map(|p| p.material.textures.first().copied()).collect();
+        wanted.sort_unstable();
+        wanted.dedup();
+        wanted.retain(|k| !self.ready.lock().unwrap().contains_key(k));
+        let next = std::sync::atomic::AtomicUsize::new(0);
+        let workers = std::thread::available_parallelism().map_or(2, |n| n.get()).min(16).min(wanted.len().max(1));
+        std::thread::scope(|scope| {
+            for _ in 0..workers {
+                scope.spawn(|| loop {
+                    let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    let Some(&(kind, instance)) = wanted.get(i) else { break };
+                    let texture = self.get(kind, instance).map(Texture::with_mips);
+                    self.ready.lock().unwrap().insert((kind, instance), texture);
+                });
+            }
+        });
     }
 
     pub fn get(&self, kind: u32, instance: u32) -> Option<Texture> {
+        self.decode(kind, instance)
+    }
+
+    fn decode(&self, kind: u32, instance: u32) -> Option<Texture> {
         // The original falls back through the other texture types when one
         // is missing; try the object itself and then those.
         let order: &[u32] = match kind {

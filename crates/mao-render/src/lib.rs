@@ -502,7 +502,7 @@ impl Renderer {
         };
         let (fsr_easu, fsr_rcas) = (fsr_pipeline("fs_easu"), fsr_pipeline("fs_rcas"));
         let fsr_sampler = device.create_sampler(&wgpu::SamplerDescriptor { mag_filter: wgpu::FilterMode::Nearest, min_filter: wgpu::FilterMode::Nearest, ..Default::default() });
-        let white = upload_texture(gpu, &Texture { width: 1, height: 1, format: mao_formats::texture::Format::Png, rgba: vec![255; 4] });
+        let white = upload_texture(gpu, &Texture { width: 1, height: 1, format: mao_formats::texture::Format::Png, rgba: vec![255; 4], mips: 1 });
         Renderer { pipeline, sky_pipeline, shadow_pipeline, water_pipeline, shadow_view, shadow_bind, shadows: true, stats: Stats::default(), render_scale: 1.0, sharpness: 0.2, fsr_easu, fsr_rcas, fsr_layout, fsr_sampler, fsr: None, samples, msaa: None, started: std::time::Instant::now(), globals_layout, part_layout, sampler, white, format, depth: None, textures: Default::default() }
     }
 
@@ -512,9 +512,39 @@ impl Renderer {
         let draw_list = draws(model);
         let (center, radius) = world_matrix_bounds(model, &draw_list);
         let mut cache = self.textures.borrow_mut();
+        let (mut tex_time, mut geo_time, mut tex_count) = (std::time::Duration::ZERO, std::time::Duration::ZERO, 0u32);
+        let upload_started = std::time::Instant::now();
+        // The textures this model needs that are not on the card yet: fetched here, then made on every core (the device takes calls from
+        // any thread), which is most of an upload's time on a playfield with hundreds of them.
+        {
+            let mut wanted: Vec<(u32, u32)> = draw_list.iter().filter_map(|(i, _)| model.parts[*i].material.textures.first().copied()).collect();
+            wanted.sort_unstable();
+            wanted.dedup();
+            wanted.retain(|k| !cache.contains_key(k));
+            let decoded: Vec<((u32, u32), Option<Texture>)> = wanted.into_iter().map(|(kind, instance)| ((kind, instance), texture(kind, instance))).collect();
+            let next = std::sync::atomic::AtomicUsize::new(0);
+            let made: std::sync::Mutex<Vec<((u32, u32), Option<wgpu::TextureView>)>> = std::sync::Mutex::new(Vec::new());
+            let workers = std::thread::available_parallelism().map_or(2, |n| n.get()).min(8).min(decoded.len().max(1));
+            std::thread::scope(|scope| {
+                for _ in 0..workers {
+                    scope.spawn(|| loop {
+                        let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        let Some((key, t)) = decoded.get(i) else { break };
+                        let view = t.as_ref().map(|t| upload_texture(gpu, t));
+                        made.lock().unwrap().push((*key, view));
+                    });
+                }
+            });
+            for (key, view) in made.into_inner().unwrap() {
+                cache.insert(key, view);
+            }
+            tex_count = cache.len() as u32;
+            tex_time = upload_started.elapsed();
+        }
         let mut geometry: HashMap<usize, Option<(wgpu::Buffer, wgpu::Buffer, u32, Option<wgpu::TextureView>, f32, (Vec3, Vec3))>> = HashMap::new();
-        let mut parts = Vec::new();
-        for (index, world) in draw_list {
+        let mut parts: Vec<GpuPart> = Vec::new();
+        for &(index, _) in &draw_list {
+            let geo_started = std::time::Instant::now();
             let entry = geometry.entry(index).or_insert_with(|| {
                 let part = &model.parts[index];
                 if part.indices.is_empty() || part.vertices.is_empty() {
@@ -527,7 +557,7 @@ impl Renderer {
                     indices.push(0);
                 }
                 let ib = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: bytemuck::cast_slice(&indices), usage: wgpu::BufferUsages::INDEX });
-                let view = part.material.textures.first().and_then(|&(kind, instance)| cache.entry((kind, instance)).or_insert_with(|| texture(kind, instance).map(|t| upload_texture(gpu, &t))).clone());
+                let view = part.material.textures.first().and_then(|&(kind, instance)| cache.entry((kind, instance)).or_insert_with(|| { let t0 = std::time::Instant::now(); let r = texture(kind, instance).map(|t| upload_texture(gpu, &t)); tex_time += t0.elapsed(); tex_count += 1; r }).clone());
                 // A plant's height (in its own Y-up space) sets how it bends.
                 let height = part.vertices.iter().map(|v| v.position[1]).fold(0.0f32, f32::max);
                 let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
@@ -537,31 +567,57 @@ impl Renderer {
                 }
                 Some((vb, ib, part.indices.len() as u32, view, height, (lo, hi)))
             });
-            let Some((vb, ib, count, view, height, (lo, hi))) = entry else { continue };
-            // A sphere around the part's box in the world.
-            let m = Mat4::from_cols_array(&world);
-            let (mut wlo, mut whi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
-            for corner in 0..8 {
-                let c = Vec3::new(if corner & 1 == 0 { lo.x } else { hi.x }, if corner & 2 == 0 { lo.y } else { hi.y }, if corner & 4 == 0 { lo.z } else { hi.z });
-                let p = m.transform_point3(c);
-                wlo = wlo.min(p);
-                whi = whi.max(p);
-            }
-            let (center, radius) = ((wlo + whi) * 0.5, (whi - wlo).length() * 0.5);
-            let d = model.parts[index].material.diffuse;
-            let material = &model.parts[index].material;
-            let uniform = PartUniform { model: world, colour: [d[0], d[1], d[2], 1.0], flags: [view.is_some() as u32 as f32, material.ignore_alpha as u32 as f32, material.foliage as u32 as f32, *height] };
-            let ub = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: bytemuck::bytes_of(&uniform), usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST });
-            let bind = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: None,
-                layout: &self.part_layout,
-                entries: &[
-                    wgpu::BindGroupEntry { binding: 0, resource: ub.as_entire_binding() },
-                    wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(view.as_ref().unwrap_or(&self.white)) },
-                    wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(&self.sampler) },
-                ],
+            geo_time += geo_started.elapsed();
+            let _ = entry;
+        }
+        // Each draw's own uniform buffer and bind group: made on every core too (a playfield draws tens of thousands of props).
+        let (part_layout, sampler, white) = (&self.part_layout, &self.sampler, &self.white);
+        let geometry = &geometry;
+        let build = |slice: &[(usize, [f32; 16])]| -> Vec<GpuPart> {
+            slice
+                .iter()
+                .filter_map(|&(index, world)| {
+                    let (vb, ib, count, view, height, (lo, hi)) = geometry.get(&index)?.as_ref()?;
+                    // A sphere around the part's box in the world.
+                    let m = Mat4::from_cols_array(&world);
+                    let (mut wlo, mut whi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+                    for corner in 0..8 {
+                        let c = Vec3::new(if corner & 1 == 0 { lo.x } else { hi.x }, if corner & 2 == 0 { lo.y } else { hi.y }, if corner & 4 == 0 { lo.z } else { hi.z });
+                        let p = m.transform_point3(c);
+                        wlo = wlo.min(p);
+                        whi = whi.max(p);
+                    }
+                    let (center, radius) = ((wlo + whi) * 0.5, (whi - wlo).length() * 0.5);
+                    let d = model.parts[index].material.diffuse;
+                    let material = &model.parts[index].material;
+                    let uniform = PartUniform { model: world, colour: [d[0], d[1], d[2], 1.0], flags: [view.is_some() as u32 as f32, material.ignore_alpha as u32 as f32, material.foliage as u32 as f32, *height] };
+                    let ub = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: bytemuck::bytes_of(&uniform), usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST });
+                    let bind = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: None,
+                        layout: part_layout,
+                        entries: &[
+                            wgpu::BindGroupEntry { binding: 0, resource: ub.as_entire_binding() },
+                            wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(view.as_ref().unwrap_or(white)) },
+                            wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(sampler) },
+                        ],
+                    });
+                    Some(GpuPart { vertices: vb.clone(), indices: ib.clone(), index_count: *count, bind, center, radius, uniform_buffer: ub, uniform, shift: Vec3::ZERO })
+                })
+                .collect()
+        };
+        let workers = std::thread::available_parallelism().map_or(2, |n| n.get()).min(8);
+        if draw_list.len() < 256 || workers < 2 {
+            parts = build(&draw_list);
+        } else {
+            let chunk = draw_list.len().div_ceil(workers);
+            let results: Vec<Vec<GpuPart>> = std::thread::scope(|scope| {
+                let handles: Vec<_> = draw_list.chunks(chunk).map(|c| scope.spawn(|| build(c))).collect();
+                handles.into_iter().map(|h| h.join().expect("an upload thread")).collect()
             });
-            parts.push(GpuPart { vertices: vb.clone(), indices: ib.clone(), index_count: *count, bind, center, radius, uniform_buffer: ub, uniform, shift: Vec3::ZERO });
+            parts = results.into_iter().flatten().collect();
+        }
+        if std::env::var_os("MAO_PROFILE").is_some() && upload_started.elapsed() > std::time::Duration::from_millis(20) {
+            eprintln!("[profile] upload {:?}: textures {tex_count} in {tex_time:?}, geometry+textures {geo_time:?}, {} parts", upload_started.elapsed(), parts.len());
         }
         Scene { parts, overlay: Vec::new(), follow: Vec::new(), center, radius, player: None, fog: (1.0e9, 2.0e9), sky: DAY_SKY, water: model.water }
     }
@@ -847,37 +903,8 @@ impl Renderer {
 
 /// The texture's mip levels, smallest last, each half the size of the one before
 /// (a box filter): all the bytes in order, and how many levels.
-fn mip_chain(t: &Texture) -> (Vec<u8>, u32) {
-    let mut data = t.rgba.clone();
-    let (mut w, mut h) = (t.width as usize, t.height as usize);
-    let mut level_start = 0;
-    let mut levels = 1;
-    while w > 1 || h > 1 {
-        let (nw, nh) = ((w / 2).max(1), (h / 2).max(1));
-        let mut next = Vec::with_capacity(nw * nh * 4);
-        for y in 0..nh {
-            for x in 0..nw {
-                let mut sum = [0u32; 4];
-                for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
-                    let (sx, sy) = ((x * 2 + dx).min(w - 1), (y * 2 + dy).min(h - 1));
-                    let at = level_start + (sy * w + sx) * 4;
-                    for c in 0..4 {
-                        sum[c] += data[at + c] as u32;
-                    }
-                }
-                next.extend(sum.map(|v| ((v + 2) / 4) as u8));
-            }
-        }
-        level_start = data.len();
-        data.extend_from_slice(&next);
-        (w, h) = (nw, nh);
-        levels += 1;
-    }
-    (data, levels)
-}
-
 fn upload_texture(gpu: &Gpu, t: &Texture) -> wgpu::TextureView {
-    let (data, levels) = mip_chain(t);
+    let (data, levels) = if t.mips > 1 { (t.rgba.clone(), t.mips) } else { mao_formats::texture::mip_chain(&t.rgba, t.width, t.height) };
     let texture = gpu.device.create_texture_with_data(
         &gpu.queue,
         &wgpu::TextureDescriptor {
@@ -903,8 +930,8 @@ mod tests {
     #[test]
     fn mip_chain_halves_down_to_one_pixel() {
         // 4x2: levels 4x2, 2x1, 1x1.
-        let t = Texture { width: 4, height: 2, format: mao_formats::texture::Format::Png, rgba: (0..32).map(|i| (i * 8) as u8).collect() };
-        let (data, levels) = mip_chain(&t);
+        let t = Texture { width: 4, height: 2, format: mao_formats::texture::Format::Png, rgba: (0..32).map(|i| (i * 8) as u8).collect(), mips: 1 };
+        let (data, levels) = mao_formats::texture::mip_chain(&t.rgba, t.width, t.height);
         assert_eq!(levels, 3);
         assert_eq!(data.len(), 32 + 2 * 4 + 4);
         // The 1x1 level is the average of the 2x1 level's two pixels.
@@ -913,7 +940,7 @@ mod tests {
             assert_eq!(data[40 + c], ((two[c] as u32 + two[4 + c] as u32 + 1) / 2) as u8);
         }
         // A 1x1 texture has just its one level.
-        let one = Texture { width: 1, height: 1, format: mao_formats::texture::Format::Png, rgba: vec![9, 9, 9, 9] };
-        assert_eq!(mip_chain(&one), (vec![9, 9, 9, 9], 1));
+        let one = Texture { width: 1, height: 1, format: mao_formats::texture::Format::Png, rgba: vec![9, 9, 9, 9], mips: 1 };
+        assert_eq!(mao_formats::texture::mip_chain(&one.rgba, 1, 1), (vec![9, 9, 9, 9], 1));
     }
 }

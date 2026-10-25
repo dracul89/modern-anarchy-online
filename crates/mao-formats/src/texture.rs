@@ -54,6 +54,50 @@ pub struct Texture {
     pub height: u32,
     pub format: Format,
     pub rgba: Vec<u8>,
+    /// How many mip levels `rgba` holds, one after the other, the full image first (1: just the image).
+    pub mips: u32,
+}
+
+impl Texture {
+    /// The texture with its mip chain appended to `rgba` (each level a box-filtered half of the one before, down to 1x1).
+    /// Done where the texture is decoded, which can be many threads at once, so that the upload need not.
+    pub fn with_mips(self) -> Texture {
+        if self.mips > 1 {
+            return self;
+        }
+        let (rgba, mips) = mip_chain(&self.rgba, self.width, self.height);
+        Texture { rgba, mips, ..self }
+    }
+}
+
+/// The image followed by its mip levels, and how many levels that is.
+pub fn mip_chain(image: &[u8], width: u32, height: u32) -> (Vec<u8>, u32) {
+    let mut data = image.to_vec();
+    let (mut w, mut h) = (width as usize, height as usize);
+    let mut level_start = 0;
+    let mut levels = 1;
+    while w > 1 || h > 1 {
+        let (nw, nh) = ((w / 2).max(1), (h / 2).max(1));
+        let mut next = Vec::with_capacity(nw * nh * 4);
+        for y in 0..nh {
+            for x in 0..nw {
+                let mut sum = [0u32; 4];
+                for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+                    let (sx, sy) = ((x * 2 + dx).min(w - 1), (y * 2 + dy).min(h - 1));
+                    let at = level_start + (sy * w + sx) * 4;
+                    for c in 0..4 {
+                        sum[c] += data[at + c] as u32;
+                    }
+                }
+                next.extend(sum.map(|v| ((v + 2) / 4) as u8));
+            }
+        }
+        level_start = data.len();
+        data.extend_from_slice(&next);
+        (w, h) = (nw, nh);
+        levels += 1;
+    }
+    (data, levels)
 }
 
 /// The image file in a texture object's bytes, with its signature restored,
@@ -97,7 +141,7 @@ pub fn decode_after(object: &[u8], head: usize) -> Result<Texture, Error> {
         Format::Jpeg => image::load_from_memory_with_format(&file, image::ImageFormat::Jpeg)?,
     };
     let rgba = decoded.to_rgba8();
-    Ok(Texture { width: rgba.width(), height: rgba.height(), format, rgba: rgba.into_raw() })
+    Ok(Texture { width: rgba.width(), height: rgba.height(), format, rgba: rgba.into_raw(), mips: 1 })
 }
 
 /// The header before the image in a ground texture object
@@ -132,5 +176,5 @@ pub fn decode_ground(object: &[u8]) -> Result<Texture, Error> {
         },
     )?;
     let rgba = decoded.to_rgba8();
-    Ok(Texture { width: rgba.width(), height: rgba.height(), format, rgba: rgba.into_raw() })
+    Ok(Texture { width: rgba.width(), height: rgba.height(), format, rgba: rgba.into_raw(), mips: 1 })
 }

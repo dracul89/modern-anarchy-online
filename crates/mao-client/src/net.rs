@@ -1378,7 +1378,9 @@ fn show_world(game: &str, playfield: u32, world: &World, image: Option<&str>) ->
             eprintln!("entity {id}: server y {:.2}, ground model {:.2}", p[1], t.height_at(p[0], p[2], t.height_scale));
         }
     }
+    let started_characters = Instant::now();
     let mut characters = Characters::new(db.clone()).ok();
+    profile!("[profile] Characters::new {:?}", started_characters.elapsed());
     let mut world_props = world.props.clone();
     world_props.extend(crate::static_props(&db, playfield).into_iter().map(|(k, p, _)| (k, p)));
     eprintln!("{} machines with a model", world_props.len());
@@ -1407,7 +1409,7 @@ fn build_collision(scene: &Model, ground_parts: usize, textures: &crate::Texture
         let opaque = *part_opaque.entry(i).or_insert_with(|| {
             part.material.opacity >= 0.99
                 && part.material.textures.first().is_none_or(|&(kind, instance)| {
-                    *texture_opaque.entry((kind, instance)).or_insert_with(|| textures.get(kind, instance).is_none_or(|t| t.rgba.chunks_exact(4).all(|p| p[3] >= 250)))
+                    *texture_opaque.entry((kind, instance)).or_insert_with(|| textures.is_opaque(kind, instance))
                 })
         });
         if !opaque {
@@ -1461,11 +1463,20 @@ pub(crate) struct Area {
 }
 
 pub(crate) fn load_area(game: &str, db: &Arc<ResourceDatabase>, playfield: u32) -> Result<Area, String> {
+    load_area_with(game, db, playfield, None)
+}
+
+/// [`load_area`] that also decodes the textures the scene uses into `prefetch` while the collision is built (the two are independent,
+/// so the playfield is ready after the longer of them, not both).
+pub(crate) fn load_area_with(game: &str, db: &Arc<ResourceDatabase>, playfield: u32, prefetch: Option<&crate::Textures>) -> Result<Area, String> {
+    let started = Instant::now();
     // An interior has no ground at all (only props).
     let mut scene = crate::load_terrain(db, playfield).unwrap_or_default();
     let terrain = crate::load_terrain_data(db, playfield).ok().map(Arc::new);
     let ground_parts = scene.parts.len();
+    profile!("[profile] area {playfield}: terrain {:?}", started.elapsed());
     let part_mesh = crate::add_props(game, db, playfield, &mut scene);
+    profile!("[profile] area {playfield}: props {:?} ({} parts)", started.elapsed(), scene.parts.len());
     if scene.instances.is_empty() {
         scene.instances.extend((0..ground_parts).map(|i| (i, model::IDENTITY)));
     }
@@ -1485,7 +1496,22 @@ pub(crate) fn load_area(game: &str, db: &Arc<ResourceDatabase>, playfield: u32) 
     };
     // Trigger areas are walked into, not blocked by: whompah entrances, doors and gates.
     let passable = passable_parts(db, &part_mesh);
-    let collision = build_collision(&scene, ground_parts, &crate::Textures::new(db.clone()), &passable);
+    let before_collision = started.elapsed();
+    // (the textures are decoded once, on every core, for the upload and for the collision's opacity check)
+    let own_textures;
+    let textures = match prefetch {
+        Some(textures) => {
+            textures.prefetch(&scene);
+            profile!("[profile] area {playfield}: textures decoded {:?}", started.elapsed());
+            textures
+        }
+        None => {
+            own_textures = crate::Textures::new(db.clone());
+            &own_textures
+        }
+    };
+    let collision = build_collision(&scene, ground_parts, textures, &passable);
+    profile!("[profile] area {playfield}: collision {:?} (after {before_collision:?})", started.elapsed());
     eprintln!("playfield {playfield}: collision {} triangles", collision.len());
     let mut booths = crate::whompah_booths(game, db, playfield);
     if terrain.is_none() {
@@ -1515,8 +1541,12 @@ pub(crate) fn booth_labels(playfield: u32, booths: &[[f32; 3]], destinations: &c
 fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World) -> Result<(), String> {
     crate::theme::set_game_dir(game);
     let db = Arc::new(ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?);
-    let Area { scene, terrain, collision, booths } = load_area(game, &db, playfield)?;
+    let textures = crate::Textures::new(db.clone());
+    let Area { scene, terrain, collision, booths } = load_area_with(game, &db, playfield, Some(&textures))?;
+    let thread_textures = textures.clone_handle();
+    let started_props = Instant::now();
     state.set_static_props(crate::static_props(&db, playfield));
+    profile!("[profile] static_props {:?}", started_props.elapsed());
     let (mut terrain, mut collision) = (terrain, collision);
     // The interface: the names of the playfields, and where the booths lead.
     let names: std::collections::HashMap<u32, String> = mao_formats::playfield::all(&db).into_iter().map(|p| (p.number, p.name.trim().to_string())).collect();
@@ -1979,7 +2009,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         }
                     }
                     pending_location = Some(names.get(&playfield).cloned().unwrap_or_else(|| format!("playfield {playfield}")));
-                    match load_area(&game_dir, &thread_db, playfield) {
+                    match load_area_with(&game_dir, &thread_db, playfield, Some(&thread_textures)) {
                         Ok(area) => {
                             (terrain, collision) = (area.terrain, area.collision);
                             state.set_static_props(crate::static_props(&thread_db, playfield));
@@ -2830,7 +2860,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             }
         }
     });
-    crate::viewer::window(scene, crate::Textures::new(db), Some(crate::viewer::Live { overlays: rx, input: input_tx, mail: mail_tx, shop: shop_tx, focus, distance: 6.0 }))
+    crate::viewer::window(scene, textures, Some(crate::viewer::Live { overlays: rx, input: input_tx, mail: mail_tx, shop: shop_tx, focus, distance: 6.0 }))
 }
 
 pub fn run(args: &[String]) -> Result<(), String> {
@@ -3008,11 +3038,18 @@ pub fn run(args: &[String]) -> Result<(), String> {
         [game, word, pf] if word == "area" => {
             let db = Arc::new(ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?);
             let start = Instant::now();
-            let area = load_area(game, &db, pf.parse().map_err(|_| "bad playfield")?)?;
+            let textures = crate::Textures::new(db.clone());
+            let area = load_area_with(game, &db, pf.parse().map_err(|_| "bad playfield")?, Some(&textures))?;
             eprintln!("loaded in {:.1}s: {} parts, {} booths", start.elapsed().as_secs_f32(), area.scene.parts.len(), area.booths.len());
             for b in &area.booths {
                 eprintln!("booth at ({:.1}, {:.1}, {:.1})", b[0], b[1], b[2]);
             }
+            let t = Instant::now();
+            let props = crate::static_props(&db, pf.parse().unwrap_or(0));
+            eprintln!("static props: {} in {:?}", props.len(), t.elapsed());
+            let t = Instant::now();
+            let _ = Characters::new(db.clone());
+            eprintln!("Characters::new in {:?}", t.elapsed());
             Ok(())
         }
         // `net <game dir> chat [seconds]`: log in on the chat server as the first character and print what arrives.

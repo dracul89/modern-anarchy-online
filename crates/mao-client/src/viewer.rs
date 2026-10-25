@@ -186,7 +186,12 @@ pub fn headless_with(model: &Model, textures: &Textures, out: &str, ui: Option<(
     if let Some(s) = std::env::var("MAO_RENDER_SCALE").ok().and_then(|v| v.parse().ok()) {
         renderer.render_scale = s;
     }
-    let mut scene = renderer.upload(&gpu, model, &mut |k, i| textures.get(k, i));
+    let decoding = std::time::Instant::now();
+    textures.prefetch(model);
+    profile!("[profile] textures decoded in {:?}", decoding.elapsed());
+    let uploading = std::time::Instant::now();
+    let mut scene = renderer.upload(&gpu, model, &mut |k, i| textures.get_for_upload(k, i));
+    profile!("[profile] scene upload {:?} ({} parts)", uploading.elapsed(), model.parts.len());
     // `MAO_PLAYER=x,y,z` (world, Z up) puts a player in the scene: plants near it bend away.
     if let Some(v) = std::env::var("MAO_PLAYER").ok().map(|t| t.split(',').filter_map(|n| n.trim().parse::<f32>().ok()).collect::<Vec<_>>()) {
         if let [x, y, z] = v[..] {
@@ -387,7 +392,7 @@ impl ApplicationHandler for App {
         eprintln!("present mode: {:?}", config.present_mode);
         surface.configure(&gpu.device, &config);
         let renderer = Renderer::new(&gpu, config.format);
-        let mut scene = renderer.upload(&gpu, &self.model, &mut |k, i| self.textures.get(k, i));
+        let mut scene = renderer.upload(&gpu, &self.model, &mut |k, i| self.textures.get_for_upload(k, i));
         if self.live.is_some() {
             // Close-up view: distance fades into the sky.
             scene.fog = fog_for(self.settings.view_distance);
@@ -861,10 +866,12 @@ impl ApplicationHandler for App {
                         }
                         self.ground = update.ground.take();
                         if let Some(model) = &update.scene {
-                            w.scene = w.renderer.upload(&w.gpu, model, &mut |k, i| self.textures.get(k, i));
+                            let uploading = std::time::Instant::now();
+                            w.scene = w.renderer.upload(&w.gpu, model, &mut |k, i| self.textures.get_for_upload(k, i));
+                            profile!("[profile] area scene upload {:?} ({} parts)", uploading.elapsed(), model.parts.len());
                             w.scene.fog = fog_for(self.settings.view_distance);
                         }
-                        let own_scene = w.renderer.upload(&w.gpu, &update.own_model, &mut |k, i| self.textures.get(k, i));
+                        let own_scene = w.renderer.upload(&w.gpu, &update.own_model, &mut |k, i| self.textures.get_for_upload(k, i));
                         w.scene.set_follow(own_scene);
                         if let Some(p) = update.own {
                             self.own_base = p;
@@ -872,7 +879,7 @@ impl ApplicationHandler for App {
                             self.own_at = std::time::Instant::now();
                         }
                         let uploading = std::time::Instant::now();
-                        let overlay = w.renderer.upload(&w.gpu, &update.model, &mut |k, i| self.textures.get(k, i));
+                        let overlay = w.renderer.upload(&w.gpu, &update.model, &mut |k, i| self.textures.get_for_upload(k, i));
                         w.scene.set_overlay(overlay);
                         if std::env::var_os("MAO_PROFILE").is_some() && uploading.elapsed() > std::time::Duration::from_millis(2) {
                             eprintln!("[profile] overlay upload {:?}", uploading.elapsed());
