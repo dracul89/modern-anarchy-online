@@ -107,6 +107,22 @@ fn modifiers_with(template: &[u8], level: i64, tails: &[u32]) -> Vec<(u32, i32)>
     out
 }
 
+/// The nano line (stat `NanoStrain`) of the polymorph programs.
+pub const POLYMORPH_STRAIN: u32 = 223;
+
+/// The creature a polymorph program turns its target into: the argument of its `ChangeMesh` spell (type `0xcf44`), an NPC template
+/// (type `0xfde97`). Spell records read `type, 0, 4, n, n criteria of three words, 1, 0, x, 9`, then the arguments.
+pub fn polymorph_template(template: &[u8]) -> Option<u32> {
+    let word = |at: usize| u32::from_le_bytes(template[at..at + 4].try_into().unwrap());
+    (0..template.len().saturating_sub(40)).find_map(|at| {
+        if word(at) != 0xcf44 || word(at + 4) != 0 || word(at + 8) != 4 || word(at + 12) >= 4 {
+            return None;
+        }
+        let tail = at + 16 + 12 * word(at + 12) as usize;
+        (tail + 20 <= template.len() && word(tail) == 1 && word(tail + 12) == 9).then(|| word(tail + 16))
+    })
+}
+
 /// What an item's action needs: the item's trailing tables hold, after each event's spells, the marker `22, 36, 2018`, the action
 /// (3 = use, 6 = wear, 8 = wield) and a criteria list: `(n + 1) * 0x3f1`, then `n` criteria `(stat, value, operator)` in reverse
 /// Polish order (a comparison pushes its result, operator 4 is AND and 3 is OR of the two before it). Operators: 0 equal, 1 less than,
@@ -179,6 +195,15 @@ impl Item {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_change_mesh_spell_names_the_creature() {
+        // "Calia's Form: Wolf": cf44, 0, 4, 0 criteria, 1, 0, 2, 9, 0x768c
+        let words = [0xcf35u32, 0, 4, 0, 1, 0, 2, 9, 5, 5, 0xcf44, 0, 4, 0, 1, 0, 2, 9, 0x768c, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+        let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
+        assert_eq!(polymorph_template(&bytes), Some(0x768c));
+        assert_eq!(polymorph_template(&bytes[..40]), None);
+    }
 
     /// Item 0x4321c, "Dream Mesh Circuit", as the game's database holds it.
     fn circuit() -> Vec<u8> {

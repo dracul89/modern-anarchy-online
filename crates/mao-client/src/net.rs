@@ -157,6 +157,8 @@ struct World {
     /// The worn meshes of each character from its `AppearanceUpdate`: attachment position, static mesh instance and the texture
     /// instance that replaces the mesh's own (0 for none).
     equipment: BTreeMap<u32, Vec<(u8, u32, u32)>>,
+    /// The creature (NPC template) a character is polymorphed into by a running nano program.
+    morphs: BTreeMap<u32, u32>,
     /// Health and maximum from the info packets (the server answers an info request with them).
     health: BTreeMap<u32, (i64, i64)>,
     /// The health each character was last known to have (from the damage events: the target's health after the hit).
@@ -353,6 +355,19 @@ impl World {
             self.mods_by_source = [crate::derived::worn_modifiers(db, &self.worn, level), crate::derived::perk_modifiers(db, &self.perks, level), crate::derived::nano_modifiers(db, &self.nanos, level), crate::derived::org_modifiers(db, &self.org_benefits, level)];
             self.item_mods = crate::derived::modifiers(db, &self.worn, &self.perks, &self.nanos, &self.org_benefits, level);
             self.stats_changed = true;
+            // A running polymorph program turns the character into a creature.
+            let id = |kind: u32, instance: u32| mao_formats::resource::Id { kind, instance };
+            let morph = self.nanos.iter().find_map(|&n| {
+                let data = db.get(id(0xfde85, n)).ok().flatten()?;
+                let t = mao_formats::item::Item::parse(&data).filter(|t| t.stat(75) == Some(mao_formats::item::POLYMORPH_STRAIN))?;
+                let _ = t;
+                let creature = mao_formats::item::polymorph_template(&data)?;
+                db.get(id(0xfde97, creature)).ok().flatten().map(|_| creature)
+            });
+            match morph {
+                Some(creature) => self.morphs.insert(self.own, creature),
+                None => self.morphs.remove(&self.own),
+            };
         }
     }
 
@@ -1196,6 +1211,15 @@ impl Characters {
     }
 }
 
+/// `creature <game> <npc template> <out.png>`: a creature as the world draws it (what a polymorph turns a character into).
+pub(crate) fn creature_preview(db: Arc<ResourceDatabase>, template: u32, out: &str) -> Result<(), String> {
+    let mut chars = Characters::new(db.clone())?;
+    let parts = chars.creature_parts(template, mao_formats::appearance::Action::Idle, 0.0, &[], &[]).ok_or("that template has no mesh")?;
+    let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
+    let model = Model { instances: (0..parts.len()).map(|i| (i, swap)).collect(), parts, water: None };
+    crate::viewer::headless(&model, &crate::Textures::new(db), out)
+}
+
 /// The entities' markers alone (own character red, the others blue): two
 /// parts and an instance per entity, placed Z-up.
 fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>, characters: &mut Option<Characters>, include: &dyn Fn(u32) -> bool) -> Model {
@@ -1211,6 +1235,19 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
             let moving = world.last_move.get(&id).is_some_and(|t| t.elapsed() < Duration::from_millis(900));
             let action = if moving { mao_formats::appearance::Action::Walk } else { mao_formats::appearance::Action::Idle };
             if let Some(parts) = chars.creature_parts(info.template.unwrap(), action, (id % 997) as f32 * 3.0, &info.textures, &info.clothes) {
+                let base = model.parts.len();
+                for (k, p) in parts.into_iter().enumerate() {
+                    model.parts.push(p);
+                    model.instances.push((base + k, place));
+                }
+                continue;
+            }
+        }
+        // (a polymorphed character is drawn as the creature it became)
+        if let (Some(&creature), Some(chars)) = (world.morphs.get(&id), characters.as_mut()) {
+            let moving = world.last_move.get(&id).is_some_and(|t| t.elapsed() < Duration::from_millis(if id == world.own { 90 } else { 700 }));
+            let action = if moving { mao_formats::appearance::Action::Walk } else { mao_formats::appearance::Action::Idle };
+            if let Some(parts) = chars.creature_parts(creature, action, (id % 997) as f32 * 3.0, &[], &[]) {
                 let base = model.parts.len();
                 for (k, p) in parts.into_iter().enumerate() {
                     model.parts.push(p);

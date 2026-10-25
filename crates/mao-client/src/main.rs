@@ -508,6 +508,78 @@ fn run(args: &[String]) -> Result<(), String> {
             return Ok(());
         }
     }
+    // `spell-scan <game> <spell type hex> [count]`: the nano programs with a spell of that type, with the words that follow it.
+    if let [game, word, spell, rest @ ..] = args {
+        if word == "spell-scan" {
+            let db = ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?;
+            let wanted = u32::from_str_radix(spell.trim_start_matches("0x"), 16).map_err(|_| "bad spell type")?;
+            let limit: usize = rest.first().and_then(|n| n.parse().ok()).unwrap_or(20);
+            let mut found = 0;
+            for id in db.ids().map_err(|e| e.to_string())?.filter_map(Result::ok).filter(|i| i.kind == 0xfde85 || i.kind == mao_formats::item::TEMPLATE) {
+                let Some(data) = db.get(id).ok().flatten() else { continue };
+                let word = |at: usize| u32::from_le_bytes(data[at..at + 4].try_into().unwrap());
+                let mut at = 0;
+                while at + 64 <= data.len() {
+                    if word(at) == wanted && word(at + 4) == 0 && word(at + 8) == 4 && word(at + 12) < 8 {
+                        let name = mao_formats::item::Item::parse(&data).map_or_else(String::new, |t| t.name);
+                        if std::env::var("NAME").is_ok_and(|n| !name.to_lowercase().contains(&n.to_lowercase())) {
+                            at += 1;
+                            continue;
+                        }
+                        let words: Vec<u32> = (0..14).map(|k| word(at + 4 * k)).collect();
+                        println!("{:#x} {name}: {words:x?}", id.instance);
+                        found += 1;
+                        break;
+                    }
+                    at += 1;
+                }
+                if found >= limit {
+                    break;
+                }
+            }
+            return Ok(());
+        }
+    }
+    // `nano-line <game> <stat> <value> [count]`: the nano programs whose stat has that value, with the spell types in their templates.
+    if let [game, word, stat, value, rest @ ..] = args {
+        if word == "nano-line" {
+            let db = ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?;
+            let (stat, value): (u32, u32) = (stat.parse().map_err(|_| "bad stat")?, value.parse().map_err(|_| "bad value")?);
+            let limit: usize = rest.first().and_then(|n| n.parse().ok()).unwrap_or(10);
+            let mut found = 0;
+            for id in db.ids().map_err(|e| e.to_string())?.filter_map(Result::ok).filter(|i| i.kind == 0xfde85) {
+                let Some(data) = db.get(id).ok().flatten() else { continue };
+                let Some(t) = mao_formats::item::Item::parse(&data) else { continue };
+                if t.stat(stat) != Some(value) {
+                    continue;
+                }
+                let word = |at: usize| u32::from_le_bytes(data[at..at + 4].try_into().unwrap());
+                let mut spells = Vec::new();
+                for at in 0..data.len().saturating_sub(40) {
+                    if (0xcf00..0xd100).contains(&word(at)) && word(at + 4) == 0 && word(at + 8) == 4 && word(at + 12) < 4 {
+                        let n = word(at + 12) as usize;
+                        let tail = at + 16 + 12 * n;
+                        if tail + 28 <= data.len() && word(tail) == 1 && word(tail + 12) == 9 {
+                            spells.push(format!("{:x}({:x?})", word(at), (0..4).map(|k| word(tail + 16 + 4 * k)).collect::<Vec<_>>()));
+                        }
+                    }
+                }
+                println!("{:#x} {}: {}", id.instance, t.name, spells.join(" "));
+                found += 1;
+                if found >= limit {
+                    break;
+                }
+            }
+            return Ok(());
+        }
+    }
+    // `creature <game> <npc template hex> <out.png>`: a creature the way the world draws it.
+    if let [game, word, template, out] = args {
+        if word == "creature" {
+            let db = Arc::new(ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?);
+            return net::creature_preview(db, number(template).ok_or("bad template")?, out);
+        }
+    }
     // `dynel-kinds <game>`: how many built-in things of each identity type the playfields have.
     if let [game, word] = args {
         if word == "dynel-kinds" {
