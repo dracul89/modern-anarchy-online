@@ -106,6 +106,44 @@ impl Gfx {
     }
 }
 
+/// One of the two spirals of a running buff's aura (a kind-1002 template).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Helix {
+    /// Radians per second (negative: the other way round).
+    pub spin: f32,
+    /// Where it starts (radians).
+    pub phase: f32,
+    /// How wide each spark is, in metres.
+    pub size: f32,
+    /// How many sparks run along it.
+    pub count: u32,
+    /// The colour of its sparks (red, green, blue) before the buff's own tint.
+    pub colour: [f32; 3],
+}
+
+/// The persistent effect of a running buff (a kind-1001 template): its colour and two counter-rotating spirals of sparks.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Aura {
+    /// The buff's colour at the start and at the end of a spark's life (red, green, blue).
+    pub colour: [f32; 3],
+    pub end: [f32; 3],
+    pub helices: Vec<Helix>,
+}
+
+impl Gfx {
+    /// The aura an `EffectType` id names, when it is a kind-1001 template (486 of the nanos' 618 running effects).
+    pub fn aura(&self, id: i32) -> Option<Aura> {
+        let r = self.get(id).filter(|r| r.kind == 1001)?;
+        let helices = self
+            .references(id)
+            .into_iter()
+            .filter_map(|c| self.get(c).filter(|c| c.kind == 1002))
+            .map(|c| Helix { spin: c.float(23), phase: c.float(22), size: c.float(21), count: c.int(20).max(1) as u32, colour: [c.float(13), c.float(14), c.float(15)] })
+            .collect();
+        Some(Aura { colour: [r.float(13), r.float(14), r.float(15)], end: [r.float(17), r.float(18), r.float(19)], helices })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -126,5 +164,39 @@ mod tests {
         assert_eq!(gfx.tree(1000).iter().map(|r| r.id).collect::<Vec<_>>(), vec![1000, 20040]);
         // a count that outruns the file is an error, not a panic
         assert!(Gfx::parse(&bytes(&[5, 1, 2, 9, 0])).is_err());
+    }
+
+    #[test]
+    fn a_kind_1001_template_is_an_aura_of_two_helices() {
+        let f = |v: f32| v.to_bits() as i32;
+        // the blue buff of the game's table, abridged: colour 0.2 0.2 0.99 and two kind-1002 children
+        let parent = [5, 0, 0, 0, 0, 0, 0, 0, -1, -1, 20011, 20016, f(1.0), f(0.2), f(0.2), f(0.99), 0, f(0.2), f(0.2), f(0.99), f(4.0), -1];
+        let helix = |spin: f32| {
+            let mut p = vec![0i32; 27];
+            p[13] = f(0.5);
+            p[14] = f(0.4);
+            p[15] = f(1.0);
+            p[20] = 10;
+            p[21] = f(0.15);
+            p[22] = f(3.14);
+            p[23] = f(spin);
+            p
+        };
+        let mut words = vec![3, 1000, 1001, parent.len() as i32];
+        words.extend_from_slice(&parent);
+        for (id, spin) in [(20011, -12.566f32), (20016, 12.566)] {
+            let h = helix(spin);
+            words.extend_from_slice(&[id, 1002, h.len() as i32]);
+            words.extend_from_slice(&h);
+        }
+        let gfx = Gfx::parse(&bytes(&words)).unwrap();
+        let aura = gfx.aura(1000).unwrap();
+        assert_eq!(aura.colour, [0.2, 0.2, 0.99]);
+        assert_eq!(aura.helices.len(), 2);
+        assert_eq!(aura.helices[0].spin, -12.566);
+        assert_eq!(aura.helices[1].spin, 12.566);
+        assert_eq!(aura.helices[0].count, 10);
+        assert_eq!(aura.helices[0].colour, [0.5, 0.4, 1.0]);
+        assert!(gfx.aura(20011).is_none());
     }
 }

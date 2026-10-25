@@ -16,6 +16,9 @@ struct Globals {
     params: vec4<f32>,
     // The water's box: min x, min y, max x, max y.
     rect: vec4<f32>,
+    // The camera's right and up (world, Z up), for sprites that face it.
+    right: vec4<f32>,
+    up: vec4<f32>,
 }
 
 struct Part {

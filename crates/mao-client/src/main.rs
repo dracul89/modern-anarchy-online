@@ -51,6 +51,7 @@ mod hotbar;
 mod net;
 mod settings;
 mod theme;
+mod effects;
 mod ui;
 mod whompah;
 pub(crate) mod viewer;
@@ -885,10 +886,6 @@ fn run(args: &[String]) -> Result<(), String> {
                         for (dx, dz, text, kind) in [(-3.0f32, -3.0f32, "1581", 0u8), (-5.0, 3.0, "49", 1), (4.0, 7.0, "120", 2)] {
                             hud.floaters.push(ui::Floater { world: mao_render::glam::Vec3::new(449.0 + dx, 313.0 + dz, 10.0), text: text.to_string(), kind, born: std::time::Instant::now() + std::time::Duration::from_secs(60) });
                         }
-                    }
-                    // MAO_PLATES=1 also shows a character under three nano programs.
-                    if std::env::var_os("MAO_PLATES").is_some() {
-                        hud.auras.push((mao_render::glam::Vec3::new(449.0, 313.0 - 4.0, 9.5), vec![[120, 200, 255], [255, 170, 90], [150, 255, 150]]));
                     }
                     // MAO_PLATES=1 also shows a glow of each colour a nano program can have.
                     if std::env::var_os("MAO_PLATES").is_some() {

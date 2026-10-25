@@ -1837,7 +1837,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut take_seen = 0u8;
         let mut put_seen = 0u8;
         let mut saved_look: Option<crate::look::Look> = None;
-        let mut aura_colours: std::collections::HashMap<u32, [u8; 3]> = std::collections::HashMap::new();
+        let mut aura_cache: std::collections::HashMap<u32, Option<mao_formats::gfx::Aura>> = std::collections::HashMap::new();
+        // (the effect templates: what a running nano program looks like)
+        let gfx = std::fs::read(Path::new(&game_dir).join("Setupf").join("gfxtweak.bin")).ok().and_then(|d| mao_formats::gfx::Gfx::parse(&d).ok());
         let mut polymorph_cache: std::collections::HashMap<u32, Option<u32>> = std::collections::HashMap::new();
         let mut delete_seen = 0u8;
         let mut cancel_seen = 0u8;
@@ -2806,43 +2808,38 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             .collect()
                     },
                     special_cooldowns: std::mem::take(&mut state.special_events),
-                    auras: {
+                    auras: Some({
                         // (the character's own programs from its list, the others' from the buffs seen lately)
                         state.active_buffs.retain(|_, nanos| {
                             nanos.retain(|_, at| at.elapsed() < Duration::from_secs(30));
                             !nanos.is_empty()
                         });
-                        let mut colour_of = |nano: u32| -> [u8; 3] {
-                            *aura_colours.entry(nano).or_insert_with(|| {
-                                let t = gear_db.get(mao_formats::resource::Id { kind: 0xfde85, instance: nano }).ok().flatten().and_then(|d| mao_formats::item::Item::parse(&d));
-                                crate::ui::glow_color(t.as_ref().and_then(|t| t.stat(460)), t.as_ref().and_then(|t| t.stat(461)), t.as_ref().and_then(|t| t.stat(462)), t.as_ref().and_then(|t| t.stat(405)).unwrap_or(0))
-                            })
+                        let mut aura_of = |nano: u32| -> Option<mao_formats::gfx::Aura> {
+                            aura_cache
+                                .entry(nano)
+                                .or_insert_with(|| {
+                                    let data = gear_db.get(mao_formats::resource::Id { kind: 0xfde85, instance: nano }).ok().flatten()?;
+                                    // (the running effect of a program is its `EffectType` stat)
+                                    let effect = mao_formats::item::Item::parse(&data)?.stat(413)?;
+                                    gfx.as_ref()?.aura(effect as i32)
+                                })
+                                .clone()
                         };
-                        let mut list: Vec<([f32; 3], Vec<[u8; 3]>)> = Vec::new();
-                        let mut add = |at: [f32; 3], nanos: Vec<u32>| {
-                            let mut colours: Vec<[u8; 3]> = Vec::new();
-                            for n in nanos {
-                                let c = colour_of(n);
-                                if !colours.contains(&c) {
-                                    colours.push(c);
-                                }
-                            }
-                            colours.truncate(4);
-                            if !colours.is_empty() {
-                                list.push(([at[0], at[2], at[1]], colours));
+                        let mut list: Vec<(bool, [f32; 3], Vec<mao_formats::gfx::Aura>)> = Vec::new();
+                        let mut add = |own_character: bool, at: [f32; 3], nanos: Vec<u32>| {
+                            let auras: Vec<mao_formats::gfx::Aura> = nanos.into_iter().filter_map(&mut aura_of).take(4).collect();
+                            if !auras.is_empty() {
+                                list.push((own_character, [at[0], at[2], at[1]], auras));
                             }
                         };
-                        // (the stand-in aura is off unless asked for: `MAO_AURAS=1`; the real effects are in `Setupf/gfxtweak.bin`, not decoded yet)
-                        if std::env::var_os("MAO_AURAS").is_some() {
-                            add(position, state.nanos.clone());
-                            for (id, nanos) in &state.active_buffs {
-                                if let Some((p, _)) = state.entities.get(id).filter(|_| *id != own) {
-                                    add(*p, nanos.keys().copied().collect());
-                                }
+                        add(true, position, state.nanos.clone());
+                        for (id, nanos) in &state.active_buffs {
+                            if let Some((p, _)) = state.entities.get(id).filter(|_| *id != own) {
+                                add(false, *p, nanos.keys().copied().collect());
                             }
                         }
                         list
-                    },
+                    }),
                     glows: std::mem::take(&mut state.landed)
                         .into_iter()
                         .filter_map(|(id, nano)| {

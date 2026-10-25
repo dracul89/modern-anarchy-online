@@ -97,8 +97,9 @@ pub struct Update {
     pub floaters: Vec<([f32; 3], String, u8)>,
     /// Where a nano program landed (Z-up) and the glow's colour.
     pub glows: Vec<([f32; 3], [u8; 3])>,
-    /// Who is under running nano programs (Z-up feet position, one colour per program), the whole list each update.
-    pub auras: Vec<([f32; 3], Vec<[u8; 3]>)>,
+    /// Who is under running nano programs: whether it is the character itself, the feet (Z-up) and the aura of each program. The whole
+    /// list when it is given (an update without one leaves the last in place).
+    pub auras: Option<Vec<(bool, [f32; 3], Vec<mao_formats::gfx::Aura>)>>,
     /// What the server said of the specials' recharge (skill stat, seconds; 0 = ready).
     pub special_cooldowns: Vec<(u32, f32)>,
     /// The ground (and how far the server's heights sit above it), to keep the camera above it.
@@ -194,6 +195,18 @@ pub fn headless_with(model: &Model, textures: &Textures, out: &str, ui: Option<(
     let uploading = std::time::Instant::now();
     let mut scene = renderer.upload(&gpu, model, &mut |k, i| textures.get_for_upload(k, i));
     profile!("[profile] scene upload {:?} ({} parts)", uploading.elapsed(), model.parts.len());
+    // `MAO_AURA=<effect id>` (with `MAO_GFX=<gfxtweak.bin>`, `MAO_AURA_AT=x,y,z` for the feet, `MAO_AURA_TIME=seconds`): the running
+    // effect of a nano program round that point, for pictures of it.
+    if let (Ok(id), Ok(file)) = (std::env::var("MAO_AURA"), std::env::var("MAO_GFX")) {
+        let gfx = std::fs::read(&file).ok().and_then(|d| mao_formats::gfx::Gfx::parse(&d).ok());
+        let at: Vec<f32> = std::env::var("MAO_AURA_AT").unwrap_or_default().split(',').filter_map(|n| n.trim().parse().ok()).collect();
+        let feet = if let [x, y, z] = at[..] { [x, y, z] } else { [0.0, 0.0, 0.0] };
+        let time: f32 = std::env::var("MAO_AURA_TIME").ok().and_then(|t| t.parse().ok()).unwrap_or(0.8);
+        if let Some(aura) = gfx.and_then(|g| g.aura(id.parse().unwrap_or(0))) {
+            scene.particles = crate::effects::aura_particles(&aura, feet, time);
+            eprintln!("aura: {} sparks", scene.particles.len());
+        }
+    }
     // `MAO_PLAYER=x,y,z` (world, Z up) puts a player in the scene: plants near it bend away.
     if let Some(v) = std::env::var("MAO_PLAYER").ok().map(|t| t.split(',').filter_map(|n| n.trim().parse::<f32>().ok()).collect::<Vec<_>>()) {
         if let [x, y, z] = v[..] {
@@ -242,6 +255,9 @@ struct App {
     heading: f32,
     behind_set: bool,
     last_follow: std::time::Instant,
+    /// The nano programs running on characters (see `Update::auras`) and the clock their sparks run on.
+    auras: Vec<(bool, [f32; 3], Vec<mao_formats::gfx::Aura>)>,
+    fx_clock: std::time::Instant,
     /// The character's position and speed at the last update, and when it arrived (for the prediction).
     own_base: [f32; 3],
     own_velocity: [f32; 3],
@@ -301,7 +317,7 @@ fn apply_mode(window: &Window, mode: WindowMode) {
 pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<(), String> {
     let event_loop = EventLoop::new().map_err(|e| e.to_string())?;
     let settings = Settings::load();
-    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false };
+    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), auras: Vec::new(), fx_clock: std::time::Instant::now(), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false };
     event_loop.run_app(&mut app).map_err(|e| e.to_string())
 }
 
@@ -847,7 +863,9 @@ impl ApplicationHandler for App {
                         for (world, color) in std::mem::take(&mut u.glows) {
                             self.hud.glows.push(crate::ui::Glow { world: mao_render::glam::Vec3::from(world), color, born: std::time::Instant::now() });
                         }
-                        self.hud.auras = u.auras.iter().map(|(p, c)| (mao_render::glam::Vec3::from(*p), c.clone())).collect();
+                        if let Some(auras) = u.auras.take() {
+                            self.auras = auras;
+                        }
                         self.hud.glows.retain(|g| g.born.elapsed().as_secs_f32() < crate::ui::GLOW_LIFE);
                         self.hud.floaters.retain(|f| f.born.elapsed().as_secs_f32() < crate::ui::FLOATER_LIFE);
                         if let Some(labels) = u.labels.take() {
@@ -900,6 +918,20 @@ impl ApplicationHandler for App {
                         // The player's feet: plants bend away from them.
                         w.scene.player = Some(mao_render::glam::Vec3::new(px, pz, y));
                     }
+                }
+                // The sparks of the running nano programs, where they are now (the character's own glides with it).
+                {
+                    let time = self.fx_clock.elapsed().as_secs_f32();
+                    let ahead = self.own_at.elapsed().as_secs_f32().min(0.12);
+                    let own_feet = [self.own_base[0] + self.own_velocity[0] * ahead, self.own_base[2] + self.own_velocity[2] * ahead, self.own_base[1]];
+                    let mut sparks = Vec::new();
+                    for (own, at, auras) in &self.auras {
+                        let feet = if *own && self.hud.position.is_some() { own_feet } else { *at };
+                        for aura in auras {
+                            sparks.extend(crate::effects::aura_particles(aura, feet, time));
+                        }
+                    }
+                    w.scene.particles = sparks;
                 }
                 let frame = match w.surface.get_current_texture() {
                     wgpu::CurrentSurfaceTexture::Success(frame) | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,

@@ -72,6 +72,9 @@ struct Globals {
     params: [f32; 4],
     /// The water's box: min x, min y, max x, max y.
     rect: [f32; 4],
+    /// The camera's right and up (world, Z up).
+    right: [f32; 4],
+    up: [f32; 4],
 }
 
 #[repr(C)]
@@ -120,6 +123,16 @@ pub struct Scene {
     /// The sky's colours: at the horizon (the fog's colour too) and overhead.
     pub sky: ([f32; 3], [f32; 3]),
     pub water: Option<Water>,
+    /// Soft glowing sprites drawn over the scene, added to its colours (nano effects). Set by the caller every frame.
+    pub particles: Vec<Particle>,
+}
+
+/// One sprite: where (world, Z up), how wide (world units) and its colour with the alpha as the strength.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Particle {
+    pub position: [f32; 3],
+    pub size: f32,
+    pub colour: [f32; 4],
 }
 
 impl Scene {
@@ -246,6 +259,7 @@ pub struct Renderer {
     sky_pipeline: wgpu::RenderPipeline,
     shadow_pipeline: wgpu::RenderPipeline,
     water_pipeline: wgpu::RenderPipeline,
+    particle_pipeline: wgpu::RenderPipeline,
     shadow_view: wgpu::TextureView,
     shadow_bind: wgpu::BindGroup,
     /// Draw the sun's shadows (on by default).
@@ -462,6 +476,35 @@ impl Renderer {
             multiview_mask: None,
             cache: None,
         });
+        // Sparks and glows: camera-facing sprites added to the scene, tested against its depth and not writing any.
+        let particle_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("particle"), source: wgpu::ShaderSource::Wgsl(include_str!("particle.wgsl").into()) });
+        let particle_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("particle"), bind_group_layouts: &[Some(&globals_layout)], immediate_size: 0 });
+        let particle_attributes = [
+            wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x4, offset: 0, shader_location: 0 },
+            wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x4, offset: 16, shader_location: 1 },
+        ];
+        let additive = wgpu::BlendComponent { src_factor: wgpu::BlendFactor::SrcAlpha, dst_factor: wgpu::BlendFactor::One, operation: wgpu::BlendOperation::Add };
+        let particle_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("particle"),
+            layout: Some(&particle_layout),
+            vertex: wgpu::VertexState {
+                module: &particle_shader,
+                entry_point: Some("vs_particle"),
+                compilation_options: Default::default(),
+                buffers: &[Some(wgpu::VertexBufferLayout { array_stride: 32, step_mode: wgpu::VertexStepMode::Instance, attributes: &particle_attributes })],
+            },
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: Some(wgpu::DepthStencilState { format: DEPTH, depth_write_enabled: Some(false), depth_compare: Some(wgpu::CompareFunction::Less), stencil: Default::default(), bias: Default::default() }),
+            multisample: wgpu::MultisampleState { count: samples, mask: !0, alpha_to_coverage_enabled: false },
+            fragment: Some(wgpu::FragmentState {
+                module: &particle_shader,
+                entry_point: Some("fs_particle"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState { format, blend: Some(wgpu::BlendState { color: additive, alpha: additive }), write_mask: wgpu::ColorWrites::ALL })],
+            }),
+            multiview_mask: None,
+            cache: None,
+        });
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::Repeat,
             address_mode_v: wgpu::AddressMode::Repeat,
@@ -503,7 +546,7 @@ impl Renderer {
         let (fsr_easu, fsr_rcas) = (fsr_pipeline("fs_easu"), fsr_pipeline("fs_rcas"));
         let fsr_sampler = device.create_sampler(&wgpu::SamplerDescriptor { mag_filter: wgpu::FilterMode::Nearest, min_filter: wgpu::FilterMode::Nearest, ..Default::default() });
         let white = upload_texture(gpu, &Texture { width: 1, height: 1, format: mao_formats::texture::Format::Png, rgba: vec![255; 4], mips: 1 });
-        Renderer { pipeline, sky_pipeline, shadow_pipeline, water_pipeline, shadow_view, shadow_bind, shadows: true, stats: Stats::default(), render_scale: 1.0, sharpness: 0.2, fsr_easu, fsr_rcas, fsr_layout, fsr_sampler, fsr: None, samples, msaa: None, started: std::time::Instant::now(), globals_layout, part_layout, sampler, white, format, depth: None, textures: Default::default() }
+        Renderer { pipeline, sky_pipeline, shadow_pipeline, water_pipeline, particle_pipeline, shadow_view, shadow_bind, shadows: true, stats: Stats::default(), render_scale: 1.0, sharpness: 0.2, fsr_easu, fsr_rcas, fsr_layout, fsr_sampler, fsr: None, samples, msaa: None, started: std::time::Instant::now(), globals_layout, part_layout, sampler, white, format, depth: None, textures: Default::default() }
     }
 
     /// Puts a model on the GPU. `texture` finds a texture by (type, instance).
@@ -619,7 +662,7 @@ impl Renderer {
         if std::env::var_os("MAO_PROFILE").is_some() && upload_started.elapsed() > std::time::Duration::from_millis(20) {
             eprintln!("[profile] upload {:?}: textures {tex_count} in {tex_time:?}, geometry+textures {geo_time:?}, {} parts", upload_started.elapsed(), parts.len());
         }
-        Scene { parts, overlay: Vec::new(), follow: Vec::new(), center, radius, player: None, fog: (1.0e9, 2.0e9), sky: DAY_SKY, water: model.water }
+        Scene { parts, overlay: Vec::new(), follow: Vec::new(), center, radius, player: None, fog: (1.0e9, 2.0e9), sky: DAY_SKY, water: model.water, particles: Vec::new() }
     }
 
     fn depth_view(&mut self, gpu: &Gpu, size: (u32, u32)) {
@@ -713,6 +756,17 @@ impl Renderer {
             eye: [eye.x, eye.y, eye.z, scene.fog.0],
             horizon: [scene.sky.0[0], scene.sky.0[1], scene.sky.0[2], scene.fog.1],
             zenith: [scene.sky.1[0], scene.sky.1[1], scene.sky.1[2], 0.0],
+            right: {
+                let forward = (camera.target - eye).normalize_or_zero();
+                let right = forward.cross(Vec3::Z).normalize_or_zero();
+                [right.x, right.y, right.z, 0.0]
+            },
+            up: {
+                let forward = (camera.target - eye).normalize_or_zero();
+                let right = forward.cross(Vec3::Z).normalize_or_zero();
+                let up = right.cross(forward);
+                [up.x, up.y, up.z, 0.0]
+            },
         };
         let globals_buffer = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: bytemuck::bytes_of(&globals), usage: wgpu::BufferUsages::UNIFORM });
         let globals_bind = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -810,6 +864,14 @@ impl Renderer {
                 pass.set_pipeline(&self.water_pipeline);
                 pass.set_bind_group(0, &globals_bind, &[]);
                 pass.draw(0..6, 0..1);
+            }
+            if !scene.particles.is_empty() {
+                let data: Vec<[f32; 8]> = scene.particles.iter().map(|p| [p.position[0], p.position[1], p.position[2], p.size, p.colour[0], p.colour[1], p.colour[2], p.colour[3]]).collect();
+                let instances = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("particles"), contents: bytemuck::cast_slice(&data), usage: wgpu::BufferUsages::VERTEX });
+                pass.set_pipeline(&self.particle_pipeline);
+                pass.set_bind_group(0, &globals_bind, &[]);
+                pass.set_vertex_buffer(0, instances.slice(..));
+                pass.draw(0..6, 0..data.len() as u32);
             }
         }
         self.stats = Stats { parts, drawn, shadow_drawn };
