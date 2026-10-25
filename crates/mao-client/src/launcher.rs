@@ -425,7 +425,7 @@ pub fn run(game: &str) -> Result<(), String> {
     if std::env::var_os("MAO_LAUNCHER_DEMO").is_some() {
         // (the characters of a capture's list, as the server sent them: name, breed, sex, profession, level)
         let sample = |name: &str, breed, sex, profession, level| Character { name: name.into(), breed, sex, profession, level, created: true, area: "area unknown".into(), ..Default::default() };
-        let list = vec![sample("Brasscasings", 1, 2, 1, 25), sample("Arctangent", 1, 3, 6, 40), sample("Beetlez", 2, 2, 2, 8), sample("Pregnantmule", 4, 1, 5, 160), sample("Diabete5", 3, 3, 10, 60)];
+        let list = vec![sample("Brasscasings", 1, 2, 1, 25), sample("Arctangent", 1, 3, 6, 40), sample("Beetlez", 2, 2, 2, 8), sample("Pregnantmule", 4, 1, 5, 160), sample("Diabete5", 3, 3, 10, 60), sample("Fallacy", 2, 3, 15, 220)];
         // (Diabete5's look is the one its appearance update carried in the capture)
         launcher.looks = vec![crate::look::Look {
             name: "Diabete5".into(),
@@ -435,6 +435,8 @@ pub fn run(game: &str) -> Result<(), String> {
             textures: Vec::new(),
             gear: vec![(0, 0x4e39, 0), (0, 0x36aa4, 0), (1, 0x409f7, 0), (2, 0x409f7, 0), (3, 0x2cf7, 0x4a0b1), (4, 0x2cf7, 0x4a0b1), (5, 0x2cff, 0x4a0b1)],
         }];
+        // (and whatever the live client has written down on this machine)
+        launcher.looks.extend(crate::look::load());
         launcher.selected = Some(std::env::var("MAO_LAUNCHER_PICK").ok().filter(|n| list.iter().any(|c| &c.name == n)).unwrap_or_else(|| list[0].name.clone()));
         launcher.stage = Stage::Characters(list);
     }
