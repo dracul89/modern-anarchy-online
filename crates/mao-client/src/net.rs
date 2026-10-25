@@ -161,6 +161,10 @@ struct World {
     equipment: BTreeMap<u32, Vec<(u8, u32, u32)>>,
     /// The creature (NPC template) a character is polymorphed into by a running nano program.
     morphs: BTreeMap<u32, u32>,
+    /// `Buff` messages not yet looked at: (character, nano program). The server repeats a character's buffs every twenty seconds or so.
+    buffs_seen: Vec<(u32, u32)>,
+    /// The polymorph of each other character: the creature and when its program was last announced.
+    morphed_until: BTreeMap<u32, (u32, Instant)>,
     /// Health and maximum from the info packets (the server answers an info request with them).
     health: BTreeMap<u32, (i64, i64)>,
     /// The health each character was last known to have (from the damage events: the target's health after the hit).
@@ -510,6 +514,14 @@ impl World {
                 let mut meshes: Vec<(u32, u8, u32, u32)> = list("Meshes").iter().map(|v| (field(v, "Layer"), field(v, "Position") as u8, field(v, "Id"), field(v, "OverrideTextureId"))).collect();
                 meshes.sort();
                 self.equipment.insert(m.identity.1, meshes.into_iter().map(|(_, at, mesh, texture)| (at, mesh, texture)).collect());
+            }
+        }
+        if m.kind == 0x39343c68 {
+            if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
+                let nano = p.value.get("Buff").and_then(|b| b.get("Instance")).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
+                if nano != 0 && m.identity.1 != self.own {
+                    self.buffs_seen.push((m.identity.1, nano));
+                }
             }
         }
         if m.kind == 0x2e2a4a6b {
@@ -1741,6 +1753,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut move_seen = 0u8;
         let mut take_seen = 0u8;
         let mut put_seen = 0u8;
+        let mut polymorph_cache: std::collections::HashMap<u32, Option<u32>> = std::collections::HashMap::new();
         let mut delete_seen = 0u8;
         let mut cancel_seen = 0u8;
         let mut inspect_seen = 0u8;
@@ -2573,6 +2586,23 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 // (characters farther than the setting are not drawn; 0 draws all)
                 let reach = keys.char_distance;
                 let near = |id: u32| reach <= 0.0 || state.entities.get(&id).is_none_or(|e| ((e.0[0] - position[0]).powi(2) + (e.0[2] - position[2]).powi(2)).sqrt() <= reach);
+                // Other characters under a polymorph program: the server repeats their buffs, so one seen lately is still running.
+                for (who, nano) in std::mem::take(&mut state.buffs_seen) {
+                    let creature = *polymorph_cache.entry(nano).or_insert_with(|| {
+                        let data = gear_db.get(mao_formats::resource::Id { kind: 0xfde85, instance: nano }).ok().flatten()?;
+                        mao_formats::item::Item::parse(&data).filter(|t| t.stat(75) == Some(mao_formats::item::POLYMORPH_STRAIN))?;
+                        let creature = mao_formats::item::polymorph_template(&data)?;
+                        gear_db.get(mao_formats::resource::Id { kind: 0xfde97, instance: creature }).ok().flatten().map(|_| creature)
+                    });
+                    if let Some(creature) = creature {
+                        state.morphed_until.insert(who, (creature, Instant::now()));
+                    }
+                }
+                state.morphed_until.retain(|_, (_, at)| at.elapsed() < Duration::from_secs(30));
+                for (who, (creature, _)) in &state.morphed_until {
+                    state.morphs.insert(*who, *creature);
+                }
+                state.morphs.retain(|who, _| *who == own || state.morphed_until.contains_key(who));
                 let model = overlay_model(&state, &state.props, &mut characters, &|id| id != own && near(id));
                 let own_model = overlay_model(&state, &state.props, &mut characters, &|id| id == own);
                 let own_velocity = if walk == 0 && keys.strafe == 0 && !airborne {
