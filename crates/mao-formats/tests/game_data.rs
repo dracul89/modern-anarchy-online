@@ -119,3 +119,14 @@ fn the_effect_templates_are_read_to_the_last_word() {
     // the cast effect's tree reaches its six parts
     assert!(gfx.tree(46133).len() >= 7);
 }
+
+#[test]
+fn a_cast_effect_has_its_emitters() {
+    let Some(game) = std::env::var_os("MAO_GAME").map(PathBuf::from) else { return };
+    let data = std::fs::read(game.join("Setupf").join("gfxtweak.bin")).unwrap();
+    let gfx = mao_formats::gfx::Gfx::parse(&data).unwrap();
+    // the cast of the first nano that names one: its six parts and what they refer to
+    let emitters = gfx.emitters(46133);
+    assert!(emitters.len() >= 6);
+    assert!(emitters.iter().all(|e| e.life > 0.0 && e.rate > 0.0 && e.start[0] >= 0.0));
+}

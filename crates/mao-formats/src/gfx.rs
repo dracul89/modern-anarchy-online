@@ -131,16 +131,81 @@ pub struct Aura {
 }
 
 impl Gfx {
-    /// The aura an `EffectType` id names, when it is a kind-1001 template (486 of the nanos' 618 running effects).
+    /// The aura an effect id names: a kind-1001 template (the running effect of 486 programs) itself, or one of the classes that are
+    /// built on one: the hit and tracer effects of kinds 2004, 2005, 2006 and 1018 each refer to a spiral and tint it with their own
+    /// colour (words 19 to 21 of a 2004: red, green, blue; the tracer 17300 is the gold `0.961 0.753 0.227` one).
     pub fn aura(&self, id: i32) -> Option<Aura> {
-        let r = self.get(id).filter(|r| r.kind == 1001)?;
+        let top = self.get(id)?;
+        let (root, tint) = match top.kind {
+            1001 => (top, None),
+            2004 | 2005 | 2006 | 1018 => {
+                let spiral = self.tree(id).into_iter().find(|r| r.kind == 1001)?;
+                (spiral, (top.kind == 2004).then(|| [top.float(19), top.float(20), top.float(21)]))
+            }
+            _ => return None,
+        };
         let helices = self
-            .references(id)
+            .references(root.id)
             .into_iter()
             .filter_map(|c| self.get(c).filter(|c| c.kind == 1002))
             .map(|c| Helix { spin: c.float(23), phase: c.float(22), size: c.float(21), count: c.int(20).max(1) as u32, colour: [c.float(13), c.float(14), c.float(15)] })
             .collect();
-        Some(Aura { colour: [r.float(13), r.float(14), r.float(15)], end: [r.float(17), r.float(18), r.float(19)], helices })
+        let rgb = |at: usize| tint.unwrap_or([root.float(at), root.float(at + 1), root.float(at + 2)]);
+        Some(Aura { colour: rgb(13), end: rgb(17), helices })
+    }
+}
+
+/// A particle emitter (kinds 1003, 1005, 1006, 1007 and 1008 share one field layout, which is how these are read: the colours, sizes
+/// and angles sit at the same places; what is certain is the colour pair, the angles and the sprite counts, the rest is read by its
+/// values, see the module's notes).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Emitter {
+    pub id: i32,
+    pub kind: i32,
+    /// A colour at the start and at the end of a particle's life: alpha, red, green, blue.
+    pub start: [f32; 4],
+    pub end: [f32; 4],
+    /// A particle's size at the start and at the end of its life, in metres.
+    pub size: (f32, f32),
+    /// How long a particle lives, in seconds, and how many are made a second.
+    pub life: f32,
+    pub rate: f32,
+    /// The directions particles leave in: the turn round (radians from 0 to this) and the elevation range.
+    pub azimuth: f32,
+    pub elevation: (f32, f32),
+    /// How fast they leave (metres a second, from the first to the second) and the pull on them (up when positive).
+    pub speed: (f32, f32),
+    pub gravity: f32,
+}
+
+impl Gfx {
+    /// The emitters of a template and everything under it (a cast effect has six).
+    pub fn emitters(&self, id: i32) -> Vec<Emitter> {
+        // a cast template (kind 1010) tints its parts: its colour sits in words 11 to 13 (red, green, blue)
+        let tint = self.get(id).filter(|r| r.kind == 1010).map_or([1.0; 3], |r| [r.float(11), r.float(12), r.float(13)]);
+        self.tree(id)
+            .into_iter()
+            .filter(|r| matches!(r.kind, 1003 | 1005 | 1006 | 1007 | 1008) && r.payload.len() >= 31)
+            .map(|r| {
+                let f = |i: usize| r.float(i);
+                let life = if f(35) > 0.05 && f(35) < 20.0 { f(35) } else { 1.0 };
+                let counted = r.int(10).max(0) as f32;
+                let rate = if counted > 0.5 { counted } else { (r.int(31).max(1) as f32 / life).max(2.0) };
+                Emitter {
+                    id: r.id,
+                    kind: r.kind,
+                    start: [f(16), f(17) * tint[0], f(18) * tint[1], f(19) * tint[2]],
+                    end: [f(20), f(21) * tint[0], f(22) * tint[1], f(23) * tint[2]],
+                    size: (f(12).max(0.0), f(13).max(0.0)),
+                    life,
+                    rate: rate.min(150.0),
+                    azimuth: f(26),
+                    elevation: (f(27), f(28)),
+                    speed: (f(29), f(30)),
+                    gravity: if r.kind == 1005 { f(32) } else { 0.0 },
+                }
+            })
+            .collect()
     }
 }
 

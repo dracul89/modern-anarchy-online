@@ -168,6 +168,10 @@ struct World {
     orgs: BTreeMap<u32, String>,
     /// Nano programs that landed: (target, nano id), to be drawn as glows.
     landed: Vec<(u32, u32)>,
+    /// Casts to show the cast effect of: (caster, nano program).
+    cast_bursts: Vec<(u32, u32)>,
+    /// Casts to show the flight and landing of: (caster, target, nano program).
+    shots_pending: Vec<(u32, u32, u32)>,
     /// The worn meshes of each character from its `AppearanceUpdate`: attachment position, static mesh instance and the texture
     /// instance that replaces the mesh's own (0 for none).
     equipment: BTreeMap<u32, Vec<(u8, u32, u32)>>,
@@ -587,6 +591,8 @@ impl World {
                     self.casts.push((caster, target, nano));
                 }
                 self.landed.push((target, nano));
+                self.cast_bursts.push((caster, nano));
+                self.shots_pending.push((caster, target, nano));
                 // The caster plays its casting animation (at itself or at someone).
                 self.socials.insert(caster, (if caster == target { "spell-self" } else { "spell-dir" }, Instant::now()));
             }
@@ -1837,6 +1843,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut take_seen = 0u8;
         let mut put_seen = 0u8;
         let mut saved_look: Option<crate::look::Look> = None;
+        let mut shot_cache: std::collections::HashMap<u32, (Option<mao_formats::gfx::Aura>, Option<mao_formats::gfx::Aura>)> = std::collections::HashMap::new();
+        let mut burst_cache: std::collections::HashMap<u32, Option<Vec<mao_formats::gfx::Emitter>>> = std::collections::HashMap::new();
         let mut aura_cache: std::collections::HashMap<u32, Option<mao_formats::gfx::Aura>> = std::collections::HashMap::new();
         // (the effect templates: what a running nano program looks like)
         let gfx = std::fs::read(Path::new(&game_dir).join("Setupf").join("gfxtweak.bin")).ok().and_then(|d| mao_formats::gfx::Gfx::parse(&d).ok());
@@ -2840,6 +2848,50 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         }
                         list
                     }),
+                    bursts: Some(
+                        std::mem::take(&mut state.cast_bursts)
+                            .into_iter()
+                            .filter_map(|(caster, nano)| {
+                                let at = if caster == own { position } else { state.entities.get(&caster)?.0 };
+                                let emitters = burst_cache
+                                    .entry(nano)
+                                    .or_insert_with(|| {
+                                        let data = gear_db.get(mao_formats::resource::Id { kind: 0xfde85, instance: nano }).ok().flatten()?;
+                                        // (the cast effect of a program is its `CastEffectType` stat)
+                                        let effect = mao_formats::item::Item::parse(&data)?.stat(428)?;
+                                        let list = gfx.as_ref()?.emitters(effect as i32);
+                                        Some(list).filter(|l| !l.is_empty())
+                                    })
+                                    .clone()?;
+                                // (over the caster's hands, Z up)
+                                Some(([at[0], at[2], at[1] + 1.1], emitters))
+                            })
+                            .collect(),
+                    ),
+                    shots: Some(
+                        std::mem::take(&mut state.shots_pending)
+                            .into_iter()
+                            .filter_map(|(caster, target, nano)| {
+                                let place = |id: u32| if id == own { Some(position) } else { state.entities.get(&id).map(|e| e.0) };
+                                let (from, to) = (place(caster)?, place(target).unwrap_or(place(caster)?));
+                                let (tracer, hit) = shot_cache
+                                    .entry(nano)
+                                    .or_insert_with(|| {
+                                        let data = gear_db.get(mao_formats::resource::Id { kind: 0xfde85, instance: nano }).ok().flatten();
+                                        let template = data.as_deref().and_then(mao_formats::item::Item::parse);
+                                        let effect = |stat: u32| template.as_ref().and_then(|t| t.stat(stat)).and_then(|id| gfx.as_ref()?.aura(id as i32));
+                                        // (a program's tracer is its `TracerEffectType`, what it does on landing its `HitEffectType`)
+                                        (effect(419), effect(361))
+                                    })
+                                    .clone();
+                                if tracer.is_none() && hit.is_none() {
+                                    return None;
+                                }
+                                // (Z up: from the caster's hands to the target's chest)
+                                Some(crate::effects::Shot { from: [from[0], from[2], from[1] + 1.1], to: [to[0], to[2], to[1] + 1.2], tracer, hit })
+                            })
+                            .collect(),
+                    ),
                     glows: std::mem::take(&mut state.landed)
                         .into_iter()
                         .filter_map(|(id, nano)| {

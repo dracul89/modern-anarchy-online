@@ -100,6 +100,10 @@ pub struct Update {
     /// Who is under running nano programs: whether it is the character itself, the feet (Z-up) and the aura of each program. The whole
     /// list when it is given (an update without one leaves the last in place).
     pub auras: Option<Vec<(bool, [f32; 3], Vec<mao_formats::gfx::Aura>)>>,
+    /// Cast effects to start: where (Z up) and the emitters of the program's cast template.
+    pub bursts: Option<Vec<([f32; 3], Vec<mao_formats::gfx::Emitter>)>>,
+    /// Spells in flight and landing: the tracer's and the hit effect's spirals.
+    pub shots: Option<Vec<crate::effects::Shot>>,
     /// What the server said of the specials' recharge (skill stat, seconds; 0 = ready).
     pub special_cooldowns: Vec<(u32, f32)>,
     /// The ground (and how far the server's heights sit above it), to keep the camera above it.
@@ -207,6 +211,20 @@ pub fn headless_with(model: &Model, textures: &Textures, out: &str, ui: Option<(
             eprintln!("aura: {} sparks", scene.particles.len());
         }
     }
+    // `MAO_CAST=<effect id>` (with `MAO_GFX`, `MAO_AURA_AT` for the origin and `MAO_AURA_TIME` for the age): the emitters of a cast, hit or
+    // tracer template running (they emit for one second).
+    if let (Ok(id), Ok(file)) = (std::env::var("MAO_CAST"), std::env::var("MAO_GFX")) {
+        let gfx = std::fs::read(&file).ok().and_then(|d| mao_formats::gfx::Gfx::parse(&d).ok());
+        let at: Vec<f32> = std::env::var("MAO_AURA_AT").unwrap_or_default().split(',').filter_map(|n| n.trim().parse().ok()).collect();
+        let origin = if let [x, y, z] = at[..] { [x, y, z] } else { [0.0, 0.0, 1.0] };
+        let age: f32 = std::env::var("MAO_AURA_TIME").ok().and_then(|t| t.parse().ok()).unwrap_or(0.6);
+        if let Some(gfx) = gfx {
+            for e in gfx.emitters(id.parse().unwrap_or(0)) {
+                scene.particles.extend(crate::effects::emitter_particles(&e, origin, age, 1.0));
+            }
+            eprintln!("cast: {} particles", scene.particles.len());
+        }
+    }
     // `MAO_PLAYER=x,y,z` (world, Z up) puts a player in the scene: plants near it bend away.
     if let Some(v) = std::env::var("MAO_PLAYER").ok().map(|t| t.split(',').filter_map(|n| n.trim().parse::<f32>().ok()).collect::<Vec<_>>()) {
         if let [x, y, z] = v[..] {
@@ -258,6 +276,9 @@ struct App {
     /// The nano programs running on characters (see `Update::auras`) and the clock their sparks run on.
     auras: Vec<(bool, [f32; 3], Vec<mao_formats::gfx::Aura>)>,
     fx_clock: std::time::Instant,
+    /// The cast effects running: when each began, where, and its emitters.
+    bursts: Vec<(std::time::Instant, [f32; 3], Vec<mao_formats::gfx::Emitter>)>,
+    shots: Vec<(std::time::Instant, crate::effects::Shot)>,
     /// The character's position and speed at the last update, and when it arrived (for the prediction).
     own_base: [f32; 3],
     own_velocity: [f32; 3],
@@ -317,7 +338,7 @@ fn apply_mode(window: &Window, mode: WindowMode) {
 pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<(), String> {
     let event_loop = EventLoop::new().map_err(|e| e.to_string())?;
     let settings = Settings::load();
-    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), auras: Vec::new(), fx_clock: std::time::Instant::now(), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false };
+    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), auras: Vec::new(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false };
     event_loop.run_app(&mut app).map_err(|e| e.to_string())
 }
 
@@ -866,6 +887,12 @@ impl ApplicationHandler for App {
                         if let Some(auras) = u.auras.take() {
                             self.auras = auras;
                         }
+                        for shot in u.shots.take().unwrap_or_default() {
+                            self.shots.push((std::time::Instant::now(), shot));
+                        }
+                        for (at, emitters) in u.bursts.take().unwrap_or_default() {
+                            self.bursts.push((std::time::Instant::now(), at, emitters));
+                        }
                         self.hud.glows.retain(|g| g.born.elapsed().as_secs_f32() < crate::ui::GLOW_LIFE);
                         self.hud.floaters.retain(|f| f.born.elapsed().as_secs_f32() < crate::ui::FLOATER_LIFE);
                         if let Some(labels) = u.labels.take() {
@@ -930,6 +957,18 @@ impl ApplicationHandler for App {
                         for aura in auras {
                             sparks.extend(crate::effects::aura_particles(aura, feet, time));
                         }
+                    }
+                    // (a cast effect emits for a second and lives out its particles' lives)
+                    self.bursts.retain(|(began, _, emitters)| began.elapsed().as_secs_f32() < 1.0 + emitters.iter().map(|e| e.life).fold(0.0, f32::max).min(6.0));
+                    for (began, at, emitters) in &self.bursts {
+                        let age = began.elapsed().as_secs_f32();
+                        for e in emitters {
+                            sparks.extend(crate::effects::emitter_particles(e, *at, age, 1.0));
+                        }
+                    }
+                    self.shots.retain(|(began, shot)| began.elapsed().as_secs_f32() < shot.lasts());
+                    for (began, shot) in &self.shots {
+                        sparks.extend(shot.particles(began.elapsed().as_secs_f32()));
                     }
                     w.scene.particles = sparks;
                 }
