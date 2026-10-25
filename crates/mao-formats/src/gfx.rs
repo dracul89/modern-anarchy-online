@@ -20,6 +20,119 @@
 
 use std::collections::HashMap;
 
+/// The sprite sheets the effects draw with, by the material number the templates name (word 9 of an emitter): the texture's file name
+/// (a type-0xf6954 object), its columns and rows of frames, and the first and last frame played. Read from `_MaterialManager_t::
+/// GetMaterial` (Gamecode.dll), whose switch has 102 cases.
+pub const MATERIALS: [(&str, u8, u8, u8, u8); 102] = [
+    ("advertisement_test.png", 2, 2, 0, 3),
+    ("circle.png", 1, 1, 0, 0),
+    ("Electricify.png", 4, 4, 0, 14),
+    ("explo04_01_v01.png", 8, 8, 0, 30),
+    ("explo05_01_v01.png", 4, 4, 0, 14),
+    ("explo06_01_v01.png", 8, 8, 0, 45),
+    ("hippoexplo01_01_v01.png", 4, 4, 0, 14),
+    ("light_halo.png", 1, 1, 0, 0),
+    ("light_halo2.png", 1, 1, 0, 0),
+    ("mine_explosion02_01_v01.png", 8, 8, 0, 62),
+    ("muzzleflash.png", 8, 8, 0, 52),
+    ("new_explo01_v01.png", 8, 8, 0, 29),
+    ("new_explo05_v01.png", 8, 8, 0, 30),
+    ("noise.PNG", 1, 1, 0, 0),
+    ("rocket_explosion01_v01.png", 8, 8, 0, 30),
+    ("s_bullet.png", 1, 1, 0, 0),
+    ("s_bulletfront.png", 1, 1, 0, 0),
+    ("s_exp1noise.png", 8, 8, 0, 63),
+    ("s_explosion1.png", 8, 8, 0, 63),
+    ("s_explosion2.png", 8, 8, 0, 63),
+    ("s_explosion3.png", 8, 8, 0, 63),
+    ("s_flame.png", 8, 8, 0, 63),
+    ("s_muzzleflash.png", 8, 8, 0, 52),
+    ("s_smokebomb.png", 8, 8, 0, 63),
+    ("s_smokebombblack.png", 8, 8, 0, 63),
+    ("s_smokebombbrown.png", 8, 8, 0, 63),
+    ("shock_stripes.png", 4, 2, 0, 7),
+    ("shock_stripes2.png", 1, 1, 0, 0),
+    ("smoke01_01_v02.png", 4, 4, 8, 15),
+    ("snakeweapon_impact01_01_v01.png", 8, 8, 0, 30),
+    ("swirl.png", 1, 1, 0, 0),
+    ("x_smoke.png", 8, 8, 3, 63),
+    ("thin_smoke.png", 1, 1, 0, 0),
+    ("star_2_ball.png", 8, 2, 0, 15),
+    ("wave_alpha.png", 1, 1, 0, 0),
+    ("watersplash_64x64.png", 1, 1, 0, 0),
+    ("ripple.png", 1, 1, 0, 0),
+    ("ring_64x64.png", 1, 1, 0, 0),
+    ("water_drop.png", 4, 2, 0, 0),
+    ("whitesmoke.png", 8, 8, 3, 63),
+    ("spritefont.png", 1, 1, 0, 0),
+    ("tower_shockwave1.png", 1, 1, 0, 0),
+    ("tower_lightningeffect.png", 4, 2, 0, 7),
+    ("explosion_big.png", 4, 4, 0, 15),
+    ("tower_sidebeam_clan.png", 1, 1, 0, 0),
+    ("tower_sidebeam_omni.png", 1, 1, 0, 0),
+    ("tower_sidebeam_neutral.png", 1, 1, 0, 0),
+    ("vein.png", 1, 1, 0, 0),
+    ("vein2.png", 1, 1, 0, 0),
+    ("mine_explosion02_bw_01_v01.png", 8, 8, 0, 62),
+    ("whitemap8x8.png", 8, 8, 0, 0),
+    ("bubbles_4frames_animation.png", 2, 2, 0, 3),
+    ("alien_beam.png", 1, 1, 0, 0),
+    ("spaceship_engine_trail.png", 1, 1, 0, 0),
+    ("spaceship_engine_trail_colour.png", 1, 1, 0, 0),
+    ("spaceship_engine_trail2.png", 1, 1, 0, 0),
+    ("fog_particle.png", 1, 1, 0, 0),
+    ("Energy_ring.png", 1, 1, 0, 0),
+    ("cloud.png", 1, 1, 0, 0),
+    ("lightning.png", 1, 1, 0, 0),
+    ("muzzle_flash_mg_side.png", 1, 1, 0, 0),
+    ("muzzle_flash_mg_front.png", 1, 1, 0, 0),
+    ("muzzle_flash_blast.png", 1, 1, 0, 0),
+    ("rays.png", 1, 1, 0, 0),
+    ("twirl.png", 1, 1, 0, 0),
+    ("blue_flash_side.png", 1, 1, 0, 0),
+    ("blue_flash_front.png", 1, 1, 0, 0),
+    ("blue_flash_side_upgraded.png", 1, 1, 0, 0),
+    ("blue_flash_front_upgraded.png", 1, 1, 0, 0),
+    ("spark.png", 1, 1, 0, 0),
+    ("mothership_particles.png", 2, 2, 0, 3),
+    ("explosion2.png", 8, 4, 0, 31),
+    ("alien_sprite_01.png", 1, 1, 0, 0),
+    ("flare.png", 1, 1, 0, 0),
+    ("beam.png", 1, 1, 0, 0),
+    ("projectile_ring.png", 1, 1, 0, 0),
+    ("alien_sprite_02.png", 1, 1, 0, 0),
+    ("energy_grid.png", 1, 1, 0, 0),
+    ("effect_lava.png", 1, 1, 0, 0),
+    ("circular_energy.png", 1, 1, 0, 0),
+    ("muzzleflash_1_front.png", 1, 1, 0, 0),
+    ("muzzleflash_1_side.png", 1, 1, 0, 0),
+    ("muzzleflash_2_front.png", 1, 1, 0, 0),
+    ("muzzleflash_2_side.png", 1, 1, 0, 0),
+    ("muzzleflash_3_front.png", 1, 1, 0, 0),
+    ("muzzleflash_3_side.png", 1, 1, 0, 0),
+    ("muzzleflash_4_front.png", 1, 1, 0, 0),
+    ("muzzleflash_4_side.png", 1, 1, 0, 0),
+    ("muzzleflash_5_front.png", 1, 1, 0, 0),
+    ("muzzleflash_5_side.png", 1, 1, 0, 0),
+    ("flame.png", 8, 2, 0, 13),
+    ("dots.png", 1, 1, 0, 0),
+    ("plume.png", 1, 1, 0, 0),
+    ("whoopwhite.png", 1, 1, 0, 0),
+    ("exp_particle.png", 1, 1, 0, 0),
+    ("groundhit.png", 1, 1, 0, 0),
+    ("cord1.png", 1, 1, 0, 0),
+    ("cloud2.png", 1, 1, 0, 0),
+    ("the_wave.png", 1, 1, 0, 0),
+    ("the_wave_fractal.png", 1, 1, 0, 0),
+    ("xan_grid.png", 1, 1, 0, 0),
+    ("fear_overhead.png", 1, 1, 0, 0),
+];
+
+/// A material's sheet: (file name, columns, rows, first frame, last frame).
+pub fn material(id: i32) -> Option<(&'static str, u8, u8, u8, u8)> {
+    usize::try_from(id).ok().and_then(|i| MATERIALS.get(i)).copied()
+}
+
 /// One template: its id, its class and its payload.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Record {
@@ -119,6 +232,8 @@ pub struct Helix {
     pub count: u32,
     /// The colour of its sparks (red, green, blue) before the buff's own tint.
     pub colour: [f32; 3],
+    /// The material (sprite sheet, see [`MATERIALS`]) of its sparks.
+    pub material: i32,
 }
 
 /// The persistent effect of a running buff (a kind-1001 template): its colour and two counter-rotating spirals of sparks.
@@ -148,10 +263,45 @@ impl Gfx {
             .references(root.id)
             .into_iter()
             .filter_map(|c| self.get(c).filter(|c| c.kind == 1002))
-            .map(|c| Helix { spin: c.float(23), phase: c.float(22), size: c.float(21), count: c.int(20).max(1) as u32, colour: [c.float(13), c.float(14), c.float(15)] })
+            .map(|c| Helix { spin: c.float(23), phase: c.float(22), size: c.float(21), count: c.int(20).max(1) as u32, colour: [c.float(13), c.float(14), c.float(15)], material: self.get(c.int(10)).map_or(15, |spark| spark.int(9)) })
             .collect();
         let rgb = |at: usize| tint.unwrap_or([root.float(at), root.float(at + 1), root.float(at + 2)]);
         Some(Aura { colour: rgb(13), end: rgb(17), helices })
+    }
+}
+
+/// What a nano effect looks like once its template is read: the few shapes the effect classes come to.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Visual {
+    /// Two spirals of sparks (the buff's aura, and the tracers and hits built on it).
+    Spiral(Aura),
+    /// A soft glow under the feet (kind 3003: the running effect of 114 programs, 52 of them the same cyan one).
+    Glow { colour: [f32; 4], size: f32 },
+    /// A short bright flash (kind 2001: the hit of 123 programs).
+    Flash { colour: [f32; 3], size: f32 },
+    /// A glowing ball (kind 2002: the tracer of 250 programs).
+    Orb { colour: [f32; 3], size: f32 },
+}
+
+impl Gfx {
+    /// The look of an effect id. A bundle (kind 2007: up to four children in its first words) or a wrapper (kind 3004: its second word
+    /// is a mode and its third the child) shows its first child that has a look.
+    pub fn visual(&self, id: i32) -> Option<Visual> {
+        let r = self.get(id)?;
+        match r.kind {
+            1001 | 2004 | 2005 | 2006 | 1018 => self.aura(id).map(Visual::Spiral),
+            2007 | 3004 => self.references(id).into_iter().filter(|&c| c != id).find_map(|c| self.visual(c)),
+            3003 => {
+                // word 10 is a packed colour (alpha, red, green, blue as one integer), word 11 the size of a sprite
+                let argb = r.int(10) as u32;
+                let channel = |shift: u32| ((argb >> shift) & 0xff) as f32 / 255.0;
+                Some(Visual::Glow { colour: [channel(16), channel(8), channel(0), channel(24)], size: r.float(11) })
+            }
+            2001 => Some(Visual::Flash { colour: [1.0, 0.95, 0.8], size: 0.9 }),
+            // (word 10 and the pairs after it are the range each colour channel is drawn from: 0.3 to 1)
+            2002 => Some(Visual::Orb { colour: [0.65 + 0.35 * r.float(12), 0.65 + 0.35 * r.float(14), 0.65 + 0.35 * r.float(16)], size: 0.3 }),
+            _ => None,
+        }
     }
 }
 
@@ -176,6 +326,8 @@ pub struct Emitter {
     /// How fast they leave (metres a second, from the first to the second) and the pull on them (up when positive).
     pub speed: (f32, f32),
     pub gravity: f32,
+    /// The material (sprite sheet) of its particles.
+    pub material: i32,
 }
 
 impl Gfx {
@@ -203,6 +355,7 @@ impl Gfx {
                     elevation: (f(27), f(28)),
                     speed: (f(29), f(30)),
                     gravity: if r.kind == 1005 { f(32) } else { 0.0 },
+                    material: r.int(9),
                 }
             })
             .collect()

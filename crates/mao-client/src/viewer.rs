@@ -99,7 +99,7 @@ pub struct Update {
     pub glows: Vec<([f32; 3], [u8; 3])>,
     /// Who is under running nano programs: whether it is the character itself, the feet (Z-up) and the aura of each program. The whole
     /// list when it is given (an update without one leaves the last in place).
-    pub auras: Option<Vec<(bool, [f32; 3], Vec<mao_formats::gfx::Aura>)>>,
+    pub auras: Option<Vec<(bool, [f32; 3], Vec<mao_formats::gfx::Visual>)>>,
     /// Cast effects to start: where (Z up) and the emitters of the program's cast template.
     pub bursts: Option<Vec<([f32; 3], Vec<mao_formats::gfx::Emitter>)>>,
     /// Spells in flight and landing: the tracer's and the hit effect's spirals.
@@ -183,6 +183,18 @@ pub fn headless(model: &Model, textures: &Textures, out: &str) -> Result<(), Str
     headless_with(model, textures, out, None)
 }
 
+/// Puts the sprite sheets the particles are cut from on the card (once each; a sheet that cannot be read is not asked for again).
+pub(crate) fn load_sprites(renderer: &mut Renderer, gpu: &Gpu, textures: &Textures, particles: &[mao_render::Particle], tried: &mut std::collections::HashSet<u16>) {
+    for p in particles {
+        if p.sprite == mao_render::NO_SPRITE || renderer.has_sprite(p.sprite) || !tried.insert(p.sprite) {
+            continue;
+        }
+        if let Some(texture) = mao_formats::gfx::material(p.sprite as i32).and_then(|(name, ..)| textures.sheet(name)) {
+            renderer.add_sprite(gpu, p.sprite, &texture);
+        }
+    }
+}
+
 /// [`headless`] with the interface painted over the image: the heads-up
 /// display and, when the flag is set, the options window.
 pub fn headless_with(model: &Model, textures: &Textures, out: &str, ui: Option<(&Hud, bool)>) -> Result<(), String> {
@@ -206,8 +218,8 @@ pub fn headless_with(model: &Model, textures: &Textures, out: &str, ui: Option<(
         let at: Vec<f32> = std::env::var("MAO_AURA_AT").unwrap_or_default().split(',').filter_map(|n| n.trim().parse().ok()).collect();
         let feet = if let [x, y, z] = at[..] { [x, y, z] } else { [0.0, 0.0, 0.0] };
         let time: f32 = std::env::var("MAO_AURA_TIME").ok().and_then(|t| t.parse().ok()).unwrap_or(0.8);
-        if let Some(aura) = gfx.and_then(|g| g.aura(id.parse().unwrap_or(0))) {
-            scene.particles = crate::effects::aura_particles(&aura, feet, time);
+        if let Some(visual) = gfx.and_then(|g| g.visual(id.parse().unwrap_or(0))) {
+            scene.particles = crate::effects::visual_particles(&visual, feet, time, crate::effects::Reach::Body);
             eprintln!("aura: {} sparks", scene.particles.len());
         }
     }
@@ -225,6 +237,8 @@ pub fn headless_with(model: &Model, textures: &Textures, out: &str, ui: Option<(
             eprintln!("cast: {} particles", scene.particles.len());
         }
     }
+    let mut tried = std::collections::HashSet::new();
+    load_sprites(&mut renderer, &gpu, textures, &scene.particles, &mut tried);
     // `MAO_PLAYER=x,y,z` (world, Z up) puts a player in the scene: plants near it bend away.
     if let Some(v) = std::env::var("MAO_PLAYER").ok().map(|t| t.split(',').filter_map(|n| n.trim().parse::<f32>().ok()).collect::<Vec<_>>()) {
         if let [x, y, z] = v[..] {
@@ -274,11 +288,13 @@ struct App {
     behind_set: bool,
     last_follow: std::time::Instant,
     /// The nano programs running on characters (see `Update::auras`) and the clock their sparks run on.
-    auras: Vec<(bool, [f32; 3], Vec<mao_formats::gfx::Aura>)>,
+    auras: Vec<(bool, [f32; 3], Vec<mao_formats::gfx::Visual>)>,
     fx_clock: std::time::Instant,
     /// The cast effects running: when each began, where, and its emitters.
     bursts: Vec<(std::time::Instant, [f32; 3], Vec<mao_formats::gfx::Emitter>)>,
     shots: Vec<(std::time::Instant, crate::effects::Shot)>,
+    /// The effect sprite sheets already asked for.
+    tried_sprites: std::collections::HashSet<u16>,
     /// The character's position and speed at the last update, and when it arrived (for the prediction).
     own_base: [f32; 3],
     own_velocity: [f32; 3],
@@ -338,7 +354,7 @@ fn apply_mode(window: &Window, mode: WindowMode) {
 pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<(), String> {
     let event_loop = EventLoop::new().map_err(|e| e.to_string())?;
     let settings = Settings::load();
-    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), auras: Vec::new(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false };
+    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), auras: Vec::new(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), tried_sprites: Default::default(), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false };
     event_loop.run_app(&mut app).map_err(|e| e.to_string())
 }
 
@@ -955,7 +971,7 @@ impl ApplicationHandler for App {
                     for (own, at, auras) in &self.auras {
                         let feet = if *own && self.hud.position.is_some() { own_feet } else { *at };
                         for aura in auras {
-                            sparks.extend(crate::effects::aura_particles(aura, feet, time));
+                            sparks.extend(crate::effects::visual_particles(aura, feet, time, crate::effects::Reach::Body));
                         }
                     }
                     // (a cast effect emits for a second and lives out its particles' lives)
@@ -970,6 +986,7 @@ impl ApplicationHandler for App {
                     for (began, shot) in &self.shots {
                         sparks.extend(shot.particles(began.elapsed().as_secs_f32()));
                     }
+                    load_sprites(&mut w.renderer, &w.gpu, &self.textures, &sparks, &mut self.tried_sprites);
                     w.scene.particles = sparks;
                 }
                 let frame = match w.surface.get_current_texture() {

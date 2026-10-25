@@ -6,8 +6,49 @@
 //! does not say (or is not read yet): the radius (the radius path's numbers, 0.06 to 0.15, are too small for a body; 0.42 m is used),
 //! how high and how long a spark lives (1.9 m and 1.6 s here), and the trail (a short tail of fading sparks behind each one).
 
-use mao_formats::gfx::{Aura, Emitter};
-use mao_render::Particle;
+use mao_formats::gfx::{Aura, Emitter, Visual};
+use mao_render::{Particle, NO_SPRITE};
+
+/// A particle cut from a material's sprite sheet (`mao_formats::gfx::MATERIALS`), `t` (0 to 1) of the way through the sheet's frames; a
+/// material that is not known gives a soft dot.
+fn sprite(material: i32, t: f32, position: [f32; 3], size: f32, colour: [f32; 4]) -> Particle {
+    match mao_formats::gfx::material(material) {
+        Some((_, cols, rows, first, last)) => {
+            let frames = (last.saturating_sub(first)) as f32 + 1.0;
+            let frame = first as u32 + (t.clamp(0.0, 0.999) * frames).floor() as u32;
+            let (col, row) = (frame % cols.max(1) as u32, frame / cols.max(1) as u32);
+            let (du, dv) = (1.0 / cols.max(1) as f32, 1.0 / rows.max(1) as f32);
+            Particle { position, size, colour, sprite: material as u16, rect: [col as f32 * du, row as f32 * dv, du, dv] }
+        }
+        None => Particle { position, size, colour, sprite: NO_SPRITE, rect: [0.0; 4] },
+    }
+}
+
+/// `Setupf/animcalibration.txt`: for a creature's mesh and one of its movement animations (both as the instance numbers of their
+/// database objects) the factor the original plays the animation's speed with (the wolf walks at 0.7 and runs at 0.5, the sparrow's
+/// flight is 1.2). Set once when the game is known.
+static CALIBRATION: std::sync::OnceLock<std::collections::HashMap<(u32, u32), f32>> = std::sync::OnceLock::new();
+
+/// Reads the lines `mesh animation factor` (tab separated; `#` starts a comment).
+pub fn parse_calibration(text: &str) -> std::collections::HashMap<(u32, u32), f32> {
+    text.lines()
+        .filter(|l| !l.trim_start().starts_with('#'))
+        .filter_map(|l| {
+            let mut w = l.split_whitespace();
+            Some(((w.next()?.parse().ok()?, w.next()?.parse().ok()?), w.next()?.parse().ok()?))
+        })
+        .collect()
+}
+
+/// Loads the calibration of the game in `game` (once).
+pub fn load_calibration(game: &str) {
+    let _ = CALIBRATION.set(std::fs::read_to_string(std::path::Path::new(game).join("Setupf").join("animcalibration.txt")).map(|t| parse_calibration(&t)).unwrap_or_default());
+}
+
+/// The playback factor of a creature's animation (1 when the file does not list it).
+pub fn calibration(mesh: u32, animation: u32) -> f32 {
+    CALIBRATION.get().and_then(|t| t.get(&(mesh, animation))).copied().unwrap_or(1.0)
+}
 
 /// How far from the body the spirals run, in metres (a choice: see above).
 const RADIUS: f32 = 0.42;
@@ -29,8 +70,8 @@ pub fn aura_particles(aura: &Aura, feet: [f32; 3], time: f32) -> Vec<Particle> {
 pub struct Shot {
     pub from: [f32; 3],
     pub to: [f32; 3],
-    pub tracer: Option<Aura>,
-    pub hit: Option<Aura>,
+    pub tracer: Option<Visual>,
+    pub hit: Option<Visual>,
 }
 
 /// How long the tracer flies and how long the hit effect stays (seconds).
@@ -49,17 +90,66 @@ impl Shot {
         if let (Some(tracer), true) = (&self.tracer, travelling && age < FLIGHT) {
             let t = age / FLIGHT;
             let at = [0, 1, 2].map(|i| self.from[i] + (self.to[i] - self.from[i]) * t);
-            out.extend(aura_shaped(tracer, [at[0], at[1], at[2] - 0.25], age, 0.5, 0.18));
+            out.extend(visual_particles(tracer, [at[0], at[1], at[2] - 0.25], age, Reach::Small));
         }
         let landed = if travelling { age - FLIGHT } else { age };
         if let (Some(hit), true) = (&self.hit, landed >= 0.0 && landed < LANDING) {
             let fade = (((LANDING - landed) / 0.4).min(1.0)).max(0.0) * (landed / 0.1).min(1.0);
-            for mut p in aura_shaped(hit, [self.to[0], self.to[1], self.to[2] - 1.0], landed, 1.5, 0.35) {
+            for mut p in visual_particles(hit, [self.to[0], self.to[1], self.to[2] - 1.0], landed, Reach::Medium) {
                 p.colour[3] *= fade;
                 out.push(p);
             }
         }
         out
+    }
+}
+
+/// How big a visual is drawn: a whole body's buff, a spell landing on a target, or a tracer in flight.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Reach {
+    Body,
+    Medium,
+    Small,
+}
+
+/// The sparks of any visual at `time` seconds with its feet (or centre, for a ball and a flash) at `feet`.
+pub fn visual_particles(v: &Visual, feet: [f32; 3], time: f32, reach: Reach) -> Vec<Particle> {
+    match v {
+        Visual::Spiral(aura) => match reach {
+            Reach::Body => aura_shaped(aura, feet, time, HEIGHT, RADIUS),
+            Reach::Medium => aura_shaped(aura, feet, time, 1.5, 0.35),
+            Reach::Small => aura_shaped(aura, feet, time, 0.5, 0.18),
+        },
+        // a halo under the feet that breathes
+        Visual::Glow { colour, .. } => {
+            let breathe = 0.75 + 0.25 * (time * 2.5).sin();
+            let wide = match reach {
+                Reach::Body => 1.7,
+                Reach::Medium => 1.4,
+                Reach::Small => 0.6,
+            };
+            vec![
+                sprite(8, 0.0, [feet[0], feet[1], feet[2] + 0.08], wide, [colour[0], colour[1], colour[2], colour[3] * 0.55 * breathe]),
+                sprite(8, 0.0, [feet[0], feet[1], feet[2] + 0.12], wide * 0.55, [colour[0], colour[1], colour[2], colour[3] * 0.5 * breathe]),
+            ]
+        }
+        // a quick bright burst: a core and a ring of sparks flying out
+        Visual::Flash { colour, size } => {
+            let t = (time / 0.5).clamp(0.0, 1.0);
+            let mut out = vec![sprite(8, 0.0, [feet[0], feet[1], feet[2] + 1.0], size * (0.5 + t), [colour[0], colour[1], colour[2], 0.7 * (1.0 - t)])];
+            for k in 0..8 {
+                let a = k as f32 * std::f32::consts::TAU / 8.0 + 0.4;
+                out.push(sprite(15, 0.0, [feet[0] + a.cos() * t * 0.8, feet[1] + a.sin() * t * 0.8, feet[2] + 1.0 + (k % 3) as f32 * 0.12 * t], 0.12, [colour[0], colour[1], colour[2], 0.8 * (1.0 - t)]));
+            }
+            out
+        }
+        Visual::Orb { colour, size } => {
+            let pulse = 0.85 + 0.15 * (time * 18.0).sin();
+            vec![
+                sprite(8, 0.0, [feet[0], feet[1], feet[2] + 0.25], size * 2.2 * pulse, [colour[0], colour[1], colour[2], 0.35]),
+                sprite(15, 0.0, [feet[0], feet[1], feet[2] + 0.25], *size, [colour[0], colour[1], colour[2], 0.9]),
+            ]
+        }
     }
 }
 
@@ -86,11 +176,13 @@ pub fn aura_shaped(aura: &Aura, feet: [f32; 3], time: f32, height_m: f32, radius
                 let fade = 1.0 - k as f32 / (TRAIL + 1) as f32;
                 // each spark leans in a little as it rises, like a flame
                 let radius = radius_m * (1.0 - 0.25 * age);
-                out.push(Particle {
-                    position: [feet[0] + radius * angle.cos(), feet[1] + radius * angle.sin(), feet[2] + height - 0.04 * k as f32],
-                    size: helix.size.max(0.05) * (0.45 + 0.55 * fade) * 0.85,
-                    colour: [c[0], c[1], c[2], 0.75 * strength * fade * fade],
-                });
+                out.push(sprite(
+                    helix.material,
+                    age,
+                    [feet[0] + radius * angle.cos(), feet[1] + radius * angle.sin(), feet[2] + height - 0.04 * k as f32],
+                    helix.size.max(0.05) * (0.45 + 0.55 * fade) * 0.85,
+                    [c[0], c[1], c[2], 0.75 * strength * fade * fade],
+                ));
             }
         }
     }
@@ -136,15 +228,17 @@ pub fn emitter_particles(e: &Emitter, origin: [f32; 3], age: f32, active: f32) -
         let colour = [mix(e.start[1], e.end[1]), mix(e.start[2], e.end[2]), mix(e.start[3], e.end[3]), mix(e.start[0], e.end[0]) * share];
         // a little scatter round the origin so the particles of a still emitter do not sit on one point
         let jitter = |salt| (hash(k, salt) - 0.5) * 0.12;
-        out.push(Particle {
-            position: [
+        out.push(sprite(
+            e.material,
+            t,
+            [
                 origin[0] + direction[0] * speed * a + jitter(4),
                 origin[1] + direction[1] * speed * a + jitter(5),
                 origin[2] + direction[2] * speed * a + 0.5 * e.gravity * a * a + jitter(6),
             ],
-            size: mix(e.size.0, e.size.1).max(0.04),
+            mix(e.size.0, e.size.1).max(0.04),
             colour,
-        });
+        ));
     }
     out
 }
@@ -155,7 +249,7 @@ mod tests {
     use mao_formats::gfx::Helix;
 
     fn aura() -> Aura {
-        let helix = |spin: f32| Helix { spin, phase: 0.0, size: 0.15, count: 10, colour: [0.5, 0.4, 1.0] };
+        let helix = |spin: f32| Helix { spin, phase: 0.0, size: 0.15, count: 10, colour: [0.5, 0.4, 1.0], material: 15 };
         Aura { colour: [0.2, 0.2, 0.99], end: [0.2, 0.2, 0.99], helices: vec![helix(-12.566), helix(12.566)] }
     }
 
@@ -185,8 +279,21 @@ mod tests {
         assert!(turn(a0, a1) < 0.0 && turn(b0, b1) > 0.0);
     }
 
+    #[test]
+    fn the_calibration_file_is_read_by_mesh_and_animation() {
+        let table = parse_calibration("# mesh anim calibration
+29902	29914	0.70
+29902	30227	0.50
+
+broken line
+");
+        assert_eq!(table.get(&(29902, 29914)), Some(&0.7));
+        assert_eq!(table.get(&(29902, 30227)), Some(&0.5));
+        assert_eq!(table.len(), 2);
+    }
+
     fn emitter() -> Emitter {
-        Emitter { id: 1, kind: 1005, start: [1.0, 0.5, 0.4, 1.0], end: [0.0, 0.5, 0.4, 1.0], size: (0.1, 0.2), life: 1.0, rate: 10.0, azimuth: 6.28, elevation: (-1.57, 1.57), speed: (0.5, 1.0), gravity: 0.0 }
+        Emitter { id: 1, kind: 1005, start: [1.0, 0.5, 0.4, 1.0], end: [0.0, 0.5, 0.4, 1.0], size: (0.1, 0.2), life: 1.0, rate: 10.0, azimuth: 6.28, elevation: (-1.57, 1.57), speed: (0.5, 1.0), gravity: 0.0, material: 15 }
     }
 
     #[test]

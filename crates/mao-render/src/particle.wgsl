@@ -17,18 +17,24 @@ struct Globals {
 }
 
 @group(0) @binding(0) var<uniform> globals: Globals;
+@group(1) @binding(0) var sheet: texture_2d<f32>;
+@group(1) @binding(1) var samp: sampler;
 
 struct In {
     @builtin(vertex_index) corner: u32,
     // xyz: the centre; w: the size (the sprite's width).
     @location(0) centre: vec4<f32>,
     @location(1) colour: vec4<f32>,
+    // The part of the sprite sheet to show: left, top, width and height (a width of 0: no sheet, a soft dot).
+    @location(2) rect: vec4<f32>,
 }
 
 struct Out {
     @builtin(position) position: vec4<f32>,
     @location(0) offset: vec2<f32>,
     @location(1) colour: vec4<f32>,
+    @location(2) uv: vec2<f32>,
+    @location(3) flat_dot: f32,
 }
 
 @vertex
@@ -41,16 +47,23 @@ fn vs_particle(in: In) -> Out {
     out.position = globals.view_proj * vec4(world, 1.0);
     out.offset = c;
     out.colour = in.colour;
+    out.uv = in.rect.xy + vec2(c.x * 0.5 + 0.5, 0.5 - c.y * 0.5) * in.rect.zw;
+    out.flat_dot = select(0.0, 1.0, in.rect.z == 0.0);
     return out;
 }
 
 @fragment
 fn fs_particle(in: Out) -> @location(0) vec4<f32> {
-    let r2 = dot(in.offset, in.offset);
-    if r2 >= 1.0 {
-        discard;
+    // added to the scene: the colour is already multiplied by its strength
+    if in.flat_dot > 0.5 {
+        let r2 = dot(in.offset, in.offset);
+        if r2 >= 1.0 {
+            discard;
+        }
+        // a bright core and a soft edge
+        let falloff = (1.0 - r2) * (1.0 - r2) * (1.0 - r2);
+        return vec4(in.colour.rgb * in.colour.a * falloff, 0.0);
     }
-    // a bright core and a soft edge
-    let falloff = (1.0 - r2) * (1.0 - r2) * (1.0 - r2);
-    return vec4(in.colour.rgb, in.colour.a * falloff);
+    let texel = textureSample(sheet, samp, in.uv);
+    return vec4(texel.rgb * texel.a * in.colour.rgb * in.colour.a, 0.0);
 }

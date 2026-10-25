@@ -133,6 +133,20 @@ pub struct Particle {
     pub position: [f32; 3],
     pub size: f32,
     pub colour: [f32; 4],
+    /// The sprite sheet it is cut from ([`Renderer::add_sprite`]; [`NO_SPRITE`] for a soft dot) and the part of it to show: left, top,
+    /// width and height in 0..1.
+    pub sprite: u16,
+    pub rect: [f32; 4],
+}
+
+/// The sprite number of a particle that is a soft dot, not cut from a sheet.
+pub const NO_SPRITE: u16 = u16::MAX;
+
+impl Particle {
+    /// A soft round dot.
+    pub fn dot(position: [f32; 3], size: f32, colour: [f32; 4]) -> Particle {
+        Particle { position, size, colour, sprite: NO_SPRITE, rect: [0.0; 4] }
+    }
 }
 
 impl Scene {
@@ -260,6 +274,10 @@ pub struct Renderer {
     shadow_pipeline: wgpu::RenderPipeline,
     water_pipeline: wgpu::RenderPipeline,
     particle_pipeline: wgpu::RenderPipeline,
+    /// The sprite sheets uploaded so far, by number, as the bind group the particle pass uses, and the plain white one dots use.
+    sprites: HashMap<u16, wgpu::BindGroup>,
+    sprite_layout: wgpu::BindGroupLayout,
+    white_sprite: wgpu::BindGroup,
     shadow_view: wgpu::TextureView,
     shadow_bind: wgpu::BindGroup,
     /// Draw the sun's shadows (on by default).
@@ -478,12 +496,25 @@ impl Renderer {
         });
         // Sparks and glows: camera-facing sprites added to the scene, tested against its depth and not writing any.
         let particle_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("particle"), source: wgpu::ShaderSource::Wgsl(include_str!("particle.wgsl").into()) });
-        let particle_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("particle"), bind_group_layouts: &[Some(&globals_layout)], immediate_size: 0 });
+        let sprite_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("sprite"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: true }, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry { binding: 1, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering), count: None },
+            ],
+        });
+        let particle_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("particle"), bind_group_layouts: &[Some(&globals_layout), Some(&sprite_layout)], immediate_size: 0 });
         let particle_attributes = [
             wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x4, offset: 0, shader_location: 0 },
             wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x4, offset: 16, shader_location: 1 },
+            wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x4, offset: 32, shader_location: 2 },
         ];
-        let additive = wgpu::BlendComponent { src_factor: wgpu::BlendFactor::SrcAlpha, dst_factor: wgpu::BlendFactor::One, operation: wgpu::BlendOperation::Add };
+        let additive = wgpu::BlendComponent { src_factor: wgpu::BlendFactor::One, dst_factor: wgpu::BlendFactor::One, operation: wgpu::BlendOperation::Add };
         let particle_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("particle"),
             layout: Some(&particle_layout),
@@ -491,7 +522,7 @@ impl Renderer {
                 module: &particle_shader,
                 entry_point: Some("vs_particle"),
                 compilation_options: Default::default(),
-                buffers: &[Some(wgpu::VertexBufferLayout { array_stride: 32, step_mode: wgpu::VertexStepMode::Instance, attributes: &particle_attributes })],
+                buffers: &[Some(wgpu::VertexBufferLayout { array_stride: 48, step_mode: wgpu::VertexStepMode::Instance, attributes: &particle_attributes })],
             },
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: Some(wgpu::DepthStencilState { format: DEPTH, depth_write_enabled: Some(false), depth_compare: Some(wgpu::CompareFunction::Less), stencil: Default::default(), bias: Default::default() }),
@@ -546,11 +577,32 @@ impl Renderer {
         let (fsr_easu, fsr_rcas) = (fsr_pipeline("fs_easu"), fsr_pipeline("fs_rcas"));
         let fsr_sampler = device.create_sampler(&wgpu::SamplerDescriptor { mag_filter: wgpu::FilterMode::Nearest, min_filter: wgpu::FilterMode::Nearest, ..Default::default() });
         let white = upload_texture(gpu, &Texture { width: 1, height: 1, format: mao_formats::texture::Format::Png, rgba: vec![255; 4], mips: 1 });
-        Renderer { pipeline, sky_pipeline, shadow_pipeline, water_pipeline, particle_pipeline, shadow_view, shadow_bind, shadows: true, stats: Stats::default(), render_scale: 1.0, sharpness: 0.2, fsr_easu, fsr_rcas, fsr_layout, fsr_sampler, fsr: None, samples, msaa: None, started: std::time::Instant::now(), globals_layout, part_layout, sampler, white, format, depth: None, textures: Default::default() }
+        let white_sprite = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &sprite_layout,
+            entries: &[wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&white) }, wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&sampler) }],
+        });
+        Renderer { pipeline, sky_pipeline, shadow_pipeline, water_pipeline, particle_pipeline, sprites: HashMap::new(), sprite_layout, white_sprite, shadow_view, shadow_bind, shadows: true, stats: Stats::default(), render_scale: 1.0, sharpness: 0.2, fsr_easu, fsr_rcas, fsr_layout, fsr_sampler, fsr: None, samples, msaa: None, started: std::time::Instant::now(), globals_layout, part_layout, sampler, white, format, depth: None, textures: Default::default() }
     }
 
     /// Puts a model on the GPU. `texture` finds a texture by (type, instance).
     /// Each part's geometry and texture are uploaded once however many times it is drawn.
+    /// Makes a texture the sprite sheet `id` of the particle pass.
+    pub fn add_sprite(&mut self, gpu: &Gpu, id: u16, texture: &Texture) {
+        let view = upload_texture(gpu, texture);
+        let bind = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &self.sprite_layout,
+            entries: &[wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&view) }, wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&self.sampler) }],
+        });
+        self.sprites.insert(id, bind);
+    }
+
+    /// Whether the sprite sheet `id` is on the card.
+    pub fn has_sprite(&self, id: u16) -> bool {
+        self.sprites.contains_key(&id)
+    }
+
     pub fn upload(&self, gpu: &Gpu, model: &Model, texture: &mut dyn FnMut(u32, u32) -> Option<Texture>) -> Scene {
         let draw_list = draws(model);
         let (center, radius) = world_matrix_bounds(model, &draw_list);
@@ -866,12 +918,29 @@ impl Renderer {
                 pass.draw(0..6, 0..1);
             }
             if !scene.particles.is_empty() {
-                let data: Vec<[f32; 8]> = scene.particles.iter().map(|p| [p.position[0], p.position[1], p.position[2], p.size, p.colour[0], p.colour[1], p.colour[2], p.colour[3]]).collect();
+                // grouped by sprite sheet (a sheet that is not loaded draws as dots), one draw for each
+                let mut order: Vec<&Particle> = scene.particles.iter().collect();
+                let sheet = |p: &Particle| if self.sprites.contains_key(&p.sprite) { p.sprite } else { NO_SPRITE };
+                order.sort_by_key(|p| sheet(p));
+                let data: Vec<[f32; 12]> = order
+                    .iter()
+                    .map(|p| {
+                        let rect = if self.sprites.contains_key(&p.sprite) { p.rect } else { [0.0; 4] };
+                        [p.position[0], p.position[1], p.position[2], p.size, p.colour[0], p.colour[1], p.colour[2], p.colour[3], rect[0], rect[1], rect[2], rect[3]]
+                    })
+                    .collect();
                 let instances = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("particles"), contents: bytemuck::cast_slice(&data), usage: wgpu::BufferUsages::VERTEX });
                 pass.set_pipeline(&self.particle_pipeline);
                 pass.set_bind_group(0, &globals_bind, &[]);
                 pass.set_vertex_buffer(0, instances.slice(..));
-                pass.draw(0..6, 0..data.len() as u32);
+                let mut start = 0;
+                while start < order.len() {
+                    let id = sheet(order[start]);
+                    let end = start + order[start..].iter().take_while(|p| sheet(p) == id).count();
+                    pass.set_bind_group(1, self.sprites.get(&id).unwrap_or(&self.white_sprite), &[]);
+                    pass.draw(0..6, start as u32..end as u32);
+                    start = end;
+                }
             }
         }
         self.stats = Stats { parts, drawn, shadow_drawn };

@@ -935,9 +935,9 @@ fn is_head_name(name: &str) -> bool {
     ["head_solitus", "head_opifex", "head_nano", "head_athrox", "head_oldguy"].iter().any(|p| name.starts_with(p)) && name.ends_with(".abiff")
 }
 
-/// How fast a polymorphed character's creature animation plays against real time (the user found 1 a little fast; the creature
-/// templates carry no animation speed to take it from).
-const MORPH_ANIM_RATE: f32 = 0.75;
+/// A further factor on a polymorphed character's creature animation (1: as the original's calibration file has it, see
+/// `effects::calibration`; the user found the uncalibrated speed a little fast).
+const MORPH_ANIM_RATE: f32 = 1.0;
 
 /// The body parts a texture place of an `AppearanceUpdate` names (the cloth list's order).
 const CLOTH_PARTS: [&str; 6] = ["hands", "body", "feet", "arms", "legs", "head"];
@@ -1050,6 +1050,8 @@ impl Characters {
         let anim_entry = self.creature_anims.get(&id)?;
         let (anim, length) = anim_entry.as_ref()?;
         // (a creature that has no standing animation holds its walk's first frame while it stands)
+        // (the original's calibration file says how fast each movement animation of a creature plays)
+        let rate = rate * crate::effects::calibration(record.mesh.unwrap_or(0), id);
         let t = if action == mao_formats::appearance::Action::Idle && matches!(key, 100 | 101) { 0.0 } else { (self.started.elapsed().as_secs_f32() * 1000.0 * rate + phase) % length };
         let bones = mesh.pose(anim, t);
         let mut parts = mesh.skinned_model(&bones, 0xf6954).parts;
@@ -1577,6 +1579,7 @@ pub(crate) fn booth_labels(playfield: u32, booths: &[[f32; 3]], destinations: &c
 fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World, session_key: [u8; 8]) -> Result<(), String> {
     crate::theme::set_game_dir(game);
     let db = Arc::new(ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?);
+    crate::effects::load_calibration(game);
     let textures = crate::Textures::new(db.clone());
     let Area { scene, terrain, collision, booths } = load_area_with(game, &db, playfield, Some(&textures))?;
     let thread_textures = textures.clone_handle();
@@ -1843,9 +1846,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut take_seen = 0u8;
         let mut put_seen = 0u8;
         let mut saved_look: Option<crate::look::Look> = None;
-        let mut shot_cache: std::collections::HashMap<u32, (Option<mao_formats::gfx::Aura>, Option<mao_formats::gfx::Aura>)> = std::collections::HashMap::new();
+        let mut shot_cache: std::collections::HashMap<u32, (Option<mao_formats::gfx::Visual>, Option<mao_formats::gfx::Visual>)> = std::collections::HashMap::new();
         let mut burst_cache: std::collections::HashMap<u32, Option<Vec<mao_formats::gfx::Emitter>>> = std::collections::HashMap::new();
-        let mut aura_cache: std::collections::HashMap<u32, Option<mao_formats::gfx::Aura>> = std::collections::HashMap::new();
+        let mut aura_cache: std::collections::HashMap<u32, Option<mao_formats::gfx::Visual>> = std::collections::HashMap::new();
         // (the effect templates: what a running nano program looks like)
         let gfx = std::fs::read(Path::new(&game_dir).join("Setupf").join("gfxtweak.bin")).ok().and_then(|d| mao_formats::gfx::Gfx::parse(&d).ok());
         let mut polymorph_cache: std::collections::HashMap<u32, Option<u32>> = std::collections::HashMap::new();
@@ -2822,20 +2825,20 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             nanos.retain(|_, at| at.elapsed() < Duration::from_secs(30));
                             !nanos.is_empty()
                         });
-                        let mut aura_of = |nano: u32| -> Option<mao_formats::gfx::Aura> {
+                        let mut aura_of = |nano: u32| -> Option<mao_formats::gfx::Visual> {
                             aura_cache
                                 .entry(nano)
                                 .or_insert_with(|| {
                                     let data = gear_db.get(mao_formats::resource::Id { kind: 0xfde85, instance: nano }).ok().flatten()?;
                                     // (the running effect of a program is its `EffectType` stat)
                                     let effect = mao_formats::item::Item::parse(&data)?.stat(413)?;
-                                    gfx.as_ref()?.aura(effect as i32)
+                                    gfx.as_ref()?.visual(effect as i32)
                                 })
                                 .clone()
                         };
-                        let mut list: Vec<(bool, [f32; 3], Vec<mao_formats::gfx::Aura>)> = Vec::new();
+                        let mut list: Vec<(bool, [f32; 3], Vec<mao_formats::gfx::Visual>)> = Vec::new();
                         let mut add = |own_character: bool, at: [f32; 3], nanos: Vec<u32>| {
-                            let auras: Vec<mao_formats::gfx::Aura> = nanos.into_iter().filter_map(&mut aura_of).take(4).collect();
+                            let auras: Vec<mao_formats::gfx::Visual> = nanos.into_iter().filter_map(&mut aura_of).take(4).collect();
                             if !auras.is_empty() {
                                 list.push((own_character, [at[0], at[2], at[1]], auras));
                             }
@@ -2879,7 +2882,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                     .or_insert_with(|| {
                                         let data = gear_db.get(mao_formats::resource::Id { kind: 0xfde85, instance: nano }).ok().flatten();
                                         let template = data.as_deref().and_then(mao_formats::item::Item::parse);
-                                        let effect = |stat: u32| template.as_ref().and_then(|t| t.stat(stat)).and_then(|id| gfx.as_ref()?.aura(id as i32));
+                                        let effect = |stat: u32| template.as_ref().and_then(|t| t.stat(stat)).and_then(|id| gfx.as_ref()?.visual(id as i32));
                                         // (a program's tracer is its `TracerEffectType`, what it does on landing its `HitEffectType`)
                                         (effect(419), effect(361))
                                     })

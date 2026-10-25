@@ -114,6 +114,14 @@ impl Textures {
         self.get(kind, instance).is_none_or(|t| opaque(&t))
     }
 
+    /// The sprite sheet of an effect material (a type-0xf6954 texture by file name, left as drawn: no skin tint).
+    pub fn sheet(&self, name: &str) -> Option<Texture> {
+        let index = self.index.get_or_init(|| self.db.get(Id { kind: 0xf424a, instance: 1 }).ok().flatten().and_then(|o| mao_formats::instances::Instances::parse(&o).ok())).as_ref()?;
+        let id = index.find(0xf6954, name).or_else(|| index.find(0xf6954, &name.to_lowercase()))?;
+        let object = self.db.get(Id { kind: 0xf6954, instance: id }).ok()??;
+        texture::decode(&object).ok().map(Texture::with_mips)
+    }
+
     /// A texture for the renderer's upload: one decoded ahead by [`Textures::prefetch`] (mip levels and all), else decoded now.
     pub fn get_for_upload(&self, kind: u32, instance: u32) -> Option<Texture> {
         if let Some(texture) = self.ready.lock().unwrap().remove(&(kind, instance)) {

@@ -130,3 +130,18 @@ fn a_cast_effect_has_its_emitters() {
     assert!(emitters.len() >= 6);
     assert!(emitters.iter().all(|e| e.life > 0.0 && e.rate > 0.0 && e.start[0] >= 0.0));
 }
+
+#[test]
+fn effect_classes_come_to_visuals() {
+    use mao_formats::gfx::Visual;
+    let Some(game) = std::env::var_os("MAO_GAME").map(PathBuf::from) else { return };
+    let gfx = mao_formats::gfx::Gfx::parse(&std::fs::read(game.join("Setupf").join("gfxtweak.bin")).unwrap()).unwrap();
+    // a buff, a tinted tracer, the common cyan ground glow, a hit flash, a tracer ball, and a bundle that holds a spiral
+    assert!(matches!(gfx.visual(1000), Some(Visual::Spiral(_))));
+    assert!(matches!(gfx.visual(17300), Some(Visual::Spiral(_))));
+    assert!(matches!(gfx.visual(43608), Some(Visual::Glow { .. })));
+    assert!(matches!(gfx.visual(43010), Some(Visual::Flash { .. })));
+    assert!(matches!(gfx.visual(17500), Some(Visual::Orb { .. })));
+    // the null gather effect has none
+    assert!(gfx.visual(49999).is_none());
+}
