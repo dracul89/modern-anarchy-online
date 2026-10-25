@@ -1229,11 +1229,12 @@ impl Characters {
 }
 
 /// A character of the launcher's list as the world draws it (its breed's and sex's body and head, standing), Z-up.
-pub(crate) fn character_model(db: &Arc<ResourceDatabase>, breed: i32, sex: i32) -> Option<Model> {
+pub(crate) fn character_model(db: &Arc<ResourceDatabase>, breed: i32, sex: i32, look: Option<&crate::look::Look>) -> Option<Model> {
     // (the Atrox has one body, whatever the list says)
     let (breed, sex) = (breed as u8, if breed == 4 { 1 } else { sex as u8 });
     let mut chars = Characters::new(db.clone()).ok()?;
-    let parts = chars.parts(0, breed, sex, None, None, 0.0, &[], &[], &[])?;
+    let (textures, clothes, gear) = look.map_or((&[][..], &[][..], &[][..]), |l| (l.textures.as_slice(), l.clothes.as_slice(), l.gear.as_slice()));
+    let parts = chars.parts(0, breed, sex, None, None, 0.0, textures, clothes, gear)?;
     let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     Some(Model { instances: (0..parts.len()).map(|i| (i, swap)).collect(), parts, water: None })
 }
@@ -1763,6 +1764,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut move_seen = 0u8;
         let mut take_seen = 0u8;
         let mut put_seen = 0u8;
+        let mut saved_look: Option<crate::look::Look> = None;
         let mut polymorph_cache: std::collections::HashMap<u32, Option<u32>> = std::collections::HashMap::new();
         let mut delete_seen = 0u8;
         let mut cancel_seen = 0u8;
@@ -2674,6 +2676,14 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         let item = template.map_or_else(|| format!("item #{}", it.low_id), |t| t.name);
                         let slot = crate::gear::slot_name(it.slot).unwrap_or_else(|| format!("slot {}", it.slot));
                         state.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, format!("  {slot}: {item} (QL {})", it.ql)));
+                    }
+                }
+                // What the character looks like is written down for the character screen.
+                if let (Some(info), Some(name)) = (state.infos.get(&own), state.names.get(&own).map(|n| n.0.clone()).filter(|n| !n.is_empty())) {
+                    let look = crate::look::Look { name, breed: info.breed, sex: info.sex, clothes: info.clothes.clone(), textures: info.textures.clone(), gear: state.equipment.get(&own).cloned().unwrap_or_default() };
+                    if saved_look.as_ref() != Some(&look) {
+                        crate::look::save(&look);
+                        saved_look = Some(look);
                     }
                 }
                 let mut chat_lines_now: Vec<crate::chatwindow::Line> = std::mem::take(&mut *CHAT_LINES.lock().unwrap());

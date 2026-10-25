@@ -20,6 +20,7 @@ mod chatlog;
 mod friends;
 mod help;
 mod launcher;
+mod look;
 mod layout;
 mod loot;
 mod nanoprograms;

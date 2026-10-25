@@ -128,6 +128,8 @@ struct Launcher {
     selected: Option<String>,
     /// `MAO_LAUNCHER_SHOT=out.png`: save a picture of the character screen and quit (with `MAO_LAUNCHER_DEMO=1`, three sample characters).
     shot: Option<String>,
+    /// What the characters looked like when last played (`looks.ini`).
+    looks: Vec<crate::look::Look>,
 }
 
 impl Launcher {
@@ -346,7 +348,7 @@ impl ApplicationHandler for Launcher {
                                 }
                             }
                             if let Some((db, textures)) = &gfx.db {
-                                if let Some(model) = crate::net::character_model(db, c.breed, c.sex) {
+                                if let Some(model) = crate::net::character_model(db, c.breed, c.sex, crate::look::find(&self.looks, &c.name).as_ref()) {
                                     let mut scene = gfx.renderer.upload(&gfx.gpu, &model, &mut |k, i| textures.get(k, i));
                                     scene.sky = ([0.05, 0.09, 0.15], [0.01, 0.03, 0.07]);
                                     scene.fog = (400.0, 800.0);
@@ -363,7 +365,7 @@ impl ApplicationHandler for Launcher {
                     gfx.frames += 1;
                     if let (Some(scene), Some(camera)) = (&gfx.scene, gfx.camera.as_mut()) {
                         camera.yaw = 0.9 + gfx.started.elapsed().as_secs_f32() * 0.5;
-                        if let Some(out) = self.shot.clone().filter(|_| gfx.frames >= 4) {
+                        if let Some(out) = self.shot.clone().filter(|_| gfx.frames >= 12) {
                             camera.yaw = 0.9;
                             let camera = *camera;
                             let mut frame_slot = Some(ui_frame);
@@ -418,12 +420,21 @@ impl ApplicationHandler for Launcher {
 pub fn run(game: &str) -> Result<(), String> {
     let settings = Settings::load();
     let (user, last) = parse_account(&std::fs::read_to_string(account_path()).unwrap_or_default());
-    let mut launcher = Launcher { game: game.to_string(), settings, gfx: None, stage: Stage::Form, user, last, password: String::new(), server: std::env::var("MAO_SERVER").unwrap_or_else(|_| session::RUBI_KA.to_string()), message: String::new(), answer: None, chosen: None, selected: None, shot: std::env::var("MAO_LAUNCHER_SHOT").ok() };
+    let mut launcher = Launcher { game: game.to_string(), settings, gfx: None, stage: Stage::Form, user, last, password: String::new(), server: std::env::var("MAO_SERVER").unwrap_or_else(|_| session::RUBI_KA.to_string()), message: String::new(), answer: None, chosen: None, selected: None, shot: std::env::var("MAO_LAUNCHER_SHOT").ok(), looks: crate::look::load() };
     // MAO_LAUNCHER_DEMO=1: three sample characters instead of a login (for pictures of the character screen).
     if std::env::var_os("MAO_LAUNCHER_DEMO").is_some() {
         // (the characters of a capture's list, as the server sent them: name, breed, sex, profession, level)
         let sample = |name: &str, breed, sex, profession, level| Character { name: name.into(), breed, sex, profession, level, created: true, area: "area unknown".into(), ..Default::default() };
-        let list = vec![sample("Brasscasings", 1, 2, 1, 25), sample("Arctangent", 1, 3, 6, 40), sample("Beetlez", 2, 2, 2, 8), sample("Pregnantmule", 4, 1, 5, 160)];
+        let list = vec![sample("Brasscasings", 1, 2, 1, 25), sample("Arctangent", 1, 3, 6, 40), sample("Beetlez", 2, 2, 2, 8), sample("Pregnantmule", 4, 1, 5, 160), sample("Diabete5", 3, 3, 10, 60)];
+        // (Diabete5's look is the one its appearance update carried in the capture)
+        launcher.looks = vec![crate::look::Look {
+            name: "Diabete5".into(),
+            breed: 3,
+            sex: 3,
+            clothes: vec![("hands".into(), 8816), ("body".into(), 303241), ("feet".into(), 303243), ("arms".into(), 303240), ("legs".into(), 303245)],
+            textures: Vec::new(),
+            gear: vec![(0, 0x4e39, 0), (0, 0x36aa4, 0), (1, 0x409f7, 0), (2, 0x409f7, 0), (3, 0x2cf7, 0x4a0b1), (4, 0x2cf7, 0x4a0b1), (5, 0x2cff, 0x4a0b1)],
+        }];
         launcher.selected = Some(std::env::var("MAO_LAUNCHER_PICK").ok().filter(|n| list.iter().any(|c| &c.name == n)).unwrap_or_else(|| list[0].name.clone()));
         launcher.stage = Stage::Characters(list);
     }
