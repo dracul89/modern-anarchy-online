@@ -318,6 +318,8 @@ struct App {
     screenshot: bool,
     /// Walking forward on its own (the auto-run key).
     autorun: bool,
+    /// The server ended the connection (the character logged out): back to the character screen.
+    logged_out: bool,
     moved: f32,
     last_click: Option<(u32, std::time::Instant)>,
 }
@@ -357,8 +359,13 @@ pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<()
     let event_loop = EventLoop::new().map_err(|e| e.to_string())?;
     let settings = Settings::load();
     crate::ui::set_debug_overlay(settings.debug_overlay);
-    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), auras: Vec::new(), fx_clock: std::time::Instant::now(), home_distance: None, bursts: Vec::new(), shots: Vec::new(), tried_sprites: Default::default(), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false };
-    event_loop.run_app(&mut app).map_err(|e| e.to_string())
+    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), auras: Vec::new(), fx_clock: std::time::Instant::now(), home_distance: None, bursts: Vec::new(), shots: Vec::new(), tried_sprites: Default::default(), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
+    event_loop.run_app(&mut app).map_err(|e| e.to_string())?;
+    if app.logged_out {
+        // (the launcher that started the game sees this code and shows the character screen again)
+        std::process::exit(crate::launcher::LOGGED_OUT);
+    }
+    Ok(())
 }
 
 /// The heading (about the vertical, 0 along the server's +Z) a camera at `yaw` looks along, and the yaw
@@ -841,6 +848,11 @@ impl ApplicationHandler for App {
                 if let Some(live) = &self.live {
                     // Every update's messages count; the last one's picture is drawn.
                     let mut updates: Vec<Update> = live.overlays.try_iter().collect();
+                    // The game's connection thread ends with the connection: the server logged the character out.
+                    if matches!(live.overlays.try_recv(), Err(std::sync::mpsc::TryRecvError::Disconnected)) && !self.logged_out {
+                        self.logged_out = true;
+                        event_loop.exit();
+                    }
                     for u in &mut updates {
                         for m in std::mem::take(&mut u.messages) {
                             self.hud.say(m);

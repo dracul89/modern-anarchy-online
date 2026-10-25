@@ -417,6 +417,10 @@ impl ApplicationHandler for Launcher {
 }
 
 /// Opens the launcher and, when a character is picked, starts the live client for it.
+/// The exit code of a game that ended because the character logged out (`/camp`, sitting for 30 s): the launcher shows the
+/// character screen again.
+pub const LOGGED_OUT: i32 = 42;
+
 pub fn run(game: &str) -> Result<(), String> {
     let settings = Settings::load();
     let (user, last) = parse_account(&std::fs::read_to_string(account_path()).unwrap_or_default());
@@ -440,18 +444,36 @@ pub fn run(game: &str) -> Result<(), String> {
         launcher.selected = Some(std::env::var("MAO_LAUNCHER_PICK").ok().filter(|n| list.iter().any(|c| &c.name == n)).unwrap_or_else(|| list[0].name.clone()));
         launcher.stage = Stage::Characters(list);
     }
+    // After a logout the launcher starts again with the account (MAO_RELOGIN): it logs in at once and lists the characters.
+    if std::env::var_os("MAO_RELOGIN").is_some() {
+        launcher.password = std::env::var("MAO_PASSWORD").unwrap_or_default();
+        launcher.server = std::env::var("MAO_SERVER").unwrap_or(launcher.server);
+        launcher.user = std::env::var("MAO_USER").unwrap_or(launcher.user);
+        launcher.log_in();
+    }
     let event_loop = EventLoop::new().map_err(|e| e.to_string())?;
     event_loop.run_app(&mut launcher).map_err(|e| e.to_string())?;
     let Some(name) = launcher.chosen.take() else { return Ok(()) };
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let status = std::process::Command::new(exe)
+    let status = std::process::Command::new(&exe)
         .args(["net", game, "enter", &name, "--live"])
         .env("MAO_USER", launcher.user.trim())
         .env("MAO_PASSWORD", &launcher.password)
         .env("MAO_SERVER", launcher.server.trim())
         .status()
         .map_err(|e| e.to_string())?;
-    if status.success() {
+    if status.code() == Some(LOGGED_OUT) {
+        // (a new process: an event loop cannot be made twice in one)
+        std::process::Command::new(&exe)
+            .args([game, "play"])
+            .env("MAO_RELOGIN", "1")
+            .env("MAO_USER", launcher.user.trim())
+            .env("MAO_PASSWORD", &launcher.password)
+            .env("MAO_SERVER", launcher.server.trim())
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    } else if status.success() {
         Ok(())
     } else {
         Err(format!("the game ended with {status}"))
