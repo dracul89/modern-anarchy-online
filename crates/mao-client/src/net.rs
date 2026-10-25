@@ -170,6 +170,8 @@ struct World {
     landed: Vec<(u32, u32)>,
     /// Casts to show the cast effect of: (caster, nano program).
     cast_bursts: Vec<(u32, u32)>,
+    /// When a character last cast a nano on itself, by (character, nano): the server repeats an aura's cast every few seconds.
+    self_casts: std::collections::HashMap<(u32, u32), Instant>,
     /// Casts to show the flight and landing of: (caster, target, nano program).
     shots_pending: Vec<(u32, u32, u32)>,
     /// The worn meshes of each character from its `AppearanceUpdate`: attachment position, static mesh instance and the texture
@@ -589,14 +591,23 @@ impl World {
                 let id = |name: &str| p.value.get(name).and_then(|v| v.get("Instance")).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
                 let nano = p.value.get("NanoId").and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
                 let (caster, target) = (id("Caster"), id("Target"));
-                if caster == self.own || target == self.own {
-                    self.casts.push((caster, target, nano));
+                // An aura is cast again and again by the server while it runs: that is the nano staying on, not a new cast, so
+                // the repeats say nothing, show nothing and play no casting animation.
+                let mut repeat = false;
+                if caster == target {
+                    repeat = self.self_casts.get(&(caster, nano)).is_some_and(|t| t.elapsed() < Duration::from_secs(30)) || (caster == self.own && self.nanos.contains(&nano));
+                    self.self_casts.insert((caster, nano), Instant::now());
                 }
-                self.landed.push((target, nano));
-                self.cast_bursts.push((caster, nano));
-                self.shots_pending.push((caster, target, nano));
-                // The caster plays its casting animation (at itself or at someone).
-                self.socials.insert(caster, (if caster == target { "spell-self" } else { "spell-dir" }, Instant::now()));
+                if !repeat {
+                    if caster == self.own || target == self.own {
+                        self.casts.push((caster, target, nano));
+                    }
+                    self.landed.push((target, nano));
+                    self.cast_bursts.push((caster, nano));
+                    self.shots_pending.push((caster, target, nano));
+                    // The caster plays its casting animation (at itself or at someone).
+                    self.socials.insert(caster, (if caster == target { "spell-self" } else { "spell-dir" }, Instant::now()));
+                }
             }
         }
         // A character's social action (a dance, a bow): the last word of the message is the action's number.
