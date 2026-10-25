@@ -662,6 +662,20 @@ fn run(args: &[String]) -> Result<(), String> {
             return Ok(());
         }
     }
+    // `morph-check <game>`: the animations of the creature each polymorph program turns its target into.
+    if let [game, word] = args {
+        if word == "morph-check" {
+            let db = ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?;
+            for id in db.ids().map_err(|e| e.to_string())?.filter_map(Result::ok).filter(|i| i.kind == 0xfde85) {
+                let Some(data) = db.get(id).ok().flatten() else { continue };
+                let Some(t) = mao_formats::item::Item::parse(&data).filter(|t| t.stat(75) == Some(mao_formats::item::POLYMORPH_STRAIN)) else { continue };
+                let Some(creature) = mao_formats::item::polymorph_template(&data) else { continue };
+                let template = db.get(Id { kind: mao_formats::npc::TEMPLATE, instance: creature }).ok().flatten().and_then(|d| mao_formats::npc::Template::parse(&d));
+                println!("{:#x} {:<34} creature {creature:#x}: {}", id.instance, t.name, template.map_or("no template".to_string(), |t| format!("mesh {:?} animations {:?}", t.mesh, t.animations.iter().filter(|a| [100, 101, 120, 127].contains(&a.0)).collect::<Vec<_>>())));
+            }
+            return Ok(());
+        }
+    }
     // `dynel-kinds <game>`: how many built-in things of each identity type the playfields have.
     if let [game, word] = args {
         if word == "dynel-kinds" {

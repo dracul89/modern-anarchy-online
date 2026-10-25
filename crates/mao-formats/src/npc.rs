@@ -51,8 +51,27 @@ impl Template {
         match action {
             Action::Walk => find(100),
             Action::Run => find(101).or_else(|| find(100)),
-            _ => find(120),
+            // (the standing animation is 120; a creature without it, such as a bird in flight, has 127, else the walk's first frame stands)
+            _ => find(120).or_else(|| find(127)).or_else(|| find(100)),
         }
+    }
+
+    /// The animations to try for an action, best first, as (key, instance): a creature's record can name one the database does not hold
+    /// (a flier's standing animation was seen pointing nowhere), so the caller takes the first that loads.
+    pub fn animation_candidates(&self, action: Action) -> Vec<(u32, u32)> {
+        let find = |key: u32| self.animations.iter().find(|a| a.0 == key).copied();
+        let order: &[u32] = match action {
+            Action::Walk => &[100, 101, 120, 127],
+            Action::Run => &[101, 100, 120, 127],
+            _ => &[120, 127, 100, 101],
+        };
+        order.iter().filter_map(|&k| find(k)).collect()
+    }
+
+    /// Whether the animation for a standing creature is really a movement cycle, to be held at its first frame.
+    pub fn stands_on_walk(&self) -> bool {
+        let has = |key: u32| self.animations.iter().any(|a| a.0 == key);
+        !has(120) && !has(127) && has(100)
     }
 }
 
@@ -72,6 +91,13 @@ mod tests {
         assert_eq!(t.mesh, Some(0x43a4));
         assert_eq!(t.animation(Action::Walk), Some(17327));
         assert_eq!(t.animation(Action::Idle), Some(17321));
+        assert!(!t.stands_on_walk());
+        // a creature with no standing animation (a flier): the second standing one, else the walk held still
+        let flier = Template { animations: vec![(100, 1), (101, 2), (127, 3)], ..Default::default() };
+        assert_eq!(flier.animation(Action::Idle), Some(3));
+        let walker = Template { animations: vec![(100, 1)], ..Default::default() };
+        assert_eq!(walker.animation(Action::Idle), Some(1));
+        assert!(walker.stands_on_walk());
         assert_eq!(t.animation(Action::Run), Some(17327));
     }
 }

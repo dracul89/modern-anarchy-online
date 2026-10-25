@@ -1008,14 +1008,24 @@ impl Characters {
             Some((record, mesh, head))
         });
         let (record, mesh, head) = entry.as_ref()?;
-        let id = record.animation(action).or_else(|| record.animation(mao_formats::appearance::Action::Idle))?;
-        let anim_entry = self.creature_anims.entry(id).or_insert_with(|| {
-            let anim = mao_formats::catanim::parse(&db.get(Id { kind: 0xf6953, instance: id }).ok()??).ok()?;
-            let length = anim.tracks.iter().flat_map(|t| t.rotations.iter().map(|k| k.0)).fold(1.0f32, f32::max);
-            Some((anim, length))
-        });
+        // (the first of the action's animations the database really holds)
+        let mut chosen = None;
+        for (key, id) in record.animation_candidates(action) {
+            let loaded = self.creature_anims.entry(id).or_insert_with(|| {
+                let anim = mao_formats::catanim::parse(&db.get(Id { kind: 0xf6953, instance: id }).ok()??).ok()?;
+                let length = anim.tracks.iter().flat_map(|t| t.rotations.iter().map(|k| k.0)).fold(1.0f32, f32::max);
+                Some((anim, length))
+            });
+            if loaded.is_some() {
+                chosen = Some((key, id));
+                break;
+            }
+        }
+        let (key, id) = chosen?;
+        let anim_entry = self.creature_anims.get(&id)?;
         let (anim, length) = anim_entry.as_ref()?;
-        let t = (self.started.elapsed().as_secs_f32() * 1000.0 + phase) % length;
+        // (a creature that has no standing animation holds its walk's first frame while it stands)
+        let t = if action == mao_formats::appearance::Action::Idle && matches!(key, 100 | 101) { 0.0 } else { (self.started.elapsed().as_secs_f32() * 1000.0 + phase) % length };
         let bones = mesh.pose(anim, t);
         let mut parts = mesh.skinned_model(&bones, 0xf6954).parts;
         for part in &mut parts {
