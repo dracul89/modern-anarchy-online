@@ -564,6 +564,15 @@ fn run(args: &[String]) -> Result<(), String> {
                         }
                     }
                 }
+                if std::env::var_os("STATS").is_some() {
+                    let wanted = [428u32, 366, 361, 414, 413, 419, 460, 461, 462, 378, 377, 376, 270, 269, 272, 271, 183, 291];
+                    println!("{:#x} {} {:?}", id.instance, t.name, t.stats.iter().filter(|s| wanted.contains(&s.0)).collect::<Vec<_>>());
+                    found += 1;
+                    if found >= limit {
+                        break;
+                    }
+                    continue;
+                }
                 println!("{:#x} {}: {}", id.instance, t.name, spells.join(" "));
                 found += 1;
                 if found >= limit {
@@ -578,6 +587,20 @@ fn run(args: &[String]) -> Result<(), String> {
         if word == "creature" {
             let db = Arc::new(ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?);
             return net::creature_preview(db, number(template).ok_or("bad template")?, out);
+        }
+    }
+    // `instance-name <game> <instance hex>...`: the names the instance index gives to those instances, with their types.
+    if let [game, word, wanted @ ..] = args {
+        if word == "instance-name" {
+            let db = ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?;
+            let index = mao_formats::instances::Instances::parse(&db.get(Id { kind: 0xf424a, instance: 1 }).map_err(|e| e.to_string())?.ok_or("no index")?).map_err(|e| e.to_string())?;
+            let wanted: Vec<u32> = wanted.iter().filter_map(|w| number(w)).collect();
+            for (kind, name, instance) in index.iter() {
+                if wanted.contains(&instance) {
+                    println!("{instance:#x} {kind:#x} {name}");
+                }
+            }
+            return Ok(());
         }
     }
     // `dynel-kinds <game>`: how many built-in things of each identity type the playfields have.
