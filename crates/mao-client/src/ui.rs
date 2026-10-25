@@ -693,7 +693,7 @@ fn hotbar_layer(ctx: &egui::Context, bars: &mut Hotbars, gear: &mut GearWindow, 
     let bar = bars.current;
     // Drag it by its frame or the grip; the button beside the bar numbers turns it between horizontal and vertical.
     let screen = ctx.content_rect();
-    let pos = bars.pos.map_or(egui::pos2(screen.center().x, screen.bottom() - 96.0), |p| egui::pos2(p[0], p[1]));
+    let pos = bars.pos.map_or(egui::pos2(screen.center().x, screen.bottom() - 12.0), |p| egui::pos2(p[0], p[1]));
     let pos = egui::pos2(pos.x.clamp(screen.left() + 20.0, screen.right() - 20.0), pos.y.clamp(screen.top() + 60.0, screen.bottom()));
     let vertical = bars.vertical;
     let mut rotate = false;
@@ -933,7 +933,7 @@ fn hud_layer(ctx: &egui::Context, hud: &Hud, project: &dyn Fn(Vec3) -> Option<[f
     }
     let recent: Vec<&String> = hud.log.iter().filter(|(t, _)| t.elapsed() < Duration::from_secs(14)).map(|(_, m)| m).collect();
     if !recent.is_empty() {
-        egui::Area::new(egui::Id::unique("log")).anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(8.0, -72.0)).interactable(false).show(ctx, |ui| {
+        egui::Area::new(egui::Id::unique("log")).anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(225.0, -100.0)).interactable(false).show(ctx, |ui| {
             frame().show(ui, |ui| {
                 for line in recent {
                     ui.label(line);

@@ -196,3 +196,8 @@ mod tests {
         assert_eq!(load("nowhere-at-all/xyz", ""), Palette::built_in());
     }
 }
+
+/// The game's folder, when `set_game_dir` was given one.
+pub fn game_dir() -> Option<&'static Path> {
+    GAME.get().map(PathBuf::as_path)
+}
