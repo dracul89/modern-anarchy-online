@@ -8,7 +8,8 @@ use std::sync::Arc;
 
 use mao_net::session::{self, Connection};
 use mao_net::system::Character;
-use mao_render::{wgpu, Gpu};
+use mao_formats::resource::ResourceDatabase;
+use mao_render::{wgpu, Camera, Gpu, Renderer, Scene};
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
 use winit::event::WindowEvent;
@@ -99,6 +100,14 @@ struct Gfx {
     config: wgpu::SurfaceConfiguration,
     gpu: Gpu,
     ui: Ui,
+    renderer: Renderer,
+    /// The character shown in the window: its name, the scene and the textures that made it.
+    shown: Option<String>,
+    scene: Option<Scene>,
+    camera: Option<Camera>,
+    db: Option<(Arc<ResourceDatabase>, crate::Textures)>,
+    started: std::time::Instant,
+    frames: u32,
 }
 
 struct Launcher {
@@ -115,6 +124,10 @@ struct Launcher {
     answer: Option<Receiver<Result<Vec<Character>, String>>>,
     /// The character to play.
     chosen: Option<String>,
+    /// The character picked in the list (shown in the window; Play starts it).
+    selected: Option<String>,
+    /// `MAO_LAUNCHER_SHOT=out.png`: save a picture of the character screen and quit (with `MAO_LAUNCHER_DEMO=1`, three sample characters).
+    shot: Option<String>,
 }
 
 impl Launcher {
@@ -145,6 +158,58 @@ impl Launcher {
         });
     }
 
+    /// The character screen: the list on the left, the selected character in the window, Play at the bottom.
+    fn character_screen(&mut self, ctx: &egui::Context, list: &[Character], play: &mut Option<String>, back: &mut bool) {
+        let accent = egui::Color32::from_rgb(120, 200, 255);
+        egui::Window::new("Characters").title_bar(false).collapsible(false).resizable(false).anchor(egui::Align2::LEFT_CENTER, egui::vec2(16.0, 0.0)).fixed_size([280.0, 0.0]).show(ctx, |ui| {
+            ui.label(egui::RichText::new(format!("{} characters", list.len())).small().weak());
+            ui.separator();
+            for c in ordered(list, &self.last) {
+                let usable = c.created && !c.banned;
+                let picked = self.selected.as_deref() == Some(c.name.as_str());
+                let last = !self.last.is_empty() && c.name.eq_ignore_ascii_case(&self.last);
+                let title = if last { format!("{} (played last)", c.name) } else { c.name.clone() };
+                let mut text = egui::RichText::new(title).strong();
+                if c.banned {
+                    text = text.color(egui::Color32::from_rgb(240, 120, 110));
+                }
+                let response = ui.add_enabled(usable, egui::Button::selectable(picked, text).min_size(egui::vec2(ui.available_width(), 0.0)));
+                ui.label(egui::RichText::new(describe(c)).small().weak());
+                if c.banned {
+                    ui.label(egui::RichText::new("banned").small().color(egui::Color32::from_rgb(240, 120, 110)));
+                }
+                if response.clicked() {
+                    self.selected = Some(c.name.clone());
+                }
+                if response.double_clicked() {
+                    *play = Some(c.name.clone());
+                }
+                ui.add_space(4.0);
+            }
+        });
+        if let Some(c) = list.iter().find(|c| self.selected.as_deref() == Some(c.name.as_str())) {
+            egui::Area::new(egui::Id::new("who")).anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 18.0)).interactable(false).show(ctx, |ui| {
+                ui.vertical_centered(|ui| {
+                    ui.label(egui::RichText::new(&c.name).size(26.0).strong().color(egui::Color32::WHITE));
+                    ui.label(egui::RichText::new(describe(c)).color(accent));
+                });
+            });
+        }
+        egui::Area::new(egui::Id::new("bottom")).anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -22.0)).show(ctx, |ui| {
+            let ready = self.selected.is_some();
+            ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
+                if ui.add_enabled(ready, egui::Button::new(egui::RichText::new("Play").size(22.0).strong()).min_size(egui::vec2(240.0, 46.0))).clicked() {
+                    *play = self.selected.clone();
+                }
+            });
+        });
+        egui::Area::new(egui::Id::new("back")).anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(16.0, -22.0)).show(ctx, |ui| {
+            if ui.button("Back").clicked() {
+                *back = true;
+            }
+        });
+    }
+
     fn screen(&mut self, ctx: &egui::Context) {
         if let Some(rx) = &self.answer {
             if let Ok(result) = rx.try_recv() {
@@ -154,7 +219,10 @@ impl Launcher {
                         self.stage = Stage::Form;
                         self.message = "This account has no characters.".into();
                     }
-                    Ok(list) => self.stage = Stage::Characters(list),
+                    Ok(list) => {
+                        self.selected = ordered(&list, &self.last).into_iter().find(|c| c.created && !c.banned).map(|c| c.name.clone());
+                        self.stage = Stage::Characters(list);
+                    }
                     Err(e) => {
                         self.stage = Stage::Form;
                         self.message = format!("Login failed: {e}");
@@ -165,6 +233,11 @@ impl Launcher {
         let mut play = None;
         let mut back = false;
         let mut submit = false;
+        if let Stage::Characters(list) = &self.stage {
+            let list = list.clone();
+            self.character_screen(ctx, &list, &mut play, &mut back);
+        }
+        if !matches!(self.stage, Stage::Characters(_)) {
         egui::Window::new("Modern Anarchy Online").collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0)).default_width(360.0).show(ctx, |ui| match &self.stage {
             Stage::Form => {
                 egui::Grid::new("login").num_columns(2).spacing(egui::vec2(10.0, 8.0)).show(ui, |ui| {
@@ -198,33 +271,9 @@ impl Launcher {
                     ui.label("Logging in...");
                 });
             }
-            Stage::Characters(list) => {
-                ui.label(format!("{} characters", list.len()));
-                ui.separator();
-                for c in ordered(list, &self.last) {
-                    ui.horizontal(|ui| {
-                        ui.vertical(|ui| {
-                            let last = !self.last.is_empty() && c.name.eq_ignore_ascii_case(&self.last);
-                            ui.label(egui::RichText::new(if last { format!("{} (played last)", c.name) } else { c.name.clone() }).strong());
-                            ui.label(egui::RichText::new(describe(c)).small().weak());
-                        });
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            let usable = c.created && !c.banned;
-                            if ui.add_enabled(usable, egui::Button::new("Play")).clicked() {
-                                play = Some(c.name.clone());
-                            }
-                            if c.banned {
-                                ui.label(egui::RichText::new("banned").small().color(egui::Color32::from_rgb(240, 120, 110)));
-                            }
-                        });
-                    });
-                }
-                ui.separator();
-                if ui.button("Back").clicked() {
-                    back = true;
-                }
-            }
+            Stage::Characters(_) => {}
         });
+        }
         if submit && matches!(self.stage, Stage::Form) {
             self.log_in();
         }
@@ -256,9 +305,12 @@ impl ApplicationHandler for Launcher {
         let size = window.inner_size();
         let config = surface.get_default_config(&gpu.adapter, size.width.max(1), size.height.max(1)).expect("a surface format");
         surface.configure(&gpu.device, &config);
-        let ui = Ui::new(&window, &gpu, config.format, &self.settings);
+        // (a picture of the screen is drawn off screen in a format both the scene and the interface can use)
+        let format = if self.shot.is_some() { wgpu::TextureFormat::Rgba8UnormSrgb } else { config.format };
+        let ui = Ui::new(&window, &gpu, format, &self.settings);
+        let renderer = Renderer::new(&gpu, format);
         window.request_redraw();
-        self.gfx = Some(Gfx { window, surface, config, gpu, ui });
+        self.gfx = Some(Gfx { window, surface, config, gpu, ui, renderer, shown: None, scene: None, camera: None, db: None, started: std::time::Instant::now(), frames: 0 });
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
@@ -276,20 +328,72 @@ impl ApplicationHandler for Launcher {
             WindowEvent::RedrawRequested => match gfx.surface.get_current_texture() {
                 wgpu::CurrentSurfaceTexture::Success(frame) | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => {
                     let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
-                    // the background: a plain dark blue
-                    let mut encoder = gfx.gpu.device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-                    drop(encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: Some("launcher background"),
-                        color_attachments: &[Some(wgpu::RenderPassColorAttachment { view: &view, depth_slice: None, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.01, g: 0.03, b: 0.06, a: 1.0 }), store: wgpu::StoreOp::Store } })],
-                        depth_stencil_attachment: None,
-                        timestamp_writes: None,
-                        occlusion_query_set: None,
-                        multiview_mask: None,
-                    }));
-                    gfx.gpu.queue.submit(Some(encoder.finish()));
                     let size = (gfx.config.width, gfx.config.height);
                     let ui_frame = gfx.ui.run_custom(&gfx.window, &mut |ctx| self.screen(ctx));
-                    gfx.ui.paint(&gfx.gpu, &view, size, ui_frame);
+                    // the character picked in the list is built once and turned slowly
+                    let want = match &self.stage {
+                        Stage::Characters(list) => self.selected.as_ref().and_then(|n| list.iter().find(|c| &c.name == n)).cloned(),
+                        _ => None,
+                    };
+                    if want.as_ref().map(|c| &c.name) != gfx.shown.as_ref() {
+                        gfx.shown = want.as_ref().map(|c| c.name.clone());
+                        gfx.scene = None;
+                        if let Some(c) = &want {
+                            if gfx.db.is_none() {
+                                if let Ok(db) = ResourceDatabase::open_game(std::path::Path::new(&self.game)) {
+                                    let db = Arc::new(db);
+                                    gfx.db = Some((db.clone(), crate::Textures::new(db)));
+                                }
+                            }
+                            if let Some((db, textures)) = &gfx.db {
+                                if let Some(model) = crate::net::character_model(db, c.breed, c.sex) {
+                                    let mut scene = gfx.renderer.upload(&gfx.gpu, &model, &mut |k, i| textures.get(k, i));
+                                    scene.sky = ([0.05, 0.09, 0.15], [0.01, 0.03, 0.07]);
+                                    scene.fog = (400.0, 800.0);
+                                    let mut camera = Camera::fit(&scene);
+                                    // (the whole figure, from a little above its middle)
+                                    camera.distance = scene.radius * 3.0;
+                                    camera.pitch = 0.12;
+                                    gfx.camera = Some(camera);
+                                    gfx.scene = Some(scene);
+                                }
+                            }
+                        }
+                    }
+                    gfx.frames += 1;
+                    if let (Some(scene), Some(camera)) = (&gfx.scene, gfx.camera.as_mut()) {
+                        camera.yaw = 0.9 + gfx.started.elapsed().as_secs_f32() * 0.5;
+                        if let Some(out) = self.shot.clone().filter(|_| gfx.frames >= 4) {
+                            camera.yaw = 0.9;
+                            let camera = *camera;
+                            let mut frame_slot = Some(ui_frame);
+                            let pixels = gfx.renderer.render_to_image_with(&gfx.gpu, scene, &camera, size.0, size.1, &mut |target| {
+                                if let Some(f) = frame_slot.take() {
+                                    gfx.ui.paint(&gfx.gpu, target, size, f);
+                                }
+                            });
+                            let _ = image::save_buffer(&out, &pixels, size.0, size.1, image::ColorType::Rgba8);
+                            event_loop.exit();
+                            self.gfx = Some(gfx);
+                            return;
+                        }
+                        let camera = *camera;
+                        gfx.renderer.draw(&gfx.gpu, scene, &camera, &view, size);
+                        gfx.ui.paint(&gfx.gpu, &view, size, ui_frame);
+                    } else {
+                        // no character shown: a plain dark blue background
+                        let mut encoder = gfx.gpu.device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+                        drop(encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                            label: Some("launcher background"),
+                            color_attachments: &[Some(wgpu::RenderPassColorAttachment { view: &view, depth_slice: None, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.01, g: 0.03, b: 0.06, a: 1.0 }), store: wgpu::StoreOp::Store } })],
+                            depth_stencil_attachment: None,
+                            timestamp_writes: None,
+                            occlusion_query_set: None,
+                            multiview_mask: None,
+                        }));
+                        gfx.gpu.queue.submit(Some(encoder.finish()));
+                        gfx.ui.paint(&gfx.gpu, &view, size, ui_frame);
+                    }
                     gfx.window.pre_present_notify();
                     gfx.gpu.queue.present(frame);
                     if self.chosen.is_some() {
@@ -314,7 +418,14 @@ impl ApplicationHandler for Launcher {
 pub fn run(game: &str) -> Result<(), String> {
     let settings = Settings::load();
     let (user, last) = parse_account(&std::fs::read_to_string(account_path()).unwrap_or_default());
-    let mut launcher = Launcher { game: game.to_string(), settings, gfx: None, stage: Stage::Form, user, last, password: String::new(), server: std::env::var("MAO_SERVER").unwrap_or_else(|_| session::RUBI_KA.to_string()), message: String::new(), answer: None, chosen: None };
+    let mut launcher = Launcher { game: game.to_string(), settings, gfx: None, stage: Stage::Form, user, last, password: String::new(), server: std::env::var("MAO_SERVER").unwrap_or_else(|_| session::RUBI_KA.to_string()), message: String::new(), answer: None, chosen: None, selected: None, shot: std::env::var("MAO_LAUNCHER_SHOT").ok() };
+    // MAO_LAUNCHER_DEMO=1: three sample characters instead of a login (for pictures of the character screen).
+    if std::env::var_os("MAO_LAUNCHER_DEMO").is_some() {
+        let sample = |name: &str, breed, sex, profession, level| Character { name: name.into(), breed, sex, profession, level, created: true, area: "Old Athen".into(), ..Default::default() };
+        let list = vec![sample("Brasscasings", 1, 2, 9, 220), sample("Mothra", 3, 3, 12, 150), sample("Gorrak", 4, 2, 1, 80)];
+        launcher.selected = Some(std::env::var("MAO_LAUNCHER_PICK").ok().filter(|n| list.iter().any(|c| &c.name == n)).unwrap_or_else(|| list[0].name.clone()));
+        launcher.stage = Stage::Characters(list);
+    }
     let event_loop = EventLoop::new().map_err(|e| e.to_string())?;
     event_loop.run_app(&mut launcher).map_err(|e| e.to_string())?;
     let Some(name) = launcher.chosen.take() else { return Ok(()) };

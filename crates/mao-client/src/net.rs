@@ -1228,6 +1228,16 @@ impl Characters {
     }
 }
 
+/// A character of the launcher's list as the world draws it (its breed's and sex's body and head, standing), Z-up.
+pub(crate) fn character_model(db: &Arc<ResourceDatabase>, breed: i32, sex: i32) -> Option<Model> {
+    // (the Atrox has one body, whatever the list says)
+    let (breed, sex) = (breed as u8, if breed == 4 { 1 } else { sex as u8 });
+    let mut chars = Characters::new(db.clone()).ok()?;
+    let parts = chars.parts(0, breed, sex, None, None, 0.0, &[], &[], &[])?;
+    let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
+    Some(Model { instances: (0..parts.len()).map(|i| (i, swap)).collect(), parts, water: None })
+}
+
 /// `creature <game> <npc template> <out.png>`: a creature as the world draws it (what a polymorph turns a character into).
 pub(crate) fn creature_preview(db: Arc<ResourceDatabase>, template: u32, out: &str) -> Result<(), String> {
     let mut chars = Characters::new(db.clone())?;
