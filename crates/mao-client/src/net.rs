@@ -557,6 +557,8 @@ impl World {
                 if caster == self.own || target == self.own {
                     self.casts.push((caster, target, nano));
                 }
+                // The caster plays its casting animation (at itself or at someone).
+                self.socials.insert(caster, (if caster == target { "spell-self" } else { "spell-dir" }, Instant::now()));
             }
         }
         // A character's social action (a dance, a bow): the last word of the message is the action's number.

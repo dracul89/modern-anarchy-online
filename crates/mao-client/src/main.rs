@@ -550,7 +550,10 @@ fn run(args: &[String]) -> Result<(), String> {
             for id in db.ids().map_err(|e| e.to_string())?.filter_map(Result::ok).filter(|i| i.kind == 0xfde85) {
                 let Some(data) = db.get(id).ok().flatten() else { continue };
                 let Some(t) = mao_formats::item::Item::parse(&data) else { continue };
-                if t.stat(stat) != Some(value) {
+                if value != u32::MAX && t.stat(stat) != Some(value) {
+                    continue;
+                }
+                if value == u32::MAX && t.stat(stat).is_none() {
                     continue;
                 }
                 let word = |at: usize| u32::from_le_bytes(data[at..at + 4].try_into().unwrap());
@@ -566,7 +569,8 @@ fn run(args: &[String]) -> Result<(), String> {
                 }
                 if std::env::var_os("STATS").is_some() {
                     let wanted = [428u32, 366, 361, 414, 413, 419, 460, 461, 462, 378, 377, 376, 270, 269, 272, 271, 183, 291];
-                    println!("{:#x} {} {:?}", id.instance, t.name, t.stats.iter().filter(|s| wanted.contains(&s.0)).collect::<Vec<_>>());
+                    let all = std::env::var_os("ALL").is_some();
+                    println!("{:#x} {} {:?}", id.instance, t.name, t.stats.iter().filter(|s| all || wanted.contains(&s.0)).collect::<Vec<_>>());
                     found += 1;
                     if found >= limit {
                         break;
@@ -595,8 +599,9 @@ fn run(args: &[String]) -> Result<(), String> {
             let db = ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?;
             let index = mao_formats::instances::Instances::parse(&db.get(Id { kind: 0xf424a, instance: 1 }).map_err(|e| e.to_string())?.ok_or("no index")?).map_err(|e| e.to_string())?;
             let wanted: Vec<u32> = wanted.iter().filter_map(|w| number(w)).collect();
+            let text = std::env::var("NAME").ok().map(|n| n.to_lowercase());
             for (kind, name, instance) in index.iter() {
-                if wanted.contains(&instance) {
+                if wanted.contains(&instance) || text.as_ref().is_some_and(|t| name.to_lowercase().contains(t) && std::env::var("KIND").map_or(true, |k| k.eq_ignore_ascii_case(&format!("{kind:#x}")))) {
                     println!("{instance:#x} {kind:#x} {name}");
                 }
             }
