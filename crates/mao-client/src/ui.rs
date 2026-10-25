@@ -406,7 +406,7 @@ impl Ui {
             hud_layer(&ctx, hud, project, fps, settings.mode, palette);
             let booths: Vec<[f32; 2]> = hud.labels.iter().map(|l| [l.world.x, l.world.y]).collect();
             automap.show(&ctx, hud.position.map(|p| ([p[0], p[2]], hud.heading)), hud.camera_yaw, &hud.map_dots, &booths, &hud.location);
-            if let Some(w) = crate::vitals::show(&ctx, &hud.stats, &hud.stat_parts, palette, &|n| states.contains(&n)) {
+            if let Some(w) = crate::vitals::show(&ctx, hud.camera_yaw, &hud.stats, &hud.stat_parts, palette, &|n| states.contains(&n)) {
                 menu_click = Some(w);
             }
             hotbar_layer(&ctx, hotbars, gear, &hud.gear, &*actions, clock_now, palette, &mut requests);
@@ -577,7 +577,7 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
         let output = ctx.run_ui(raw, |ui| {
             let ctx = ui.ctx().clone();
             hud_layer(&ctx, hud, project, 60.0, settings.mode, &palette);
-            crate::vitals::show(&ctx, &hud.stats, &hud.stat_parts, &palette, &|_| false);
+            crate::vitals::show(&ctx, hud.camera_yaw, &hud.stats, &hud.stat_parts, &palette, &|_| false);
             hotbar_layer(&ctx, &mut hotbars, &mut gear, &hud.gear, &crate::actions::ActionsWindow::default(), 1.5, &palette, &mut requests);
             if hud.whompah_open {
                 whompah_window(&ctx, &mut true, hud, &palette, &mut requests);
@@ -924,7 +924,7 @@ fn hud_layer(ctx: &egui::Context, hud: &Hud, project: &dyn Fn(Vec3) -> Option<[f
     });
     }
     if let Some(target) = &hud.target {
-        egui::Area::new(egui::Id::unique("target")).anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 8.0)).interactable(false).show(ctx, |ui| {
+        egui::Area::new(egui::Id::unique("target")).anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 36.0)).interactable(false).show(ctx, |ui| {
             frame().show(ui, |ui| {
                 ui.label(egui::RichText::new("Target").small().color(accent));
                 ui.label(egui::RichText::new(target).strong());

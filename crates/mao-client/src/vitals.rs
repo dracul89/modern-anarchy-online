@@ -31,7 +31,7 @@ impl Skin {
         for line in index.lines().skip(2) {
             let mut parts = line.split_whitespace();
             let (Some(name), Some(offset), Some(length)) = (parts.next(), parts.next().and_then(|v| v.parse::<usize>().ok()), parts.next().and_then(|v| v.parse::<usize>().ok())) else { continue };
-            if !(name.starts_with("GFX_GUI_CONTROLCENTER_") || name.starts_with("GFX_GUI_CC_ICONS_")) {
+            if !(name.starts_with("GFX_GUI_CONTROLCENTER_") || name.starts_with("GFX_GUI_CC_ICONS_") || name.starts_with("GFX_GUI_COMPASS")) {
                 continue;
             }
             let Some(bytes) = atlas.get(offset..offset + length) else { continue };
@@ -75,6 +75,25 @@ fn skin(ctx: &egui::Context) -> Option<Arc<Skin>> {
     loaded
 }
 
+/// The compass: the strip (north, east, south, west and north again across 256 pixels) slides behind the frame so the bearing the
+/// camera looks along is under the frame's pointers. `yaw` is the camera's (the camera sits at (cos yaw, sin yaw) from the character).
+fn compass(ctx: &egui::Context, skin: &Skin, yaw: f32) {
+    let (Some((_, strip)), Some((_, frame))) = (skin.get("GFX_GUI_COMPASS_SCALE"), skin.get("GFX_GUI_COMPASS_FRAME")) else { return };
+    egui::Area::new(egui::Id::new("cc-compass")).anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 6.0)).interactable(false).show(ctx, |ui| {
+        let (rect, _) = ui.allocate_exact_size(*frame, egui::Sense::hover());
+        // the bearing, clockwise from north (the map's +z), of the way the camera looks
+        let bearing = (-yaw.cos()).atan2(-yaw.sin());
+        let fraction = bearing.rem_euclid(std::f32::consts::TAU) / std::f32::consts::TAU;
+        let inside = rect.shrink2(egui::vec2(6.0, 4.0));
+        let painter = ui.painter().with_clip_rect(inside);
+        let top = inside.center().y - strip.y * 0.5;
+        for copy in [-1.0f32, 0.0, 1.0] {
+            skin.draw(&painter, "GFX_GUI_COMPASS_SCALE", egui::pos2(inside.center().x - fraction * strip.x + copy * strip.x, top), 1.0, egui::Color32::WHITE);
+        }
+        skin.draw(ui.painter(), "GFX_GUI_COMPASS_FRAME", rect.min, 1.0, egui::Color32::WHITE);
+    });
+}
+
 /// One bar of the original's wings: a vertical groove (`BG`, 12 x 152) with the coloured bar (`FG`) rising in it.
 fn wing_bar(ui: &mut egui::Ui, skin: &Skin, painter: &egui::Painter, at: egui::Pos2, name: &str, tint: egui::Color32, value: Option<i64>, max: Option<i64>, label: &str) -> egui::Response {
     let max = match (value, max) {
@@ -100,10 +119,11 @@ fn wing_bar(ui: &mut egui::Ui, skin: &Skin, painter: &egui::Painter, at: egui::P
 
 /// The original's control center drawn from its own pictures: the left wing (health and nano) and the right wing (experience), with
 /// the menu strips under them. False when the pictures are not there.
-fn show_skinned(ctx: &egui::Context, stats: &BTreeMap<u32, i64>, parts: &BTreeMap<u32, crate::derived::Breakdown>, palette: &Palette, open: &dyn Fn(&str) -> bool, clicked: &mut Option<&'static str>) -> bool {
+fn show_skinned(ctx: &egui::Context, yaw: f32, stats: &BTreeMap<u32, i64>, parts: &BTreeMap<u32, crate::derived::Breakdown>, palette: &Palette, open: &dyn Fn(&str) -> bool, clicked: &mut Option<&'static str>) -> bool {
     let Some(skin) = skin(ctx) else { return false };
     let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
     let get = |s: u32| stats.get(&s).copied();
+    compass(ctx, &skin, yaw);
     for left in [true, false] {
         let anchor = if left { egui::Align2::LEFT_BOTTOM } else { egui::Align2::RIGHT_BOTTOM };
         let offset = egui::vec2(if left { 5.0 } else { -5.0 }, -5.0);
@@ -156,9 +176,9 @@ pub const RIGHT_MENU: &[(&str, &str, &str)] = &[("NCU", "ncu", "Nano control uni
 
 /// The original's bottom control center: the left menu, the bars (health, nano, experience, alien experience) and the right menu in one
 /// strip at the bottom of the screen. `open` says which windows are shown; returns the menu entry clicked, to toggle.
-pub fn show(ctx: &egui::Context, stats: &BTreeMap<u32, i64>, parts: &BTreeMap<u32, crate::derived::Breakdown>, palette: &Palette, open: &dyn Fn(&str) -> bool) -> Option<&'static str> {
+pub fn show(ctx: &egui::Context, yaw: f32, stats: &BTreeMap<u32, i64>, parts: &BTreeMap<u32, crate::derived::Breakdown>, palette: &Palette, open: &dyn Fn(&str) -> bool) -> Option<&'static str> {
     let mut clicked = None;
-    if show_skinned(ctx, stats, parts, palette, open, &mut clicked) {
+    if show_skinned(ctx, yaw, stats, parts, palette, open, &mut clicked) {
         return clicked;
     }
     show_inner(ctx, stats, parts, palette, open, &mut clicked);
