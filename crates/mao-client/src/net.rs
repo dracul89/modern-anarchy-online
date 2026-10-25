@@ -47,6 +47,18 @@ fn login(game: &str) -> Result<(Connection, Vec<Character>), String> {
 /// Follow a 0x3c redirect (entering a shop and the like): log in again at the
 /// default server (the redirect's address if that fails), ask for the same
 /// character and enter the world there.
+/// Follows a redirect the way the original does: straight to the game server it names, with the character and the session key the
+/// login handed out (every zoning of a session reuses the same key: the captures of the original show it, and it connects within
+/// a few milliseconds of the old connection's end). Logging in again instead is refused until the server lets go of the old session,
+/// which took a minute or more.
+fn hop_direct(target: &str, character: u32, key: [u8; 8]) -> Result<Connection, String> {
+    let (host, port) = target.rsplit_once(':').ok_or("a redirect without a port")?;
+    let octets: Vec<u8> = host.split('.').filter_map(|n| n.parse().ok()).collect();
+    let address: [u8; 4] = octets.try_into().map_err(|_| "a redirect that is not an address")?;
+    let ticket = system::Ticket { id: character, address, port: port.parse().map_err(|_| "a bad redirect port")?, key, rest: Vec::new() };
+    session::enter_world(&ticket).map_err(|e| e.to_string())
+}
+
 fn hop(game: &str, target: &str, character: u32, say: &dyn Fn(String)) -> Result<Connection, String> {
     let (user, password) = credentials()?;
     let version = version(game)?;
@@ -1548,7 +1560,7 @@ pub(crate) fn booth_labels(playfield: u32, booths: &[[f32; 3]], destinations: &c
 
 /// The window with the world updating in it: a thread reads the game
 /// server and sends the entities' markers over.
-fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World) -> Result<(), String> {
+fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World, session_key: [u8; 8]) -> Result<(), String> {
     crate::theme::set_game_dir(game);
     let db = Arc::new(ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?);
     let textures = crate::Textures::new(db.clone());
@@ -1865,12 +1877,17 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         eprintln!("the server sends us to {target}");
                         // The old session must be gone first, or the login is refused (the character is still logged in).
                         connection.close();
-                        std::thread::sleep(Duration::from_millis(1500));
                         let say = |text: String| {
                             let _ = tx.send(crate::viewer::Update { messages: vec![text], messages_only: true, ..Default::default() });
                         };
                         say("Zoning...".into());
-                        match hop(&game_dir, &target, own, &say).and_then(|mut c| c.set_timeout(Duration::from_millis(12)).map(|_| c).map_err(|e| e.to_string())) {
+                        // (straight to the new server with the session key; logging in again is the fallback)
+                        let hopped = hop_direct(&target, own, session_key).or_else(|e| {
+                            eprintln!("the direct hop failed ({e}); logging in again");
+                            std::thread::sleep(Duration::from_millis(1500));
+                            hop(&game_dir, &target, own, &say)
+                        });
+                        match hopped.and_then(|mut c| c.set_timeout(Duration::from_millis(12)).map(|_| c).map_err(|e| e.to_string())) {
                             Ok(next) => {
                                 connection = next;
                                 // The new playfield is loaded even if its number repeats.
@@ -2999,7 +3016,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
             drop(chat);
             let mut state = World { own: character.id, ..World::default() };
             if rest.iter().any(|a| a == "--live") {
-                return live(game, character.proxy[1], world, state);
+                return live(game, character.proxy[1], world, state, ticket.key);
             }
             let until = Instant::now() + Duration::from_secs(seconds);
             while Instant::now() < until {
