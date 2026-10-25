@@ -144,53 +144,84 @@ pub enum Action {
     /// The options window (window mode, keys).
     ToggleOptions,
     Quit,
+    /// Target the character itself (the original's F1).
+    SelectSelf,
+    /// Close the windows the original closes with Escape (dialogs, containers, shops, the options...).
+    CloseWindows,
+    /// Say where the character is in the chat window (the original's F9).
+    Coordinates,
+    /// Swap between the camera's distance and a first-person-close one (the original's F8).
+    CameraToggleView,
+    /// A special action or character action done at once (index into [`QUICK`]).
+    Quick(u8),
 }
+
+/// The special and character actions the original binds to keys: (name in the settings file, default key, the action's id in the
+/// Action window, its name).
+pub const QUICK: &[(&str, &str, u32, &str)] = &[
+    ("action_brawl", "B", 82210, "Brawl"),
+    ("action_burst", "M", 82211, "Burst"),
+    ("action_dimach", "K", 82213, "Dimach"),
+    ("action_fling_shot", "L", 82208, "Fling Shot"),
+    ("action_full_auto", "Comma", 82209, "Full Auto"),
+    ("action_reload", "V", 245003, "Reload"),
+    ("action_pick_up", "R", 49578, "Pick-Up"),
+    ("action_sneak", "H", 49575, "Sneak"),
+];
 
 /// Every action with its name in the settings file and its default keys.
 /// (The targets, chat and window actions are reserved: there is no interface
 /// for them yet, but the keys are already part of the settings.)
 pub const ACTIONS: &[(Action, &str, &str)] = &[
+    // The original's default keys (the shipped `CharPrefs.xml`'s bindings: the key codes and the hashed names of the actions).
     (Action::Forward, "forward", "W, Up"),
     (Action::Back, "back", "S, Down"),
     (Action::TurnLeft, "turn_left", "A, Left"),
     (Action::TurnRight, "turn_right", "D, Right"),
     (Action::Jump, "jump", "Space"),
-    (Action::NoClip, "noclip", "Ctrl+Shift+C"),
+    (Action::NoClip, "noclip", ""),
     (Action::StrafeLeft, "strafe_left", "Z"),
     (Action::StrafeRight, "strafe_right", "C"),
-    // The original's fixed camera commands (default keys assumed).
+    // The camera's keys sit on the numeric pad.
     (Action::CameraRotateLeft, "camera_rotate_left", "Numpad4"),
     (Action::CameraRotateRight, "camera_rotate_right", "Numpad6"),
-    (Action::CameraRotateUp, "camera_rotate_up", "Numpad8"),
-    (Action::CameraRotateDown, "camera_rotate_down", "Numpad2"),
-    (Action::CameraZoomIn, "camera_zoom_in", "PageUp, NumpadAdd"),
-    (Action::CameraZoomOut, "camera_zoom_out", "PageDown, NumpadSubtract"),
-    (Action::CameraReset, "camera_reset", "Home"),
-    (Action::CameraSavePreferred, "camera_save_preferred", "End"),
-    // The original's fixed targeting commands (default keys assumed).
+    (Action::CameraRotateUp, "camera_rotate_up", "Numpad2"),
+    (Action::CameraRotateDown, "camera_rotate_down", "Numpad8"),
+    (Action::CameraZoomIn, "camera_zoom_in", "NumpadAdd"),
+    (Action::CameraZoomOut, "camera_zoom_out", "NumpadSubtract"),
+    (Action::CameraReset, "camera_reset", "Numpad5"),
+    (Action::CameraSavePreferred, "camera_save_preferred", "Numpad7"),
+    (Action::CameraToggleView, "camera_toggle_view", "F8"),
     (Action::NextHostileTarget, "next_hostile_target", "Tab"),
     (Action::PrevHostileTarget, "prev_hostile_target", "Shift+Tab"),
     (Action::NextFriendlyTarget, "next_friendly_target", "Ctrl+Tab"),
     (Action::PrevFriendlyTarget, "prev_friendly_target", "Ctrl+Shift+Tab"),
-    (Action::Attack, "attack", "F"),
-    (Action::InventoryWindow, "inventory", "I"),
+    (Action::SelectSelf, "select_self", "F1"),
+    (Action::Attack, "attack", "Q"),
     (Action::SitStand, "sit_stand", "X"),
     (Action::Use, "use", "E"),
-    (Action::WhompahWindow, "whompah_window", "B"),
-    (Action::MissionWindow, "mission_window", "M"),
-    (Action::MailWindow, "mail_window", "Ctrl+M"),
-    (Action::ActionsWindow, "actions_window", "K"),
-    (Action::MapOverlay, "map_overlay", "O"),
-    (Action::StatsWindow, "stats_window", "U"),
-    (Action::SkillsWindow, "skills_window", "J"),
-    (Action::NcuWindow, "ncu_window", "N"),
-    (Action::FriendsWindow, "friends_window", "L"),
-    (Action::ProgramsWindow, "programs_window", "Ctrl+N"),
-    (Action::Screenshot, "screenshot", "F12"),
-    (Action::HelpWindow, "help_window", "Ctrl+H"),
+    // The windows: I the inventory (Ctrl+1 the worn gear, which is the same window here), U the skills, Ctrl+2 to Ctrl+0 the others.
+    (Action::InventoryWindow, "inventory", "I, Ctrl+1"),
+    (Action::SkillsWindow, "skills_window", "U"),
+    (Action::ActionsWindow, "actions_window", "Ctrl+2"),
+    (Action::MissionWindow, "mission_window", "Ctrl+4"),
+    (Action::MapOverlay, "map_overlay", "Ctrl+6"),
+    (Action::FriendsWindow, "friends_window", "Ctrl+7"),
+    (Action::ProgramsWindow, "programs_window", "Ctrl+8"),
+    (Action::StatsWindow, "stats_window", "Ctrl+9"),
+    (Action::NcuWindow, "ncu_window", "Ctrl+0"),
+    (Action::PerkWindow, "open_perk_window", "Shift+P"),
+    (Action::VehicleWindow, "open_vehicle_window", "Shift+V"),
+    // (This client's own windows have no key in the original: they are reached by using the booth or the terminal.)
+    (Action::WhompahWindow, "whompah_window", ""),
+    (Action::MailWindow, "mail_window", ""),
+    (Action::HelpWindow, "help_window", ""),
     (Action::UiLarger, "ui_larger", "Ctrl+Equal"),
     (Action::UiSmaller, "ui_smaller", "Ctrl+Minus"),
-    (Action::AutoRun, "auto_run", "NumpadMultiply"),
+    (Action::Screenshot, "screenshot", "F12"),
+    (Action::Coordinates, "coordinates", "F9"),
+    (Action::AutoRun, "auto_run", "Numpad0"),
+    // The shortcut bar: the keys 1 to 0 use the slots of the shown bar, Alt+1 to Alt+6 show another bar.
     (Action::HotbarSlot(0), "hotbar_slot_1", "1"),
     (Action::HotbarSlot(1), "hotbar_slot_2", "2"),
     (Action::HotbarSlot(2), "hotbar_slot_3", "3"),
@@ -201,26 +232,38 @@ pub const ACTIONS: &[(Action, &str, &str)] = &[
     (Action::HotbarSlot(7), "hotbar_slot_8", "8"),
     (Action::HotbarSlot(8), "hotbar_slot_9", "9"),
     (Action::HotbarSlot(9), "hotbar_slot_10", "0"),
-    (Action::HotbarBar(0), "hotbar_bar_1", "F1"),
-    (Action::HotbarBar(1), "hotbar_bar_2", "F2"),
-    (Action::HotbarBar(2), "hotbar_bar_3", "F3"),
-    (Action::HotbarBar(3), "hotbar_bar_4", "F4"),
-    (Action::HotbarBar(4), "hotbar_bar_5", "F5"),
-    (Action::HotbarBar(5), "hotbar_bar_6", "F6"),
-    // The original's fixed chat commands (default keys assumed).
+    (Action::HotbarBar(0), "hotbar_bar_1", "Alt+1"),
+    (Action::HotbarBar(1), "hotbar_bar_2", "Alt+2"),
+    (Action::HotbarBar(2), "hotbar_bar_3", "Alt+3"),
+    (Action::HotbarBar(3), "hotbar_bar_4", "Alt+4"),
+    (Action::HotbarBar(4), "hotbar_bar_5", "Alt+5"),
+    (Action::HotbarBar(5), "hotbar_bar_6", "Alt+6"),
+    // The special and character actions.
+    (Action::Quick(0), "action_brawl", "B"),
+    (Action::Quick(1), "action_burst", "M"),
+    (Action::Quick(2), "action_dimach", "K"),
+    (Action::Quick(3), "action_fling_shot", "L"),
+    (Action::Quick(4), "action_full_auto", "Comma"),
+    (Action::Quick(5), "action_reload", "V"),
+    (Action::Quick(6), "action_pick_up", "R"),
+    (Action::Quick(7), "action_sneak", "H"),
+    // The chat.
     (Action::ChatInput, "chat_input", "Enter"),
     (Action::ChatCommand, "chat_command", "Slash"),
-    (Action::ChatReply, "chat_reply", "Ctrl+R"),
-    (Action::ChatPageUp, "chat_history_page_up", "Shift+PageUp"),
-    (Action::ChatPageDown, "chat_history_page_down", "Shift+PageDown"),
-    (Action::PerkWindow, "open_perk_window", "P"),
-    (Action::VehicleWindow, "open_vehicle_window", ""),
+    (Action::ChatReply, "chat_reply", "Shift+R"),
+    (Action::ChatPageUp, "chat_history_page_up", "PageUp"),
+    (Action::ChatPageDown, "chat_history_page_down", "PageDown"),
     // This client.
+    (Action::CloseWindows, "close_windows", "Escape"),
     (Action::CycleWindowMode, "cycle_window_mode", "Alt+Enter"),
     (Action::ToggleFullscreen, "toggle_fullscreen", "F11"),
-    (Action::ToggleOptions, "options", "Escape, F10"),
+    (Action::ToggleOptions, "options", "F10"),
     (Action::Quit, "quit", "Ctrl+Q"),
 ];
+
+/// The version of the key table in the settings file: a file written for another version has its keys replaced by the defaults (the
+/// first versions used keys of this client's own).
+pub const KEYMAP_VERSION: u32 = 2;
 
 /// A key with the modifiers that must be held.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -409,6 +452,11 @@ impl Keymap {
         self.bindings.insert(action, keys.split(',').filter_map(parse_binding).collect());
     }
 
+    /// The bindings of an action (none when it is unbound).
+    pub fn bindings_of(&self, action: Action) -> Vec<Binding> {
+        self.bindings.get(&action).cloned().unwrap_or_default()
+    }
+
     pub fn keys(&self, action: Action) -> String {
         self.bindings.get(&action).map(|list| list.iter().map(binding_name).collect::<Vec<_>>().join(", ")).unwrap_or_default()
     }
@@ -438,12 +486,14 @@ pub struct Settings {
     pub theme: String,
     /// The AOU mod's folder (the one with `Gui` in it), for its themes.
     pub aou_mod: String,
+    /// The developer overlay: the location and coordinates, the frame rate and the shortcut bar's hint.
+    pub debug_overlay: bool,
     pub keymap: Keymap,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { mode: WindowMode::Windowed, width: 1280, height: 800, vsync: false, render_scale: 1.0, sharpness: 0.2, ui_scale: 1.0, view_distance: 1800.0, char_distance: 0.0, auto_loot: false, theme: "built-in".into(), aou_mod: String::new(), keymap: Keymap::default() }
+        Settings { mode: WindowMode::Windowed, width: 1280, height: 800, vsync: false, render_scale: 1.0, sharpness: 0.2, ui_scale: 1.0, view_distance: 1800.0, char_distance: 0.0, auto_loot: false, theme: "built-in".into(), aou_mod: String::new(), debug_overlay: false, keymap: Keymap::default() }
     }
 }
 
@@ -496,8 +546,9 @@ impl Settings {
     pub fn to_text(&self) -> String {
         let mut out = String::from("; Modern Anarchy Online settings\n[window]\n; windowed | borderless | fullscreen (F11 / Alt+Enter change it while playing)\n");
         out += &format!("mode = {}\nwidth = {}\nheight = {}\nvsync = {}\nrender_scale = {}\nsharpness = {}\nui_scale = {}\nview_distance = {}\nchar_distance = {}\nauto_loot = {}\n\n", self.mode.name(), self.width, self.height, if self.vsync { "on" } else { "off" }, self.render_scale, self.sharpness, self.ui_scale, self.view_distance, self.char_distance, if self.auto_loot { "on" } else { "off" });
-        out += &format!("[interface]\n; built-in | original | aou_translucent | aou_cyt | aou_slim_cni | aou_slim_cnt | a folder with GUIColors.xml\ntheme = {}\n; the AOU mod's folder (the one with Gui in it), for its themes\naou_mod = {}\n\n", self.theme, self.aou_mod);
+        out += &format!("[interface]\n; built-in | original | aou_translucent | aou_cyt | aou_slim_cni | aou_slim_cnt | a folder with GUIColors.xml\ntheme = {}\n; the AOU mod's folder (the one with Gui in it), for its themes\naou_mod = {}\n; show the location and coordinates, the frame rate and key hints over the game (for developers)\ndebug_overlay = {}\n\n", self.theme, self.aou_mod, if self.debug_overlay { "on" } else { "off" });
         out += "[keys]\n; one or more keys per action, separated by commas; Shift+, Ctrl+ and Alt+ combine\n";
+        out += &format!("version = {KEYMAP_VERSION}\n");
         for &(action, name, _) in ACTIONS {
             out += &format!("{name} = {}\n", self.keymap.keys(action));
         }
@@ -508,6 +559,9 @@ impl Settings {
     pub fn from_text(text: &str) -> Settings {
         let mut settings = Settings::default();
         let mut section = String::new();
+        // (the key lines wait until the file's key version is known)
+        let mut key_lines: Vec<(usize, String, String)> = Vec::new();
+        let mut key_version = 0u32;
         for (n, raw) in text.lines().enumerate() {
             let line = raw.split(';').next().unwrap_or("").trim();
             if line.is_empty() {
@@ -538,18 +592,27 @@ impl Settings {
                 ("window", "height") => settings.height = value.parse().unwrap_or(settings.height).clamp(240, 16384),
                 ("interface", "theme") => settings.theme = value.to_string(),
                 ("interface", "aou_mod") => settings.aou_mod = value.to_string(),
-                ("keys", name) => match ACTIONS.iter().find(|(_, n, _)| *n == name) {
+                ("interface", "debug_overlay") => settings.debug_overlay = matches!(value.to_ascii_lowercase().as_str(), "on" | "true" | "1" | "yes"),
+                ("keys", "version") => key_version = value.parse().unwrap_or(0),
+                ("keys", name) => key_lines.push((n, name.to_string(), value.to_string())),
+                _ => eprintln!("settings line {}: unknown setting {key:?}", n + 1),
+            }
+        }
+        if key_version == KEYMAP_VERSION {
+            for (n, name, value) in key_lines {
+                match ACTIONS.iter().find(|(_, n, _)| *n == name) {
                     Some(&(action, _, _)) => {
                         let bad: Vec<&str> = value.split(',').map(str::trim).filter(|k| !k.is_empty() && parse_binding(k).is_none()).collect();
                         if !bad.is_empty() {
                             eprintln!("settings line {}: unknown keys {bad:?}", n + 1);
                         }
-                        settings.keymap.set(action, value);
+                        settings.keymap.set(action, &value);
                     }
                     None => eprintln!("settings line {}: unknown action {name:?}", n + 1),
-                },
-                _ => eprintln!("settings line {}: unknown setting {key:?}", n + 1),
+                }
             }
+        } else if !key_lines.is_empty() {
+            eprintln!("the keys of an older settings file are replaced by the original's defaults");
         }
         settings
     }
@@ -673,7 +736,7 @@ mod tests {
         for &(action, _, _) in ACTIONS {
             assert_eq!(again.keymap.keys(action), defaults.keymap.keys(action));
         }
-        let custom = Settings::from_text("[window]\nmode = Borderless ; fine\nwidth = 1920\n[interface]\ntheme = aou_cyt\naou_mod = C:/mods/aou\n[keys]\nforward = Up\njump = Ctrl+Space\n");
+        let custom = Settings::from_text("[window]\nmode = Borderless ; fine\nwidth = 1920\n[interface]\ntheme = aou_cyt\naou_mod = C:/mods/aou\n[keys]\nversion = 2\nforward = Up\njump = Ctrl+Space\n");
         assert_eq!((custom.theme.as_str(), custom.aou_mod.as_str()), ("aou_cyt", "C:/mods/aou"));
         assert_eq!(Settings::from_text(&custom.to_text()).theme, "aou_cyt");
         assert_eq!(custom.mode, WindowMode::Borderless);
@@ -699,5 +762,49 @@ mod tests {
         assert_eq!(WindowMode::parse("Borderless"), Some(WindowMode::Borderless));
         assert_eq!(WindowMode::parse("exclusive"), Some(WindowMode::Fullscreen));
         assert_eq!(WindowMode::parse("tiny"), None);
+    }
+
+    #[test]
+    fn the_defaults_are_the_originals_and_no_key_is_bound_twice() {
+        let k = Keymap::default();
+        assert_eq!(k.keys(Action::Forward), "W, Up");
+        assert_eq!(k.keys(Action::StrafeLeft), "Z");
+        assert_eq!(k.keys(Action::StrafeRight), "C");
+        assert_eq!(k.keys(Action::Attack), "Q");
+        assert_eq!(k.keys(Action::SkillsWindow), "U");
+        assert_eq!(k.keys(Action::InventoryWindow), "I, Ctrl+1");
+        assert_eq!(k.keys(Action::ToggleOptions), "F10");
+        assert_eq!(k.keys(Action::SelectSelf), "F1");
+        assert_eq!(k.keys(Action::AutoRun), "Numpad0");
+        assert_eq!(k.keys(Action::CameraRotateUp), "Numpad2");
+        assert_eq!(k.keys(Action::ChatReply), "Shift+R");
+        assert_eq!(k.keys(Action::HotbarBar(2)), "Alt+3");
+        assert_eq!(k.keys(Action::Quick(0)), "B");
+        // no two actions share a key and its modifiers
+        let mut seen = std::collections::HashMap::new();
+        for &(action, name, _) in ACTIONS {
+            for b in k.bindings_of(action) {
+                if let Some(other) = seen.insert(b, name) {
+                    panic!("{other} and {name} are both bound to {}", binding_name(&b));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_keys_of_an_older_file_give_way_to_the_defaults() {
+        let old = "[keys]
+forward = Y
+attack = F
+";
+        assert_eq!(Settings::from_text(old).keymap.keys(Action::Forward), "W, Up");
+        let current = format!("[keys]
+version = {KEYMAP_VERSION}
+forward = Y
+");
+        assert_eq!(Settings::from_text(&current).keymap.keys(Action::Forward), "Y");
+        // what is written reads back
+        let text = Settings::default().to_text();
+        assert_eq!(Settings::from_text(&text).keymap.keys(Action::Attack), "Q");
     }
 }

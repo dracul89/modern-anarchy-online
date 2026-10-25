@@ -290,6 +290,8 @@ struct App {
     /// The nano programs running on characters (see `Update::auras`) and the clock their sparks run on.
     auras: Vec<(bool, [f32; 3], Vec<mao_formats::gfx::Visual>)>,
     fx_clock: std::time::Instant,
+    /// The camera's distance before it was pulled to the character's head (F8), when it is.
+    home_distance: Option<f32>,
     /// The cast effects running: when each began, where, and its emitters.
     bursts: Vec<(std::time::Instant, [f32; 3], Vec<mao_formats::gfx::Emitter>)>,
     shots: Vec<(std::time::Instant, crate::effects::Shot)>,
@@ -354,7 +356,8 @@ fn apply_mode(window: &Window, mode: WindowMode) {
 pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<(), String> {
     let event_loop = EventLoop::new().map_err(|e| e.to_string())?;
     let settings = Settings::load();
-    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), auras: Vec::new(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), tried_sprites: Default::default(), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false };
+    crate::ui::set_debug_overlay(settings.debug_overlay);
+    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), auras: Vec::new(), fx_clock: std::time::Instant::now(), home_distance: None, bursts: Vec::new(), shots: Vec::new(), tried_sprites: Default::default(), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false };
     event_loop.run_app(&mut app).map_err(|e| e.to_string())
 }
 
@@ -597,6 +600,35 @@ impl ApplicationHandler for App {
                             };
                             apply_mode(&w.window, self.settings.mode);
                             eprintln!("window mode: {} (set `mode` in {} to keep it)", self.settings.mode.name(), Settings::path().display());
+                        }
+                        Action::CloseWindows if !event.repeat => {
+                            if let Some(ui) = w.ui.as_mut() {
+                                ui.close_with_escape();
+                            }
+                        }
+                        Action::SelectSelf if !event.repeat => {
+                            self.keys.select_self = self.keys.select_self.wrapping_add(1);
+                        }
+                        Action::Coordinates if !event.repeat => {
+                            if let Some([x, _, z]) = self.hud.position {
+                                let place = if self.hud.location.is_empty() { String::new() } else { format!("{}, ", self.hud.location) };
+                                self.hud.say(format!("{place}{x:.0}, {z:.0}"));
+                            }
+                        }
+                        Action::CameraToggleView if !event.repeat => {
+                            // (between where the camera is and right behind the character's head)
+                            match self.home_distance.take() {
+                                Some(d) => w.camera.distance = d,
+                                None => {
+                                    self.home_distance = Some(w.camera.distance);
+                                    w.camera.distance = 1.5;
+                                }
+                            }
+                        }
+                        Action::Quick(n) if !event.repeat => {
+                            if let Some(&(_, _, id, name)) = crate::settings::QUICK.get(n as usize) {
+                                fire_action(&crate::hotbar::Action::Special { id, name: name.to_string(), icon: None }, &mut self.keys, &mut self.hud);
+                            }
                         }
                         Action::HotbarBar(n) if !event.repeat => {
                             if let Some(ui) = w.ui.as_mut() {

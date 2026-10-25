@@ -175,6 +175,17 @@ pub struct Frame {
     pixels_per_point: f32,
 }
 
+static DEBUG_OVERLAY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Whether the developer overlay is on (the `debug_overlay` setting, or `MAO_DEBUG_HUD` in the environment).
+pub fn debug_overlay() -> bool {
+    DEBUG_OVERLAY.load(std::sync::atomic::Ordering::Relaxed) || std::env::var_os("MAO_DEBUG_HUD").is_some()
+}
+
+pub fn set_debug_overlay(on: bool) {
+    DEBUG_OVERLAY.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
 pub struct Ui {
     ctx: egui::Context,
     state: egui_winit::State,
@@ -281,6 +292,22 @@ impl Ui {
     /// pointer is over one of its windows) and the game should not.
     pub fn event(&mut self, window: &Window, event: &WindowEvent) -> bool {
         self.state.on_window_event(window, event).consumed
+    }
+
+    /// What Escape does in the original: closes the windows that are set to close with it (dialogs, containers, shops, the options and
+    /// the perk window; the inventory, the nano and the character windows stay). True when a window was closed.
+    pub fn close_with_escape(&mut self) -> bool {
+        let open = self.options_open || self.loot.open || self.shop.open || self.perks.open || self.whompah_open || self.mail.open || self.mission.open || self.help.open;
+        self.options_open = false;
+        self.rebinding = None;
+        self.loot.open = false;
+        self.shop.open = false;
+        self.perks.open = false;
+        self.whompah_open = false;
+        self.mail.open = false;
+        self.mission.open = false;
+        self.help.open = false;
+        open
     }
 
     /// Shows or hides a window by name (`/open`, `/close`); an empty name with `open` false hides them all. False for an unknown name.
@@ -659,8 +686,8 @@ fn hotbar_layer(ctx: &egui::Context, bars: &mut Hotbars, gear: &mut GearWindow, 
                         bars.current = b;
                     }
                 }
-                if !vertical {
-                    ui.label(egui::RichText::new("F1-F6 bars, 1-0 slots, drag items here, right-click to edit").small().weak());
+                if !vertical && debug_overlay() {
+                    ui.label(egui::RichText::new("Alt+1-6 bars, 1-0 slots, drag items here, right-click to edit").small().weak());
                 }
             });
             let direction = if vertical { egui::Direction::TopDown } else { egui::Direction::LeftToRight };
@@ -852,6 +879,8 @@ fn hud_layer(ctx: &egui::Context, hud: &Hud, project: &dyn Fn(Vec3) -> Option<[f
         painter.galley(pos, galley, color);
     }
     let frame = || egui::Frame::new().fill(egui::Color32::from_black_alpha(130)).corner_radius(4).inner_margin(6);
+    // (the location, the coordinates and the frame rate are for developers: the original shows none of them)
+    if debug_overlay() {
     egui::Area::new(egui::Id::unique("info")).anchor(egui::Align2::LEFT_TOP, egui::vec2(8.0, 8.0)).interactable(false).show(ctx, |ui| {
         frame().show(ui, |ui| {
             if !hud.location.is_empty() {
@@ -864,12 +893,13 @@ fn hud_layer(ctx: &egui::Context, hud: &Hud, project: &dyn Fn(Vec3) -> Option<[f
     });
     egui::Area::new(egui::Id::unique("fps")).anchor(egui::Align2::RIGHT_TOP, egui::vec2(-8.0, 8.0)).interactable(false).show(ctx, |ui| {
         frame().show(ui, |ui| {
-            ui.label(format!("{fps:.0} fps  {}  (Esc: options)", mode.name()));
+            ui.label(format!("{fps:.0} fps  {}  (F10: options)", mode.name()));
             if !hud.draw_info.is_empty() {
                 ui.label(egui::RichText::new(&hud.draw_info).small());
             }
         });
     });
+    }
     if let Some(target) = &hud.target {
         egui::Area::new(egui::Id::unique("target")).anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 8.0)).interactable(false).show(ctx, |ui| {
             frame().show(ui, |ui| {
