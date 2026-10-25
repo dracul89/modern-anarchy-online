@@ -72,6 +72,8 @@ pub struct Hud {
     /// Numbers rising over the fight.
     pub floaters: Vec<Floater>,
     pub glows: Vec<Glow>,
+    /// Characters under running nano programs: where they stand (Z-up) and the colour of each program.
+    pub auras: Vec<(Vec3, Vec<[u8; 3]>)>,
     /// The names floating over the characters and creatures near.
     pub nameplates: Vec<(crate::automap::DotKind, [f32; 3], String)>,
     pub labels: Vec<Label>,
@@ -800,6 +802,37 @@ fn hud_layer(ctx: &egui::Context, hud: &Hud, project: &dyn Fn(Vec3) -> Option<[f
         painter.rect_filled(rect.expand(4.0), 4.0, egui::Color32::from_black_alpha(150));
         painter.rect_stroke(rect.expand(4.0), 4.0, egui::Stroke::new(1.0, accent), egui::StrokeKind::Outside);
         painter.galley(rect.min, galley, egui::Color32::WHITE);
+    }
+    // The nano programs a character is running: a pulsing glow at its feet and sparks rising round it, one colour per program.
+    let time = ctx.input(|i| i.time) as f32;
+    for (world, colours) in &hud.auras {
+        let (Some([fx, fy]), Some([_, hy])) = (project(*world), project(*world + Vec3::new(0.0, 0.0, 1.9))) else { continue };
+        let feet = egui::pos2(screen.left() + fx * screen.width(), screen.top() + fy * screen.height());
+        // (the figure's height on the screen sizes the effect: near ones are big, far ones small)
+        let height = ((fy - hy) * screen.height()).abs().clamp(8.0, 600.0);
+        for (k, c) in colours.iter().enumerate() {
+            let phase = time * 1.6 + k as f32 * 1.7;
+            let pulse = 0.5 + 0.5 * phase.sin();
+            // a soft column of light around the body, brighter as it pulses
+            let body = egui::pos2(feet.x, feet.y - height * 0.5);
+            for (scale, a) in [(1.0f32, 30.0f32), (0.75, 36.0), (0.5, 42.0)] {
+                painter.add(egui::Shape::ellipse_filled(body, egui::vec2(height * 0.36 * scale, height * 0.62 * scale), egui::Color32::from_rgba_unmultiplied(c[0], c[1], c[2], (a + 22.0 * pulse) as u8)));
+            }
+            let radius = height * (0.30 + 0.07 * pulse);
+            let alpha = (28.0 + 40.0 * pulse) as u8;
+            for (scale, a) in [(1.0f32, alpha / 2), (0.7, alpha), (0.4, alpha)] {
+                painter.circle_filled(egui::pos2(feet.x, feet.y), radius * scale, egui::Color32::from_rgba_unmultiplied(c[0], c[1], c[2], a));
+            }
+            painter.circle_stroke(feet, radius, egui::Stroke::new(1.2, egui::Color32::from_rgba_unmultiplied(c[0], c[1], c[2], 150)));
+            // sparks that climb the body and fade
+            for n in 0..3 {
+                let rise = ((time * 0.45 + k as f32 * 0.31 + n as f32 / 3.0) % 1.0).clamp(0.0, 1.0);
+                let sway = (time * 2.3 + n as f32 * 2.1 + k as f32).sin() * height * 0.12;
+                let at = egui::pos2(feet.x + sway, feet.y - rise * height * 1.05);
+                let a = ((1.0 - rise) * 200.0) as u8;
+                painter.circle_filled(at, (height * 0.035).max(2.0), egui::Color32::from_rgba_unmultiplied(c[0], c[1], c[2], a));
+            }
+        }
     }
     // A nano program landing: rings that widen and fade around the target.
     for g in &hud.glows {

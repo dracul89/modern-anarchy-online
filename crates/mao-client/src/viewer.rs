@@ -97,6 +97,8 @@ pub struct Update {
     pub floaters: Vec<([f32; 3], String, u8)>,
     /// Where a nano program landed (Z-up) and the glow's colour.
     pub glows: Vec<([f32; 3], [u8; 3])>,
+    /// Who is under running nano programs (Z-up feet position, one colour per program), the whole list each update.
+    pub auras: Vec<([f32; 3], Vec<[u8; 3]>)>,
     /// What the server said of the specials' recharge (skill stat, seconds; 0 = ready).
     pub special_cooldowns: Vec<(u32, f32)>,
     /// The ground (and how far the server's heights sit above it), to keep the camera above it.
@@ -845,6 +847,7 @@ impl ApplicationHandler for App {
                         for (world, color) in std::mem::take(&mut u.glows) {
                             self.hud.glows.push(crate::ui::Glow { world: mao_render::glam::Vec3::from(world), color, born: std::time::Instant::now() });
                         }
+                        self.hud.auras = u.auras.iter().map(|(p, c)| (mao_render::glam::Vec3::from(*p), c.clone())).collect();
                         self.hud.glows.retain(|g| g.born.elapsed().as_secs_f32() < crate::ui::GLOW_LIFE);
                         self.hud.floaters.retain(|f| f.born.elapsed().as_secs_f32() < crate::ui::FLOATER_LIFE);
                         if let Some(labels) = u.labels.take() {

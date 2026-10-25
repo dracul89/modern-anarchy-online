@@ -175,6 +175,8 @@ struct World {
     morphs: BTreeMap<u32, u32>,
     /// `Buff` messages not yet looked at: (character, nano program). The server repeats a character's buffs every twenty seconds or so.
     buffs_seen: Vec<(u32, u32)>,
+    /// The programs other characters run, with when their buff was last announced (the server repeats them about every twenty seconds).
+    active_buffs: BTreeMap<u32, BTreeMap<u32, Instant>>,
     /// The polymorph of each other character: the creature and when its program was last announced.
     morphed_until: BTreeMap<u32, (u32, Instant)>,
     /// Health and maximum from the info packets (the server answers an info request with them).
@@ -533,6 +535,7 @@ impl World {
                 let nano = p.value.get("Buff").and_then(|b| b.get("Instance")).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
                 if nano != 0 && m.identity.1 != self.own {
                     self.buffs_seen.push((m.identity.1, nano));
+                    self.active_buffs.entry(m.identity.1).or_default().insert(nano, Instant::now());
                 }
             }
         }
@@ -1834,6 +1837,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut take_seen = 0u8;
         let mut put_seen = 0u8;
         let mut saved_look: Option<crate::look::Look> = None;
+        let mut aura_colours: std::collections::HashMap<u32, [u8; 3]> = std::collections::HashMap::new();
         let mut polymorph_cache: std::collections::HashMap<u32, Option<u32>> = std::collections::HashMap::new();
         let mut delete_seen = 0u8;
         let mut cancel_seen = 0u8;
@@ -2802,6 +2806,40 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             .collect()
                     },
                     special_cooldowns: std::mem::take(&mut state.special_events),
+                    auras: {
+                        // (the character's own programs from its list, the others' from the buffs seen lately)
+                        state.active_buffs.retain(|_, nanos| {
+                            nanos.retain(|_, at| at.elapsed() < Duration::from_secs(30));
+                            !nanos.is_empty()
+                        });
+                        let mut colour_of = |nano: u32| -> [u8; 3] {
+                            *aura_colours.entry(nano).or_insert_with(|| {
+                                let t = gear_db.get(mao_formats::resource::Id { kind: 0xfde85, instance: nano }).ok().flatten().and_then(|d| mao_formats::item::Item::parse(&d));
+                                crate::ui::glow_color(t.as_ref().and_then(|t| t.stat(460)), t.as_ref().and_then(|t| t.stat(461)), t.as_ref().and_then(|t| t.stat(462)), t.as_ref().and_then(|t| t.stat(405)).unwrap_or(0))
+                            })
+                        };
+                        let mut list: Vec<([f32; 3], Vec<[u8; 3]>)> = Vec::new();
+                        let mut add = |at: [f32; 3], nanos: Vec<u32>| {
+                            let mut colours: Vec<[u8; 3]> = Vec::new();
+                            for n in nanos {
+                                let c = colour_of(n);
+                                if !colours.contains(&c) {
+                                    colours.push(c);
+                                }
+                            }
+                            colours.truncate(4);
+                            if !colours.is_empty() {
+                                list.push(([at[0], at[2], at[1]], colours));
+                            }
+                        };
+                        add(position, state.nanos.clone());
+                        for (id, nanos) in &state.active_buffs {
+                            if let Some((p, _)) = state.entities.get(id).filter(|_| *id != own) {
+                                add(*p, nanos.keys().copied().collect());
+                            }
+                        }
+                        list
+                    },
                     glows: std::mem::take(&mut state.landed)
                         .into_iter()
                         .filter_map(|(id, nano)| {
