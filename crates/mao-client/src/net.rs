@@ -154,6 +154,9 @@ struct World {
     levels: BTreeMap<u32, u8>,
     /// The organization name of the characters an `OrgInfoPacket` told about.
     orgs: BTreeMap<u32, String>,
+    /// The worn meshes of each character from its `AppearanceUpdate`: attachment position, static mesh instance and the texture
+    /// instance that replaces the mesh's own (0 for none).
+    equipment: BTreeMap<u32, Vec<(u8, u32, u32)>>,
     /// Health and maximum from the info packets (the server answers an info request with them).
     health: BTreeMap<u32, (i64, i64)>,
     /// The health each character was last known to have (from the damage events: the target's health after the hit).
@@ -467,6 +470,29 @@ impl World {
                 if let Some(line) = line {
                     self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
                 }
+            }
+        }
+        // What a character wears: its clothes' textures and the meshes held at its body's attachment points.
+        if m.kind == 0x41624f0d {
+            if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
+                let list = |name: &str| match p.value.get(name) {
+                    Some(mao_net::schema::Value::List(l)) => l.clone(),
+                    _ => Vec::new(),
+                };
+                let field = |v: &mao_net::schema::Value, name: &str| v.get(name).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
+                if let Some(info) = self.infos.get_mut(&m.identity.1) {
+                    for t in list("Textures") {
+                        if let Some(part) = CLOTH_PARTS.get(field(&t, "Place") as usize) {
+                            info.clothes.retain(|(n, _)| n != part);
+                            if field(&t, "Id") != 0 {
+                                info.clothes.push((part.to_string(), field(&t, "Id")));
+                            }
+                        }
+                    }
+                }
+                let mut meshes: Vec<(u32, u8, u32, u32)> = list("Meshes").iter().map(|v| (field(v, "Layer"), field(v, "Position") as u8, field(v, "Id"), field(v, "OverrideTextureId"))).collect();
+                meshes.sort();
+                self.equipment.insert(m.identity.1, meshes.into_iter().map(|(_, at, mesh, texture)| (at, mesh, texture)).collect());
             }
         }
         if m.kind == 0x2e2a4a6b {
@@ -843,6 +869,38 @@ struct Characters {
     started: Instant,
     /// Machine models by mesh instance.
     props: std::collections::HashMap<u32, Option<Vec<Part>>>,
+    /// Worn static meshes (hair, helmets, weapons, shoulder pads) by instance.
+    statics: std::collections::HashMap<u32, Option<Model>>,
+}
+
+/// The body parts a texture place of an `AppearanceUpdate` names (the cloth list's order).
+const CLOTH_PARTS: [&str; 6] = ["hands", "body", "feet", "arms", "legs", "head"];
+
+/// The attachment point of a worn mesh: its position counts from the body's `Attractor01_head`
+/// (head, right hand, left hand, right shoulder, left shoulder, back).
+fn attractor_name(position: u8) -> String {
+    format!("Attractor{:02}", position as u32 + 1)
+}
+
+/// The worn static meshes of a character held at their attachment points of the posed body.
+/// `gear` is (attachment position, static mesh instance, replacement texture instance or 0).
+pub(crate) fn wear(db: &ResourceDatabase, cache: &mut std::collections::HashMap<u32, Option<Model>>, body: &mao_formats::catmesh::CatMesh, bones: &[mao_formats::catmesh::BoneMatrix], gear: &[(u8, u32, u32)]) -> Vec<Part> {
+    use mao_formats::resource::Id;
+    let mut parts = Vec::new();
+    for &(position, mesh, texture) in gear {
+        let Some(point) = body.attractor(&attractor_name(position)) else { continue };
+        let piece = cache.entry(mesh).or_insert_with(|| crate::load_model(db, Id { kind: 0xf6951, instance: mesh }).ok());
+        if let Some(piece) = piece {
+            let mut worn = body.attach(bones, point, piece);
+            if texture != 0 {
+                for part in &mut worn {
+                    part.material.textures = vec![(0xf6954, texture)];
+                }
+            }
+            parts.extend(worn);
+        }
+    }
+    parts
 }
 
 /// How long a change of animation is cross-faded, in seconds.
@@ -886,7 +944,7 @@ impl Characters {
         let get = |kind: u32, instance: u32| db.get(Id { kind, instance }).map_err(|e| e.to_string())?.ok_or_else(|| format!("no object {kind:#x}:{instance:#x}"));
         let index = mao_formats::instances::Instances::parse(&get(0xf424a, 1)?).map_err(|e| e.to_string())?;
         let _ = get;
-        Ok(Characters { db, index, anims: Default::default(), bodies: Default::default(), creatures: Default::default(), creature_anims: Default::default(), motions: Default::default(), segment: 0, poses: Default::default(), started: Instant::now(), props: Default::default() })
+        Ok(Characters { db, index, anims: Default::default(), bodies: Default::default(), creatures: Default::default(), creature_anims: Default::default(), motions: Default::default(), segment: 0, poses: Default::default(), started: Instant::now(), props: Default::default(), statics: Default::default() })
     }
 
     /// The parts of a machine's model (Y-up local space), loaded once.
@@ -970,7 +1028,7 @@ impl Characters {
     }
 
     /// The parts of a character doing a social action `age_ms` into it, or `None` when the animation is missing or over.
-    fn parts_social(&mut self, breed: u8, sex: u8, name: &str, age_ms: f32, textures: &[(String, u32)], clothes: &[(String, u32)]) -> Option<Vec<Part>> {
+    fn parts_social(&mut self, breed: u8, sex: u8, name: &str, age_ms: f32, textures: &[(String, u32)], clothes: &[(String, u32)], gear: &[(u8, u32, u32)]) -> Option<Vec<Part>> {
         use mao_formats::resource::Id;
         let key = self.ensure_social(breed, sex, name)?;
         let db = self.db.clone();
@@ -998,6 +1056,7 @@ impl Characters {
         if let Some(a) = attractor {
             model.parts.extend(body.attach(&bones, a, head));
         }
+        model.parts.extend(wear(&db, &mut self.statics, body, &bones, gear));
         let mut parts = model.parts;
         for p in &mut parts {
             p.world = model::IDENTITY;
@@ -1083,7 +1142,7 @@ impl Characters {
 
     /// The parts of a player of this breed and sex at `t` ms into the walk,
     /// in Y-up local space (world matrices identity), if its meshes exist.
-    fn parts(&mut self, id: u32, breed: u8, sex: u8, moving: Option<mao_formats::appearance::Action>, jumped: Option<Duration>, phase: f32, textures: &[(String, u32)], clothes: &[(String, u32)]) -> Option<Vec<Part>> {
+    fn parts(&mut self, id: u32, breed: u8, sex: u8, moving: Option<mao_formats::appearance::Action>, jumped: Option<Duration>, phase: f32, textures: &[(String, u32)], clothes: &[(String, u32)], gear: &[(u8, u32, u32)]) -> Option<Vec<Part>> {
         use mao_formats::resource::Id;
         let (action, at) = self.motion(id, breed, sex, moving, jumped);
         let key = (action, self.segment);
@@ -1128,6 +1187,7 @@ impl Characters {
         if let Some(a) = attractor {
             model.parts.extend(body.attach(&bones, a, head));
         }
+        model.parts.extend(wear(&db, &mut self.statics, body, &bones, gear));
         let mut parts = model.parts;
         for p in &mut parts {
             p.world = model::IDENTITY;
@@ -1162,7 +1222,7 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
         let info = world.infos.get(&id).filter(|i| i.is_humanoid());
         // (a social action in progress plays its own animation)
         if let (Some(info), Some(chars), Some(&(social, began))) = (info, characters.as_mut(), world.socials.get(&id)) {
-            if let Some(parts) = chars.parts_social(info.breed, info.sex, social, began.elapsed().as_secs_f32() * 1000.0, &info.textures, &info.clothes) {
+            if let Some(parts) = chars.parts_social(info.breed, info.sex, social, began.elapsed().as_secs_f32() * 1000.0, &info.textures, &info.clothes, world.equipment.get(&id).map_or(&[][..], |v| v.as_slice())) {
                 let base = model.parts.len();
                 for (k, p) in parts.into_iter().enumerate() {
                     model.parts.push(p);
@@ -1178,7 +1238,7 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
             let action = if !moving { None } else if speed > 5.5 { Some(mao_formats::appearance::Action::Run) } else { Some(mao_formats::appearance::Action::Walk) };
             let jumped = world.jumped.get(&id).map(|t| t.elapsed());
             // (A phase per entity keeps a crowd from moving in step.)
-            if let Some(parts) = chars.parts(id, info.breed, info.sex, action, jumped, (id % 997) as f32 * 3.0, &info.textures, &info.clothes) {
+            if let Some(parts) = chars.parts(id, info.breed, info.sex, action, jumped, (id % 997) as f32 * 3.0, &info.textures, &info.clothes, world.equipment.get(&id).map_or(&[][..], |v| v.as_slice())) {
                 let base = model.parts.len();
                 for (k, p) in parts.into_iter().enumerate() {
                     model.parts.push(p);
@@ -2894,6 +2954,38 @@ pub fn run(args: &[String]) -> Result<(), String> {
                 }
             }
             Ok(())
+        }
+        // `net <game dir> gear-preview <capture.log> <connection> <playfield> <out.png>`: the characters one connection of a capture
+        // shows (with the clothes and meshes of their appearance updates) on a playfield's map.
+        [game, word, log, wanted, pf, out] if word == "gear-preview" => {
+            let pf: u32 = pf.parse().map_err(|_| "bad playfield")?;
+            let text = std::fs::read_to_string(log).map_err(|e| e.to_string())?;
+            let mut reader = Reader::default();
+            let mut world = World::default();
+            for line in text.lines() {
+                let f: Vec<&str> = line.split_whitespace().collect();
+                let (Some(tag), Some(connection)) = (f.get(1), f.last()) else { continue };
+                if connection != wanted {
+                    continue;
+                }
+                if *tag == "OPEN" {
+                    reader = Reader::default();
+                }
+                if *tag != "S>C" || f.len() < 5 {
+                    continue;
+                }
+                let bytes: Vec<u8> = (0..f[3].len() / 2).filter_map(|i| u8::from_str_radix(&f[3][2 * i..2 * i + 2], 16).ok()).collect();
+                if reader.push(&bytes).is_err() {
+                    continue;
+                }
+                while let Ok(Some(m)) = reader.next() {
+                    if m.kind == frame::N3 {
+                        world.add(&m);
+                    }
+                }
+            }
+            eprintln!("{} entities, {} with equipment", world.entities.len(), world.equipment.len());
+            show_world(game, pf, &world, Some(out))
         }
         [game, word, log] if word == "inventory" => inventory_from_capture(game, log),
         [word, log, kind, rest @ ..] if word == "msg-dump" => msg_dump(log, kind, rest.first().and_then(|n| n.parse().ok()).unwrap_or(3)),

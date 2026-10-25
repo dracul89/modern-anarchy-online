@@ -492,6 +492,22 @@ fn run(args: &[String]) -> Result<(), String> {
             return Ok(());
         }
     }
+    // `attractors <game> <breed> <sex>`: the attachment points of a character's body (where heads, helmets and weapons go).
+    if let [game, word, breed, sex] = args {
+        if word == "attractors" {
+            let db = ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?;
+            let index = mao_formats::instances::Instances::parse(&db.get(Id { kind: 0xf424a, instance: 1 }).map_err(|e| e.to_string())?.ok_or("no index")?).map_err(|e| e.to_string())?;
+            let (body_name, _) = mao_formats::appearance::player_meshes(breed.parse().map_err(|_| "breed")?, sex.parse().map_err(|_| "sex")?).ok_or("no such body")?;
+            let instance = index.find(0xf6952, body_name).ok_or("body not found")?;
+            let body = mao_formats::catmesh::parse(&db.get(Id { kind: 0xf6952, instance }).map_err(|e| e.to_string())?.ok_or("empty")?).map_err(|e| e.to_string())?;
+            for g in &body.groups {
+                for a in &g.attractors {
+                    println!("{:<28} bone {:>3}  pos {:.2?}  quat {:.2?} scale {:.2}", a.name, a.extra, &a.values[0..3], &a.values[3..7], a.values[7]);
+                }
+            }
+            return Ok(());
+        }
+    }
     // `dynel-kinds <game>`: how many built-in things of each identity type the playfields have.
     if let [game, word] = args {
         if word == "dynel-kinds" {
@@ -965,7 +981,15 @@ fn run(args: &[String]) -> Result<(), String> {
                 [flag, out, ms] if flag == "--image" => Some((out.as_str(), ms.parse().map_err(|_| "bad time")?)),
                 _ => None,
             };
-            return anim::player(db, breed.parse().map_err(|_| "bad breed")?, sex.parse().map_err(|_| "bad sex")?, number(animation).ok_or("bad animation")?, image);
+            // (an animation by number, or by file name such as male_idle-stand_01_01.ani)
+            let animation = match number(animation) {
+                Some(n) => n,
+                None => {
+                    let index = mao_formats::instances::Instances::parse(&db.get(Id { kind: 0xf424a, instance: 1 }).map_err(|e| e.to_string())?.ok_or("no index")?).map_err(|e| e.to_string())?;
+                    index.find(0xf6953, animation).ok_or("bad animation")?
+                }
+            };
+            return anim::player(db, breed.parse().map_err(|_| "bad breed")?, sex.parse().map_err(|_| "bad sex")?, animation, image);
         }
     }
     // A character mesh with an animation: <game> <mesh type> <mesh> <animation> [--image out.png [ms]]

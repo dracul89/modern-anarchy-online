@@ -65,12 +65,24 @@ pub fn player(db: Arc<ResourceDatabase>, breed: u8, sex: u8, anim: u32, image: O
     let animation: CatAnim = catanim::parse(&load(&db, 0xf6953, anim)?).map_err(|e| e.to_string())?;
     let length = length(&animation);
     let attractor = body.attractor("head").cloned();
+    // MAO_WEAR=position:mesh:texture,... (hex instances; texture 0 for the mesh's own): meshes held at the body's attachment points.
+    let gear: Vec<(u8, u32, u32)> = std::env::var("MAO_WEAR")
+        .unwrap_or_default()
+        .split(',')
+        .filter_map(|t| {
+            let f: Vec<&str> = t.split(':').collect();
+            Some((f.first()?.parse().ok()?, u32::from_str_radix(f.get(1)?, 16).ok()?, u32::from_str_radix(f.get(2).unwrap_or(&"0"), 16).ok()?))
+        })
+        .collect();
+    let db_for_gear = db.clone();
+    let statics = std::cell::RefCell::new(std::collections::HashMap::new());
     let pose = move |t: f32| -> Model {
         let bones = body.pose(&animation, t);
         let mut model = body.skinned_model(&bones, 0xf6954);
         if let Some(a) = &attractor {
             model.parts.extend(body.attach(&bones, a, &head));
         }
+        model.parts.extend(crate::net::wear(&db_for_gear, &mut statics.borrow_mut(), &body, &bones, &gear));
         model
     };
     let textures = Textures::new(db);
