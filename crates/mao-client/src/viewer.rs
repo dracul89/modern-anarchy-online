@@ -95,6 +95,8 @@ pub struct Update {
     pub nameplates: Vec<(crate::automap::DotKind, [f32; 3], String)>,
     /// Numbers to float over the fight: Z-up position, text and kind (see `ui::Floater`).
     pub floaters: Vec<([f32; 3], String, u8)>,
+    /// Where a nano program landed (Z-up) and the glow's colour.
+    pub glows: Vec<([f32; 3], [u8; 3])>,
     /// What the server said of the specials' recharge (skill stat, seconds; 0 = ready).
     pub special_cooldowns: Vec<(u32, f32)>,
     /// The ground (and how far the server's heights sit above it), to keep the camera above it.
@@ -835,6 +837,10 @@ impl ApplicationHandler for App {
                         for (world, text, kind) in std::mem::take(&mut u.floaters) {
                             self.hud.floaters.push(crate::ui::Floater { world: mao_render::glam::Vec3::from(world), text, kind, born: std::time::Instant::now() });
                         }
+                        for (world, color) in std::mem::take(&mut u.glows) {
+                            self.hud.glows.push(crate::ui::Glow { world: mao_render::glam::Vec3::from(world), color, born: std::time::Instant::now() });
+                        }
+                        self.hud.glows.retain(|g| g.born.elapsed().as_secs_f32() < crate::ui::GLOW_LIFE);
                         self.hud.floaters.retain(|f| f.born.elapsed().as_secs_f32() < crate::ui::FLOATER_LIFE);
                         if let Some(labels) = u.labels.take() {
                             self.hud.labels = labels.into_iter().map(|(p, text)| Label { world: mao_render::glam::Vec3::from(p), text }).collect();

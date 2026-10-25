@@ -788,6 +788,12 @@ fn run(args: &[String]) -> Result<(), String> {
                             hud.floaters.push(ui::Floater { world: mao_render::glam::Vec3::new(449.0 + dx, 313.0 + dz, 10.0), text: text.to_string(), kind, born: std::time::Instant::now() + std::time::Duration::from_secs(60) });
                         }
                     }
+                    // MAO_PLATES=1 also shows a glow of each colour a nano program can have.
+                    if std::env::var_os("MAO_PLATES").is_some() {
+                        for (k, color) in [[120u8, 200, 255], [255, 170, 90], [150, 255, 150]].into_iter().enumerate() {
+                            hud.glows.push(ui::Glow { world: mao_render::glam::Vec3::new(449.0 + 6.0 * k as f32 - 6.0, 313.0 + 12.0, 10.0), color, born: std::time::Instant::now() + std::time::Duration::from_secs(60) });
+                        }
+                    }
                     // MAO_PLATES=1: sample names floating over the ground near the point the preview looks at.
                     if std::env::var_os("MAO_PLATES").is_some() {
                         use automap::DotKind::*;

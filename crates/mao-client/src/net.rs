@@ -154,6 +154,8 @@ struct World {
     levels: BTreeMap<u32, u8>,
     /// The organization name of the characters an `OrgInfoPacket` told about.
     orgs: BTreeMap<u32, String>,
+    /// Nano programs that landed: (target, nano id), to be drawn as glows.
+    landed: Vec<(u32, u32)>,
     /// The worn meshes of each character from its `AppearanceUpdate`: attachment position, static mesh instance and the texture
     /// instance that replaces the mesh's own (0 for none).
     equipment: BTreeMap<u32, Vec<(u8, u32, u32)>>,
@@ -557,6 +559,7 @@ impl World {
                 if caster == self.own || target == self.own {
                     self.casts.push((caster, target, nano));
                 }
+                self.landed.push((target, nano));
                 // The caster plays its casting animation (at itself or at someone).
                 self.socials.insert(caster, (if caster == target { "spell-self" } else { "spell-dir" }, Instant::now()));
             }
@@ -2675,6 +2678,15 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             .collect()
                     },
                     special_cooldowns: std::mem::take(&mut state.special_events),
+                    glows: std::mem::take(&mut state.landed)
+                        .into_iter()
+                        .filter_map(|(id, nano)| {
+                            let at = if id == own { position } else { state.entities.get(&id)?.0 };
+                            let data = gear_db.get(mao_formats::resource::Id { kind: 0xfde85, instance: nano }).ok().flatten()?;
+                            let t = mao_formats::item::Item::parse(&data)?;
+                            Some(([at[0], at[2], at[1] + 1.2], crate::ui::glow_color(t.stat(460), t.stat(461), t.stat(462), t.stat(405).unwrap_or(0))))
+                        })
+                        .collect(),
                     floaters: std::mem::take(&mut state.damage)
                         .into_iter()
                         .filter(|(_, amount, _)| *amount != 0)
