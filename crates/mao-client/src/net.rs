@@ -2832,10 +2832,13 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                 list.push(([at[0], at[2], at[1]], colours));
                             }
                         };
-                        add(position, state.nanos.clone());
-                        for (id, nanos) in &state.active_buffs {
-                            if let Some((p, _)) = state.entities.get(id).filter(|_| *id != own) {
-                                add(*p, nanos.keys().copied().collect());
+                        // (the stand-in aura is off unless asked for: `MAO_AURAS=1`; the real effects are in `Setupf/gfxtweak.bin`, not decoded yet)
+                        if std::env::var_os("MAO_AURAS").is_some() {
+                            add(position, state.nanos.clone());
+                            for (id, nanos) in &state.active_buffs {
+                                if let Some((p, _)) = state.entities.get(id).filter(|_| *id != own) {
+                                    add(*p, nanos.keys().copied().collect());
+                                }
                             }
                         }
                         list
