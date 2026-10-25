@@ -903,6 +903,15 @@ struct Characters {
     props: std::collections::HashMap<u32, Option<Vec<Part>>>,
     /// Worn static meshes (hair, helmets, weapons, shoulder pads) by instance.
     statics: std::collections::HashMap<u32, Option<Model>>,
+    /// The player head meshes (`head_solitusmale12.abiff` and so on): an appearance update that names one at position 0 replaces
+    /// the breed's default head.
+    head_meshes: std::collections::HashSet<u32>,
+}
+
+/// Whether a static mesh's file name is a player head (`head_opifexfemale37.abiff`, `head_athrox05.abiff`).
+fn is_head_name(name: &str) -> bool {
+    let name = name.to_lowercase();
+    ["head_solitus", "head_opifex", "head_nano", "head_athrox", "head_oldguy"].iter().any(|p| name.starts_with(p)) && name.ends_with(".abiff")
 }
 
 /// The body parts a texture place of an `AppearanceUpdate` names (the cloth list's order).
@@ -976,7 +985,8 @@ impl Characters {
         let get = |kind: u32, instance: u32| db.get(Id { kind, instance }).map_err(|e| e.to_string())?.ok_or_else(|| format!("no object {kind:#x}:{instance:#x}"));
         let index = mao_formats::instances::Instances::parse(&get(0xf424a, 1)?).map_err(|e| e.to_string())?;
         let _ = get;
-        Ok(Characters { db, index, anims: Default::default(), bodies: Default::default(), creatures: Default::default(), creature_anims: Default::default(), motions: Default::default(), segment: 0, poses: Default::default(), started: Instant::now(), props: Default::default(), statics: Default::default() })
+        let head_meshes = index.iter().filter(|(kind, name, _)| *kind == 0xf6951 && is_head_name(name)).map(|(_, _, instance)| instance).collect();
+        Ok(Characters { head_meshes, db, index, anims: Default::default(), bodies: Default::default(), creatures: Default::default(), creature_anims: Default::default(), motions: Default::default(), segment: 0, poses: Default::default(), started: Instant::now(), props: Default::default(), statics: Default::default() })
     }
 
     /// The parts of a machine's model (Y-up local space), loaded once.
@@ -1063,6 +1073,7 @@ impl Characters {
     fn parts_social(&mut self, breed: u8, sex: u8, name: &str, age_ms: f32, textures: &[(String, u32)], clothes: &[(String, u32)], gear: &[(u8, u32, u32)]) -> Option<Vec<Part>> {
         use mao_formats::resource::Id;
         let key = self.ensure_social(breed, sex, name)?;
+        let custom_head = gear.iter().any(|g| g.0 == 0 && self.head_meshes.contains(&g.1));
         let db = self.db.clone();
         let index = &self.index;
         let entry = self.bodies.entry((breed, sex)).or_insert_with(|| {
@@ -1085,7 +1096,7 @@ impl Characters {
                 part.material.textures = vec![(0xf6954, *instance)];
             }
         }
-        if let Some(a) = attractor {
+        if let (Some(a), false) = (attractor, custom_head) {
             model.parts.extend(body.attach(&bones, a, head));
         }
         model.parts.extend(wear(&db, &mut self.statics, body, &bones, gear));
@@ -1185,6 +1196,7 @@ impl Characters {
             None => (None, Instant::now()),
         };
         let from = from.filter(|_| fade_at.elapsed().as_secs_f32() < FADE);
+        let custom_head = gear.iter().any(|g| g.0 == 0 && self.head_meshes.contains(&g.1));
         let name = self.ensure_anim(breed, sex, action);
         let from_name = from.map(|(a, _)| self.ensure_anim(breed, sex, a));
         let db = self.db.clone();
@@ -1216,7 +1228,7 @@ impl Characters {
                 part.material.textures = vec![(0xf6954, *instance)];
             }
         }
-        if let Some(a) = attractor {
+        if let (Some(a), false) = (attractor, custom_head) {
             model.parts.extend(body.attach(&bones, a, head));
         }
         model.parts.extend(wear(&db, &mut self.statics, body, &bones, gear));
