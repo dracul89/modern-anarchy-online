@@ -310,6 +310,21 @@ impl Ui {
         open
     }
 
+    /// Whether the window of that name is shown (the names of [`Ui::set_window`]).
+    pub fn window_open(&self, name: &str) -> bool {
+        match name {
+            "inventory" => self.gear_open,
+            "stats" => self.stats.open,
+            "ncu" => self.ncu.open,
+            "programs" => self.programs.open,
+            "actions" => self.actions.open,
+            "missions" => self.mission.open,
+            "friends" => self.friends.open,
+            "map" => self.automap.overlay,
+            _ => false,
+        }
+    }
+
     /// Shows or hides a window by name (`/open`, `/close`); an empty name with `open` false hides them all. False for an unknown name.
     pub fn set_window(&mut self, name: &str, open: bool) -> bool {
         let name = name.trim().to_lowercase();
@@ -372,6 +387,8 @@ impl Ui {
             crate::layout::save_open(&names);
             self.open_seen = names;
         }
+        let states: Vec<&str> = ["inventory", "stats", "ncu", "programs", "actions", "missions", "friends", "map"].into_iter().filter(|n| self.window_open(n)).collect();
+        let mut menu_click: Option<&'static str> = None;
         let raw = self.state.take_egui_input(window);
         let mut requests = Requests::default();
         let (options_open, rebinding, fps, palette, themes) = (&mut self.options_open, &mut self.rebinding, self.fps, &self.palette, &self.themes);
@@ -389,7 +406,9 @@ impl Ui {
             hud_layer(&ctx, hud, project, fps, settings.mode, palette);
             let booths: Vec<[f32; 2]> = hud.labels.iter().map(|l| [l.world.x, l.world.y]).collect();
             automap.show(&ctx, hud.position.map(|p| ([p[0], p[2]], hud.heading)), hud.camera_yaw, &hud.map_dots, &booths, &hud.location);
-            crate::vitals::show(&ctx, &hud.stats, &hud.stat_parts, palette);
+            if let Some(w) = crate::vitals::show(&ctx, &hud.stats, &hud.stat_parts, palette, &|n| states.contains(&n)) {
+                menu_click = Some(w);
+            }
             hotbar_layer(&ctx, hotbars, gear, &hud.gear, &*actions, clock_now, palette, &mut requests);
             if stats_window.open {
                 stats_window.show(&ctx, &hud.character_name, &hud.stats, &hud.stat_parts, palette);
@@ -465,6 +484,10 @@ impl Ui {
         });
         if !self.ctx.input(|i| i.pointer.any_down()) {
             crate::gear::DRAGGED.store(u32::MAX, std::sync::atomic::Ordering::Relaxed);
+        }
+        if let Some(name) = menu_click {
+            let now = self.window_open(name);
+            self.set_window(name, !now);
         }
         self.state.handle_platform_output(window, output.platform_output);
         let jobs = self.ctx.tessellate(output.shapes, output.pixels_per_point);
@@ -554,7 +577,7 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
         let output = ctx.run_ui(raw, |ui| {
             let ctx = ui.ctx().clone();
             hud_layer(&ctx, hud, project, 60.0, settings.mode, &palette);
-            crate::vitals::show(&ctx, &hud.stats, &hud.stat_parts, &palette);
+            crate::vitals::show(&ctx, &hud.stats, &hud.stat_parts, &palette, &|_| false);
             hotbar_layer(&ctx, &mut hotbars, &mut gear, &hud.gear, &crate::actions::ActionsWindow::default(), 1.5, &palette, &mut requests);
             if hud.whompah_open {
                 whompah_window(&ctx, &mut true, hud, &palette, &mut requests);
@@ -670,7 +693,7 @@ fn hotbar_layer(ctx: &egui::Context, bars: &mut Hotbars, gear: &mut GearWindow, 
     let bar = bars.current;
     // Drag it by its frame or the grip; the button beside the bar numbers turns it between horizontal and vertical.
     let screen = ctx.content_rect();
-    let pos = bars.pos.map_or(egui::pos2(screen.center().x, screen.bottom() - 12.0), |p| egui::pos2(p[0], p[1]));
+    let pos = bars.pos.map_or(egui::pos2(screen.center().x, screen.bottom() - 96.0), |p| egui::pos2(p[0], p[1]));
     let pos = egui::pos2(pos.x.clamp(screen.left() + 20.0, screen.right() - 20.0), pos.y.clamp(screen.top() + 60.0, screen.bottom()));
     let vertical = bars.vertical;
     let mut rotate = false;
