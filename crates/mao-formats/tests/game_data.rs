@@ -103,3 +103,19 @@ fn playfield_statels() {
         assert!(db.get(Id { kind: 0xf6951, instance: s.mesh }).unwrap().is_some(), "mesh {:#x}", s.mesh);
     }
 }
+
+#[test]
+fn the_effect_templates_are_read_to_the_last_word() {
+    let Some(game) = std::env::var_os("MAO_GAME").map(PathBuf::from) else { return };
+    let data = std::fs::read(game.join("Setupf").join("gfxtweak.bin")).unwrap();
+    let gfx = mao_formats::gfx::Gfx::parse(&data).unwrap();
+    assert_eq!(gfx.records.len(), 2687);
+    // a nano's cast, hit, tracer and gather effects, and the buff of a blue aura
+    assert_eq!(gfx.get(46133).unwrap().kind, 1010);
+    assert_eq!(gfx.get(43010).unwrap().kind, 2001);
+    assert_eq!(gfx.get(17300).unwrap().kind, 2004);
+    assert_eq!(gfx.get(49999).unwrap().kind, 2007);
+    assert_eq!(gfx.get(1000).unwrap().kind, 1001);
+    // the cast effect's tree reaches its six parts
+    assert!(gfx.tree(46133).len() >= 7);
+}

@@ -686,6 +686,26 @@ fn run(args: &[String]) -> Result<(), String> {
             return Ok(());
         }
     }
+    // `gfx <game> <effect id>...`: an effect template and everything it refers to (the nano effects of `Setupf/gfxtweak.bin`).
+    if let [game, word, ids @ ..] = args {
+        if word == "gfx" && !ids.is_empty() {
+            let data = std::fs::read(Path::new(game).join("Setupf").join("gfxtweak.bin")).map_err(|e| e.to_string())?;
+            let gfx = mao_formats::gfx::Gfx::parse(&data).map_err(|e| e.to_string())?;
+            for id in ids {
+                let id: i32 = id.parse().map_err(|_| "bad effect id")?;
+                for r in gfx.tree(id) {
+                    let cells: Vec<String> = r
+                        .payload
+                        .iter()
+                        .map(|&w| if w >= 100 && gfx.get(w).is_some() && w != r.id { format!(">{w}") } else if w.unsigned_abs() > 1 << 20 && f32::from_bits(w as u32).abs() > 1e-5 && f32::from_bits(w as u32).abs() < 1e6 { format!("{:.3}", f32::from_bits(w as u32)) } else { w.to_string() })
+                        .collect();
+                    println!("{} kind {} [{}]", r.id, r.kind, cells.join(" "));
+                }
+                println!();
+            }
+            return Ok(());
+        }
+    }
     // `dynel-kinds <game>`: how many built-in things of each identity type the playfields have.
     if let [game, word] = args {
         if word == "dynel-kinds" {
