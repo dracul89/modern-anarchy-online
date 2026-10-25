@@ -316,6 +316,9 @@ impl Ui {
     pub fn window_open(&self, name: &str) -> bool {
         match name {
             "inventory" => self.gear_open,
+            "skills" => self.skills.open,
+            "perks" => self.perks.open,
+            "help" => self.help.open,
             "stats" => self.stats.open,
             "ncu" => self.ncu.open,
             "programs" => self.programs.open,
@@ -487,8 +490,10 @@ impl Ui {
         if !self.ctx.input(|i| i.pointer.any_down()) {
             crate::gear::DRAGGED.store(u32::MAX, std::sync::atomic::Ordering::Relaxed);
         }
-        if let Some(name) = menu_click.filter(|n| n.starts_with("target_")) {
-            requests.target = Some(u8::from(name == "target_next"));
+        if let Some(n) = menu_click.and_then(|n| ["target_self", "target_next", "camera_1st", "camera_3rd"].iter().position(|t| *t == n)) {
+            requests.target = Some(n as u8);
+        } else if menu_click == Some("options") {
+            self.options_open = !self.options_open;
         } else if let Some(name) = menu_click {
             let now = self.window_open(name);
             self.set_window(name, !now);

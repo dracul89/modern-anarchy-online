@@ -118,6 +118,90 @@ fn target_buttons(ctx: &egui::Context, skin: &Skin, clicked: &mut Option<&'stati
     }
 }
 
+/// What an entry of a control center sub-menu does.
+#[derive(Clone, Copy)]
+enum Entry {
+    /// Toggle a window (the names of `Ui::set_window`, and "options").
+    Window(&'static str),
+    /// Open another menu.
+    Menu(&'static str),
+    /// A camera mode: "camera_1st" or "camera_3rd".
+    Camera(&'static str),
+}
+
+/// The sub-menus of the original's `CommandMenu.xml`, `CharMenu.xml`, `MapMenu.xml`, `CameraMenu.xml` and `Windows.xml`, as far as this
+/// client has the windows (no pets, research, faction or planet map yet). The second field is the menu to go back to.
+fn menu_items(menu: &str) -> (Option<&'static str>, &'static [(&'static str, Entry)]) {
+    match menu {
+        "command" => (None, &[("Emotes", Entry::Window("actions")), ("Camera", Entry::Menu("camera")), ("Stats", Entry::Window("stats")), ("Control panel", Entry::Window("actions")), ("Help", Entry::Menu("help"))]),
+        "camera" => (Some("command"), &[("1st person", Entry::Camera("camera_1st")), ("3rd person", Entry::Camera("camera_3rd"))]),
+        "help" => (Some("command"), &[("Help", Entry::Window("help")), ("Options", Entry::Window("options"))]),
+        "char" => (None, &[("Skills", Entry::Window("skills")), ("Perks", Entry::Window("perks"))]),
+        "map" => (None, &[("Map", Entry::Window("map"))]),
+        _ => (None, &[]),
+    }
+}
+
+/// The menu a control center icon opens, if it opens one.
+fn icon_menu(window: &str) -> Option<&'static str> {
+    match window {
+        "actions" => Some("command"),
+        "stats" => Some("char"),
+        "map" => Some("map"),
+        _ => None,
+    }
+}
+
+/// The open sub-menu (which one and where its bottom left corner is), kept in the context.
+fn menu_state(ctx: &egui::Context) -> Option<(&'static str, egui::Pos2)> {
+    ctx.data(|d| d.get_temp::<Option<(&'static str, egui::Pos2)>>(egui::Id::new("cc-menu"))).flatten()
+}
+
+fn set_menu_state(ctx: &egui::Context, state: Option<(&'static str, egui::Pos2)>) {
+    ctx.data_mut(|d| d.insert_temp(egui::Id::new("cc-menu"), state));
+}
+
+/// The open sub-menu as a list over its icon; a click on a window entry or a camera mode closes it and is returned like an icon's.
+fn sub_menu(ctx: &egui::Context, accent: egui::Color32, open: &dyn Fn(&str) -> bool, clicked: &mut Option<&'static str>) {
+    // MAO_CC_MENU=command|char|map|camera opens that menu in the previews.
+    let preview = std::env::var("MAO_CC_MENU").ok().and_then(|m| ["command", "camera", "help", "char", "map"].into_iter().find(|n| *n == m)).map(|m| (m, egui::pos2(15.0, ctx.content_rect().bottom() - 25.0)));
+    let Some((menu, at)) = menu_state(ctx).or(preview) else { return };
+    let (back, items) = menu_items(menu);
+    let mut next = Some((menu, at));
+    let response = egui::Area::new(egui::Id::new("cc-popup")).order(egui::Order::Foreground).fixed_pos(at).pivot(egui::Align2::LEFT_BOTTOM).show(ctx, |ui| {
+        egui::Frame::popup(ui.style()).show(ui, |ui| {
+            ui.spacing_mut().item_spacing.y = 2.0;
+            if let Some(parent) = back {
+                if ui.add_sized([140.0, 22.0], egui::Button::new(egui::RichText::new("< Back").weak())).clicked() {
+                    next = Some((parent, at));
+                }
+            }
+            for &(label, entry) in items {
+                let lit = matches!(entry, Entry::Window(w) if open(w));
+                let text = egui::RichText::new(match entry { Entry::Menu(_) => format!("{label} >"), _ => label.to_string() }).color(if lit { accent } else { egui::Color32::LIGHT_GRAY });
+                if ui.add_sized([140.0, 22.0], egui::Button::new(text)).clicked() {
+                    match entry {
+                        Entry::Window(w) => {
+                            *clicked = Some(w);
+                            next = None;
+                        }
+                        Entry::Camera(c) => {
+                            *clicked = Some(c);
+                            next = None;
+                        }
+                        Entry::Menu(m) => next = Some((m, at)),
+                    }
+                }
+            }
+        });
+    });
+    // A press anywhere else closes it (an icon's own click then opens its menu again).
+    if ctx.input(|i| i.pointer.any_pressed()) && !response.response.contains_pointer() {
+        next = None;
+    }
+    set_menu_state(ctx, next);
+}
+
 /// One bar of the original's wings: a vertical groove (`BG`, 12 x 152) with the coloured bar (`FG`) rising in it.
 fn wing_bar(ui: &mut egui::Ui, skin: &Skin, painter: &egui::Painter, at: egui::Pos2, name: &str, tint: egui::Color32, value: Option<i64>, max: Option<i64>, label: &str) -> egui::Response {
     let max = match (value, max) {
@@ -148,6 +232,7 @@ fn show_skinned(ctx: &egui::Context, yaw: f32, stats: &BTreeMap<u32, i64>, parts
     let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
     let get = |s: u32| stats.get(&s).copied();
     compass(ctx, &skin, yaw);
+    sub_menu(ctx, accent, open, clicked);
     target_buttons(ctx, &skin, clicked);
     for left in [true, false] {
         let anchor = if left { egui::Align2::LEFT_BOTTOM } else { egui::Align2::RIGHT_BOTTOM };
@@ -187,7 +272,10 @@ fn show_skinned(ctx: &egui::Context, yaw: f32, stats: &BTreeMap<u32, i64>, parts
                 let tint = if open(window) { accent } else if response.hovered() { egui::Color32::WHITE } else { egui::Color32::from_gray(200) };
                 skin.draw(&painter, &name, at, 1.0, tint);
                 if response.clicked() {
-                    *clicked = Some(window);
+                    match icon_menu(window) {
+                        Some(menu) => set_menu_state(ctx, Some((menu, egui::pos2(at.x, rect.top() + wing_size.y - 2.0)))),
+                        None => *clicked = Some(window),
+                    }
                 }
             }
         });

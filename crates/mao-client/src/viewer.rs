@@ -1131,10 +1131,21 @@ impl ApplicationHandler for App {
                         }
                     }
                     if let Some(which) = requests.target {
-                        if which == 0 {
-                            self.keys.select_self = self.keys.select_self.wrapping_add(1);
-                        } else {
-                            self.keys.commands[0] = self.keys.commands[0].wrapping_add(1);
+                        match which {
+                            0 => self.keys.select_self = self.keys.select_self.wrapping_add(1),
+                            1 => self.keys.commands[0] = self.keys.commands[0].wrapping_add(1),
+                            // (the camera modes: right behind the head, or back where it was)
+                            2 => {
+                                if self.home_distance.is_none() {
+                                    self.home_distance = Some(w.camera.distance);
+                                    w.camera.distance = 1.5;
+                                }
+                            }
+                            _ => {
+                                if let Some(d) = self.home_distance.take() {
+                                    w.camera.distance = d;
+                                }
+                            }
                         }
                         if let Some(live) = &self.live {
                             let _ = live.input.send(self.keys);
