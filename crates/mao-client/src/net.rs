@@ -926,6 +926,10 @@ fn is_head_name(name: &str) -> bool {
     ["head_solitus", "head_opifex", "head_nano", "head_athrox", "head_oldguy"].iter().any(|p| name.starts_with(p)) && name.ends_with(".abiff")
 }
 
+/// How fast a polymorphed character's creature animation plays against real time (the user found 1 a little fast; the creature
+/// templates carry no animation speed to take it from).
+const MORPH_ANIM_RATE: f32 = 0.75;
+
 /// The body parts a texture place of an `AppearanceUpdate` names (the cloth list's order).
 const CLOTH_PARTS: [&str; 6] = ["hands", "body", "feet", "arms", "legs", "head"];
 
@@ -1009,7 +1013,7 @@ impl Characters {
 
     /// The parts of a creature or NPC from its template (the CAT mesh and
     /// animations its record names), in Y-up local space.
-    fn creature_parts(&mut self, template: u32, action: mao_formats::appearance::Action, phase: f32, textures: &[(String, u32)], clothes: &[(String, u32)]) -> Option<Vec<Part>> {
+    fn creature_parts(&mut self, template: u32, action: mao_formats::appearance::Action, phase: f32, rate: f32, textures: &[(String, u32)], clothes: &[(String, u32)]) -> Option<Vec<Part>> {
         use mao_formats::resource::Id;
         let db = self.db.clone();
         let entry = self.creatures.entry(template).or_insert_with(|| {
@@ -1037,7 +1041,7 @@ impl Characters {
         let anim_entry = self.creature_anims.get(&id)?;
         let (anim, length) = anim_entry.as_ref()?;
         // (a creature that has no standing animation holds its walk's first frame while it stands)
-        let t = if action == mao_formats::appearance::Action::Idle && matches!(key, 100 | 101) { 0.0 } else { (self.started.elapsed().as_secs_f32() * 1000.0 + phase) % length };
+        let t = if action == mao_formats::appearance::Action::Idle && matches!(key, 100 | 101) { 0.0 } else { (self.started.elapsed().as_secs_f32() * 1000.0 * rate + phase) % length };
         let bones = mesh.pose(anim, t);
         let mut parts = mesh.skinned_model(&bones, 0xf6954).parts;
         for part in &mut parts {
@@ -1276,7 +1280,7 @@ pub(crate) fn character_model(db: &Arc<ResourceDatabase>, breed: i32, sex: i32, 
 /// `creature <game> <npc template> <out.png>`: a creature as the world draws it (what a polymorph turns a character into).
 pub(crate) fn creature_preview(db: Arc<ResourceDatabase>, template: u32, out: &str) -> Result<(), String> {
     let mut chars = Characters::new(db.clone())?;
-    let parts = chars.creature_parts(template, mao_formats::appearance::Action::Idle, 0.0, &[], &[]).ok_or("that template has no mesh")?;
+    let parts = chars.creature_parts(template, mao_formats::appearance::Action::Idle, 0.0, 1.0, &[], &[]).ok_or("that template has no mesh")?;
     let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     let model = Model { instances: (0..parts.len()).map(|i| (i, swap)).collect(), parts, water: None };
     crate::viewer::headless(&model, &crate::Textures::new(db), out)
@@ -1296,7 +1300,7 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
         if let (Some(info), Some(chars)) = (world.infos.get(&id).filter(|i| i.template.is_some()), characters.as_mut()) {
             let moving = world.last_move.get(&id).is_some_and(|t| t.elapsed() < Duration::from_millis(900));
             let action = if moving { mao_formats::appearance::Action::Walk } else { mao_formats::appearance::Action::Idle };
-            if let Some(parts) = chars.creature_parts(info.template.unwrap(), action, (id % 997) as f32 * 3.0, &info.textures, &info.clothes) {
+            if let Some(parts) = chars.creature_parts(info.template.unwrap(), action, (id % 997) as f32 * 3.0, 1.0, &info.textures, &info.clothes) {
                 let base = model.parts.len();
                 for (k, p) in parts.into_iter().enumerate() {
                     model.parts.push(p);
@@ -1308,8 +1312,9 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
         // (a polymorphed character is drawn as the creature it became)
         if let (Some(&creature), Some(chars)) = (world.morphs.get(&id), characters.as_mut()) {
             let moving = world.last_move.get(&id).is_some_and(|t| t.elapsed() < Duration::from_millis(if id == world.own { 90 } else { 700 }));
-            let action = if moving { mao_formats::appearance::Action::Walk } else { mao_formats::appearance::Action::Idle };
-            if let Some(parts) = chars.creature_parts(creature, action, (id % 997) as f32 * 3.0, &[], &[]) {
+            let speed = world.speeds.get(&id).copied().unwrap_or(0.0);
+            let action = if !moving { mao_formats::appearance::Action::Idle } else if speed > 5.5 { mao_formats::appearance::Action::Run } else { mao_formats::appearance::Action::Walk };
+            if let Some(parts) = chars.creature_parts(creature, action, (id % 997) as f32 * 3.0, MORPH_ANIM_RATE, &[], &[]) {
                 let base = model.parts.len();
                 for (k, p) in parts.into_iter().enumerate() {
                     model.parts.push(p);

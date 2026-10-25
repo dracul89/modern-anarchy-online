@@ -676,6 +676,16 @@ fn run(args: &[String]) -> Result<(), String> {
             return Ok(());
         }
     }
+    // `npc-words <game> <npc template hex>`: the words of a creature's template record, to read its stats.
+    if let [game, word, template] = args {
+        if word == "npc-words" {
+            let db = ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?;
+            let data = db.get(Id { kind: mao_formats::npc::TEMPLATE, instance: number(template).ok_or("bad template")? }).map_err(|e| e.to_string())?.ok_or("no such template")?;
+            let words: Vec<u32> = data.chunks_exact(4).map(|c| u32::from_le_bytes(c.try_into().unwrap())).collect();
+            println!("{words:?}");
+            return Ok(());
+        }
+    }
     // `dynel-kinds <game>`: how many built-in things of each identity type the playfields have.
     if let [game, word] = args {
         if word == "dynel-kinds" {
