@@ -587,7 +587,7 @@ pub struct EntityInfo {
 /// flags word and always before a level (`00 level 00 1f`), at a position
 /// that moves by a byte with the fields in front.
 fn npc_template(post: &[u8]) -> Option<u32> {
-    (8..post.len().saturating_sub(7).min(40)).find_map(|p| {
+    (8..post.len().saturating_sub(7).min(72)).find_map(|p| {
         (post[p + 4] == 0 && post[p + 6] == 0 && post[p + 7] == 0x1f).then(|| u32::from_be_bytes(post[p..p + 4].try_into().unwrap()))
     })
 }
@@ -872,5 +872,20 @@ mod nano_tests {
         assert_eq!(m.active_nanos(), vec![0x27cbd, 0x23fdd]);
         assert_eq!(m.active_nano_times(), vec![(0x27cbd, 0x13ad21), (0x23fdd, 0x13a99d)]);
         assert!(Message { kind: ENTITY_INFO, identity: (0xc350, 1), data: vec![0; 40] }.active_nanos().is_empty());
+    }
+}
+
+#[cfg(test)]
+mod npc_template_tests {
+    use super::*;
+
+    #[test]
+    fn the_template_is_found_after_a_long_name_too() {
+        // "Chimeran Canine" (a 15-character name) from the original client's capture: the template 0x33115 sits further on than a short name's
+        let tail = "001008120100000000cf000000007421ac00000331150064001f000000001c3fbffb";
+        let bytes: Vec<u8> = (0..tail.len() / 2).map(|i| u8::from_str_radix(&tail[2 * i..2 * i + 2], 16).unwrap()).collect();
+        let mut post = vec![0u8; 32];
+        post.extend_from_slice(&bytes);
+        assert_eq!(npc_template(&post), Some(0x33115));
     }
 }
