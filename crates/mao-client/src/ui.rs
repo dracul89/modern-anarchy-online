@@ -162,6 +162,8 @@ pub struct Requests {
     pub item_deletes: Vec<u32>,
     /// An action clicked in the Action window.
     pub action: Option<hotbar::Action>,
+    /// A control center target button: 0 yourself, 1 the next hostile.
+    pub target: Option<u8>,
     /// A place to walk to (world x, z), from the Whom-Pah window.
     pub goto: Option<[f32; 2]>,
     /// The hotbars were edited (to be saved).
@@ -485,7 +487,9 @@ impl Ui {
         if !self.ctx.input(|i| i.pointer.any_down()) {
             crate::gear::DRAGGED.store(u32::MAX, std::sync::atomic::Ordering::Relaxed);
         }
-        if let Some(name) = menu_click {
+        if let Some(name) = menu_click.filter(|n| n.starts_with("target_")) {
+            requests.target = Some(u8::from(name == "target_next"));
+        } else if let Some(name) = menu_click {
             let now = self.window_open(name);
             self.set_window(name, !now);
         }
@@ -693,7 +697,7 @@ fn hotbar_layer(ctx: &egui::Context, bars: &mut Hotbars, gear: &mut GearWindow, 
     let bar = bars.current;
     // Drag it by its frame or the grip; the button beside the bar numbers turns it between horizontal and vertical.
     let screen = ctx.content_rect();
-    let pos = bars.pos.map_or(egui::pos2(screen.center().x, screen.bottom() - 12.0), |p| egui::pos2(p[0], p[1]));
+    let pos = bars.pos.map_or(egui::pos2(screen.center().x, screen.bottom() - 62.0), |p| egui::pos2(p[0], p[1]));
     let pos = egui::pos2(pos.x.clamp(screen.left() + 20.0, screen.right() - 20.0), pos.y.clamp(screen.top() + 60.0, screen.bottom()));
     let vertical = bars.vertical;
     let mut rotate = false;
@@ -933,7 +937,7 @@ fn hud_layer(ctx: &egui::Context, hud: &Hud, project: &dyn Fn(Vec3) -> Option<[f
     }
     let recent: Vec<&String> = hud.log.iter().filter(|(t, _)| t.elapsed() < Duration::from_secs(14)).map(|(_, m)| m).collect();
     if !recent.is_empty() {
-        egui::Area::new(egui::Id::unique("log")).anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(225.0, -100.0)).interactable(false).show(ctx, |ui| {
+        egui::Area::new(egui::Id::unique("log")).anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(225.0, -150.0)).interactable(false).show(ctx, |ui| {
             frame().show(ui, |ui| {
                 for line in recent {
                     ui.label(line);

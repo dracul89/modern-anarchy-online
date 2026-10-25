@@ -94,6 +94,30 @@ fn compass(ctx: &egui::Context, skin: &Skin, yaw: f32) {
     });
 }
 
+/// The target buttons beside the menu strips: the left one targets the character itself (the original's F1), the right one the next
+/// hostile (Tab). Drawn from `TARGET_BUTTON` (its second and third pictures are hovered and pressed) and the icon on it.
+fn target_buttons(ctx: &egui::Context, skin: &Skin, clicked: &mut Option<&'static str>) {
+    for left in [true, false] {
+        let (anchor, x, window, icon, tip) = if left {
+            (egui::Align2::LEFT_BOTTOM, 5.0 + 214.0 + 10.0, "target_self", "GFX_GUI_CONTROLCENTER_TARGET_ICON_SELF", "Target yourself")
+        } else {
+            (egui::Align2::RIGHT_BOTTOM, -(5.0 + 214.0 + 10.0), "target_next", "GFX_GUI_CONTROLCENTER_TARGET_ICON_OTHER", "Target the next enemy")
+        };
+        let Some((_, size)) = skin.get("GFX_GUI_CONTROLCENTER_TARGET_BUTTON") else { return };
+        egui::Area::new(egui::Id::new(window)).anchor(anchor, egui::vec2(x, -8.0)).show(ctx, |ui| {
+            let (rect, response) = ui.allocate_exact_size(*size, egui::Sense::click());
+            let state = if response.is_pointer_button_down_on() { "_STATE3" } else if response.hovered() { "_STATE2" } else { "" };
+            skin.draw(ui.painter(), &format!("GFX_GUI_CONTROLCENTER_TARGET_BUTTON{state}"), rect.min, 1.0, egui::Color32::WHITE);
+            if let Some((_, icon_size)) = skin.get(icon) {
+                skin.draw(ui.painter(), icon, rect.center() - *icon_size * 0.5, 1.0, egui::Color32::WHITE);
+            }
+            if response.on_hover_text(tip).clicked() {
+                *clicked = Some(window);
+            }
+        });
+    }
+}
+
 /// One bar of the original's wings: a vertical groove (`BG`, 12 x 152) with the coloured bar (`FG`) rising in it.
 fn wing_bar(ui: &mut egui::Ui, skin: &Skin, painter: &egui::Painter, at: egui::Pos2, name: &str, tint: egui::Color32, value: Option<i64>, max: Option<i64>, label: &str) -> egui::Response {
     let max = match (value, max) {
@@ -124,6 +148,7 @@ fn show_skinned(ctx: &egui::Context, yaw: f32, stats: &BTreeMap<u32, i64>, parts
     let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
     let get = |s: u32| stats.get(&s).copied();
     compass(ctx, &skin, yaw);
+    target_buttons(ctx, &skin, clicked);
     for left in [true, false] {
         let anchor = if left { egui::Align2::LEFT_BOTTOM } else { egui::Align2::RIGHT_BOTTOM };
         let offset = egui::vec2(if left { 5.0 } else { -5.0 }, -5.0);

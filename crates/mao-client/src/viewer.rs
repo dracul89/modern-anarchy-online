@@ -1130,6 +1130,16 @@ impl ApplicationHandler for App {
                             let _ = live.input.send(self.keys);
                         }
                     }
+                    if let Some(which) = requests.target {
+                        if which == 0 {
+                            self.keys.select_self = self.keys.select_self.wrapping_add(1);
+                        } else {
+                            self.keys.commands[0] = self.keys.commands[0].wrapping_add(1);
+                        }
+                        if let Some(live) = &self.live {
+                            let _ = live.input.send(self.keys);
+                        }
+                    }
                     if let Some(g) = requests.goto {
                         self.keys.goto = (self.keys.goto.0.wrapping_add(1), g);
                         if let Some(live) = &self.live {
