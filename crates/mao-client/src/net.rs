@@ -172,6 +172,8 @@ struct World {
     cast_bursts: Vec<(u32, u32)>,
     /// When a character last cast a nano on itself, by (character, nano): the server repeats an aura's cast every few seconds.
     self_casts: std::collections::HashMap<(u32, u32), Instant>,
+    /// The nanos the player asked to cast and when: those casts always show.
+    asked_casts: std::collections::HashMap<u32, Instant>,
     /// Casts to show the flight and landing of: (caster, target, nano program).
     shots_pending: Vec<(u32, u32, u32)>,
     /// The worn meshes of each character from its `AppearanceUpdate`: attachment position, static mesh instance and the texture
@@ -595,7 +597,8 @@ impl World {
                 // the repeats say nothing, show nothing and play no casting animation.
                 let mut repeat = false;
                 if caster == target {
-                    repeat = self.self_casts.get(&(caster, nano)).is_some_and(|t| t.elapsed() < Duration::from_secs(30)) || (caster == self.own && self.nanos.contains(&nano));
+                    let asked = caster == self.own && self.asked_casts.get(&nano).is_some_and(|t| t.elapsed() < Duration::from_secs(3));
+                    repeat = !asked && (self.self_casts.get(&(caster, nano)).is_some_and(|t| t.elapsed() < Duration::from_secs(600)) || (caster == self.own && self.nanos.contains(&nano)));
                     self.self_casts.insert((caster, nano), Instant::now());
                 }
                 if !repeat {
@@ -2535,6 +2538,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             // A nano program to cast, at the target (not a usable object) or at oneself.
             if keys.cast.0 != cast_seen {
                 cast_seen = keys.cast.0;
+                state.asked_casts.insert(keys.cast.1, Instant::now());
                 let aim = target.filter(|t| !state.objects.contains_key(t));
                 let _ = connection.send(&n3::cast_nano(own, aim, keys.cast.1));
                 let name = thread_db.get(mao_formats::resource::Id { kind: 0xfde85, instance: keys.cast.1 }).ok().flatten().and_then(|d| mao_formats::item::Item::parse(&d)).map_or_else(|| format!("nano #{}", keys.cast.1), |t| t.name);
