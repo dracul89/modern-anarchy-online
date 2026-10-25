@@ -39,6 +39,10 @@ pub enum Action {
     LandIdle,
     LandWalk,
     LandRun,
+    /// A creature's sidestep to the left or the right (its animations 134 and 135: the wulf's and the cute creature's `sidestep-left`
+    /// and `sidestep-right`, which roll the ball-shaped ones).
+    StrafeLeft,
+    StrafeRight,
 }
 
 /// The file name of a human character's animation for an action, as the
@@ -56,6 +60,8 @@ pub fn animation_name(breed: u8, sex: u8, action: Action) -> String {
         Action::LandIdle => "jump-land-idle",
         Action::LandWalk => "jump-land-walk",
         Action::LandRun => "jump-land-run",
+        // (players walk sideways)
+        Action::StrafeLeft | Action::StrafeRight => "walk",
     };
     format!("{prefix}_{stem}_01_01.ani")
 }

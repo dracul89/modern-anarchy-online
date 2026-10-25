@@ -51,6 +51,8 @@ impl Template {
         match action {
             Action::Walk => find(100),
             Action::Run => find(101).or_else(|| find(100)),
+            Action::StrafeLeft => find(134).or_else(|| find(100)),
+            Action::StrafeRight => find(135).or_else(|| find(100)),
             // (the standing animation is 120; a creature without it, such as a bird in flight, has 127, else the walk's first frame stands)
             _ => find(120).or_else(|| find(127)).or_else(|| find(100)),
         }
@@ -63,6 +65,8 @@ impl Template {
         let order: &[u32] = match action {
             Action::Walk => &[100, 101, 120, 127],
             Action::Run => &[101, 100, 120, 127],
+            Action::StrafeLeft => &[134, 100, 101, 120],
+            Action::StrafeRight => &[135, 100, 101, 120],
             _ => &[120, 127, 100, 101],
         };
         order.iter().filter_map(|&k| find(k)).collect()

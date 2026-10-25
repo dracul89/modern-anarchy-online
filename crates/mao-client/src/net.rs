@@ -177,6 +177,8 @@ struct World {
     equipment: BTreeMap<u32, Vec<(u8, u32, u32)>>,
     /// The creature (NPC template) a character is polymorphed into by a running nano program.
     morphs: BTreeMap<u32, u32>,
+    /// Which way a character is sidestepping (-1 left, 1 right) while it is: only the player's own is known.
+    strafing: BTreeMap<u32, i8>,
     /// `Buff` messages not yet looked at: (character, nano program). The server repeats a character's buffs every twenty seconds or so.
     buffs_seen: Vec<(u32, u32)>,
     /// The programs other characters run, with when their buff was last announced (the server repeats them about every twenty seconds).
@@ -1291,7 +1293,15 @@ pub(crate) fn character_model(db: &Arc<ResourceDatabase>, breed: i32, sex: i32, 
 /// `creature <game> <npc template> <out.png>`: a creature as the world draws it (what a polymorph turns a character into).
 pub(crate) fn creature_preview(db: Arc<ResourceDatabase>, template: u32, out: &str) -> Result<(), String> {
     let mut chars = Characters::new(db.clone())?;
-    let parts = chars.creature_parts(template, mao_formats::appearance::Action::Idle, 0.0, 1.0, &[], &[]).ok_or("that template has no mesh")?;
+    // (`MAO_ACTION=left|right|walk|run` shows another animation)
+    let action = match std::env::var("MAO_ACTION").unwrap_or_default().as_str() {
+        "left" => mao_formats::appearance::Action::StrafeLeft,
+        "right" => mao_formats::appearance::Action::StrafeRight,
+        "walk" => mao_formats::appearance::Action::Walk,
+        "run" => mao_formats::appearance::Action::Run,
+        _ => mao_formats::appearance::Action::Idle,
+    };
+    let parts = chars.creature_parts(template, action, 0.0, 1.0, &[], &[]).ok_or("that template has no mesh")?;
     let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     let model = Model { instances: (0..parts.len()).map(|i| (i, swap)).collect(), parts, water: None };
     crate::viewer::headless(&model, &crate::Textures::new(db), out)
@@ -1324,7 +1334,14 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
         if let (Some(&creature), Some(chars)) = (world.morphs.get(&id), characters.as_mut()) {
             let moving = world.last_move.get(&id).is_some_and(|t| t.elapsed() < Duration::from_millis(if id == world.own { 90 } else { 700 }));
             let speed = world.speeds.get(&id).copied().unwrap_or(0.0);
-            let action = if !moving { mao_formats::appearance::Action::Idle } else if speed > 5.5 { mao_formats::appearance::Action::Run } else { mao_formats::appearance::Action::Walk };
+            use mao_formats::appearance::Action;
+            let action = match world.strafing.get(&id).copied().unwrap_or(0) {
+                _ if !moving => Action::Idle,
+                -1 => Action::StrafeLeft,
+                1 => Action::StrafeRight,
+                _ if speed > 5.5 => Action::Run,
+                _ => Action::Walk,
+            };
             if let Some(parts) = chars.creature_parts(creature, action, (id % 997) as f32 * 3.0, MORPH_ANIM_RATE, &[], &[]) {
                 let base = model.parts.len();
                 for (k, p) in parts.into_iter().enumerate() {
@@ -2553,6 +2570,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             }
             heading += keys.turn as f32 * TURN * dt;
             let walk = keys.forward as i8 - keys.back as i8;
+            // (a sidestep on its own shows a polymorph's rolling or sidestepping animation)
+            state.strafing.insert(own, if walk == 0 { keys.strafe.signum() } else { 0 });
             let speed = if walk > 0 { SPEED } else { BACK_SPEED } * walk as f32;
             // Walls stop the step (sliding along them where one axis is free).
             // Strafing adds a step to the right of the heading; diagonals aren't faster.
