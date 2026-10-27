@@ -86,6 +86,8 @@ pub struct Update {
     /// (units a second, server coordinates) for the prediction.
     pub own_model: Model,
     pub own_velocity: [f32; 3],
+    /// The characters' meshes, for their blob shadows (`blobshadow.rs`).
+    pub casters: Vec<crate::blobshadow::Caster>,
     /// New cells of the map (fog of war), and the people about (for its dots).
     pub map: Option<crate::automap::MapPatch>,
     /// The character's name and stats, when they change.
@@ -328,6 +330,9 @@ struct App {
     own_velocity: [f32; 3],
     own_at: std::time::Instant,
     ground: Option<(std::sync::Arc<mao_formats::terrain::Terrain>, f32)>,
+    /// The characters' meshes from the last update, and how far the own one has been moved on since.
+    casters: Vec<crate::blobshadow::Caster>,
+    follow_shift: [f32; 3],
     /// The area's environment where the character stands, and the day's intensity (from the last update).
     environment: crate::environment::Environment,
     daylight: f32,
@@ -389,7 +394,7 @@ pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<()
     let settings = Settings::load();
     crate::ui::set_debug_overlay(settings.debug_overlay);
     crate::font::set_enabled(settings.original_font);
-    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), tried_sprites: Default::default(), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, environment: Default::default(), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
+    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), tried_sprites: Default::default(), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, casters: Vec::new(), follow_shift: [0.0; 3], environment: Default::default(), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
     event_loop.run_app(&mut app).map_err(|e| e.to_string())?;
     if app.logged_out {
         // (the launcher that started the game sees this code and shows the character screen again)
@@ -1015,6 +1020,7 @@ impl ApplicationHandler for App {
                         }
                         let own_scene = w.renderer.upload(&w.gpu, &update.own_model, &mut |k, i| self.textures.get_for_upload(k, i));
                         w.scene.set_follow(own_scene);
+                        self.casters = std::mem::take(&mut update.casters);
                         if let Some(p) = update.own {
                             self.own_base = p;
                             self.own_velocity = update.own_velocity;
@@ -1035,6 +1041,7 @@ impl ApplicationHandler for App {
                         let [vx, _, vz] = self.own_velocity;
                         let (px, pz) = (x + vx * ahead, z + vz * ahead);
                         w.scene.move_follow(&w.gpu, mao_render::glam::Vec3::new(vx * ahead, vz * ahead, 0.0));
+                        self.follow_shift = [vx * ahead, vz * ahead, 0.0];
                         // The player's feet: plants bend away from them.
                         w.scene.player = Some(mao_render::glam::Vec3::new(px, pz, y));
                         // The game's camera: the original's steered vehicle (see `camera.rs`), looking at the head, in the
@@ -1145,6 +1152,43 @@ impl ApplicationHandler for App {
                         }
                         camera.distance *= 0.88;
                     }
+                }
+                // The characters' blob shadows (the original's only cast shadows), laid on the ground under each.
+                {
+                    let eye = camera.eye();
+                    let light = -mao_render::sun();
+                    let interior = self.ground.is_none();
+                    let height = self.ground.as_ref().map(|(t, o)| (t.clone(), *o));
+                    let height_at = |x: f32, y: f32| height.as_ref().map_or(0.0, |(t, o)| t.height_at(x, y, t.height_scale) + o);
+                    let mut blobs = Vec::new();
+                    for caster in &self.casters {
+                        let shifted;
+                        let caster = if caster.own {
+                            shifted = caster.shifted(self.follow_shift);
+                            &shifted
+                        } else {
+                            caster
+                        };
+                        let feet = caster.translation;
+                        let (ground, alpha) = if interior {
+                            (crate::blobshadow::Ground { point: feet, normal: [0.0, 0.0, 1.0], height: None }, crate::blobshadow::ALPHA_DUNGEON)
+                        } else {
+                            let h = height_at(feet[0], feet[1]);
+                            if (feet[2] - h).abs() > 0.2 {
+                                // standing on something other than the ground: the plane at the feet, nothing laid on the heightmap
+                                (crate::blobshadow::Ground { point: feet, normal: [0.0, 0.0, 1.0], height: None }, crate::blobshadow::ALPHA_OUTDOORS)
+                            } else {
+                                let (dx, dy) = ((height_at(feet[0] + 0.5, feet[1]) - height_at(feet[0] - 0.5, feet[1])) / 1.0, (height_at(feet[0], feet[1] + 0.5) - height_at(feet[0], feet[1] - 0.5)) / 1.0);
+                                let len = (dx * dx + dy * dy + 1.0).sqrt();
+                                (crate::blobshadow::Ground { point: [feet[0], feet[1], h], normal: [-dx / len, -dy / len, 1.0 / len], height: Some(&height_at) }, crate::blobshadow::ALPHA_OUTDOORS)
+                            }
+                        };
+                        let light = if interior { [0.0, 0.0, -1.0] } else { [light.x, light.y, light.z] };
+                        for (p, c) in crate::blobshadow::blob(caster, light, [eye.x, eye.y, eye.z], &ground, alpha) {
+                            blobs.push(mao_render::BlobVertex { position: p, colour: c });
+                        }
+                    }
+                    w.scene.blobs = blobs;
                 }
                 if std::mem::take(&mut self.screenshot) {
                     let (width, height) = size;

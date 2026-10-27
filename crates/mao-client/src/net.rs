@@ -1391,8 +1391,18 @@ pub(crate) fn creature_preview(db: Arc<ResourceDatabase>, template: u32, out: &s
 
 /// The entities' markers alone (own character red, the others blue): two
 /// parts and an instance per entity, placed Z-up.
-fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>, characters: &mut Option<Characters>, include: &dyn Fn(u32) -> bool) -> Model {
+fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>, characters: &mut Option<Characters>, include: &dyn Fn(u32) -> bool) -> (Model, Vec<crate::blobshadow::Caster>) {
     let mut model = Model { parts: vec![marker([0.9, 0.1, 0.1]), marker([0.2, 0.4, 0.95]), nose(), marker([0.2, 0.8, 0.3])], instances: Vec::new(), water: None };
+    // (the characters' meshes throw the original's blob shadows: each is noted as a caster)
+    let mut casters = Vec::new();
+    fn push_character(model: &mut Model, casters: &mut Vec<crate::blobshadow::Caster>, parts: Vec<mao_formats::model::Part>, place: mao_formats::model::Matrix, own: bool) {
+        casters.push(crate::blobshadow::Caster::new(&parts, &place, own));
+        let base = model.parts.len();
+        for (k, p) in parts.into_iter().enumerate() {
+            model.parts.push(p);
+            model.instances.push((base + k, place));
+        }
+    }
     let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     for (&id, &(position, _)) in &world.entities {
         if !include(id) {
@@ -1404,11 +1414,7 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
             let moving = world.last_move.get(&id).is_some_and(|t| t.elapsed() < Duration::from_millis(900));
             let action = if moving { mao_formats::appearance::Action::Walk } else { mao_formats::appearance::Action::Idle };
             if let Some(parts) = chars.creature_parts(info.template.unwrap(), action, (id % 997) as f32 * 3.0, 1.0, &info.textures, &info.clothes) {
-                let base = model.parts.len();
-                for (k, p) in parts.into_iter().enumerate() {
-                    model.parts.push(p);
-                    model.instances.push((base + k, place));
-                }
+                push_character(&mut model, &mut casters, parts, place, id == world.own);
                 continue;
             }
         }
@@ -1426,11 +1432,7 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
                 _ => Action::Walk,
             };
             if let Some(parts) = chars.creature_parts(creature, action, (id % 997) as f32 * 3.0, MORPH_ANIM_RATE, &[], &[]) {
-                let base = model.parts.len();
-                for (k, p) in parts.into_iter().enumerate() {
-                    model.parts.push(p);
-                    model.instances.push((base + k, place));
-                }
+                push_character(&mut model, &mut casters, parts, place, id == world.own);
                 continue;
             }
         }
@@ -1438,11 +1440,7 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
         // (a social action in progress plays its own animation)
         if let (Some(info), Some(chars), Some(&(social, began))) = (info, characters.as_mut(), world.socials.get(&id)) {
             if let Some(parts) = chars.parts_social(info.breed, info.sex, social, began.elapsed().as_secs_f32() * 1000.0, &info.textures, &info.clothes, world.equipment.get(&id).map_or(&[][..], |v| v.as_slice())) {
-                let base = model.parts.len();
-                for (k, p) in parts.into_iter().enumerate() {
-                    model.parts.push(p);
-                    model.instances.push((base + k, place));
-                }
+                push_character(&mut model, &mut casters, parts, place, id == world.own);
                 continue;
             }
         }
@@ -1465,11 +1463,7 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
             let jumped = world.jumped.get(&id).map(|t| t.elapsed());
             // (A phase per entity keeps a crowd from moving in step.)
             if let Some(parts) = chars.parts(id, info.breed, info.sex, action, jumped, (id % 997) as f32 * 3.0, speed, scale, &info.textures, &info.clothes, world.equipment.get(&id).map_or(&[][..], |v| v.as_slice())) {
-                let base = model.parts.len();
-                for (k, p) in parts.into_iter().enumerate() {
-                    model.parts.push(p);
-                    model.instances.push((base + k, place));
-                }
+                push_character(&mut model, &mut casters, parts, place, id == world.own);
                 continue;
             }
         }
@@ -1500,7 +1494,7 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
             model.instances.extend(range.map(|i| (i, place)));
         }
     }
-    model
+    (model, casters)
 }
 
 /// The playfield with a marker at each entity (the character in red, the
@@ -1533,7 +1527,7 @@ fn show_world(game: &str, playfield: u32, world: &World, image: Option<&str>) ->
     let mut world_props = world.props.clone();
     world_props.extend(crate::static_props(&db, playfield).into_iter().map(|(k, p, _)| (k, p)));
     eprintln!("{} machines with a model", world_props.len());
-    let overlay = overlay_model(world, &world_props, &mut characters, &|_| true);
+    let (overlay, _) = overlay_model(world, &world_props, &mut characters, &|_| true);
     let offset = scene.parts.len();
     scene.parts.extend(overlay.parts);
     scene.instances.extend(overlay.instances.into_iter().map(|(i, m)| (i + offset, m)));
@@ -2862,8 +2856,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     state.morphs.insert(*who, *creature);
                 }
                 state.morphs.retain(|who, _| *who == own || state.morphed_until.contains_key(who));
-                let model = overlay_model(&state, &state.props, &mut characters, &|id| id != own && near(id));
-                let own_model = overlay_model(&state, &state.props, &mut characters, &|id| id == own);
+                let (model, mut casters) = overlay_model(&state, &state.props, &mut characters, &|id| id != own && near(id));
+                let (own_model, own_casters) = overlay_model(&state, &state.props, &mut characters, &|id| id == own);
+                casters.extend(own_casters);
                 let own_velocity = if walk == 0 && keys.strafe == 0 && !airborne {
                     [0.0; 3]
                 } else {
@@ -2948,6 +2943,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     model,
                     own_model,
                     own_velocity,
+                    casters,
                     map: pending_map.take(),
                     stats: std::mem::take(&mut state.stats_changed).then(|| {
                         let parts = crate::derived::breakdown(&state.stats, &state.mods_by_source[0], &state.mods_by_source[1], &state.mods_by_source[2], &state.mods_by_source[3]);

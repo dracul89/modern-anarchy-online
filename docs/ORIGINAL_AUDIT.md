@@ -33,6 +33,7 @@ then check a render. Never the other way round.
 | Playfield environment | the same reader: two words, a size and the `EnvironmentData_t` at the end of the `0xf4241` object (found this pass; the earlier note that none existed was wrong) | `areas::blend_with_weather(.., base)` | done: the base table the areas blend into, with its own weather |
 | Weather | the R250 generator (FUN_1013de47 / FUN_1013dec9), the schedule FUN_100b1821 / FUN_100b1277, the roll FUN_100bcec6, the fogs of the weather (FUN_100becbe), mist (FUN_100b9da8, colours FUN_100b98fe / FUN_100b9775) and precipitations (FUN_100b9ba5, FUN_100b9b10's colours) gathered as `VisualFog_t` does | `mao_formats::weather`, `environment.rs` (the fog gather) | done for what reaches the fog and the sky's dimming; the rain/snow/dust sprites (`VisualRain_t`), clouds (`VisualEnvFX_t` +0x114), wind, lightning and thunder are not drawn |
 | Rooms (shops, dungeons) | N3.dll: `n3Tilemap_t`'s constructor FUN_100173f8 / FUN_100169ab (the cell words from the `DCGA`/`IRHA`/`TAHA` images, the wall patterns FUN_10017306 over `.data` 0x1005bce0, the piece lookup FUN_10016967 in `RDBTilemap_t`'s type tables), `n3GroundRenderer_t::CreateDungeonRoom` FUN_10008563 → `DungeonMesh_t` FUN_10001a91 (which pieces) / FUN_10001c3b (laid on the heights with the cubic corrections FUN_100023ad / FUN_10002479), `VisualTile_t` (type 0xf695d, displaysystem `rdbtile.rs`), the corner rule FUN_1001769d, the floor height FUN_10010db5 (`n3Room_t` +0x38 = −1), the room reader FUN_10012803 (water surfaces, light map) | `mao_formats::dungeon`, `rooms.rs` (`Grid`, `room_parts`, `water`), `mao-db dungeon <pf>` | done: the walls, corners, doorways and ceilings as the original's pieces on the original's floor (the floor a unit above the room's position, on the samples before each cell, cells laid from the centre by the odd width); the rooms' water. Not: the vertex welding FUN_10001645 and so the light map's vertex colours, the `CHGA` (old) maps' branch |
+| Character shadows | `GfxVisualSimpleShadow_c` (displaysystem `gfxshadow.rs`: FUN_1001f0e9, `Update` FUN_1001e556, the vertex gather FUN_1001e75d, the draw FUN_1001e90e) under Gamecode's shadow control (FUN_100ed21e per CAT mesh, colour `0x5f000000` / `0x2f000000` in a dungeon; FUN_100ed439 per frame: the ground light's direction from `VisualEnvFX_t`, the camera, the ground point and normal under the character; FUN_100ed0c0 lays the points on the heightmap + 0.02) | `blobshadow.rs`, `Scene::blobs` and the blob pipeline in `mao-render` | done: the black translucent disc with its fading rim, stretched along the light, laid on the terrain, gone past ~50 units; the characters and machines no longer throw shadow-map shadows (the original has none). The playfield's own shadow map stays (the allowed backend choice; see item 7) |
 | Buff pulses | `_GfxControlBPHFSM_t`, `gfxtweak.bin` | `pulses.rs`, `effects.rs` | done earlier |
 
 ## To do, in order of what the player sees
@@ -106,8 +107,15 @@ then check a render. Never the other way round.
    a room). Left: the welding of coinciding vertices (FUN_10001645) and with it the light map (one 565 colour per welded
    vertex, zlib-packed in the room record; `DepackLightmap` 0x10010eb7, applied by FUN_100082a7) — the shading of the
    walls; the old `CHGA` tile-maps' branch of FUN_100169ab (no shop uses one); the room camera attractors (item 4).
-7. **Shadows** — `gfxshadow.rs` (the characters' blob/projected shadows) and randy31 `shadow.rs`; the client uses a shadow
-   map (a backend choice the user allowed; the look should match).
+7. **Shadows** — the characters' blobs are ported (see the table). What the original has: only `GfxVisualSimpleShadow_c`
+   under CAT meshes; randy31's `RShadow` (planar projected shadows, `shadow.rs`) is made from mesh archives only and no
+   statel archive here carries one; the ground's own shadows were the 0xf4247 maps (absent, item 2). So the original showed
+   no cast shadows from buildings or props. The client's sun shadow map still darkens the ground under the playfield's
+   statels — the allowed backend choice, but it is a look the original did not have; `Renderer::shadows = false` gives the
+   original's. Left: the light's direction is the client's fixed sun, not the FXS `GroundLightDirection` (item 1); the
+   ground under a character is the heightmap only (the original asks the collision, so a blob on a bridge or a statel's
+   floor lies on it); in a dungeon the projection is taken as vertical onto the floor (FUN_100ed439's dungeon branch passes
+   an upward light and the room's floor query, whose normal sense was not confirmed).
 8. **Character rendering** — `catrun.rs` animation layers and priorities (several animations at once: upper body / lower
    body), `catmesh.rs` skinning, attractors; the client plays one animation at a time.
 9. **Statel LOD and culling** — `lodmanager.rs`, `fxoccluder.rs`; perf, not look.

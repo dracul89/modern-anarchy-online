@@ -132,6 +132,9 @@ pub struct Scene {
     water_mesh: Option<(wgpu::Buffer, u32)>,
     /// Soft glowing sprites drawn over the scene, added to its colours (nano effects). Set by the caller every frame.
     pub particles: Vec<Particle>,
+    /// The characters' blob shadows (the original's `GfxVisualSimpleShadow_c`): translucent triangles laid on the ground, drawn
+    /// after the parts without writing depth. Set by the caller every frame.
+    pub blobs: Vec<BlobVertex>,
     /// The day's intensity, 0 at night to 1 by day (`GameTime_t::GetDayIntensity`): the sky light, the sun and the sky
     /// are scaled by it (a night keeps a little, so the world stays visible).
     pub daylight: f32,
@@ -157,6 +160,19 @@ pub struct Particle {
 
 /// The sprite number of a particle that is a soft dot, not cut from a sheet.
 pub const NO_SPRITE: u16 = u16::MAX;
+
+/// A vertex of a blob shadow: position (world, Z up) and colour with its alpha.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Pod, Zeroable)]
+pub struct BlobVertex {
+    pub position: [f32; 3],
+    pub colour: [f32; 4],
+}
+
+/// The direction to the sun (world, Z up, unit): the light the scene and its shadow map use.
+pub fn sun() -> Vec3 {
+    Vec3::new(0.4, -0.5, 0.8).normalize()
+}
 
 impl Particle {
     /// A soft round dot.
@@ -302,6 +318,7 @@ pub struct Renderer {
     shadow_pipeline: wgpu::RenderPipeline,
     water_pipeline: wgpu::RenderPipeline,
     water_mesh_pipeline: wgpu::RenderPipeline,
+    blob_pipeline: wgpu::RenderPipeline,
     particle_pipeline: wgpu::RenderPipeline,
     /// The sprite sheets uploaded so far, by number, as the bind group the particle pass uses, and the plain white one dots use.
     sprites: HashMap<u16, wgpu::BindGroup>,
@@ -546,6 +563,35 @@ impl Renderer {
             multiview_mask: None,
             cache: None,
         });
+        // The blob shadows: coloured triangles blended over the ground, pulled a little toward the camera so they sit on it.
+        let blob_attributes = [wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x3, offset: 0, shader_location: 0 }, wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x4, offset: 12, shader_location: 1 }];
+        let blob_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("blob"),
+            layout: Some(&water_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_blob"),
+                compilation_options: Default::default(),
+                buffers: &[Some(wgpu::VertexBufferLayout { array_stride: std::mem::size_of::<BlobVertex>() as u64, step_mode: wgpu::VertexStepMode::Vertex, attributes: &blob_attributes })],
+            },
+            primitive: wgpu::PrimitiveState { cull_mode: None, ..Default::default() },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: DEPTH,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(wgpu::CompareFunction::LessEqual),
+                stencil: Default::default(),
+                bias: wgpu::DepthBiasState { constant: -8, slope_scale: -2.0, clamp: 0.0 },
+            }),
+            multisample: wgpu::MultisampleState { count: samples, mask: !0, alpha_to_coverage_enabled: false },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_blob"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState { format, blend: Some(wgpu::BlendState::ALPHA_BLENDING), write_mask: wgpu::ColorWrites::ALL })],
+            }),
+            multiview_mask: None,
+            cache: None,
+        });
         // Sparks and glows: camera-facing sprites added to the scene, tested against its depth and not writing any.
         let particle_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("particle"), source: wgpu::ShaderSource::Wgsl(include_str!("particle.wgsl").into()) });
         let sprite_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -634,7 +680,7 @@ impl Renderer {
             layout: &sprite_layout,
             entries: &[wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&white) }, wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&sampler) }],
         });
-        Renderer { pipeline, sky_pipeline, shadow_pipeline, water_pipeline, water_mesh_pipeline, particle_pipeline, sprites: HashMap::new(), sprite_layout, white_sprite, shadow_view, shadow_bind, shadows: true, stats: Stats::default(), render_scale: 1.0, sharpness: 0.2, fsr_easu, fsr_rcas, fsr_layout, fsr_sampler, fsr: None, samples, msaa: None, started: std::time::Instant::now(), globals_layout, part_layout, sampler, white, format, depth: None, textures: Default::default() }
+        Renderer { pipeline, sky_pipeline, shadow_pipeline, water_pipeline, water_mesh_pipeline, blob_pipeline, particle_pipeline, sprites: HashMap::new(), sprite_layout, white_sprite, shadow_view, shadow_bind, shadows: true, stats: Stats::default(), render_scale: 1.0, sharpness: 0.2, fsr_easu, fsr_rcas, fsr_layout, fsr_sampler, fsr: None, samples, msaa: None, started: std::time::Instant::now(), globals_layout, part_layout, sampler, white, format, depth: None, textures: Default::default() }
     }
 
     /// Puts a model on the GPU. `texture` finds a texture by (type, instance).
@@ -771,7 +817,7 @@ impl Renderer {
             let buffer = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("water"), contents: bytemuck::cast_slice(&data), usage: wgpu::BufferUsages::VERTEX });
             (buffer, data.len() as u32)
         });
-        Scene { parts, overlay: Vec::new(), follow: Vec::new(), center, radius, player: None, fog: (1.0e9, 2.0e9), sky: DAY_SKY, water: model.water.clone(), water_mesh, particles: Vec::new(), daylight: 1.0, ambient: [0.0; 3], area_fog: None }
+        Scene { parts, overlay: Vec::new(), follow: Vec::new(), center, radius, player: None, fog: (1.0e9, 2.0e9), sky: DAY_SKY, water: model.water.clone(), water_mesh, particles: Vec::new(), blobs: Vec::new(), daylight: 1.0, ambient: [0.0; 3], area_fog: None }
     }
 
     fn depth_view(&mut self, gpu: &Gpu, size: (u32, u32)) {
@@ -931,9 +977,11 @@ impl Renderer {
             if self.shadows {
                 pass.set_pipeline(&self.shadow_pipeline);
                 pass.set_bind_group(0, &shadow_globals_bind, &[]);
-                // Anything that can throw a shadow into the box: within it horizontally, a little beyond for the slant.
+                // Anything that can throw a shadow into the box: within it horizontally, a little beyond for the slant. Only
+                // the playfield itself: the characters and the machines (the overlay and the followers) throw the original's
+                // blob shadows instead (`Scene::blobs`), and nothing else in the original throws one.
                 let reach = extent * 1.6;
-                for part in scene.parts.iter().chain(&scene.overlay).chain(&scene.follow) {
+                for part in scene.parts.iter() {
                     let d = part.center + part.shift - focus;
                     if d.truncate().length() > reach + part.radius {
                         continue;
@@ -981,6 +1029,13 @@ impl Renderer {
                 pass.set_vertex_buffer(0, part.vertices.slice(..));
                 pass.set_index_buffer(part.indices.slice(..), wgpu::IndexFormat::Uint16);
                 pass.draw_indexed(0..part.index_count, 0, 0..1);
+            }
+            if !scene.blobs.is_empty() {
+                let buffer = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("blobs"), contents: bytemuck::cast_slice(&scene.blobs), usage: wgpu::BufferUsages::VERTEX });
+                pass.set_pipeline(&self.blob_pipeline);
+                pass.set_bind_group(0, &globals_bind, &[]);
+                pass.set_vertex_buffer(0, buffer.slice(..));
+                pass.draw(0..scene.blobs.len() as u32, 0..1);
             }
             if let Some((buffer, count)) = &scene.water_mesh {
                 pass.set_pipeline(&self.water_mesh_pipeline);

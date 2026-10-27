@@ -228,6 +228,25 @@ fn vs_water_mesh(@location(0) position: vec3<f32>, @location(1) kind: f32) -> Wa
     return out;
 }
 
+// The characters' blob shadows: coloured triangles on the ground.
+struct BlobOut {
+    @builtin(position) clip: vec4<f32>,
+    @location(0) colour: vec4<f32>,
+}
+
+@vertex
+fn vs_blob(@location(0) position: vec3<f32>, @location(1) colour: vec4<f32>) -> BlobOut {
+    var out: BlobOut;
+    out.clip = globals.view_proj * vec4<f32>(position, 1.0);
+    out.colour = colour;
+    return out;
+}
+
+@fragment
+fn fs_blob(in: BlobOut) -> @location(0) vec4<f32> {
+    return in.colour;
+}
+
 // The waves at a point: two crossing swells and a ripple (the fine ones
 // scaled by `detail`). x: the height; yz: its slope along x and y.
 fn wave(p: vec2<f32>, t: f32, detail: f32) -> vec3<f32> {
