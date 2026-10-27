@@ -178,6 +178,8 @@ struct World {
     asked_casts: std::collections::HashMap<u32, Instant>,
     /// Casts to show the flight and landing of: (caster, target, nano program).
     shots_pending: Vec<(u32, u32, u32)>,
+    /// The hits that bend a character's mesh (`_GfxControlDeformer_t`), by the character and when they landed.
+    deforms: std::collections::HashMap<u32, (mao_formats::gfx::Deform, Instant)>,
     /// The worn meshes of each character from its `AppearanceUpdate`: attachment position, static mesh instance and the texture
     /// instance that replaces the mesh's own (0 for none).
     equipment: BTreeMap<u32, Vec<(u8, u32, u32)>>,
@@ -1075,7 +1077,7 @@ impl Characters {
 
     /// The parts of a creature or NPC from its template (the CAT mesh and
     /// animations its record names), in Y-up local space.
-    fn creature_parts(&mut self, id: u32, template: u32, action: mao_formats::appearance::Action, _phase: f32, rate: f32, textures: &[(String, u32)], clothes: &[(String, u32)]) -> Option<Vec<Part>> {
+    fn creature_parts(&mut self, id: u32, template: u32, action: mao_formats::appearance::Action, _phase: f32, rate: f32, textures: &[(String, u32)], clothes: &[(String, u32)], deform: Option<(&mao_formats::gfx::Deform, f32)>) -> Option<Vec<Part>> {
         use mao_formats::resource::Id;
         let db = self.db.clone();
         let entry = self.creatures.entry(template).or_insert_with(|| {
@@ -1127,6 +1129,9 @@ impl Characters {
         let anims = &self.anims_by_id;
         let bones = stack.pose(mesh, &|a| anims.get(&a).map(|(anim, _)| anim.as_ref()));
         let mut parts = mesh.skinned_model(&bones, 0xf6954).parts;
+        if let Some((d, age)) = deform {
+            crate::effects::deform_parts(&mut parts, d, age);
+        }
         for part in &mut parts {
             let wanted = clothes.iter().chain(textures.iter()).find(|(n, i)| *i != 0 && n.eq_ignore_ascii_case(&part.material.name));
             if let Some((_, instance)) = wanted {
@@ -1322,7 +1327,7 @@ impl Characters {
 
     /// The parts of a player of this breed and sex at `t` ms into the walk,
     /// in Y-up local space (world matrices identity), if its meshes exist.
-    fn parts(&mut self, id: u32, breed: u8, sex: u8, moving: Option<mao_formats::appearance::Action>, jumped: Option<Duration>, _phase: f32, speed: f32, scale: f32, textures: &[(String, u32)], clothes: &[(String, u32)], gear: &[(u8, u32, u32)], social: Option<(&str, Instant)>) -> Option<Vec<Part>> {
+    fn parts(&mut self, id: u32, breed: u8, sex: u8, moving: Option<mao_formats::appearance::Action>, jumped: Option<Duration>, _phase: f32, speed: f32, scale: f32, textures: &[(String, u32)], clothes: &[(String, u32)], gear: &[(u8, u32, u32)], social: Option<(&str, Instant)>, deform: Option<(&mao_formats::gfx::Deform, f32)>) -> Option<Vec<Part>> {
         use mao_formats::resource::Id;
         // The movement plays at the original's rate for this body, animation and speed.
         let rate = match moving.and_then(|a| a.reference_speed().map(|r| (a, r))) {
@@ -1363,6 +1368,10 @@ impl Characters {
             stack.pose(body, &|a| anims.get(&a).map(|(anim, _)| anim.as_ref()))
         };
         let mut model = body.skinned_model(&bones, 0xf6954);
+        // (a deformer hit ripples the body's vertices, as its callback on the body's CATRender does)
+        if let Some((d, age)) = deform {
+            crate::effects::deform_parts(&mut model.parts, d, age);
+        }
         // The character's own textures (its clothes) replace the mesh's by material name.
         for part in &mut model.parts {
             // Worn clothes win over the base textures.
@@ -1393,7 +1402,7 @@ pub(crate) fn character_model(db: &Arc<ResourceDatabase>, breed: i32, sex: i32, 
     let (breed, sex) = (breed as u8, if breed == 4 { 1 } else { sex as u8 });
     let mut chars = Characters::new(db.clone()).ok()?;
     let (textures, clothes, gear) = look.map_or((&[][..], &[][..], &[][..]), |l| (l.textures.as_slice(), l.clothes.as_slice(), l.gear.as_slice()));
-    let parts = chars.parts(0, breed, sex, None, None, 0.0, 0.0, 100.0, textures, clothes, gear, None)?;
+    let parts = chars.parts(0, breed, sex, None, None, 0.0, 0.0, 100.0, textures, clothes, gear, None, None)?;
     let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     Some(Model { instances: (0..parts.len()).map(|i| (i, swap)).collect(), parts, water: None, lod_groups: Vec::new() })
 }
@@ -1409,7 +1418,7 @@ pub(crate) fn creature_preview(db: Arc<ResourceDatabase>, template: u32, out: &s
         "run" => mao_formats::appearance::Action::Run,
         _ => mao_formats::appearance::Action::Idle,
     };
-    let parts = chars.creature_parts(0, template, action, 0.0, 1.0, &[], &[]).ok_or("that template has no mesh")?;
+    let parts = chars.creature_parts(0, template, action, 0.0, 1.0, &[], &[], None).ok_or("that template has no mesh")?;
     let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     let model = Model { instances: (0..parts.len()).map(|i| (i, swap)).collect(), parts, water: None, lod_groups: Vec::new() };
     crate::viewer::headless(&model, &crate::Textures::new(db), out)
@@ -1436,10 +1445,11 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
         }
         let q = world.rotations.get(&id).copied().unwrap_or([0.0, 0.0, 0.0, 1.0]);
         let place = model::multiply(&model::trs_matrix(position, q, [1.0; 3]), &swap);
+        let deform = world.deforms.get(&id).map(|(d, at)| (d, at.elapsed().as_secs_f32()));
         if let (Some(info), Some(chars)) = (world.infos.get(&id).filter(|i| i.template.is_some()), characters.as_mut()) {
             let moving = world.last_move.get(&id).is_some_and(|t| t.elapsed() < Duration::from_millis(900));
             let action = if moving { mao_formats::appearance::Action::Walk } else { mao_formats::appearance::Action::Idle };
-            if let Some(parts) = chars.creature_parts(id, info.template.unwrap(), action, (id % 997) as f32 * 3.0, 1.0, &info.textures, &info.clothes) {
+            if let Some(parts) = chars.creature_parts(id, info.template.unwrap(), action, (id % 997) as f32 * 3.0, 1.0, &info.textures, &info.clothes, deform) {
                 push_character(&mut model, &mut casters, parts, place, id == world.own);
                 continue;
             }
@@ -1457,7 +1467,7 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
                 _ if speed > 2.2 => Action::Run,
                 _ => Action::Walk,
             };
-            if let Some(parts) = chars.creature_parts(id, creature, action, (id % 997) as f32 * 3.0, MORPH_ANIM_RATE, &[], &[]) {
+            if let Some(parts) = chars.creature_parts(id, creature, action, (id % 997) as f32 * 3.0, MORPH_ANIM_RATE, &[], &[], deform) {
                 push_character(&mut model, &mut casters, parts, place, id == world.own);
                 continue;
             }
@@ -1483,7 +1493,7 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
             let scale = if id == world.own { world.stats.get(&360).copied().filter(|&s| s > 0).unwrap_or(100) as f32 } else { 100.0 };
             let jumped = world.jumped.get(&id).map(|t| t.elapsed());
             // (A phase per entity keeps a crowd from moving in step.)
-            if let Some(parts) = chars.parts(id, info.breed, info.sex, action, jumped, (id % 997) as f32 * 3.0, speed, scale, &info.textures, &info.clothes, world.equipment.get(&id).map_or(&[][..], |v| v.as_slice()), social) {
+            if let Some(parts) = chars.parts(id, info.breed, info.sex, action, jumped, (id % 997) as f32 * 3.0, speed, scale, &info.textures, &info.clothes, world.equipment.get(&id).map_or(&[][..], |v| v.as_slice()), social, deform) {
                 push_character(&mut model, &mut casters, parts, place, id == world.own);
                 continue;
             }
@@ -2877,9 +2887,12 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     state.morphs.insert(*who, *creature);
                 }
                 state.morphs.retain(|who, _| *who == own || state.morphed_until.contains_key(who));
+                // (the deformer hits run their course: the control ends at its duration)
+                state.deforms.retain(|_, (d, at)| d.duration <= 0.0 || at.elapsed().as_secs_f32() < d.duration);
                 let (model, mut casters) = overlay_model(&state, &state.props, &mut characters, &|id| id != own && near(id));
                 let (own_model, own_casters) = overlay_model(&state, &state.props, &mut characters, &|id| id == own);
                 casters.extend(own_casters);
+                let deforms_landed: std::cell::RefCell<Vec<(u32, mao_formats::gfx::Deform)>> = std::cell::RefCell::new(Vec::new());
                 let own_velocity = if walk == 0 && keys.strafe == 0 && !airborne {
                     [0.0; 3]
                 } else {
@@ -3070,6 +3083,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                 if tracer.is_none() && hit.is_none() {
                                     return None;
                                 }
+                                // (a hit that bends the target's mesh is noted for its character)
+                                if let Some(mao_formats::gfx::Visual::Deform(d)) = &hit {
+                                    deforms_landed.borrow_mut().push((target, d.clone()));
+                                }
                                 // (Z up: from the caster's hands to the target's chest)
                                 Some(crate::effects::Shot { from: [from[0], from[2], from[1] + 1.1], to: [to[0], to[2], to[1] + 1.2], tracer, hit })
                             })
@@ -3174,6 +3191,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     }),
                     target: target.and_then(|t| Some(format!("{}{}  ({:.0} m)", state.names.get(&t)?.0, state.health.get(&t).map(|(hp, max)| format!("  HP {hp}/{max}")).or_else(|| state.last_hp.get(&t).map(|hp| format!("  HP {hp}"))).unwrap_or_default(), ((state.position_of(t)?[0] - position[0]).powi(2) + (state.position_of(t)?[2] - position[2]).powi(2)).sqrt()))),
                 };
+                for (target, d) in deforms_landed.into_inner() {
+                    state.deforms.insert(target, (d, Instant::now()));
+                }
                 if tx.send(update).is_err() {
                     break;
                 }

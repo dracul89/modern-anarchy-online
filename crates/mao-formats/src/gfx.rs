@@ -366,6 +366,41 @@ pub struct Sparks {
     pub gate: i32,
 }
 
+/// A kind-3001 template as `_GfxControlDeformer_t` reads it (Gamecode FUN_100d823f; FUN_100d7caa runs it, FUN_100d776f is the
+/// vertex callback it registers on the target's `CATRender_t`): the target's mesh itself is bent. Word 8 is the duration, 10
+/// the mode, 11 the strength, 12 the seconds the strength ramps in over and 13 the seconds it ramps out over once stopped
+/// (`Stop`, slot 6, at `duration − word 13`). Mode 1 (the three hit templates: 1.1 or 3.1 s, strength 1, in 0.1 s, out 1–3
+/// s) ripples every vertex by `amplitude × sin²(frequency × time + the vertex's phase) × strength`, words 15 and 14. Mode 0
+/// pulses the vertices round named bones (a list of attach points, frequencies and radii) and mode 4 fades a second body
+/// mesh over the character; neither is ported.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Deform {
+    pub duration: f32,
+    pub strength: f32,
+    pub ramp_in: f32,
+    pub ramp_out: f32,
+    pub frequency: f32,
+    pub amplitude: f32,
+}
+
+impl Deform {
+    /// The strength at `age` seconds: ramped in over `ramp_in`, out over `ramp_out` before the duration's end (FUN_100d7caa's
+    /// tail: `strength × age / ramp_in` while in, then `(1 − (age − stop) / ramp_out) × strength`); 0 once over.
+    pub fn strength_at(&self, age: f32) -> f32 {
+        if age < 0.0 || (self.duration > 0.0 && age >= self.duration) {
+            return 0.0;
+        }
+        let stop = if self.duration > 0.0 { self.duration - self.ramp_out } else { f32::MAX };
+        if age >= stop {
+            (1.0 - (age - stop) / self.ramp_out.max(0.001)).max(0.0) * self.strength
+        } else if age < self.ramp_in {
+            self.strength * age / self.ramp_in.max(0.001)
+        } else {
+            self.strength
+        }
+    }
+}
+
 /// The Stars modes the client plays as the original does; the others fall back to the spiral child:
 /// * 3: born in a sphere of the radius, swirling across it (no rise), two a frame, the parabolic size of mode 6;
 /// * 4: born at the point, thrown in a random direction at the radius a second, slowed by 5% a frame and pulled down by 0.1,
@@ -384,6 +419,8 @@ pub enum Visual {
     Stars(Stars),
     /// The sparks thrown by a hit (kind 1018).
     Sparks(Sparks),
+    /// A hit that ripples the target's mesh (kind 3001, mode 1): no sprites of its own.
+    Deform(Deform),
     /// Two spirals of sparks (the buff's aura, and the tracers and hits built on it).
     Spiral(Aura),
     /// A soft glow under the feet (kind 3003: the running effect of 114 programs, 52 of them the same cyan one).
@@ -430,6 +467,7 @@ impl Gfx {
                 attach: r.int(7),
                 gate: r.int(24),
             })),
+            3001 if r.payload.len() >= 16 && r.int(10) == 1 => Some(Visual::Deform(Deform { duration: r.float(8), strength: r.float(11), ramp_in: r.float(12), ramp_out: r.float(13), frequency: r.float(14), amplitude: r.float(15) })),
             1001 | 2004 | 2005 | 2006 | 1018 => self.aura(id).map(Visual::Spiral),
             2007 | 3004 => self.references(id).into_iter().filter(|&c| c != id).find_map(|c| self.visual(c)),
             3003 => {

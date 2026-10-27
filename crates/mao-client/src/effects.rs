@@ -7,8 +7,28 @@
 //! does not say (or is not read yet): the radius (the radius path's numbers, 0.06 to 0.15, are too small for a body; 0.42 m is used),
 //! how high and how long a spark lives (1.9 m and 1.6 s here), and the trail (a short tail of fading sparks behind each one).
 
-use mao_formats::gfx::{Aura, Emitter, Sparks, Stars, Visual};
+use mao_formats::gfx::{Aura, Deform, Emitter, Sparks, Stars, Visual};
 use mao_render::{Particle, NO_SPRITE};
+
+/// `_GfxControlDeformer_t`'s mode 1 on a body's skinned parts (its vertex callback FUN_100d776f): each vertex pushed along its
+/// normal by `amplitude × sin²(phase) × strength`, the phase running with the frequency over time and along the body, so the
+/// mesh ripples for the hit's duration. `age` is seconds since the hit; nothing once the deform is over.
+pub fn deform_parts(parts: &mut [mao_formats::model::Part], d: &Deform, age: f32) {
+    let strength = d.strength_at(age);
+    if strength <= 0.0 {
+        return;
+    }
+    for part in parts {
+        for v in &mut part.vertices {
+            // (the original's two phase constants on the vertex's place are not legible; the ripple runs up the body)
+            let phase = d.frequency * age * std::f32::consts::TAU * 4.0 + v.position[1] * 6.0;
+            let push = d.amplitude * phase.sin().powi(2) * strength;
+            for c in 0..3 {
+                v.position[c] += v.normal[c] * push;
+            }
+        }
+    }
+}
 
 /// `_GfxControlSparks_t`'s burst at `time` seconds after the hit, thrown from `origin` (world, Z up): word 31 sparks at once and
 /// up to fifteen more over the first frames the gate lets through (FUN_100f24c8), each flying as FUN_100f1bbe throws it and
@@ -276,6 +296,8 @@ pub fn visual_particles(v: &Visual, feet: [f32; 3], time: f32, reach: Reach) -> 
             };
             sparks_particles(s, [feet[0], feet[1], feet[2] + up], time)
         }
+        // (bends the target's mesh instead: see `deform_parts`)
+        Visual::Deform(_) => Vec::new(),
         Visual::Spiral(aura) => match reach {
             Reach::Body => aura_shaped(aura, feet, time, HEIGHT, RADIUS),
             Reach::Medium => aura_shaped(aura, feet, time, 1.5, 0.35),
@@ -419,6 +441,7 @@ pub fn pulse_timing(v: &Visual) -> (f32, f32, i32) {
         Visual::Spiral(aura) => (aura.period, aura.helices.iter().map(|h| h.life).fold(0.0, f32::max).max(0.5), aura.plays),
         Visual::Stars(s) => (if s.duration > 0.0 { s.duration } else { 4.0 }, s.life * 2.0, -1),
         Visual::Sparks(s) => (4.0, s.life.1 + 0.2, -1),
+        Visual::Deform(d) => (4.0, if d.duration > 0.0 { d.duration } else { 1.5 }, -1),
         Visual::Glow { .. } => (SHIELD_PERIOD, SHIELD_LIFE, -1),
         _ => (4.0, 1.5, -1),
     }
@@ -611,6 +634,20 @@ broken line
         let thrown = Stars { mode: 4, ..s.clone() };
         let low = stars_particles(&thrown, [0.0; 3], 0.9, false).iter().map(|p| p.position[2]).fold(f32::MAX, f32::min);
         assert!(low < -0.1, "{low}");
+    }
+
+    #[test]
+    fn a_deform_ramps_in_ripples_and_ramps_out() {
+        let d = Deform { duration: 1.1, strength: 1.0, ramp_in: 0.1, ramp_out: 1.0, frequency: 0.1, amplitude: 0.05 };
+        assert!((d.strength_at(0.05) - 0.5).abs() < 1e-5);
+        assert!((d.strength_at(0.1) - 1.0).abs() < 1e-5);
+        assert!(d.strength_at(0.6) < 1.0 && d.strength_at(0.6) > 0.0);
+        assert_eq!(d.strength_at(1.2), 0.0);
+        let mut parts = vec![mao_formats::model::Part { name: String::new(), world: mao_formats::model::IDENTITY, vertices: vec![mao_formats::model::Vertex { position: [0.0, 1.0, 0.0], normal: [1.0, 0.0, 0.0], uv: [0.0; 2] }], indices: vec![], material: Default::default() }];
+        deform_parts(&mut parts, &d, 0.3);
+        let x = parts[0].vertices[0].position[0];
+        assert!(x >= 0.0 && x <= 0.05 + 1e-6, "{x}");
+        assert_eq!(parts[0].vertices[0].position[1], 1.0);
     }
 
     #[test]

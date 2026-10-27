@@ -145,7 +145,7 @@ then check a render. Never the other way round.
     | 2001 / 2002 | (not made by the factory) | 282 hits / 611 tracers | a flash / an orb (the client's own) |
     | 2005 / 2006 | `_GfxControlSuns_t` / `_GfxControlElectra_t` | 188 running, 251 tracers / 138 hits | as spirals |
     | 3003 | `_GfxControlShield_t` | 232 running, 154 hits | a glow under the feet |
-    | 3001 | `_GfxControlDeformer_t` (FUN_100d842e) | 160 hits | nothing |
+    | 3001 | `_GfxControlDeformer_t` (FUN_100d842e; FUN_100d823f the template, FUN_100d7caa the run, FUN_100d776f the vertex callback on the target's `CATRender_t`) | 160 hits | mode 1 (the three hit templates) ported as `gfx::Deform` / `effects::deform_parts`: the target's skinned vertices pushed along their normals by `amplitude × sin² × strength`, the strength ramped in over word 12 and out over word 13 before the duration (word 8) ends; `World::deforms` holds each character's live hit. Not: mode 0 (pulses round named bones, 31101) and mode 4 (a second body mesh faded over, 12276), and the callback's two phase constants on the vertex's place, which the decompile does not show legibly (the ripple runs up the body instead) |
     | 1024 | (a tracer kind of the 1019–1027 group: `_GfxControlNano0..3_t` and kin) | 124 tracers | nothing |
     | 3038 | `GfxControlVolGrid_t` (displaysystem `gfxvolgrid.rs`) | 31 hits, 27 casts, 24 tracers, 17 running | nothing |
     | 1009 | `_GfxControlSmoke_t` | 63 running | nothing |
