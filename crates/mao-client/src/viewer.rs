@@ -335,6 +335,9 @@ struct App {
     follow_shift: [f32; 3],
     /// The area's environment where the character stands, and the day's intensity (from the last update).
     environment: crate::environment::Environment,
+    /// The wind (the environment weather object's, see `wind`), stepped every frame from the weather's wind.
+    wind: crate::wind::Wind,
+    wind_at: std::time::Instant,
     daylight: f32,
     keys: Input,
     /// The keys as last sent to the network thread.
@@ -394,7 +397,7 @@ pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<()
     let settings = Settings::load();
     crate::ui::set_debug_overlay(settings.debug_overlay);
     crate::font::set_enabled(settings.original_font);
-    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), tried_sprites: Default::default(), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, casters: Vec::new(), follow_shift: [0.0; 3], environment: Default::default(), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
+    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), tried_sprites: Default::default(), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, casters: Vec::new(), follow_shift: [0.0; 3], environment: Default::default(), wind: Default::default(), wind_at: std::time::Instant::now(), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
     event_loop.run_app(&mut app).map_err(|e| e.to_string())?;
     if app.logged_out {
         // (the launcher that started the game sees this code and shows the character screen again)
@@ -1081,6 +1084,10 @@ impl ApplicationHandler for App {
                 // The sparks of the running nano programs, where they are now (the character's own glides with it).
                 {
                     let time = self.fx_clock.elapsed().as_secs_f32();
+                    // (the wind run on from the weather's wind, entry 7, and handed to the effects that it pushes)
+                    self.wind.advance(self.environment.weather[7], self.wind_at.elapsed().as_secs_f32());
+                    self.wind_at = std::time::Instant::now();
+                    crate::effects::set_wind(self.wind.now(), self.wind.smooth());
                     let ahead = self.own_at.elapsed().as_secs_f32().min(0.12);
                     let own_feet = [self.own_base[0] + self.own_velocity[0] * ahead, self.own_base[2] + self.own_velocity[2] * ahead, self.own_base[1]];
                     let mut sparks = Vec::new();

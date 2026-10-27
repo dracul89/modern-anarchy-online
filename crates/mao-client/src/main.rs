@@ -60,6 +60,7 @@ mod blobshadow;
 mod camera;
 mod effects;
 mod environment;
+mod wind;
 mod gametime;
 mod ui;
 mod whompah;

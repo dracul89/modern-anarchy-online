@@ -672,3 +672,7 @@ Stars mode 15 (14 hit templates) throws its stars off the target's own surface, 
 Stars mode 1 (10 hit templates, at the hands) runs as the original's `case 1`: two stars a frame appear a metre out from the hand and are drawn in onto it on a damped spring over 1.2 s, growing from nothing as they come, a gathering of light into the hand.
 
 Stars mode 9 (6 hit templates) runs as the original's `case 9`: drops of light born two metres above the target over a small disc, falling at the template's speed, each a large glow at the top that shrinks to a small spark as it drops past the shoulders.
+
+## The wind, from the original's code
+
+The original's environment keeps a wind (`wind.rs`, from Gamecode's FUN_100bff68, FUN_100bfc80 and `_EffectHandler_t::ComputeWind`): a base wind as strong as the weather's wind value (held to 33), and two gusts kicked at random nearly every frame, larger the stronger the wind, decaying by a fiftieth a frame; the wind is the base plus the 3D gust, and the effect handler keeps a smoothed copy of it. The viewer steps it from the weather each frame and the effects it pushes now drift with it: the sparks of the 14 Sparks templates with a push (blown downwind more the higher they fly) and the smoke of the push kinds (by the smoothed wind). The wind and rain sounds the same functions drive are not done.

@@ -10,6 +10,41 @@
 use mao_formats::gfx::{colour_curve, curve, unpack_argb, Aura, BParticles, Cords, Deform, Emitter, Smoke, Sparks, Sprite, Stars, Visual, VolGrid};
 use mao_render::{Particle, NO_SPRITE};
 
+/// The wind the effects are pushed by, Z up: the effect handler's wind (+0x24, Sparks) and its smoothed copy (+0x30, Smoke).
+/// The viewer sets it every frame (`crate::wind`); still air until then.
+static WIND: std::sync::Mutex<([f32; 3], [f32; 3])> = std::sync::Mutex::new(([0.0; 3], [0.0; 3]));
+
+pub fn set_wind(now: [f32; 3], smooth: [f32; 3]) {
+    if let Ok(mut w) = WIND.lock() {
+        *w = (now, smooth);
+    }
+}
+
+fn wind() -> ([f32; 3], [f32; 3]) {
+    WIND.lock().map(|w| *w).unwrap_or(([0.0; 3], [0.0; 3]))
+}
+
+/// `GfxVisualSprite2Type0::ProcessSprites`'s push curve of a kind at the height fraction `t` (kinds 1 to 6; 5 and 6 also move
+/// the sprite on their own, which the callers do).
+fn push_curve(kind: i32, t: f32) -> f32 {
+    match kind {
+        1 | 5 => 1.0,
+        2 | 6 => t,
+        3 => t * t,
+        4 => (t * t + t) * 0.5,
+        _ => 0.0,
+    }
+}
+
+/// The height fraction of a push: `(height - low) / (high - low)` held to 0..1 (0 when the two heights are the same).
+fn push_fraction(height: f32, (low, high): (f32, f32)) -> f32 {
+    if high == low {
+        0.0
+    } else {
+        ((height - low) / (high - low)).clamp(0.0, 1.0)
+    }
+}
+
 /// `_GfxControlTracer4_t`'s three cords at `time` seconds, wound round the line from `from` to `to` (world, Z up) as FUN_100ffa7b
 /// winds them: each of the twenty links of a cord drawn as a sprite of the link's width. The original's random flips and jitter
 /// are stood in for by a hash of the link.
@@ -96,7 +131,23 @@ pub fn sparks_particles(s: &Sparks, origin: [f32; 3], time: f32) -> Vec<Particle
         let t = age / life;
         let (az, el, speed) = (lerp(s.azimuth, hash(salt, 2)), lerp(s.elevation, hash(salt, 3)), lerp(s.speed, hash(salt, 4)) * s.scale);
         let v = [el.cos() * az.sin() * speed, el.cos() * az.cos() * speed, el.sin() * speed];
-        let position = [origin[0] + v[0] * age, origin[1] + v[1] * age, origin[2] + v[2] * age + 0.5 * s.gravity * age * age];
+        let mut position = [origin[0] + v[0] * age, origin[1] + v[1] * age, origin[2] + v[2] * age + 0.5 * s.gravity * age * age];
+        if s.push != 0 {
+            // (the push of word 38: the wind times its curve of the spark's height above its birth, times its strength, added to its
+            // place every frame; summed here over the spark's age in steps)
+            let strength = (0.1 + 0.9 * hash(salt, 12)) * s.push_strength;
+            let (now, _) = wind();
+            let steps = 12;
+            let mut weight = 0.0;
+            for i in 0..steps {
+                let tau = (i as f32 + 0.5) / steps as f32 * age;
+                let height = v[2] * tau + 0.5 * s.gravity * tau * tau;
+                weight += push_curve(s.push, push_fraction(height, s.push_heights)) * age / steps as f32;
+            }
+            for i in 0..3 {
+                position[i] += now[i] * strength * weight;
+            }
+        }
         let colour = [1, 2, 3, 0].map(|c| lerp((s.colour_a[c], s.colour_b[c]), t));
         let size = lerp(s.width, t).max(lerp(s.height, t));
         out.push(sprite(s.material, t, position, size.max(0.0), [colour[0], colour[1], colour[2], colour[3]]));
@@ -628,7 +679,26 @@ pub fn smoke_particles(s: &Smoke, feet: [f32; 3], time: f32) -> Vec<Particle> {
             _ => {}
         }
         let (p, v) = (turn(p), turn(v));
-        let local = [0, 1, 2].map(|i| p[i] + s.offset[i] + v[i] * age);
+        let mut local = [0, 1, 2].map(|i| p[i] + s.offset[i] + v[i] * age);
+        if (1..=6).contains(&s.kind) {
+            // (the push of word 29's kinds by the smoothed wind: its curve of the sprite's height between words 27 and 28 above its
+            // birth height, times word 30's strength (0.1 + 0.9 random), added every frame; summed over the age in steps; in the
+            // original's Y-up frame, so the wind is turned back to it)
+            let strength = (0.1 + 0.9 * hash(salt, 10)) * s.strength;
+            let (_, smooth) = wind();
+            let smooth = [smooth[0], smooth[2], smooth[1]];
+            let born = p[1] + s.offset[1];
+            let steps = 12;
+            let mut weight = 0.0;
+            for i in 0..steps {
+                let tau = (i as f32 + 0.5) / steps as f32 * age;
+                let height = p[1] + s.offset[1] + v[1] * tau - born;
+                weight += push_curve(s.kind, push_fraction(height, s.heights)) * age / steps as f32;
+            }
+            for i in 0..3 {
+                local[i] += smooth[i] * strength * weight;
+            }
+        }
         let colour = [1, 2, 3, 0].map(|c| lerp((s.colour_a[c], s.colour_b[c]), t));
         let size = lerp(s.width, t).max(lerp(s.height, t)) * scale;
         out.push(sprite(s.material, t, world(local), size.max(0.0), colour));
@@ -1184,6 +1254,29 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_wind_pushes_the_sparks_of_kind_4_by_their_height() {
+        let s = Sparks { colour_a: [1.0; 4], colour_b: [1.0; 4], width: (0.1, 0.1), height: (0.1, 0.1), azimuth: (0.0, 6.28), elevation: (1.2, 1.4), speed: (4.0, 5.0), scale: 1.0, life: (1.0, 1.0), count: 8, gravity: -9.8, material: 16, attach: 1000, gate: 0, push: 4, push_heights: (0.0, 8.0), push_strength: 1.0 };
+        set_wind([0.0; 3], [0.0; 3]);
+        let still = sparks_particles(&s, [0.0; 3], 0.6);
+        set_wind([20.0, 0.0, 0.0], [0.0; 3]);
+        let blown = sparks_particles(&s, [0.0; 3], 0.6);
+        set_wind([0.0; 3], [0.0; 3]);
+        assert_eq!(still.len(), blown.len());
+        // every spark carried downwind (+x), none across or up by it
+        for (a, b) in still.iter().zip(&blown) {
+            assert!(b.position[0] > a.position[0] && (b.position[1] - a.position[1]).abs() < 1e-4 && (b.position[2] - a.position[2]).abs() < 1e-4);
+        }
+        // the push grows with the curve of the height: a kind-0 template is never pushed
+        let none = Sparks { push: 0, ..s.clone() };
+        set_wind([20.0, 0.0, 0.0], [0.0; 3]);
+        assert_eq!(sparks_particles(&none, [0.0; 3], 0.6), still);
+        set_wind([0.0; 3], [0.0; 3]);
+        assert_eq!(push_curve(4, 1.0), 1.0);
+        assert_eq!(push_fraction(4.0, (0.0, 8.0)), 0.5);
+        assert_eq!(push_fraction(4.0, (1.0, 1.0)), 0.0);
+    }
+
+    #[test]
     fn stars_mode_9_fall_from_two_metres_shrinking_as_they_drop() {
         // (template 13700: a 0.6 disc, falling 3 a second, 0.15 small, 5 per unit of height larger, living a second)
         let s = Stars { mode: 9, colour_a: [1.0, 0.4, 0.2, 0.7], colour_b: [1.0, 0.4, 0.1, 0.6], size: 3.0, radius: 0.6, life: 1.0, swirl: 500.0, material: 8, attach: 1000, duration: -1.0, word11: 0.15, word30: 1000 };
@@ -1622,7 +1715,7 @@ broken line
 
     #[test]
     fn sparks_fly_out_fade_and_fall() {
-        let s = Sparks { colour_a: [1.0, 1.0, 1.0, 0.0], colour_b: [0.0, 1.0, 0.0, 0.0], width: (0.1, 0.3), height: (0.1, 0.3), azimuth: (0.0, 6.28), elevation: (0.3, 1.2), speed: (2.0, 3.0), scale: 1.0, life: (0.8, 1.0), count: 8, gravity: -9.8, material: 16, attach: 1000, gate: 0 };
+        let s = Sparks { colour_a: [1.0, 1.0, 1.0, 0.0], colour_b: [0.0, 1.0, 0.0, 0.0], width: (0.1, 0.3), height: (0.1, 0.3), azimuth: (0.0, 6.28), elevation: (0.3, 1.2), speed: (2.0, 3.0), scale: 1.0, life: (0.8, 1.0), count: 8, gravity: -9.8, material: 16, attach: 1000, gate: 0, push: 0, push_heights: (0.0, 8.0), push_strength: 1.0 };
         let early = sparks_particles(&s, [0.0; 3], 0.1);
         assert!(early.len() >= 8 && early.len() <= 23, "{}", early.len());
         // they rise at first, then gravity brings them below the start

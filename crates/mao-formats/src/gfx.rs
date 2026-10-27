@@ -364,6 +364,12 @@ pub struct Sparks {
     pub attach: i32,
     /// Word 24: the burst's gate (0 lets every frame through, 15 one in sixteen).
     pub gate: i32,
+    /// Word 38: the sparks' push kind (`GfxVisualSprite2Type0::ProcessSprites`: 0 none, 4 the wind times `(t² + t) / 2` of
+    /// their height's fraction `t` between words 36 and 37 above their birth; 28 templates 0, 14 kind 4), and word 39 the
+    /// strength (each spark `0.1 + 0.9 × random` of it).
+    pub push: i32,
+    pub push_heights: (f32, f32),
+    pub push_strength: f32,
 }
 
 /// A kind-3001 template as `_GfxControlDeformer_t` reads it (Gamecode FUN_100d823f; FUN_100d7caa runs it, FUN_100d776f is the
@@ -792,6 +798,9 @@ impl Gfx {
                 material: r.int(9),
                 attach: r.int(7),
                 gate: r.int(24),
+                push: r.int(38),
+                push_heights: (r.float(36), r.float(37)),
+                push_strength: r.float(39),
             })),
             1024 if r.payload.len() >= 17 => Some(Visual::Cords(Cords { width: r.float(11), radius: r.float(12), colour: [r.float(13), r.float(14), r.float(15), r.float(16)], material: r.int(9), duration: r.float(8) })),
             3038 => VolGrid::read(r).map(Visual::VolGrid),
