@@ -1629,6 +1629,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     let mut pending_messages: Vec<String> = Vec::new();
     // The booth the character stood at last, and when.
     let mut near_booth: Option<(u32, [f32; 3], Instant)> = None;
+    // A teleport try under way: when it began (the original's `TeleportTrier_t`, 30 s before it gives up).
+    let mut teleport_try: Option<Instant> = None;
     let game_dir = game.to_string();
     let thread_db = db.clone();
     let mut current = playfield;
@@ -2068,6 +2070,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             if let Some((playfield, arrival)) = state.arrival.take() {
                 if playfield != current {
                     eprintln!("zoning to playfield {playfield}");
+                    teleport_try = None;
                     current = playfield;
                     state.last_move.clear_all();
                     state.jumped.clear_all();
@@ -2647,6 +2650,23 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 last_send = Instant::now();
                 ok &= send(connection, kind, heading, position, &mut sent);
             };
+            // Touching a door starts a teleport try, as the original's collision with a `Door_t` does (`StartTeleportTry`): one full
+            // position report, and the server zones us (a playfield message) or does not; after 30 s the try is given up with the
+            // original's feedback. A new try needs the door left and touched again.
+            let at_door = state.door_slots.values().any(|(_, d)| ((d[0] - position[0]).powi(2) + (d[2] - position[2]).powi(2)).sqrt() < 2.0 && (d[1] - position[1]).abs() < 3.0);
+            match teleport_try {
+                None if at_door => {
+                    teleport_try = Some(Instant::now());
+                    send_kind(movement::FULL, &mut connection);
+                    eprintln!("[{:6.1}] teleport try at a door, from {position:?}", clock.elapsed().as_secs_f32());
+                }
+                Some(began) if began.elapsed() >= Duration::from_secs(30) => {
+                    teleport_try = None;
+                    pending_messages.push("Area change not initiated".into());
+                }
+                Some(_) if !at_door => teleport_try = None,
+                _ => {}
+            }
             if start_jump {
                 state.jumped.insert(own, Instant::now());
                 send_kind(movement::JUMP, &mut connection);
@@ -2666,7 +2686,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     _ => send_kind(movement::TURN_STOP, &mut connection),
                 }
             } else if ((walk != 0 || keys.turn != 0 || keys.strafe != 0 || keys.face.is_some() || airborne) && due) || landed {
-                send_kind(movement::UPDATE, &mut connection);
+                // (the periodic report is the original's full one, 0x16; 15 is what the captures show as the character lands)
+                send_kind(if landed { movement::UPDATE } else { movement::FULL }, &mut connection);
             }
             if keys.strafe != strafing {
                 // The strafe start / stop types (5..8) are a guess from the numbering; until verified the

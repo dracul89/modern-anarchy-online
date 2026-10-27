@@ -13,8 +13,9 @@ pub const CHARACTER: u32 = 0xc350;
 pub const ENTITY_INFO: u32 = 0x271b3a6b;
 /// The client's own position update.
 pub const POSITION_UPDATE: u32 = 0x54111123;
-/// Movement types of a [`POSITION_UPDATE`] (guessed from when the original
-/// client sends them in the capture).
+/// Movement types of a [`POSITION_UPDATE`] (`Movement_n::MovementAction_e`): the start/stop and turn types from when the original
+/// client sends them in the captures; `FULL` from `n3EngineClientAnarchy_t::CheckMotionUpdate` and `StartTeleportTry` in
+/// Gamecode.dll, which send `MovementChanged(0x16)`.
 pub mod movement {
     pub const FORWARD_START: u8 = 1;
     pub const FORWARD_STOP: u8 = 2;
@@ -23,9 +24,12 @@ pub mod movement {
     pub const TURN_LEFT_START: u8 = 9;
     pub const TURN_RIGHT_START: u8 = 11;
     pub const TURN_STOP: u8 = 12;
-    /// Jump (sent as the jump starts; the capture's heights rise about 2.5
-    /// units and fall back in about a second).
-    pub const JUMP: u8 = 22;
+    /// The full position report: the original sends it after 5 s in motion without another movement message, when the heading
+    /// turns more than 0.17 rad within 0.25 s, and at once to ask the server to zone (a teleport try, when the character touches
+    /// a door or stands in a zone's teleportal). The captures show it as the jump starts too.
+    pub const FULL: u8 = 22;
+    /// Jump: the same full report, sent as the jump starts.
+    pub const JUMP: u8 = FULL;
     /// A new heading while standing.
     pub const HEADING: u8 = 14;
     /// The periodic update while moving.
