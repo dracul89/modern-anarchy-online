@@ -113,6 +113,7 @@ mao-client`, a live look if the user is around, a paragraph in `docs/CLIENT_UI.m
    Friends, Mission, Mail, Shop, Help, Actions, Options, Whom-Pah).
 
 ### Phase C — default window positions and the original's prefs
+*(Looked at 2026-10-26: the shipped CharPrefs.xml window archives are empty and a character's Prefs.xml only has frames for moved windows (5120x1440, no resolution saved); `AutoCloseWindows` defaults to false. C.1/C.2 are not worth doing; C.3 only if a player asks.)*
 1. Read `CharPrefs.xml`'s `<X>WindowConfig` rects for the default positions (and `Prefs.xml` when a
    character's folder is found under `<LocalAppData>/Funcom/Anarchy Online/*/Anarchy Online/Prefs/derived/
    Char<id>/`): map config names to our windows (`WearViewConfig` → inventory, `StatWindowConfig` → stats,
@@ -128,6 +129,7 @@ mao-client`, a live look if the user is around, a paragraph in `docs/CLIENT_UI.m
    other windows when a menu entry opens one (the `Actions criteria=dvalue:AutoCloseWindows` lists).
 
 ### Phase D — the rest of the control center
+*(D.2 target frame done 2026-10-26: `ui.rs::target_frame`, `TargetBar`.)*
 1. Wear and Shop icons (`GFX_GUI_CC_ICONS_WEAR`, `STORE`); Vehicle/Perks/Skills/Shortcuts/Team/Factions
    icons exist too — add entries as windows appear. Team menu (Team, Raid, Find Team) once a team window
    exists.

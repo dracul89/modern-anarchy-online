@@ -3011,6 +3011,19 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     mail_status: pending_mail_status.take(),
                     destinations: pending_destinations.take(),
                     heading: Some(heading),
+                    target_bar: target.and_then(|t| {
+                        let name = state.names.get(&t).map(|n| n.0.clone()).filter(|n| !n.is_empty()).or_else(|| state.infos.get(&t).map(|i| i.name.clone()))?;
+                        let p = state.position_of(t)?;
+                        let distance = ((p[0] - position[0]).powi(2) + (p[2] - position[2]).powi(2)).sqrt();
+                        let hp = state.health.get(&t).map(|&(hp, max)| (hp as i64, max as i64)).or_else(|| state.last_hp.get(&t).map(|&hp| (hp as i64, 0)));
+                        let kind = match state.infos.get(&t) {
+                            Some(info) if info.is_player() && t < DYNAMIC_NPC => crate::automap::DotKind::Player,
+                            Some(info) if ["Vanguard", "Watcher", "Commander", "Guard", "Merchant", "Trader", "Recruiter", "Helper"].iter().any(|w| info.name.contains(w)) => crate::automap::DotKind::Friendly,
+                            Some(_) => crate::automap::DotKind::Hostile,
+                            None => crate::automap::DotKind::Friendly,
+                        };
+                        Some(crate::ui::TargetBar { name, level: state.levels.get(&t).map(|&l| l as i64), hp, distance, kind })
+                    }),
                     target: target.and_then(|t| Some(format!("{}{}  ({:.0} m)", state.names.get(&t)?.0, state.health.get(&t).map(|(hp, max)| format!("  HP {hp}/{max}")).or_else(|| state.last_hp.get(&t).map(|hp| format!("  HP {hp}"))).unwrap_or_default(), ((state.position_of(t)?[0] - position[0]).powi(2) + (state.position_of(t)?[2] - position[2]).powi(2)).sqrt()))),
                 };
                 if tx.send(update).is_err() {

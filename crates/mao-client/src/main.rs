@@ -912,6 +912,7 @@ fn run(args: &[String]) -> Result<(), String> {
                     }
                     hud.labels = net::booth_labels(number, &whompah_booths(game, &db, number), &destinations, &names).into_iter().map(|(p, text)| ui::Label { world: mao_render::glam::Vec3::from(p), text }).collect();
                     hud.target = Some("Rollerrat  (12 m)".into());
+                    hud.target_bar = Some(ui::TargetBar { name: "Rollerrat".into(), level: Some(14), hp: Some((1890, 2400)), distance: 12.0, kind: automap::DotKind::Hostile });
                     // MAO_UI_PREVIEW=gear + MAO_CAPTURE=<capture.log>: the inventory window from a captured session.
                     if preview.as_deref() == Some("stats") {
                         use stats::stat::*;

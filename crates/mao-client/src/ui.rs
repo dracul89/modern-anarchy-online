@@ -92,6 +92,8 @@ pub struct Hud {
     pub log: VecDeque<(Instant, String)>,
     /// The current target, for the target frame.
     pub target: Option<String>,
+    /// The target for the original's frame at the top: name, level, health, distance and what it is.
+    pub target_bar: Option<TargetBar>,
     /// The character's items (the inventory window), and whether a headless preview shows it.
     pub gear: Vec<crate::gear::GearItem>,
     /// The running nano programs.
@@ -133,6 +135,17 @@ impl Hud {
 }
 
 /// What the options window asks the window to do.
+/// What the target frame shows.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TargetBar {
+    pub name: String,
+    pub level: Option<i64>,
+    /// Health and its maximum (0 when the maximum is not known).
+    pub hp: Option<(i64, i64)>,
+    pub distance: f32,
+    pub kind: crate::automap::DotKind,
+}
+
 #[derive(Default)]
 pub struct Requests {
     /// A theme picked in the options window.
@@ -950,7 +963,14 @@ fn hud_layer(ctx: &egui::Context, hud: &Hud, project: &dyn Fn(Vec3) -> Option<[f
         });
     });
     }
-    if let Some(target) = &hud.target {
+    let skinned_target = match (&hud.target_bar, crate::skin::skin(ctx)) {
+        (Some(bar), Some(skin)) if skin.has("GFX_GUI_TARGET_HB_LEFT") => {
+            target_frame(ctx, &skin, bar, palette);
+            true
+        }
+        _ => false,
+    };
+    if let (Some(target), false) = (&hud.target, skinned_target) {
         egui::Area::new(egui::Id::unique("target")).anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 36.0)).interactable(false).show(ctx, |ui| {
             frame().show(ui, |ui| {
                 ui.label(egui::RichText::new("Target").small().color(accent));
@@ -968,6 +988,55 @@ fn hud_layer(ctx: &egui::Context, hud: &Hud, project: &dyn Fn(Vec3) -> Option<[f
             });
         });
     }
+}
+
+/// The original's target frame under the compass: the name (with the level when known) between the frame's corners
+/// (`GFX_GUI_CC_TARGET_FRAME_*`), and the health bar (`GFX_GUI_TARGET_HB_*`: end caps, groove and the sliding fill, tinted red for
+/// an enemy, green for a friend, blue for a player), with the distance at its right.
+fn target_frame(ctx: &egui::Context, skin: &crate::skin::Skin, bar: &TargetBar, palette: &Palette) {
+    let accent = rgb(palette.accent);
+    let (fill, text_color) = match bar.kind {
+        crate::automap::DotKind::Hostile => (egui::Color32::from_rgb(230, 60, 50), egui::Color32::from_rgb(255, 150, 140)),
+        crate::automap::DotKind::Player => (egui::Color32::from_rgb(90, 150, 255), egui::Color32::from_rgb(160, 200, 255)),
+        _ => (egui::Color32::from_rgb(80, 210, 90), egui::Color32::from_rgb(150, 240, 150)),
+    };
+    let width = 200.0f32;
+    egui::Area::new(egui::Id::unique("target")).anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 32.0)).interactable(false).show(ctx, |ui| {
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(width, 40.0), egui::Sense::hover());
+        let painter = ui.painter();
+        painter.rect_filled(rect, 3.0, egui::Color32::from_black_alpha(120));
+        for (corner, at) in [("TL", rect.left_top()), ("TR", rect.right_top() - egui::vec2(12.0, 0.0)), ("BL", rect.left_bottom() - egui::vec2(0.0, 11.0)), ("BR", rect.right_bottom() - egui::vec2(12.0, 11.0))] {
+            skin.draw(painter, &format!("GFX_GUI_CC_TARGET_FRAME_{corner}"), at, 1.0, accent);
+        }
+        let name = match bar.level {
+            Some(level) => format!("{} ({level})", bar.name),
+            None => bar.name.clone(),
+        };
+        painter.text(egui::pos2(rect.center().x, rect.top() + 4.0), egui::Align2::CENTER_TOP, name, egui::FontId::proportional(14.0), text_color);
+        // the bar: caps at both ends, the groove between, the fill over the fraction of health left
+        let (left, right, top) = (rect.left() + 14.0, rect.right() - 14.0, rect.bottom() - 15.0);
+        skin.draw(painter, "GFX_GUI_TARGET_HB_LEFT", egui::pos2(left, top), 1.0, accent);
+        skin.draw(painter, "GFX_GUI_TARGET_HB_RIGHT", egui::pos2(right - 9.0, top), 1.0, accent);
+        let groove = egui::Rect::from_min_max(egui::pos2(left + 9.0, top), egui::pos2(right - 9.0, top + 11.0));
+        skin.draw_in(painter, "GFX_GUI_TARGET_HB_BACKGROUND", groove, accent);
+        let fraction = match bar.hp {
+            Some((hp, max)) if max > 0 => (hp as f32 / max as f32).clamp(0.0, 1.0),
+            Some(_) => 1.0,
+            None => 0.0,
+        };
+        if fraction > 0.0 {
+            let filled = egui::Rect::from_min_max(groove.min, egui::pos2(groove.left() + groove.width() * fraction, groove.bottom()));
+            if !skin.draw_in(&painter.with_clip_rect(filled), "GFX_GUI_TARGET_HB_SLIDER", groove, fill) {
+                painter.rect_filled(filled, 0.0, fill);
+            }
+        }
+        let caption = match bar.hp {
+            Some((hp, max)) if max > 0 => format!("{hp} / {max}   {:.0} m", bar.distance),
+            Some((hp, _)) => format!("{hp}   {:.0} m", bar.distance),
+            None => format!("{:.0} m", bar.distance),
+        };
+        painter.text(egui::pos2(rect.center().x, groove.center().y), egui::Align2::CENTER_CENTER, caption, egui::FontId::proportional(10.0), egui::Color32::WHITE);
+    });
 }
 
 /// The options window: how the window is shown, its size, and the keys.

@@ -119,6 +119,8 @@ pub struct Update {
     pub messages: Vec<String>,
     /// The current target (name and distance), for the target frame.
     pub target: Option<String>,
+    /// The same target for the original's target frame: name, health, distance and what it is.
+    pub target_bar: Option<crate::ui::TargetBar>,
     /// The character's items, when they arrive.
     pub gear: Option<Vec<crate::gear::GearItem>>,
     /// New lines for the chat window.
@@ -858,6 +860,7 @@ impl ApplicationHandler for App {
                             self.hud.say(m);
                         }
                         self.hud.target = u.target.take();
+                        self.hud.target_bar = u.target_bar.take();
                         if let Some(d) = u.destinations.take() {
                             self.hud.destinations = Some(d);
                         }
