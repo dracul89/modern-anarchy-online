@@ -950,10 +950,18 @@ struct Characters {
     creature_anims: std::collections::HashMap<u32, Option<(mao_formats::catanim::CatAnim, f32)>>,
     /// Where each character is in its movement animation (start, loop, stop).
     motions: std::collections::HashMap<u32, Motion>,
-    /// The segment `motion` last chose (0 idle, 1 start, 2 cycle, 3 stop, 10 jump, 11 landing), and each character's
-    /// last pose, to cross-fade when the segment changes.
+    /// The segment `motion` last chose (0 idle, 1 start, 2 cycle, 3 stop, 10 jump, 11 landing).
     segment: u8,
-    poses: std::collections::HashMap<u32, PoseState>,
+    /// Each character's running animations, as `VisualCATMesh_t` keeps them (`mao_formats::animstack`), and when they were
+    /// last run on.
+    stacks: std::collections::HashMap<u32, (mao_formats::animstack::Stack, Instant)>,
+    /// The animations the stacks play, by instance, with their lengths.
+    anims_by_id: std::collections::HashMap<u32, (Arc<mao_formats::catanim::CatAnim>, f32)>,
+    /// What each character's movement was last set to (the action and segment, or a creature's animation) and its handle.
+    movement_keys: std::collections::HashMap<u32, (mao_formats::appearance::Action, u8, u32)>,
+    movement_handles: std::collections::HashMap<u32, u32>,
+    /// When each character's current social action was set on its stack.
+    socials_started: std::collections::HashMap<u32, Instant>,
     started: Instant,
     /// Machine models by mesh instance.
     props: std::collections::HashMap<u32, Option<Vec<Part>>>,
@@ -1002,16 +1010,6 @@ pub(crate) fn wear(db: &ResourceDatabase, cache: &mut std::collections::HashMap<
         }
     }
     parts
-}
-
-struct PoseState {
-    key: (mao_formats::appearance::Action, u8),
-    last: (mao_formats::appearance::Action, f32),
-    from: Option<(mao_formats::appearance::Action, f32)>,
-    at: Instant,
-    /// How long this change of animation cross-fades, in seconds: the original's `VisualCATMesh_t::SetAnimation` fades a new
-    /// animation in over what is left of the running cycle, kept between 200 and 300 ms (`catloader.rs`).
-    fade: f32,
 }
 
 /// The parts of a movement animation: the original's walk and run animations carry `loopstart` and `loopend`
@@ -1066,7 +1064,7 @@ impl Characters {
         let index = mao_formats::instances::Instances::parse(&get(0xf424a, 1)?).map_err(|e| e.to_string())?;
         let _ = get;
         let head_meshes = index.iter().filter(|(kind, name, _)| *kind == 0xf6951 && is_head_name(name)).map(|(_, _, instance)| instance).collect();
-        Ok(Characters { head_meshes, db, index, anims: Default::default(), ids: Default::default(), bodies: Default::default(), creatures: Default::default(), creature_anims: Default::default(), motions: Default::default(), segment: 0, poses: Default::default(), started: Instant::now(), props: Default::default(), statics: Default::default() })
+        Ok(Characters { head_meshes, db, index, anims: Default::default(), ids: Default::default(), bodies: Default::default(), creatures: Default::default(), creature_anims: Default::default(), motions: Default::default(), segment: 0, stacks: Default::default(), anims_by_id: Default::default(), movement_keys: Default::default(), movement_handles: Default::default(), socials_started: Default::default(), started: Instant::now(), props: Default::default(), statics: Default::default() })
     }
 
     /// The parts of a machine's model (Y-up local space), loaded once.
@@ -1077,7 +1075,7 @@ impl Characters {
 
     /// The parts of a creature or NPC from its template (the CAT mesh and
     /// animations its record names), in Y-up local space.
-    fn creature_parts(&mut self, template: u32, action: mao_formats::appearance::Action, phase: f32, rate: f32, textures: &[(String, u32)], clothes: &[(String, u32)]) -> Option<Vec<Part>> {
+    fn creature_parts(&mut self, id: u32, template: u32, action: mao_formats::appearance::Action, _phase: f32, rate: f32, textures: &[(String, u32)], clothes: &[(String, u32)]) -> Option<Vec<Part>> {
         use mao_formats::resource::Id;
         let db = self.db.clone();
         let entry = self.creatures.entry(template).or_insert_with(|| {
@@ -1101,14 +1099,33 @@ impl Characters {
                 break;
             }
         }
-        let (key, id) = chosen?;
-        let anim_entry = self.creature_anims.get(&id)?;
+        let (key, anim_id) = chosen?;
+        let anim_entry = self.creature_anims.get(&anim_id)?;
         let (anim, length) = anim_entry.as_ref()?;
         // (a creature that has no standing animation holds its walk's first frame while it stands)
         // (the original's calibration file says how fast each movement animation of a creature plays)
-        let rate = rate * crate::effects::calibration(record.mesh.unwrap_or(0), id);
-        let t = if action == mao_formats::appearance::Action::Idle && matches!(key, 100 | 101) { 0.0 } else { (self.started.elapsed().as_secs_f32() * 1000.0 * rate + phase) % length };
-        let bones = mesh.pose(anim, t);
+        let rate = rate * crate::effects::calibration(record.mesh.unwrap_or(0), anim_id);
+        let hold = action == mao_formats::appearance::Action::Idle && matches!(key, 100 | 101);
+        if !self.anims_by_id.contains_key(&anim_id) {
+            self.anims_by_id.insert(anim_id, (Arc::new(anim.clone()), *length));
+        }
+        // The creature's stack: its movement looping at priority 0 on layer 2, as a player's.
+        let (stack, tick) = self.stacks.entry(id).or_insert_with(|| (Default::default(), Instant::now()));
+        let dt = tick.elapsed().as_secs_f32().min(0.5);
+        *tick = Instant::now();
+        let stack_key = (action, hold as u8, anim_id);
+        if self.movement_keys.get(&id) != Some(&stack_key) {
+            let handle = stack.set_animation(anim_id, 0, -1, 2, 0, 1.0, *length);
+            stack.set_time(handle, 0.0, if hold { 0.0 } else { *length });
+            self.movement_keys.insert(id, stack_key);
+            self.movement_handles.insert(id, handle);
+        }
+        if let Some(&handle) = self.movement_handles.get(&id) {
+            stack.set_speed_scale(handle, rate.max(0.05));
+        }
+        stack.advance(dt);
+        let anims = &self.anims_by_id;
+        let bones = stack.pose(mesh, &|a| anims.get(&a).map(|(anim, _)| anim.as_ref()));
         let mut parts = mesh.skinned_model(&bones, 0xf6954).parts;
         for part in &mut parts {
             let wanted = clothes.iter().chain(textures.iter()).find(|(n, i)| *i != 0 && n.eq_ignore_ascii_case(&part.material.name));
@@ -1171,42 +1188,59 @@ impl Characters {
         None
     }
 
-    /// The parts of a character doing a social action `age_ms` into it, or `None` when the animation is missing or over.
-    fn parts_social(&mut self, breed: u8, sex: u8, name: &str, age_ms: f32, textures: &[(String, u32)], clothes: &[(String, u32)], gear: &[(u8, u32, u32)]) -> Option<Vec<Part>> {
-        use mao_formats::resource::Id;
-        let key = self.ensure_social(breed, sex, name)?;
-        let custom_head = gear.iter().any(|g| g.0 == 0 && self.head_meshes.contains(&g.1));
-        let db = self.db.clone();
-        let index = &self.index;
-        let entry = self.bodies.entry((breed, sex)).or_insert_with(|| {
-            let (body_name, head_name) = mao_formats::appearance::player_meshes(breed, sex)?;
-            let body = mao_formats::catmesh::parse(&db.get(Id { kind: 0xf6952, instance: index.find(0xf6952, body_name)? }).ok()??).ok()?;
-            let head = crate::load_model_attached(&db, Id { kind: 0xf6951, instance: index.find(0xf6951, head_name)? }).ok()?;
-            let attractor = body.attractor("head").cloned();
-            Some((body, head, attractor))
-        });
-        let (body, head, attractor) = entry.as_ref()?;
-        let (anim, length) = self.anims.get(&key)?.as_ref()?;
-        if age_ms >= *length {
-            return None;
+    /// A loaded animation's instance and length, registered for the stacks.
+    fn anim_by_name(&mut self, name: &str) -> Option<(u32, f32)> {
+        let id = self.find_cached(0xf6953, name)?;
+        if !self.anims_by_id.contains_key(&id) {
+            let (anim, length) = self.anims.get(name)?.as_ref()?;
+            self.anims_by_id.insert(id, (Arc::new(anim.clone()), *length));
         }
-        let bones = body.pose(anim, age_ms);
-        let mut model = body.skinned_model(&bones, 0xf6954);
-        for part in &mut model.parts {
-            let wanted = clothes.iter().chain(textures.iter()).find(|(n, i)| *i != 0 && n.eq_ignore_ascii_case(&part.material.name));
-            if let Some((_, instance)) = wanted {
-                part.material.textures = vec![(0xf6954, *instance)];
+        self.anims_by_id.get(&id).map(|(_, length)| (id, *length))
+    }
+
+    /// The seconds since the character's stack was last run on.
+    fn stack_tick(&mut self, id: u32) -> f32 {
+        let (_, tick) = self.stacks.entry(id).or_insert_with(|| (Default::default(), Instant::now()));
+        let dt = tick.elapsed().as_secs_f32().min(0.5);
+        *tick = Instant::now();
+        dt
+    }
+
+    /// The character's stack told what the original's movement and social code tell `VisualCATMesh_t`: the movement
+    /// (`SetAnimation` at priority 0 claiming layer 2 — FUN_1006c370's `local_14` — looping, or counted once for a start, a
+    /// stop, a jump and a landing, its range from the notes as FUN_10010929's modes set it, its speed scaled every frame as
+    /// `SetSpeedScale` is by FUN_1007009f) and a social action (FUN_10010a46: priority 0 claiming nothing, once over its whole
+    /// length). `movement` is the animation and its total time, `points` the loop notes and the length, `key` what the
+    /// movement is now (a change sets it anew; a looping one already playing is only topped up).
+    fn drive(&mut self, id: u32, key: (mao_formats::appearance::Action, u8, u32), movement: Option<(u32, f32)>, points: (f32, f32, f32), rate: f32, social: Option<((u32, f32), Instant)>) {
+        let (stack, _) = self.stacks.entry(id).or_insert_with(|| (Default::default(), Instant::now()));
+        if let Some((anim, total)) = movement {
+            if self.movement_keys.get(&id) != Some(&key) {
+                let (start, end, length) = points;
+                let length = if length > 0.0 { length } else { total };
+                let (loops, range) = match key.1 {
+                    0 => (-1, (0.0, length)),
+                    1 => (1, (0.0, start)),
+                    2 => (-1, (start, end)),
+                    3 => (1, (end, length)),
+                    _ => (1, (0.0, length)),
+                };
+                let handle = stack.set_animation(anim, 0, loops, 2, 0, 1.0, total);
+                stack.set_time(handle, range.0, range.1);
+                self.movement_keys.insert(id, key);
+                self.movement_handles.insert(id, handle);
+            }
+            if let Some(&handle) = self.movement_handles.get(&id) {
+                stack.set_speed_scale(handle, rate.max(0.05));
             }
         }
-        if let (Some(a), false) = (attractor, custom_head) {
-            model.parts.extend(body.attach(&bones, a, head));
+        if let Some(((anim, total), began)) = social {
+            if self.socials_started.get(&id) != Some(&began) {
+                let handle = stack.set_animation(anim, 0, 1, 0, 0, 1.0, total);
+                stack.set_time(handle, 0.0, total);
+                self.socials_started.insert(id, began);
+            }
         }
-        model.parts.extend(wear(&db, &mut self.statics, body, &bones, gear));
-        let mut parts = model.parts;
-        for p in &mut parts {
-            p.world = model::IDENTITY;
-        }
-        Some(parts)
     }
 
     /// An animation's `loopstart`, `loopend` and length in ms (the whole length as the loop if it has no notes).
@@ -1288,7 +1322,7 @@ impl Characters {
 
     /// The parts of a player of this breed and sex at `t` ms into the walk,
     /// in Y-up local space (world matrices identity), if its meshes exist.
-    fn parts(&mut self, id: u32, breed: u8, sex: u8, moving: Option<mao_formats::appearance::Action>, jumped: Option<Duration>, phase: f32, speed: f32, scale: f32, textures: &[(String, u32)], clothes: &[(String, u32)], gear: &[(u8, u32, u32)]) -> Option<Vec<Part>> {
+    fn parts(&mut self, id: u32, breed: u8, sex: u8, moving: Option<mao_formats::appearance::Action>, jumped: Option<Duration>, _phase: f32, speed: f32, scale: f32, textures: &[(String, u32)], clothes: &[(String, u32)], gear: &[(u8, u32, u32)], social: Option<(&str, Instant)>) -> Option<Vec<Part>> {
         use mao_formats::resource::Id;
         // The movement plays at the original's rate for this body, animation and speed.
         let rate = match moving.and_then(|a| a.reference_speed().map(|r| (a, r))) {
@@ -1300,22 +1334,18 @@ impl Characters {
             }
             None => 1.0,
         };
-        let (action, at) = self.motion(id, breed, sex, moving, jumped, rate);
-        let key = (action, self.segment);
-        // A change of segment is cross-faded from where the last pose was, over what was left of its cycle (200 to 300 ms).
-        let previous = self.poses.get(&id).map(|p| (p.key, p.last, p.from, p.at, p.fade));
-        let (from, fade_at, fade) = match previous {
-            Some((k, last, ..)) if k != key => {
-                let left = self.loop_points(breed, sex, last.0).map_or(250.0, |(_, end, length)| (if end > last.1 { end } else { length }) - last.1);
-                (Some(last), Instant::now(), left.clamp(200.0, 300.0) / 1000.0)
-            }
-            Some((_, _, from, at, fade)) => (from, at, fade),
-            None => (None, Instant::now(), 0.25),
-        };
-        let from = from.filter(|_| fade_at.elapsed().as_secs_f32() < fade);
+        let (action, _) = self.motion(id, breed, sex, moving, jumped, rate);
         let custom_head = gear.iter().any(|g| g.0 == 0 && self.head_meshes.contains(&g.1));
         let name = self.ensure_anim(breed, sex, action);
-        let from_name = from.map(|(a, _)| self.ensure_anim(breed, sex, a));
+        let movement = self.anim_by_name(&name);
+        let key = (action, self.segment, movement.map_or(0, |m| m.0));
+        let points = self.loop_points(breed, sex, action).unwrap_or((0.0, 0.0, 0.0));
+        let social = social.and_then(|(n, began)| {
+            let file = self.ensure_social(breed, sex, n)?;
+            self.anim_by_name(&file).map(|a| (a, began))
+        });
+        self.drive(id, key, movement, points, rate, social);
+        let dt = self.stack_tick(id);
         let db = self.db.clone();
         let index = &self.index;
         let entry = self.bodies.entry((breed, sex)).or_insert_with(|| {
@@ -1326,15 +1356,11 @@ impl Characters {
             Some((body, head, attractor))
         });
         let (body, head, attractor) = entry.as_ref()?;
-        let (anim, length) = self.anims.get(&name)?.as_ref()?;
-        let t = match at {
-            Some(t) => t.min(*length),
-            None => (self.started.elapsed().as_secs_f32() * 1000.0 + phase) % length,
-        };
-        self.poses.insert(id, PoseState { key, last: (action, t), from: self.poses.get(&id).and_then(|p| if p.key != key { Some(p.last) } else { p.from }).filter(|_| fade_at.elapsed().as_secs_f32() < fade), at: fade_at, fade });
-        let bones = match (from, from_name.as_ref().and_then(|n| self.anims.get(n)).and_then(|a| a.as_ref())) {
-            (Some((_, from_time)), Some((from_anim, _))) => body.pose_blend(from_anim, from_time, anim, t, (fade_at.elapsed().as_secs_f32() / fade).clamp(0.0, 1.0)),
-            _ => body.pose(anim, t),
+        let bones = {
+            let (stack, _) = self.stacks.get_mut(&id)?;
+            stack.advance(dt);
+            let anims = &self.anims_by_id;
+            stack.pose(body, &|a| anims.get(&a).map(|(anim, _)| anim.as_ref()))
         };
         let mut model = body.skinned_model(&bones, 0xf6954);
         // The character's own textures (its clothes) replace the mesh's by material name.
@@ -1367,7 +1393,7 @@ pub(crate) fn character_model(db: &Arc<ResourceDatabase>, breed: i32, sex: i32, 
     let (breed, sex) = (breed as u8, if breed == 4 { 1 } else { sex as u8 });
     let mut chars = Characters::new(db.clone()).ok()?;
     let (textures, clothes, gear) = look.map_or((&[][..], &[][..], &[][..]), |l| (l.textures.as_slice(), l.clothes.as_slice(), l.gear.as_slice()));
-    let parts = chars.parts(0, breed, sex, None, None, 0.0, 0.0, 100.0, textures, clothes, gear)?;
+    let parts = chars.parts(0, breed, sex, None, None, 0.0, 0.0, 100.0, textures, clothes, gear, None)?;
     let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     Some(Model { instances: (0..parts.len()).map(|i| (i, swap)).collect(), parts, water: None })
 }
@@ -1383,7 +1409,7 @@ pub(crate) fn creature_preview(db: Arc<ResourceDatabase>, template: u32, out: &s
         "run" => mao_formats::appearance::Action::Run,
         _ => mao_formats::appearance::Action::Idle,
     };
-    let parts = chars.creature_parts(template, action, 0.0, 1.0, &[], &[]).ok_or("that template has no mesh")?;
+    let parts = chars.creature_parts(0, template, action, 0.0, 1.0, &[], &[]).ok_or("that template has no mesh")?;
     let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     let model = Model { instances: (0..parts.len()).map(|i| (i, swap)).collect(), parts, water: None };
     crate::viewer::headless(&model, &crate::Textures::new(db), out)
@@ -1413,7 +1439,7 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
         if let (Some(info), Some(chars)) = (world.infos.get(&id).filter(|i| i.template.is_some()), characters.as_mut()) {
             let moving = world.last_move.get(&id).is_some_and(|t| t.elapsed() < Duration::from_millis(900));
             let action = if moving { mao_formats::appearance::Action::Walk } else { mao_formats::appearance::Action::Idle };
-            if let Some(parts) = chars.creature_parts(info.template.unwrap(), action, (id % 997) as f32 * 3.0, 1.0, &info.textures, &info.clothes) {
+            if let Some(parts) = chars.creature_parts(id, info.template.unwrap(), action, (id % 997) as f32 * 3.0, 1.0, &info.textures, &info.clothes) {
                 push_character(&mut model, &mut casters, parts, place, id == world.own);
                 continue;
             }
@@ -1431,20 +1457,15 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
                 _ if speed > 2.2 => Action::Run,
                 _ => Action::Walk,
             };
-            if let Some(parts) = chars.creature_parts(creature, action, (id % 997) as f32 * 3.0, MORPH_ANIM_RATE, &[], &[]) {
+            if let Some(parts) = chars.creature_parts(id, creature, action, (id % 997) as f32 * 3.0, MORPH_ANIM_RATE, &[], &[]) {
                 push_character(&mut model, &mut casters, parts, place, id == world.own);
                 continue;
             }
         }
         let info = world.infos.get(&id).filter(|i| i.is_humanoid());
-        // (a social action in progress plays its own animation)
-        if let (Some(info), Some(chars), Some(&(social, began))) = (info, characters.as_mut(), world.socials.get(&id)) {
-            if let Some(parts) = chars.parts_social(info.breed, info.sex, social, began.elapsed().as_secs_f32() * 1000.0, &info.textures, &info.clothes, world.equipment.get(&id).map_or(&[][..], |v| v.as_slice())) {
-                push_character(&mut model, &mut casters, parts, place, id == world.own);
-                continue;
-            }
-        }
         if let (Some(info), Some(chars)) = (info, characters.as_mut()) {
+            // (a social action in progress plays over the movement on the character's animation stack)
+            let social = world.socials.get(&id).map(|&(social, began)| (social, began));
             // Movement animates while the position changes (our own is sampled every frame, the others' every few hundred ms).
             let moving = world.last_move.get(&id).is_some_and(|t| t.elapsed() < Duration::from_millis(if id == world.own { 90 } else { 700 }));
             let speed = world.speeds.get(&id).copied().unwrap_or(0.0);
@@ -1462,7 +1483,7 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
             let scale = if id == world.own { world.stats.get(&360).copied().filter(|&s| s > 0).unwrap_or(100) as f32 } else { 100.0 };
             let jumped = world.jumped.get(&id).map(|t| t.elapsed());
             // (A phase per entity keeps a crowd from moving in step.)
-            if let Some(parts) = chars.parts(id, info.breed, info.sex, action, jumped, (id % 997) as f32 * 3.0, speed, scale, &info.textures, &info.clothes, world.equipment.get(&id).map_or(&[][..], |v| v.as_slice())) {
+            if let Some(parts) = chars.parts(id, info.breed, info.sex, action, jumped, (id % 997) as f32 * 3.0, speed, scale, &info.textures, &info.clothes, world.equipment.get(&id).map_or(&[][..], |v| v.as_slice()), social) {
                 push_character(&mut model, &mut casters, parts, place, id == world.own);
                 continue;
             }

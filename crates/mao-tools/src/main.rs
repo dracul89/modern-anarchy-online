@@ -242,6 +242,7 @@ stats {:?}", item.id, item.name, item.description, item.icon(), item.stats);
             }
             let keys: Vec<usize> = a.tracks.iter().map(|t| t.rotations.len()).collect();
             println!("  rotation keys per track: {keys:?}");
+            println!("  layers per track: {:?}", a.layers);
             if let Some(t) = a.tracks.get(1) {
                 println!("  track 1 times {:?}", t.rotations.iter().map(|k| k.0).collect::<Vec<_>>());
                 println!("  track 1 first rotation {:?} translation {:?}", t.rotations.first().map(|k| k.1), t.translations.first().map(|k| k.1));

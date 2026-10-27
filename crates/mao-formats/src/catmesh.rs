@@ -341,7 +341,7 @@ impl CatMesh {
         })
     }
 
-    fn pose_with(&self, sample: &dyn Fn(usize) -> ([f32; 4], [f32; 3])) -> Vec<BoneMatrix> {
+    pub fn pose_with(&self, sample: &dyn Fn(usize) -> ([f32; 4], [f32; 3])) -> Vec<BoneMatrix> {
         let mut out = vec![IDENTITY_BONE; self.bones.len()];
         if !self.bones.is_empty() {
             self.pose_bone(sample, 0, &IDENTITY_BONE, 1.0, &mut out, 0);

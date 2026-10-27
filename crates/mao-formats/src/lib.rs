@@ -18,6 +18,7 @@ pub mod tilemap;
 pub mod terrain;
 pub mod statels;
 pub mod playfield;
+pub mod animstack;
 pub mod areas;
 pub mod dungeon;
 pub mod planetmap;
