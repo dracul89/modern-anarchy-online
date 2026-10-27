@@ -183,6 +183,8 @@ struct World {
     morphs: BTreeMap<u32, u32>,
     /// Which way a character is sidestepping (-1 left, 1 right) while it is: only the player's own is known.
     strafing: BTreeMap<u32, i8>,
+    /// Whether a character is moving backwards (its own: the back key; the others: the move against their facing).
+    backing: BTreeMap<u32, bool>,
     /// `Buff` messages not yet looked at: (character, nano program). The server repeats a character's buffs every twenty seconds or so.
     buffs_seen: Vec<(u32, u32)>,
     /// The programs other characters run, with when their buff was last announced (the server repeats them about every twenty seconds).
@@ -840,6 +842,12 @@ impl World {
             let moved = ((e.0[0] - p[0]).powi(2) + (e.0[2] - p[2]).powi(2)).sqrt();
             if moved > 0.05 {
                 self.last_move.insert(m.identity.1, Instant::now());
+                // (moving against the facing is backing: the run-back and walk-back animations)
+                if let Some(q) = self.rotations.get(&m.identity.1) {
+                    let h = 2.0 * q[1].atan2(q[3]);
+                    let along = (p[0] - e.0[0]) * h.sin() + (p[2] - e.0[2]) * h.cos();
+                    self.backing.insert(m.identity.1, along < -0.3 * moved);
+                }
                 if let Some(before) = self.last_seen.get(&m.identity.1) {
                     let speed = moved / before.elapsed().as_secs_f32().max(0.05);
                     let old = self.speeds.get(&m.identity.1).copied().unwrap_or(speed);
@@ -924,6 +932,8 @@ struct Characters {
     index: mao_formats::instances::Instances,
     /// Animations by file name, with their lengths.
     anims: std::collections::HashMap<String, Option<(mao_formats::catanim::CatAnim, f32)>>,
+    /// Instances looked up by (type, name).
+    ids: std::collections::HashMap<(u32, String), Option<u32>>,
     /// By (breed, sex): the body, its head and the head's attractor.
     bodies: std::collections::HashMap<(u8, u8), Option<(mao_formats::catmesh::CatMesh, Model, Option<mao_formats::catmesh::Attractor>)>>,
     /// Creatures by NPC template: the template and its CAT mesh.
@@ -1010,16 +1020,36 @@ enum Stage {
 struct Motion {
     stage: Stage,
     action: mao_formats::appearance::Action,
-    since: Instant,
+    /// How far into the stage, in the animation's ms (advanced at the playback rate).
+    clock: f32,
+    tick: Instant,
 }
 
 /// How long a jump is in the air (twice the rise time) and how long the landing plays, in ms.
 const AIR_MS: f32 = 1400.0;
 const LAND_MS: f32 = 350.0;
-/// The first step and the stop play faster than the files' own pace so a short tap doesn't outlast the movement.
-const START_RATE: f32 = 2.2;
-/// The stop part plays through in this many ms however long the file's is (the character has already stopped).
-const STOP_MS: f32 = 280.0;
+/// The playback rate of a movement animation, as the original's FUN_1007009f: the calibration factor of the mesh and animation
+/// (`Setupf/animcalibration.txt`), times 100 over the character's scale (stat 360), times the speed over the action's reference
+/// speed; over 1.3 it is held at 1.3 when the character moves faster than 4 units a second.
+fn movement_rate(calibration: f32, scale: f32, speed: f32, reference: f32) -> f32 {
+    let rate = calibration * (100.0 / scale.max(1.0)) * (speed / reference);
+    if rate > 1.3 && speed > 4.0 {
+        1.3
+    } else {
+        rate
+    }
+}
+
+/// The speeds a character moves at, in units a second, as `CharVehicle_t` sets them (FUN_1006f9eb, FUN_1006f2fc): running
+/// forward `RunSpeed / 275 + 5` within 1.5 and 13, running backwards `RunSpeed / 392.86 + 3` within 1.05 and 9.1, where
+/// `RunSpeed` (stat 156) falls off below 15% health (`ratio * (RunSpeed + 1000) - 1000`); walking is 1.5.
+pub(crate) fn movement_speeds(stats: &BTreeMap<u32, i64>) -> (f32, f32) {
+    let stat = |n: u32| stats.get(&n).copied().unwrap_or(0) as f32;
+    let (run_speed, health, max_health) = (stat(156), stat(27), stat(1));
+    let ratio = if max_health > 0.0 { health / (max_health * 0.15) } else { 1.0 };
+    let effective = if ratio < 1.0 { ratio * (run_speed + 1000.0) - 1000.0 } else { run_speed };
+    ((effective / 275.0 + 5.0).clamp(1.5, 13.0), (effective / 392.857_1 + 3.0).clamp(1.05, 9.1))
+}
 
 impl Characters {
     fn new(db: Arc<ResourceDatabase>) -> Result<Characters, String> {
@@ -1028,7 +1058,7 @@ impl Characters {
         let index = mao_formats::instances::Instances::parse(&get(0xf424a, 1)?).map_err(|e| e.to_string())?;
         let _ = get;
         let head_meshes = index.iter().filter(|(kind, name, _)| *kind == 0xf6951 && is_head_name(name)).map(|(_, _, instance)| instance).collect();
-        Ok(Characters { head_meshes, db, index, anims: Default::default(), bodies: Default::default(), creatures: Default::default(), creature_anims: Default::default(), motions: Default::default(), segment: 0, poses: Default::default(), started: Instant::now(), props: Default::default(), statics: Default::default() })
+        Ok(Characters { head_meshes, db, index, anims: Default::default(), ids: Default::default(), bodies: Default::default(), creatures: Default::default(), creature_anims: Default::default(), motions: Default::default(), segment: 0, poses: Default::default(), started: Instant::now(), props: Default::default(), statics: Default::default() })
     }
 
     /// The parts of a machine's model (Y-up local space), loaded once.
@@ -1088,6 +1118,16 @@ impl Characters {
     }
 
     /// Loads a player animation by action (cached) and returns its file name.
+    /// An instance of the index by type and name, remembered.
+    fn find_cached(&mut self, kind: u32, name: &str) -> Option<u32> {
+        if let Some(found) = self.ids.get(&(kind, name.to_string())) {
+            return *found;
+        }
+        let found = self.index.find(kind, name);
+        self.ids.insert((kind, name.to_string()), found);
+        found
+    }
+
     fn ensure_anim(&mut self, breed: u8, sex: u8, action: mao_formats::appearance::Action) -> String {
         use mao_formats::resource::Id;
         let name = mao_formats::appearance::animation_name(breed, sex, action);
@@ -1174,14 +1214,14 @@ impl Characters {
 
     /// The animation and time (ms; `None` = the idle loop on the clock) for a character: a jump and its landing, else
     /// the movement in three parts, a start, the cycle and a stop, each played once and the cycle repeated.
-    fn motion(&mut self, id: u32, breed: u8, sex: u8, moving: Option<mao_formats::appearance::Action>, jumped: Option<Duration>) -> (mao_formats::appearance::Action, Option<f32>) {
+    fn motion(&mut self, id: u32, breed: u8, sex: u8, moving: Option<mao_formats::appearance::Action>, jumped: Option<Duration>, rate: f32) -> (mao_formats::appearance::Action, Option<f32>) {
         use mao_formats::appearance::Action::*;
         let now = Instant::now();
         if let Some(since) = jumped {
             let ms = since.as_secs_f32() * 1000.0;
             if ms < AIR_MS + LAND_MS {
                 // After the jump the movement carries on as a cycle (or idles).
-                self.motions.insert(id, Motion { stage: if moving.is_some() { Stage::Loop } else { Stage::Idle }, action: moving.unwrap_or(Idle), since: now });
+                self.motions.insert(id, Motion { stage: if moving.is_some() { Stage::Loop } else { Stage::Idle }, action: moving.unwrap_or(Idle), clock: 0.0, tick: now });
                 let (jump, land) = match moving {
                     Some(Run) => (JumpForward, LandRun),
                     Some(_) => (JumpForward, LandWalk),
@@ -1195,14 +1235,17 @@ impl Characters {
                 return (land, Some(ms - AIR_MS));
             }
         }
-        let st = self.motions.entry(id).or_insert(Motion { stage: Stage::Idle, action: Idle, since: now });
+        let st = self.motions.entry(id).or_insert(Motion { stage: Stage::Idle, action: Idle, clock: 0.0, tick: now });
         match (st.stage, moving) {
-            (Stage::Idle | Stage::Stop, Some(a)) => *st = Motion { stage: Stage::Start, action: a, since: now },
-            (Stage::Start | Stage::Loop, Some(a)) if a != st.action => *st = Motion { stage: Stage::Loop, action: a, since: now },
-            (Stage::Start | Stage::Loop, None) => *st = Motion { stage: Stage::Stop, action: st.action, since: now },
+            (Stage::Idle | Stage::Stop, Some(a)) => *st = Motion { stage: Stage::Start, action: a, clock: 0.0, tick: now },
+            (Stage::Start | Stage::Loop, Some(a)) if a != st.action => *st = Motion { stage: Stage::Loop, action: a, clock: 0.0, tick: now },
+            (Stage::Start | Stage::Loop, None) => *st = Motion { stage: Stage::Stop, action: st.action, clock: 0.0, tick: now },
             _ => {}
         }
-        let Motion { stage, action, since } = *st;
+        // (the clock runs at the playback rate: a fast runner's cycle turns faster)
+        st.clock += st.tick.elapsed().as_secs_f32() * 1000.0 * rate.max(0.05);
+        st.tick = now;
+        let Motion { stage, action, clock: elapsed, .. } = *st;
         self.segment = match stage {
             Stage::Idle => 0,
             Stage::Start => 1,
@@ -1214,24 +1257,22 @@ impl Characters {
         }
         let Some((start, end, length)) = self.loop_points(breed, sex, action) else { return (Idle, None) };
         let cycle = (end - start).max(1.0);
-        let elapsed = since.elapsed().as_secs_f32() * 1000.0;
         let Some(st) = self.motions.get_mut(&id) else { return (Idle, None) };
         match stage {
-            Stage::Start if elapsed * START_RATE < start => (action, Some(elapsed * START_RATE)),
+            Stage::Start if elapsed < start => (action, Some(elapsed)),
             Stage::Start | Stage::Loop => {
-                let into = if stage == Stage::Start { elapsed - start / START_RATE } else { elapsed };
+                let into = if stage == Stage::Start { elapsed - start } else { elapsed };
                 if stage == Stage::Start {
-                    *st = Motion { stage: Stage::Loop, action, since: now - Duration::from_secs_f32(into / 1000.0) };
+                    *st = Motion { stage: Stage::Loop, action, clock: into, tick: now };
                 }
                 (action, Some(start + into % cycle))
             }
             _ => {
-                let rate = ((length - end) / STOP_MS).max(1.0);
-                if end + elapsed * rate >= length {
+                if end + elapsed >= length {
                     st.stage = Stage::Idle;
                     (Idle, None)
                 } else {
-                    (action, Some(end + elapsed * rate))
+                    (action, Some(end + elapsed))
                 }
             }
         }
@@ -1239,9 +1280,19 @@ impl Characters {
 
     /// The parts of a player of this breed and sex at `t` ms into the walk,
     /// in Y-up local space (world matrices identity), if its meshes exist.
-    fn parts(&mut self, id: u32, breed: u8, sex: u8, moving: Option<mao_formats::appearance::Action>, jumped: Option<Duration>, phase: f32, textures: &[(String, u32)], clothes: &[(String, u32)], gear: &[(u8, u32, u32)]) -> Option<Vec<Part>> {
+    fn parts(&mut self, id: u32, breed: u8, sex: u8, moving: Option<mao_formats::appearance::Action>, jumped: Option<Duration>, phase: f32, speed: f32, scale: f32, textures: &[(String, u32)], clothes: &[(String, u32)], gear: &[(u8, u32, u32)]) -> Option<Vec<Part>> {
         use mao_formats::resource::Id;
-        let (action, at) = self.motion(id, breed, sex, moving, jumped);
+        // The movement plays at the original's rate for this body, animation and speed.
+        let rate = match moving.and_then(|a| a.reference_speed().map(|r| (a, r))) {
+            Some((a, reference)) => {
+                let body = mao_formats::appearance::player_meshes(breed, sex).and_then(|(body, _)| self.find_cached(0xf6952, body)).unwrap_or(0);
+                let name = mao_formats::appearance::animation_name(breed, sex, a);
+                let anim = self.find_cached(0xf6953, &name).unwrap_or(0);
+                movement_rate(crate::effects::calibration(body, anim), scale, speed, reference)
+            }
+            None => 1.0,
+        };
+        let (action, at) = self.motion(id, breed, sex, moving, jumped, rate);
         let key = (action, self.segment);
         // A change of segment is cross-faded from where the last pose was.
         let (from, fade_at) = match self.poses.get(&id) {
@@ -1300,7 +1351,7 @@ pub(crate) fn character_model(db: &Arc<ResourceDatabase>, breed: i32, sex: i32, 
     let (breed, sex) = (breed as u8, if breed == 4 { 1 } else { sex as u8 });
     let mut chars = Characters::new(db.clone()).ok()?;
     let (textures, clothes, gear) = look.map_or((&[][..], &[][..], &[][..]), |l| (l.textures.as_slice(), l.clothes.as_slice(), l.gear.as_slice()));
-    let parts = chars.parts(0, breed, sex, None, None, 0.0, textures, clothes, gear)?;
+    let parts = chars.parts(0, breed, sex, None, None, 0.0, 0.0, 100.0, textures, clothes, gear)?;
     let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     Some(Model { instances: (0..parts.len()).map(|i| (i, swap)).collect(), parts, water: None })
 }
@@ -1354,7 +1405,8 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
                 _ if !moving => Action::Idle,
                 -1 => Action::StrafeLeft,
                 1 => Action::StrafeRight,
-                _ if speed > 5.5 => Action::Run,
+                _ if world.backing.get(&id).copied().unwrap_or(false) => if speed > 2.2 { Action::RunBack } else { Action::WalkBack },
+                _ if speed > 2.2 => Action::Run,
                 _ => Action::Walk,
             };
             if let Some(parts) = chars.creature_parts(creature, action, (id % 997) as f32 * 3.0, MORPH_ANIM_RATE, &[], &[]) {
@@ -1382,10 +1434,21 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
             // Movement animates while the position changes (our own is sampled every frame, the others' every few hundred ms).
             let moving = world.last_move.get(&id).is_some_and(|t| t.elapsed() < Duration::from_millis(if id == world.own { 90 } else { 700 }));
             let speed = world.speeds.get(&id).copied().unwrap_or(0.0);
-            let action = if !moving { None } else if speed > 5.5 { Some(mao_formats::appearance::Action::Run) } else { Some(mao_formats::appearance::Action::Walk) };
+            // The original's choice (FUN_1006c370): a sidestep plays walk-left/right, moving against the facing the back
+            // animations; walking is 1.5 units a second and running from 3 (backwards) or 5, so 2.2 tells them apart.
+            use mao_formats::appearance::Action;
+            let running = speed > 2.2;
+            let action = match world.strafing.get(&id).copied().unwrap_or(0) {
+                _ if !moving => None,
+                -1 => Some(Action::StrafeLeft),
+                1 => Some(Action::StrafeRight),
+                _ if world.backing.get(&id).copied().unwrap_or(false) => Some(if running { Action::RunBack } else { Action::WalkBack }),
+                _ => Some(if running { Action::Run } else { Action::Walk }),
+            };
+            let scale = if id == world.own { world.stats.get(&360).copied().filter(|&s| s > 0).unwrap_or(100) as f32 } else { 100.0 };
             let jumped = world.jumped.get(&id).map(|t| t.elapsed());
             // (A phase per entity keeps a crowd from moving in step.)
-            if let Some(parts) = chars.parts(id, info.breed, info.sex, action, jumped, (id % 997) as f32 * 3.0, &info.textures, &info.clothes, world.equipment.get(&id).map_or(&[][..], |v| v.as_slice())) {
+            if let Some(parts) = chars.parts(id, info.breed, info.sex, action, jumped, (id % 997) as f32 * 3.0, speed, scale, &info.textures, &info.clothes, world.equipment.get(&id).map_or(&[][..], |v| v.as_slice())) {
                 let base = model.parts.len();
                 for (k, p) in parts.into_iter().enumerate() {
                     model.parts.push(p);
@@ -1802,8 +1865,6 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     }
     std::thread::spawn(move || {
         use mao_net::n3::movement;
-        const SPEED: f32 = 7.5; // units per second, from the capture
-        const BACK_SPEED: f32 = 3.0;
         const TURN: f32 = 2.0; // radians per second
         // The server's heights sit a little off the ground model's; walk at
         // the ground's height plus the offset seen at the start.
@@ -2591,6 +2652,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             let walk = keys.forward as i8 - keys.back as i8;
             // (a sidestep on its own shows a polymorph's rolling or sidestepping animation)
             state.strafing.insert(own, if walk == 0 { keys.strafe.signum() } else { 0 });
+            state.backing.insert(own, walk < 0);
+            // (the speeds the original moves at, from the character's RunSpeed and health)
+            #[allow(non_snake_case)]
+            let (SPEED, BACK_SPEED) = movement_speeds(&state.stats);
             let speed = if walk > 0 { SPEED } else { BACK_SPEED } * walk as f32;
             // Walls stop the step (sliding along them where one axis is free).
             // Strafing adds a step to the right of the heading; diagonals aren't faster.
@@ -2687,7 +2752,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 }
             } else if ((walk != 0 || keys.turn != 0 || keys.strafe != 0 || keys.face.is_some() || airborne) && due) || landed {
                 // (the periodic report is the original's full one, 0x16; 15 is what the captures show as the character lands)
-                send_kind(if landed { movement::UPDATE } else { movement::FULL }, &mut connection);
+                send_kind(if landed { movement::JUMP_STOP } else { movement::FULL }, &mut connection);
             }
             if keys.strafe != strafing {
                 // The strafe start / stop types (5..8) are a guess from the numbering; until verified the
@@ -4136,3 +4201,27 @@ mod door_tests {
         assert_eq!(world.doors_open.len(), 1);
     }
 }
+
+#[cfg(test)]
+mod movement_tests {
+    use super::*;
+
+    #[test]
+    fn speeds_follow_the_originals_formula() {
+        let stats = |rs: i64, hp: i64, max: i64| BTreeMap::from([(156u32, rs), (27u32, hp), (1u32, max)]);
+        // RunSpeed 275 at full health: 6 forward, 3.7 backwards
+        let (run, back) = movement_speeds(&stats(275, 100, 100));
+        assert!((run - 6.0).abs() < 0.01 && (back - 3.7).abs() < 0.01);
+        // capped at 13 and 9.1
+        let (run, back) = movement_speeds(&stats(5000, 100, 100));
+        assert!((run - 13.0).abs() < 0.01 && (back - 9.1).abs() < 0.01);
+        // nearly dead (1% health): the fall-off, 1.67 (the floor is 1.5)
+        let (run, _) = movement_speeds(&stats(275, 1, 100));
+        assert!((run - 1.673).abs() < 0.01, "{run}");
+        // the rate: a 1.15-calibrated run at 6 units a second over the 5.0 reference, held at 1.3 past 4 units a second
+        assert!((movement_rate(1.15, 100.0, 6.0, 5.0) - 1.3).abs() < 0.001);
+        assert!((movement_rate(0.9, 100.0, 1.5, 1.5) - 0.9).abs() < 0.001);
+        assert!((movement_rate(1.0, 200.0, 5.0, 5.0) - 0.5).abs() < 0.001);
+    }
+}
+

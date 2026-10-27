@@ -24,16 +24,22 @@ pub mod movement {
     pub const TURN_LEFT_START: u8 = 9;
     pub const TURN_RIGHT_START: u8 = 11;
     pub const TURN_STOP: u8 = 12;
+    /// The jump's start and its end (`JumpStartTransitionAction_t`, `JumpStopTransitionAction_t`: cases 0xf and 0x10 of the
+    /// original's transition table, FUN_1006cb58; the captures show 15 as the height begins to rise).
+    pub const JUMP_START: u8 = 15;
+    pub const JUMP_STOP: u8 = 16;
+    pub const JUMP: u8 = JUMP_START;
     /// The full position report: the original sends it after 5 s in motion without another movement message, when the heading
     /// turns more than 0.17 rad within 0.25 s, and at once to ask the server to zone (a teleport try, when the character touches
-    /// a door or stands in a zone's teleportal). The captures show it as the jump starts too.
+    /// a door or stands in a zone's teleportal).
     pub const FULL: u8 = 22;
-    /// Jump: the same full report, sent as the jump starts.
-    pub const JUMP: u8 = FULL;
+    /// The periodic report while moving is the full one.
+    pub const UPDATE: u8 = FULL;
+    /// Switching the movement mode (cases 0x17..0x1d: frozen, walk, run, swim, crawl, sneak, fly).
+    pub const WALK_MODE: u8 = 0x18;
+    pub const RUN_MODE: u8 = 0x19;
     /// A new heading while standing.
     pub const HEADING: u8 = 14;
-    /// The periodic update while moving.
-    pub const UPDATE: u8 = 15;
 }
 
 /// The server's announcement of the playfield the character is in (at login

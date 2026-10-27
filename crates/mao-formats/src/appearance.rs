@@ -39,10 +39,26 @@ pub enum Action {
     LandIdle,
     LandWalk,
     LandRun,
-    /// A creature's sidestep to the left or the right (its animations 134 and 135: the wulf's and the cute creature's `sidestep-left`
-    /// and `sidestep-right`, which roll the ball-shaped ones).
+    /// Moving backwards (the original's abstract animations 136 `walk-back` and 222 `run-back`).
+    WalkBack,
+    RunBack,
+    /// A sidestep to the left or the right (134 `walk-left`, 135 `walk-right`; a creature's are its own, the wulf's and the cute
+    /// creature's `sidestep-left` and `sidestep-right`, which roll the ball-shaped ones).
     StrafeLeft,
     StrafeRight,
+}
+
+impl Action {
+    /// The speed, in units a second, at which the original plays the action's animation at its calibrated rate (`CharVehicle_t`'s
+    /// reference speed, +0x170: 5.0 running, 3.0 running backwards, 1.5 walking; FUN_1006f9eb). `None` for the ones not scaled.
+    pub fn reference_speed(self) -> Option<f32> {
+        match self {
+            Action::Run => Some(5.0),
+            Action::RunBack => Some(3.0),
+            Action::Walk | Action::WalkBack | Action::StrafeLeft | Action::StrafeRight => Some(1.5),
+            _ => None,
+        }
+    }
 }
 
 /// The file name of a human character's animation for an action, as the
@@ -60,8 +76,10 @@ pub fn animation_name(breed: u8, sex: u8, action: Action) -> String {
         Action::LandIdle => "jump-land-idle",
         Action::LandWalk => "jump-land-walk",
         Action::LandRun => "jump-land-run",
-        // (players walk sideways)
-        Action::StrafeLeft | Action::StrafeRight => "walk",
+        Action::WalkBack => "walk-back",
+        Action::RunBack => "run-back",
+        Action::StrafeLeft => "walk-left",
+        Action::StrafeRight => "walk-right",
     };
     format!("{prefix}_{stem}_01_01.ani")
 }

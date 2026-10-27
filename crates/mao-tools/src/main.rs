@@ -61,11 +61,13 @@ fn run(args: &[String]) -> Result<(), String> {
             }
         }
         // names <text>: the meshes (0xf6951) of the instance index whose file name contains the text.
-        ("names", [text]) => {
+        ("names", [text]) | ("names", [text, _]) => {
+            // (`names <text> <type>` looks in another type: f6952 the CAT meshes, f6953 the animations)
+            let wanted = rest.get(1).and_then(|k| number(k)).unwrap_or(0xf6951);
             let index = db.get(Id { kind: 0xf424a, instance: 1 }).map_err(|e| e.to_string())?.ok_or("no instance index")?;
             let index = mao_formats::instances::Instances::parse(&index).map_err(|e| e.to_string())?;
             for (kind, name, instance) in index.iter() {
-                if kind == 0xf6951 && name.contains(text.as_str()) {
+                if kind == wanted && name.contains(text.as_str()) {
                     println!("{instance:#x} {name}");
                 }
             }
