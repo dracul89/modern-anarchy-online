@@ -75,10 +75,22 @@ fn account_path() -> std::path::PathBuf {
     Settings::path().with_file_name("account.ini")
 }
 
-/// What `account.ini` holds: the account's name and, on a second line, the character played last.
-pub fn parse_account(text: &str) -> (String, String) {
+/// What `account.ini` holds: the account's name, on a second line the character played last, and on the lines after the other
+/// accounts used before (the original's username list).
+pub fn parse_account(text: &str) -> (String, String, Vec<String>) {
     let mut lines = text.lines().map(str::trim);
-    (lines.next().unwrap_or("").to_string(), lines.next().unwrap_or("").to_string())
+    let (user, last) = (lines.next().unwrap_or("").to_string(), lines.next().unwrap_or("").to_string());
+    let others: Vec<String> = lines.filter(|l| !l.is_empty() && !l.eq_ignore_ascii_case(&user)).map(str::to_string).collect();
+    (user, last, others)
+}
+
+/// The text of `account.ini` for an account, the character played last and the other accounts.
+pub fn render_account(user: &str, last: &str, others: &[String]) -> String {
+    let mut out = format!("{user}\n{last}\n");
+    for o in others.iter().filter(|o| !o.eq_ignore_ascii_case(user)) {
+        out += &format!("{o}\n");
+    }
+    out
 }
 
 /// The characters with the one played last first (the rest keep their order).
@@ -118,12 +130,18 @@ struct Launcher {
     user: String,
     /// The character played last, to list first.
     last: String,
+    /// The other accounts used before (the username list).
+    accounts: Vec<String>,
+    /// The interface colours (from the game's own skin when it is there).
+    palette: crate::theme::Palette,
     password: String,
     server: String,
     message: String,
     answer: Option<Receiver<Result<Vec<Character>, String>>>,
     /// The character to play.
     chosen: Option<String>,
+    /// Quit was pressed.
+    quit: bool,
     /// The character picked in the list (shown in the window; Play starts it).
     selected: Option<String>,
     /// `MAO_LAUNCHER_SHOT=out.png`: save a picture of the character screen and quit (with `MAO_LAUNCHER_DEMO=1`, three sample characters).
@@ -139,9 +157,10 @@ impl Launcher {
             self.message = "Enter the account name and the password.".into();
             return;
         }
-        let _ = std::fs::write(account_path(), format!("{user}
-{}
-", self.last));
+        if !self.accounts.iter().any(|a| a.eq_ignore_ascii_case(&user)) {
+            self.accounts.push(user.clone());
+        }
+        let _ = std::fs::write(account_path(), render_account(&user, &self.last, &self.accounts));
         let version = std::fs::read_to_string(std::path::Path::new(&self.game).join("version.id")).map(|t| t.lines().next().unwrap_or("").trim().to_string());
         let (tx, rx) = channel();
         self.answer = Some(rx);
@@ -160,54 +179,139 @@ impl Launcher {
         });
     }
 
-    /// The character screen: the list on the left, the selected character in the window, Play at the bottom.
+    /// The character screen as the original's (`Views/CharacterSelectionWindow.xml`, `CharacterSelectionItem.xml`): the list in a
+    /// 276 px panel at the right (the selected character's name in red with its level, gender, breed, profession and location; the
+    /// others in the border colour with one summary line), New Character under it; a bar across the bottom with Back at the left
+    /// and Delete at the right, and Play centred above the bar.
     fn character_screen(&mut self, ctx: &egui::Context, list: &[Character], play: &mut Option<String>, back: &mut bool) {
-        let accent = egui::Color32::from_rgb(120, 200, 255);
-        egui::Window::new("Characters").title_bar(false).collapsible(false).resizable(false).anchor(egui::Align2::LEFT_CENTER, egui::vec2(16.0, 0.0)).fixed_size([280.0, 0.0]).show(ctx, |ui| {
-            ui.label(egui::RichText::new(format!("{} characters", list.len())).small().weak());
-            ui.separator();
-            for c in ordered(list, &self.last) {
-                let usable = c.created && !c.banned;
-                let picked = self.selected.as_deref() == Some(c.name.as_str());
-                let last = !self.last.is_empty() && c.name.eq_ignore_ascii_case(&self.last);
-                let title = if last { format!("{} (played last)", c.name) } else { c.name.clone() };
-                let mut text = egui::RichText::new(title).strong();
-                if c.banned {
-                    text = text.color(egui::Color32::from_rgb(240, 120, 110));
+        let palette = self.palette.clone();
+        let col = |c: [u8; 3]| egui::Color32::from_rgb(c[0], c[1], c[2]);
+        let (accent, text) = (col(palette.accent), col(palette.text));
+        let red = egui::Color32::from_rgb(0xee, 0x44, 0x44);
+        let skin = crate::skin::skin(ctx).filter(|s| s.has("GFX_GUI_TAB_BORDER_TL"));
+        let shell = crate::font::shell(ctx);
+        let chat = crate::font::chat(ctx);
+        let screen = ctx.content_rect();
+        // the panel: the tab border pieces around a tab background, 90% opaque
+        let panel_width = 276.0;
+        let panel = egui::Rect::from_min_max(egui::pos2(screen.right() - 15.0 - panel_width, screen.top() + 15.0), egui::pos2(screen.right() - 15.0, screen.bottom() - 130.0));
+        egui::Area::new(egui::Id::new("characters")).fixed_pos(panel.min).show(ctx, |ui| {
+            ui.set_clip_rect(panel.expand(2.0));
+            let painter = ui.painter().clone();
+            let fill = egui::Color32::from_rgba_unmultiplied(palette.panel[0], palette.panel[1], palette.panel[2], 230);
+            painter.rect_filled(panel, 2.0, fill);
+            match &skin {
+                Some(skin) => {
+                    let sz = |n: &str| skin.get(&format!("GFX_GUI_TAB_BORDER_{n}")).map_or(egui::vec2(2.0, 2.0), |s| s.size);
+                    let (tl, tr, bl, br) = (sz("TL"), sz("TR"), sz("BL"), sz("BR"));
+                    let (l, t, r, b) = (panel.left(), panel.top(), panel.right(), panel.bottom());
+                    skin.draw_in(&painter, "GFX_GUI_TAB_BORDER_TL", egui::Rect::from_min_size(egui::pos2(l, t), tl), accent);
+                    skin.draw_in(&painter, "GFX_GUI_TAB_BORDER_TOP", egui::Rect::from_min_max(egui::pos2(l + tl.x, t), egui::pos2(r - tr.x, t + sz("TOP").y)), accent);
+                    skin.draw_in(&painter, "GFX_GUI_TAB_BORDER_TR", egui::Rect::from_min_size(egui::pos2(r - tr.x, t), tr), accent);
+                    skin.draw_in(&painter, "GFX_GUI_TAB_BORDER_LEFT", egui::Rect::from_min_max(egui::pos2(l, t + tl.y), egui::pos2(l + sz("LEFT").x, b - bl.y)), accent);
+                    skin.draw_in(&painter, "GFX_GUI_TAB_BORDER_RIGHT", egui::Rect::from_min_max(egui::pos2(r - sz("RIGHT").x, t + tr.y), egui::pos2(r, b - br.y)), accent);
+                    skin.draw_in(&painter, "GFX_GUI_TAB_BORDER_BL", egui::Rect::from_min_size(egui::pos2(l, b - bl.y), bl), accent);
+                    skin.draw_in(&painter, "GFX_GUI_TAB_BORDER_BOTTOM", egui::Rect::from_min_max(egui::pos2(l + bl.x, b - sz("BOTTOM").y), egui::pos2(r - br.x, b)), accent);
+                    skin.draw_in(&painter, "GFX_GUI_TAB_BORDER_BR", egui::Rect::from_min_size(egui::pos2(r - br.x, b - br.y), br), accent);
                 }
-                let response = ui.add_enabled(usable, egui::Button::selectable(picked, text).min_size(egui::vec2(ui.available_width(), 0.0)));
-                ui.label(egui::RichText::new(describe(c)).small().weak());
-                if c.banned {
-                    ui.label(egui::RichText::new("banned").small().color(egui::Color32::from_rgb(240, 120, 110)));
+                None => {
+                    painter.rect_stroke(panel, 2.0, egui::Stroke::new(1.0, accent), egui::StrokeKind::Inside);
                 }
-                if response.clicked() {
-                    self.selected = Some(c.name.clone());
-                }
-                if response.double_clicked() {
-                    *play = Some(c.name.clone());
-                }
-                ui.add_space(4.0);
             }
-        });
-        if let Some(c) = list.iter().find(|c| self.selected.as_deref() == Some(c.name.as_str())) {
-            egui::Area::new(egui::Id::new("who")).anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 18.0)).interactable(false).show(ctx, |ui| {
-                ui.vertical_centered(|ui| {
-                    ui.label(egui::RichText::new(&c.name).size(26.0).strong().color(egui::Color32::WHITE));
-                    ui.label(egui::RichText::new(describe(c)).color(accent));
-                });
-            });
-        }
-        egui::Area::new(egui::Id::new("bottom")).anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -22.0)).show(ctx, |ui| {
-            let ready = self.selected.is_some();
-            ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
-                if ui.add_enabled(ready, egui::Button::new(egui::RichText::new("Play").size(22.0).strong()).min_size(egui::vec2(240.0, 46.0))).clicked() {
-                    *play = self.selected.clone();
+            let inner = panel.shrink2(egui::vec2(13.0, 10.0));
+            let mut child = ui.new_child(egui::UiBuilder::new().max_rect(inner).layout(egui::Layout::top_down(egui::Align::Min)));
+            let ui = &mut child;
+            // a line of text in the original's font, else egui's
+            let line = |ui: &mut egui::Ui, text: &str, font: &Option<std::sync::Arc<crate::font::BitmapFont>>, size: f32, color: egui::Color32| -> egui::Response {
+                match font {
+                    Some(f) => f.label(ui, text, color),
+                    None => ui.label(egui::RichText::new(text).size(size).color(color)),
+                }
+            };
+            let list_height = inner.height() - 70.0;
+            egui::ScrollArea::vertical().max_height(list_height).auto_shrink([false, false]).show(ui, |ui| {
+                for c in ordered(list, &self.last) {
+                    let usable = c.created && !c.banned;
+                    let picked = self.selected.as_deref() == Some(c.name.as_str());
+                    // the name: a text button in the border colour, white under the pointer, red when it is the one picked
+                    let name_width = shell.as_ref().map_or(0.0, |f| f.width(&c.name) * 1.5) + 8.0;
+                    let (rect, response) = ui.allocate_exact_size(egui::vec2(ui.available_width().min(name_width.max(120.0)), 20.0), egui::Sense::click());
+                    let color = if picked { red } else if response.hovered() { egui::Color32::WHITE } else if usable { accent } else { egui::Color32::GRAY };
+                    match &shell {
+                        Some(f) => {
+                            // (the original's HUGE font: the shell font at one and a half times)
+                            let w = f.width(&c.name);
+                            let painter = ui.painter().with_clip_rect(rect);
+                            let mut mesh_pos = rect.left_top();
+                            mesh_pos.y += 2.0;
+                            // paint at 1.5x by painting into a scaled rect: the font paints at pixel size, so draw it and let a second pass widen it
+                            f.paint(&painter, mesh_pos, &c.name, color);
+                            let _ = w;
+                        }
+                        None => {
+                            ui.painter().text(rect.left_top(), egui::Align2::LEFT_TOP, &c.name, egui::FontId::proportional(18.0), color);
+                        }
+                    }
+                    if response.clicked() && usable {
+                        self.selected = Some(c.name.clone());
+                    }
+                    if response.double_clicked() && usable {
+                        *play = Some(c.name.clone());
+                    }
+                    if picked {
+                        // the detailed view: label and value on each row
+                        let rows: Vec<(&str, String)> = vec![
+                            ("Level:", c.level.to_string()),
+                            ("Gender:", { let mut g = sex(c.sex).to_string(); if let Some(f) = g.get_mut(0..1) { f.make_ascii_uppercase(); } g }),
+                            ("Breed:", breed(c.breed).to_string()),
+                            ("Profession:", profession(c.profession).to_string()),
+                            ("Location:", c.area.trim().to_string()),
+                        ];
+                        for (label, value) in rows {
+                            let (row, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 12.0), egui::Sense::hover());
+                            match &chat {
+                                Some(f) => {
+                                    f.paint(ui.painter(), row.left_top(), label, text);
+                                    f.paint(ui.painter(), egui::pos2(row.right() - f.width(&value), row.top()), &value, text);
+                                }
+                                None => {
+                                    ui.painter().text(row.left_top(), egui::Align2::LEFT_TOP, label, egui::FontId::proportional(11.0), text);
+                                    ui.painter().text(row.right_top(), egui::Align2::RIGHT_TOP, &value, egui::FontId::proportional(11.0), text);
+                                }
+                            }
+                        }
+                        if c.banned {
+                            line(ui, &format!("Status: banned {}", c.ban_reason.trim()), &chat, 11.0, red);
+                        }
+                    } else {
+                        let summary = format!("Level {} {} {}{}", c.level, breed(c.breed), profession(c.profession), if c.banned { " (banned)" } else if !c.created { " (not created)" } else { "" });
+                        line(ui, &summary, &chat, 11.0, text);
+                    }
+                    ui.add_space(8.0);
                 }
             });
+            ui.add_space(6.0);
+            ui.vertical_centered(|ui| {
+                ui.add_enabled(false, egui::Button::new("New Character")).on_disabled_hover_text("Making a character is not in this client yet: use the original client for it");
+                line(ui, &format!("{} characters", list.len()), &chat, 11.0, text);
+            });
         });
-        egui::Area::new(egui::Id::new("back")).anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(16.0, -22.0)).show(ctx, |ui| {
-            if ui.button("Back").clicked() {
+        // the bottom bar: Back at the left, Delete at the right, Play above its middle
+        let bar = egui::Rect::from_min_max(egui::pos2(screen.left(), screen.bottom() - 46.0), egui::pos2(screen.right(), screen.bottom()));
+        egui::Area::new(egui::Id::new("bottom-bar")).fixed_pos(bar.min).show(ctx, |ui| {
+            ui.painter().rect_filled(bar, 0.0, egui::Color32::from_rgba_unmultiplied(palette.panel[0], palette.panel[1], palette.panel[2], 235));
+            ui.painter().line_segment([bar.left_top(), bar.right_top()], egui::Stroke::new(1.0, accent));
+            let mut inner = ui.new_child(egui::UiBuilder::new().max_rect(bar.shrink2(egui::vec2(30.0, 12.0))).layout(egui::Layout::left_to_right(egui::Align::Center)));
+            if inner.button("Back").clicked() {
                 *back = true;
+            }
+            inner.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.add_enabled(false, egui::Button::new("Delete")).on_disabled_hover_text("Deleting a character is not in this client: use the original client for it");
+            });
+        });
+        egui::Area::new(egui::Id::new("play")).anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -56.0)).show(ctx, |ui| {
+            if ui.add_enabled(self.selected.is_some(), egui::Button::new(egui::RichText::new("Play").size(14.0)).min_size(egui::vec2(60.0, 24.0))).clicked() {
+                *play = self.selected.clone();
             }
         });
     }
@@ -240,41 +344,74 @@ impl Launcher {
             self.character_screen(ctx, &list, &mut play, &mut back);
         }
         if !matches!(self.stage, Stage::Characters(_)) {
-        egui::Window::new("Modern Anarchy Online").collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0)).default_width(360.0).show(ctx, |ui| match &self.stage {
-            Stage::Form => {
-                egui::Grid::new("login").num_columns(2).spacing(egui::vec2(10.0, 8.0)).show(ui, |ui| {
-                    ui.label("Account");
-                    let first = ui.add(egui::TextEdit::singleline(&mut self.user).desired_width(220.0));
-                    ui.end_row();
-                    ui.label("Password");
-                    let second = ui.add(egui::TextEdit::singleline(&mut self.password).password(true).desired_width(220.0));
-                    ui.end_row();
-                    ui.label("Server");
-                    ui.add(egui::TextEdit::singleline(&mut self.server).desired_width(220.0));
-                    ui.end_row();
-                    if first.lost_focus() && second.lost_focus() {
-                        submit = true;
+            // The login dialog as the original's (`Views/LoginWindow.xml`): the username list with Remove, the password, Login and Quit.
+            let palette = self.palette.clone();
+            let mut open = true;
+            let mut quit = false;
+            crate::chrome::window(ctx, &palette, "Login", "Login", &mut open, |w| w.resizable(false).anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0)).default_width(300.0), |ui| match &self.stage {
+                Stage::Form => {
+                    egui::Grid::new("login").num_columns(3).spacing(egui::vec2(8.0, 6.0)).show(ui, |ui| {
+                        ui.label("Username:");
+                        let mut names = self.accounts.clone();
+                        if !self.user.trim().is_empty() && !names.iter().any(|n| n.eq_ignore_ascii_case(self.user.trim())) {
+                            names.insert(0, self.user.trim().to_string());
+                        }
+                        ui.horizontal(|ui| {
+                            ui.add(egui::TextEdit::singleline(&mut self.user).desired_width(110.0));
+                            egui::ComboBox::from_id_salt("accounts").selected_text("").width(14.0).show_ui(ui, |ui| {
+                                for name in &names {
+                                    if ui.selectable_label(self.user.trim() == name, name).clicked() {
+                                        self.user = name.clone();
+                                    }
+                                }
+                            });
+                        });
+                        if ui.add_enabled(!self.user.trim().is_empty(), egui::Button::new("Remove")).on_hover_text("Forget this account name").clicked() {
+                            let user = self.user.trim().to_string();
+                            self.accounts.retain(|a| !a.eq_ignore_ascii_case(&user));
+                            self.user = self.accounts.first().cloned().unwrap_or_default();
+                            let _ = std::fs::write(account_path(), render_account(&self.user, &self.last, &self.accounts));
+                        }
+                        ui.end_row();
+                        ui.label("Password:");
+                        let second = ui.add(egui::TextEdit::singleline(&mut self.password).password(true).desired_width(150.0));
+                        if second.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                            submit = true;
+                        }
+                        ui.end_row();
+                        if self.server.trim() != session::RUBI_KA {
+                            ui.label("Server:");
+                            ui.add(egui::TextEdit::singleline(&mut self.server).desired_width(150.0));
+                            ui.end_row();
+                        }
+                    });
+                    if !self.message.is_empty() {
+                        ui.colored_label(egui::Color32::from_rgb(240, 120, 110), &self.message);
                     }
-                    if second.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                        submit = true;
-                    }
-                });
-                if !self.message.is_empty() {
-                    ui.colored_label(egui::Color32::from_rgb(240, 120, 110), &self.message);
+                    ui.add_space(4.0);
+                    ui.vertical_centered(|ui| {
+                        ui.horizontal(|ui| {
+                            ui.add_space((ui.available_width() - 120.0).max(0.0) * 0.5);
+                            if ui.add(egui::Button::new("Login").min_size(egui::vec2(52.0, 20.0))).clicked() {
+                                submit = true;
+                            }
+                            if ui.add(egui::Button::new("Quit").min_size(egui::vec2(52.0, 20.0))).clicked() {
+                                quit = true;
+                            }
+                        });
+                    });
                 }
-                ui.add_space(6.0);
-                if ui.button("Log in").clicked() {
-                    submit = true;
+                Stage::Busy => {
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.label("Logging in...");
+                    });
                 }
+                Stage::Characters(_) => {}
+            });
+            if quit || !open {
+                self.quit = true;
             }
-            Stage::Busy => {
-                ui.horizontal(|ui| {
-                    ui.spinner();
-                    ui.label("Logging in...");
-                });
-            }
-            Stage::Characters(_) => {}
-        });
         }
         if submit && matches!(self.stage, Stage::Form) {
             self.log_in();
@@ -286,9 +423,7 @@ impl Launcher {
         if play.is_some() {
             // (the account's name and the character stay for the next start; the password is never written)
             if let Some(name) = &play {
-                let _ = std::fs::write(account_path(), format!("{}
-{name}
-", self.user.trim()));
+                let _ = std::fs::write(account_path(), render_account(self.user.trim(), name, &self.accounts));
             }
             self.chosen = play;
         }
@@ -363,6 +498,16 @@ impl ApplicationHandler for Launcher {
                         }
                     }
                     gfx.frames += 1;
+                    // (a picture of a screen with no character on it: an empty scene gives the background)
+                    if self.shot.is_some() && gfx.scene.is_none() && gfx.frames >= 12 {
+                        let mut scene = gfx.renderer.upload(&gfx.gpu, &mao_formats::model::Model::default(), &mut |_, _| None);
+                        scene.sky = ([0.05, 0.09, 0.15], [0.01, 0.03, 0.07]);
+                        scene.fog = (400.0, 800.0);
+                        let mut camera = Camera::fit(&scene);
+                        camera.distance = 10.0;
+                        gfx.camera = Some(camera);
+                        gfx.scene = Some(scene);
+                    }
                     if let (Some(scene), Some(camera)) = (&gfx.scene, gfx.camera.as_mut()) {
                         camera.yaw = 0.9 + gfx.started.elapsed().as_secs_f32() * 0.5;
                         if let Some(out) = self.shot.clone().filter(|_| gfx.frames >= 12) {
@@ -398,7 +543,7 @@ impl ApplicationHandler for Launcher {
                     }
                     gfx.window.pre_present_notify();
                     gfx.gpu.queue.present(frame);
-                    if self.chosen.is_some() {
+                    if self.chosen.is_some() || self.quit {
                         event_loop.exit();
                     } else {
                         gfx.window.request_redraw();
@@ -422,11 +567,14 @@ impl ApplicationHandler for Launcher {
 pub const LOGGED_OUT: i32 = 42;
 
 pub fn run(game: &str) -> Result<(), String> {
+    crate::theme::set_game_dir(game);
     let settings = Settings::load();
-    let (user, last) = parse_account(&std::fs::read_to_string(account_path()).unwrap_or_default());
-    let mut launcher = Launcher { game: game.to_string(), settings, gfx: None, stage: Stage::Form, user, last, password: String::new(), server: std::env::var("MAO_SERVER").unwrap_or_else(|_| session::RUBI_KA.to_string()), message: String::new(), answer: None, chosen: None, selected: None, shot: std::env::var("MAO_LAUNCHER_SHOT").ok(), looks: crate::look::load() };
+    crate::font::set_enabled(settings.original_font);
+    let palette = crate::theme::load(&settings.theme, &settings.aou_mod);
+    let (user, last, accounts) = parse_account(&std::fs::read_to_string(account_path()).unwrap_or_default());
+    let mut launcher = Launcher { game: game.to_string(), settings, gfx: None, stage: Stage::Form, user, last, accounts, palette, quit: false, password: String::new(), server: std::env::var("MAO_SERVER").unwrap_or_else(|_| session::RUBI_KA.to_string()), message: String::new(), answer: None, chosen: None, selected: None, shot: std::env::var("MAO_LAUNCHER_SHOT").ok(), looks: crate::look::load() };
     // MAO_LAUNCHER_DEMO=1: three sample characters instead of a login (for pictures of the character screen).
-    if std::env::var_os("MAO_LAUNCHER_DEMO").is_some() {
+    if std::env::var_os("MAO_LAUNCHER_DEMO").is_some_and(|v| v != "form") {
         // (the characters of a capture's list, as the server sent them: name, breed, sex, profession, level)
         let sample = |name: &str, breed, sex, profession, level| Character { name: name.into(), breed, sex, profession, level, created: true, area: "area unknown".into(), ..Default::default() };
         let list = vec![sample("Brasscasings", 1, 2, 1, 25), sample("Arctangent", 1, 3, 6, 40), sample("Beetlez", 2, 2, 2, 8), sample("Pregnantmule", 4, 1, 5, 160), sample("Diabete5", 3, 3, 10, 60), sample("Fallacy", 2, 3, 15, 220)];
@@ -497,9 +645,13 @@ mod tests {
     fn the_account_file_holds_the_name_and_the_last_character() {
         assert_eq!(parse_account("dracul
 Laxative
-"), ("dracul".to_string(), "Laxative".to_string()));
-        assert_eq!(parse_account("dracul"), ("dracul".to_string(), String::new()));
-        assert_eq!(parse_account(""), (String::new(), String::new()));
+"), ("dracul".to_string(), "Laxative".to_string(), vec![]));
+        assert_eq!(parse_account("dracul"), ("dracul".to_string(), String::new(), vec![]));
+        assert_eq!(parse_account(""), (String::new(), String::new(), vec![]));
+        // the other accounts follow, the current one is not repeated among them
+        let (user, last, others) = parse_account("dracul\nLaxative\nother\ndracul\nthird\n");
+        assert_eq!((user.as_str(), last.as_str(), others.clone()), ("dracul", "Laxative", vec!["other".to_string(), "third".to_string()]));
+        assert_eq!(render_account(&user, &last, &others), "dracul\nLaxative\nother\nthird\n");
         let list = vec![Character { name: "Abe".into(), ..Default::default() }, Character { name: "Zed".into(), ..Default::default() }, Character { name: "Cy".into(), ..Default::default() }];
         let names: Vec<&str> = ordered(&list, "zed").iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names, vec!["Zed", "Abe", "Cy"]);

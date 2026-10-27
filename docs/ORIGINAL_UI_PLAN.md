@@ -205,6 +205,8 @@ and uses the AOU skins):
 - **G.1 parity**: side-by-side of every window.
 Without a reference, prefer the items that need only network work (Phase F windows) over guessing the look.
 
+Done from the user's screenshots (2026-10-26): login dialog and character screen (`launcher.rs`), default theme `original`. Open there: the 3D hall behind them (find the room: not playfield 896), New Character / Delete.
+
 ## 8. Open questions for the user (ask when relevant, do not block on them)
 
 - Which skin should be the default when none is set: the shipped Default, or an AOU one if the mod folder is

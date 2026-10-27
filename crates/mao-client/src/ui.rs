@@ -582,6 +582,9 @@ impl Ui {
         for id in &frame.textures.free {
             self.renderer.free_texture(id);
         }
+        // (epaint checks at drop that the deltas were handled; they were, above)
+        let mut frame = frame;
+        frame.textures.clear();
     }
 }
 
