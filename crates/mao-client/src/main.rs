@@ -280,10 +280,14 @@ pub(crate) fn static_props(db: &ResourceDatabase, playfield: u32) -> Vec<(u32, (
         .enumerate()
         .filter(|(_, d)| d.kind != 0xc75b)
         .filter_map(|(i, d)| {
-            let mesh = (*meshes.entry(d.template).or_insert_with(|| {
-                let data = db.get(Id { kind: mao_formats::item::TEMPLATE, instance: d.template }).ok().flatten()?;
-                mao_formats::item::Item::parse(&data)?.stat(mao_formats::item::stat::MESH).filter(|&m| m > 0)
-            }))?;
+            // (the record's own mesh first: the doors of a city each have their own; the template's `door_omni_med_blue2` is the fallback)
+            let mesh = match d.stat(mao_formats::item::stat::MESH).filter(|&m| m > 0) {
+                Some(m) => m,
+                None => (*meshes.entry(d.template).or_insert_with(|| {
+                    let data = db.get(Id { kind: mao_formats::item::TEMPLATE, instance: d.template }).ok().flatten()?;
+                    mao_formats::item::Item::parse(&data)?.stat(mao_formats::item::stat::MESH).filter(|&m| m > 0)
+                }))?,
+            };
             // (a door's number is in its instance)
             let door = (d.kind == 0xc748).then_some((d.instance >> 16) as u8);
             Some((0xfe00_0000 | i as u32, (mesh, d.position, d.rotation), door))
@@ -296,7 +300,17 @@ pub(crate) fn static_props(db: &ResourceDatabase, playfield: u32) -> Vec<(u32, (
 pub(crate) fn add_static_props(db: &ResourceDatabase, playfield: u32, model: &mut Model) {
     let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     let mut meshes: std::collections::HashMap<u32, Option<std::ops::Range<usize>>> = std::collections::HashMap::new();
+    // MAO_PROP_YAW=<degrees>: an extra turn about the up axis on every table prop (to find a door's facing).
+    let extra: f32 = std::env::var("MAO_PROP_YAW").ok().and_then(|v| v.parse().ok()).unwrap_or(0.0f32).to_radians();
     for (_, (mesh, position, rotation), _) in static_props(db, playfield) {
+        let rotation = if extra == 0.0 {
+            rotation
+        } else {
+            // q_extra (about Y) * q
+            let (s, c) = ((extra * 0.5).sin(), (extra * 0.5).cos());
+            let [x, y, z, w] = rotation;
+            [c * x + s * z, c * y + s * w, c * z - s * x, c * w - s * y]
+        };
         let range = meshes
             .entry(mesh)
             .or_insert_with(|| {
@@ -555,7 +569,7 @@ fn run(args: &[String]) -> Result<(), String> {
             let kind = u32::from_str_radix(kind.trim_start_matches("0x"), 16).map_err(|e| e.to_string())?;
             let table = db.get(Id { kind: mao_formats::dynels::KIND, instance: number }).ok().flatten().ok_or("no dynel table")?;
             for d in mao_formats::dynels::parse(&table).into_iter().filter(|d| d.kind == kind) {
-                println!("{:#x}:{:#x} at ({:.1}, {:.1}, {:.1}) template {:#x}", d.kind, d.instance, d.position[0], d.position[1], d.position[2], d.template);
+                println!("{:#x}:{:#x} at ({:.1}, {:.1}, {:.1}) template {:#x} tail {:x?}", d.kind, d.instance, d.position[0], d.position[1], d.position[2], d.template, d.tail);
             }
             return Ok(());
         }
@@ -607,6 +621,20 @@ fn run(args: &[String]) -> Result<(), String> {
                 }
                 if found >= limit {
                     break;
+                }
+            }
+            return Ok(());
+        }
+    }
+    // `template <game> <hex id>...`: an item template's name and every stat it stores (doors, terminals, items).
+    if let [game, word, ids @ ..] = args {
+        if word == "template" && !ids.is_empty() {
+            let db = ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?;
+            for id in ids {
+                let n = u32::from_str_radix(id.trim_start_matches("0x"), 16).map_err(|e| e.to_string())?;
+                match db.get(Id { kind: mao_formats::item::TEMPLATE, instance: n }).ok().flatten().and_then(|d| mao_formats::item::Item::parse(&d)) {
+                    Some(t) => println!("{n:#x} {:?}: {}", t.name, t.stats.iter().map(|(s, v)| format!("{s}={v:#x}")).collect::<Vec<_>>().join(" ")),
+                    None => println!("{n:#x}: no template"),
                 }
             }
             return Ok(());
