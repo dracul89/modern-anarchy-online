@@ -14,8 +14,11 @@
 //! * a particle emitter (kinds 1003, 1005-1008, 1010) carries a count, start and end sizes, a start and an end colour as alpha, red,
 //!   green, blue (`1 0.5 0.4 1  0 0.5 0.4 1`: fading out), and angles `0 6.28 -1.57 1.57` (a full turn around, a hemisphere up);
 //! * kind 1001, the persistent effect of a running buff (`EffectType` 413 of 486 nanos), is a colour (`0.2 0.2 0.99` blue,
-//!   `0.99 0.2 0.2` red...) and two references to kind 1002 helix emitters (a radius path of kind 0 with 21 pairs, a spin of 3.14 and
-//!   -12.6 radians per second, a sparkle emitter of kind 1005 and a trail of kind 1003);
+//!   `0.99 0.2 0.2` red...), the seconds between its pulses as a float in word 20 (4 in 36 of them, 1 in 20, 2 in one) and two
+//!   references to kind 1002 helix emitters: each a ring of sparks (word 20 count, 21 size) at a height on the body (word 3: 0 the
+//!   top, -0.1 the head, -0.25 the chest, -0.5 the waist), spinning (word 23, ±12.6 radians per second from word 22) for word 8 =
+//!   1.5 seconds, with a sparkle emitter of kind 1005, a trail of kind 1003 and a path of kind 0 (21 pairs). The original plays a
+//!   running effect as a short pulse every interval, not as a continuous glow (seen in a recording of the original client);
 //! * kind 1010 is the cast effect (`CastEffectType` of 1320 nanos): a few colours and the references of its six parts.
 
 use std::collections::HashMap;
@@ -234,6 +237,10 @@ pub struct Helix {
     pub colour: [f32; 3],
     /// The material (sprite sheet, see [`MATERIALS`]) of its sparks.
     pub material: i32,
+    /// Where on the body the ring sits, as a fraction of the body's height below its top (0 the top, -0.1 the head, -0.5 the waist).
+    pub height: f32,
+    /// How long one pulse of the ring lasts, in seconds (1.5 in every template).
+    pub life: f32,
 }
 
 /// The persistent effect of a running buff (a kind-1001 template): its colour and two counter-rotating spirals of sparks.
@@ -243,6 +250,8 @@ pub struct Aura {
     pub colour: [f32; 3],
     pub end: [f32; 3],
     pub helices: Vec<Helix>,
+    /// The seconds between two pulses of the effect (word 20).
+    pub period: f32,
 }
 
 impl Gfx {
@@ -263,10 +272,11 @@ impl Gfx {
             .references(root.id)
             .into_iter()
             .filter_map(|c| self.get(c).filter(|c| c.kind == 1002))
-            .map(|c| Helix { spin: c.float(23), phase: c.float(22), size: c.float(21), count: c.int(20).max(1) as u32, colour: [c.float(13), c.float(14), c.float(15)], material: self.get(c.int(10)).map_or(15, |spark| spark.int(9)) })
+            .map(|c| Helix { spin: c.float(23), phase: c.float(22), size: c.float(21), count: c.int(20).max(1) as u32, colour: [c.float(13), c.float(14), c.float(15)], material: self.get(c.int(10)).map_or(15, |spark| spark.int(9)), height: c.float(3).clamp(-1.0, 0.0), life: if (0.2..10.0).contains(&c.float(8)) { c.float(8) } else { 1.5 } })
             .collect();
         let rgb = |at: usize| tint.unwrap_or([root.float(at), root.float(at + 1), root.float(at + 2)]);
-        Some(Aura { colour: rgb(13), end: rgb(17), helices })
+        let period = root.float(20);
+        Some(Aura { colour: rgb(13), end: rgb(17), helices, period: if (0.2..120.0).contains(&period) { period } else { 4.0 } })
     }
 }
 
@@ -415,6 +425,7 @@ mod tests {
         assert_eq!(aura.helices[1].spin, 12.566);
         assert_eq!(aura.helices[0].count, 10);
         assert_eq!(aura.helices[0].colour, [0.5, 0.4, 1.0]);
+        assert_eq!((aura.period, aura.helices[0].height, aura.helices[0].life), (4.0, 0.0, 1.5));
         assert!(gfx.aura(20011).is_none());
     }
 }

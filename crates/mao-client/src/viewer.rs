@@ -221,7 +221,7 @@ pub fn headless_with(model: &Model, textures: &Textures, out: &str, ui: Option<(
         let feet = if let [x, y, z] = at[..] { [x, y, z] } else { [0.0, 0.0, 0.0] };
         let time: f32 = std::env::var("MAO_AURA_TIME").ok().and_then(|t| t.parse().ok()).unwrap_or(0.8);
         if let Some(visual) = gfx.and_then(|g| g.visual(id.parse().unwrap_or(0))) {
-            scene.particles = crate::effects::visual_particles(&visual, feet, time, crate::effects::Reach::Body);
+            scene.particles = crate::effects::running_particles(&visual, feet, time, 0.0);
             eprintln!("aura: {} sparks", scene.particles.len());
         }
     }
@@ -1026,8 +1026,9 @@ impl ApplicationHandler for App {
                     let mut sparks = Vec::new();
                     for (own, at, auras) in &self.auras {
                         let feet = if *own && self.hud.position.is_some() { own_feet } else { *at };
-                        for aura in auras {
-                            sparks.extend(crate::effects::visual_particles(aura, feet, time, crate::effects::Reach::Body));
+                        for (k, aura) in auras.iter().enumerate() {
+                            // (each buff pulses on its own beat)
+                            sparks.extend(crate::effects::running_particles(aura, feet, time, k as f32 * 3.1));
                         }
                     }
                     // (a cast effect emits for a second and lives out its particles' lives)

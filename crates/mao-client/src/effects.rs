@@ -1,6 +1,7 @@
 //! Nano effects drawn as glowing sprites in the world (the renderer's particle pass). The templates come from `gfxtweak.bin`
-//! (`mao_formats::gfx`); what is decoded so far is the persistent effect of a running buff (kind 1001): two spirals of sparks that
-//! turn the opposite ways round the character and climb from its feet, in the buff's colour.
+//! (`mao_formats::gfx`). A running buff's effect (kind 1001) is played as the original plays it: a short pulse every few seconds,
+//! a ring of sparks at a height on the body that forms, spins and fades in a second and a half ([`running_particles`]); the hits
+//! and tracers built on the same spirals run continuously for their short lives ([`aura_shaped`]).
 //!
 //! What the data gives: the colour, each spiral's spin (about two turns a second), its start angle, spark size and count. What it
 //! does not say (or is not read yet): the radius (the radius path's numbers, 0.06 to 0.15, are too small for a body; 0.42 m is used),
@@ -153,6 +154,60 @@ pub fn visual_particles(v: &Visual, feet: [f32; 3], time: f32, reach: Reach) -> 
     }
 }
 
+/// How the pulses of a running effect are spaced: the template's interval is doubled (word 20 says 4 for most auras; in a recording
+/// of the original the halo of a level-25 character came back every 5 to 10 seconds), and `phase` staggers the buffs of one character.
+const PULSE_SPACING: f32 = 2.0;
+/// The glow effect (kind 3003) has no interval in what is decoded of it: it pulses this often, a ring rising from the feet.
+const GLOW_PERIOD: f32 = 8.0;
+const GLOW_LIFE: f32 = 1.5;
+
+/// One ring of a pulse: `n` sparks (plus short trails) spinning at `spin` round `feet` at height `z`, radius `radius`; the sparks come on
+/// one after another in the first quarter of the pulse and fade out in its last third (`u` is 0 to 1 through the pulse).
+fn ring(out: &mut Vec<Particle>, feet: [f32; 3], z: f32, radius: f32, n: usize, angle0: f32, spin: f32, t: f32, u: f32, material: i32, size: f32, colour: [f32; 3]) {
+    let lit = ((u / 0.25).min(1.0) * n as f32).ceil() as usize;
+    let fade = ((1.0 - u) / 0.35).clamp(0.0, 1.0);
+    for i in 0..lit.min(n) {
+        let base = angle0 + spin * t + i as f32 * std::f32::consts::TAU / n as f32;
+        for k in 0..3 {
+            let angle = base - spin.signum() * 0.16 * k as f32;
+            let tail = 1.0 - k as f32 * 0.3;
+            out.push(sprite(material, u, [feet[0] + radius * angle.cos(), feet[1] + radius * angle.sin(), z], size * (0.5 + 0.5 * tail), [colour[0], colour[1], colour[2], 0.5 * fade * tail * tail]));
+        }
+    }
+}
+
+/// The sparks of a running nano's effect at `time` seconds (`phase` seconds added, so two buffs do not pulse together), round a character
+/// whose feet are at `feet` (world, Z up). Nothing between the pulses.
+pub fn running_particles(v: &Visual, feet: [f32; 3], time: f32, phase: f32) -> Vec<Particle> {
+    let mut out = Vec::new();
+    match v {
+        Visual::Spiral(aura) => {
+            let period = aura.period * PULSE_SPACING;
+            let t = (time + phase).rem_euclid(period.max(0.5));
+            for helix in &aura.helices {
+                if t >= helix.life {
+                    continue;
+                }
+                let u = t / helix.life;
+                // the ring's height on the body, climbing a little as it goes, in the buff's colour warmed toward the helix's own
+                let z = feet[2] + HEIGHT * (1.0 + helix.height) + 0.2 * u;
+                let c = [aura.colour[0] * 0.75 + helix.colour[0] * 0.25, aura.colour[1] * 0.75 + helix.colour[1] * 0.25, aura.colour[2] * 0.75 + helix.colour[2] * 0.25];
+                ring(&mut out, feet, z, helix.size * 2.0, (helix.count as usize).clamp(4, 24), helix.phase, helix.spin, t, u, helix.material, helix.size.max(0.08) * 0.45, c);
+            }
+        }
+        // the glow: a ring that rises from the feet to the knees
+        Visual::Glow { colour, size } => {
+            let t = (time + phase).rem_euclid(GLOW_PERIOD);
+            if t < GLOW_LIFE {
+                let u = t / GLOW_LIFE;
+                ring(&mut out, feet, feet[2] + 0.12 + 0.55 * u, 0.32 * size.max(0.5).min(1.5), 16, 0.0, 9.0, t, u, 15, 0.055, [colour[0], colour[1], colour[2]]);
+            }
+        }
+        other => return visual_particles(other, feet, time, Reach::Body),
+    }
+    out
+}
+
 /// [`aura_particles`] for a spiral of another height and radius (a tracer is short, a body's is tall).
 pub fn aura_shaped(aura: &Aura, feet: [f32; 3], time: f32, height_m: f32, radius_m: f32) -> Vec<Particle> {
     let mut out = Vec::new();
@@ -246,11 +301,28 @@ pub fn emitter_particles(e: &Emitter, origin: [f32; 3], age: f32, active: f32) -
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_running_effect_pulses_and_rests() {
+        let helix = mao_formats::gfx::Helix { spin: 12.6, phase: 0.0, size: 0.13, count: 10, colour: [0.5, 0.4, 1.0], material: 15, height: -0.1, life: 1.5 };
+        let aura = Visual::Spiral(mao_formats::gfx::Aura { colour: [0.99, 0.99, 0.2], end: [0.99, 0.99, 0.2], helices: vec![helix], period: 4.0 });
+        // in the pulse: a ring at the head; after it: nothing until the next, eight seconds on
+        let during = running_particles(&aura, [0.0, 0.0, 0.0], 0.8, 0.0);
+        assert!(!during.is_empty());
+        assert!(during.iter().all(|p| (p.position[2] - 1.7).abs() < 0.3));
+        assert!(running_particles(&aura, [0.0, 0.0, 0.0], 3.0, 0.0).is_empty());
+        assert!(!running_particles(&aura, [0.0, 0.0, 0.0], 8.5, 0.0).is_empty());
+        // the glow's ring rises from the feet
+        let glow = Visual::Glow { colour: [0.2, 0.9, 0.9, 1.0], size: 1.0 };
+        let low = running_particles(&glow, [0.0, 0.0, 0.0], 0.2, 0.0)[0].position[2];
+        let high = running_particles(&glow, [0.0, 0.0, 0.0], 1.2, 0.0)[0].position[2];
+        assert!(low < high && high < 1.0);
+    }
     use mao_formats::gfx::Helix;
 
     fn aura() -> Aura {
-        let helix = |spin: f32| Helix { spin, phase: 0.0, size: 0.15, count: 10, colour: [0.5, 0.4, 1.0], material: 15 };
-        Aura { colour: [0.2, 0.2, 0.99], end: [0.2, 0.2, 0.99], helices: vec![helix(-12.566), helix(12.566)] }
+        let helix = |spin: f32| Helix { spin, phase: 0.0, size: 0.15, count: 10, colour: [0.5, 0.4, 1.0], material: 15, height: -0.25, life: 1.5 };
+        Aura { colour: [0.2, 0.2, 0.99], end: [0.2, 0.2, 0.99], helices: vec![helix(-12.566), helix(12.566)], period: 4.0 }
     }
 
     #[test]
