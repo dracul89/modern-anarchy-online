@@ -28,6 +28,8 @@ pub struct Palette {
     pub hover: Rgb,
     pub text: Rgb,
     pub text_selected: Rgb,
+    /// The named colours of the folder's `TextColors.xml` (chat kinds `ct_*`/`ctch_*`, `CC*` text classes); empty for the built-in look.
+    pub text_colors: Vec<(String, Rgb)>,
 }
 
 /// The themes the AOU mod ships, by the names the settings use.
@@ -71,7 +73,7 @@ fn scale(c: Rgb, k: f32) -> Rgb {
 impl Palette {
     /// The look used when no theme is chosen: dark warm panels with silver and gold.
     pub fn built_in() -> Palette {
-        Palette { name: "built-in".into(), panel: [18, 14, 10], accent: [212, 175, 55], hover: [240, 208, 96], text: [230, 226, 214], text_selected: [255, 255, 255] }
+        Palette { name: "built-in".into(), panel: [18, 14, 10], accent: [212, 175, 55], hover: [240, 208, 96], text: [230, 226, 214], text_selected: [255, 255, 255], text_colors: Vec::new() }
     }
 
     /// A palette from a `GUIColors.xml`. A theme whose `Default` is dark (the
@@ -91,12 +93,36 @@ impl Palette {
             hover: get("Hover").unwrap_or(selected),
             text: get("Text").unwrap_or(selected),
             text_selected: get("TextSelected").unwrap_or([255, 255, 255]),
+            text_colors: Vec::new(),
         })
     }
 
     pub fn from_dir(name: &str, dir: &Path) -> Option<Palette> {
-        Palette::from_gui_colors(name, &std::fs::read_to_string(dir.join("GUIColors.xml")).ok()?)
+        let mut palette = Palette::from_gui_colors(name, &std::fs::read_to_string(dir.join("GUIColors.xml")).ok()?)?;
+        // (a skin without its own text colours takes the game's)
+        let text = std::fs::read_to_string(dir.join("TextColors.xml")).ok().or_else(|| std::fs::read_to_string(GAME.get()?.join("cd_image/gui/Default/TextColors.xml")).ok());
+        palette.text_colors = text.map(|xml| text_colors(&xml)).unwrap_or_default();
+        Some(palette)
     }
+
+    /// A named text colour (`ct_itell`, `CCLinkColor`, ...), when the theme has it.
+    pub fn text(&self, name: &str) -> Option<Rgb> {
+        self.text_colors.iter().find(|(k, _)| k == name).map(|&(_, c)| c)
+    }
+}
+
+/// The named colours of a `TextColors.xml`: `<HTMLColor color="0x00ffff" name="ct_itell"/>`; a colour may name an earlier
+/// entry (`color="yellow"`).
+pub fn text_colors(xml: &str) -> Vec<(String, Rgb)> {
+    let mut out: Vec<(String, Rgb)> = Vec::new();
+    for element in xml.split('<').filter(|e| e.starts_with("HTMLColor ")) {
+        let (Some(name), Some(value)) = (attribute(element, "name"), attribute(element, "color")) else { continue };
+        let color = parse_color(value).or_else(|| out.iter().find(|(k, _)| k == value.trim()).map(|&(_, c)| c));
+        if let Some(color) = color {
+            out.push((name.to_string(), color));
+        }
+    }
+    out
 }
 
 /// The folder a `theme =` setting names, if it can be found.
@@ -117,6 +143,9 @@ pub fn theme_dir(theme: &str, aou_mod: &str) -> Option<PathBuf> {
 
 /// The palette for a `theme =` setting; the built-in one when it can't be loaded.
 pub fn load(theme: &str, aou_mod: &str) -> Palette {
+    // (MAO_THEME overrides the setting, for pictures of the interface in a theme)
+    let forced = std::env::var("MAO_THEME").ok();
+    let theme = forced.as_deref().unwrap_or(theme);
     let Some(dir) = theme_dir(theme, aou_mod) else { return Palette::built_in() };
     match Palette::from_dir(theme, &dir) {
         Some(p) => p,
@@ -184,6 +213,16 @@ mod tests {
         assert_eq!(p.panel, [0x05, 0x1a, 0x2a]);
         assert_eq!(p.accent, [0x30, 0xd2, 0xff]);
         assert_eq!(p.text_selected, [0xff, 0xff, 0xff]);
+    }
+
+    #[test]
+    fn text_colours_resolve_names() {
+        let xml = r#"<Root><HTMLColor color="0xFFFF00" name="yellow"/><HTMLColor color="yellow" name="ct_otell"/><HTMLColor color="0x00ffff" name="ct_itell"/><HTMLColor color="nothing" name="bad"/></Root>"#;
+        let colors = text_colors(xml);
+        assert_eq!(colors, vec![("yellow".to_string(), [255, 255, 0]), ("ct_otell".to_string(), [255, 255, 0]), ("ct_itell".to_string(), [0, 255, 255])]);
+        let palette = Palette { text_colors: colors, ..Palette::built_in() };
+        assert_eq!(palette.text("ct_itell"), Some([0, 255, 255]));
+        assert_eq!(palette.text("ct_unknown"), None);
     }
 
     #[test]

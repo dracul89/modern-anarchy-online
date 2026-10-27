@@ -486,6 +486,8 @@ pub struct Settings {
     pub theme: String,
     /// The AOU mod's folder (the one with `Gui` in it), for its themes.
     pub aou_mod: String,
+    /// A skin folder (one with `Graphics.uvga`), searched before the theme's folder and the game's own (see [`crate::skin`]).
+    pub gui_dir: String,
     /// The developer overlay: the location and coordinates, the frame rate and the shortcut bar's hint.
     pub debug_overlay: bool,
     pub keymap: Keymap,
@@ -493,7 +495,7 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { mode: WindowMode::Windowed, width: 1280, height: 800, vsync: false, render_scale: 1.0, sharpness: 0.2, ui_scale: 1.0, view_distance: 1800.0, char_distance: 0.0, auto_loot: false, theme: "built-in".into(), aou_mod: String::new(), debug_overlay: false, keymap: Keymap::default() }
+        Settings { mode: WindowMode::Windowed, width: 1280, height: 800, vsync: false, render_scale: 1.0, sharpness: 0.2, ui_scale: 1.0, view_distance: 1800.0, char_distance: 0.0, auto_loot: false, theme: "built-in".into(), aou_mod: String::new(), gui_dir: String::new(), debug_overlay: false, keymap: Keymap::default() }
     }
 }
 
@@ -546,7 +548,7 @@ impl Settings {
     pub fn to_text(&self) -> String {
         let mut out = String::from("; Modern Anarchy Online settings\n[window]\n; windowed | borderless | fullscreen (F11 / Alt+Enter change it while playing)\n");
         out += &format!("mode = {}\nwidth = {}\nheight = {}\nvsync = {}\nrender_scale = {}\nsharpness = {}\nui_scale = {}\nview_distance = {}\nchar_distance = {}\nauto_loot = {}\n\n", self.mode.name(), self.width, self.height, if self.vsync { "on" } else { "off" }, self.render_scale, self.sharpness, self.ui_scale, self.view_distance, self.char_distance, if self.auto_loot { "on" } else { "off" });
-        out += &format!("[interface]\n; built-in | original | aou_translucent | aou_cyt | aou_slim_cni | aou_slim_cnt | a folder with GUIColors.xml\ntheme = {}\n; the AOU mod's folder (the one with Gui in it), for its themes\naou_mod = {}\n; show the location and coordinates, the frame rate and key hints over the game (for developers)\ndebug_overlay = {}\n\n", self.theme, self.aou_mod, if self.debug_overlay { "on" } else { "off" });
+        out += &format!("[interface]\n; built-in | original | aou_translucent | aou_cyt | aou_slim_cni | aou_slim_cnt | a folder with GUIColors.xml\ntheme = {}\n; the AOU mod's folder (the one with Gui in it), for its themes\naou_mod = {}\n; a skin folder (Graphics.uvga and Graphics.uvgi, as the original's Gui/<skin> folders), used before the theme's and the game's own pictures\ngui_dir = {}\n; show the location and coordinates, the frame rate and key hints over the game (for developers)\ndebug_overlay = {}\n\n", self.theme, self.aou_mod, self.gui_dir, if self.debug_overlay { "on" } else { "off" });
         out += "[keys]\n; one or more keys per action, separated by commas; Shift+, Ctrl+ and Alt+ combine\n";
         out += &format!("version = {KEYMAP_VERSION}\n");
         for &(action, name, _) in ACTIONS {
@@ -592,6 +594,7 @@ impl Settings {
                 ("window", "height") => settings.height = value.parse().unwrap_or(settings.height).clamp(240, 16384),
                 ("interface", "theme") => settings.theme = value.to_string(),
                 ("interface", "aou_mod") => settings.aou_mod = value.to_string(),
+                ("interface", "gui_dir") => settings.gui_dir = value.to_string(),
                 ("interface", "debug_overlay") => settings.debug_overlay = matches!(value.to_ascii_lowercase().as_str(), "on" | "true" | "1" | "yes"),
                 ("keys", "version") => key_version = value.parse().unwrap_or(0),
                 ("keys", name) => key_lines.push((n, name.to_string(), value.to_string())),
@@ -736,8 +739,8 @@ mod tests {
         for &(action, _, _) in ACTIONS {
             assert_eq!(again.keymap.keys(action), defaults.keymap.keys(action));
         }
-        let custom = Settings::from_text("[window]\nmode = Borderless ; fine\nwidth = 1920\n[interface]\ntheme = aou_cyt\naou_mod = C:/mods/aou\n[keys]\nversion = 2\nforward = Up\njump = Ctrl+Space\n");
-        assert_eq!((custom.theme.as_str(), custom.aou_mod.as_str()), ("aou_cyt", "C:/mods/aou"));
+        let custom = Settings::from_text("[window]\nmode = Borderless ; fine\nwidth = 1920\n[interface]\ntheme = aou_cyt\naou_mod = C:/mods/aou\ngui_dir = D:/skins/Blue\n[keys]\nversion = 2\nforward = Up\njump = Ctrl+Space\n");
+        assert_eq!((custom.theme.as_str(), custom.aou_mod.as_str(), custom.gui_dir.as_str()), ("aou_cyt", "C:/mods/aou", "D:/skins/Blue"));
         assert_eq!(Settings::from_text(&custom.to_text()).theme, "aou_cyt");
         assert_eq!(custom.mode, WindowMode::Borderless);
         assert_eq!(custom.width, 1920);

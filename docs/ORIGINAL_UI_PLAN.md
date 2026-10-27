@@ -22,7 +22,8 @@ anything the original did not have is either dropped from the default view or ma
 | Developer overlay hidden (location, coordinates, fps, hotbar hint) | done, `debug_overlay = off` default, `MAO_DEBUG_HUD=1` forces on | `ui.rs::debug_overlay()`, settings `[interface] debug_overlay` |
 | Escape closes dialogs like the original | done | `Ui::close_with_escape`, action `CloseWindows` |
 | Bottom control center from the original skin: wings, health/nano/XP/alien-XP bars, left/right menu icons, compass, two target buttons, sub-menus (Actions, Character, Map; Camera and Help inside Actions) | done against the shipped Default skin | `crates/mao-client/src/vitals.rs` (`Skin`, `show_skinned`, `compass`, `target_buttons`, `sub_menu`, `menu_items`); layout taken from `cd_image/gui/Default/Views/ControlCenter.xml` and `ActionMenu/*.xml` |
-| Skin atlas reader | done for the control center's sprites only (`GFX_GUI_CONTROLCENTER_*`, `GFX_GUI_CC_ICONS_*`, `GFX_GUI_COMPASS*`) | `vitals.rs::Skin::load`; research tool `tools/uvga_extract.py <skin folder> <out>` unpacks a whole atlas to PNGs |
+| Skin layer (Phase A.1): `gui_dir` setting / options field / `MAO_GUI_DIR` → theme folder → game Default, per-sprite fallthrough, lazy decode | done, checked offscreen with Default and AOU_CYT | `crates/mao-client/src/skin.rs` (`Skin`, `dirs`, `configure`, `skin`); research tool `tools/uvga_extract.py <skin folder> <out>` |
+| `TextColors.xml` chat colours (Phase A.3) | done | `theme.rs::text_colors`, `Palette::text`, `chatwindow.rs` |
 | Theme colours from any `GUIColors.xml` folder (`theme = original`, `aou_cyt`, ... or a path; `aou_mod =` points at the AOU mod folder) | done | `crates/mao-client/src/theme.rs` (`theme_dir`, `Palette`) |
 | Window positions remembered between sessions | done (this client's own `layout.ini`, not the original's `Prefs.xml`) | `layout.rs` |
 | `/camp` returns to the character screen | built, not tried live | `viewer.rs` (`logged_out`), `launcher.rs` (`LOGGED_OUT`, `MAO_RELOGIN`) |
@@ -89,6 +90,7 @@ Each phase ends with: offscreen preview (`MAO_UI_PREVIEW=...`, see `docs/CLIENT_
 mao-client`, a live look if the user is around, a paragraph in `docs/CLIENT_UI.md`, one commit.
 
 ### Phase A — the skin layer (foundation for everything else)
+*(A.1 and A.3 done 2026-10-26; A.2 and A.4 open. The font PNGs are 256-wide RGB strips, e.g. `GFX_FONT_CHAT9` 256x55: the glyph table is not found yet — look for it in `GUI.dll`'s font loader before guessing.)*
 1. `skin.rs` as in §4; `gui_dir` setting + options-window field + `MAO_GUI_DIR`.
 2. Decode the bitmap fonts `GFX_FONT_CHAT9/GAMESHELL12/TOOLTIP9` (PNG strips; glyph metrics are either a
    fixed grid or a table in the PNG's trailing bytes — inspect with `tools/uvga_extract.py`, compare to the

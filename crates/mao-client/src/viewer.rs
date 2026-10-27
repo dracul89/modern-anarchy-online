@@ -1216,6 +1216,12 @@ impl ApplicationHandler for App {
                     if let Some(theme) = requests.theme {
                         ui.set_theme(&theme, &self.settings.aou_mod);
                         self.settings.theme = theme;
+                        ui.set_skin(&self.settings);
+                        self.settings.save();
+                    }
+                    if let Some(dir) = requests.gui_dir {
+                        self.settings.gui_dir = dir;
+                        ui.set_skin(&self.settings);
                         self.settings.save();
                     }
                     if let Some(mode) = requests.mode {

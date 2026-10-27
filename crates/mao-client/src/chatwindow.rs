@@ -285,6 +285,7 @@ impl ChatWindow {
             return None;
         }
         let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
+        let text = |name: &str, (r, g, b): (u8, u8, u8)| palette.text(name).map_or(egui::Color32::from_rgb(r, g, b), |c| egui::Color32::from_rgb(c[0], c[1], c[2]));
         let mut out = None;
         let screen = ctx.content_rect();
         let mut open = self.open;
@@ -309,11 +310,12 @@ impl ChatWindow {
                         Tab::Combat => l.kind == Kind::Combat,
                     }) {
                         let color = match line.kind {
-                            Kind::System => egui::Color32::from_rgb(255, 220, 90),
-                            Kind::Tell => egui::Color32::from_rgb(120, 220, 255),
-                            Kind::Channel => egui::Color32::from_rgb(200, 235, 235),
-                            Kind::Own => egui::Color32::from_rgb(160, 200, 160),
-                            Kind::Combat => egui::Color32::from_rgb(240, 170, 130),
+                            // (the original's TextColors.xml names when the theme has them)
+                            Kind::System => text("ct_cmd_feedback", (255, 220, 90)),
+                            Kind::Tell => text("ct_itell", (120, 220, 255)),
+                            Kind::Channel => text("ctch_misc", (200, 235, 235)),
+                            Kind::Own => text("ct_otell", (160, 200, 160)),
+                            Kind::Combat => text("CCMeHitOtherColor", (240, 170, 130)),
                         };
                         ui.label(egui::RichText::new(&line.text).color(color));
                     }

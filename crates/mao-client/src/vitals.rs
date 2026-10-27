@@ -1,9 +1,10 @@
-//! The vitals on the game screen: health and nano energy, then the experience bar and the alien experience bar, drawn
-//! from the same stats as the Stats window (`stats`). Drag the panel to move it.
+//! The control center at the bottom of the game screen, drawn from the original skin's pictures (`skin`): the wings with the
+//! health, nano, experience and alien experience bars (the same stats as the Stats window), the menu strips, the compass and
+//! the target buttons. Without the pictures a plain strip shows the same bars and menus.
 
-use std::collections::{BTreeMap, HashMap};
-use std::sync::Arc;
+use std::collections::BTreeMap;
 
+use crate::skin::Skin;
 use crate::stats::{bar, stat};
 use crate::theme::Palette;
 
@@ -16,71 +17,13 @@ fn progress(value: Option<i64>, from: i64, to: Option<i64>) -> (Option<i64>, Opt
     }
 }
 
-/// The original skin's pictures of the control center (`Graphics.uvga` and its index `Graphics.uvgi` in the game's
-/// `cd_image/gui/Default`): the index lists `NAME offset length` and each entry is a whole PNG whose pure green is transparent.
-struct Skin {
-    sprites: HashMap<String, (egui::TextureHandle, egui::Vec2)>,
-}
-
-impl Skin {
-    fn load(ctx: &egui::Context) -> Option<Skin> {
-        let dir = crate::theme::game_dir()?.join("cd_image/gui/Default");
-        let index = String::from_utf8_lossy(&std::fs::read(dir.join("Graphics.uvgi")).ok()?).into_owned();
-        let atlas = std::fs::read(dir.join("Graphics.uvga")).ok()?;
-        let mut sprites = HashMap::new();
-        for line in index.lines().skip(2) {
-            let mut parts = line.split_whitespace();
-            let (Some(name), Some(offset), Some(length)) = (parts.next(), parts.next().and_then(|v| v.parse::<usize>().ok()), parts.next().and_then(|v| v.parse::<usize>().ok())) else { continue };
-            if !(name.starts_with("GFX_GUI_CONTROLCENTER_") || name.starts_with("GFX_GUI_CC_ICONS_") || name.starts_with("GFX_GUI_COMPASS")) {
-                continue;
-            }
-            let Some(bytes) = atlas.get(offset..offset + length) else { continue };
-            let Ok(image) = image::load_from_memory(bytes) else { continue };
-            let mut rgba = image.to_rgba8();
-            for pixel in rgba.pixels_mut() {
-                if pixel.0[..3] == [0, 255, 0] {
-                    pixel.0 = [0, 0, 0, 0];
-                }
-            }
-            let size = [rgba.width() as usize, rgba.height() as usize];
-            let texture = ctx.load_texture(name, egui::ColorImage::from_rgba_unmultiplied(size, rgba.as_raw()), egui::TextureOptions::LINEAR);
-            sprites.insert(name.to_string(), (texture, egui::vec2(size[0] as f32, size[1] as f32)));
-        }
-        sprites.contains_key("GFX_GUI_CONTROLCENTER_WING_LEFT").then_some(Skin { sprites })
-    }
-
-    fn get(&self, name: &str) -> Option<&(egui::TextureHandle, egui::Vec2)> {
-        self.sprites.get(name)
-    }
-
-    /// Draws a sprite at `at` (its top left), only its lower `fraction` when that is below 1 (a bar filling up), tinted.
-    fn draw(&self, painter: &egui::Painter, name: &str, at: egui::Pos2, fraction: f32, tint: egui::Color32) -> Option<egui::Rect> {
-        let (texture, size) = self.get(name)?;
-        let shown = size.y * fraction;
-        let rect = egui::Rect::from_min_size(at + egui::vec2(0.0, size.y - shown), egui::vec2(size.x, shown));
-        let uv = egui::Rect::from_min_max(egui::pos2(0.0, 1.0 - fraction), egui::pos2(1.0, 1.0));
-        painter.image(texture.id(), rect, uv, tint);
-        Some(rect)
-    }
-}
-
-/// The skin of this context, loaded once (None when the game's files are not there).
-fn skin(ctx: &egui::Context) -> Option<Arc<Skin>> {
-    let id = egui::Id::new("control-center-skin");
-    if let Some(found) = ctx.data(|d| d.get_temp::<Option<Arc<Skin>>>(id)) {
-        return found;
-    }
-    let loaded = Skin::load(ctx).map(Arc::new);
-    ctx.data_mut(|d| d.insert_temp(id, loaded.clone()));
-    loaded
-}
-
 /// The compass: the strip (north, east, south, west and north again across 256 pixels) slides behind the frame so the bearing the
 /// camera looks along is under the frame's pointers. `yaw` is the camera's (the camera sits at (cos yaw, sin yaw) from the character).
 fn compass(ctx: &egui::Context, skin: &Skin, yaw: f32) {
-    let (Some((_, strip)), Some((_, frame))) = (skin.get("GFX_GUI_COMPASS_SCALE"), skin.get("GFX_GUI_COMPASS_FRAME")) else { return };
+    let (Some(strip), Some(frame)) = (skin.get("GFX_GUI_COMPASS_SCALE"), skin.get("GFX_GUI_COMPASS_FRAME")) else { return };
+    let (strip, frame) = (strip.size, frame.size);
     egui::Area::new(egui::Id::new("cc-compass")).anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 6.0)).interactable(false).show(ctx, |ui| {
-        let (rect, _) = ui.allocate_exact_size(*frame, egui::Sense::hover());
+        let (rect, _) = ui.allocate_exact_size(frame, egui::Sense::hover());
         // the bearing, clockwise from north (the map's +z), of the way the camera looks
         let bearing = (-yaw.cos()).atan2(-yaw.sin());
         let fraction = bearing.rem_euclid(std::f32::consts::TAU) / std::f32::consts::TAU;
@@ -97,19 +40,22 @@ fn compass(ctx: &egui::Context, skin: &Skin, yaw: f32) {
 /// The target buttons beside the menu strips: the left one targets the character itself (the original's F1), the right one the next
 /// hostile (Tab). Drawn from `TARGET_BUTTON` (its second and third pictures are hovered and pressed) and the icon on it.
 fn target_buttons(ctx: &egui::Context, skin: &Skin, clicked: &mut Option<&'static str>) {
+    // (beside the menu strips, whose width is the skin's: 214 in the game's own, 280 and 205 in the AOU skins)
+    let strip = |name: &str| skin.get(name).map_or(214.0, |s| s.size.x);
+    let (left_strip, right_strip) = (strip("GFX_GUI_CONTROLCENTER_BOTTOM_LEFT"), strip("GFX_GUI_CONTROLCENTER_BOTTOM_RIGHT"));
     for left in [true, false] {
         let (anchor, x, window, icon, tip) = if left {
-            (egui::Align2::LEFT_BOTTOM, 5.0 + 214.0 + 10.0, "target_self", "GFX_GUI_CONTROLCENTER_TARGET_ICON_SELF", "Target yourself")
+            (egui::Align2::LEFT_BOTTOM, 5.0 + left_strip + 10.0, "target_self", "GFX_GUI_CONTROLCENTER_TARGET_ICON_SELF", "Target yourself")
         } else {
-            (egui::Align2::RIGHT_BOTTOM, -(5.0 + 214.0 + 10.0), "target_next", "GFX_GUI_CONTROLCENTER_TARGET_ICON_OTHER", "Target the next enemy")
+            (egui::Align2::RIGHT_BOTTOM, -(5.0 + right_strip + 10.0), "target_next", "GFX_GUI_CONTROLCENTER_TARGET_ICON_OTHER", "Target the next enemy")
         };
-        let Some((_, size)) = skin.get("GFX_GUI_CONTROLCENTER_TARGET_BUTTON") else { return };
+        let Some(size) = skin.get("GFX_GUI_CONTROLCENTER_TARGET_BUTTON").map(|s| s.size) else { return };
         egui::Area::new(egui::Id::new(window)).anchor(anchor, egui::vec2(x, -8.0)).show(ctx, |ui| {
-            let (rect, response) = ui.allocate_exact_size(*size, egui::Sense::click());
+            let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
             let state = if response.is_pointer_button_down_on() { "_STATE3" } else if response.hovered() { "_STATE2" } else { "" };
             skin.draw(ui.painter(), &format!("GFX_GUI_CONTROLCENTER_TARGET_BUTTON{state}"), rect.min, 1.0, egui::Color32::WHITE);
-            if let Some((_, icon_size)) = skin.get(icon) {
-                skin.draw(ui.painter(), icon, rect.center() - *icon_size * 0.5, 1.0, egui::Color32::WHITE);
+            if let Some(icon_size) = skin.get(icon).map(|s| s.size) {
+                skin.draw(ui.painter(), icon, rect.center() - icon_size * 0.5, 1.0, egui::Color32::WHITE);
             }
             if response.on_hover_text(tip).clicked() {
                 *clicked = Some(window);
@@ -214,7 +160,7 @@ fn wing_bar(ui: &mut egui::Ui, skin: &Skin, painter: &egui::Painter, at: egui::P
     };
     let rect = skin.draw(painter, &format!("GFX_GUI_CONTROLCENTER_{name}_BG"), at, 1.0, egui::Color32::WHITE).unwrap_or(egui::Rect::from_min_size(at, egui::vec2(12.0, 152.0)));
     let fg = format!("GFX_GUI_CONTROLCENTER_{name}_FG");
-    if let Some((_, size)) = skin.get(&fg) {
+    if let Some(size) = skin.get(&fg).map(|s| s.size) {
         skin.draw(painter, &fg, at + egui::vec2((rect.width() - size.x) * 0.5, rect.height() - size.y - 5.0), fraction, tint);
     }
     let text = match (value, max) {
@@ -228,19 +174,18 @@ fn wing_bar(ui: &mut egui::Ui, skin: &Skin, painter: &egui::Painter, at: egui::P
 /// The original's control center drawn from its own pictures: the left wing (health and nano) and the right wing (experience), with
 /// the menu strips under them. False when the pictures are not there.
 fn show_skinned(ctx: &egui::Context, yaw: f32, stats: &BTreeMap<u32, i64>, parts: &BTreeMap<u32, crate::derived::Breakdown>, palette: &Palette, open: &dyn Fn(&str) -> bool, clicked: &mut Option<&'static str>) -> bool {
-    let Some(skin) = skin(ctx) else { return false };
+    let Some(skin) = crate::skin::skin(ctx) else { return false };
     let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
     let get = |s: u32| stats.get(&s).copied();
     compass(ctx, &skin, yaw);
     sub_menu(ctx, accent, open, clicked);
-    target_buttons(ctx, &skin, clicked);
     for left in [true, false] {
         let anchor = if left { egui::Align2::LEFT_BOTTOM } else { egui::Align2::RIGHT_BOTTOM };
         let offset = egui::vec2(if left { 5.0 } else { -5.0 }, -5.0);
         egui::Area::new(egui::Id::new(if left { "cc-left" } else { "cc-right" })).anchor(anchor, offset).show(ctx, |ui| {
             let wing = if left { "GFX_GUI_CONTROLCENTER_WING_LEFT" } else { "GFX_GUI_CONTROLCENTER_WING_RIGHT" };
             let strip = if left { "GFX_GUI_CONTROLCENTER_BOTTOM_LEFT" } else { "GFX_GUI_CONTROLCENTER_BOTTOM_RIGHT" };
-            let (Some((_, wing_size)), Some((_, strip_size))) = (skin.get(wing), skin.get(strip)) else { return };
+            let (Some(wing_size), Some(strip_size)) = (skin.get(wing).map(|s| s.size), skin.get(strip).map(|s| s.size)) else { return };
             let (rect, _) = ui.allocate_exact_size(egui::vec2(strip_size.x.max(wing_size.x), wing_size.y + strip_size.y), egui::Sense::hover());
             let painter = ui.painter().clone();
             let wing_at = if left { rect.min } else { egui::pos2(rect.right() - wing_size.x, rect.top()) };
@@ -266,9 +211,9 @@ fn show_skinned(ctx: &egui::Context, yaw: f32, stats: &BTreeMap<u32, i64>, parts
             let icons: &[&str] = if left { &["ACTIONS", "SKILLS", "NANO", "INVENTORY"] } else { &["NCU", "MAP", "MISSIONS", "FRIENDS"] };
             for (i, (&(_, window, tip), icon)) in entries.iter().zip(icons).enumerate() {
                 let name = format!("GFX_GUI_CC_ICONS_{icon}");
-                let Some((_, size)) = skin.get(&name) else { continue };
+                let Some(size) = skin.get(&name).map(|s| s.size) else { continue };
                 let at = egui::pos2(rect.left() + 10.0 + i as f32 * (size.x + 1.0), rect.top() + wing_size.y + (strip_size.y - size.y) * 0.5);
-                let response = ui.interact(egui::Rect::from_min_size(at, *size), ui.id().with(window), egui::Sense::click()).on_hover_text(tip);
+                let response = ui.interact(egui::Rect::from_min_size(at, size), ui.id().with(window), egui::Sense::click()).on_hover_text(tip);
                 let tint = if open(window) { accent } else if response.hovered() { egui::Color32::WHITE } else { egui::Color32::from_gray(200) };
                 skin.draw(&painter, &name, at, 1.0, tint);
                 if response.clicked() {
@@ -280,6 +225,8 @@ fn show_skinned(ctx: &egui::Context, yaw: f32, stats: &BTreeMap<u32, i64>, parts
             }
         });
     }
+    // (after the wings, which the AOU skins' larger ones would otherwise cover)
+    target_buttons(ctx, &skin, clicked);
     true
 }
 
