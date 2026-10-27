@@ -167,13 +167,16 @@ fn anchor(attach: i32) -> (f32, f32, f32) {
         1004 => (1.40, 0.0, 1.0),
         1005 => (1.52, 0.0, 1.0),
         1006 | 2002 => (1.62, 0.0, 1.0),
-        1007 => (1.45, -0.2, -1.0),
+        // The left limbs' bone frames are mirrored in the Biped rig, so the template's offset, which runs down the right limb, runs up
+        // the left one into the body, where the ring is hidden: the original shows these effects on the right limb only (seen on the
+        // thigh ring of a Martial Artist's buff).
+        1007 => (1.45, -0.2, 1.0),
         1008 => (1.45, 0.2, -1.0),
-        1009 => (1.15, -0.22, -1.0),
+        1009 => (1.15, -0.22, 1.0),
         1010 => (1.15, 0.22, -1.0),
-        1011 => (0.92, -0.1, -1.0),
+        1011 => (0.92, -0.1, 1.0),
         1012 => (0.92, 0.1, -1.0),
-        1013 => (0.50, -0.1, -1.0),
+        1013 => (0.50, -0.1, 1.0),
         1014 => (0.50, 0.1, -1.0),
         1015 => (0.08, -0.1, 0.0),
         1016 => (0.08, 0.1, 0.0),
@@ -367,7 +370,9 @@ mod tests {
         assert!(pulse_particles(&aura, [0.0, 0.0, 0.0], 0.0, 0.2, None).len() < own.len());
         assert!(pulse_particles(&aura, [0.0, 0.0, 0.0], 0.0, 1.6, None).is_empty());
         // a calf ring sits at mid-shin, a right-hand ring to the character's right
-        assert!((attach_point(1013, -0.25, [0.0; 3], 0.0)[2] - 0.25).abs() < 0.01);
+        assert!((attach_point(1014, -0.25, [0.0; 3], 0.0)[2] - 0.25).abs() < 0.01);
+        // the mirrored left calf: its ring goes up into the knee instead
+        assert!((attach_point(1013, -0.25, [0.0; 3], 0.0)[2] - 0.75).abs() < 0.01);
         assert!(attach_point(2000, 0.0, [0.0; 3], 0.0)[0] > 0.2);
         assert_eq!(pulse_timing(&aura), (4.0, 1.5, -1));
     }

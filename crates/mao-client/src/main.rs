@@ -573,6 +573,10 @@ fn run(args: &[String]) -> Result<(), String> {
                     println!("{:<28} bone {:>3}  pos {:.2?}  quat {:.2?} scale {:.2}", a.name, a.extra, &a.values[0..3], &a.values[3..7], a.values[7]);
                 }
             }
+            // (and the bones, which the nano effects attach to by name: `Bip01 Head_ac` and the like)
+            for (i, b) in body.bones.iter().enumerate() {
+                println!("bone {i:>3} {:<28} children {:?}", b.name, b.children);
+            }
             return Ok(());
         }
     }
