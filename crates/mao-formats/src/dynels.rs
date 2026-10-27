@@ -36,7 +36,8 @@ impl Dynel {
 pub fn tail_stats(tail: &[u32]) -> Vec<(u32, u32)> {
     // (the words after the first are big-endian, unlike the record's head)
     let tail: Vec<u32> = tail.iter().map(|w| w.swap_bytes()).collect();
-    let Some(at) = tail.windows(3).position(|w| w == [0x0f, 0x18, 0x7e2]) else { return Vec::new() };
+    // (the header's third word differs between records: 0x7e2 on the shop doors, 0xbd3 on the ICC HQ entrance)
+    let Some(at) = tail.windows(3).position(|w| w[0] == 0x0f && w[1] == 0x18) else { return Vec::new() };
     let mut out = Vec::new();
     let mut k = at + 3;
     while k + 1 < tail.len() && tail[k] < 0x400 && (tail[k] != 0 || tail[k + 1] != 0) {
@@ -93,6 +94,8 @@ mod tests {
         let swapped = |v: &[u32]| v.iter().map(|w| w.swap_bytes()).collect::<Vec<u32>>();
         assert_eq!(tail_stats(&swapped(&[0x28, 0x66, 0x67, 0x3f1, 1, 0xf, 0x18, 0x7e2, 0xc, 0xa685, 0])), vec![(12, 0xa685)]);
         assert!(tail_stats(&swapped(&[0x14, 0x66, 0x67, 0x3f1, 0])).is_empty());
+        // the ICC HQ entrance: another header word, the flags stat first
+        assert_eq!(tail_stats(&swapped(&[0x0f, 0x18, 0xbd3, 0, 0x800a1401, 0xc, 0x3eff3, 0x15, 0x21, 0xe00])), vec![(0, 0x800a1401), (12, 0x3eff3), (21, 0x21)]);
     }
 
     #[test]

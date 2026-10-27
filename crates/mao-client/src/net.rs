@@ -971,7 +971,7 @@ pub(crate) fn wear(db: &ResourceDatabase, cache: &mut std::collections::HashMap<
     let mut parts = Vec::new();
     for &(position, mesh, texture) in gear {
         let Some(point) = body.attractor(&attractor_name(position)) else { continue };
-        let piece = cache.entry(mesh).or_insert_with(|| crate::load_model(db, Id { kind: 0xf6951, instance: mesh }).ok());
+        let piece = cache.entry(mesh).or_insert_with(|| crate::load_model_attached(db, Id { kind: 0xf6951, instance: mesh }).ok());
         if let Some(piece) = piece {
             let mut worn = body.attach(bones, point, piece);
             if texture != 0 {
@@ -1045,7 +1045,7 @@ impl Characters {
             let record = mao_formats::npc::Template::parse(&db.get(Id { kind: mao_formats::npc::TEMPLATE, instance: template }).ok()??)?;
             let mesh = mao_formats::catmesh::parse(&db.get(Id { kind: 0xf6952, instance: record.mesh? }).ok()??).ok()?;
             // A humanoid's head is a separate mesh on the body's head attractor.
-            let head = record.head.filter(|&h| h != 0).and_then(|h| crate::load_model(&db, Id { kind: 0xf6951, instance: h }).ok());
+            let head = record.head.filter(|&h| h != 0).and_then(|h| crate::load_model_attached(&db, Id { kind: 0xf6951, instance: h }).ok());
             Some((record, mesh, head))
         });
         let (record, mesh, head) = entry.as_ref()?;
@@ -1132,7 +1132,7 @@ impl Characters {
         let entry = self.bodies.entry((breed, sex)).or_insert_with(|| {
             let (body_name, head_name) = mao_formats::appearance::player_meshes(breed, sex)?;
             let body = mao_formats::catmesh::parse(&db.get(Id { kind: 0xf6952, instance: index.find(0xf6952, body_name)? }).ok()??).ok()?;
-            let head = crate::load_model(&db, Id { kind: 0xf6951, instance: index.find(0xf6951, head_name)? }).ok()?;
+            let head = crate::load_model_attached(&db, Id { kind: 0xf6951, instance: index.find(0xf6951, head_name)? }).ok()?;
             let attractor = body.attractor("head").cloned();
             Some((body, head, attractor))
         });
@@ -1257,7 +1257,7 @@ impl Characters {
         let entry = self.bodies.entry((breed, sex)).or_insert_with(|| {
             let (body_name, head_name) = mao_formats::appearance::player_meshes(breed, sex)?;
             let body = mao_formats::catmesh::parse(&db.get(Id { kind: 0xf6952, instance: index.find(0xf6952, body_name)? }).ok()??).ok()?;
-            let head = crate::load_model(&db, Id { kind: 0xf6951, instance: index.find(0xf6951, head_name)? }).ok()?;
+            let head = crate::load_model_attached(&db, Id { kind: 0xf6951, instance: index.find(0xf6951, head_name)? }).ok()?;
             let attractor = body.attractor("head").cloned();
             Some((body, head, attractor))
         });

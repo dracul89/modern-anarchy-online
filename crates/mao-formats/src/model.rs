@@ -325,17 +325,24 @@ fn simple_mesh(a: &Archive, s: &Stream, name: &str, world: Matrix, out: &mut Vec
     Ok(())
 }
 
-fn walk(a: &Archive, index: i32, parent: &Matrix, depth: usize, out: &mut Vec<Part>) -> Result<(), Error> {
+fn walk(a: &Archive, index: i32, parent: &Matrix, depth: usize, root_position: bool, out: &mut Vec<Part>) -> Result<(), Error> {
     if depth > 64 {
         return Err(Error::Shape("a frame tree deeper than 64"));
     }
     let Some(frame) = (index >= 0).then(|| a.objects.get(index as usize)).flatten() else { return Ok(()) };
-    // The root frame's own transform is the pivot the exporter stored and is not applied: a door mesh keeps `local_pos` (0, 0.96, 3.81)
-    // on its root, cancelled on the leaf's frame and added back by the leaf's animation, so applying the root would hang the leaves
-    // 3.8 m from the door's place; the original draws them at it (Andromeda's shop doors sit in their doorways only this way). The
-    // statels' roots are identities, so they do not move. (`MAO_ROOT_LOCAL=1` applies it, for comparison.)
-    let skip_root = depth == 0 && !std::env::var("MAO_ROOT_LOCAL").is_ok_and(|v| v == "1");
-    let world = if skip_root { *parent } else { multiply(&local_matrix(a, frame), parent) };
+    // A placed mesh (a statel, a door or machine of the playfield) does not get its root frame's position: that is the pivot the
+    // exporter stored there (a door mesh keeps `local_pos` (0, 0.96, 3.81) on its root, cancelled on the leaf's frame and added back by
+    // the leaf's animation, which hung the leaves 3.8 m from the door's place), while its rotation and scale do apply (signs came out
+    // upside down without them). An attached mesh (a head, worn gear) keeps the whole root transform: its position is the neck's.
+    let world = if depth == 0 && !root_position {
+        let mut m = local_matrix(a, frame);
+        m[12] = 0.0;
+        m[13] = 0.0;
+        m[14] = 0.0;
+        multiply(&m, parent)
+    } else {
+        multiply(&local_matrix(a, frame), parent)
+    };
     if a.class(index as usize) == Some("RTriMesh_t") {
         if let Some(data) = frame.int("0", "data").and_then(|d| a.objects.get(d as usize)) {
             let name = string(data, "name");
@@ -347,17 +354,27 @@ fn walk(a: &Archive, index: i32, parent: &Matrix, depth: usize, out: &mut Vec<Pa
         }
     }
     for child in refs(frame, "chld") {
-        walk(a, child, &world, depth + 1, out)?;
+        walk(a, child, &world, depth + 1, root_position, out)?;
     }
     Ok(())
 }
 
-/// The drawable parts of a mesh object.
+/// The drawable parts of a mesh object, as an attached mesh (a head, worn gear): the whole root transform applies.
 pub fn build(mesh: &MeshObject) -> Result<Model, Error> {
+    build_with(mesh, true)
+}
+
+/// The drawable parts of a mesh object placed in the world (a statel, a door, a machine): the root frame's position is left out
+/// (see `walk`).
+pub fn build_placed(mesh: &MeshObject) -> Result<Model, Error> {
+    build_with(mesh, false)
+}
+
+fn build_with(mesh: &MeshObject, root_position: bool) -> Result<Model, Error> {
     let a = &mesh.archive;
     let mut parts = Vec::new();
     for root in refs(&a.root, "obj") {
-        walk(a, root, &IDENTITY, 0, &mut parts)?;
+        walk(a, root, &IDENTITY, 0, root_position, &mut parts)?;
     }
     let _ = kind::OBJECT;
     Ok(Model { parts, instances: Vec::new(), water: None })

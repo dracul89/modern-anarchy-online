@@ -204,7 +204,15 @@ fn skin_tint(mut t: Texture) -> Texture {
     t
 }
 
+/// A mesh placed in the world (a statel, a door, a machine): without its root frame's position (see `model::build_placed`).
 pub(crate) fn load_model(db: &ResourceDatabase, id: Id) -> Result<Model, String> {
+    let object = db.get(id).map_err(|e| e.to_string())?.ok_or("no such object")?;
+    let mesh = mesh::parse(&object).map_err(|e| e.to_string())?;
+    model::build_placed(&mesh).map_err(|e| e.to_string())
+}
+
+/// A mesh attached to a body (a head, worn gear): with its whole root transform.
+pub(crate) fn load_model_attached(db: &ResourceDatabase, id: Id) -> Result<Model, String> {
     let object = db.get(id).map_err(|e| e.to_string())?.ok_or("no such object")?;
     let mesh = mesh::parse(&object).map_err(|e| e.to_string())?;
     model::build(&mesh).map_err(|e| e.to_string())
@@ -280,9 +288,11 @@ pub(crate) fn static_props(db: &ResourceDatabase, playfield: u32) -> Vec<(u32, (
         .enumerate()
         .filter(|(_, d)| d.kind != 0xc75b)
         .filter_map(|(i, d)| {
-            // (the record's own mesh first: the doors of a city each have their own; the template's `door_omni_med_blue2` is the fallback)
+            // The record's own mesh first: the doors of a city each have their own. A door without one is a shuttle, a Whom-Pah or a
+            // dungeon entrance whose visual is a statel: it gets nothing (the template's `door_omni_med_blue2` put a white door there).
             let mesh = match d.stat(mao_formats::item::stat::MESH).filter(|&m| m > 0) {
                 Some(m) => m,
+                None if d.kind == 0xc748 => return None,
                 None => (*meshes.entry(d.template).or_insert_with(|| {
                     let data = db.get(Id { kind: mao_formats::item::TEMPLATE, instance: d.template }).ok().flatten()?;
                     mao_formats::item::Item::parse(&data)?.stat(mao_formats::item::stat::MESH).filter(|&m| m > 0)
@@ -290,7 +300,16 @@ pub(crate) fn static_props(db: &ResourceDatabase, playfield: u32) -> Vec<(u32, (
             };
             // (a door's number is in its instance)
             let door = (d.kind == 0xc748).then_some((d.instance >> 16) as u8);
-            Some((0xfe00_0000 | i as u32, (mesh, d.position, d.rotation), door))
+            // A door's leaves hang 3.8 m along the mesh's local +Z and the table's heading points the other way: turned half round the
+            // leaves land in the entrance (Andromeda's armor shop: the point (3286.0, 791.1), yaw -31 deg, the entrance statel at
+            // (3287.97, 787.88)). MAO_DOOR_TURN=0 leaves the heading as stored.
+            let rotation = if door.is_some() && std::env::var("MAO_DOOR_TURN").is_ok_and(|v| v == "1") {
+                let [x, y, z, w] = d.rotation;
+                [z, w, -x, -y]
+            } else {
+                d.rotation
+            };
+            Some((0xfe00_0000 | i as u32, (mesh, d.position, rotation), door))
         })
         .collect()
 }

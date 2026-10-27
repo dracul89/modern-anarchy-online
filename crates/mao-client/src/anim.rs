@@ -61,7 +61,7 @@ pub fn player(db: Arc<ResourceDatabase>, breed: u8, sex: u8, anim: u32, image: O
     let head_id = index.find(0xf6951, head_name).ok_or_else(|| format!("{head_name} not in the index"))?;
     eprintln!("body {body_name} = {body_id:#x}, head {head_name} = {head_id:#x}");
     let body: CatMesh = catmesh::parse(&load(&db, 0xf6952, body_id)?).map_err(|e| e.to_string())?;
-    let head = crate::load_model(&db, Id { kind: 0xf6951, instance: head_id })?;
+    let head = crate::load_model_attached(&db, Id { kind: 0xf6951, instance: head_id })?;
     let animation: CatAnim = catanim::parse(&load(&db, 0xf6953, anim)?).map_err(|e| e.to_string())?;
     let length = length(&animation);
     let attractor = body.attractor("head").cloned();
