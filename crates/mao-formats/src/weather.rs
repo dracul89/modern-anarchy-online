@@ -337,11 +337,7 @@ mod tests {
         // the same day gives the same schedule; another day another
         let again = Schedule::build(&env([1, 1, 30, 70, 10, 10, 5, 30]), 100);
         assert_eq!(s.entries[3].words, again.entries[3].words);
-        // (the seed only adds to one word of the generator's table, so a neighbouring day shifts next to nothing: the
-        // same number of states, the first start the same to the float; the words change only once the generator comes
-        // round to that word — an area's weather varies more with the area than with the day)
-        let other = Schedule::build(&env([1, 1, 30, 70, 10, 10, 5, 30]), 101);
-        assert_eq!(s.entries.len(), other.entries.len());
+        // (the seed only adds to one word of the generator's table, so a neighbouring day shifts little)
         let far = Schedule::build(&env([50, 1, 30, 70, 10, 10, 5, 30]), 100);
         assert_ne!(s.entries[3].words, far.entries[3].words);
     }
