@@ -1,6 +1,8 @@
-//! The map, in the style of Diablo 2 and 3's: nothing is drawn until you have walked past it, walls are bright
-//! outlines on a faint floor, and there is a small map in the corner that turns with the camera and a large
-//! translucent overlay (toggled with a key) that sits over the game view.
+//! The map. For a playfield on the original's planet map (`mao_formats::planetmap`: the `PlanetMap` window's tiles and
+//! coordinates, placed as GUI.dll's `PlanetMapView_c` places them) the corner map and the overlay show that picture.
+//! Elsewhere (interiors, instanced playfields) the map is the client's own, in the style of Diablo 2 and 3's: nothing is
+//! drawn until you have walked past it, walls are bright outlines on a faint floor. The small map in the corner turns
+//! with the camera; the large translucent overlay (toggled with a key) sits over the game view.
 //!
 //! The network thread owns the facts (the ground heights, the collision): [`MapBuilder`] reveals the cells
 //! around the character as it walks, classifies them (floor or wall) and sends the new cells; the interface
@@ -46,11 +48,14 @@ impl Grid {
 pub struct MapPatch {
     pub reset: Option<Grid>,
     pub cells: Vec<(u32, u16)>,
+    /// The playfield, with a new grid (to find it on the planet map).
+    pub playfield: Option<u32>,
 }
 
 /// The network thread's side: classifies cells as they come into reach.
 pub struct MapBuilder {
     grid: Grid,
+    playfield: u32,
     /// The height range of the ground, to scale the shading.
     low: f32,
     span: f32,
@@ -59,15 +64,15 @@ pub struct MapBuilder {
 
 impl MapBuilder {
     /// For a playfield with ground: the whole ground's extent. For an interior (none): a box around `at`.
-    pub fn new(terrain: Option<&Terrain>, at: [f32; 3]) -> MapBuilder {
+    pub fn new(terrain: Option<&Terrain>, at: [f32; 3], playfield: u32) -> MapBuilder {
         match terrain {
             Some(t) => {
                 let extent = [(t.width - 1) as f32 * t.tile_size, (t.height - 1) as f32 * t.tile_size];
                 let (lo, hi) = t.heights.iter().fold((u16::MAX, 0u16), |(l, h), &v| (l.min(v), h.max(v)));
                 let to_world = t.height_scale / 256.0;
-                MapBuilder { grid: Grid::new([0.0, 0.0], extent), low: lo as f32 * to_world, span: ((hi - lo) as f32 * to_world).max(1.0), fresh: true }
+                MapBuilder { grid: Grid::new([0.0, 0.0], extent), playfield, low: lo as f32 * to_world, span: ((hi - lo) as f32 * to_world).max(1.0), fresh: true }
             }
-            None => MapBuilder { grid: Grid::new([at[0] - 300.0, at[2] - 300.0], [600.0, 600.0]), low: at[1] - 20.0, span: 40.0, fresh: true },
+            None => MapBuilder { grid: Grid::new([at[0] - 300.0, at[2] - 300.0], [600.0, 600.0]), playfield, low: at[1] - 20.0, span: 40.0, fresh: true },
         }
     }
 
@@ -111,8 +116,9 @@ impl MapBuilder {
             self.grid.cells[i as usize] = v;
         }
         let reset = self.fresh.then(|| self.grid.clone());
+        let playfield = self.fresh.then_some(self.playfield);
         self.fresh = false;
-        (reset.is_some() || !done.is_empty()).then_some(MapPatch { reset, cells: done })
+        (reset.is_some() || !done.is_empty()).then_some(MapPatch { reset, cells: done, playfield })
     }
 }
 
@@ -140,11 +146,30 @@ pub struct AutoMap {
     pan: [f32; 2],
     /// Where the corner map's top left is (kept in `automap.ini`); `None` is the top right of the window.
     pub mini_at: Option<[f32; 2]>,
+    /// The original's planet map (its biggest level as a texture), drawn in place of the grid for a playfield that is
+    /// on it; tried once.
+    planet: Option<Planet>,
+    planet_tried: bool,
+    playfield: u32,
+    /// The planet map's own scales (it has about 21 world units to a pixel): pixels a unit on the overlay, and world
+    /// units across the corner map.
+    planet_zoom: f32,
+    planet_span: f32,
+}
+
+/// The planet map's pixels to a world unit, on its biggest level.
+const PLANET_NATIVE: f32 = 890.0 / mao_formats::planetmap::EXTENT.0;
+
+struct Planet {
+    map: mao_formats::planetmap::PlanetMap,
+    level: usize,
+    texture: egui::TextureHandle,
+    size: [f32; 2],
 }
 
 impl Default for AutoMap {
     fn default() -> Self {
-        AutoMap { grid: None, texture: None, dirty: false, last_upload: std::time::Instant::now(), overlay: false, mini_span: 150.0, zoom: 3.0, pan: [0.0; 2], mini_at: load_position() }
+        AutoMap { grid: None, texture: None, dirty: false, last_upload: std::time::Instant::now(), overlay: false, mini_span: 150.0, zoom: 3.0, pan: [0.0; 2], mini_at: load_position(), planet: None, planet_tried: false, playfield: 0, planet_zoom: PLANET_NATIVE * 2.0, planet_span: 2500.0 }
     }
 }
 
@@ -173,6 +198,9 @@ impl AutoMap {
             self.grid = Some(grid);
             self.texture = None;
             self.pan = [0.0; 2];
+        }
+        if let Some(pf) = patch.playfield {
+            self.playfield = pf;
         }
         if let Some(grid) = &mut self.grid {
             for (i, v) in patch.cells {
@@ -212,6 +240,19 @@ impl AutoMap {
 
     /// Brings the texture up to date (a few times a second at most).
     pub fn refresh(&mut self, ctx: &egui::Context) {
+        if !self.planet_tried {
+            self.planet_tried = true;
+            if let Some(game) = crate::theme::game_dir() {
+                if let Some(map) = mao_formats::planetmap::PlanetMap::load(game) {
+                    let level = map.levels.len().saturating_sub(1);
+                    if let Some(image) = map.image(game, level) {
+                        let (w, h) = image.dimensions();
+                        let texture = ctx.load_texture("planet-map", egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], image.as_raw()), egui::TextureOptions::LINEAR);
+                        self.planet = Some(Planet { map, level, texture, size: [w as f32, h as f32] });
+                    }
+                }
+            }
+        }
         let Some(grid) = &self.grid else { return };
         if self.texture.is_some() && (!self.dirty || self.last_upload.elapsed() < std::time::Duration::from_millis(250)) {
             return;
@@ -228,11 +269,25 @@ impl AutoMap {
     /// Paints the map into `rect`: the world point `center` in its middle, `px_per_unit` pixels to a world unit,
     /// turned so that the camera's way (`yaw`) is up, or north up without one.
     fn paint(&self, painter: &egui::Painter, rect: egui::Rect, center: [f32; 2], px_per_unit: f32, yaw: Option<f32>, circle: bool) {
-        let (Some(grid), Some(texture)) = (&self.grid, &self.texture) else { return };
+        // The planet map when the playfield is on it, else the walked grid.
+        let planet = self.planet.as_ref().filter(|p| p.map.pixel(p.level, self.playfield, 0.0, 0.0).is_some());
+        let (texture, grid) = match (planet, &self.grid, &self.texture) {
+            (Some(p), _, _) => (&p.texture, None),
+            (None, Some(g), Some(t)) => (t, Some(g)),
+            _ => return,
+        };
         let (fwd, right) = Self::basis(yaw);
         let corner = |u: f32, v: f32| -> ([f32; 2], egui::Pos2) {
             let world = [center[0] + (right[0] * u + fwd[0] * -v) / px_per_unit, center[1] + (right[1] * u + fwd[1] * -v) / px_per_unit];
-            ([world[0], world[1]], egui::pos2((world[0] - grid.origin[0]) / grid.cell / grid.w as f32, (world[1] - grid.origin[1]) / grid.cell / grid.h as f32))
+            let uv = match (planet, grid) {
+                (Some(p), _) => {
+                    let (px, py) = p.map.pixel(p.level, self.playfield, world[0], world[1]).unwrap_or((0.0, 0.0));
+                    egui::pos2(px / p.size[0], py / p.size[1])
+                }
+                (None, Some(grid)) => egui::pos2((world[0] - grid.origin[0]) / grid.cell / grid.w as f32, (world[1] - grid.origin[1]) / grid.cell / grid.h as f32),
+                _ => egui::pos2(0.0, 0.0),
+            };
+            ([world[0], world[1]], uv)
         };
         let (hw, hh) = (rect.width() / 2.0, rect.height() / 2.0);
         let mut mesh = egui::Mesh::with_texture(texture.id());
@@ -313,22 +368,29 @@ impl AutoMap {
         self.refresh(ctx);
         let Some((pos, heading)) = me else { return };
         let screen = ctx.content_rect();
+        let planet = self.planet.as_ref().is_some_and(|p| p.map.pixel(p.level, self.playfield, 0.0, 0.0).is_some());
         if self.overlay {
             // Over the whole view, north up, panned by the mouse and zoomed with the wheel.
             egui::Area::new(egui::Id::unique("automap-overlay")).order(egui::Order::Background).fixed_pos(screen.min).show(ctx, |ui| {
                 let (rect, response) = ui.allocate_exact_size(screen.size(), egui::Sense::drag());
+                let zoom = if planet { self.planet_zoom } else { self.zoom };
                 if response.dragged() {
                     let d = response.drag_delta();
-                    self.pan = [self.pan[0] - d.x / self.zoom, self.pan[1] + d.y / self.zoom];
+                    self.pan = [self.pan[0] - d.x / zoom, self.pan[1] + d.y / zoom];
                 }
                 let scroll = ui.input(|i| i.smooth_scroll_delta.y);
                 if scroll != 0.0 {
-                    self.zoom = (self.zoom * (1.0 + scroll * 0.002)).clamp(0.6, 12.0);
+                    if planet {
+                        self.planet_zoom = (self.planet_zoom * (1.0 + scroll * 0.002)).clamp(PLANET_NATIVE * 0.5, PLANET_NATIVE * 8.0);
+                    } else {
+                        self.zoom = (self.zoom * (1.0 + scroll * 0.002)).clamp(0.6, 12.0);
+                    }
                 }
+                let zoom = if planet { self.planet_zoom } else { self.zoom };
                 ui.painter().rect_filled(rect, 0.0, egui::Color32::from_black_alpha(110));
                 let center = [pos[0] + self.pan[0], pos[1] + self.pan[1]];
-                self.paint(ui.painter(), rect, center, self.zoom, None, false);
-                self.dots(ui.painter(), rect, center, self.zoom, None, (pos, heading), dots, booths, false);
+                self.paint(ui.painter(), rect, center, zoom, None, false);
+                self.dots(ui.painter(), rect, center, zoom, None, (pos, heading), dots, booths, false);
                 ui.painter().text(rect.left_top() + egui::vec2(16.0, 14.0), egui::Align2::LEFT_TOP, place, egui::FontId::proportional(18.0), egui::Color32::from_rgb(255, 205, 70));
                 ui.painter().text(rect.left_top() + egui::vec2(16.0, 38.0), egui::Align2::LEFT_TOP, "Drag to pan, wheel to zoom, O to close, Space re-centres", egui::FontId::proportional(12.0), egui::Color32::from_white_alpha(150));
             });
@@ -344,7 +406,7 @@ impl AutoMap {
                 let (rect, response) = ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::hover());
                 let (c, r) = (rect.center(), size / 2.0);
                 ui.painter().circle_filled(c, r, egui::Color32::from_black_alpha(130));
-                let px = size / self.mini_span;
+                let px = size / if planet { self.planet_span } else { self.mini_span };
                 self.paint(ui.painter(), rect, pos, px, Some(yaw), true);
                 self.dots(ui.painter(), rect, pos, px, Some(yaw), (pos, heading), dots, booths, true);
                 ui.painter().circle_stroke(c, r, egui::Stroke::new(2.5, egui::Color32::from_rgb(120, 170, 210)));
@@ -356,7 +418,11 @@ impl AutoMap {
                 if response.hovered() {
                     let scroll = ui.input(|i| i.smooth_scroll_delta.y);
                     if scroll != 0.0 {
-                        self.mini_span = (self.mini_span * (1.0 - scroll * 0.002)).clamp(50.0, 600.0);
+                        if planet {
+                            self.planet_span = (self.planet_span * (1.0 - scroll * 0.002)).clamp(600.0, 8000.0);
+                        } else {
+                            self.mini_span = (self.mini_span * (1.0 - scroll * 0.002)).clamp(50.0, 600.0);
+                        }
                     }
                 }
             });

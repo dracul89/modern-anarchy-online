@@ -27,6 +27,7 @@ then check a render. Never the other way round.
 | Texture alpha as light | the alpha-replicate texture stages (`RDeltaState`) | `Material::alpha_lights` | done |
 | Game clock, day intensity | `GameTime_t` (0x1000afdb, `RunFunction` 0x1000b27e, `GetDayIntensity` 0x1000af23; the `GameTime` message 0x5f52412e → `Update` 0x1000b590) | `gametime.rs`, `n3::GAME_TIME` | done; the server here never sends the message, so the real clock stands in at the game's pace |
 | Camera | `n3Camera_t` (N3.dll: FUN_10022345 per frame, FUN_1002118c turn/zoom, FUN_10020e0c reset; `CameraVehicle_t` / `CameraVehicleFixedThird_t` steering, `Vehicle_t::Run` / `SteeringArrive` in Vehicle.dll) | `camera.rs` (`SteeringCamera`), 90° field of view in `mao-render` | done: the three third-person modes, first person, key/mouse turn and zoom with the 0.8–25 limits, reset; not the obstacle sensors, the room attractors, nor a line of sight through statels (terrain only) |
+| Planet map | GUI.dll `PlanetMapView_c`: FUN_1004d1cf (the index), FUN_1004c6cb (the coordinates), FUN_1004bedd (world → pixel: origin 31022/24880, extent 18751/24115, `MapRect`, the playfield's scales) | `mao_formats::planetmap`, `automap.rs` draws it as the corner map and the overlay | done for Rubi-Ka (the Shadowlands set is chosen by the expansion flag, not ported); interiors keep the client's own map |
 | Area environments (light, fog) | `Environment_t` FUN_100be0bb / FUN_100becbe / FUN_100beacd / FUN_100bf96e over `AreaData_t`'s `EnvironmentData_t` (the `0xf425d` object) | `mao_formats::areas` (`blend`), `Scene::{ambient, area_fog}` | done for clear weather; the weather roll (FUN_100bcec6, the schedule FUN_100b1821) is not ported |
 | Buff pulses | `_GfxControlBPHFSM_t`, `gfxtweak.bin` | `pulses.rs`, `effects.rs` | done earlier |
 
@@ -75,8 +76,9 @@ then check a render. Never the other way round.
    `Attractor31_camera` (smoothed by FUN_10020bdb), the room camera attractors (`n3Zone_t::GetCameraAttractorList`),
    `MouseTurnSensitivity` / `ZoomSpeed` / `MouseLookInverted` as settings, and the mode-3 eased zoom (+0x204, 3 units a
    second) which nothing in the decompile sets.
-5. **Automap / minimap** — the original's map textures and the `PlanetMap` window; the client's fog-of-war map is invented.
-   The data is plain: `cd_image/textures/PlanetMap/normal/PlanetMapIndexNormal.txt` (`Name`, `Type Rubika`, `CoordsFile`,
+5. **Automap / minimap** — ported (see the table): the corner map and the overlay show the planet map's biggest level,
+   placed by FUN_1004bedd's formula, for any playfield in `MapCoordinates.xml`; the client's fog-of-war map stays for the
+   rest. Left: the `PlanetMap` window itself (its zoom levels, centre-on-quest), the Shadowlands/Dovves sets. The data: `cd_image/textures/PlanetMap/normal/PlanetMapIndexNormal.txt` (`Name`, `Type Rubika`, `CoordsFile`,
    then per zoom level `File <bin>`, `TextureSize 128`, `Size w h`, `Tiles cols rows`, `MapRect l t r b`, and a `FilePos`
    per tile: a 128×128 PNG at that offset in `PlanetMapGfxNormal.bin`; levels 384×640 of 3×5 tiles, 1024×1536 of 8×12, …),
    `MapCoordinates.xml` (`<Playfield id x xscale z zscale>`: where each playfield's origin sits on the map, e.g. Old Athen

@@ -1983,7 +1983,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut last_send = Instant::now();
         let mut last_overlay = Instant::now() - Duration::from_secs(1);
         // The map: fog of war revealed as the character walks (see `automap`).
-        let mut map = crate::automap::MapBuilder::new(terrain.as_deref(), start);
+        let mut map = crate::automap::MapBuilder::new(terrain.as_deref(), start, playfield);
         let mut pending_map: Option<crate::automap::MapPatch> = None;
         let mut last_reveal = Instant::now() - Duration::from_secs(1);
         let profile = std::env::var_os("MAO_PROFILE").is_some();
@@ -2203,7 +2203,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     }
                     position = arrival;
                     offset = arrival[1] - ground(&terrain, arrival);
-                    map = crate::automap::MapBuilder::new(terrain.as_deref(), arrival);
+                    map = crate::automap::MapBuilder::new(terrain.as_deref(), arrival, playfield);
                     pending_map = None;
                     base = arrival[1];
                     airborne = false;

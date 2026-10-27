@@ -1101,7 +1101,7 @@ fn run(args: &[String]) -> Result<(), String> {
                         // MAO_UI_PREVIEW=map: walk a path through the playfield, revealing the map as the game would.
                         let area = net::load_area(game, &db, number)?;
                         let (cx, cz) = (hud.position.map_or(449.0, |p| p[0]), hud.position.map_or(313.0, |p| p[2]));
-                        let mut builder = automap::MapBuilder::new(area.terrain.as_deref(), [cx, 8.0, cz]);
+                        let mut builder = automap::MapBuilder::new(area.terrain.as_deref(), [cx, 8.0, cz], number);
                         let mut map = automap::AutoMap::default();
                         let offset = area.terrain.as_deref().map_or(0.0, |t| 8.0 - t.height_at(cx, cz, t.height_scale));
                         for step in 0..30 {
