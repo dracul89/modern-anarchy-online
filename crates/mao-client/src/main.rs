@@ -373,7 +373,28 @@ pub(crate) fn load_room_shell(db: &ResourceDatabase, playfield: u32) -> Option<M
     let map = mao_formats::tilemap::parse_new(&object).ok()?;
     let grid = mao_formats::rooms::Grid::new(&map)?;
     let material = mao_formats::model::Material { name: "room".into(), diffuse: [0.55, 0.52, 0.48], ambient: [0.55, 0.52, 0.48], opacity: 1.0, ..Default::default() };
-    let model = mao_formats::rooms::model(&grid, &rooms, &material);
+    // The pieces (type 0xf695d) the rooms' cells take: their walls, corners and doorways.
+    let mut pieces = std::collections::HashMap::new();
+    for id in grid.pieces_needed(&rooms) {
+        let Ok(Some(object)) = db.get(Id { kind: mao_formats::dungeon::PIECE, instance: id as u32 }) else {
+            eprintln!("room piece {id} is missing from the database");
+            continue;
+        };
+        match mao_formats::dungeon::parse_piece(&object) {
+            Some(piece) => {
+                pieces.insert(id, piece);
+            }
+            None => eprintln!("room piece {id} could not be read"),
+        }
+    }
+    let mut model = mao_formats::rooms::model(&grid, &rooms, &material, &pieces);
+    // The rooms' own water surfaces.
+    let triangles: Vec<([[f32; 3]; 3], u32)> = rooms.rooms.iter().flat_map(mao_formats::rooms::water).collect();
+    if !triangles.is_empty() {
+        let level = triangles.iter().flat_map(|t| t.0.iter().map(|p| p[2])).fold(f32::MIN, f32::max);
+        eprintln!("water: {} triangles from the rooms (highest {level:.1})", triangles.len());
+        model.water = Some(mao_formats::model::Water { level, min: [0.0; 2], max: [0.0; 2], triangles });
+    }
     (!model.parts.is_empty()).then_some(model)
 }
 

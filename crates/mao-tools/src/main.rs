@@ -93,6 +93,44 @@ fn run(args: &[String]) -> Result<(), String> {
                 );
             }
         }
+        ("dungeon", [playfield]) => {
+            // The cell words of a room playfield's tile-map and the pieces its rooms take.
+            let playfield = number(playfield).ok_or("bad playfield")?;
+            let object = db.get(Id { kind: mao_formats::rooms::KIND, instance: playfield }).map_err(|e| e.to_string())?.ok_or("no playfield")?;
+            let rooms = mao_formats::rooms::parse(&object).map_err(|e| e.to_string())?.ok_or("not a room playfield")?;
+            let object = db.get(Id { kind: 0xf4249, instance: rooms.tilemap }).map_err(|e| e.to_string())?.ok_or("no tile-map")?;
+            let map = mao_formats::tilemap::parse_new(&object).map_err(|e| e.to_string())?;
+            let grid = mao_formats::rooms::Grid::new(&map).ok_or("no cell images")?;
+            println!("tile-map {} x {}, types {:?}", grid.width, grid.height, map.tile_types);
+            let mut histogram: std::collections::BTreeMap<(u8, u32, u16, u8), usize> = std::collections::BTreeMap::new();
+            for room in &rooms.rooms {
+                let [x0, y0, x1, y1] = room.rect.map(|v| v as usize);
+                let mut pieces = std::collections::BTreeMap::new();
+                for y in y0..y1.min(grid.height) {
+                    for x in x0..x1.min(grid.width) {
+                        let place = grid.cells[y * grid.width + x];
+                        if place & 0x7f == 0 {
+                            continue;
+                        }
+                        let (piece, _) = grid.words.piece(x, y);
+                        let flags = (grid.words.info[y * grid.width + x] >> 8) & 0xff;
+                        let bits = grid.words.wall_bits(x, y);
+                        *histogram.entry((place, flags, piece, bits)).or_default() += 1;
+                        for (p, _) in mao_formats::dungeon::cell_pieces(&grid.words, &grid.tables, place, x, y) {
+                            *pieces.entry(p).or_insert(0usize) += 1;
+                        }
+                    }
+                }
+                println!("room {:<20} rect {:?} turn {} at ({:.1}, {:.1}, {:.1}) water {} pieces {:?}", room.name, room.rect, room.turn(), room.position[0], room.position[1], room.position[2], room.water.len(), pieces);
+            }
+            println!("cells by (type, flags, piece, wall bits):");
+            for ((place, flags, piece, bits), n) in histogram {
+                println!("  type {place:3} flags {flags:#04x} piece {piece:4} bits {bits:#03x}: {n}");
+            }
+            let needed = grid.pieces_needed(&rooms);
+            let missing: Vec<u16> = needed.iter().copied().filter(|&p| db.get(Id { kind: mao_formats::dungeon::PIECE, instance: p as u32 }).ok().flatten().is_none()).collect();
+            println!("pieces needed {needed:?}; missing from the database {missing:?}");
+        }
         ("get", [kind, instance]) => {
             let id = Id { kind: number(kind).ok_or("bad type")?, instance: number(instance).ok_or("bad instance")? };
             match db.get(id).map_err(|e| e.to_string())? {

@@ -109,9 +109,25 @@ pub struct NewTilemap {
     pub scale: f32,
     pub second: f32,
     pub tile_types: Vec<u16>,
+    /// Each tile type's tables, in the order of `tile_types`.
+    pub type_tables: Vec<TypeTable>,
     /// The chunks after the types, in order (`DCGA`, `DHGA`, `HCDA`, `IRHA`,
     /// optionally `TAHA`, `XTHA`, `THSA`).
     pub chunks: Vec<Chunk>,
+}
+
+/// A tile type's tables (`RDBTilemap_t::ReadBlob`'s FUN_10077aaa): for each neighbouring type, the pieces (type 0xf695d) that
+/// furnish a cell of this type beside one of that type, by wall pattern, and a list of heights (the type's alternative floor
+/// pieces, picked at random where the pattern allows any turn).
+///
+/// The stream carries 16 words per neighbour; the original stores the first five in slots 0-4, the next ten in slots 6-15 (slot 5,
+/// the pattern of no walls, stays 0, so a cell without walls gets no piece) and drops the last. `slots` is that stored table.
+#[derive(Debug, Clone)]
+pub struct TypeTable {
+    pub tile: u16,
+    /// `(neighbouring type, the 16 slots)`.
+    pub neighbours: Vec<(u16, [u16; 16])>,
+    pub heights: Vec<u16>,
 }
 
 pub fn parse_new(object: &[u8]) -> Result<NewTilemap, Error> {
@@ -145,11 +161,25 @@ pub fn parse_new(object: &[u8]) -> Result<NewTilemap, Error> {
     }
     // Each type: how many neighbours it lists and how many heights it has,
     // each neighbour a type number and 16 shorts, then the heights.
-    for _ in 0..count {
+    let mut type_tables = Vec::new();
+    for &tile in &tile_types {
         let head = take(&mut at, 2, "a tile type's counts")?;
         let (neighbours, heights) = (head[0] as usize, head[1] as usize);
-        take(&mut at, neighbours * (2 + 16 * 2), "a tile type's neighbours")?;
-        take(&mut at, heights * 2, "a tile type's heights")?;
+        let mut list = Vec::new();
+        for _ in 0..neighbours {
+            let other = short(take(&mut at, 2, "a neighbouring type")?);
+            let words = take(&mut at, 32, "a tile type's neighbours")?;
+            let mut slots = [0u16; 16];
+            for (k, slot) in [0, 1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15].into_iter().enumerate() {
+                slots[slot] = short(&words[2 * k..]);
+            }
+            list.push((other, slots));
+        }
+        let mut height_list = Vec::new();
+        for _ in 0..heights {
+            height_list.push(short(take(&mut at, 2, "a tile type's heights")?));
+        }
+        type_tables.push(TypeTable { tile, neighbours: list, heights: height_list });
     }
     let mut chunks = Vec::new();
     while at + 12 <= object.len() {
@@ -162,5 +192,5 @@ pub fn parse_new(object: &[u8]) -> Result<NewTilemap, Error> {
         chunks.push(Chunk { tag, version, body: object[at + 12..at + size].to_vec() });
         at += size + ((4 - (size & 3)) & 3);
     }
-    Ok(NewTilemap { tag: *b"GNDA", width, height, scale, second, tile_types, chunks })
+    Ok(NewTilemap { tag: *b"GNDA", width, height, scale, second, tile_types, type_tables, chunks })
 }

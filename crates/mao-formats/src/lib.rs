@@ -19,6 +19,7 @@ pub mod terrain;
 pub mod statels;
 pub mod playfield;
 pub mod areas;
+pub mod dungeon;
 pub mod planetmap;
 pub mod weather;
 pub mod rooms;

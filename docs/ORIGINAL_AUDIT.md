@@ -32,6 +32,7 @@ then check a render. Never the other way round.
 | Water | `RDBPlayfieldAnarchy_t::ReadBlob` (FUN_10124692: the water polygons after N3's zones, fanned or indexed into triangles with `flags & 0x1f` the liquid type) → FUN_100b84b9 → `VisualWater_t::Create` (displaysystem `liquid.rs`, `fxliquid.rs`) | `playfield::anarchy`, `Water::triangles`, the water-mesh pipeline | done for placement and type colours; the original's liquid passes (reflection, falls, the wide fifth layer) are not ported |
 | Playfield environment | the same reader: two words, a size and the `EnvironmentData_t` at the end of the `0xf4241` object (found this pass; the earlier note that none existed was wrong) | `areas::blend_with_weather(.., base)` | done: the base table the areas blend into, with its own weather |
 | Weather | the R250 generator (FUN_1013de47 / FUN_1013dec9), the schedule FUN_100b1821 / FUN_100b1277, the roll FUN_100bcec6, the fogs of the weather (FUN_100becbe), mist (FUN_100b9da8, colours FUN_100b98fe / FUN_100b9775) and precipitations (FUN_100b9ba5, FUN_100b9b10's colours) gathered as `VisualFog_t` does | `mao_formats::weather`, `environment.rs` (the fog gather) | done for what reaches the fog and the sky's dimming; the rain/snow/dust sprites (`VisualRain_t`), clouds (`VisualEnvFX_t` +0x114), wind, lightning and thunder are not drawn |
+| Rooms (shops, dungeons) | N3.dll: `n3Tilemap_t`'s constructor FUN_100173f8 / FUN_100169ab (the cell words from the `DCGA`/`IRHA`/`TAHA` images, the wall patterns FUN_10017306 over `.data` 0x1005bce0, the piece lookup FUN_10016967 in `RDBTilemap_t`'s type tables), `n3GroundRenderer_t::CreateDungeonRoom` FUN_10008563 → `DungeonMesh_t` FUN_10001a91 (which pieces) / FUN_10001c3b (laid on the heights with the cubic corrections FUN_100023ad / FUN_10002479), `VisualTile_t` (type 0xf695d, displaysystem `rdbtile.rs`), the corner rule FUN_1001769d, the floor height FUN_10010db5 (`n3Room_t` +0x38 = −1), the room reader FUN_10012803 (water surfaces, light map) | `mao_formats::dungeon`, `rooms.rs` (`Grid`, `room_parts`, `water`), `mao-db dungeon <pf>` | done: the walls, corners, doorways and ceilings as the original's pieces on the original's floor (the floor a unit above the room's position, on the samples before each cell, cells laid from the centre by the odd width); the rooms' water. Not: the vertex welding FUN_10001645 and so the light map's vertex colours, the `CHGA` (old) maps' branch |
 | Buff pulses | `_GfxControlBPHFSM_t`, `gfxtweak.bin` | `pulses.rs`, `effects.rs` | done earlier |
 
 ## To do, in order of what the player sees
@@ -77,7 +78,8 @@ then check a render. Never the other way round.
    textures turned by the tile's top bits match the client's; the original also averages far patches to one texel.
    The client keeps its slope lighting and shadow map rather than flatten to a look that depends on FXS data it lacks.
 3. **Water** — ported (see the table): the playfield's own triangles with their liquid types. Left: the original's
-   passes (`fxliquid.rs`: reflection, falling water strips, the fifth layer on the wide grid), the rooms' water surfaces.
+   passes (`fxliquid.rs`: reflection, falling water strips, the fifth layer on the wide grid). The rooms' water surfaces
+   are read and placed like the rooms' statels (item 6); no shop has any, so a dungeon with water should be looked at.
 4. **Camera** — ported (see the table and `camera.rs`'s header; N3.dll and Vehicle.dll were decompiled for it, the dumps
    are in the session scratchpad noted in memory). Left: the free camera's sensors (`CalculateSensorSteerDir`: flexes of
    0.5, 2, 8 and 32 units up, down, left, right, forward and back until one is seen), the line of sight against statels
@@ -94,8 +96,16 @@ then check a render. Never the other way round.
    540 at 39621, 40670), the Shadowlands and Dovves sets beside it. GUI.dll's `PlanetMapView_c` (FUN_1004d1cf parses the
    index) draws it with `PlanetMap_ZoomIn/Out`, `PlanetMap_CentreOnChar`, `PlanetMap_CentreOnQuest`; the in-game minimap
    is the same map at the character. Port: read the index and tiles, find the world→pixel scale in `PlanetMapView_c`.
-6. **Rooms (shops, dungeons)** — light maps (`n3Room_t`), decals (the blue tile layer), wall textures; `room.rs` in
-   displaysystem.
+6. **Rooms (shops, dungeons)** — ported (see the table; N3.dll's dumps are in the session scratchpad noted in memory, the
+   constants read from the DLL: 0x1003c968 = 2.0, 0x1003c888 = 4.0, 0x1003c950 = 0.25, 0x1003ce48 = −1.0, 0x1003d358 = π/2).
+   What was found: a room's floor is the tile-map's height surface (no piece), and every cell whose flags name an empty
+   neighbour gets a piece from its type's table — one wall (0x01), a corner (0x03), four walls (0x0f), the door variants
+   (0x11, 0x31 …); a piece holds up to six tiles, each textured by the cell's layer of the same number (`XTHA` has six layers
+   here: floor, ceiling, the wall's two halves, …). The pieces are 8 units tall with a ceiling over the wall cells; the inner
+   cells have no ceiling, so the sky shows (the original drew interiors against black — the client's sky should go dark in
+   a room). Left: the welding of coinciding vertices (FUN_10001645) and with it the light map (one 565 colour per welded
+   vertex, zlib-packed in the room record; `DepackLightmap` 0x10010eb7, applied by FUN_100082a7) — the shading of the
+   walls; the old `CHGA` tile-maps' branch of FUN_100169ab (no shop uses one); the room camera attractors (item 4).
 7. **Shadows** — `gfxshadow.rs` (the characters' blob/projected shadows) and randy31 `shadow.rs`; the client uses a shadow
    map (a backend choice the user allowed; the look should match).
 8. **Character rendering** — `catrun.rs` animation layers and priorities (several animations at once: upper body / lower
