@@ -40,6 +40,7 @@ mod stats;
 mod trickle_data;
 mod chrome;
 mod font;
+mod pointer;
 mod skin;
 mod vitals;
 mod automap;

@@ -187,6 +187,8 @@ pub struct Requests {
 
 /// One frame of interface, ready to paint.
 pub struct Frame {
+    /// The pointer egui wants (for the skin's pointers).
+    pub cursor: egui::CursorIcon,
     jobs: Vec<egui::ClippedPrimitive>,
     textures: egui::TexturesDelta,
     pixels_per_point: f32,
@@ -309,6 +311,12 @@ impl Ui {
     /// Reads the skin's pictures again from the folders the settings name (after `theme` or `gui_dir` changed).
     pub fn set_skin(&mut self, settings: &Settings) {
         crate::skin::configure(&self.ctx, crate::skin::dirs(&settings.gui_dir, &settings.theme, &settings.aou_mod));
+        crate::pointer::reset();
+    }
+
+    /// Sets the window's pointer to the skin's picture of the one egui wants.
+    pub fn pointer(&self, event_loop: &winit::event_loop::ActiveEventLoop, window: &Window, cursor: egui::CursorIcon) {
+        crate::pointer::apply(event_loop, window, &self.ctx, cursor);
     }
 
     /// Gives the interface a window event; true when it used the event (the
@@ -528,9 +536,10 @@ impl Ui {
             let now = self.window_open(name);
             self.set_window(name, !now);
         }
+        let cursor = output.platform_output.cursor_icon;
         self.state.handle_platform_output(window, output.platform_output);
         let jobs = self.ctx.tessellate(output.shapes, output.pixels_per_point);
-        (Frame { jobs, textures: output.textures_delta, pixels_per_point: output.pixels_per_point }, requests)
+        (Frame { cursor, jobs, textures: output.textures_delta, pixels_per_point: output.pixels_per_point }, requests)
     }
 
     /// Lays out a custom interface (the launcher's form) for one frame: `build` draws into the context.
@@ -540,9 +549,10 @@ impl Ui {
             let ctx = ui.ctx().clone();
             build(&ctx);
         });
+        let cursor = output.platform_output.cursor_icon;
         self.state.handle_platform_output(window, output.platform_output);
         let jobs = self.ctx.tessellate(output.shapes, output.pixels_per_point);
-        Frame { jobs, textures: output.textures_delta, pixels_per_point: output.pixels_per_point }
+        Frame { cursor, jobs, textures: output.textures_delta, pixels_per_point: output.pixels_per_point }
     }
 
     /// Paints a frame over what is already in `target`.

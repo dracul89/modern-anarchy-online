@@ -1104,6 +1104,7 @@ impl ApplicationHandler for App {
                     let project = |p: mao_render::glam::Vec3| camera.project(p, aspect, radius);
                     self.hud.camera_yaw = w.camera.yaw;
                     let (frame, mut requests) = ui.run(&w.window, &mut self.settings, &self.hud, &project);
+                    ui.pointer(event_loop, &w.window, frame.cursor);
                     for out in requests.chat.drain(..) {
                         match out {
                             // (these two are for the client itself)
