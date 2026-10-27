@@ -133,6 +133,9 @@ pub fn stars_particles(s: &Stars, centre: [f32; 3], time: f32, stopped: bool) ->
     if s.mode == 1 {
         return stars_collapse(s, centre, time, stopped);
     }
+    if s.mode == 9 {
+        return stars_falling(s, centre, time, stopped);
+    }
     if s.mode == 15 {
         // (no body known: a stand-in ring of eight points round the attach point, their normals outward)
         let turns = (0..8).map(|k| k as f32 * std::f32::consts::FRAC_PI_4);
@@ -283,6 +286,35 @@ pub fn stars_particles(s: &Stars, centre: [f32; 3], time: f32, stopped: bool) ->
             _ => 1.0 - hash(salt, 9) * 0.25,
         };
         out.push(sprite(s.material, frame, position, size.max(0.0), [colour[0], colour[1], colour[2], colour[3]]));
+    }
+    out
+}
+
+/// Stars mode 9 (`case 9`): only every other slot, 64 stars, two a frame born on a random point of a level disc of the radius
+/// (word 29) about the point, living word 30 ms. With `h = 0.5 - age * word 28` (0x10156f00) a star stands `h + 1.5`
+/// (0x10161968) above its birth place, so it falls from 2 m at word 28 metres a second, and its size is word 11 plus, while `h`
+/// is above 0, `h * word 31 / 100` (0x10156ec0): a large glow at the top shrinking to a small drop as it falls.
+fn stars_falling(s: &Stars, centre: [f32; 3], time: f32, stopped: bool) -> Vec<Particle> {
+    const STARS: u32 = 64;
+    let mut out = Vec::new();
+    let life = s.life.max(0.05);
+    let cadence = life / STARS as f32 * (30.0 / 2.0f32).min(STARS as f32);
+    for k in 0..STARS {
+        let stagger = k as f32 / STARS as f32 * life;
+        if time < stagger {
+            continue;
+        }
+        let generation = ((time - stagger) / (life + cadence)).floor();
+        let age = time - stagger - generation * (life + cadence);
+        if age > life || (stopped && generation > 0.0) {
+            continue;
+        }
+        let salt = k.wrapping_mul(7919).wrapping_add(generation as u32 * 104729);
+        let (a, r) = (hash(salt, 5) * std::f32::consts::TAU, hash(salt, 6).sqrt() * s.radius);
+        let h = 0.5 - age * s.size;
+        let size = s.word11 + if h > 0.0 { h * s.swirl * 0.01 } else { 0.0 };
+        let colour = [1, 2, 3, 0].map(|c| s.colour_a[c] + (s.colour_b[c] - s.colour_a[c]) * hash(salt, c as u32));
+        out.push(sprite(s.material, 0.0, [centre[0] + a.cos() * r, centre[1] + a.sin() * r, centre[2] + h + 1.5], size.max(0.0), colour));
     }
     out
 }
@@ -1150,6 +1182,27 @@ pub fn emitter_particles(e: &Emitter, origin: [f32; 3], age: f32, active: f32) -
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stars_mode_9_fall_from_two_metres_shrinking_as_they_drop() {
+        // (template 13700: a 0.6 disc, falling 3 a second, 0.15 small, 5 per unit of height larger, living a second)
+        let s = Stars { mode: 9, colour_a: [1.0, 0.4, 0.2, 0.7], colour_b: [1.0, 0.4, 0.1, 0.6], size: 3.0, radius: 0.6, life: 1.0, swirl: 500.0, material: 8, attach: 1000, duration: -1.0, word11: 0.15, word30: 1000 };
+        let centre = [0.0, 0.0, 10.0];
+        let at = stars_particles(&s, centre, 1.5, false);
+        assert!(at.len() > 30 && at.len() <= 64, "{}", at.len());
+        // within the disc; no higher than 2 m above the point, and down to a metre below it at the end of a life
+        assert!(at.iter().all(|p| p.position[0].hypot(p.position[1]) <= 0.6 + 1e-4));
+        assert!(at.iter().all(|p| p.position[2] <= 12.0 + 1e-4 && p.position[2] >= 10.0 - 1.0 - 1e-3));
+        // the high ones are large, the fallen ones are the small size
+        for p in &at {
+            if p.position[2] > 11.6 {
+                assert!(p.size > 0.15 + 0.5);
+            }
+            if p.position[2] < 11.5 {
+                assert!((p.size - 0.15).abs() < 1e-4);
+            }
+        }
+    }
 
     #[test]
     fn stars_mode_1_collapse_from_a_metre_out_onto_the_point() {
