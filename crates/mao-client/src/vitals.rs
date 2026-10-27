@@ -71,7 +71,7 @@ enum Entry {
     Window(&'static str),
     /// Open another menu.
     Menu(&'static str),
-    /// A camera mode: "camera_1st" or "camera_3rd".
+    /// A camera mode: "camera_1st", "camera_3rd", or the third-person follow "camera_lock" / "camera_rubber" / "camera_trail".
     Camera(&'static str),
 }
 
@@ -80,7 +80,7 @@ enum Entry {
 fn menu_items(menu: &str) -> (Option<&'static str>, &'static [(&'static str, Entry)]) {
     match menu {
         "command" => (None, &[("Emotes", Entry::Window("actions")), ("Camera", Entry::Menu("camera")), ("Stats", Entry::Window("stats")), ("Control panel", Entry::Window("actions")), ("Help", Entry::Menu("help"))]),
-        "camera" => (Some("command"), &[("1st person", Entry::Camera("camera_1st")), ("3rd person", Entry::Camera("camera_3rd"))]),
+        "camera" => (Some("command"), &[("1st person", Entry::Camera("camera_1st")), ("3rd person", Entry::Camera("camera_3rd")), ("3rd person locked", Entry::Camera("camera_lock")), ("3rd person rubber", Entry::Camera("camera_rubber")), ("3rd person trailing", Entry::Camera("camera_trail"))]),
         "help" => (Some("command"), &[("Help", Entry::Window("help")), ("Options", Entry::Window("options"))]),
         "char" => (None, &[("Skills", Entry::Window("skills")), ("Perks", Entry::Window("perks"))]),
         "map" => (None, &[("Map", Entry::Window("map"))]),

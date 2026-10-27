@@ -520,7 +520,7 @@ impl Ui {
         if !self.ctx.input(|i| i.pointer.any_down()) {
             crate::gear::DRAGGED.store(u32::MAX, std::sync::atomic::Ordering::Relaxed);
         }
-        if let Some(n) = menu_click.and_then(|n| ["target_self", "target_next", "camera_1st", "camera_3rd"].iter().position(|t| *t == n)) {
+        if let Some(n) = menu_click.and_then(|n| ["target_self", "target_next", "camera_1st", "camera_3rd", "camera_lock", "camera_rubber", "camera_trail"].iter().position(|t| *t == n)) {
             requests.target = Some(n as u8);
         } else if menu_click == Some("options") {
             self.options_open = !self.options_open;
@@ -738,16 +738,37 @@ fn hotbar_layer(ctx: &egui::Context, bars: &mut Hotbars, gear: &mut GearWindow, 
     let pos = egui::pos2(pos.x.clamp(screen.left() + 20.0, screen.right() - 20.0), pos.y.clamp(screen.top() + 60.0, screen.bottom()));
     let vertical = bars.vertical;
     let mut rotate = false;
+    // With the skin: the original's slot frames (`MULTILISTVIEW_SLOT_32`, 38 px) and its big arrows to step through the bars.
+    let skin = crate::skin::skin(ctx).filter(|s| s.has("GFX_GUI_MULTILISTVIEW_SLOT_32_CLOSED") && s.has("GFX_GUI_CONTROLCENTER_BIGARROW_LEFT_STATE1"));
+    let slot_size = if skin.is_some() { 38.0 } else { 46.0 };
     let area = egui::Area::new(egui::Id::unique("hotbar")).pivot(egui::Align2::CENTER_BOTTOM).current_pos(pos).movable(true).show(ctx, |ui| {
-        egui::Frame::new().fill(egui::Color32::from_black_alpha(130)).corner_radius(4).inner_margin(6).show(ui, |ui| {
+        egui::Frame::new().fill(egui::Color32::from_black_alpha(if skin.is_some() { 90 } else { 130 })).corner_radius(4).inner_margin(if skin.is_some() { 3 } else { 6 }).show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new("::").weak()).on_hover_text("Drag the bar by here or its edge");
                 if ui.small_button(if vertical { "=" } else { "||" }).on_hover_text("Turn the bar between horizontal and vertical").clicked() {
                     rotate = true;
                 }
-                for b in 0..hotbar::BARS {
-                    if ui.selectable_label(bars.current == b, format!("{}", b + 1)).clicked() {
-                        bars.current = b;
+                match &skin {
+                    Some(skin) => {
+                        // the arrows step through the six bars; the number between them is the bar shown
+                        for (side, step) in [("LEFT", hotbar::BARS - 1), ("RIGHT", 1)] {
+                            let (rect, response) = ui.allocate_exact_size(egui::vec2(10.0, 20.0), egui::Sense::click());
+                            let state = if response.is_pointer_button_down_on() { 3 } else if response.hovered() { 2 } else { 1 };
+                            skin.draw_in(ui.painter(), &format!("GFX_GUI_CONTROLCENTER_BIGARROW_{side}_STATE{state}"), rect, accent);
+                            if response.on_hover_text(if side == "LEFT" { "The bar before (Alt+1 to Alt+6 pick one)" } else { "The next bar" }).clicked() {
+                                bars.current = (bars.current + step) % hotbar::BARS;
+                            }
+                            if side == "LEFT" {
+                                ui.label(egui::RichText::new(format!("{}", bars.current + 1)).small().color(accent));
+                            }
+                        }
+                    }
+                    None => {
+                        for b in 0..hotbar::BARS {
+                            if ui.selectable_label(bars.current == b, format!("{}", b + 1)).clicked() {
+                                bars.current = b;
+                            }
+                        }
                     }
                 }
                 if !vertical && debug_overlay() {
@@ -756,15 +777,22 @@ fn hotbar_layer(ctx: &egui::Context, bars: &mut Hotbars, gear: &mut GearWindow, 
             });
             let direction = if vertical { egui::Direction::TopDown } else { egui::Direction::LeftToRight };
             ui.with_layout(egui::Layout::from_main_dir_and_cross_align(direction, egui::Align::Min), |ui| {
-                ui.spacing_mut().item_spacing = egui::vec2(3.0, 3.0);
+                ui.spacing_mut().item_spacing = egui::vec2(if skin.is_some() { 1.0 } else { 3.0 }, if skin.is_some() { 1.0 } else { 3.0 });
                 for slot in 0..hotbar::SLOTS {
-                    let (rect, response) = ui.allocate_exact_size(egui::vec2(46.0, 46.0), egui::Sense::click());
+                    let (rect, response) = ui.allocate_exact_size(egui::vec2(slot_size, slot_size), egui::Sense::click());
                     let queued = bars.is_queued(bar, slot);
                     let shown = bars.slot(bar, slot).display(now).map(|d| (d.entry.action.clone(), d.entry.cooldown, d.remaining));
                     let count = bars.slot(bar, slot).entries.len();
                     let hovering = response.dnd_hover_payload::<hotbar::Action>().is_some();
                     let painter = ui.painter();
-                    painter.rect_filled(rect, 3.0, egui::Color32::from_black_alpha(140));
+                    match &skin {
+                        Some(skin) => {
+                            skin.draw_in(painter, if shown.is_some() { "GFX_GUI_MULTILISTVIEW_SLOT_32_CLOSED" } else { "GFX_GUI_MULTILISTVIEW_SLOT_32_OPEN" }, rect, egui::Color32::WHITE);
+                        }
+                        None => {
+                            painter.rect_filled(rect, 3.0, egui::Color32::from_black_alpha(140));
+                        }
+                    }
                     let border = if queued { egui::Color32::YELLOW } else if hovering { accent } else if shown.is_some() { lifted(palette.panel, 90) } else { egui::Color32::from_white_alpha(30) };
                     if let Some((action, cooldown, remaining)) = &shown {
                         let icon = match action {
@@ -793,7 +821,9 @@ fn hotbar_layer(ctx: &egui::Context, bars: &mut Hotbars, gear: &mut GearWindow, 
                             ui.painter().text(rect.right_bottom() - egui::vec2(3.0, 2.0), egui::Align2::RIGHT_BOTTOM, format!("+{}", count - 1), egui::FontId::proportional(10.0), egui::Color32::LIGHT_GRAY);
                         }
                     }
-                    ui.painter().rect_stroke(rect, 3.0, egui::Stroke::new(if queued || hovering { 2.0 } else { 1.0 }, border), egui::StrokeKind::Inside);
+                    if skin.is_none() || queued || hovering {
+                        ui.painter().rect_stroke(rect, 3.0, egui::Stroke::new(if queued || hovering { 2.0 } else { 1.0 }, border), egui::StrokeKind::Inside);
+                    }
                     ui.painter().text(rect.left_top() + egui::vec2(3.0, 2.0), egui::Align2::LEFT_TOP, format!("{}", (slot + 1) % 10), egui::FontId::proportional(10.0), egui::Color32::from_white_alpha(160));
                     if let Some(payload) = response.dnd_release_payload::<hotbar::Action>() {
                         bars.add(bar, slot, (*payload).clone(), 5.0);

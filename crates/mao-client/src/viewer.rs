@@ -844,9 +844,17 @@ impl ApplicationHandler for App {
                 // Walking, the camera swings round behind the character, unless the mouse is steering it.
                 let dt = self.last_follow.elapsed().as_secs_f32().min(0.1);
                 self.last_follow = std::time::Instant::now();
-                if self.live.is_some() && self.behind_set && self.buttons == [false; 2] && (self.keys.forward || self.keys.back || self.keys.turn != 0) {
+                // (the original's three third-person modes: locked stays behind at all times, rubber swings round at 6/s, trailing at 1.5/s)
+                let moving = self.keys.forward || self.keys.back || self.keys.turn != 0;
+                let rate = match self.settings.camera_mode.as_str() {
+                    "lock" => Some(f32::INFINITY),
+                    "trail" if moving => Some(1.5),
+                    "rubber" if moving => Some(6.0),
+                    _ => None,
+                };
+                if let (true, true, true, Some(rate)) = (self.live.is_some(), self.behind_set, self.buttons == [false; 2], rate) {
                     let difference = (yaw_behind(self.heading) - w.camera.yaw + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
-                    w.camera.yaw += difference * (1.0 - (-6.0 * dt).exp());
+                    w.camera.yaw += if rate.is_finite() { difference * (1.0 - (-rate * dt).exp()) } else { difference };
                 }
                 if let Some(live) = &self.live {
                     // Every update's messages count; the last one's picture is drawn.
@@ -1157,10 +1165,15 @@ impl ApplicationHandler for App {
                                     w.camera.distance = 1.5;
                                 }
                             }
-                            _ => {
+                            3 => {
                                 if let Some(d) = self.home_distance.take() {
                                     w.camera.distance = d;
                                 }
+                            }
+                            _ => {
+                                self.settings.camera_mode = ["lock", "rubber", "trail"][(which as usize - 4).min(2)].to_string();
+                                self.settings.save();
+                                self.hud.say(format!("Camera: third person {}.", match self.settings.camera_mode.as_str() { "lock" => "locked", "trail" => "trailing", _ => "rubber" }));
                             }
                         }
                         if let Some(live) = &self.live {

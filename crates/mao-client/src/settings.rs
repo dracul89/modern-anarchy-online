@@ -492,12 +492,14 @@ pub struct Settings {
     pub debug_overlay: bool,
     /// The chat lines in the original's own bitmap font.
     pub original_font: bool,
+    /// How the third-person camera follows a turning character: `lock` (stays behind), `rubber` (swings round) or `trail` (slowly).
+    pub camera_mode: String,
     pub keymap: Keymap,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { mode: WindowMode::Windowed, width: 1280, height: 800, vsync: false, render_scale: 1.0, sharpness: 0.2, ui_scale: 1.0, view_distance: 1800.0, char_distance: 0.0, auto_loot: false, theme: "built-in".into(), aou_mod: String::new(), gui_dir: String::new(), debug_overlay: false, original_font: true, keymap: Keymap::default() }
+        Settings { mode: WindowMode::Windowed, width: 1280, height: 800, vsync: false, render_scale: 1.0, sharpness: 0.2, ui_scale: 1.0, view_distance: 1800.0, char_distance: 0.0, auto_loot: false, theme: "built-in".into(), aou_mod: String::new(), gui_dir: String::new(), debug_overlay: false, original_font: true, camera_mode: "rubber".into(), keymap: Keymap::default() }
     }
 }
 
@@ -550,7 +552,7 @@ impl Settings {
     pub fn to_text(&self) -> String {
         let mut out = String::from("; Modern Anarchy Online settings\n[window]\n; windowed | borderless | fullscreen (F11 / Alt+Enter change it while playing)\n");
         out += &format!("mode = {}\nwidth = {}\nheight = {}\nvsync = {}\nrender_scale = {}\nsharpness = {}\nui_scale = {}\nview_distance = {}\nchar_distance = {}\nauto_loot = {}\n\n", self.mode.name(), self.width, self.height, if self.vsync { "on" } else { "off" }, self.render_scale, self.sharpness, self.ui_scale, self.view_distance, self.char_distance, if self.auto_loot { "on" } else { "off" });
-        out += &format!("[interface]\n; built-in | original | aou_translucent | aou_cyt | aou_slim_cni | aou_slim_cnt | a folder with GUIColors.xml\ntheme = {}\n; the AOU mod's folder (the one with Gui in it), for its themes\naou_mod = {}\n; a skin folder (Graphics.uvga and Graphics.uvgi, as the original's Gui/<skin> folders), used before the theme's and the game's own pictures\ngui_dir = {}\n; show the location and coordinates, the frame rate and key hints over the game (for developers)\ndebug_overlay = {}\n; the chat lines in the original's own bitmap font\noriginal_font = {}\n\n", self.theme, self.aou_mod, self.gui_dir, if self.debug_overlay { "on" } else { "off" }, if self.original_font { "on" } else { "off" });
+        out += &format!("[interface]\n; built-in | original | aou_translucent | aou_cyt | aou_slim_cni | aou_slim_cnt | a folder with GUIColors.xml\ntheme = {}\n; the AOU mod's folder (the one with Gui in it), for its themes\naou_mod = {}\n; a skin folder (Graphics.uvga and Graphics.uvgi, as the original's Gui/<skin> folders), used before the theme's and the game's own pictures\ngui_dir = {}\n; show the location and coordinates, the frame rate and key hints over the game (for developers)\ndebug_overlay = {}\n; the chat lines in the original's own bitmap font\noriginal_font = {}\n; the third-person camera: lock (stays behind the character), rubber (swings round behind it), trail (slowly)\ncamera_mode = {}\n\n", self.theme, self.aou_mod, self.gui_dir, if self.debug_overlay { "on" } else { "off" }, if self.original_font { "on" } else { "off" }, self.camera_mode);
         out += "[keys]\n; one or more keys per action, separated by commas; Shift+, Ctrl+ and Alt+ combine\n";
         out += &format!("version = {KEYMAP_VERSION}\n");
         for &(action, name, _) in ACTIONS {
@@ -597,6 +599,7 @@ impl Settings {
                 ("interface", "theme") => settings.theme = value.to_string(),
                 ("interface", "aou_mod") => settings.aou_mod = value.to_string(),
                 ("interface", "gui_dir") => settings.gui_dir = value.to_string(),
+                ("interface", "camera_mode") if ["lock", "rubber", "trail"].contains(&value.to_ascii_lowercase().as_str()) => settings.camera_mode = value.to_ascii_lowercase(),
                 ("interface", "original_font") => settings.original_font = matches!(value.to_ascii_lowercase().as_str(), "on" | "true" | "1" | "yes"),
                 ("interface", "debug_overlay") => settings.debug_overlay = matches!(value.to_ascii_lowercase().as_str(), "on" | "true" | "1" | "yes"),
                 ("keys", "version") => key_version = value.parse().unwrap_or(0),
