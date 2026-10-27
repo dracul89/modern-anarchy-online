@@ -176,6 +176,22 @@ pub fn stars_particles(s: &Stars, centre: [f32; 3], time: f32, stopped: bool) ->
                 let z = centre[2] + 0.5 * age;
                 ((t + 0.2) * (1.0 - t * t) * s.size, [x, y, z])
             }
+            5 => {
+                // born on the circle 1.2 below the point, flying outward at the radius a second and pulled back toward the axis by
+                // word 31 hundredths of its place a frame (`case 5`: an oscillation along the radius), the size of mode 6
+                let angle = hash(salt, 5) * std::f32::consts::TAU;
+                let mut p = [angle.cos() * s.radius, angle.sin() * s.radius];
+                let mut v = p;
+                let pull = s.swirl / 100.0;
+                let frames = (age * 30.0).floor().min(600.0) as u32;
+                for _ in 0..frames {
+                    v[0] -= p[0] * pull;
+                    v[1] -= p[1] * pull;
+                    p[0] += v[0] / 30.0;
+                    p[1] += v[1] / 30.0;
+                }
+                ((t + 0.2) * (1.0 - t * t) * s.size, [centre[0] + p[0], centre[1] + p[1], centre[2] - 1.2])
+            }
             3 => {
                 // born in the sphere, swirling across the radius without rising, the swirl gaining a tenth a frame
                 let (a, b, r) = (hash(salt, 5) * std::f32::consts::TAU, hash(salt, 6) * 2.0 - 1.0, hash(salt, 7).cbrt() * s.radius);
@@ -228,11 +244,12 @@ pub fn stars_particles(s: &Stars, centre: [f32; 3], time: f32, stopped: bool) ->
 const EDGE_POINTS: [(i32, i32); 6] = [(1013, 1011), (1014, 1012), (1000, 1006), (1009, 1007), (1010, 1008), (1007, 1008)];
 
 /// Stars mode 22 (FUN_100f8491's `case 0x16`): each frame the six edges are measured between their attach points, and up to
-/// word 31 stars are born on a random edge, a random way along it, out from it by the radius (word 29) on a random side, at rest.
-/// Every frame after, a star's velocity gains a tenth of the way from it to the nearest point of its edge and it moves by a tenth
-/// of that velocity (an undamped spring, so it swings through the edge); it dies when within 0.04 of the edge or when its life
-/// (word 30) is spent. Its size is `(age / life × 0.7 + 0.3) × word 28`, its colour random between the two. The character's feet
-/// are at `feet` (world, Z up); its heading is not known here, so the edges run across x.
+/// word 31 stars are born on a random edge, a random way along it, out from it by word 28 (the field at +0x16d4, the other
+/// modes' size) on a random side, at rest. Every frame after, a star's velocity gains a tenth of the way from it to the nearest
+/// point of its edge and it moves by a tenth of that velocity (an undamped spring, so it swings through the edge); it dies when
+/// within 0.04 of the edge or when its life (word 30) is spent. Its size is `(age / life × 0.7 + 0.3) × word 29` (+0x16d8, the
+/// other modes' radius), its colour random between the two. The character's feet are at `feet` (world, Z up); its heading is
+/// not known here, so the edges run across x.
 fn stars_on_edges(s: &Stars, feet: [f32; 3], time: f32, stopped: bool) -> Vec<Particle> {
     const STARS: u32 = 128;
     let mut out = Vec::new();
@@ -266,16 +283,16 @@ fn stars_on_edges(s: &Stars, feet: [f32; 3], time: f32, stopped: bool) -> Vec<Pa
         let w = [unit[1] * u[2] - unit[2] * u[1], unit[2] * u[0] - unit[0] * u[2], unit[0] * u[1] - unit[1] * u[0]];
         let along = hash(salt, 21);
         let angle = hash(salt, 22) * std::f32::consts::TAU;
-        let side = [0, 1, 2].map(|i| (u[i] * angle.cos() + w[i] * angle.sin()) * s.radius);
+        let side = [0, 1, 2].map(|i| (u[i] * angle.cos() + w[i] * angle.sin()) * s.size);
         // the spring: at frame n the star is `cos(0.1 n)` of its start out from the edge, and dies as it crosses it
         let frames = age * 30.0;
         let swing = (0.1 * frames).cos();
-        if (swing * s.radius).abs() < 0.04 && frames > 1.0 {
+        if (swing * s.size).abs() < 0.04 && frames > 1.0 {
             continue;
         }
         let position = [0, 1, 2].map(|i| a[i] + dir[i] * along + side[i] * swing);
         let t = (age / life).clamp(0.0, 1.0);
-        let size = (t * 0.7 + 0.3) * s.size;
+        let size = (t * 0.7 + 0.3) * s.radius;
         let colour = [1, 2, 3, 0].map(|c| s.colour_a[c] + (s.colour_b[c] - s.colour_a[c]) * hash(salt, c as u32));
         out.push(sprite(s.material, hash(salt, 9), position, size.max(0.0), [colour[0], colour[1], colour[2], colour[3]]));
     }
@@ -930,17 +947,34 @@ mod tests {
     use super::*;
 
     #[test]
+    fn stars_mode_5_breathe_out_and_back_below_the_point() {
+        // (template 13300: 0.4 out, pulled back by 5 hundredths a frame, living 1.3 s, sized 3.5)
+        let s = Stars { mode: 5, colour_a: [1.0, 0.4, 0.1, 0.7], colour_b: [1.0, 0.3, 0.4, 0.7], size: 3.5, radius: 0.4, life: 1.3, swirl: 5.0, material: 33, attach: 1000, duration: -1.0, word11: 0.0, word30: 1300 };
+        let centre = [0.0, 0.0, 10.0];
+        let early = stars_particles(&s, centre, 0.4, false);
+        assert!(!early.is_empty());
+        // all 1.2 below the point; a young star has flown out past the circle, an older one has been pulled back inside it
+        assert!(early.iter().all(|p| (p.position[2] - 8.8).abs() < 1e-4));
+        let reach = |p: &Particle| p.position[0].hypot(p.position[1]);
+        assert!(early.iter().any(|p| reach(p) > 0.5));
+        let later = stars_particles(&s, centre, 1.3, false);
+        assert!(later.iter().any(|p| reach(p) < 0.4), "{:?}", later.iter().map(reach).fold(f32::MAX, f32::min));
+        assert!(later.iter().all(|p| p.size <= 3.5 * 1.2 * 1.0 + 1e-3));
+    }
+
+    #[test]
     fn stars_mode_22_ride_the_body_s_edges_and_die_crossing_them() {
         // (template 15200: six a frame, 0.2 out, living 350 ms, sized 0.6)
         let s = Stars { mode: 22, colour_a: [1.0, 0.3, 0.4, 1.0], colour_b: [1.0, 0.3, 1.0, 0.4], size: 0.6, radius: 0.2, life: 0.35, swirl: 6.0, material: 33, attach: 1000, duration: -1.0, word11: 0.0, word30: 350 };
         let feet = [5.0, 6.0, 7.0];
         let at = stars_particles(&s, feet, 0.3, false);
         assert!(at.len() > 20, "{}", at.len());
-        // every star is within the radius of a body edge: between the calves (0.5) and the head (1.62), near the body's x
+        // every star is within word 28 (0.6) of a body edge: between the calves (0.5) and the head (1.62), near the body's x;
+        // sized by word 29 (0.2) from 0.3 of it
         for p in &at {
-            assert!(p.position[2] >= feet[2] + 0.5 - 0.21 && p.position[2] <= feet[2] + 1.62 + 0.21, "{:?}", p.position);
-            assert!((p.position[0] - feet[0]).abs() <= 0.25 + 0.21 && (p.position[1] - feet[1]).abs() <= 0.21);
-            assert!(p.size >= 0.3 * 0.6 - 1e-4 && p.size <= 0.6 + 1e-4);
+            assert!(p.position[2] >= feet[2] + 0.5 - 0.61 && p.position[2] <= feet[2] + 1.62 + 0.61, "{:?}", p.position);
+            assert!((p.position[0] - feet[0]).abs() <= 0.25 + 0.61 && (p.position[1] - feet[1]).abs() <= 0.61);
+            assert!(p.size >= 0.3 * 0.2 - 1e-4 && p.size <= 0.2 + 1e-4);
         }
         // a star at the quarter swing (about half a second) has crossed its edge and is gone: nothing older than that is left
         assert!(stars_particles(&s, feet, 10.0, false).len() > 20);
