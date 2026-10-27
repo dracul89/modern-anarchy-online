@@ -1106,7 +1106,16 @@ impl ApplicationHandler for App {
                     }
                     self.shots.retain(|(began, shot)| began.elapsed().as_secs_f32() < shot.lasts());
                     for (began, shot) in &self.shots {
-                        sparks.extend(shot.particles(began.elapsed().as_secs_f32()));
+                        // (the target's posed surface, for the hits thrown from it: the character nearest the shot's end)
+                        let body = self
+                            .casters
+                            .iter()
+                            .filter(|c| !c.points.is_empty() && c.points.len() == c.normals.len())
+                            .map(|c| ((c.translation[0] - shot.to[0]).hypot(c.translation[1] - shot.to[1]), c))
+                            .filter(|(d, _)| *d < 2.0)
+                            .min_by(|a, b| a.0.total_cmp(&b.0))
+                            .map(|(_, c)| crate::effects::Body { points: &c.points, normals: &c.normals });
+                        sparks.extend(shot.particles(began.elapsed().as_secs_f32(), body));
                     }
                     load_sprites(&mut w.renderer, &w.gpu, &self.textures, &sparks, &mut self.tried_sprites);
                     w.scene.particles = sparks;

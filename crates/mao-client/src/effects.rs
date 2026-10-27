@@ -130,6 +130,13 @@ pub fn stars_particles(s: &Stars, centre: [f32; 3], time: f32, stopped: bool) ->
     if s.mode == 13 {
         return stars_ray(s, centre, time);
     }
+    if s.mode == 15 {
+        // (no body known: a stand-in ring of eight points round the attach point, their normals outward)
+        let turns = (0..8).map(|k| k as f32 * std::f32::consts::FRAC_PI_4);
+        let points: Vec<[f32; 3]> = turns.clone().map(|a| [centre[0] + 0.25 * a.cos(), centre[1] + 0.25 * a.sin(), centre[2]]).collect();
+        let normals: Vec<[f32; 3]> = turns.map(|a| [a.cos(), a.sin(), 0.0]).collect();
+        return stars_off_body(s, &Body { points: &points, normals: &normals }, time);
+    }
     // Mode 2 (`case 2`): all 128 stars from the start, each at a random point of the unit sphere, for 1.5 s; the sphere grows
     // to `√frac × 0.7 + 0.6`, the stars shrink by `(1 − frac) × word 28 × 20 / table[frame]`, their sheet frame
     // `(1 − frac) × 15` clamped to 1..15 (the odd stars one behind) and their colours random between the template's second
@@ -273,6 +280,54 @@ pub fn stars_particles(s: &Stars, centre: [f32; 3], time: f32, stopped: bool) ->
             _ => 1.0 - hash(salt, 9) * 0.25,
         };
         out.push(sprite(s.material, frame, position, size.max(0.0), [colour[0], colour[1], colour[2], colour[3]]));
+    }
+    out
+}
+
+/// A character's posed surface: world points (Z up) and their unit normals, from its blob-shadow caster (every fourth vertex).
+#[derive(Clone, Copy, Debug)]
+pub struct Body<'a> {
+    pub points: &'a [[f32; 3]],
+    pub normals: &'a [[f32; 3]],
+}
+
+/// Stars mode 15 (`case 0xf`, the start registering FUN_100f740b as the target's `CATRender_t` vertex callback): the callback
+/// keeps 30 of the skinned vertices and their normals (every `total / 31` from a random start); up to ten stars a frame are
+/// born at the next of them in turn, with the normal times word 29 as velocity (turned by the body's rotation); every frame the
+/// velocity is scaled by 0.96 and the star moves by a tenth of it; it lives word 30 ms, sized `(1.1 - age / life) * word 28`,
+/// its colour random between the two. Here the 30 samples are drawn from the caster's points at that stride from a start that
+/// changes with the star, and a star rides its sample's current place (the original froze it at birth).
+fn stars_off_body(s: &Stars, body: &Body, time: f32) -> Vec<Particle> {
+    const STARS: u32 = 128;
+    let mut out = Vec::new();
+    let n = body.points.len().min(body.normals.len());
+    if n == 0 || time < 0.0 {
+        return out;
+    }
+    let stride = (n / 31).max(1);
+    let life = s.life.max(0.05);
+    let cadence = life / STARS as f32 * (30.0 / 10.0f32).min(STARS as f32);
+    for k in 0..STARS {
+        let stagger = k as f32 / STARS as f32 * life;
+        if time < stagger {
+            continue;
+        }
+        let generation = ((time - stagger) / (life + cadence)).floor();
+        let age = time - stagger - generation * (life + cadence);
+        if age > life {
+            continue;
+        }
+        let salt = k.wrapping_mul(7919).wrapping_add(generation as u32 * 104729);
+        let start = (hash(salt, 30) * stride as f32) as usize;
+        let at = (start + (k as usize % 30) * stride).min(n - 1);
+        let (p, normal) = (body.points[at], body.normals[at]);
+        // (frames at 30 a second: the velocity scaled by 0.96 before each step of a tenth of it)
+        let frames = age * 30.0;
+        let travelled = 0.1 * s.radius * 0.96 * (1.0 - 0.96f32.powf(frames)) / (1.0 - 0.96);
+        let position = [0, 1, 2].map(|i| p[i] + normal[i] * travelled);
+        let t = (age / life).clamp(0.0, 1.0);
+        let colour = [1, 2, 3, 0].map(|c| s.colour_a[c] + (s.colour_b[c] - s.colour_a[c]) * hash(salt, c as u32));
+        out.push(sprite(s.material, 0.0, position, ((1.1 - t) * s.size).max(0.0), colour));
     }
     out
 }
@@ -691,8 +746,9 @@ impl Shot {
         FLIGHT + LANDING
     }
 
-    /// The sparks of the shot `age` seconds after it was cast.
-    pub fn particles(&self, age: f32) -> Vec<Particle> {
+    /// The sparks of the shot `age` seconds after it was cast; `body` is the target's posed surface when it is known (the hits
+    /// thrown from it, Stars mode 15, use it).
+    pub fn particles(&self, age: f32, body: Option<Body>) -> Vec<Particle> {
         let mut out = Vec::new();
         let travelling = self.from != self.to;
         if let (Some(tracer), true) = (&self.tracer, travelling && age < FLIGHT) {
@@ -709,7 +765,12 @@ impl Shot {
         let landed = if travelling { age - FLIGHT } else { age };
         if let (Some(hit), true) = (&self.hit, landed >= 0.0 && landed < LANDING) {
             let fade = (((LANDING - landed) / 0.4).min(1.0)).max(0.0) * (landed / 0.1).min(1.0);
-            for mut p in visual_particles(hit, [self.to[0], self.to[1], self.to[2] - 1.0], landed, Reach::Medium) {
+            let from_body = match (hit, &body) {
+                (Visual::Stars(s), Some(b)) if s.mode == 15 => Some(stars_off_body(s, b, landed)),
+                _ => None,
+            };
+            let parts = from_body.unwrap_or_else(|| visual_particles(hit, [self.to[0], self.to[1], self.to[2] - 1.0], landed, Reach::Medium));
+            for mut p in parts {
                 p.colour[3] *= fade;
                 out.push(p);
             }
@@ -1044,6 +1105,27 @@ pub fn emitter_particles(e: &Emitter, origin: [f32; 3], age: f32, active: f32) -
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stars_mode_15_fly_off_the_body_s_surface_along_its_normals() {
+        // (template 43047: thrown at 0.5 along the normal, 0.5 wide, 350 ms)
+        let s = Stars { mode: 15, colour_a: [1.0, 0.2, 0.2, 1.0], colour_b: [1.0, 0.2, 1.0, 0.2], size: 0.5, radius: 0.5, life: 0.35, swirl: 5.0, material: 8, attach: 2000, duration: -1.0, word11: 0.4, word30: 350 };
+        // a body of points on a vertical line at x = 1, all facing +x
+        let points: Vec<[f32; 3]> = (0..124).map(|k| [1.0, 0.0, k as f32 * 0.015]).collect();
+        let normals = vec![[1.0, 0.0, 0.0]; 124];
+        let body = Body { points: &points, normals: &normals };
+        let at = stars_off_body(&s, &body, 0.3);
+        assert!(at.len() > 60, "{}", at.len());
+        // every star off the line toward +x, within the decayed throw
+        assert!(at.iter().all(|p| p.position[0] >= 1.0 && p.position[0] < 1.0 + 0.5 && p.position[1] == 0.0));
+        assert!(at.iter().any(|p| p.position[0] > 1.1));
+        assert!(at.iter().all(|p| p.size <= 0.55 + 1e-4 && p.size >= 0.1 * 0.5 - 1e-4));
+        // a shot's hit uses the body when it is known, and a ring when not
+        let shot = Shot { from: [0.0; 3], to: [1.0, 0.0, 1.2], tracer: None, hit: Some(Visual::Stars(s.clone())) };
+        let with = shot.particles(FLIGHT + 0.3, Some(body));
+        assert!(!with.is_empty() && with.iter().all(|p| p.position[1] == 0.0));
+        assert!(!shot.particles(FLIGHT + 0.3, None).is_empty());
+    }
 
     #[test]
     fn stars_mode_13_is_a_curling_ray_that_grows_and_shrinks() {
