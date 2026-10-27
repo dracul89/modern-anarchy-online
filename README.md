@@ -46,7 +46,7 @@ Live window (every key is rebindable; Esc opens the options window): W/Up, S/Dow
 A/D or Left/Right turn, Space jump, C toggles walking through props, drag to orbit the
 camera, scroll to zoom, F11 / Alt+Enter change the window mode (windowed, borderless,
 fullscreen). Settings live in `mao.ini`; see `docs/CLIENT_UI.md` for the window modes,
-key bindings, themes (the original GUI and the AOU mod) and the whompah labels.
+key bindings, themes (the original GUI and the AOU mod) and the whompah labels. `docs/ORIGINAL_UI_PLAN.md` is the plan for making the interface match the original client (skins from a folder, window chrome, default positions).
 `MAO_TRACE=1` prints the server's non-bulk messages and the walked position.
 
 The keys are the original's (read from its shipped `CharPrefs.xml`): W/S or Up/Down walk, A/D or the Left/Right
