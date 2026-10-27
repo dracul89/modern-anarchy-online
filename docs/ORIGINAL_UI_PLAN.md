@@ -91,7 +91,7 @@ Each phase ends with: offscreen preview (`MAO_UI_PREVIEW=...`, see `docs/CLIENT_
 mao-client`, a live look if the user is around, a paragraph in `docs/CLIENT_UI.md`, one commit.
 
 ### Phase A — the skin layer (foundation for everything else)
-*(A.1 and A.3 done 2026-10-26; A.2 and A.4 open. The font PNGs are 256-wide RGB strips, e.g. `GFX_FONT_CHAT9` 256x55: the glyph table is not found yet — look for it in `GUI.dll`'s font loader before guessing.)*
+*(A.1 and A.3 done 2026-10-26; A.2 and A.4 open. A.2's data is decoded: `cd_image/textures/fonts/*.fnt` = header (256, 256) + 318 entries of (x0, y0, x1, y1) per character code into the `GFX_FONT_*` strip — see `docs/CLIENT_UI.md` "bitmap fonts". What remains is a glyph painter for egui (a mesh of textured quads per line, word wrap by summing glyph widths), used for chat lines and tooltips, behind a setting since 9 px glyphs are small on today's screens.)*
 1. `skin.rs` as in §4; `gui_dir` setting + options-window field + `MAO_GUI_DIR`.
 2. Decode the bitmap fonts `GFX_FONT_CHAT9/GAMESHELL12/TOOLTIP9` (PNG strips; glyph metrics are either a
    fixed grid or a table in the PNG's trailing bytes — inspect with `tools/uvga_extract.py`, compare to the
@@ -146,6 +146,7 @@ mao-client`, a live look if the user is around, a paragraph in `docs/CLIENT_UI.m
    no auto-turn), switchable from the Camera menu and keys.
 
 ### Phase E — chat like the original
+*(E.1 tabs done 2026-10-26; the input bar kept plain. Open: the original's tab set/groups from ChatGroupWindowConfig, links/macros, the font.)*
 1. Chat window with the original's tabs (All/Team/Vicinity/… groups from `ChatGroupWindowConfig`,
    `MutedChatGroups`), the `INPUT_BAR_*` input line, the font from Phase A, colours from Phase A.3.
 2. Chat-text macros/HTML subset (`<font color=...>`, item/chat links `text://`, `chatcmd://`) as the

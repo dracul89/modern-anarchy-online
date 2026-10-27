@@ -127,6 +127,19 @@ impl Skin {
         Some(rect)
     }
 
+    /// Draws a `<prefix>_LEFT`, `_MIDDLE` (stretched) and `_RIGHT` capsule over `rect`, the end pieces scaled to the rect's height;
+    /// false when the pieces are missing.
+    pub fn three_slice(&self, painter: &egui::Painter, prefix: &str, rect: egui::Rect, tint: egui::Color32) -> bool {
+        let (Some(l), Some(m), Some(r)) = (self.get(&format!("{prefix}_LEFT")), self.get(&format!("{prefix}_MIDDLE")), self.get(&format!("{prefix}_RIGHT"))) else { return false };
+        let uv = egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0));
+        let scale = rect.height() / m.size.y.max(1.0);
+        let (lw, rw) = (l.size.x * scale, r.size.x * scale);
+        painter.image(l.texture.id(), egui::Rect::from_min_size(rect.min, egui::vec2(lw, rect.height())), uv, tint);
+        painter.image(m.texture.id(), egui::Rect::from_min_max(egui::pos2(rect.left() + lw, rect.top()), egui::pos2(rect.right() - rw, rect.bottom())), uv, tint);
+        painter.image(r.texture.id(), egui::Rect::from_min_size(egui::pos2(rect.right() - rw, rect.top()), egui::vec2(rw, rect.height())), uv, tint);
+        true
+    }
+
     /// Draws a sprite stretched over `rect`.
     pub fn draw_in(&self, painter: &egui::Painter, name: &str, rect: egui::Rect, tint: egui::Color32) -> bool {
         match self.get(name) {

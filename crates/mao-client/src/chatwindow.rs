@@ -290,9 +290,25 @@ impl ChatWindow {
         let screen = ctx.content_rect();
         let mut open = self.open;
         crate::chrome::window(ctx, palette, "Chat", "Chat", &mut open, |w| w.default_pos(crate::layout::pos("Chat", egui::pos2(8.0, (screen.height() - 270.0).max(40.0)))).default_size([560.0, 230.0]), |ui| {
+                // The tabs in the original's tab pieces (greyscale masks tinted with the theme's colours), the input line in its input bar.
+                let skin = crate::skin::skin(ctx).filter(|s| s.has("GFX_GUI_TAB_ACTIVE_LEFT"));
+                let col = |c: [u8; 3]| egui::Color32::from_rgb(c[0], c[1], c[2]);
                 ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 2.0;
                     for (tab, name) in [(Tab::All, "All"), (Tab::Tells, "Tells"), (Tab::Channels, "Channels"), (Tab::System, "System"), (Tab::Combat, "Combat")] {
-                        ui.selectable_value(&mut self.tab, tab, name);
+                        let Some(skin) = &skin else {
+                            ui.selectable_value(&mut self.tab, tab, name);
+                            continue;
+                        };
+                        let galley = ui.painter().layout_no_wrap(name.to_string(), egui::FontId::proportional(13.0), egui::Color32::WHITE);
+                        let (rect, response) = ui.allocate_exact_size(egui::vec2(galley.size().x + 26.0, 17.0), egui::Sense::click());
+                        let active = self.tab == tab;
+                        let tint = if active { accent } else if response.hovered() { col(palette.hover) } else { accent.gamma_multiply(0.55) };
+                        skin.three_slice(ui.painter(), if active { "GFX_GUI_TAB_ACTIVE" } else { "GFX_GUI_TAB_INACTIVE" }, rect, tint);
+                        ui.painter().galley(egui::pos2(rect.center().x - galley.size().x * 0.5, rect.center().y - galley.size().y * 0.5), galley, if active { col(palette.text_selected) } else { col(palette.text) });
+                        if response.clicked() {
+                            self.tab = tab;
+                        }
                     }
                 });
                 let height = (ui.available_height() - 30.0).max(40.0);
