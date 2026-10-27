@@ -124,12 +124,14 @@ pub struct Model {
     pub water: Option<Water>,
 }
 
-/// A sheet of water: its level (world Z) and the box it fills (world X, Y).
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// The water: the playfield's liquid triangles (world, Z up, each with its liquid type) when they are known, else a
+/// flat sheet at `level` over the box `min`–`max`.
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Water {
     pub level: f32,
     pub min: [f32; 2],
     pub max: [f32; 2],
+    pub triangles: Vec<([[f32; 3]; 3], u32)>,
 }
 
 pub const IDENTITY: Matrix = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];

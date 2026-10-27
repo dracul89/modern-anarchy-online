@@ -239,7 +239,16 @@ pub(crate) fn load_terrain_data(db: &ResourceDatabase, playfield: u32) -> Result
 pub(crate) fn load_terrain(db: &ResourceDatabase, playfield: u32) -> Result<Model, String> {
     let terrain = load_terrain_data(db, playfield)?;
     eprintln!("terrain {}x{} points, {} tile types", terrain.width, terrain.height, terrain.tile_types.len());
-    let model = terrain.model(0xf6966, terrain.height_scale);
+    let mut model = terrain.model(0xf6966, terrain.height_scale);
+    // The playfield's own water polygons (the Anarchy part of its definition object) in place of the guessed sheet.
+    if let Some(anarchy) = mao_formats::playfield::load_anarchy(db, playfield) {
+        if !anarchy.water.is_empty() {
+            let triangles: Vec<([[f32; 3]; 3], u32)> = anarchy.water.iter().map(|t| (t.points.map(|p| [p[0], p[2], p[1]]), t.kind)).collect();
+            let level = anarchy.water.iter().flat_map(|t| t.points.iter().map(|p| p[1])).fold(f32::MIN, f32::max);
+            eprintln!("water: {} triangles from the playfield (highest {level:.1})", triangles.len());
+            model.water = Some(mao_formats::model::Water { level, min: [0.0; 2], max: [0.0; 2], triangles });
+        }
+    }
     for p in model.parts.iter().take(4) {
         eprintln!("part {} {} vertices, textures {:?}", p.name, p.vertices.len(), p.material.textures);
     }

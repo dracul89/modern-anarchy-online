@@ -100,6 +100,12 @@ impl Reader<'_> {
 
 /// The rooms of a playfield definition object (an outdoor playfield, which has zones instead, gives `None`).
 pub fn parse(object: &[u8]) -> Result<Option<RoomPlayfield>, Error> {
+    parse_with_end(object).map(|(rooms, _)| rooms)
+}
+
+/// [`parse`] with the offset just past the rooms (where Gamecode's `RDBPlayfieldAnarchy_t` reads on; for an outdoor
+/// playfield the offset is past the header only, the zones left to the caller).
+pub fn parse_with_end(object: &[u8]) -> Result<(Option<RoomPlayfield>, usize), Error> {
     let mut r = Reader { data: object, at: OBJECT_HEAD };
     let version = r.u32("the version")?;
     if version < 7 {
@@ -115,10 +121,10 @@ pub fn parse(object: &[u8]) -> Result<Option<RoomPlayfield>, Error> {
         r.take(20 + 24, "the extra header")?;
     }
     if tilemap == number {
-        return Ok(None);
+        return Ok((None, r.at));
     }
     if count == 0 {
-        return Ok(None);
+        return Ok((None, r.at));
     }
     if count >= 50_000 {
         return Err(Error::Layout("invalid room count"));
@@ -165,7 +171,7 @@ pub fn parse(object: &[u8]) -> Result<Option<RoomPlayfield>, Error> {
         r.take(attractors * 44, "the camera attractors")?;
         rooms.push(Room { flags, rect, position, links: link_list, name });
     }
-    Ok(Some(RoomPlayfield { number, name, tilemap, rooms }))
+    Ok((Some(RoomPlayfield { number, name, tilemap, rooms }), r.at))
 }
 
 /// The cell images of a `GNDA` tile-map that a room is cut from.

@@ -128,6 +128,8 @@ pub struct Scene {
     /// The sky's colours: at the horizon (the fog's colour too) and overhead.
     pub sky: ([f32; 3], [f32; 3]),
     pub water: Option<Water>,
+    /// The water's triangles on the card (position and liquid type per vertex), when the playfield has them.
+    water_mesh: Option<(wgpu::Buffer, u32)>,
     /// Soft glowing sprites drawn over the scene, added to its colours (nano effects). Set by the caller every frame.
     pub particles: Vec<Particle>,
     /// The day's intensity, 0 at night to 1 by day (`GameTime_t::GetDayIntensity`): the sky light, the sun and the sky
@@ -299,6 +301,7 @@ pub struct Renderer {
     sky_pipeline: wgpu::RenderPipeline,
     shadow_pipeline: wgpu::RenderPipeline,
     water_pipeline: wgpu::RenderPipeline,
+    water_mesh_pipeline: wgpu::RenderPipeline,
     particle_pipeline: wgpu::RenderPipeline,
     /// The sprite sheets uploaded so far, by number, as the bind group the particle pass uses, and the plain white one dots use.
     sprites: HashMap<u16, wgpu::BindGroup>,
@@ -520,6 +523,29 @@ impl Renderer {
             multiview_mask: None,
             cache: None,
         });
+        // The water as the playfield's own triangles (position and liquid type per vertex), the same look.
+        let water_attributes = [wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x3, offset: 0, shader_location: 0 }, wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32, offset: 12, shader_location: 1 }];
+        let water_mesh_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("water mesh"),
+            layout: Some(&water_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_water_mesh"),
+                compilation_options: Default::default(),
+                buffers: &[Some(wgpu::VertexBufferLayout { array_stride: 16, step_mode: wgpu::VertexStepMode::Vertex, attributes: &water_attributes })],
+            },
+            primitive: wgpu::PrimitiveState { cull_mode: None, ..Default::default() },
+            depth_stencil: Some(wgpu::DepthStencilState { format: DEPTH, depth_write_enabled: Some(false), depth_compare: Some(wgpu::CompareFunction::Less), stencil: Default::default(), bias: Default::default() }),
+            multisample: wgpu::MultisampleState { count: samples, mask: !0, alpha_to_coverage_enabled: false },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_water"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState { format, blend: Some(wgpu::BlendState::ALPHA_BLENDING), write_mask: wgpu::ColorWrites::ALL })],
+            }),
+            multiview_mask: None,
+            cache: None,
+        });
         // Sparks and glows: camera-facing sprites added to the scene, tested against its depth and not writing any.
         let particle_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("particle"), source: wgpu::ShaderSource::Wgsl(include_str!("particle.wgsl").into()) });
         let sprite_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -608,7 +634,7 @@ impl Renderer {
             layout: &sprite_layout,
             entries: &[wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&white) }, wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&sampler) }],
         });
-        Renderer { pipeline, sky_pipeline, shadow_pipeline, water_pipeline, particle_pipeline, sprites: HashMap::new(), sprite_layout, white_sprite, shadow_view, shadow_bind, shadows: true, stats: Stats::default(), render_scale: 1.0, sharpness: 0.2, fsr_easu, fsr_rcas, fsr_layout, fsr_sampler, fsr: None, samples, msaa: None, started: std::time::Instant::now(), globals_layout, part_layout, sampler, white, format, depth: None, textures: Default::default() }
+        Renderer { pipeline, sky_pipeline, shadow_pipeline, water_pipeline, water_mesh_pipeline, particle_pipeline, sprites: HashMap::new(), sprite_layout, white_sprite, shadow_view, shadow_bind, shadows: true, stats: Stats::default(), render_scale: 1.0, sharpness: 0.2, fsr_easu, fsr_rcas, fsr_layout, fsr_sampler, fsr: None, samples, msaa: None, started: std::time::Instant::now(), globals_layout, part_layout, sampler, white, format, depth: None, textures: Default::default() }
     }
 
     /// Puts a model on the GPU. `texture` finds a texture by (type, instance).
@@ -740,7 +766,12 @@ impl Renderer {
         if std::env::var_os("MAO_PROFILE").is_some() && upload_started.elapsed() > std::time::Duration::from_millis(20) {
             eprintln!("[profile] upload {:?}: textures {tex_count} in {tex_time:?}, geometry+textures {geo_time:?}, {} parts", upload_started.elapsed(), parts.len());
         }
-        Scene { parts, overlay: Vec::new(), follow: Vec::new(), center, radius, player: None, fog: (1.0e9, 2.0e9), sky: DAY_SKY, water: model.water, particles: Vec::new(), daylight: 1.0, ambient: [0.0; 3], area_fog: None }
+        let water_mesh = model.water.as_ref().filter(|w| !w.triangles.is_empty()).map(|w| {
+            let data: Vec<[f32; 4]> = w.triangles.iter().flat_map(|(points, kind)| points.iter().map(move |p| [p[0], p[1], p[2], *kind as f32])).collect();
+            let buffer = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("water"), contents: bytemuck::cast_slice(&data), usage: wgpu::BufferUsages::VERTEX });
+            (buffer, data.len() as u32)
+        });
+        Scene { parts, overlay: Vec::new(), follow: Vec::new(), center, radius, player: None, fog: (1.0e9, 2.0e9), sky: DAY_SKY, water: model.water.clone(), water_mesh, particles: Vec::new(), daylight: 1.0, ambient: [0.0; 3], area_fog: None }
     }
 
     fn depth_view(&mut self, gpu: &Gpu, size: (u32, u32)) {
@@ -821,7 +852,8 @@ impl Renderer {
         let c = light_view.transform_point3(focus);
         let snap = Vec3::new((c.x / texel).round() * texel - c.x, (c.y / texel).round() * texel - c.y, 0.0);
         let light_vp = orthographic(extent, 0.1, depth_range * 2.0) * Mat4::from_translation(snap) * light_view;
-        let water = scene.water;
+        // (the flat sheet only where the playfield has no water triangles)
+        let water = scene.water.as_ref().filter(|w| w.triangles.is_empty());
         let planes = frustum(&camera.view_proj(aspect, scene.radius));
         let (mut parts, mut drawn, mut shadow_drawn) = (0usize, 0usize, 0usize);
         // An area's fog replaces the distance haze: from the near plane (0.2, `VisualFog_t`'s default clip plane) to the far
@@ -950,7 +982,12 @@ impl Renderer {
                 pass.set_index_buffer(part.indices.slice(..), wgpu::IndexFormat::Uint16);
                 pass.draw_indexed(0..part.index_count, 0, 0..1);
             }
-            if water.is_some() {
+            if let Some((buffer, count)) = &scene.water_mesh {
+                pass.set_pipeline(&self.water_mesh_pipeline);
+                pass.set_bind_group(0, &globals_bind, &[]);
+                pass.set_vertex_buffer(0, buffer.slice(..));
+                pass.draw(0..*count, 0..1);
+            } else if water.is_some() {
                 pass.set_pipeline(&self.water_pipeline);
                 pass.set_bind_group(0, &globals_bind, &[]);
                 pass.draw(0..6, 0..1);

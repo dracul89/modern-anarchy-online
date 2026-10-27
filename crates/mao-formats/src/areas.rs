@@ -213,13 +213,22 @@ pub fn load(db: &ResourceDatabase, playfield: u32) -> Vec<Area> {
 /// The environment at `position` (server coordinates), blended as the original does each frame (see the module): the areas
 /// within reach weighted `1 - (d / r)²`, scaled down when the weights sum past 1, and each lerped in turn into a zero table.
 pub fn blend(areas: &[Area], position: [f32; 3]) -> Blend {
-    blend_with_weather(areas, position, None).0
+    blend_with_weather(areas, position, None, None).0
 }
 
 /// [`blend`] with each area's weather (`crate::weather::state` at `day` and `seconds`) blended the same way, the
-/// first fourteen table values (FUN_100bf96e lerps the whole table).
-pub fn blend_with_weather(areas: &[Area], position: [f32; 3], time: Option<(i32, f32)>) -> (Blend, crate::weather::Weather) {
+/// first fourteen table values (FUN_100bf96e lerps the whole table), starting from the playfield's own environment
+/// `base` (the `EnvironmentData_t` at the end of its definition object, `crate::playfield::anarchy`; zero without).
+pub fn blend_with_weather(areas: &[Area], position: [f32; 3], time: Option<(i32, f32)>, base: Option<&[u8; 26]>) -> (Blend, crate::weather::Weather) {
     let mut weather = crate::weather::Weather::default();
+    let mut out = Blend::default();
+    if let Some(env) = base {
+        let b = Area { name: String::new(), centre: [0.0; 3], environment: *env, radius: 0.0 };
+        out = Blend { ambient: b.ambient(), fog: b.fog(), density: b.density() };
+        if let Some((day, seconds)) = time {
+            weather = crate::weather::state(env, day, seconds).unwrap_or_default();
+        }
+    }
     let mut weighted: Vec<(&Area, f32)> = Vec::new();
     let mut sum = 0.0f32;
     for a in areas.iter().filter(|a| a.takes_part()) {
@@ -236,7 +245,6 @@ pub fn blend_with_weather(areas: &[Area], position: [f32; 3], time: Option<(i32,
             *w /= sum;
         }
     }
-    let mut out = Blend::default();
     for (a, w) in weighted {
         // FUN_100bf96e: the light by the weight; the fog's colour by the shares of the two densities, its density by the weight.
         let ambient = a.ambient();

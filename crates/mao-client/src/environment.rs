@@ -70,8 +70,8 @@ impl Gather {
 }
 
 /// The environment at `position` (server coordinates) on `day` at `seconds` into it, with the day's intensity.
-pub fn compute(areas_list: &[Area], position: [f32; 3], day: i32, seconds: f32, daylight: f32) -> Environment {
-    let (blend, weather) = areas::blend_with_weather(areas_list, position, Some((day, seconds)));
+pub fn compute(areas_list: &[Area], base: Option<&[u8; 26]>, position: [f32; 3], day: i32, seconds: f32, daylight: f32) -> Environment {
+    let (blend, weather) = areas::blend_with_weather(areas_list, position, Some((day, seconds)), base);
     let v = weather.v;
     let mut fog = Gather::new();
     // the weather fog
@@ -123,7 +123,7 @@ mod tests {
 
     #[test]
     fn no_areas_means_no_fog() {
-        let e = compute(&[], [0.0; 3], 1, 100.0, 1.0);
+        let e = compute(&[], None, [0.0; 3], 1, 100.0, 1.0);
         assert_eq!(e.fog, None);
         assert_eq!(e.sky, 1.0);
     }

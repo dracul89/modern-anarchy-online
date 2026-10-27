@@ -29,6 +29,8 @@ then check a render. Never the other way round.
 | Camera | `n3Camera_t` (N3.dll: FUN_10022345 per frame, FUN_1002118c turn/zoom, FUN_10020e0c reset; `CameraVehicle_t` / `CameraVehicleFixedThird_t` steering, `Vehicle_t::Run` / `SteeringArrive` in Vehicle.dll) | `camera.rs` (`SteeringCamera`), 90° field of view in `mao-render` | done: the three third-person modes, first person, key/mouse turn and zoom with the 0.8–25 limits, reset; not the obstacle sensors, the room attractors, nor a line of sight through statels (terrain only) |
 | Planet map | GUI.dll `PlanetMapView_c`: FUN_1004d1cf (the index), FUN_1004c6cb (the coordinates), FUN_1004bedd (world → pixel: origin 31022/24880, extent 18751/24115, `MapRect`, the playfield's scales) | `mao_formats::planetmap`, `automap.rs` draws it as the corner map and the overlay | done for Rubi-Ka (the Shadowlands set is chosen by the expansion flag, not ported); interiors keep the client's own map |
 | Area environments (light, fog) | `Environment_t` FUN_100be0bb / FUN_100becbe / FUN_100beacd / FUN_100bf96e over `AreaData_t`'s `EnvironmentData_t` (the `0xf425d` object) | `mao_formats::areas` (`blend_with_weather`), `environment.rs`, `Scene::{ambient, area_fog}` | done |
+| Water | `RDBPlayfieldAnarchy_t::ReadBlob` (FUN_10124692: the water polygons after N3's zones, fanned or indexed into triangles with `flags & 0x1f` the liquid type) → FUN_100b84b9 → `VisualWater_t::Create` (displaysystem `liquid.rs`, `fxliquid.rs`) | `playfield::anarchy`, `Water::triangles`, the water-mesh pipeline | done for placement and type colours; the original's liquid passes (reflection, falls, the wide fifth layer) are not ported |
+| Playfield environment | the same reader: two words, a size and the `EnvironmentData_t` at the end of the `0xf4241` object (found this pass; the earlier note that none existed was wrong) | `areas::blend_with_weather(.., base)` | done: the base table the areas blend into, with its own weather |
 | Weather | the R250 generator (FUN_1013de47 / FUN_1013dec9), the schedule FUN_100b1821 / FUN_100b1277, the roll FUN_100bcec6, the fogs of the weather (FUN_100becbe), mist (FUN_100b9da8, colours FUN_100b98fe / FUN_100b9775) and precipitations (FUN_100b9ba5, FUN_100b9b10's colours) gathered as `VisualFog_t` does | `mao_formats::weather`, `environment.rs` (the fog gather) | done for what reaches the fog and the sky's dimming; the rain/snow/dust sprites (`VisualRain_t`), clouds (`VisualEnvFX_t` +0x114), wind, lightning and thunder are not drawn |
 | Buff pulses | `_GfxControlBPHFSM_t`, `gfxtweak.bin` | `pulses.rs`, `effects.rs` | done earlier |
 
@@ -67,11 +69,15 @@ then check a render. Never the other way round.
      day count. **Ported** (`mao_formats::weather`, the table's effects in `environment.rs`); note the seeding adds the
      seed to one table word, so a neighbouring day's weather is all but the same and it is the area's bytes that vary it.
      Left: the rain, snow and dust sprites, the cloud layer, wind, thunder and lightning (the camera shake, FUN_100bd902).
-2. **Terrain texturing and lighting** — `AnarchyGround_t` (displaysystem `anarchyground.rs`, `rdbground.rs`, `rdbtile.rs`,
-   `grounddata.rs`): per-tile textures with a shadow texture pass, a ground-light pass, ROAM tessellation (the client draws
-   the full grid: fine). Compare the texture blending and the lighting fix byte.
-3. **Water** — `liquid.rs`, `fxliquid.rs`, `water.rs`: where the surfaces are (the room records carry water surfaces; the
-   outdoor liquid is in the ground data) and how they look. The client's placement is a guess (`CLIENT_UI.md` line 67).
+2. **Terrain texturing and lighting** — read this pass: `AnarchyGround_t` (`anarchyground.rs`) gives every ground vertex
+   an *up* normal (`put_vertex`), so the original's terrain has no slope shading of its own; its relief came from a
+   per-playfield set of six 4-bit shadow PNGs (resource type 0xf4247, blended across the day's windows by FUN_100b7fca
+   with the palette darkened by the cloud cover, `SetShadowMap`) — and **this install has no 0xf4247 objects**, so the
+   original here drew flat-lit ground plus the FXS ground-light projection (`GroundTextureProjection`). The per-tile
+   textures turned by the tile's top bits match the client's; the original also averages far patches to one texel.
+   The client keeps its slope lighting and shadow map rather than flatten to a look that depends on FXS data it lacks.
+3. **Water** — ported (see the table): the playfield's own triangles with their liquid types. Left: the original's
+   passes (`fxliquid.rs`: reflection, falling water strips, the fifth layer on the wide grid), the rooms' water surfaces.
 4. **Camera** — ported (see the table and `camera.rs`'s header; N3.dll and Vehicle.dll were decompiled for it, the dumps
    are in the session scratchpad noted in memory). Left: the free camera's sensors (`CalculateSensorSteerDir`: flexes of
    0.5, 2, 8 and 32 units up, down, left, right, forward and back until one is seen), the line of sight against statels

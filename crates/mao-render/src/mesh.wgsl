@@ -201,6 +201,8 @@ fn fs_sky(in: SkyOut) -> @location(0) vec4<f32> {
 struct WaterOut {
     @builtin(position) clip: vec4<f32>,
     @location(0) world: vec3<f32>,
+    // The liquid type (the playfield's water polygons): 0 water, 2 toxic, 4 lava, 6 the fourth; odd ones fall.
+    @location(1) kind: f32,
 }
 
 // The water's box as two triangles at its level.
@@ -212,6 +214,17 @@ fn vs_water(@builtin(vertex_index) index: u32) -> WaterOut {
     var out: WaterOut;
     out.world = vec3<f32>(xy, globals.params.z);
     out.clip = globals.view_proj * vec4<f32>(out.world, 1.0);
+    out.kind = 0.0;
+    return out;
+}
+
+// The playfield's own water triangles.
+@vertex
+fn vs_water_mesh(@location(0) position: vec3<f32>, @location(1) kind: f32) -> WaterOut {
+    var out: WaterOut;
+    out.world = position;
+    out.clip = globals.view_proj * vec4<f32>(position, 1.0);
+    out.kind = kind;
     return out;
 }
 
@@ -244,8 +257,22 @@ fn fs_water(in: WaterOut) -> @location(0) vec4<f32> {
     let r = reflect(-view, n);
     let d = day();
     let sky = mix(globals.horizon.rgb, globals.zenith.rgb, pow(clamp(r.z, 0.0, 1.0), 0.6)) * d;
-    let deep = vec3<f32>(0.03, 0.20, 0.27) * d;
-    let shallow = vec3<f32>(0.10, 0.42, 0.45) * d;
+    // The liquid's colours by its layer (the type over two): water, toxic, lava, the fourth.
+    let layer = u32(in.kind + 0.5) / 2u;
+    var deep = vec3<f32>(0.03, 0.20, 0.27);
+    var shallow = vec3<f32>(0.10, 0.42, 0.45);
+    if layer == 1u {
+        deep = vec3<f32>(0.05, 0.22, 0.06);
+        shallow = vec3<f32>(0.16, 0.45, 0.10);
+    } else if layer == 2u {
+        deep = vec3<f32>(0.45, 0.08, 0.0);
+        shallow = vec3<f32>(0.9, 0.35, 0.05);
+    } else if layer == 3u {
+        deep = vec3<f32>(0.18, 0.14, 0.08);
+        shallow = vec3<f32>(0.32, 0.26, 0.16);
+    }
+    deep = deep * d;
+    shallow = shallow * d;
     var colour = mix(mix(deep, shallow, 0.5 + 0.5 * h * 0.5), sky, fresnel);
     let sun = normalize(globals.light.xyz);
     colour = colour + vec3<f32>(1.0, 0.92, 0.75) * d * pow(max(dot(r, sun), 0.0), 140.0) * 1.5;

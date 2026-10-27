@@ -1609,8 +1609,10 @@ pub(crate) struct Area {
     pub(crate) collision: mao_formats::collision::Collision,
     /// The whompah booths (x, height, z).
     pub(crate) booths: Vec<[f32; 3]>,
-    /// The playfield's areas and their environments (light and fog by where the character stands).
+    /// The playfield's areas and their environments (light and fog by where the character stands), and the playfield's
+    /// own environment bytes (the base the areas blend into).
     pub(crate) areas: Vec<mao_formats::areas::Area>,
+    pub(crate) base_environment: Option<[u8; 26]>,
 }
 
 pub(crate) fn load_area(game: &str, db: &Arc<ResourceDatabase>, playfield: u32) -> Result<Area, String> {
@@ -1673,7 +1675,11 @@ pub(crate) fn load_area_with(game: &str, db: &Arc<ResourceDatabase>, playfield: 
     if !areas.is_empty() {
         eprintln!("playfield {playfield}: {} areas ({} with an environment)", areas.len(), areas.iter().filter(|a| a.takes_part()).count());
     }
-    Ok(Area { scene, terrain, collision, booths, areas })
+    let base_environment = mao_formats::playfield::load_anarchy(db, playfield).and_then(|a| a.environment);
+    if let Some(e) = &base_environment {
+        eprintln!("playfield {playfield}: environment weather {:?} ambient {:?} fog {:?} density {}", &e[..8], &e[19..22], &e[22..25], e[25]);
+    }
+    Ok(Area { scene, terrain, collision, booths, areas, base_environment })
 }
 
 /// The label over each whompah booth: where it leads, when that is known.
@@ -1698,8 +1704,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     let db = Arc::new(ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?);
     crate::effects::load_calibration(game);
     let textures = crate::Textures::new(db.clone());
-    let Area { scene, terrain, collision, booths, areas } = load_area_with(game, &db, playfield, Some(&textures))?;
+    let Area { scene, terrain, collision, booths, areas, base_environment } = load_area_with(game, &db, playfield, Some(&textures))?;
     let mut areas = areas;
+    let mut base_environment = base_environment;
     let thread_textures = textures.clone_handle();
     let started_props = Instant::now();
     state.set_static_props(crate::static_props(&db, playfield));
@@ -2190,6 +2197,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             pending_scene = Some(scene);
                             booths = area.booths;
                             areas = area.areas;
+                            base_environment = area.base_environment;
                             booth_playfield = playfield;
                             pending_labels = Some(booth_labels(playfield, &booths, &destinations, &names));
                             goto = None;
@@ -3103,7 +3111,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     },
                     ground: terrain.clone().map(|t| (t, offset)),
                     own: Some(position),
-                    environment: Some(crate::environment::compute(&areas, position, state.game_clock.day(), state.game_clock.seconds(), state.game_clock.day_intensity())),
+                    environment: Some(crate::environment::compute(&areas, base_environment.as_ref(), position, state.game_clock.day(), state.game_clock.seconds(), state.game_clock.day_intensity())),
                     daylight: Some(state.game_clock.day_intensity()),
                     location: pending_location.take(),
                     labels: pending_labels.take(),
