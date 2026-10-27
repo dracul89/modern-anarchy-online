@@ -127,6 +127,34 @@ pub fn stars_particles(s: &Stars, centre: [f32; 3], time: f32, stopped: bool) ->
     if s.mode == 22 {
         return stars_on_edges(s, centre, time, stopped);
     }
+    // Mode 2 (`case 2`): all 128 stars from the start, each at a random point of the unit sphere, for 1.5 s; the sphere grows
+    // to `√frac × 0.7 + 0.6`, the stars shrink by `(1 − frac) × word 28 × 20 / table[frame]`, their sheet frame
+    // `(1 − frac) × 15` clamped to 1..15 (the odd stars one behind) and their colours random between the template's second
+    // colour and a palette of eight (0x102c5ee8: pink, yellow, magenta, cyan, blue, green, red, mint), one per star in turn.
+    if s.mode == 2 {
+        const DURATION: f32 = 1.5;
+        const DIVISORS: [f32; 16] = [10.0, 6.0, 7.0, 7.0, 9.0, 11.0, 16.0, 19.0, 22.0, 23.0, 24.0, 25.0, 26.0, 27.0, 28.0, 29.0];
+        const PALETTE: [[f32; 3]; 8] = [[1.0, 0.7, 0.7], [1.0, 1.0, 0.0], [1.0, 0.0, 1.0], [0.0, 1.0, 1.0], [0.0, 0.0, 1.0], [0.0, 1.0, 0.0], [1.0, 0.0, 0.0], [0.7, 1.0, 0.7]];
+        if time < 0.0 || time >= DURATION {
+            return out;
+        }
+        let frac = time / DURATION;
+        let reach = frac.sqrt() * 0.7 + 0.6;
+        let frame = (((1.0 - frac) * 15.0) as i32).clamp(1, 15);
+        let size = (1.0 - frac) * s.size * 20.0 / DIVISORS[frame as usize];
+        for k in 0..STARS {
+            let salt = k.wrapping_mul(7919);
+            let (a, b, r) = (hash(salt, 5) * std::f32::consts::TAU, hash(salt, 6) * 2.0 - 1.0, hash(salt, 7).cbrt());
+            let flat = (1.0 - b * b).sqrt();
+            let p = [flat * a.cos() * r, flat * a.sin() * r, b * r];
+            let own = PALETTE[k as usize & 7];
+            let colour = [1, 2, 3].map(|c| own[c - 1] + (s.colour_b[c] - own[c - 1]) * hash(salt, c as u32));
+            let alpha = s.colour_a[0] + (s.colour_b[0] - s.colour_a[0]) * hash(salt, 0);
+            let star_frame = (frame - (k as i32 & 1)).max(0) as f32 / 15.0;
+            out.push(sprite(s.material, star_frame, [centre[0] + p[0] * reach, centre[1] + p[1] * reach, centre[2] + p[2] * reach], size.max(0.0), [colour[0], colour[1], colour[2], alpha]));
+        }
+        return out;
+    }
     let spawn_per_frame: f32 = match s.mode {
         19 | 20 => 15.0,
         10 => 5.0,
@@ -833,7 +861,8 @@ pub fn pulse_particles(v: &Visual, feet: [f32; 3], heading: f32, age: f32, body:
 pub fn pulse_timing(v: &Visual) -> (f32, f32, i32) {
     match v {
         Visual::Spiral(aura) => (aura.period, aura.helices.iter().map(|h| h.life).fold(0.0, f32::max).max(0.5), aura.plays),
-        Visual::Stars(s) => (if s.duration > 0.0 { s.duration } else { 4.0 }, s.life * 2.0, -1),
+        // (mode 2 runs the fixed 1.5 s its start function sets as the duration)
+        Visual::Stars(s) => (if s.duration > 0.0 { s.duration } else { 4.0 }, if s.mode == 2 { 1.5 } else { s.life * 2.0 }, -1),
         Visual::Sparks(s) => (4.0, s.life.1 + 0.2, -1),
         Visual::Deform(d) => (4.0, if d.duration > 0.0 { d.duration } else { 1.5 }, -1),
         Visual::Cords(c) => (4.0, if c.duration > 0.0 { c.duration } else { 1.0 }, -1),
@@ -952,6 +981,23 @@ pub fn emitter_particles(e: &Emitter, origin: [f32; 3], age: f32, active: f32) -
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stars_mode_2_is_a_sphere_of_all_the_stars_growing_and_shrinking_for_a_second_and_a_half() {
+        // (template 13000: 2.1 wide, the colours and radius words unused)
+        let s = Stars { mode: 2, colour_a: [1.0, 0.0, 1.0, 0.0], colour_b: [1.0, 0.7, 0.4, 0.4], size: 2.1, radius: 0.0, life: 0.1, swirl: 0.0, material: 33, attach: 1000, duration: -1.0, word11: 0.0, word30: 0 };
+        let centre = [0.0, 0.0, 0.0];
+        let reach = |p: &Particle| (p.position[0].powi(2) + p.position[1].powi(2) + p.position[2].powi(2)).sqrt();
+        let early = stars_particles(&s, centre, 0.0, false);
+        assert_eq!(early.len(), 128);
+        // the sphere starts 0.6 wide and grows toward 1.3; the stars start at 2.1 × 20 / 29 and shrink to nothing
+        assert!(early.iter().all(|p| reach(p) <= 0.6 + 1e-4) && early.iter().any(|p| reach(p) > 0.4));
+        assert!(early.iter().all(|p| (p.size - 2.1 * 20.0 / 28.0).abs() < 1e-3 || (p.size - 2.1 * 20.0 / 29.0).abs() < 1e-3));
+        let late = stars_particles(&s, centre, 1.4, false);
+        assert!(late.iter().any(|p| reach(p) > 1.0) && late.iter().all(|p| p.size < 0.5));
+        assert!(stars_particles(&s, centre, 1.5, false).is_empty());
+        assert_eq!(pulse_timing(&Visual::Stars(s.clone())).1, 1.5);
+    }
 
     #[test]
     fn stars_mode_20_stand_in_a_sphere_at_the_point_at_one_size() {

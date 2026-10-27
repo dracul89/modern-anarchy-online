@@ -662,3 +662,5 @@ Stars mode 22 (37 hit templates) now runs as the original's `case 0x16` does: ea
 Stars mode 5 (23 hit templates) runs as the original's `case 5`: the stars of mode 6 born 1.2 below the point, flying outward along the circle's radius and pulled back toward the axis every frame, so the burst breathes out and in instead of swirling up.
 
 Stars mode 20 (19 hit templates) runs as the original's `case 0x14`: fifteen stars a frame born in a sphere about the hit point, standing at one size for a quarter of a second, a dense sparkle at the point of impact.
+
+Stars mode 2 (18 hit templates) runs as the original's `case 2`: all 128 stars at once on a sphere that grows from 0.6 to 1.3 over a second and a half while the stars shrink to nothing and run back through the sheet's frames, each in one of eight palette colours mixed with the template's second colour.
