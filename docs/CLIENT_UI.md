@@ -660,3 +660,5 @@ The thrown billboard particles (`GfxControlBParticle2_t`, kind 3028: 21 hit effe
 Stars mode 22 (37 hit templates) now runs as the original's `case 0x16` does: each frame up to the template's count of stars are born on one of the body's six edges, the lines between the calves and thighs, the pelvis and head, the forearms and upper arms and the two upper arms, the template's word 28 out from the edge, and swing back through it on an undamped spring, dying as they cross it or when their life is spent. The edges are measured between the client's attach-point table, so they run across the body's x rather than its heading.
 
 Stars mode 5 (23 hit templates) runs as the original's `case 5`: the stars of mode 6 born 1.2 below the point, flying outward along the circle's radius and pulled back toward the axis every frame, so the burst breathes out and in instead of swirling up.
+
+Stars mode 20 (19 hit templates) runs as the original's `case 0x14`: fifteen stars a frame born in a sphere about the hit point, standing at one size for a quarter of a second, a dense sparkle at the point of impact.

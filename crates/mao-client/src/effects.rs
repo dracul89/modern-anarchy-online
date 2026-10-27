@@ -128,7 +128,7 @@ pub fn stars_particles(s: &Stars, centre: [f32; 3], time: f32, stopped: bool) ->
         return stars_on_edges(s, centre, time, stopped);
     }
     let spawn_per_frame: f32 = match s.mode {
-        19 => 15.0,
+        19 | 20 => 15.0,
         10 => 5.0,
         _ => 2.0,
     };
@@ -212,6 +212,13 @@ pub fn stars_particles(s: &Stars, centre: [f32; 3], time: f32, stopped: bool) ->
                 let fall = 0.1 * frames * (frames + 1.0) * 0.5 / 30.0;
                 let position = [centre[0] + v[0] * travelled, centre[1] + v[1] * travelled, centre[2] + v[2] * travelled - fall];
                 ((2.0 - t) * s.size, position)
+            }
+            20 => {
+                // `case 0x14`: fifteen a frame born in the sphere about the hit location's point, standing, at the constant size;
+                // (the second point the original slides toward over the duration is the same point, so there is no slide)
+                let (a, b, r) = (hash(salt, 5) * std::f32::consts::TAU, hash(salt, 6) * 2.0 - 1.0, hash(salt, 7).cbrt() * s.radius);
+                let flat = (1.0 - b * b).sqrt();
+                (s.size, [centre[0] + flat * a.cos() * r, centre[1] + flat * a.sin() * r, centre[2] + b * r])
             }
             10 => {
                 // standing on the sphere, swelling and shrinking
@@ -945,6 +952,22 @@ pub fn emitter_particles(e: &Emitter, origin: [f32; 3], age: f32, active: f32) -
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stars_mode_20_stand_in_a_sphere_at_the_point_at_one_size() {
+        // (template 17910: 0.3 about the point, 0.6 wide, 250 ms, fifteen a frame)
+        let s = Stars { mode: 20, colour_a: [1.0, 1.0, 1.0, 1.0], colour_b: [1.0, 0.0, 0.0, 0.0], size: 0.6, radius: 0.3, life: 0.25, swirl: 6.0, material: 9, attach: 1000, duration: -1.0, word11: 0.4, word30: 250 };
+        let centre = [1.0, 2.0, 3.0];
+        let at = stars_particles(&s, centre, 0.2, false);
+        assert!(at.len() > 60, "{}", at.len());
+        for p in &at {
+            let d = ((p.position[0] - 1.0).powi(2) + (p.position[1] - 2.0).powi(2) + (p.position[2] - 3.0).powi(2)).sqrt();
+            assert!(d <= 0.3 + 1e-4 && p.size == 0.6);
+        }
+        // the cloud stands: the same star does not move between frames
+        let later = stars_particles(&s, centre, 0.21, false);
+        assert!(later.iter().any(|q| at.iter().any(|p| p.position == q.position)));
+    }
 
     #[test]
     fn stars_mode_5_breathe_out_and_back_below_the_point() {

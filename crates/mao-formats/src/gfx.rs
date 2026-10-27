@@ -708,11 +708,13 @@ impl BParticles {
 /// * 11: as 6;
 /// * 5: as 6 but born 1.2 below the point, flying outward at the radius a second and pulled back toward the axis by word 31
 ///   hundredths of their place a frame (no rise);
+/// * 20: fifteen a frame born in a sphere of the radius about the hit location's point (`_GfxHitLocation_t`'s two points,
+///   which are the same point), standing, at the constant size word 28, living word 30 ms;
 /// * 22: word 31 a frame born on the body's six edges (between the attach points of the table at 0x102c5fe8: calves to
 ///   thighs, pelvis to head, forearms to upper arms, the upper arms to each other), word 28 out (the field the other modes
 ///   size by), springing back through the edge and dying as they cross it or after word 30 ms, sized `(age / life × 0.7 +
 ///   0.3) × word 29` (the other modes' radius).
-pub const STARS_MODES: [i32; 10] = [3, 4, 5, 6, 7, 8, 10, 11, 19, 22];
+pub const STARS_MODES: [i32; 11] = [3, 4, 5, 6, 7, 8, 10, 11, 19, 20, 22];
 
 /// What a nano effect looks like once its template is read: the few shapes the effect classes come to.
 #[derive(Clone, Debug, PartialEq)]
