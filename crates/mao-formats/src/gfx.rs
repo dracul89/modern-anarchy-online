@@ -401,6 +401,24 @@ impl Deform {
     }
 }
 
+/// A kind-1024 template as `_GfxControlTracer4_t` reads it (made by `_EffectHandler_t::CreateGfxControlTracer` FUN_100d176c
+/// from the caster's and the target's points; FUN_100ffcac reads the words, FUN_100ffd67 makes three `GfxVisualCord4`s of
+/// twenty links, FUN_100ffa7b winds them each frame): three cords spiralling round the straight line between the two points.
+/// Word 8 is the duration (1 s), 9 the material (15, `s_bullet`), 10 the locator's speed (100), 11 the links' width, 12 the
+/// winding's radius, 13–16 the colour (alpha, red, green, blue). Along the line a link `k` (0–19) sits at `k × 0.05 × 1.1` of
+/// its length, out from it by `(sin(k × 0.05 × π × 20 / 19) + 0.2) × radius` at a phase that spins at 12.56 radians a second
+/// and steps 0.314 a link (the step's sign flipped at random), each cord a third of a turn from the next; a quarter of the
+/// links jitter by half the radius.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Cords {
+    pub width: f32,
+    pub radius: f32,
+    /// Alpha, red, green, blue.
+    pub colour: [f32; 4],
+    pub material: i32,
+    pub duration: f32,
+}
+
 /// The Stars modes the client plays as the original does; the others fall back to the spiral child:
 /// * 3: born in a sphere of the radius, swirling across it (no rise), two a frame, the parabolic size of mode 6;
 /// * 4: born at the point, thrown in a random direction at the radius a second, slowed by 5% a frame and pulled down by 0.1,
@@ -421,6 +439,8 @@ pub enum Visual {
     Sparks(Sparks),
     /// A hit that ripples the target's mesh (kind 3001, mode 1): no sprites of its own.
     Deform(Deform),
+    /// A tracer of three cords wound round the line of flight (kind 1024).
+    Cords(Cords),
     /// Two spirals of sparks (the buff's aura, and the tracers and hits built on it).
     Spiral(Aura),
     /// A soft glow under the feet (kind 3003: the running effect of 114 programs, 52 of them the same cyan one).
@@ -467,6 +487,7 @@ impl Gfx {
                 attach: r.int(7),
                 gate: r.int(24),
             })),
+            1024 if r.payload.len() >= 17 => Some(Visual::Cords(Cords { width: r.float(11), radius: r.float(12), colour: [r.float(13), r.float(14), r.float(15), r.float(16)], material: r.int(9), duration: r.float(8) })),
             3001 if r.payload.len() >= 16 && r.int(10) == 1 => Some(Visual::Deform(Deform { duration: r.float(8), strength: r.float(11), ramp_in: r.float(12), ramp_out: r.float(13), frequency: r.float(14), amplitude: r.float(15) })),
             1001 | 2004 | 2005 | 2006 | 1018 => self.aura(id).map(Visual::Spiral),
             2007 | 3004 => self.references(id).into_iter().filter(|&c| c != id).find_map(|c| self.visual(c)),

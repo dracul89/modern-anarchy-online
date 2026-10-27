@@ -7,8 +7,53 @@
 //! does not say (or is not read yet): the radius (the radius path's numbers, 0.06 to 0.15, are too small for a body; 0.42 m is used),
 //! how high and how long a spark lives (1.9 m and 1.6 s here), and the trail (a short tail of fading sparks behind each one).
 
-use mao_formats::gfx::{Aura, Deform, Emitter, Sparks, Stars, Visual};
+use mao_formats::gfx::{Aura, Cords, Deform, Emitter, Sparks, Stars, Visual};
 use mao_render::{Particle, NO_SPRITE};
+
+/// `_GfxControlTracer4_t`'s three cords at `time` seconds, wound round the line from `from` to `to` (world, Z up) as FUN_100ffa7b
+/// winds them: each of the twenty links of a cord drawn as a sprite of the link's width. The original's random flips and jitter
+/// are stood in for by a hash of the link.
+pub fn cords_particles(c: &Cords, from: [f32; 3], to: [f32; 3], time: f32) -> Vec<Particle> {
+    let axis = [to[0] - from[0], to[1] - from[1], to[2] - from[2]];
+    let length = (axis[0] * axis[0] + axis[1] * axis[1] + axis[2] * axis[2]).sqrt();
+    if length < 0.01 {
+        return Vec::new();
+    }
+    let dir = axis.map(|v| v / length);
+    // a frame across the line: a perpendicular and the third axis
+    let seed = if dir[2].abs() < 0.9 { [0.0, 0.0, 1.0] } else { [1.0, 0.0, 0.0] };
+    let cross = |a: [f32; 3], b: [f32; 3]| [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    let p1 = cross(dir, seed);
+    let n1 = (p1[0] * p1[0] + p1[1] * p1[1] + p1[2] * p1[2]).sqrt().max(1e-6);
+    let p1 = p1.map(|v| v / n1);
+    let p2 = cross(dir, p1);
+    let colour = [c.colour[1], c.colour[2], c.colour[3], c.colour[0]];
+    let mut out = Vec::with_capacity(60);
+    for cord in 0..3u32 {
+        // (the three cords' phases: a third of a turn apart, spinning together)
+        let mut phase = cord as f32 * std::f32::consts::TAU / 3.0 + 12.56 * time;
+        for k in 0..20u32 {
+            let t = k as f32 * 0.05;
+            let salt = cord * 1013 + k * 7919;
+            let r = ((t * std::f32::consts::PI * 20.0 / 19.0).sin() + 0.2) * c.radius;
+            let along = c.radius * 0.0 + t * 1.1 * length;
+            let (ca, sa) = (phase.cos(), phase.sin());
+            let mut p = [0.0f32; 3];
+            for i in 0..3 {
+                p[i] = from[i] + dir[i] * along + p1[i] * ca * r + p2[i] * sa * r;
+            }
+            if hash(salt, 3) < 0.25 {
+                let j = r * 0.5;
+                p[0] += (hash(salt, 4) * 2.0 - 1.0) * j;
+                p[2] += (hash(salt, 5) * 2.0 - 1.0) * j;
+            }
+            out.push(sprite(c.material, 0.0, p, c.width, colour));
+            // (the step's sign flips at random a quarter of the frames in the original; here per link)
+            phase += if hash(salt, 6) < 0.25 { -0.314 } else { 0.314 };
+        }
+    }
+    out
+}
 
 /// `_GfxControlDeformer_t`'s mode 1 on a body's skinned parts (its vertex callback FUN_100d776f): each vertex pushed along its
 /// normal by `amplitude × sin²(phase) × strength`, the phase running with the frequency over time and along the body, so the
@@ -254,9 +299,15 @@ impl Shot {
         let mut out = Vec::new();
         let travelling = self.from != self.to;
         if let (Some(tracer), true) = (&self.tracer, travelling && age < FLIGHT) {
-            let t = age / FLIGHT;
-            let at = [0, 1, 2].map(|i| self.from[i] + (self.to[i] - self.from[i]) * t);
-            out.extend(visual_particles(tracer, [at[0], at[1], at[2] - 0.25], age, Reach::Small));
+            match tracer {
+                // (the cords span the whole line of flight for the tracer's duration)
+                Visual::Cords(c) => out.extend(cords_particles(c, self.from, self.to, age)),
+                _ => {
+                    let t = age / FLIGHT;
+                    let at = [0, 1, 2].map(|i| self.from[i] + (self.to[i] - self.from[i]) * t);
+                    out.extend(visual_particles(tracer, [at[0], at[1], at[2] - 0.25], age, Reach::Small));
+                }
+            }
         }
         let landed = if travelling { age - FLIGHT } else { age };
         if let (Some(hit), true) = (&self.hit, landed >= 0.0 && landed < LANDING) {
@@ -298,6 +349,8 @@ pub fn visual_particles(v: &Visual, feet: [f32; 3], time: f32, reach: Reach) -> 
         }
         // (bends the target's mesh instead: see `deform_parts`)
         Visual::Deform(_) => Vec::new(),
+        // (needs both ends of its line: `Shot::particles` draws it; alone, a short cord up from the point)
+        Visual::Cords(c) => cords_particles(c, feet, [feet[0], feet[1], feet[2] + 1.0], time),
         Visual::Spiral(aura) => match reach {
             Reach::Body => aura_shaped(aura, feet, time, HEIGHT, RADIUS),
             Reach::Medium => aura_shaped(aura, feet, time, 1.5, 0.35),
@@ -442,6 +495,7 @@ pub fn pulse_timing(v: &Visual) -> (f32, f32, i32) {
         Visual::Stars(s) => (if s.duration > 0.0 { s.duration } else { 4.0 }, s.life * 2.0, -1),
         Visual::Sparks(s) => (4.0, s.life.1 + 0.2, -1),
         Visual::Deform(d) => (4.0, if d.duration > 0.0 { d.duration } else { 1.5 }, -1),
+        Visual::Cords(c) => (4.0, if c.duration > 0.0 { c.duration } else { 1.0 }, -1),
         Visual::Glow { .. } => (SHIELD_PERIOD, SHIELD_LIFE, -1),
         _ => (4.0, 1.5, -1),
     }
@@ -634,6 +688,24 @@ broken line
         let thrown = Stars { mode: 4, ..s.clone() };
         let low = stars_particles(&thrown, [0.0; 3], 0.9, false).iter().map(|p| p.position[2]).fold(f32::MAX, f32::min);
         assert!(low < -0.1, "{low}");
+    }
+
+    #[test]
+    fn the_cords_wind_round_the_line_of_flight() {
+        let c = Cords { width: 0.1, radius: 0.25, colour: [1.0, 0.5, 0.5, 1.0], material: 15, duration: 1.0 };
+        let links = cords_particles(&c, [0.0, 0.0, 1.0], [10.0, 0.0, 1.0], 0.2);
+        assert_eq!(links.len(), 60);
+        // every link within the winding's reach of the line, spread along it
+        for p in &links {
+            let off = (p.position[1].powi(2) + (p.position[2] - 1.0).powi(2)).sqrt();
+            assert!(off <= 0.25 * 1.2 * 1.5 + 1e-4, "{off}");
+            assert!(p.position[0] >= -0.2 && p.position[0] <= 11.0, "{:?}", p.position);
+        }
+        let xs: Vec<f32> = links.iter().map(|p| p.position[0]).collect();
+        assert!(xs.iter().cloned().fold(f32::MIN, f32::max) > 9.0);
+        // the winding turns with time
+        let later = cords_particles(&c, [0.0, 0.0, 1.0], [10.0, 0.0, 1.0], 0.25);
+        assert!(later[5].position != links[5].position);
     }
 
     #[test]
