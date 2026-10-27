@@ -7,7 +7,7 @@
 //! does not say (or is not read yet): the radius (the radius path's numbers, 0.06 to 0.15, are too small for a body; 0.42 m is used),
 //! how high and how long a spark lives (1.9 m and 1.6 s here), and the trail (a short tail of fading sparks behind each one).
 
-use mao_formats::gfx::{colour_curve, curve, unpack_argb, Aura, Cords, Deform, Emitter, Sparks, Stars, Visual, VolGrid};
+use mao_formats::gfx::{colour_curve, curve, unpack_argb, Aura, Cords, Deform, Emitter, Smoke, Sparks, Stars, Visual, VolGrid};
 use mao_render::{Particle, NO_SPRITE};
 
 /// `_GfxControlTracer4_t`'s three cords at `time` seconds, wound round the line from `from` to `to` (world, Z up) as FUN_100ffa7b
@@ -270,6 +270,72 @@ pub fn volgrid_particles(g: &VolGrid, feet: [f32; 3], time: f32, salt: u32) -> V
     out
 }
 
+/// `_GfxControlSmoke_t`'s stream (kind 1009) `time` seconds after it began, its attach point at `feet` (world, Z up), as
+/// FUN_100f04bd makes the sprites and `GfxVisualSprite2Type0::ProcessSprites` moves them (see `mao_formats::gfx::Smoke` for the
+/// words): sprite `k` is born at `k / rate` while the run is still emitting, at a random point of the emitter's disc at a random
+/// height, and drifts by `(0.3 × x, 0.3 × z, −1) × drift / life` in the emitter's frame, which the template's turn (word 4 about x,
+/// then 5 about y, 6 about z) and offset place at the attach point; its sizes, colour and frame run from start to end over its
+/// life. Push kind 5 rises 1.5 a second on top, kind 7 flies at a random direction at the kind's speed; the other kinds ride the
+/// effect handler's force, which the client does not keep (so they only drift). The original's random numbers are stood in for by
+/// a hash of the sprite's number, so each keeps its path from frame to frame; the sprites' spin (the original's Type0 quads turn)
+/// is not drawn, the client's billboards do not turn.
+pub fn smoke_particles(s: &Smoke, feet: [f32; 3], time: f32) -> Vec<Particle> {
+    let mut out = Vec::new();
+    if s.rate <= 0.0 || s.life <= 0.0 || time < 0.0 {
+        return out;
+    }
+    let lerp = |(a, b): (f32, f32), r: f32| a + (b - a) * r;
+    // (the emitter's frame: the turn about each axis in order, applied to a vector of the original's Y-up frame)
+    let turn = |v: [f32; 3]| {
+        let (sx, cx) = s.turn[0].sin_cos();
+        let v = [v[0], v[1] * cx - v[2] * sx, v[1] * sx + v[2] * cx];
+        let (sy, cy) = s.turn[1].sin_cos();
+        let v = [v[0] * cy + v[2] * sy, v[1], -v[0] * sy + v[2] * cy];
+        let (sz, cz) = s.turn[2].sin_cos();
+        [v[0] * cz - v[1] * sz, v[0] * sz + v[1] * cz, v[2]]
+    };
+    // (the original's Y-up frame to the client's Z-up world)
+    let world = |v: [f32; 3]| [feet[0] + v[0], feet[1] + v[2], feet[2] + v[1]];
+    // (only the sprites that can still be alive: the ones born within the longest life)
+    let made = (s.rate * time).floor() as u32;
+    let first = (((time - s.life * 1.3).max(0.0) * s.rate).floor() as u32 + 1).max(made.saturating_sub(600));
+    for k in first..=made {
+        let born = k as f32 / s.rate;
+        if s.duration >= 0.0 && born >= s.duration - s.life {
+            break;
+        }
+        let age = time - born;
+        let salt = k.wrapping_mul(1009);
+        let life = s.life * (1.0 + 0.3 * hash(salt, 1));
+        if age < 0.0 || age > life {
+            continue;
+        }
+        let t = age / life;
+        let (az, el) = (hash(salt, 2) * std::f32::consts::TAU, hash(salt, 3) * std::f32::consts::FRAC_PI_2);
+        let r = lerp(s.radius, hash(salt, 4)) * el.cos();
+        let scale = 1.0 + 0.3 * hash(salt, 5);
+        let y = lerp(s.rise, hash(salt, 6));
+        let p = [az.cos() * r, y, az.sin() * r];
+        let mut v = [0.3 * p[0] * s.drift / life, 0.3 * p[2] * s.drift / life, -s.drift / life];
+        match s.kind {
+            5 => v[1] += 1.5,
+            7 => {
+                // (a random direction: `2r − 1`, `0.89r + 0.1`, `2r − 1`, at the kind's speed)
+                let d = [2.0 * hash(salt, 7) - 1.0, 0.89 * hash(salt, 8) + 0.1, 2.0 * hash(salt, 9) - 1.0];
+                let speed = s.heights.1 + y;
+                v = [d[0] * speed, d[1] * speed, d[2] * speed];
+            }
+            _ => {}
+        }
+        let (p, v) = (turn(p), turn(v));
+        let local = [0, 1, 2].map(|i| p[i] + s.offset[i] + v[i] * age);
+        let colour = [1, 2, 3, 0].map(|c| lerp((s.colour_a[c], s.colour_b[c]), t));
+        let size = lerp(s.width, t).max(lerp(s.height, t)) * scale;
+        out.push(sprite(s.material, t, world(local), size.max(0.0), colour));
+    }
+    out
+}
+
 /// A particle cut from a material's sprite sheet (`mao_formats::gfx::MATERIALS`), `t` (0 to 1) of the way through the sheet's frames; a
 /// material that is not known gives a soft dot.
 fn sprite(material: i32, t: f32, position: [f32; 3], size: f32, colour: [f32; 4]) -> Particle {
@@ -403,6 +469,14 @@ pub fn visual_particles(v: &Visual, feet: [f32; 3], time: f32, reach: Reach) -> 
         Visual::Cords(c) => cords_particles(c, feet, [feet[0], feet[1], feet[2] + 1.0], time),
         // (the locator's point is the feet; the turn is drawn from the point so one effect keeps its turn)
         Visual::VolGrid(g) => volgrid_particles(g, feet, time, feet[0].to_bits() ^ feet[1].to_bits().rotate_left(13)),
+        // (the attach point's height on a standing body; a tracer carries the point itself)
+        Visual::Smoke(s) => {
+            let up = match reach {
+                Reach::Small => 0.0,
+                _ => anchor(s.attach).0,
+            };
+            smoke_particles(s, [feet[0], feet[1], feet[2] + up], time)
+        }
         Visual::Spiral(aura) => match reach {
             Reach::Body => aura_shaped(aura, feet, time, HEIGHT, RADIUS),
             Reach::Medium => aura_shaped(aura, feet, time, 1.5, 0.35),
@@ -549,6 +623,11 @@ pub fn pulse_timing(v: &Visual) -> (f32, f32, i32) {
         Visual::Deform(d) => (4.0, if d.duration > 0.0 { d.duration } else { 1.5 }, -1),
         Visual::Cords(c) => (4.0, if c.duration > 0.0 { c.duration } else { 1.0 }, -1),
         Visual::VolGrid(g) => (if g.duration > 0.0 { g.duration } else { 3.0 }, if g.duration > 0.0 { g.duration } else { 3.0 }, -1),
+        // (a stream runs for its duration and its last sprites' lives; an endless one is restarted every ten minutes)
+        Visual::Smoke(s) => {
+            let long = if s.duration >= 0.0 { s.duration + s.life * 1.3 } else { 600.0 };
+            (long, long, -1)
+        }
         Visual::Glow { .. } => (SHIELD_PERIOD, SHIELD_LIFE, -1),
         _ => (4.0, 1.5, -1),
     }
@@ -647,6 +726,57 @@ pub fn emitter_particles(e: &Emitter, origin: [f32; 3], age: f32, active: f32) -
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn smoke_streams_from_its_emitter_and_drifts_the_way_its_turn_points() {
+        // (template 45076's shape: ten a second for 25 s, born 1.2–1.9 out at 0.5–1 up, drifting 2 along −z over 2 s, which the
+        // quarter turn about x points up; 1.5 m above the feet)
+        let s = Smoke {
+            flags: 5,
+            attach: 0,
+            offset: [0.0, 1.5, 0.0],
+            turn: [std::f32::consts::FRAC_PI_2, 0.0, 0.0],
+            duration: 25.0,
+            material: 31,
+            rate: 10.0,
+            radius: (1.2, 1.9),
+            drift: 2.0,
+            width: (7.2, 8.0),
+            height: (7.0, 8.0),
+            colour_a: [0.6, 0.0, 0.5, 0.1],
+            colour_b: [0.4, 0.0, 0.5, 0.1],
+            life: 2.0,
+            rise: (0.5, 1.0),
+            kind: 4,
+            heights: (1.0, 8.0),
+            strength: 0.25,
+        };
+        let feet = [100.0, 200.0, 10.0];
+        // nothing yet, then one sprite a tenth of a second, up to the live ones over a life
+        assert!(smoke_particles(&s, feet, 0.05).is_empty());
+        assert_eq!(smoke_particles(&s, feet, 0.1).len(), 1);
+        let live = smoke_particles(&s, feet, 5.0).len();
+        assert!((20..=26).contains(&live), "{live}");
+        // a newborn sits within the disc's reach of the offset point: the quarter turn about x sends the original's z (a disc
+        // coordinate, up to 1.9 out) to −y, the height, and its y (the rise, 0.5 to 1) to z, the client's y
+        for p in smoke_particles(&s, feet, 0.1) {
+            let out = (p.position[0] - feet[0]).hypot(p.position[1] - feet[1]);
+            assert!(out <= 1.9 + 1.0 + 1e-3, "{out}");
+            assert!((p.position[2] - feet[2] - 1.5).abs() <= 1.9 + 1e-3);
+            assert!(p.position[1] - feet[1] >= 0.5 - 1e-3 && p.position[1] - feet[1] <= 1.0 + 1e-3);
+        }
+        // the drift of −z becomes up: the oldest sprite at 5 s is higher than a newborn by about its age's share of the drift
+        let at = smoke_particles(&s, feet, 5.0);
+        let (lowest, highest) = at.iter().fold((f32::MAX, f32::MIN), |(lo, hi), p| (lo.min(p.position[2]), hi.max(p.position[2])));
+        assert!(highest - lowest > 1.0, "{lowest} {highest}");
+        // sizes are the template's 7-ish metres, colours fade from 0.6 alpha; emission stops a life before the end
+        assert!(at.iter().all(|p| p.size > 7.0 && p.colour[3] <= 0.6 * 1.0001 && p.colour[3] >= 0.4 * 0.999));
+        assert!(smoke_particles(&s, feet, 24.0).len() < live);
+        assert!(smoke_particles(&s, feet, 27.0).is_empty());
+        // an endless stream keeps going
+        let endless = Smoke { duration: -1.0, ..s.clone() };
+        assert!(!smoke_particles(&endless, feet, 100.0).is_empty());
+    }
 
     #[test]
     fn a_volgrid_stacks_its_slices_in_the_box_the_curves_give() {

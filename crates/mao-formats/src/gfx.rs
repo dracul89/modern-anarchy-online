@@ -505,6 +505,68 @@ pub fn unpack_argb(c: u32) -> [f32; 4] {
     [channel(16), channel(8), channel(0), channel(24)]
 }
 
+/// A kind-1009 template as `_GfxControlSmoke_t` reads it (FUN_100f12bf the constructor, FUN_100f0b6b the words, FUN_100f0cd4
+/// makes a `GfxVisualSprite2Type0` of the material, FUN_100f04bd runs it): a steady stream of sprites. Words 1–3 are the
+/// emitter's offset from the attach point (word 7) and 4–6 its turn about x, y and z (FUN_10106be2), word 8 the duration (below
+/// zero: for ever), 9 the material, 10 the rate (sprites a second: the run makes sprites until `rate × elapsed` of them exist,
+/// while `elapsed < duration − life`). Each sprite is born in the emitter's frame at `(cos az × cos el × r, y, sin az × cos el × r)`
+/// with `az` a random turn, `el` a random quarter turn, `r` between words 11 and 12 and `y` between words 31 and 32; its
+/// velocity is `(0.3 × x, 0.3 × z, −1) × word 13 / life` (the original's own component order), so the stream drifts along the
+/// emitter's −z, which the turn of word 4 (π/2 in most templates) points up. It lives word 26 seconds times `1 + 0.3 × random`,
+/// its width runs from word 14 to 15 and its height from 16 to 17, both scaled by `1 + 0.3 × random`, its colour from words
+/// 18–21 to 22–25 (alpha, red, green, blue), its frame across the material's sheet. Word 29 is the sprite's push kind
+/// (`GfxVisualSprite2Type0::ProcessSprites`: 5 rises 1.5 a second, 7 flies at a random direction, the others ride the effect
+/// handler's force), words 27, 28 and 30 that kind's heights and strength (the last times `0.1 + 0.9 × random`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Smoke {
+    pub flags: u32,
+    pub attach: i32,
+    pub offset: [f32; 3],
+    pub turn: [f32; 3],
+    pub duration: f32,
+    pub material: i32,
+    pub rate: f32,
+    pub radius: (f32, f32),
+    pub drift: f32,
+    pub width: (f32, f32),
+    pub height: (f32, f32),
+    pub colour_a: [f32; 4],
+    pub colour_b: [f32; 4],
+    pub life: f32,
+    pub rise: (f32, f32),
+    pub kind: i32,
+    pub heights: (f32, f32),
+    pub strength: f32,
+}
+
+impl Smoke {
+    pub fn read(r: &Record) -> Option<Smoke> {
+        if r.payload.len() < 33 {
+            return None;
+        }
+        Some(Smoke {
+            flags: r.int(0) as u32,
+            attach: r.int(7),
+            offset: [r.float(1), r.float(2), r.float(3)],
+            turn: [r.float(4), r.float(5), r.float(6)],
+            duration: r.float(8),
+            material: r.int(9),
+            rate: r.float(10),
+            radius: (r.float(11), r.float(12)),
+            drift: r.float(13),
+            width: (r.float(14), r.float(15)),
+            height: (r.float(16), r.float(17)),
+            colour_a: [r.float(18), r.float(19), r.float(20), r.float(21)],
+            colour_b: [r.float(22), r.float(23), r.float(24), r.float(25)],
+            life: r.float(26),
+            rise: (r.float(31), r.float(32)),
+            kind: r.int(29),
+            heights: (r.float(27), r.float(28)),
+            strength: r.float(30),
+        })
+    }
+}
+
 /// The Stars modes the client plays as the original does; the others fall back to the spiral child:
 /// * 3: born in a sphere of the radius, swirling across it (no rise), two a frame, the parabolic size of mode 6;
 /// * 4: born at the point, thrown in a random direction at the radius a second, slowed by 5% a frame and pulled down by 0.1,
@@ -529,6 +591,8 @@ pub enum Visual {
     Cords(Cords),
     /// A volume of textured slices whose box and colours follow curves (kind 3038).
     VolGrid(VolGrid),
+    /// A steady stream of sprites drifting from a point (kind 1009).
+    Smoke(Smoke),
     /// Two spirals of sparks (the buff's aura, and the tracers and hits built on it).
     Spiral(Aura),
     /// A soft glow under the feet (kind 3003: the running effect of 114 programs, 52 of them the same cyan one).
@@ -577,6 +641,7 @@ impl Gfx {
             })),
             1024 if r.payload.len() >= 17 => Some(Visual::Cords(Cords { width: r.float(11), radius: r.float(12), colour: [r.float(13), r.float(14), r.float(15), r.float(16)], material: r.int(9), duration: r.float(8) })),
             3038 => VolGrid::read(r).map(Visual::VolGrid),
+            1009 => Smoke::read(r).map(Visual::Smoke),
             3001 if r.payload.len() >= 16 && r.int(10) == 1 => Some(Visual::Deform(Deform { duration: r.float(8), strength: r.float(11), ramp_in: r.float(12), ramp_out: r.float(13), frequency: r.float(14), amplitude: r.float(15) })),
             1001 | 2004 | 2005 | 2006 | 1018 => self.aura(id).map(Visual::Spiral),
             2007 | 3004 => self.references(id).into_iter().filter(|&c| c != id).find_map(|c| self.visual(c)),
