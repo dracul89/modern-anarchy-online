@@ -98,9 +98,9 @@ pub struct Update {
     /// Where a nano program landed (Z-up) and the glow's colour.
     pub glows: Vec<([f32; 3], [u8; 3])>,
     /// Who is under running nano programs: the character's id (0 for the player's own), whether it is the character itself, the feet
-    /// (Z-up), the body (breed, sex, fatness) when known, and each program with its running effect. The whole list when it is given
+    /// (Z-up), its heading, the body (breed, sex, fatness) when known, and each program with its running effect. The whole list when it is given
     /// (an update without one leaves the last in place).
-    pub auras: Option<Vec<(u32, bool, [f32; 3], Option<(i32, i32, i32)>, Vec<(u32, mao_formats::gfx::Visual)>)>>,
+    pub auras: Option<Vec<(u32, bool, [f32; 3], f32, Option<(i32, i32, i32)>, Vec<(u32, mao_formats::gfx::Visual)>)>>,
     /// Cast effects to start: where (Z up) and the emitters of the program's cast template.
     pub bursts: Option<Vec<([f32; 3], Vec<mao_formats::gfx::Emitter>)>>,
     /// Spells in flight and landing: the tracer's and the hit effect's spirals.
@@ -222,7 +222,7 @@ pub fn headless_with(model: &Model, textures: &Textures, out: &str, ui: Option<(
         let feet = if let [x, y, z] = at[..] { [x, y, z] } else { [0.0, 0.0, 0.0] };
         let time: f32 = std::env::var("MAO_AURA_TIME").ok().and_then(|t| t.parse().ok()).unwrap_or(0.8);
         if let Some(visual) = gfx.and_then(|g| g.visual(id.parse().unwrap_or(0))) {
-            scene.particles = crate::effects::pulse_particles(&visual, feet, time, None);
+            scene.particles = crate::effects::pulse_particles(&visual, feet, 0.0, time, None);
             eprintln!("aura: {} sparks", scene.particles.len());
         }
     }
@@ -291,7 +291,7 @@ struct App {
     behind_set: bool,
     last_follow: std::time::Instant,
     /// The nano programs running on characters (see `Update::auras`) and the clock their sparks run on.
-    auras: Vec<(u32, bool, [f32; 3], Option<(i32, i32, i32)>, Vec<(u32, mao_formats::gfx::Visual)>)>,
+    auras: Vec<(u32, bool, [f32; 3], f32, Option<(i32, i32, i32)>, Vec<(u32, mao_formats::gfx::Visual)>)>,
     /// When each buff of each character pulses (the original's schedule).
     pulses: crate::pulses::Pulses,
     fx_clock: std::time::Instant,
@@ -1028,12 +1028,13 @@ impl ApplicationHandler for App {
                     let own_feet = [self.own_base[0] + self.own_velocity[0] * ahead, self.own_base[2] + self.own_velocity[2] * ahead, self.own_base[1]];
                     let mut sparks = Vec::new();
                     self.pulses.begin_frame();
-                    for (id, own, at, body, auras) in &self.auras {
+                    for (id, own, at, heading, body, auras) in &self.auras {
                         let feet = if *own && self.hud.position.is_some() { own_feet } else { *at };
+                        let heading = if *own { self.heading } else { *heading };
                         for (nano, aura) in auras {
                             let (period, life, plays) = crate::effects::pulse_timing(aura);
                             if let Some(age) = self.pulses.tick(*id, *nano, period, life, plays, time) {
-                                sparks.extend(crate::effects::pulse_particles(aura, feet, age, *body));
+                                sparks.extend(crate::effects::pulse_particles(aura, feet, heading, age, *body));
                             }
                         }
                     }

@@ -2870,7 +2870,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                 })
                                 .clone()
                         };
-                        let mut list: Vec<(u32, bool, [f32; 3], Option<(i32, i32, i32)>, Vec<(u32, mao_formats::gfx::Visual)>)> = Vec::new();
+                        let mut list: Vec<(u32, bool, [f32; 3], f32, Option<(i32, i32, i32)>, Vec<(u32, mao_formats::gfx::Visual)>)> = Vec::new();
                         // (the body the ring is fitted to: breed, sex and the fatness stat 47)
                         let body = |id: u32| -> Option<(i32, i32, i32)> {
                             let info = state.infos.get(&id)?;
@@ -2880,7 +2880,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         let mut add = |id: u32, own_character: bool, at: [f32; 3], nanos: Vec<u32>| {
                             let auras: Vec<(u32, mao_formats::gfx::Visual)> = nanos.into_iter().filter_map(|n| aura_of(n).map(|v| (n, v))).take(6).collect();
                             if !auras.is_empty() {
-                                list.push((id, own_character, [at[0], at[2], at[1]], body(id), auras));
+                                let facing = state.rotations.get(&id).map(|q| 2.0 * q[1].atan2(q[3])).unwrap_or(0.0);
+                                list.push((id, own_character, [at[0], at[2], at[1]], facing, body(id), auras));
                             }
                         };
                         add(own, true, position, state.nanos.clone());

@@ -154,9 +154,45 @@ pub fn visual_particles(v: &Visual, feet: [f32; 3], time: f32, reach: Reach) -> 
     }
 }
 
-/// Where attach point 1006 (the placeholders' word 7) sits on a standing character, metres above the feet: a guess that puts the
-/// ring (its offsets are -0.1 to -0.5 m from the point) just over the head, as the recording shows.
-const ATTACH_1006: f32 = 2.1;
+/// Where an attach point (`Helix::attach`) sits on a standing character: metres above the feet, metres to the character's right of
+/// its middle, and the way its bone runs (+1 up toward the crown, -1 down toward the extremity, 0 none), along which the template's
+/// offset is applied (a head ring with offset -0.18 climbs to the crown; a calf ring with -0.25 sits at mid-shin). Typical figures for
+/// a standing body until the posed skeleton's bones are used.
+fn anchor(attach: i32) -> (f32, f32, f32) {
+    match attach {
+        1000 => (0.98, 0.0, 0.0),
+        1001 => (1.08, 0.0, 1.0),
+        1002 => (1.18, 0.0, 1.0),
+        1003 => (1.28, 0.0, 1.0),
+        1004 => (1.40, 0.0, 1.0),
+        1005 => (1.52, 0.0, 1.0),
+        1006 | 2002 => (1.62, 0.0, 1.0),
+        1007 => (1.45, -0.2, -1.0),
+        1008 => (1.45, 0.2, -1.0),
+        1009 => (1.15, -0.22, -1.0),
+        1010 => (1.15, 0.22, -1.0),
+        1011 => (0.92, -0.1, -1.0),
+        1012 => (0.92, 0.1, -1.0),
+        1013 => (0.50, -0.1, -1.0),
+        1014 => (0.50, 0.1, -1.0),
+        1015 => (0.08, -0.1, 0.0),
+        1016 => (0.08, 0.1, 0.0),
+        1017 | 2001 => (0.90, -0.25, 0.0),
+        1018 | 2000 => (0.90, 0.25, 0.0),
+        2003 => (1.30, 0.0, 0.0),
+        2004 => (1.50, -0.2, 0.0),
+        2005 => (1.50, 0.2, 0.0),
+        _ => (1.62, 0.0, 1.0),
+    }
+}
+
+/// The world point of an attach point with the template's `offset`, for a character whose feet are at `feet` facing `heading`.
+pub fn attach_point(attach: i32, offset: f32, feet: [f32; 3], heading: f32) -> [f32; 3] {
+    let (height, right, dir) = anchor(attach);
+    // (the character's right, in the viewer's Z-up world: x east, y the server's z)
+    let (rx, ry) = (heading.cos(), -heading.sin());
+    [feet[0] + rx * right, feet[1] + ry * right, feet[2] + height - dir * offset]
+}
 /// The shield effect (kind 3003, `_GfxControlShield_t`: the character's own mesh drawn again with a material) is stood in for by a
 /// ring that climbs the legs about every twenty seconds, as the recording shows its band doing; its real timing is in the material.
 const SHIELD_PERIOD: f32 = 20.0;
@@ -188,9 +224,9 @@ fn ride(out: &mut Vec<Particle>, feet: [f32; 3], z: f32, radius: f32, angle0: f3
 }
 
 /// The sparks of one running effect `age` seconds into its pulse (from `pulses::Pulses::tick`), round a character whose feet are at `feet`
-/// (world, Z up) and whose body is `(breed, sex, fatness)` when known. `Visual::Spiral` is the kind-1001 pair of placeholders; the shield
+/// (world, Z up) facing `heading`, and whose body is `(breed, sex, fatness)` when known. `Visual::Spiral` is the kind-1001 pair of placeholders; the shield
 /// and the rest are stood in for.
-pub fn pulse_particles(v: &Visual, feet: [f32; 3], age: f32, body: Option<(i32, i32, i32)>) -> Vec<Particle> {
+pub fn pulse_particles(v: &Visual, feet: [f32; 3], heading: f32, age: f32, body: Option<(i32, i32, i32)>) -> Vec<Particle> {
     let mut out = Vec::new();
     match v {
         Visual::Spiral(aura) => {
@@ -199,7 +235,8 @@ pub fn pulse_particles(v: &Visual, feet: [f32; 3], age: f32, body: Option<(i32, 
                     continue;
                 }
                 let (offset, radius) = body.map_or((helix.offset, helix.radius), |(b, s, f)| helix.fit(b, s, f));
-                ride(&mut out, feet, feet[2] + ATTACH_1006 + offset, radius.max(0.03), helix.phase, helix.spin, age, helix.life, aura.colour);
+                let at = attach_point(helix.attach, offset, feet, heading);
+                ride(&mut out, at, at[2], radius.max(0.03), helix.phase, helix.spin, age, helix.life, aura.colour);
             }
         }
         Visual::Glow { colour, size } => {
@@ -318,22 +355,26 @@ mod tests {
 
     #[test]
     fn a_pulse_rides_a_ring_at_the_body_s_place() {
-        let helix = mao_formats::gfx::Helix { spin: 12.6, phase: 0.0, size: 0.13, count: 10, colour: [0.5, 0.4, 1.0], material: 15, offset: -0.1, radius: 0.13, table: vec![(-0.5, 0.2); 24], life: 1.5 };
+        let helix = mao_formats::gfx::Helix { spin: 12.6, phase: 0.0, size: 0.13, count: 10, colour: [0.5, 0.4, 1.0], material: 15, attach: 1006, offset: -0.1, radius: 0.13, table: vec![(-0.5, 0.2); 24], life: 1.5 };
         let aura = Visual::Spiral(mao_formats::gfx::Aura { colour: [0.99, 0.99, 0.2], end: [0.99, 0.99, 0.2], helices: vec![helix], period: 4.0, plays: -1 });
         // without a body: the template's own place; with one: the table's
-        let own = pulse_particles(&aura, [0.0, 0.0, 0.0], 0.8, None);
-        assert!(!own.is_empty() && own.iter().all(|p| (p.position[2] - (ATTACH_1006 - 0.1)).abs() < 0.06));
-        let fitted = pulse_particles(&aura, [0.0, 0.0, 0.0], 0.8, Some((1, 2, 1)));
-        assert!(fitted.iter().all(|p| (p.position[2] - (ATTACH_1006 - 0.5)).abs() < 0.06));
+        // the head bone at 1.62 m: the offset climbs toward the crown
+        let own = pulse_particles(&aura, [0.0, 0.0, 0.0], 0.0, 0.8, None);
+        assert!(!own.is_empty() && own.iter().all(|p| (p.position[2] - 1.72).abs() < 0.06));
+        let fitted = pulse_particles(&aura, [0.0, 0.0, 0.0], 0.0, 0.8, Some((1, 2, 1)));
+        assert!(fitted.iter().all(|p| (p.position[2] - 2.12).abs() < 0.06));
         // the trail grows with the pulse, and nothing is drawn past its life
-        assert!(pulse_particles(&aura, [0.0, 0.0, 0.0], 0.2, None).len() < own.len());
-        assert!(pulse_particles(&aura, [0.0, 0.0, 0.0], 1.6, None).is_empty());
+        assert!(pulse_particles(&aura, [0.0, 0.0, 0.0], 0.0, 0.2, None).len() < own.len());
+        assert!(pulse_particles(&aura, [0.0, 0.0, 0.0], 0.0, 1.6, None).is_empty());
+        // a calf ring sits at mid-shin, a right-hand ring to the character's right
+        assert!((attach_point(1013, -0.25, [0.0; 3], 0.0)[2] - 0.25).abs() < 0.01);
+        assert!(attach_point(2000, 0.0, [0.0; 3], 0.0)[0] > 0.2);
         assert_eq!(pulse_timing(&aura), (4.0, 1.5, -1));
     }
     use mao_formats::gfx::Helix;
 
     fn aura() -> Aura {
-        let helix = |spin: f32| Helix { spin, phase: 0.0, size: 0.15, count: 10, colour: [0.5, 0.4, 1.0], material: 15, offset: -0.25, radius: 0.15, table: Vec::new(), life: 1.5 };
+        let helix = |spin: f32| Helix { spin, phase: 0.0, size: 0.15, count: 10, colour: [0.5, 0.4, 1.0], material: 15, attach: 1006, offset: -0.25, radius: 0.15, table: Vec::new(), life: 1.5 };
         Aura { colour: [0.2, 0.2, 0.99], end: [0.2, 0.2, 0.99], helices: vec![helix(-12.566), helix(12.566)], period: 4.0, plays: -1 }
     }
 

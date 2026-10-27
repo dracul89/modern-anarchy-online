@@ -240,8 +240,13 @@ pub struct Helix {
     pub colour: [f32; 3],
     /// The material (sprite sheet, see [`MATERIALS`]) of its sparks.
     pub material: i32,
-    /// Where the ring sits: metres from the attach point (word 3; -0.25, -0.1...), and its radius in metres (word 21, 0.15). The
-    /// original overrides both per body from `table`.
+    /// The attach point on the body (word 7): 1000-1018 the `Bip01 *_ac` bones (1000 pelvis, 1001-1004 spine to spine3, 1005 neck,
+    /// 1006 head, 1007/1008 left/right upper arm, 1009/1010 forearms, 1011/1012 thighs, 1013/1014 calves, 1015/1016 feet, 1017/1018
+    /// hands), 2000-2023 the `Attractor*` nodes (2000 right hand, 2001 left hand, 2002 head, 2003 back, 2004/2005 left/right shoulder,
+    /// then the specials); the original's tables at Gamecode.dll 0x102c63a8 and 0x102c63f8.
+    pub attach: i32,
+    /// Where the ring sits: metres from the attach point along its bone (word 3; -0.25, -0.1...), and its radius in metres (word 21,
+    /// 0.15). The original overrides both per body from `table`.
     pub offset: f32,
     pub radius: f32,
     /// The kind-0 table (word 26): a pair `(offset, radius)` for each breed (1-4), sex (male, female) and fatness (0-2), in that
@@ -296,7 +301,7 @@ impl Gfx {
             .references(root.id)
             .into_iter()
             .filter_map(|c| self.get(c).filter(|c| c.kind == 1002))
-            .map(|c| Helix { spin: c.float(23), phase: c.float(22), size: c.float(21), count: c.int(20).max(1) as u32, colour: [c.float(13), c.float(14), c.float(15)], material: self.get(c.int(10)).map_or(15, |spark| spark.int(9)), offset: c.float(3), radius: c.float(21).abs().max(0.02), table: self.get(c.int(26)).filter(|t| t.kind == 0).map(|t| t.payload.chunks_exact(2).map(|p| (f32::from_bits(p[0] as u32), f32::from_bits(p[1] as u32))).collect()).unwrap_or_default(), life: if (0.2..10.0).contains(&c.float(8)) { c.float(8) } else { 1.5 } })
+            .map(|c| Helix { spin: c.float(23), phase: c.float(22), size: c.float(21), count: c.int(20).max(1) as u32, colour: [c.float(13), c.float(14), c.float(15)], material: self.get(c.int(10)).map_or(15, |spark| spark.int(9)), attach: c.int(7), offset: c.float(3), radius: c.float(21).abs().max(0.02), table: self.get(c.int(26)).filter(|t| t.kind == 0).map(|t| t.payload.chunks_exact(2).map(|p| (f32::from_bits(p[0] as u32), f32::from_bits(p[1] as u32))).collect()).unwrap_or_default(), life: if (0.2..10.0).contains(&c.float(8)) { c.float(8) } else { 1.5 } })
             .collect();
         let rgb = |at: usize| tint.unwrap_or([root.float(at), root.float(at + 1), root.float(at + 2)]);
         let period = root.float(20);
@@ -449,7 +454,7 @@ mod tests {
         assert_eq!(aura.helices[1].spin, 12.566);
         assert_eq!(aura.helices[0].count, 10);
         assert_eq!(aura.helices[0].colour, [0.5, 0.4, 1.0]);
-        assert_eq!((aura.period, aura.plays, aura.helices[0].offset, aura.helices[0].radius, aura.helices[0].life), (4.0, -1, 0.0, 0.15, 1.5));
+        assert_eq!((aura.period, aura.plays, aura.helices[0].attach, aura.helices[0].offset, aura.helices[0].radius, aura.helices[0].life), (4.0, -1, 0, 0.0, 0.15, 1.5));
         assert_eq!(aura.helices[0].fit(1, 2, 1), (0.0, 0.15));
         assert!(gfx.aura(20011).is_none());
     }
