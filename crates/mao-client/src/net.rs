@@ -996,14 +996,14 @@ pub(crate) fn wear(db: &ResourceDatabase, cache: &mut std::collections::HashMap<
     parts
 }
 
-/// How long a change of animation is cross-faded, in seconds.
-const FADE: f32 = 0.16;
-
 struct PoseState {
     key: (mao_formats::appearance::Action, u8),
     last: (mao_formats::appearance::Action, f32),
     from: Option<(mao_formats::appearance::Action, f32)>,
     at: Instant,
+    /// How long this change of animation cross-fades, in seconds: the original's `VisualCATMesh_t::SetAnimation` fades a new
+    /// animation in over what is left of the running cycle, kept between 200 and 300 ms (`catloader.rs`).
+    fade: f32,
 }
 
 /// The parts of a movement animation: the original's walk and run animations carry `loopstart` and `loopend`
@@ -1294,13 +1294,17 @@ impl Characters {
         };
         let (action, at) = self.motion(id, breed, sex, moving, jumped, rate);
         let key = (action, self.segment);
-        // A change of segment is cross-faded from where the last pose was.
-        let (from, fade_at) = match self.poses.get(&id) {
-            Some(p) if p.key != key => (Some(p.last), Instant::now()),
-            Some(p) => (p.from, p.at),
-            None => (None, Instant::now()),
+        // A change of segment is cross-faded from where the last pose was, over what was left of its cycle (200 to 300 ms).
+        let previous = self.poses.get(&id).map(|p| (p.key, p.last, p.from, p.at, p.fade));
+        let (from, fade_at, fade) = match previous {
+            Some((k, last, ..)) if k != key => {
+                let left = self.loop_points(breed, sex, last.0).map_or(250.0, |(_, end, length)| (if end > last.1 { end } else { length }) - last.1);
+                (Some(last), Instant::now(), left.clamp(200.0, 300.0) / 1000.0)
+            }
+            Some((_, _, from, at, fade)) => (from, at, fade),
+            None => (None, Instant::now(), 0.25),
         };
-        let from = from.filter(|_| fade_at.elapsed().as_secs_f32() < FADE);
+        let from = from.filter(|_| fade_at.elapsed().as_secs_f32() < fade);
         let custom_head = gear.iter().any(|g| g.0 == 0 && self.head_meshes.contains(&g.1));
         let name = self.ensure_anim(breed, sex, action);
         let from_name = from.map(|(a, _)| self.ensure_anim(breed, sex, a));
@@ -1319,9 +1323,9 @@ impl Characters {
             Some(t) => t.min(*length),
             None => (self.started.elapsed().as_secs_f32() * 1000.0 + phase) % length,
         };
-        self.poses.insert(id, PoseState { key, last: (action, t), from: self.poses.get(&id).and_then(|p| if p.key != key { Some(p.last) } else { p.from }).filter(|_| fade_at.elapsed().as_secs_f32() < FADE), at: fade_at });
+        self.poses.insert(id, PoseState { key, last: (action, t), from: self.poses.get(&id).and_then(|p| if p.key != key { Some(p.last) } else { p.from }).filter(|_| fade_at.elapsed().as_secs_f32() < fade), at: fade_at, fade });
         let bones = match (from, from_name.as_ref().and_then(|n| self.anims.get(n)).and_then(|a| a.as_ref())) {
-            (Some((_, from_time)), Some((from_anim, _))) => body.pose_blend(from_anim, from_time, anim, t, (fade_at.elapsed().as_secs_f32() / FADE).clamp(0.0, 1.0)),
+            (Some((_, from_time)), Some((from_anim, _))) => body.pose_blend(from_anim, from_time, anim, t, (fade_at.elapsed().as_secs_f32() / fade).clamp(0.0, 1.0)),
             _ => body.pose(anim, t),
         };
         let mut model = body.skinned_model(&bones, 0xf6954);
@@ -1338,8 +1342,12 @@ impl Characters {
         }
         model.parts.extend(wear(&db, &mut self.statics, body, &bones, gear));
         let mut parts = model.parts;
+        // The body's scale is the Scale stat (360) over 100 (`n3VisualDynel_t::SetBodyScale`, from FUN_10058800 and its kin).
+        let k = (scale / 100.0).max(0.01);
+        let mut world = model::IDENTITY;
+        (world[0], world[5], world[10]) = (k, k, k);
         for p in &mut parts {
-            p.world = model::IDENTITY;
+            p.world = world;
         }
         Some(parts)
     }
