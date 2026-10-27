@@ -26,6 +26,7 @@ then check a render. Never the other way round.
 | Body scale | `n3VisualDynel_t::SetBodyScale(stat 360 / 100)` (FUN_10058800, FUN_1005c3ed, FUN_1008746a) | `parts()` world scale | done for the own character; the others' stat is not received |
 | Texture alpha as light | the alpha-replicate texture stages (`RDeltaState`) | `Material::alpha_lights` | done |
 | Game clock, day intensity | `GameTime_t` (0x1000afdb, `RunFunction` 0x1000b27e, `GetDayIntensity` 0x1000af23; the `GameTime` message 0x5f52412e → `Update` 0x1000b590) | `gametime.rs`, `n3::GAME_TIME` | done; the server here never sends the message, so the real clock stands in at the game's pace |
+| Camera | `n3Camera_t` (N3.dll: FUN_10022345 per frame, FUN_1002118c turn/zoom, FUN_10020e0c reset; `CameraVehicle_t` / `CameraVehicleFixedThird_t` steering, `Vehicle_t::Run` / `SteeringArrive` in Vehicle.dll) | `camera.rs` (`SteeringCamera`), 90° field of view in `mao-render` | done: the three third-person modes, first person, key/mouse turn and zoom with the 0.8–25 limits, reset; not the obstacle sensors, the room attractors, nor a line of sight through statels (terrain only) |
 | Area environments (light, fog) | `Environment_t` FUN_100be0bb / FUN_100becbe / FUN_100beacd / FUN_100bf96e over `AreaData_t`'s `EnvironmentData_t` (the `0xf425d` object) | `mao_formats::areas` (`blend`), `Scene::{ambient, area_fog}` | done for clear weather; the weather roll (FUN_100bcec6, the schedule FUN_100b1821) is not ported |
 | Buff pulses | `_GfxControlBPHFSM_t`, `gfxtweak.bin` | `pulses.rs`, `effects.rs` | done earlier |
 
@@ -56,17 +57,32 @@ then check a render. Never the other way round.
      s, 16 entries; FUN_100bd555 steps it, FUN_100bcec6 rolls a state: the weather bytes 0–7 (each ×2+100 when above 1)
      weight *clear* (byte 3), *fog* (0), *mist* (1, ×0.65), *clouds* (2), and the four precipitations (4–7, with a 0.5
      intensity); bytes 8–9 the wind range (×2.75), 10–11 the darkness range, 12–13 the thunder/lightning chances (×10),
-     14–18 the rest. Then a second table is cross-faded (FUN_100bf96e) over the state's fade time. Port this next for the
-     fog/rain/clouds to appear where the data has them (Mort, the swamps, Tir County…).
+     14–18 the rest. Then a second table is cross-faded (FUN_100bf96e) over the state's fade time. The random numbers are an
+     R250 generator: FUN_1013de47 copies the 250-word table at `.rdata` 0x101727f8 and adds the seed to the word at
+     `seed & 0xff`; FUN_1013dec9 steps it (lags 103 and 147) and returns the word × 2⁻³² (`_DAT_1016bcf0`), FUN_1013de89 the
+     raw word. Each schedule entry (0x20 bytes: start time, its own seed, 16 floats and 8 words drawn from it, walked
+     cyclically by FUN_100b138c / FUN_100b13b6) is independent, so the weather is reproducible from the area's bytes and the
+     day count. Port this next for the fog/rain/clouds to appear where the data has them (Mort, the swamps, Tir County…).
 2. **Terrain texturing and lighting** — `AnarchyGround_t` (displaysystem `anarchyground.rs`, `rdbground.rs`, `rdbtile.rs`,
    `grounddata.rs`): per-tile textures with a shadow texture pass, a ground-light pass, ROAM tessellation (the client draws
    the full grid: fine). Compare the texture blending and the lighting fix byte.
 3. **Water** — `liquid.rs`, `fxliquid.rs`, `water.rs`: where the surfaces are (the room records carry water surfaces; the
    outdoor liquid is in the ground data) and how they look. The client's placement is a guess (`CLIENT_UI.md` line 67).
-4. **Camera** — Gamecode's camera (`n3Camera_t`, the camera attractors in the room records, `VisualCamera_t`
-   displaysystem `camera.rs`, randy31 `camera.rs` for the frustum/FOV): distance limits, pitch, collision with the world,
-   the three third-person modes. The client's are invented.
+4. **Camera** — ported (see the table and `camera.rs`'s header; N3.dll and Vehicle.dll were decompiled for it, the dumps
+   are in the session scratchpad noted in memory). Left: the free camera's sensors (`CalculateSensorSteerDir`: flexes of
+   0.5, 2, 8 and 32 units up, down, left, right, forward and back until one is seen), the line of sight against statels
+   (the viewer has only the terrain; the collision lives on the network thread), the look target from the CAT mesh's
+   `Attractor31_camera` (smoothed by FUN_10020bdb), the room camera attractors (`n3Zone_t::GetCameraAttractorList`),
+   `MouseTurnSensitivity` / `ZoomSpeed` / `MouseLookInverted` as settings, and the mode-3 eased zoom (+0x204, 3 units a
+   second) which nothing in the decompile sets.
 5. **Automap / minimap** — the original's map textures and the `PlanetMap` window; the client's fog-of-war map is invented.
+   The data is plain: `cd_image/textures/PlanetMap/normal/PlanetMapIndexNormal.txt` (`Name`, `Type Rubika`, `CoordsFile`,
+   then per zoom level `File <bin>`, `TextureSize 128`, `Size w h`, `Tiles cols rows`, `MapRect l t r b`, and a `FilePos`
+   per tile: a 128×128 PNG at that offset in `PlanetMapGfxNormal.bin`; levels 384×640 of 3×5 tiles, 1024×1536 of 8×12, …),
+   `MapCoordinates.xml` (`<Playfield id x xscale z zscale>`: where each playfield's origin sits on the map, e.g. Old Athen
+   540 at 39621, 40670), the Shadowlands and Dovves sets beside it. GUI.dll's `PlanetMapView_c` (FUN_1004d1cf parses the
+   index) draws it with `PlanetMap_ZoomIn/Out`, `PlanetMap_CentreOnChar`, `PlanetMap_CentreOnQuest`; the in-game minimap
+   is the same map at the character. Port: read the index and tiles, find the world→pixel scale in `PlanetMapView_c`.
 6. **Rooms (shops, dungeons)** — light maps (`n3Room_t`), decals (the blue tile layer), wall textures; `room.rs` in
    displaysystem.
 7. **Shadows** — `gfxshadow.rs` (the characters' blob/projected shadows) and randy31 `shadow.rs`; the client uses a shadow

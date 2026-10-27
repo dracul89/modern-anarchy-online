@@ -56,6 +56,7 @@ mod hotbar;
 mod net;
 mod settings;
 mod theme;
+mod camera;
 mod effects;
 mod gametime;
 mod ui;

@@ -313,7 +313,11 @@ struct App {
     pulses: crate::pulses::Pulses,
     fx_clock: std::time::Instant,
     /// The camera's distance before it was pulled to the character's head (F8), when it is.
-    home_distance: Option<f32>,
+    /// The game's camera (the original's steered vehicle), and the frame's mouse look, wheel and reset gathered for it.
+    steering: crate::camera::SteeringCamera,
+    mouse_look: (f32, f32),
+    wheel: f32,
+    cam_reset: bool,
     /// The cast effects running: when each began, where, and its emitters.
     bursts: Vec<(std::time::Instant, [f32; 3], Vec<mao_formats::gfx::Emitter>)>,
     shots: Vec<(std::time::Instant, crate::effects::Shot)>,
@@ -385,7 +389,7 @@ pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<()
     let settings = Settings::load();
     crate::ui::set_debug_overlay(settings.debug_overlay);
     crate::font::set_enabled(settings.original_font);
-    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), home_distance: None, bursts: Vec::new(), shots: Vec::new(), tried_sprites: Default::default(), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, environment: Default::default(), daylight: 1.0, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
+    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), tried_sprites: Default::default(), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, environment: Default::default(), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
     event_loop.run_app(&mut app).map_err(|e| e.to_string())?;
     if app.logged_out {
         // (the launcher that started the game sees this code and shows the character screen again)
@@ -432,6 +436,16 @@ fn yaw_behind(heading: f32) -> f32 {
     heading_from_yaw(heading)
 }
 
+/// The settings' camera mode as the original's `PreferredCameraMode`: "trail" is the free camera (1), "rubber" the one
+/// that steers behind the character (2), "lock" the one held behind it (3).
+fn camera_mode(name: &str) -> crate::camera::Mode {
+    match name {
+        "lock" => crate::camera::Mode::Locked,
+        "trail" => crate::camera::Mode::Free,
+        _ => crate::camera::Mode::Rubber,
+    }
+}
+
 impl ApplicationHandler for App {
     fn device_event(&mut self, _: &ActiveEventLoop, _: DeviceId, event: DeviceEvent) {
         let DeviceEvent::MouseMotion { delta: (dx, dy) } = event else { return };
@@ -440,8 +454,9 @@ impl ApplicationHandler for App {
         }
         self.moved += dx.abs() as f32 + dy.abs() as f32;
         let Some(w) = self.state.as_mut() else { return };
-        w.camera.yaw -= dx as f32 * 0.005;
-        w.camera.pitch = (w.camera.pitch + dy as f32 * 0.005).clamp(-0.6, 1.45);
+        // The mouse look goes to the game's camera at the next frame (across: right positive; up: mouse up positive).
+        self.mouse_look.0 += dx as f32 * 0.005;
+        self.mouse_look.1 -= dy as f32 * 0.005;
         if self.buttons[1] {
             self.keys.face = Some(heading_from_yaw(w.camera.yaw));
             if let Some(live) = &self.live {
@@ -574,7 +589,7 @@ impl ApplicationHandler for App {
             }
             WindowEvent::MouseInput { state, button: MouseButton::Left, .. } => self.dragging = state == ElementState::Pressed,
             WindowEvent::CursorMoved { position, .. } => {
-                if self.dragging {
+                if self.dragging && self.live.is_none() {
                     w.camera.yaw -= (position.x - self.last.0) as f32 * 0.01;
                     w.camera.pitch = (w.camera.pitch + (position.y - self.last.1) as f32 * 0.01).clamp(-1.5, 1.5);
                     w.window.request_redraw();
@@ -649,14 +664,8 @@ impl ApplicationHandler for App {
                             }
                         }
                         Action::CameraToggleView if !event.repeat => {
-                            // (between where the camera is and right behind the character's head)
-                            match self.home_distance.take() {
-                                Some(d) => w.camera.distance = d,
-                                None => {
-                                    self.home_distance = Some(w.camera.distance);
-                                    w.camera.distance = 1.5;
-                                }
-                            }
+                            // (`ToggleCameraView`: first person and back)
+                            self.steering.toggle_view();
                         }
                         Action::Quick(n) if !event.repeat => {
                             if let Some(&(_, _, id, name)) = crate::settings::QUICK.get(n as usize) {
@@ -775,21 +784,13 @@ impl ApplicationHandler for App {
                             };
                             self.keys.commands[slot] = self.keys.commands[slot].wrapping_add(1);
                         }
-                        Action::CameraRotateLeft => w.camera.yaw += 0.08,
-                        Action::CameraRotateRight => w.camera.yaw -= 0.08,
-                        Action::CameraRotateUp => w.camera.pitch = (w.camera.pitch + 0.06).clamp(-1.5, 1.5),
-                        Action::CameraRotateDown => w.camera.pitch = (w.camera.pitch - 0.06).clamp(-1.5, 1.5),
-                        Action::CameraZoomIn => w.camera.distance = (w.camera.distance * 0.9).max(1.5),
-                        Action::CameraZoomOut => w.camera.distance *= 1.1,
+                        // (the rotate and zoom keys act while held: the frame reads them from `held`)
+                        Action::CameraRotateLeft | Action::CameraRotateRight | Action::CameraRotateUp | Action::CameraRotateDown | Action::CameraZoomIn | Action::CameraZoomOut => {}
                         Action::CameraSavePreferred if !event.repeat => {
                             self.preferred = Some(w.camera);
                             eprintln!("camera saved");
                         }
-                        Action::CameraReset if !event.repeat => {
-                            if let Some(c) = self.preferred.or(self.home) {
-                                (w.camera.yaw, w.camera.pitch, w.camera.distance) = (c.yaw, c.pitch, c.distance);
-                            }
-                        }
+                        Action::CameraReset if !event.repeat => self.cam_reset = true,
                         _ => {}
                     }
                 }
@@ -844,9 +845,13 @@ impl ApplicationHandler for App {
                     MouseScrollDelta::LineDelta(_, y) => y,
                     MouseScrollDelta::PixelDelta(p) => p.y as f32 / 40.0,
                 };
-                // A live view (following a character) zooms in close; a viewer's limit depends on the scene.
-                let closest = if self.live.is_some() { 1.5 } else { w.scene.radius * 0.1 };
-                w.camera.distance = (w.camera.distance * (1.0 - lines * 0.1)).max(closest);
+                if self.live.is_some() {
+                    // (a notch up zooms the game's camera in)
+                    self.wheel -= lines;
+                } else {
+                    let closest = w.scene.radius * 0.1;
+                    w.camera.distance = (w.camera.distance * (1.0 - lines * 0.1)).max(closest);
+                }
                 w.window.request_redraw();
             }
             WindowEvent::RedrawRequested => {
@@ -864,21 +869,9 @@ impl ApplicationHandler for App {
                         }
                     }
                 }
-                // Walking, the camera swings round behind the character, unless the mouse is steering it.
-                let dt = self.last_follow.elapsed().as_secs_f32().min(0.1);
+                // The game's camera is stepped once the character's place for this frame is known (below).
+                let dt = self.last_follow.elapsed().as_secs_f32().min(0.25);
                 self.last_follow = std::time::Instant::now();
-                // (the original's three third-person modes: locked stays behind at all times, rubber swings round at 6/s, trailing at 1.5/s)
-                let moving = self.keys.forward || self.keys.back || self.keys.turn != 0;
-                let rate = match self.settings.camera_mode.as_str() {
-                    "lock" => Some(f32::INFINITY),
-                    "trail" if moving => Some(1.5),
-                    "rubber" if moving => Some(6.0),
-                    _ => None,
-                };
-                if let (true, true, true, Some(rate)) = (self.live.is_some(), self.behind_set, self.buttons == [false; 2], rate) {
-                    let difference = (yaw_behind(self.heading) - w.camera.yaw + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
-                    w.camera.yaw += if rate.is_finite() { difference * (1.0 - (-rate * dt).exp()) } else { difference };
-                }
                 if let Some(live) = &self.live {
                     // Every update's messages count; the last one's picture is drawn.
                     let mut updates: Vec<Update> = live.overlays.try_iter().collect();
@@ -1042,9 +1035,40 @@ impl ApplicationHandler for App {
                         let [vx, _, vz] = self.own_velocity;
                         let (px, pz) = (x + vx * ahead, z + vz * ahead);
                         w.scene.move_follow(&w.gpu, mao_render::glam::Vec3::new(vx * ahead, vz * ahead, 0.0));
-                        w.camera.target = mao_render::glam::Vec3::new(px, pz, y + 1.3);
                         // The player's feet: plants bend away from them.
                         w.scene.player = Some(mao_render::glam::Vec3::new(px, pz, y));
+                        // The game's camera: the original's steered vehicle (see `camera.rs`), looking at the head, in the
+                        // server's frame; the terrain stands in for its lines of sight.
+                        let held = |a: Action| self.held.contains(&a);
+                        let inputs = crate::camera::Inputs {
+                            rotate_left: held(Action::CameraRotateLeft),
+                            rotate_right: held(Action::CameraRotateRight),
+                            rotate_up: held(Action::CameraRotateUp),
+                            rotate_down: held(Action::CameraRotateDown),
+                            zoom_in: held(Action::CameraZoomIn),
+                            zoom_out: held(Action::CameraZoomOut),
+                            mouse: if self.buttons == [false; 2] { (0.0, 0.0) } else { self.mouse_look },
+                            wheel: std::mem::take(&mut self.wheel),
+                            reset: std::mem::take(&mut self.cam_reset),
+                        };
+                        self.mouse_look = (0.0, 0.0);
+                        let ground = self.ground.clone();
+                        let mut los = |a: [f32; 3], b: [f32; 3]| -> bool {
+                            let Some((terrain, offset)) = &ground else { return true };
+                            let steps = ((a[0] - b[0]).hypot(a[2] - b[2]) / 0.5).ceil().clamp(1.0, 64.0) as usize;
+                            (0..=steps).all(|i| {
+                                let t = i as f32 / steps as f32;
+                                let (x, y, z) = (a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t);
+                                y >= terrain.height_at(x, z, terrain.height_scale) + offset + 0.3
+                            })
+                        };
+                        let speed = (vx * vx + vz * vz).sqrt();
+                        let (eye, at) = self.steering.update(dt, [px, y + 1.3, pz], self.heading, speed, inputs, &mut los);
+                        w.camera = mao_render::Camera::looking(mao_render::glam::Vec3::new(eye[0], eye[2], eye[1]), mao_render::glam::Vec3::new(at[0], at[2], at[1]));
+                        if self.steering.is_first_person() {
+                            // (looking out of the head: the target is a step ahead, the eye at the head)
+                            w.camera.distance = 0.01;
+                        }
                     }
                 }
                 // The sparks of the running nano programs, where they are now (the character's own glides with it).
@@ -1205,22 +1229,18 @@ impl ApplicationHandler for App {
                         match which {
                             0 => self.keys.select_self = self.keys.select_self.wrapping_add(1),
                             1 => self.keys.commands[0] = self.keys.commands[0].wrapping_add(1),
-                            // (the camera modes: right behind the head, or back where it was)
-                            2 => {
-                                if self.home_distance.is_none() {
-                                    self.home_distance = Some(w.camera.distance);
-                                    w.camera.distance = 1.5;
-                                }
-                            }
+                            // (the camera modes: first person, third person, and which third person)
+                            2 => self.steering.set_mode(crate::camera::Mode::First),
                             3 => {
-                                if let Some(d) = self.home_distance.take() {
-                                    w.camera.distance = d;
+                                if self.steering.is_first_person() {
+                                    self.steering.toggle_view();
                                 }
                             }
                             _ => {
                                 self.settings.camera_mode = ["lock", "rubber", "trail"][(which as usize - 4).min(2)].to_string();
                                 self.settings.save();
-                                self.hud.say(format!("Camera: third person {}.", match self.settings.camera_mode.as_str() { "lock" => "locked", "trail" => "trailing", _ => "rubber" }));
+                                self.steering.set_mode(camera_mode(&self.settings.camera_mode));
+                                self.hud.say(format!("Camera: third person {}.", match self.settings.camera_mode.as_str() { "lock" => "locked", "trail" => "trailing (free)", _ => "rubber" }));
                             }
                         }
                         if let Some(live) = &self.live {

@@ -203,6 +203,15 @@ impl Camera {
         Camera { target: scene.center, distance: scene.radius * 2.0, yaw: 0.6, pitch: 0.35 }
     }
 
+    /// A camera at `eye` looking at `target` (world, Z up).
+    pub fn looking(eye: Vec3, target: Vec3) -> Camera {
+        let d = eye - target;
+        let distance = d.length().max(0.01);
+        let pitch = (d.z / distance).clamp(-1.0, 1.0).asin();
+        let yaw = if d.x.abs() + d.y.abs() > 1e-9 { d.y.atan2(d.x) } else { 0.0 };
+        Camera { target, distance, yaw, pitch }
+    }
+
     /// Where the camera is.
     pub fn eye(&self) -> Vec3 {
         let direction = Vec3::new(self.yaw.cos() * self.pitch.cos(), self.yaw.sin() * self.pitch.cos(), self.pitch.sin());
@@ -225,7 +234,10 @@ impl Camera {
         let far = (self.distance + radius * 4.0).max(1.0);
         // (Not a fixed share of the far plane: on a big playfield that cut the ground within 8 units of the camera away.)
         let near = (far * 0.001).clamp(0.01, 0.2);
-        perspective(0.9, aspect, near, far) * look_at(eye, self.target, Vec3::Z)
+        // The original's view is 90° across (`VisualCamera_t::SetViewPlaneWindow(1.5708, aspect)`: the window's half width is
+        // tan(45°) at unit distance, its height that over the aspect), so the vertical field follows the window's shape.
+        let fov_y = 2.0 * (1.0 / aspect.max(0.1)).atan();
+        perspective(fov_y, aspect, near, far) * look_at(eye, self.target, Vec3::Z)
     }
 }
 
