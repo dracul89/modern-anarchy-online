@@ -292,6 +292,7 @@ impl ChatWindow {
         crate::chrome::window(ctx, palette, "Chat", "Chat", &mut open, |w| w.default_pos(crate::layout::pos("Chat", egui::pos2(8.0, (screen.height() - 270.0).max(40.0)))).default_size([560.0, 230.0]), |ui| {
                 // The tabs in the original's tab pieces (greyscale masks tinted with the theme's colours), the input line in its input bar.
                 let skin = crate::skin::skin(ctx).filter(|s| s.has("GFX_GUI_TAB_ACTIVE_LEFT"));
+                let chat_font = if crate::font::enabled() { crate::font::chat(ctx) } else { None };
                 let col = |c: [u8; 3]| egui::Color32::from_rgb(c[0], c[1], c[2]);
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 2.0;
@@ -328,7 +329,14 @@ impl ChatWindow {
                             Kind::Own => text("ct_otell", (160, 200, 160)),
                             Kind::Combat => text("CCMeHitOtherColor", (240, 170, 130)),
                         };
-                        ui.label(egui::RichText::new(&line.text).color(color));
+                        match &chat_font {
+                            Some(font) => {
+                                font.label(ui, &line.text, color);
+                            }
+                            None => {
+                                ui.label(egui::RichText::new(&line.text).color(color));
+                            }
+                        }
                     }
                 });
                 self.scroll_to_end = false;

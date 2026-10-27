@@ -583,6 +583,7 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
     let themes = theme::available(&settings.aou_mod);
     theme(&ctx, &palette);
     crate::skin::configure(&ctx, crate::skin::dirs(&settings.gui_dir, &settings.theme, &settings.aou_mod));
+    crate::font::set_enabled(settings.original_font);
     let mut renderer = egui_wgpu::Renderer::new(&gpu.device, format, egui_wgpu::RendererOptions::default());
     let screen = egui_wgpu::ScreenDescriptor { size_in_pixels: [size.0, size.1], pixels_per_point: 1.0 };
     let (mut open, mut rebinding, mut requests) = (options, None, Requests::default());
@@ -1081,6 +1082,9 @@ fn options_window(ctx: &egui::Context, open: &mut bool, rebinding: &mut Option<A
             ui.add(egui::Slider::new(&mut settings.char_distance, 0.0..=400.0).step_by(5.0).custom_formatter(|v, _| if v < 1.0 { "all".to_string() } else { format!("{v:.0}") }));
         });
         ui.checkbox(&mut settings.auto_loot, "Take everything from a corpse as soon as it opens");
+        if ui.checkbox(&mut settings.original_font, "The original's chat font (its own 9 px bitmap font)").changed() {
+            crate::font::set_enabled(settings.original_font);
+        }
         ui.horizontal(|ui| {
             ui.label("Interface size");
             ui.add(egui::Slider::new(&mut settings.ui_scale, 0.6..=2.0).step_by(0.05).custom_formatter(|v, _| format!("{:.0}%", v * 100.0)));

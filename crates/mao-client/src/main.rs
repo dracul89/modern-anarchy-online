@@ -39,6 +39,7 @@ mod skills;
 mod stats;
 mod trickle_data;
 mod chrome;
+mod font;
 mod skin;
 mod vitals;
 mod automap;

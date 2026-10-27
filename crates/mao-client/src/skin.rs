@@ -178,6 +178,7 @@ pub fn configure(ctx: &egui::Context, dirs: Vec<PathBuf>) {
     ctx.data_mut(|d| {
         d.insert_temp(egui::Id::new("skin-dirs"), dirs);
         d.remove::<Option<Arc<Skin>>>(egui::Id::new("skin"));
+        d.remove::<Option<Arc<crate::font::BitmapFont>>>(egui::Id::new("font-chat"));
     });
 }
 

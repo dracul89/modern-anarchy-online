@@ -361,6 +361,7 @@ pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<()
     let event_loop = EventLoop::new().map_err(|e| e.to_string())?;
     let settings = Settings::load();
     crate::ui::set_debug_overlay(settings.debug_overlay);
+    crate::font::set_enabled(settings.original_font);
     let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), auras: Vec::new(), fx_clock: std::time::Instant::now(), home_distance: None, bursts: Vec::new(), shots: Vec::new(), tried_sprites: Default::default(), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
     event_loop.run_app(&mut app).map_err(|e| e.to_string())?;
     if app.logged_out {

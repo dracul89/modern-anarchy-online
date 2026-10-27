@@ -25,6 +25,8 @@ anything the original did not have is either dropped from the default view or ma
 | Skin layer (Phase A.1): `gui_dir` setting / options field / `MAO_GUI_DIR` → theme folder → game Default, per-sprite fallthrough, lazy decode | done, checked offscreen with Default and AOU_CYT | `crates/mao-client/src/skin.rs` (`Skin`, `dirs`, `configure`, `skin`); research tool `tools/uvga_extract.py <skin folder> <out>` |
 | `TextColors.xml` chat colours (Phase A.3) | done | `theme.rs::text_colors`, `Palette::text`, `chatwindow.rs` |
 | Window chrome (Phase B.1-2): original frame, title, pin and close on every window | done, checked offscreen | `crates/mao-client/src/chrome.rs` |
+| Bitmap fonts (Phase A.2): `.fnt` reader, glyph mesh painter, word wrap; chat lines in `CHAT9` | done, checked offscreen; `original_font` setting | `crates/mao-client/src/font.rs` |
+| Target frame (Phase D.2), chat tabs (Phase E.1) | done, checked offscreen | `ui.rs::target_frame`, `chatwindow.rs` |
 | Theme colours from any `GUIColors.xml` folder (`theme = original`, `aou_cyt`, ... or a path; `aou_mod =` points at the AOU mod folder) | done | `crates/mao-client/src/theme.rs` (`theme_dir`, `Palette`) |
 | Window positions remembered between sessions | done (this client's own `layout.ini`, not the original's `Prefs.xml`) | `layout.rs` |
 | `/camp` returns to the character screen | built, not tried live | `viewer.rs` (`logged_out`), `launcher.rs` (`LOGGED_OUT`, `MAO_RELOGIN`) |
