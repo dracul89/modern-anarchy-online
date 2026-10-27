@@ -97,9 +97,10 @@ pub struct Update {
     pub floaters: Vec<([f32; 3], String, u8)>,
     /// Where a nano program landed (Z-up) and the glow's colour.
     pub glows: Vec<([f32; 3], [u8; 3])>,
-    /// Who is under running nano programs: whether it is the character itself, the feet (Z-up) and the aura of each program. The whole
-    /// list when it is given (an update without one leaves the last in place).
-    pub auras: Option<Vec<(bool, [f32; 3], Vec<mao_formats::gfx::Visual>)>>,
+    /// Who is under running nano programs: the character's id (0 for the player's own), whether it is the character itself, the feet
+    /// (Z-up), the body (breed, sex, fatness) when known, and each program with its running effect. The whole list when it is given
+    /// (an update without one leaves the last in place).
+    pub auras: Option<Vec<(u32, bool, [f32; 3], Option<(i32, i32, i32)>, Vec<(u32, mao_formats::gfx::Visual)>)>>,
     /// Cast effects to start: where (Z up) and the emitters of the program's cast template.
     pub bursts: Option<Vec<([f32; 3], Vec<mao_formats::gfx::Emitter>)>>,
     /// Spells in flight and landing: the tracer's and the hit effect's spirals.
@@ -221,7 +222,7 @@ pub fn headless_with(model: &Model, textures: &Textures, out: &str, ui: Option<(
         let feet = if let [x, y, z] = at[..] { [x, y, z] } else { [0.0, 0.0, 0.0] };
         let time: f32 = std::env::var("MAO_AURA_TIME").ok().and_then(|t| t.parse().ok()).unwrap_or(0.8);
         if let Some(visual) = gfx.and_then(|g| g.visual(id.parse().unwrap_or(0))) {
-            scene.particles = crate::effects::running_particles(&visual, feet, time, 0.0);
+            scene.particles = crate::effects::pulse_particles(&visual, feet, time, None);
             eprintln!("aura: {} sparks", scene.particles.len());
         }
     }
@@ -290,7 +291,9 @@ struct App {
     behind_set: bool,
     last_follow: std::time::Instant,
     /// The nano programs running on characters (see `Update::auras`) and the clock their sparks run on.
-    auras: Vec<(bool, [f32; 3], Vec<mao_formats::gfx::Visual>)>,
+    auras: Vec<(u32, bool, [f32; 3], Option<(i32, i32, i32)>, Vec<(u32, mao_formats::gfx::Visual)>)>,
+    /// When each buff of each character pulses (the original's schedule).
+    pulses: crate::pulses::Pulses,
     fx_clock: std::time::Instant,
     /// The camera's distance before it was pulled to the character's head (F8), when it is.
     home_distance: Option<f32>,
@@ -362,7 +365,7 @@ pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<()
     let settings = Settings::load();
     crate::ui::set_debug_overlay(settings.debug_overlay);
     crate::font::set_enabled(settings.original_font);
-    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), auras: Vec::new(), fx_clock: std::time::Instant::now(), home_distance: None, bursts: Vec::new(), shots: Vec::new(), tried_sprites: Default::default(), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
+    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), home_distance: None, bursts: Vec::new(), shots: Vec::new(), tried_sprites: Default::default(), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
     event_loop.run_app(&mut app).map_err(|e| e.to_string())?;
     if app.logged_out {
         // (the launcher that started the game sees this code and shows the character screen again)
@@ -1024,13 +1027,17 @@ impl ApplicationHandler for App {
                     let ahead = self.own_at.elapsed().as_secs_f32().min(0.12);
                     let own_feet = [self.own_base[0] + self.own_velocity[0] * ahead, self.own_base[2] + self.own_velocity[2] * ahead, self.own_base[1]];
                     let mut sparks = Vec::new();
-                    for (own, at, auras) in &self.auras {
+                    self.pulses.begin_frame();
+                    for (id, own, at, body, auras) in &self.auras {
                         let feet = if *own && self.hud.position.is_some() { own_feet } else { *at };
-                        for (k, aura) in auras.iter().enumerate() {
-                            // (each buff pulses on its own beat)
-                            sparks.extend(crate::effects::running_particles(aura, feet, time, k as f32 * 3.1));
+                        for (nano, aura) in auras {
+                            let (period, life, plays) = crate::effects::pulse_timing(aura);
+                            if let Some(age) = self.pulses.tick(*id, *nano, period, life, plays, time) {
+                                sparks.extend(crate::effects::pulse_particles(aura, feet, age, *body));
+                            }
                         }
                     }
+                    self.pulses.end_frame();
                     // (a cast effect emits for a second and lives out its particles' lives)
                     self.bursts.retain(|(began, _, emitters)| began.elapsed().as_secs_f32() < 1.0 + emitters.iter().map(|e| e.life).fold(0.0, f32::max).min(6.0));
                     for (began, at, emitters) in &self.bursts {

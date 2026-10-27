@@ -41,6 +41,7 @@ mod trickle_data;
 mod chrome;
 mod font;
 mod pointer;
+mod pulses;
 mod skin;
 mod vitals;
 mod automap;

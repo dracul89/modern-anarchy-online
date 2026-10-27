@@ -2870,17 +2870,23 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                 })
                                 .clone()
                         };
-                        let mut list: Vec<(bool, [f32; 3], Vec<mao_formats::gfx::Visual>)> = Vec::new();
-                        let mut add = |own_character: bool, at: [f32; 3], nanos: Vec<u32>| {
-                            let auras: Vec<mao_formats::gfx::Visual> = nanos.into_iter().filter_map(&mut aura_of).take(4).collect();
+                        let mut list: Vec<(u32, bool, [f32; 3], Option<(i32, i32, i32)>, Vec<(u32, mao_formats::gfx::Visual)>)> = Vec::new();
+                        // (the body the ring is fitted to: breed, sex and the fatness stat 47)
+                        let body = |id: u32| -> Option<(i32, i32, i32)> {
+                            let info = state.infos.get(&id)?;
+                            let fatness = if id == own { state.stats.get(&47).copied().unwrap_or(1) as i32 } else { 1 };
+                            Some((info.breed as i32, info.sex as i32, fatness))
+                        };
+                        let mut add = |id: u32, own_character: bool, at: [f32; 3], nanos: Vec<u32>| {
+                            let auras: Vec<(u32, mao_formats::gfx::Visual)> = nanos.into_iter().filter_map(|n| aura_of(n).map(|v| (n, v))).take(6).collect();
                             if !auras.is_empty() {
-                                list.push((own_character, [at[0], at[2], at[1]], auras));
+                                list.push((id, own_character, [at[0], at[2], at[1]], body(id), auras));
                             }
                         };
-                        add(true, position, state.nanos.clone());
+                        add(own, true, position, state.nanos.clone());
                         for (id, nanos) in &state.active_buffs {
                             if let Some((p, _)) = state.entities.get(id).filter(|_| *id != own) {
-                                add(false, *p, nanos.keys().copied().collect());
+                                add(*id, false, *p, nanos.keys().copied().collect());
                             }
                         }
                         list
