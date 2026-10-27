@@ -180,11 +180,27 @@ pub fn trs_matrix(position: [f32; 3], q: [f32; 4], scale: [f32; 3]) -> Matrix {
     m
 }
 
+/// The first keys of a frame's animation (`FAFAnim_t`: `trans_keys` of 16 bytes each, a time and x y z; `rot_keys` of 20, a time
+/// and a quaternion), as the pose the thing rests in. A sliding door's mesh saves its `anim_matrix` with the leaves slid apart (the
+/// open pose, the last keys); the closed door is the first keys.
+fn rest_pose(a: &Archive, frame: &Stream) -> Option<([f32; 3], [f32; 4])> {
+    let anim = a.objects.get(frame.int("0", "anim")? as usize)?;
+    let trans = anim.field("", "trans_keys")?.values.first()?;
+    let rot = anim.field("", "rot_keys")?.values.first()?;
+    if trans.len() < 16 || rot.len() < 20 {
+        return None;
+    }
+    let t = floats(&trans[..16]);
+    let r = floats(&rot[..20]);
+    Some(([t[1], t[2], t[3]], [r[1], r[2], r[3], r[4]]))
+}
+
 /// A frame's own matrix, as the original's `UpdateWorldMatrix` makes it: the
 /// rotation, scale and position as a matrix, taken through the frame's
 /// `anim_matrix` first (`anim_matrix * TRS`; a frame keeps one when it isn't
-/// the identity, with or without an animation).
-fn local_matrix(frame: &Stream) -> Matrix {
+/// the identity, with or without an animation). A frame with an animation
+/// takes the animation's first keys in place of the saved `anim_matrix`.
+fn local_matrix(a: &Archive, frame: &Stream) -> Matrix {
     let scale = float_field(frame, "scale").and_then(|v| v.first().copied()).unwrap_or(1.0);
     let q = float_field(frame, "local_rot").filter(|q| q.len() == 4).unwrap_or(vec![0.0, 0.0, 0.0, 1.0]);
     let p = float_field(frame, "local_pos").filter(|p| p.len() == 3).unwrap_or(vec![0.0; 3]);
@@ -204,6 +220,8 @@ fn local_matrix(frame: &Stream) -> Matrix {
     m[12] = p[0];
     m[13] = p[1];
     m[14] = p[2];
+    // (the animation's rest pose is not used yet: the key layout is not settled, see `rest_pose`)
+    let _ = rest_pose(a, frame);
     match float_field(frame, "anim_matrix").filter(|a| a.len() == 16) {
         Some(a) => {
             let a: Matrix = a.try_into().unwrap();
@@ -312,7 +330,7 @@ fn walk(a: &Archive, index: i32, parent: &Matrix, depth: usize, out: &mut Vec<Pa
         return Err(Error::Shape("a frame tree deeper than 64"));
     }
     let Some(frame) = (index >= 0).then(|| a.objects.get(index as usize)).flatten() else { return Ok(()) };
-    let world = multiply(&local_matrix(frame), parent);
+    let world = multiply(&local_matrix(a, frame), parent);
     if a.class(index as usize) == Some("RTriMesh_t") {
         if let Some(data) = frame.int("0", "data").and_then(|d| a.objects.get(d as usize)) {
             let name = string(data, "name");

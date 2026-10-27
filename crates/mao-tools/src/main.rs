@@ -435,6 +435,8 @@ stats {:?}", item.id, item.name, item.description, item.icon(), item.stats);
                         12 | 13 | 15 | 16 => v.chunks(4).map(|c| format!("{:.3}", f32::from_le_bytes(c.try_into().unwrap_or([0; 4])))).collect::<Vec<_>>().join(","),
                         6 => String::from_utf8_lossy(v).trim_end_matches(' ').to_string(),
                         9 if v.len() == 16 => v.chunks(4).map(|c| format!("{:#x}", u32::from_le_bytes(c.try_into().unwrap()))).collect::<Vec<_>>().join(" "),
+                        // (short byte blocks such as animation keys: as floats, with the integers for the ones that are not)
+                        9 if v.len() <= 64 && v.len() % 4 == 0 => v.chunks(4).map(|c| { let w = u32::from_le_bytes(c.try_into().unwrap()); let f = f32::from_bits(w); if f.is_finite() && f.abs() < 1e5 && (f == 0.0 || f.abs() > 1e-4) { format!("{f:.3}") } else { format!("{w:#x}") } }).collect::<Vec<_>>().join(","),
                         _ => format!("{}B", v.len()),
                     }).collect();
                     println!("    {}:{} [{}] {}", f.prefix, f.name, f.kind, values.join(" | "));
