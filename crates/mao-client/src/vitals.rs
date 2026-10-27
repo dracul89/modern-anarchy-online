@@ -179,6 +179,9 @@ fn show_skinned(ctx: &egui::Context, yaw: f32, stats: &BTreeMap<u32, i64>, parts
     let get = |s: u32| stats.get(&s).copied();
     compass(ctx, &skin, yaw);
     sub_menu(ctx, accent, open, clicked);
+    // The rollup (the original's `cc_rollup_panel` button): folds the wings and their bars away, leaving the menu strips.
+    let rolled_id = egui::Id::new("cc-rolled");
+    let mut rolled = ctx.data(|d| d.get_temp::<bool>(rolled_id)).unwrap_or(false);
     for left in [true, false] {
         let anchor = if left { egui::Align2::LEFT_BOTTOM } else { egui::Align2::RIGHT_BOTTOM };
         let offset = egui::vec2(if left { 5.0 } else { -5.0 }, -5.0);
@@ -186,14 +189,31 @@ fn show_skinned(ctx: &egui::Context, yaw: f32, stats: &BTreeMap<u32, i64>, parts
             let wing = if left { "GFX_GUI_CONTROLCENTER_WING_LEFT" } else { "GFX_GUI_CONTROLCENTER_WING_RIGHT" };
             let strip = if left { "GFX_GUI_CONTROLCENTER_BOTTOM_LEFT" } else { "GFX_GUI_CONTROLCENTER_BOTTOM_RIGHT" };
             let (Some(wing_size), Some(strip_size)) = (skin.get(wing).map(|s| s.size), skin.get(strip).map(|s| s.size)) else { return };
-            let (rect, _) = ui.allocate_exact_size(egui::vec2(strip_size.x.max(wing_size.x), wing_size.y + strip_size.y), egui::Sense::hover());
+            let wing_h = if rolled { 0.0 } else { wing_size.y };
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(strip_size.x.max(wing_size.x), wing_h + strip_size.y), egui::Sense::hover());
             let painter = ui.painter().clone();
             let wing_at = if left { rect.min } else { egui::pos2(rect.right() - wing_size.x, rect.top()) };
-            skin.draw(&painter, wing, wing_at, 1.0, egui::Color32::WHITE);
-            skin.draw(&painter, strip, egui::pos2(rect.left(), rect.top() + wing_size.y), 1.0, egui::Color32::WHITE);
+            if !rolled {
+                skin.draw(&painter, wing, wing_at, 1.0, egui::Color32::WHITE);
+            }
+            skin.draw(&painter, strip, egui::pos2(rect.left(), rect.top() + wing_h), 1.0, egui::Color32::WHITE);
+            // the rollup button sits on the right strip's end
+            if !left {
+                let size = egui::vec2(15.0, 15.0);
+                // (at the strip's left end, clear of the bars)
+                let at = egui::pos2(rect.left() + 6.0, rect.top() + wing_h - size.y - 3.0);
+                let response = ui.interact(egui::Rect::from_min_size(at, size), ui.id().with("rollup"), egui::Sense::click());
+                let state = if response.is_pointer_button_down_on() { 3 } else if response.hovered() { 2 } else { 1 };
+                skin.draw(&painter, &format!("GFX_GUI_ROLLUP_{}_STATE{state}", if rolled { "EXPAND" } else { "COLLAPSE" }), at, 1.0, accent);
+                if response.on_hover_text(if rolled { "Show the control center" } else { "Fold the control center away" }).clicked() {
+                    rolled = !rolled;
+                    ctx.data_mut(|d| d.insert_temp(rolled_id, rolled));
+                }
+            }
             // the bars stand in the wing's tall side, on its floor
             let top = wing_at.y + wing_size.y - 152.0 - 4.0;
-            if left {
+            if rolled {
+            } else if left {
                 let health = wing_bar(ui, &skin, &painter, egui::pos2(wing_at.x + 8.0, top), "HEALTH_BAR", egui::Color32::WHITE, get(stat::HEALTH), get(stat::MAX_HEALTH), "Health");
                 crate::stats::hover(health, "Max health", parts.get(&stat::MAX_HEALTH), accent);
                 let nano = wing_bar(ui, &skin, &painter, egui::pos2(wing_at.x + 24.0, top), "NANO_BAR", egui::Color32::WHITE, get(stat::CURRENT_NANO), get(stat::MAX_NANO), "Nano");
@@ -212,13 +232,13 @@ fn show_skinned(ctx: &egui::Context, yaw: f32, stats: &BTreeMap<u32, i64>, parts
             for (i, (&(_, window, tip), icon)) in entries.iter().zip(icons).enumerate() {
                 let name = format!("GFX_GUI_CC_ICONS_{icon}");
                 let Some(size) = skin.get(&name).map(|s| s.size) else { continue };
-                let at = egui::pos2(rect.left() + 10.0 + i as f32 * (size.x + 1.0), rect.top() + wing_size.y + (strip_size.y - size.y) * 0.5);
+                let at = egui::pos2(rect.left() + 10.0 + i as f32 * (size.x + 1.0), rect.top() + wing_h + (strip_size.y - size.y) * 0.5);
                 let response = ui.interact(egui::Rect::from_min_size(at, size), ui.id().with(window), egui::Sense::click()).on_hover_text(tip);
                 let tint = if open(window) { accent } else if response.hovered() { egui::Color32::WHITE } else { egui::Color32::from_gray(200) };
                 skin.draw(&painter, &name, at, 1.0, tint);
                 if response.clicked() {
                     match icon_menu(window) {
-                        Some(menu) => set_menu_state(ctx, Some((menu, egui::pos2(at.x, rect.top() + wing_size.y - 2.0)))),
+                        Some(menu) => set_menu_state(ctx, Some((menu, egui::pos2(at.x, rect.top() + wing_h - 2.0)))),
                         None => *clicked = Some(window),
                     }
                 }

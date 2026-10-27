@@ -131,7 +131,7 @@ mao-client`, a live look if the user is around, a paragraph in `docs/CLIENT_UI.m
    other windows when a menu entry opens one (the `Actions criteria=dvalue:AutoCloseWindows` lists).
 
 ### Phase D — the rest of the control center
-*(D.2 target frame, D.4 shortcut bar art and D.5 camera modes done 2026-10-26. Open: D.1 Wear/Shop icons (the Default strip is 214 px: six icons do not fit as drawn, check how the original's CCMenu lays them out), D.3 rollup / mini toolbar / agg-def slider.)*
+*(D.2 target frame, D.4 shortcut bar art and D.5 camera modes done 2026-10-26. Open: D.1 Wear/Shop icons (the Default strip is 214 px: six icons do not fit as drawn, check how the original's CCMenu lays them out), D.3's mini toolbar and agg-def slider (the rollup is done).)*
 1. Wear and Shop icons (`GFX_GUI_CC_ICONS_WEAR`, `STORE`); Vehicle/Perks/Skills/Shortcuts/Team/Factions
    icons exist too — add entries as windows appear. Team menu (Team, Raid, Find Team) once a team window
    exists.
