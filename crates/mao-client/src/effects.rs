@@ -7,7 +7,7 @@
 //! does not say (or is not read yet): the radius (the radius path's numbers, 0.06 to 0.15, are too small for a body; 0.42 m is used),
 //! how high and how long a spark lives (1.9 m and 1.6 s here), and the trail (a short tail of fading sparks behind each one).
 
-use mao_formats::gfx::{Aura, Cords, Deform, Emitter, Sparks, Stars, Visual};
+use mao_formats::gfx::{colour_curve, curve, unpack_argb, Aura, Cords, Deform, Emitter, Sparks, Stars, Visual, VolGrid};
 use mao_render::{Particle, NO_SPRITE};
 
 /// `_GfxControlTracer4_t`'s three cords at `time` seconds, wound round the line from `from` to `to` (world, Z up) as FUN_100ffa7b
@@ -220,6 +220,56 @@ pub fn stars_particles(s: &Stars, centre: [f32; 3], time: f32, stopped: bool) ->
     out
 }
 
+/// The slices of a `GfxControlVolGrid_t` effect (kind 3038) `time` seconds after it began, its locator's point at `feet` (world,
+/// Z up; the point itself, so the caller drops it to the ground for flag 0x2000). As FUN_10116292 runs it: the phase is the time's
+/// fraction of the duration, the box's height, width and depth and the two colours are the curves at the phase, the whole turned
+/// about the up axis by the spin times the time (from a random turn with flag 0x1000; here by `salt`); as displaysystem's
+/// `GfxVisualVolGrid` (FUN_1002f86d) builds it: `across` slices across x at `k / across` of the width from its left edge, each a
+/// fan from a centre half the height up, its bottom corners half the WIDTH out (the original's own asymmetry) in the middle colour,
+/// its top corners half the depth out in the top colour, the texture's row `k / across` stretched across it; `deep` the same across
+/// z; `up` square slices half the width out at `k / up` of the height, in the colours blended by that fraction, the whole texture
+/// over each. The client's quads carry one colour each, so a standing slice is two quads, the lower at a quarter of the blend and
+/// the upper at three quarters, each the trapezoid's width at its own middle; flag 0x4000 fades them by their facing on the card.
+pub fn volgrid_particles(g: &VolGrid, feet: [f32; 3], time: f32, salt: u32) -> Vec<Particle> {
+    let mut out = Vec::new();
+    if g.duration <= 0.0 || time < 0.0 || time >= g.duration {
+        return out;
+    }
+    let phase = (time % g.duration) / g.duration;
+    let (h, w, d) = (curve(&g.height, phase), curve(&g.width, phase), curve(&g.depth, phase));
+    let (middle, top) = (unpack_argb(colour_curve(&g.middle, phase)), unpack_argb(colour_curve(&g.top, phase)));
+    let blend = |u: f32| [0, 1, 2, 3].map(|i| middle[i] + (top[i] - middle[i]) * u);
+    let yaw = g.spin * time + if g.flags & 0x1000 != 0 { hash(salt, 0x3038) * std::f32::consts::TAU } else { 0.0 };
+    // (the original's x and z axes in the client's Z-up world, turned by the spin)
+    let ax = [yaw.cos(), yaw.sin(), 0.0];
+    let az = [-yaw.sin(), yaw.cos(), 0.0];
+    let scale = |v: [f32; 3], s: f32| [v[0] * s, v[1] * s, v[2] * s];
+    let at = |a: f32, z: f32, b: f32| [feet[0] + ax[0] * a + az[0] * b, feet[1] + ax[1] * a + az[1] * b, feet[2] + z];
+    let facing = g.flags & 0x4000 != 0;
+    let (sprite, whole) = match mao_formats::gfx::material(g.material) {
+        Some(_) => (g.material as u16, true),
+        None => (NO_SPRITE, false),
+    };
+    let rect = |left: f32, top: f32, width: f32, height: f32| if whole { [left, top, width, height] } else { [0.0; 4] };
+    let (hx, hz) = (w * 0.5, d * 0.5);
+    for (family, count) in [(0, g.across), (1, g.deep)] {
+        for k in 0..count {
+            let f = k as f32 / count as f32;
+            let p = f * w - hx;
+            for (half, u) in [(0.25f32, 0.25f32), (0.75, 0.75)] {
+                let reach = hx + (hz - hx) * half;
+                let (centre, right) = if family == 0 { (at(p, h * half, 0.0), scale(az, reach)) } else { (at(0.0, h * half, p), scale(ax, reach)) };
+                out.push(Particle::quad(centre, right, [0.0, 0.0, h * 0.25], blend(u), sprite, rect(0.0, f, 1.0, 0.0), facing));
+            }
+        }
+    }
+    for k in 0..g.up {
+        let f = k as f32 / g.up as f32;
+        out.push(Particle::quad(at(0.0, h * f, 0.0), scale(ax, hx), scale(az, hx), blend(f), sprite, rect(0.0, 0.0, 1.0, 1.0), facing));
+    }
+    out
+}
+
 /// A particle cut from a material's sprite sheet (`mao_formats::gfx::MATERIALS`), `t` (0 to 1) of the way through the sheet's frames; a
 /// material that is not known gives a soft dot.
 fn sprite(material: i32, t: f32, position: [f32; 3], size: f32, colour: [f32; 4]) -> Particle {
@@ -229,9 +279,9 @@ fn sprite(material: i32, t: f32, position: [f32; 3], size: f32, colour: [f32; 4]
             let frame = first as u32 + (t.clamp(0.0, 0.999) * frames).floor() as u32;
             let (col, row) = (frame % cols.max(1) as u32, frame / cols.max(1) as u32);
             let (du, dv) = (1.0 / cols.max(1) as f32, 1.0 / rows.max(1) as f32);
-            Particle { position, size, colour, sprite: material as u16, rect: [col as f32 * du, row as f32 * dv, du, dv] }
+            Particle { position, size, colour, sprite: material as u16, rect: [col as f32 * du, row as f32 * dv, du, dv], right: [0.0; 3], up: [0.0; 3] }
         }
-        None => Particle { position, size, colour, sprite: NO_SPRITE, rect: [0.0; 4] },
+        None => Particle::dot(position, size, colour),
     }
 }
 
@@ -351,6 +401,8 @@ pub fn visual_particles(v: &Visual, feet: [f32; 3], time: f32, reach: Reach) -> 
         Visual::Deform(_) => Vec::new(),
         // (needs both ends of its line: `Shot::particles` draws it; alone, a short cord up from the point)
         Visual::Cords(c) => cords_particles(c, feet, [feet[0], feet[1], feet[2] + 1.0], time),
+        // (the locator's point is the feet; the turn is drawn from the point so one effect keeps its turn)
+        Visual::VolGrid(g) => volgrid_particles(g, feet, time, feet[0].to_bits() ^ feet[1].to_bits().rotate_left(13)),
         Visual::Spiral(aura) => match reach {
             Reach::Body => aura_shaped(aura, feet, time, HEIGHT, RADIUS),
             Reach::Medium => aura_shaped(aura, feet, time, 1.5, 0.35),
@@ -496,6 +548,7 @@ pub fn pulse_timing(v: &Visual) -> (f32, f32, i32) {
         Visual::Sparks(s) => (4.0, s.life.1 + 0.2, -1),
         Visual::Deform(d) => (4.0, if d.duration > 0.0 { d.duration } else { 1.5 }, -1),
         Visual::Cords(c) => (4.0, if c.duration > 0.0 { c.duration } else { 1.0 }, -1),
+        Visual::VolGrid(g) => (if g.duration > 0.0 { g.duration } else { 3.0 }, if g.duration > 0.0 { g.duration } else { 3.0 }, -1),
         Visual::Glow { .. } => (SHIELD_PERIOD, SHIELD_LIFE, -1),
         _ => (4.0, 1.5, -1),
     }
@@ -594,6 +647,46 @@ pub fn emitter_particles(e: &Emitter, origin: [f32; 3], age: f32, active: f32) -
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_volgrid_stacks_its_slices_in_the_box_the_curves_give() {
+        // (template 72231's shape with a small grid: a column that shoots up to 80 at a tenth of the way, then sinks to 20)
+        let g = VolGrid {
+            flags: 0x4003,
+            duration: 3.0,
+            material: 100,
+            across: 2,
+            up: 1,
+            deep: 2,
+            spin: 0.0,
+            height: vec![(0.0, 0.0), (0.1, 80.0), (1.0, 20.0)],
+            width: vec![(0.0, 2.5), (0.1, 2.5), (1.0, 2.5)],
+            depth: vec![(0.0, 0.0), (0.1, 2.5), (1.0, 2.5)],
+            middle: vec![(0.0, 0x00ff_ffff), (0.1, 0xffff_ffff), (1.0, 0)],
+            top: vec![(0.0, 0), (0.1, 0x0080_8080), (1.0, 0)],
+        };
+        let feet = [10.0, 20.0, 5.0];
+        // two quads a standing slice, one an up slice
+        let at = volgrid_particles(&g, feet, 0.3, 1);
+        assert_eq!(at.len(), 2 * 2 * 2 + 1);
+        // the box at a tenth of the way is 80 high: the standing slices' upper quads are centred at three quarters of it
+        let height = 80.0 - 60.0 * (0.1 - 0.1) / 0.9;
+        let tops: Vec<&Particle> = at.iter().filter(|p| (p.position[2] - feet[2] - height * 0.75).abs() < 1e-3).collect();
+        assert_eq!(tops.len(), 4);
+        // they are laid, not billboards, with their up half extent a quarter of the height, and fade by facing
+        assert!(tops.iter().all(|p| p.up == [0.0, 0.0, height * 0.25] && p.size == 1.0 && p.right != [0.0; 3]));
+        // the middle colour at the tenth is full white: the lower quads are brighter than the upper ones
+        let lows: Vec<&Particle> = at.iter().filter(|p| (p.position[2] - feet[2] - height * 0.25).abs() < 1e-3).collect();
+        assert!(lows[0].colour[3] > tops[0].colour[3]);
+        // the up slice lies flat at the bottom, half the width out each way
+        let flat = at.last().unwrap();
+        assert!((flat.position[2] - feet[2]).abs() < 1e-6 && flat.up[2] == 0.0 && (flat.right[0].hypot(flat.right[1]) - 1.25).abs() < 1e-5);
+        // gone when the duration is up; the random turn of flag 0x1000 changes with the salt only
+        assert!(volgrid_particles(&g, feet, 3.0, 1).is_empty());
+        let turned = VolGrid { flags: 0x5003, ..g.clone() };
+        assert_eq!(volgrid_particles(&turned, feet, 0.3, 1), volgrid_particles(&turned, feet, 0.3, 1));
+        assert_ne!(volgrid_particles(&turned, feet, 0.3, 1)[0].right, volgrid_particles(&turned, feet, 0.3, 2)[0].right);
+    }
 
     #[test]
     fn a_pulse_rides_a_ring_at_the_body_s_place() {

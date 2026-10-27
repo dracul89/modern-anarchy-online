@@ -419,6 +419,92 @@ pub struct Cords {
     pub duration: f32,
 }
 
+/// A kind-3038 template as `GfxControlVolGrid_t` reads it (FUN_10116562 the constructor, FUN_10115f8c the words, FUN_101166f2
+/// each curve, FUN_10116292 the run, FUN_10115eb5 makes displaysystem's `GfxVisualVolGrid` at the locator's point): a volume
+/// drawn as stacks of textured slices, `across` of them across x, `up` of them up and `deep` across z, inside a box whose
+/// height, width and depth follow curves over the duration (word 8), coloured at the middle and the top by two colour curves.
+/// Word 0 is the flags (0x800 follows the locator every frame, 0x1000 starts at a random turn, 0x2000 drops to the ground,
+/// 0x400 turns the texture, 0x4000 fades each slice by how squarely it faces the camera), 9 the material, 13 the spin in radians
+/// a second, 14–16 the slice counts; from word 17 the five curves, each a count then `(time, value)` pairs with the time as a
+/// fraction of the duration — the height, the width, the depth, then the middle and the top colour (packed alpha, red, green,
+/// blue). Words 10–12 are kept (4 and 1.0 in every template) but the run never reads them.
+#[derive(Clone, Debug, PartialEq)]
+pub struct VolGrid {
+    pub flags: u32,
+    pub duration: f32,
+    pub material: i32,
+    pub across: u32,
+    pub up: u32,
+    pub deep: u32,
+    pub spin: f32,
+    pub height: Vec<(f32, f32)>,
+    pub width: Vec<(f32, f32)>,
+    pub depth: Vec<(f32, f32)>,
+    pub middle: Vec<(f32, u32)>,
+    pub top: Vec<(f32, u32)>,
+}
+
+impl VolGrid {
+    /// Reads the record's words (none when the curves run past the payload).
+    pub fn read(r: &Record) -> Option<VolGrid> {
+        let mut at = 17;
+        let mut curve = |colour: bool| -> Option<Vec<(f32, u32)>> {
+            let count = usize::try_from(*r.payload.get(at)?).ok()?;
+            at += 1;
+            let mut keys = Vec::with_capacity(count);
+            for _ in 0..count {
+                let (t, v) = (*r.payload.get(at)?, *r.payload.get(at + 1)?);
+                at += 2;
+                keys.push((f32::from_bits(t as u32), if colour { v as u32 } else { v as u32 }));
+            }
+            Some(keys)
+        };
+        let float = |keys: Vec<(f32, u32)>| keys.into_iter().map(|(t, v)| (t, f32::from_bits(v))).collect::<Vec<_>>();
+        let (height, width, depth) = (float(curve(false)?), float(curve(false)?), float(curve(false)?));
+        let (middle, top) = (curve(true)?, curve(true)?);
+        Some(VolGrid { flags: r.int(0) as u32, duration: r.float(8), material: r.int(9), across: r.int(14).max(0) as u32, up: r.int(15).max(0) as u32, deep: r.int(16).max(0) as u32, spin: r.float(13), height, width, depth, middle, top })
+    }
+}
+
+/// A curve of `(time, value)` keys sampled at `t` as FUN_1011689d does: linear between the key at or before `t` and the next,
+/// the last key's value past the last key (and before the first), 1 with no keys.
+pub fn curve(keys: &[(f32, f32)], t: f32) -> f32 {
+    let Some(&(_, last)) = keys.last() else { return 1.0 };
+    match keys.windows(2).find(|w| w[0].0 <= t && t < w[1].0) {
+        Some(w) => {
+            let span = if w[1].0 - w[0].0 == 0.0 { 1.0 } else { w[1].0 - w[0].0 };
+            let u = (t - w[0].0) / span;
+            w[1].1 * u + (1.0 - u) * w[0].1
+        }
+        None => last,
+    }
+}
+
+/// A curve of `(time, packed colour)` keys sampled at `t` as FUN_1011678b does (the same search, the colours blended channel by
+/// channel through `Color_t::Interpolate`), white with no keys.
+pub fn colour_curve(keys: &[(f32, u32)], t: f32) -> u32 {
+    let Some(&(_, last)) = keys.last() else { return u32::MAX };
+    match keys.windows(2).find(|w| w[0].0 <= t && t < w[1].0) {
+        Some(w) => {
+            let span = if w[1].0 - w[0].0 == 0.0 { 1.0 } else { w[1].0 - w[0].0 };
+            let u = (t - w[0].0) / span;
+            let mut out = 0u32;
+            for shift in [0, 8, 16, 24] {
+                let (a, b) = (((w[0].1 >> shift) & 0xff) as f32, ((w[1].1 >> shift) & 0xff) as f32);
+                out |= ((a + (b - a) * u).round().clamp(0.0, 255.0) as u32) << shift;
+            }
+            out
+        }
+        None => last,
+    }
+}
+
+/// A packed colour (alpha, red, green, blue) as red, green, blue, alpha in 0..1.
+pub fn unpack_argb(c: u32) -> [f32; 4] {
+    let channel = |shift: u32| ((c >> shift) & 0xff) as f32 / 255.0;
+    [channel(16), channel(8), channel(0), channel(24)]
+}
+
 /// The Stars modes the client plays as the original does; the others fall back to the spiral child:
 /// * 3: born in a sphere of the radius, swirling across it (no rise), two a frame, the parabolic size of mode 6;
 /// * 4: born at the point, thrown in a random direction at the radius a second, slowed by 5% a frame and pulled down by 0.1,
@@ -441,6 +527,8 @@ pub enum Visual {
     Deform(Deform),
     /// A tracer of three cords wound round the line of flight (kind 1024).
     Cords(Cords),
+    /// A volume of textured slices whose box and colours follow curves (kind 3038).
+    VolGrid(VolGrid),
     /// Two spirals of sparks (the buff's aura, and the tracers and hits built on it).
     Spiral(Aura),
     /// A soft glow under the feet (kind 3003: the running effect of 114 programs, 52 of them the same cyan one).
@@ -488,6 +576,7 @@ impl Gfx {
                 gate: r.int(24),
             })),
             1024 if r.payload.len() >= 17 => Some(Visual::Cords(Cords { width: r.float(11), radius: r.float(12), colour: [r.float(13), r.float(14), r.float(15), r.float(16)], material: r.int(9), duration: r.float(8) })),
+            3038 => VolGrid::read(r).map(Visual::VolGrid),
             3001 if r.payload.len() >= 16 && r.int(10) == 1 => Some(Visual::Deform(Deform { duration: r.float(8), strength: r.float(11), ramp_in: r.float(12), ramp_out: r.float(13), frequency: r.float(14), amplitude: r.float(15) })),
             1001 | 2004 | 2005 | 2006 | 1018 => self.aura(id).map(Visual::Spiral),
             2007 | 3004 => self.references(id).into_iter().filter(|&c| c != id).find_map(|c| self.visual(c)),
@@ -565,6 +654,37 @@ impl Gfx {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_volgrid_curve_is_linear_between_its_keys_and_holds_its_last_value() {
+        let keys = [(0.0, 0.0), (0.1, 80.0), (1.0, 20.0)];
+        assert_eq!(curve(&keys, 0.0), 0.0);
+        assert!((curve(&keys, 0.05) - 40.0).abs() < 1e-4);
+        assert!((curve(&keys, 0.55) - 50.0).abs() < 1e-4);
+        // at and past the last key, and before the first: the last value; no keys: 1
+        assert_eq!(curve(&keys, 1.0), 20.0);
+        assert_eq!(curve(&keys, -0.5), 20.0);
+        assert_eq!(curve(&[], 0.5), 1.0);
+        // colours blend channel by channel
+        let colours = [(0.0, 0x0000_0000u32), (0.5, 0xff80_80ff)];
+        assert_eq!(colour_curve(&colours, 0.25), 0x8040_4080);
+        assert_eq!(colour_curve(&colours, 0.75), 0xff80_80ff);
+        assert_eq!(unpack_argb(0xff80_00ff), [128.0 / 255.0, 0.0, 1.0, 1.0]);
+        // a record: flags, 7 words, the duration, the material, 10–13, the counts, then five curves
+        let mut payload = vec![0x4003, 0, 0, 0, 0, 0, 0, 0, 3.0f32.to_bits() as i32, 100, 0, 4, 1.0f32.to_bits() as i32, 0, 20, 1, 20];
+        for _ in 0..3 {
+            payload.extend([2, 0, 2.5f32.to_bits() as i32, 1.0f32.to_bits() as i32, 5.0f32.to_bits() as i32]);
+        }
+        for _ in 0..2 {
+            payload.extend([1, 0, 0x00ff_ffff]);
+        }
+        let g = VolGrid::read(&Record { id: 1, kind: 3038, payload: payload.clone() }).unwrap();
+        assert_eq!((g.across, g.up, g.deep, g.duration, g.material), (20, 1, 20, 3.0, 100));
+        assert_eq!(g.depth, vec![(0.0, 2.5), (1.0, 5.0)]);
+        assert_eq!(g.top, vec![(0.0, 0x00ff_ffff)]);
+        payload.pop();
+        assert!(VolGrid::read(&Record { id: 1, kind: 3038, payload }).is_none());
+    }
 
     fn bytes(words: &[i32]) -> Vec<u8> {
         words.iter().flat_map(|w| w.to_le_bytes()).collect()

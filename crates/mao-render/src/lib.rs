@@ -168,7 +168,9 @@ pub struct Scene {
     pub area_fog: Option<([f32; 3], f32)>,
 }
 
-/// One sprite: where (world, Z up), how wide (world units) and its colour with the alpha as the strength.
+/// One sprite: where (world, Z up), how wide (world units) and its colour with the alpha as the strength. A billboard faces the
+/// camera; a quad with `right` and `up` set lies in the world (the original's `GfxVisualVolGrid` slices), its corners at the centre
+/// plus or minus those half extents, and then `size` is a flag: 1 fades it by how squarely it faces the camera, 0 does not.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Particle {
     pub position: [f32; 3],
@@ -178,6 +180,9 @@ pub struct Particle {
     /// width and height in 0..1.
     pub sprite: u16,
     pub rect: [f32; 4],
+    /// The half extents of a quad laid in the world (both zero for a billboard).
+    pub right: [f32; 3],
+    pub up: [f32; 3],
 }
 
 /// The sprite number of a particle that is a soft dot, not cut from a sheet.
@@ -199,7 +204,13 @@ pub fn sun() -> Vec3 {
 impl Particle {
     /// A soft round dot.
     pub fn dot(position: [f32; 3], size: f32, colour: [f32; 4]) -> Particle {
-        Particle { position, size, colour, sprite: NO_SPRITE, rect: [0.0; 4] }
+        Particle { position, size, colour, sprite: NO_SPRITE, rect: [0.0; 4], right: [0.0; 3], up: [0.0; 3] }
+    }
+
+    /// A quad laid in the world: its centre, its half extents, its colour, the sheet and the part of it, and whether it fades by
+    /// its facing.
+    pub fn quad(position: [f32; 3], right: [f32; 3], up: [f32; 3], colour: [f32; 4], sprite: u16, rect: [f32; 4], facing: bool) -> Particle {
+        Particle { position, size: if facing { 1.0 } else { 0.0 }, colour, sprite, rect, right, up }
     }
 }
 
@@ -633,6 +644,8 @@ impl Renderer {
             wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x4, offset: 0, shader_location: 0 },
             wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x4, offset: 16, shader_location: 1 },
             wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x4, offset: 32, shader_location: 2 },
+            wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x4, offset: 48, shader_location: 3 },
+            wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x4, offset: 64, shader_location: 4 },
         ];
         let additive = wgpu::BlendComponent { src_factor: wgpu::BlendFactor::One, dst_factor: wgpu::BlendFactor::One, operation: wgpu::BlendOperation::Add };
         let particle_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -642,7 +655,7 @@ impl Renderer {
                 module: &particle_shader,
                 entry_point: Some("vs_particle"),
                 compilation_options: Default::default(),
-                buffers: &[Some(wgpu::VertexBufferLayout { array_stride: 48, step_mode: wgpu::VertexStepMode::Instance, attributes: &particle_attributes })],
+                buffers: &[Some(wgpu::VertexBufferLayout { array_stride: 80, step_mode: wgpu::VertexStepMode::Instance, attributes: &particle_attributes })],
             },
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: Some(wgpu::DepthStencilState { format: DEPTH, depth_write_enabled: Some(false), depth_compare: Some(wgpu::CompareFunction::Less), stencil: Default::default(), bias: Default::default() }),
@@ -1169,11 +1182,14 @@ impl Renderer {
                 let mut order: Vec<&Particle> = scene.particles.iter().collect();
                 let sheet = |p: &Particle| if self.sprites.contains_key(&p.sprite) { p.sprite } else { NO_SPRITE };
                 order.sort_by_key(|p| sheet(p));
-                let data: Vec<[f32; 12]> = order
+                let data: Vec<[f32; 20]> = order
                     .iter()
                     .map(|p| {
                         let rect = if self.sprites.contains_key(&p.sprite) { p.rect } else { [0.0; 4] };
-                        [p.position[0], p.position[1], p.position[2], p.size, p.colour[0], p.colour[1], p.colour[2], p.colour[3], rect[0], rect[1], rect[2], rect[3]]
+                        [
+                            p.position[0], p.position[1], p.position[2], p.size, p.colour[0], p.colour[1], p.colour[2], p.colour[3], rect[0], rect[1], rect[2], rect[3],
+                            p.right[0], p.right[1], p.right[2], 0.0, p.up[0], p.up[1], p.up[2], 0.0,
+                        ]
                     })
                     .collect();
                 let instances = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("particles"), contents: bytemuck::cast_slice(&data), usage: wgpu::BufferUsages::VERTEX });
