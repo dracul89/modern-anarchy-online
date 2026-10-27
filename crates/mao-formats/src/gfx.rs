@@ -705,8 +705,11 @@ impl BParticles {
 ///   size `word 28 × √frac + word 29`);
 /// * 10: five a frame on a sphere of the radius, standing, living word 28 seconds, sized `(1 − (2t − 1)²) × 2 × word 31 +
 ///   word 11`, each a random alpha and (word 30 set) a channel of the colour;
-/// * 11: as 6.
-pub const STARS_MODES: [i32; 8] = [3, 4, 6, 7, 8, 10, 11, 19];
+/// * 11: as 6;
+/// * 22: word 31 a frame born on the body's six edges (between the attach points of the table at 0x102c5fe8: calves to
+///   thighs, pelvis to head, forearms to upper arms, the upper arms to each other), the radius out, springing back through the
+///   edge and dying as they cross it or after word 30 ms, sized `(age / life × 0.7 + 0.3) × word 28`.
+pub const STARS_MODES: [i32; 9] = [3, 4, 6, 7, 8, 10, 11, 19, 22];
 
 /// What a nano effect looks like once its template is read: the few shapes the effect classes come to.
 #[derive(Clone, Debug, PartialEq)]

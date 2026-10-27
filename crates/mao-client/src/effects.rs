@@ -124,6 +124,9 @@ pub fn stars_particles(s: &Stars, centre: [f32; 3], time: f32, stopped: bool) ->
         }
         return out;
     }
+    if s.mode == 22 {
+        return stars_on_edges(s, centre, time, stopped);
+    }
     let spawn_per_frame: f32 = match s.mode {
         19 => 15.0,
         10 => 5.0,
@@ -216,6 +219,65 @@ pub fn stars_particles(s: &Stars, centre: [f32; 3], time: f32, stopped: bool) ->
             _ => 1.0 - hash(salt, 9) * 0.25,
         };
         out.push(sprite(s.material, frame, position, size.max(0.0), [colour[0], colour[1], colour[2], colour[3]]));
+    }
+    out
+}
+
+/// The attach points the body's six edges run between in Stars mode 22 (the table at 0x102c5fe8, in pairs): the calves to the
+/// thighs, the pelvis to the head, the forearms to the upper arms, and the upper arms to each other.
+const EDGE_POINTS: [(i32, i32); 6] = [(1013, 1011), (1014, 1012), (1000, 1006), (1009, 1007), (1010, 1008), (1007, 1008)];
+
+/// Stars mode 22 (FUN_100f8491's `case 0x16`): each frame the six edges are measured between their attach points, and up to
+/// word 31 stars are born on a random edge, a random way along it, out from it by the radius (word 29) on a random side, at rest.
+/// Every frame after, a star's velocity gains a tenth of the way from it to the nearest point of its edge and it moves by a tenth
+/// of that velocity (an undamped spring, so it swings through the edge); it dies when within 0.04 of the edge or when its life
+/// (word 30) is spent. Its size is `(age / life × 0.7 + 0.3) × word 28`, its colour random between the two. The character's feet
+/// are at `feet` (world, Z up); its heading is not known here, so the edges run across x.
+fn stars_on_edges(s: &Stars, feet: [f32; 3], time: f32, stopped: bool) -> Vec<Particle> {
+    const STARS: u32 = 128;
+    let mut out = Vec::new();
+    let point = |id: i32| {
+        let (height, right, _) = anchor(id);
+        [feet[0] + right, feet[1], feet[2] + height]
+    };
+    let life = s.life.max(0.05);
+    let cadence = life / STARS as f32 * (30.0 / s.swirl.max(1.0)).min(STARS as f32);
+    for k in 0..STARS {
+        let stagger = k as f32 / STARS as f32 * life;
+        if time < stagger {
+            continue;
+        }
+        let generation = ((time - stagger) / (life + cadence)).floor();
+        let age = time - stagger - generation * (life + cadence);
+        if age > life || (stopped && generation > 0.0) {
+            continue;
+        }
+        let salt = k.wrapping_mul(7919).wrapping_add(generation as u32 * 104729);
+        let (a, b) = EDGE_POINTS[(hash(salt, 20) * 6.0).min(5.999) as usize];
+        let (a, b) = (point(a), point(b));
+        let dir = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+        let len = (dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]).sqrt().max(1e-3);
+        let unit = dir.map(|c| c / len);
+        // (a perpendicular pair: the unit crossed with whichever axis it is least along)
+        let axis = if unit[2].abs() < 0.9 { [0.0, 0.0, 1.0] } else { [1.0, 0.0, 0.0] };
+        let u = [unit[1] * axis[2] - unit[2] * axis[1], unit[2] * axis[0] - unit[0] * axis[2], unit[0] * axis[1] - unit[1] * axis[0]];
+        let ul = (u[0] * u[0] + u[1] * u[1] + u[2] * u[2]).sqrt().max(1e-3);
+        let u = u.map(|c| c / ul);
+        let w = [unit[1] * u[2] - unit[2] * u[1], unit[2] * u[0] - unit[0] * u[2], unit[0] * u[1] - unit[1] * u[0]];
+        let along = hash(salt, 21);
+        let angle = hash(salt, 22) * std::f32::consts::TAU;
+        let side = [0, 1, 2].map(|i| (u[i] * angle.cos() + w[i] * angle.sin()) * s.radius);
+        // the spring: at frame n the star is `cos(0.1 n)` of its start out from the edge, and dies as it crosses it
+        let frames = age * 30.0;
+        let swing = (0.1 * frames).cos();
+        if (swing * s.radius).abs() < 0.04 && frames > 1.0 {
+            continue;
+        }
+        let position = [0, 1, 2].map(|i| a[i] + dir[i] * along + side[i] * swing);
+        let t = (age / life).clamp(0.0, 1.0);
+        let size = (t * 0.7 + 0.3) * s.size;
+        let colour = [1, 2, 3, 0].map(|c| s.colour_a[c] + (s.colour_b[c] - s.colour_a[c]) * hash(salt, c as u32));
+        out.push(sprite(s.material, hash(salt, 9), position, size.max(0.0), [colour[0], colour[1], colour[2], colour[3]]));
     }
     out
 }
@@ -562,8 +624,10 @@ pub fn visual_particles(v: &Visual, feet: [f32; 3], time: f32, reach: Reach) -> 
     match v {
         // (the attach point's height on a standing body; a tracer carries the point itself)
         Visual::Stars(s) => {
+            // (mode 22 runs over the body's edges from the feet)
             let up = match reach {
                 Reach::Small => 0.0,
+                _ if s.mode == 22 => 0.0,
                 _ => anchor(s.attach).0,
             };
             stars_particles(s, [feet[0], feet[1], feet[2] + up], time, false)
@@ -864,6 +928,26 @@ pub fn emitter_particles(e: &Emitter, origin: [f32; 3], age: f32, active: f32) -
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stars_mode_22_ride_the_body_s_edges_and_die_crossing_them() {
+        // (template 15200: six a frame, 0.2 out, living 350 ms, sized 0.6)
+        let s = Stars { mode: 22, colour_a: [1.0, 0.3, 0.4, 1.0], colour_b: [1.0, 0.3, 1.0, 0.4], size: 0.6, radius: 0.2, life: 0.35, swirl: 6.0, material: 33, attach: 1000, duration: -1.0, word11: 0.0, word30: 350 };
+        let feet = [5.0, 6.0, 7.0];
+        let at = stars_particles(&s, feet, 0.3, false);
+        assert!(at.len() > 20, "{}", at.len());
+        // every star is within the radius of a body edge: between the calves (0.5) and the head (1.62), near the body's x
+        for p in &at {
+            assert!(p.position[2] >= feet[2] + 0.5 - 0.21 && p.position[2] <= feet[2] + 1.62 + 0.21, "{:?}", p.position);
+            assert!((p.position[0] - feet[0]).abs() <= 0.25 + 0.21 && (p.position[1] - feet[1]).abs() <= 0.21);
+            assert!(p.size >= 0.3 * 0.6 - 1e-4 && p.size <= 0.6 + 1e-4);
+        }
+        // a star at the quarter swing (about half a second) has crossed its edge and is gone: nothing older than that is left
+        assert!(stars_particles(&s, feet, 10.0, false).len() > 20);
+        // the feet, not the attach point, are the origin through the visual arm
+        let through = visual_particles(&Visual::Stars(s.clone()), feet, 0.3, Reach::Medium);
+        assert_eq!(through.len(), at.len());
+    }
 
     #[test]
     fn bparticles_burst_from_the_point_fall_and_fade_by_their_curve() {
