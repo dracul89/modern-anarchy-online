@@ -16,7 +16,26 @@ use mao_render::{Particle, NO_SPRITE};
 pub fn stars_particles(s: &Stars, centre: [f32; 3], time: f32, stopped: bool) -> Vec<Particle> {
     const STARS: u32 = 128;
     let mut out = Vec::new();
-    let spawn_per_frame: f32 = if s.mode == 19 { 15.0 } else { 2.0 };
+    // The ring modes: every star alive on a ring that swells word 31 times over the duration.
+    if s.mode == 7 || s.mode == 8 {
+        let duration = if s.duration > 0.0 { s.duration } else { 4.0 };
+        let frac = (s.swirl * time / duration).fract().max(0.0);
+        let reach = frac.sqrt() * 2.0 * s.word30 as f32;
+        let size = s.size * frac.sqrt() + s.radius;
+        for k in 0..STARS {
+            let a = k as f32 * std::f32::consts::TAU / STARS as f32;
+            let salt = k.wrapping_mul(7919);
+            let colour = [1, 2, 3, 0].map(|c| s.colour_a[c] + (s.colour_b[c] - s.colour_a[c]) * hash(salt, c as u32));
+            out.push(sprite(s.material, 0.0, [centre[0] + a.cos() * reach, centre[1] + a.sin() * reach, centre[2]], size.max(0.0), [colour[0], colour[1], colour[2], colour[3]]));
+        }
+        return out;
+    }
+    let spawn_per_frame: f32 = match s.mode {
+        19 => 15.0,
+        10 => 5.0,
+        _ => 2.0,
+    };
+    let s = &Stars { life: if s.mode == 10 { s.size.max(0.1) } else { s.life }, ..s.clone() };
     // (the original spawns at most that many a frame of its run; at the client's frame rate that is a cadence per star)
     let cadence = s.life / STARS as f32 * (30.0 / spawn_per_frame).min(STARS as f32);
     for k in 0..STARS {
@@ -35,9 +54,21 @@ pub fn stars_particles(s: &Stars, centre: [f32; 3], time: f32, stopped: bool) ->
             continue;
         }
         let t = (age / life).clamp(0.0, 1.0);
-        let colour = [1, 2, 3, 0].map(|c| s.colour_a[c] + (s.colour_b[c] - s.colour_a[c]) * hash(salt, c as u32));
+        let mut colour = [1, 2, 3, 0].map(|c| s.colour_a[c] + (s.colour_b[c] - s.colour_a[c]) * hash(salt, c as u32));
+        if s.mode == 10 {
+            // a random alpha, and (word 30) one channel of the colour per star
+            colour[3] = hash(salt, 13);
+            if s.word30 != 0 {
+                let keep = k % 3;
+                for (c, v) in colour.iter_mut().enumerate().take(3) {
+                    if c != keep as usize {
+                        *v = 0.0;
+                    }
+                }
+            }
+        }
         let (size, position) = match s.mode {
-            6 => {
+            6 | 11 => {
                 let angle = hash(salt, 5) * std::f32::consts::TAU;
                 let (sx, sy) = (angle.cos() * s.radius, angle.sin() * s.radius);
                 // the velocity: across the radius, half a unit up, swirled on by word 31 over the star's life
@@ -48,6 +79,35 @@ pub fn stars_particles(s: &Stars, centre: [f32; 3], time: f32, stopped: bool) ->
                 let z = centre[2] + 0.5 * age;
                 ((t + 0.2) * (1.0 - t * t) * s.size, [x, y, z])
             }
+            3 => {
+                // born in the sphere, swirling across the radius without rising, the swirl gaining a tenth a frame
+                let (a, b, r) = (hash(salt, 5) * std::f32::consts::TAU, hash(salt, 6) * 2.0 - 1.0, hash(salt, 7).cbrt() * s.radius);
+                let flat = (1.0 - b * b).sqrt();
+                let (sx, sy, sz) = (flat * a.cos() * r, flat * a.sin() * r, b * r);
+                let gain = 1.0 + 0.1 * age * 30.0 * 0.1;
+                let position = [centre[0] + sx - sy * age * gain, centre[1] + sy + sx * age * gain, centre[2] + sz];
+                ((t + 0.2) * (1.0 - t * t) * s.size, position)
+            }
+            4 => {
+                // thrown from the point in a random direction at the radius a second, slowed 5% a frame, falling a tenth a frame
+                let (a, b) = (hash(salt, 5) * std::f32::consts::TAU, hash(salt, 6) * 2.0 - 1.0);
+                let flat = (1.0 - b * b).sqrt();
+                let v = [flat * a.cos() * s.radius, flat * a.sin() * s.radius, b * s.radius];
+                // (the frames at 30 a second: the slowed velocity's integral and the fall's)
+                let frames = age * 30.0;
+                let travelled = (1.0 - 0.95f32.powf(frames)) / (1.0 - 0.95) / 30.0;
+                let fall = 0.1 * frames * (frames + 1.0) * 0.5 / 30.0;
+                let position = [centre[0] + v[0] * travelled, centre[1] + v[1] * travelled, centre[2] + v[2] * travelled - fall];
+                ((2.0 - t) * s.size, position)
+            }
+            10 => {
+                // standing on the sphere, swelling and shrinking
+                let (a, b) = (hash(salt, 5) * std::f32::consts::TAU, hash(salt, 6) * 2.0 - 1.0);
+                let flat = (1.0 - b * b).sqrt();
+                let position = [centre[0] + flat * a.cos() * s.radius, centre[1] + flat * a.sin() * s.radius, centre[2] + b * s.radius];
+                let w = 2.0 * t - 1.0;
+                ((1.0 - w * w) * 2.0 * s.swirl + s.word11, position)
+            }
             _ => {
                 let (a, b, r) = (hash(salt, 5) * std::f32::consts::TAU, hash(salt, 6) * 2.0 - 1.0, hash(salt, 7).cbrt() * s.radius);
                 let flat = (1.0 - b * b).sqrt();
@@ -56,7 +116,11 @@ pub fn stars_particles(s: &Stars, centre: [f32; 3], time: f32, stopped: bool) ->
                 ((1.0 - w * w) * s.size, position)
             }
         };
-        let frame = 1.0 - hash(salt, 9) * 0.25;
+        let frame = match s.mode {
+            4 => hash(salt, 9),
+            10 => 0.0,
+            _ => 1.0 - hash(salt, 9) * 0.25,
+        };
         out.push(sprite(s.material, frame, position, size.max(0.0), [colour[0], colour[1], colour[2], colour[3]]));
     }
     out
@@ -485,7 +549,7 @@ broken line
 
     #[test]
     fn stars_stand_in_their_sphere_with_colours_between_the_two() {
-        let s = Stars { mode: 19, colour_a: [1.0, 1.0, 0.0, 0.0], colour_b: [1.0, 0.0, 0.0, 1.0], size: 0.5, radius: 0.7, life: 1.0, swirl: 30.0, material: 8, attach: 1000, duration: -1.0 };
+        let s = Stars { mode: 19, colour_a: [1.0, 1.0, 0.0, 0.0], colour_b: [1.0, 0.0, 0.0, 1.0], size: 0.5, radius: 0.7, life: 1.0, swirl: 30.0, material: 8, attach: 1000, duration: -1.0, word11: 0.0, word30: 1 };
         let stars = stars_particles(&s, [10.0, 20.0, 5.0], 0.6, false);
         assert!(!stars.is_empty());
         for p in &stars {
@@ -500,6 +564,16 @@ broken line
         assert!(high > 0.2, "{high}");
         // nothing before the first star is born
         assert!(stars_particles(&s6, [0.0; 3], 0.0, false).len() <= 1);
+        // a ring: all 128 on one circle that swells with time
+        let ring = Stars { mode: 7, duration: 4.0, swirl: 1.0, word30: 1, ..s.clone() };
+        let at = |time: f32| stars_particles(&ring, [0.0; 3], time, false);
+        assert_eq!(at(1.0).len(), 128);
+        let reach = |p: &Particle| (p.position[0].powi(2) + p.position[1].powi(2)).sqrt();
+        assert!(reach(&at(2.0)[0]) > reach(&at(1.0)[0]));
+        // thrown stars fall
+        let thrown = Stars { mode: 4, ..s.clone() };
+        let low = stars_particles(&thrown, [0.0; 3], 0.9, false).iter().map(|p| p.position[2]).fold(f32::MAX, f32::min);
+        assert!(low < -0.1, "{low}");
     }
 
     fn emitter() -> Emitter {

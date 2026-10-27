@@ -335,10 +335,21 @@ pub struct Stars {
     pub attach: i32,
     /// Word 8, seconds (−1 until stopped).
     pub duration: f32,
+    /// Word 11 (mode 10 adds it to the size) and word 30 as an integer (the ring modes' reach, mode 10's channel mask switch).
+    pub word11: f32,
+    pub word30: i32,
 }
 
-/// The Stars modes the client plays as the original does; the others fall back to the spiral child.
-pub const STARS_MODES: [i32; 2] = [6, 19];
+/// The Stars modes the client plays as the original does; the others fall back to the spiral child:
+/// * 3: born in a sphere of the radius, swirling across it (no rise), two a frame, the parabolic size of mode 6;
+/// * 4: born at the point, thrown in a random direction at the radius a second, slowed by 5% a frame and pulled down by 0.1,
+///   the size shrinking from twice word 28, frames from the whole sheet;
+/// * 7 and 8: all 128 stars on a ring that swells `word 31` times over the duration (its radius `√frac × 2 × word 30`, their
+///   size `word 28 × √frac + word 29`);
+/// * 10: five a frame on a sphere of the radius, standing, living word 28 seconds, sized `(1 − (2t − 1)²) × 2 × word 31 +
+///   word 11`, each a random alpha and (word 30 set) a channel of the colour;
+/// * 11: as 6.
+pub const STARS_MODES: [i32; 8] = [3, 4, 6, 7, 8, 10, 11, 19];
 
 /// What a nano effect looks like once its template is read: the few shapes the effect classes come to.
 #[derive(Clone, Debug, PartialEq)]
@@ -372,6 +383,8 @@ impl Gfx {
                 material: r.int(9),
                 attach: r.int(7),
                 duration: r.float(8),
+                word11: r.float(11),
+                word30: r.int(30),
             })),
             1001 | 2004 | 2005 | 2006 | 1018 => self.aura(id).map(Visual::Spiral),
             2007 | 3004 => self.references(id).into_iter().filter(|&c| c != id).find_map(|c| self.visual(c)),
