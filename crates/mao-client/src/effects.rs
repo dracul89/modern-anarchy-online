@@ -7,7 +7,7 @@
 //! does not say (or is not read yet): the radius (the radius path's numbers, 0.06 to 0.15, are too small for a body; 0.42 m is used),
 //! how high and how long a spark lives (1.9 m and 1.6 s here), and the trail (a short tail of fading sparks behind each one).
 
-use mao_formats::gfx::{colour_curve, curve, unpack_argb, Aura, Cords, Deform, Emitter, Smoke, Sparks, Sprite, Stars, Visual, VolGrid};
+use mao_formats::gfx::{colour_curve, curve, unpack_argb, Aura, BParticles, Cords, Deform, Emitter, Smoke, Sparks, Sprite, Stars, Visual, VolGrid};
 use mao_render::{Particle, NO_SPRITE};
 
 /// `_GfxControlTracer4_t`'s three cords at `time` seconds, wound round the line from `from` to `to` (world, Z up) as FUN_100ffa7b
@@ -373,6 +373,81 @@ pub fn sprite_particles(s: &Sprite, feet: [f32; 3], time: f32, salt: u32) -> Vec
     vec![p]
 }
 
+/// `GfxControlBParticle2_t`'s particles (kind 3028) `time` seconds after the effect began, thrown from `origin` (world, Z up), as
+/// FUN_1010bf63 bears them and FUN_1010b499 moves them (see `mao_formats::gfx::BParticles` for the words): every particle is born
+/// at once within the scatter of the point with its own velocity, spin, life and size; each frame its velocity is pulled by the
+/// gravity and damped, its position moved, its size grown, its frame advanced and its colour read from the curve at its life's
+/// fraction. In mode 1 a dead particle is reborn (the client gives each slot a chain of lives, hashed by its generation) while
+/// the effect still emits. The original's random numbers are stood in for by a hash of the slot and generation. Not done: the
+/// spin (the client's billboards do not turn), the ground bounce and the fades by height and daylight, the locator's turn.
+pub fn bparticles(b: &BParticles, origin: [f32; 3], time: f32) -> Vec<Particle> {
+    let mut out = Vec::new();
+    if time < 0.0 || b.count <= 0 {
+        return out;
+    }
+    let lerp = |(a, c): (f32, f32), r: f32| a + (c - a) * r;
+    let longest = b.life.1.max(b.life.0).max(0.05);
+    let emits_until = if b.duration < 0.0 { f32::MAX } else { b.duration - longest };
+    for k in 0..b.count.min(400) as u32 {
+        // (the slot's chain of lives: the first from the start, the next at each death while the effect emits)
+        let mut born = 0.0;
+        let mut generation = 0u32;
+        let (age, life, salt) = loop {
+            let salt = k.wrapping_mul(3028).wrapping_add(generation.wrapping_mul(0x9e37));
+            let life = lerp(b.life, hash(salt, 1)).max(0.05);
+            if time < born + life {
+                break (time - born, life, salt);
+            }
+            if b.mode != 1 || born + life >= emits_until || generation > 400 {
+                break (-1.0, life, salt);
+            }
+            born += life + b.interval.max(0.0);
+            generation += 1;
+        };
+        if age < 0.0 {
+            continue;
+        }
+        let t = age / life;
+        let mut p = [0, 1, 2].map(|i| (2.0 * hash(salt, 2 + i as u32) - 1.0) * b.scatter);
+        let mut v = [0, 1, 2].map(|i| lerp(b.velocity[i], hash(salt, 5 + i as u32)));
+        if b.flags & 0x100000 == 0 {
+            // (the velocity pulled along y by the gravity and damped by `(word 14 − 1) × 100` a second: integrated in steps)
+            let steps = (age * 60.0).ceil().clamp(1.0, 240.0);
+            let dt = age / steps;
+            let damp = (b.damping - 1.0) * 100.0;
+            for _ in 0..steps as u32 {
+                for i in 0..3 {
+                    p[i] += v[i] * dt;
+                }
+                v[1] += b.gravity * dt;
+                for c in v.iter_mut() {
+                    *c += *c * damp * dt;
+                }
+            }
+        } else {
+            p = [0.0; 3];
+        }
+        let size = lerp(b.size, hash(salt, 8)) * (1.0 + (b.growth - 1.0) * 100.0 * age).max(0.0);
+        let colour = unpack_argb(colour_curve(&b.colours, t));
+        // (the frame: from the first, or a random one with flag 0x20000, at the rate; wrapped, held or bounced by the mode)
+        let frame = if b.frame_mode != 0 {
+            let start = if b.flags & 0x20000 != 0 { hash(salt, 9) } else { 0.0 };
+            let f = start + b.frame_rate * age;
+            match b.frame_mode {
+                1 => f.rem_euclid(1.0),
+                3 => 1.0 - ((f.rem_euclid(2.0)) - 1.0).abs(),
+                _ => f.min(1.0),
+            }
+        } else if b.flags & 0x20000 != 0 {
+            hash(salt, 9)
+        } else {
+            0.0
+        };
+        out.push(sprite(b.material, frame, [origin[0] + p[0], origin[1] + p[2], origin[2] + p[1]], size.max(size / b.aspect), colour));
+    }
+    out
+}
+
 /// A particle cut from a material's sprite sheet (`mao_formats::gfx::MATERIALS`), `t` (0 to 1) of the way through the sheet's frames; a
 /// material that is not known gives a soft dot.
 fn sprite(material: i32, t: f32, position: [f32; 3], size: f32, colour: [f32; 4]) -> Particle {
@@ -506,6 +581,13 @@ pub fn visual_particles(v: &Visual, feet: [f32; 3], time: f32, reach: Reach) -> 
         Visual::Cords(c) => cords_particles(c, feet, [feet[0], feet[1], feet[2] + 1.0], time),
         // (the locator's point is the feet; the turn is drawn from the point so one effect keeps its turn)
         Visual::VolGrid(g) => volgrid_particles(g, feet, time, feet[0].to_bits() ^ feet[1].to_bits().rotate_left(13)),
+        Visual::BParticles(b) => {
+            let up = match reach {
+                Reach::Small => 0.0,
+                _ => anchor(b.attach).0,
+            };
+            bparticles(b, [feet[0], feet[1], feet[2] + up], time)
+        }
         Visual::Sprite(s) => {
             let up = match reach {
                 Reach::Small => 0.0,
@@ -668,6 +750,12 @@ pub fn pulse_timing(v: &Visual) -> (f32, f32, i32) {
         Visual::Deform(d) => (4.0, if d.duration > 0.0 { d.duration } else { 1.5 }, -1),
         Visual::Cords(c) => (4.0, if c.duration > 0.0 { c.duration } else { 1.0 }, -1),
         Visual::VolGrid(g) => (if g.duration > 0.0 { g.duration } else { 3.0 }, if g.duration > 0.0 { g.duration } else { 3.0 }, -1),
+        // (a burst lives its longest life; a stream runs its duration and that life, or for ever)
+        Visual::BParticles(b) => {
+            let longest = b.life.1.max(b.life.0) + b.interval.max(0.0);
+            let long = if b.mode != 1 { longest } else if b.duration >= 0.0 { b.duration + longest } else { 600.0 };
+            (long.max(0.5), long.max(0.5), -1)
+        }
         // (a quad runs its cycles, or its duration, or for ever: restarted every ten minutes)
         Visual::Sprite(s) => {
             let long = if s.flags & 0x40 != 0 && s.cycles >= 0 { s.period * (s.cycles + 1) as f32 } else if s.duration >= 0.0 { s.duration } else { 600.0 };
@@ -776,6 +864,54 @@ pub fn emitter_particles(e: &Emitter, origin: [f32; 3], age: f32, active: f32) -
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bparticles_burst_from_the_point_fall_and_fade_by_their_curve() {
+        // (template 71112's shape with fewer particles: a burst of 20 thrown ±220 across and 5–100 up, pulled down by 20,
+        // damped by 0.92, living 1–2 s at 15–22 across, white at a tenth of the life and gone at its end)
+        let b = BParticles {
+            flags: 0x203,
+            attach: 0,
+            duration: 2.0,
+            mode: 0,
+            material: 94,
+            count: 20,
+            interval: 0.01,
+            scatter: 8.0,
+            damping: 0.92,
+            per_frame: 1,
+            gravity: -20.0,
+            velocity: [(-220.0, 220.0), (5.0, 100.0), (-220.0, 220.0)],
+            spin: (0.0, 0.0),
+            life: (1.0, 2.0),
+            size: (15.0, 22.0),
+            bounce: 0.2,
+            growth: 1.01,
+            frame_rate: 0.0,
+            frame_mode: 0,
+            aspect: 1.0,
+            colours: vec![(0.0, 0x00ff_ffff), (0.1, 0xffff_ffff), (1.0, 0x0000_0000)],
+        };
+        let feet = [10.0, 20.0, 30.0];
+        // all twenty at once, within the scatter of the point, transparent at birth
+        let born = bparticles(&b, feet, 0.0);
+        assert_eq!(born.len(), 20);
+        assert!(born.iter().all(|p| (p.position[0] - feet[0]).abs() <= 8.0 && (p.position[2] - feet[2]).abs() <= 8.0 && p.colour[3] == 0.0));
+        // a tenth of a second on they are bright and have flown out; the damping keeps the fastest well under 22 m
+        let flown = bparticles(&b, feet, 0.1);
+        assert!(flown.iter().all(|p| p.colour[3] > 0.5));
+        let spread = flown.iter().map(|p| (p.position[0] - feet[0]).abs()).fold(0.0, f32::max);
+        assert!(spread > 5.0 && spread < 22.0, "{spread}");
+        // sizes grow by 1% × 100 a second, the burst thins as lives end and is gone after the longest
+        assert!(flown.iter().all(|p| p.size >= 15.0 * 1.1 - 1e-3));
+        let late = bparticles(&b, feet, 1.5).len();
+        assert!(late > 0 && late < 20, "{late}");
+        assert!(bparticles(&b, feet, 2.1).is_empty());
+        // a stream (mode 1) reborns them while it emits, and stops a longest life before its duration
+        let stream = BParticles { mode: 1, duration: 10.0, ..b.clone() };
+        assert_eq!(bparticles(&stream, feet, 5.0).len(), 20);
+        assert!(bparticles(&stream, feet, 9.5).len() < 20 && bparticles(&stream, feet, 10.5).is_empty());
+    }
 
     #[test]
     fn a_sprite_quad_cycles_its_size_and_colour_and_stands_when_asked() {

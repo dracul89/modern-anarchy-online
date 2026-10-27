@@ -622,6 +622,81 @@ impl Sprite {
     }
 }
 
+/// A kind-3028 template as `GfxControlBParticle2_t` reads it (FUN_1010c5bd the constructor, FUN_1010b196 the words, FUN_1010bf63
+/// makes the particles and a `GfxVisualBParticle2` each, FUN_1010b499 runs them): a pool of word 11 billboard particles of
+/// the material (word 10) thrown from the locator's point. Each is born within ±word 13 of the point, with a velocity drawn
+/// from words 17–18 (x), 19–20 (y) and 21–22 (z) in the locator's frame, a spin from words 23–24 (degrees a second), a life
+/// from words 25–26, a size from 27–28; word 16 pulls it along y (gravity), word 14 damps its velocity (`v += v × (word 14 − 1)
+/// × 100 × dt`), word 30 grows its size the same way, word 29 is the bounce off the ground under flag 0x8000, word 31 the
+/// frame rate across the sheet under the frame mode of word 32 (1 wraps, 2 stops at the last, 3 bounces), word 33 the width
+/// over the height. From word 35 a colour curve (count, then `(fraction of the life, colour)`) colours and fades it. Word 9 is
+/// the mode: 0 one burst that ends when its particles are dead, 1 a stream that reborns dead ones every word 12 seconds, up
+/// to word 15 a frame, while `elapsed < duration − longest life`. Flags (word 0): 0x100 flips the sprite, 0x200 adds it, 0x400
+/// drops the point to the ground, 0x4000 no random start angle, 0x20000 a random start frame, 0x100000 keeps the particles at
+/// the point, 0x1000000 scales by the body.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BParticles {
+    pub flags: u32,
+    pub attach: i32,
+    pub duration: f32,
+    pub mode: i32,
+    pub material: i32,
+    pub count: i32,
+    pub interval: f32,
+    pub scatter: f32,
+    pub damping: f32,
+    pub per_frame: i32,
+    pub gravity: f32,
+    pub velocity: [(f32, f32); 3],
+    /// Radians a second.
+    pub spin: (f32, f32),
+    pub life: (f32, f32),
+    pub size: (f32, f32),
+    pub bounce: f32,
+    pub growth: f32,
+    pub frame_rate: f32,
+    pub frame_mode: i32,
+    pub aspect: f32,
+    pub colours: Vec<(f32, u32)>,
+}
+
+impl BParticles {
+    pub fn read(r: &Record) -> Option<BParticles> {
+        if r.payload.len() < 36 {
+            return None;
+        }
+        let count = usize::try_from(r.int(35)).ok()?;
+        let mut colours = Vec::with_capacity(count);
+        for k in 0..count {
+            colours.push((f32::from_bits(*r.payload.get(36 + 2 * k)? as u32), *r.payload.get(37 + 2 * k)? as u32));
+        }
+        let rad = std::f32::consts::PI / 180.0;
+        Some(BParticles {
+            flags: r.int(0) as u32,
+            attach: r.int(7),
+            duration: r.float(8),
+            mode: r.int(9),
+            material: r.int(10),
+            count: r.int(11),
+            interval: r.float(12),
+            scatter: r.float(13),
+            damping: r.float(14),
+            per_frame: r.int(15),
+            gravity: r.float(16),
+            velocity: [(r.float(17), r.float(18)), (r.float(19), r.float(20)), (r.float(21), r.float(22))],
+            spin: (r.float(23) * rad, r.float(24) * rad),
+            life: (r.float(25), r.float(26)),
+            size: (r.float(27), r.float(28)),
+            bounce: r.float(29),
+            growth: r.float(30),
+            frame_rate: r.float(31),
+            frame_mode: r.int(32),
+            aspect: if r.float(33) == 0.0 { 1.0 } else { r.float(33) },
+            colours,
+        })
+    }
+}
+
 /// The Stars modes the client plays as the original does; the others fall back to the spiral child:
 /// * 3: born in a sphere of the radius, swirling across it (no rise), two a frame, the parabolic size of mode 6;
 /// * 4: born at the point, thrown in a random direction at the radius a second, slowed by 5% a frame and pulled down by 0.1,
@@ -650,6 +725,8 @@ pub enum Visual {
     Smoke(Smoke),
     /// One quad at a point, cycling its size, colour and frame (kind 1012).
     Sprite(Sprite),
+    /// A pool of thrown billboard particles (kind 3028).
+    BParticles(BParticles),
     /// Two spirals of sparks (the buff's aura, and the tracers and hits built on it).
     Spiral(Aura),
     /// A soft glow under the feet (kind 3003: the running effect of 114 programs, 52 of them the same cyan one).
@@ -700,6 +777,7 @@ impl Gfx {
             3038 => VolGrid::read(r).map(Visual::VolGrid),
             1009 => Smoke::read(r).map(Visual::Smoke),
             1012 => Sprite::read(r).map(Visual::Sprite),
+            3028 => BParticles::read(r).map(Visual::BParticles),
             3001 if r.payload.len() >= 16 && r.int(10) == 1 => Some(Visual::Deform(Deform { duration: r.float(8), strength: r.float(11), ramp_in: r.float(12), ramp_out: r.float(13), frequency: r.float(14), amplitude: r.float(15) })),
             1001 | 2004 | 2005 | 2006 | 1018 => self.aura(id).map(Visual::Spiral),
             2007 | 3004 => self.references(id).into_iter().filter(|&c| c != id).find_map(|c| self.visual(c)),
