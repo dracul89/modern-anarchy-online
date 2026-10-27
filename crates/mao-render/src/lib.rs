@@ -75,6 +75,11 @@ struct Globals {
     /// The camera's right and up (world, Z up).
     right: [f32; 4],
     up: [f32; 4],
+    /// rgb: the area's ambient light (the original's `AddAmbientLight`, kept per channel at its maximum against the
+    /// sky's); w: the day's intensity, 0 at night to 1 by day.
+    ambient: [f32; 4],
+    /// rgb: the fog's colour; w: 1 when the fog is an area's (from the camera out), 0 for the distance haze.
+    fog: [f32; 4],
 }
 
 #[repr(C)]
@@ -125,6 +130,15 @@ pub struct Scene {
     pub water: Option<Water>,
     /// Soft glowing sprites drawn over the scene, added to its colours (nano effects). Set by the caller every frame.
     pub particles: Vec<Particle>,
+    /// The day's intensity, 0 at night to 1 by day (`GameTime_t::GetDayIntensity`): the sky light, the sun and the sky
+    /// are scaled by it (a night keeps a little, so the world stays visible).
+    pub daylight: f32,
+    /// The area's ambient light at the player (`Environment_t` → `VisualAmbientLight_t::AddAmbientLight`): each channel
+    /// the greater of it and the sky light.
+    pub ambient: [f32; 3],
+    /// The area's fog at the player, when it has one: colour and density. The original's `VisualFog_t::process` makes a
+    /// linear fog from the near plane to `far - (far - near - 5) × density`, in that colour.
+    pub area_fog: Option<([f32; 3], f32)>,
 }
 
 /// One sprite: where (world, Z up), how wide (world units) and its colour with the alpha as the strength.
@@ -714,7 +728,7 @@ impl Renderer {
         if std::env::var_os("MAO_PROFILE").is_some() && upload_started.elapsed() > std::time::Duration::from_millis(20) {
             eprintln!("[profile] upload {:?}: textures {tex_count} in {tex_time:?}, geometry+textures {geo_time:?}, {} parts", upload_started.elapsed(), parts.len());
         }
-        Scene { parts, overlay: Vec::new(), follow: Vec::new(), center, radius, player: None, fog: (1.0e9, 2.0e9), sky: DAY_SKY, water: model.water, particles: Vec::new() }
+        Scene { parts, overlay: Vec::new(), follow: Vec::new(), center, radius, player: None, fog: (1.0e9, 2.0e9), sky: DAY_SKY, water: model.water, particles: Vec::new(), daylight: 1.0, ambient: [0.0; 3], area_fog: None }
     }
 
     fn depth_view(&mut self, gpu: &Gpu, size: (u32, u32)) {
@@ -798,6 +812,16 @@ impl Renderer {
         let water = scene.water;
         let planes = frustum(&camera.view_proj(aspect, scene.radius));
         let (mut parts, mut drawn, mut shadow_drawn) = (0usize, 0usize, 0usize);
+        // An area's fog replaces the distance haze: from the near plane (0.2, `VisualFog_t`'s default clip plane) to the far
+        // plane brought in by the density (`process`: `far -= (far - near - 5) × density`), in the area's colour.
+        let (fog_start, fog_end, fog_colour, area) = match scene.area_fog {
+            Some((colour, density)) if density > 0.0 => {
+                let (near, far) = (0.2f32, scene.fog.1);
+                let end = if far - near > 5.0 { far - (far - near - 5.0) * density.min(1.0) } else { far };
+                (near, end, colour, 1.0)
+            }
+            _ => (scene.fog.0, scene.fog.1, scene.sky.0, 0.0),
+        };
         let globals = Globals {
             view_proj: camera.view_proj(aspect, scene.radius).to_cols_array(),
             light_vp: light_vp.to_cols_array(),
@@ -805,9 +829,11 @@ impl Renderer {
             rect: water.map_or([0.0; 4], |w| [w.min[0], w.min[1], w.max[0], w.max[1]]),
             light: [sun.x, sun.y, sun.z, 0.0],
             player: [player.x, player.y, player.z, self.started.elapsed().as_secs_f32()],
-            eye: [eye.x, eye.y, eye.z, scene.fog.0],
-            horizon: [scene.sky.0[0], scene.sky.0[1], scene.sky.0[2], scene.fog.1],
+            eye: [eye.x, eye.y, eye.z, fog_start],
+            horizon: [scene.sky.0[0], scene.sky.0[1], scene.sky.0[2], fog_end],
             zenith: [scene.sky.1[0], scene.sky.1[1], scene.sky.1[2], 0.0],
+            ambient: [scene.ambient[0], scene.ambient[1], scene.ambient[2], scene.daylight],
+            fog: [fog_colour[0], fog_colour[1], fog_colour[2], area],
             right: {
                 let forward = (camera.target - eye).normalize_or_zero();
                 let right = forward.cross(Vec3::Z).normalize_or_zero();

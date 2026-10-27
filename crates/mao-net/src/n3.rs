@@ -47,6 +47,10 @@ pub mod movement {
 /// the data holds the arrival position.
 pub const PLAYFIELD: u32 = 0x5f4b1a39;
 
+/// The server's game clock (`GameTimeMessage`): the handler at 0x10039800 in Gamecode gives `GameTime_t::Update` the
+/// message's float (seconds into the 27-hour day), the day period, the day count and the server's time.
+pub const GAME_TIME: u32 = 0x5f52412e;
+
 /// The first thing the client sends after entering.
 pub const READY: u32 = 0x570c2039;
 
@@ -708,6 +712,15 @@ impl Message {
         let f = |at: usize| f32::from_be_bytes(self.data[at..at + 4].try_into().unwrap());
         let template = (self.data.len() >= 26 && self.data[17] == b'a').then(|| u32::from_be_bytes(self.data[22..26].try_into().unwrap())).filter(|&t| t != 0);
         Some((template.unwrap_or(self.identity.1), [f(5), f(9), f(13)]))
+    }
+
+    /// A [`GAME_TIME`] message: the seconds into the day, the day period, the day count and the server's time.
+    pub fn game_time(&self) -> Option<(f32, i32, i32, i32)> {
+        if self.kind != GAME_TIME || self.data.len() < 16 {
+            return None;
+        }
+        let w = |at: usize| u32::from_be_bytes(self.data[at..at + 4].try_into().unwrap());
+        Some((f32::from_bits(w(0)), w(4) as i32, w(8) as i32, w(12) as i32))
     }
 
     /// The nano programs active on a character (`SimpleCharFullUpdate`'s `ActiveNanos`: a count word `(n + 1) * 0x3f1`, then

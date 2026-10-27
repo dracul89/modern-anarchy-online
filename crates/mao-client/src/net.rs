@@ -131,6 +131,8 @@ struct World {
     speeds: BTreeMap<u32, f32>,
     /// A playfield announcement not yet acted on: (playfield, arrival).
     arrival: Option<(u32, [f32; 3])>,
+    /// The game's clock (the server's `GameTime` message sets it).
+    game_clock: crate::gametime::Clock,
     /// The character's items, from the world-entry message (until taken).
     inventory: Option<Vec<inventory::Entry>>,
     /// The character's stats by stat number (the world-entry message and the later `Stat` messages), and whether
@@ -474,6 +476,11 @@ impl World {
         if let Some(arrival) = m.arrival() {
             eprintln!("playfield message: identity ({:x},{:x}) -> playfield {} at {:?}", m.identity.0, m.identity.1, arrival.0, arrival.1);
             self.arrival = Some(arrival);
+        }
+        if let Some((seconds, period, day, server_time)) = m.game_time() {
+            self.game_clock.set(seconds);
+            let (hour, minute) = self.game_clock.time();
+            eprintln!("game time: {hour:02}:{minute:02} (period {period}, day {day}, server time {server_time})");
         }
         *self.kinds.entry(m.kind).or_default() += 1;
         if m.kind == 0x7f544905 && m.identity.0 == 0xc75b {
@@ -1601,6 +1608,8 @@ pub(crate) struct Area {
     pub(crate) collision: mao_formats::collision::Collision,
     /// The whompah booths (x, height, z).
     pub(crate) booths: Vec<[f32; 3]>,
+    /// The playfield's areas and their environments (light and fog by where the character stands).
+    pub(crate) areas: Vec<mao_formats::areas::Area>,
 }
 
 pub(crate) fn load_area(game: &str, db: &Arc<ResourceDatabase>, playfield: u32) -> Result<Area, String> {
@@ -1659,7 +1668,11 @@ pub(crate) fn load_area_with(game: &str, db: &Arc<ResourceDatabase>, playfield: 
         // An interior's way out is marked by its door blocker: offer it like a booth (labelled, and the Go button walks there).
         booths.extend(crate::door_markers(game, db, playfield));
     }
-    Ok(Area { scene, terrain, collision, booths })
+    let areas = mao_formats::areas::load(db, playfield);
+    if !areas.is_empty() {
+        eprintln!("playfield {playfield}: {} areas ({} with an environment)", areas.len(), areas.iter().filter(|a| a.takes_part()).count());
+    }
+    Ok(Area { scene, terrain, collision, booths, areas })
 }
 
 /// The label over each whompah booth: where it leads, when that is known.
@@ -1684,7 +1697,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     let db = Arc::new(ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?);
     crate::effects::load_calibration(game);
     let textures = crate::Textures::new(db.clone());
-    let Area { scene, terrain, collision, booths } = load_area_with(game, &db, playfield, Some(&textures))?;
+    let Area { scene, terrain, collision, booths, areas } = load_area_with(game, &db, playfield, Some(&textures))?;
+    let mut areas = areas;
     let thread_textures = textures.clone_handle();
     let started_props = Instant::now();
     state.set_static_props(crate::static_props(&db, playfield));
@@ -2174,6 +2188,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             }
                             pending_scene = Some(scene);
                             booths = area.booths;
+                            areas = area.areas;
                             booth_playfield = playfield;
                             pending_labels = Some(booth_labels(playfield, &booths, &destinations, &names));
                             goto = None;
@@ -3087,6 +3102,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     },
                     ground: terrain.clone().map(|t| (t, offset)),
                     own: Some(position),
+                    environment: Some(mao_formats::areas::blend(&areas, position)),
+                    daylight: Some(state.game_clock.day_intensity()),
                     location: pending_location.take(),
                     labels: pending_labels.take(),
                     pickables: Some(state.objects.iter().map(|(id, p)| (*id, [p[0], p[2], p[1] + 1.2])).chain(state.entities.iter().filter(|(id, _)| **id != own).map(|(id, (p, _))| (*id, [p[0], p[2], p[1] + 1.0]))).collect()),

@@ -57,6 +57,7 @@ mod net;
 mod settings;
 mod theme;
 mod effects;
+mod gametime;
 mod ui;
 mod whompah;
 pub(crate) mod viewer;

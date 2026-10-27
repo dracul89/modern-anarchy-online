@@ -110,6 +110,9 @@ pub struct Update {
     /// The ground (and how far the server's heights sit above it), to keep the camera above it.
     pub ground: Option<(std::sync::Arc<mao_formats::terrain::Terrain>, f32)>,
     pub own: Option<[f32; 3]>,
+    /// The area's environment where the character stands (light and fog), and the day's intensity.
+    pub environment: Option<mao_formats::areas::Blend>,
+    pub daylight: Option<f32>,
     /// The playfield's name, when it changes.
     pub location: Option<String>,
     /// The labels over the world (Z-up positions), when they change.
@@ -242,6 +245,20 @@ pub fn headless_with(model: &Model, textures: &Textures, out: &str, ui: Option<(
     }
     let mut tried = std::collections::HashSet::new();
     load_sprites(&mut renderer, &gpu, textures, &scene.particles, &mut tried);
+    // `MAO_DAYLIGHT=<0..1>` sets the day's intensity and `MAO_AREA_FOG=r,g,b,density` an area's fog, for pictures of them.
+    if let Some(d) = std::env::var("MAO_DAYLIGHT").ok().and_then(|v| v.parse::<f32>().ok()) {
+        scene.daylight = d.clamp(0.0, 1.0);
+    }
+    if let Some(v) = std::env::var("MAO_AREA_FOG").ok().map(|t| t.split(',').filter_map(|n| n.trim().parse::<f32>().ok()).collect::<Vec<_>>()) {
+        if let [r, g, b, density] = v[..] {
+            let light = scene.daylight.max(0.5);
+            scene.area_fog = Some(([r * light, g * light, b * light], density));
+            // (the fog reaches to the far plane: a picture without one gets the default view distance)
+            if scene.fog.1 > 1.0e8 {
+                scene.fog = fog_for(1800.0);
+            }
+        }
+    }
     // `MAO_PLAYER=x,y,z` (world, Z up) puts a player in the scene: plants near it bend away.
     if let Some(v) = std::env::var("MAO_PLAYER").ok().map(|t| t.split(',').filter_map(|n| n.trim().parse::<f32>().ok()).collect::<Vec<_>>()) {
         if let [x, y, z] = v[..] {
@@ -307,6 +324,9 @@ struct App {
     own_velocity: [f32; 3],
     own_at: std::time::Instant,
     ground: Option<(std::sync::Arc<mao_formats::terrain::Terrain>, f32)>,
+    /// The area's environment where the character stands, and the day's intensity (from the last update).
+    environment: mao_formats::areas::Blend,
+    daylight: f32,
     keys: Input,
     /// The keys as last sent to the network thread.
     last_sent: Input,
@@ -365,7 +385,7 @@ pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<()
     let settings = Settings::load();
     crate::ui::set_debug_overlay(settings.debug_overlay);
     crate::font::set_enabled(settings.original_font);
-    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), home_distance: None, bursts: Vec::new(), shots: Vec::new(), tried_sprites: Default::default(), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
+    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), home_distance: None, bursts: Vec::new(), shots: Vec::new(), tried_sprites: Default::default(), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, environment: Default::default(), daylight: 1.0, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
     event_loop.run_app(&mut app).map_err(|e| e.to_string())?;
     if app.logged_out {
         // (the launcher that started the game sees this code and shows the character screen again)
@@ -988,6 +1008,12 @@ impl ApplicationHandler for App {
                             }
                         }
                         self.ground = update.ground.take();
+                        if let Some(e) = update.environment.take() {
+                            self.environment = e;
+                        }
+                        if let Some(d) = update.daylight.take() {
+                            self.daylight = d;
+                        }
                         if let Some(model) = &update.scene {
                             let uploading = std::time::Instant::now();
                             w.scene = w.renderer.upload(&w.gpu, model, &mut |k, i| self.textures.get_for_upload(k, i));
@@ -1066,7 +1092,18 @@ impl ApplicationHandler for App {
                 if self.live.is_some() {
                     w.scene.fog = fog_for(self.settings.view_distance);
                     // (an interior has no ground: it is seen against the dark, not the daylight sky)
-                    w.scene.sky = if self.ground.is_none() && self.behind_set { mao_render::DARK_SKY } else { mao_render::DAY_SKY };
+                    let interior = self.ground.is_none() && self.behind_set;
+                    w.scene.sky = if interior { mao_render::DARK_SKY } else { mao_render::DAY_SKY };
+                    // The day's light and the area's environment (`Environment_t`'s per-frame work, see `mao_formats::areas`): an
+                    // interior is lit as it is; outside, the area's ambient is kept against the sky light and its fog, when it has
+                    // one, is lit by the fog light (`AddFogLightIntensity`: the day's intensity, at least a half).
+                    w.scene.daylight = if interior { 1.0 } else { self.daylight };
+                    let e = self.environment;
+                    w.scene.ambient = e.ambient;
+                    w.scene.area_fog = (e.density > 0.0).then(|| {
+                        let light = self.daylight.max(0.5);
+                        ([e.fog[0] * light, e.fog[1] * light, e.fog[2] * light], e.density)
+                    });
                     if self.keys.char_distance != self.settings.char_distance || self.keys.auto_loot != self.settings.auto_loot {
                         self.keys.char_distance = self.settings.char_distance;
                         self.keys.auto_loot = self.settings.auto_loot;

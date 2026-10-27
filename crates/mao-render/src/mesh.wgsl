@@ -19,6 +19,21 @@ struct Globals {
     // The camera's right and up (world, Z up), for sprites that face it.
     right: vec4<f32>,
     up: vec4<f32>,
+    // rgb: the area's ambient light (kept per channel at its maximum against the sky light); w: the day's intensity.
+    ambient: vec4<f32>,
+    // rgb: the fog's colour; w: 1 when it is an area's fog (not scaled by the day: it was scaled by the fog light already).
+    fog: vec4<f32>,
+}
+
+// The day's light: the sky light, the sun and the sky keep a fifth at night so the world stays visible (the original's
+// night comes from its own night sky and lights, which are not ported).
+fn day() -> f32 {
+    return mix(0.2, 1.0, globals.ambient.w);
+}
+
+// The fog's colour at the horizon: the sky's by day, an area's as it is.
+fn fog_colour() -> vec3<f32> {
+    return mix(globals.horizon.rgb * day(), globals.fog.rgb, globals.fog.w);
 }
 
 struct Part {
@@ -145,13 +160,16 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     // relied on. Sky light from above, a warmer bounce from below, and a sun.
     let sun = normalize(globals.light.xyz);
     let diffuse = abs(dot(n, sun)) * shadow_at(in.world, n);
-    let ambient = mix(vec3<f32>(0.34, 0.32, 0.30), vec3<f32>(0.60, 0.66, 0.76), n.z * 0.5 + 0.5);
-    var colour = base.rgb * min(ambient + vec3<f32>(0.60, 0.56, 0.48) * diffuse + vec3<f32>(baked), vec3<f32>(1.0));
-    // Distance fades into the horizon's colour.
+    let d = day();
+    // The area's ambient light is added as the original's `AddAmbientLight` adds it: each channel at its maximum.
+    let ambient = max(mix(vec3<f32>(0.34, 0.32, 0.30), vec3<f32>(0.60, 0.66, 0.76), n.z * 0.5 + 0.5) * d, globals.ambient.rgb);
+    var colour = base.rgb * min(ambient + vec3<f32>(0.60, 0.56, 0.48) * d * diffuse + vec3<f32>(baked), vec3<f32>(1.0));
+    // Distance fades into the fog's colour (linear when the fog is an area's, as Direct3D's was).
     let far = globals.horizon.w;
     let near = globals.eye.w;
     let fog = clamp((distance(in.world, globals.eye.xyz) - near) / max(far - near, 1.0), 0.0, 1.0);
-    colour = mix(colour, globals.horizon.rgb, fog * fog * (3.0 - 2.0 * fog));
+    let amount = mix(fog * fog * (3.0 - 2.0 * fog), fog, globals.fog.w);
+    colour = mix(colour, fog_colour(), amount);
     return vec4<f32>(colour, 1.0);
 }
 
@@ -174,7 +192,10 @@ fn vs_sky(@builtin(vertex_index) index: u32) -> SkyOut {
 @fragment
 fn fs_sky(in: SkyOut) -> @location(0) vec4<f32> {
     let t = clamp(in.height * 0.5 + 0.5, 0.0, 1.0);
-    return vec4<f32>(mix(globals.horizon.rgb, globals.zenith.rgb, pow(t, 0.8)), 1.0);
+    // An area's fog hides the horizon in its colour (the lower half of the screen is at or under it), thinning towards the
+    // zenith; the sky above is the day's.
+    let sky = mix(globals.horizon.rgb, globals.zenith.rgb, pow(t, 0.8)) * day();
+    return vec4<f32>(mix(sky, fog_colour(), globals.fog.w * (1.0 - smoothstep(0.5, 1.0, t))), 1.0);
 }
 
 struct WaterOut {
@@ -221,15 +242,17 @@ fn fs_water(in: WaterOut) -> @location(0) vec4<f32> {
     let view = normalize(globals.eye.xyz - in.world);
     let fresnel = 0.04 + 0.96 * pow(1.0 - max(dot(n, view), 0.0), 5.0);
     let r = reflect(-view, n);
-    let sky = mix(globals.horizon.rgb, globals.zenith.rgb, pow(clamp(r.z, 0.0, 1.0), 0.6));
-    let deep = vec3<f32>(0.03, 0.20, 0.27);
-    let shallow = vec3<f32>(0.10, 0.42, 0.45);
+    let d = day();
+    let sky = mix(globals.horizon.rgb, globals.zenith.rgb, pow(clamp(r.z, 0.0, 1.0), 0.6)) * d;
+    let deep = vec3<f32>(0.03, 0.20, 0.27) * d;
+    let shallow = vec3<f32>(0.10, 0.42, 0.45) * d;
     var colour = mix(mix(deep, shallow, 0.5 + 0.5 * h * 0.5), sky, fresnel);
     let sun = normalize(globals.light.xyz);
-    colour = colour + vec3<f32>(1.0, 0.92, 0.75) * pow(max(dot(r, sun), 0.0), 140.0) * 1.5;
+    colour = colour + vec3<f32>(1.0, 0.92, 0.75) * d * pow(max(dot(r, sun), 0.0), 140.0) * 1.5;
     let far = globals.horizon.w;
     let near = globals.eye.w;
     let fog = clamp((distance(in.world, globals.eye.xyz) - near) / max(far - near, 1.0), 0.0, 1.0);
-    colour = mix(colour, globals.horizon.rgb, fog * fog * (3.0 - 2.0 * fog));
+    let amount = mix(fog * fog * (3.0 - 2.0 * fog), fog, globals.fog.w);
+    colour = mix(colour, fog_colour(), amount);
     return vec4<f32>(colour, mix(0.62, 0.94, fresnel));
 }

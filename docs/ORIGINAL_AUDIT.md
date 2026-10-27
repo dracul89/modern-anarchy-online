@@ -25,26 +25,39 @@ then check a render. Never the other way round.
 | Animation cross-fade | `VisualCATMesh_t::SetAnimation` (displaysystem `catloader.rs`): fade over the cycle's remaining time, 200–300 ms | `PoseState::fade` | done |
 | Body scale | `n3VisualDynel_t::SetBodyScale(stat 360 / 100)` (FUN_10058800, FUN_1005c3ed, FUN_1008746a) | `parts()` world scale | done for the own character; the others' stat is not received |
 | Texture alpha as light | the alpha-replicate texture stages (`RDeltaState`) | `Material::alpha_lights` | done |
+| Game clock, day intensity | `GameTime_t` (0x1000afdb, `RunFunction` 0x1000b27e, `GetDayIntensity` 0x1000af23; the `GameTime` message 0x5f52412e → `Update` 0x1000b590) | `gametime.rs`, `n3::GAME_TIME` | done; the server here never sends the message, so the real clock stands in at the game's pace |
+| Area environments (light, fog) | `Environment_t` FUN_100be0bb / FUN_100becbe / FUN_100beacd / FUN_100bf96e over `AreaData_t`'s `EnvironmentData_t` (the `0xf425d` object) | `mao_formats::areas` (`blend`), `Scene::{ambient, area_fog}` | done for clear weather; the weather roll (FUN_100bcec6, the schedule FUN_100b1821) is not ported |
 | Buff pulses | `_GfxControlBPHFSM_t`, `gfxtweak.bin` | `pulses.rs`, `effects.rs` | done earlier |
 
 ## To do, in order of what the player sees
 
-1. **Environment: sky, fog, ambient, sun, time of day** — the largest visible difference. The client has a fixed sun
-   (0.4, −0.5, 0.8), fixed ambient/sun colours in `mesh.wgsl`, a two-colour sky gradient and a fog by view distance.
-   The original: `PlayfieldAnarchy_t` holds an `Environment_t` (constructor FUN_100be0bb, 0x90 words) made from the playfield's
-   `EnvironmentData_t` (26 bytes, read by `GameData::operator>>` — `dropin/gamedata/src/values.rs environment_read`; the
-   `RDBPlayfield_t` blob carries it after the districts, FUN_10124692: `... >> int >> int >> flag; if flag { EnvironmentData }`;
-   districts (`AreaData_t`) carry their own, FUN_100bd6d9/FUN_100bd81a copy the 26 bytes into the environment: bytes 0–7 as words
-   at +0x20..+0x3c, 8–18 as bytes at +0x44..+0x4e, 19–25 as bytes at +0..+6, and the area's +0x48..+0x50 floats). The per-frame
-   update is FUN_100becbe (12.7 KB): `AddAmbientLight` from the state table (+0x2c: 32 floats; +0x3c..+0x44 ambient, +8 daylight,
-   [0] a fog/intensity value, +0x14/+0x18/+0x24 sun terms), `GameTime_t` (`GetCurrentRealTime`, `GetDuskEnd`, `GetDayIntensity`),
-   a weather `VisualFader_t`, the sky colour setters into `VisualEnvFX_t`'s frame block (+0x7e8: +0xd8..+0xec two colours,
-   +0xf0/+0xf4/+0x114 factors, +0x1134 = 1 − daylight/`_DAT_10169510`), fog through `VisualFog_t::AddFog` (displaysystem
-   `fog.rs`: the strongest fog takes over, weaker ones blend by weight; `AddClipPlanes`; `AddFogLightIntensity`), the suns
-   (`_GfxControlSuns_t`, `fxsun.rs`), the skyline (`fxskyline.rs`) and clouds. Work: (a) parse `EnvironmentData` from the
-   playfield object into `mao_formats::playfield`; (b) port `Environment_t`'s state computation (FUN_100bd555 the time-of-day
-   driver, FUN_100bf4f9, FUN_100bff68 the sky colours, FUN_100b98fe); (c) feed ambient, sun direction/colour, fog and sky into
-   `Scene`. Expect several sessions.
+1. **Environment: sky, sun, weather** — what is left after the area environments and the clock (above). Read this pass:
+   - **Where the look comes from.** `Environment_t`'s state table (32 floats, FUN_100bf907) holds the *weather* ([0] fog
+     from the first weather, [1] fog density, [2] cloud cover, [3]–[6] the four precipitations, [7] wind, [8] darkness, [9]–[0xd]
+     thunder/lightning rates) and the *area* values ([0xf]–[0x11] ambient, [0x12]–[0x15] fog colour and density, [0x1b]–[0x1d]
+     the centre, [0x16] the reach). Per frame (FUN_100becbe) it adds the ambient (`AddAmbientLight`, a per-channel max with
+     whatever else adds one), the weather fog (`AddFog([1]×0.7 grey, [1])`), the area fog (`AddFogLightIntensity(min(day,
+     1 − [8]×0.8) ≥ 0.5)` then `AddFog(colour, density)`), the rain/snow visuals (FUN_100b9da8, FUN_100b9ba5 with `VisualRain_t`),
+     the wind (FUN_100bff68, FUN_100bfc80), and four numbers into `VisualEnvFX_t`'s frame block (+0xf0 the precipitation max,
+     +0xf4 [0], +0x114 [2], +0x1134 = 1 − [8]/2.333; +0xd8..+0xec the wind). The lightning (`+0x54`, FUN_100bd902) shakes the
+     camera (`n3Camera_t::UpdateTargetEye`).
+   - **The sky, the sun and the day's colours are not in Gamecode at all.** They are FXS scripts ("Fanatic", `FXS.dll`):
+     FUN_100bd930 registers `SM_Sandy_Env_BackgroundNight/Dawn/Day/Dusk` with time windows (dawn/dusk from `GameTime_t`, a
+     300 s fade, FUN_100ba8d7) and FUN_100ba779 fades them by the clock; DisplaySystem's `EnvironmentLightObject_t`
+     (`fxvisual.rs` `environment_frame`) reads the variables `AmbientLightCurrent`, `GroundLightDirection`, `GroundLightCurrent`,
+     `GroundLightColor`, `CloudLight…`, `WaterLight…`, `SpaceLight…`, the three texture projections, and sets the ambient
+     (`AddAmbientLight`, so the area's is a floor under it) and the one directional light (`ambient.rs set_light`). The sky
+     backgrounds and suns are FXS visuals too (`fxsun.rs`, `fxskyline.rs`, `fxsinglecloud.rs`). **Porting the sky means
+     porting the FXS object format and the scripts' time curves** — find the FXS objects in the database (the names above
+     are not in the instance index under the types tried) and read `FXS.dll`'s loader. Until then the client keeps its own
+     sun and sky, scaled by the day's intensity (`Scene::daylight`, a fifth left at night).
+   - **Weather** is a deterministic schedule per area and day: FUN_100b1821 builds it from three seeds (FUN_100bce27: the
+     sum of the environment bytes plus `GameTime_t`+0x4c the day count, plus 1/0/−1), a period of 19440 s, states of 120–1200
+     s, 16 entries; FUN_100bd555 steps it, FUN_100bcec6 rolls a state: the weather bytes 0–7 (each ×2+100 when above 1)
+     weight *clear* (byte 3), *fog* (0), *mist* (1, ×0.65), *clouds* (2), and the four precipitations (4–7, with a 0.5
+     intensity); bytes 8–9 the wind range (×2.75), 10–11 the darkness range, 12–13 the thunder/lightning chances (×10),
+     14–18 the rest. Then a second table is cross-faded (FUN_100bf96e) over the state's fade time. Port this next for the
+     fog/rain/clouds to appear where the data has them (Mort, the swamps, Tir County…).
 2. **Terrain texturing and lighting** — `AnarchyGround_t` (displaysystem `anarchyground.rs`, `rdbground.rs`, `rdbtile.rs`,
    `grounddata.rs`): per-tile textures with a shadow texture pass, a ground-light pass, ROAM tessellation (the client draws
    the full grid: fine). Compare the texture blending and the lighting fix byte.

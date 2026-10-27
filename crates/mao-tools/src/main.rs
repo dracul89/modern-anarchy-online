@@ -72,6 +72,27 @@ fn run(args: &[String]) -> Result<(), String> {
                 }
             }
         }
+        // areas <playfield> (hex): the playfield's areas and their environments (the 0xf425d object).
+        ("areas", [playfield]) => {
+            let playfield = number(playfield).ok_or("bad playfield")?;
+            let object = db.get(Id { kind: mao_formats::areas::KIND, instance: playfield }).map_err(|e| e.to_string())?.ok_or("no area list")?;
+            for a in mao_formats::areas::parse(&object).map_err(|e| e.to_string())? {
+                let e = &a.environment;
+                println!(
+                    "{:<24} centre ({:7.1}, {:6.1}, {:7.1}) reach {:7.1} weather {:?} ambient {:?} fog {:?} density {:.2}{}",
+                    a.name,
+                    a.centre[0],
+                    a.centre[1],
+                    a.centre[2],
+                    a.radius,
+                    &e[..8],
+                    &e[19..22],
+                    &e[22..25],
+                    a.density(),
+                    if a.takes_part() { "" } else { " (left out: no weather)" }
+                );
+            }
+        }
         ("get", [kind, instance]) => {
             let id = Id { kind: number(kind).ok_or("bad type")?, instance: number(instance).ok_or("bad instance")? };
             match db.get(id).map_err(|e| e.to_string())? {
