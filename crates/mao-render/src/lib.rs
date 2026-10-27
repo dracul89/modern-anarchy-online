@@ -7,7 +7,7 @@
 //! and, headless, to a texture that can be saved ([`Gpu::headless`],
 //! [`Renderer::render_to_image`]).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3};
@@ -103,7 +103,29 @@ struct GpuPart {
     uniform: PartUniform,
     /// How far the part is moved from where it was uploaded.
     shift: Vec3,
+    /// The model part this draw came from.
+    source: usize,
+    /// A low-detail part: drawn only when the mesh it stands in for is far (`Lod::low`), never on its own.
+    low_only: bool,
+    /// On the first part of a watched mesh's instance: the mesh's sphere and what the decision covers.
+    lod: Option<Lod>,
 }
+
+/// The original's `LODManager` (displaysystem `lodmanager.rs`, its globals at 0x100ae1a4) on one instance of a statel mesh:
+/// the mesh's sphere in the world, how many parts after the head belong to the instance, the indices of its low-detail
+/// parts (none when the database has no 0xf696a twin), and whether it was last seen far (the switch happens beyond
+/// `distance² − radius² > 6000` and back below 4000). A mesh more than 50 radii off (`distance² / radius² > 2500`) is hidden.
+struct Lod {
+    center: Vec3,
+    radius: f32,
+    members: usize,
+    low: Vec<usize>,
+    far: std::cell::Cell<bool>,
+}
+
+const LOD_NEAR: f32 = 4000.0;
+const LOD_FAR: f32 = 6000.0;
+const LOD_CULL: f32 = 2500.0;
 
 pub use mao_formats::model::Water;
 
@@ -702,8 +724,24 @@ impl Renderer {
     }
 
     pub fn upload(&self, gpu: &Gpu, model: &Model, texture: &mut dyn FnMut(u32, u32) -> Option<Texture>) -> Scene {
-        let draw_list = draws(model);
+        let mut draw_list = draws(model);
         let (center, radius) = world_matrix_bounds(model, &draw_list);
+        // The low-detail twins of the watched meshes: a draw of each low part for every instance of its full mesh's first
+        // part, after the others (never drawn on their own: see `Lod`).
+        let mut low_parts: HashSet<usize> = HashSet::new();
+        let mut head_of: HashMap<usize, usize> = HashMap::new();
+        for (g, (full, low)) in model.lod_groups.iter().enumerate() {
+            head_of.insert(full.start, g);
+            if let Some(low) = low {
+                low_parts.extend(low.clone());
+            }
+        }
+        let heads: Vec<(usize, [f32; 16])> = draw_list.iter().filter(|(i, _)| head_of.contains_key(i)).copied().collect();
+        for (i, world) in heads {
+            if let Some(low) = &model.lod_groups[head_of[&i]].1 {
+                draw_list.extend(low.clone().map(|j| (j, world)));
+            }
+        }
         let mut cache = self.textures.borrow_mut();
         let (mut tex_time, mut geo_time, mut tex_count) = (std::time::Duration::ZERO, std::time::Duration::ZERO, 0u32);
         let upload_started = std::time::Instant::now();
@@ -794,7 +832,7 @@ impl Renderer {
                             wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(sampler) },
                         ],
                     });
-                    Some(GpuPart { vertices: vb.clone(), indices: ib.clone(), index_count: *count, bind, center, radius, uniform_buffer: ub, uniform, shift: Vec3::ZERO })
+                    Some(GpuPart { vertices: vb.clone(), indices: ib.clone(), index_count: *count, bind, center, radius, uniform_buffer: ub, uniform, shift: Vec3::ZERO, source: index, low_only: low_parts.contains(&index), lod: None })
                 })
                 .collect()
         };
@@ -811,6 +849,49 @@ impl Renderer {
         }
         if std::env::var_os("MAO_PROFILE").is_some() && upload_started.elapsed() > std::time::Duration::from_millis(20) {
             eprintln!("[profile] upload {:?}: textures {tex_count} in {tex_time:?}, geometry+textures {geo_time:?}, {} parts", upload_started.elapsed(), parts.len());
+        }
+        // The watched meshes: each instance's head takes the mesh's world sphere, the count of the instance's parts that
+        // follow it, and the draws of its low-detail parts (by the same world matrix).
+        if !model.lod_groups.is_empty() {
+            let mut low_by_world: HashMap<(usize, [u32; 16]), Vec<usize>> = HashMap::new();
+            for (k, p) in parts.iter().enumerate() {
+                if p.low_only {
+                    low_by_world.entry((p.source, p.uniform.model.map(f32::to_bits))).or_default().push(k);
+                }
+            }
+            let local_box = |i: usize| {
+                let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+                for v in &model.parts[i].vertices {
+                    lo = lo.min(Vec3::from(v.position));
+                    hi = hi.max(Vec3::from(v.position));
+                }
+                (lo, hi)
+            };
+            for h in 0..parts.len() {
+                let Some(&g) = head_of.get(&parts[h].source) else { continue };
+                if parts[h].low_only {
+                    continue;
+                }
+                let (full, low) = &model.lod_groups[g];
+                let world = parts[h].uniform.model;
+                let m = Mat4::from_cols_array(&world);
+                let (mut wlo, mut whi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+                for i in full.clone() {
+                    if model.parts[i].vertices.is_empty() {
+                        continue;
+                    }
+                    let (lo, hi) = local_box(i);
+                    for corner in 0..8 {
+                        let c = Vec3::new(if corner & 1 == 0 { lo.x } else { hi.x }, if corner & 2 == 0 { lo.y } else { hi.y }, if corner & 4 == 0 { lo.z } else { hi.z });
+                        let p = m.transform_point3(c);
+                        wlo = wlo.min(p);
+                        whi = whi.max(p);
+                    }
+                }
+                let members = parts[h + 1..].iter().take_while(|p| full.contains(&p.source) && p.uniform.model == world && !p.low_only).count();
+                let low_draws: Vec<usize> = low.iter().flat_map(|r| r.clone()).filter_map(|j| low_by_world.get(&(j, world.map(f32::to_bits)))).flatten().copied().collect();
+                parts[h].lod = Some(Lod { center: (wlo + whi) * 0.5, radius: ((whi - wlo).length() * 0.5).max(0.01), members, low: low_draws, far: std::cell::Cell::new(false) });
+            }
         }
         let water_mesh = model.water.as_ref().filter(|w| !w.triangles.is_empty()).map(|w| {
             let data: Vec<[f32; 4]> = w.triangles.iter().flat_map(|(points, kind)| points.iter().map(move |p| [p[0], p[1], p[2], *kind as f32])).collect();
@@ -904,6 +985,36 @@ impl Renderer {
         let (mut parts, mut drawn, mut shadow_drawn) = (0usize, 0usize, 0usize);
         // An area's fog replaces the distance haze: from the near plane (0.2, `VisualFog_t`'s default clip plane) to the far
         // plane brought in by the density (`process`: `far -= (far - near - 5) × density`), in the area's colour.
+        // The LOD manager's decision for every watched mesh this frame (see `Lod`): which of the playfield's parts draw.
+        let mut lod_draw: Vec<bool> = scene.parts.iter().map(|p| !p.low_only).collect();
+        // (MAO_NO_LOD=1 draws every full mesh whatever its distance, to compare)
+        let no_lod = std::env::var_os("MAO_NO_LOD").is_some();
+        for (h, part) in scene.parts.iter().enumerate() {
+            let Some(lod) = &part.lod else { continue };
+            if no_lod {
+                continue;
+            }
+            let d2 = (lod.center + part.shift - eye).length_squared();
+            let r2 = lod.radius * lod.radius;
+            let hidden = d2 / r2 > LOD_CULL;
+            let beyond = d2 - r2;
+            if beyond > LOD_FAR {
+                lod.far.set(true);
+            } else if beyond < LOD_NEAR {
+                lod.far.set(false);
+            }
+            let use_low = lod.far.get() && !lod.low.is_empty();
+            if hidden || use_low {
+                for k in h..(h + 1 + lod.members).min(lod_draw.len()) {
+                    lod_draw[k] = false;
+                }
+            }
+            if use_low && !hidden {
+                for &k in &lod.low {
+                    lod_draw[k] = true;
+                }
+            }
+        }
         let (fog_start, fog_end, fog_colour, area) = match scene.area_fog {
             Some((colour, density)) if density > 0.0 => {
                 let (near, far) = (0.2f32, scene.fog.1);
@@ -981,7 +1092,10 @@ impl Renderer {
                 // the playfield itself: the characters and the machines (the overlay and the followers) throw the original's
                 // blob shadows instead (`Scene::blobs`), and nothing else in the original throws one.
                 let reach = extent * 1.6;
-                for part in scene.parts.iter() {
+                for (k, part) in scene.parts.iter().enumerate() {
+                    if !lod_draw[k] {
+                        continue;
+                    }
                     let d = part.center + part.shift - focus;
                     if d.truncate().length() > reach + part.radius {
                         continue;
@@ -1018,8 +1132,11 @@ impl Renderer {
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &globals_bind, &[]);
             pass.set_bind_group(2, &self.shadow_bind, &[]);
-            for part in scene.parts.iter().chain(&scene.overlay).chain(&scene.follow) {
+            for (k, part) in scene.parts.iter().enumerate().chain(scene.overlay.iter().chain(&scene.follow).map(|p| (usize::MAX, p))) {
                 parts += 1;
+                if k != usize::MAX && !lod_draw[k] {
+                    continue;
+                }
                 // Plants bend up to a couple of units out of their box.
                 if !sphere_visible(&planes, part.center + part.shift, part.radius + 2.0) {
                     continue;

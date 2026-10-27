@@ -231,6 +231,6 @@ impl Terrain {
             }
         }
         let parts = groups.into_values().flatten().collect();
-        Model { parts, instances: Vec::new(), water: self.water(height_scale) }
+        Model { parts, instances: Vec::new(), water: self.water(height_scale), lod_groups: Vec::new() }
     }
 }

@@ -1395,7 +1395,7 @@ pub(crate) fn character_model(db: &Arc<ResourceDatabase>, breed: i32, sex: i32, 
     let (textures, clothes, gear) = look.map_or((&[][..], &[][..], &[][..]), |l| (l.textures.as_slice(), l.clothes.as_slice(), l.gear.as_slice()));
     let parts = chars.parts(0, breed, sex, None, None, 0.0, 0.0, 100.0, textures, clothes, gear, None)?;
     let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
-    Some(Model { instances: (0..parts.len()).map(|i| (i, swap)).collect(), parts, water: None })
+    Some(Model { instances: (0..parts.len()).map(|i| (i, swap)).collect(), parts, water: None, lod_groups: Vec::new() })
 }
 
 /// `creature <game> <npc template> <out.png>`: a creature as the world draws it (what a polymorph turns a character into).
@@ -1411,14 +1411,14 @@ pub(crate) fn creature_preview(db: Arc<ResourceDatabase>, template: u32, out: &s
     };
     let parts = chars.creature_parts(0, template, action, 0.0, 1.0, &[], &[]).ok_or("that template has no mesh")?;
     let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
-    let model = Model { instances: (0..parts.len()).map(|i| (i, swap)).collect(), parts, water: None };
+    let model = Model { instances: (0..parts.len()).map(|i| (i, swap)).collect(), parts, water: None, lod_groups: Vec::new() };
     crate::viewer::headless(&model, &crate::Textures::new(db), out)
 }
 
 /// The entities' markers alone (own character red, the others blue): two
 /// parts and an instance per entity, placed Z-up.
 fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>, characters: &mut Option<Characters>, include: &dyn Fn(u32) -> bool) -> (Model, Vec<crate::blobshadow::Caster>) {
-    let mut model = Model { parts: vec![marker([0.9, 0.1, 0.1]), marker([0.2, 0.4, 0.95]), nose(), marker([0.2, 0.8, 0.3])], instances: Vec::new(), water: None };
+    let mut model = Model { parts: vec![marker([0.9, 0.1, 0.1]), marker([0.2, 0.4, 0.95]), nose(), marker([0.2, 0.8, 0.3])], instances: Vec::new(), water: None, lod_groups: Vec::new() };
     // (the characters' meshes throw the original's blob shadows: each is noted as a caster)
     let mut casters = Vec::new();
     fn push_character(model: &mut Model, casters: &mut Vec<crate::blobshadow::Caster>, parts: Vec<mao_formats::model::Part>, place: mao_formats::model::Matrix, own: bool) {

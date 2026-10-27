@@ -512,7 +512,21 @@ pub(crate) fn add_props(game: &str, db: &ResourceDatabase, playfield: u32, model
                 let start = model.parts.len();
                 model.parts.extend(m.parts);
                 part_mesh.extend((start..model.parts.len()).map(|i| (i, s.mesh)));
-                Some(start..model.parts.len())
+                let full = start..model.parts.len();
+                // The mesh's low-detail twin (type 0xf696a, the same instance), which the original's `LODManager` swaps in
+                // beyond a distance (`lodmanager.rs`): its parts go in uninstanced, drawn only in the full ones' place.
+                let low = load_model(db, Id { kind: 0xf696a, instance: s.mesh }).ok().filter(|m| !m.parts.is_empty()).map(|mut m| {
+                    if plant_meshes.contains(&s.mesh) {
+                        for part in &mut m.parts {
+                            part.material.foliage = true;
+                        }
+                    }
+                    let low_start = model.parts.len();
+                    model.parts.extend(m.parts);
+                    low_start..model.parts.len()
+                });
+                model.lod_groups.push((full.clone(), low));
+                Some(full)
             })
             .clone();
         let Some(range) = range else { continue };

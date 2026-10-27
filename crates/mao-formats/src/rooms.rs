@@ -500,7 +500,7 @@ pub fn covers(grid: &Grid, room: &Room, x: f32, z: f32, reversed: bool) -> bool 
 /// All the rooms of a playfield as one model.
 pub fn model(grid: &Grid, rooms: &RoomPlayfield, material: &Material, pieces: &HashMap<u16, Piece>) -> Model {
     let parts: Vec<Part> = rooms.rooms.iter().flat_map(|r| room_parts(grid, r, material, pieces)).collect();
-    Model { parts, instances: Vec::new(), water: None }
+    Model { parts, instances: Vec::new(), water: None, lod_groups: Vec::new() }
 }
 
 #[cfg(test)]

@@ -122,6 +122,11 @@ pub struct Model {
     pub instances: Vec<(usize, Matrix)>,
     /// A sheet of water over the ground, where the playfield has any.
     pub water: Option<Water>,
+    /// The meshes the original's `LODManager` watches (the statels): each a range of the full mesh's parts and, when the
+    /// database has its low-detail mesh (type 0xf696a, the same instance), the range of that one's parts, which are drawn
+    /// in the full ones' place beyond the manager's distance and never on their own. A statel more than 50 of its radii
+    /// from the camera is not drawn at all.
+    pub lod_groups: Vec<(std::ops::Range<usize>, Option<std::ops::Range<usize>>)>,
 }
 
 /// The water: the playfield's liquid triangles (world, Z up, each with its liquid type) when they are known, else a
@@ -437,5 +442,5 @@ fn build_with(mesh: &MeshObject, root: Root) -> Result<Model, Error> {
         walk(a, root_frame, &IDENTITY, 0, root, &mut parts)?;
     }
     let _ = kind::OBJECT;
-    Ok(Model { parts, instances: Vec::new(), water: None })
+    Ok(Model { parts, instances: Vec::new(), water: None, lod_groups: Vec::new() })
 }
