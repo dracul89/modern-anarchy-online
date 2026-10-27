@@ -638,3 +638,7 @@ A character's animations are now kept as `VisualCATMesh_t` keeps them (`mao_form
 ## The statels' level of detail, from the original's code
 
 The original's `LODManager` (displaysystem `lodmanager.rs`) watches every statel mesh: one more than 50 of its radii from the camera is hidden; beyond `distance² − radius² > 6000` its low-detail twin (type 0xf696a, the same instance; 668 of the 11228 meshes have one) is drawn in its place, and the full mesh comes back below 4000. `add_props` loads the twin beside each statel mesh (`Model::lod_groups`) and the renderer decides per instance every frame (`Lod`), for the shadow map too; `MAO_NO_LOD=1` turns it off to compare. The original looks at 20 meshes a frame, so its switches lag a little; the client's do not.
+
+## The hit and tracer stars, from the original's code
+
+Most hit and tracer effects are `_GfxControlStars_t` templates (kind 2004: 3534 hits and 2760 tracers name one). The two most used of its 29 modes are now played as the original plays them (`mao_formats::gfx::Stars`, `effects::stars_particles`): 128 billboard sprites of the template's material, each a random colour between the template's two colours and a random late frame of the sheet, growing and shrinking along a parabola over the template's life; mode 6 bears them on a circle round the attach point, rising and swirling, mode 19 scatters them in a sphere at the hit. The other modes keep the spiral the client drew before. The Stars control's decompile is mangled, so these follow its shape rather than its exact numbers.

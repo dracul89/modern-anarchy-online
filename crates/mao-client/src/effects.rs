@@ -7,8 +7,60 @@
 //! does not say (or is not read yet): the radius (the radius path's numbers, 0.06 to 0.15, are too small for a body; 0.42 m is used),
 //! how high and how long a spark lives (1.9 m and 1.6 s here), and the trail (a short tail of fading sparks behind each one).
 
-use mao_formats::gfx::{Aura, Emitter, Visual};
+use mao_formats::gfx::{Aura, Emitter, Stars, Visual};
 use mao_render::{Particle, NO_SPRITE};
+
+/// `_GfxControlStars_t`'s stars at `time` seconds into the effect, about `centre` (world, Z up: the attach point's place), as the
+/// run function FUN_100f8491 moves them in modes 6 and 19 (see `mao_formats::gfx::Stars`). The original's `rand()` is stood in
+/// for by a hash of the star's number and its generation, so a star keeps its colour and path from frame to frame.
+pub fn stars_particles(s: &Stars, centre: [f32; 3], time: f32, stopped: bool) -> Vec<Particle> {
+    const STARS: u32 = 128;
+    let mut out = Vec::new();
+    let spawn_per_frame: f32 = if s.mode == 19 { 15.0 } else { 2.0 };
+    // (the original spawns at most that many a frame of its run; at the client's frame rate that is a cadence per star)
+    let cadence = s.life / STARS as f32 * (30.0 / spawn_per_frame).min(STARS as f32);
+    for k in 0..STARS {
+        // the star's births: every `cadence` seconds from its own stagger, each living `life` (mode 19: a random share)
+        let stagger = k as f32 / STARS as f32 * s.life;
+        if time < stagger {
+            continue;
+        }
+        let generation = ((time - stagger) / (s.life + cadence)).floor();
+        let born = stagger + generation * (s.life + cadence);
+        let age = time - born;
+        let salt = k.wrapping_mul(7919).wrapping_add(generation as u32 * 104729);
+        let life = if s.mode == 19 { s.life * (0.5 + 0.5 * hash(salt, 11)) } else { s.life };
+        // (once stopped no star is born again: the first generation plays out)
+        if age > life || (stopped && generation > 0.0) {
+            continue;
+        }
+        let t = (age / life).clamp(0.0, 1.0);
+        let colour = [1, 2, 3, 0].map(|c| s.colour_a[c] + (s.colour_b[c] - s.colour_a[c]) * hash(salt, c as u32));
+        let (size, position) = match s.mode {
+            6 => {
+                let angle = hash(salt, 5) * std::f32::consts::TAU;
+                let (sx, sy) = (angle.cos() * s.radius, angle.sin() * s.radius);
+                // the velocity: across the radius, half a unit up, swirled on by word 31 over the star's life
+                let swirl = s.swirl / 100.0;
+                let (vx, vy) = (-sy, sx);
+                let x = centre[0] + sx + vx * age + vx * swirl * age * age;
+                let y = centre[1] + sy + vy * age + vy * swirl * age * age;
+                let z = centre[2] + 0.5 * age;
+                ((t + 0.2) * (1.0 - t * t) * s.size, [x, y, z])
+            }
+            _ => {
+                let (a, b, r) = (hash(salt, 5) * std::f32::consts::TAU, hash(salt, 6) * 2.0 - 1.0, hash(salt, 7).cbrt() * s.radius);
+                let flat = (1.0 - b * b).sqrt();
+                let position = [centre[0] + flat * a.cos() * r, centre[1] + flat * a.sin() * r, centre[2] + b * r];
+                let w = 1.0 - 2.0 * t;
+                ((1.0 - w * w) * s.size, position)
+            }
+        };
+        let frame = 1.0 - hash(salt, 9) * 0.25;
+        out.push(sprite(s.material, frame, position, size.max(0.0), [colour[0], colour[1], colour[2], colour[3]]));
+    }
+    out
+}
 
 /// A particle cut from a material's sprite sheet (`mao_formats::gfx::MATERIALS`), `t` (0 to 1) of the way through the sheet's frames; a
 /// material that is not known gives a soft dot.
@@ -116,6 +168,14 @@ pub enum Reach {
 /// The sparks of any visual at `time` seconds with its feet (or centre, for a ball and a flash) at `feet`.
 pub fn visual_particles(v: &Visual, feet: [f32; 3], time: f32, reach: Reach) -> Vec<Particle> {
     match v {
+        // (the attach point's height on a standing body; a tracer carries the point itself)
+        Visual::Stars(s) => {
+            let up = match reach {
+                Reach::Small => 0.0,
+                _ => anchor(s.attach).0,
+            };
+            stars_particles(s, [feet[0], feet[1], feet[2] + up], time, false)
+        }
         Visual::Spiral(aura) => match reach {
             Reach::Body => aura_shaped(aura, feet, time, HEIGHT, RADIUS),
             Reach::Medium => aura_shaped(aura, feet, time, 1.5, 0.35),
@@ -257,6 +317,7 @@ pub fn pulse_particles(v: &Visual, feet: [f32; 3], heading: f32, age: f32, body:
 pub fn pulse_timing(v: &Visual) -> (f32, f32, i32) {
     match v {
         Visual::Spiral(aura) => (aura.period, aura.helices.iter().map(|h| h.life).fold(0.0, f32::max).max(0.5), aura.plays),
+        Visual::Stars(s) => (if s.duration > 0.0 { s.duration } else { 4.0 }, s.life * 2.0, -1),
         Visual::Glow { .. } => (SHIELD_PERIOD, SHIELD_LIFE, -1),
         _ => (4.0, 1.5, -1),
     }
@@ -420,6 +481,25 @@ broken line
         assert_eq!(table.get(&(29902, 29914)), Some(&0.7));
         assert_eq!(table.get(&(29902, 30227)), Some(&0.5));
         assert_eq!(table.len(), 2);
+    }
+
+    #[test]
+    fn stars_stand_in_their_sphere_with_colours_between_the_two() {
+        let s = Stars { mode: 19, colour_a: [1.0, 1.0, 0.0, 0.0], colour_b: [1.0, 0.0, 0.0, 1.0], size: 0.5, radius: 0.7, life: 1.0, swirl: 30.0, material: 8, attach: 1000, duration: -1.0 };
+        let stars = stars_particles(&s, [10.0, 20.0, 5.0], 0.6, false);
+        assert!(!stars.is_empty());
+        for p in &stars {
+            let d = ((p.position[0] - 10.0).powi(2) + (p.position[1] - 20.0).powi(2) + (p.position[2] - 5.0).powi(2)).sqrt();
+            assert!(d <= 0.7 + 1e-4, "{d}");
+            assert!(p.colour[0] >= 0.0 && p.colour[0] <= 1.0 && p.colour[2] >= 0.0 && p.colour[2] <= 1.0 && p.colour[1] == 0.0);
+            assert!(p.size >= 0.0 && p.size <= 0.5 + 1e-5);
+        }
+        // mode 6 rises: later stars sit higher than their birth height
+        let s6 = Stars { mode: 6, ..s };
+        let high = stars_particles(&s6, [0.0; 3], 0.9, false).iter().map(|p| p.position[2]).fold(f32::MIN, f32::max);
+        assert!(high > 0.2, "{high}");
+        // nothing before the first star is born
+        assert!(stars_particles(&s6, [0.0; 3], 0.0, false).len() <= 1);
     }
 
     fn emitter() -> Emitter {

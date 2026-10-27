@@ -309,9 +309,42 @@ impl Gfx {
     }
 }
 
+/// A kind-2004 template as `_GfxControlStars_t` reads it (Gamecode FUN_100f72a9, its run function FUN_100f8491 and start
+/// FUN_100f7fb8): 128 billboard sprites (`GfxVisualDiaBill`) of the material word 9, each a random colour between the two
+/// colours of words 18–21 and 22–25 (alpha, red, green, blue: FUN_10108663 picks each channel at random between them), a random
+/// frame of the material's last sixteen, sized by word 28 along a parabola over its life (word 30, ms), born at the attach
+/// point (word 7) within a radius (word 29). Word 10 is the mode, of which 29 exist; the two most used are here:
+/// * 6 (204 templates): up to two stars a frame, born on a circle of the radius, rising at half a unit a second and swirling
+///   (their velocity across the radius, scaled by word 31), their size `(t + 0.2) × (1 − t²) × word 28`;
+/// * 19 (173 templates): up to fifteen stars a frame, born in a sphere of the radius at the hit location and standing there,
+///   their size `(1 − (1 − 2t)²) × word 28`, each living a random share of the life.
+/// Word 8 (−1: until the effect stops) is the duration; once stopped no more stars are born and the effect ends with the last.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Stars {
+    pub mode: i32,
+    /// Alpha, red, green, blue.
+    pub colour_a: [f32; 4],
+    pub colour_b: [f32; 4],
+    pub size: f32,
+    pub radius: f32,
+    /// Seconds.
+    pub life: f32,
+    /// Word 31 (the swirl of mode 6).
+    pub swirl: f32,
+    pub material: i32,
+    pub attach: i32,
+    /// Word 8, seconds (−1 until stopped).
+    pub duration: f32,
+}
+
+/// The Stars modes the client plays as the original does; the others fall back to the spiral child.
+pub const STARS_MODES: [i32; 2] = [6, 19];
+
 /// What a nano effect looks like once its template is read: the few shapes the effect classes come to.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Visual {
+    /// The star burst of a hit or a tracer (kind 2004 in a mode the client plays).
+    Stars(Stars),
     /// Two spirals of sparks (the buff's aura, and the tracers and hits built on it).
     Spiral(Aura),
     /// A soft glow under the feet (kind 3003: the running effect of 114 programs, 52 of them the same cyan one).
@@ -328,6 +361,18 @@ impl Gfx {
     pub fn visual(&self, id: i32) -> Option<Visual> {
         let r = self.get(id)?;
         match r.kind {
+            2004 if r.payload.len() >= 32 && STARS_MODES.contains(&r.int(10)) => Some(Visual::Stars(Stars {
+                mode: r.int(10),
+                colour_a: [r.float(18), r.float(19), r.float(20), r.float(21)],
+                colour_b: [r.float(22), r.float(23), r.float(24), r.float(25)],
+                size: r.float(28),
+                radius: r.float(29),
+                life: (r.int(30) as f32 / 1000.0).max(0.1),
+                swirl: r.int(31) as f32,
+                material: r.int(9),
+                attach: r.int(7),
+                duration: r.float(8),
+            })),
             1001 | 2004 | 2005 | 2006 | 1018 => self.aura(id).map(Visual::Spiral),
             2007 | 3004 => self.references(id).into_iter().filter(|&c| c != id).find_map(|c| self.visual(c)),
             3003 => {

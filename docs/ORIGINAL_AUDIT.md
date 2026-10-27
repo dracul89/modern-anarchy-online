@@ -137,7 +137,7 @@ then check a render. Never the other way round.
     | kind | class | nanos naming it (root) | client |
     |---|---|---|---|
     | 2007 | `_GfxControlMeta_t` (a bundle of up to four) | 4485 hits, 3932 casts, 3020 running, 5405 tracers, 9181 gathers | shows its first child with a look |
-    | 2004 | `_GfxControlStars_t` | 3534 hits, 2760 tracers | drawn as its kind-1001 child's spiral, tinted — the Stars control itself (128 particles in three arrays, a vertex callback on the CAT mesh FUN_100f740b, words 8–31 read by FUN_100f72a9) is not ported |
+    | 2004 | `_GfxControlStars_t` | 3534 hits, 2760 tracers | modes 6 and 19 (43% of the 877 templates) ported as `gfx::Stars` / `effects::stars_particles`: 128 billboard stars of material word 9, each a random colour between words 18–21 and 22–25 (FUN_10108663), a random late frame, sized by word 28 along a parabola over word 30 ms, born within word 29 of the attach point — mode 6 on a circle, rising and swirling by word 31; mode 19 standing in a sphere at the hit. The other 27 modes (FUN_100f8491's switch on word 10: 7, 11, 3, 10, 4, 22 next in use) still show the kind-1001 child's spiral. The Ghidra text of the run function is mangled (register reuse), so the two modes follow its shape, not its arithmetic word for word |
     | 1010 | the cast effect (six emitter parts) | 5237 casts | the emitters' particles |
     | 1001 | `_GfxControlBPHFSM_t` | 2255 running | done (the buff pulses) |
     | 3004 | `_GfxControlSequencer_t` | 511 running | shows its child |
