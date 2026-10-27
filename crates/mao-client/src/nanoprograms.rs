@@ -75,7 +75,7 @@ impl ProgramsWindow {
         let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
         let mut cast = None;
         let mut open = self.open;
-        egui::Window::new(egui::RichText::new("Nano programs").color(accent)).open(&mut open).collapsible(false).default_pos(crate::layout::pos("Nano programs", egui::pos2(220.0, 90.0))).default_size([300.0, 420.0]).show(ctx, |ui| {
+        crate::chrome::window(ctx, palette, "Nano programs", "Nano programs", &mut open, |w| w.default_pos(crate::layout::pos("Nano programs", egui::pos2(220.0, 90.0))).default_size([300.0, 420.0]), |ui| {
             ui.horizontal(|ui| {
                 ui.label("Find");
                 ui.add(egui::TextEdit::singleline(&mut self.filter).desired_width(170.0));

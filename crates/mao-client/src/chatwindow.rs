@@ -289,12 +289,7 @@ impl ChatWindow {
         let mut out = None;
         let screen = ctx.content_rect();
         let mut open = self.open;
-        egui::Window::new(egui::RichText::new("Chat").color(accent))
-            .open(&mut open)
-            .collapsible(false)
-            .default_pos(crate::layout::pos("Chat", egui::pos2(8.0, (screen.height() - 270.0).max(40.0))))
-            .default_size([560.0, 230.0])
-            .show(ctx, |ui| {
+        crate::chrome::window(ctx, palette, "Chat", "Chat", &mut open, |w| w.default_pos(crate::layout::pos("Chat", egui::pos2(8.0, (screen.height() - 270.0).max(40.0)))).default_size([560.0, 230.0]), |ui| {
                 ui.horizontal(|ui| {
                     for (tab, name) in [(Tab::All, "All"), (Tab::Tells, "Tells"), (Tab::Channels, "Channels"), (Tab::System, "System"), (Tab::Combat, "Combat")] {
                         ui.selectable_value(&mut self.tab, tab, name);

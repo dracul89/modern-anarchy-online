@@ -123,7 +123,7 @@ impl MailWindow {
         if self.open {
             let mut is_open = true;
             let mut close = false;
-            egui::Window::new(egui::RichText::new("Mail").color(accent)).open(&mut is_open).collapsible(false).resizable(false).default_pos(crate::layout::pos("Mail", egui::pos2(520.0, 90.0))).show(ctx, |ui| {
+            crate::chrome::window(ctx, palette, "Mail", "Mail", &mut is_open, |w| w.resizable(false).default_pos(crate::layout::pos("Mail", egui::pos2(520.0, 90.0))), |ui| {
                 ui.set_width(360.0);
                 ui.horizontal(|ui| {
                     ui.label("Messages");
@@ -217,7 +217,7 @@ impl MailWindow {
         if self.compose_open {
             let mut is_open = true;
             let mut close = false;
-            egui::Window::new(egui::RichText::new("Message").color(accent)).open(&mut is_open).collapsible(false).resizable(false).default_pos(crate::layout::pos("Message", egui::pos2(60.0, 90.0))).show(ctx, |ui| {
+            crate::chrome::window(ctx, palette, "Message", "Message", &mut is_open, |w| w.resizable(false).default_pos(crate::layout::pos("Message", egui::pos2(60.0, 90.0))), |ui| {
                 ui.set_width(380.0);
                 egui::Grid::new("compose").num_columns(2).spacing(egui::vec2(8.0, 4.0)).show(ui, |ui| {
                     ui.label("To");

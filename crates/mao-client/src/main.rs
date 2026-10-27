@@ -38,6 +38,7 @@ mod ncu;
 mod skills;
 mod stats;
 mod trickle_data;
+mod chrome;
 mod skin;
 mod vitals;
 mod automap;

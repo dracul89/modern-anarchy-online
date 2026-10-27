@@ -125,7 +125,7 @@ impl MissionWindow {
         let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
         let mut is_open = self.open;
         let mut close = false;
-        egui::Window::new(egui::RichText::new("Missions").color(accent)).open(&mut is_open).collapsible(false).resizable(false).default_pos(crate::layout::pos("Missions", egui::pos2(60.0, 80.0))).show(ctx, |ui| {
+        crate::chrome::window(ctx, palette, "Missions", "Missions", &mut is_open, |w| w.resizable(false).default_pos(crate::layout::pos("Missions", egui::pos2(60.0, 80.0))), |ui| {
             ui.set_width(330.0);
             // The six offer boxes (three by two), as in the original.
             egui::Grid::new("mission-offers").spacing(egui::vec2(6.0, 6.0)).show(ui, |ui| {

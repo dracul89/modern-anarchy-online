@@ -24,6 +24,7 @@ anything the original did not have is either dropped from the default view or ma
 | Bottom control center from the original skin: wings, health/nano/XP/alien-XP bars, left/right menu icons, compass, two target buttons, sub-menus (Actions, Character, Map; Camera and Help inside Actions) | done against the shipped Default skin | `crates/mao-client/src/vitals.rs` (`Skin`, `show_skinned`, `compass`, `target_buttons`, `sub_menu`, `menu_items`); layout taken from `cd_image/gui/Default/Views/ControlCenter.xml` and `ActionMenu/*.xml` |
 | Skin layer (Phase A.1): `gui_dir` setting / options field / `MAO_GUI_DIR` → theme folder → game Default, per-sprite fallthrough, lazy decode | done, checked offscreen with Default and AOU_CYT | `crates/mao-client/src/skin.rs` (`Skin`, `dirs`, `configure`, `skin`); research tool `tools/uvga_extract.py <skin folder> <out>` |
 | `TextColors.xml` chat colours (Phase A.3) | done | `theme.rs::text_colors`, `Palette::text`, `chatwindow.rs` |
+| Window chrome (Phase B.1-2): original frame, title, pin and close on every window | done, checked offscreen | `crates/mao-client/src/chrome.rs` |
 | Theme colours from any `GUIColors.xml` folder (`theme = original`, `aou_cyt`, ... or a path; `aou_mod =` points at the AOU mod folder) | done | `crates/mao-client/src/theme.rs` (`theme_dir`, `Palette`) |
 | Window positions remembered between sessions | done (this client's own `layout.ini`, not the original's `Prefs.xml`) | `layout.rs` |
 | `/camp` returns to the character screen | built, not tried live | `viewer.rs` (`logged_out`), `launcher.rs` (`LOGGED_OUT`, `MAO_RELOGIN`) |
@@ -100,6 +101,7 @@ mao-client`, a live look if the user is around, a paragraph in `docs/CLIENT_UI.m
 4. Mouse pointers from `GFX_GUI_POINTER_STANDARD_*` (winit custom cursors) — optional, cheap, very "original".
 
 ### Phase B — window chrome
+*(B.1 and B.2's conversion done 2026-10-26: `chrome.rs`, all 17 windows. Open: tabs, scrollbars and buttons in the skin's art, the ? button, the launcher's windows, B.3 titles.)*
 1. A `skin_window()` helper that draws an `egui::Window` with the original's nine-slice frame
    (`GFX_GUI_WINDOW3_BORDER_*`: corners, edges, title strip), the title in the skin's text colour, and the title
    buttons (`WINDOW_CLOSE`, `WINDOW_PIN` = stays open when Escape closes dialogs, `WINDOW_MAXIMIZE`,

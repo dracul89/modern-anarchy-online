@@ -63,7 +63,7 @@ impl ShopWindow {
         let mut command = None;
         let mut is_open = self.open;
         let mut close = false;
-        egui::Window::new(egui::RichText::new("Shop").color(accent)).open(&mut is_open).collapsible(false).resizable(false).default_pos(crate::layout::pos("Shop", egui::pos2(300.0, 100.0))).show(ctx, |ui| {
+        crate::chrome::window(ctx, palette, "Shop", "Shop", &mut is_open, |w| w.resizable(false).default_pos(crate::layout::pos("Shop", egui::pos2(300.0, 100.0))), |ui| {
             ui.set_width(330.0);
             ui.label(egui::RichText::new(format!("Booth {:x}", self.shop.1 & 0xffff)).small().weak());
             egui::ScrollArea::vertical().max_height(190.0).show(ui, |ui| {

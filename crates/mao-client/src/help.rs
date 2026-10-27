@@ -39,7 +39,7 @@ impl HelpWindow {
     pub fn show(&mut self, ctx: &egui::Context, keymap: &Keymap, palette: &Palette) {
         let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
         let mut open = self.open;
-        egui::Window::new(egui::RichText::new("Help").color(accent)).open(&mut open).collapsible(false).default_size([420.0, 460.0]).show(ctx, |ui| {
+        crate::chrome::window(ctx, palette, "Help", "Help", &mut open, |w| w.default_size([420.0, 460.0]), |ui| {
             ui.horizontal(|ui| {
                 ui.label("Find");
                 ui.add(egui::TextEdit::singleline(&mut self.filter).desired_width(200.0));

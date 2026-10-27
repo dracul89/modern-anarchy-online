@@ -307,17 +307,26 @@ impl Ui {
     /// What Escape does in the original: closes the windows that are set to close with it (dialogs, containers, shops, the options and
     /// the perk window; the inventory, the nano and the character windows stay). True when a window was closed.
     pub fn close_with_escape(&mut self) -> bool {
-        let open = self.options_open || self.loot.open || self.shop.open || self.perks.open || self.whompah_open || self.mail.open || self.mission.open || self.help.open;
-        self.options_open = false;
-        self.rebinding = None;
-        self.loot.open = false;
-        self.shop.open = false;
-        self.perks.open = false;
-        self.whompah_open = false;
-        self.mail.open = false;
-        self.mission.open = false;
-        self.help.open = false;
-        open
+        // (a window whose pin is down stays, as in the original)
+        let mut closed = false;
+        let mut shut = |name: &str, flag: &mut bool| {
+            if *flag && !crate::chrome::pinned(name) {
+                *flag = false;
+                closed = true;
+            }
+        };
+        shut("Options", &mut self.options_open);
+        shut("loot", &mut self.loot.open);
+        shut("Shop", &mut self.shop.open);
+        shut("Perks", &mut self.perks.open);
+        shut("Whom-Pah", &mut self.whompah_open);
+        shut("Mail", &mut self.mail.open);
+        shut("Missions", &mut self.mission.open);
+        shut("Help", &mut self.help.open);
+        if !self.options_open {
+            self.rebinding = None;
+        }
+        closed
     }
 
     /// Whether the window of that name is shown (the names of [`Ui::set_window`]).
@@ -683,7 +692,7 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
 fn whompah_window(ctx: &egui::Context, open: &mut bool, hud: &Hud, palette: &Palette, requests: &mut Requests) {
     let accent = rgb(palette.accent);
     let mut is_open = *open;
-    egui::Window::new(egui::RichText::new("Whom-Pah").color(accent)).open(&mut is_open).collapsible(false).resizable(true).default_width(340.0).anchor(egui::Align2::RIGHT_CENTER, egui::vec2(-16.0, 0.0)).show(ctx, |ui| {
+    crate::chrome::window(ctx, palette, "Whom-Pah", "Whom-Pah", &mut is_open, |w| w.resizable(true).default_width(340.0).anchor(egui::Align2::RIGHT_CENTER, egui::vec2(-16.0, 0.0)), |ui| {
         let here = hud.position;
         let mut booths: Vec<(f32, &Label)> = hud.labels.iter().map(|l| (here.map_or(0.0, |p| ((l.world.x - p[0]).powi(2) + (l.world.y - p[2]).powi(2)).sqrt()), l)).collect();
         booths.sort_by(|a, b| a.0.total_cmp(&b.0));
@@ -965,7 +974,7 @@ fn hud_layer(ctx: &egui::Context, hud: &Hud, project: &dyn Fn(Vec3) -> Option<[f
 fn options_window(ctx: &egui::Context, open: &mut bool, rebinding: &mut Option<Action>, settings: &mut Settings, requests: &mut Requests, palette: &Palette, themes: &[String]) {
     let mut is_open = *open;
     let mut close = false;
-    egui::Window::new(egui::RichText::new("Options").color(rgb(palette.accent))).open(&mut is_open).collapsible(false).resizable(true).default_width(520.0).anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0)).show(ctx, |ui| {
+    crate::chrome::window(ctx, palette, "Options", "Options", &mut is_open, |w| w.resizable(true).default_width(520.0).anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0)), |ui| {
         ui.heading("Window");
         ui.horizontal(|ui| {
             for mode in [WindowMode::Windowed, WindowMode::Borderless, WindowMode::Fullscreen] {
