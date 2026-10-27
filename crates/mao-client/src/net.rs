@@ -470,6 +470,7 @@ impl World {
     fn add(&mut self, frame: &frame::Frame) {
         let Some(m) = Message::parse(frame) else { return };
         if let Some(arrival) = m.arrival() {
+            eprintln!("playfield message: identity ({:x},{:x}) -> playfield {} at {:?}", m.identity.0, m.identity.1, arrival.0, arrival.1);
             self.arrival = Some(arrival);
         }
         *self.kinds.entry(m.kind).or_default() += 1;
@@ -1033,7 +1034,7 @@ impl Characters {
     /// The parts of a machine's model (Y-up local space), loaded once.
     fn prop_parts(&mut self, mesh: u32) -> Option<&Vec<Part>> {
         let db = self.db.clone();
-        self.props.entry(mesh).or_insert_with(|| crate::load_model(&db, mao_formats::resource::Id { kind: 0xf6951, instance: mesh }).ok().map(|m| m.parts)).as_ref()
+        self.props.entry(mesh).or_insert_with(|| crate::load_model_dynel(&db, mao_formats::resource::Id { kind: 0xf6951, instance: mesh }).ok().map(|m| m.parts)).as_ref()
     }
 
     /// The parts of a creature or NPC from its template (the CAT mesh and
@@ -2696,6 +2697,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     state.speeds.insert(own, speed.abs());
                 }
             } else if let Some(e) = state.entities.get(&own) {
+                if (0..3).map(|k| (e.0[k] - position[k]).powi(2)).sum::<f32>().sqrt() > 3.0 {
+                    eprintln!("[{:6.1}] the server moved us from {position:?} to {:?}", clock.elapsed().as_secs_f32(), e.0);
+                }
                 position = e.0;
             }
             if last_reveal.elapsed() >= Duration::from_millis(120) {

@@ -359,7 +359,7 @@ fn simple_mesh(a: &Archive, s: &Stream, name: &str, world: Matrix, out: &mut Vec
     Ok(())
 }
 
-fn walk(a: &Archive, index: i32, parent: &Matrix, depth: usize, root_position: bool, out: &mut Vec<Part>) -> Result<(), Error> {
+fn walk(a: &Archive, index: i32, parent: &Matrix, depth: usize, root: Root, out: &mut Vec<Part>) -> Result<(), Error> {
     if depth > 64 {
         return Err(Error::Shape("a frame tree deeper than 64"));
     }
@@ -368,14 +368,21 @@ fn walk(a: &Archive, index: i32, parent: &Matrix, depth: usize, root_position: b
     // exporter stored there (a door mesh keeps `local_pos` (0, 0.96, 3.81) on its root, cancelled on the leaf's frame and added back by
     // the leaf's animation, which hung the leaves 3.8 m from the door's place), while its rotation and scale do apply (signs came out
     // upside down without them). An attached mesh (a head, worn gear) keeps the whole root transform: its position is the neck's.
-    let world = if depth == 0 && !root_position {
-        let mut m = local_matrix(a, frame);
-        m[12] = 0.0;
-        m[13] = 0.0;
-        m[14] = 0.0;
-        multiply(&m, parent)
-    } else {
-        multiply(&local_matrix(a, frame), parent)
+    // A dynel (a door, a machine) gets none of it: `RRefFrame_t::UpdateWorldMatrix` composes the animation's matrix with the frame's
+    // local position and rotation, and the game sets a dynel's root to the object's place, so the exporter's root transform is
+    // replaced; the animated frames under it carry the root's inverse in their local transform and their pose in the animation's
+    // matrix, which puts them at the object's place (Old Athen's sliding doors, whose root turns a quarter: with the root's rotation
+    // kept the leaves stood across the opening).
+    let world = match root {
+        Root::Rotation if depth == 0 => {
+            let mut m = local_matrix(a, frame);
+            m[12] = 0.0;
+            m[13] = 0.0;
+            m[14] = 0.0;
+            multiply(&m, parent)
+        }
+        Root::None if depth == 0 => *parent,
+        _ => multiply(&local_matrix(a, frame), parent),
     };
     if a.class(index as usize) == Some("RTriMesh_t") {
         if let Some(data) = frame.int("0", "data").and_then(|d| a.objects.get(d as usize)) {
@@ -388,27 +395,44 @@ fn walk(a: &Archive, index: i32, parent: &Matrix, depth: usize, root_position: b
         }
     }
     for child in refs(frame, "chld") {
-        walk(a, child, &world, depth + 1, root_position, out)?;
+        walk(a, child, &world, depth + 1, root, out)?;
     }
     Ok(())
 }
 
 /// The drawable parts of a mesh object, as an attached mesh (a head, worn gear): the whole root transform applies.
 pub fn build(mesh: &MeshObject) -> Result<Model, Error> {
-    build_with(mesh, true)
+    build_with(mesh, Root::Full)
 }
 
 /// The drawable parts of a mesh object placed in the world (a statel, a door, a machine): the root frame's position is left out
 /// (see `walk`).
 pub fn build_placed(mesh: &MeshObject) -> Result<Model, Error> {
-    build_with(mesh, false)
+    build_with(mesh, Root::Rotation)
 }
 
-fn build_with(mesh: &MeshObject, root_position: bool) -> Result<Model, Error> {
+/// The drawable parts of a mesh object that is a dynel of the playfield (a door, a machine): the game sets the root frame's
+/// local transform to the object's place, so none of the exporter's root transform applies (see `walk`).
+pub fn build_dynel(mesh: &MeshObject) -> Result<Model, Error> {
+    build_with(mesh, Root::None)
+}
+
+/// How much of a mesh's root frame transform applies.
+#[derive(Clone, Copy, PartialEq)]
+enum Root {
+    /// All of it (attached meshes).
+    Full,
+    /// Its rotation and scale, not its position (statels).
+    Rotation,
+    /// None of it (dynels: the game overwrites the root's local transform with the object's place).
+    None,
+}
+
+fn build_with(mesh: &MeshObject, root: Root) -> Result<Model, Error> {
     let a = &mesh.archive;
     let mut parts = Vec::new();
-    for root in refs(&a.root, "obj") {
-        walk(a, root, &IDENTITY, 0, root_position, &mut parts)?;
+    for root_frame in refs(&a.root, "obj") {
+        walk(a, root_frame, &IDENTITY, 0, root, &mut parts)?;
     }
     let _ = kind::OBJECT;
     Ok(Model { parts, instances: Vec::new(), water: None })

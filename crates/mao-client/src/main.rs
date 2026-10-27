@@ -211,6 +211,13 @@ pub(crate) fn load_model(db: &ResourceDatabase, id: Id) -> Result<Model, String>
     model::build_placed(&mesh).map_err(|e| e.to_string())
 }
 
+/// A mesh of a dynel (a door, a vending machine, a terminal): without any of its root frame's transform (see `model::build_dynel`).
+pub(crate) fn load_model_dynel(db: &ResourceDatabase, id: Id) -> Result<Model, String> {
+    let object = db.get(id).map_err(|e| e.to_string())?.ok_or("no such object")?;
+    let mesh = mesh::parse(&object).map_err(|e| e.to_string())?;
+    model::build_dynel(&mesh).map_err(|e| e.to_string())
+}
+
 /// A mesh attached to a body (a head, worn gear): with its whole root transform.
 pub(crate) fn load_model_attached(db: &ResourceDatabase, id: Id) -> Result<Model, String> {
     let object = db.get(id).map_err(|e| e.to_string())?.ok_or("no such object")?;
@@ -333,7 +340,7 @@ pub(crate) fn add_static_props(db: &ResourceDatabase, playfield: u32, model: &mu
         let range = meshes
             .entry(mesh)
             .or_insert_with(|| {
-                let m = load_model(db, Id { kind: 0xf6951, instance: mesh }).ok()?;
+                let m = load_model_dynel(db, Id { kind: 0xf6951, instance: mesh }).ok()?;
                 let start = model.parts.len();
                 model.parts.extend(m.parts);
                 Some(start..model.parts.len())
