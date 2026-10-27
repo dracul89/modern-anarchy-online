@@ -828,6 +828,44 @@ fn run(args: &[String]) -> Result<(), String> {
             return Ok(());
         }
     }
+    // `gfx-usage <game>`: which effect kinds the nano programs name (cast, hit, running and tracer effects), with how many
+    // programs name each, to see what the players see most.
+    if let [game, word] = args {
+        if word == "gfx-usage" {
+            let db = ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?;
+            let data = std::fs::read(Path::new(game).join("Setupf").join("gfxtweak.bin")).map_err(|e| e.to_string())?;
+            let gfx = mao_formats::gfx::Gfx::parse(&data).map_err(|e| e.to_string())?;
+            let mut tally: std::collections::BTreeMap<(u32, i32), usize> = std::collections::BTreeMap::new();
+            let mut roots: std::collections::BTreeMap<(u32, i32), usize> = std::collections::BTreeMap::new();
+            let mut nanos = 0;
+            for id in db.ids().map_err(|e| e.to_string())?.filter_map(Result::ok).filter(|i| i.kind == mao_formats::item::NANO_TEMPLATE) {
+                let Some(data) = db.get(id).ok().flatten() else { continue };
+                let Some(item) = mao_formats::item::Item::parse(&data) else { continue };
+                nanos += 1;
+                for stat in [428u32, 361, 413, 419, 366, 414] {
+                    let Some(effect) = item.stat(stat).filter(|&e| e > 0) else { continue };
+                    let Some(root) = gfx.get(effect as i32) else { continue };
+                    *roots.entry((stat, root.kind)).or_default() += 1;
+                    let mut kinds: Vec<i32> = gfx.tree(effect as i32).iter().map(|r| r.kind).collect();
+                    kinds.sort_unstable();
+                    kinds.dedup();
+                    for k in kinds {
+                        *tally.entry((stat, k)).or_default() += 1;
+                    }
+                }
+            }
+            println!("{nanos} nano programs");
+            println!("root kinds by stat (428 cast, 361 hit, 413 running, 419 tracer, 366 gather, 414 impact):");
+            for ((stat, kind), n) in &roots {
+                println!("  stat {stat} kind {kind}: {n}");
+            }
+            println!("kinds anywhere in the tree, by stat:");
+            for ((stat, kind), n) in &tally {
+                println!("  stat {stat} kind {kind}: {n}");
+            }
+            return Ok(());
+        }
+    }
     // `dynel-kinds <game>`: how many built-in things of each identity type the playfields have.
     if let [game, word] = args {
         if word == "dynel-kinds" {

@@ -129,5 +129,34 @@ then check a render. Never the other way round.
    (`HMOccluder_t`, randy31 `hmocc_data.rs`; `fxoccluder.rs` is only its debug view) — pure culling, no look; the CAT
    meshes' own level by distance (`run_function`: 0 / 1 / 3 / 6 at 16, 32 and 48 units, `RCATMesh_t` +0x21c), which thins the
    skinning, not the look.
-10. **Effects** — the rest of `gfxtweak.bin`'s kinds (`gfx*.rs` in displaysystem: beams, cones, sprites, shields): only the
-    buff pulses are done.
+10. **Effects** — mapped this pass, not ported. `_EffectHandler_t::CreateGfxControl` (Gamecode FUN_100d0656) makes a control
+    class per template kind; the classes were resolved through each constructor's vtable, and `mao-client <game> gfx-usage`
+    counts, over the 10964 nano programs, which kinds their cast (stat 428), hit (361), running (413), tracer (419), gather
+    (366) and impact (414) effects name. What the players see most, and what the client draws for it:
+
+    | kind | class | nanos naming it (root) | client |
+    |---|---|---|---|
+    | 2007 | `_GfxControlMeta_t` (a bundle of up to four) | 4485 hits, 3932 casts, 3020 running, 5405 tracers, 9181 gathers | shows its first child with a look |
+    | 2004 | `_GfxControlStars_t` | 3534 hits, 2760 tracers | drawn as its kind-1001 child's spiral, tinted — the Stars control itself (128 particles in three arrays, a vertex callback on the CAT mesh FUN_100f740b, words 8–31 read by FUN_100f72a9) is not ported |
+    | 1010 | the cast effect (six emitter parts) | 5237 casts | the emitters' particles |
+    | 1001 | `_GfxControlBPHFSM_t` | 2255 running | done (the buff pulses) |
+    | 3004 | `_GfxControlSequencer_t` | 511 running | shows its child |
+    | 1018 | `_GfxControlSparks_t` | 686 hits | drawn as a spiral; the control (`FUN_100f221c`, a `_GfxLocator_t` from words 1–7 and a hit location) is not ported |
+    | 2001 / 2002 | (not made by the factory) | 282 hits / 611 tracers | a flash / an orb (the client's own) |
+    | 2005 / 2006 | `_GfxControlSuns_t` / `_GfxControlElectra_t` | 188 running, 251 tracers / 138 hits | as spirals |
+    | 3003 | `_GfxControlShield_t` | 232 running, 154 hits | a glow under the feet |
+    | 3001 | `_GfxControlDeformer_t` (FUN_100d842e) | 160 hits | nothing |
+    | 1024 | (a tracer kind of the 1019–1027 group: `_GfxControlNano0..3_t` and kin) | 124 tracers | nothing |
+    | 3038 | `GfxControlVolGrid_t` (displaysystem `gfxvolgrid.rs`) | 31 hits, 27 casts, 24 tracers, 17 running | nothing |
+    | 1009 | `_GfxControlSmoke_t` | 63 running | nothing |
+    | 1012 | `_GfxControlSprite_t` | 27 running | nothing |
+    | 3028 | `GfxControlBParticle2_t` (`gfxbparticle.rs`) | 21 hits | nothing |
+
+    The other classes (`Fire` 1004, `Flare` 1005/1006, `Cord` 1003, `VulcanRocks` 1029, `Highlight` 2011, `Notum` 2015, `Splash`
+    3002, `SkyFlash` 3006, `CrazyCone` 3009, `Mesh` 3010, `GroundRing` 3012, `Delay` 3013, `Vein` 3014, `LavaBall` 3015,
+    `Bubble` 3016, `GlobalSmoke` 3017, `SkyRise` 3018, `Trail` 3019, `TParticle` 3020, `Beam` 3022, `EnergyBall` 3023,
+    `BParticle` 3024, `EffectMesh` 3025, `MParticle` 3027, `Scatter` 3029, `GroundGrid` 3030, `TParticle2` 3031,
+    `GroundShake` 3032, `Spiral2` 3033, `Shield2` 3034, `AParticle` 3035, `Toggle` 3036, `Trail2` 3039) are named by a handful
+    of programs each. Each port is the size of the camera's: the control's constructor and run function in Gamecode (the
+    template words it reads) and the visual it drives in displaysystem (`gfx*.rs`). Order of value: Stars 2004, Sparks 1018,
+    Deformer 3001, the 1024 tracer, VolGrid 3038, Smoke 1009, Sprite 1012.
