@@ -190,6 +190,21 @@ backend change, do the backend change in the backend crate with its own test and
 - Preview everything offscreen first: `MSYS_NO_PATHCONV=1 MAO_UI_PREVIEW=1 ./target-dev/debug/mao-client.exe
   "<game>" map 566 --image out.png` (+ `MAO_CC_MENU=camera`, `MAO_UI_PREVIEW=stats MAO_CAPTURE=<log>`, ...).
 
+## 7b. Where it stands after 2026-10-26, and what needs the original as a reference
+
+Done: A.1-A.4, B.1-B.2, D.2, D.4, D.5, the rollup of D.3, E.1. Looked at and dropped: C.1/C.2 (no data), G.2's
+option pages (`OptionPanel/Root.xml` is empty, `HotKeys.xml` lists only the fixed keys).
+
+The next items cannot be done well from the data alone; each needs a screenshot of the original client (the user has it
+and uses the AOU skins):
+- **AOU skins' bars**: the AOU wings (440 x 220) carry curved `GFX_GUI_ACTIONVIEW_*BAR*` bars (43 x 161) at places the
+  data does not state; a character's `CC*BarConfig` rects (10 x 124 stacked in a 23 x 268 dock) hint at a bar dock
+  beside the wing. Today an AOU skin shows the game's straight bars at the game's offsets.
+- **D.1 Wear/Shop icons**: six 48 px icons do not fit the 214 px strip as drawn; see how the original's CCMenu lays them.
+- **E.2 chat groups/links**: the default tab set and the look of item/command links.
+- **G.1 parity**: side-by-side of every window.
+Without a reference, prefer the items that need only network work (Phase F windows) over guessing the look.
+
 ## 8. Open questions for the user (ask when relevant, do not block on them)
 
 - Which skin should be the default when none is set: the shipped Default, or an AOU one if the mod folder is
