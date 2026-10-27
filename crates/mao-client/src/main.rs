@@ -569,7 +569,7 @@ fn run(args: &[String]) -> Result<(), String> {
             let kind = u32::from_str_radix(kind.trim_start_matches("0x"), 16).map_err(|e| e.to_string())?;
             let table = db.get(Id { kind: mao_formats::dynels::KIND, instance: number }).ok().flatten().ok_or("no dynel table")?;
             for d in mao_formats::dynels::parse(&table).into_iter().filter(|d| d.kind == kind) {
-                println!("{:#x}:{:#x} at ({:.1}, {:.1}, {:.1}) template {:#x} tail {:x?}", d.kind, d.instance, d.position[0], d.position[1], d.position[2], d.template, d.tail);
+                println!("{:#x}:{:#x} at ({:.1}, {:.1}, {:.1}) rot xyzw {:.3?} template {:#x} mesh {:x?} tail {:x?}", d.kind, d.instance, d.position[0], d.position[1], d.position[2], d.rotation, d.template, d.stat(12), d.tail);
             }
             return Ok(());
         }

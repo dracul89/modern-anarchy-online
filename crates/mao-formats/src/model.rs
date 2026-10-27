@@ -330,7 +330,12 @@ fn walk(a: &Archive, index: i32, parent: &Matrix, depth: usize, out: &mut Vec<Pa
         return Err(Error::Shape("a frame tree deeper than 64"));
     }
     let Some(frame) = (index >= 0).then(|| a.objects.get(index as usize)).flatten() else { return Ok(()) };
-    let world = multiply(&local_matrix(a, frame), parent);
+    // The root frame's own transform is the pivot the exporter stored and is not applied: a door mesh keeps `local_pos` (0, 0.96, 3.81)
+    // on its root, cancelled on the leaf's frame and added back by the leaf's animation, so applying the root would hang the leaves
+    // 3.8 m from the door's place; the original draws them at it (Andromeda's shop doors sit in their doorways only this way). The
+    // statels' roots are identities, so they do not move. (`MAO_ROOT_LOCAL=1` applies it, for comparison.)
+    let skip_root = depth == 0 && !std::env::var("MAO_ROOT_LOCAL").is_ok_and(|v| v == "1");
+    let world = if skip_root { *parent } else { multiply(&local_matrix(a, frame), parent) };
     if a.class(index as usize) == Some("RTriMesh_t") {
         if let Some(data) = frame.int("0", "data").and_then(|d| a.objects.get(d as usize)) {
             let name = string(data, "name");
