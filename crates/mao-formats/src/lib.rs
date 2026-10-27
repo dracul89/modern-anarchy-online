@@ -20,6 +20,7 @@ pub mod statels;
 pub mod playfield;
 pub mod areas;
 pub mod planetmap;
+pub mod weather;
 pub mod rooms;
 pub mod dynels;
 pub mod gfx;

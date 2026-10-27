@@ -24,18 +24,21 @@ pub struct Clock {
     /// The seconds into the day when the clock was last set, and when.
     seconds: f32,
     set: Instant,
+    /// The day count (`GameTime_t` +0x4c, the weather's seed): the server's, or the days of the real clock at the pace.
+    day: i32,
 }
 
 impl Default for Clock {
     fn default() -> Self {
         // (the real clock, at the game's pace, until the server says)
         let real = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64());
-        Clock { seconds: ((real * PACE as f64) % DAY as f64) as f32, set: Instant::now() }
+        let game = real * PACE as f64;
+        Clock { seconds: (game % DAY as f64) as f32, set: Instant::now(), day: (game / DAY as f64) as i32 }
     }
 }
 
 impl Clock {
-    /// The server's word: `seconds` into the day.
+    /// The server's word: `seconds` into the day (and the day count, when it says).
     pub fn set(&mut self, seconds: f32) {
         let mut s = seconds;
         while s < 0.0 {
@@ -43,6 +46,15 @@ impl Clock {
         }
         self.seconds = s % DAY;
         self.set = Instant::now();
+    }
+
+    pub fn set_day(&mut self, day: i32) {
+        self.day = day;
+    }
+
+    /// The day count now (the days passed since the clock was set count on).
+    pub fn day(&self) -> i32 {
+        self.day + ((self.seconds + self.set.elapsed().as_secs_f32() * PACE) / DAY) as i32
     }
 
     /// The seconds into the day now.

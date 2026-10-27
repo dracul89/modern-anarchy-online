@@ -111,7 +111,7 @@ pub struct Update {
     pub ground: Option<(std::sync::Arc<mao_formats::terrain::Terrain>, f32)>,
     pub own: Option<[f32; 3]>,
     /// The area's environment where the character stands (light and fog), and the day's intensity.
-    pub environment: Option<mao_formats::areas::Blend>,
+    pub environment: Option<crate::environment::Environment>,
     pub daylight: Option<f32>,
     /// The playfield's name, when it changes.
     pub location: Option<String>,
@@ -329,7 +329,7 @@ struct App {
     own_at: std::time::Instant,
     ground: Option<(std::sync::Arc<mao_formats::terrain::Terrain>, f32)>,
     /// The area's environment where the character stands, and the day's intensity (from the last update).
-    environment: mao_formats::areas::Blend,
+    environment: crate::environment::Environment,
     daylight: f32,
     keys: Input,
     /// The keys as last sent to the network thread.
@@ -1121,13 +1121,10 @@ impl ApplicationHandler for App {
                     // The day's light and the area's environment (`Environment_t`'s per-frame work, see `mao_formats::areas`): an
                     // interior is lit as it is; outside, the area's ambient is kept against the sky light and its fog, when it has
                     // one, is lit by the fog light (`AddFogLightIntensity`: the day's intensity, at least a half).
-                    w.scene.daylight = if interior { 1.0 } else { self.daylight };
                     let e = self.environment;
+                    w.scene.daylight = if interior { 1.0 } else { self.daylight * e.sky };
                     w.scene.ambient = e.ambient;
-                    w.scene.area_fog = (e.density > 0.0).then(|| {
-                        let light = self.daylight.max(0.5);
-                        ([e.fog[0] * light, e.fog[1] * light, e.fog[2] * light], e.density)
-                    });
+                    w.scene.area_fog = if interior { None } else { e.fog };
                     if self.keys.char_distance != self.settings.char_distance || self.keys.auto_loot != self.settings.auto_loot {
                         self.keys.char_distance = self.settings.char_distance;
                         self.keys.auto_loot = self.settings.auto_loot;

@@ -479,6 +479,7 @@ impl World {
         }
         if let Some((seconds, period, day, server_time)) = m.game_time() {
             self.game_clock.set(seconds);
+            self.game_clock.set_day(day);
             let (hour, minute) = self.game_clock.time();
             eprintln!("game time: {hour:02}:{minute:02} (period {period}, day {day}, server time {server_time})");
         }
@@ -3102,7 +3103,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     },
                     ground: terrain.clone().map(|t| (t, offset)),
                     own: Some(position),
-                    environment: Some(mao_formats::areas::blend(&areas, position)),
+                    environment: Some(crate::environment::compute(&areas, position, state.game_clock.day(), state.game_clock.seconds(), state.game_clock.day_intensity())),
                     daylight: Some(state.game_clock.day_intensity()),
                     location: pending_location.take(),
                     labels: pending_labels.take(),

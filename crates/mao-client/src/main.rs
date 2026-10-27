@@ -58,6 +58,7 @@ mod settings;
 mod theme;
 mod camera;
 mod effects;
+mod environment;
 mod gametime;
 mod ui;
 mod whompah;

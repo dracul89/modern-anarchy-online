@@ -213,6 +213,13 @@ pub fn load(db: &ResourceDatabase, playfield: u32) -> Vec<Area> {
 /// The environment at `position` (server coordinates), blended as the original does each frame (see the module): the areas
 /// within reach weighted `1 - (d / r)²`, scaled down when the weights sum past 1, and each lerped in turn into a zero table.
 pub fn blend(areas: &[Area], position: [f32; 3]) -> Blend {
+    blend_with_weather(areas, position, None).0
+}
+
+/// [`blend`] with each area's weather (`crate::weather::state` at `day` and `seconds`) blended the same way, the
+/// first fourteen table values (FUN_100bf96e lerps the whole table).
+pub fn blend_with_weather(areas: &[Area], position: [f32; 3], time: Option<(i32, f32)>) -> (Blend, crate::weather::Weather) {
+    let mut weather = crate::weather::Weather::default();
     let mut weighted: Vec<(&Area, f32)> = Vec::new();
     let mut sum = 0.0f32;
     for a in areas.iter().filter(|a| a.takes_part()) {
@@ -236,6 +243,12 @@ pub fn blend(areas: &[Area], position: [f32; 3]) -> Blend {
         for k in 0..3 {
             out.ambient[k] = (1.0 - w) * out.ambient[k] + w * ambient[k];
         }
+        if let Some((day, seconds)) = time {
+            let own = crate::weather::state(&a.environment, day, seconds).unwrap_or_default();
+            for k in 0..14 {
+                weather.v[k] = (1.0 - w) * weather.v[k] + w * own.v[k];
+            }
+        }
         let kept = (1.0 - w) * out.density;
         let total = kept + w * a.density();
         let share = if total > 0.0 { kept / total } else { 0.0 };
@@ -245,7 +258,7 @@ pub fn blend(areas: &[Area], position: [f32; 3]) -> Blend {
         }
         out.density = total;
     }
-    out
+    (out, weather)
 }
 
 #[cfg(test)]

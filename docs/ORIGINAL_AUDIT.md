@@ -28,7 +28,8 @@ then check a render. Never the other way round.
 | Game clock, day intensity | `GameTime_t` (0x1000afdb, `RunFunction` 0x1000b27e, `GetDayIntensity` 0x1000af23; the `GameTime` message 0x5f52412e → `Update` 0x1000b590) | `gametime.rs`, `n3::GAME_TIME` | done; the server here never sends the message, so the real clock stands in at the game's pace |
 | Camera | `n3Camera_t` (N3.dll: FUN_10022345 per frame, FUN_1002118c turn/zoom, FUN_10020e0c reset; `CameraVehicle_t` / `CameraVehicleFixedThird_t` steering, `Vehicle_t::Run` / `SteeringArrive` in Vehicle.dll) | `camera.rs` (`SteeringCamera`), 90° field of view in `mao-render` | done: the three third-person modes, first person, key/mouse turn and zoom with the 0.8–25 limits, reset; not the obstacle sensors, the room attractors, nor a line of sight through statels (terrain only) |
 | Planet map | GUI.dll `PlanetMapView_c`: FUN_1004d1cf (the index), FUN_1004c6cb (the coordinates), FUN_1004bedd (world → pixel: origin 31022/24880, extent 18751/24115, `MapRect`, the playfield's scales) | `mao_formats::planetmap`, `automap.rs` draws it as the corner map and the overlay | done for Rubi-Ka (the Shadowlands set is chosen by the expansion flag, not ported); interiors keep the client's own map |
-| Area environments (light, fog) | `Environment_t` FUN_100be0bb / FUN_100becbe / FUN_100beacd / FUN_100bf96e over `AreaData_t`'s `EnvironmentData_t` (the `0xf425d` object) | `mao_formats::areas` (`blend`), `Scene::{ambient, area_fog}` | done for clear weather; the weather roll (FUN_100bcec6, the schedule FUN_100b1821) is not ported |
+| Area environments (light, fog) | `Environment_t` FUN_100be0bb / FUN_100becbe / FUN_100beacd / FUN_100bf96e over `AreaData_t`'s `EnvironmentData_t` (the `0xf425d` object) | `mao_formats::areas` (`blend_with_weather`), `environment.rs`, `Scene::{ambient, area_fog}` | done |
+| Weather | the R250 generator (FUN_1013de47 / FUN_1013dec9), the schedule FUN_100b1821 / FUN_100b1277, the roll FUN_100bcec6, the fogs of the weather (FUN_100becbe), mist (FUN_100b9da8, colours FUN_100b98fe / FUN_100b9775) and precipitations (FUN_100b9ba5, FUN_100b9b10's colours) gathered as `VisualFog_t` does | `mao_formats::weather`, `environment.rs` (the fog gather) | done for what reaches the fog and the sky's dimming; the rain/snow/dust sprites (`VisualRain_t`), clouds (`VisualEnvFX_t` +0x114), wind, lightning and thunder are not drawn |
 | Buff pulses | `_GfxControlBPHFSM_t`, `gfxtweak.bin` | `pulses.rs`, `effects.rs` | done earlier |
 
 ## To do, in order of what the player sees
@@ -63,7 +64,9 @@ then check a render. Never the other way round.
      `seed & 0xff`; FUN_1013dec9 steps it (lags 103 and 147) and returns the word × 2⁻³² (`_DAT_1016bcf0`), FUN_1013de89 the
      raw word. Each schedule entry (0x20 bytes: start time, its own seed, 16 floats and 8 words drawn from it, walked
      cyclically by FUN_100b138c / FUN_100b13b6) is independent, so the weather is reproducible from the area's bytes and the
-     day count. Port this next for the fog/rain/clouds to appear where the data has them (Mort, the swamps, Tir County…).
+     day count. **Ported** (`mao_formats::weather`, the table's effects in `environment.rs`); note the seeding adds the
+     seed to one table word, so a neighbouring day's weather is all but the same and it is the area's bytes that vary it.
+     Left: the rain, snow and dust sprites, the cloud layer, wind, thunder and lightning (the camera shake, FUN_100bd902).
 2. **Terrain texturing and lighting** — `AnarchyGround_t` (displaysystem `anarchyground.rs`, `rdbground.rs`, `rdbtile.rs`,
    `grounddata.rs`): per-tile textures with a shadow texture pass, a ground-light pass, ROAM tessellation (the client draws
    the full grid: fine). Compare the texture blending and the lighting fix byte.
