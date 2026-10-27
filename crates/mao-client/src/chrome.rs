@@ -68,7 +68,7 @@ pub fn window<R>(ctx: &egui::Context, palette: &Palette, name: &str, title: &str
         let outer = ctx.memory(|m| m.area_rect(id)).filter(|r| r.is_finite() && r.width() > 20.0).unwrap_or_else(|| egui::Rect::from_min_max(content.min - egui::vec2(LEFT as f32, TOP as f32), content.max + egui::vec2(RIGHT as f32, BOTTOM as f32)));
         painter.set(under, frame_shape(&skin, outer, panel, accent));
         // the title row
-        painter.text(egui::pos2(outer.left() + 9.0, outer.top() + 5.0), egui::Align2::LEFT_TOP, &title, egui::FontId::proportional(15.0), accent);
+        crate::font::text(ctx, &painter, egui::pos2(outer.left() + 9.0, outer.top() + 5.0), &title, 15.0, accent);
         let mut x = outer.right() - RIGHT as f32 - 15.0;
         for (button, what) in [("CLOSE_X", "close"), ("PIN", "pin")] {
             let rect = egui::Rect::from_min_size(egui::pos2(x, outer.top() + 5.0), egui::vec2(15.0, 15.0));

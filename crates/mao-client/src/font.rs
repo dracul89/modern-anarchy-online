@@ -162,15 +162,43 @@ impl BitmapFont {
     }
 }
 
-/// The chat font of this context, loaded once per skin configuration (`skin::configure` drops it); None without the game's files.
-pub fn chat(ctx: &egui::Context) -> Option<Arc<BitmapFont>> {
-    let id = egui::Id::new("font-chat");
+/// A font of this context, loaded once per skin configuration (`skin::configure` drops them); None without the game's files or
+/// when the original's fonts are turned off.
+fn cached(ctx: &egui::Context, which: &str) -> Option<Arc<BitmapFont>> {
+    if !enabled() {
+        return None;
+    }
+    let id = egui::Id::new(("font", which.to_string()));
     if let Some(found) = ctx.data(|d| d.get_temp::<Option<Arc<BitmapFont>>>(id)) {
         return found;
     }
-    let loaded = crate::skin::skin(ctx).and_then(|skin| BitmapFont::load(ctx, &skin, "chat")).map(Arc::new);
+    let loaded = crate::skin::skin(ctx).and_then(|skin| BitmapFont::load(ctx, &skin, which)).map(Arc::new);
     ctx.data_mut(|d| d.insert_temp(id, loaded.clone()));
     loaded
+}
+
+/// The chat font (9 px).
+pub fn chat(ctx: &egui::Context) -> Option<Arc<BitmapFont>> {
+    cached(ctx, "chat")
+}
+
+/// The interface font (12 px): window titles and the like.
+pub fn shell(ctx: &egui::Context) -> Option<Arc<BitmapFont>> {
+    cached(ctx, "shell")
+}
+
+/// Paints one line of text at `pos` in the original's interface font when it is there, else in egui's at about the same size.
+pub fn text(ctx: &egui::Context, painter: &egui::Painter, pos: egui::Pos2, text: &str, size: f32, color: egui::Color32) -> f32 {
+    match shell(ctx) {
+        Some(font) => font.paint(painter, pos, text, color),
+        None => painter.text(pos, egui::Align2::LEFT_TOP, text, egui::FontId::proportional(size), color).width(),
+    }
+}
+
+pub fn drop_cache(d: &mut egui::util::IdTypeMap) {
+    for which in ["chat", "shell", "tooltip"] {
+        d.remove::<Option<Arc<BitmapFont>>>(egui::Id::new(("font", which.to_string())));
+    }
 }
 
 #[cfg(test)]

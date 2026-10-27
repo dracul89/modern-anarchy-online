@@ -517,3 +517,5 @@ Every window of the interface (17: inventory, stats, skills, NCU, nano programs,
 ## The original's bitmap fonts in use (`font.rs`)
 
 The chat lines are now drawn in the original's own chat font (`GFX_FONT_CHAT9` + `FontChat9.fnt`, see above): `font::BitmapFont` reads the table and the strip (white glyphs with their brightness as alpha, so the line's colour tints them; sampled nearest-neighbour), lays a line out as one mesh of textured quads (a glyph's offset inside its strip row is kept, so short glyphs sit where the original puts them), and wraps at spaces by summing glyph widths (`wrap`, tested). `[interface] original_font = on` (default) / the options checkbox "The original's chat font" turns it off for egui's vector font. The pictures scale with the interface size like everything else. Checked offscreen: the sample chat lines read exactly as the original's.
+
+The interface font too: window titles (`chrome.rs`), the target frame's name and the on-screen log use `GFX_FONT_GAMESHELL12` / `FontGameShell12.fnt` (`font::shell`, `font::text`) and the chat font, when the original's fonts are on. Checked offscreen.

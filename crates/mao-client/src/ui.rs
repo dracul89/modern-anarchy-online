@@ -983,8 +983,16 @@ fn hud_layer(ctx: &egui::Context, hud: &Hud, project: &dyn Fn(Vec3) -> Option<[f
     if !recent.is_empty() {
         egui::Area::new(egui::Id::unique("log")).anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(225.0, -150.0)).interactable(false).show(ctx, |ui| {
             frame().show(ui, |ui| {
+                let font = crate::font::chat(ctx);
                 for line in recent {
-                    ui.label(line);
+                    match &font {
+                        Some(font) => {
+                            font.label(ui, line, egui::Color32::WHITE);
+                        }
+                        None => {
+                            ui.label(line);
+                        }
+                    }
                 }
             });
         });
@@ -1013,7 +1021,14 @@ fn target_frame(ctx: &egui::Context, skin: &crate::skin::Skin, bar: &TargetBar, 
             Some(level) => format!("{} ({level})", bar.name),
             None => bar.name.clone(),
         };
-        painter.text(egui::pos2(rect.center().x, rect.top() + 4.0), egui::Align2::CENTER_TOP, name, egui::FontId::proportional(14.0), text_color);
+        match crate::font::shell(ctx) {
+            Some(font) => {
+                font.paint(painter, egui::pos2(rect.center().x - font.width(&name) * 0.5, rect.top() + 3.0), &name, text_color);
+            }
+            None => {
+                painter.text(egui::pos2(rect.center().x, rect.top() + 4.0), egui::Align2::CENTER_TOP, name, egui::FontId::proportional(14.0), text_color);
+            }
+        }
         // the bar: caps at both ends, the groove between, the fill over the fraction of health left
         let (left, right, top) = (rect.left() + 14.0, rect.right() - 14.0, rect.bottom() - 15.0);
         skin.draw(painter, "GFX_GUI_TARGET_HB_LEFT", egui::pos2(left, top), 1.0, accent);
@@ -1036,7 +1051,14 @@ fn target_frame(ctx: &egui::Context, skin: &crate::skin::Skin, bar: &TargetBar, 
             Some((hp, _)) => format!("{hp}   {:.0} m", bar.distance),
             None => format!("{:.0} m", bar.distance),
         };
-        painter.text(egui::pos2(rect.center().x, groove.center().y), egui::Align2::CENTER_CENTER, caption, egui::FontId::proportional(10.0), egui::Color32::WHITE);
+        match crate::font::chat(ctx) {
+            Some(font) => {
+                font.paint(painter, egui::pos2(rect.center().x - font.width(&caption) * 0.5, groove.top() - 1.0), &caption, egui::Color32::WHITE);
+            }
+            None => {
+                painter.text(egui::pos2(rect.center().x, groove.center().y), egui::Align2::CENTER_CENTER, caption, egui::FontId::proportional(10.0), egui::Color32::WHITE);
+            }
+        }
     });
 }
 
