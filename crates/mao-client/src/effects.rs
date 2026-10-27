@@ -7,8 +7,37 @@
 //! does not say (or is not read yet): the radius (the radius path's numbers, 0.06 to 0.15, are too small for a body; 0.42 m is used),
 //! how high and how long a spark lives (1.9 m and 1.6 s here), and the trail (a short tail of fading sparks behind each one).
 
-use mao_formats::gfx::{Aura, Emitter, Stars, Visual};
+use mao_formats::gfx::{Aura, Emitter, Sparks, Stars, Visual};
 use mao_render::{Particle, NO_SPRITE};
+
+/// `_GfxControlSparks_t`'s burst at `time` seconds after the hit, thrown from `origin` (world, Z up): word 31 sparks at once and
+/// up to fifteen more over the first frames the gate lets through (FUN_100f24c8), each flying as FUN_100f1bbe throws it and
+/// `GfxVisualSprite2Type0::ProcessSprites` moves it (its velocity pulled down by the gravity, its colour, sizes and frame run
+/// at their rates). The original's random numbers are stood in for by a hash of the spark's number.
+pub fn sparks_particles(s: &Sparks, origin: [f32; 3], time: f32) -> Vec<Particle> {
+    let total = (s.count.max(0) + 15) as u32;
+    let mut out = Vec::with_capacity(total as usize);
+    // (the frames of the burst: the gate's mask thins them; a frame is a thirtieth)
+    let frame = 1.0 / 30.0 * (s.gate.max(0) as f32 + 1.0);
+    for k in 0..total {
+        let salt = k.wrapping_mul(6353);
+        let lerp = |(a, b): (f32, f32), r: f32| a + (b - a) * r;
+        let born = if (k as i32) < s.count { 0.0 } else { (k as i32 - s.count) as f32 / 4.0 * frame };
+        let age = time - born;
+        let life = lerp(s.life, hash(salt, 1));
+        if age < 0.0 || age > life {
+            continue;
+        }
+        let t = age / life;
+        let (az, el, speed) = (lerp(s.azimuth, hash(salt, 2)), lerp(s.elevation, hash(salt, 3)), lerp(s.speed, hash(salt, 4)) * s.scale);
+        let v = [el.cos() * az.sin() * speed, el.cos() * az.cos() * speed, el.sin() * speed];
+        let position = [origin[0] + v[0] * age, origin[1] + v[1] * age, origin[2] + v[2] * age + 0.5 * s.gravity * age * age];
+        let colour = [1, 2, 3, 0].map(|c| lerp((s.colour_a[c], s.colour_b[c]), t));
+        let size = lerp(s.width, t).max(lerp(s.height, t));
+        out.push(sprite(s.material, t, position, size.max(0.0), [colour[0], colour[1], colour[2], colour[3]]));
+    }
+    out
+}
 
 /// `_GfxControlStars_t`'s stars at `time` seconds into the effect, about `centre` (world, Z up: the attach point's place), as the
 /// run function FUN_100f8491 moves them in modes 6 and 19 (see `mao_formats::gfx::Stars`). The original's `rand()` is stood in
@@ -240,6 +269,13 @@ pub fn visual_particles(v: &Visual, feet: [f32; 3], time: f32, reach: Reach) -> 
             };
             stars_particles(s, [feet[0], feet[1], feet[2] + up], time, false)
         }
+        Visual::Sparks(s) => {
+            let up = match reach {
+                Reach::Small => 0.0,
+                _ => anchor(s.attach).0,
+            };
+            sparks_particles(s, [feet[0], feet[1], feet[2] + up], time)
+        }
         Visual::Spiral(aura) => match reach {
             Reach::Body => aura_shaped(aura, feet, time, HEIGHT, RADIUS),
             Reach::Medium => aura_shaped(aura, feet, time, 1.5, 0.35),
@@ -382,6 +418,7 @@ pub fn pulse_timing(v: &Visual) -> (f32, f32, i32) {
     match v {
         Visual::Spiral(aura) => (aura.period, aura.helices.iter().map(|h| h.life).fold(0.0, f32::max).max(0.5), aura.plays),
         Visual::Stars(s) => (if s.duration > 0.0 { s.duration } else { 4.0 }, s.life * 2.0, -1),
+        Visual::Sparks(s) => (4.0, s.life.1 + 0.2, -1),
         Visual::Glow { .. } => (SHIELD_PERIOD, SHIELD_LIFE, -1),
         _ => (4.0, 1.5, -1),
     }
@@ -574,6 +611,21 @@ broken line
         let thrown = Stars { mode: 4, ..s.clone() };
         let low = stars_particles(&thrown, [0.0; 3], 0.9, false).iter().map(|p| p.position[2]).fold(f32::MAX, f32::min);
         assert!(low < -0.1, "{low}");
+    }
+
+    #[test]
+    fn sparks_fly_out_fade_and_fall() {
+        let s = Sparks { colour_a: [1.0, 1.0, 1.0, 0.0], colour_b: [0.0, 1.0, 0.0, 0.0], width: (0.1, 0.3), height: (0.1, 0.3), azimuth: (0.0, 6.28), elevation: (0.3, 1.2), speed: (2.0, 3.0), scale: 1.0, life: (0.8, 1.0), count: 8, gravity: -9.8, material: 16, attach: 1000, gate: 0 };
+        let early = sparks_particles(&s, [0.0; 3], 0.1);
+        assert!(early.len() >= 8 && early.len() <= 23, "{}", early.len());
+        // they rise at first, then gravity brings them below the start
+        assert!(early.iter().all(|p| p.position[2] > 0.0));
+        let late = sparks_particles(&s, [0.0; 3], 0.79);
+        assert!(late.iter().any(|p| p.position[2] < 0.0));
+        // the alpha fades toward the end colour's
+        assert!(late.iter().all(|p| p.colour[3] < early[0].colour[3]));
+        // all gone past the longest life
+        assert!(sparks_particles(&s, [0.0; 3], 1.3).is_empty());
     }
 
     fn emitter() -> Emitter {

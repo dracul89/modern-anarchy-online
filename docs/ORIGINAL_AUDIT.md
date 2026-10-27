@@ -141,7 +141,7 @@ then check a render. Never the other way round.
     | 1010 | the cast effect (six emitter parts) | 5237 casts | the emitters' particles |
     | 1001 | `_GfxControlBPHFSM_t` | 2255 running | done (the buff pulses) |
     | 3004 | `_GfxControlSequencer_t` | 511 running | shows its child |
-    | 1018 | `_GfxControlSparks_t` | 686 hits | drawn as a spiral; the control (`FUN_100f221c`, a `_GfxLocator_t` from words 1–7 and a hit location) is not ported |
+    | 1018 | `_GfxControlSparks_t` | 686 hits | ported as `gfx::Sparks` / `effects::sparks_particles`: FUN_100f1758 reads words 9 (material), 12–15 (width and height, start to end), 16–23 (the two colours), 24 (the gate), 25–30 (azimuth, elevation and speed ranges), 31 (the count), 32 (the speed scale), 34–35 (the life range), 40 (gravity); FUN_100f1bbe throws each spark through `GfxVisualSprite2Type0::NewSprite`, FUN_100f24c8 throws word 31 at once and up to fifteen more over the gated frames. Not: the push by the handler's force vector (word 38's curve, `ProcessSprites` kinds 1–6), the alpha-blend of the 0x800 flag (the client's particles add) |
     | 2001 / 2002 | (not made by the factory) | 282 hits / 611 tracers | a flash / an orb (the client's own) |
     | 2005 / 2006 | `_GfxControlSuns_t` / `_GfxControlElectra_t` | 188 running, 251 tracers / 138 hits | as spirals |
     | 3003 | `_GfxControlShield_t` | 232 running, 154 hits | a glow under the feet |

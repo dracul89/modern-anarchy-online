@@ -340,6 +340,32 @@ pub struct Stars {
     pub word30: i32,
 }
 
+/// A kind-1018 template as `_GfxControlSparks_t` reads it (Gamecode FUN_100f1758; FUN_100f1bbe makes a spark, FUN_100f24c8 runs
+/// them through `GfxVisualSprite2Type0`, `dropin/displaysystem/src/gfxsprite2.rs`): a burst of sprites of the material word
+/// 9 thrown from the attach point (word 7). Each spark's direction is an azimuth between words 25 and 26 and an elevation
+/// between 27 and 28, its speed between words 29 and 30 scaled by word 32; it lives between words 34 and 35 seconds, its width
+/// runs from word 12 to 13 and its height from 14 to 15, its colour from words 16–19 to 20–23 (alpha, red, green, blue), its
+/// frame across the material's sheet, and word 40 (−9.8) pulls it down. The control throws word 31 sparks at once and then
+/// up to fifteen more over the frames the gate (word 24, a mask on `rand()`) lets through, so a hit is one small burst.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Sparks {
+    pub colour_a: [f32; 4],
+    pub colour_b: [f32; 4],
+    pub width: (f32, f32),
+    pub height: (f32, f32),
+    pub azimuth: (f32, f32),
+    pub elevation: (f32, f32),
+    pub speed: (f32, f32),
+    pub scale: f32,
+    pub life: (f32, f32),
+    pub count: i32,
+    pub gravity: f32,
+    pub material: i32,
+    pub attach: i32,
+    /// Word 24: the burst's gate (0 lets every frame through, 15 one in sixteen).
+    pub gate: i32,
+}
+
 /// The Stars modes the client plays as the original does; the others fall back to the spiral child:
 /// * 3: born in a sphere of the radius, swirling across it (no rise), two a frame, the parabolic size of mode 6;
 /// * 4: born at the point, thrown in a random direction at the radius a second, slowed by 5% a frame and pulled down by 0.1,
@@ -356,6 +382,8 @@ pub const STARS_MODES: [i32; 8] = [3, 4, 6, 7, 8, 10, 11, 19];
 pub enum Visual {
     /// The star burst of a hit or a tracer (kind 2004 in a mode the client plays).
     Stars(Stars),
+    /// The sparks thrown by a hit (kind 1018).
+    Sparks(Sparks),
     /// Two spirals of sparks (the buff's aura, and the tracers and hits built on it).
     Spiral(Aura),
     /// A soft glow under the feet (kind 3003: the running effect of 114 programs, 52 of them the same cyan one).
@@ -385,6 +413,22 @@ impl Gfx {
                 duration: r.float(8),
                 word11: r.float(11),
                 word30: r.int(30),
+            })),
+            1018 if r.payload.len() >= 41 => Some(Visual::Sparks(Sparks {
+                colour_a: [r.float(16), r.float(17), r.float(18), r.float(19)],
+                colour_b: [r.float(20), r.float(21), r.float(22), r.float(23)],
+                width: (r.float(12), r.float(13)),
+                height: (r.float(14), r.float(15)),
+                azimuth: (r.float(25), r.float(26)),
+                elevation: (r.float(27), r.float(28)),
+                speed: (r.float(29), r.float(30)),
+                scale: r.float(32),
+                life: (r.float(34).max(0.05), r.float(35).max(0.05)),
+                count: r.int(31),
+                gravity: r.float(40),
+                material: r.int(9),
+                attach: r.int(7),
+                gate: r.int(24),
             })),
             1001 | 2004 | 2005 | 2006 | 1018 => self.aura(id).map(Visual::Spiral),
             2007 | 3004 => self.references(id).into_iter().filter(|&c| c != id).find_map(|c| self.visual(c)),
