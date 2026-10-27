@@ -61,6 +61,10 @@ pub struct Material {
     /// Draw the texture opaque: its alpha channel isn't a cut-out mask (the
     /// character meshes' textures).
     pub ignore_alpha: bool,
+    /// The texture's alpha channel is baked light, added to the lighting before the colour is multiplied in (the original's
+    /// texture stages: stage 0 `COLOROP ADD, COLORARG1 TEXTURE|ALPHAREPLICATE, COLORARG2 DIFFUSE, ALPHAOP DISABLE`, stage 1
+    /// `MODULATE TEXTURE, CURRENT`: the "lightedge"/"shadowtech" materials of the city buildings). Implies `ignore_alpha`.
+    pub alpha_lights: bool,
     /// Plants (trees, bushes, grass ...): the renderer sways them in the wind
     /// and bends them away from the player.
     pub foliage: bool,
@@ -238,7 +242,17 @@ fn rgb(s: &Stream, name: &str) -> [f32; 3] {
 fn material(a: &Archive, index: i32) -> Material {
     let Some(m) = (index >= 0).then(|| a.objects.get(index as usize)).flatten() else { return Material { opacity: 1.0, ..Default::default() } };
     let mut textures = Vec::new();
+    let mut alpha_lights = false;
     if let Some(state) = m.int("0", "delta_state").and_then(|i| a.objects.get(i as usize)) {
+        // The texture stage states of stage 0 (`tstm_count` says how many belong to each stage): an `ALPHAOP` (4) of `DISABLE` (1)
+        // leaves the pixel's alpha at the vertex's, so the texture's alpha is not a mask; with `COLORARG1` (2) = `TEXTURE |
+        // ALPHAREPLICATE` (0x22) it is light added to the diffuse.
+        let ints = |name: &str| -> Vec<i32> { state.field("", name).map(|f| f.values.iter().map(|v| i32::from_le_bytes(v[..4].try_into().unwrap_or([0; 4]))).collect()).unwrap_or_default() };
+        let stage0 = ints("tstm_count").first().copied().unwrap_or(0).max(0) as usize;
+        let states: Vec<(i32, i32)> = ints("tst_type").into_iter().zip(ints("tst_value")).take(stage0).collect();
+        let alpha_off = states.contains(&(4, 1));
+        let replicate = states.iter().any(|&(t, v)| t == 2 && v & 0x20 != 0);
+        alpha_lights = alpha_off && replicate;
         for t in refs(state, "tch_text") {
             let creator = a.objects.get(t as usize).and_then(|t| t.int("0", "creator")).and_then(|c| a.objects.get(c as usize));
             if let Some(c) = creator {
@@ -256,7 +270,8 @@ fn material(a: &Archive, index: i32) -> Material {
         emissive: rgb(m, "emis"),
         opacity: float_field(m, "opac").and_then(|v| v.first().copied()).unwrap_or(1.0),
         textures,
-        ignore_alpha: false,
+        ignore_alpha: alpha_lights,
+        alpha_lights,
         foliage: false,
     }
 }
@@ -304,7 +319,7 @@ fn simple_mesh(a: &Archive, s: &Stream, name: &str, world: Matrix, out: &mut Vec
         return Err(Error::Shape("vertex data shorter than its description"));
     }
     let f = |at: usize| f32::from_le_bytes(data[at..at + 4].try_into().unwrap());
-    let vertices = (0..count)
+    let vertices: Vec<Vertex> = (0..count)
         .map(|i| {
             let b = i * stride;
             Vertex {
@@ -314,13 +329,32 @@ fn simple_mesh(a: &Archive, s: &Stream, name: &str, world: Matrix, out: &mut Vec
             }
         })
         .collect();
-    let indices = s
+    let indices: Vec<u16> = s
         .int("0", "trilist")
         .and_then(|i| a.objects.get(i as usize))
         .and_then(|t| t.field("", "triangles"))
         .and_then(|f| f.values.first())
         .map(|b| b.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect())
         .unwrap_or_default();
+    // MAO_PART_SKIP=<text>: leave out the parts whose material name contains the text (to tell which part is which in a view).
+    if let Ok(skip) = std::env::var("MAO_PART_SKIP") {
+        if material(a, s.int("0", "material").unwrap_or(-1)).name.contains(&skip) {
+            return Ok(());
+        }
+    }
+    // MAO_PART_BOUNDS=1: each part's extent and index range as read, to tell a bad decode from a bad placement.
+    if std::env::var_os("MAO_PART_BOUNDS").is_some() {
+        let (mut lo, mut hi) = ([f32::MAX; 3], [f32::MIN; 3]);
+        for v in &vertices {
+            for k in 0..3 {
+                lo[k] = lo[k].min(v.position[k]);
+                hi[k] = hi[k].max(v.position[k]);
+            }
+        }
+        let top = indices.iter().copied().max().unwrap_or(0);
+        let m = material(a, s.int("0", "material").unwrap_or(-1));
+        eprintln!("part {name:?}: format {format:#x} stride {stride} {count} vertices, {} indices (max {top}), from {lo:?} to {hi:?}, material {:?} textures {:x?} opacity {} alpha lights {}", indices.len(), m.name, m.textures, m.opacity, m.alpha_lights);
+    }
     out.push(Part { name: name.to_string(), world, vertices, indices, material: material(a, s.int("0", "material").unwrap_or(-1)) });
     Ok(())
 }

@@ -685,7 +685,7 @@ impl Renderer {
                     let (center, radius) = ((wlo + whi) * 0.5, (whi - wlo).length() * 0.5);
                     let d = model.parts[index].material.diffuse;
                     let material = &model.parts[index].material;
-                    let uniform = PartUniform { model: world, colour: [d[0], d[1], d[2], 1.0], flags: [view.is_some() as u32 as f32, material.ignore_alpha as u32 as f32, material.foliage as u32 as f32, *height] };
+                    let uniform = PartUniform { model: world, colour: [d[0], d[1], d[2], 1.0], flags: [view.is_some() as u32 as f32, (material.ignore_alpha as u32 + material.alpha_lights as u32) as f32, material.foliage as u32 as f32, *height] };
                     let ub = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: bytemuck::bytes_of(&uniform), usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST });
                     let bind = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
                         label: None,

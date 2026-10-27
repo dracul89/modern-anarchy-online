@@ -340,6 +340,8 @@ pub(crate) fn add_static_props(db: &ResourceDatabase, playfield: u32, model: &mu
             })
             .clone();
         let Some(range) = range else { continue };
+        // MAO_DYNEL_CONJ=1: the record's quaternion conjugated (to test the sense of a door's turn).
+        let rotation = if std::env::var_os("MAO_DYNEL_CONJ").is_some() { [-rotation[0], -rotation[1], -rotation[2], rotation[3]] } else { rotation };
         let place = model::multiply(&model::trs_matrix(position, rotation, [1.0; 3]), &swap);
         model.instances.extend(range.map(|i| (i, place)));
     }

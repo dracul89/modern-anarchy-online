@@ -127,10 +127,16 @@ fn fs_shadow(in: VertexOut) {
 @fragment
 fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     var base = part.colour;
+    // Baked light in the texture's alpha (flags.y = 2): added to the lighting, as the original's texture stages add it to the
+    // diffuse before the colour is multiplied in.
+    var baked = 0.0;
     if part.flags.x > 0.5 {
         let t = textureSample(tex, samp, in.uv);
         if t.a < 0.5 && part.flags.y < 0.5 {
             discard;
+        }
+        if part.flags.y > 1.5 {
+            baked = t.a;
         }
         base = vec4<f32>(base.rgb * t.rgb, 1.0);
     }
@@ -140,7 +146,7 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     let sun = normalize(globals.light.xyz);
     let diffuse = abs(dot(n, sun)) * shadow_at(in.world, n);
     let ambient = mix(vec3<f32>(0.34, 0.32, 0.30), vec3<f32>(0.60, 0.66, 0.76), n.z * 0.5 + 0.5);
-    var colour = base.rgb * (ambient + vec3<f32>(0.60, 0.56, 0.48) * diffuse);
+    var colour = base.rgb * min(ambient + vec3<f32>(0.60, 0.56, 0.48) * diffuse + vec3<f32>(baked), vec3<f32>(1.0));
     // Distance fades into the horizon's colour.
     let far = globals.horizon.w;
     let near = globals.eye.w;

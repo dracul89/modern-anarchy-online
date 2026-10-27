@@ -21,6 +21,55 @@ fn run(args: &[String]) -> Result<(), String> {
     let db = ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?;
     match (command.as_str(), rest) {
         ("info", []) => println!("{} objects", db.len()),
+        // survey-states: how the meshes' render and texture stage states are used (which render states, which stage layouts).
+        ("survey-states", []) => {
+            let ints = |s: &mao_formats::archive::Stream, name: &str| -> Vec<i32> {
+                s.field("", name).map(|f| f.values.iter().map(|v| i32::from_le_bytes(v[..4].try_into().unwrap_or([0; 4]))).collect()).unwrap_or_default()
+            };
+            let mut rst: BTreeMap<(i32, i32), u64> = BTreeMap::new();
+            let mut tst: BTreeMap<String, u64> = BTreeMap::new();
+            let (mut states, mut meshes) = (0u64, 0u64);
+            for id in db.ids().map_err(|e| e.to_string())? {
+                let id = id.map_err(|e| e.to_string())?;
+                if id.kind != 0xf6951 {
+                    continue;
+                }
+                let Ok(Some(object)) = db.get(id) else { continue };
+                let Ok(mesh) = mao_formats::mesh::parse(&object) else { continue };
+                meshes += 1;
+                for o in &mesh.archive.objects {
+                    if o.int("", "rst_count").is_none() {
+                        continue;
+                    }
+                    states += 1;
+                    let (t, v) = (ints(o, "rst_type"), ints(o, "rst_value"));
+                    for (t, v) in t.iter().zip(v.iter()) {
+                        *rst.entry((*t, *v)).or_default() += 1;
+                    }
+                    let key = format!("rst {:?} stages {:?} types {:?} values {:?}", t.iter().zip(v.iter()).collect::<Vec<_>>(), ints(o, "tstm_count"), ints(o, "tst_type"), ints(o, "tst_value"));
+                    *tst.entry(key).or_default() += 1;
+                }
+            }
+            println!("{meshes} meshes, {states} states");
+            for ((t, v), n) in &rst {
+                println!("rst {t} = {v}: {n}");
+            }
+            let mut tst: Vec<_> = tst.into_iter().collect();
+            tst.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
+            for (k, n) in tst.iter().take(40) {
+                println!("{n}: {k}");
+            }
+        }
+        // names <text>: the meshes (0xf6951) of the instance index whose file name contains the text.
+        ("names", [text]) => {
+            let index = db.get(Id { kind: 0xf424a, instance: 1 }).map_err(|e| e.to_string())?.ok_or("no instance index")?;
+            let index = mao_formats::instances::Instances::parse(&index).map_err(|e| e.to_string())?;
+            for (kind, name, instance) in index.iter() {
+                if kind == 0xf6951 && name.contains(text.as_str()) {
+                    println!("{instance:#x} {name}");
+                }
+            }
+        }
         ("get", [kind, instance]) => {
             let id = Id { kind: number(kind).ok_or("bad type")?, instance: number(instance).ok_or("bad instance")? };
             match db.get(id).map_err(|e| e.to_string())? {
@@ -429,7 +478,7 @@ stats {:?}", item.id, item.name, item.description, item.icon(), item.stats);
             println!("version {} colour {:#x} notes {}", mesh.version, mesh.colour, mesh.notes.len());
             let show = |stream: &mao_formats::archive::Stream| {
                 for f in &stream.fields {
-                    let values: Vec<String> = f.values.iter().take(4).map(|v| match f.kind {
+                    let values: Vec<String> = f.values.iter().take(32).map(|v| match f.kind {
                         3 | 17 => format!("{}", i32::from_le_bytes(v[..4].try_into().unwrap_or([0; 4]))),
                         10 => format!("{}", f32::from_le_bytes(v[..4].try_into().unwrap_or([0; 4]))),
                         12 | 13 | 15 | 16 => v.chunks(4).map(|c| format!("{:.3}", f32::from_le_bytes(c.try_into().unwrap_or([0; 4])))).collect::<Vec<_>>().join(","),
