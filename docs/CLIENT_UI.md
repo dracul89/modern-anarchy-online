@@ -664,3 +664,5 @@ Stars mode 5 (23 hit templates) runs as the original's `case 5`: the stars of mo
 Stars mode 20 (19 hit templates) runs as the original's `case 0x14`: fifteen stars a frame born in a sphere about the hit point, standing at one size for a quarter of a second, a dense sparkle at the point of impact.
 
 Stars mode 2 (18 hit templates) runs as the original's `case 2`: all 128 stars at once on a sphere that grows from 0.6 to 1.3 over a second and a half while the stars shrink to nothing and run back through the sheet's frames, each in one of eight palette colours mixed with the template's second colour.
+
+Stars mode 13 (17 hit templates) runs as the original's `case 0xd`: a ray of stars curling out from the chest, its direction turned a little each step about a drifting axis, the newest stars at the point and the oldest at the tip, the ray growing and shrinking back over the hit.

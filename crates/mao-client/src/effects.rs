@@ -127,6 +127,9 @@ pub fn stars_particles(s: &Stars, centre: [f32; 3], time: f32, stopped: bool) ->
     if s.mode == 22 {
         return stars_on_edges(s, centre, time, stopped);
     }
+    if s.mode == 13 {
+        return stars_ray(s, centre, time);
+    }
     // Mode 2 (`case 2`): all 128 stars from the start, each at a random point of the unit sphere, for 1.5 s; the sphere grows
     // to `√frac × 0.7 + 0.6`, the stars shrink by `(1 − frac) × word 28 × 20 / table[frame]`, their sheet frame
     // `(1 − frac) × 15` clamped to 1..15 (the odd stars one behind) and their colours random between the template's second
@@ -270,6 +273,58 @@ pub fn stars_particles(s: &Stars, centre: [f32; 3], time: f32, stopped: bool) ->
             _ => 1.0 - hash(salt, 9) * 0.25,
         };
         out.push(sprite(s.material, frame, position, size.max(0.0), [colour[0], colour[1], colour[2], colour[3]]));
+    }
+    out
+}
+
+/// Stars mode 13 (`case 0xd`, its start helpers FUN_100f73cf and FUN_100f7ec9): a ray that curls as it grows. A unit direction
+/// (up at first) is turned each step by word 29 radians about an axis (+z at first) that drifts by 0.15 of a random unit vector
+/// and is made unit again; the last 128 directions are kept in a ring (the start fills it, each frame adds seven). Star `k`
+/// stands on its ring slot's direction at `word 28 × age / 128` from the point, `age` how many steps ago the slot was written,
+/// so the newest are at the point and the oldest at the tip; it shows while `age / 128 < 1 − (2 × frac − 1)²` (the ray grows
+/// and shrinks back over the duration), at the size word 11. Every template carries a duration of −1, which would hide the
+/// whole ray in the original's formula; the hit's window gives it (the client's landing time, `LANDING`).
+fn stars_ray(s: &Stars, centre: [f32; 3], time: f32) -> Vec<Particle> {
+    const RING: u32 = 128;
+    let mut out = Vec::new();
+    let duration = if s.duration > 0.0 { s.duration } else { LANDING };
+    if time < 0.0 || time >= duration {
+        return out;
+    }
+    let frac = time / duration;
+    let envelope = 1.0 - (2.0 * frac - 1.0).powi(2);
+    let norm = |v: [f32; 3]| {
+        let l = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+        if l > 0.0 { v.map(|c| c / l) } else { v }
+    };
+    // (the original's Y-up frame: up is y)
+    let (mut dir, mut axis) = ([0.0f32, 1.0, 0.0], [0.0f32, 0.0, 1.0]);
+    let steps = RING + (time * 30.0).floor() as u32 * 7;
+    let mut ring = vec![[0.0f32; 3]; RING as usize];
+    for n in 0..steps.min(RING * 40) {
+        let (a, b) = (hash(n, 0x130) * std::f32::consts::TAU, hash(n, 0x131) * 2.0 - 1.0);
+        let flat = (1.0 - b * b).sqrt();
+        let random = [flat * a.cos(), flat * a.sin(), b];
+        axis = norm([0, 1, 2].map(|i| axis[i] + 0.15 * random[i]));
+        // (Rodrigues: the direction turned by word 29 about the axis)
+        let (sn, cs) = s.radius.sin_cos();
+        let dot = axis[0] * dir[0] + axis[1] * dir[1] + axis[2] * dir[2];
+        let cross = [axis[1] * dir[2] - axis[2] * dir[1], axis[2] * dir[0] - axis[0] * dir[2], axis[0] * dir[1] - axis[1] * dir[0]];
+        dir = norm([0, 1, 2].map(|i| dir[i] * cs + cross[i] * sn + axis[i] * dot * (1.0 - cs)));
+        ring[(n % RING) as usize] = dir;
+    }
+    let head = (steps.min(RING * 40) - 1) % RING;
+    for k in 0..RING {
+        let age = (head + RING - k) % RING;
+        let fraction = age as f32 / RING as f32;
+        if fraction >= envelope {
+            continue;
+        }
+        let d = ring[k as usize];
+        let reach = s.size * fraction;
+        let salt = k.wrapping_mul(7919).wrapping_add(steps);
+        let colour = [1, 2, 3, 0].map(|c| s.colour_a[c] + (s.colour_b[c] - s.colour_a[c]) * hash(salt, c as u32));
+        out.push(sprite(s.material, 0.0, [centre[0] + d[0] * reach, centre[1] + d[2] * reach, centre[2] + d[1] * reach], s.word11.max(0.0), colour));
     }
     out
 }
@@ -862,7 +917,15 @@ pub fn pulse_timing(v: &Visual) -> (f32, f32, i32) {
     match v {
         Visual::Spiral(aura) => (aura.period, aura.helices.iter().map(|h| h.life).fold(0.0, f32::max).max(0.5), aura.plays),
         // (mode 2 runs the fixed 1.5 s its start function sets as the duration)
-        Visual::Stars(s) => (if s.duration > 0.0 { s.duration } else { 4.0 }, if s.mode == 2 { 1.5 } else { s.life * 2.0 }, -1),
+        Visual::Stars(s) => (
+            if s.duration > 0.0 { s.duration } else { 4.0 },
+            match s.mode {
+                2 => 1.5,
+                13 => if s.duration > 0.0 { s.duration } else { LANDING },
+                _ => s.life * 2.0,
+            },
+            -1,
+        ),
         Visual::Sparks(s) => (4.0, s.life.1 + 0.2, -1),
         Visual::Deform(d) => (4.0, if d.duration > 0.0 { d.duration } else { 1.5 }, -1),
         Visual::Cords(c) => (4.0, if c.duration > 0.0 { c.duration } else { 1.0 }, -1),
@@ -981,6 +1044,26 @@ pub fn emitter_particles(e: &Emitter, origin: [f32; 3], age: f32, active: f32) -
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stars_mode_13_is_a_curling_ray_that_grows_and_shrinks() {
+        // (template 14200: 0.7 long, turning 0.06 a step, stars 0.2 wide)
+        let s = Stars { mode: 13, colour_a: [1.0, 0.5, 0.0, 0.0], colour_b: [0.6, 0.3, 0.7, 0.4], size: 0.7, radius: 0.06, life: 0.1, swirl: 0.0, material: 8, attach: 1005, duration: -1.0, word11: 0.2, word30: 0 };
+        let centre = [0.0, 0.0, 0.0];
+        let reach = |p: &Particle| (p.position[0].powi(2) + p.position[1].powi(2) + p.position[2].powi(2)).sqrt();
+        // nothing at the very start, the most at the middle of the window, fewer again near its end
+        assert!(stars_particles(&s, centre, 0.0, false).is_empty());
+        let mid = stars_particles(&s, centre, LANDING * 0.5, false);
+        let late = stars_particles(&s, centre, LANDING * 0.9, false);
+        assert!(mid.len() > 100 && late.len() < mid.len(), "{} {}", mid.len(), late.len());
+        // every star within the ray's length, all 0.2 wide; the stars at the tip sit apart, the ray is not a ball
+        assert!(mid.iter().all(|p| reach(p) < 0.7 + 1e-4 && p.size == 0.2));
+        let far: Vec<_> = mid.iter().filter(|p| reach(p) > 0.5).collect();
+        assert!(!far.is_empty());
+        let spread = far.iter().map(|p| p.position[2]).fold(f32::MIN, f32::max) - far.iter().map(|p| p.position[2]).fold(f32::MAX, f32::min);
+        assert!(spread < 1.0);
+        assert!(stars_particles(&s, centre, LANDING, false).is_empty());
+    }
 
     #[test]
     fn stars_mode_2_is_a_sphere_of_all_the_stars_growing_and_shrinking_for_a_second_and_a_half() {

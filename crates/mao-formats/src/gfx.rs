@@ -713,11 +713,14 @@ impl BParticles {
 /// * 2: all 128 at once on random points of the unit sphere for 1.5 s (the start function's duration), the sphere grown to
 ///   `√frac × 0.7 + 0.6`, the stars sized `(1 − frac) × word 28 × 20 / table[frame]` (the table at 0x102c5fa8) with the frame
 ///   `(1 − frac) × 15` (odd stars one behind), coloured between the second colour and a palette of eight (0x102c5ee8);
+/// * 13: a ray of all 128 curling out from the point: a direction turned word 29 radians a step about a drifting axis, seven
+///   steps a frame into a ring of 128, each star on its slot's direction at `word 28 × age / 128`, shown while `age / 128 <
+///   1 − (2 frac − 1)²`, at the size word 11;
 /// * 22: word 31 a frame born on the body's six edges (between the attach points of the table at 0x102c5fe8: calves to
 ///   thighs, pelvis to head, forearms to upper arms, the upper arms to each other), word 28 out (the field the other modes
 ///   size by), springing back through the edge and dying as they cross it or after word 30 ms, sized `(age / life × 0.7 +
 ///   0.3) × word 29` (the other modes' radius).
-pub const STARS_MODES: [i32; 12] = [2, 3, 4, 5, 6, 7, 8, 10, 11, 19, 20, 22];
+pub const STARS_MODES: [i32; 13] = [2, 3, 4, 5, 6, 7, 8, 10, 11, 13, 19, 20, 22];
 
 /// What a nano effect looks like once its template is read: the few shapes the effect classes come to.
 #[derive(Clone, Debug, PartialEq)]
