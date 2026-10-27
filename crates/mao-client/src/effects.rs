@@ -7,7 +7,7 @@
 //! does not say (or is not read yet): the radius (the radius path's numbers, 0.06 to 0.15, are too small for a body; 0.42 m is used),
 //! how high and how long a spark lives (1.9 m and 1.6 s here), and the trail (a short tail of fading sparks behind each one).
 
-use mao_formats::gfx::{colour_curve, curve, unpack_argb, Aura, Cords, Deform, Emitter, Smoke, Sparks, Stars, Visual, VolGrid};
+use mao_formats::gfx::{colour_curve, curve, unpack_argb, Aura, Cords, Deform, Emitter, Smoke, Sparks, Sprite, Stars, Visual, VolGrid};
 use mao_render::{Particle, NO_SPRITE};
 
 /// `_GfxControlTracer4_t`'s three cords at `time` seconds, wound round the line from `from` to `to` (world, Z up) as FUN_100ffa7b
@@ -336,6 +336,43 @@ pub fn smoke_particles(s: &Smoke, feet: [f32; 3], time: f32) -> Vec<Particle> {
     out
 }
 
+/// `_GfxControlSprite_t`'s quad (kind 1012) `time` seconds after it began, its attach point at `feet` (world, Z up), as
+/// FUN_100f6d2b runs it (see `mao_formats::gfx::Sprite` for the flags): nothing once its cycles are spent; the width, height,
+/// colour and frame at the cycle's fraction; a billboard for a `GfxVisualSprite2`, and for a `GfxVisualSprite3` a quad standing
+/// up at the point, turned to face the camera about the up axis (the original does so for flag 0x2000; for the other standing
+/// templates the quad is set in the locator's frame, which the client does not carry here, so they face the camera too). The
+/// random spot of the texture (flag 0x4 clear) moves with `salt` each frame.
+pub fn sprite_particles(s: &Sprite, feet: [f32; 3], time: f32, salt: u32) -> Vec<Particle> {
+    if time < 0.0 || s.duration >= 0.0 && time >= s.duration {
+        return Vec::new();
+    }
+    let cycles = (time / s.period).floor();
+    if s.flags & 0x40 != 0 && s.cycles >= 0 && cycles as i32 > s.cycles {
+        return Vec::new();
+    }
+    let t = time / s.period - cycles;
+    let lerp = |(a, b): (f32, f32), r: f32| a + (b - a) * r;
+    let (mut width, mut height) = if s.flags & 0x100 != 0 { (lerp(s.width, t), lerp(s.height, t)) } else { (s.width.0, s.height.0) };
+    if s.flags & 0x100 != 0 && s.flags & 0x800 != 0 {
+        let swell = (time * std::f32::consts::TAU * s.pulse_rate).sin() * s.pulse;
+        width += swell;
+        height += swell;
+    }
+    let colour = if s.flags & 0x80 != 0 { [1, 2, 3, 0].map(|c| lerp((s.colour_a[c], s.colour_b[c]), t)) } else { [s.colour_a[1], s.colour_a[2], s.colour_a[3], s.colour_a[0]] };
+    let frame = if s.flags & 0x20 != 0 { t } else { 0.0 };
+    // (the original's Y-up offset in the client's Z-up world)
+    let at = [feet[0] + s.offset[0], feet[1] + s.offset[2], feet[2] + s.offset[1]];
+    let mut p = sprite(s.material, frame, at, width.max(0.0), colour);
+    if s.flags & 0x4 == 0 && p.sprite != NO_SPRITE {
+        // (a random spot of the texture, the whole of it wide: the sampler wraps)
+        p.rect = [hash(salt, 0x1012), hash(salt, 0x1013), p.rect[2], p.rect[3]];
+    }
+    if s.standing() {
+        p = Particle { size: width.max(0.0) * 0.5, right: [0.0; 3], up: [0.0, 0.0, height.max(0.0) * 0.5], ..p };
+    }
+    vec![p]
+}
+
 /// A particle cut from a material's sprite sheet (`mao_formats::gfx::MATERIALS`), `t` (0 to 1) of the way through the sheet's frames; a
 /// material that is not known gives a soft dot.
 fn sprite(material: i32, t: f32, position: [f32; 3], size: f32, colour: [f32; 4]) -> Particle {
@@ -469,6 +506,14 @@ pub fn visual_particles(v: &Visual, feet: [f32; 3], time: f32, reach: Reach) -> 
         Visual::Cords(c) => cords_particles(c, feet, [feet[0], feet[1], feet[2] + 1.0], time),
         // (the locator's point is the feet; the turn is drawn from the point so one effect keeps its turn)
         Visual::VolGrid(g) => volgrid_particles(g, feet, time, feet[0].to_bits() ^ feet[1].to_bits().rotate_left(13)),
+        Visual::Sprite(s) => {
+            let up = match reach {
+                Reach::Small => 0.0,
+                _ => anchor(s.attach).0,
+            };
+            // (the frame's random spot changes each frame: the time's bits are the salt)
+            sprite_particles(s, [feet[0], feet[1], feet[2] + up], time, time.to_bits())
+        }
         // (the attach point's height on a standing body; a tracer carries the point itself)
         Visual::Smoke(s) => {
             let up = match reach {
@@ -623,6 +668,11 @@ pub fn pulse_timing(v: &Visual) -> (f32, f32, i32) {
         Visual::Deform(d) => (4.0, if d.duration > 0.0 { d.duration } else { 1.5 }, -1),
         Visual::Cords(c) => (4.0, if c.duration > 0.0 { c.duration } else { 1.0 }, -1),
         Visual::VolGrid(g) => (if g.duration > 0.0 { g.duration } else { 3.0 }, if g.duration > 0.0 { g.duration } else { 3.0 }, -1),
+        // (a quad runs its cycles, or its duration, or for ever: restarted every ten minutes)
+        Visual::Sprite(s) => {
+            let long = if s.flags & 0x40 != 0 && s.cycles >= 0 { s.period * (s.cycles + 1) as f32 } else if s.duration >= 0.0 { s.duration } else { 600.0 };
+            (long, long, -1)
+        }
         // (a stream runs for its duration and its last sprites' lives; an endless one is restarted every ten minutes)
         Visual::Smoke(s) => {
             let long = if s.duration >= 0.0 { s.duration + s.life * 1.3 } else { 600.0 };
@@ -726,6 +776,28 @@ pub fn emitter_particles(e: &Emitter, origin: [f32; 3], age: f32, active: f32) -
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_sprite_quad_cycles_its_size_and_colour_and_stands_when_asked() {
+        // (template 7000's shape: a billboard halo 1 m wide pulsing 0.025 at 1 Hz, white, for ever)
+        let s = Sprite { attach: 0, offset: [0.0; 3], duration: -1.0, material: 8, flags: 0x950, width: (1.0, 1.0), height: (1.0, 1.0), colour_a: [0.5, 1.0, 1.0, 1.0], colour_b: [0.5, 1.0, 1.0, 1.0], period: 1.0, cycles: -1, pulse: 0.025, pulse_rate: 1.0 };
+        let feet = [1.0, 2.0, 3.0];
+        let at = sprite_particles(&s, feet, 0.25, 7);
+        assert_eq!(at.len(), 1);
+        assert!((at[0].size - 1.025).abs() < 1e-4 && at[0].colour == [1.0, 1.0, 1.0, 0.5] && at[0].right == [0.0; 3] && at[0].up == [0.0; 3]);
+        // the random spot moves with the salt; a frame-bound sprite (flag 0x4) keeps the sheet's own rectangle
+        assert_ne!(sprite_particles(&s, feet, 0.25, 8)[0].rect, at[0].rect);
+        let bound = Sprite { flags: 0x954, ..s.clone() };
+        assert_eq!(sprite_particles(&bound, feet, 0.25, 8)[0].rect, sprite_particles(&bound, feet, 0.25, 9)[0].rect);
+        // (template 61085's shape: a standing beam 1.5 wide and 70 tall at 29.7 up, 10 s a cycle)
+        let beam = Sprite { offset: [0.0, 29.7, 0.0], material: 44, flags: 0x2953, width: (1.5, 1.5), height: (70.0, 70.0), period: 10.0, pulse: 0.07, pulse_rate: 10.0, ..s.clone() };
+        let b = &sprite_particles(&beam, feet, 1.0, 1)[0];
+        assert!(b.right == [0.0; 3] && (b.up[2] - 35.0).abs() < 0.1 && (b.size - 0.75).abs() < 0.1 && (b.position[2] - 32.7).abs() < 1e-4);
+        // a counted one is gone after its cycles; its colour fades over a cycle when asked
+        let counted = Sprite { flags: 0x9d0, cycles: 1, colour_b: [0.0, 1.0, 1.0, 1.0], ..s.clone() };
+        assert!((sprite_particles(&counted, feet, 0.5, 1)[0].colour[3] - 0.25).abs() < 1e-5);
+        assert!(!sprite_particles(&counted, feet, 1.9, 1).is_empty() && sprite_particles(&counted, feet, 2.1, 1).is_empty());
+    }
 
     #[test]
     fn smoke_streams_from_its_emitter_and_drifts_the_way_its_turn_points() {

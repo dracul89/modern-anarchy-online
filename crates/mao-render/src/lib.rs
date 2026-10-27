@@ -170,7 +170,9 @@ pub struct Scene {
 
 /// One sprite: where (world, Z up), how wide (world units) and its colour with the alpha as the strength. A billboard faces the
 /// camera; a quad with `right` and `up` set lies in the world (the original's `GfxVisualVolGrid` slices), its corners at the centre
-/// plus or minus those half extents, and then `size` is a flag: 1 fades it by how squarely it faces the camera, 0 does not.
+/// plus or minus those half extents, and then `size` is a flag: 1 fades it by how squarely it faces the camera, 0 does not. A
+/// quad with only `up` set stands on it and turns about it to face the camera (the original's `GfxVisualSprite3` under
+/// `_GfxControlSprite_t`'s flag 0x2000), `size` its half width.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Particle {
     pub position: [f32; 3],

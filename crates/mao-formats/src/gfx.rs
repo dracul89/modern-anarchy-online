@@ -567,6 +567,61 @@ impl Smoke {
     }
 }
 
+/// A kind-1012 template as `_GfxControlSprite_t` reads it (FUN_100f6b86 the constructor, FUN_100f6369 the words, FUN_100f6483
+/// picks the visual, FUN_100f64a7 makes it, FUN_100f6d2b runs it): one quad of the material (word 9) at the attach point (word 7)
+/// plus the offset of words 1–3, cycling over the period of word 23 (0 counts as 1 s) for word 24 cycles (−1: for ever) when
+/// flag 0x40 of word 10 is set, else until the effect ends (word 8). Word 10's low two bits pick the visual: 0 a
+/// `GfxVisualSprite2` (a billboard), 3 a `GfxVisualSprite3` (a quad standing in the visual's frame, turned to face the camera
+/// about the up axis with flag 0x2000, or set from the locator's turn with flags 0x8 and 0x10), anything else nothing. Flag 0x10
+/// follows the locator every frame; 0x20 runs the sheet's frame from the first to the last over the cycle; 0x80 blends the colour
+/// from words 15–18 to 19–22 (alpha, red, green, blue) over the cycle; 0x100 runs the width from word 11 to 12 and the height
+/// from 13 to 14, and with 0x800 adds `word 25 × sin(2π × word 26 × elapsed)` to both; 0x4 clear samples a random spot of the
+/// texture each frame instead of its frame; 0x1000 clear adds the quad to the scene, set blends it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Sprite {
+    pub attach: i32,
+    pub offset: [f32; 3],
+    pub duration: f32,
+    pub material: i32,
+    pub flags: u32,
+    pub width: (f32, f32),
+    pub height: (f32, f32),
+    pub colour_a: [f32; 4],
+    pub colour_b: [f32; 4],
+    pub period: f32,
+    pub cycles: i32,
+    pub pulse: f32,
+    pub pulse_rate: f32,
+}
+
+impl Sprite {
+    pub fn read(r: &Record) -> Option<Sprite> {
+        if r.payload.len() < 27 || r.int(10) & 3 != 0 && r.int(10) & 3 != 3 {
+            return None;
+        }
+        Some(Sprite {
+            attach: r.int(7),
+            offset: [r.float(1), r.float(2), r.float(3)],
+            duration: r.float(8),
+            material: r.int(9),
+            flags: r.int(10) as u32,
+            width: (r.float(11), r.float(12)),
+            height: (r.float(13), r.float(14)),
+            colour_a: [r.float(15), r.float(16), r.float(17), r.float(18)],
+            colour_b: [r.float(19), r.float(20), r.float(21), r.float(22)],
+            period: if r.float(23) == 0.0 { 1.0 } else { r.float(23) },
+            cycles: r.int(24),
+            pulse: r.float(25),
+            pulse_rate: r.float(26),
+        })
+    }
+
+    /// Whether the quad stands in the world (`GfxVisualSprite3`) rather than facing the camera.
+    pub fn standing(&self) -> bool {
+        self.flags & 3 == 3
+    }
+}
+
 /// The Stars modes the client plays as the original does; the others fall back to the spiral child:
 /// * 3: born in a sphere of the radius, swirling across it (no rise), two a frame, the parabolic size of mode 6;
 /// * 4: born at the point, thrown in a random direction at the radius a second, slowed by 5% a frame and pulled down by 0.1,
@@ -593,6 +648,8 @@ pub enum Visual {
     VolGrid(VolGrid),
     /// A steady stream of sprites drifting from a point (kind 1009).
     Smoke(Smoke),
+    /// One quad at a point, cycling its size, colour and frame (kind 1012).
+    Sprite(Sprite),
     /// Two spirals of sparks (the buff's aura, and the tracers and hits built on it).
     Spiral(Aura),
     /// A soft glow under the feet (kind 3003: the running effect of 114 programs, 52 of them the same cyan one).
@@ -642,6 +699,7 @@ impl Gfx {
             1024 if r.payload.len() >= 17 => Some(Visual::Cords(Cords { width: r.float(11), radius: r.float(12), colour: [r.float(13), r.float(14), r.float(15), r.float(16)], material: r.int(9), duration: r.float(8) })),
             3038 => VolGrid::read(r).map(Visual::VolGrid),
             1009 => Smoke::read(r).map(Visual::Smoke),
+            1012 => Sprite::read(r).map(Visual::Sprite),
             3001 if r.payload.len() >= 16 && r.int(10) == 1 => Some(Visual::Deform(Deform { duration: r.float(8), strength: r.float(11), ramp_in: r.float(12), ramp_out: r.float(13), frequency: r.float(14), amplitude: r.float(15) })),
             1001 | 2004 | 2005 | 2006 | 1018 => self.aura(id).map(Visual::Spiral),
             2007 | 3004 => self.references(id).into_iter().filter(|&c| c != id).find_map(|c| self.visual(c)),

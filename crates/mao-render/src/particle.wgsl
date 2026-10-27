@@ -1,7 +1,9 @@
 // Camera-facing soft sprites, added to what is already drawn (nano effects: sparks, glows). Each instance is a point, a size
 // (world units) and a colour; the corners come from the vertex index and the camera's right and up vectors. An instance with
 // its own right and up (a quad laid in the world, the original's `GfxVisualVolGrid` slices) uses those as half extents instead,
-// and its size is a flag: 1 fades it by how squarely it faces the camera (`GfxVisualVolGrid`'s flag 0x4000), 0 does not.
+// and its size is a flag: 1 fades it by how squarely it faces the camera (`GfxVisualVolGrid`'s flag 0x4000), 0 does not. An
+// instance with an up but no right (a quad standing on its up, the original's `GfxVisualSprite3` turned to the camera) turns
+// about that up to face the eye, its size the half width.
 
 struct Globals {
     view_proj: mat4x4<f32>,
@@ -24,12 +26,12 @@ struct Globals {
 
 struct In {
     @builtin(vertex_index) corner: u32,
-    // xyz: the centre; w: the size (the sprite's width), or the facing flag of a laid quad.
+    // xyz: the centre; w: the size (the sprite's width), the facing flag of a laid quad, or the half width of a standing one.
     @location(0) centre: vec4<f32>,
     @location(1) colour: vec4<f32>,
     // The part of the sprite sheet to show: left, top, width and height (a width of 0: no sheet, a soft dot).
     @location(2) rect: vec4<f32>,
-    // The half extents of a laid quad (both zero: a billboard).
+    // The half extents of a laid quad (both zero: a billboard; right alone zero: a standing quad).
     @location(3) right: vec4<f32>,
     @location(4) up: vec4<f32>,
 }
@@ -47,10 +49,11 @@ fn vs_particle(in: In) -> Out {
     // two triangles: (-1,-1) (1,-1) (-1,1) (-1,1) (1,-1) (1,1)
     var corners = array<vec2<f32>, 6>(vec2(-1.0, -1.0), vec2(1.0, -1.0), vec2(-1.0, 1.0), vec2(-1.0, 1.0), vec2(1.0, -1.0), vec2(1.0, 1.0));
     let c = corners[in.corner];
-    let laid = any(in.right.xyz != vec3(0.0)) || any(in.up.xyz != vec3(0.0));
+    let has_right = any(in.right.xyz != vec3(0.0));
+    let has_up = any(in.up.xyz != vec3(0.0));
     var world: vec3<f32>;
     var colour = in.colour;
-    if laid {
+    if has_right {
         world = in.centre.xyz + in.right.xyz * c.x + in.up.xyz * c.y;
         if in.centre.w > 0.5 {
             // (FUN_1002f69e: the alpha times the slice's unit normal dotted with the direction from the eye, made positive)
@@ -60,6 +63,14 @@ fn vs_particle(in: In) -> Out {
                 colour.a = colour.a * abs(dot(normalize(n), normalize(d)));
             }
         }
+    } else if has_up {
+        // (FUN_100f6d2b, flag 0x2000: the quad turned about its up so its face points at the eye)
+        let to_eye = globals.eye.xyz - in.centre.xyz;
+        var side = cross(in.up.xyz, to_eye);
+        if length(side) == 0.0 {
+            side = globals.right.xyz;
+        }
+        world = in.centre.xyz + normalize(side) * c.x * in.centre.w + in.up.xyz * c.y;
     } else {
         world = in.centre.xyz + (globals.right.xyz * c.x + globals.up.xyz * c.y) * in.centre.w * 0.5;
     }
