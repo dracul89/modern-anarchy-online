@@ -668,3 +668,5 @@ Stars mode 2 (18 hit templates) runs as the original's `case 2`: all 128 stars a
 Stars mode 13 (17 hit templates) runs as the original's `case 0xd`: a ray of stars curling out from the chest, its direction turned a little each step about a drifting axis, the newest stars at the point and the oldest at the tip, the ray growing and shrinking back over the hit.
 
 Stars mode 15 (14 hit templates) throws its stars off the target's own surface, as the original's vertex callback and `case 0xf` do: thirty of the target's posed vertices are sampled, and each star leaves one along its normal, slowing as it goes and shrinking over a third of a second. The client takes the vertices from the target's blob-shadow points, which now carry normals.
+
+Stars mode 1 (10 hit templates, at the hands) runs as the original's `case 1`: two stars a frame appear a metre out from the hand and are drawn in onto it on a damped spring over 1.2 s, growing from nothing as they come, a gathering of light into the hand.

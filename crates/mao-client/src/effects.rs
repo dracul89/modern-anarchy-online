@@ -130,6 +130,9 @@ pub fn stars_particles(s: &Stars, centre: [f32; 3], time: f32, stopped: bool) ->
     if s.mode == 13 {
         return stars_ray(s, centre, time);
     }
+    if s.mode == 1 {
+        return stars_collapse(s, centre, time, stopped);
+    }
     if s.mode == 15 {
         // (no body known: a stand-in ring of eight points round the attach point, their normals outward)
         let turns = (0..8).map(|k| k as f32 * std::f32::consts::FRAC_PI_4);
@@ -280,6 +283,47 @@ pub fn stars_particles(s: &Stars, centre: [f32; 3], time: f32, stopped: bool) ->
             _ => 1.0 - hash(salt, 9) * 0.25,
         };
         out.push(sprite(s.material, frame, position, size.max(0.0), [colour[0], colour[1], colour[2], colour[3]]));
+    }
+    out
+}
+
+/// Stars mode 1 (`case 1`): two a frame born at rest on a random point of the unit sphere about the point, each living 1.2 s
+/// (0x1016de58) and pulled back by a damped spring: every frame the acceleration is `(point - p) - 2 v` (0x10159794), the
+/// velocity gains a tenth of it and the star moves a tenth of its velocity (0x10161850). With `frac` its age over its life, its
+/// frame is `15 - floor(frac * 15.99)` and its size `frac * 0.01 * table[frame]` (the table at 0x102c5f68: the templates' size
+/// word is 0), its colour random between the two.
+fn stars_collapse(s: &Stars, centre: [f32; 3], time: f32, stopped: bool) -> Vec<Particle> {
+    const STARS: u32 = 128;
+    const LIFE: f32 = 1.2;
+    const TABLE: [f32; 16] = [8.0, 8.0, 8.0, 8.0, 8.0, 12.0, 16.0, 19.0, 22.0, 23.0, 24.0, 25.0, 26.0, 27.0, 28.0, 29.0];
+    let mut out = Vec::new();
+    let cadence = LIFE / STARS as f32 * (30.0 / 2.0f32).min(STARS as f32);
+    for k in 0..STARS {
+        let stagger = k as f32 / STARS as f32 * LIFE;
+        if time < stagger {
+            continue;
+        }
+        let generation = ((time - stagger) / (LIFE + cadence)).floor();
+        let age = time - stagger - generation * (LIFE + cadence);
+        if age > LIFE || (stopped && generation > 0.0) {
+            continue;
+        }
+        let salt = k.wrapping_mul(7919).wrapping_add(generation as u32 * 104729);
+        let (a, b) = (hash(salt, 5) * std::f32::consts::TAU, hash(salt, 6) * 2.0 - 1.0);
+        let flat = (1.0 - b * b).sqrt();
+        let start = [flat * a.cos(), flat * a.sin(), b];
+        // (the spring along the star's own line to the point: its distance from 1 at rest)
+        let (mut x, mut v) = (1.0f32, 0.0f32);
+        for _ in 0..(age * 30.0).floor().min(60.0) as u32 {
+            let accel = -x - 2.0 * v;
+            v += 0.1 * accel;
+            x += 0.1 * v;
+        }
+        let frac = (age / LIFE).clamp(0.0, 1.0);
+        let frame = 15 - ((frac * 15.99) as usize).min(15);
+        let size = frac * 0.01 * TABLE[frame];
+        let colour = [1, 2, 3, 0].map(|c| s.colour_a[c] + (s.colour_b[c] - s.colour_a[c]) * hash(salt, c as u32));
+        out.push(sprite(s.material, frame as f32 / 15.0, [centre[0] + start[0] * x, centre[1] + start[1] * x, centre[2] + start[2] * x], size, colour));
     }
     out
 }
@@ -982,6 +1026,7 @@ pub fn pulse_timing(v: &Visual) -> (f32, f32, i32) {
             if s.duration > 0.0 { s.duration } else { 4.0 },
             match s.mode {
                 2 => 1.5,
+                1 => 1.2 * 2.0,
                 13 => if s.duration > 0.0 { s.duration } else { LANDING },
                 _ => s.life * 2.0,
             },
@@ -1105,6 +1150,23 @@ pub fn emitter_particles(e: &Emitter, origin: [f32; 3], age: f32, active: f32) -
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stars_mode_1_collapse_from_a_metre_out_onto_the_point() {
+        // (template 12000: at the hand, the size word 0, white-ish to orange)
+        let s = Stars { mode: 1, colour_a: [1.0, 0.7, 0.3, 0.3], colour_b: [1.0, 1.0, 0.7, 0.7], size: 0.0, radius: 0.0, life: 0.1, swirl: 0.0, material: 33, attach: 2001, duration: -1.0, word11: 0.0, word30: 0 };
+        let centre = [0.0, 0.0, 0.0];
+        let reach = |p: &Particle| (p.position[0].powi(2) + p.position[1].powi(2) + p.position[2].powi(2)).sqrt();
+        let at = stars_particles(&s, centre, 1.0, false);
+        assert!(at.len() > 40, "{}", at.len());
+        // all within the unit sphere; the newborn at its surface, the old ones pulled in close
+        assert!(at.iter().all(|p| reach(p) <= 1.0 + 1e-4));
+        assert!(at.iter().any(|p| reach(p) > 0.95) && at.iter().any(|p| reach(p) < 0.3));
+        // sizes from the frame table: nothing at birth, never past 0.01 x 29
+        assert!(at.iter().all(|p| p.size >= 0.0 && p.size <= 0.29 + 1e-4));
+        assert!(at.iter().filter(|p| reach(p) > 0.99).all(|p| p.size < 0.02));
+        assert_eq!(pulse_timing(&Visual::Stars(s.clone())).1, 2.4);
+    }
 
     #[test]
     fn stars_mode_15_fly_off_the_body_s_surface_along_its_normals() {

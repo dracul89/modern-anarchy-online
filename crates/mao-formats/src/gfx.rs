@@ -718,11 +718,13 @@ impl BParticles {
 ///   1 − (2 frac − 1)²`, at the size word 11;
 /// * 15: up to ten a frame thrown from 30 of the target's skinned vertices along their normals at word 29, slowed to 0.96
 ///   a frame and moving a tenth of their velocity, living word 30 ms, sized `(1.1 − age / life) × word 28`;
+/// * 1: two a frame at rest on the unit sphere, pulled onto the point by a damped spring (`a = −p − 2v`, a tenth a frame)
+///   over 1.2 s, sized from the frame table at 0x102c5f68 (the size word is 0);
 /// * 22: word 31 a frame born on the body's six edges (between the attach points of the table at 0x102c5fe8: calves to
 ///   thighs, pelvis to head, forearms to upper arms, the upper arms to each other), word 28 out (the field the other modes
 ///   size by), springing back through the edge and dying as they cross it or after word 30 ms, sized `(age / life × 0.7 +
 ///   0.3) × word 29` (the other modes' radius).
-pub const STARS_MODES: [i32; 14] = [2, 3, 4, 5, 6, 7, 8, 10, 11, 13, 15, 19, 20, 22];
+pub const STARS_MODES: [i32; 15] = [1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 13, 15, 19, 20, 22];
 
 /// What a nano effect looks like once its template is read: the few shapes the effect classes come to.
 #[derive(Clone, Debug, PartialEq)]
