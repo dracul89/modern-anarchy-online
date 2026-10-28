@@ -156,6 +156,9 @@ fn effect_classes_come_to_visuals() {
     assert!(matches!(gfx.visual(17500), Some(Visual::Plasma { material: 8, duration, .. }) if duration == 1.0));
     // the null gather effect has none
     assert!(gfx.visual(49999).is_none());
+    // (the hoverbike's toggles: a puff as it moves off, a stream stopped with it)
+    assert!(matches!(gfx.visual(72412), Some(Visual::Toggle { flags: 0x2c03, ref places, .. }) if places.is_empty()));
+    assert!(matches!(gfx.visual(72416), Some(Visual::Toggle { flags, .. }) if flags & 0x8000 != 0));
     // (the commonest streak: white, 50 a second, 0.025 wide)
     assert!(matches!(gfx.visual(45689), Some(Visual::Tracer5(t)) if t.material == 15 && t.speed == 50.0 && t.lead == 0.5 && t.width == 0.025 && t.colour == 0xffff_ffff));
     // (Pulse of Frost's pops: ten of kind 8, 5 by 5, pale blue)

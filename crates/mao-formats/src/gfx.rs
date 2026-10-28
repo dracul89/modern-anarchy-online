@@ -1543,6 +1543,15 @@ pub enum Visual {
     BParticle(BParticle),
     /// A thin streak running from the caster to the target (kind 1025, `_GfxControlTracer5_t`).
     Tracer5(Tracer5),
+    /// Kind 3036, `GfxControlToggle_t` (FUN_101128d1 / FUN_1011279a / FUN_101127fc; FUN_1011265a the words, FUN_10112952 the run,
+    /// FUN_101125ed the playfield test, FUN_10112580 the vehicle's state): word 0 the flags, word 1 the duration, word 2 the child
+    /// effect, word 3 a mask of the playfield's flags, word 4 a count of playfield ids that follow. The child is started when
+    /// the playfield passes (its flags meet the mask, if any, and it is one of the ids, or with flag 0x800 none of them); with
+    /// flag 0x2000 only as the body's vehicle starts to move forward; with 0x8000 it is stopped when the vehicle stops; with
+    /// 0x400 the toggle waits for the next start once the child has ended.
+    Toggle { child: Box<Visual>, flags: u32, mask: u32, places: Vec<i32> },
+    /// A child started `start` seconds into its parent's run (a resolved `Toggle`: see the client's `resolve_toggles`).
+    Delayed(Box<Visual>, f32),
     /// Rings spreading over the ground one after another and cones of light rising with them (kind 3000,
     /// `_GfxControlShockWave_t`).
     ShockWave(ShockWave),
@@ -1679,6 +1688,11 @@ impl Gfx {
             1029 => VulcanRocks::read(r).map(Visual::VulcanRocks),
             3024 => BParticle::read(r).map(Visual::BParticle),
             1025 => Tracer5::read(r).map(Visual::Tracer5),
+            3036 if r.payload.len() >= 5 && r.int(2) != id => {
+                let child = self.visual(r.int(2))?;
+                let n = r.int(4).clamp(0, 64) as usize;
+                Some(Visual::Toggle { child: Box::new(child), flags: r.int(0) as u32, mask: r.int(3) as u32, places: (0..n).map(|k| r.int(5 + k)).collect() })
+            }
             2005 if r.payload.len() >= 32 && matches!(r.int(10), 0 | 4) => Some(Visual::Suns(Suns {
                 mode: r.int(10),
                 attach: r.int(7),

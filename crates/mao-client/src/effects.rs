@@ -2076,6 +2076,43 @@ pub struct Shot {
     pub hit: Option<Visual>,
 }
 
+/// What the toggles of an effect go by: whether the body's vehicle is moving forward now, and how long ago it last began to.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Motion {
+    pub moving: bool,
+    pub started: Option<f32>,
+}
+
+/// An effect `age` seconds in with its toggles (kind 3036, `GfxControlToggle_t`, FUN_10112952) resolved by `motion`: each
+/// toggle whose playfield test passes (the client knows no playfield flags or ids here: it passes with flag 0x800, as if the
+/// playfield were none of those listed and met the mask, and not without it) becomes its child started at the toggle's start
+/// (0) or, with flag 0x2000, when the vehicle last began to move forward (`motion.started`, in the effect's time; none before
+/// that, and with 0x8000 none while it is not moving); else it is dropped.
+pub fn resolve_toggles(v: &Visual, age: f32, motion: &Motion) -> Visual {
+    match v {
+        Visual::Toggle { child, flags, mask, places } => {
+            // (without flag 0x800 an empty list passes nothing and a list passes only its playfields, which the client does not
+            // know here; with it every playfield not listed passes, and the flags' mask is taken as met)
+            let _ = (mask, places);
+            let passes = flags & 0x800 != 0;
+            let child = resolve_toggles(child, age, motion);
+            if !passes {
+                return Visual::Meta(Vec::new());
+            }
+            if flags & 0x2000 == 0 {
+                return child;
+            }
+            match motion.started {
+                // (a vehicle already moving when the effect began starts the child at once)
+                Some(since) if motion.moving || flags & 0x8000 == 0 => Visual::Delayed(Box::new(child), since.max(0.0)),
+                _ => Visual::Meta(Vec::new()),
+            }
+        }
+        Visual::Meta(children) => Visual::Meta(children.iter().map(|c| resolve_toggles(c, age, motion)).collect()),
+        other => other.clone(),
+    }
+}
+
 /// The streaks a tracer visual runs (itself, or a bundle's children's).
 pub fn visual_tracers(v: &Visual) -> Vec<&Tracer5> {
     match v {
@@ -2283,6 +2320,11 @@ pub fn visual_particles(v: &Visual, feet: [f32; 3], time: f32, reach: Reach) -> 
         }
         // (a bundle's children all run, each while its own life lasts)
         Visual::Meta(children) => children.iter().filter(|c| time < pulse_timing(c).1).flat_map(|c| visual_particles(c, feet, time, reach)).collect(),
+        // (a resolved toggle's child, from its start)
+        Visual::Delayed(child, start) => {
+            if time >= *start && time - start < pulse_timing(child).1 { visual_particles(child, feet, time - start, reach) } else { Vec::new() }
+        }
+        Visual::Toggle { .. } => Vec::new(),
         // (each copy of the child at its place from its birth; a looping round starts again when every copy has ended)
         Visual::Scatter { child, children, looping } => {
             let life = pulse_timing(child).1.max(0.05);
@@ -2367,6 +2409,11 @@ pub fn pulse_particles(v: &Visual, feet: [f32; 3], heading: f32, age: f32, body:
                 out.extend(pulse_particles(c, feet, heading, age, body));
             }
         }
+        Visual::Delayed(child, start) => {
+            if age >= *start && age - start < pulse_timing(child).1 {
+                out.extend(pulse_particles(child, feet, heading, age - start, body));
+            }
+        }
         other => return visual_particles(other, feet, age, Reach::Body),
     }
     out
@@ -2437,6 +2484,12 @@ pub fn pulse_timing(v: &Visual) -> (f32, f32, i32) {
         Visual::VulcanRocks(_) => (600.0, ROCKS_LAST, 1),
         // (a bundle's children started together: the pulse lasts the longest of them and repeats with the longest period; it plays
         // once only when every child does)
+        // (a toggle runs while its effect does; a resolved one's life counts from its start)
+        Visual::Toggle { .. } => (600.0, 600.0, -1),
+        Visual::Delayed(child, start) => {
+            let (period, life, plays) = pulse_timing(child);
+            (period, life + start, plays)
+        }
         Visual::Meta(children) => {
             let timings: Vec<(f32, f32, i32)> = children.iter().map(pulse_timing).collect();
             let period = timings.iter().map(|t| t.0).fold(0.0, f32::max);
@@ -2949,6 +3002,27 @@ mod tests {
         }
         // late, only the top of the coil is left
         assert!(late.iter().all(|p| p.position[2] > 1.0));
+    }
+
+    #[test]
+    fn a_toggle_starts_its_child_as_the_vehicle_moves_off() {
+        let child = Visual::Sprite(Sprite { attach: 0, offset: [0.0; 3], duration: 1.0, material: 8, flags: 0, width: (0.5, 0.5), height: (0.5, 0.5), colour_a: [1.0; 4], colour_b: [1.0; 4], period: 1.0, cycles: -1, pulse: 0.0, pulse_rate: 0.0 });
+        // (template 72412: the hoverbike's puff as it moves off, again at each start; 72416 its stream, stopped with the bike)
+        let puff = Visual::Toggle { child: Box::new(child.clone()), flags: 0x2c03, mask: 0, places: Vec::new() };
+        let stream = Visual::Toggle { child: Box::new(child), flags: 0xac03, mask: 0, places: Vec::new() };
+        let still = Motion { moving: false, started: None };
+        assert!(visual_particles(&resolve_toggles(&puff, 5.0, &still), [0.0; 3], 5.0, Reach::Small).is_empty());
+        let off = Motion { moving: true, started: Some(4.6) };
+        let p = resolve_toggles(&puff, 5.0, &off);
+        assert!(matches!(&p, Visual::Delayed(_, start) if (start - 4.6).abs() < 1e-5));
+        assert_eq!(visual_particles(&p, [0.0; 3], 5.0, Reach::Small).len(), 1);
+        // (the puff plays out after a stop; the stream does not)
+        let stopped = Motion { moving: false, started: Some(4.6) };
+        assert_eq!(visual_particles(&resolve_toggles(&puff, 5.0, &stopped), [0.0; 3], 5.0, Reach::Small).len(), 1);
+        assert!(visual_particles(&resolve_toggles(&stream, 5.0, &stopped), [0.0; 3], 5.0, Reach::Small).is_empty());
+        // (a list of playfields without flag 0x800 never passes here)
+        let only = Visual::Toggle { child: Box::new(Visual::Meta(Vec::new())), flags: 0, mask: 0, places: vec![4001] };
+        assert_eq!(resolve_toggles(&only, 1.0, &off), Visual::Meta(Vec::new()));
     }
 
     #[test]

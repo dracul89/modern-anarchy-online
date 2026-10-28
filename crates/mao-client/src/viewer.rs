@@ -404,6 +404,8 @@ struct App {
     mesh_sheets: std::collections::HashMap<(u32, u32), u16>,
     /// The running trails (`GfxControlTrail2_t`) by (character, program, trail), and whether each ran this frame.
     trails: std::collections::HashMap<(u32, u32, usize), (crate::effects::TrailState, bool)>,
+    /// Each character's place a moment ago (and when), and its vehicle's motion for the toggles (`GfxControlToggle_t`).
+    motions: std::collections::HashMap<u32, ([f32; 3], f32, crate::effects::Motion)>,
     /// The character's position and speed at the last update, and when it arrived (for the prediction).
     own_base: [f32; 3],
     own_velocity: [f32; 3],
@@ -476,7 +478,7 @@ pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<()
     let settings = Settings::load();
     crate::ui::set_debug_overlay(settings.debug_overlay);
     crate::font::set_enabled(settings.original_font);
-    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), trails: Default::default(), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, casters: Vec::new(), follow_shift: [0.0; 3], environment: Default::default(), wind: Default::default(), wind_at: std::time::Instant::now(), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
+    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), trails: Default::default(), motions: Default::default(), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, casters: Vec::new(), follow_shift: [0.0; 3], environment: Default::default(), wind: Default::default(), wind_at: std::time::Instant::now(), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
     event_loop.run_app(&mut app).map_err(|e| e.to_string())?;
     if app.logged_out {
         // (the launcher that started the game sees this code and shows the character screen again)
@@ -1190,11 +1192,32 @@ impl ApplicationHandler for App {
                     for (id, own, at, heading, body, auras) in &self.auras {
                         let feet = if *own && self.hud.position.is_some() { own_feet } else { *at };
                         let heading = if *own { self.heading } else { *heading };
+                        // (moving forward: over a tenth of a second at least, faster than 0.5 a second along the facing, as
+                        // FUN_10112580 asks the vehicle for a speed above 0 forwards)
+                        let motion = {
+                            let entry = self.motions.entry(*id).or_insert((feet, time, Default::default()));
+                            let dt = time - entry.1;
+                            if dt >= 0.1 {
+                                let d = [feet[0] - entry.0[0], feet[1] - entry.0[1]];
+                                let forward = d[0] * heading.sin() + d[1] * heading.cos();
+                                let moving = d[0].hypot(d[1]) / dt > 0.5 && forward > 0.0;
+                                if moving && !entry.2.moving {
+                                    entry.2.started = Some(time);
+                                }
+                                entry.2.moving = moving;
+                                (entry.0, entry.1) = (feet, time);
+                            }
+                            entry.2
+                        };
                         // (the character's posed body, found once: its surface for the shells, its attractors for the meshes on them)
                         let mut posed: Option<Option<crate::blobshadow::Caster>> = None;
                         for (nano, aura) in auras {
                             let (period, life, plays) = crate::effects::pulse_timing(aura);
                             if let Some(age) = self.pulses.tick(*id, *nano, period, life, plays, time) {
+                                // (its toggles started by the vehicle's motion, the times as the effect's)
+                                let motion = crate::effects::Motion { moving: motion.moving, started: motion.started.map(|s| age - (time - s)) };
+                                let resolved = crate::effects::resolve_toggles(aura, age, &motion);
+                                let aura = &resolved;
                                 let c = posed.get_or_insert_with(|| body_at(feet));
                                 if let Some(c) = c {
                                     shells.extend(crate::effects::visual_shells(aura, &c.surface, c.translation, age));
