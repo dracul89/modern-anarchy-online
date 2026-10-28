@@ -846,6 +846,50 @@ fn run(args: &[String]) -> Result<(), String> {
             return Ok(());
         }
     }
+    // `char-anim-sets <game>`: every character animation set (type 0xfde97): its instance, its name and its (action, animations).
+    if let [game, word] = args {
+        if word == "char-anim-sets" {
+            let db = ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?;
+            for id in db.ids().map_err(|e| e.to_string())?.filter_map(Result::ok).filter(|i| i.kind == 0xfde97) {
+                let Some(data) = db.get(id).ok().flatten() else { continue };
+                let words: Vec<u32> = data.chunks_exact(4).map(|c| u32::from_le_bytes(c.try_into().unwrap())).collect();
+                let name = data.rsplit(|&b| b == 0).nth(1).map(|n| String::from_utf8_lossy(n).into_owned()).unwrap_or_default();
+                println!("{} {:?} {}", id.instance, name, words.iter().map(|w| format!("{w:x}")).collect::<Vec<_>>().join(" "));
+            }
+            return Ok(());
+        }
+    }
+    // `anim-sets <game>`: every item template's animation sets (chunk 20), with its name and its AnimSet stat (353).
+    if let [game, word] = args {
+        if word == "anim-sets" {
+            let db = ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?;
+            for id in db.ids().map_err(|e| e.to_string())?.filter_map(Result::ok).filter(|i| i.kind == mao_formats::item::TEMPLATE) {
+                let Some(data) = db.get(id).ok().flatten() else { continue };
+                let sets = mao_formats::item::anim_sets(&data);
+                if sets.is_empty() {
+                    continue;
+                }
+                let item = mao_formats::item::Item::parse(&data);
+                let name = item.as_ref().map(|i| i.name.clone()).unwrap_or_default();
+                let set = item.as_ref().and_then(|i| i.stat(353));
+                let cells: Vec<String> = sets.iter().map(|(class, values)| format!("{class}:{}", values.iter().map(|v| format!("{v:08x}")).collect::<Vec<_>>().join(","))).collect();
+                println!("{} {:?} animset={:?} {}", id.instance, name, set, cells.join(" "));
+            }
+            return Ok(());
+        }
+    }
+    // `record <game> <type> <instance> <out>`: one resource's bytes as stored, to a file (the type in hex, the instance in decimal or
+    // `0x` hex).
+    if let [game, word, kind, instance, out] = args {
+        if word == "record" {
+            let db = ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?;
+            let id = Id { kind: number(kind).ok_or("bad type")?, instance: playfield_number(instance).ok_or("bad instance")? };
+            let data = db.get(id).map_err(|e| e.to_string())?.ok_or("no such resource")?;
+            std::fs::write(out, &data).map_err(|e| e.to_string())?;
+            println!("{} bytes", data.len());
+            return Ok(());
+        }
+    }
     // `names <game> <text>`: the resources of the name index whose names hold the text (any case), with their type and instance.
     if let [game, word, text] = args {
         if word == "names" {

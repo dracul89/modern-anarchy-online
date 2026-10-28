@@ -206,6 +206,11 @@ struct World {
     last_hp: BTreeMap<u32, i64>,
     /// The social action each character is doing: its name and when it began (from `SocialActionCmd`).
     socials: BTreeMap<u32, (&'static str, Instant)>,
+    /// The weapons the characters hold, by (owner, place): the item's template (`WeaponItemFullUpdate`: the owner, the place in
+    /// `Unknown2`'s low byte, the template in stat 702, `ACGItemTemplateID`).
+    weapons: BTreeMap<(u32, u8), u32>,
+    /// Each character's last attack (`AttackInfo`, `MissedAttackInfo`): the weapon's place, when, and a count picking the swing.
+    swings: BTreeMap<u32, (u32, Instant, u32)>,
     /// The specials the server timed (skill stat, seconds; 0 = ready again), not yet given to the hotbars.
     special_events: Vec<(u32, f32)>,
     /// Damage and healing events not yet shown as floating numbers: (target id, amount, stat).
@@ -528,6 +533,10 @@ impl World {
             if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
                 let id = |name: &str| p.value.get(name).and_then(|v| v.get("Instance")).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
                 let (attacker, defender) = (id("Attacker"), id("Defender"));
+                // (a miss swings the weapon too: FUN_100a1077 → FUN_1006b399 → FUN_1006ae3c with the place in `Unknown2`)
+                let slot = p.value.get("Unknown2").and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
+                let n = self.swings.get(&attacker).map_or(0, |s| s.2.wrapping_add(1));
+                self.swings.insert(attacker, (slot, Instant::now(), n));
                 let name = |id: u32| self.names.get(&id).map_or_else(|| "Something".to_string(), |n| n.0.clone());
                 let line = if attacker == self.own {
                     Some(format!("You miss {}.", name(defender)))
@@ -538,6 +547,29 @@ impl World {
                 };
                 if let Some(line) = line {
                     self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
+                }
+            }
+        }
+        // An attack (`AttackInfo`, from the attacker): it swings the weapon in the place the message names (FUN_1009f257 →
+        // FUN_1006ae3c → FUN_1006a782, which `Characters::ensure_swing` follows).
+        if m.kind == 0x46002f16 {
+            if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
+                let slot = p.value.get("WeaponSlot").and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
+                let n = self.swings.get(&m.identity.1).map_or(0, |s| s.2.wrapping_add(1));
+                self.swings.insert(m.identity.1, (slot, Instant::now(), n));
+            }
+        }
+        // A weapon a character holds: its owner, its place and its template.
+        if m.kind == 0x3b1d2268 {
+            if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
+                let owner = p.value.get("Owner").and_then(|o| o.get("Instance")).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
+                let slot = (p.value.get("Unknown2").and_then(mao_net::schema::Value::as_int).unwrap_or(0) & 0xff) as u8;
+                let template = match p.value.get("Stats") {
+                    Some(mao_net::schema::Value::List(stats)) => stats.iter().find(|s| s.get("Item1").and_then(mao_net::schema::Value::as_int) == Some(702)).and_then(|s| s.get("Item2")?.as_int()),
+                    _ => None,
+                };
+                if let Some(template) = template.filter(|&t| t > 0) {
+                    self.weapons.insert((owner, slot), template as u32);
                 }
             }
         }
@@ -975,6 +1007,8 @@ struct Characters {
     movement_handles: std::collections::HashMap<u32, u32>,
     /// When each character's current social action was set on its stack.
     socials_started: std::collections::HashMap<u32, Instant>,
+    /// When each character's last attack swing was set on its stack.
+    swings_started: std::collections::HashMap<u32, Instant>,
     started: Instant,
     /// Machine models by mesh instance.
     props: std::collections::HashMap<u32, Option<Vec<Part>>>,
@@ -1092,7 +1126,7 @@ impl Characters {
         let index = mao_formats::instances::Instances::parse(&get(0xf424a, 1)?).map_err(|e| e.to_string())?;
         let _ = get;
         let head_meshes = index.iter().filter(|(kind, name, _)| *kind == 0xf6951 && is_head_name(name)).map(|(_, _, instance)| instance).collect();
-        Ok(Characters { head_meshes, db, index, anims: Default::default(), ids: Default::default(), bodies: Default::default(), creatures: Default::default(), creature_anims: Default::default(), motions: Default::default(), segment: 0, stacks: Default::default(), anims_by_id: Default::default(), movement_keys: Default::default(), movement_handles: Default::default(), socials_started: Default::default(), started: Instant::now(), props: Default::default(), statics: Default::default(), vehicles: Default::default(), frames: Default::default() })
+        Ok(Characters { head_meshes, db, index, anims: Default::default(), ids: Default::default(), bodies: Default::default(), creatures: Default::default(), creature_anims: Default::default(), motions: Default::default(), segment: 0, stacks: Default::default(), anims_by_id: Default::default(), movement_keys: Default::default(), movement_handles: Default::default(), socials_started: Default::default(), swings_started: Default::default(), started: Instant::now(), props: Default::default(), statics: Default::default(), vehicles: Default::default(), frames: Default::default() })
     }
 
     /// The parts of a machine's model (Y-up local space), loaded once.
@@ -1349,7 +1383,9 @@ impl Characters {
     /// `SetSpeedScale` is by FUN_1007009f) and a social action (FUN_10010a46: priority 0 claiming nothing, once over its whole
     /// length). `movement` is the animation and its total time, `points` the loop notes and the length, `key` what the
     /// movement is now (a change sets it anew; a looping one already playing is only topped up).
-    fn drive(&mut self, id: u32, key: (mao_formats::appearance::Action, u8, u32), movement: Option<(u32, f32)>, points: (f32, f32, f32), rate: f32, social: Option<((u32, f32), Instant)>) {
+    /// An attack swing (FUN_10010dee: `SetAnimation` at priority −2 claiming the action's layer, once over its whole length) is
+    /// set too, sped up by its scale (FUN_1006a782's `SetSpeedScale`).
+    fn drive(&mut self, id: u32, key: (mao_formats::appearance::Action, u8, u32), movement: Option<(u32, f32)>, points: (f32, f32, f32), rate: f32, social: Option<((u32, f32), Instant)>, swing: Option<((u32, f32), u32, f32, Instant)>) {
         let (stack, _) = self.stacks.entry(id).or_insert_with(|| (Default::default(), Instant::now()));
         if let Some((anim, total)) = movement {
             if self.movement_keys.get(&id) != Some(&key) {
@@ -1378,6 +1414,62 @@ impl Characters {
                 self.socials_started.insert(id, began);
             }
         }
+        if let Some(((anim, total), claims, speed, began)) = swing {
+            if self.swings_started.get(&id) != Some(&began) {
+                let handle = stack.set_animation(anim, -2, 1, claims, 0, 1.0, total);
+                stack.set_time(handle, 0.0, total);
+                stack.set_speed_scale(handle, speed);
+                self.swings_started.insert(id, began);
+            }
+        }
+    }
+
+    /// Loads an animation file (cached); whether the files have it.
+    fn ensure_file(&mut self, file: &str) -> bool {
+        use mao_formats::resource::Id;
+        if !self.anims.contains_key(file) {
+            let loaded = (|| {
+                let id = self.index.find(0xf6953, file)?;
+                let anim = mao_formats::catanim::parse(&self.db.get(Id { kind: 0xf6953, instance: id }).ok()??).ok()?;
+                let length = anim.tracks.iter().flat_map(|t| t.rotations.iter().map(|k| k.0)).fold(1.0f32, f32::max);
+                Some((anim, length))
+            })();
+            self.anims.insert(file.to_string(), loaded);
+        }
+        self.anims.get(file).is_some_and(|a| a.is_some())
+    }
+
+    /// The swing of an attack with the weapon of template `template` in place `slot`, as FUN_1006a782 makes it for a body with
+    /// weapon attachment points: one of the weapon's attack actions (`item::attack_actions`; `pick` stands for the original's
+    /// `rand()`), its animation by FUN_10010cc2's file names, falling back along FUN_10010b3c's chain (a rifle's shot to the small
+    /// arms'); no action at all plays the social 0x3e, `wave` (FUN_10010dee). Its speed: the animation's first note over the
+    /// weapon's attack time (stat 294 × 10 ms), held to 1..2. The animation, its length, the layer it claims and the speed. Not
+    /// followed: the character's own animation set (its 0xfde97 map, which picks among an action's variants), the height of
+    /// the target (FUN_1006a782's `param_3`, which FUN_1003cac9 does not pass on) and the crawling variants.
+    fn ensure_swing(&mut self, breed: u8, sex: u8, template: u32, slot: u32, pick: u32) -> Option<((u32, f32), u32, f32)> {
+        use mao_formats::resource::Id;
+        let data = self.db.get(Id { kind: mao_formats::item::TEMPLATE, instance: template }).ok()??;
+        let actions = mao_formats::item::attack_actions(&data, slot);
+        let attack_ms = mao_formats::item::Item::parse(&data).and_then(|i| i.stat(294)).map_or(0.0, |d| d as f32 * 10.0);
+        let (file, claims) = if actions.is_empty() {
+            (self.ensure_social(breed, sex, "wave")?, 0)
+        } else {
+            let mut action = actions[pick as usize % actions.len()];
+            let mut found = None;
+            for _ in 0..8 {
+                if let Some((files, claims)) = mao_formats::appearance::action_animation_names(breed, sex, action) {
+                    found = files.into_iter().find(|f| self.ensure_file(f)).map(|f| (f, claims));
+                }
+                action = mao_formats::appearance::action_fallback(action);
+                if found.is_some() || action == 0 {
+                    break;
+                }
+            }
+            found?
+        };
+        let note = self.anims.get(&file)?.as_ref()?.0.notes.first().map_or(0.0, |n| n.time);
+        let speed = if attack_ms > 0.0 && note > 0.0 { (note / attack_ms).clamp(1.0, 2.0) } else { 1.0 };
+        Some((self.anim_by_name(&file)?, claims, speed))
     }
 
     /// An animation's `loopstart`, `loopend` and length in ms (the whole length as the loop if it has no notes).
@@ -1460,7 +1552,7 @@ impl Characters {
     /// The parts of a player of this breed and sex at `t` ms into the walk,
     /// in Y-up local space (world matrices identity), if its meshes exist.
     /// `vehicle`: the vehicle body (NPC template) a vehicle program puts the character on, drawn instead of its own.
-    fn parts(&mut self, id: u32, breed: u8, sex: u8, moving: Option<mao_formats::appearance::Action>, jumped: Option<Duration>, _phase: f32, speed: f32, scale: f32, textures: &[(String, u32)], clothes: &[(String, u32)], gear: &[(u8, u32, u32)], social: Option<(&str, Instant)>, deform: Option<(&mao_formats::gfx::Deform, f32)>, vehicle: Option<u32>) -> Option<Vec<Part>> {
+    fn parts(&mut self, id: u32, breed: u8, sex: u8, moving: Option<mao_formats::appearance::Action>, jumped: Option<Duration>, _phase: f32, speed: f32, scale: f32, textures: &[(String, u32)], clothes: &[(String, u32)], gear: &[(u8, u32, u32)], social: Option<(&str, Instant)>, swing: Option<(u32, u32, Instant, u32)>, deform: Option<(&mao_formats::gfx::Deform, f32)>, vehicle: Option<u32>) -> Option<Vec<Part>> {
         if let Some(template) = vehicle {
             if let Some(parts) = self.vehicle_parts(id, breed, sex, template, moving, speed, scale, textures, clothes, gear, deform) {
                 return Some(parts);
@@ -1486,7 +1578,8 @@ impl Characters {
             let file = self.ensure_social(breed, sex, n)?;
             self.anim_by_name(&file).map(|a| (a, began))
         });
-        self.drive(id, key, movement, points, rate, social);
+        let swing = swing.and_then(|(template, slot, began, pick)| self.ensure_swing(breed, sex, template, slot, pick).map(|(anim, claims, speed)| (anim, claims, speed, began)));
+        self.drive(id, key, movement, points, rate, social, swing);
         let dt = self.stack_tick(id);
         let db = self.db.clone();
         self.ensure_body(breed, sex);
@@ -1534,7 +1627,7 @@ pub(crate) fn character_model(db: &Arc<ResourceDatabase>, breed: i32, sex: i32, 
     let (breed, sex) = (breed as u8, if breed == 4 { 1 } else { sex as u8 });
     let mut chars = Characters::new(db.clone()).ok()?;
     let (textures, clothes, gear) = look.map_or((&[][..], &[][..], &[][..]), |l| (l.textures.as_slice(), l.clothes.as_slice(), l.gear.as_slice()));
-    let parts = chars.parts(0, breed, sex, None, None, 0.0, 0.0, 100.0, textures, clothes, gear, None, None, None)?;
+    let parts = chars.parts(0, breed, sex, None, None, 0.0, 0.0, 100.0, textures, clothes, gear, None, None, None, None)?;
     let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     Some(Model { instances: (0..parts.len()).map(|i| (i, swap)).collect(), parts, water: None, lod_groups: Vec::new() })
 }
@@ -1570,7 +1663,7 @@ pub(crate) fn ride_preview(db: Arc<ResourceDatabase>, breed: u8, sex: u8, nano: 
         "run" => Some(Action::Run),
         _ => None,
     };
-    let parts = chars.parts(0, breed, sex, action, None, 0.0, 5.0, 100.0, &[], &[], &[], None, None, Some(template)).ok_or("the vehicle body did not load")?;
+    let parts = chars.parts(0, breed, sex, action, None, 0.0, 5.0, 100.0, &[], &[], &[], None, None, None, Some(template)).ok_or("the vehicle body did not load")?;
     // (at the origin facing the server's +z: the local frame is the server's)
     let attractors = chars.frames.get(&0).cloned().unwrap_or_default();
     for (name, m) in attractors.iter().filter(|(n, _)| n.contains("special") || n.contains("head")) {
@@ -1658,6 +1751,11 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
         if let (Some(info), Some(chars)) = (info, characters.as_mut()) {
             // (a social action in progress plays over the movement on the character's animation stack)
             let social = world.socials.get(&id).map(|&(social, began)| (social, began));
+            // (an attack swings the weapon held in the place it names: the server's WeaponItemFullUpdate, or our own inventory)
+            let swing = world.swings.get(&id).and_then(|&(slot, began, pick)| {
+                let template = world.weapons.get(&(id, slot as u8)).copied().or_else(|| (id == world.own).then(|| world.inventory.as_ref()?.iter().find(|e| e.slot == slot).map(|e| e.low_id)).flatten())?;
+                Some((template, slot, began, pick))
+            });
             // Movement animates while the position changes (our own is sampled every frame, the others' every few hundred ms).
             let moving = world.last_move.get(&id).is_some_and(|t| t.elapsed() < Duration::from_millis(if id == world.own { 90 } else { 700 }));
             let speed = world.speeds.get(&id).copied().unwrap_or(0.0);
@@ -1677,7 +1775,7 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
             // (A phase per entity keeps a crowd from moving in step.)
             // (a character running a vehicle program rides its board or bike)
             let vehicle = world.riding.get(&id).and_then(|&nano| chars.vehicle(nano, info.breed, info.sex));
-            if let Some(parts) = chars.parts(id, info.breed, info.sex, action, jumped, (id % 997) as f32 * 3.0, speed, scale, &info.textures, &info.clothes, world.equipment.get(&id).map_or(&[][..], |v| v.as_slice()), social, deform, vehicle) {
+            if let Some(parts) = chars.parts(id, info.breed, info.sex, action, jumped, (id % 997) as f32 * 3.0, speed, scale, &info.textures, &info.clothes, world.equipment.get(&id).map_or(&[][..], |v| v.as_slice()), social, swing, deform, vehicle) {
                 push_character(&mut model, &mut casters, parts, place, id == world.own, chars.frames.get(&id));
                 continue;
             }
@@ -4439,6 +4537,22 @@ mod door_tests {
         // casting it again sets its time
         w.nano_duration(10, 9000);
         assert_eq!(w.nano_times, vec![(10, 9000)]);
+    }
+
+    #[test]
+    fn an_attack_swings_the_weapon_the_server_said_is_held() {
+        // (a captured WeaponItemFullUpdate: owner 0x630193db holds template 301709 in place 6; then that owner's AttackInfo)
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let mut w = World::default();
+        let weapon = Message { kind: 0x3b1d2268, identity: (0xc74a, 0x1f6bdd5c), data: hex("000000000b0000c350630193db0000028f000f424f00000000010600001f8800000000000004210000001700049a8d000002bd00000001000002be00049a8d000002bf00049a8d0000019c000000010000001a0000001000000000") };
+        w.add(&weapon.frame(1));
+        assert_eq!(w.weapons.get(&(0x630193db, 6)), Some(&301709));
+        let attack = Message { kind: 0x46002f16, identity: (0xc350, 0x630193db), data: hex("0000000008ffffffff000000060000c3500004bc80000000000000000300000000") };
+        w.add(&attack.frame(1));
+        let (slot, _, pick) = w.swings[&0x630193db];
+        assert_eq!((slot, pick), (6, 0));
+        w.add(&attack.frame(1));
+        assert_eq!(w.swings[&0x630193db].2, 1);
     }
 
     #[test]

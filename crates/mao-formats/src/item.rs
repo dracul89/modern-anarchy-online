@@ -200,6 +200,63 @@ pub struct Action {
     pub criteria: Vec<(u32, i32, u32)>,
 }
 
+/// A class-to-values set of an item template (Gamecode FUN_1002b458 reads the chunks: `key, sub`, then for keys 0x0e and 0x12
+/// the animation set into the item's +0x78 map, FUN_1007dae8, and for key 0x14 the sound set into +0x88, FUN_1007dc1e; both
+/// `(n + 1) × 1009`, then n sets of `class, (k + 1) × 1009` and k words). The first chunk with `key`: `(class, words)`.
+pub fn class_sets(template: &[u8], key: u32) -> Vec<(u32, Vec<u32>)> {
+    let word = |at: usize| template.get(at..at + 4).map(|b| u32::from_le_bytes(b.try_into().unwrap()));
+    let mut at = 0;
+    while at + 12 <= template.len() {
+        if word(at) == Some(key) && word(at + 4).is_some_and(|s| s <= 0x36) && word(at + 8).is_some_and(|c| c % 1009 == 0 && (2..=41).contains(&(c / 1009))) {
+            let n = (word(at + 8).unwrap() / 1009 - 1) as usize;
+            let mut sets = Vec::new();
+            let mut p = at + 12;
+            for _ in 0..n {
+                let (Some(class), Some(count)) = (word(p), word(p + 4)) else { return sets };
+                if count % 1009 != 0 || !(1..=41).contains(&(count / 1009)) {
+                    return sets;
+                }
+                let k = (count / 1009 - 1) as usize;
+                let values: Option<Vec<u32>> = (0..k).map(|j| word(p + 8 + 4 * j)).collect();
+                let Some(values) = values else { return sets };
+                sets.push((class, values));
+                p += 8 + 4 * k;
+            }
+            return sets;
+        }
+        at += 1;
+    }
+    Vec::new()
+}
+
+/// An item template's animation set (chunk 0x0e or 0x12): `(class, actions)`; class 0xb is the attack's.
+pub fn anim_sets(template: &[u8]) -> Vec<(u32, Vec<u32>)> {
+    let sets = class_sets(template, 0x12);
+    if sets.is_empty() { class_sets(template, 0x0e) } else { sets }
+}
+
+/// What a weapon in place `slot` swings (class 0xb of the item's animation map, which `FUN_10045976` picks from at random): when
+/// it is wielded `WeaponItem_t` (FUN_1009e84b) fills the map by its AnimSet stat (353) as FUN_1009d964 does: 0 small arms
+/// (`smallarms-shot`, `-shotl` in the left hand, place 8), 1 a one-handed blade (slash, stab, slash; the left hand's), 2 a
+/// two-handed blade (chop, downcut, slash, stab), 3 a rifle, 6 a bow, 7 `spell-sys`, 8 a bazooka; other sets keep what the
+/// template's own animation set gives (the martial arts items' and the monsters' innate weapons' swings), as does an item
+/// without the stat (taken as unset: FUN_1009d964's stat read was not traced to its default). The crawling variants (the
+/// owner's stat 430 at 14) are not used.
+pub fn attack_actions(template: &[u8], slot: u32) -> Vec<u32> {
+    let left = slot == 8;
+    let set = Item::parse(template).and_then(|i| i.stat(353));
+    match set {
+        Some(0) => vec![if left { 0x3f8 } else { 0x3f5 }],
+        Some(1) => if left { vec![0x3ee, 0x3ef, 0x3ee] } else { vec![0x3eb, 0x3ec, 0x3eb] },
+        Some(2) => vec![0x41a, 0x41b, 0x41c, 0x41d],
+        Some(3) => vec![0x3ff],
+        Some(6) => vec![0xb7],
+        Some(7) => vec![0xcb],
+        Some(8) => vec![0x426],
+        _ => anim_sets(template).into_iter().filter(|(class, _)| *class == 0xb).flat_map(|(_, actions)| actions).collect(),
+    }
+}
+
 pub fn actions(template: &[u8]) -> Vec<Action> {
     let word = |at: usize| u32::from_le_bytes(template[at..at + 4].try_into().unwrap());
     let mut out = Vec::new();

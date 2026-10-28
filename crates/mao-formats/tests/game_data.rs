@@ -249,3 +249,27 @@ fn a_bundle_runs_every_child() {
     // (a bundle with one child that has a look is that child: Phantom's fan bundle, 72307)
     assert!(matches!(gfx.visual(72307), Some(Visual::Meta(_)) | Some(Visual::EffectMesh(_))));
 }
+
+#[test]
+fn captured_weapons_swing_animations_the_files_have() {
+    // (the weapons a captured fight's WeaponItemFullUpdates named, and the martial arts item)
+    let Some(db) = database() else { return };
+    let index = mao_formats::instances::Instances::parse(&db.get(Id { kind: 0xf424a, instance: 1 }).unwrap().unwrap()).unwrap();
+    for template in [258818, 122829, 123362, 265091, 264957, 271074, 301709, 43712] {
+        let data = db.get(Id { kind: mao_formats::item::TEMPLATE, instance: template }).unwrap().unwrap();
+        let name = mao_formats::item::Item::parse(&data).map(|i| i.name).unwrap_or_default();
+        let actions = mao_formats::item::attack_actions(&data, 6);
+        println!("{template} {name:?} AnimSet {:?}: {actions:x?}", mao_formats::item::Item::parse(&data).and_then(|i| i.stat(353)));
+        assert!(!actions.is_empty(), "{template} {name} swings nothing");
+        for action in actions {
+            let mut a = action;
+            let mut found = false;
+            while a != 0 && !found {
+                let (files, _) = mao_formats::appearance::action_animation_names(mao_formats::appearance::SOLITUS, mao_formats::appearance::MALE, a).unwrap();
+                found = files.iter().any(|f| index.find(0xf6953, f).is_some());
+                a = mao_formats::appearance::action_fallback(a);
+            }
+            assert!(found, "{template} {name}: no animation for {action:#x}");
+        }
+    }
+}

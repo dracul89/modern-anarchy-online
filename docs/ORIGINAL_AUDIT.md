@@ -119,9 +119,10 @@ then check a render. Never the other way round.
    floor lies on it); in a dungeon the projection is taken as vertical onto the floor (FUN_100ed439's dungeon branch passes
    an upward light and the room's floor query, whose normal sense was not confirmed).
 8. **Character rendering** — the animation layers are ported (see the table): a character's animations are a stack
-   (`mao_formats::animstack`) kept and blended as `VisualCATMesh_t` keeps its list. Left: attack animations (FUN_10010dee
-   at priority −2 on the layer the table leaves, the animation named `<sex>_<action>_01_01.ani` by FUN_10010cc2 — the
-   client has no attack event to drive them from yet), `wield` and the `op1h`/`op2h` actions, the camera attractor's
+   (`mao_formats::animstack`) kept and blended as `VisualCATMesh_t` keeps its list. The attack swings are ported (2026-10-28, see CLIENT_UI "Attack swings": `AttackInfo` /
+   `MissedAttackInfo` → FUN_1006ae3c → FUN_1006a782; the weapon's actions by its AnimSet as FUN_1009d964 fills them, the
+   animation by FUN_10010cc2's names and FUN_10010b3c's fallbacks, at priority −2 as FUN_10010dee sets it). Left: the
+   character's own animation set (type 0xfde97, which picks among an action's `_01_0n` variants), the crawling variants, `wield` and the `op1h`/`op2h` actions, the camera attractor's
    smoothing; `catmesh.rs` skinning and attractors were already as the original's.
 9. **Statel LOD and culling** — the LOD manager is ported (see the table; `MAO_NO_LOD=1` draws every full mesh to
    compare). It does change the look a little: small props (a 1-unit bin) are gone 50 units out, as in the original, and the
