@@ -55,7 +55,7 @@ four tabs are too cramped (the wear column is narrow, so their names are cut); t
 | 888a011 | **Creature swings**: monsters attacking play their own attack animation | get hit by a monster |
 | 2c2d490 | **Combat tab in the original's words** (`text.mdb`): "You hit X for N points of melee damage.", "X hit you for ...", "You tried to hit X, but missed!", "You hit X with nanobots for ...", "You were healed for N points.", "Critical hit!" | fight; compare the Combat tab with the original client's |
 | e1b8a69 | **Shields, absorbs, XP in the original's words**: "Your damage shield hit X for N points of damage.", "You absorbed N points of cold damage.", "You received N xp." | kill something with a damage shield up; check the XP line on a kill |
-| (next) | **Facing the target**: a standing fighter turns to face its target (every 0.67 s, when more than ~15° off, at 7.2 rad/s) | start a fight with the monster beside or behind you and stand still |
+| d129213 | **Facing the target**: a standing fighter turns to face its target (every 0.67 s, when more than ~15° off, at 7.2 rad/s) | start a fight with the monster beside or behind you and stand still |
 | 2c2d490 | **Fix: `HealthDamage` direction**: the floating numbers and health bars now follow the one hurt (the message's sender), not the source | your health bar should no longer jump to a monster's health in a fight |
 
 **Looked for, not found: a muzzle flash on held guns.** The `muzzleflash` effect (an `eff_muzzleflash` connector → effect
