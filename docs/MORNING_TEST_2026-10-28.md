@@ -74,6 +74,7 @@ Added after the overnight run, on request: audio through rodio, ported from the 
 
 | Commit | What | What to try |
 |---|---|---|
+| (next) | **Lightning's splash**: a bolt over water splashes on the surface; rocks falling into water splash | watch a storm over a lake or the sea |
 | fdec0fc | **Emotes**: `/wave`, `/bow`, `/emote dance-name`, the hotbar's social actions; `/me` text | `/wave`; `/me waves`; drag a social action to the hotbar and press it |
 | 857166d | **A bolt's rocks**: lightning bolts throw little rocks from where they hit, which bounce away | watch a strike near you in a storm |
 | a58ce7e | **Vicinity speech sent**: plain text, `/s` and `/w` are said to the people around; `/voice` lines go there too | type a line; `/s hello`; `/voice heal`; check that others (or the line coming back) show it |

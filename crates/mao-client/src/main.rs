@@ -34,6 +34,7 @@ mod music;
 mod sounds;
 mod hazards;
 mod lightning;
+mod liquid;
 mod voices;
 mod friends;
 mod help;

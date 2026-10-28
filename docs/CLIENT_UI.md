@@ -943,3 +943,10 @@ table: `/wave`, `/bow`, `/disco`, `/sleep`, …) do a social action as the origi
 action's `AbstractAnimID`), which the server shows to everyone; `/lounge` and `/sleep` want you sitting ("You must sit in order
 to use /lounge or /sleep."). The hotbar's and the actions window's social actions are sent the same way now. An unknown name
 says the original's "Error: No emote named '…'".
+
+**Liquids and the lightning's splash.** The playfield's liquid is known now as the original tests it (`liquid.rs`): the still
+water triangles of its definition object (cut small, on the 60 by 60 tiles), a point in one when below its top, inside its
+triangle, and its depth reaching past the point. A bolt over water ends on the surface; its tip, under it, throws no rock but
+splashes (gfx 0x859b, `_GfxControlSplash_t`): four cones of material 35 on the surface, each starting 0.025 s after the last
+and living 0.75 s, swelling up from a 0.8 ring and fading from a faint white. A rock that falls into water splashes there too,
+and in the water its speed and spin are halved each frame.

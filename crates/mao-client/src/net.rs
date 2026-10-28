@@ -2469,7 +2469,10 @@ pub(crate) fn load_area_with(game: &str, db: &Arc<ResourceDatabase>, playfield: 
     if !areas.is_empty() {
         eprintln!("playfield {playfield}: {} areas ({} with an environment)", areas.len(), areas.iter().filter(|a| a.takes_part()).count());
     }
-    let base_environment = mao_formats::playfield::load_anarchy(db, playfield).and_then(|a| a.environment);
+    let anarchy = mao_formats::playfield::load_anarchy(db, playfield);
+    // (the playfield's liquid, for the effects that ask for it: `liquid.rs`)
+    crate::liquid::set_current(anarchy.as_ref().map(|a| std::sync::Arc::new(crate::liquid::Liquid::new(&a.water))));
+    let base_environment = anarchy.and_then(|a| a.environment);
     if let Some(e) = &base_environment {
         eprintln!("playfield {playfield}: environment weather {:?} ambient {:?} fog {:?} density {}", &e[..8], &e[19..22], &e[22..25], e[25]);
     }
@@ -2820,6 +2823,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut aura_cache: std::collections::HashMap<u32, Option<mao_formats::gfx::Visual>> = std::collections::HashMap::new();
         // (the effect templates: what a running nano program looks like)
         let gfx = std::fs::read(Path::new(&game_dir).join("Setupf").join("gfxtweak.bin")).ok().and_then(|d| mao_formats::gfx::Gfx::parse(&d).ok());
+        // (the lightning's splash, gfx 0x859b)
+        crate::lightning::set_splash(gfx.as_ref().and_then(|g| mao_formats::gfx::Splash::read(g.get(0x859b)?)));
         let mut polymorph_cache: std::collections::HashMap<u32, Option<u32>> = std::collections::HashMap::new();
         let mut vehicle_cache: std::collections::HashMap<u32, bool> = std::collections::HashMap::new();
         let mut delete_seen = 0u8;

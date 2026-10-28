@@ -583,3 +583,15 @@ fn nano_effect_sounds() {
     }
     eprintln!("nanos with a sound control, by effect stat: {by:?}");
 }
+
+#[test]
+fn the_lightning_s_splash() {
+    // (gfx 0x859b, the bolt tip's splash: a `_GfxControlSplash_t` of four cones of material 35, 0.75 s each, 0.025 s apart)
+    let Some(game) = std::env::var_os("MAO_GAME").map(PathBuf::from) else { return };
+    let data = std::fs::read(game.join("Setupf").join("gfxtweak.bin")).unwrap();
+    let gfx = mao_formats::gfx::Gfx::parse(&data).unwrap();
+    let s = mao_formats::gfx::Splash::read(gfx.get(0x859b).unwrap()).unwrap();
+    assert_eq!((s.count, s.material, s.segments), (4, 35, 8));
+    assert_eq!((s.life, s.delay, s.end), (0.75, 0.025, 1.0));
+    assert!((s.swell.0 - 0.4).abs() < 1e-6 && (s.rise - 0.04).abs() < 1e-6);
+}

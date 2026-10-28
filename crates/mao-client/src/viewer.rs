@@ -1229,6 +1229,7 @@ impl ApplicationHandler for App {
                             }
                         }
                         shells.extend(self.sky.shells(BOLT_SHEET, CLOUD_SHEET));
+                        shells.extend(self.sky.splash_shells());
                     }
                     // (a character's posed mesh: the caster standing nearest a point, and the feet it stands on)
                     let follow = self.follow_shift;

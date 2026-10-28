@@ -15,9 +15,13 @@
 //! `EnvFXGravityObject_t` (FUN_100b103b made, FUN_100b0d0f each frame). 0x2c is gfx effect 0x859b, a `_GfxControlSplash_t`,
 //! which only makes its cones over a liquid (FUN_100f5a77: `GetLiquidSurfaceHeight`).
 //!
-//! Not here: the splash (the client knows no liquids, so it would make none either way), FUN_100b8b35's note of the bolt's
-//! ground place (radius 50), the water level in the ground's height (a rock never enters the water), and the pools: each strike
-//! gets its own effects, so none is ever refused.
+//! Over a liquid (`liquid.rs`) the ground places are its surface (FUN_100ad8f8 keeps the higher), a tip under it throws no rock
+//! (FUN_100ad98f's depth), and 0x2c makes its splash ([`Splash`]): a ring of cones (`GfxVisualCone`) on the surface rising and
+//! fading (FUN_100f5a77 makes them, FUN_100f5783 runs them). A rock that falls into a liquid (not of type 2) splashes twice
+//! (gfx 0x859b at it, and 0x2c), and in it the frame's velocity and spin are halved.
+//!
+//! Not here: FUN_100b8b35's note of the bolt's ground place (radius 50), the splash's sound (FUN_100f5573 asks `GetSoundID`
+//! for no name), and the pools: each strike gets its own effects, so none is ever refused.
 
 use crate::ambience::R250;
 use crate::audio::Rand;
@@ -56,6 +60,8 @@ pub struct Rock {
     angle: f32,
     bounces: i32,
     done: bool,
+    /// In a liquid (+0x40).
+    wet: bool,
 }
 
 /// `EnvFXGravityObject_t`'s constants: the throw's force (+0x1a0 set to 5, DAT_101584fc), the bounce's divisor and the drag
@@ -64,6 +70,21 @@ const ROCK_FORCE: f32 = 5.0;
 const ROCK_BOUNCE: f32 = 4.0;
 const ROCK_FALL: f32 = 9.8;
 
+/// A splash under way (`_GfxControlSplash_t`): where (Y up, on the liquid), how long it has run, its cones' ends.
+#[derive(Clone, Debug)]
+pub struct Splash {
+    at: [f32; 3],
+    t: f32,
+    gone: Vec<bool>,
+}
+
+/// The splash's template (gfx 0x859b), set once by the game connection.
+static SPLASH: std::sync::OnceLock<Option<mao_formats::gfx::Splash>> = std::sync::OnceLock::new();
+
+pub fn set_splash(t: Option<mao_formats::gfx::Splash>) {
+    let _ = SPLASH.set(t);
+}
+
 /// The strikes' effects under way, and the CRT's `rand` they draw from.
 #[derive(Default)]
 pub struct Sky {
@@ -71,6 +92,7 @@ pub struct Sky {
     clouds: Vec<Cloud>,
     bolts: Vec<Bolt>,
     rocks: Vec<Rock>,
+    splashes: Vec<Splash>,
 }
 
 fn normalized(v: [f32; 3]) -> [f32; 3] {
@@ -96,8 +118,9 @@ fn flash(x: i32, z: i32, s: i32) -> [[f32; 3]; 5] {
 impl Sky {
     /// A strike lit at `at` (Y up) with the strike's `seed`; `ground` the ground's height under a point (x, z), if any.
     pub fn strike(&mut self, at: [f32; 3], seed: u32, ground: &dyn Fn(f32, f32) -> Option<f32>) {
+        let liquid = crate::liquid::current();
         // (FUN_100afc4c for each effect: the place 0.2 lower and kept above the ground, FUN_100ad98f; the ground place on the
-        // ground, FUN_100ad8f8)
+        // ground, or the liquid over it, FUN_100ad8f8)
         let settle = |mut at: [f32; 3], mut low: [f32; 3]| {
             at[1] -= 0.2;
             if let Some(h) = ground(at[0], at[2]) {
@@ -105,6 +128,9 @@ impl Sky {
             }
             if let Some(h) = ground(low[0], low[2]) {
                 low[1] = h;
+            }
+            if let Some(s) = liquid.as_ref().and_then(|l| l.at(low)) {
+                low[1] = low[1].max(s.height);
             }
             (at, low)
         };
@@ -202,7 +228,78 @@ impl Sky {
         }
         let axis = normalized([velocity[2], 0.0, -velocity[0]]);
         let spin = (self.rand.next() % 4000) as f32 / 1000.0 + 2.0;
-        self.rocks.push(Rock { mesh, at, velocity, axis, spin, angle: 0.0, bounces: 7, done: false });
+        self.rocks.push(Rock { mesh, at, velocity, axis, spin, angle: 0.0, bounces: 7, done: false, wet: false });
+    }
+
+    /// FUN_100f5c5c: a splash made at `at` (Y up) moved by its offset, kept when a liquid (not of type 2) is there at or above
+    /// it, and then put on its surface (FUN_100f5a77).
+    fn splash(&mut self, at: [f32; 3], liquid: &Option<std::sync::Arc<crate::liquid::Liquid>>) {
+        let Some(Some(t)) = SPLASH.get() else { return };
+        let mut at = [0, 1, 2].map(|i| at[i] + t.offset[i]);
+        let Some(s) = liquid.as_ref().and_then(|l| l.at(at)) else { return };
+        if s.kind == 2 || !(at[1] <= s.height) || t.count == 0 {
+            return;
+        }
+        at[1] = s.height;
+        self.splashes.push(Splash { at, t: 0.0, gone: vec![false; t.count as usize] });
+    }
+
+    /// The splashes' cones (Z up): FUN_100f5783 for each cone `i` started (`(t − delay × i) / life` from 0 to its end `e`):
+    /// its colours from the start's to the end's by `u = local / e`, its radii `below.0 + i × below.1` and `(above.0 + i ×
+    /// above.1) × local`, its rise `i × rise` plus the swell's lift, its height the swell (`(1 − f²) × r`, `f = 2 × local −
+    /// 1 + i × wave.0`, `r` from the first cone's swell to the last's) less the lift (the same of `f − wave.1`, none below
+    /// −1), turned `i × turn` about the up axis; a `GfxVisualCone` strip of its segments (FUN_1000bd0a).
+    pub fn splash_shells(&self) -> Vec<Shell> {
+        let Some(Some(t)) = SPLASH.get() else { return Vec::new() };
+        let lerp = |a: u32, b: u32, u: f32| {
+            let c = |x: u32, s: u32| ((x >> s) & 0xff) as f32 / 255.0;
+            let mix = |s: u32| c(a, s) * (1.0 - u) + c(b, s) * u;
+            [mix(16), mix(8), mix(0), mix(24)]
+        };
+        let n = t.count as f32;
+        let mut out = Vec::new();
+        for s in &self.splashes {
+            for i in 0..t.count as usize {
+                let fi = i as f32;
+                let local = (s.t - t.delay * fi) / t.life;
+                if !(0.0 <= local) || local >= t.end || s.gone[i] {
+                    continue;
+                }
+                let u = local / t.end;
+                let (below_c, above_c) = (lerp(t.colour_start.0, t.colour_end.0, u), lerp(t.colour_start.1, t.colour_end.1, u));
+                let below = t.below.0 + fi * t.below.1;
+                let above = (fi * t.above.1 + t.above.0) * local;
+                let share = fi / (n - 1.0);
+                let r = t.swell.1 * share + t.swell.0 * (1.0 - share);
+                let f = (local + local - 1.0) + fi * t.wave.0;
+                let g = f - t.wave.1;
+                let lift = if g < -1.0 { 0.0 } else { (1.0 - g * g) * r };
+                let height = (1.0 - f * f) * r - lift;
+                let y = fi * t.rise + lift + s.at[1];
+                let (st, ct) = (fi * t.turn).sin_cos();
+                let segments = t.segments.max(1);
+                let step = t.extent.0 / segments as f32;
+                let mut strip = Vec::new();
+                for k in 0..=segments {
+                    let a = k as f32 * std::f32::consts::TAU / segments as f32;
+                    let (sa, ca) = a.sin_cos();
+                    let place = |radius: f32, h: f32| {
+                        let (x, z) = (ca * radius, sa * radius);
+                        let (x, z) = (x * ct + z * st, -x * st + z * ct);
+                        [s.at[0] + x, s.at[2] + z, y + h]
+                    };
+                    let tu = k as f32 * step;
+                    strip.push(ShellVertex { position: place(below, 0.0), uv: [tu, 0.0], colour: below_c });
+                    strip.push(ShellVertex { position: place(above, height), uv: [tu, t.extent.1], colour: above_c });
+                }
+                let mut vertices = Vec::new();
+                for k in 2..strip.len() {
+                    vertices.extend([strip[k - 2], strip[k - 1], strip[k]]);
+                }
+                out.push(Shell { sprite: t.material.max(0) as u16, additive: true, vertices });
+            }
+        }
+        out
     }
 
     /// The rocks thrown and still flying, for the viewer to draw (Z up).
@@ -218,6 +315,8 @@ impl Sky {
     /// more (FUN_10051e5a: each segment by `offset(16) × share × width × dt`; gone at 0) and each throws a rock from its tip
     /// (effect 0x2d's run, then the rock's: each put 0.2 lower and kept above the ground).
     pub fn step(&mut self, dt: f32, ground: &dyn Fn(f32, f32) -> Option<f32>) {
+        let liquid = crate::liquid::current();
+        let mut splashes = Vec::new();
         for r in &mut self.rocks {
             r.angle += dt * r.spin;
             if 2000.0 < r.angle {
@@ -231,6 +330,21 @@ impl Sky {
                     at[1] = h;
                     normal = ground_normal(ground, at[0], at[2]);
                 }
+            }
+            // (the liquid there: falling in splashes, coming out takes the drag off; FUN_100ada15's liquid test)
+            let surface = liquid.as_ref().and_then(|l| l.at(at));
+            let mut drag = 1.0;
+            match surface {
+                Some(s) if at[1] < s.height && !r.wet && s.kind != 2 => {
+                    r.wet = true;
+                    splashes.push(at);
+                    splashes.push(at);
+                }
+                None if r.wet => {
+                    r.wet = false;
+                    drag = 2.0;
+                }
+                _ => {}
             }
             if before < at[1] {
                 r.bounces -= 1;
@@ -248,8 +362,25 @@ impl Sky {
             }
             r.at = at;
             r.velocity[1] -= ROCK_FALL * dt;
+            if surface.is_some_and(|s| at[1] < s.height) {
+                drag = 2.0;
+            }
+            for v in &mut r.velocity {
+                *v /= drag;
+            }
+            r.spin /= drag;
         }
         self.rocks.retain(|r| !r.done);
+        for at in splashes {
+            self.splash(at, &liquid);
+        }
+        // (the splashes run: FUN_100f5783, each cone over its life; done when they all are)
+        for s in &mut self.splashes {
+            s.t += dt;
+        }
+        if let Some(Some(t)) = SPLASH.get() {
+            self.splashes.retain(|s| (0..s.gone.len()).any(|i| !s.gone[i] && (s.t - t.delay * i as f32) / t.life < t.end));
+        }
         for c in &mut self.clouds {
             c.age -= dt;
             c.lit = 0.01 < c.age;
@@ -289,10 +420,14 @@ impl Sky {
             p
         };
         for tip in tips {
-            let kind = 0xb + self.rand.next() % 7;
-            let at = settle(settle(tip));
-            if let Some(mesh) = mao_formats::gfx::rock_mesh(kind) {
-                self.throw(mesh, at);
+            // (0x2d: under a liquid, FUN_100ad98f's depth above 0, no rock)
+            let first = settle(tip);
+            let dry = liquid.as_ref().and_then(|l| l.at(first)).is_none_or(|s| s.height - first[1] <= 0.0);
+            let rock = dry.then(|| 0xb + self.rand.next() % 7);
+            // (0x2c: the splash, at its own settled place)
+            self.splash(settle(tip), &liquid);
+            if let Some(mesh) = rock.and_then(mao_formats::gfx::rock_mesh) {
+                self.throw(mesh, settle(first));
             }
         }
     }
@@ -342,7 +477,7 @@ impl Sky {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.clouds.is_empty() && self.bolts.is_empty() && self.rocks.is_empty()
+        self.clouds.is_empty() && self.bolts.is_empty() && self.rocks.is_empty() && self.splashes.is_empty()
     }
 }
 

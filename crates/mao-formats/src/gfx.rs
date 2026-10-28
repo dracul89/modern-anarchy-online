@@ -767,6 +767,63 @@ pub struct Flare {
     pub burst: i32,
 }
 
+/// A kind-3002 template as `_GfxControlSplash_t` reads it (Gamecode FUN_100f55d6): word 0 the flags (bit 8 and 9 for its
+/// cones), 1–3 an offset from where it is made, 8 its duration, 9 the cones' material, 10 how many cones, 11 a cone's life
+/// and 12 the delay between their starts, 13–15 a cone's segments and its texture's extent round and up, 16–17 the swell
+/// of the first and the last cone, 18–21 the radii below and above and their steps from cone to cone, 22–23 the colours
+/// below and above at the start, 25–26 at the end, 24 the turn from cone to cone, 27 the rise from cone to cone, 28–29 the
+/// swell's step and offset, 30 when a cone ends (in its lives), 31 the scale (of 16–21 and 27).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Splash {
+    pub flags: u32,
+    pub offset: [f32; 3],
+    pub duration: f32,
+    pub material: i32,
+    pub count: u32,
+    pub life: f32,
+    pub delay: f32,
+    pub segments: i32,
+    pub extent: (f32, f32),
+    pub swell: (f32, f32),
+    pub below: (f32, f32),
+    pub above: (f32, f32),
+    pub colour_start: (u32, u32),
+    pub colour_end: (u32, u32),
+    pub turn: f32,
+    pub rise: f32,
+    pub wave: (f32, f32),
+    pub end: f32,
+}
+
+impl Splash {
+    pub fn read(r: &Record) -> Option<Splash> {
+        if r.kind != 3002 || r.payload.len() < 32 {
+            return None;
+        }
+        let s = r.float(31);
+        Some(Splash {
+            flags: r.int(0) as u32,
+            offset: [r.float(1), r.float(2), r.float(3)],
+            duration: r.float(8),
+            material: r.int(9),
+            count: r.int(10).max(0) as u32,
+            life: r.float(11),
+            delay: r.float(12),
+            segments: r.int(13),
+            extent: (r.float(14), r.float(15)),
+            swell: (s * r.float(16), s * r.float(17)),
+            below: (s * r.float(18), s * r.float(20)),
+            above: (s * r.float(19), s * r.float(21)),
+            colour_start: (r.int(22) as u32, r.int(23) as u32),
+            colour_end: (r.int(25) as u32, r.int(26) as u32),
+            turn: r.float(24),
+            rise: s * r.float(27),
+            wave: (r.float(28), r.float(29)),
+            end: r.float(30),
+        })
+    }
+}
+
 impl Flare {
     pub fn read(r: &Record) -> Option<Flare> {
         if r.kind != 1005 || r.payload.len() < 36 {
