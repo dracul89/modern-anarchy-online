@@ -874,8 +874,13 @@ pub enum Visual {
     Glow { colour: [f32; 4], size: f32 },
     /// A short bright flash (kind 2001: the hit of 123 programs).
     Flash { colour: [f32; 3], size: f32 },
-    /// A glowing ball (kind 2002: the tracer of 250 programs).
-    Orb { colour: [f32; 3], size: f32 },
+    /// A kind-2002 template, `_GfxControlPlasma_t` (made by the number-taking `CreateGfxControl` FUN_100d19b0 / FUN_100ec5ae;
+    /// FUN_100ec4c8 the words, FUN_100ec522 the visual, FUN_100ec2e6 the run): a `GfxVisualPlasma` of the material (word 9) at the
+    /// hit location's point, its colour picked each frame between words 10–13 and 14–17 (alpha, red, green, blue; FUN_10108663),
+    /// running word 18 seconds (the tracer of 611 programs). The visual (displaysystem `gfxplasma.rs`) is a band of 75 segments
+    /// along the step between the location's two points, which are the same point, so along 0.01 of x each: 0.75 m along the
+    /// visual's x, 0.2 across, displaced across by a tenth of the sum of four cubed sine waves of the time.
+    Plasma { colour_a: [f32; 4], colour_b: [f32; 4], material: i32, duration: f32 },
 }
 
 impl Gfx {
@@ -933,7 +938,12 @@ impl Gfx {
             }
             2001 => Some(Visual::Flash { colour: [1.0, 0.95, 0.8], size: 0.9 }),
             // (word 10 and the pairs after it are the range each colour channel is drawn from: 0.3 to 1)
-            2002 => Some(Visual::Orb { colour: [0.65 + 0.35 * r.float(12), 0.65 + 0.35 * r.float(14), 0.65 + 0.35 * r.float(16)], size: 0.3 }),
+            2002 if r.payload.len() >= 19 => Some(Visual::Plasma {
+                colour_a: [r.float(10), r.float(11), r.float(12), r.float(13)],
+                colour_b: [r.float(14), r.float(15), r.float(16), r.float(17)],
+                material: r.int(9),
+                duration: r.float(18),
+            }),
             _ => None,
         }
     }

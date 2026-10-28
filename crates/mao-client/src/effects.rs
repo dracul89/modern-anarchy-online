@@ -543,6 +543,32 @@ pub fn cast_particles(c: &CastShow, t: f32) -> Vec<Particle> {
     out
 }
 
+/// The waves of `GfxVisualPlasma` (its constructor, `gfxplasma.rs`): amplitudes, wavelengths (frequencies 6.28 over them) and
+/// speeds.
+const PLASMA_WAVES: [(f32, f32, f32); 4] = [(0.15, 0.2, -0.8), (0.3, 0.3, 1.0), (0.2, 0.4, 1.2), (0.1, 0.5, 0.7)];
+
+/// `_GfxControlPlasma_t`'s band `time` seconds into it, from `at` (world, Z up), as FUN_100ec2e6 runs it and `GfxVisualPlasma`
+/// (FUN_1001bbf2) draws it: 75 segments of 0.01 along x (the step between the hit location's two points is nothing, so the
+/// draw's own 0.01), 0.2 across, all displaced by a tenth of `Σ amplitude × sin³((speed × time) × 6.28 / wavelength)` (the
+/// distance along being 0 for every segment); its colour each frame a random pick between the two (FUN_10108663), added to the
+/// scene; gone after its duration. The band lies along the world's x (the visual is placed, not turned) and is drawn as sprites
+/// a tenth apart, displaced up (the original displaces it across the view).
+fn plasma_particles(colour_a: [f32; 4], colour_b: [f32; 4], material: i32, duration: f32, at: [f32; 3], time: f32) -> Vec<Particle> {
+    if time < 0.0 || (duration > 0.0 && time >= duration) {
+        return Vec::new();
+    }
+    let sum: f32 = PLASMA_WAVES.iter().map(|&(amp, wave, speed)| amp * ((speed * time) * (6.28 / wave)).sin().powi(3)).sum();
+    let frame = (time * 30.0) as u32;
+    let pick = |c: usize| colour_a[c] + (colour_b[c] - colour_a[c]) * hash(frame, 0x2002 + c as u32);
+    let colour = [pick(1), pick(2), pick(3), pick(0)];
+    (0..8)
+        .map(|k| {
+            let along = k as f32 * 0.75 / 7.0;
+            sprite(material, 0.0, [at[0] + along, at[1], at[2] + 0.1 * sum], 0.2, colour)
+        })
+        .collect()
+}
+
 /// A character's posed surface: world points (Z up) and their unit normals, from its blob-shadow caster (every fourth vertex).
 #[derive(Clone, Copy, Debug)]
 pub struct Body<'a> {
@@ -1194,13 +1220,8 @@ pub fn visual_particles(v: &Visual, feet: [f32; 3], time: f32, reach: Reach) -> 
             }
             out
         }
-        Visual::Orb { colour, size } => {
-            let pulse = 0.85 + 0.15 * (time * 18.0).sin();
-            vec![
-                sprite(8, 0.0, [feet[0], feet[1], feet[2] + 0.25], size * 2.2 * pulse, [colour[0], colour[1], colour[2], 0.35]),
-                sprite(15, 0.0, [feet[0], feet[1], feet[2] + 0.25], *size, [colour[0], colour[1], colour[2], 0.9]),
-            ]
-        }
+        // (the point a tracer carries; see `plasma_particles`)
+        Visual::Plasma { colour_a, colour_b, material, duration } => plasma_particles(*colour_a, *colour_b, *material, *duration, [feet[0], feet[1], feet[2] + 0.25], time),
     }
 }
 
@@ -1791,6 +1812,22 @@ mod tests {
     fn aura() -> Aura {
         let helix = |spin: f32| Helix { spin, phase: 0.0, size: 0.15, count: 10, colour: [0.5, 0.4, 1.0], material: 15, attach: 1006, offset: -0.25, radius: 0.15, table: Vec::new(), life: 1.5, ribbon_width: 0.05, ribbon_life: 0.5, ribbon_duration: 1.5, ribbon_material: 8, sparkle_rate: 0.0 };
         Aura { colour: [0.2, 0.2, 0.99], end: [0.2, 0.2, 0.99], helices: vec![helix(-12.566), helix(12.566)], period: 4.0, plays: -1 }
+    }
+
+    #[test]
+    fn the_plasma_tracer_is_a_band_along_x_wobbling_and_gone_after_its_duration() {
+        // (template 17500: green, a second)
+        let v = Visual::Plasma { colour_a: [1.0, 0.3, 1.0, 0.3], colour_b: [1.0, 0.3, 1.0, 0.3], material: 8, duration: 1.0 };
+        let at = visual_particles(&v, [5.0, 6.0, 7.0], 0.3, Reach::Small);
+        assert_eq!(at.len(), 8);
+        // from the point 0.75 along x, 0.2 wide, within a tenth of the waves' 0.75 of it, green
+        let xs: Vec<f32> = at.iter().map(|p| p.position[0]).collect();
+        assert!((xs[0] - 5.0).abs() < 1e-4 && (xs[7] - 5.75).abs() < 1e-4);
+        assert!(at.iter().all(|p| p.position[1] == 6.0 && (p.position[2] - 7.25).abs() <= 0.075 + 1e-4 && p.size == 0.2));
+        assert!(at.iter().all(|p| p.colour == [0.3, 1.0, 0.3, 1.0]));
+        // it moves with time and ends with its duration
+        assert_ne!(visual_particles(&v, [5.0, 6.0, 7.0], 0.5, Reach::Small)[0].position, at[0].position);
+        assert!(visual_particles(&v, [5.0, 6.0, 7.0], 1.0, Reach::Small).is_empty());
     }
 
     #[test]
