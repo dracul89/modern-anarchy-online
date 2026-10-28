@@ -1553,6 +1553,7 @@ impl ApplicationHandler for App {
                                 self.settings.save();
                             }
                             crate::chatwindow::Out::Vicinity { kind, text } => crate::net::speak(kind, text, Vec::new()),
+                            crate::chatwindow::Out::Social { id } => self.keys.social = (self.keys.social.0.wrapping_add(1), id),
                             other => crate::net::send_chat(other),
                         }
                     }

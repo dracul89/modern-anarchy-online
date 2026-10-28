@@ -38,8 +38,10 @@ pub enum Out {
     Org { text: String },
     /// `/voice`: a voice line to speak (its checks and text are the chat connection's, `voices::command`).
     Voice { line: String },
-    /// Vicinity speech (0 say, 1 whisper, 2 shout), sent on the game connection.
+    /// Vicinity speech (0 say, 1 whisper, 2 shout, 3 emote), sent on the game connection.
     Vicinity { kind: u8, text: String },
+    /// An emote: the social action's `AbstractAnimID`.
+    Social { id: u32 },
     /// Put a character on the friends list / take one off.
     Befriend { name: String },
     Unfriend { id: u32 },
@@ -254,15 +256,17 @@ impl ChatWindow {
                 self.push(Line::new(Kind::Own, format!("[Org] {text}")));
                 Some(Out::Org { text })
             }
-            Parsed::Vicinity { command: "emote", .. } => {
-                self.push(Line::new(Kind::System, "Emotes are not available in this client yet."));
-                None
-            }
             Parsed::Vicinity { command, text } => Some(Out::Vicinity { kind: match command {
                 "whisper" => 1,
                 "shout" => 2,
+                "emote" => 3,
                 _ => 0,
             }, text }),
+            Parsed::Social { id } => Some(Out::Social { id }),
+            Parsed::NoEmote(name) => {
+                self.push(Line::new(Kind::System, format!("Error: No emote named '{name}'")));
+                None
+            }
             Parsed::Help => {
                 self.push(Line::new(Kind::System, "Commands this client carries out:"));
                 for (usage, what) in chat_commands::IMPLEMENTED {
@@ -438,8 +442,11 @@ mod tests {
         assert!(w.lines.len() >= 6);
         assert_eq!(w.run("/afk"), None);
         assert!(w.lines.last().unwrap().text.contains("not carried out"));
-        assert_eq!(w.run("/me waves"), None);
-        assert!(w.lines.last().unwrap().text.contains("not available"));
+        assert_eq!(w.run("/me waves"), Some(Out::Vicinity { kind: 3, text: "waves".into() }));
+        assert_eq!(w.run("/wave"), Some(Out::Social { id: 62 }));
+        assert_eq!(w.run("/emote BOW"), Some(Out::Social { id: 9 }));
+        assert_eq!(w.run("/emote moonwalk"), None);
+        assert!(w.lines.last().unwrap().text.contains("No emote named 'moonwalk'"));
         // (vicinity speech goes out: say, shout, whisper)
         assert_eq!(w.run("hello"), Some(Out::Vicinity { kind: 0, text: "hello".into() }));
         assert_eq!(w.run("/s HEY"), Some(Out::Vicinity { kind: 2, text: "HEY".into() }));

@@ -936,3 +936,10 @@ radians a second about the up direction crossed with its way, falling at 9.8 (Ga
 ground it bounces, up to seven times: its speed divided by `4 × normal.y + 4` and kicked a quarter of its fall along the
 ground's normal, its spin slowed by a third; then it is gone. The tip's other effect, a water splash, only shows over a liquid,
 which this client does not know yet.
+
+**Emotes.** `/me <text>` is vicinity speech of kind 3 (FUN_1009d247). `/emote <name>` and `/<name>` (the 70 of GUI.dll's
+table: `/wave`, `/bow`, `/disco`, `/sleep`, …) do a social action as the original does (`N3Msg_DoSocialAction`): a
+`SocialActionCmd` from your character to the server (the command's byte, a word 0, N3's command number counting from 1, the
+action's `AbstractAnimID`), which the server shows to everyone; `/lounge` and `/sleep` want you sitting ("You must sit in order
+to use /lounge or /sleep."). The hotbar's and the actions window's social actions are sent the same way now. An unknown name
+says the original's "Error: No emote named '…'".

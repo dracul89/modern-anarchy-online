@@ -11,12 +11,29 @@ pub const COMMANDS: &[&str] = &[
     "showfile", "stuck", "t", "team", "tell", "terminate", "text", "tipoftheday", "toggle", "tower", "version", "viewdist", "voice", "w", "waypoint", "whisper",
 ];
 
+/// The emotes (GUI.dll's table at 0x101bae30, FUN_100b2fc3 looks a name up in it, any case): each name's place, from 1, is
+/// its `AbstractAnimID`; FUN_100b348c makes `/<name>` a command for each, and `/emote <name>` takes them too.
+pub const EMOTES: [&str; 70] = [
+    "prostrate", "angry", "apachi", "applause", "itch", "backflip", "ballet", "blowkiss", "bow", "bulge", "chicken", "cross", "crossarm",
+    "adjust", "curt", "disco", "drink", "eat", "fblock", "fishsize", "flamenco", "flip", "giggle", "gloat", "greet", "italian", "kneel",
+    "laugh-b", "laugh-s", "legshake", "lookout", "moon", "nod", "nono", "pointba", "pointfor", "pointlef", "pointrig", "pointup", "pray",
+    "puke", "pulp", "read", "rocky", "salute", "scared", "scratch", "shake", "shrug", "slap", "speech", "spit", "strong1", "strong2",
+    "strong3", "strong4", "surprised", "surrender", "swroyal", "thinker", "thumbs", "wave", "ymca", "kiss", "kisslow", "kisshigh", "hug",
+    "sleep", "lounge", "facepalm",
+];
+
+/// FUN_100b2fc3: an emote's `AbstractAnimID` by name (0 for none).
+pub fn emote_id(name: &str) -> u32 {
+    EMOTES.iter().position(|e| e.eq_ignore_ascii_case(name)).map_or(0, |i| i as u32 + 1)
+}
+
 /// A one-line description of the commands this client carries out (for `/help`).
 pub const IMPLEMENTED: &[(&str, &str)] = &[
     ("tell <name> <text>", "a private message (also /t)"),
     ("reply <text>", "answer the last tell (also /r)"),
     ("org <text>", "your organization's channel (also /o)"),
-    ("say <text>", "speak to the people around (plain text too); /shout or /s shouts, /whisper or /w whispers"),
+    ("say <text>", "speak to the people around (plain text too); /shout or /s shouts, /whisper or /w whispers, /me emotes"),
+    ("emote <name>", "do an emote (also /<name>: /wave, /bow, /dance-like ones such as /disco; sleep and lounge sitting)"),
     ("voice <sound name>", "speak a voice line (heal, help, inc, no, run, yes) to the people around"),
     ("befriend <name>", "put a character on your friends list (L shows it)"),
     ("ignore [name]", "hide a character's tells and channel lines (again: show them; alone: the list)"),
@@ -66,6 +83,10 @@ pub enum Parsed {
     SetOption { name: String, value: String },
     /// `/camp`: sit down to log out.
     Camp,
+    /// `/emote <name>` or `/<name>`: an emote (a social action, its `AbstractAnimID`; GUI.dll FUN_100b30bf).
+    Social { id: u32 },
+    /// `/emote` with a name that is none (FUN_100b30bf: "Error: No emote named '<name>'").
+    NoEmote(String),
     /// `/voice <sound name>`: a voice line spoken (GUI.dll FUN_100b88b1; the name its first word).
     Voice { line: String },
     /// `/quit`: leave the client.
@@ -112,6 +133,10 @@ pub fn parse(line: &str) -> Parsed {
         Some((w, t)) => (w, t.trim()),
         None => (rest, ""),
     };
+    // (`/<emote>`: FUN_100b30bf takes the command's name without its slash)
+    if emote_id(word) != 0 {
+        return Parsed::Social { id: emote_id(word) };
+    }
     let Some(command) = known(word) else { return Parsed::Unknown(word.to_string()) };
     match command.to_lowercase().as_str() {
         "tell" | "t" => {
@@ -171,11 +196,17 @@ pub fn parse(line: &str) -> Parsed {
                 Parsed::Org { text: text.to_string() }
             }
         }
-        "say" | "shout" | "whisper" | "s" | "w" | "me" | "emote" => {
+        "emote" => match text.split_whitespace().next() {
+            None => Parsed::Usage("/emote <emote-name>"),
+            Some(name) if emote_id(name) == 0 => Parsed::NoEmote(name.to_string()),
+            Some(name) => Parsed::Social { id: emote_id(name) },
+        },
+        // (FUN_1009d247: `/whisper` and `/w` kind 1, `/shout` and `/s` 2, `/me` 3, the rest 0)
+        "say" | "shout" | "whisper" | "s" | "w" | "me" => {
             let name = match command.to_lowercase().as_str() {
                 "s" | "shout" => "shout",
                 "w" | "whisper" => "whisper",
-                "me" | "emote" => "emote",
+                "me" => "emote",
                 _ => "say",
             };
             if text.is_empty() {

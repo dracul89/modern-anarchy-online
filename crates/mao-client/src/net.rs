@@ -2711,6 +2711,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                     Ok((text, blob)) => speak(0, text, blob),
                                 },
                                 Out::Vicinity { kind, text } => speak(kind, text, Vec::new()),
+                                Out::Social { .. } => {}
                             }
                         }
                     }
@@ -3404,10 +3405,16 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     },
                 }
             }
+            // A social action (Gamecode's `N3Msg_DoSocialAction`, 0x10026b4f): lounging and sleeping (0x45, 0x44) only sitting
+            // ("Feedback_MustSitToLoungeOrSleep"), else a `SocialActionCmd_t` of the character to the server.
             if keys.social.0 != social_seen {
                 social_seen = keys.social.0;
-                let name = crate::actions_data::SOCIAL.iter().find(|a| a.0 == keys.social.1).map_or("that", |a| a.1);
-                pending_messages.push(format!("/{name}: its network message is not captured yet"));
+                let id = keys.social.1;
+                if (id == 0x44 || id == 0x45) && !sitting {
+                    pending_messages.push(crate::feedback::plain("Feedback_MustSitToLoungeOrSleep"));
+                } else {
+                    let _ = connection.send(&n3::social_action(own, id));
+                }
             }
             // A click on something in the world selects it; a double click uses it.
             if keys.pick.0 != pick_seen {

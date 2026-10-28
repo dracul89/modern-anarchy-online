@@ -443,6 +443,20 @@ pub fn text_message(character: u32, object: u32, target: (u32, u32), data: &[u8]
     Frame { kind: crate::frame::TEXT, source: character, destination: 2, body }
 }
 
+/// N3's `n3Command_t::s_nCommandRefCntr`: each command made takes the next number (from 1).
+static COMMANDS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
+
+/// A social action (Gamecode's `SocialActionCmd_t`, `N3Msg_DoSocialAction`): an `n3Command_t` (`IIR::Write`: its key, the
+/// character, the command's byte 1; `n3Command_t::WriteSubClass`: a word 0 and the command's number) and the action
+/// (`AbstractAnimID`, FUN_1007af4c).
+pub fn social_action(character: u32, action: u32) -> Frame {
+    let mut data = vec![1u8];
+    data.extend_from_slice(&0u32.to_be_bytes());
+    data.extend_from_slice(&COMMANDS.fetch_add(1, std::sync::atomic::Ordering::Relaxed).to_be_bytes());
+    data.extend_from_slice(&action.to_be_bytes());
+    Message { kind: 0x3b290771, identity: (CHARACTER, character), data }.frame(character)
+}
+
 pub fn set_target(character: u32, target: u32) -> Frame {
     let mut data = vec![0u8; 13];
     if target != 0 {
