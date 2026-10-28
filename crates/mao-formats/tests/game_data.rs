@@ -156,6 +156,8 @@ fn effect_classes_come_to_visuals() {
     assert!(matches!(gfx.visual(17500), Some(Visual::Plasma { material: 8, duration, .. }) if duration == 1.0));
     // the null gather effect has none
     assert!(gfx.visual(49999).is_none());
+    // (the commonest streak: white, 50 a second, 0.025 wide)
+    assert!(matches!(gfx.visual(45689), Some(Visual::Tracer5(t)) if t.material == 15 && t.speed == 50.0 && t.lead == 0.5 && t.width == 0.025 && t.colour == 0xffff_ffff));
     // (Pulse of Frost's pops: ten of kind 8, 5 by 5, pale blue)
     assert!(matches!(gfx.visual(97121), Some(Visual::BParticle(b)) if b.kind == 8 && b.count == 10 && b.material == 100 && b.sizes[1] == (5.0, 5.0) && b.spin == 5.5 && b.phase_rate == 2.0));
     // (a hoverboard's exhaust trail: ten samples blown back, 0.2 to 0.22 wide)

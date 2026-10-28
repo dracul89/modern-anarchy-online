@@ -980,6 +980,46 @@ impl Trail2 {
     }
 }
 
+/// A kind-1025 template as `_GfxControlTracer5_t` reads it (made by `CreateGfxControlTracer` FUN_100d176c through FUN_10100b0d;
+/// FUN_101003f9 the words, FUN_1010077d the frame along the line, FUN_101004b4 the `GfxVisualCord4` of three links,
+/// FUN_10100aa3 / FUN_1010065a the run): word 9 the material, word 10 the speed of the head (at most five lengths of the line a
+/// second), word 11 how far the lead link runs ahead of it, word 12 the links' half width, words 13–16 the colour (alpha, red,
+/// green, blue, from 0 to 1).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Tracer5 {
+    pub flags: u32,
+    pub material: i32,
+    pub speed: f32,
+    pub lead: f32,
+    pub width: f32,
+    /// ARGB, packed as FUN_1010077d packs words 13–16 (each times 255, rounded).
+    pub colour: u32,
+}
+
+impl Tracer5 {
+    pub fn read(r: &Record) -> Option<Tracer5> {
+        if r.payload.len() < 17 {
+            return None;
+        }
+        let byte = |k: usize| ((r.float(k) * 255.0 - 0.49999).round() as i32 as u32) & 0xff;
+        Some(Tracer5 {
+            flags: r.int(0) as u32,
+            material: r.int(9),
+            speed: r.float(10),
+            lead: r.float(11),
+            width: r.float(12),
+            colour: byte(13) << 24 | byte(14) << 16 | byte(15) << 8 | byte(16),
+        })
+    }
+
+    /// How long the head takes from the caster to the target `length` away (FUN_1010077d keeps the speed to five lengths a
+    /// second; the run ends the control when the head is there).
+    pub fn flight(&self, length: f32) -> f32 {
+        let speed = self.speed.min(length * 5.0).max(1e-3);
+        length / speed
+    }
+}
+
 /// A kind-3024 template as `GfxControlBParticle_t` reads it (the dynel and point constructors FUN_1010ad28 / FUN_1010ac00;
 /// FUN_1010a644 the words, FUN_1010a412 the `GfxVisualBParticle` (displaysystem `gfxbparticle.rs`), FUN_1010a909 the run):
 /// word 0 the flags (0x100 flipped, 0x200 added, 0x400 the point on the ground, 0x1000 opaque), word 7 the attach point, word 8
@@ -1501,6 +1541,8 @@ pub enum Visual {
     VulcanRocks(VulcanRocks),
     /// A pool of billboard particles in one of the visual's kinds (kind 3024, `GfxControlBParticle_t`).
     BParticle(BParticle),
+    /// A thin streak running from the caster to the target (kind 1025, `_GfxControlTracer5_t`).
+    Tracer5(Tracer5),
     /// Rings spreading over the ground one after another and cones of light rising with them (kind 3000,
     /// `_GfxControlShockWave_t`).
     ShockWave(ShockWave),
@@ -1636,6 +1678,7 @@ impl Gfx {
             3039 => Trail2::read(r).map(Visual::Trail2),
             1029 => VulcanRocks::read(r).map(Visual::VulcanRocks),
             3024 => BParticle::read(r).map(Visual::BParticle),
+            1025 => Tracer5::read(r).map(Visual::Tracer5),
             2005 if r.payload.len() >= 32 && matches!(r.int(10), 0 | 4) => Some(Visual::Suns(Suns {
                 mode: r.int(10),
                 attach: r.int(7),

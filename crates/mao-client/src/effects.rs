@@ -5,7 +5,7 @@
 //! forward-spinning one).
 
 use mao_formats::gfx::{colour_curve, curve, unpack_argb, BParticles, Cast, Cords, Deform, Emitter, Flare, Helix, Smoke, Sparks, Sprite, Stars, Visual, VolGrid};
-use mao_formats::gfx::{EffectMesh, Shield, Shield2, ShockWave, Suns, Trail2, VulcanRocks};
+use mao_formats::gfx::{EffectMesh, Shield, Shield2, ShockWave, Suns, Trail2, Tracer5, VulcanRocks};
 use mao_render::{Particle, Shell, ShellVertex, NO_SPRITE};
 
 /// The wind the effects are pushed by, Z up: the effect handler's wind (+0x24, Sparks) and its smoothed copy (+0x30, Smoke).
@@ -2076,11 +2076,66 @@ pub struct Shot {
     pub hit: Option<Visual>,
 }
 
+/// The streaks a tracer visual runs (itself, or a bundle's children's).
+pub fn visual_tracers(v: &Visual) -> Vec<&Tracer5> {
+    match v {
+        Visual::Tracer5(t) => vec![t],
+        Visual::Meta(children) => children.iter().flat_map(visual_tracers).collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// `_GfxControlTracer5_t`'s streak `age` seconds after the cast, from `from` to `to` (world, Z up), seen from `eye`, as
+/// FUN_1010065a moves its three links and `GfxVisualCord4` draws them (displaysystem `gfxcord.rs`): the head `speed × age` along
+/// the line (at most five lengths a second), the lead link `lead` beyond it, both kept to the target, the third at the caster;
+/// none once the head is at the target. A ribbon through them, each link `width` to either side across the line as the camera
+/// sees it, in the colour, its texture across it 0 to 1 and along it by the links' life left (`1 − 0.001` at the head and the
+/// lead, 0 at the caster), added.
+pub fn tracer5_shell(t: &Tracer5, from: [f32; 3], to: [f32; 3], age: f32, eye: [f32; 3]) -> Option<Shell> {
+    let d = [0, 1, 2].map(|k| to[k] - from[k]);
+    let length = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+    if length < 0.01 || age < 0.0 {
+        return None;
+    }
+    let speed = t.speed.min(length * 5.0);
+    let head = (speed * age).max(0.0);
+    if head >= length {
+        return None;
+    }
+    let lead = (head + t.lead).min(length);
+    let dir = d.map(|c| c / length);
+    let at = |s: f32| [0, 1, 2].map(|k| from[k] + dir[k] * s);
+    let links = [(at(lead), 1.0 - 0.001), (at(head), 1.0 - 0.001), (from, 0.0)];
+    let colour = shell_colour(t.colour);
+    let across = |p: [f32; 3]| {
+        let view = [0, 1, 2].map(|k| eye[k] - p[k]);
+        let c = [dir[1] * view[2] - dir[2] * view[1], dir[2] * view[0] - dir[0] * view[2], dir[0] * view[1] - dir[1] * view[0]];
+        let l = (c[0] * c[0] + c[1] * c[1] + c[2] * c[2]).sqrt();
+        if l > 1e-6 { c.map(|x| x / l * t.width) } else { [t.width, 0.0, 0.0] }
+    };
+    let mut strip = Vec::new();
+    for (p, v) in links {
+        let s = across(p);
+        strip.push(ShellVertex { position: [0, 1, 2].map(|k| p[k] - s[k]), uv: [0.0, v], colour });
+        strip.push(ShellVertex { position: [0, 1, 2].map(|k| p[k] + s[k]), uv: [1.0, v], colour });
+    }
+    Some(Shell { sprite: t.material.max(0) as u16, additive: true, vertices: strip_triangles(&strip) })
+}
+
 /// How long the tracer flies and how long the hit effect stays (seconds).
 pub const FLIGHT: f32 = 0.45;
 const LANDING: f32 = 1.4;
 
 impl Shot {
+    /// The shot's streaks (`tracer5_shell`) `age` seconds after the cast, seen from `eye`.
+    pub fn shells(&self, age: f32, eye: [f32; 3]) -> Vec<Shell> {
+        let Some(tracer) = &self.tracer else { return Vec::new() };
+        if self.from == self.to {
+            return Vec::new();
+        }
+        visual_tracers(tracer).into_iter().filter_map(|t| tracer5_shell(t, self.from, self.to, age, eye)).collect()
+    }
+
     pub fn lasts(&self) -> f32 {
         // (a hit that runs longer, such as a shock wave's rings, is let run, up to ten seconds)
         fn rings(v: &Visual) -> f32 {
@@ -2168,6 +2223,8 @@ pub fn visual_particles(v: &Visual, feet: [f32; 3], time: f32, reach: Reach) -> 
             };
             bparticles(b, [feet[0], feet[1], feet[2] + up], time)
         }
+        // (a streak along a shot's line: see `tracer5_shell`)
+        Visual::Tracer5(_) => Vec::new(),
         Visual::BParticle(b) => {
             let up = match reach {
                 Reach::Small => 0.0,
@@ -2335,6 +2392,7 @@ pub fn pulse_timing(v: &Visual) -> (f32, f32, i32) {
         Visual::Cords(c) => (4.0, if c.duration > 0.0 { c.duration } else { 1.0 }, -1),
         Visual::VolGrid(g) => (if g.duration > 0.0 { g.duration } else { 3.0 }, if g.duration > 0.0 { g.duration } else { 3.0 }, -1),
         // (a burst lives its longest life; a stream runs its duration and that life, or for ever)
+        Visual::Tracer5(_) => (600.0, 1.0, 1),
         // (kind 8's particles have each popped and gone within a second or so; with a duration, it)
         Visual::BParticle(b) => {
             let pops = 0.2 / b.spin.max(0.01) + 1.0 / b.phase_rate.max(0.01);
@@ -2891,6 +2949,24 @@ mod tests {
         }
         // late, only the top of the coil is left
         assert!(late.iter().all(|p| p.position[2] > 1.0));
+    }
+
+    #[test]
+    fn a_tracer5_streak_runs_from_the_caster_to_the_target() {
+        // (template 45689: white, 50 a second, the lead half a unit ahead, 0.025 wide)
+        let t = Tracer5 { flags: 2, material: 15, speed: 50.0, lead: 0.5, width: 0.025, colour: 0xffff_ffff };
+        let (from, to, eye) = ([0.0, 0.0, 1.0], [20.0, 0.0, 1.0], [10.0, -10.0, 1.0]);
+        assert!((t.flight(20.0) - 0.4).abs() < 1e-6);
+        let s = tracer5_shell(&t, from, to, 0.2, eye).unwrap();
+        // three links, two triangles between each pair
+        assert_eq!(s.vertices.len(), 4 * 3);
+        let xs: Vec<f32> = s.vertices.iter().map(|v| v.position[0]).collect();
+        assert!(xs.iter().any(|&x| (x - 10.5).abs() < 1e-4) && xs.iter().any(|&x| (x - 10.0).abs() < 1e-4) && xs.iter().any(|&x| x.abs() < 1e-4));
+        // (the ribbon across the line as the eye sees it: up, here)
+        assert!(s.vertices.iter().all(|v| (v.position[2] - 1.0).abs() <= 0.025 + 1e-5 && v.position[1].abs() < 1e-5));
+        assert!(tracer5_shell(&t, from, to, 0.4, eye).is_none());
+        // (a short line: at most five lengths a second)
+        assert!((t.flight(2.0) - 0.2).abs() < 1e-6);
     }
 
     #[test]

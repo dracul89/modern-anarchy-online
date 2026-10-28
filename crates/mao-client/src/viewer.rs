@@ -1237,6 +1237,9 @@ impl ApplicationHandler for App {
                             .min_by(|a, b| a.0.total_cmp(&b.0))
                             .map(|(_, c)| crate::effects::Body { points: &c.points, normals: &c.normals });
                         sparks.extend(shot.particles(began.elapsed().as_secs_f32(), body));
+                        // (its streaks, across the line as the last frame's eye sees it)
+                        let eye = w.camera.eye();
+                        shells.extend(shot.shells(began.elapsed().as_secs_f32(), [eye.x, eye.y, eye.z]));
                         // (a hit that is a shield: the shell over the target from the landing)
                         if let Some(hit) = &shot.hit {
                             let landed = began.elapsed().as_secs_f32() - if shot.from != shot.to { crate::effects::FLIGHT } else { 0.0 };
