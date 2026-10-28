@@ -148,7 +148,7 @@ fn effect_classes_come_to_visuals() {
     assert!(matches!(gfx.visual(1000), Some(Visual::Spiral(_))));
     assert!(matches!(gfx.visual(17300), Some(Visual::Stars(s)) if s.mode == 18));
     assert!(matches!(gfx.visual(43608), Some(Visual::Shield(s)) if s.material == 32 && s.duration == 3.0 && s.flags & 0x400 != 0));
-    assert!(matches!(gfx.visual(43010), Some(Visual::Flash { .. })));
+    assert!(matches!(gfx.visual(43010), Some(Visual::Coil { material: 32, duration, .. }) if duration == 4.0));
     assert!(matches!(gfx.visual(17500), Some(Visual::Plasma { material: 8, duration, .. }) if duration == 1.0));
     // the null gather effect has none
     assert!(gfx.visual(49999).is_none());

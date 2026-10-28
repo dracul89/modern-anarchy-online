@@ -987,8 +987,13 @@ pub enum Visual {
     /// `(word 28 + k × word 29) × (1 − (2 frac − 1)⁴)` over the duration (word 26), turned by `t × 0.5 × (k − 4)`, coloured from
     /// the table at 0x102c60a0 with their alpha held to 0xc0. Modes 1–3 (21 uses) are not played.
     Suns(Suns),
-    /// A short bright flash (kind 2001: the hit of 123 programs).
-    Flash { colour: [f32; 3], size: f32 },
+    /// Kind 2001, `_GfxControlSpiral_t` (the point `CreateGfxControl` FUN_100cea4b / FUN_100f500b; FUN_100f4ef1 the words,
+    /// FUN_100f4f45 the visuals, FUN_100f4cb5 the run; displaysystem `gfxbeams.rs`'s `GfxVisualSpiral`): two strips of the
+    /// material (word 9) half a turn apart, each one turn of 12 segments 0.6 out, rising 0.3 a radian (1.88 over the turn) and
+    /// 0.3 tall, turned about the up axis at 3.7 rad/s; over the first half of the duration (word 8) each grows from its start to
+    /// its end, over the second it is eaten from its start, its ends black; colours words 10–13 and 14–17 (the hit of 286
+    /// programs).
+    Coil { colour: [f32; 4], material: i32, duration: f32 },
     /// A kind-2002 template, `_GfxControlPlasma_t` (made by the number-taking `CreateGfxControl` FUN_100d19b0 / FUN_100ec5ae;
     /// FUN_100ec4c8 the words, FUN_100ec522 the visual, FUN_100ec2e6 the run): a `GfxVisualPlasma` of the material (word 9) at the
     /// hit location's point, its colour picked each frame between words 10–13 and 14–17 (alpha, red, green, blue; FUN_10108663),
@@ -1057,7 +1062,7 @@ impl Gfx {
                 step: r.float(29),
                 life: r.int(30) as f32 / 1000.0,
             })),
-            2001 => Some(Visual::Flash { colour: [1.0, 0.95, 0.8], size: 0.9 }),
+            2001 if r.payload.len() >= 18 => Some(Visual::Coil { colour: [r.float(10), r.float(11), r.float(12), r.float(13)], material: r.int(9), duration: r.float(8) }),
             // (word 10 and the pairs after it are the range each colour channel is drawn from: 0.3 to 1)
             2002 if r.payload.len() >= 19 => Some(Visual::Plasma {
                 colour_a: [r.float(10), r.float(11), r.float(12), r.float(13)],

@@ -592,6 +592,39 @@ pub fn suns_particles(s: &Suns, at: [f32; 3], time: f32) -> Vec<Particle> {
     out
 }
 
+/// `_GfxControlSpiral_t`'s two strips `time` seconds in about `at` (world, Z up: the strips' foot), as FUN_100f4cb5 runs them and
+/// `GfxVisualSpiral` (FUN_10021924) draws them (see `mao_formats::gfx::Visual::Coil`), each as sprites along its visible part, a
+/// segment's length faded in from its black ends.
+fn coil_particles(colour: [f32; 4], material: i32, duration: f32, at: [f32; 3], time: f32) -> Vec<Particle> {
+    const SEGMENTS: f32 = 12.0;
+    const SPAN: f32 = 6.28;
+    let mut out = Vec::new();
+    if time < 0.0 || duration <= 0.0 || time >= duration {
+        return out;
+    }
+    let c = 2.0 * time / duration;
+    let (start, end) = if c < 1.0 { (0.0, c) } else { (c - 1.0, 1.0) };
+    if end <= start {
+        return out;
+    }
+    let turn = time * 3.7;
+    let rgb = [colour[1], colour[2], colour[3]];
+    let pieces = ((end - start) * 48.0).ceil().max(1.0) as u32;
+    for strip in 0..2 {
+        let first = strip as f32 * SPAN / 2.0;
+        for k in 0..=pieces {
+            let p = start + (end - start) * k as f32 / pieces as f32;
+            let angle = first + p * SPAN;
+            let around = angle + turn;
+            // (the band's middle: 0.3 a radian up, less half its 0.3)
+            let height = 0.3 * angle - 0.15 - 0.3 * first;
+            let edge = ((p - start).min(end - p) * SEGMENTS).clamp(0.0, 1.0);
+            out.push(sprite(material, 0.0, [at[0] + 0.6 * around.cos(), at[1] + 0.6 * around.sin(), at[2] + height.max(0.0)], 0.3, [rgb[0], rgb[1], rgb[2], colour[0] * edge]));
+        }
+    }
+    out
+}
+
 /// The waves of `GfxVisualPlasma` (its constructor, `gfxplasma.rs`): amplitudes, wavelengths (frequencies 6.28 over them) and
 /// speeds.
 const PLASMA_WAVES: [(f32, f32, f32); 4] = [(0.15, 0.2, -0.8), (0.3, 0.3, 1.0), (0.2, 0.4, 1.2), (0.1, 0.5, 0.7)];
@@ -1303,16 +1336,8 @@ pub fn visual_particles(v: &Visual, feet: [f32; 3], time: f32, reach: Reach) -> 
             };
             suns_particles(s, [feet[0], feet[1], feet[2] + up], time)
         }
-        // a quick bright burst: a core and a ring of sparks flying out
-        Visual::Flash { colour, size } => {
-            let t = (time / 0.5).clamp(0.0, 1.0);
-            let mut out = vec![sprite(8, 0.0, [feet[0], feet[1], feet[2] + 1.0], size * (0.5 + t), [colour[0], colour[1], colour[2], 0.7 * (1.0 - t)])];
-            for k in 0..8 {
-                let a = k as f32 * std::f32::consts::TAU / 8.0 + 0.4;
-                out.push(sprite(15, 0.0, [feet[0] + a.cos() * t * 0.8, feet[1] + a.sin() * t * 0.8, feet[2] + 1.0 + (k % 3) as f32 * 0.12 * t], 0.12, [colour[0], colour[1], colour[2], 0.8 * (1.0 - t)]));
-            }
-            out
-        }
+        // (round the body from the feet; a tracer's at its point)
+        Visual::Coil { colour, material, duration } => coil_particles(*colour, *material, *duration, feet, time),
         // (the point a tracer carries; see `plasma_particles`)
         Visual::Plasma { colour_a, colour_b, material, duration } => plasma_particles(*colour_a, *colour_b, *material, *duration, [feet[0], feet[1], feet[2] + 0.25], time),
     }
@@ -1421,6 +1446,7 @@ pub fn pulse_timing(v: &Visual) -> (f32, f32, i32) {
             let long = if s.duration > 0.0 { s.duration } else { 600.0 };
             (long, long, -1)
         }
+        Visual::Coil { duration, .. } => (4.0, duration.max(0.1), -1),
         // (a shield plays once for its duration; one without a duration runs while the effect does)
         Visual::Shield(s) => if s.duration > 0.0 { (600.0, s.duration, 1) } else { (600.0, 600.0, -1) },
         _ => (4.0, 1.5, -1),
@@ -1874,6 +1900,25 @@ mod tests {
     fn aura() -> Aura {
         let helix = |spin: f32| Helix { spin, phase: 0.0, size: 0.15, count: 10, colour: [0.5, 0.4, 1.0], material: 15, attach: 1006, offset: -0.25, radius: 0.15, table: Vec::new(), life: 1.5, ribbon_width: 0.05, ribbon_life: 0.5, ribbon_duration: 1.5, ribbon_material: 8, sparkle_rate: 0.0 };
         Aura { colour: [0.2, 0.2, 0.99], end: [0.2, 0.2, 0.99], helices: vec![helix(-12.566), helix(12.566)], period: 4.0, plays: -1 }
+    }
+
+    #[test]
+    fn the_coil_winds_up_the_body_grows_then_unwinds() {
+        // (template 43010: thin smoke, white, 4 s)
+        let coil = |t: f32| coil_particles([1.0; 4], 32, 4.0, [0.0; 3], t);
+        // growing: a quarter of the way at 0.5 s, all of a turn at 2 s, eaten from the start after, gone at 4 s
+        let early = coil(0.5);
+        let full = coil(2.0);
+        let late = coil(3.5);
+        assert!(!early.is_empty() && early.len() < full.len() && late.len() < full.len());
+        assert!(coil(4.0).is_empty());
+        // 0.6 out, up to 1.88 high, 0.3 wide
+        for p in &full {
+            let r = p.position[0].hypot(p.position[1]);
+            assert!((r - 0.6).abs() < 1e-4 && p.position[2] >= 0.0 && p.position[2] <= 1.89 && p.size == 0.3);
+        }
+        // late, only the top of the coil is left
+        assert!(late.iter().all(|p| p.position[2] > 1.0));
     }
 
     #[test]
