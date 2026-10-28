@@ -56,6 +56,94 @@ pub struct Note {
     pub name: String,
 }
 
+impl Note {
+    /// The note's event (`RDBCATAnim_t::ReadBlob`'s note id, displaysystem `rdbanim.rs`): the number of its name's prefix
+    /// ([`note_number`]), or for none a name of more than nine characters starting `SM_Sandy_` its sound ID.
+    pub fn event(&self) -> i32 {
+        let id = note_number(self.name.as_bytes());
+        if id == 0 && self.name.len() > 9 && self.name.starts_with("SM_Sandy_") {
+            return crate::sound::sound_id(&self.name) as i32;
+        }
+        id
+    }
+}
+
+/// FUN_10075c84: the number of an animation note's name, by its prefix: the first of these it starts with (`step` is checked
+/// before `stepfast`, which starts with it, so a fast step is a step), 0 for none or a loop marker.
+pub fn note_number(name: &[u8]) -> i32 {
+    if name.starts_with(b"loopstart") || name.starts_with(b"loopend") {
+        return 0;
+    }
+    const CHAIN: &[(&[u8], i32)] = &[
+        (b"right", 0x26),
+        (b"left", 0x26),
+        (b"land", 0x85),
+        (b"step", 0x26),
+        (b"wingflap", 0x25),
+        (b"wingflapfast", 0x37),
+        (b"swim", 0x38),
+        (b"swimfast", 0x39),
+        (b"othermove", 0x3a),
+        (b"othermovefast", 0x3b),
+        (b"idle", 0xf),
+        (b"attack_start_1", 0x77),
+        (b"attack_start_2", 0x78),
+        (b"attack_start_3", 0x79),
+        (b"attack_start_4", 0x7a),
+        (b"attack_start_5", 0x7b),
+        (b"attack_start_6", 0x7c),
+        (b"attack_start_7", 0x7d),
+        (b"attack_start_8", 0x7e),
+        (b"attack_start_9", 0x7f),
+        (b"attack_effect_1", 0x8e),
+        (b"attack_effect_2", 0x8f),
+        (b"attack_effect_3", 0x90),
+        (b"attack_effect_4", 0x91),
+        (b"attack", 0xb),
+        (b"get", 1),
+        (b"drop", 2),
+        (b"use", 3),
+        (b"repair", 4),
+        (b"useitemonitem", 5),
+        (b"wear", 6),
+        (b"unwear", 7),
+        (b"wield", 8),
+        (b"unwield", 9),
+        (b"die", 0x1e),
+        (b"impact", 0x1f),
+        (b"doubleattack", 0xe),
+        (b"aimedshot", 0x15),
+        (b"burst", 0x16),
+        (b"fullauto", 0x17),
+        (b"leftattack", 0x18),
+        (b"quickattack", 0x19),
+        (b"flingshot", 0x1c),
+        (b"sneakattack", 0x1d),
+        (b"dimach", 0x24),
+        (b"brawl", 0x23),
+        (b"blurstart", 0x2d),
+        (b"blurend", 0x35),
+        (b"itemhide_l", 0x3c),
+        (b"itemhide_r", 0x3d),
+        (b"itemhide_b", 0x3e),
+        (b"itemshow_l", 0x3f),
+        (b"itemshow_r", 0x40),
+        (b"itemshow_b", 0x41),
+        (b"effect1start", 0x42),
+        (b"effect1stop", 0x43),
+        (b"effect2start", 0x44),
+        (b"effect2stop", 0x45),
+        (b"swish_punch", 0x73),
+        (b"swish_kick", 0x74),
+        (b"swish_whip", 0x75),
+        (b"swish_huge", 0x76),
+        (b"enter_combat", 0x80),
+        (b"exit_combat", 0x81),
+        (b"idle_combat", 0x82),
+    ];
+    CHAIN.iter().find(|(prefix, _)| name.starts_with(prefix)).map_or(0, |&(_, n)| n)
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Track {
     /// (time, quaternion x y z w)
@@ -158,8 +246,8 @@ pub fn parse(object: &[u8]) -> Result<CatAnim, Error> {
     for _ in 0..notes.max(0) {
         let time = r.i32("a note")? as f32;
         let mut name = r.take(0x20, "a note")?.to_vec();
-        // Characters below a space end the name.
-        if let Some(i) = name.iter().position(|&c| c < b' ') {
+        // Characters below a space end the name (compared signed, so bytes from 0x80 too).
+        if let Some(i) = name.iter().position(|&c| (c as i8) < b' ' as i8) {
             name.truncate(i);
         }
         anim.notes.push(Note { time, name: String::from_utf8_lossy(&name).into_owned() });
@@ -303,6 +391,14 @@ impl CatAnim {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn note_events() {
+        let note = |name: &str| Note { time: 0.0, name: name.to_string() }.event();
+        assert_eq!([note("left_foot"), note("stepfast"), note("land"), note("swimfast"), note("attack_effect_2"), note("attack")], [0x26, 0x26, 0x85, 0x38, 0x8f, 0xb]);
+        assert_eq!([note("loopstart"), note("SM_Sandy_"), note("nothing")], [0, 0, 0]);
+        assert_eq!(note("SM_Sandy_Swish_punch"), crate::sound::sound_id("SM_Sandy_Swish_punch") as i32);
+    }
 
     fn anim_with_keys() -> CatAnim {
         CatAnim {

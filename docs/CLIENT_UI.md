@@ -802,3 +802,17 @@ MP3, and Ogg Vorbis), within the original's 15 MB budget that frees the least re
 channels and its priorities, and a pitch is the rate the sample played at times a percentage. The listener is the controlled
 character (FUN_100b1f3c → `SetListenerRotPos`). `MAO_NO_SOUND=1` keeps the client silent. To try a source:
 `mao-client sound <game> <name> [material] [seconds]` plays it and prints the sample files that played.
+
+**Steps and swishes.** The characters' animations now play their notes' sounds, as Gamecode does. A note's name gives its
+event (FUN_10075c84: `left`, `right` and `step` 0x26, `land` 0x85, `swim` 0x38, `swish_punch` 0x73 to `swish_huge` 0x76,
+`idle` 0xf, `attack_start_1..9` 0x77..; `step` is tested before `stepfast`, so a fast step is a step); a note fires when the
+animation's time passes it (FUN_1003c248 over FUN_1003c0b7: from the first note at or after the last run's start to the last
+before its end, wrapping round a loop, within the range played). FUN_100452d3 then plays at the character: a player its
+controller's own sounds (`SM_Sandy_Game_Feet_Man_Walk`, `..._Swim`, `..._Land` at twice the volume held to 1,
+`SM_Sandy_Swish_punch` ...), an NPC with an animation set its set's sound for the event (the sets' sounds section, FUN_1007dc1e:
+985 of the 1469 sets have some), a variant picked at random. Steps play on the material under the character: 5 (concrete)
+indoors or in the air (more than 0.1 above the height of the tile's corner), else the tile's material from `RDBTileMaterial_t`
+(0xf4258:1). The game's own table is version 3, which N3.dll's reader skips (only versions 1 and 2 are read, 0x1001c582), so in
+the original, and here, every ground tile is material 0, which `MapGameMaterialToSoundMaterial` makes 3. Not followed: steps in
+liquids (materials 8 to 11 by the vehicle's liquid medium, which the client does not track), a fly-mode step at a quarter of the
+volume, the landing's dust.

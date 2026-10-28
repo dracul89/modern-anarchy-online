@@ -194,3 +194,63 @@ pub fn parse_new(object: &[u8]) -> Result<NewTilemap, Error> {
     }
     Ok(NewTilemap { tag: *b"GNDA", width, height, scale, second, tile_types, type_tables, chunks })
 }
+
+/// The tiles' materials: N3.dll's `RDBTileMaterial_t` (type 0xf4258, instance 1, which `n3TilemapController_t`'s constructor
+/// loads into its map by tile ID for `GetTileMaterialType`, `GetTileLevelOfPassability` and the bonuses).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TileMaterial {
+    pub passability: u8,
+    pub attack: u8,
+    pub defense: u8,
+    /// The sound material (`MapGameMaterialToSoundMaterial`'s input): 1 metal, 2 sand, 3 dirt, 4 swamp, 5 concrete, 6 dry
+    /// grass and leaves, 0xa lava, 0xe rock, 0xf grass, 0x10 cyber, 0x11 snow and ice, 0 none.
+    pub material: u32,
+}
+
+/// The object type of the tile materials.
+pub const TILE_MATERIALS: u32 = 0xf4258;
+
+/// `RDBTileMaterial_t::ReadBlob`: after the object head a count and a version (shorts); version 1 has per tile its ID (short),
+/// material, passability, attack and defence (bytes); version 2 its ID, the material as a word, then the three bytes, a material
+/// of 0x13 or more being a name's hash (FUN_1003823c, the sound IDs' hash) that the reader maps to a number. Any other version
+/// is not read (0x1001c582), so the table is left out and `GetTileDescriptor` gives zeros for every entry: the controller then
+/// holds only tile 0, of material 0. The game's own object is version 3 (1690 tiles), so in the original every ground tile's
+/// material is 0.
+pub fn tile_materials(object: &[u8]) -> Option<std::collections::HashMap<u16, TileMaterial>> {
+    let short = |at: usize| Some(u16::from_le_bytes(object.get(at..at + 2)?.try_into().ok()?));
+    let (count, version) = (short(OBJECT_HEAD)?, short(OBJECT_HEAD + 2)?);
+    let mut at = OBJECT_HEAD + 4;
+    let mut map = std::collections::HashMap::new();
+    for _ in 0..count {
+        let id = short(at)?;
+        let (material, bytes) = match version {
+            1 => (*object.get(at + 2)? as u32, object.get(at + 3..at + 6)?),
+            2 => (u32::from_le_bytes(object.get(at + 2..at + 6)?.try_into().ok()?), object.get(at + 6..at + 9)?),
+            _ => {
+                map.insert(0, TileMaterial::default());
+                return Some(map);
+            }
+        };
+        at += if version == 1 { 6 } else { 9 };
+        let material = if version == 2 && material >= 0x13 { material_of_name(material) } else { material };
+        map.insert(id, TileMaterial { passability: bytes[0], attack: bytes[1], defense: bytes[2], material });
+    }
+    Some(map)
+}
+
+/// The material numbers of version 2's names (the chain in `RDBTileMaterial_t::ReadBlob`), 0 for a name not listed.
+fn material_of_name(hash: u32) -> u32 {
+    const NAMES: &[(&str, u32)] = &[
+        ("athens", 0xe), ("avarock", 0xe), ("brightconcreteblock", 5), ("brightconcretepattern", 5), ("brock", 0xe), ("concreteslabs", 5),
+        ("crackedground", 3), ("cyber", 0x10), ("darkconcreteblock", 5), ("darkconcretepattern", 5), ("darkgrass", 0xf), ("darkrock", 0xe),
+        ("dense", 3), ("desert", 2), ("drygrass", 6), ("fungus", 3), ("grass", 0xf), ("greenash", 2), ("growel", 3), ("hqground", 5),
+        ("jobe1", 1), ("jobe2", 1), ("metalgrid", 1), ("miruinedconcretepattern", 5), ("mudsand", 3), ("phos", 3), ("rock", 0xe),
+        ("ruinedconcretepattern", 5), ("salt", 2), ("sand", 2), ("shadornament4", 5), ("shadornament5", 5), ("shadow_darkrock", 0xe),
+        ("shadow_myrkrock", 0xe), ("shadow_snow", 0x11), ("shadow_underwater", 3), ("shadow1", 0xe), ("shadow1_ash", 2), ("shadow1_dark", 0xe),
+        ("shadow1_lava", 10), ("shadow1_lavadry", 0xe), ("shadowbrink", 0), ("shadowgrass", 0xf), ("shadowgrassgreen", 0xf),
+        ("shadowgrasslight", 0xf), ("shadowice", 0x11), ("shadowleafs", 6), ("shadowrock", 0xe), ("shadowsand", 2), ("shadowskulls", 5),
+        ("shadowtile1", 0xe), ("shadowtile2", 0xe), ("shadowtile3", 0xe), ("shadowtile4", 0xe), ("shadowtrampeledsnow", 0x11),
+        ("shallows", 4), ("shinymet", 1), ("smallblockb", 0xe), ("swamp", 4), ("warsand", 2),
+    ];
+    NAMES.iter().find(|(name, _)| crate::sound::sound_id(name) == hash).map_or(0, |&(_, m)| m)
+}

@@ -1165,6 +1165,9 @@ struct Characters {
     stacks: std::collections::HashMap<u32, (mao_formats::animstack::Stack, Instant)>,
     /// The animations the stacks play, by instance, with their lengths.
     anims_by_id: std::collections::HashMap<u32, (Arc<mao_formats::catanim::CatAnim>, f32)>,
+    /// The notes the stacks' last runs went past (FUN_1003c248): the character, the note's event and the animation set it has
+    /// (its NPC template), for `sounds::note`.
+    pub notes: Vec<(u32, i32, Option<u32>)>,
     /// What each character's movement was last set to (the action and segment, or a creature's animation) and its handle.
     movement_keys: std::collections::HashMap<u32, (mao_formats::appearance::Action, u8, u32)>,
     movement_handles: std::collections::HashMap<u32, u32>,
@@ -1192,6 +1195,28 @@ struct Characters {
 }
 
 /// An NPC template and its CAT mesh and head (the creature or the vehicle body a character is drawn as).
+/// The events of the notes a stack's last run went past (FUN_1003c248: each animation's notes from FUN_1003c0b7's first to last,
+/// within its range; an event of 0 is none).
+fn fired_notes(stack: &mao_formats::animstack::Stack, anims: &std::collections::HashMap<u32, (Arc<mao_formats::catanim::CatAnim>, f32)>) -> Vec<i32> {
+    let mut out = Vec::new();
+    for e in &stack.entries {
+        let Some((anim, _)) = anims.get(&e.id) else { continue };
+        if anim.notes.is_empty() {
+            continue;
+        }
+        let times: Vec<f32> = anim.notes.iter().map(|n| n.time).collect();
+        out.extend(e.fired(&times).into_iter().map(|k| anim.notes[k].event()).filter(|&event| event != 0));
+    }
+    out
+}
+
+impl Characters {
+    /// A creature's animation set (its NPC template), if loaded.
+    fn set_of(&self, template: u32) -> Option<&mao_formats::npc::Template> {
+        self.creatures.get(&template)?.as_ref().map(|c| &c.0)
+    }
+}
+
 fn load_template(db: &ResourceDatabase, template: u32) -> Option<(mao_formats::npc::Template, mao_formats::catmesh::CatMesh, Option<Model>)> {
     use mao_formats::resource::Id;
     let record = mao_formats::npc::Template::parse(&db.get(Id { kind: mao_formats::npc::TEMPLATE, instance: template }).ok()??)?;
@@ -1293,7 +1318,7 @@ impl Characters {
         let index = mao_formats::instances::Instances::parse(&get(0xf424a, 1)?).map_err(|e| e.to_string())?;
         let _ = get;
         let head_meshes = index.iter().filter(|(kind, name, _)| *kind == 0xf6951 && is_head_name(name)).map(|(_, _, instance)| instance).collect();
-        Ok(Characters { head_meshes, db, index, anims: Default::default(), ids: Default::default(), bodies: Default::default(), creatures: Default::default(), creature_anims: Default::default(), motions: Default::default(), segment: 0, stacks: Default::default(), anims_by_id: Default::default(), movement_keys: Default::default(), movement_handles: Default::default(), socials_started: Default::default(), swings_started: Default::default(), drawn: Default::default(), wielded: Default::default(), started: Instant::now(), props: Default::default(), statics: Default::default(), vehicles: Default::default(), frames: Default::default() })
+        Ok(Characters { head_meshes, db, index, anims: Default::default(), ids: Default::default(), bodies: Default::default(), creatures: Default::default(), creature_anims: Default::default(), motions: Default::default(), segment: 0, stacks: Default::default(), anims_by_id: Default::default(), notes: Vec::new(), movement_keys: Default::default(), movement_handles: Default::default(), socials_started: Default::default(), swings_started: Default::default(), drawn: Default::default(), wielded: Default::default(), started: Instant::now(), props: Default::default(), statics: Default::default(), vehicles: Default::default(), frames: Default::default() })
     }
 
     /// The parts of a machine's model (Y-up local space), loaded once.
@@ -1426,6 +1451,7 @@ impl Characters {
         }
         stack.advance(dt);
         let anims = &self.anims_by_id;
+        self.notes.extend(fired_notes(stack, anims).into_iter().map(|e| (id, e, Some(template))));
         let bones = stack.pose(mesh, &|a| anims.get(&a).map(|(anim, _)| anim.as_ref()));
         let mut parts = mesh.skinned_model(&bones, 0xf6954).parts;
         if let Some((d, age)) = deform {
@@ -1517,6 +1543,7 @@ impl Characters {
         stack.advance(dt);
         let (_, mesh, _) = self.creatures.get(&template)?.as_ref()?;
         let anims = &self.anims_by_id;
+        self.notes.extend(fired_notes(stack, anims).into_iter().map(|e| (id, e, Some(template))));
         let bones = stack.pose(mesh, &|a| anims.get(&a).map(|(anim, _)| anim.as_ref()));
         let mut parts = mesh.skinned_model(&bones, 0xf6954).parts;
         if let Some((d, age)) = deform {
@@ -1934,6 +1961,7 @@ impl Characters {
             let (stack, _) = self.stacks.get_mut(&id)?;
             stack.advance(dt);
             let anims = &self.anims_by_id;
+            self.notes.extend(fired_notes(stack, anims).into_iter().map(|e| (id, e, None)));
             stack.pose(body, &|a| anims.get(&a).map(|(anim, _)| anim.as_ref()))
         };
         let mut model = body.skinned_model(&bones, 0xf6954);
@@ -2582,6 +2610,11 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut pending_gear = first_inventory.map(|e| crate::gear::from_entries(&gear_db, &gear_textures, &e, state.stats.get(&0x36).copied().unwrap_or(1)));
         let mut keys = crate::viewer::Input::default();
         let mut raw = crate::viewer::Input::default();
+        // The notes' sounds: the controller's own (FUN_1004496c), the tiles' materials (N3's `n3TilemapController_t`, from
+        // 0xf4258:1) and the CRT `rand()` FUN_10045976 picks an event's variant with.
+        let generic = crate::sounds::Generic::default();
+        let tile_materials = gear_db.get(mao_formats::resource::Id { kind: mao_formats::tilemap::TILE_MATERIALS, instance: 1 }).ok().flatten().and_then(|o| mao_formats::tilemap::tile_materials(&o)).unwrap_or_default();
+        let mut sound_rand = crate::audio::Rand::default();
         // `MAO_MAILBOX=type,instance` (a mail terminal, 0xc773 and its serial) uses it 8 s into the session (or
         // after the walk) and asks for the inbox; the answer is printed (raw when the schema can't read it).
         let mut mailbox: Option<(u32, u32)> = std::env::var("MAO_MAILBOX").ok().and_then(|t| {
@@ -3570,6 +3603,19 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 state.deforms.retain(|_, (d, at)| d.duration <= 0.0 || at.elapsed().as_secs_f32() < d.duration);
                 let (model, mut casters) = overlay_model(&state, &state.props, &mut characters, &|id| id != own && near(id));
                 let (own_model, own_casters) = overlay_model(&state, &state.props, &mut characters, &|id| id == own);
+                // The notes the animations went past play their sounds at the characters (FUN_100452d3), on the material
+                // under each one.
+                if let Some(c) = &mut characters {
+                    for (id, event, template) in std::mem::take(&mut c.notes) {
+                        let Some(at) = (if id == own { Some(position) } else { state.position_of(id) }) else { continue };
+                        let set = template.and_then(|t| c.set_of(t)).map(|t| (t, sound_rand.next() as u32));
+                        let material = crate::sounds::ground_material(terrain.as_deref(), &tile_materials, at);
+                        let note = crate::sounds::Note { event, position: at, set, falling: id == own && airborne, material };
+                        if let Some(p) = crate::sounds::note(&generic, &note) {
+                            crate::audio::with(|m| m.play_game_sound(p.id, at, 0.0, p.volume, p.material, 0.0, 100, 1, 0, [0.0; 3]));
+                        }
+                    }
+                }
                 casters.extend(own_casters);
                 let deforms_landed: std::cell::RefCell<Vec<(u32, mao_formats::gfx::Deform)>> = std::cell::RefCell::new(Vec::new());
                 let own_velocity = if walk == 0 && keys.strafe == 0 && !airborne {

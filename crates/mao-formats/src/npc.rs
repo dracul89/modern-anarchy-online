@@ -29,6 +29,10 @@ pub struct Template {
     /// (action key, animation instance): 100 walk, 101 run, 120 idle. An action with variants is listed once per variant, in
     /// the record's order.
     pub animations: Vec<(u32, u32)>,
+    /// (event key, sound ID): the sounds section (FUN_1007dc1e into the set's sound map, FUN_1004e647), an event with
+    /// variants listed once per variant; Gamecode plays them by the animation notes' events (FUN_100452d3: 0x26 a step, 0x85 a
+    /// landing, 0xf an idle, 0x77.. an attack's start) and the attacks' (0xb, 0x1f an impact).
+    pub sounds: Vec<(u32, u32)>,
 }
 
 impl Template {
@@ -81,7 +85,26 @@ impl Template {
             }
             at += 2 + k;
         }
+        // (the sounds: two words (20 and a size), then the count of events and each event's key, count and sounds; a count
+        // that isn't one stops the reading, as FUN_1007dc1e's `clear(4)` does)
+        if words.get(at) == Some(&20) {
+            if let Some(n) = words.get(at + 2).and_then(|&w| count(w)) {
+                at += 3;
+                for _ in 0..n {
+                    let (Some(&key), Some(k)) = (words.get(at), words.get(at + 1).and_then(|&w| count(w)).filter(|&k| k <= 30000)) else { break };
+                    let Some(ids) = words.get(at + 2..at + 2 + k) else { break };
+                    template.sounds.extend(ids.iter().map(|&id| (key, id)));
+                    at += 2 + k;
+                }
+            }
+        }
         Some(template)
+    }
+
+    /// The sound of an event `seed` picks among its variants (FUN_10045976 picks with `rand()`), if the set has one.
+    pub fn sound(&self, key: u32, seed: u32) -> Option<u32> {
+        let all: Vec<u32> = self.sounds.iter().filter(|s| s.0 == key).map(|s| s.1).collect();
+        (!all.is_empty()).then(|| all[seed as usize % all.len()])
     }
 
     /// The variant of an action's animation `seed` picks (FUN_10045976 picks with `rand()`), if the record has the action.
@@ -165,5 +188,7 @@ mod tests {
         assert_eq!(t.variant(0xb7, 4), Some(0x186de));
         assert_eq!(t.variant(0x1e, 0), None);
         assert_eq!(t.animation_candidates(Action::Walk, 9), vec![(100, 0x27cf)]);
+        assert_eq!(t.sounds, vec![(0x1e, 0x8ee1_3fa5)]);
+        assert_eq!(t.sound(0x1e, 3), Some(0x8ee1_3fa5));
     }
 }

@@ -43,6 +43,8 @@ pub struct Entry {
     pub delay: f32,
     /// Ms run, at the speed.
     pub elapsed: f32,
+    /// The elapsed time before the last run (`run_anim` saves it at +0x44 for `GetLastInterval`).
+    pub last: f32,
     /// The fade: from `fade_start` for `fade_len` ms, `fade_from` to `fade_to` (the speed given: 1).
     pub fade_start: f32,
     pub fade_len: f32,
@@ -64,6 +66,11 @@ impl Entry {
 
     /// `anim_time`: the animation's time for its elapsed time.
     pub fn time(&self) -> f32 {
+        self.time_at(self.elapsed)
+    }
+
+    /// `anim_time` at an elapsed time.
+    pub fn time_at(&self, elapsed: f32) -> f32 {
         if self.start == self.end {
             return self.start;
         }
@@ -71,7 +78,7 @@ impl Entry {
         if len <= 0.0 {
             return 0.0;
         }
-        let mut t = self.elapsed;
+        let mut t = elapsed;
         let looped = if self.loops > 0 {
             Some(self.loops as f32 * len)
         } else if self.direction == 3 {
@@ -96,6 +103,93 @@ impl Entry {
         } else {
             self.start - f
         }
+    }
+
+    /// FUN_10072d5c (`GetLastInterval`): the times the animation went through in its last run: the elapsed time twice when the
+    /// time saved before is past it; the two in order within one lap; the whole range more than a lap apart; one lap apart, the
+    /// part of the range each lies in (to and fro reversing by lap).
+    pub fn last_interval(&self) -> (f32, f32) {
+        let (last, elapsed) = (self.last, self.elapsed);
+        if last > elapsed {
+            return (elapsed, elapsed);
+        }
+        let d = (self.end - self.start).abs();
+        // (the SSE2 `_ftol2`: out of range and NaN are `i32::MIN`)
+        let laps = |t: f32| {
+            let q = (t as f64 / d as f64).trunc();
+            if q.is_nan() || !(-2147483648.0..=2147483647.0).contains(&q) { i32::MIN } else { q as i32 }
+        };
+        let (laps_elapsed, laps_last) = (laps(elapsed), laps(last));
+        if laps_last == laps_elapsed {
+            let (a, b) = (self.time_at(last), self.time_at(elapsed));
+            return (if b > a { a } else { b }, if a > b { a } else { b });
+        }
+        if laps_elapsed.wrapping_sub(laps_last) > 1 {
+            return (self.start, self.end);
+        }
+        let (b, a) = (self.time_at(last), self.time_at(elapsed));
+        if self.direction == 2 {
+            if (self.end < self.start) as i32 != laps_last & 1 {
+                (if self.start <= self.end { self.start } else { self.end }, if a > b { a } else { b })
+            } else {
+                (if b > a { a } else { b }, if self.end <= self.start { self.start } else { self.end })
+            }
+        } else if self.end > self.start {
+            (b, a)
+        } else {
+            (a, b)
+        }
+    }
+
+    /// The notes (their times, in order) the last run went past, as Gamecode fires them (FUN_1003c248 over FUN_1003c0b7): from
+    /// the first at or after the interval's start to the last before its end, wrapping round the loop when the interval does,
+    /// each within the animation's range.
+    pub fn fired(&self, times: &[f32]) -> Vec<usize> {
+        let (lo, hi) = self.last_interval();
+        let (mut first, mut last) = (-1i32, -1i32);
+        for (k, &t) in times.iter().enumerate() {
+            if first == -1 && ((lo < t) != (lo == t)) {
+                first = k as i32;
+            }
+            if t < hi {
+                last = k as i32;
+            }
+        }
+        if (lo < hi) == (lo == hi) {
+            if last == -1 {
+                last = times.len() as i32 - 1;
+            }
+            if last > first {
+                return Vec::new();
+            }
+        } else {
+            if first == -1 {
+                last = -1;
+            }
+            if first > last {
+                return Vec::new();
+            }
+        }
+        if first < 0 || last < 0 {
+            return Vec::new();
+        }
+        let (low, high) = (self.start.min(self.end), self.start.max(self.end));
+        let mut out = Vec::new();
+        let mut k = first as usize;
+        loop {
+            let t = times[k];
+            if ((low < t) != (low == t)) && t <= high {
+                out.push(k);
+            }
+            if k == last as usize {
+                break;
+            }
+            k += 1;
+            if k == times.len() {
+                k = 0;
+            }
+        }
+        out
     }
 
     /// `set_range`: the range changed, the elapsed time re-based so the same point is kept.
@@ -156,6 +250,7 @@ impl Entry {
         if self.loops >= 0 && self.laps() >= self.loops {
             return false;
         }
+        self.last = self.elapsed;
         let step = dt_seconds * 1000.0 * self.speed;
         self.step_time(step.abs());
         self.blend_weight();
@@ -213,6 +308,7 @@ impl Stack {
             end: total,
             delay: 0.0,
             elapsed: 0.0,
+            last: 0.0,
             fade_start: 0.0,
             fade_len: left.clamp(200.0, 300.0),
             fade_from: 0.0,
@@ -339,6 +435,28 @@ fn mix(a: ([f32; 4], [f32; 3]), b: ([f32; 4], [f32; 3]), weight: f32) -> ([f32; 
 mod tests {
     use super::*;
 
+    /// A walk's two steps (at 100 and 600 ms of a 1 s loop) each fire once a lap, the lap's end wrapping round.
+    #[test]
+    fn notes_fire_as_the_time_passes_them() {
+        let mut s = Stack::default();
+        let h = s.set_animation(7, 0, -1, 2, 0, 1.0, 1000.0);
+        s.set_time(h, 0.0, 1000.0);
+        let times = [100.0, 600.0];
+        let mut fired = Vec::new();
+        for _ in 0..30 {
+            s.advance(0.1);
+            fired.extend(s.entries[0].fired(&times));
+        }
+        // (3 s: three laps' two steps; the step at 100 of the first lap fired between 0 and 200)
+        assert_eq!(fired, vec![0, 1, 0, 1, 0, 1]);
+        // (a run that ends exactly on a note fires it on the next run: the end is excluded)
+        let mut e = s.entries[0].clone();
+        (e.last, e.elapsed) = (50.0, 100.0);
+        assert!(e.fired(&times).is_empty());
+        (e.last, e.elapsed) = (100.0, 150.0);
+        assert_eq!(e.fired(&times), vec![0]);
+    }
+
     #[test]
     fn a_death_holds_its_last_frame() {
         // (direction 3 with no loop count: played once, then kept at the end, as a corpse lies)
@@ -426,7 +544,7 @@ mod tests {
 
     #[test]
     fn the_time_follows_the_range_and_direction() {
-        let mut e = Entry { id: 0, handle: 0, priority: 0, claims: 0, direction: 0, speed: 1.0, loops: -1, start: 100.0, end: 400.0, delay: 0.0, elapsed: 350.0, fade_start: 0.0, fade_len: 0.0, fade_from: 0.0, fade_to: 1.0, weight: 1.0, plays: 3 };
+        let mut e = Entry { id: 0, handle: 0, priority: 0, claims: 0, direction: 0, speed: 1.0, loops: -1, start: 100.0, end: 400.0, delay: 0.0, elapsed: 350.0, last: 0.0, fade_start: 0.0, fade_len: 0.0, fade_from: 0.0, fade_to: 1.0, weight: 1.0, plays: 3 };
         assert_eq!(e.time(), 150.0);
         e.direction = 1;
         assert_eq!(e.time(), 350.0);

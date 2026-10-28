@@ -381,3 +381,72 @@ fn sound_banks_and_their_samples() {
     assert!(feet.variants.iter().filter(|&&v| v != 0).count() >= 10);
     eprintln!("{missing} samples missing");
 }
+
+/// The tile materials (0xf4258:1) and the tile IDs of a playfield's ground found in them.
+#[test]
+fn tile_materials() {
+    let Some(db) = database() else { return };
+    let object = db.get(Id { kind: mao_formats::tilemap::TILE_MATERIALS, instance: 1 }).unwrap().unwrap();
+    let map = mao_formats::tilemap::tile_materials(&object).unwrap();
+    // (version 3, which N3.dll's reader skips: only tile 0, of material 0)
+    assert_eq!(u16::from_le_bytes([object[14], object[15]]), 3);
+    assert_eq!(map.into_iter().collect::<Vec<_>>(), vec![(0, mao_formats::tilemap::TileMaterial::default())]);
+    let mut v2 = object[..16].to_vec();
+    v2[12..16].copy_from_slice(&[1, 0, 2, 0]);
+    v2.extend([7, 0]);
+    v2.extend(mao_formats::sound::sound_id("grass").to_le_bytes());
+    v2.extend([1, 2, 3]);
+    let map = mao_formats::tilemap::tile_materials(&v2).unwrap();
+    let mut by: std::collections::BTreeMap<u32, usize> = Default::default();
+    for m in map.values() {
+        *by.entry(m.material).or_default() += 1;
+    }
+    eprintln!("{} tiles; by material {by:?}", map.len());
+    assert_eq!(map[&7], mao_formats::tilemap::TileMaterial { passability: 1, attack: 2, defense: 3, material: 0xf });
+    // (Tir's ground: its tile types are tile IDs of the table)
+    let ground = db.get(Id { kind: 0xf4249, instance: 0x2a8 }).ok().flatten().and_then(|o| mao_formats::terrain::build(&mao_formats::tilemap::parse_old(&o).ok()?).ok());
+    if let Some(t) = ground {
+        let known = t.tile_types.iter().filter(|id| map.contains_key(id)).count();
+        eprintln!("Tir's {} tile types, {known} in the table: {:?}", t.tile_types.len(), t.tile_types.iter().take(12).map(|id| (id, map.get(id).map(|m| m.material))).collect::<Vec<_>>());
+    }
+}
+
+/// The animation sets' sounds name sources of the game's source file.
+#[test]
+fn animation_set_sounds_are_sources() {
+    let Some(db) = database() else { return };
+    let game = PathBuf::from(std::env::var_os("MAO_GAME").unwrap());
+    let bank = mao_formats::sound::parse_bank(&std::fs::read(game.join("cd_image/sound/SourceFiles/SM_Sandy_Game_Dummy.sbf")).unwrap()).unwrap();
+    let ids: std::collections::HashSet<u32> = bank.iter().map(|r| r.id).collect();
+    let (mut sets, mut with, mut sounds, mut found) = (0, 0, 0, 0);
+    let mut keys: std::collections::BTreeMap<u32, usize> = Default::default();
+    for id in db.ids().unwrap().filter_map(Result::ok).filter(|i| i.kind == mao_formats::npc::TEMPLATE) {
+        let Some(t) = db.get(id).ok().flatten().and_then(|d| mao_formats::npc::Template::parse(&d)) else { continue };
+        sets += 1;
+        with += (!t.sounds.is_empty()) as usize;
+        for &(key, s) in &t.sounds {
+            sounds += 1;
+            found += ids.contains(&s) as usize;
+            *keys.entry(key).or_default() += 1;
+        }
+    }
+    eprintln!("{sets} sets, {with} with sounds, {sounds} sounds, {found} of them sources; keys {keys:?}");
+    assert!(with > 100 && found * 10 > sounds * 9);
+}
+
+/// The player animations' notes give the events Gamecode plays sounds for (steps in the walk and run, a landing).
+#[test]
+fn animation_notes_are_events() {
+    let Some(db) = database() else { return };
+    let index = mao_formats::instances::Instances::parse(&db.get(Id { kind: 0xf424a, instance: 1 }).unwrap().unwrap()).unwrap();
+    let mut seen = Vec::new();
+    for name in ["male_walk_01_01.ani", "male_run_01_01.ani", "female_walk_01_01.ani", "male_jump-stop_01_01.ani", "male_swim_01_01.ani"] {
+        let Some(id) = index.find(0xf6953, name) else { continue };
+        let anim = mao_formats::catanim::parse(&db.get(Id { kind: 0xf6953, instance: id }).unwrap().unwrap()).unwrap();
+        let notes: Vec<(String, f32, i32)> = anim.notes.iter().map(|n| (n.name.clone(), n.time, n.event())).collect();
+        eprintln!("{name}: {notes:?}");
+        seen.push((name, notes));
+    }
+    let walk = &seen.iter().find(|s| s.0 == "male_walk_01_01.ani").unwrap().1;
+    assert!(walk.iter().filter(|n| n.2 == 0x26).count() >= 2);
+}

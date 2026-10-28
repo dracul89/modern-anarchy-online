@@ -29,6 +29,7 @@ mod chatlog;
 mod audio;
 mod feedback;
 mod mixer;
+mod sounds;
 mod friends;
 mod help;
 mod launcher;

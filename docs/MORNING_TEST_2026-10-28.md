@@ -74,6 +74,7 @@ Added after the overnight run, on request: audio through rodio, ported from the 
 
 | Commit | What | What to try |
 |---|---|---|
+| (next) | **Steps, swims, landings and swishes** from the animations' notes; NPCs with animation sets play their own (idles, attack starts) | walk and run past others, jump, punch; listen to monsters |
 | 1893cf0 | **The sound system**: the source files, the engine (13 channels, priorities), distance volume, variants and children, the frame's play list; the listener follows your character | `mao-client "<game>" sound SM_Sandy_Gui_Mission_Complete` should be heard; `MAO_NO_SOUND=1` silences the client |
 
 ## How to run
