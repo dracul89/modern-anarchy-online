@@ -483,6 +483,9 @@ impl Ui {
                 if let Some(action) = programs_window.show(&ctx, &hud.programs, palette) {
                     requests.action = Some(action);
                 }
+                for url in programs_window.infos.drain(..) {
+                    info_view.show_url(&url);
+                }
             }
             if friends_window.open {
                 let (outs, tell) = friends_window.show(&ctx, &hud.friends, palette);

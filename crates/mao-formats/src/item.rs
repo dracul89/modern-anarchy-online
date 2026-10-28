@@ -229,6 +229,45 @@ pub fn class_sets(template: &[u8], key: u32) -> Vec<(u32, Vec<u32>)> {
     Vec::new()
 }
 
+/// An item template's skill lists (chunk 4: `4, 4, (lists + 1) * 1009`, each list `id, (pairs + 1) * 1009, (stat, value)...`;
+/// the table Gamecode's FUN_10081625 looks a list up in): `(list, [(stat, value)])`. List 12 is the skills it attacks with
+/// and 13 those it is defended against, each with its share in percent (`N3Msg_GetSkillToAttackString`,
+/// `GetSkillToDefendString`); list 3 the skills it is used with (`GetSkillToUseString`).
+pub fn skill_lists(template: &[u8]) -> Vec<(u32, Vec<(u32, i32)>)> {
+    let word = |at: usize| template.get(at..at + 4).map(|b| u32::from_le_bytes(b.try_into().unwrap()));
+    let valid = |c: Option<u32>, most: u32| c.is_some_and(|c| c % 1009 == 0 && (1..=most).contains(&(c / 1009)));
+    let mut at = 0;
+    while at + 12 <= template.len() {
+        if word(at) == Some(4) && word(at + 4) == Some(4) && valid(word(at + 8), 21) && word(at + 8) != Some(1009) {
+            let mut lists = Vec::new();
+            let mut p = at + 12;
+            for _ in 0..word(at + 8).unwrap() / 1009 - 1 {
+                let (Some(list), count) = (word(p), word(p + 4)) else { return lists };
+                if !valid(count, 41) {
+                    return lists;
+                }
+                let n = (count.unwrap() / 1009 - 1) as usize;
+                let pairs: Option<Vec<(u32, i32)>> = (0..n).map(|j| Some((word(p + 8 + 8 * j)?, word(p + 12 + 8 * j)? as i32))).collect();
+                let Some(pairs) = pairs else { return lists };
+                lists.push((list, pairs));
+                p += 8 + 8 * n;
+            }
+            return lists;
+        }
+        at += 1;
+    }
+    Vec::new()
+}
+
+#[cfg(test)]
+#[test]
+fn reads_the_skill_lists() {
+    // Greater Enforced Sloth's: defended against with Nano Resist and stat 54 at 90%, attacking with stats 131 and 122
+    let words = [4u32, 4, 3 * 1009, 13, 3 * 1009, 0xa8, 0x5a, 0x36, 0x5a, 12, 3 * 1009, 0x83, 0x2f, 0x7a, 0x35, 6, 0x1b];
+    let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
+    assert_eq!(skill_lists(&bytes), vec![(13, vec![(0xa8, 90), (0x36, 90)]), (12, vec![(0x83, 47), (0x7a, 53)])]);
+}
+
 /// An item template's animation set (chunk 0x0e or 0x12): `(class, actions)`; class 0xb is the attack's.
 pub fn anim_sets(template: &[u8]) -> Vec<(u32, Vec<u32>)> {
     let sets = class_sets(template, 0x12);

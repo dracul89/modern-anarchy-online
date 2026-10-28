@@ -1012,4 +1012,9 @@ its rarity's colour, NODROP/UNIQUE, rarity, quality level, the requirements of e
 from 826 and ..."), the locations, the modifiers (`gui/spells.rs`, `N3Msg_ConvertSpellList`: "On User: / Modify Radiation AC 819", read with a
 spell reader in `mao_formats::spell` from GameData's spell formats), charges and description, all labels from the text
 database. Back/Forward walk its history; links in its text open their page (`text://`, `file://`, `chatcmd://` run as chat
-commands). Not yet: weapon, armour, implant and nano pages' own sections; spell types other than the common ones.
+commands). Weapons get FUN_1003732c's page (ammunition, damage, speed, initiative, range, specials, attack and defence
+skills from the template's skill lists, `item::skill_lists`). The nano programs window's right-click **Info** opens a nano
+program's page (FUN_1003683d, `itemid://53019/<id>`): nano cost with the reader's cost modifier (red when their nano is
+short), NCU, school, stacking order, nanolines, duration, range, speed, cooldowns, attack/defence skills, modifiers, on
+death/on cancel, requirements, description. Not yet: damage per second, the nano radius, spell types other than the
+common ones.

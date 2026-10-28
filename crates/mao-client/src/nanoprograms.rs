@@ -65,6 +65,8 @@ pub struct ProgramsWindow {
     pub open: bool,
     filter: String,
     textures: HashMap<u32, egui::TextureId>,
+    /// The info view pages its programs' "Info" asked for.
+    pub infos: Vec<String>,
 }
 
 const ICON: f32 = 28.0;
@@ -112,6 +114,12 @@ impl ProgramsWindow {
                     if response.clicked() {
                         cast = Some(action);
                     }
+                    response.context_menu(|ui| {
+                        if ui.button("Info").clicked() {
+                            self.infos.push(format!("itemid://{}/{}", crate::gui::iteminfo::NANO_IDENTITY, program.id));
+                            ui.close();
+                        }
+                    });
                     response.on_hover_ui(|ui| {
                         ui.set_max_width(320.0);
                         ui.label(egui::RichText::new(&program.name).strong().color(accent));

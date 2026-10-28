@@ -1709,8 +1709,7 @@ impl ApplicationHandler for App {
                     }
                     // (the info view's item pages: N3's item descriptions, built here from the database)
                     for url in ui.info.take_requests() {
-                        let level = self.hud.stats.get(&crate::stats::stat::LEVEL).copied().unwrap_or(1).max(1) as u32;
-                        if let Some(page) = crate::gui::iteminfo::page(self.textures.db(), &url, level) {
+                        if let Some(page) = crate::gui::iteminfo::page(self.textures.db(), &url, &self.hud.stats) {
                             ui.info.show_page(&url, &page);
                         }
                     }

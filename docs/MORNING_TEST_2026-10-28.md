@@ -74,6 +74,9 @@ Added after the overnight run, on request: audio through rodio, ported from the 
 
 | Commit | What | What to try |
 |---|---|---|
+| (next) | **Info view, nano pages**: right-click a program in **Nano programs**, **Info** — nano cost (red when short), NCU, school, stacking order, nanolines, duration, range, speed, cooldowns, attack/defence skills, on death/cancel, requirements; weapons now list attack/defence skills too | Nano programs window, right-click, Info; a weapon's Info |
+| e2b01c0 | **Info view, armour and implant pages** (no charges) | Info on armour or an implant |
+| e190df2 | **Info view, weapon page**: ammunition, damage, speed, equip delay, initiative, range, dual wield, specials, damage type | Info on a weapon |
 | ff0eaef | **Info view modifiers**: the item page lists what the item modifies ("On User: Modify Fire AC 819") | Info on armour or an implant |
 | 49ef4da | **The info view**: GUI.dll's info window with item pages (name, rarity, QL, requirements in the original's words, location, description) | right-click an item in the inventory, **Info**; try Back/Forward after opening two items |
 | 8b79b1a | **GUI.dll's view system, step 3**: the text views' markup, word wrap and links (`HTMLParser_c`, `TextRenderer_c`) | `MAO_UI_PREVIEW=view MAO_VIEW=Skills.xml ... --image x.png`: the Skills window's help text as the original shows it |

@@ -19,12 +19,30 @@
 //! damage, attack and recharge times, equip delay, initiative, range, dual wield, special attacks, maximum beneficial
 //! skill and damage type as well.
 //!
-//! Not yet: the weapon page's damage per second and attack/defence skills, the armour, implant and nano pages' own
-//! sections (FUN_1003826b, FUN_10038586, FUN_1003683d), the shop price, fixtures, towers and buildings, and the
-//! stats interpolated between the low and high templates (the requirements are).
+//! The attack and defence skills (FUN_10032ac9, FUN_10032b73: the template's skill lists 12 and 13, `item::skill_lists`,
+//! each skill's name and " <share>% ") and the skills it is used with (FUN_100330f9, list 3: the name, then " <value> "
+//! or " (<value>) " when negative, unless it is 1; never for a nano program).
+//!
+//! A nano program (`itemid://53019/<id>`, identity 0xcf1b) has FUN_1003683d's page: the name, its nano cost (stat 407
+//! times `N3Msg_GetNanoCostModifier`, the reader's stat 318 but no lower than the breed's 50, 45 or 55, over 100; in
+//! red when the reader's stat 221 is below it, then the cost without the modifier in brackets), the NCU it takes (stat
+//! 54 unless 999), its school (stat 405: Combat, Medical, Protection, Psi, Space from category 10000), stacking order
+//! (551), nanolines (stats 75 and 546-550 named from category 2009, not its own id), duration (`N3Msg_GetBuffTotalTime`:
+//! stat 8 in hundredths as h:m:s), range, damage, attack time (FUN_10032582, which here takes 10 as none), the local
+//! cooldown (stat 254, at least a second) and the nanoline ones (stats 643-648 against the nanolines), attack and defence
+//! skills, the modifiers, what it does on death (list 20) and on cancel (list 28), the requirements and the description.
+//!
+//! Not yet: the weapon page's damage per second, the nano page's radius (`N3Msg_GetFormularRadius`, a field the
+//! NanoItem_t computes when it loads), the armour, implant and nano pages' own sections (FUN_1003826b, FUN_10038586),
+//! the shop price, fixtures, towers and buildings, and the stats interpolated between the low and high templates (the
+//! requirements are).
 
 use mao_formats::item::{self, Item};
 use mao_formats::resource::{Id, ResourceDatabase};
+use std::collections::BTreeMap;
+
+/// The identity type of a nano program, as `itemid://` names it.
+pub const NANO_IDENTITY: u32 = 0xcf1b;
 
 fn text(name: &str) -> String {
     crate::feedback::texts().and_then(|t| t.named(506, name)).map(str::to_string).unwrap_or_default()
@@ -60,6 +78,7 @@ struct Ctx<'a> {
     low: u32,
     ql: u32,
     level: u32,
+    nano: bool,
 }
 
 impl Ctx<'_> {
@@ -133,10 +152,7 @@ impl Ctx<'_> {
     fn modifiers(&self) -> String {
         let lists = mao_formats::spell::lists(&self.data);
         let db = self.db;
-        let nano_name = |id: u32| {
-            let d = db.get(Id { kind: item::NANO_TEMPLATE, instance: id }).ok().flatten().or_else(|| db.get(Id { kind: item::TEMPLATE, instance: id }).ok().flatten())?;
-            Item::parse(&d).map(|i| i.name)
-        };
+        let nano_name = |id: u32| nano_name(db, id);
         let mut m = String::new();
         for list in [14, 0] {
             for (_, spells) in lists.iter().filter(|(l, _)| *l == list) {
@@ -235,10 +251,10 @@ impl Ctx<'_> {
         section(&text("Damage"), &format!("{min}-{max}({crit})"), 0)
     }
 
-    /// FUN_10032582: the attack and recharge times (stats 294 and 210, hundredths of a second).
+    /// FUN_10032582: the attack and recharge times (stats 294 and 210, hundredths of a second; a nano program's 10 is none).
     fn speed(&self) -> String {
-        let at = self.stat(294).filter(|v| *v != 0);
-        let re = self.stat(210).filter(|v| *v != 0);
+        let at = self.stat(294).filter(|v| *v != 0 && !(self.nano && *v == 10));
+        let re = self.stat(210).filter(|v| *v != 0 && !(self.nano && *v == 10));
         let value = match (at, re) {
             (None, None) => return String::new(),
             (Some(a), Some(r)) => super::spells::printf_floats(&text("SpeedAtRe"), &[a as f32 / 100.0, r as f32 / 100.0]),
@@ -306,10 +322,146 @@ impl Ctx<'_> {
         self.stat(538).filter(|v| *v != 0).map_or(String::new(), |v| section(&text("MaxBeneficialSkill"), &v.to_string(), 0))
     }
 
+    /// FUN_10032ac9 and FUN_10032b73 (`N3Msg_GetSkillToAttackString`, `GetSkillToDefendString`): skill list 12 or 13.
+    fn skills(&self, list: u32, label: &str) -> String {
+        let lists = item::skill_lists(&self.data);
+        let Some((_, skills)) = lists.iter().find(|(l, s)| *l == list && !s.is_empty()) else { return String::new() };
+        let v: String = skills.iter().map(|&(stat, share)| format!("{} {share}% ", super::criteria::stat_name(stat))).collect();
+        section(&text(label), &v, 0)
+    }
+
+    /// FUN_100330f9 (`N3Msg_GetSkillToUseString`): skill list 3, none for a nano program.
+    fn skill_to_use(&self) -> String {
+        if self.nano {
+            return String::new();
+        }
+        let lists = item::skill_lists(&self.data);
+        let Some((_, skills)) = lists.iter().find(|(l, s)| *l == 3 && !s.is_empty()) else { return String::new() };
+        let mut v = String::new();
+        for &(stat, value) in skills {
+            v += &super::criteria::stat_name(stat);
+            v.push(' ');
+            if value != 1 {
+                v += &if value < 0 { format!(" ({value}) ") } else { format!(" {value} ") };
+            }
+        }
+        section(&text("SkillToUse"), &v, 0)
+    }
+
+    /// FUN_10033c4b and FUN_10033d2c: a spell list's modifier string on a new line (on death 20, on cancel 28).
+    fn spell_list(&self, list: u32, label: &str) -> String {
+        let lists = mao_formats::spell::lists(&self.data);
+        let db = self.db;
+        let nano_name = |id: u32| nano_name(db, id);
+        let m: String = lists.iter().filter(|(l, _)| *l == list).map(|(_, spells)| super::spells::convert(spells, self.level, &nano_name)).collect();
+        if m.is_empty() { m } else { section(&text(label), &format!("\n{m}"), 0) }
+    }
+
+    /// FUN_1003683d's nano cost, against the reader's nano (stat 221) and cost modifier.
+    fn nano_cost(&self, player: &BTreeMap<u32, i64>) -> String {
+        let base = self.stat(407).unwrap_or(0) as i64;
+        let cost = (cost_modifier(player) as f64 * base as f64 / 100.0) as i64;
+        let nano = player.get(&221).copied().unwrap_or(i64::MAX);
+        let colour = |v: i64| if nano < v { "<font color=CCRed>" } else { "<font color=CCInfoText>" };
+        format!("{}{}{cost}</font>{} ({base})</font>", text("NanoCost"), colour(cost), colour(base))
+    }
+
+    /// FUN_1003683d's NCU cost (stat 54, 999 for none).
+    fn ncu(&self) -> String {
+        self.stat(54).filter(|v| *v != 999).map_or(String::new(), |v| section(&text("NCUcost"), &v.to_string(), 0))
+    }
+
+    /// FUN_10033a35: the school (stat 405).
+    fn school(&self) -> String {
+        let v = self.stat(405).unwrap_or(0);
+        let name = match v {
+            1 => "NanoSchool_Combat",
+            2 => "NanoSchool_Medical",
+            3 => "NanoSchool_Prot",
+            4 => "NanoSchool_Psi",
+            5 => "NanoSchool_Space",
+            _ => return section(&text("School"), &format!("unknown {}", v - 1), 0),
+        };
+        let school = crate::feedback::texts().and_then(|t| t.named(10000, name)).map(str::to_string).unwrap_or_default();
+        section(&text("School"), &school, 0)
+    }
+
+    /// FUN_10033bae: the stacking order (stat 551).
+    fn stacking_order(&self) -> String {
+        self.stat(551).map_or(String::new(), |v| section(&text("StackingOrder"), &v.to_string(), 0))
+    }
+
+    /// FUN_10033752: a nanoline (named from category 2009), unless none or the program's own id.
+    fn nanoline(&self, stat: u32) -> String {
+        match self.stat(stat) {
+            Some(v) if v != 0 && v as u32 != self.low => section(&text("Nanoline"), &ldb(2009, v).unwrap_or_default(), 0),
+            _ => String::new(),
+        }
+    }
+
+    /// `N3Msg_GetBuffTotalTime`: stat 8 in hundredths, as h:m:s.
+    fn duration(&self) -> String {
+        let t = self.stat(8).unwrap_or(0).max(0) / 100;
+        section(&text("Duration"), &format!("{:02}:{:02}:{:02}", t / 3600, t / 60 % 60, t % 60), 0)
+    }
+
+    /// FUN_1003283f: the local cooldown (stat 254), from a second.
+    fn local_cooldown(&self) -> String {
+        self.stat(254).filter(|v| *v >= 100).map_or(String::new(), |v| section(&text("LocalCooldown"), &format!("{}.00s", v / 100), 0))
+    }
+
+    /// FUN_1003290b: each nanoline's cooldown (stats 643-648 against stats 75 and 546-550).
+    fn nanoline_cooldowns(&self) -> String {
+        let mut s = String::new();
+        for (i, line) in [75, 546, 547, 548, 549, 550].into_iter().enumerate() {
+            if let (Some(cd), Some(l)) = (self.stat(643 + i as u32), self.stat(line)) {
+                if l > 0 && cd > 99 {
+                    s += &section(&text("NanolineCooldown"), &format!("{} for {}.00s", ldb(2009, l).unwrap_or_default(), cd / 100), 0);
+                }
+            }
+        }
+        s
+    }
+
     /// FUN_1003732c's damage type (stat 436, a stat's name).
     fn damage_type(&self) -> String {
         self.stat(436).map_or(String::new(), |v| section(&text("DamageType"), &super::criteria::stat_name(v as u32), 0))
     }
+}
+
+/// A nano program's (else an item's) name, for the spells that upload or cast one.
+fn nano_name(db: &ResourceDatabase, id: u32) -> Option<String> {
+    let d = db.get(Id { kind: item::NANO_TEMPLATE, instance: id }).ok().flatten().or_else(|| db.get(Id { kind: item::TEMPLATE, instance: id }).ok().flatten())?;
+    Item::parse(&d).map(|i| i.name)
+}
+
+/// `N3Msg_GetNanoCostModifier` (Gamecode FUN_1004e925): the reader's stat 318 (100 when it is not known), no lower than
+/// the breed's (stat 4) 50 for solitus and opifex, 45 for nanomage, 55 for atrox.
+fn cost_modifier(player: &BTreeMap<u32, i64>) -> i64 {
+    let floor = match player.get(&4) {
+        Some(1) | Some(2) => 50,
+        Some(3) => 45,
+        Some(4) => 55,
+        _ => 0,
+    };
+    player.get(&318).copied().unwrap_or(100).max(floor)
+}
+
+/// The page of a nano program (FUN_1003683d).
+pub fn nano_page(db: &ResourceDatabase, id: u32, player: &BTreeMap<u32, i64>) -> Option<String> {
+    let data = db.get(Id { kind: item::NANO_TEMPLATE, instance: id }).ok().flatten()?;
+    let it = Item::parse(&data)?;
+    let actions = item::actions(&data);
+    let level = player.get(&crate::stats::stat::LEVEL).copied().unwrap_or(1).max(1) as u32;
+    let c = Ctx { db, it, data, actions, low: id, ql: 0, level, nano: true };
+    let mut parts = vec![c.header(), c.nano_cost(player), c.ncu(), c.school(), c.stacking_order()];
+    parts.extend([75, 546, 547, 548, 549, 550].map(|s| c.nanoline(s)));
+    parts.extend([
+        c.duration(), c.range(), c.damage(), c.speed(), c.local_cooldown(), c.nanoline_cooldowns(), c.skills(12, "AtkSkills"),
+        c.skills(13, "DefSkills"), c.modifiers(), c.spell_list(20, "OnDeath"), c.spell_list(28, "OnCancel"), c.skill_to_use(),
+        c.requirements(), c.description(),
+    ]);
+    Some(parts.concat())
 }
 
 /// The page of an item at a quality (FUN_10038f6b by item class, stat 76): a weapon's (1, FUN_1003732c), armour's (2,
@@ -320,12 +472,12 @@ pub fn item_page(db: &ResourceDatabase, low: u32, high: u32, ql: u32, level: u32
     let it = Item::parse(&data)?;
     let entry = mao_net::inventory::Entry { slot: 0, flags: 0, count: 1, container: (0, 0), low_id: low, high_id: high, quality: ql, extra: 0 };
     let actions = crate::derived::actions(db, &entry);
-    let c = Ctx { db, it, data, actions, low, ql, level };
+    let c = Ctx { db, it, data, actions, low, ql, level, nano: false };
     let parts: Vec<String> = if c.stat(76) == Some(1) {
         vec![
             c.header(), c.flags(), c.temporary(), c.pvp(), c.ammo(), c.rarity(), c.requirements(), c.ammo_type(), c.damage(), c.speed(),
-            c.equip_delay(), c.initiative(), c.location(), c.range(), c.dual_wield(), c.specials(), c.max_beneficial(), c.modifiers(),
-            c.damage_type(), c.description(),
+            c.equip_delay(), c.initiative(), c.location(), c.range(), c.dual_wield(), c.specials(), c.max_beneficial(),
+            c.skills(12, "AtkSkills"), c.skills(13, "DefSkills"), c.modifiers(), c.skill_to_use(), c.damage_type(), c.description(),
         ]
     } else if matches!(c.stat(76), Some(2) | Some(3) | Some(5)) {
         // (armour FUN_1003826b, implants FUN_10038586: no charges; armour's "Fabric" shows only in a debug input mode)
@@ -336,9 +488,21 @@ pub fn item_page(db: &ResourceDatabase, low: u32, high: u32, ql: u32, level: u32
     Some(parts.concat())
 }
 
-/// The page for one of the URLs the game builds (`itemref://`); `None` when it is not one of those.
-pub fn page(db: &ResourceDatabase, url: &str, level: u32) -> Option<String> {
+/// `itemid://<type>/<instance>`: the identity.
+pub fn parse_itemid(url: &str) -> Option<(u32, u32)> {
+    let rest = url.get(9..).filter(|_| url[..9].eq_ignore_ascii_case("itemid://"))?;
+    let parts: Vec<u32> = rest.split('/').map(|p| p.trim().parse::<i64>().ok().map(|v| v as u32)).collect::<Option<_>>()?;
+    (parts.len() == 2).then(|| (parts[0], parts[1]))
+}
+
+/// The page for one of the URLs the game builds (`itemref://`, a nano program's `itemid://`), for a reader with these
+/// stats; `None` when it is not one of those.
+pub fn page(db: &ResourceDatabase, url: &str, player: &BTreeMap<u32, i64>) -> Option<String> {
+    if let Some((kind, id)) = parse_itemid(url) {
+        return if kind == NANO_IDENTITY { nano_page(db, id, player) } else { None };
+    }
     let (low, high, ql) = parse_itemref(url)?;
+    let level = player.get(&crate::stats::stat::LEVEL).copied().unwrap_or(1).max(1) as u32;
     item_page(db, low, high, ql, level)
 }
 
@@ -369,7 +533,7 @@ mod tests {
             return;
         }
         if let Ok(spec) = std::env::var("MAO_ITEM") {
-            let page = page(&db, &format!("itemref://{spec}"), 200).unwrap();
+            let page = page(&db, &format!("itemref://{spec}"), &BTreeMap::from([(crate::stats::stat::LEVEL, 200)])).unwrap();
             println!("{page}");
             return;
         }
@@ -390,6 +554,11 @@ mod tests {
             println!("weapon {w}\n{page}");
             assert!(page.contains("Damage"));
         }
+        // (and a nano program's)
+        let nano = (95_000..96_000).find(|&id| db.get(Id { kind: item::NANO_TEMPLATE, instance: id }).ok().flatten().is_some()).unwrap();
+        let page = page(&db, &format!("itemid://{NANO_IDENTITY}/{nano}"), &BTreeMap::new()).unwrap();
+        println!("nano {nano}\n{page}");
+        assert!(page.contains("Nano Cost") && page.contains("Duration"));
         let (id, name) = found.expect("an item with wear requirements");
         let page = item_page(&db, id, id, 100, 200).unwrap();
         println!("{id} {name}\n{page}");
@@ -401,5 +570,7 @@ mod tests {
     fn reads_an_itemref() {
         assert_eq!(parse_itemref("itemref://246660/246661/200"), Some((246660, 246661, 200)));
         assert_eq!(parse_itemref("text://x"), None);
+        assert_eq!(parse_itemid("itemid://53019/95000"), Some((NANO_IDENTITY, 95000)));
+        assert_eq!(parse_itemid("itemid://1/2/3/4"), None);
     }
 }
