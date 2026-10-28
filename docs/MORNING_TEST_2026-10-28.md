@@ -74,6 +74,7 @@ Added after the overnight run, on request: audio through rodio, ported from the 
 
 | Commit | What | What to try |
 |---|---|---|
+| (next) | **Chat markup and item links**: chat lines with `<font>` colours and `<a href>` links drawn as the original's text view draws them; clicking an item link opens its Info page | someone links an item in chat (or `MAO_UI_PREVIEW=chat`); click it |
 | b99ab62 | **Info view, DPS and nano defaults**: weapons show "Dps: min-max(crit)" from your initiative; nano pages use the game's defaults for missing stats and the duration of their repeating spells | Info on a weapon; Info on a heal-over-time nano |
 | 45708bd | **Info view, nano pages**: right-click a program in **Nano programs**, **Info** — nano cost (red when short), NCU, school, stacking order, nanolines, duration, range, speed, cooldowns, attack/defence skills, on death/cancel, requirements; weapons now list attack/defence skills too | Nano programs window, right-click, Info; a weapon's Info |
 | e2b01c0 | **Info view, armour and implant pages** (no charges) | Info on armour or an implant |

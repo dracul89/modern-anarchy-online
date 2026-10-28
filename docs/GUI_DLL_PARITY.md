@@ -41,7 +41,7 @@ programs window's Info, `itemid://53019/<id>`; weapons' damage per second; to co
 | `TabView` | tabs | `chrome::tab_view` | done |
 | `TextInputView_c`, `TextInputModule_t`, `TextInputDialogForm_c` | text fields, the chat input, a "type a name" dialog | `chrome::text_edit` | part (chat input plain) |
 | `TextView_c`, `TextRenderer_c`, `TextLine_t`, `ATextString_t`, `FontSystem_t` | text: wrapping, colours, the bitmap and Verdana fonts | `font.rs`, `gui/text.rs`, `gui::controls::TextView`, `gui/font.rs` | part (display only) |
-| `HTMLParser_c` | the text markup in chat, info and NPC text: `<font color>`, `<a href="text://...">`, `itemref://`, `chatcmd://`, `<img src=rdb://>`, `<br>`, `<div align>` | `gui/text.rs` for the XML views' text views | part (no `<img>`; the client's own chat and NPC windows still strip it) |
+| `HTMLParser_c` | the text markup in chat, info and NPC text: `<font color>`, `<a href="text://...">`, `itemref://`, `chatcmd://`, `<img src=rdb://>`, `<br>`, `<div align>` | `gui/text.rs` for the XML views' text views | part (no `<img>`; chat lines with markup drawn through it, `gui::controls::markup`, their links opening the info view; no entity decoding, as the original's parser has none) |
 | `ListViewBase_c`, `ListViewBaseItem_c`, `MultiListView_c`, `MultiListViewItem_c`, `ScrolledListView_c`, `StringListViewItem_c` | list and grid views: columns, sorting (`grid_sort_column`), icon views (`iconview_flags`, `listview_mode`) | egui lists per window | ours |
 | `PopupMenu_c`, `PopupMenuItem_c`, `PopupMenuStringItem_c`, `PopupMenuSliderItem_c`, `PopupMenuSeparatorItem_c` | right-click menus (with sliders and separators) | egui context menus | ours |
 | `ToolTip_c` | tool tips | egui's hover text | ours |

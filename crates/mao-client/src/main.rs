@@ -1372,9 +1372,12 @@ fn run(args: &[String]) -> Result<(), String> {
                         let mut window = chatwindow::ChatWindow::default();
                         window.push(Line::new(Kind::System, "Welcome to AnarchyOnline"));
                         window.push(Line::new(Kind::Channel, "[Clan OOC] Mothra: anyone want to team?"));
-                        window.push(Line { kind: Kind::Tell, text: "Scurlock tells you: hey, got a minute?".into(), from: Some("Scurlock".into()) });
+                        window.push(Line { kind: Kind::Tell, text: "Scurlock tells you: hey, got a minute?".into(), from: Some("Scurlock".into()), markup: None });
                         let _ = window.run("/tell Scurlock sure, what's up");
                         window.push(Line::new(Kind::Channel, "[Tour Announcements] The shuttle to Newland leaves in five minutes"));
+                        // (a line with markup: a coloured word and an item link, as the server sends them)
+                        let raw = "selling <a href=\"itemref://200653/200653/1\">Training Pistol</a>, <font color=#ffcc00>cheap</font>";
+                        window.push(Line::new(Kind::Channel, format!("[Trade] Mothra: {}", mao_net::chat::plain(raw))).with_markup("[Trade] Mothra: ", raw));
                         if let Ok(text) = std::env::var("MAO_CHAT_INPUT") {
                             window.type_text(&text);
                         }

@@ -462,6 +462,9 @@ impl Ui {
             if let Some(out) = chat_window.show(&ctx, palette) {
                 requests.chat.push(out);
             }
+            for url in chat_window.links.drain(..) {
+                info_view.show_url(&url);
+            }
             if let (true, Some(view)) = (loot_window.open, hud.loot.as_ref()) {
                 if let Some(take) = loot_window.show(&ctx, view, palette) {
                     requests.loot_take = Some(take);

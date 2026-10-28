@@ -423,6 +423,41 @@ impl TextView {
         let items = super::text::parse(&self.text, named);
         super::text::words(&items, m, self.font, self.feature, &|_| None)
     }
+
+    /// How tall the text is when wrapped to `width`.
+    pub fn height_at(&self, m: &Measure, width: f32) -> f32 {
+        let words = self.words(m, &|_| None);
+        let (lines, _) = super::text::wrap(&words, self.feature, width, m.height(self.font));
+        lines.last().map_or(0.0, |l| l.y + l.height)
+    }
+
+    /// The link drawn at a point (relative to the view's top left), as last painted.
+    pub fn link_at(&self, at: egui::Pos2) -> Option<String> {
+        self.links.borrow().iter().find(|(r, _)| r.contains(at)).map(|(_, l)| l.clone())
+    }
+}
+
+/// Markup (`HTMLParser_c`'s) drawn into an egui `Ui` the width it has, as a word-wrapped `TextView_c` in `colour` with
+/// `font`: returns the link clicked, if any.
+pub fn markup(ui: &mut egui::Ui, palette: &Palette, text: &str, font: FontId, colour: egui::Color32) -> Option<String> {
+    let measure = Measure { ctx: Some(ui.ctx().clone()) };
+    let env = super::host::Env { skin: None, palette, measure: &measure };
+    let mut view = TextView::new(text);
+    view.font = font;
+    view.feature = super::text::flags::MULTILINE | super::text::flags::WORD_WRAP;
+    view.colour = Colour(u32::from(colour.r()) << 16 | u32::from(colour.g()) << 8 | u32::from(colour.b()));
+    let width = ui.available_width().max(10.0);
+    let height = view.height_at(&measure, width).max(measure.height(font));
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::click());
+    if !ui.is_rect_visible(rect) {
+        return None;
+    }
+    view.paint(&Paint { painter: ui.painter(), env: &env, rect, hovered: response.hovered(), pressed: false, enabled: true });
+    let over = response.hover_pos().and_then(|p| view.link_at(p - rect.min.to_vec2()));
+    if over.is_some() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    if response.clicked() { over } else { None }
 }
 
 impl Control for TextView {

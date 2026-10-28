@@ -23,11 +23,22 @@ pub struct Line {
     pub text: String,
     /// The character a tell came from (for `/reply`).
     pub from: Option<String>,
+    /// The line as the server sent it, markup and all (`<font color=...>`, `<a href="itemref://...">`), when it has
+    /// some: drawn as GUI.dll's text views draw it (`gui::controls::markup`).
+    pub markup: Option<String>,
 }
 
 impl Line {
     pub fn new(kind: Kind, text: impl Into<String>) -> Line {
-        Line { kind, text: text.into(), from: None }
+        Line { kind, text: text.into(), from: None, markup: None }
+    }
+
+    /// The line's markup: `prefix` (plain) before the server's text, kept only when the text has tags.
+    pub fn with_markup(mut self, prefix: &str, raw: &str) -> Line {
+        if raw.contains('<') {
+            self.markup = Some(format!("{prefix}{raw}"));
+        }
+        self
     }
 }
 
@@ -90,11 +101,13 @@ pub struct ChatWindow {
     /// The lines sent before, oldest first, and the one recalled with the arrow keys (`None`: the line being typed).
     history: Vec<String>,
     recalled: Option<usize>,
+    /// The links clicked in the lines' markup (`itemref://`, `text://`, `chatcmd://`), for the info view.
+    pub links: Vec<String>,
 }
 
 impl Default for ChatWindow {
     fn default() -> Self {
-        ChatWindow { open: true, log: false, lines: Vec::new(), tab: Tab::All, input: String::new(), selected: 0, focus_next: false, last_tell: None, scroll_to_end: true, keep_list: false, ignored: load_ignored(), history: Vec::new(), recalled: None }
+        ChatWindow { open: true, log: false, lines: Vec::new(), tab: Tab::All, input: String::new(), selected: 0, focus_next: false, last_tell: None, scroll_to_end: true, keep_list: false, ignored: load_ignored(), history: Vec::new(), recalled: None, links: Vec::new() }
     }
 }
 
@@ -300,6 +313,7 @@ impl ChatWindow {
         }
         let text = |name: &str, (r, g, b): (u8, u8, u8)| palette.text(name).map_or(egui::Color32::from_rgb(r, g, b), |c| egui::Color32::from_rgb(c[0], c[1], c[2]));
         let mut out = None;
+        let mut links = Vec::new();
         let screen = ctx.content_rect();
         let mut open = self.open;
         crate::chrome::window(ctx, palette, "Chat", "Chat", &mut open, |w| w.default_pos(crate::layout::pos("Chat", egui::pos2(8.0, (screen.height() - 270.0).max(40.0)))).default_size([560.0, 230.0]), |ui| {
@@ -326,6 +340,13 @@ impl ChatWindow {
                             Kind::Own => text("ct_otell", (160, 200, 160)),
                             Kind::Combat => text("CCMeHitOtherColor", (240, 170, 130)),
                         };
+                        if let Some(m) = &line.markup {
+                            let font = if chat_font.is_some() { crate::gui::font::FontId::named("CHAT") } else { crate::gui::font::FontId::NORMAL };
+                            if let Some(link) = crate::gui::controls::markup(ui, palette, m, font, color) {
+                                links.push(link);
+                            }
+                            continue;
+                        }
                         match &chat_font {
                             Some(font) => {
                                 font.label(ui, &line.text, color);
@@ -417,6 +438,7 @@ impl ChatWindow {
                 }
             });
         self.open = open;
+        self.links.extend(links);
         out
     }
 }
@@ -431,7 +453,7 @@ mod tests {
         assert_eq!(w.run("/tell Abc hello"), Some(Out::Tell { name: "Abc".into(), text: "hello".into() }));
         assert_eq!(w.lines.last().unwrap().text, "To Abc: hello");
         assert_eq!(w.run("/r anyone"), None); // nobody has told us anything yet
-        w.push(Line { kind: Kind::Tell, text: "Zed: hi".into(), from: Some("Zed".into()) });
+        w.push(Line { kind: Kind::Tell, text: "Zed: hi".into(), from: Some("Zed".into()), markup: None });
         assert_eq!(w.run("/r hello Zed"), Some(Out::Tell { name: "Zed".into(), text: "hello Zed".into() }));
     }
 
@@ -457,13 +479,13 @@ mod tests {
     fn an_ignored_character_is_not_shown_and_the_command_toggles() {
         let mut w = ChatWindow::default();
         assert_eq!(w.run("/ignore Zed"), None);
-        w.push(Line { kind: Kind::Tell, text: "Zed tells you: hi".into(), from: Some("zed".into()) });
-        w.push(Line { kind: Kind::Channel, text: "[OOC] Zed: yo".into(), from: Some("Zed".into()) });
+        w.push(Line { kind: Kind::Tell, text: "Zed tells you: hi".into(), from: Some("zed".into()), markup: None });
+        w.push(Line { kind: Kind::Channel, text: "[OOC] Zed: yo".into(), from: Some("Zed".into()), markup: None });
         w.push(Line::new(Kind::System, "still shown"));
         let shown: Vec<&str> = w.lines.iter().map(|l| l.text.as_str()).collect();
         assert_eq!(shown, vec!["Zed is ignored: their tells and channel lines are hidden.", "still shown"]);
         assert_eq!(w.run("/ignore zed"), None);
-        w.push(Line { kind: Kind::Tell, text: "Zed tells you: back".into(), from: Some("Zed".into()) });
+        w.push(Line { kind: Kind::Tell, text: "Zed tells you: back".into(), from: Some("Zed".into()), markup: None });
         assert!(w.lines.last().unwrap().text.contains("back"));
         assert_eq!(w.run("/camp"), Some(Out::Camp));
         assert_eq!(w.run("/quit"), Some(Out::Quit));

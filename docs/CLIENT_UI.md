@@ -1005,6 +1005,11 @@ right, their text through the port of `HTMLParser_c`/`TextRenderer_c`: colours b
 by face, centring and right alignment, `indent=wrapped` blocks, underlines, clickable links in 0x2299ff; `MAO_VIEW_TEXT=<markup>`
 puts text into a view named BrowserView). Not used by the game's windows yet.
 
+**Chat markup.** A chat line the server sends with markup (`<font color=...>`, `<a href="itemref://...">`) keeps it and is
+drawn with GUI.dll's text view (`gui::controls::markup`: `HTMLParser_c`/`TextRenderer_c` from `gui/text.rs`, the chat bitmap
+font); clicking a link opens it in the info view (an item's page for `itemref://`). Lines without tags are drawn as before.
+`MAO_UI_PREVIEW=chat` shows one.
+
 **The info view (`gui/infoview.rs`).** GUI.dll's `InfoView_c` window (`Views/InfoView.xml` of the skin) opens from the
 inventory's right-click **Info**: an item page built as GUI.dll's FUN_1003882b builds it (`gui/iteminfo.rs`) — the name in
 its rarity's colour, NODROP/UNIQUE, rarity, quality level, the requirements of each action in Gamecode's words

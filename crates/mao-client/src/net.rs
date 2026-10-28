@@ -2647,19 +2647,20 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             Some(Packet::Notice { name, text, blob }) => {
                                 // (`HandleVicinityMessage` → FUN_1008cdb3: its voice line, if any)
                                 crate::voices::vicinity_message(&mut voices, &name, &blob);
-                                Some(Line::new(Kind::System, mao_net::chat::plain(&text)))
+                                Some(Line::new(Kind::System, mao_net::chat::plain(&text)).with_markup("", &text))
                             }
                             Some(Packet::Vicinity { sender, text, blob }) => {
                                 let who = names.get(&sender).cloned().unwrap_or_else(|| format!("{sender:x}"));
                                 crate::voices::vicinity_message(&mut voices, &who, &blob);
-                                Some(Line { kind: Kind::Channel, text: format!("{who}: {}", mao_net::chat::plain(&text)), from: Some(who) })
+                                Some(Line { kind: Kind::Channel, text: format!("{who}: {}", mao_net::chat::plain(&text)), from: Some(who.clone()), markup: None }.with_markup(&format!("{who}: "), &text))
                             }
                             Some(Packet::Tell { sender, text }) => {
-                                let text = mao_net::chat::plain(&text);
+                                let raw = text;
+                                let text = mao_net::chat::plain(&raw);
                                 match names.get(&sender) {
-                                    Some(who) => Some(Line { kind: Kind::Tell, text: format!("{who} tells you: {text}"), from: Some(who.clone()) }),
+                                    Some(who) => Some(Line { kind: Kind::Tell, text: format!("{who} tells you: {text}"), from: Some(who.clone()), markup: None }.with_markup(&format!("{who} tells you: "), &raw)),
                                     // the server's own notices (the players online) come the same way
-                                    None => Some(Line::new(Kind::System, text)),
+                                    None => Some(Line::new(Kind::System, text).with_markup("", &raw)),
                                 }
                             }
                             // (a voice line in a channel that allows none is dropped, line and all: `HandleGroupMessage`)
@@ -2670,7 +2671,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                 // (its voice line, if it carries one: `HandleGroupMessage` → FUN_1008cdb3, by the group's kind)
                                 let kind = channels.get(&channel.1).map_or(channel.0, |c| c.0);
                                 crate::voices::group_message(&mut voices, &who, kind, &blob);
-                                Some(Line { kind: Kind::Channel, text: format!("[{place}] {who}: {}", mao_net::chat::plain(&text)), from: Some(who) })
+                                Some(Line { kind: Kind::Channel, text: format!("[{place}] {who}: {}", mao_net::chat::plain(&text)), from: Some(who.clone()), markup: None }.with_markup(&format!("[{place}] {who}: "), &text))
                             }
                             Some(Packet::Buddy { id, online, .. }) => {
                                 let mut buddies = BUDDIES.lock().unwrap();
