@@ -223,21 +223,24 @@ pub fn stars_particles(s: &Stars, centre: [f32; 3], time: f32, stopped: bool) ->
         return out;
     }
     let spawn_per_frame: f32 = match s.mode {
-        19 | 20 => 15.0,
+        16 | 17 | 19 | 20 => 15.0,
+        18 => 10.0,
         10 => 5.0,
         _ => 2.0,
     };
     let s = &Stars { life: if s.mode == 10 { s.size.max(0.1) } else { s.life }, ..s.clone() };
-    // (the original spawns at most that many a frame of its run; at the client's frame rate that is a cadence per star)
-    let cadence = s.life / STARS as f32 * (30.0 / spawn_per_frame).min(STARS as f32);
+    // (the original bears that many a frame into its 128 slots while a slot is free: at 30 frames a second that is a birth every
+    // `1 / (rate × 30)` seconds, so each slot is reborn every `128 / (rate × 30)` seconds, or as soon as it dies when that is
+    // shorter than a life; `rate × 30 × life` are alive at most)
+    let period = s.life.max(STARS as f32 / (spawn_per_frame * 30.0));
     for k in 0..STARS {
-        // the star's births: every `cadence` seconds from its own stagger, each living `life` (mode 19: a random share)
-        let stagger = k as f32 / STARS as f32 * s.life;
+        // the star's births: every `period` seconds from its own stagger, each living `life` (mode 19: a random share)
+        let stagger = k as f32 / STARS as f32 * period;
         if time < stagger {
             continue;
         }
-        let generation = ((time - stagger) / (s.life + cadence)).floor();
-        let born = stagger + generation * (s.life + cadence);
+        let generation = ((time - stagger) / period).floor();
+        let born = stagger + generation * period;
         let age = time - born;
         let salt = k.wrapping_mul(7919).wrapping_add(generation as u32 * 104729);
         let life = if s.mode == 19 { s.life * (0.5 + 0.5 * hash(salt, 11)) } else { s.life };
@@ -308,6 +311,25 @@ pub fn stars_particles(s: &Stars, centre: [f32; 3], time: f32, stopped: bool) ->
                 let position = [centre[0] + v[0] * travelled, centre[1] + v[1] * travelled, centre[2] + v[2] * travelled - fall];
                 ((2.0 - t) * s.size, position)
             }
+            17 => {
+                // `case 0x11`: on the hit location's segment from its point to its second point (`d`, which is the 0.001 the
+                // original adds to a zero one along x, the two points being the same), at a random fraction `f` along it and
+                // `2f(1 - f)` out from it on the circle about it (FindPerpendicular's `u` and `w = u x d`: in the original's
+                // Y-up frame (0, -0.707, -0.707) and (0, -0.707, 0.707)) at the angle `2f|d| + frac * 4 + word 29`, `frac` the
+                // birth time over the duration (-1: the angle runs back at 4 rad/s): a spoke 0.5 long turning about x, which the
+                // three templates' phases (0, 2.0, 4.1) make a pinwheel of; standing, sized `word 28 * (1 - (1 - 2a)^2)`.
+                let f = hash(salt, 5);
+                let frac = if s.duration > 0.0 { born / s.duration } else { -born };
+                let angle = 2.0 * f * 0.001 + frac * 4.0 + s.radius;
+                let reach = 2.0 * f * (1.0 - f);
+                let (c, sn) = (angle.cos(), angle.sin());
+                let h = std::f32::consts::FRAC_1_SQRT_2;
+                // (Z up: the original's (x, y, z) is the client's (x, z, y))
+                let (u, w) = ([0.0, -h, -h], [0.0, h, -h]);
+                let ring = [0, 1, 2].map(|i| (w[i] * c + u[i] * sn) * reach);
+                let w2 = 2.0 * t - 1.0;
+                ((1.0 - w2 * w2) * s.size, [centre[0] + 0.001 * f + ring[0], centre[1] + ring[1], centre[2] + ring[2]])
+            }
             20 => {
                 // `case 0x14`: fifteen a frame born in the sphere about the hit location's point, standing, at the constant size;
                 // (the second point the original slides toward over the duration is the same point, so there is no slide)
@@ -334,6 +356,8 @@ pub fn stars_particles(s: &Stars, centre: [f32; 3], time: f32, stopped: bool) ->
         let frame = match s.mode {
             4 => hash(salt, 9),
             10 => 0.0,
+            // (the frame `15 - floor(a * 15.99)` of modes 16, 17 and 18, a the age over the life)
+            16..=18 => (15 - ((t * 15.99) as i32).min(15)) as f32 / 15.0,
             _ => 1.0 - hash(salt, 9) * 0.25,
         };
         out.push(sprite(s.material, frame, position, size.max(0.0), [colour[0], colour[1], colour[2], colour[3]]));
@@ -349,14 +373,14 @@ fn stars_falling(s: &Stars, centre: [f32; 3], time: f32, stopped: bool) -> Vec<P
     const STARS: u32 = 64;
     let mut out = Vec::new();
     let life = s.life.max(0.05);
-    let cadence = life / STARS as f32 * (30.0 / 2.0f32).min(STARS as f32);
+    let period = life.max(STARS as f32 / (2.0f32 * 30.0)); // (each slot reborn every 128 / (rate × 30) s, or at its death)
     for k in 0..STARS {
-        let stagger = k as f32 / STARS as f32 * life;
+        let stagger = k as f32 / STARS as f32 * period;
         if time < stagger {
             continue;
         }
-        let generation = ((time - stagger) / (life + cadence)).floor();
-        let age = time - stagger - generation * (life + cadence);
+        let generation = ((time - stagger) / period).floor();
+        let age = time - stagger - generation * period;
         if age > life || (stopped && generation > 0.0) {
             continue;
         }
@@ -380,14 +404,14 @@ fn stars_collapse(s: &Stars, centre: [f32; 3], time: f32, stopped: bool) -> Vec<
     const LIFE: f32 = 1.2;
     const TABLE: [f32; 16] = [8.0, 8.0, 8.0, 8.0, 8.0, 12.0, 16.0, 19.0, 22.0, 23.0, 24.0, 25.0, 26.0, 27.0, 28.0, 29.0];
     let mut out = Vec::new();
-    let cadence = LIFE / STARS as f32 * (30.0 / 2.0f32).min(STARS as f32);
+    let period = LIFE.max(STARS as f32 / (2.0f32 * 30.0)); // (each slot reborn every 128 / (rate × 30) s, or at its death)
     for k in 0..STARS {
-        let stagger = k as f32 / STARS as f32 * LIFE;
+        let stagger = k as f32 / STARS as f32 * period;
         if time < stagger {
             continue;
         }
-        let generation = ((time - stagger) / (LIFE + cadence)).floor();
-        let age = time - stagger - generation * (LIFE + cadence);
+        let generation = ((time - stagger) / period).floor();
+        let age = time - stagger - generation * period;
         if age > LIFE || (stopped && generation > 0.0) {
             continue;
         }
@@ -433,14 +457,14 @@ fn stars_off_body(s: &Stars, body: &Body, time: f32) -> Vec<Particle> {
     }
     let stride = (n / 31).max(1);
     let life = s.life.max(0.05);
-    let cadence = life / STARS as f32 * (30.0 / 10.0f32).min(STARS as f32);
+    let period = life.max(STARS as f32 / (10.0f32 * 30.0)); // (each slot reborn every 128 / (rate × 30) s, or at its death)
     for k in 0..STARS {
-        let stagger = k as f32 / STARS as f32 * life;
+        let stagger = k as f32 / STARS as f32 * period;
         if time < stagger {
             continue;
         }
-        let generation = ((time - stagger) / (life + cadence)).floor();
-        let age = time - stagger - generation * (life + cadence);
+        let generation = ((time - stagger) / period).floor();
+        let age = time - stagger - generation * period;
         if age > life {
             continue;
         }
@@ -530,14 +554,14 @@ fn stars_on_edges(s: &Stars, feet: [f32; 3], time: f32, stopped: bool) -> Vec<Pa
         [feet[0] + right, feet[1], feet[2] + height]
     };
     let life = s.life.max(0.05);
-    let cadence = life / STARS as f32 * (30.0 / s.swirl.max(1.0)).min(STARS as f32);
+    let period = life.max(STARS as f32 / (s.swirl.max(1.0) * 30.0)); // (each slot reborn every 128 / (rate × 30) s, or at its death)
     for k in 0..STARS {
-        let stagger = k as f32 / STARS as f32 * life;
+        let stagger = k as f32 / STARS as f32 * period;
         if time < stagger {
             continue;
         }
-        let generation = ((time - stagger) / (life + cadence)).floor();
-        let age = time - stagger - generation * (life + cadence);
+        let generation = ((time - stagger) / period).floor();
+        let age = time - stagger - generation * period;
         if age > life || (stopped && generation > 0.0) {
             continue;
         }
@@ -1252,6 +1276,34 @@ pub fn emitter_particles(e: &Emitter, origin: [f32; 3], age: f32, active: f32) -
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stars_mode_17_is_a_turning_spoke_and_modes_16_and_18_stand_in_a_sphere() {
+        // (templates 11100 and 11101: phases 0 and 2.0, 0.2 wide, 300 ms)
+        let spoke = |phase: f32| Stars { mode: 17, colour_a: [1.0, 0.3, 1.0, 0.3], colour_b: [1.0, 0.3, 1.0, 0.3], size: 0.2, radius: phase, life: 0.3, swirl: 0.0, material: 33, attach: 1000, duration: -1.0, word11: 0.4, word30: 300 };
+        let centre = [0.0, 0.0, 0.0];
+        let at = stars_particles(&spoke(0.0), centre, 0.2, false);
+        assert!(at.len() > 60, "{}", at.len());
+        // within half a metre, in the plane across x, sized no more than word 28
+        assert!(at.iter().all(|p| p.position[0].abs() < 0.002 && p.position[1].hypot(p.position[2]) <= 0.5 + 1e-4 && p.size <= 0.2 + 1e-4));
+        // the stars born together lie on one line through the point: their directions agree (or are opposite)
+        let dir = |p: &Particle| p.position[2].atan2(p.position[1]);
+        let late: Vec<_> = at.iter().filter(|p| p.position[1].hypot(p.position[2]) > 0.2).collect();
+        assert!(!late.is_empty());
+        // another phase turns the spoke away
+        let other = stars_particles(&spoke(2.0), centre, 0.2, false);
+        let a: f32 = late.iter().map(|p| dir(p).sin()).sum::<f32>() / late.len() as f32;
+        let b: Vec<_> = other.iter().filter(|p| p.position[1].hypot(p.position[2]) > 0.2).collect();
+        let bb: f32 = b.iter().map(|p| dir(p).sin()).sum::<f32>() / b.len().max(1) as f32;
+        assert!((a - bb).abs() > 0.1, "{a} {bb}");
+        // modes 16 and 18: standing in a sphere of word 29
+        for mode in [16, 18] {
+            let s = Stars { mode, radius: 0.4, ..spoke(0.0) };
+            let at = stars_particles(&s, centre, 0.2, false);
+            assert!(!at.is_empty() && at.iter().all(|p| (p.position[0].powi(2) + p.position[1].powi(2) + p.position[2].powi(2)).sqrt() <= 0.4 + 1e-4));
+        }
+        assert!(stars_particles(&Stars { mode: 18, radius: 0.4, ..spoke(0.0) }, centre, 0.2, false).len() < stars_particles(&Stars { mode: 16, radius: 0.4, ..spoke(0.0) }, centre, 0.2, false).len());
+    }
 
     #[test]
     fn the_wind_pushes_the_sparks_of_kind_4_by_their_height() {

@@ -829,6 +829,35 @@ fn run(args: &[String]) -> Result<(), String> {
             return Ok(());
         }
     }
+    // `gfx-usage <game> <kind>`: for one effect kind, how many nano programs name each of its templates anywhere in their effects'
+    // trees (to see which templates of a class the players actually see).
+    if let [game, word, kind] = args {
+        if word == "gfx-usage" {
+            let kind: i32 = kind.parse().map_err(|_| format!("not a kind: {kind}"))?;
+            let db = ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?;
+            let data = std::fs::read(Path::new(game).join("Setupf").join("gfxtweak.bin")).map_err(|e| e.to_string())?;
+            let gfx = mao_formats::gfx::Gfx::parse(&data).map_err(|e| e.to_string())?;
+            let mut by_template: std::collections::BTreeMap<i32, usize> = std::collections::BTreeMap::new();
+            for id in db.ids().map_err(|e| e.to_string())?.filter_map(Result::ok).filter(|i| i.kind == mao_formats::item::NANO_TEMPLATE) {
+                let Some(data) = db.get(id).ok().flatten() else { continue };
+                let Some(item) = mao_formats::item::Item::parse(&data) else { continue };
+                let mut named: Vec<i32> = [428u32, 361, 413, 419, 366, 414]
+                    .iter()
+                    .filter_map(|&stat| item.stat(stat).filter(|&e| e > 0))
+                    .flat_map(|effect| gfx.tree(effect as i32).into_iter().filter(|r| r.kind == kind).map(|r| r.id).collect::<Vec<_>>())
+                    .collect();
+                named.sort_unstable();
+                named.dedup();
+                for t in named {
+                    *by_template.entry(t).or_default() += 1;
+                }
+            }
+            for (t, n) in &by_template {
+                println!("  template {t}: {n} programs");
+            }
+            return Ok(());
+        }
+    }
     // `gfx-usage <game>`: which effect kinds the nano programs name (cast, hit, running and tracer effects), with how many
     // programs name each, to see what the players see most.
     if let [game, word] = args {
