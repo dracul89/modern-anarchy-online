@@ -74,7 +74,7 @@ Added after the overnight run, on request: audio through rodio, ported from the 
 
 | Commit | What | What to try |
 |---|---|---|
-| (next) | **Weather music and liquid steps**: the district plays its rain/snow/storm music past 0.4 of the weather; steps in water sound wet (8–11), no landing sound in water | stand out in a storm and listen for the music change; wade into a lake and walk |
+| eb604d5 | **Weather music and liquid steps**: the district plays its rain/snow/storm music past 0.4 of the weather; steps in water sound wet (8–11), no landing sound in water | stand out in a storm and listen for the music change; wade into a lake and walk |
 | ac6b5b4 | **Lightning's splash**: a bolt over water splashes on the surface; rocks falling into water splash | watch a storm over a lake or the sea |
 | fdec0fc | **Emotes**: `/wave`, `/bow`, `/emote dance-name`, the hotbar's social actions; `/me` text | `/wave`; `/me waves`; drag a social action to the hotbar and press it |
 | 857166d | **A bolt's rocks**: lightning bolts throw little rocks from where they hit, which bounce away | watch a strike near you in a storm |
