@@ -1398,6 +1398,19 @@ pub fn visual_particles(v: &Visual, feet: [f32; 3], time: f32, reach: Reach) -> 
             };
             electra_particles(*material, *colour_a, *colour_b, *duration, *size, *out_to, *life, [feet[0], feet[1], feet[2] + up], time)
         }
+        // (each copy of the child at its place from its birth; a looping round starts again when every copy has ended)
+        Visual::Scatter { child, children, looping } => {
+            let life = pulse_timing(child).1.max(0.05);
+            let round = children.iter().map(|c| c.0).fold(0.0, f32::max) + life;
+            let t = if *looping { time.rem_euclid(round.max(0.05)) } else { time };
+            let mut out = Vec::new();
+            for (born, offset) in children {
+                if t >= *born && t - born < life {
+                    out.extend(visual_particles(child, [feet[0] + offset[0], feet[1] + offset[1], feet[2] + offset[2]], t - born, reach));
+                }
+            }
+            out
+        }
         // (round the body from the feet; a tracer's at its point)
         Visual::Coil { colour, material, duration } => coil_particles(*colour, *material, *duration, feet, time),
         // (the point a tracer carries; see `plasma_particles`)
@@ -1509,6 +1522,10 @@ pub fn pulse_timing(v: &Visual) -> (f32, f32, i32) {
             (long, long, -1)
         }
         Visual::Coil { duration, .. } => (4.0, duration.max(0.1), -1),
+        Visual::Scatter { child, children, looping } => {
+            let round = children.iter().map(|c| c.0).fold(0.0, f32::max) + pulse_timing(child).1;
+            if *looping { (600.0, 600.0, -1) } else { (round.max(0.5), round.max(0.5), -1) }
+        }
         Visual::Electra { duration, .. } => {
             let long = if *duration > 0.0 { *duration } else { 600.0 };
             (long, long, -1)
@@ -1966,6 +1983,23 @@ mod tests {
     fn aura() -> Aura {
         let helix = |spin: f32| Helix { spin, phase: 0.0, size: 0.15, count: 10, colour: [0.5, 0.4, 1.0], material: 15, attach: 1006, offset: -0.25, radius: 0.15, table: Vec::new(), life: 1.5, ribbon_width: 0.05, ribbon_life: 0.5, ribbon_duration: 1.5, ribbon_material: 8, sparkle_rate: 0.0 };
         Aura { colour: [0.2, 0.2, 0.99], end: [0.2, 0.2, 0.99], helices: vec![helix(-12.566), helix(12.566)], period: 4.0, plays: -1 }
+    }
+
+    #[test]
+    fn a_scatter_plays_its_child_copies_at_their_times_and_places() {
+        let child = Visual::Sprite(Sprite { attach: 0, offset: [0.0; 3], duration: 1.0, material: 8, flags: 0, width: (0.5, 0.5), height: (0.5, 0.5), colour_a: [1.0; 4], colour_b: [1.0; 4], period: 1.0, cycles: -1, pulse: 0.0, pulse_rate: 0.0 });
+        let v = Visual::Scatter { child: Box::new(child), children: vec![(0.0, [1.0, 0.0, 0.0]), (0.5, [-1.0, 0.0, 0.0])], looping: false };
+        // at 0.2 s only the first copy, at 0.7 both, at 1.2 the second alone, then none
+        let at = |t: f32| visual_particles(&v, [0.0; 3], t, Reach::Small);
+        assert_eq!(at(0.2).len(), 1);
+        assert_eq!(at(0.7).len(), 2);
+        assert!(at(1.2).len() == 1 && at(1.2)[0].position[0] == -1.0);
+        assert!(at(1.6).is_empty());
+        // a looping one starts again
+        let Visual::Scatter { child, children, .. } = v.clone() else { unreachable!() };
+        let l = Visual::Scatter { child, children, looping: true };
+        // (a round of 1.5 s: the last birth at 0.5 and a life of 1)
+        assert_eq!(visual_particles(&l, [0.0; 3], 2.2, Reach::Small).len(), 2);
     }
 
     #[test]

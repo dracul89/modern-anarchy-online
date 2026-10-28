@@ -987,6 +987,12 @@ pub enum Visual {
     /// `(word 28 + k × word 29) × (1 − (2 frac − 1)⁴)` over the duration (word 26), turned by `t × 0.5 × (k − 4)`, coloured from
     /// the table at 0x102c60a0 with their alpha held to 0xc0. Modes 1–3 (21 uses) are not played.
     Suns(Suns),
+    /// Kind 3029, `GfxControlScatter_t` (FUN_10110fc8; FUN_10110d06 the words, FUN_10110db5 the birth times, FUN_101108a8 the
+    /// run): word 6 copies of the effect of word 10, each born at a time (word 5: 0 random within word 7 seconds, 1 evenly over
+    /// them) at a place (word 4: 0 a random point of a cube ±word 8, 1 a cube ±word 9 on a column climbing word 8 / count a
+    /// child) about the target plus words 1–3 (flag 0x2000: on the target itself, the place unused); with flag 0x400 the round
+    /// starts again once every child has ended.
+    Scatter { child: Box<Visual>, children: Vec<(f32, [f32; 3])>, looping: bool },
     /// Kind 2006, `_GfxControlElectra_t` (FUN_100d9aa9; FUN_100d97ba the words, FUN_100d98e0 the `GfxVisualElectra`
     /// (displaysystem `gfxsol.rs`), FUN_100d9de5 the run), mode 1 (word 10; every template a program names): 64 quads of the
     /// material (word 9), born at `28 / life` a second (at most two a frame) on a random point of a sphere stretched 1.5 up and
@@ -1056,6 +1062,36 @@ impl Gfx {
             3001 if r.payload.len() >= 16 && r.int(10) == 1 => Some(Visual::Deform(Deform { duration: r.float(8), strength: r.float(11), ramp_in: r.float(12), ramp_out: r.float(13), frequency: r.float(14), amplitude: r.float(15) })),
             1001 | 2004 | 2005 | 2006 | 1018 => self.aura(id).map(Visual::Spiral),
             2007 | 3004 => self.references(id).into_iter().filter(|&c| c != id).find_map(|c| self.visual(c)),
+            3029 if r.payload.len() >= 11 && r.int(10) != id => {
+                let child = self.visual(r.int(10))?;
+                let (flags, place, timing, count) = (r.int(0) as u32, r.int(4), r.int(5), r.int(6).clamp(0, 64));
+                let (span, reach, spread) = (r.float(7), r.float(8), r.float(9));
+                // (the original's rand() stood in for by a hash of the child's number)
+                let unit = |k: i32, salt: u32| {
+                    let mut x = (k as u32).wrapping_mul(0x9e37_79b1) ^ salt.wrapping_mul(0x85eb_ca6b) ^ (id as u32);
+                    x ^= x >> 15;
+                    x = x.wrapping_mul(0x2c1b_3c6d);
+                    x ^= x >> 12;
+                    (x & 0xffff) as f32 / 65535.0
+                };
+                let base = [r.float(1), r.float(3), r.float(2)];
+                let children = (0..count)
+                    .map(|k| {
+                        let born = if timing == 1 { span * k as f32 / count.max(1) as f32 } else { unit(k, 1) * span };
+                        let cube = |scale: f32| [0, 1, 2].map(|i| (2.0 * unit(k, 2 + i as u32) - 1.0) * scale);
+                        let offset = if flags & 0x2000 != 0 {
+                            [0.0; 3]
+                        } else if place == 1 {
+                            let c = cube(spread);
+                            [c[0], c[1], c[2] + reach / count.max(1) as f32 * k as f32]
+                        } else {
+                            cube(reach)
+                        };
+                        (born, [0, 1, 2].map(|i| base[i] + offset[i]))
+                    })
+                    .collect();
+                Some(Visual::Scatter { child: Box::new(child), children, looping: flags & 0x400 != 0 })
+            }
             3003 => Shield::read(r).map(Visual::Shield),
             2005 if r.payload.len() >= 32 && matches!(r.int(10), 0 | 4) => Some(Visual::Suns(Suns {
                 mode: r.int(10),
