@@ -111,14 +111,24 @@ impl CtFile {
                 return Err(Error::Format("automatic segments, and none"));
             }
             let mut segments = file.segments.lock().unwrap();
-            for k in 1..count.min(word(&header, 0xcc)) {
+            // (the header's count, then any further segment files that say they belong: an install whose segments and
+            // index were updated without the main file's header counts more of them than it says)
+            for k in 1..word(&header, 0xcc) {
                 let mut name = path.as_os_str().to_owned();
                 name.push(format!(".{k:03}"));
-                let mut segment = File::open(PathBuf::from(name))?;
+                let segment = File::open(PathBuf::from(name));
+                let mut segment = match segment {
+                    Ok(s) => s,
+                    Err(e) if k < count => return Err(e.into()),
+                    Err(_) => break,
+                };
                 let mut head = vec![0; file.segment_header() as usize];
                 segment.read_exact(&mut head)?;
                 if &head[..7] != b"FC!SEGM" || word(&head, 0xcc) != k {
-                    return Err(Error::Format("a segment file that doesn't belong"));
+                    if k < count {
+                        return Err(Error::Format("a segment file that doesn't belong"));
+                    }
+                    break;
                 }
                 segments.push(segment);
             }
