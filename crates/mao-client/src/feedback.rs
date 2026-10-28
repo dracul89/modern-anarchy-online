@@ -55,6 +55,8 @@ fn english(name: &str) -> &'static str {
         "Feedback_LostSK" => "You lost %d points of Shadowknowledge.",
         "Feedback_GainedSK" => "You gained %d points of Shadowknowledge.",
         "Feedback_ExecutingNanoProgram" => "Executing Nano Program: %s.",
+        "Feedback_Reloading" => "Reloading...",
+        "Feedback_ReloadingCompleted" => "Reloading completed",
         "Feedback_CriticalHit" => "Critical hit!",
         "Feedback_GlancingHit" => "Glancing hit.",
         _ => "",
@@ -241,6 +243,11 @@ pub fn own_stat(stat: u32, change: i64) -> Option<String> {
         573 => line("Feedback_GainedSK", &[n]),
         _ => return None,
     })
+}
+
+/// A feedback text with nothing to fill (FUN_10059047: a name hashed and told as it is).
+pub fn plain(name: &str) -> String {
+    line(name, &[])
 }
 
 /// The client starting a nano program (N3Msg_CastNanoSpell, 0x1001b5d4: feedback 0x47 with the nano's name).

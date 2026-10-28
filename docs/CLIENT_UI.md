@@ -444,11 +444,11 @@ Missed attacks at or by the character (`MissedAttackInfo`: the attacker and the 
 
 - **Organization names on nameplates**: an `OrgInfoPacket` (`2e2a4a6b`: org id, name; captured "Corrupted", "The Asylum") adds `<Org>` after the name and level on that character's nameplate. Not tried live.
 
-- **Reload line**: a `Reload` (`26515e61`: ammo slot, weapon, ammo left 25260, rounds in the weapon 75 in the capture) tells "You reload: 75 rounds in the weapon, 25260 left." in the Combat tab. Not tried live; no reload is sent by the client yet.
+- **Reload line**: a `Reload` (`26515e61`) of your weapon now tells the original's "Reloading..." and, once the weapon's reload time (its stat 210, in hundredths of a second) is over, "Reloading completed" (FUN_100697bd, FUN_10068fd2 → FUN_1006884a; told through FUN_10059047 in the plain feedback channel, here the System tab). Not tried live; no reload is sent by the client yet.
 
 - **Backpack count**: the inventory's Backpack heading shows how many of the 30 places are used ("Backpack  12/30").
 
-- **Stop fighting**: a `StopFight` (`4a41203e`) from the character tells "You stop fighting." in the Combat tab (the capture shows the character and each monster sending one at the end of a fight). Not tried live.
+- **Stop fighting**: a `StopFight` (`4a41203e`) tells nothing (the original's handler, FUN_1007a2be, only holsters the weapon); the client's own "You stop fighting." line is gone.
 
 - **Interface size keys**: Ctrl+= and Ctrl+- make the interface a tenth larger or smaller (0.6 to 2.0; the same `ui_scale` as the options slider, saved at once). Rebindable in the options.
 

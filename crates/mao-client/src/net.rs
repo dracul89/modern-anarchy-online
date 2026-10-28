@@ -214,6 +214,10 @@ struct World {
     fighting: BTreeMap<u32, u32>,
     /// Each fighting character's turn towards its target (`Facing`).
     facings: BTreeMap<u32, Facing>,
+    /// The weapons' own ids (their `WeaponItemFullUpdate` identity) and templates.
+    weapon_templates: BTreeMap<u32, u32>,
+    /// When the client's reload is done (the weapon's stat 210 after the `Reload`), to tell "Reloading completed".
+    reload_done: Option<Instant>,
     /// The weapons the characters hold, by (owner, place): the item's template (`WeaponItemFullUpdate`: the owner, the place in
     /// `Unknown2`'s low byte, the template in stat 702, `ACGItemTemplateID`).
     weapons: BTreeMap<(u32, u8), u32>,
@@ -314,10 +318,6 @@ fn template_name(template: u32) -> Option<String> {
 }
 
 /// The line for an `Absorb` (the character's armour soaked up damage of a type) or a `ShieldAttack` (a damage shield struck the character).
-fn reload_line(loaded: i64, left: i64) -> String {
-    format!("You reload: {loaded} rounds in the weapon, {left} left.")
-}
-
 /// What an `InventoryUpdate` lists for a container the character used.
 struct Loot {
     identity: (u32, u32),
@@ -406,6 +406,14 @@ pub fn send_chat(out: crate::chatwindow::Out) {
 }
 
 impl World {
+    /// The lines due by now: the end of a reload.
+    fn tick_lines(&mut self) {
+        if self.reload_done.is_some_and(|t| Instant::now() >= t) {
+            self.reload_done = None;
+            self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, crate::feedback::plain("Feedback_ReloadingCompleted")));
+        }
+    }
+
     /// Who a character is in a fight line: the client's own, one it knows by name, or one it doesn't.
     fn who(&self, id: u32) -> crate::feedback::Who<'_> {
         if id == self.own {
@@ -655,6 +663,7 @@ impl World {
         if m.kind == 0x3b1d2268 {
             if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
                 let owner = p.value.get("Owner").and_then(|o| o.get("Instance")).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
+                let weapon_id = m.identity.1;
                 let slot = (p.value.get("Unknown2").and_then(mao_net::schema::Value::as_int).unwrap_or(0) & 0xff) as u8;
                 let template = match p.value.get("Stats") {
                     Some(mao_net::schema::Value::List(stats)) => stats.iter().find(|s| s.get("Item1").and_then(mao_net::schema::Value::as_int) == Some(702)).and_then(|s| s.get("Item2")?.as_int()),
@@ -662,6 +671,7 @@ impl World {
                 };
                 if let Some(template) = template.filter(|&t| t > 0) {
                     self.weapons.insert((owner, slot), template as u32);
+                    self.weapon_templates.insert(weapon_id, template as u32);
                 }
             }
         }
@@ -706,16 +716,16 @@ impl World {
                 }
             }
         }
-        // A reload: the rounds now in the weapon and those left in the ammunition stack.
+        // A reload of the client's weapon (`Reload`, FUN_10076cc9 → FUN_100697bd): "Reloading..." now and "Reloading completed"
+        // once the weapon's reload time, its stat 210, is over (FUN_10068fd2 → FUN_1006884a; the stat in hundredths of a
+        // second, as the attack time 294 is). (A `StopFight` tells nothing: FUN_1007a2be only holsters.)
         if m.kind == 0x26515e61 && m.identity.1 == self.own {
             if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
-                let n = |name: &str| p.value.get(name).and_then(mao_net::schema::Value::as_int).unwrap_or(0);
-                self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, reload_line(n("WeaponAmmoCount"), n("AmmoCount"))));
+                let weapon = p.value.get("WeaponIdentity").and_then(|w| w.get("Instance")).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
+                self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, crate::feedback::plain("Feedback_Reloading")));
+                let delay = self.weapon_templates.get(&weapon).and_then(|&t| template_stat(t, 210)).unwrap_or(0).max(0) as u64;
+                self.reload_done = Some(Instant::now() + Duration::from_millis(delay * 10));
             }
-        }
-        // The character's fight is over.
-        if m.kind == 0x4a41203e && m.identity.1 == self.own {
-            self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, "You stop fighting."));
         }
         // Damage a character's armour absorbed (`Absorb`, FUN_1009ef78: from the one absorbing).
         if m.kind == 0x264e5f61 {
@@ -3571,6 +3581,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 // starts the cast)
                 state.casts.clear();
                 state.prune_nanos();
+                state.tick_lines();
                 state.refresh_mods(&gear_db);
                 if let Some((who, items)) = state.inspected.take() {
                     let name = state.names.get(&who).map_or_else(|| "The target".to_string(), |n| n.0.clone());
@@ -4958,7 +4969,6 @@ mod door_tests {
 
     #[test]
     fn fight_lines_name_who_and_what() {
-        assert_eq!(reload_line(75, 25260), "You reload: 75 rounds in the weapon, 25260 left.");
     }
 
     #[test]

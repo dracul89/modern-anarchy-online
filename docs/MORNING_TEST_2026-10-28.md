@@ -58,6 +58,7 @@ four tabs are too cramped (the wear column is narrow, so their names are cut); t
 | d129213 | **Facing the target**: a standing fighter turns to face its target (every 0.67 s, when more than ~15° off, at 7.2 rad/s) | start a fight with the monster beside or behind you and stand still |
 | 0b24018 | **NPC animation sets read exactly**: an NPC's set now keeps every variant of an action (a humanoid NPC's 90 socials, its 3 deaths ...), each NPC picking its own | look at a crowd of the same NPC: their idles/deaths may differ now |
 | 8d71c02 | **Rifle wield out of a fight**: equipping a rifle plays `2h-start` before `idle-2h`, unequipping `2h-stop` | wear and remove a rifle while not fighting |
+| (next) | **Reload / stop lines**: "Reloading..." then "Reloading completed" (System tab) as the original; no more "You stop fighting."; NPCs swing at their animation's own speed (c8c2594) | reload a gun |
 | b55e7f0 | **Nano casts**: casting tells "Executing Nano Program: <nano>." in the Combat tab (the original's line); the client's own "X casts Y on you" lines are gone (the original has none) | cast a nano |
 | 2c2d490 | **Fix: `HealthDamage` direction**: the floating numbers and health bars now follow the one hurt (the message's sender), not the source | your health bar should no longer jump to a monster's health in a fight |
 
