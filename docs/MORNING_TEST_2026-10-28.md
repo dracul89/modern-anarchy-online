@@ -74,7 +74,7 @@ Added after the overnight run, on request: audio through rodio, ported from the 
 
 | Commit | What | What to try |
 |---|---|---|
-| (next) | **Sprung blast**: a sprung mine or trap bursts in a flare of streaks as it explodes | spring a mine or trap |
+| acff03e | **Sprung blast**: a sprung mine or trap bursts in a flare of streaks as it explodes | spring a mine or trap |
 | 6f8b98f | **Thunder**: storms thunder, near strikes loud and soon, far ones quiet and late | stand outdoors in a storm (rain with lightning weather) |
 | 649af9a | **Vicinity speech and its voice lines**: others' vicinity chat shows as `Name: text`; a voice line in it plays when "hear vicinity" voices are on | stand by someone who says something and sends a voice line (turn on `VoiceSndFxHearVicinityOn`) |
 | a433a4a | **Mine bleep**: an armed mine bleeps once a second while you stand in it, higher the closer you are | walk into a mine in a mission or dungeon |
