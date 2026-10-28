@@ -107,6 +107,8 @@ pub struct Update {
     pub bursts: Option<Vec<crate::effects::CastShow>>,
     /// Spells in flight and landing: the tracer's and the hit effect's spirals.
     pub shots: Option<Vec<crate::effects::Shot>>,
+    /// Flare effects made alone at a place (Z up), as a sprung mine's blast (template 2100).
+    pub flares: Vec<([f32; 3], mao_formats::gfx::Flare)>,
     /// What the server said of the specials' recharge (skill stat, seconds; 0 = ready).
     pub special_cooldowns: Vec<(u32, f32)>,
     /// The ground (and how far the server's heights sit above it), to keep the camera above it.
@@ -397,6 +399,7 @@ struct App {
     /// The cast effects running: when each began, and what.
     bursts: Vec<(std::time::Instant, crate::effects::CastShow)>,
     shots: Vec<(std::time::Instant, crate::effects::Shot)>,
+    flares: Vec<(std::time::Instant, [f32; 3], mao_formats::gfx::Flare)>,
     /// The effect sprite sheets already asked for.
     tried_sprites: std::collections::HashSet<u16>,
     /// The effect meshes by file name (`GfxControlEffectMesh_t`), and the sheets their textures were made (from 0xa000).
@@ -483,7 +486,7 @@ pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<()
     let settings = Settings::load();
     crate::ui::set_debug_overlay(settings.debug_overlay);
     crate::font::set_enabled(settings.original_font);
-    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), trails: Default::default(), motions: Default::default(), shake: (0.0, 0), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, casters: Vec::new(), follow_shift: [0.0; 3], environment: Default::default(), quake: Default::default(), quake_offset: [0.0; 3], wind: Default::default(), wind_at: std::time::Instant::now(), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
+    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), flares: Vec::new(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), trails: Default::default(), motions: Default::default(), shake: (0.0, 0), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, casters: Vec::new(), follow_shift: [0.0; 3], environment: Default::default(), quake: Default::default(), quake_offset: [0.0; 3], wind: Default::default(), wind_at: std::time::Instant::now(), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
     event_loop.run_app(&mut app).map_err(|e| e.to_string())?;
     if app.logged_out {
         // (the launcher that started the game sees this code and shows the character screen again)
@@ -1075,6 +1078,9 @@ impl ApplicationHandler for App {
                         for cast in u.bursts.take().unwrap_or_default() {
                             self.bursts.push((std::time::Instant::now(), cast));
                         }
+                        for (at, flare) in std::mem::take(&mut u.flares) {
+                            self.flares.push((std::time::Instant::now(), at, flare));
+                        }
                         self.hud.glows.retain(|g| g.born.elapsed().as_secs_f32() < crate::ui::GLOW_LIFE);
                         self.hud.floaters.retain(|f| f.born.elapsed().as_secs_f32() < crate::ui::FLOATER_LIFE);
                         if let Some(labels) = u.labels.take() {
@@ -1275,6 +1281,11 @@ impl ApplicationHandler for App {
                     self.bursts.retain(|(began, cast)| began.elapsed().as_secs_f32() < cast.length);
                     for (began, cast) in &self.bursts {
                         sparks.extend(crate::effects::cast_particles(cast, began.elapsed().as_secs_f32()));
+                    }
+                    // (a lone flare lasts its duration, or a while for one that runs for ever)
+                    self.flares.retain(|(began, _, f)| began.elapsed().as_secs_f32() < if f.duration >= 0.0 { f.duration } else { 30.0 });
+                    for (began, at, f) in &self.flares {
+                        sparks.extend(crate::effects::flare_particles(f, *at, began.elapsed().as_secs_f32(), f32::INFINITY, None));
                     }
                     self.shots.retain(|(began, shot)| began.elapsed().as_secs_f32() < shot.lasts());
                     for (began, shot) in &self.shots {

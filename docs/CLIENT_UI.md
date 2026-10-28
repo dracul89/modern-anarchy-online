@@ -900,3 +900,8 @@ client (an R250 generator seeded 0x85c19 for storms, gaps of 0.1 to 20 s over 60
 15). While the weather's entry 9 is above 0 and its entry 2 at least 0.4, each strike falls somewhere in a cell six zones
 across around you and plays `SM_Sandy_Env_NearLightning`, quieter the farther it is (`1 − d / cell × 0.5`) and later by
 `d / 100` seconds, like sound travelling. Not done: the bolt itself and the camera's jolt near one.
+
+**A sprung mine's or trap's blast.** When one is sprung its effect (0x834, template 2100) bursts at it: a flare of 64 streaks
+made at once (its word 31, which `_GfxControlFlare_t` makes first, FUN_100dd071 taking it off the count it has made, before the
+rate of word 10 — none here — adds more), flying out in every direction for 1 to 2 s. Flares started this way stand alone in
+the world (`Update::flares`) and go when their streaks have.

@@ -16,8 +16,9 @@
 //!   against every other dynel within 10 m on x and z, sphere against sphere, `CollPrim_t::CheckSphSph`) and hands each to the
 //!   mine's slot 55 (FUN_10085faa), which plays `SM_Sandy_Hazards_mine_bleep` on the frames the game clock's second turns.
 //!
-//! Not here: the sprung item's effect (0x834, `_EffectHandler_t::CreateEffect2`) and the signal FUN_10085faa sends after the
-//! bleep (`GlobalSignals_c` +0x14c with 3.0, FUN_10011a4b).
+//! * Sprung, the item's effect 0x834 is made at it (`_EffectHandler_t::CreateEffect2`, the handler's +0x54 set to 0x20 first).
+//!
+//! Not here: the signal FUN_10085faa sends after the bleep (`GlobalSignals_c` +0x14c with 3.0, FUN_10011a4b).
 
 use std::collections::BTreeMap;
 
@@ -130,10 +131,11 @@ pub struct Frame<'a> {
     pub sphere: &'a dyn Fn(&Hazard) -> Option<(f32, f32)>,
 }
 
-/// What an action did: the sounds to play (id, where) and the feedback line's name.
+/// What an action did: the sounds to play (id, where), the effects to make (template, where) and the feedback line's name.
 #[derive(Debug, Default, PartialEq)]
 pub struct Outcome {
     pub sounds: Vec<(u32, [f32; 3])>,
+    pub effects: Vec<(i32, [f32; 3])>,
     pub line: Option<&'static str>,
 }
 
@@ -213,6 +215,7 @@ impl Hazards {
         match (action, h.kind) {
             (0x6d, Kind::Mine | Kind::Trap) => {
                 out.sounds.push((sound_id("SM_Sandy_Game_Explo_Big"), h.at));
+                out.effects.push((0x834, h.at));
                 if character && who == own {
                     out.line = Some(if mine { "Feedback_MineWasSprung" } else { "Feedback_ATrapWasSprung" });
                 }
@@ -314,8 +317,8 @@ mod tests {
         h.map.insert(1, Hazard::new(Kind::Mine, [1.0, 2.0, 3.0]));
         h.map.insert(2, Hazard::new(Kind::Trap, [4.0, 5.0, 6.0]));
         let boom = sound_id("SM_Sandy_Game_Explo_Big");
-        assert_eq!(h.action(1, &action(0x6d, (0xc350, 7)), 7), Outcome { sounds: vec![(boom, [1.0, 2.0, 3.0])], line: Some("Feedback_MineWasSprung") });
-        assert_eq!(h.action(2, &action(0x6d, (0xc350, 8)), 7), Outcome { sounds: vec![(boom, [4.0, 5.0, 6.0])], line: None });
+        assert_eq!(h.action(1, &action(0x6d, (0xc350, 7)), 7), Outcome { sounds: vec![(boom, [1.0, 2.0, 3.0])], effects: vec![(0x834, [1.0, 2.0, 3.0])], line: Some("Feedback_MineWasSprung") });
+        assert_eq!(h.action(2, &action(0x6d, (0xc350, 8)), 7), Outcome { sounds: vec![(boom, [4.0, 5.0, 6.0])], effects: vec![(0x834, [4.0, 5.0, 6.0])], line: None });
         assert_eq!(h.action(2, &action(0x6c, (0xc350, 7)), 7).line, Some("Feedback_YouSuccededDisarmingTrap"));
         assert_eq!(h.action(1, &action(0x8c, (0, 0)), 7).sounds, vec![(sound_id("SM_Sandy_Hazards_mine_malfunction"), [1.0, 2.0, 3.0])]);
         assert_eq!(h.action(2, &action(0x8c, (0, 0)), 7), Outcome::default());

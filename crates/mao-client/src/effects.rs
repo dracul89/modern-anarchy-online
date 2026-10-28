@@ -541,20 +541,22 @@ pub const CAST_AT_SELF: f32 = 1.95;
 /// `GfxVisualFlareType0` moves them: particle `k` born at `(k + 1) / rate` with a life from words 34–35 and a velocity from the
 /// two angles and the speed; over its life its head moves `head` times that velocity and its tail `tail` times it (both spread
 /// over the life), its width and colour run from start to end. The streak is drawn as sprites from head to tail. `colours`
-/// replace the flare's own (a Spell1 sets them from its words 10–17).
+/// replace the flare's own (a Spell1 sets them from its words 10–17). The burst (word 31) is made at the start, when the
+/// flare emits at all (FUN_100dd071 takes it off the count, so FUN_100ddc6d's first run makes it), before the rate's.
 pub fn flare_particles(f: &Flare, at: [f32; 3], t: f32, stop: f32, colours: Option<([f32; 4], [f32; 4])>) -> Vec<Particle> {
     let mut out = Vec::new();
-    if f.rate <= 0.0 || t < 0.0 {
+    let longest = f.life.0.max(f.life.1).max(0.05);
+    let emitting = if f.duration >= 0.0 { (f.duration - longest).min(stop) } else { stop };
+    let burst = if 0.0 < emitting { f.burst.max(0) as u32 } else { 0 };
+    if (f.rate <= 0.0 && burst == 0) || t < 0.0 {
         return out;
     }
     let (ca, cb) = colours.unwrap_or((f.colour_a, f.colour_b));
     let lerp = |(a, b): (f32, f32), r: f32| a + (b - a) * r;
-    let longest = f.life.0.max(f.life.1).max(0.05);
-    let emitting = if f.duration >= 0.0 { (f.duration - longest).min(stop) } else { stop };
-    let made = (f.rate * t.min(emitting)).floor().max(0.0) as u32;
-    let first = ((t - longest).max(0.0) * f.rate).floor() as u32;
-    for k in first..made.min(first + 400) {
-        let born = (k + 1) as f32 / f.rate;
+    let (made, first) = if f.rate > 0.0 { ((f.rate * t.min(emitting)).floor().max(0.0) as u32, ((t - longest).max(0.0) * f.rate).floor() as u32) } else { (0, 0) };
+    let burst_left = if t < longest { burst.min(400) } else { 0 };
+    let all = (0..burst_left).map(|k| (k, 0.0)).chain((first..made.min(first + 400)).map(|k| (burst + k, (k + 1) as f32 / f.rate)));
+    for (k, born) in all {
         let salt = k.wrapping_mul(1005);
         let life = lerp(f.life, hash(salt, 1)).max(0.02);
         let age = t - born;
@@ -4264,8 +4266,18 @@ mod tests {
     }
 
     #[test]
+    fn a_burst_flare_streaks_out_at_once() {
+        // (template 2100, the sprung mine's blast: no rate, a burst of 64 streaks living 1 to 2 s, emitting while under 4 − 2 s)
+        let f = Flare { duration: 4.0, material: 9, rate: 0.0, width: (1.0, 2.0), colour_a: [1.0; 4], colour_b: [0.0, 1.0, 1.0, 1.0], gate: 0, azimuth: (0.0, 6.283), elevation: (0.0, 1.571), speed: (1.0, 8.0), head: 0.0, tail: 1.0, life: (1.0, 2.0), attach: 0, burst: 64 };
+        assert_eq!(flare_particles(&f, [0.0; 3], 0.5, f32::INFINITY, None).len(), 64 * 3);
+        let late = flare_particles(&f, [0.0; 3], 1.5, f32::INFINITY, None).len();
+        assert!(late > 0 && late < 64 * 3);
+        assert!(flare_particles(&f, [0.0; 3], 2.5, f32::INFINITY, None).is_empty());
+    }
+
+    #[test]
     fn a_cast_sparkles_at_both_hands_until_the_cast_ends() {
-        let flare = |attach: i32| Flare { duration: -1.0, material: 15, rate: 16.0, width: (0.05, 0.1), colour_a: [1.0, 0.5, 0.4, 1.0], colour_b: [0.0, 0.5, 0.4, 1.0], gate: 0, azimuth: (0.0, 6.283), elevation: (-1.571, 1.571), speed: (0.35, 0.85), head: -0.3, tail: 1.0, life: (0.5, 1.0), attach };
+        let flare = |attach: i32| Flare { duration: -1.0, material: 15, rate: 16.0, width: (0.05, 0.1), colour_a: [1.0, 0.5, 0.4, 1.0], colour_b: [0.0, 0.5, 0.4, 1.0], gate: 0, azimuth: (0.0, 6.283), elevation: (-1.571, 1.571), speed: (0.35, 0.85), head: -0.3, tail: 1.0, life: (0.5, 1.0), attach, burst: 0 };
         // (template 46133: blue, phase 1 at 0–6 s, the beam at 4–5 s)
         let cast = Cast { material: 8, colour_a: [1.0, 0.2, 0.2, 1.0], colour_b: [0.0, 0.2, 0.2, 1.0], times: [0.0, 6.0, 8.0, 4.0, 5.0, 64.35, 70.0, 70.0, 80.0], flares: [Some(flare(2001)), Some(flare(2000))], released: false };
         let show = CastShow { feet: [10.0, 20.0, 0.0], heading: 0.0, cast, length: CAST_AT_OTHER };

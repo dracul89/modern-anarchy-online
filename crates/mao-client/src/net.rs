@@ -237,6 +237,8 @@ struct World {
     hazards: crate::hazards::Hazards,
     /// The hazards' sounds to play: (sound, where).
     hazard_sounds: Vec<(u32, [f32; 3])>,
+    /// Effects to make at a place (`CreateEffect2` at a dynel): (template, where), for the viewer.
+    placed_effects: Vec<(i32, [f32; 3])>,
     /// Each character's last attack (`AttackInfo`, `MissedAttackInfo`, `SpecialAttackInfo`): the weapon's place, when, a count
     /// picking the swing, and the animation class (0xb, or a special's).
     swings: BTreeMap<u32, (u32, Instant, u32, u32)>,
@@ -656,6 +658,7 @@ impl World {
             crate::hazards::ACTION => {
                 let out = self.hazards.action(m.identity.1, &m.data, self.own);
                 self.hazard_sounds.extend(out.sounds);
+                self.placed_effects.extend(out.effects);
                 if let Some(name) = out.line {
                     // (FUN_10059047: the feedback told as it is)
                     self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, crate::feedback::plain(name)));
@@ -4068,6 +4071,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             })
                             .collect(),
                     ),
+                    flares: std::mem::take(&mut state.placed_effects)
+                        .into_iter()
+                        .filter_map(|(id, at)| Some(([at[0], at[2], at[1]], mao_formats::gfx::Flare::read(gfx.as_ref()?.get(id)?)?)))
+                        .collect(),
                     glows: std::mem::take(&mut state.landed)
                         .into_iter()
                         .filter_map(|(id, nano)| {

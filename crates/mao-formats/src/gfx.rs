@@ -745,7 +745,9 @@ impl BParticles {
 /// `elapsed < duration − longest life`, through the gate of word 24, a mask on `rand()`), 12–13 the streak's width from birth to
 /// death, 16–19 and 20–23 its colour (alpha, red, green, blue) from birth to death (a Spell1 sets both from its own), 25–26,
 /// 27–28 and 29–30 the ranges of its direction's two angles and its speed, 32 and 33 how far the head and the tail travel along
-/// that velocity over the life (the head −0.3, the tail 1: the streak grows backwards from the hand), 34–35 the life's range.
+/// that velocity over the life (the head −0.3, the tail 1: the streak grows backwards from the hand), 31 a burst (the
+/// sprite pool's least size; FUN_100dd071 takes it off the count made, so the first run makes that many at once), 34–35 the
+/// life's range.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Flare {
     pub duration: f32,
@@ -762,6 +764,7 @@ pub struct Flare {
     pub tail: f32,
     pub life: (f32, f32),
     pub attach: i32,
+    pub burst: i32,
 }
 
 impl Flare {
@@ -784,6 +787,7 @@ impl Flare {
             tail: r.float(33),
             life: (r.float(34), r.float(35)),
             attach: r.int(7),
+            burst: r.int(31),
         })
     }
 }
