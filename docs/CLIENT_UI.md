@@ -419,7 +419,7 @@ The sky is a scene setting now (`Scene::sky`: the horizon colour, which is also 
 
 ## Nano casts in the Combat tab
 
-A `CastNanoSpell` (`25314d6d`: the nano, the target and the caster) that involves the character becomes a line in the Combat tab: `You cast Heal Me on Zed.`, `Zed casts Heal Me on you.` (the nano's name is read from the nano table, the names from the entities the client knows). Casts between other characters are not listed.
+~~A `CastNanoSpell` that involves the character becomes a line in the Combat tab.~~ Replaced by the original's behaviour: the server's `CastNanoSpell` has no line (its handler, FUN_1007284f → FUN_10051c98, only starts the cast), and casting a nano yourself tells "Executing Nano Program: Heal Me." in the Combat tab (N3Msg_CastNanoSpell's feedback 0x47), in place of the on-screen "Casting ..." note.
 
 Missed attacks at or by the character (`MissedAttackInfo`: the attacker and the defender) add `You miss Rollerrat.` / `Rollerrat misses you.` to the Combat tab. (`AttackInfo` carries the damage dealt, the target and the kind of hit, but `HealthDamage` already gives the lines and numbers, so it is not repeated; `Feedback` carries only text ids of a text table this client does not have.)
 

@@ -3254,7 +3254,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 let aim = target.filter(|t| !state.objects.contains_key(t));
                 let _ = connection.send(&n3::cast_nano(own, aim, keys.cast.1));
                 let name = thread_db.get(mao_formats::resource::Id { kind: 0xfde85, instance: keys.cast.1 }).ok().flatten().and_then(|d| mao_formats::item::Item::parse(&d)).map_or_else(|| format!("nano #{}", keys.cast.1), |t| t.name);
-                pending_messages.push(format!("Casting {name}"));
+                // (N3Msg_CastNanoSpell, 0x1001b5d4: feedback 0x47 with the nano's name)
+                state.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, crate::feedback::executing(&name)));
             }
             // A hotbar item: use the inventory slot it sits in.
             if keys.fire.0 != fired {
@@ -3548,20 +3549,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     eprintln!("worn: {:?}", state.worn.iter().map(|e| (e.slot, e.low_id, e.high_id, e.quality)).collect::<Vec<_>>());
                     eprintln!("stats: {} stored, {} modifiers; {}", state.stats.len(), state.item_mods.len(), pick(&[0x1b, 0x01, 0xd6, 0xdd, 0x36, 0x34, 0x39, 0x15e, 0x28, 0xb2, 0xa9, 0x5b]));
                 }
-                for (caster, tgt, nano) in std::mem::take(&mut state.casts) {
-                    let nano_name = gear_db.get(mao_formats::resource::Id { kind: 0xfde85, instance: nano }).ok().flatten().and_then(|d| mao_formats::item::Item::parse(&d)).map_or_else(|| format!("nano #{nano}"), |t| t.name);
-                    let who = |id: u32| if id == own { "you".to_string() } else { state.names.get(&id).map_or_else(|| "something".to_string(), |n| n.0.clone()) };
-                    let text = if caster == own && tgt == own {
-                        format!("You cast {nano_name}.")
-                    } else if caster == own {
-                        format!("You cast {nano_name} on {}.", who(tgt))
-                    } else if tgt == own && caster != tgt {
-                        format!("{} casts {nano_name} on you.", who(caster))
-                    } else {
-                        format!("{} casts {nano_name}.", who(caster))
-                    };
-                    state.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, text));
-                }
+                // (the server's `CastNanoSpell` has no line in the original: its handler, FUN_1007284f → FUN_10051c98, only
+                // starts the cast)
+                state.casts.clear();
                 state.prune_nanos();
                 state.refresh_mods(&gear_db);
                 if let Some((who, items)) = state.inspected.take() {

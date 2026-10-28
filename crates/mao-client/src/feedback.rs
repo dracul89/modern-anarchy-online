@@ -54,6 +54,7 @@ fn english(name: &str) -> &'static str {
         "Feedback_GainedAlienXP" => "You gained %d new Alien Experience Points.",
         "Feedback_LostSK" => "You lost %d points of Shadowknowledge.",
         "Feedback_GainedSK" => "You gained %d points of Shadowknowledge.",
+        "Feedback_ExecutingNanoProgram" => "Executing Nano Program: %s.",
         "Feedback_CriticalHit" => "Critical hit!",
         "Feedback_GlancingHit" => "Glancing hit.",
         _ => "",
@@ -242,6 +243,11 @@ pub fn own_stat(stat: u32, change: i64) -> Option<String> {
     })
 }
 
+/// The client starting a nano program (N3Msg_CastNanoSpell, 0x1001b5d4: feedback 0x47 with the nano's name).
+pub fn executing(nano: &str) -> String {
+    line("Feedback_ExecutingNanoProgram", &[Arg::Text(nano)])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -285,6 +291,7 @@ mod tests {
         assert_eq!(own_stat(573, 3).unwrap(), "You gained 3 points of Shadowknowledge.");
         assert_eq!(own_stat(27, 40).unwrap(), "You were healed for 40 points.");
         assert_eq!(own_stat(1, 40), None);
+        assert_eq!(executing("Heal Me"), "Executing Nano Program: Heal Me.");
     }
 
     #[test]
