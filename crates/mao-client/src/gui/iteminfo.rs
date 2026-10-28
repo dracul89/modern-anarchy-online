@@ -28,11 +28,15 @@
 //! red when the reader's stat 221 is below it, then the cost without the modifier in brackets), the NCU it takes (stat
 //! 54 unless 999), its school (stat 405: Combat, Medical, Protection, Psi, Space from category 10000), stacking order
 //! (551), nanolines (stats 75 and 546-550 named from category 2009, not its own id), duration (`N3Msg_GetBuffTotalTime`:
-//! stat 8 in hundredths as h:m:s), range, damage, attack time (FUN_10032582, which here takes 10 as none), the local
+//! its repeating spells' time, else stat 8, in hundredths as h:m:s), range, damage, attack time (FUN_10032582, which here takes 10 as none), the local
 //! cooldown (stat 254, at least a second) and the nanoline ones (stats 643-648 against the nanolines), attack and defence
 //! skills, the modifiers, what it does on death (list 20) and on cancel (list 28), the requirements and the description.
+//! Stats its record lacks take NanoItem_t's defaults (FUN_10086142: attack and recharge 2s, range 20m, duration 10s ...).
 //!
-//! Not yet: the weapon page's damage per second, the nano page's radius (`N3Msg_GetFormularRadius`, a field the
+//! A weapon's damage per second (FUN_10033e0d, `N3Msg_GetDpsString` 0x10018daf): its damage over the attack and recharge
+//! times the reader would have (Gamecode FUN_10067c74 and FUN_10067d92), "%.1f-%.1f(%.1f)".
+//!
+//! Not yet: the shop price (FUN_10031fda, a vendor's stat 74), the nano page's radius (`N3Msg_GetFormularRadius`, a field the
 //! NanoItem_t computes when it loads), the armour, implant and nano pages' own sections (FUN_1003826b, FUN_10038586),
 //! the shop price, fixtures, towers and buildings, and the stats interpolated between the low and high templates (the
 //! requirements are).
@@ -79,12 +83,75 @@ struct Ctx<'a> {
     ql: u32,
     level: u32,
     nano: bool,
+    player: &'a BTreeMap<u32, i64>,
+}
+
+/// The stats a NanoItem_t starts with before its record is read (Gamecode FUN_10086142); stat 75, its nanoline, is its own
+/// id.
+fn nano_default(k: u32, id: u32) -> Option<i32> {
+    Some(match k {
+        1 | 0x1b => 10,
+        8 => 1000,
+        0 | 0x195 | 0x36 | 0x197 => 1,
+        0x4b => id as i32,
+        0xa8 => 100,
+        0x178 => 0xcb,
+        0x179 => 0xc9,
+        0x17a => 0xca,
+        0x126 | 0xd2 | 0xd3 => 200,
+        0x4c => 4,
+        0x11f => 20,
+        0x4a => 1000,
+        0x1ac | 0x19e | 0x16e | 0x1a3 | 0x169 => 49999,
+        0x175 | 0x9c | 0x19 | 0x14c | 0x160 | 0xe | 0x48 | 0x222..=0x227 | 0x1a6 | 0x181 | 0x182 | 0x212 | 0x4f | 0x125 | 0xb7 | 0x19d => 0,
+        _ => return None,
+    })
+}
+
+/// FUN_10067c74 and FUN_10067d92's share of the reader's initiative skill: half of it up to 1200, a sixth above.
+fn initiative_bonus(skill: i64) -> f32 {
+    if skill < 1201 { skill as f32 * 0.5 } else { (skill - 1200) as f32 / 6.0 + 600.0 }
 }
 
 impl Ctx<'_> {
-    /// `N3Msg_GetSkill` on the item (`None` for the original's 1234567890, a stat it does not have).
+    fn player(&self, k: u32) -> i64 {
+        self.player.get(&k).copied().unwrap_or(0)
+    }
+
+    /// Gamecode FUN_10067c74 (`recharge` false) and FUN_10067d92 (true): the reader's attack or recharge time with this
+    /// weapon in hundredths — the weapon's (stat 294, 210) plus 75, less a third of the initiative bonus (two thirds for
+    /// the recharge) and the reader's stat 51, no less than the weapon's minimum (523, 524) or 100.
+    fn swing_time(&self, recharge: bool) -> f32 {
+        let init = self.stat(440).unwrap_or(1234567890);
+        let (base, skill, least) = if recharge {
+            (self.stat(210), if (0..=1200).contains(&init) { init } else { 118 }, self.stat(524))
+        } else {
+            (self.stat(294), init, self.stat(523))
+        };
+        let bonus = initiative_bonus(self.player(skill as u32));
+        let bonus = if recharge { bonus + bonus } else { bonus };
+        let mut t = base.unwrap_or(1234567890) as f32 + 75.0 - bonus / 3.0 - self.player(51) as f32;
+        if let Some(least) = least {
+            t = t.max(least as f32);
+        }
+        if 100.0 < t { t } else { 100.0 }
+    }
+
+    /// FUN_10033e0d, `N3Msg_GetDpsString`: damage over the reader's attack and recharge times.
+    fn dps(&self) -> String {
+        if self.stat(76) != Some(1) {
+            return String::new();
+        }
+        let Some(min) = self.stat(286) else { return String::new() };
+        let t = (self.swing_time(false) + self.swing_time(true)) * 0.01;
+        let (max, crit) = (self.stat(285).unwrap_or(1234567890), self.stat(284).unwrap_or(1234567890));
+        section(&text("Dps"), &format!("{:.1}-{:.1}({:.1})", min as f32 / t, max as f32 / t, crit as f32 / t), 0)
+    }
+
+    /// `N3Msg_GetSkill` on the item (`None` for the original's 1234567890, a stat it does not have); a nano program's
+    /// missing stats take NanoItem_t's defaults.
     fn stat(&self, k: u32) -> Option<i32> {
-        self.it.stat(k).map(|v| v as i32)
+        self.it.stat(k).map(|v| v as i32).or_else(|| if self.nano { nano_default(k, self.low) } else { None })
     }
 
     /// FUN_10031d7c: the name in the rarity's colour.
@@ -399,9 +466,23 @@ impl Ctx<'_> {
         }
     }
 
-    /// `N3Msg_GetBuffTotalTime`: stat 8 in hundredths, as h:m:s.
+    /// `N3Msg_GetBuffTotalTime` (FUN_1008651e): the time its repeating spells run when it has some (FUN_100a49b1, the
+    /// longest of a 0xcf0e's hits times its delay and a 0xcf16's delay plus its stat 25), else stat 8; hundredths, shown
+    /// as h:m:s.
     fn duration(&self) -> String {
-        let t = self.stat(8).unwrap_or(0).max(0) / 100;
+        let mut longest = 0;
+        for (_, spells) in mao_formats::spell::lists(&self.data) {
+            for sp in spells {
+                let t = match sp.kind {
+                    0xcf16 => sp.stat(4).abs() + sp.stat(0x19),
+                    0xcf0e => sp.stat(3) * sp.stat(4).abs(),
+                    _ => 0,
+                };
+                longest = longest.max(t);
+            }
+        }
+        let t = if longest > 0 { longest } else { self.stat(8).unwrap_or(0) };
+        let t = t.max(0) / 100;
         section(&text("Duration"), &format!("{:02}:{:02}:{:02}", t / 3600, t / 60 % 60, t % 60), 0)
     }
 
@@ -453,7 +534,7 @@ pub fn nano_page(db: &ResourceDatabase, id: u32, player: &BTreeMap<u32, i64>) ->
     let it = Item::parse(&data)?;
     let actions = item::actions(&data);
     let level = player.get(&crate::stats::stat::LEVEL).copied().unwrap_or(1).max(1) as u32;
-    let c = Ctx { db, it, data, actions, low: id, ql: 0, level, nano: true };
+    let c = Ctx { db, it, data, actions, low: id, ql: 0, level, nano: true, player };
     let mut parts = vec![c.header(), c.nano_cost(player), c.ncu(), c.school(), c.stacking_order()];
     parts.extend([75, 546, 547, 548, 549, 550].map(|s| c.nanoline(s)));
     parts.extend([
@@ -466,16 +547,17 @@ pub fn nano_page(db: &ResourceDatabase, id: u32, player: &BTreeMap<u32, i64>) ->
 
 /// The page of an item at a quality (FUN_10038f6b by item class, stat 76): a weapon's (1, FUN_1003732c), armour's (2,
 /// FUN_1003826b) and implants' (3 and 5, FUN_10038586), else the general one (FUN_1003882b).
-pub fn item_page(db: &ResourceDatabase, low: u32, high: u32, ql: u32, level: u32) -> Option<String> {
+pub fn item_page(db: &ResourceDatabase, low: u32, high: u32, ql: u32, player: &BTreeMap<u32, i64>) -> Option<String> {
+    let level = player.get(&crate::stats::stat::LEVEL).copied().unwrap_or(1).max(1) as u32;
     let template = |id: u32| db.get(Id { kind: item::TEMPLATE, instance: id }).ok().flatten();
     let data = template(low).or_else(|| template(high))?;
     let it = Item::parse(&data)?;
     let entry = mao_net::inventory::Entry { slot: 0, flags: 0, count: 1, container: (0, 0), low_id: low, high_id: high, quality: ql, extra: 0 };
     let actions = crate::derived::actions(db, &entry);
-    let c = Ctx { db, it, data, actions, low, ql, level, nano: false };
+    let c = Ctx { db, it, data, actions, low, ql, level, nano: false, player };
     let parts: Vec<String> = if c.stat(76) == Some(1) {
         vec![
-            c.header(), c.flags(), c.temporary(), c.pvp(), c.ammo(), c.rarity(), c.requirements(), c.ammo_type(), c.damage(), c.speed(),
+            c.header(), c.flags(), c.temporary(), c.pvp(), c.ammo(), c.rarity(), c.requirements(), c.ammo_type(), c.damage(), c.dps(), c.speed(),
             c.equip_delay(), c.initiative(), c.location(), c.range(), c.dual_wield(), c.specials(), c.max_beneficial(),
             c.skills(12, "AtkSkills"), c.skills(13, "DefSkills"), c.modifiers(), c.skill_to_use(), c.damage_type(), c.description(),
         ]
@@ -502,8 +584,7 @@ pub fn page(db: &ResourceDatabase, url: &str, player: &BTreeMap<u32, i64>) -> Op
         return if kind == NANO_IDENTITY { nano_page(db, id, player) } else { None };
     }
     let (low, high, ql) = parse_itemref(url)?;
-    let level = player.get(&crate::stats::stat::LEVEL).copied().unwrap_or(1).max(1) as u32;
-    item_page(db, low, high, ql, level)
+    item_page(db, low, high, ql, player)
 }
 
 #[cfg(test)]
@@ -549,10 +630,11 @@ mod tests {
             let it = Item::parse(&data)?;
             (it.stat(76) == Some(1) && it.stat(286).is_some() && it.stat(420).is_some_and(|a| a != 0)).then_some(id)
         });
+        let level200 = BTreeMap::from([(crate::stats::stat::LEVEL, 200)]);
         if let Some(w) = weapon {
-            let page = item_page(&db, w, w, 100, 200).unwrap();
+            let page = item_page(&db, w, w, 100, &level200).unwrap();
             println!("weapon {w}\n{page}");
-            assert!(page.contains("Damage"));
+            assert!(page.contains("Damage") && page.contains("Dps: "));
         }
         // (and a nano program's)
         let nano = (95_000..96_000).find(|&id| db.get(Id { kind: item::NANO_TEMPLATE, instance: id }).ok().flatten().is_some()).unwrap();
@@ -560,7 +642,7 @@ mod tests {
         println!("nano {nano}\n{page}");
         assert!(page.contains("Nano Cost") && page.contains("Duration"));
         let (id, name) = found.expect("an item with wear requirements");
-        let page = item_page(&db, id, id, 100, 200).unwrap();
+        let page = item_page(&db, id, id, 100, &level200).unwrap();
         println!("{id} {name}\n{page}");
         assert!(page.contains(&name));
         assert!(page.contains("CCInfoHeader"));

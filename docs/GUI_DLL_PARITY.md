@@ -22,7 +22,7 @@ bar's art); (4) the info view
 (`InfoView_c`, `Views/InfoView.xml`, `text://` and `itemref://` links) — first part done (`gui/infoview.rs`,
 `gui/iteminfo.rs`, `gui/criteria.rs`: the window and its history, item pages from the inventory's Info menu with name,
 rarity, quality, requirements, locations, charges, modifiers and description; the weapon page; nano pages from the nano
-programs window's Info, `itemid://53019/<id>`; to come: damage per second, the nano radius, character info); then the other XML classes and windows. Skins carry their own `Views/*.xml`
+programs window's Info, `itemid://53019/<id>`; weapons' damage per second; to come: the nano radius, shop prices, character info); then the other XML classes and windows. Skins carry their own `Views/*.xml`
 (the user's AOU skins in `70dad3e6/Anarchy Online/Gui`): all of them load (`MAO_SKINS` test).
 
 ## 1. The framework
@@ -67,7 +67,7 @@ programs window's Info, `itemid://53019/<id>`; to come: damage per second, the n
 | Targeting (`TargetingModule_t`, `TargetView`, friendly/hostile health bars) | | `ui.rs::target_frame` | part |
 | Chat (`ChatGUIModule_c`, `chat_group_window`, `ChatGroupWindowConfig`, `ChatConfig`, `log_window_config`, `/filter`) | | `chatwindow.rs` | part: tabs; no chat config window, no groups per window, no links, no timestamps option |
 | Wear / inventory / backpacks / bank (`InventoryGUIModule_c`, `wear_window`, `inventory_window`, `bank_window`, `ItemSlotView`) | | `gear.rs` | part: wear + inventory; no backpack windows, no bank |
-| Info view: item, nano, character info (`InfoViewModule_c`, `info_window`, `InfoViewConfig`, `InspectViewConfig`) | `InfoView.xml` | `gui/infoview.rs`, `gui/iteminfo.rs`, `gui/criteria.rs` | part (item, weapon, armour, implant and nano pages; no DPS, nano radius, character info) |
+| Info view: item, nano, character info (`InfoViewModule_c`, `info_window`, `InfoViewConfig`, `InspectViewConfig`) | `InfoView.xml` | `gui/infoview.rs`, `gui/iteminfo.rs`, `gui/criteria.rs` | part (item, weapon, armour, implant and nano pages with DPS; no nano radius, shop price, character info) |
 | Skills (`skill_window`, `SkillConfig`) | `Skills.xml` | `skills.rs` | ours (IP raising?) |
 | Stats (`stat_window`, `zFStatViewConfig`) | | `stats.rs` | ours |
 | NCU (`ncu_window`, `zFNCUWindowConfig`), target NCU (`target_ncu_window`, `FightTargetNCUWindowConfig`, `NanoTargetNCUWindowConfig`) | | `ncu.rs` | part: own NCU only |

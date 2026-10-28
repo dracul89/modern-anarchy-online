@@ -1016,5 +1016,6 @@ commands). Weapons get FUN_1003732c's page (ammunition, damage, speed, initiativ
 skills from the template's skill lists, `item::skill_lists`). The nano programs window's right-click **Info** opens a nano
 program's page (FUN_1003683d, `itemid://53019/<id>`): nano cost with the reader's cost modifier (red when their nano is
 short), NCU, school, stacking order, nanolines, duration, range, speed, cooldowns, attack/defence skills, modifiers, on
-death/on cancel, requirements, description. Not yet: damage per second, the nano radius, spell types other than the
-common ones.
+death/on cancel, requirements, description. Weapons show their damage per second with the reader's attack and recharge times (`N3Msg_GetDpsString`, Gamecode
+FUN_10067c74/FUN_10067d92: initiative skill and stat 51). Not yet: the nano radius, shop prices, spell types other than
+the common ones.
