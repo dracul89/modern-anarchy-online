@@ -202,7 +202,7 @@ A second connection to `chat.d1.funcom.com:7105` (`mao_net::chat`, decoded from 
 * `/tell <name> <text>` (`/t`): looks the name up, then sends the tell; it is echoed as "To name: text". `/reply <text>` (`/r`) answers the last character that told you something.
 * `/org <text>` (`/o`): the organization channel (the channel of kind 3 the server announces; "You are not in an organization." without one; not tested live, none of the account's characters is in an organization).
 * `/help` lists what this client carries out; `/version`.
-* Every other command of the list says it is not carried out yet; a word that is not in the list says it is unknown; plain text and `/say`, `/shout`, `/whisper`, `/me` are vicinity chat, which goes through the game connection and is not decoded, so they say so.
+* Every other command of the list says it is not carried out yet; a word that is not in the list says it is unknown; plain text and `/say`, `/shout` (`/s`), `/whisper` (`/w`) are vicinity chat, sent on the game connection (see "Speaking in the vicinity" below); `/me` says it is not available yet.
 
 The lines also appear in the on-screen log as before, and now survive a zoning (the connection belongs to the run, not to one playfield). Preview: `MAO_UI_PREVIEW=chat` (`MAO_CHAT_INPUT=/te` types into the input and shows the list; set `MSYS_NO_PATHCONV=1` in Git Bash).
 
@@ -922,3 +922,10 @@ voice effect installed.": a name with both a `.wav` and a `.txt` in `sfx/player`
 `[T]`/`[M]` tags taken off: "Medic!") with the voice record as the message's blob. The original sends to the chat window's
 selected group; this client has no group selection, so it goes to your organization's channel. A channel flagged 0x40 takes no
 voices: the send is refused with the original's words, and a voice line received in one is dropped.
+
+**Speaking in the vicinity.** Plain text and `/say`, `/shout` (`/s`) and `/whisper` (`/w`) are said to the people around as the
+original says them: GUI.dll packs the text's length, the text, its kind (0 say, 1 whisper, 2 shout) and any voice record
+(FUN_10089669), and Interfaces.dll sends it on the game connection as a `TextMessage_t` (frame kind 5) of object 3, 4 or 2,
+with the current target's identity and the data's length before it (`Client_t::SendVicinityMessage` and its kin). The line
+comes back from the chat server as vicinity speech (packet 34), so nothing is echoed here. `/voice` lines are said this way too:
+the original sends them to the chat window's selected group, Vicinity unless another is picked.

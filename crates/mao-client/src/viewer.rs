@@ -1548,6 +1548,7 @@ impl ApplicationHandler for App {
                                 self.settings.char_distance = d as f32;
                                 self.settings.save();
                             }
+                            crate::chatwindow::Out::Vicinity { kind, text } => crate::net::speak(kind, text, Vec::new()),
                             other => crate::net::send_chat(other),
                         }
                     }

@@ -38,6 +38,8 @@ pub enum Out {
     Org { text: String },
     /// `/voice`: a voice line to speak (its checks and text are the chat connection's, `voices::command`).
     Voice { line: String },
+    /// Vicinity speech (0 say, 1 whisper, 2 shout), sent on the game connection.
+    Vicinity { kind: u8, text: String },
     /// Put a character on the friends list / take one off.
     Befriend { name: String },
     Unfriend { id: u32 },
@@ -252,10 +254,15 @@ impl ChatWindow {
                 self.push(Line::new(Kind::Own, format!("[Org] {text}")));
                 Some(Out::Org { text })
             }
-            Parsed::Vicinity { command, .. } => {
-                self.push(Line::new(Kind::System, format!("Speaking to the people around ({command}) is not available in this client yet.")));
+            Parsed::Vicinity { command: "emote", .. } => {
+                self.push(Line::new(Kind::System, "Emotes are not available in this client yet."));
                 None
             }
+            Parsed::Vicinity { command, text } => Some(Out::Vicinity { kind: match command {
+                "whisper" => 1,
+                "shout" => 2,
+                _ => 0,
+            }, text }),
             Parsed::Help => {
                 self.push(Line::new(Kind::System, "Commands this client carries out:"));
                 for (usage, what) in chat_commands::IMPLEMENTED {
@@ -431,8 +438,12 @@ mod tests {
         assert!(w.lines.len() >= 6);
         assert_eq!(w.run("/afk"), None);
         assert!(w.lines.last().unwrap().text.contains("not carried out"));
-        assert_eq!(w.run("hello"), None);
+        assert_eq!(w.run("/me waves"), None);
         assert!(w.lines.last().unwrap().text.contains("not available"));
+        // (vicinity speech goes out: say, shout, whisper)
+        assert_eq!(w.run("hello"), Some(Out::Vicinity { kind: 0, text: "hello".into() }));
+        assert_eq!(w.run("/s HEY"), Some(Out::Vicinity { kind: 2, text: "HEY".into() }));
+        assert_eq!(w.run("/w psst"), Some(Out::Vicinity { kind: 1, text: "psst".into() }));
     }
 
     #[test]

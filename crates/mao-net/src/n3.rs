@@ -418,6 +418,31 @@ pub fn select_target(character: u32, target: u32) -> Frame {
 }
 
 /// `2252445f`: make `target` the current target (0 clears it).
+/// Vicinity speech's data (GUI.dll FUN_10089669): the text's length (`u16`), the text, the kind (0 say, 1 whisper, 2 shout)
+/// and the voice record (`voices::pack`, or nothing); none for a text over 1024 bytes.
+pub fn vicinity_data(text: &str, kind: u8, record: &[u8]) -> Option<Vec<u8>> {
+    if text.len() > 0x400 {
+        return None;
+    }
+    let mut data = (text.len() as u16).to_be_bytes().to_vec();
+    data.extend_from_slice(text.as_bytes());
+    data.push(kind);
+    data.extend_from_slice(record);
+    Some(data)
+}
+
+/// Vicinity speech sent (Interfaces.dll `Client_t::SendVicinityMessage`, `SendShoutMessage`, `SendWhisperMessage`): a
+/// `TextMessage_t` (frame kind 5) of object 3 (say), 4 (shout) or 2 (whisper) from the character to 2, its body the current
+/// target's identity (`InputConfig_t` +0xc0; none 0), the data's length and the data ([`vicinity_data`]).
+pub fn text_message(character: u32, object: u32, target: (u32, u32), data: &[u8]) -> Frame {
+    let mut body = object.to_be_bytes().to_vec();
+    body.extend_from_slice(&target.0.to_be_bytes());
+    body.extend_from_slice(&target.1.to_be_bytes());
+    body.extend_from_slice(&(data.len() as u32).to_be_bytes());
+    body.extend_from_slice(data);
+    Frame { kind: crate::frame::TEXT, source: character, destination: 2, body }
+}
+
 pub fn set_target(character: u32, target: u32) -> Frame {
     let mut data = vec![0u8; 13];
     if target != 0 {
@@ -533,6 +558,17 @@ mod tests {
         assert_eq!(set_target(0x4c2de, 0x7af69bd8).body, hex("2252445f0000c3500004c2de000000c3507af69bd800000001"));
         assert_eq!(set_target(0x4c2de, 0).body, hex("2252445f0000c3500004c2de00000000000000000000000000"));
         assert_eq!(attack(0x4c2de, 0x7af69bd8).body, hex("284940700000c3500004c2de000000c3507af69bd800"));
+    }
+
+    #[test]
+    fn vicinity_speech_is_a_text_message() {
+        // (say "hi" at nobody, with a voice record: object 3, no target, the data's length, then u16 2, "hi", kind 0, the record)
+        let data = vicinity_data("hi", 0, &[1, 4, 2]).unwrap();
+        assert_eq!(data, [0, 2, b'h', b'i', 0, 1, 4, 2]);
+        let f = text_message(0x4c2de, 3, (0, 0), &data);
+        assert_eq!((f.kind, f.source, f.destination), (crate::frame::TEXT, 0x4c2de, 2));
+        assert_eq!(f.body, [&[0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8][..], &data].concat());
+        assert!(vicinity_data(&"x".repeat(0x401), 0, &[]).is_none());
     }
 
     #[test]

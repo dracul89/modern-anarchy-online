@@ -423,6 +423,14 @@ static BUDDIES: std::sync::Mutex<(u64, BTreeMap<u32, (String, bool)>)> = std::sy
 const ORG_CHANNEL_KIND: u8 = 3;
 
 /// Sends what the chat window typed (a tell or a line for the organization channel).
+/// Vicinity speech to send on the game connection: (kind: 0 say, 1 whisper, 2 shout; text; voice record).
+static SPEECH: std::sync::Mutex<Vec<(u8, String, Vec<u8>)>> = std::sync::Mutex::new(Vec::new());
+
+/// Vicinity speech (`/say`, `/shout`, `/whisper`, plain text, `/voice`), sent by the game loop.
+pub fn speak(kind: u8, text: String, record: Vec<u8>) {
+    SPEECH.lock().unwrap_or_else(|e| e.into_inner()).push((kind, text, record));
+}
+
 pub fn send_chat(out: crate::chatwindow::Out) {
     match CHAT_OUT.get() {
         Some(tx) => {
@@ -2696,21 +2704,13 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                     Some((&id, _)) => chat.send(&mao_net::chat::channel_packet(ORG_CHANNEL_KIND, id, &text))?,
                                     None => CHAT_LINES.lock().unwrap().push(Line::new(Kind::System, "You are not in an organization.")),
                                 },
-                                // `/voice` (FUN_100b88b1): its line and record, to the organization's channel (the only group this client
-                                // sends to: the original's goes to the chat window's selected group)
+                                // `/voice` (FUN_100b88b1): its line and record, said in the vicinity (the chat window's selected group in the
+                                // original, Vicinity unless another is picked: this client has no other to pick)
                                 Out::Voice { line } => match crate::voices::command(&line) {
                                     Err(e) => CHAT_LINES.lock().unwrap().push(Line::new(Kind::System, e)),
-                                    Ok((text, blob)) => match channels.iter().find(|(_, (kind, _))| *kind == ORG_CHANNEL_KIND) {
-                                        Some((&id, _)) if channel_flags.get(&id).is_some_and(|f| f & 0x40 != 0) => {
-                                            CHAT_LINES.lock().unwrap().push(Line::new(Kind::System, "You are not allowed to use voice commands in the selected chat group."));
-                                        }
-                                        Some((&id, _)) => {
-                                            chat.send(&mao_net::chat::channel_packet_with_blob(ORG_CHANNEL_KIND, id, &text, &blob))?;
-                                            CHAT_LINES.lock().unwrap().push(Line::new(Kind::Own, format!("[Org] {text}")));
-                                        }
-                                        None => CHAT_LINES.lock().unwrap().push(Line::new(Kind::System, "You are not in an organization.")),
-                                    },
+                                    Ok((text, blob)) => speak(0, text, blob),
                                 },
+                                Out::Vicinity { kind, text } => speak(kind, text, Vec::new()),
                             }
                         }
                     }
@@ -3080,6 +3080,18 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 }
             }
             keys = raw;
+            // Vicinity speech: a text message to the server, at the current target (a character's; none for an object or nobody).
+            for (kind, text, record) in std::mem::take(&mut *SPEECH.lock().unwrap_or_else(|e| e.into_inner())) {
+                let object = match kind {
+                    1 => 2,
+                    2 => 4,
+                    _ => 3,
+                };
+                let at = target.filter(|t| !state.objects.contains_key(t)).map_or((0, 0), |t| (n3::CHARACTER, t));
+                if let Some(data) = n3::vicinity_data(&text, kind, &record) {
+                    let _ = connection.send(&n3::text_message(own, object, at, &data));
+                }
+            }
             // `/selectself`: the character is its own target.
             if raw.select_self != self_seen {
                 self_seen = raw.select_self;

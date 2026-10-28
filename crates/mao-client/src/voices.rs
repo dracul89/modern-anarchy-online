@@ -19,7 +19,8 @@
 //!   `VoiceSndFxType` mood (`CharPrefs.xml`: 0 simple, 1 distunguished, as the files spell it, 2 cool, 3 military;
 //!   FUN_1008c472), when some name tried has both its `.wav` and its `.txt` (FUN_1008cbc2; else "You do not have that voice
 //!   effect installed."); its text the first line of the first `.txt` (FUN_1008cfe3), any leading `[tags]` taken off
-//!   (FUN_1008c5db), sent with record 1 (`BBBSS`, FUN_10089628) as the blob.
+//!   (FUN_1008c5db), sent with record 1 (`BBBSS`, FUN_10089628) as the blob, said in the vicinity (the original's selected
+//!   group, Vicinity by default; this client has no other to pick).
 //!
 //! Not here: the ignore list's say (a sender on it is heard only when record 2's flag has bit 0), and the tags' doings
 //! (FUN_1008c5db: `T` flashes the speaker's name in the team window, `M` signals `GlobalSignals_c` +0x150).
