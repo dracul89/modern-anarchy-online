@@ -1167,7 +1167,7 @@ fn options_window(ctx: &egui::Context, open: &mut bool, rebinding: &mut Option<A
         });
         ui.horizontal(|ui| {
             ui.label("Skin folder");
-            let edit = ui.add(egui::TextEdit::singleline(&mut settings.gui_dir).desired_width(320.0).hint_text("a Gui/<skin> folder with Graphics.uvga; empty: the game's own"));
+            let edit = crate::chrome::text_edit(ui, palette, egui::TextEdit::singleline(&mut settings.gui_dir).desired_width(320.0).hint_text("a Gui/<skin> folder with Graphics.uvga; empty: the game's own"));
             if edit.lost_focus() {
                 requests.gui_dir = Some(settings.gui_dir.clone());
             }

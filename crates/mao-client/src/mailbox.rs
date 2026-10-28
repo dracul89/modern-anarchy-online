@@ -221,13 +221,13 @@ impl MailWindow {
                 ui.set_width(380.0);
                 egui::Grid::new("compose").num_columns(2).spacing(egui::vec2(8.0, 4.0)).show(ui, |ui| {
                     ui.label("To");
-                    ui.add(egui::TextEdit::singleline(&mut self.to).desired_width(300.0));
+                    crate::chrome::text_edit(ui, palette, egui::TextEdit::singleline(&mut self.to).desired_width(300.0));
                     ui.end_row();
                     ui.label("Subject");
-                    ui.add(egui::TextEdit::singleline(&mut self.subject).desired_width(300.0));
+                    crate::chrome::text_edit(ui, palette, egui::TextEdit::singleline(&mut self.subject).desired_width(300.0));
                     ui.end_row();
                 });
-                ui.add(egui::TextEdit::multiline(&mut self.body).desired_rows(8).desired_width(f32::INFINITY));
+                crate::chrome::text_edit(ui, palette, egui::TextEdit::multiline(&mut self.body).desired_rows(8).desired_width(f32::INFINITY));
                 egui::Grid::new("compose-extras").num_columns(2).spacing(egui::vec2(8.0, 4.0)).show(ui, |ui| {
                     ui.label("Credits");
                     ui.add(egui::DragValue::new(&mut self.credits).range(0..=u32::MAX).speed(100.0));

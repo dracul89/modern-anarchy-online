@@ -199,7 +199,7 @@ impl SkillsWindow {
             });
             ui.horizontal(|ui| {
                 ui.label("Find:");
-                ui.text_edit_singleline(&mut self.search);
+                crate::chrome::text_edit(ui, palette, egui::TextEdit::singleline(&mut self.search));
             });
             ui.separator();
             crate::chrome::scroll(ui, palette, egui::ScrollArea::vertical(), |ui| {

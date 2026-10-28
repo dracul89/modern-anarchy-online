@@ -89,7 +89,7 @@ impl PerksWindow {
         crate::chrome::window(ctx, palette, "Perks", "Perks", &mut open, |w| w.default_pos(crate::layout::pos("Perks", egui::pos2(260.0, 100.0))).default_size([320.0, 420.0]), |ui| {
             ui.horizontal(|ui| {
                 ui.label("Find");
-                ui.add(egui::TextEdit::singleline(&mut self.filter).desired_width(170.0));
+                crate::chrome::text_edit(ui, palette, egui::TextEdit::singleline(&mut self.filter).desired_width(170.0));
                 ui.label(egui::RichText::new(format!("{} perks", perks.len())).small().weak());
             });
             ui.separator();

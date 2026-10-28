@@ -364,7 +364,7 @@ impl GearWindow {
             }
             ui.horizontal(|ui| {
                 ui.label("Find");
-                ui.add(egui::TextEdit::singleline(&mut self.filter).desired_width(160.0));
+                crate::chrome::text_edit(ui, palette, egui::TextEdit::singleline(&mut self.filter).desired_width(160.0));
                 ui.label(egui::RichText::new("drag an item onto a place to wear or move it, right-click for more").small().weak());
             });
             ui.horizontal_top(|ui| {

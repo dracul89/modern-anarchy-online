@@ -279,6 +279,22 @@ pub fn checkbox(ui: &mut egui::Ui, palette: &Palette, on: &mut bool, text: &str)
     response
 }
 
+/// A `TextInputView_c` (GUI.dll, `Initialize` 0x10148aff) in the skin's art: its text inside a `BorderView_c` with the class's
+/// own pieces (`BorderView_c::BorderView_c` 0x10126da4: `GFX_GUI_INSET_TL`, `_TOP`, `_TR`, `_LEFT`, `_RIGHT`, `_BL`, `_BOTTOM`,
+/// `_BR`, no background), the text 3 points in from the sides and 1 from the top and bottom (`BorderView_c::SetClient`); the
+/// pieces in the theme's `Default` (the field sets no colour of its own and takes its window's). Without the pictures it is
+/// egui's text field.
+pub fn text_edit(ui: &mut egui::Ui, palette: &Palette, edit: egui::TextEdit<'_>) -> egui::Response {
+    let skin = crate::skin::skin(ui.ctx()).filter(|s| s.has("GFX_GUI_INSET_TL"));
+    let Some(skin) = skin else { return ui.add(edit) };
+    let size = |name: &str| skin.get(name).map(|s| s.size).unwrap_or(egui::Vec2::ZERO);
+    let (left, top, right, bottom) = (size("GFX_GUI_INSET_LEFT").x, size("GFX_GUI_INSET_TOP").y, size("GFX_GUI_INSET_RIGHT").x, size("GFX_GUI_INSET_BOTTOM").y);
+    let margin = egui::Margin { left: (left + 3.0) as i8, right: (right + 3.0) as i8, top: (top + 1.0) as i8, bottom: (bottom + 1.0) as i8 };
+    let response = ui.add(edit.frame(egui::Frame::NONE).margin(margin));
+    skin.nine_slice(ui.painter(), "GFX_GUI_INSET", response.rect, rgb(palette.default), false);
+    response
+}
+
 /// Where `TopBorderView_c` (GUI.dll, laid out by FUN_10147438) puts tabs `widths` wide in a strip `room` wide: the first 2 points
 /// in, each overlapping the one before by 6, every tab its own width (a `Tab`'s text width plus a point plus its 5 and 16 point
 /// margins, FUN_101463a4) when they fit, else all narrowed in proportion (`View::SpaceOut`'s share; not followed exactly). The

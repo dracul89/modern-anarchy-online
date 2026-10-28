@@ -78,7 +78,7 @@ impl ProgramsWindow {
         crate::chrome::window(ctx, palette, "Nano programs", "Nano programs", &mut open, |w| w.default_pos(crate::layout::pos("Nano programs", egui::pos2(220.0, 90.0))).default_size([300.0, 420.0]), |ui| {
             ui.horizontal(|ui| {
                 ui.label("Find");
-                ui.add(egui::TextEdit::singleline(&mut self.filter).desired_width(170.0));
+                crate::chrome::text_edit(ui, palette, egui::TextEdit::singleline(&mut self.filter).desired_width(170.0));
                 ui.label(egui::RichText::new(format!("{} programs", programs.len())).small().weak());
             });
             ui.separator();

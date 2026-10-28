@@ -42,7 +42,7 @@ impl HelpWindow {
         crate::chrome::window(ctx, palette, "Help", "Help", &mut open, |w| w.default_size([420.0, 460.0]), |ui| {
             ui.horizontal(|ui| {
                 ui.label("Find");
-                ui.add(egui::TextEdit::singleline(&mut self.filter).desired_width(200.0));
+                crate::chrome::text_edit(ui, palette, egui::TextEdit::singleline(&mut self.filter).desired_width(200.0));
             });
             ui.separator();
             let filter = self.filter.trim().to_lowercase();
