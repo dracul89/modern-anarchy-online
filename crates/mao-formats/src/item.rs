@@ -281,6 +281,12 @@ pub fn weapon_actions(template: &[u8], slot: u32, class: u32) -> Vec<u32> {
     anim_sets(template).into_iter().filter(|(c, _)| *c == class).flat_map(|(_, actions)| actions).collect()
 }
 
+/// The walk and run a wielded weapon sets on its holder (Gamecode FUN_1009cda2: `walk` and `run`, but a rifle, AnimSet 3,
+/// `walk-2h` 0x421 and `run-2h` 0x422); `None` for the plain ones.
+pub fn wielded_movement(template: &[u8]) -> Option<(u32, u32)> {
+    (Item::parse(template).and_then(|i| i.stat(353)) == Some(3)).then_some((0x421, 0x422))
+}
+
 /// The animation class a special attack swings with (Gamecode FUN_1003c7a6, by the special's skill stat): 148 Burst 0x16, 167
 /// Full Auto 0x17, 151 Aimed Shot 0x15, 150 Fling Shot 0x1c, 147 Fast Attack 0x19, 146 Sneak Attack 0x1d, 489 Backstab 0x89;
 /// and Brawl (142, 0x23), Dimach (144, 0x24) and 121 (0x87), which take the special's own item rather than the weapon (`true`).

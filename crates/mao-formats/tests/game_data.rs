@@ -266,6 +266,11 @@ fn specials_swing_their_class_of_the_weapon() {
     assert_eq!(mao_formats::item::weapon_actions(&get(122829), 6, 0x10), vec![0x3e9]);
     // (a blade has no burst: the class is erased and not filled)
     assert!(mao_formats::item::weapon_actions(&get(122829), 6, 0x16).is_empty());
+    // (out of a fight a rifle is held two-handed, idle-2h, and walks and runs so; a pistol keeps the plain idle and walk)
+    assert_eq!(mao_formats::item::weapon_actions(&get(265091), 6, 0x29), vec![0x41e]);
+    assert_eq!(mao_formats::item::wielded_movement(&get(265091)), Some((0x421, 0x422)));
+    assert!(mao_formats::item::weapon_actions(&get(301709), 6, 0x29).is_empty());
+    assert_eq!(mao_formats::item::wielded_movement(&get(301709)), None);
 }
 
 #[test]
