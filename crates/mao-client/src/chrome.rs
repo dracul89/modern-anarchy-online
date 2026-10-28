@@ -257,6 +257,28 @@ pub fn button(ui: &mut egui::Ui, palette: &Palette, text: &str, enabled: bool) -
     response
 }
 
+/// A `CheckBox_c` (GUI.dll, `Initialize` 0x10129eb6) in the skin's art: a toggle `Button_c` whose only picture is
+/// `GFX_GUI_CHECKBOX_UNCHECKED` at rest (in the theme's `Default`) and `GFX_GUI_CHECKBOX_CHECKED` when on (the pressed state, in
+/// `Selected`), nothing laid over it under the pointer, then its label 10 points to the right in Verdana 13 in `Default`. A
+/// click flips `on`; the response is `changed()` then. Without the pictures it is egui's checkbox.
+pub fn checkbox(ui: &mut egui::Ui, palette: &Palette, on: &mut bool, text: &str) -> egui::Response {
+    let skin = crate::skin::skin(ui.ctx()).filter(|s| s.has("GFX_GUI_CHECKBOX_CHECKED") && s.has("GFX_GUI_CHECKBOX_UNCHECKED"));
+    let Some(skin) = skin else { return ui.checkbox(on, text) };
+    let boxed = skin.get(if *on { "GFX_GUI_CHECKBOX_CHECKED" } else { "GFX_GUI_CHECKBOX_UNCHECKED" }).map(|s| s.size).unwrap_or(egui::vec2(11.0, 11.0));
+    let font = crate::font::verdana(ui.ctx(), 13.0);
+    let galley = ui.painter().layout_no_wrap(text.to_string(), font, egui::Color32::WHITE);
+    let height = boxed.y.max(galley.size().y);
+    let (rect, mut response) = ui.allocate_exact_size(egui::vec2(boxed.x + 10.0 + galley.size().x, height), egui::Sense::click());
+    if response.clicked() {
+        *on = !*on;
+        response.mark_changed();
+    }
+    let at = egui::Rect::from_min_size(egui::pos2(rect.left(), rect.center().y - boxed.y * 0.5), boxed);
+    skin.draw_in(ui.painter(), if *on { "GFX_GUI_CHECKBOX_CHECKED" } else { "GFX_GUI_CHECKBOX_UNCHECKED" }, at, rgb(if *on { palette.selected } else { palette.default }));
+    ui.painter().galley_with_override_text_color(egui::pos2(at.right() + 10.0, rect.center().y - galley.size().y * 0.5), galley, rgb(palette.default));
+    response
+}
+
 /// Where `TopBorderView_c` (GUI.dll, laid out by FUN_10147438) puts tabs `widths` wide in a strip `room` wide: the first 2 points
 /// in, each overlapping the one before by 6, every tab its own width (a `Tab`'s text width plus a point plus its 5 and 16 point
 /// margins, FUN_101463a4) when they fit, else all narrowed in proportion (`View::SpaceOut`'s share; not followed exactly). The

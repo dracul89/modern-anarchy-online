@@ -1146,8 +1146,8 @@ fn options_window(ctx: &egui::Context, open: &mut bool, rebinding: &mut Option<A
             ui.label("Character distance");
             ui.add(egui::Slider::new(&mut settings.char_distance, 0.0..=400.0).step_by(5.0).custom_formatter(|v, _| if v < 1.0 { "all".to_string() } else { format!("{v:.0}") }));
         });
-        ui.checkbox(&mut settings.auto_loot, "Take everything from a corpse as soon as it opens");
-        if ui.checkbox(&mut settings.original_font, "The original's chat font (its own 9 px bitmap font)").changed() {
+        crate::chrome::checkbox(ui, palette, &mut settings.auto_loot, "Take everything from a corpse as soon as it opens");
+        if crate::chrome::checkbox(ui, palette, &mut settings.original_font, "The original's chat font (its own 9 px bitmap font)").changed() {
             crate::font::set_enabled(settings.original_font);
         }
         ui.horizontal(|ui| {
