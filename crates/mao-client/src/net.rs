@@ -1144,6 +1144,8 @@ struct Characters {
     swings_started: std::collections::HashMap<u32, Instant>,
     /// The weapon each character had drawn when last drawn (template and place), to play the draw and the holster.
     drawn: std::collections::HashMap<u32, Option<(u32, u32)>>,
+    /// The weapon each character held when last drawn, in or out of a fight, to play the wield and the unwield.
+    wielded: std::collections::HashMap<u32, Option<(u32, u32)>>,
     started: Instant,
     /// Machine models by mesh instance.
     props: std::collections::HashMap<u32, Option<Vec<Part>>>,
@@ -1261,7 +1263,7 @@ impl Characters {
         let index = mao_formats::instances::Instances::parse(&get(0xf424a, 1)?).map_err(|e| e.to_string())?;
         let _ = get;
         let head_meshes = index.iter().filter(|(kind, name, _)| *kind == 0xf6951 && is_head_name(name)).map(|(_, _, instance)| instance).collect();
-        Ok(Characters { head_meshes, db, index, anims: Default::default(), ids: Default::default(), bodies: Default::default(), creatures: Default::default(), creature_anims: Default::default(), motions: Default::default(), segment: 0, stacks: Default::default(), anims_by_id: Default::default(), movement_keys: Default::default(), movement_handles: Default::default(), socials_started: Default::default(), swings_started: Default::default(), drawn: Default::default(), started: Instant::now(), props: Default::default(), statics: Default::default(), vehicles: Default::default(), frames: Default::default() })
+        Ok(Characters { head_meshes, db, index, anims: Default::default(), ids: Default::default(), bodies: Default::default(), creatures: Default::default(), creature_anims: Default::default(), motions: Default::default(), segment: 0, stacks: Default::default(), anims_by_id: Default::default(), movement_keys: Default::default(), movement_handles: Default::default(), socials_started: Default::default(), swings_started: Default::default(), drawn: Default::default(), wielded: Default::default(), started: Instant::now(), props: Default::default(), statics: Default::default(), vehicles: Default::default(), frames: Default::default() })
     }
 
     /// The parts of a machine's model (Y-up local space), loaded once.
@@ -1872,12 +1874,28 @@ impl Characters {
         let swing = swing.and_then(|(template, slot, began, pick, class)| self.ensure_swing(breed, sex, template, slot, pick, class).map(|(anim, claims, speed)| (anim, claims, speed, began)));
         // (drawing the weapon plays its start, class 0x1a; putting it away its stop, 0x1b)
         let before = self.drawn.insert(id, weapon.filter(|_| fighting)).flatten();
+        let held = weapon;
         let weapon = weapon.filter(|_| fighting);
-        let flourish = match (before, weapon) {
+        let mut flourish = match (before, weapon) {
             (None, Some((template, slot))) => self.ensure_weapon_action(breed, sex, template, slot, 0x1a),
             (Some((template, slot)), None) => self.ensure_weapon_action(breed, sex, template, slot, 0x1b),
             _ => None,
         };
+        // (out of a fight, wielding a weapon plays its class 0x27 before its idle 0x29, or, without that idle, its 0x28 before
+        // `idle-stand`; putting one away its 0x28: FUN_1009cda2 through the controller's vtable +0xc. A rifle's `2h-start` and
+        // `2h-stop`; most weapons have neither)
+        let was_held = self.wielded.insert(id, held).flatten();
+        if !fighting && flourish.is_none() && was_held != held {
+            flourish = match (was_held, held) {
+                (_, Some((template, slot))) => {
+                    let data = self.db.get(mao_formats::resource::Id { kind: mao_formats::item::TEMPLATE, instance: template }).ok().flatten();
+                    let has_idle = data.as_deref().is_some_and(|d| !mao_formats::item::weapon_actions(d, slot, 0x29).is_empty());
+                    self.ensure_weapon_action(breed, sex, template, slot, if has_idle { 0x27 } else { 0x28 })
+                }
+                (Some((template, slot)), None) => self.ensure_weapon_action(breed, sex, template, slot, 0x28),
+                (None, None) => None,
+            };
+        }
         let flourish = flourish.and_then(|(file, _)| self.anim_by_name(&file));
         self.drive(id, key, movement, points, rate, social, swing, flourish);
         let dt = self.stack_tick(id);

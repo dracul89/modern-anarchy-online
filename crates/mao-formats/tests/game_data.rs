@@ -269,6 +269,10 @@ fn specials_swing_their_class_of_the_weapon() {
     // (out of a fight a rifle is held two-handed, idle-2h, and walks and runs so; a pistol keeps the plain idle and walk)
     assert_eq!(mao_formats::item::weapon_actions(&get(265091), 6, 0x29), vec![0x41e]);
     assert_eq!(mao_formats::item::wielded_movement(&get(265091)), Some((0x421, 0x422)));
+    // (and wielding it out of a fight plays its 2h-start, putting it away its 2h-stop; a pistol has neither)
+    assert_eq!(mao_formats::item::weapon_actions(&get(265091), 6, 0x27), vec![0x41f]);
+    assert_eq!(mao_formats::item::weapon_actions(&get(265091), 6, 0x28), vec![0x420]);
+    assert!(mao_formats::item::weapon_actions(&get(301709), 6, 0x28).is_empty());
     assert!(mao_formats::item::weapon_actions(&get(301709), 6, 0x29).is_empty());
     assert_eq!(mao_formats::item::wielded_movement(&get(301709)), None);
 }
