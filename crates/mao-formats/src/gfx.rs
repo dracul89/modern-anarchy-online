@@ -1855,6 +1855,12 @@ pub enum Visual {
     SkyFlash(SkyFlash),
     /// Ribbons spiralling round the point, turning (kind 3033, `GfxControlSpiral2_t`).
     Spiral2(Spiral2),
+    /// Kind 3031, `GfxControlTParticle2_t` (FUN_1011490c; FUN_1011373d the words, those of `GfxControlBParticle2_t` up to word 33,
+    /// then its two colour curves from word 34; FUN_10113b55 the run): `BParticles`' particles, each drawn as a
+    /// `GfxVisualTParticle2` streak from its place along its velocity times word 14 (its `length`; the run does not damp the
+    /// velocity by it), its head its size wide and coloured by the second curve, its tail its size over word 33 wide and coloured
+    /// by the first, both at the particle's age.
+    TParticle2 { particles: BParticles, length: f32, head: Vec<(f32, u32)> },
     /// A nano emitter dragged from the caster to the target (kind 1022, `_GfxControlTracer3_t`).
     Tracer3(Tracer3),
     /// Kind 3036, `GfxControlToggle_t` (FUN_101128d1 / FUN_1011279a / FUN_101127fc; FUN_1011265a the words, FUN_10112952 the run,
@@ -2007,6 +2013,17 @@ impl Gfx {
             3020 => TParticle::read(r).map(Visual::TParticle),
             3006 => SkyFlash::read(r).map(Visual::SkyFlash),
             3033 => Spiral2::read(r).map(Visual::Spiral2),
+            3031 => {
+                // (its curves follow word 33, a word sooner than `BParticles`')
+                let particles = BParticles::read(r)?;
+                let curve = |at: usize| -> Option<(Vec<(f32, u32)>, usize)> {
+                    let n = usize::try_from(r.int(at)).ok()?.min(64);
+                    Some(((0..n).map(|k| (r.float(at + 1 + 2 * k), r.int(at + 2 + 2 * k) as u32)).collect(), at + 1 + 2 * n))
+                };
+                let (colours, next) = curve(34)?;
+                let (head, _) = curve(next)?;
+                Some(Visual::TParticle2 { length: r.float(14), particles: BParticles { damping: 1.0, colours, ..particles }, head })
+            }
             1022 if r.payload.len() >= 16 => {
                 let child = self.get(r.int(15)).filter(|c| c.kind == 1007).and_then(Nano::read)?;
                 Some(Visual::Tracer3(Tracer3 { speed: r.float(10), colour: [r.float(11), r.float(12), r.float(13), r.float(14)], child }))

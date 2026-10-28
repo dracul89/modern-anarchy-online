@@ -1596,6 +1596,10 @@ fn strip_triangles(strip: &[ShellVertex]) -> Vec<ShellVertex> {
 pub fn visual_ground_shells(v: &Visual, feet: [f32; 3], t: f32, ground: &dyn Fn(f32, f32) -> Option<f32>) -> Vec<Shell> {
     match v {
         Visual::ShockWave(s) => shockwave_shells(s, feet, t, ground),
+        Visual::TParticle2 { particles, length, head } => {
+            let up = if particles.attach == 0 { 0.0 } else { anchor(particles.attach).0 };
+            tparticle2_shells(particles, *length, head, [feet[0], feet[1], feet[2] + up], t)
+        }
         Visual::Spiral2(s) => spiral2_shells(s, [feet[0], feet[1], feet[2] + if s.attach == 0 { 0.0 } else { anchor(s.attach).0 }], t),
         Visual::SkyFlash(s) => skyflash_shells(s, [feet[0], feet[1], feet[2] + if s.attach == 0 { 0.0 } else { anchor(s.attach).0 }], t, ground),
         Visual::TParticle(p) => tparticle_shells(p, [feet[0], feet[1], feet[2] + if p.attach == 0 { 0.0 } else { anchor(p.attach).0 }], t),
@@ -2123,6 +2127,25 @@ pub fn sprite_particles(s: &Sprite, feet: [f32; 3], time: f32, salt: u32) -> Vec
 /// the effect still emits. The original's random numbers are stood in for by a hash of the slot and generation. Not done: the
 /// spin (the client's billboards do not turn), the ground bounce and the fades by height and daylight, the locator's turn.
 pub fn bparticles(b: &BParticles, origin: [f32; 3], time: f32) -> Vec<Particle> {
+    bparticles_states(b, time)
+        .into_iter()
+        .map(|s| sprite(b.material, s.frame, [origin[0] + s.place[0], origin[1] + s.place[2], origin[2] + s.place[1]], s.size.max(s.size / b.aspect), unpack_argb(colour_curve(&b.colours, s.age))))
+        .collect()
+}
+
+/// One `GfxControlBParticle2_t` particle at a moment (see [`bparticles_states`]): its place and velocity about the point in the
+/// original's Y-up frame, its size, its life's fraction and its frame's fraction.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BState {
+    pub place: [f32; 3],
+    pub velocity: [f32; 3],
+    pub size: f32,
+    pub age: f32,
+    pub frame: f32,
+}
+
+/// The particles' states `time` seconds in that [`bparticles`] draws (and `GfxControlTParticle2_t`'s streaks).
+pub fn bparticles_states(b: &BParticles, time: f32) -> Vec<BState> {
     let mut out = Vec::new();
     if time < 0.0 || b.count <= 0 {
         return out;
@@ -2170,7 +2193,6 @@ pub fn bparticles(b: &BParticles, origin: [f32; 3], time: f32) -> Vec<Particle> 
             p = [0.0; 3];
         }
         let size = lerp(b.size, hash(salt, 8)) * (1.0 + (b.growth - 1.0) * 100.0 * age).max(0.0);
-        let colour = unpack_argb(colour_curve(&b.colours, t));
         // (the frame: from the first, or a random one with flag 0x20000, at the rate; wrapped, held or bounced by the mode)
         let frame = if b.frame_mode != 0 {
             let start = if b.flags & 0x20000 != 0 { hash(salt, 9) } else { 0.0 };
@@ -2185,9 +2207,57 @@ pub fn bparticles(b: &BParticles, origin: [f32; 3], time: f32) -> Vec<Particle> 
         } else {
             0.0
         };
-        out.push(sprite(b.material, frame, [origin[0] + p[0], origin[1] + p[2], origin[2] + p[1]], size.max(size / b.aspect), colour));
+        out.push(BState { place: p, velocity: v, size, age: t, frame });
     }
     out
+}
+
+/// `GfxControlTParticle2_t`'s streaks `time` seconds in about `origin` (world, Z up): each particle of [`bparticles_states`] a
+/// `GfxVisualTParticle2` (displaysystem `gfxbparticle.rs` `tp2_draw`): two crossed strips (across the world's up and across
+/// that) from its place to its place plus its velocity times `length`, `size` wide at the head and `size / aspect` at the tail,
+/// coloured by the head curve and the particle curve at its age, its frame of the material's grid, added with flag 0x200.
+pub fn tparticle2_shells(b: &BParticles, length: f32, head_curve: &[(f32, u32)], origin: [f32; 3], time: f32) -> Vec<Shell> {
+    let world = |v: [f32; 3]| [v[0], v[2], v[1]];
+    let cross = |a: [f32; 3], c: [f32; 3]| [a[1] * c[2] - a[2] * c[1], a[2] * c[0] - a[0] * c[2], a[0] * c[1] - a[1] * c[0]];
+    let unit = |v: [f32; 3]| {
+        let l = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+        if l > 1e-6 { Some(v.map(|c| c / l)) } else { None }
+    };
+    let grid = mao_formats::gfx::material(b.material);
+    let mut vertices = Vec::new();
+    for s in bparticles_states(b, time) {
+        let p = world(s.place);
+        let head = [origin[0] + p[0], origin[1] + p[1], origin[2] + p[2]];
+        let v = world(s.velocity);
+        let tail = [0, 1, 2].map(|i| head[i] + v[i] * length);
+        let Some(dir) = unit(v) else { continue };
+        let side = unit(cross(dir, [0.0, 0.0, 1.0])).unwrap_or([1.0, 0.0, 0.0]);
+        let up = unit(cross(side, dir)).unwrap_or([0.0, 0.0, 1.0]);
+        let (hc, tc) = (unpack_argb(colour_curve(head_curve, s.age)), unpack_argb(colour_curve(&b.colours, s.age)));
+        let rect = match grid {
+            Some((_, cols, rows, first, last)) => {
+                let frames = last.saturating_sub(first) as f32 + 1.0;
+                let k = first as u32 + (s.frame.clamp(0.0, 0.999) * frames) as u32;
+                let (cols, rows) = (cols.max(1) as u32, rows.max(1) as u32);
+                [(k % cols) as f32 / cols as f32, (k / cols) as f32 / rows as f32, 1.0 / cols as f32, 1.0 / rows as f32]
+            }
+            None => [0.0, 0.0, 1.0, 1.0],
+        };
+        let (wh, wt) = (s.size, s.size / b.aspect.max(1e-3));
+        for across in [up, side] {
+            let corner = |at: [f32; 3], w: f32, sign: f32, u: f32, v: f32, colour: [f32; 4]| ShellVertex {
+                position: [0, 1, 2].map(|i| at[i] + across[i] * w * sign),
+                uv: [rect[0] + u * rect[2], rect[1] + v * rect[3]],
+                colour,
+            };
+            let quad = [corner(head, wh, -1.0, 0.0, 1.0, hc), corner(head, wh, 1.0, 1.0, 1.0, hc), corner(tail, wt, -1.0, 0.0, 0.0, tc), corner(tail, wt, 1.0, 1.0, 0.0, tc)];
+            vertices.extend(strip_triangles(&quad));
+        }
+    }
+    if vertices.is_empty() {
+        return Vec::new();
+    }
+    vec![Shell { sprite: b.material.max(0) as u16, additive: b.flags & 0x200 != 0, vertices }]
 }
 
 /// `GfxVisualBParticle`'s particles `time` seconds in about `at` (world, Z up), for its kind 8 (every template a program names
@@ -2619,7 +2689,7 @@ pub fn visual_particles(v: &Visual, feet: [f32; 3], time: f32, reach: Reach) -> 
         // (a streak along a shot's line: see `tracer5_shell`, `tracer1_shells`, `tracer3_particles`)
         Visual::Tracer5(_) | Visual::Tracer1(_) | Visual::Tracer3(_) => Vec::new(),
         // (crossed strips and cones: see `tparticle_shells`, `skyflash_shells`)
-        Visual::TParticle(_) | Visual::SkyFlash(_) | Visual::Spiral2(_) => Vec::new(),
+        Visual::TParticle(_) | Visual::SkyFlash(_) | Visual::Spiral2(_) | Visual::TParticle2 { .. } => Vec::new(),
         Visual::Nano(n) => {
             let up = match reach {
                 Reach::Small => 0.0,
@@ -2809,6 +2879,7 @@ pub fn pulse_timing(v: &Visual) -> (f32, f32, i32) {
         Visual::TParticle(p) => if p.duration >= 0.0 { (600.0, p.duration.max(0.05), 1) } else { (600.0, 600.0, -1) },
         Visual::SkyFlash(s) => (600.0, s.length().max(0.05), 1),
         Visual::Spiral2(s) => if s.duration > 0.0 { (600.0, s.duration, 1) } else { (600.0, 600.0, -1) },
+        Visual::TParticle2 { particles, .. } => pulse_timing(&Visual::BParticles(particles.clone())),
         // (a nano makes sprites until a life before its duration, and its last ones live out their lives; for ever without one)
         Visual::Nano(n) => if n.duration >= 0.0 { (600.0, n.duration.max(0.05), 1) } else { (600.0, 600.0, -1) },
         // (kind 8's particles have each popped and gone within a second or so; with a duration, it)
@@ -3373,6 +3444,39 @@ mod tests {
         }
         // late, only the top of the coil is left
         assert!(late.iter().all(|p| p.position[2] > 1.0));
+    }
+
+    #[test]
+    fn tparticle2_streaks_are_the_bparticles_drawn_along_their_velocities() {
+        let b = BParticles {
+            flags: 0x203,
+            attach: 0,
+            duration: 5.0,
+            mode: 1,
+            material: 74,
+            count: 80,
+            interval: 0.001,
+            scatter: 0.0,
+            damping: 1.0,
+            per_frame: 3,
+            gravity: 0.0,
+            velocity: [(-5.0, 5.0), (-5.0, 5.0), (-5.0, 5.0)],
+            spin: (0.0, 0.0),
+            life: (0.15, 0.4),
+            size: (4.0, 8.0),
+            bounce: 0.5,
+            growth: 1.01,
+            frame_rate: 18.0,
+            frame_mode: 0,
+            aspect: 0.5,
+            colours: vec![(0.0, 0x00ff_ffff), (0.1, 0xffff_ffff), (1.0, 0x0030_3030)],
+        };
+        let s = tparticle2_shells(&b, 0.5, &[(0.0, 0xffff_ffff)], [0.0; 3], 0.1);
+        assert_eq!(s.len(), 1);
+        let n = bparticles_states(&b, 0.1).len();
+        assert!(n > 0 && s[0].vertices.len() <= n * 12);
+        // (the head is the brighter end: the head curve's white)
+        assert!(s[0].vertices.iter().any(|v| v.colour == [1.0, 1.0, 1.0, 1.0]));
     }
 
     #[test]

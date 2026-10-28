@@ -735,3 +735,5 @@ TParticle (`GfxControlTParticle_t`, kind 3020) is a pool of streaks, each two cr
 Sky flashes (`_GfxControlSkyFlash_t`, kind 3006), the hit of Gift of Life and Holy Book Blessings, are a beam of nested cones of light sixty units tall coming down on the target and fading over a few seconds (`effects::skyflash_shells`, from Gamecode's FUN_100ef141).
 
 Spiral2 (`GfxControlSpiral2_t`, kind 3033) winds ribbons of light round the target, climbing as they turn and spinning about it (`effects::spiral2_shells`, from Gamecode's FUN_10111c40 and displaysystem's `GfxVisualSpiral2`).
+
+TParticle2 (`GfxControlTParticle2_t`, kind 3031) throws the same particles as BParticle2 but draws each as a streak along its flight, bright at its head and fading to its tail (`effects::tparticle2_shells`).
