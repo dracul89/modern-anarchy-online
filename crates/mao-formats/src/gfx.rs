@@ -815,6 +815,23 @@ pub struct Cast {
     pub released: bool,
 }
 
+/// A kind-2005 template's words as `_GfxControlSuns_t` reads them (FUN_100fd14e); see [`Visual::Suns`].
+#[derive(Clone, Debug, PartialEq)]
+pub struct Suns {
+    pub mode: i32,
+    pub attach: i32,
+    pub material: i32,
+    /// Alpha, red, green, blue.
+    pub colour_a: [f32; 4],
+    pub colour_b: [f32; 4],
+    pub duration: f32,
+    /// Words 28 and 29: the size (mode 0 its first sun's) and mode 0's step of size a sun (mode 4's frame scale).
+    pub size: f32,
+    pub step: f32,
+    /// Word 30 in seconds: mode 4's life.
+    pub life: f32,
+}
+
 /// A kind-3003 template as `_GfxControlShield_t` reads it (FUN_100ee24e; FUN_100edeed the words, FUN_100ee1d2 / FUN_100edf78
 /// the visual on the character's CAT mesh, FUN_100edcf4 the run) and `GfxVisualShield` draws it (displaysystem `gfxshield.rs`,
 /// FUN_1001c94f): the character's skinned mesh again, every vertex pushed out along its normal by word 11, textured with the
@@ -962,6 +979,14 @@ pub enum Visual {
     Spiral(Aura),
     /// The character's own mesh drawn again as a shell (kind 3003, `_GfxControlShield_t`).
     Shield(Shield),
+    /// Kind 2005, `_GfxControlSuns_t` (FUN_100fd851; FUN_100fd14e the words, FUN_100fd274 the `GfxVisualSol`, FUN_100fc425 the
+    /// run): 32 suns, each a camera-facing quad of the material (word 9) turned by its own angle, placed by the mode (word 10).
+    /// Mode 4 (385 uses): up to three a frame born at the hit location's point and standing there, living word 30 ms, word 28
+    /// wide, a random colour between words 18–21 and 22–25, their frame running from the sheet's 15th back as
+    /// `15 − ⌊age / life × word 29⌋`, turned by `(k % 7) × 0.3`. Mode 0 (173 uses): all 32 two units above the point, sized
+    /// `(word 28 + k × word 29) × (1 − (2 frac − 1)⁴)` over the duration (word 26), turned by `t × 0.5 × (k − 4)`, coloured from
+    /// the table at 0x102c60a0 with their alpha held to 0xc0. Modes 1–3 (21 uses) are not played.
+    Suns(Suns),
     /// A short bright flash (kind 2001: the hit of 123 programs).
     Flash { colour: [f32; 3], size: f32 },
     /// A kind-2002 template, `_GfxControlPlasma_t` (made by the number-taking `CreateGfxControl` FUN_100d19b0 / FUN_100ec5ae;
@@ -1021,6 +1046,17 @@ impl Gfx {
             1001 | 2004 | 2005 | 2006 | 1018 => self.aura(id).map(Visual::Spiral),
             2007 | 3004 => self.references(id).into_iter().filter(|&c| c != id).find_map(|c| self.visual(c)),
             3003 => Shield::read(r).map(Visual::Shield),
+            2005 if r.payload.len() >= 32 && matches!(r.int(10), 0 | 4) => Some(Visual::Suns(Suns {
+                mode: r.int(10),
+                attach: r.int(7),
+                material: r.int(9),
+                colour_a: [r.float(18), r.float(19), r.float(20), r.float(21)],
+                colour_b: [r.float(22), r.float(23), r.float(24), r.float(25)],
+                duration: r.float(26),
+                size: r.float(28),
+                step: r.float(29),
+                life: r.int(30) as f32 / 1000.0,
+            })),
             2001 => Some(Visual::Flash { colour: [1.0, 0.95, 0.8], size: 0.9 }),
             // (word 10 and the pairs after it are the range each colour channel is drawn from: 0.3 to 1)
             2002 if r.payload.len() >= 19 => Some(Visual::Plasma {

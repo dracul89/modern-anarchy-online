@@ -5,7 +5,7 @@
 //! forward-spinning one).
 
 use mao_formats::gfx::{colour_curve, curve, unpack_argb, BParticles, Cast, Cords, Deform, Emitter, Flare, Helix, Smoke, Sparks, Sprite, Stars, Visual, VolGrid};
-use mao_formats::gfx::Shield;
+use mao_formats::gfx::{Shield, Suns};
 use mao_render::{Particle, Shell, ShellVertex, NO_SPRITE};
 
 /// The wind the effects are pushed by, Z up: the effect handler's wind (+0x24, Sparks) and its smoothed copy (+0x30, Smoke).
@@ -540,6 +540,54 @@ pub fn cast_particles(c: &CastShow, t: f32) -> Vec<Particle> {
             line(0.5 * f, 0.25, 0.5, size);
             line(1.0 - 0.5 * f, 0.25, 0.5, size);
         }
+    }
+    out
+}
+
+/// The colours of mode 0's suns (0x102c60a0, ARGB), their alpha held to 0xc0.
+const SUN_COLOURS: [u32; 8] = [0xffffc0c0, 0xffffff00, 0xffff00ff, 0xff00ffff, 0xff0000ff, 0xff00ff00, 0xffff0000, 0xffc0ffc0];
+
+/// `_GfxControlSuns_t`'s suns `time` seconds in, about `at` (world, Z up), as FUN_100fc425 places them (see
+/// `mao_formats::gfx::Visual::Suns`). The quads' turn is not drawn (the client's billboards do not turn).
+pub fn suns_particles(s: &Suns, at: [f32; 3], time: f32) -> Vec<Particle> {
+    let mut out = Vec::new();
+    if time < 0.0 || (s.duration > 0.0 && time >= s.duration) {
+        return out;
+    }
+    match s.mode {
+        0 => {
+            let f = if s.duration > 0.0 { time / s.duration } else { 0.5 };
+            let e = 2.0 * f - 1.0;
+            let envelope = 1.0 - e.powi(4);
+            for k in 0..32u32 {
+                let c = SUN_COLOURS[(k & 7) as usize] & 0xc0ff_ffff;
+                let channel = |shift: u32| ((c >> shift) & 0xff) as f32 / 255.0;
+                let size = (k as f32 * s.step + s.size) * envelope;
+                out.push(sprite(s.material, 0.0, [at[0], at[1], at[2] + 2.0], size.max(0.0), [channel(16), channel(8), channel(0), channel(24)]));
+            }
+        }
+        4 => {
+            // (three a frame into the 32 slots: each slot reborn every 32 / (3 × 30) s, or at its death)
+            let life = s.life.max(0.02);
+            let period = life.max(32.0 / (3.0 * 30.0));
+            for k in 0..32u32 {
+                let stagger = k as f32 / 32.0 * period;
+                if time < stagger {
+                    continue;
+                }
+                let generation = ((time - stagger) / period).floor();
+                let age = time - stagger - generation * period;
+                if age >= life {
+                    continue;
+                }
+                let salt = k.wrapping_mul(2005).wrapping_add(generation as u32 * 7919);
+                let u = age / life;
+                let frame = (15 - ((u * s.step) as i32).min(15)).max(0) as f32 / 15.0;
+                let colour = [1, 2, 3, 0].map(|c| s.colour_a[c] + (s.colour_b[c] - s.colour_a[c]) * hash(salt, c as u32));
+                out.push(sprite(s.material, frame, at, s.size.max(0.0), colour));
+            }
+        }
+        _ => {}
     }
     out
 }
@@ -1248,6 +1296,13 @@ pub fn visual_particles(v: &Visual, feet: [f32; 3], time: f32, reach: Reach) -> 
         }
         // (drawn as a shell over the character's mesh: see `shield_shell`)
         Visual::Shield(_) => Vec::new(),
+        Visual::Suns(s) => {
+            let up = match reach {
+                Reach::Small => 0.0,
+                _ => anchor(s.attach).0,
+            };
+            suns_particles(s, [feet[0], feet[1], feet[2] + up], time)
+        }
         // a quick bright burst: a core and a ring of sparks flying out
         Visual::Flash { colour, size } => {
             let t = (time / 0.5).clamp(0.0, 1.0);
@@ -1360,6 +1415,10 @@ pub fn pulse_timing(v: &Visual) -> (f32, f32, i32) {
         // (a stream runs for its duration and its last sprites' lives; an endless one is restarted every ten minutes)
         Visual::Smoke(s) => {
             let long = if s.duration >= 0.0 { s.duration + s.life * 1.3 } else { 600.0 };
+            (long, long, -1)
+        }
+        Visual::Suns(s) => {
+            let long = if s.duration > 0.0 { s.duration } else { 600.0 };
             (long, long, -1)
         }
         // (a shield plays once for its duration; one without a duration runs while the effect does)
@@ -1815,6 +1874,23 @@ mod tests {
     fn aura() -> Aura {
         let helix = |spin: f32| Helix { spin, phase: 0.0, size: 0.15, count: 10, colour: [0.5, 0.4, 1.0], material: 15, attach: 1006, offset: -0.25, radius: 0.15, table: Vec::new(), life: 1.5, ribbon_width: 0.05, ribbon_life: 0.5, ribbon_duration: 1.5, ribbon_material: 8, sparkle_rate: 0.0 };
         Aura { colour: [0.2, 0.2, 0.99], end: [0.2, 0.2, 0.99], helices: vec![helix(-12.566), helix(12.566)], period: 4.0, plays: -1 }
+    }
+
+    #[test]
+    fn suns_stand_at_the_point_in_mode_4_and_stack_above_it_in_mode_0() {
+        // (template 17000: Electricify, 0.4 wide, 300 ms, blue)
+        let four = Suns { mode: 4, attach: 1000, material: 2, colour_a: [1.0, 0.3, 0.3, 1.0], colour_b: [1.0, 0.3, 0.3, 1.0], duration: 1.0, size: 0.4, step: 15.99, life: 0.3 };
+        let at = suns_particles(&four, [1.0, 2.0, 3.0], 0.5);
+        assert!(at.len() >= 20 && at.len() <= 32, "{}", at.len());
+        assert!(at.iter().all(|p| p.position == [1.0, 2.0, 3.0] && p.size == 0.4 && p.colour == [0.3, 0.3, 1.0, 1.0]));
+        assert!(suns_particles(&four, [1.0, 2.0, 3.0], 1.0).is_empty());
+        // (template 43768: 32 halos two above, 0.6 growing by 0.25 each, over 180 s)
+        let zero = Suns { mode: 0, attach: 1000, material: 8, colour_a: [0.0; 4], colour_b: [0.0; 4], duration: 180.0, size: 0.6, step: 0.25, life: 0.0 };
+        let mid = suns_particles(&zero, [0.0; 3], 90.0);
+        assert_eq!(mid.len(), 32);
+        assert!(mid.iter().all(|p| p.position == [0.0, 0.0, 2.0] && (p.colour[3] - 0xc0 as f32 / 255.0).abs() < 1e-5));
+        assert!((mid[31].size - (0.6 + 31.0 * 0.25)).abs() < 1e-3);
+        assert!(suns_particles(&zero, [0.0; 3], 0.0).iter().all(|p| p.size == 0.0));
     }
 
     #[test]
