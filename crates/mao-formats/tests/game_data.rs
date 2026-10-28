@@ -331,3 +331,15 @@ fn feedback_texts() {
     assert_eq!(f("Feedback_CriticalHit"), "Critical hit!");
     assert_eq!(f("TryToAttackWithSpecialButMiss"), "You try to attack %s with %s, but you miss!");
 }
+
+/// "solitus male" (26092), read as FUN_1004de5d reads it: the social action 0x95 has 90 variants, 0xb7 three.
+#[test]
+fn a_humanoid_set_has_its_variants() {
+    let Some(db) = database() else { return };
+    let data = db.get(Id { kind: mao_formats::npc::TEMPLATE, instance: 26092 }).unwrap().unwrap();
+    let t = mao_formats::npc::Template::parse(&data).unwrap();
+    assert_eq!(t.mesh, Some(0x1713));
+    assert_eq!(t.animations.iter().filter(|a| a.0 == 0x95).count(), 90);
+    assert_eq!(t.animations.iter().filter(|a| a.0 == 0xb7).count(), 3);
+    assert_eq!(t.variant(100, 0), Some(0x27cf));
+}

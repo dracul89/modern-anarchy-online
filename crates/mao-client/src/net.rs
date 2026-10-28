@@ -1279,10 +1279,12 @@ impl Characters {
         let db = self.db.clone();
         let entry = self.creatures.entry(template).or_insert_with(|| load_template(&db, template));
         let (record, mesh, head) = entry.as_ref()?;
+        // (an action with variants: the one this character picks, standing in for FUN_10045976's `rand()` at each start)
+        let seed = id;
         let death = dying.and_then(|mut a| {
             for _ in 0..8 {
-                if let Some(&(key, anim)) = record.animations.iter().find(|x| x.0 == a) {
-                    return Some((key, anim));
+                if let Some(anim) = record.variant(a, seed) {
+                    return Some((a, anim));
                 }
                 a = mao_formats::appearance::action_fallback(a);
                 if a == 0 {
@@ -1295,7 +1297,7 @@ impl Characters {
         let mut chosen = None;
         let candidates = match death {
             Some(d) => vec![d],
-            None => record.animation_candidates(action),
+            None => record.animation_candidates(action, seed),
         };
         for (key, id) in candidates {
             let loaded = self.creature_anims.entry(id).or_insert_with(|| {
@@ -1444,7 +1446,7 @@ impl Characters {
         let action = moving.unwrap_or(mao_formats::appearance::Action::Idle);
         let (candidates, mesh_id) = {
             let (record, _, _) = self.creatures.get(&template)?.as_ref()?;
-            (record.animation_candidates(action), record.mesh.unwrap_or(0))
+            (record.animation_candidates(action, id), record.mesh.unwrap_or(0))
         };
         // (the first of the action's animations the database really holds)
         let mut chosen = None;
