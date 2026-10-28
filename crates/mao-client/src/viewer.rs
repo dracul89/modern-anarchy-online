@@ -418,6 +418,9 @@ struct App {
     follow_shift: [f32; 3],
     /// The area's environment where the character stands, and the day's intensity (from the last update).
     environment: crate::environment::Environment,
+    /// The environment's quake (`ambience::Quake`) and the eye's offset it gave this frame.
+    quake: crate::ambience::Quake,
+    quake_offset: [f32; 3],
     /// The wind (the environment weather object's, see `wind`), stepped every frame from the weather's wind.
     wind: crate::wind::Wind,
     wind_at: std::time::Instant,
@@ -480,7 +483,7 @@ pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<()
     let settings = Settings::load();
     crate::ui::set_debug_overlay(settings.debug_overlay);
     crate::font::set_enabled(settings.original_font);
-    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), trails: Default::default(), motions: Default::default(), shake: (0.0, 0), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, casters: Vec::new(), follow_shift: [0.0; 3], environment: Default::default(), wind: Default::default(), wind_at: std::time::Instant::now(), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
+    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), trails: Default::default(), motions: Default::default(), shake: (0.0, 0), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, casters: Vec::new(), follow_shift: [0.0; 3], environment: Default::default(), quake: Default::default(), quake_offset: [0.0; 3], wind: Default::default(), wind_at: std::time::Instant::now(), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
     event_loop.run_app(&mut app).map_err(|e| e.to_string())?;
     if app.logged_out {
         // (the launcher that started the game sees this code and shows the character screen again)
@@ -1168,7 +1171,19 @@ impl ApplicationHandler for App {
                 {
                     let time = self.fx_clock.elapsed().as_secs_f32();
                     // (the wind run on from the weather's wind, entry 7, and handed to the effects that it pushes)
-                    self.wind.advance(self.environment.weather[7], self.wind_at.elapsed().as_secs_f32());
+                    let frame_time = self.wind_at.elapsed().as_secs_f32();
+                    self.wind.advance(self.environment.weather[7], frame_time);
+                    // (the quake: its sound, or stopped, and the eye's shake)
+                    let (quake, offset) = self.quake.step(self.environment.weather[12], frame_time.min(0.5));
+                    let quake_id = mao_formats::sound::sound_id("SM_Sandy_Env_Quake");
+                    match quake {
+                        Some(volume) => crate::ambience::play(quake_id, volume),
+                        None if self.quake_offset != [0.0; 3] => {
+                            crate::audio::with(|m| m.stop_sample(quake_id));
+                        }
+                        None => {}
+                    }
+                    self.quake_offset = offset;
                     // (the winds' sounds, FUN_100bff68, at the weather's shares and the gust)
                     for (id, volume) in crate::ambience::winds(&self.environment.weather, self.wind.gust_length()) {
                         crate::ambience::play(id, volume);
@@ -1377,6 +1392,8 @@ impl ApplicationHandler for App {
                 // The camera stays above the ground (else the ground's back is culled and the sky shows through it).
                 let mut camera = w.camera;
                 // (a ground shake moves the eye by a random vector of its size each frame: `n3Camera_t` +0x1d4)
+                // (the environment's quake shakes it too: Y up made Z up)
+                camera.target += mao_render::glam::Vec3::new(self.quake_offset[0], self.quake_offset[2], self.quake_offset[1]);
                 if self.shake.0 > 0.0 {
                     self.shake.1 = self.shake.1.wrapping_add(1);
                     let r = |salt: u32| {

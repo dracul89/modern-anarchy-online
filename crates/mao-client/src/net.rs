@@ -643,6 +643,33 @@ impl World {
         if m.kind == 0x36510078 {
             self.dead.remove(&m.identity.1);
         }
+        // The jingles: a new level (`NewLevel`, FUN_10075f55: `SM_Sandy_Game_Level_Complete`), a new shadow level
+        // (`ShadowLevel`, FUN_10077ae7: `..._Neutral`, `..._Clan` or `..._Omni` by the side, stat 33) and a mission done
+        // (`CharacterAction` 59, FUN_1005d61f's case 0xf: `SM_Sandy_Gui_Mission_Complete_Neutral`, `_Clan`, `_Omni` by the
+        // side, else `SM_Sandy_Gui_Mission_Complete`), each the client's own character's, at no place.
+        if m.identity.1 == self.own {
+            let side = self.stats.get(&33).copied().unwrap_or(0);
+            let jingle = match m.kind {
+                0x7f405a16 => Some("SM_Sandy_Game_Level_Complete"),
+                0x3c1e4e03 => match side {
+                    0 => Some("SM_Sandy_Game_Level_Complete_Neutral"),
+                    1 => Some("SM_Sandy_Game_Level_Complete_Clan"),
+                    2 => Some("SM_Sandy_Game_Level_Complete_Omni"),
+                    _ => None,
+                },
+                0x5e477770 if m.data.len() >= 5 && u32::from_be_bytes(m.data[1..5].try_into().unwrap()) == 59 => Some(match side {
+                    0 => "SM_Sandy_Gui_Mission_Complete_Neutral",
+                    1 => "SM_Sandy_Gui_Mission_Complete_Clan",
+                    2 => "SM_Sandy_Gui_Mission_Complete_Omni",
+                    _ => "SM_Sandy_Gui_Mission_Complete",
+                }),
+                _ => None,
+            };
+            if let Some(name) = jingle {
+                let id = mao_formats::sound::sound_id(name);
+                crate::audio::with(|m| m.play_game_sound(id, [0.0; 3], 0.0, 1.0, 0, 0.0, 100, 1, 0, [0.0; 3]));
+            }
+        }
         // A character starts fighting (`Attack`, from it: its target) and stops (`StopFight`, from it).
         if m.kind == 0x28494070 {
             if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {

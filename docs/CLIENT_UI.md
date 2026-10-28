@@ -860,3 +860,10 @@ the travel sound (271) at the caster, the travel sound on while the cast lasts (
 sound (272) at the target. Effects carry sound controls too (`_GfxControlAudio_t`, kind 4000: twelve templates, the buff and
 debuff pings, the land control towers' sounds and an explosion): each plays once at the effect's place when the effect is made,
 as SandyInterface's `PlaySoundCommand` (with its range, delay, deferral and pitch).
+
+**Quakes and jingles.** The environment's quake plays as FUN_100becbe runs it (`ambience::Quake`): while the weather's entry 12
+is up, a count grows each frame and past 100 starts a quake of up to 2 s (FUN_100bd902), which plays `SM_Sandy_Env_Quake` at
+its share of the full strength and shakes the eye by up to about 8 cm on each axis, running down with time; then the sound
+stops. Your own new level plays `SM_Sandy_Game_Level_Complete` (`NewLevel`, FUN_10075f55), a new shadow level its Neutral, Clan
+or Omni version by your side (`ShadowLevel`, FUN_10077ae7), and a finished mission (`CharacterAction` 59, FUN_1005d61f) the
+mission-complete jingle by your side.
