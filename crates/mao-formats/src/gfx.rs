@@ -908,14 +908,159 @@ impl Shield2 {
         mix(24) << 24 | mix(16) << 16 | mix(8) << 8 | mix(0)
     }
 
-    /// The push at the fraction `f` (FUN_1011689d): the last key's (1 with none), or the two keys about `f` mixed linearly.
+    /// The push at the fraction `f` (FUN_1011689d, see [`key_curve`]).
     pub fn push_at(&self, f: f32) -> f32 {
-        let Some(&(_, last)) = self.pushes.last() else { return 1.0 };
-        let Some(i) = Self::segment(self.pushes.iter().map(|k| k.0), f) else { return last };
-        let ((t0, a), (t1, b)) = (self.pushes[i], self.pushes[i + 1]);
-        let span = if t1 - t0 == 0.0 { 1.0 } else { t1 - t0 };
-        let u = (f - t0) / span;
-        b * u + (1.0 - u) * a
+        key_curve(&self.pushes, f)
+    }
+}
+
+/// A curve of (time, value) keys at `f`, as FUN_1011689d reads it: the last key's value (1 with none), or the two keys about
+/// `f` (the first whose time is at most `f` with the next's past it) mixed linearly.
+pub fn key_curve(keys: &[(f32, f32)], f: f32) -> f32 {
+    let Some(&(_, last)) = keys.last() else { return 1.0 };
+    let Some(i) = (0..keys.len().saturating_sub(1)).find(|&i| keys[i].0 <= f && f < keys[i + 1].0) else { return last };
+    let ((t0, a), (t1, b)) = (keys[i], keys[i + 1]);
+    let span = if t1 - t0 == 0.0 { 1.0 } else { t1 - t0 };
+    let u = (f - t0) / span;
+    b * u + (1.0 - u) * a
+}
+
+/// The meshes `GfxControlEffectMesh_t` shows by word 10 (FUN_1010d457), and the Atrox ones flag 0x10000 picks instead for an
+/// Atrox (the body's stat 4 of 4) on the hoverbikes.
+const EFFECT_MESHES: [&str; 28] = [
+    "EP03_shoulder_rocket.abiff",
+    "EP03_mech_heal_effect.abiff",
+    "EP03_blast_wave_effect.abiff",
+    "EP03_bullet_casing.abiff",
+    "EP03_EMP_blast.abiff",
+    "EP03_bomber_debris_01.abiff",
+    "EP03_bomber_debris_02.abiff",
+    "EP03_bomber_debris_03.abiff",
+    "EP03_RUBIKA_asteroidbig.abiff",
+    "EP03_RUBIKA_asteroidbig2.abiff",
+    "EP03_preorder_mech_statel.abiff",
+    "EP03_scout_mech_statel.abiff",
+    "EP03_heavy_mech_statel.abiff",
+    "EP03_anti_personnel_gun_statel.abiff",
+    "EP03_anti_vehicle_gun_statel.abiff",
+    "EP03_preorder_mech_upgraded_statel.abiff",
+    "EP03_scout_mech_upgraded_statel.abiff",
+    "EP03_heavy_mech_upgraded_statel.abiff",
+    "EP03_anti_personnel_gun_upgraded_statel.abiff",
+    "EP03_anti_vehicle_gun_upgraded_statel.abiff",
+    "hoverbike_a_effect_circle.abiff",
+    "hoverbike_b_effect_circle.abiff",
+    "hoverboard_a_fan.abiff",
+    "hoverboard_b_fan.abiff",
+    "xan_grid_dependencybox.abiff",
+    "penumbra_shoulderpads_atrox.abiff",
+    "hoverboard_c_fx01.abiff",
+    "hoverbike_b_effect_circle_red.abiff",
+];
+
+/// A kind-3025 template as `GfxControlEffectMesh_t` reads it (the dynel and point constructors FUN_1010da0d / FUN_1010d866;
+/// FUN_1010caf8 the words, FUN_1010d457 the mesh, FUN_1010ce9c the run): word 0 the flags (the locator's 1, 2 and 4; 0x100 on
+/// the ground; 0x200 by the body's scale; 0x400 / 0x800 facing and fading with the camera; 0x1000 the mesh's animation run;
+/// 0x2000 / 0x4000 shown with a vehicle's speed; 0x8000 an Atrox's 1.45 times; 0x10000 the Atrox hoverbike circles), words
+/// 1–3 and 4–6 the locator's offset and turn, word 7 the attach point, word 8 the duration, word 9 the motion (1 a bob
+/// `sin(2π t / duration) × word 17` a second up, else words 16–18 a velocity and 19–21 its acceleration on the offset of words
+/// 13–15), word 10 the mesh, words 22–24 the spin axis, 25–27 its angle, rate and acceleration, 28–30 the scale, its rate and
+/// acceleration, word 31 the mesh's rendering effect (4–6 added), then an opacity curve over the fraction of the duration.
+#[derive(Clone, Debug, PartialEq)]
+pub struct EffectMesh {
+    pub flags: u32,
+    pub place: [f32; 3],
+    pub turn: [f32; 3],
+    pub attach: i32,
+    pub duration: f32,
+    pub motion: i32,
+    pub mesh: i32,
+    pub offset: [f32; 3],
+    pub velocity: [f32; 3],
+    pub acceleration: [f32; 3],
+    pub axis: [f32; 3],
+    /// The angle, its rate and its acceleration.
+    pub spin: [f32; 3],
+    /// The scale, its rate and its acceleration.
+    pub scale: [f32; 3],
+    pub effect: i32,
+    pub opacity: Vec<(f32, f32)>,
+}
+
+/// Where an effect mesh is `t` seconds in (see [`EffectMesh::pose`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MeshPose {
+    pub offset: [f32; 3],
+    pub angle: f32,
+    pub scale: f32,
+    pub opacity: f32,
+}
+
+impl EffectMesh {
+    pub fn read(r: &Record) -> Option<EffectMesh> {
+        if r.payload.len() < 33 {
+            return None;
+        }
+        let v = |k: usize| [r.float(k), r.float(k + 1), r.float(k + 2)];
+        let n = r.int(32).clamp(0, 64) as usize;
+        let opacity = (0..n).map(|k| (r.float(33 + 2 * k), r.float(34 + 2 * k))).collect();
+        Some(EffectMesh {
+            flags: r.int(0) as u32,
+            place: v(1),
+            turn: v(4),
+            attach: r.int(7),
+            duration: r.float(8),
+            motion: r.int(9),
+            mesh: r.int(10),
+            offset: v(13),
+            velocity: v(16),
+            acceleration: v(19),
+            axis: v(22),
+            spin: v(25),
+            scale: v(28),
+            effect: r.int(31),
+            opacity,
+        })
+    }
+
+    /// The mesh's file (FUN_1010d457): an Atrox's hoverbike circle with flag 0x10000, else word 10's.
+    pub fn mesh_file(&self, atrox: bool) -> Option<&'static str> {
+        if self.flags & 0x10000 != 0 && atrox {
+            match self.mesh {
+                0x14 => return Some("hoverbike_a_effect_circle_atrox.abiff"),
+                0x15 => return Some("hoverbike_b_effect_circle_atrox.abiff"),
+                0x1b => return Some("hoverbike_b_effect_circle_red_atrox.abiff"),
+                _ => return None,
+            }
+        }
+        EFFECT_MESHES.get(usize::try_from(self.mesh).ok()?).copied()
+    }
+
+    /// The run (FUN_1010ce9c) `t` seconds in, or none once it has ended: each frame the offset moves by the velocity and the
+    /// velocity by the acceleration (motion 1: the offset's y by `sin(2π t / duration) × word 17`), the angle by its rate and the
+    /// rate by its acceleration, the scale likewise (here the sums' closed forms); the opacity 1 (0 with the vehicle flags
+    /// 0x6000, until a vehicle's speed shows it) times the curve at `t / duration` when that is not negative.
+    pub fn pose(&self, t: f32) -> Option<MeshPose> {
+        let d = self.duration;
+        if t < 0.0 || (d > 0.0 && t >= d) {
+            return None;
+        }
+        let along = |x: [f32; 3]| x[0] + x[1] * t + x[2] * t * t / 2.0;
+        let mut offset = self.offset;
+        if self.motion == 1 {
+            if d != 0.0 {
+                let tau = std::f32::consts::TAU;
+                offset[1] += self.velocity[1] * d / tau * (1.0 - (tau * t / d).cos());
+            }
+        } else {
+            for k in 0..3 {
+                offset[k] += self.velocity[k] * t + self.acceleration[k] * t * t / 2.0;
+            }
+        }
+        let fraction = t / d;
+        let curve = if fraction >= 0.0 { key_curve(&self.opacity, fraction) } else { 1.0 };
+        let base = if self.flags & 0x6000 != 0 { 0.0 } else { 1.0 };
+        Some(MeshPose { offset, angle: along(self.spin), scale: along(self.scale), opacity: base * curve })
     }
 }
 
@@ -1068,6 +1213,8 @@ pub enum Visual {
     Shield(Shield),
     /// The character's own mesh drawn again as a shell by its colour and push curves (kind 3034, `GfxControlShield2_t`).
     Shield2(Shield2),
+    /// A named mesh moved, spun and grown by its run (kind 3025, `GfxControlEffectMesh_t`).
+    EffectMesh(EffectMesh),
     /// Kind 2005, `_GfxControlSuns_t` (FUN_100fd851; FUN_100fd14e the words, FUN_100fd274 the `GfxVisualSol`, FUN_100fc425 the
     /// run): 32 suns, each a camera-facing quad of the material (word 9) turned by its own angle, placed by the mode (word 10).
     /// Mode 4 (385 uses): up to three a frame born at the hit location's point and standing there, living word 30 ms, word 28
@@ -1183,6 +1330,7 @@ impl Gfx {
             }
             3003 => Shield::read(r).map(Visual::Shield),
             3034 => Shield2::read(r).map(Visual::Shield2),
+            3025 => EffectMesh::read(r).map(Visual::EffectMesh),
             2005 if r.payload.len() >= 32 && matches!(r.int(10), 0 | 4) => Some(Visual::Suns(Suns {
                 mode: r.int(10),
                 attach: r.int(7),

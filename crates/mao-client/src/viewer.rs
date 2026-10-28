@@ -229,6 +229,29 @@ pub fn headless_with(model: &Model, textures: &Textures, out: &str, ui: Option<(
         if let Some(visual) = gfx.and_then(|g| g.visual(id.parse().unwrap_or(0))) {
             scene.particles = crate::effects::pulse_particles(&visual, feet, 0.0, time, None);
             eprintln!("aura: {} sparks", scene.particles.len());
+            // (and its effect meshes, their textures made sheets from 0xa000)
+            let mut sheets: std::collections::HashMap<(u32, u32), u16> = std::collections::HashMap::new();
+            let eye = {
+                let mut c = Camera::fit(&scene);
+                camera_override(&mut c);
+                let e = c.eye();
+                [e.x, e.y, e.z]
+            };
+            for (m, at, heading, t) in crate::effects::visual_meshes(&visual, feet, 0.0, time) {
+                let Some(model) = m.mesh_file(false).and_then(|name| textures.mesh_named(name)) else { continue };
+                for part in &model.parts {
+                    let Some(&key) = part.material.textures.first() else { continue };
+                    if !sheets.contains_key(&key) {
+                        let id = 0xa000 + sheets.len() as u16;
+                        if let Some(texture) = textures.get(key.0, key.1) {
+                            renderer.add_sprite(&gpu, id, &texture);
+                        }
+                        sheets.insert(key, id);
+                    }
+                }
+                scene.shells.extend(crate::effects::effect_mesh_shells(&m, &model, &|k, i| sheets.get(&(k, i)).copied().unwrap_or(mao_render::NO_SPRITE), at, heading, Some(eye), t));
+            }
+            eprintln!("aura: {} mesh shells", scene.shells.len());
         }
     }
     // `MAO_CAST=<effect id>` (with `MAO_GFX`, `MAO_AURA_AT` for the origin and `MAO_AURA_TIME` for the age): the emitters of a cast, hit or
@@ -325,6 +348,9 @@ struct App {
     shots: Vec<(std::time::Instant, crate::effects::Shot)>,
     /// The effect sprite sheets already asked for.
     tried_sprites: std::collections::HashSet<u16>,
+    /// The effect meshes by file name (`GfxControlEffectMesh_t`), and the sheets their textures were made (from 0xa000).
+    effect_meshes: std::collections::HashMap<&'static str, Option<Model>>,
+    mesh_sheets: std::collections::HashMap<(u32, u32), u16>,
     /// The character's position and speed at the last update, and when it arrived (for the prediction).
     own_base: [f32; 3],
     own_velocity: [f32; 3],
@@ -397,7 +423,7 @@ pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<()
     let settings = Settings::load();
     crate::ui::set_debug_overlay(settings.debug_overlay);
     crate::font::set_enabled(settings.original_font);
-    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), tried_sprites: Default::default(), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, casters: Vec::new(), follow_shift: [0.0; 3], environment: Default::default(), wind: Default::default(), wind_at: std::time::Instant::now(), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
+    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, casters: Vec::new(), follow_shift: [0.0; 3], environment: Default::default(), wind: Default::default(), wind_at: std::time::Instant::now(), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
     event_loop.run_app(&mut app).map_err(|e| e.to_string())?;
     if app.logged_out {
         // (the launcher that started the game sees this code and shows the character screen again)
@@ -1104,6 +1130,7 @@ impl ApplicationHandler for App {
                             .map(|(_, c)| if c.own { c.shifted(follow) } else { c.clone() })
                     };
                     self.pulses.begin_frame();
+                    let mut meshes = Vec::new();
                     for (id, own, at, heading, body, auras) in &self.auras {
                         let feet = if *own && self.hud.position.is_some() { own_feet } else { *at };
                         let heading = if *own { self.heading } else { *heading };
@@ -1113,6 +1140,7 @@ impl ApplicationHandler for App {
                                 if let Some(c) = body_at(feet) {
                                     shells.extend(crate::effects::visual_shells(aura, &c.surface, c.translation, age));
                                 }
+                                meshes.extend(crate::effects::visual_meshes(aura, feet, heading, age));
                                 sparks.extend(crate::effects::pulse_particles(aura, feet, heading, age, *body));
                             }
                         }
@@ -1142,8 +1170,31 @@ impl ApplicationHandler for App {
                                 if let Some(c) = body_at(shot.to) {
                                     shells.extend(crate::effects::visual_shells(hit, &c.surface, c.translation, landed));
                                 }
+                                meshes.extend(crate::effects::visual_meshes(hit, shot.to, 0.0, landed));
                             }
                         }
+                    }
+                    // (the effect meshes as shells: each loaded once by name, its textures made sheets once; seen from the last frame's eye)
+                    let eye = {
+                        let e = w.camera.eye();
+                        [e.x, e.y, e.z]
+                    };
+                    for (m, feet, heading, t) in &meshes {
+                        let Some(name) = m.mesh_file(false) else { continue };
+                        let textures = &self.textures;
+                        let Some(model) = self.effect_meshes.entry(name).or_insert_with(|| textures.mesh_named(name)).as_ref() else { continue };
+                        for part in &model.parts {
+                            let Some(&key) = part.material.textures.first() else { continue };
+                            if !self.mesh_sheets.contains_key(&key) {
+                                let id = 0xa000 + self.mesh_sheets.len() as u16;
+                                if let Some(texture) = self.textures.get(key.0, key.1) {
+                                    w.renderer.add_sprite(&w.gpu, id, &texture);
+                                }
+                                self.mesh_sheets.insert(key, id);
+                            }
+                        }
+                        let sheets = &self.mesh_sheets;
+                        shells.extend(crate::effects::effect_mesh_shells(m, model, &|k, i| sheets.get(&(k, i)).copied().unwrap_or(mao_render::NO_SPRITE), *feet, *heading, Some(eye), *t));
                     }
                     // (the shells' sheets too)
                     let sheets: Vec<mao_render::Particle> = shells

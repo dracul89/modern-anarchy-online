@@ -5,7 +5,7 @@
 //! forward-spinning one).
 
 use mao_formats::gfx::{colour_curve, curve, unpack_argb, BParticles, Cast, Cords, Deform, Emitter, Flare, Helix, Smoke, Sparks, Sprite, Stars, Visual, VolGrid};
-use mao_formats::gfx::{Shield, Shield2, Suns};
+use mao_formats::gfx::{EffectMesh, Shield, Shield2, Suns};
 use mao_render::{Particle, Shell, ShellVertex, NO_SPRITE};
 
 /// The wind the effects are pushed by, Z up: the effect handler's wind (+0x24, Sparks) and its smoothed copy (+0x30, Smoke).
@@ -840,6 +840,151 @@ pub fn shield2_shell(s: &Shield2, surface: &crate::blobshadow::Surface, origin: 
     Some(Shell { sprite: s.material.max(0) as u16, additive: s.flags & 0x400 != 0, vertices })
 }
 
+/// The effect meshes a visual shows `t` seconds in about the feet `feet` (world, Z up) of a dynel facing `heading`: itself,
+/// or (a scatter) each copy alive at its place. Only those at the dynel itself (attach point 0) are given: the client has no
+/// bone or attractor frames here (the most used, the hoverboards' fans and circles, need the hoverboard bodies'
+/// `Attractor07_special` and kin anyway).
+pub fn visual_meshes(v: &Visual, feet: [f32; 3], heading: f32, t: f32) -> Vec<(EffectMesh, [f32; 3], f32, f32)> {
+    match v {
+        Visual::EffectMesh(m) if m.attach == 0 => vec![(m.clone(), feet, heading, t)],
+        Visual::Scatter { child, children, looping } => {
+            let life = pulse_timing(child).1.max(0.05);
+            let round = children.iter().map(|c| c.0).fold(0.0, f32::max) + life;
+            let t = if *looping { t.rem_euclid(round.max(0.05)) } else { t };
+            children
+                .iter()
+                .filter(|(born, _)| t >= *born && t - born < life)
+                .flat_map(|(born, at)| visual_meshes(child, [feet[0] + at[0], feet[1] + at[1], feet[2] + at[2]], heading, t - born))
+                .collect()
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// The locator's turn (FUN_10106be2 with `RotateAroundE0/1/2`, FUN_100d2b39 / FUN_100d2bfe / FUN_100d2cc1): from the identity,
+/// each a pair of rows turned (`a' = c a + s b`, `b' = c b − s a`: E0 rows 1 and 2, E1 rows 2 and 0, E2 rows 0 and 1), E0 E1 E2
+/// in order, or E2 E1 E0 with the locator's flag 4. Rows, for a row vector.
+fn locator_turn(turn: [f32; 3], reversed: bool) -> [[f32; 3]; 3] {
+    let mut m = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+    let mut rotate = |a: usize, b: usize, angle: f32| {
+        let (s, c) = angle.sin_cos();
+        let (ra, rb) = (m[a], m[b]);
+        m[a] = [0, 1, 2].map(|k| c * ra[k] + s * rb[k]);
+        m[b] = [0, 1, 2].map(|k| c * rb[k] - s * ra[k]);
+    };
+    let steps = [(1, 2, turn[0]), (2, 0, turn[1]), (0, 1, turn[2])];
+    if reversed {
+        steps.iter().rev().for_each(|&(a, b, x)| rotate(a, b, x));
+    } else {
+        steps.iter().for_each(|&(a, b, x)| rotate(a, b, x));
+    }
+    m
+}
+
+/// `GfxControlEffectMesh_t`'s mesh `t` seconds in (see `mao_formats::gfx::EffectMesh`), for a dynel whose feet are at `feet`
+/// (world, Z up) facing `heading`, seen from `camera`, as shells, as FUN_1010ce9c places its `VisualMesh_t`: the position the
+/// locator's (the feet, plus its offset turned by its turn and the heading) plus the run's offset in the world's axes (Y up:
+/// `FUN_10023b81` is a sum); the rotation the spin about the axis (up when it is zero, FUN_1010d457) then the locator's turn and
+/// the heading, or with flag 0x400 the shortest arc taking up to the camera's direction (FUN_100ad4f8: its half vector of up and
+/// the unnormalized direction); the scale the pose's; the opacity the pose's, with flag 0x800 none within 5 of the camera and
+/// `(d − 5) / 10` to 10. Each vertex of `model` (Y up, the mesh's own root transform kept) is put through that, white at the
+/// opacity, its part's texture by `sheet` (its sheet number), added for the rendering effects 4–6 (`Transparent*DeltaState`:
+/// source alpha onto the scene) and blended for the others. Not: the lighting of the plain effect (0) and its depth writes, the
+/// body's scale (flag 0x200), the mesh's own animation (0x1000) and its attractor effects (FUN_1010ca78).
+pub fn effect_mesh_shells(m: &EffectMesh, model: &mao_formats::model::Model, sheet: &dyn Fn(u32, u32) -> u16, feet: [f32; 3], heading: f32, camera: Option<[f32; 3]>, t: f32) -> Vec<Shell> {
+    let Some(pose) = m.pose(t) else { return Vec::new() };
+    // (the server's frame, Y up)
+    let to_server = |p: [f32; 3]| [p[0], p[2], p[1]];
+    let turn = locator_turn(m.turn, m.flags & 4 != 0);
+    let (sh, ch) = heading.sin_cos();
+    let by_heading = |q: [f32; 3]| [q[0] * ch + q[2] * sh, q[1], -q[0] * sh + q[2] * ch];
+    let by_turn = |q: [f32; 3]| [0, 1, 2].map(|j| q[0] * turn[0][j] + q[1] * turn[1][j] + q[2] * turn[2][j]);
+    let base = to_server(feet);
+    let located = by_heading(by_turn(m.place));
+    let centre = [0, 1, 2].map(|k| base[k] + located[k] + pose.offset[k]);
+    let mut opacity = pose.opacity;
+    let toward = camera.map(|c| {
+        let c = to_server(c);
+        [0, 1, 2].map(|k| c[k] - centre[k])
+    });
+    if m.flags & 0x800 != 0 {
+        match toward {
+            Some(d) if d != [0.0; 3] => {
+                let distance = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+                if distance < 5.0 {
+                    opacity = 0.0;
+                } else if distance < 10.0 {
+                    opacity = (distance - 5.0) / 10.0;
+                }
+            }
+            _ => opacity = 0.0,
+        }
+    }
+    if opacity <= 0.0 {
+        return Vec::new();
+    }
+    // (FUN_100ad4f8 with up: the half vector of up and the direction, or (up.z, 0, −up.x) when they cancel; the turn the
+    // quaternion (up × h, up · h))
+    let facing = match toward {
+        Some(d) if m.flags & 0x400 != 0 && d != [0.0; 3] => {
+            let mut h = [d[0], d[1] + 1.0, d[2]];
+            if h[0] * h[0] + h[1] * h[1] + h[2] * h[2] < 1e-12 {
+                h = [0.0, 0.0, 0.0];
+            }
+            let l = (h[0] * h[0] + h[1] * h[1] + h[2] * h[2]).sqrt().max(1e-12);
+            let h = h.map(|c| c / l);
+            // (up × h with up = (0, 1, 0), and up · h)
+            Some([h[2], 0.0, -h[0], h[1]])
+        }
+        _ => None,
+    };
+    let axis = {
+        let l = (m.axis[0] * m.axis[0] + m.axis[1] * m.axis[1] + m.axis[2] * m.axis[2]).sqrt();
+        if l > 0.0 { m.axis.map(|c| c / l) } else { [0.0, 1.0, 0.0] }
+    };
+    let (sa, ca) = pose.angle.sin_cos();
+    let rotate = |q: [f32; 3]| -> [f32; 3] {
+        if let Some([x, y, z, w]) = facing {
+            // (q' = r q r*, for a unit r)
+            let u = [x, y, z];
+            let uv = [u[1] * q[2] - u[2] * q[1], u[2] * q[0] - u[0] * q[2], u[0] * q[1] - u[1] * q[0]];
+            let uuv = [u[1] * uv[2] - u[2] * uv[1], u[2] * uv[0] - u[0] * uv[2], u[0] * uv[1] - u[1] * uv[0]];
+            return [0, 1, 2].map(|i| q[i] + 2.0 * (w * uv[i] + uuv[i]));
+        }
+        // (Rodrigues' turn about the axis, then the locator's turn and the heading)
+        let k = axis;
+        let dot = k[0] * q[0] + k[1] * q[1] + k[2] * q[2];
+        let cross = [k[1] * q[2] - k[2] * q[1], k[2] * q[0] - k[0] * q[2], k[0] * q[1] - k[1] * q[0]];
+        let q = [0, 1, 2].map(|i| q[i] * ca + cross[i] * sa + k[i] * dot * (1.0 - ca));
+        by_heading(by_turn(q))
+    };
+    let place = |p: [f32; 3]| -> [f32; 3] {
+        let q = rotate(p.map(|c| c * pose.scale));
+        let s = [0, 1, 2].map(|k| q[k] + centre[k]);
+        [s[0], s[2], s[1]]
+    };
+    let additive = matches!(m.effect, 4..=6);
+    let parts: Vec<(usize, mao_formats::model::Matrix)> =
+        if model.instances.is_empty() { (0..model.parts.len()).map(|i| (i, mao_formats::model::IDENTITY)).collect() } else { model.instances.clone() };
+    let mut out = Vec::new();
+    for (index, instance) in parts {
+        let Some(part) = model.parts.get(index) else { continue };
+        let w = mao_formats::model::multiply(&part.world, &instance);
+        let at = |p: [f32; 3]| [0, 1, 2].map(|j| p[0] * w[j] + p[1] * w[4 + j] + p[2] * w[8 + j] + w[12 + j]);
+        let sprite = part.material.textures.first().map_or(NO_SPRITE, |&(kind, instance)| sheet(kind, instance));
+        let vertices = part
+            .indices
+            .iter()
+            .filter_map(|&i| part.vertices.get(i as usize))
+            .map(|v| ShellVertex { position: place(at(v.position)), uv: v.uv, colour: [1.0, 1.0, 1.0, opacity.min(1.0)] })
+            .collect::<Vec<_>>();
+        if !vertices.is_empty() {
+            out.push(Shell { sprite, additive, vertices });
+        }
+    }
+    out
+}
+
 /// The shells a visual draws over a character's posed mesh `t` seconds in: a shield's, a second shield's, or (a scatter) its
 /// child's for each copy alive (on the body: their places unused).
 pub fn visual_shells(v: &Visual, surface: &crate::blobshadow::Surface, origin: [f32; 3], t: f32) -> Vec<Shell> {
@@ -1486,6 +1631,8 @@ pub fn visual_particles(v: &Visual, feet: [f32; 3], time: f32, reach: Reach) -> 
         }
         // (drawn as a shell over the character's mesh: see `shield_shell`, `shield2_shell`)
         Visual::Shield(_) | Visual::Shield2(_) => Vec::new(),
+        // (drawn as shells of its mesh: see `effect_mesh_shells`)
+        Visual::EffectMesh(_) => Vec::new(),
         Visual::Suns(s) => {
             let up = match reach {
                 Reach::Small => 0.0,
@@ -1635,6 +1782,7 @@ pub fn pulse_timing(v: &Visual) -> (f32, f32, i32) {
         // (a shield plays once for its duration; one without a duration runs while the effect does)
         Visual::Shield(s) => if s.duration > 0.0 { (600.0, s.duration, 1) } else { (600.0, 600.0, -1) },
         Visual::Shield2(s) => if s.duration > 0.0 { (600.0, s.duration, 1) } else { (600.0, 600.0, -1) },
+        Visual::EffectMesh(m) => if m.duration > 0.0 { (600.0, m.duration, 1) } else { (600.0, 600.0, -1) },
         _ => (4.0, 1.5, -1),
     }
 }
@@ -2140,6 +2288,80 @@ mod tests {
         }
         // late, only the top of the coil is left
         assert!(late.iter().all(|p| p.position[2] > 1.0));
+    }
+
+    #[test]
+    fn an_effect_mesh_grows_spins_and_fades_by_its_run() {
+        // (template 71224: the EMP blast at the target, growing 2 + 10 t + 10 t² over 2.5 s, its opacity in by 0.1 and out)
+        let m = EffectMesh {
+            flags: 1027,
+            place: [0.0; 3],
+            turn: [0.0; 3],
+            attach: 0,
+            duration: 2.5,
+            motion: 0,
+            mesh: 4,
+            offset: [0.0; 3],
+            velocity: [0.0; 3],
+            acceleration: [0.0; 3],
+            axis: [0.0, 1.0, 0.0],
+            spin: [0.0, 0.0, 0.0],
+            scale: [2.0, 10.0, 20.0],
+            effect: 4,
+            opacity: vec![(0.0, 0.0), (0.1, 1.0), (1.0, 0.0)],
+        };
+        assert_eq!(m.mesh_file(false), Some("EP03_EMP_blast.abiff"));
+        let p = m.pose(0.5).unwrap();
+        assert!((p.scale - (2.0 + 5.0 + 2.5)).abs() < 1e-5);
+        // (0.5 / 2.5 = 0.2 of the way: from 1 at 0.1 to 0 at 1)
+        assert!((p.opacity - (1.0 - 0.1 / 0.9)).abs() < 1e-5);
+        assert!(m.pose(2.5).is_none());
+        // one triangle a unit out along x: scaled, then set on the feet; the heading turns it about the up axis
+        let tri = mao_formats::model::Part {
+            name: String::new(),
+            world: mao_formats::model::IDENTITY,
+            vertices: vec![mao_formats::model::Vertex { position: [1.0, 0.0, 0.0], normal: [0.0; 3], uv: [0.0; 2] }; 3],
+            indices: vec![0, 1, 2],
+            material: Default::default(),
+        };
+        let model = mao_formats::model::Model { parts: vec![tri], ..Default::default() };
+        let shells = effect_mesh_shells(&m, &model, &|_, _| 7, [10.0, 20.0, 30.0], 0.0, None, 0.5);
+        assert_eq!(shells.len(), 1);
+        assert!(shells[0].additive && shells[0].sprite == NO_SPRITE);
+        let v = shells[0].vertices[0].position;
+        assert!((v[0] - (10.0 + 9.5)).abs() < 1e-4 && (v[1] - 20.0).abs() < 1e-4 && (v[2] - 30.0).abs() < 1e-4);
+        // (a quarter turn of heading: the model's x to the world's −y, as `trs_matrix`'s turn about Y does)
+        let turned = effect_mesh_shells(&m, &model, &|_, _| 7, [0.0; 3], std::f32::consts::FRAC_PI_2, None, 0.5);
+        let v = turned[0].vertices[0].position;
+        assert!(v[0].abs() < 1e-4 && (v[1] + 9.5).abs() < 1e-4);
+        // a spin about up by a quarter turn takes x to −z (the world's −y), a bob lifts the offset
+        let spun = EffectMesh { spin: [std::f32::consts::FRAC_PI_2, 0.0, 0.0], scale: [1.0, 0.0, 0.0], opacity: Vec::new(), duration: -1.0, ..m.clone() };
+        let v = effect_mesh_shells(&spun, &model, &|_, _| 7, [0.0; 3], 0.0, None, 1.0)[0].vertices[0].position;
+        assert!(v[0].abs() < 1e-4 && (v[1] + 1.0).abs() < 1e-4);
+        let bob = EffectMesh { motion: 1, velocity: [0.0, 1.5, 0.0], duration: 8.0, ..spun.clone() };
+        assert!((bob.pose(4.0).unwrap().offset[1] - 1.5 * 8.0 / std::f32::consts::TAU * 2.0).abs() < 1e-4);
+        // (the run's offset is in the world's axes: the heading leaves it alone; flag 0x400 turns up toward the camera)
+        let moved = EffectMesh { offset: [0.0, 0.0, 2.0], ..spun.clone() };
+        let v = effect_mesh_shells(&moved, &model, &|_, _| 7, [0.0; 3], 1.0, None, 1.0)[0].vertices[0].position;
+        assert!((v[1] - (2.0 + (-(std::f32::consts::FRAC_PI_2 + 1.0).sin()))).abs() < 1e-4, "{v:?}");
+        let up = mao_formats::model::Part { vertices: vec![mao_formats::model::Vertex { position: [0.0, 1.0, 0.0], normal: [0.0; 3], uv: [0.0; 2] }; 3], ..model.parts[0].clone() };
+        let upward = mao_formats::model::Model { parts: vec![up], ..Default::default() };
+        let faced = EffectMesh { flags: 0x400, ..spun.clone() };
+        let v = effect_mesh_shells(&faced, &upward, &|_, _| 7, [0.0; 3], 0.0, Some([0.0, 0.0, 0.0]), 1.0);
+        assert!(v.is_empty() || v[0].vertices[0].position[2] > 0.99);
+        let v = effect_mesh_shells(&faced, &upward, &|_, _| 7, [0.0; 3], 0.0, Some([1.0, 0.0, 0.0]), 1.0)[0].vertices[0].position;
+        // (the half vector of up and (1, 0, 0) is 45° over: up turned twice that, onto x)
+        assert!((v[0] - 1.0).abs() < 1e-4 && v[2].abs() < 1e-4, "{v:?}");
+        // (flag 0x800: gone within 5 of the camera, half at 10)
+        let near = EffectMesh { flags: 0x800, ..spun.clone() };
+        assert!(effect_mesh_shells(&near, &model, &|_, _| 7, [0.0; 3], 0.0, Some([3.0, 0.0, 0.0]), 1.0).is_empty());
+        assert!((effect_mesh_shells(&near, &model, &|_, _| 7, [0.0; 3], 0.0, Some([9.0, 0.0, 0.0]), 1.0)[0].vertices[0].colour[3] - 0.4).abs() < 1e-4);
+        // (the locator's E2 turn by π takes x to −x)
+        let t = locator_turn([0.0, 0.0, std::f32::consts::PI], false);
+        assert!((t[0][0] + 1.0).abs() < 1e-5);
+        // only the meshes at the dynel itself are drawn here
+        assert_eq!(visual_meshes(&Visual::EffectMesh(m.clone()), [0.0; 3], 0.0, 0.5).len(), 1);
+        assert!(visual_meshes(&Visual::EffectMesh(EffectMesh { attach: 2006, ..m }), [0.0; 3], 0.0, 0.5).is_empty());
     }
 
     #[test]

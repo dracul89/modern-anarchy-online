@@ -102,6 +102,14 @@ impl Textures {
         Textures { db, index: Default::default(), ready: Default::default() }
     }
 
+    /// A static mesh (type 0xf6951) by its file name, e.g. `EP03_EMP_blast.abiff`, with its root transform (as a mesh hung
+    /// from a `VisualMesh_t`'s frame: Y up).
+    pub fn mesh_named(&self, name: &str) -> Option<Model> {
+        let index = self.index.get_or_init(|| self.db.get(Id { kind: 0xf424a, instance: 1 }).ok().flatten().and_then(|o| mao_formats::instances::Instances::parse(&o).ok())).as_ref()?;
+        let instance = index.find(0xf6951, name)?;
+        load_model_attached(&self.db, Id { kind: 0xf6951, instance }).ok()
+    }
+
     /// An icon (type 0xf6958) by its file name, e.g. `action_burst.png`.
     pub fn icon_named(&self, name: &str) -> Option<Arc<gear::Icon>> {
         let index = self.index.get_or_init(|| self.db.get(Id { kind: 0xf424a, instance: 1 }).ok().flatten().and_then(|o| mao_formats::instances::Instances::parse(&o).ok())).as_ref()?;
@@ -825,6 +833,39 @@ fn run(args: &[String]) -> Result<(), String> {
                     println!("{} kind {} [{}]", r.id, r.kind, cells.join(" "));
                 }
                 println!();
+            }
+            return Ok(());
+        }
+    }
+    // `names <game> <text>`: the resources of the name index whose names hold the text (any case), with their type and instance.
+    if let [game, word, text] = args {
+        if word == "names" {
+            let db = ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?;
+            let data = db.get(Id { kind: 0xf424a, instance: 1 }).map_err(|e| e.to_string())?.ok_or("no name index")?;
+            let index = mao_formats::instances::Instances::parse(&data).map_err(|_| "a bad name index")?;
+            let wanted = text.to_lowercase();
+            for (kind, name, instance) in index.iter().filter(|(_, n, _)| n.to_lowercase().contains(&wanted)) {
+                println!("  {kind:#x} {instance} {name}");
+            }
+            return Ok(());
+        }
+    }
+    // `gfx-usage <game> <kind> <template>`: the programs naming one template anywhere in their effects' trees, with the stat.
+    if let [game, word, _kind, template] = args {
+        if word == "gfx-usage" {
+            let template: i32 = template.parse().map_err(|_| format!("not a template: {template}"))?;
+            let db = ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?;
+            let data = std::fs::read(Path::new(game).join("Setupf").join("gfxtweak.bin")).map_err(|e| e.to_string())?;
+            let gfx = mao_formats::gfx::Gfx::parse(&data).map_err(|e| e.to_string())?;
+            for id in db.ids().map_err(|e| e.to_string())?.filter_map(Result::ok).filter(|i| i.kind == mao_formats::item::NANO_TEMPLATE) {
+                let Some(data) = db.get(id).ok().flatten() else { continue };
+                let Some(item) = mao_formats::item::Item::parse(&data) else { continue };
+                for stat in [428u32, 361, 413, 419, 366, 414] {
+                    let Some(effect) = item.stat(stat).filter(|&e| e > 0) else { continue };
+                    if gfx.tree(effect as i32).iter().any(|r| r.id == template) {
+                        println!("  program {} ({}): stat {stat}, effect {effect}", id.instance, item.name);
+                    }
+                }
             }
             return Ok(());
         }

@@ -157,3 +157,19 @@ fn effect_classes_come_to_visuals() {
     // the null gather effect has none
     assert!(gfx.visual(49999).is_none());
 }
+
+#[test]
+fn the_effect_meshes_are_in_the_name_index() {
+    use mao_formats::gfx::Visual;
+    let (Some(db), Some(game)) = (database(), std::env::var_os("MAO_GAME").map(PathBuf::from)) else { return };
+    let gfx = mao_formats::gfx::Gfx::parse(&std::fs::read(game.join("Setupf").join("gfxtweak.bin")).unwrap()).unwrap();
+    let index = mao_formats::instances::Instances::parse(&db.get(Id { kind: 0xf424a, instance: 1 }).unwrap().unwrap()).unwrap();
+    // (the EMP blast of Boom, the blast wave of Orbital Strike, the grid box of Summon Towers, a hoverboard's fan and circle)
+    for (template, file) in [(71224, "EP03_EMP_blast.abiff"), (71028, "EP03_blast_wave_effect.abiff"), (72623, "xan_grid_dependencybox.abiff"), (72452, "hoverboard_b_fan.abiff"), (72346, "hoverbike_a_effect_circle.abiff")] {
+        let Some(Visual::EffectMesh(m)) = gfx.visual(template) else { panic!("{template} is not an effect mesh") };
+        assert_eq!(m.mesh_file(false), Some(file));
+        assert!(index.find(0xf6951, file).is_some(), "{file}");
+    }
+    let Some(Visual::EffectMesh(m)) = gfx.visual(71224) else { unreachable!() };
+    assert!(m.duration == 2.5 && m.scale == [2.0, 10.0, 20.0] && m.effect == 4 && m.opacity == vec![(0.0, 0.0), (0.1, 1.0), (1.0, 0.0)]);
+}
