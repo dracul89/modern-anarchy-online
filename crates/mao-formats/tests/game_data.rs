@@ -296,3 +296,13 @@ fn captured_weapons_swing_animations_the_files_have() {
         }
     }
 }
+
+#[test]
+fn weapon_animations_carry_their_notes() {
+    let Some(db) = database() else { return };
+    for (id, name) in [(10170, "smallarms-shot"), (14773, "rifle-shot"), (10181, "blade1h-slash"), (10175, "unarmed-rswing")] {
+        let data = db.get(Id { kind: 0xf6953, instance: id }).unwrap().unwrap();
+        let anim = mao_formats::catanim::parse(&data).unwrap();
+        println!("{name}: {:?}", anim.notes.iter().map(|n| (n.name.clone(), n.time)).collect::<Vec<_>>());
+    }
+}

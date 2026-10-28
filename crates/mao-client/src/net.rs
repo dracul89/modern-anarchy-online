@@ -206,6 +206,9 @@ struct World {
     last_hp: BTreeMap<u32, i64>,
     /// The social action each character is doing: its name and when it began (from `SocialActionCmd`).
     socials: BTreeMap<u32, (&'static str, Instant)>,
+    /// The characters that died (`CharacterAction` 99, `Death`, from the one dying): the death's action (its `Parameter2`: 500
+    /// `die-knees`, 503 `die-shot` ...) and when. Cleared by its `Despawn` or a new full update.
+    dead: BTreeMap<u32, (u32, Instant)>,
     /// Whom each character is fighting (the `Attack` message from it, its full update's `FightingTarget`; `StopFight` ends it):
     /// a fighting character has its weapon drawn (`WeaponHolder_t` +0x44 at 2, FUN_1006a1b1; 1 again at FUN_100690c8).
     fighting: BTreeMap<u32, u32>,
@@ -553,6 +556,16 @@ impl World {
                     self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
                 }
             }
+        }
+        // A character dies (`CharacterAction` 99 from it, the death's action in `Parameter2`: `CharDie_t`, FUN_1007b803, has the
+        // controller play it, its +0x14, FUN_1003cc42) and goes (`Despawn`).
+        if m.kind == 0x5e477770 && m.data.len() >= 25 && u32::from_be_bytes(m.data[1..5].try_into().unwrap()) == 99 {
+            let action = u32::from_be_bytes(m.data[21..25].try_into().unwrap());
+            self.dead.insert(m.identity.1, (action, Instant::now()));
+            self.fighting.remove(&m.identity.1);
+        }
+        if m.kind == 0x36510078 {
+            self.dead.remove(&m.identity.1);
         }
         // A character starts fighting (`Attack`, from it: its target) and stops (`StopFight`, from it).
         if m.kind == 0x28494070 {
@@ -909,6 +922,7 @@ impl World {
             self.rotations.insert(m.identity.1, q);
         }
         if let Some(info) = m.entity_info() {
+            self.dead.remove(&m.identity.1);
             match info.fighting {
                 Some((_, target)) => {
                     self.fighting.insert(m.identity.1, target);
@@ -1177,14 +1191,32 @@ impl Characters {
 
     /// The parts of a creature or NPC from its template (the CAT mesh and
     /// animations its record names), in Y-up local space.
-    fn creature_parts(&mut self, id: u32, template: u32, action: mao_formats::appearance::Action, _phase: f32, rate: f32, textures: &[(String, u32)], clothes: &[(String, u32)], deform: Option<(&mao_formats::gfx::Deform, f32)>) -> Option<Vec<Part>> {
+    /// A dead one (`dying`: the death's action) plays its death once and lies in its last pose: the template's animation for the
+    /// action (FUN_1003cac9 asks the creature's own set), else along FUN_10010b3c's fallbacks (`die-knees` to `die-pain`).
+    fn creature_parts(&mut self, id: u32, template: u32, action: mao_formats::appearance::Action, _phase: f32, rate: f32, textures: &[(String, u32)], clothes: &[(String, u32)], deform: Option<(&mao_formats::gfx::Deform, f32)>, dying: Option<u32>) -> Option<Vec<Part>> {
         use mao_formats::resource::Id;
         let db = self.db.clone();
         let entry = self.creatures.entry(template).or_insert_with(|| load_template(&db, template));
         let (record, mesh, head) = entry.as_ref()?;
+        let death = dying.and_then(|mut a| {
+            for _ in 0..8 {
+                if let Some(&(key, anim)) = record.animations.iter().find(|x| x.0 == a) {
+                    return Some((key, anim));
+                }
+                a = mao_formats::appearance::action_fallback(a);
+                if a == 0 {
+                    break;
+                }
+            }
+            None
+        });
         // (the first of the action's animations the database really holds)
         let mut chosen = None;
-        for (key, id) in record.animation_candidates(action) {
+        let candidates = match death {
+            Some(d) => vec![d],
+            None => record.animation_candidates(action),
+        };
+        for (key, id) in candidates {
             let loaded = self.creature_anims.entry(id).or_insert_with(|| {
                 let anim = mao_formats::catanim::parse(&db.get(Id { kind: 0xf6953, instance: id }).ok()??).ok()?;
                 let length = anim.tracks.iter().flat_map(|t| t.rotations.iter().map(|k| k.0)).fold(1.0f32, f32::max);
@@ -1201,7 +1233,7 @@ impl Characters {
         // (a creature that has no standing animation holds its walk's first frame while it stands)
         // (the original's calibration file says how fast each movement animation of a creature plays)
         let rate = rate * crate::effects::calibration(record.mesh.unwrap_or(0), anim_id);
-        let hold = action == mao_formats::appearance::Action::Idle && matches!(key, 100 | 101);
+        let hold = death.is_none() && action == mao_formats::appearance::Action::Idle && matches!(key, 100 | 101);
         if !self.anims_by_id.contains_key(&anim_id) {
             self.anims_by_id.insert(anim_id, (Arc::new(anim.clone()), *length));
         }
@@ -1209,9 +1241,10 @@ impl Characters {
         let (stack, tick) = self.stacks.entry(id).or_insert_with(|| (Default::default(), Instant::now()));
         let dt = tick.elapsed().as_secs_f32().min(0.5);
         *tick = Instant::now();
-        let stack_key = (action, hold as u8, anim_id);
+        let stack_key = (action, if death.is_some() { 9 } else { hold as u8 }, anim_id);
         if self.movement_keys.get(&id) != Some(&stack_key) {
-            let handle = stack.set_animation(anim_id, 0, -1, 2, 0, 1.0, *length);
+            // (a death is held at its end: direction 3 plays it once and keeps the last frame)
+            let handle = stack.set_animation(anim_id, 0, -1, 2, if death.is_some() { 3 } else { 0 }, 1.0, *length);
             stack.set_time(handle, 0.0, if hold { 0.0 } else { *length });
             self.movement_keys.insert(id, stack_key);
             self.movement_handles.insert(id, handle);
@@ -1439,13 +1472,14 @@ impl Characters {
                 let (start, end, length) = points;
                 let length = if length > 0.0 { length } else { total };
                 let (loops, range) = match key.1 {
-                    0 => (-1, (0.0, length)),
+                    0 | 9 => (-1, (0.0, length)),
                     1 => (1, (0.0, start)),
                     2 => (-1, (start, end)),
                     3 => (1, (end, length)),
                     _ => (1, (0.0, length)),
                 };
-                let handle = stack.set_animation(anim, 0, loops, 2, 0, 1.0, total);
+                // (a death, key 9, is held at its end: direction 3)
+                let handle = stack.set_animation(anim, 0, loops, 2, if key.1 == 9 { 3 } else { 0 }, 1.0, total);
                 stack.set_time(handle, range.0, range.1);
                 if let Some(length) = flourish {
                     stack.set_delay(handle, (length - 300.0).max(0.0));
@@ -1642,7 +1676,7 @@ impl Characters {
     /// The parts of a player of this breed and sex at `t` ms into the walk,
     /// in Y-up local space (world matrices identity), if its meshes exist.
     /// `vehicle`: the vehicle body (NPC template) a vehicle program puts the character on, drawn instead of its own.
-    fn parts(&mut self, id: u32, breed: u8, sex: u8, moving: Option<mao_formats::appearance::Action>, jumped: Option<Duration>, _phase: f32, speed: f32, scale: f32, textures: &[(String, u32)], clothes: &[(String, u32)], gear: &[(u8, u32, u32)], social: Option<(&str, Instant)>, swing: Option<(u32, u32, Instant, u32, u32)>, weapon: Option<(u32, u32)>, fighting: bool, deform: Option<(&mao_formats::gfx::Deform, f32)>, vehicle: Option<u32>) -> Option<Vec<Part>> {
+    fn parts(&mut self, id: u32, breed: u8, sex: u8, moving: Option<mao_formats::appearance::Action>, jumped: Option<Duration>, _phase: f32, speed: f32, scale: f32, textures: &[(String, u32)], clothes: &[(String, u32)], gear: &[(u8, u32, u32)], social: Option<(&str, Instant)>, swing: Option<(u32, u32, Instant, u32, u32)>, weapon: Option<(u32, u32)>, fighting: bool, dying: Option<u32>, deform: Option<(&mao_formats::gfx::Deform, f32)>, vehicle: Option<u32>) -> Option<Vec<Part>> {
         if let Some(template) = vehicle {
             if let Some(parts) = self.vehicle_parts(id, breed, sex, template, moving, speed, scale, textures, clothes, gear, deform) {
                 return Some(parts);
@@ -1665,7 +1699,10 @@ impl Characters {
         // in place 6, else 8, else 0; out of one the idle the wielding set, FUN_1009cda2's class 0x29 (a rifle's `idle-2h`, a
         // bow's, a bazooka's), and a rifle's two-handed walk and run)
         use mao_formats::appearance::Action as A;
+        // (dead: the death's animation, by the original's file names along the fallbacks, played once and held)
+        let death = dying.and_then(|a| self.ensure_action_file(breed, sex, a));
         let weapon_idle = match (action, weapon) {
+            _ if death.is_some() => death.clone(),
             (A::Idle, Some((template, slot))) if fighting => self.ensure_weapon_action(breed, sex, template, slot, 0x10),
             (A::Idle, Some((template, slot))) => self.ensure_weapon_action(breed, sex, template, slot, 0x29),
             (A::Walk | A::Run, Some((template, _))) => {
@@ -1681,7 +1718,7 @@ impl Characters {
             Some((file, _)) => self.anim_by_name(file),
             None => self.anim_by_name(&name),
         };
-        let key = (action, self.segment, movement.map_or(0, |m| m.0));
+        let key = (action, if death.is_some() { 9 } else { self.segment }, movement.map_or(0, |m| m.0));
         let points = match movement.filter(|_| weapon_idle.is_some()) {
             Some((_, length)) => (0.0, length, length),
             None => self.loop_points(breed, sex, action).unwrap_or((0.0, 0.0, 0.0)),
@@ -1748,7 +1785,7 @@ pub(crate) fn character_model(db: &Arc<ResourceDatabase>, breed: i32, sex: i32, 
     let (breed, sex) = (breed as u8, if breed == 4 { 1 } else { sex as u8 });
     let mut chars = Characters::new(db.clone()).ok()?;
     let (textures, clothes, gear) = look.map_or((&[][..], &[][..], &[][..]), |l| (l.textures.as_slice(), l.clothes.as_slice(), l.gear.as_slice()));
-    let parts = chars.parts(0, breed, sex, None, None, 0.0, 0.0, 100.0, textures, clothes, gear, None, None, None, false, None, None)?;
+    let parts = chars.parts(0, breed, sex, None, None, 0.0, 0.0, 100.0, textures, clothes, gear, None, None, None, false, None, None, None)?;
     let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     Some(Model { instances: (0..parts.len()).map(|i| (i, swap)).collect(), parts, water: None, lod_groups: Vec::new() })
 }
@@ -1764,7 +1801,7 @@ pub(crate) fn creature_preview(db: Arc<ResourceDatabase>, template: u32, out: &s
         "run" => mao_formats::appearance::Action::Run,
         _ => mao_formats::appearance::Action::Idle,
     };
-    let parts = chars.creature_parts(0, template, action, 0.0, 1.0, &[], &[], None).ok_or("that template has no mesh")?;
+    let parts = chars.creature_parts(0, template, action, 0.0, 1.0, &[], &[], None, None).ok_or("that template has no mesh")?;
     let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     let model = Model { instances: (0..parts.len()).map(|i| (i, swap)).collect(), parts, water: None, lod_groups: Vec::new() };
     crate::viewer::headless(&model, &crate::Textures::new(db), out)
@@ -1784,7 +1821,7 @@ pub(crate) fn ride_preview(db: Arc<ResourceDatabase>, breed: u8, sex: u8, nano: 
         "run" => Some(Action::Run),
         _ => None,
     };
-    let parts = chars.parts(0, breed, sex, action, None, 0.0, 5.0, 100.0, &[], &[], &[], None, None, None, false, None, Some(template)).ok_or("the vehicle body did not load")?;
+    let parts = chars.parts(0, breed, sex, action, None, 0.0, 5.0, 100.0, &[], &[], &[], None, None, None, false, None, None, Some(template)).ok_or("the vehicle body did not load")?;
     // (at the origin facing the server's +z: the local frame is the server's)
     let attractors = chars.frames.get(&0).cloned().unwrap_or_default();
     for (name, m) in attractors.iter().filter(|(n, _)| n.contains("special") || n.contains("head")) {
@@ -1845,7 +1882,7 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
         if let (Some(info), Some(chars)) = (world.infos.get(&id).filter(|i| i.template.is_some()), characters.as_mut()) {
             let moving = world.last_move.get(&id).is_some_and(|t| t.elapsed() < Duration::from_millis(900));
             let action = if moving { mao_formats::appearance::Action::Walk } else { mao_formats::appearance::Action::Idle };
-            if let Some(parts) = chars.creature_parts(id, info.template.unwrap(), action, (id % 997) as f32 * 3.0, 1.0, &info.textures, &info.clothes, deform) {
+            if let Some(parts) = chars.creature_parts(id, info.template.unwrap(), action, (id % 997) as f32 * 3.0, 1.0, &info.textures, &info.clothes, deform, world.dead.get(&id).map(|d| d.0)) {
                 push_character(&mut model, &mut casters, parts, place, id == world.own, chars.frames.get(&id));
                 continue;
             }
@@ -1863,7 +1900,7 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
                 _ if speed > 2.2 => Action::Run,
                 _ => Action::Walk,
             };
-            if let Some(parts) = chars.creature_parts(id, creature, action, (id % 997) as f32 * 3.0, MORPH_ANIM_RATE, &[], &[], deform) {
+            if let Some(parts) = chars.creature_parts(id, creature, action, (id % 997) as f32 * 3.0, MORPH_ANIM_RATE, &[], &[], deform, world.dead.get(&id).map(|d| d.0)) {
                 push_character(&mut model, &mut casters, parts, place, id == world.own, chars.frames.get(&id));
                 continue;
             }
@@ -1902,7 +1939,7 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
             // (A phase per entity keeps a crowd from moving in step.)
             // (a character running a vehicle program rides its board or bike)
             let vehicle = world.riding.get(&id).and_then(|&nano| chars.vehicle(nano, info.breed, info.sex));
-            if let Some(parts) = chars.parts(id, info.breed, info.sex, action, jumped, (id % 997) as f32 * 3.0, speed, scale, &info.textures, &info.clothes, world.equipment.get(&id).map_or(&[][..], |v| v.as_slice()), social, swing, weapon, fighting, deform, vehicle) {
+            if let Some(parts) = chars.parts(id, info.breed, info.sex, action, jumped, (id % 997) as f32 * 3.0, speed, scale, &info.textures, &info.clothes, world.equipment.get(&id).map_or(&[][..], |v| v.as_slice()), social, swing, weapon, fighting, world.dead.get(&id).map(|d| d.0), deform, vehicle) {
                 push_character(&mut model, &mut casters, parts, place, id == world.own, chars.frames.get(&id));
                 continue;
             }
@@ -4685,6 +4722,11 @@ mod door_tests {
         assert_eq!(w.fighting.get(&0x4bc80), Some(&0x7b017c2a));
         w.add(&Message { kind: 0x4a41203e, identity: (0xc350, 0x4bc80), data: hex("0000000001") }.frame(1));
         assert!(!w.fighting.contains_key(&0x4bc80));
+        // (a captured death: 0x7b017c2a dies kneeling, 500, and is despawned ten seconds on)
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, 0x7b017c2a), data: hex("000000006300000000000000000000000000000000000001f40000") }.frame(1));
+        assert_eq!(w.dead.get(&0x7b017c2a).map(|d| d.0), Some(500));
+        w.add(&Message { kind: 0x36510078, identity: (0xc350, 0x7b017c2a), data: hex("00") }.frame(1));
+        assert!(!w.dead.contains_key(&0x7b017c2a));
     }
 
     #[test]

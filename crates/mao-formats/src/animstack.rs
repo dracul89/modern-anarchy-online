@@ -340,6 +340,19 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_death_holds_its_last_frame() {
+        // (direction 3 with no loop count: played once, then kept at the end, as a corpse lies)
+        let mut s = Stack::default();
+        let h = s.set_animation(7, 0, -1, 2, 3, 1.0, 1200.0);
+        s.set_time(h, 0.0, 1200.0);
+        for _ in 0..50 {
+            s.advance(0.1);
+        }
+        let e = s.entries.iter().find(|e| e.handle == h).unwrap();
+        assert!(e.time() > 1199.0 && e.time() <= 1200.0);
+    }
+
+    #[test]
     fn a_draw_plays_before_the_idle_set_to_wait_for_it() {
         // (FUN_1003cce2: the weapon's start once, then its idle delayed by the start's length less 300 ms)
         let mut s = Stack::default();
