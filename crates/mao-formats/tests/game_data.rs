@@ -474,3 +474,54 @@ fn weapon_sounds_and_attack_notes() {
         eprintln!("{name}: {:?}", anim.notes.iter().map(|n| (n.name.as_str(), n.time, n.event())).collect::<Vec<_>>());
     }
 }
+
+/// The music project reads whole: its layers (the battle layers among them) and samples with their transitions.
+#[test]
+fn the_music_project() {
+    let Some(game) = std::env::var_os("MAO_GAME").map(PathBuf::from) else { return };
+    let p = mao_formats::music::Project::parse(&std::fs::read(game.join("cd_image/sound/music/env/anarchy.sws")).unwrap()).unwrap();
+    let transitions: usize = p.samples.iter().map(|s| s.transitions.len()).sum();
+    let layered: usize = p.samples.iter().map(|s| s.layer_transitions.len()).sum();
+    eprintln!("{} layers, {} samples, {transitions} transitions, {layered} layer transitions, {} entries, {} paused layers", p.layers.len(), p.samples.len(), p.samples.iter().filter(|s| s.entry).count(), p.layers.iter().filter(|l| l.pause.is_some()).count());
+    eprintln!("pause tracks: {:?}", p.layers.iter().filter_map(|l| Some((l.name.as_str(), l.pause.as_ref()?))).take(5).collect::<Vec<_>>());
+    eprintln!("layers: {:?}", p.layers.iter().take(30).map(|l| (l.id, l.name.as_str(), l.volume)).collect::<Vec<_>>());
+    eprintln!("sample 0: {:?}", p.samples.first());
+    assert!(p.find_layer(r"battle\Neutral") >= 0 && p.find_layer("mountain/night") >= 0);
+    assert!(p.samples.iter().all(|s| s.transitions.iter().chain(&s.layer_transitions).all(|t| t.to < p.samples.len())));
+    let late = p.samples.iter().flat_map(|s| s.transitions.iter()).filter(|t| t.in_time > 0 || (t.in_time == -1 && t.in_position > 0)).count();
+    let curves: std::collections::BTreeMap<i32, usize> = p.samples.iter().flat_map(|s| s.transitions.iter()).fold(Default::default(), |mut m, t| { *m.entry(t.fade_out.curve).or_default() += 1; m });
+    eprintln!("{late} transitions enter past the start; fade-out curves {curves:?}; fade times > 0: {}", p.samples.iter().flat_map(|s| s.transitions.iter()).filter(|t| t.time > 0).count());
+}
+
+/// An outdoor playfield's zone grid: `RDBPlayfield_t`'s zone size (+0x18, before the tile map) divides the tile map into its
+/// zones (N3's `GetNumZonesInX` × `…InZ`), and its districts (0xf424e) name a district for each zone.
+#[test]
+fn zones_and_districts() {
+    let Some(db) = database() else { return };
+    // (every outdoor playfield's districts read)
+    let mut read = 0;
+    for id in db.ids().unwrap().filter_map(Result::ok).filter(|i| i.kind == mao_formats::districts::KIND) {
+        let data = db.get(id).unwrap().unwrap();
+        let d = mao_formats::districts::parse(&data);
+        // (an empty list the original refuses too: "number of districts=0")
+        if d.is_none() && data.len() > 19 && data[18] != 0 {
+            panic!("playfield {}: version {}, zones {}, count {}, {} bytes; head {:02x?}", id.instance, u16::from_le_bytes([data[12], data[13]]), u32::from_le_bytes(data[14..18].try_into().unwrap()), data[18], data.len(), &data[19..90.min(data.len())]);
+            continue;
+        }
+        read += 1;
+    }
+    eprintln!("{read} district lists");
+    for pf in [0x2a8u32, 760, 567, 655] {
+        let Some(object) = db.get(Id { kind: 0xf4241, instance: pf }).unwrap() else { continue };
+        let word = |o: usize| u32::from_le_bytes(object[12 + o..16 + o].try_into().unwrap());
+        let (size, tilemap, zones) = (word(36), word(40), word(48));
+        eprintln!("words: {:?}", (0..14).map(|k| word(4 * k)).collect::<Vec<_>>());
+        let Some(map) = db.get(Id { kind: 0xf4249, instance: tilemap }).ok().flatten().and_then(|o| mao_formats::tilemap::parse_old(&o).ok()) else { continue };
+        let districts = db.get(Id { kind: 0xf424e, instance: pf }).unwrap().map(|d| d.len());
+        let d = mao_formats::districts::parse(&db.get(Id { kind: mao_formats::districts::KIND, instance: pf }).unwrap().unwrap()).unwrap();
+        assert_eq!(d.zones.len() as u32, zones);
+        assert_eq!(mao_formats::districts::zone_size(&object), Some(10));
+        eprintln!("pf {pf}: {} districts: {:?}", d.districts.len(), d.districts.iter().take(4).map(|x| (x.name.as_str(), x.music)).collect::<Vec<_>>());
+        eprintln!("pf {pf}: zone size {size}, map {}x{}, zones {zones} (grid {}), districts object {districts:?}", map.width, map.height, (map.width as u32 / size.max(1)) * (map.height as u32 / size.max(1)));
+    }
+}

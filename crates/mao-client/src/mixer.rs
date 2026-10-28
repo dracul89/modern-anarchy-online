@@ -44,6 +44,8 @@ impl Pcm {
 /// The Miles status of a sample playing (`SMP_PLAYING`) and of one done (`SMP_DONE`).
 pub const PLAYING: i32 = 4;
 pub const DONE: i32 = 2;
+/// A stream opened and not started, or paused (`SMP_STOPPED`).
+pub const STOPPED: i32 = 8;
 
 /// A Miles sample handle: its sample, where it is, its rate, loops left (0: for ever), status and levels.
 #[derive(Default)]
@@ -379,6 +381,11 @@ impl Engine {
         self.sounds[sound] = None;
     }
 
+    /// The streams on the engine's output.
+    pub fn streams(&self) -> Streams {
+        Streams(self.voices.clone())
+    }
+
     /// Channels taken (for the tests).
     pub fn channels(&self) -> i32 {
         self.channels
@@ -386,6 +393,98 @@ impl Engine {
 
     /// Moves the handles on by `frames` without a device (for the tests).
     pub fn advance(&mut self, frames: usize) {
+        let mut out = vec![0.0; frames * 2];
+        self.voices().render(&mut out);
+    }
+}
+
+/// Miles's streams (`HSTREAM`) on the same output, apart from the engine's 13 channels: the music player's (SIMPlayer.dll
+/// opens them on the sound engine's driver). A stream plays once from where it is.
+#[derive(Clone)]
+pub struct Streams(Arc<Mutex<Voices>>);
+
+impl Streams {
+    fn voices(&self) -> std::sync::MutexGuard<'_, Voices> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn with<R>(&self, h: usize, f: impl FnOnce(&mut Voice) -> R) -> Option<R> {
+        self.voices().voices.get_mut(h).and_then(Option::as_mut).map(f)
+    }
+
+    /// `AIL_open_stream`: the sample on a stream of its own, stopped at its start, at full volume.
+    pub fn open(&self, pcm: Arc<Pcm>) -> usize {
+        let mut v = self.voices();
+        let voice = Voice { rate: pcm.rate, pcm: Some(pcm), position: 0.0, loops: 1, status: STOPPED, volume: 1.0 };
+        match v.voices.iter().position(Option::is_none) {
+            Some(h) => {
+                v.voices[h] = Some(voice);
+                h
+            }
+            None => {
+                v.voices.push(Some(voice));
+                v.voices.len() - 1
+            }
+        }
+    }
+
+    /// `AIL_close_stream`.
+    pub fn close(&self, h: usize) {
+        if let Some(v) = self.voices().voices.get_mut(h) {
+            *v = None;
+        }
+    }
+
+    /// `AIL_start_stream`: playing from where it is (no project's transition enters a sample past its start, so where Miles
+    /// starts it does not show).
+    pub fn start(&self, h: usize) {
+        self.with(h, |v| {
+            if v.status != DONE {
+                v.status = PLAYING;
+            }
+        });
+    }
+
+    /// `AIL_pause_stream(on)`.
+    pub fn pause(&self, h: usize, on: bool) {
+        self.with(h, |v| {
+            if v.status != DONE {
+                v.status = if on { STOPPED } else { PLAYING };
+            }
+        });
+    }
+
+    /// `AIL_stream_status` (DONE for none).
+    pub fn status(&self, h: usize) -> i32 {
+        self.with(h, |v| v.status).unwrap_or(DONE)
+    }
+
+    /// `AIL_stream_ms_position`: the length and where it is, in ms.
+    pub fn ms_position(&self, h: usize) -> (i32, i32) {
+        self.with(h, |v| {
+            let Some(p) = &v.pcm else { return (0, 0) };
+            let rate = p.rate.max(1) as f64;
+            ((p.frames() as f64 * 1000.0 / rate) as i32, (v.position.min(p.frames() as f64) * 1000.0 / rate) as i32)
+        })
+        .unwrap_or((0, 0))
+    }
+
+    /// `AIL_set_stream_ms_position`.
+    pub fn set_ms_position(&self, h: usize, ms: i32) {
+        self.with(h, |v| {
+            if let Some(p) = &v.pcm {
+                v.position = ms.max(0) as f64 * p.rate as f64 / 1000.0;
+            }
+        });
+    }
+
+    /// `AIL_set_sample_volume_levels` on the stream's sample.
+    pub fn set_volume(&self, h: usize, volume: f32) {
+        self.with(h, |v| v.volume = volume);
+    }
+
+    /// Moves the voices on by `frames` without a device (for the tests).
+    pub fn advance(&self, frames: usize) {
         let mut out = vec![0.0; frames * 2];
         self.voices().render(&mut out);
     }

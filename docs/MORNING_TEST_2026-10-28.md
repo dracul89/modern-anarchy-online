@@ -74,6 +74,7 @@ Added after the overnight run, on request: audio through rodio, ported from the 
 
 | Commit | What | What to try |
 |---|---|---|
+| (next) | **Music**: the original's interactive music (SIMPlayer): startup music at login, the district's music by the time of day, battle music in fights, cross-fades and pauses | walk between districts; fight; `mao-client "<game>" music "plains\day"` |
 | 742e3a9 | **Death sounds**: a creature's own, else a man's or a woman's | kill something |
 | 9f7aa87 | **Shots and hits**: each swing's `attack` note plays the weapon's sound; hits play the impact and the one hit's grunt (by sex) or a creature's own impact | fight a monster with a gun and with your fists |
 | 9d338fc | **Steps, swims, landings and swishes** from the animations' notes; NPCs with animation sets play their own (idles, attack starts) | walk and run past others, jump, punch; listen to monsters |

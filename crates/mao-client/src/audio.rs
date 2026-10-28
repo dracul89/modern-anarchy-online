@@ -8,8 +8,12 @@
 //! into the play list `Frameprocess` carries out at its end (the sample started looping or once, or for a playing doppler
 //! source its pitch moved). Samples are read when first played, within a memory budget that frees the least recently used.
 //!
-//! Not here yet: the music (SIMPlayer's player: `PlayMusic`, `SetupENVSounds`, the combat music) and the alert and noise
-//! radii told to AFCM (module 9's messages 0xbf and 0x119, for the game's AI).
+//! The music is SIMPlayer's player ([`crate::music`]) over `sound/music/env/anarchy.sws`, made when music first plays
+//! (`LoadSimProject`): a layer is played by an event to the player (`PlayMusic`), the district's layer each second
+//! (`SetupENVSounds`), the battle layers while the combat music's state says so (`ProcessCombatMusic` over the frame's
+//! `CombatUpdate` reports).
+//!
+//! Not here: the alert and noise radii told to AFCM (module 9's messages 0xbf and 0x119, for the game's AI).
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -237,7 +241,68 @@ pub struct Sandy {
     pub master_fx: f32,
     pub master_player_fx: f32,
     pub master: f32,
+    /// `m_vMasterMusicVolume` and `m_bMasterMusicVolumeUpdated`.
+    pub master_music: f32,
+    music_updated: bool,
+    /// `m_nCombatMusicPreferences` (the battle music option: 0 none).
+    pub combat_preferences: i32,
+    /// The music player (the module's, DAT_1000f0b0) and the land control layer (DAT_1000f0b4).
+    pub player: Option<crate::music::Running>,
+    landcontrol: i32,
+    /// The district (+0x5c), the music layer (+0x74), the combat music's state (+0x90), its override (+0x64, +0x108), the
+    /// battle layers (+0xc4), music muted and transitions forced (+0x10c, +0x10d).
+    pub district: i32,
+    pub layer: i32,
+    pub music_state: i32,
+    override_name: Option<String>,
+    override_layer: i32,
+    layers: [i32; 17],
+    music_mute: bool,
+    force_transitions: bool,
+    combat: Combat,
 }
+
+/// `CombatUpdate`'s reports and what `ProcessCombatMusic` kept of them (+0x78 to +0xc0).
+#[derive(Clone, Debug, Default)]
+struct Combat {
+    enemies: i32,
+    faction: i32,
+    level: i32,
+    health: i32,
+    flag: bool,
+    target_enemies: i32,
+    target_level: i32,
+    target: i32,
+    target_health: i32,
+    target_flag: bool,
+    last_target: i32,
+    updates: i32,
+    last_enemies: i32,
+    last_target_enemies: i32,
+    last_target_level: i32,
+    last_target_health: i32,
+    timer: f32,
+}
+
+/// The battle layers' names (+0xc8 on).
+const BATTLE: [&str; 16] = [
+    "battle\\NeutralRebirth",
+    "battle\\ClanRebirth",
+    "battle\\OmniRebirth",
+    "battle\\NeutralDeath",
+    "battle\\ClanDeath",
+    "battle\\OmniDeath",
+    "battle\\NeutralVictory",
+    "battle\\NeutralVictory",
+    "battle\\NeutralVictory",
+    "battle\\Neutral",
+    "battle\\WinningMedium",
+    "battle\\WinningSlightlyBig",
+    "battle\\WinningGreatlyBig",
+    "battle\\LosingMedium",
+    "battle\\LosingSlightlyBig",
+    "battle\\LosingBadlyBig",
+];
 
 impl Sandy {
     /// `SandyInterface_t()` (its engine `SoundEngineInterface_t::GetInstance()`), over the sound folder.
@@ -270,6 +335,20 @@ impl Sandy {
             master_fx: 1.0,
             master_player_fx: 1.0,
             master: 1.0,
+            master_music: 1.0,
+            music_updated: true,
+            combat_preferences: 0,
+            player: None,
+            landcontrol: 0,
+            district: -1,
+            layer: -1,
+            music_state: 0,
+            override_name: None,
+            override_layer: 0,
+            layers: [0; 17],
+            music_mute: false,
+            force_transitions: true,
+            combat: Combat { enemies: 100, last_enemies: 100, ..Combat::default() },
         }
     }
 
@@ -293,6 +372,7 @@ impl Sandy {
     /// `DeinitializeSandy()`: the samples released, the engine shut.
     pub fn deinitialize(&mut self) {
         if self.initialized {
+            self.stop_music();
             self.release_all();
         }
         self.initialized = false;
@@ -850,7 +930,21 @@ impl Sandy {
             self.seconds += 1;
             self.second = (second as f64 - (second as f64).floor()) as f32;
         }
+        if self.music_updated {
+            if let Some(p) = &self.player {
+                let v = self.master_music;
+                p.with(|p| p.set_volume(v));
+                self.music_updated = false;
+            }
+        }
+        if 0.0 < self.combat.timer {
+            self.combat.timer = (self.combat.timer as f64 - time as f64) as f32;
+        }
+        if !(0.0 < self.combat.timer) && !self.combat.timer.is_nan() {
+            self.process_combat_music();
+        }
         self.frame += 1;
+        self.combat.updates = 0;
         for d in &mut self.deferred {
             d.defer = (d.defer as f64 - time as f64) as f32;
         }
@@ -881,6 +975,280 @@ impl Sandy {
             self.sources[s].queued = false;
         }
         self.execute_play_list();
+    }
+
+    /// `SetStaticMasterMusicVolume(volume)`: noted for the next frame.
+    pub fn set_static_master_music(&mut self, v: f32) {
+        if v != self.master_music {
+            self.music_updated = true;
+            self.master_music = v;
+        }
+    }
+
+    /// `LoadSimProject()`: without a player, one made from `sound/music/env/anarchy.sws` at the music volume; then the battle
+    /// layers looked up (after `sim.config`, which the game does not have), and it played.
+    fn load_sim_project(&mut self) {
+        if self.player.is_none() {
+            let dir = self.root.join("music/env");
+            if let Some(project) = std::fs::read(dir.join("anarchy.sws")).ok().and_then(|d| mao_formats::music::Project::parse(&d)) {
+                let mut p = crate::music::Player::new(std::sync::Arc::new(project), &dir, self.engine.streams());
+                p.set_volume(self.master_music);
+                self.player = Some(crate::music::Running::start(p));
+            }
+        }
+        if let Some(p) = &self.player {
+            let layers = p.with(|p| {
+                let mut l = [-1i32; 17];
+                for (k, name) in BATTLE.iter().enumerate() {
+                    l[k + 1] = p.project().find_layer(name);
+                }
+                l
+            });
+            self.layers = layers;
+            p.with(|p| p.play(None, true));
+        }
+    }
+
+    /// The project's layer of a name (`FindLayerID`), -2 without a player.
+    pub fn find_layer(&self, name: &str) -> i32 {
+        self.player.as_ref().map_or(-2, |p| p.with(|p| p.project().find_layer(name)))
+    }
+
+    /// `PlayMusic(layer)`: the layer (or with combat music on, the override's or the battle layer of its state) signalled to
+    /// the player (made and started if there is none; stopped for no layer), unless muted or already playing it.
+    pub fn play_music(&mut self, layer: i32) {
+        if self.music_mute || !self.initialized {
+            return;
+        }
+        let mut layer = layer;
+        let state = self.music_state;
+        if 0 < state && state < 0x11 {
+            if let Some(name) = self.override_name.clone().filter(|_| self.override_layer == 0) {
+                if self.player.is_some() {
+                    self.override_layer = self.find_layer(&name);
+                }
+                if self.override_layer == -1 {
+                    self.override_layer = 0;
+                }
+            }
+            layer = self.override_layer;
+            if layer == 0 {
+                layer = self.layers[state as usize];
+            }
+        }
+        let force = self.force_transitions as i32;
+        match &self.player {
+            None => {
+                self.load_sim_project();
+                let Some(p) = &self.player else { return };
+                p.with(|p| {
+                    p.signal_event(layer, force, 2000);
+                    p.play(None, true);
+                });
+            }
+            Some(p) => {
+                if layer == 0xffff {
+                    layer = -1;
+                }
+                if self.layer == layer {
+                    return;
+                }
+                let force = force != 0 || layer == -1;
+                let old = self.layer;
+                p.with(|p| {
+                    if layer != -1 {
+                        p.signal_event(layer, force as i32, 2000);
+                        if old == -1 {
+                            p.play(None, true);
+                        }
+                    } else {
+                        p.stop(false, true);
+                    }
+                });
+            }
+        }
+        self.layer = layer;
+    }
+
+    /// `StopMusic()`: the player stopped and deleted.
+    pub fn stop_music(&mut self) {
+        self.player = None;
+        self.district = -1;
+        self.layer = -1;
+        self.music_state = 0;
+        self.override_layer = 0;
+    }
+
+    /// `SetMusicMute(mute)`: muting stops the music.
+    pub fn set_music_mute(&mut self, mute: bool) {
+        self.music_mute = mute;
+        if mute {
+            self.player = None;
+            self.layer = -1;
+        }
+    }
+
+    /// `PlayStartupMusic()`: `mountain\night`.
+    pub fn play_startup_music(&mut self) {
+        self.load_sim_project();
+        if self.player.is_some() {
+            let layer = self.find_layer("mountain\\night");
+            self.play_music(layer);
+        }
+    }
+
+    /// `SetupENVSounds(district, layer)`: the district noted and its music played (-911: the `Landcontrol_neutral` layer).
+    pub fn setup_env_sounds(&mut self, district: u32, layer: i32) {
+        if !self.initialized {
+            self.district = -1;
+            self.layer = -1;
+            return;
+        }
+        self.district = district as i32;
+        let mut layer = layer;
+        if layer == -0x38f {
+            if self.landcontrol == 0 {
+                if self.player.is_none() {
+                    return;
+                }
+                self.landcontrol = self.find_layer("Landcontrol_neutral");
+                if self.landcontrol == 0 {
+                    return;
+                }
+            }
+            layer = self.landcontrol;
+        }
+        self.play_music(layer);
+    }
+
+    /// `PlayDistrictSample(name)`: the source `<name>_<district>` played.
+    pub fn play_district(&mut self, name: &str) {
+        let s = self.source_of(sound_id(&format!("{name}_{}", self.district)));
+        self.play_sample(s, 1.0, [0.0; 3], 0.0, 0, 0.0, 100, 1, 0, [0.0; 3]);
+    }
+
+    /// `SetCombatMusicOverride(name)`: kept, its layer looked up when next needed.
+    pub fn set_combat_music_override(&mut self, name: Option<&str>) {
+        self.override_name = name.map(str::to_string);
+        self.override_layer = 0;
+    }
+
+    /// `CombatUpdate(own, enemies, level, faction, target, flag, health)`: a report of the player's own fight, or of the
+    /// target's (kept when about the same target with no enemies, or with more health, or as much and more enemies).
+    #[allow(clippy::too_many_arguments)]
+    pub fn combat_update(&mut self, own: bool, enemies: i32, mut level: i32, mut faction: i32, target: i32, flag: bool, health: i32) {
+        let c = &mut self.combat;
+        if !(0..=2).contains(&faction) {
+            faction = 0;
+        }
+        if level < 0 {
+            level = 0;
+        }
+        if own {
+            (c.faction, c.health, c.enemies, c.level, c.flag) = (faction, health, enemies, level, flag);
+        } else if target == c.last_target && enemies == 0 {
+            (c.target_enemies, c.target_health, c.target_level, c.target, c.target_flag) = (0, health, level, target, flag);
+        } else {
+            let take = if c.target_health < health && enemies != 0 {
+                c.target_level = level;
+                true
+            } else {
+                c.target_health == health && enemies != 0 && c.target_enemies < enemies
+            };
+            if take {
+                (c.target_enemies, c.target_flag, c.target_health, c.target) = (enemies, flag, health, target);
+            }
+        }
+        c.updates += 1;
+    }
+
+    /// `ProcessCombatMusic()`: the combat music's state from the frame's reports (see the drop-in's `process_combat_music`).
+    fn process_combat_music(&mut self) {
+        let updates = self.combat.updates;
+        if updates == 0 || self.combat_preferences == 0 {
+            self.music_state = 0;
+            return;
+        }
+        let c = &mut self.combat;
+        let started = if c.last_enemies == 0 {
+            (c.enemies != 0).then(|| (c.faction + 1, f32::from_bits(0x41c80000)))
+        } else {
+            (c.enemies == 0).then(|| (c.faction + 4, f32::from_bits(0x40a00000)))
+        };
+        match started {
+            Some((state, timer)) => {
+                c.timer = timer;
+                self.music_state = state;
+            }
+            None => self.combat_going_on(updates),
+        }
+        let c = &mut self.combat;
+        c.last_enemies = c.enemies;
+        c.enemies = 0;
+        if updates > 1 {
+            (c.last_target, c.last_target_enemies, c.last_target_level, c.last_target_health) = (c.target, c.target_enemies, c.target_level, c.target_health);
+        }
+        (c.target_enemies, c.target_level, c.target_health) = (0, 0, 0);
+    }
+
+    /// The fight going on (or none): the balance of the player's and the target's health picking a layer.
+    fn combat_going_on(&mut self, updates: i32) {
+        let preferences = self.combat_preferences;
+        if updates < 2 {
+            self.music_state = 0;
+            return;
+        }
+        let (theirs, mine) = (self.combat.target_health, self.combat.health);
+        let balance = if mine < theirs {
+            200 - mine.wrapping_mul(100) / theirs
+        } else if theirs < mine {
+            theirs.wrapping_mul(100) / mine
+        } else {
+            if preferences < 2 {
+                self.music_state = 0;
+                return;
+            }
+            return self.combat_winning(100);
+        };
+        if balance < 0x19 || (balance < 100 && preferences < 3) || (balance < 0x96 && preferences < 2) {
+            self.music_state = 0;
+            return;
+        }
+        self.combat_winning(balance);
+    }
+
+    fn combat_winning(&mut self, balance: i32) {
+        let c = &mut self.combat;
+        if 99 < balance || !c.target_flag {
+            if c.last_target_enemies != 0 && c.target_enemies == 0 {
+                c.timer = f32::from_bits(0x41a00000);
+                self.music_state = c.faction + 7;
+                return;
+            }
+            let d = c.enemies.wrapping_sub(c.target_enemies);
+            if 0x3a < (d.wrapping_add(0x1d)) as u32 {
+                let big = (0x85 < balance) as i32;
+                self.music_state = if d < 0x3c {
+                    if d < 0x1e {
+                        if d < -0x3b {
+                            big * 2 + 0xe
+                        } else {
+                            if -0x1e < d {
+                                self.music_state = 0;
+                                return;
+                            }
+                            big + 0xe
+                        }
+                    } else {
+                        big + 0xb
+                    }
+                } else {
+                    big * 2 + 0xb
+                };
+                return;
+            }
+        }
+        self.music_state = 10;
     }
 
     /// `PlayPlayerFX(name, volume)`: `sfx\Player\<name>` played, made as a player effect source the first time.
@@ -1100,12 +1468,55 @@ impl Module {
     pub fn set_master_music_volume(&mut self, v: f32) {
         self.music = v;
         self.total_music = product(&[self.master, v, self.master_mute, self.music_mute]);
+        let total = self.total_music;
+        if let Some(s) = &mut self.sandy {
+            s.set_static_master_music(total);
+        }
     }
 
-    /// `SetMasterMusicMute(mute)`.
+    /// `SetMasterMusicMute(mute)`: the music muted too.
     pub fn set_master_music_mute(&mut self, mute: bool) {
         self.music_mute = if mute { 0.0 } else { 1.0 };
         self.total_music = product(&[self.master, self.music, self.master_mute, self.music_mute]);
+        let total = self.total_music;
+        if let Some(s) = &mut self.sandy {
+            s.set_static_master_music(total);
+            s.set_music_mute(mute);
+        }
+    }
+
+    /// `SetBattleMusicMode(mode)`.
+    pub fn set_battle_music_mode(&mut self, mode: i32) {
+        if let Some(s) = &mut self.sandy {
+            s.combat_preferences = mode;
+        }
+    }
+
+    /// `PlayStartupMusic()`.
+    pub fn play_startup_music(&mut self) {
+        if let Some(s) = &mut self.sandy {
+            s.play_startup_music();
+        }
+    }
+
+    /// `ActivateEnvZone(district, layer)`.
+    pub fn activate_env_zone(&mut self, district: u32, layer: i32) {
+        if let Some(s) = &mut self.sandy {
+            s.setup_env_sounds(district, layer);
+        }
+    }
+
+    /// `CombatUpdate(...)`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn combat_update(&mut self, own: bool, enemies: i32, level: i32, faction: i32, target: i32, flag: bool, health: i32) {
+        if let Some(s) = &mut self.sandy {
+            s.combat_update(own, enemies, level, faction, target, flag, health);
+        }
+    }
+
+    /// `FindLayerID(name)`.
+    pub fn find_layer(&self, name: &str) -> i32 {
+        self.sandy.as_ref().map_or(-2, |s| s.find_layer(name))
     }
 
     /// `PlaySample(id)`.
@@ -1198,7 +1609,47 @@ pub fn start(game: &Path) {
         sandy.setup_gui_sounds();
         module.sandy = Some(sandy);
     }
+    apply_preferences(&mut module, &game.join("cd_image/gui/Default/LoginPrefs.xml"));
     *m = Some(module);
+}
+
+/// The sound preferences of the GUI's `LoginPrefs.xml` passed on as GUI.dll's slots pass them (0x100c5242 on:
+/// `SlotPrefMasterVolumeChanged` → `SetMasterVolume`, `SoundFXOn` → `SetMasterFXMute`, `FXVolume`, `MusicOn` →
+/// `SetMasterMusicMute`, `MusicVolume`, `BattlemusicMode`, `VoiceSndFxOn` → `SetMasterPlayerFXMute`, `VoiceSndFxVolume`).
+fn apply_preferences(m: &mut Module, path: &Path) {
+    let Ok(text) = std::fs::read_to_string(path) else { return };
+    let value = |name: &str| -> Option<String> {
+        let at = text.find(&format!("name=\"{name}\""))?;
+        let line = &text[text[..at].rfind('<')?..at + text[at..].find('>')?];
+        let v = line.find("value=\"")? + 7;
+        Some(line[v..v + line[v..].find('"')?].to_string())
+    };
+    let float = |name: &str| value(name).and_then(|v| v.parse::<f32>().ok());
+    let on = |name: &str| value(name).map(|v| v == "true");
+    if let Some(v) = float("MasterVolume") {
+        m.set_master_volume(v);
+    }
+    if let Some(on) = on("SoundFXOn") {
+        m.set_master_fx_mute(!on);
+    }
+    if let Some(v) = float("FXVolume") {
+        m.set_master_fx_volume(v);
+    }
+    if let Some(on) = on("MusicOn") {
+        m.set_master_music_mute(!on);
+    }
+    if let Some(v) = float("MusicVolume") {
+        m.set_master_music_volume(v);
+    }
+    if let Some(v) = value("BattlemusicMode").and_then(|v| v.parse::<i32>().ok()) {
+        m.set_battle_music_mode(v);
+    }
+    if let Some(on) = on("VoiceSndFxOn") {
+        m.set_master_player_fx_mute(!on);
+    }
+    if let Some(v) = float("VoiceSndFxVolume") {
+        m.set_master_player_fx_volume(v);
+    }
 }
 
 /// The module, if started.

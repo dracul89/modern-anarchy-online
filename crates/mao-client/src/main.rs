@@ -29,6 +29,7 @@ mod chatlog;
 mod audio;
 mod feedback;
 mod mixer;
+mod music;
 mod sounds;
 mod friends;
 mod help;
@@ -1075,6 +1076,32 @@ fn run(args: &[String]) -> Result<(), String> {
                 });
             }
             println!("{name} ({id:#010x}): {} (playing for {playing_until:.2} s)", if heard.is_empty() { "nothing played".to_string() } else { heard.into_iter().collect::<Vec<_>>().join(", ") });
+            return Ok(());
+        }
+    }
+    // `music <game> <layer> [seconds]`: the startup music, then the layer (`plains\day`, `battle\Neutral` ...) asked for as
+    // `SetupENVSounds` asks, the player run for some seconds (20 by default) and the samples it played printed.
+    if let [word, game, layer, rest @ ..] = args {
+        if word == "music" && rest.len() <= 1 {
+            let seconds: f32 = rest.first().and_then(|s| s.parse().ok()).unwrap_or(20.0);
+            audio::start(Path::new(game));
+            audio::with(|m| m.play_startup_music());
+            let id = audio::with(|m| m.find_layer(layer)).unwrap_or(-2);
+            println!("layer {layer}: {id}");
+            audio::with(|m| m.activate_env_zone(0, id));
+            let start = std::time::Instant::now();
+            let mut last = None;
+            while start.elapsed().as_secs_f32() < seconds {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+                audio::with(|m| {
+                    m.frame_process(0.05);
+                    let now = m.sandy.as_ref().and_then(|s| s.player.as_ref()).and_then(|p| p.with(|p| p.playing_sample().map(|s| (s, p.project().samples[s].name.clone(), p.project().samples[s].layer))));
+                    if now != last {
+                        println!("{:6.2} s: {now:?}", start.elapsed().as_secs_f32());
+                        last = now;
+                    }
+                });
+            }
             return Ok(());
         }
     }

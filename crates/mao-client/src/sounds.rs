@@ -132,6 +132,54 @@ pub fn ground_material(terrain: Option<&mao_formats::terrain::Terrain>, material
     materials.get(&id).map_or(0, |m| m.material as i32)
 }
 
+/// `GameTime_t::UpdateDayPeriod` (0x1000b22c): 0 dawn (from hour 7 for 2), 1 day, 2 dusk (from 21 for 2), 3 night.
+pub fn day_period(hour: i32) -> i32 {
+    if hour < 7 {
+        3
+    } else if hour < 9 {
+        0
+    } else if hour < 21 {
+        1
+    } else {
+        (23 <= hour) as i32 + 2
+    }
+}
+
+/// A playfield's districts and how its positions map to their zones.
+pub struct DistrictMap {
+    pub districts: mao_formats::districts::Districts,
+    /// Outdoors: the tile map's size in tiles, its tile size and the zone size in tiles (N3's zone grid); none indoors.
+    grid: Option<(u32, u32, f32, u32)>,
+}
+
+impl DistrictMap {
+    /// The playfield's districts (0xf424e) and, outdoors, its zone grid (the tile map 0xf4249 and the zone size of 0xf4241).
+    pub fn load(db: &mao_formats::resource::ResourceDatabase, playfield: u32) -> Option<DistrictMap> {
+        use mao_formats::resource::Id;
+        let districts = mao_formats::districts::parse(&db.get(Id { kind: mao_formats::districts::KIND, instance: playfield }).ok()??)?;
+        let grid = (|| {
+            let definition = db.get(Id { kind: mao_formats::playfield::KIND, instance: playfield }).ok()??;
+            let map = mao_formats::tilemap::parse_old(&db.get(Id { kind: 0xf4249, instance: playfield }).ok()??).ok()?;
+            Some((map.width as u32, map.height as u32, map.tile_size, mao_formats::districts::zone_size(&definition)?))
+        })();
+        Some(DistrictMap { districts, grid })
+    }
+
+    /// FUN_100b72bf's district sound and music layer at a position and hour: the district of the character's zone (indoors
+    /// zone 0: the client keeps no rooms' zones), its music for the day's period (+1: 1 dawn to 4 night; the weather's 5 to
+    /// 7, past 0.4 of a precipitation, are not followed), held to 0..0xffff. (The playfield's music override and the land
+    /// control layer, -911, are not followed.)
+    pub fn music(&self, position: [f32; 3], hour: i32) -> Option<(u32, i32)> {
+        let zone = match self.grid {
+            Some((w, h, tile, size)) => mao_formats::districts::zone_at(position, tile, w, h, size),
+            None => 0,
+        };
+        let d = self.districts.of_zone(zone)?;
+        let layer = d.music[(day_period(hour) + 1) as usize] as i32;
+        Some((d.music[0] as u32, if (0..=0xffff).contains(&layer) { layer } else { 0xffff }))
+    }
+}
+
 /// A death's sound (`CharDie_t`, FUN_1007b803): an animation set's for the death (0x1e), else by the sex stat (59) a woman's
 /// (3) or a man's.
 pub fn death(set: Option<(&mao_formats::npc::Template, u32)>, sex: u8) -> Option<u32> {

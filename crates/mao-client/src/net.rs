@@ -1246,6 +1246,9 @@ impl Characters {
     }
 }
 
+/// The startup music played once a run.
+static MUSIC_STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 fn load_template(db: &ResourceDatabase, template: u32) -> Option<(mao_formats::npc::Template, mao_formats::catmesh::CatMesh, Option<Model>)> {
     use mao_formats::resource::Id;
     let record = mao_formats::npc::Template::parse(&db.get(Id { kind: mao_formats::npc::TEMPLATE, instance: template }).ok()??)?;
@@ -2423,6 +2426,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     // `ActivateGameZone`.
     crate::audio::start(Path::new(game));
     crate::audio::with(|m| m.activate_game_zone());
+    // (GUI.dll's `CharacterLoggedInMessage` (0x10016f8f) starts the music: `PlayStartupMusic`)
+    if !MUSIC_STARTED.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        crate::audio::with(|m| m.play_startup_music());
+    }
     let db = Arc::new(ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?);
     crate::effects::load_calibration(game);
     let textures = crate::Textures::new(db.clone());
@@ -2644,6 +2651,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let generic = crate::sounds::Generic::default();
         let tile_materials = gear_db.get(mao_formats::resource::Id { kind: mao_formats::tilemap::TILE_MATERIALS, instance: 1 }).ok().flatten().and_then(|o| mao_formats::tilemap::tile_materials(&o)).unwrap_or_default();
         let mut sound_rand = crate::audio::Rand::default();
+        // The district's music (FUN_100b72bf, once a second) and the playfield whose districts are loaded.
+        let (mut districts, mut district_tick): (Option<(u32, Option<crate::sounds::DistrictMap>)>, Instant) = (None, Instant::now());
         // `MAO_MAILBOX=type,instance` (a mail terminal, 0xc773 and its serial) uses it 8 s into the session (or
         // after the walk) and asks for the inbox; the answer is printed (raw when the schema can't read it).
         let mut mailbox: Option<(u32, u32)> = std::env::var("MAO_MAILBOX").ok().and_then(|t| {
@@ -3493,6 +3502,30 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 m.set_listener(position);
                 m.frame_process(dt);
             });
+            // (the district's music each second: FUN_100b72bf → `ActivateEnvZone`)
+            if district_tick.elapsed() >= Duration::from_secs(1) {
+                district_tick = Instant::now();
+                if districts.as_ref().is_none_or(|d| d.0 != current) {
+                    districts = Some((current, crate::sounds::DistrictMap::load(&gear_db, current)));
+                }
+                if let Some((district, layer)) = districts.as_ref().and_then(|d| d.1.as_ref()).and_then(|d| d.music(position, state.game_clock.time().0)) {
+                    crate::audio::with(|m| m.activate_env_zone(district, layer));
+                }
+            }
+            // (the fight's report for the combat music, FUN_10059c7d: the character's health in percent of its maximum, at
+            // least 1 while alive, its stat 421, side (33), instance, not an NPC, and level (54))
+            {
+                let stat = |s: u32| state.stats.get(&s).copied().unwrap_or(0);
+                let (health, max) = (stat(27), stat(1));
+                if max != 0 {
+                    let mut percent = ((health as f64 / max as f64) * 100.0) as i64;
+                    percent = percent.min(100);
+                    if percent < 1 && health > 0 {
+                        percent = 1;
+                    }
+                    crate::audio::with(|m| m.combat_update(true, percent as i32, stat(421) as i32, stat(33) as i32, own as i32, false, stat(54) as i32));
+                }
+            }
             let at_door = state.door_slots.values().any(|(_, d)| ((d[0] - position[0]).powi(2) + (d[2] - position[2]).powi(2)).sqrt() < 2.0 && (d[1] - position[1]).abs() < 3.0);
             match teleport_try {
                 None if at_door => {

@@ -830,3 +830,17 @@ impact (0x1f) and the weapon's (0x1f) on the set's material (its stat 0x29), a p
 `..._FemaleGetsHit` by sex on material 7; the variant moves by the damage against the maximum health (a tenth or more: mode 2,
 a twentieth: mode 1, less: mode 0, which pick the material's variant +15, itself, or +30). Not followed: a special attack's own
 fields (FUN_1006af0e), hits on items (FUN_1009b4b0), the "Sneak Attack!" texts.
+
+**Music.** The interactive music plays as SIMPlayer.dll plays it (`music.rs`, from the `simplayer` drop-in): the project
+`sound/music/env/anarchy.sws` (serialize.dll's object archive: `mao_formats::music`) holds 91 layers (directories such as
+`plains\day`, `battle\Neutral`), 1257 short samples and their transitions (where in a sample to leave, the fades, the time).
+A thread steps the player every 10 ms: a playing sample takes its next transition (FUN_10008d2e: to the asked layer when one goes
+there, by weight; forced, one made to an entry sample of that layer; else one within its layer), the next sample is prepared
+200 ms ahead and started at the fade out, the two cross-faded by the fades' tables (50 ms steps). A layer's pause track holds the
+music to stretches (the desert by day plays 188 beats, then rests 940). What plays: the startup music (`mountain\night`, as
+GUI.dll's `CharacterLoggedInMessage` starts it) at login, then once a second the music of the district the character is in
+(FUN_100b72bf: the playfield's districts, `mao_formats::districts`, by N3's zone grid; the district's layer for the day's period:
+dawn, day, dusk or night); in a fight, the battle layers (`ProcessCombatMusic` over the character's reports, FUN_10059c7d: its
+health in percent, its level). The sound preferences (volumes, mutes, the battle music mode) come from the GUI's
+`LoginPrefs.xml`. `mao-client music <game> <layer> [seconds]` plays a layer and prints the samples. Not followed: the weather's
+music (the districts' entries 5 to 7), the playfield's music override and land control's layer, indoor rooms' zones.
