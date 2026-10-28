@@ -212,6 +212,8 @@ struct World {
     /// Whom each character is fighting (the `Attack` message from it, its full update's `FightingTarget`; `StopFight` ends it):
     /// a fighting character has its weapon drawn (`WeaponHolder_t` +0x44 at 2, FUN_1006a1b1; 1 again at FUN_100690c8).
     fighting: BTreeMap<u32, u32>,
+    /// Each fighting character's turn towards its target (`Facing`).
+    facings: BTreeMap<u32, Facing>,
     /// The weapons the characters hold, by (owner, place): the item's template (`WeaponItemFullUpdate`: the owner, the place in
     /// `Unknown2`'s low byte, the template in stat 702, `ACGItemTemplateID`).
     weapons: BTreeMap<(u32, u8), u32>,
@@ -247,6 +249,53 @@ struct World {
     /// The usable objects the server announces (doors, mail terminals, booths: identity type
     /// 0xc76a, message `4f474e05`) with their positions; targeted with Ctrl+Tab and used with E.
     objects: BTreeMap<u32, [f32; 3]>,
+}
+
+/// A fighting character turning to face its target, as its state machine does: `CharFight_t` (FUN_1007bd5f, its step
+/// FUN_1007bdd3) looks every 0.67 s (0x101627e4) while the character stands, and when its facing is more than 0.26 rad
+/// (0x101627e0) off the line to the target it becomes `CharTurn_t` (FUN_1007c9b0, the angle from FUN_1007c793), which turns at
+/// 9 (0x101629a4) × 100/125 rad a second (FUN_1007c8af) until less than 0.005 rad (0x10162988) is left, then fights on.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct Facing {
+    /// The time since the last look (CharFight_t +0xc).
+    timer: f32,
+    /// A turn under way: the angle left and its direction (CharTurn_t +0x10, +0x18).
+    turn: Option<(f32, f32)>,
+}
+
+impl Facing {
+    /// One frame: the new heading (`atan2(dx, dz)` of the facing) of a character at `at` fighting one at `target`.
+    fn step(&mut self, heading: f32, at: [f32; 3], target: [f32; 3], moving: bool, dt: f32) -> f32 {
+        if let Some((left, dir)) = self.turn {
+            let step = (9.0 * 100.0 / 125.0 * dt).min(left);
+            let left = left - step;
+            // (a fresh CharFight_t starts its timer at 0)
+            self.turn = if left < 0.005 { None } else { Some((left, dir)) };
+            if self.turn.is_none() {
+                self.timer = 0.0;
+            }
+            return heading + dir * step;
+        }
+        self.timer += dt;
+        if moving {
+            self.timer = 0.0;
+            return heading;
+        }
+        if self.timer <= 0.67 {
+            return heading;
+        }
+        self.timer = 0.0;
+        let (dx, dz) = (target[0] - at[0], target[2] - at[2]);
+        if dx == 0.0 && dz == 0.0 {
+            return heading;
+        }
+        // (the signed angle from the facing to the target, flat on the ground)
+        let off = (dx.atan2(dz) - heading + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+        if off.abs() > 0.26 {
+            self.turn = Some((off.abs(), off.signum()));
+        }
+        heading
+    }
 }
 
 /// The game's resources, for the item names and stats the fight lines need (set when play starts).
@@ -3248,6 +3297,13 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             }
             heading += keys.turn as f32 * TURN * dt;
             let walk = keys.forward as i8 - keys.back as i8;
+            // (fighting, the character turns to its target while it stands: `Facing`; any steering counts as moving)
+            if let Some(target_at) = state.fighting.get(&own).and_then(|&t| state.position_of(t)) {
+                let steering = walk != 0 || keys.turn != 0 || keys.strafe != 0 || keys.face.is_some() || airborne;
+                heading = state.facings.entry(own).or_default().step(heading, position, target_at, steering, dt);
+            } else {
+                state.facings.remove(&own);
+            }
             // (a sidestep on its own shows a polymorph's rolling or sidestepping animation)
             state.strafing.insert(own, if walk == 0 { keys.strafe.signum() } else { 0 });
             state.backing.insert(own, walk < 0);
@@ -3374,6 +3430,19 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             turning = keys.turn;
             strafing = keys.strafe;
             state.rotations.insert(own, [0.0, (heading * 0.5).sin(), 0.0, (heading * 0.5).cos()]);
+            // (and the others fighting turn the same way, between the server's rotations)
+            let fighters: Vec<(u32, u32)> = state.fighting.iter().map(|(&a, &b)| (a, b)).filter(|&(id, _)| id != own).collect();
+            state.facings.retain(|id, _| *id == own || state.fighting.contains_key(id));
+            for (id, target) in fighters {
+                let (Some(at), Some(target_at)) = (state.position_of(id), if target == own { Some(position) } else { state.position_of(target) }) else { continue };
+                let moving = state.last_move.get(&id).is_some_and(|t| t.elapsed() < Duration::from_millis(900));
+                let q = state.rotations.get(&id).copied().unwrap_or([0.0, 0.0, 0.0, 1.0]);
+                let before = 2.0 * q[1].atan2(q[3]);
+                let after = state.facings.entry(id).or_default().step(before, at, target_at, moving, dt);
+                if after != before {
+                    state.rotations.insert(id, [0.0, (after * 0.5).sin(), 0.0, (after * 0.5).cos()]);
+                }
+            }
             if walk != 0 || keys.turn != 0 || keys.strafe != 0 || moving != 0 || airborne {
                 state.entities.insert(own, (position, 0));
                 if walk != 0 || keys.strafe != 0 {
@@ -4821,6 +4890,32 @@ mod door_tests {
         assert_eq!(w.dead.get(&0x7b017c2a).map(|d| d.0), Some(500));
         w.add(&Message { kind: 0x36510078, identity: (0xc350, 0x7b017c2a), data: hex("00") }.frame(1));
         assert!(!w.dead.contains_key(&0x7b017c2a));
+    }
+
+    #[test]
+    fn a_fighter_turns_to_its_target_as_charturn_does() {
+        let mut f = Facing::default();
+        // (the target straight to the side: a quarter turn; nothing for 0.67 s, then a turn at 7.2 rad/s)
+        let (at, target) = ([0.0, 0.0, 0.0], [10.0, 0.0, 0.0]);
+        let mut h = 0.0;
+        for _ in 0..6 {
+            h = f.step(h, at, target, false, 0.1);
+        }
+        assert_eq!((h, f.turn), (0.0, None));
+        h = f.step(h, at, target, false, 0.1);
+        assert!(f.turn.is_some_and(|(left, dir)| (left - std::f32::consts::FRAC_PI_2).abs() < 1e-5 && dir == 1.0));
+        h = f.step(h, at, target, false, 0.1);
+        assert!((h - 0.72).abs() < 1e-5);
+        h = f.step(h, at, target, false, 0.1);
+        h = f.step(h, at, target, false, 0.1);
+        assert!((h - std::f32::consts::FRAC_PI_2).abs() < 1e-5 && f.turn.is_none());
+        // (within 0.26 rad it stays; moving holds the look off)
+        let mut g = Facing::default();
+        assert_eq!(g.step(1.4, at, target, false, 0.7), 1.4);
+        assert_eq!(g.turn, None);
+        let mut m = Facing::default();
+        assert_eq!(m.step(0.0, at, target, true, 0.7), 0.0);
+        assert_eq!((m.timer, m.turn), (0.0, None));
     }
 
     #[test]

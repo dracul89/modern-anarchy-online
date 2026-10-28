@@ -434,6 +434,8 @@ Missed attacks at or by the character (`MissedAttackInfo`: the attacker and the 
 
 **Fixed with it: `HealthDamage`'s direction.** The one hurt is the message's own identity, whose health is `TargetHp`; the `Target` field is the source. The client had it the other way round, so the floating numbers and the health bars followed the wrong character (a monster's health was given to you). Checked on the captured messages.
 
+**Facing the target in a fight.** A fighting character that stands turns to face whom it fights, as the original's character state machine does: every 0.67 s `CharFight_t` (FUN_1007bdd3) compares the facing with the line to the target, and when it is more than 0.26 rad (about 15°) off, `CharTurn_t` (FUN_1007c8af) turns it at 7.2 rad a second until it faces the target. Moving (or steering with the keys or the mouse) holds the look off. It applies to your own character and to the others (between the server's rotations for them). Not tried live.
+
 - **Inspect answers**: an `Inspect` message (`5a585f65`: identity, count, 32-byte records of slot, flags, identity, low id, high id, quality) is decoded (`n3::inspect_items`, tested on captured bytes) and told in the chat window as "Name wears N items:" with each slot and item name. Not tried live: whether `/inspect`'s info request is what makes the server send it is unknown from the capture.
 
 - **Open windows are remembered**: the hand-opened windows (inventory, stats, skills, NCU, friends, programs, perks, help, actions, missions, map) are listed in `open.ini` beside `layout.ini` whenever the set changes, and come back open on the next start. `MAO_NO_LAYOUT` and the previews ignore it. Not tried live (the window set is only checked by building).
