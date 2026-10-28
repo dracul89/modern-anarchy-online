@@ -343,3 +343,12 @@ fn a_humanoid_set_has_its_variants() {
     assert_eq!(t.animations.iter().filter(|a| a.0 == 0xb7).count(), 3);
     assert_eq!(t.variant(100, 0), Some(0x27cf));
 }
+
+/// The index walk lists every animation set the database can fetch (26092 among them).
+#[test]
+fn the_index_walk_lists_the_humanoid_sets() {
+    let Some(db) = database() else { return };
+    let sets: Vec<u32> = db.ids().unwrap().filter_map(Result::ok).filter(|i| i.kind == mao_formats::npc::TEMPLATE).map(|i| i.instance).collect();
+    eprintln!("{} sets, first {:?}, last {:?}", sets.len(), sets.first(), sets.last());
+    assert!(sets.contains(&26092), "{} sets", sets.len());
+}
