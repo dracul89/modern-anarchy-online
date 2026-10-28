@@ -2561,6 +2561,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     let mut waiting: Vec<(String, String)> = Vec::new();
                     // names of characters to put on the friends list once their id is known
                     let mut befriending: Vec<String> = Vec::new();
+                    // the senders whose voice lines were heard lately
+                    let mut voices = crate::voices::Limiter::default();
                     loop {
                         let packet = match chat.receive() {
                             Ok(p) => Some(p),
@@ -2614,9 +2616,12 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                     None => Some(Line::new(Kind::System, text)),
                                 }
                             }
-                            Some(Packet::Message { channel, sender, text }) => {
+                            Some(Packet::Message { channel, sender, text, blob }) => {
                                 let who = names.get(&sender).cloned().unwrap_or_else(|| format!("{sender:x}"));
                                 let place = channels.get(&channel.1).map(|c| c.1.clone()).unwrap_or_default();
+                                // (its voice line, if it carries one: `HandleGroupMessage` → FUN_1008cdb3, by the group's kind)
+                                let kind = channels.get(&channel.1).map_or(channel.0, |c| c.0);
+                                crate::voices::group_message(&mut voices, &who, kind, &blob);
                                 Some(Line { kind: Kind::Channel, text: format!("[{place}] {who}: {}", mao_net::chat::plain(&text)), from: Some(who) })
                             }
                             Some(Packet::Buddy { id, online, .. }) => {
@@ -3768,6 +3773,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         crate::audio::with(|m| m.play_game_sound(id, p, delay, volume, 0, 0.0, 100, 1, 0, [0.0; 3]));
                     }
                     // (the hazards' sounds: `PlayGameSound(id, at, 0, 1, 0, 0, 100, 1)`, FUN_10085b15, FUN_10099536, FUN_1007e0a8)
+                    crate::voices::set_stat_389(state.stats.get(&389).copied().unwrap_or(0));
                     let controllers = state.hazards.frame();
                     state.hazard_sounds.extend(controllers);
                     for (id, at) in std::mem::take(&mut state.hazard_sounds) {

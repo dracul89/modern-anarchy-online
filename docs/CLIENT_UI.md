@@ -874,3 +874,10 @@ sprung (`ActionIIR_t` 0x6d) `SM_Sandy_Game_Explo_Big` plays at it and, if it cau
 (0x6c) says you succeeded; a mine's malfunction (0x8c) plays its malfunction sound. A central controller hums its idle sound
 while idle and plays its shutdown sound once when it shuts down. Not done: the explosion's effect and a mine's bleep as you walk
 into it.
+
+**Voice lines.** A group (channel) message whose blob carries a voice (record 1: breed, sex, mood and line) plays it as the
+original's chat does (`voices.rs`): when your character's stat 389 has bit 0, the group allows it (organisation groups by
+`VoiceSndFxHearGuildOn`, the team by `VoiceSndFxHearTeamOn`, from `LoginPrefs.xml`), and the sender was not heard in the last
+3 s, the first of `<sender>_<line>_01`, `<breed>_<sex>_<mood>_<line>_01`, `<sex>_<mood>_<line>_01`, `<sex>_<line>_01` and
+`<line>_01` found in `cd_image/sound/sfx/player/` plays at the voice volume (e.g. `atrox_male_cool_heal_01.wav`). Not done:
+voices in vicinity speech, and sending one.
