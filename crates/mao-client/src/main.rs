@@ -51,6 +51,7 @@ mod stats;
 mod trickle_data;
 mod chrome;
 mod font;
+mod gui;
 mod pointer;
 mod pulses;
 mod skin;

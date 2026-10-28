@@ -5,11 +5,15 @@
 
 use mao_formats::ldb::{self, Arg};
 
+/// The game's text database (`cd_image/text/text.mdb`), read once.
+pub fn texts() -> Option<&'static ldb::Texts> {
+    static TEXTS: std::sync::OnceLock<Option<ldb::Texts>> = std::sync::OnceLock::new();
+    TEXTS.get_or_init(|| ldb::Texts::parse(&std::fs::read(crate::theme::game_dir()?.join("cd_image/text/text.mdb")).ok()?)).as_ref()
+}
+
 /// The feedback text of a name, filled in order.
 fn line(name: &str, args: &[Arg]) -> String {
-    static TEXTS: std::sync::OnceLock<Option<ldb::Texts>> = std::sync::OnceLock::new();
-    let texts = TEXTS.get_or_init(|| ldb::Texts::parse(&std::fs::read(crate::theme::game_dir()?.join("cd_image/text/text.mdb")).ok()?));
-    let text = texts.as_ref().and_then(|t| t.named(ldb::FEEDBACK, name)).unwrap_or_else(|| english(name));
+    let text = texts().and_then(|t| t.named(ldb::FEEDBACK, name)).unwrap_or_else(|| english(name));
     ldb::format(text, args)
 }
 

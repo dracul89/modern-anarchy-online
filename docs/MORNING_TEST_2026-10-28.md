@@ -74,6 +74,7 @@ Added after the overnight run, on request: audio through rodio, ported from the 
 
 | Commit | What | What to try |
 |---|---|---|
+| (next) | **GUI.dll's view system, step 1**: the view tree, its horizontal/vertical layouts and the XML loader for the skin's `Views/*.xml` (`gui/`); not drawn yet | nothing to see yet |
 | e963eaf | **The game's resource index repaired** (your install, not the code): 1836 of the 2006 index entries that pointed at no record or another texture now point at their own records; the old index is kept as `ResourceDatabase.idx.before_repair`. 170 textures have no record anywhere and stay missing | textures that were white or wrong (e.g. some sky/pinging glows, sewer tiles): in the new client and in the original; if anything breaks, copy the `.before_repair` file back over `ResourceDatabase.idx` |
 | 8106cd3 | **Cloud wind drift**: the single clouds drift with the weather's wind; texture transforms followed (the clouds' and horizon's stay still, as in the original) | in a windy weather, watch the cloud puffs move while standing still |
 | 41fafd5 | **Single clouds and the scripts' light**: cloud puffs round the camera; the world lit in the scripts' ambient and sun colours, hazed in the atmosphere's colour; the sky scaled by the view distance setting | look up and around outdoors; compare dawn, noon, dusk and night lighting; move fast and watch the clouds drift |
