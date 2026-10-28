@@ -47,7 +47,7 @@ impl LootWindow {
                 ui.label("Nothing left.");
                 return;
             }
-            egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
+            crate::chrome::scroll(ui, palette, egui::ScrollArea::vertical().max_height(300.0), |ui| {
                 for item in &view.items {
                     ui.horizontal(|ui| {
                         match &item.icon {

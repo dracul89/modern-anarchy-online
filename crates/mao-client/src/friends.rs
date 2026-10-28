@@ -37,7 +37,7 @@ impl FriendsWindow {
             if friends.is_empty() {
                 ui.label("Nobody on your list yet.");
             }
-            egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+            crate::chrome::scroll(ui, palette, egui::ScrollArea::vertical().max_height(320.0), |ui| {
                 for friend in sorted(friends) {
                     ui.horizontal(|ui| {
                         let (rect, _) = ui.allocate_exact_size(egui::vec2(10.0, 10.0), egui::Sense::hover());

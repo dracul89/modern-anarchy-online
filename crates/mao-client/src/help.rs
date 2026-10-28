@@ -47,7 +47,7 @@ impl HelpWindow {
             ui.separator();
             let filter = self.filter.trim().to_lowercase();
             let shown = |a: &str, b: &str| filter.is_empty() || a.to_lowercase().contains(&filter) || b.to_lowercase().contains(&filter);
-            egui::ScrollArea::vertical().max_height(400.0).show(ui, |ui| {
+            crate::chrome::scroll(ui, palette, egui::ScrollArea::vertical().max_height(400.0), |ui| {
                 ui.label(egui::RichText::new("Keys").strong().color(accent));
                 for (name, keys) in rows(keymap).iter().filter(|(a, b)| shown(a, b)) {
                     ui.horizontal(|ui| {

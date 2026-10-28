@@ -96,7 +96,7 @@ impl PerksWindow {
             if perks.is_empty() {
                 ui.label("The character has no perks.");
             }
-            egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
+            crate::chrome::scroll(ui, palette, egui::ScrollArea::vertical().max_height(360.0), |ui| {
                 for perk in matching(perks, &self.filter) {
                     let (rect, response) = ui.allocate_exact_size(egui::vec2(ui.available_width(), ICON + 4.0), egui::Sense::hover());
                     let painter = ui.painter();

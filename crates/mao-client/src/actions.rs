@@ -120,7 +120,7 @@ impl ActionsWindow {
             });
             ui.label(egui::RichText::new("Click to do it, drag onto a hotbar slot").small().weak());
             ui.separator();
-            egui::ScrollArea::vertical().max_height(420.0).show(ui, |ui| {
+            crate::chrome::scroll(ui, palette, egui::ScrollArea::vertical().max_height(420.0), |ui| {
                 let mut tiles: Vec<(String, Option<&'static str>, hotbar::Action, Option<String>)> = Vec::new();
                 match self.tab {
                     Tab::Combat => {

@@ -1175,7 +1175,7 @@ fn options_window(ctx: &egui::Context, open: &mut bool, rebinding: &mut Option<A
         ui.separator();
         ui.heading("Keys");
         ui.label("Click a key to change it, then press the new one (Esc cancels).");
-        egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
+        crate::chrome::scroll(ui, palette, egui::ScrollArea::vertical().max_height(300.0), |ui| {
             egui::Grid::new("keys").striped(true).num_columns(3).show(ui, |ui| {
                 for &(action, name, _) in ACTIONS {
                     ui.label(pretty(name));

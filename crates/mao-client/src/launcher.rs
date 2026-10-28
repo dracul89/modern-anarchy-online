@@ -229,7 +229,7 @@ impl Launcher {
                 }
             };
             let list_height = inner.height() - 70.0;
-            egui::ScrollArea::vertical().max_height(list_height).auto_shrink([false, false]).show(ui, |ui| {
+            crate::chrome::scroll(ui, &palette, egui::ScrollArea::vertical().max_height(list_height).auto_shrink([false, false]), |ui| {
                 for c in ordered(list, &self.last) {
                     let usable = c.created && !c.banned;
                     let picked = self.selected.as_deref() == Some(c.name.as_str());

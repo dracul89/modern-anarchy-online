@@ -313,7 +313,7 @@ impl ChatWindow {
                     }
                 });
                 let height = (ui.available_height() - 30.0).max(40.0);
-                egui::ScrollArea::vertical().max_height(height).min_scrolled_height(height).stick_to_bottom(true).show(ui, |ui| {
+                crate::chrome::scroll(ui, palette, egui::ScrollArea::vertical().max_height(height).min_scrolled_height(height).stick_to_bottom(true), |ui| {
                     for line in self.lines.iter().filter(|l| match self.tab {
                         Tab::All => true,
                         Tab::Tells => matches!(l.kind, Kind::Tell | Kind::Own),

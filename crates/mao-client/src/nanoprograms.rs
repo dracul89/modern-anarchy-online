@@ -86,7 +86,7 @@ impl ProgramsWindow {
             if programs.is_empty() {
                 ui.label("The character has no nano programs.");
             }
-            egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
+            crate::chrome::scroll(ui, palette, egui::ScrollArea::vertical().max_height(360.0), |ui| {
                 for program in shown {
                     let (rect, response) = ui.allocate_exact_size(egui::vec2(ui.available_width(), ICON + 4.0), egui::Sense::click_and_drag());
                     let painter = ui.painter();

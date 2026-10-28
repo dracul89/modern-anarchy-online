@@ -397,7 +397,7 @@ impl GearWindow {
                     ui.label(egui::RichText::new(format!("Backpack  {}/{}", pack_used(items), PACK_SLOTS)).small().color(accent));
                     let mut pack: Vec<&GearItem> = items.iter().filter(|i| i.slot >= inventory::BACKPACK_FIRST).collect();
                     pack.sort_by_key(|i| i.slot);
-                    egui::ScrollArea::vertical().max_height(440.0).show(ui, |ui| {
+                    crate::chrome::scroll(ui, palette, egui::ScrollArea::vertical().max_height(440.0), |ui| {
                         ui.horizontal_wrapped(|ui| {
                             ui.set_width(6.0 * (CELL + 3.0));
                             ui.spacing_mut().item_spacing = egui::vec2(3.0, 3.0);

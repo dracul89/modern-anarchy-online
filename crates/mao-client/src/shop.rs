@@ -66,7 +66,7 @@ impl ShopWindow {
         crate::chrome::window(ctx, palette, "Shop", "Shop", &mut is_open, |w| w.resizable(false).default_pos(crate::layout::pos("Shop", egui::pos2(300.0, 100.0))), |ui| {
             ui.set_width(330.0);
             ui.label(egui::RichText::new(format!("Booth {:x}", self.shop.1 & 0xffff)).small().weak());
-            egui::ScrollArea::vertical().max_height(190.0).show(ui, |ui| {
+            crate::chrome::scroll(ui, palette, egui::ScrollArea::vertical().max_height(190.0), |ui| {
                 ui.horizontal_wrapped(|ui| {
                     ui.spacing_mut().item_spacing = egui::vec2(3.0, 3.0);
                     for (i, slot) in self.stock.iter().enumerate() {
@@ -97,7 +97,7 @@ impl ShopWindow {
                 if slot.quality > 1 {
                     ui.label(egui::RichText::new(format!("Quality {}", slot.quality)).small());
                 }
-                egui::ScrollArea::vertical().max_height(110.0).id_salt("shop-description").show(ui, |ui| {
+                crate::chrome::scroll(ui, palette, egui::ScrollArea::vertical().max_height(110.0).id_salt("shop-description"), |ui| {
                     ui.label(slot.description.replace("\r\n", "\n"));
                 });
             }
@@ -105,7 +105,7 @@ impl ShopWindow {
                 ui.label(egui::RichText::new(&self.status).small());
             }
             egui::CollapsingHeader::new("Sell").show(ui, |ui| {
-                egui::ScrollArea::vertical().max_height(120.0).id_salt("shop-sell").show(ui, |ui| {
+                crate::chrome::scroll(ui, palette, egui::ScrollArea::vertical().max_height(120.0).id_salt("shop-sell"), |ui| {
                     // The backpack (inventory slots from 64) holds what can be sold.
                     for item in items.iter().filter(|i| i.slot >= 64) {
                         ui.horizontal(|ui| {

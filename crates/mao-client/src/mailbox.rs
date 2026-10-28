@@ -141,7 +141,7 @@ impl MailWindow {
                     if self.entries.is_empty() {
                         ui.label(egui::RichText::new(if self.count.is_none() { "Press Check mail at a mail terminal." } else { "No messages." }).weak());
                     }
-                    egui::ScrollArea::vertical().max_height(150.0).show(ui, |ui| {
+                    crate::chrome::scroll(ui, palette, egui::ScrollArea::vertical().max_height(150.0), |ui| {
                         for e in &self.entries {
                             let unread = e.flags & mail::READ == 0;
                             let mut label = egui::RichText::new(&e.subject);

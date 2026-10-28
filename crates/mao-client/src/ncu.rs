@@ -106,7 +106,7 @@ impl NcuWindow {
                 ui.label("No nano programs are running.");
                 return;
             }
-            egui::ScrollArea::vertical().max_height(420.0).show(ui, |ui| {
+            crate::chrome::scroll(ui, palette, egui::ScrollArea::vertical().max_height(420.0), |ui| {
                 for nano in nanos {
                     let left = nano.left(now);
                     let row = ui.horizontal(|ui| {

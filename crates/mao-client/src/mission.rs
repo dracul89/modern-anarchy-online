@@ -173,7 +173,7 @@ impl MissionWindow {
             if let Some(offer) = self.selected.and_then(|s| self.offers.get(s)) {
                 ui.separator();
                 ui.label(egui::RichText::new(&offer.title).strong().color(accent));
-                egui::ScrollArea::vertical().max_height(140.0).show(ui, |ui| {
+                crate::chrome::scroll(ui, palette, egui::ScrollArea::vertical().max_height(140.0), |ui| {
                     ui.label(offer.description.replace("<BR>", "\n").replace("<br>", "\n"));
                 });
                 ui.label(format!("Reward: {} credits, {} xp", offer.credits, offer.xp));

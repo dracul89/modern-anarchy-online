@@ -121,6 +121,110 @@ fn frame_shape(skin: &crate::skin::Skin, outer: egui::Rect, panel: egui::Color32
     egui::Shape::Vec(shapes)
 }
 
+/// What `ScrollBar_c` (GUI.dll) is doing with the pointer: pressing an arrow (`HitItem_e` 1 the up, 2 the down; held, it repeats
+/// after half a second every 0.08 s, `_SetButtonState` 0x10141175 / `SlotRepeatTimer` 0x10141d21) or dragging the knob (3, the
+/// point grabbed below its top, `MouseDown` 0x101411fe).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct ScrollPress {
+    item: u8,
+    grab: f32,
+    repeat_at: f64,
+}
+
+/// The knob of a vertical `ScrollBar_c` in a bar `top`..`bottom` (screen points, the bottom exclusive) whose arrows are `up` and
+/// `down` high, showing `proportion` of the content at `fraction` of the way down (`_CalcKnobSizeAndPos` 0x10141ab9): between
+/// the arrows less a point each side, `floor(proportion × length)` long but at least 8 (less than the length when that is
+/// short), placed `floor((length − knob) × fraction)` down; its top and its exclusive bottom (the original's frames are
+/// inclusive, so its knob is a point longer than the number).
+pub fn knob(top: f32, bottom: f32, up: f32, down: f32, proportion: f32, fraction: f32) -> (f32, f32) {
+    let start = top + up;
+    let length = (bottom - down - 1.0) - start;
+    let mut size = (proportion * length).floor();
+    if size < 8.0 {
+        size = if length - 1.0 < 8.0 { length - 1.0 } else { 8.0 };
+    }
+    let at = start + ((length - size) * fraction.clamp(0.0, 1.0)).floor();
+    (at, at + size + 1.0)
+}
+
+/// A vertical scroll area with the scroll bar of the original's scroll views (`ScrollView_c::_UpdateScrollBars` 0x10142b68 makes
+/// a `ScrollBar_c` with `GFX_GUI_SIMPLE_SB_UP`, `_DOWN` and `_SLIDER_VERT` and no track, a point right of the content, as wide
+/// as its arrows), tinted with the theme's border colour as the frame is: an arrow scrolls 5 points (`ScrollBar_c`'s small step,
+/// 0.05 of the 0..100 its scroll view makes it with), a click above or below the knob 20 (its large step, 0.2 of it), the knob
+/// drags. egui's own bar is hidden; without the skin's pictures it is egui's scroll area.
+pub fn scroll<R>(ui: &mut egui::Ui, palette: &Palette, area: egui::ScrollArea, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
+    let skin = crate::skin::skin(ui.ctx()).filter(|s| s.has("GFX_GUI_SIMPLE_SB_UP"));
+    let Some(skin) = skin else { return area.show(ui, add).inner };
+    let (Some(up), Some(down)) = (skin.get("GFX_GUI_SIMPLE_SB_UP"), skin.get("GFX_GUI_SIMPLE_SB_DOWN")) else { return area.show(ui, add).inner };
+    let width = up.size.x;
+    let key = ui.make_persistent_id(("mao-scroll", ui.next_auto_id()));
+    let ctx = ui.ctx().clone();
+    let pending = ctx.data_mut(|d| d.remove_temp::<f32>(key.with("to")));
+    let mut area = area.scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden).content_margin(egui::Margin { left: 0, right: (width + 1.0) as i8, top: 0, bottom: 0 });
+    if let Some(to) = pending {
+        area = area.vertical_scroll_offset(to);
+    }
+    let out = area.show(ui, add);
+    let inner = out.inner_rect;
+    let overflow = out.content_size.y - inner.height();
+    if overflow <= 0.5 {
+        return out.inner;
+    }
+    let bar = egui::Rect::from_min_max(egui::pos2(inner.right() - width, inner.top()), egui::pos2(inner.right(), inner.bottom()));
+    let offset = out.state.clamped_offset().y.clamp(0.0, overflow);
+    let (k0, k1) = knob(bar.top(), bar.bottom(), up.size.y, down.size.y, inner.height() / out.content_size.y, offset / overflow);
+    let up_rect = egui::Rect::from_min_size(bar.min, up.size);
+    let down_rect = egui::Rect::from_min_size(egui::pos2(bar.left(), bar.bottom() - down.size.y), down.size);
+    let knob_rect = egui::Rect::from_min_max(egui::pos2(bar.left(), k0), egui::pos2(bar.right(), k1));
+    let response = ui.interact(bar, key.with("bar"), egui::Sense::click_and_drag());
+    let now = ctx.input(|i| i.time);
+    let mut press: ScrollPress = ctx.data(|d| d.get_temp(key.with("press"))).unwrap_or_default();
+    let mut to = None;
+    if response.is_pointer_button_down_on() {
+        let at = response.interact_pointer_pos().unwrap_or(bar.center());
+        if response.drag_started() || (press.item == 0 && ctx.input(|i| i.pointer.primary_pressed())) {
+            if knob_rect.contains(at) {
+                press = ScrollPress { item: 3, grab: at.y - k0, repeat_at: 0.0 };
+            } else if up_rect.contains(at) {
+                press = ScrollPress { item: 1, grab: 0.0, repeat_at: now + 0.5 };
+                to = Some(offset - 5.0);
+            } else if down_rect.contains(at) {
+                press = ScrollPress { item: 2, grab: 0.0, repeat_at: now + 0.5 };
+                to = Some(offset + 5.0);
+            } else {
+                press = ScrollPress { item: 4, grab: 0.0, repeat_at: 0.0 };
+                to = Some(if at.y < k0 { offset - 20.0 } else { offset + 20.0 });
+            }
+        } else if press.item == 3 {
+            // (`MouseMove` 0x101416a0: the knob's top over the room it moves in)
+            let (start, end) = (bar.top() + up.size.y, bar.bottom() - down.size.y - 1.0 - (k1 - k0 - 1.0));
+            if end > start {
+                to = Some(overflow * (at.y - press.grab - start) / (end - start));
+            }
+        } else if (press.item == 1 || press.item == 2) && now >= press.repeat_at {
+            let over = if press.item == 1 { up_rect.contains(at) } else { down_rect.contains(at) };
+            if over {
+                to = Some(offset + if press.item == 1 { -5.0 } else { 5.0 });
+            }
+            press.repeat_at = now + 0.08;
+        }
+        ctx.request_repaint();
+    } else {
+        press = ScrollPress::default();
+    }
+    ctx.data_mut(|d| d.insert_temp(key.with("press"), press));
+    if let Some(to) = to {
+        ctx.data_mut(|d| d.insert_temp(key.with("to"), to.clamp(0.0, overflow).floor()));
+        ctx.request_repaint();
+    }
+    let tint = rgb(palette.accent);
+    let painter = ui.painter();
+    skin.draw_in(painter, "GFX_GUI_SIMPLE_SB_UP", up_rect, tint);
+    skin.draw_in(painter, "GFX_GUI_SIMPLE_SB_DOWN", down_rect, tint);
+    skin.draw_in(painter, "GFX_GUI_SIMPLE_SB_SLIDER_VERT", knob_rect, tint);
+    out.inner
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -132,5 +236,17 @@ mod tests {
         assert!(pinned("Test window"));
         set_pinned("Test window", false);
         assert!(!pinned("Test window"));
+    }
+
+    #[test]
+    fn the_knob_fills_its_share_between_the_arrows() {
+        // (a 100-point bar with 9-point arrows: 81 points from a point below the one to a point above the other)
+        let (a, b) = knob(0.0, 100.0, 9.0, 9.0, 0.5, 0.0);
+        assert_eq!((a, b), (9.0, 50.0));
+        let (a, b) = knob(0.0, 100.0, 9.0, 9.0, 0.5, 1.0);
+        assert_eq!((a, b), (50.0, 91.0));
+        // (never under 8)
+        let (a, b) = knob(0.0, 100.0, 9.0, 9.0, 0.01, 0.0);
+        assert_eq!(b - a, 9.0);
     }
 }

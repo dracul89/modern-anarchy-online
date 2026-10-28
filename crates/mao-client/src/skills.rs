@@ -202,7 +202,7 @@ impl SkillsWindow {
                 ui.text_edit_singleline(&mut self.search);
             });
             ui.separator();
-            egui::ScrollArea::vertical().show(ui, |ui| {
+            crate::chrome::scroll(ui, palette, egui::ScrollArea::vertical(), |ui| {
                 for (title, group) in GROUPS {
                     let shown = rows(group, stats, &self.search);
                     if shown.is_empty() {
