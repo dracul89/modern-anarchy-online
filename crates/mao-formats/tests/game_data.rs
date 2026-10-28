@@ -356,3 +356,28 @@ fn the_index_walk_lists_the_humanoid_sets() {
     eprintln!("{} sets, first {:?}, last {:?}", sets.len(), sets.first(), sets.last());
     assert!(sets.contains(&26092), "{} sets", sets.len());
 }
+
+/// Both source files read whole, and every sample they name reads as Miles reads it (`SE_Create2DSoundFromFile`).
+#[test]
+fn sound_banks_and_their_samples() {
+    let Some(game) = std::env::var_os("MAO_GAME").map(PathBuf::from) else { return };
+    let sound = game.join("cd_image/sound");
+    let mut counts = Vec::new();
+    let mut missing = 0;
+    for name in ["SM_Sandy_Gui.sbf", "SM_Sandy_Game_Dummy.sbf"] {
+        let bank = mao_formats::sound::parse_bank(&std::fs::read(sound.join("SourceFiles").join(name)).unwrap()).unwrap();
+        counts.push(bank.len());
+        // (every seventh, to keep the test short in debug builds)
+        for r in bank.iter().filter(|r| r.has_file).step_by(7) {
+            match std::fs::read(sound.join(&r.file)) {
+                Ok(data) => assert!(mao_formats::sound::read_sample(&data).is_some(), "{}", r.file),
+                Err(_) => missing += 1,
+            }
+        }
+    }
+    assert_eq!(counts, [85, 6810]);
+    let walk = mao_formats::sound::parse_bank(&std::fs::read(sound.join("SourceFiles/SM_Sandy_Game_Dummy.sbf")).unwrap()).unwrap();
+    let feet = walk.iter().find(|r| r.id == mao_formats::sound::sound_id("SM_Sandy_Game_Feet_Man_Walk")).unwrap();
+    assert!(feet.variants.iter().filter(|&&v| v != 0).count() >= 10);
+    eprintln!("{missing} samples missing");
+}

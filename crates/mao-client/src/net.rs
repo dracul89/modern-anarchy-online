@@ -2362,6 +2362,10 @@ pub(crate) fn booth_labels(playfield: u32, booths: &[[f32; 3]], destinations: &c
 /// server and sends the entities' markers over.
 fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World, session_key: [u8; 8]) -> Result<(), String> {
     crate::theme::set_game_dir(game);
+    // The sound module (made and started once) and the game's sources, as `PlayfieldInit` (0x10016e94) asks with
+    // `ActivateGameZone`.
+    crate::audio::start(Path::new(game));
+    crate::audio::with(|m| m.activate_game_zone());
     let db = Arc::new(ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?);
     crate::effects::load_calibration(game);
     let textures = crate::Textures::new(db.clone());
@@ -3421,6 +3425,12 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             // Touching a door starts a teleport try, as the original's collision with a `Door_t` does (`StartTeleportTry`): one full
             // position report, and the server zones us (a playfield message) or does not; after 30 s the try is given up with the
             // original's feedback. A new try needs the door left and touched again.
+            // The sound system's frame (AFCM's frame processor: `SandyInterfaceModule_t::FrameProcess`), heard from the
+            // character (FUN_100b1f3c: `SetListenerRotPos` with the controlled dynel's global position).
+            crate::audio::with(|m| {
+                m.set_listener(position);
+                m.frame_process(dt);
+            });
             let at_door = state.door_slots.values().any(|(_, d)| ((d[0] - position[0]).powi(2) + (d[2] - position[2]).powi(2)).sqrt() < 2.0 && (d[1] - position[1]).abs() < 3.0);
             match teleport_try {
                 None if at_door => {

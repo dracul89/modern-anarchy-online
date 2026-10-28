@@ -785,3 +785,20 @@ A character who attacks now swings its weapon, as the original's `AttackInfo` ha
 **No muzzle flash on held guns.** The `muzzleflash` attractor effect (a mesh connector `eff_muzzleflash` → effect template 2000, kind 1006, `_GfxControlFlare1_t`: Gamecode FUN_100def53 bursts it on its own timer, FUN_10106591 showing it while the mesh is shown) is a statel's (turrets); the held guns' meshes carry only `Attractor01_weaponfire`, and a gun's template names no effect, its stat 420 choosing the fire sound (FUN_1009d1f1). Nothing was found that flashes a held gun.
 
 Tools: `mao-client <game> record <type hex> <instance> <out>` writes one resource's bytes; `anim-sets` lists every item template's animation set; `char-anim-sets` every character animation set (type 0xfde97) with its words.
+
+## Sound, from the original's code
+
+The client now plays sound through rodio, as SandyInterface.dll does over Miles (the `sandyinterface` drop-in). `audio.rs` is
+`SandyInterface_t` and `SandyInterfaceModule_t`; `mixer.rs` is `SoundEngineInterface_t` with the Miles sample handles under it,
+mixed into one 44.1 kHz stereo rodio source (the driver `SE_Initialise` opens). The sources come from the source files under
+`cd_image/sound/SourceFiles` (`mao_formats::sound::parse_bank`: version 11, records of 0xe4 bytes, the sample's file name with
+its bytes rotated, the children by ID): `SM_Sandy_Gui.sbf` (85 sources) when the module starts, `SM_Sandy_Game_Dummy.sbf` (6810)
+when a playfield is entered (`PlayfieldInit` → `ActivateGameZone`). A source is named by the hash of its name
+(`mao_formats::sound::sound_id`, FUN_10008213: `SM_Sandy_Game_Feet_Man_Walk` is 0xc743f93d). Playing one works out its volume
+by distance from the listener between its minimum and maximum distance, then its random volume range; it plays its variant for
+the sound material (`MapGameMaterialToSoundMaterial`), or its children (all, one at random, in turn, or on timers); the loudest
+play of each source in a frame is carried out at the frame's end. Samples are read when first played (WAV in PCM, IMA ADPCM or
+MP3, and Ogg Vorbis), within the original's 15 MB budget that frees the least recently used. The engine keeps the original's 13
+channels and its priorities, and a pitch is the rate the sample played at times a percentage. The listener is the controlled
+character (FUN_100b1f3c → `SetListenerRotPos`). `MAO_NO_SOUND=1` keeps the client silent. To try a source:
+`mao-client sound <game> <name> [material] [seconds]` plays it and prints the sample files that played.

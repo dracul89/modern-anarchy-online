@@ -26,7 +26,9 @@ mod actions;
 mod chat_commands;
 mod chatwindow;
 mod chatlog;
+mod audio;
 mod feedback;
+mod mixer;
 mod friends;
 mod help;
 mod launcher;
@@ -1040,6 +1042,38 @@ fn run(args: &[String]) -> Result<(), String> {
                 }
             }
             println!("{rooms} of rooms, {outdoor} outdoor, {broken} unreadable");
+            return Ok(());
+        }
+    }
+    // `sound <game> <name> [material] [seconds]`: a source played as `GetSoundID(name)` then `PlayGameSound` (at the listener,
+    // the material picking a variant), the frames run for some seconds (2 by default) and what it played printed.
+    if let [word, game, name, rest @ ..] = args {
+        if word == "sound" && rest.len() <= 2 {
+            let material: i32 = rest.first().and_then(|m| m.parse().ok()).unwrap_or(0);
+            let seconds: f32 = rest.get(1).and_then(|s| s.parse().ok()).unwrap_or(2.0);
+            audio::start(Path::new(game));
+            audio::with(|m| m.activate_game_zone());
+            let id = mao_formats::sound::sound_id(name);
+            audio::with(|m| m.play_game_sound(id, [0.0; 3], 0.0, 1.0, material, 0.0, 100, 1, 0, [0.0; 3]));
+            let start = std::time::Instant::now();
+            let mut last = start;
+            let mut heard = std::collections::BTreeSet::new();
+            let mut playing_until = 0.0f32;
+            while start.elapsed().as_secs_f32() < seconds {
+                std::thread::sleep(std::time::Duration::from_millis(16));
+                let dt = last.elapsed().as_secs_f32();
+                last = std::time::Instant::now();
+                audio::with(|m| {
+                    m.frame_process(dt);
+                    if let Some(s) = &m.sandy {
+                        for src in s.sources.iter().filter(|x| s.engine.is_playing(x.sound)) {
+                            heard.insert(src.file.clone());
+                            playing_until = start.elapsed().as_secs_f32();
+                        }
+                    }
+                });
+            }
+            println!("{name} ({id:#010x}): {} (playing for {playing_until:.2} s)", if heard.is_empty() { "nothing played".to_string() } else { heard.into_iter().collect::<Vec<_>>().join(", ") });
             return Ok(());
         }
     }

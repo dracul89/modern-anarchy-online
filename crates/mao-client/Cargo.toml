@@ -15,6 +15,7 @@ mao-formats.workspace = true
 mao-net.workspace = true
 mao-render.workspace = true
 pollster = "1.0.1"
+rodio = { version = "0.23", default-features = false, features = ["playback", "vorbis", "mp3"] }
 winit = "0.30.13"
 
 [lints]

@@ -68,6 +68,14 @@ meshes such as turrets. The guns' held meshes (the Peregrine's 264695, the Shark
 and their templates name no effect: their stat 420 picks the fire *sound* (FUN_1009d1f1). **Not done:** the
 hit/impact sounds (**the client has no audio at all yet**: sounds need a new audio dependency and the sound formats, so that is left for you to decide), and the nano-cast lines in the original's wording (still the client's own).
 
+## 4. Sound (rodio, the original's SandyInterface)
+
+Added after the overnight run, on request: audio through rodio, ported from the `sandyinterface` drop-in. Newest first.
+
+| Commit | What | What to try |
+|---|---|---|
+| (next) | **The sound system**: the source files, the engine (13 channels, priorities), distance volume, variants and children, the frame's play list; the listener follows your character | `mao-client "<game>" sound SM_Sandy_Gui_Mission_Complete` should be heard; `MAO_NO_SOUND=1` silences the client |
+
 ## How to run
 
 The release client was rebuilt and restarted after every commit:
