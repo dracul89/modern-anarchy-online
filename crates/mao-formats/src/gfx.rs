@@ -1229,6 +1229,10 @@ pub enum Visual {
     /// child) about the target plus words 1–3 (flag 0x2000: on the target itself, the place unused); with flag 0x400 the round
     /// starts again once every child has ended.
     Scatter { child: Box<Visual>, children: Vec<(f32, [f32; 3])>, looping: bool },
+    /// Kind 2007, `_GfxControlMeta_t` (FUN_100e5f7a and its kin): each of its first ten words names a child effect, and every one
+    /// is started at once as an effect of its own (`_EffectHandler_t::CreateEffect2`). Given when two or more children have a look
+    /// (one alone is given as itself).
+    Meta(Vec<Visual>),
     /// Kind 2006, `_GfxControlElectra_t` (FUN_100d9aa9; FUN_100d97ba the words, FUN_100d98e0 the `GfxVisualElectra`
     /// (displaysystem `gfxsol.rs`), FUN_100d9de5 the run), mode 1 (word 10; every template a program names): 64 quads of the
     /// material (word 9), born at `28 / life` a second (at most two a frame) on a random point of a sphere stretched 1.5 up and
@@ -1252,8 +1256,8 @@ pub enum Visual {
 }
 
 impl Gfx {
-    /// The look of an effect id. A bundle (kind 2007: up to four children in its first words) or a wrapper (kind 3004: its second word
-    /// is a mode and its third the child) shows its first child that has a look.
+    /// The look of an effect id. A bundle (kind 2007: up to ten children in its first words) shows every child that has a look
+    /// ([`Visual::Meta`]); a wrapper (kind 3004: its second word is a mode and its third the child) its first child that has one.
     pub fn visual(&self, id: i32) -> Option<Visual> {
         let r = self.get(id)?;
         match r.kind {
@@ -1297,7 +1301,15 @@ impl Gfx {
             3028 => BParticles::read(r).map(Visual::BParticles),
             3001 if r.payload.len() >= 16 && r.int(10) == 1 => Some(Visual::Deform(Deform { duration: r.float(8), strength: r.float(11), ramp_in: r.float(12), ramp_out: r.float(13), frequency: r.float(14), amplitude: r.float(15) })),
             1001 | 2004 | 2005 | 2006 | 1018 => self.aura(id).map(Visual::Spiral),
-            2007 | 3004 => self.references(id).into_iter().filter(|&c| c != id).find_map(|c| self.visual(c)),
+            2007 => {
+                let mut looks: Vec<Visual> = (0..10.min(r.payload.len())).map(|k| r.int(k)).filter(|&c| c != 0 && c != id).filter_map(|c| self.visual(c)).collect();
+                match looks.len() {
+                    0 => None,
+                    1 => looks.pop(),
+                    _ => Some(Visual::Meta(looks)),
+                }
+            }
+            3004 => self.references(id).into_iter().filter(|&c| c != id).find_map(|c| self.visual(c)),
             3029 if r.payload.len() >= 11 && r.int(10) != id => {
                 let child = self.visual(r.int(10))?;
                 let (flags, place, timing, count) = (r.int(0) as u32, r.int(4), r.int(5), r.int(6).clamp(0, 64));

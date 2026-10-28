@@ -207,3 +207,16 @@ fn a_hoverboard_program_puts_each_body_on_its_board() {
     assert_eq!(template.animation(mao_formats::appearance::Action::Run), index.find(0xf6953, "Hoverboard_a_male_run_001.ani"));
     assert_eq!(template.animation(mao_formats::appearance::Action::Idle), index.find(0xf6953, "Hoverboard_a_male_idle_stand_001.ani"));
 }
+
+#[test]
+fn a_bundle_runs_every_child() {
+    use mao_formats::gfx::Visual;
+    let Some(game) = std::env::var_os("MAO_GAME").map(PathBuf::from) else { return };
+    let gfx = mao_formats::gfx::Gfx::parse(&std::fs::read(game.join("Setupf").join("gfxtweak.bin")).unwrap()).unwrap();
+    // (Phasefront Spectre's running effect, 72303: the hoverbike's smoke, trails, particles and its circle, 72346, the sixth child)
+    let Some(Visual::Meta(children)) = gfx.visual(72303) else { panic!("72303 is not a bundle of several looks") };
+    assert!(children.len() >= 2);
+    assert!(children.iter().any(|c| matches!(c, Visual::EffectMesh(m) if m.attach == 2006 && m.mesh == 0x14)));
+    // (a bundle with one child that has a look is that child: Phantom's fan bundle, 72307)
+    assert!(matches!(gfx.visual(72307), Some(Visual::Meta(_)) | Some(Visual::EffectMesh(_))));
+}

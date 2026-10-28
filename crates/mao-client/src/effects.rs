@@ -922,6 +922,7 @@ pub fn visual_meshes(v: &Visual, at: Locator, t: f32, attractors: &dyn Fn(i32) -
     match v {
         Visual::EffectMesh(m) if m.attach == 0 => vec![(m.clone(), at, t)],
         Visual::EffectMesh(m) => attractors(m.attach).map(|place| (m.clone(), place, t)).into_iter().collect(),
+        Visual::Meta(children) => children.iter().filter(|c| t < pulse_timing(c).1).flat_map(|c| visual_meshes(c, at, t, attractors)).collect(),
         Visual::Scatter { child, children, looping } => {
             let life = pulse_timing(child).1.max(0.05);
             let round = children.iter().map(|c| c.0).fold(0.0, f32::max) + life;
@@ -1078,6 +1079,7 @@ pub fn visual_shells(v: &Visual, surface: &crate::blobshadow::Surface, origin: [
             let t = if *looping { t.rem_euclid(round.max(0.05)) } else { t };
             children.iter().filter(|(born, _)| t >= *born && t - born < life).flat_map(|(born, _)| visual_shells(child, surface, origin, t - born)).collect()
         }
+        Visual::Meta(children) => children.iter().filter(|c| t < pulse_timing(c).1).flat_map(|c| visual_shells(c, surface, origin, t)).collect(),
         _ => Vec::new(),
     }
 }
@@ -1728,6 +1730,8 @@ pub fn visual_particles(v: &Visual, feet: [f32; 3], time: f32, reach: Reach) -> 
             };
             electra_particles(*material, *colour_a, *colour_b, *duration, *size, *out_to, *life, [feet[0], feet[1], feet[2] + up], time)
         }
+        // (a bundle's children all run, each while its own life lasts)
+        Visual::Meta(children) => children.iter().filter(|c| time < pulse_timing(c).1).flat_map(|c| visual_particles(c, feet, time, reach)).collect(),
         // (each copy of the child at its place from its birth; a looping round starts again when every copy has ended)
         Visual::Scatter { child, children, looping } => {
             let life = pulse_timing(child).1.max(0.05);
@@ -1807,6 +1811,11 @@ pub fn pulse_particles(v: &Visual, feet: [f32; 3], heading: f32, age: f32, body:
                 ring(&mut out, at, radius.max(0.03), helix, aura.colour, age);
             }
         }
+        Visual::Meta(children) => {
+            for c in children.iter().filter(|c| age < pulse_timing(c).1) {
+                out.extend(pulse_particles(c, feet, heading, age, body));
+            }
+        }
         other => return visual_particles(other, feet, age, Reach::Body),
     }
     out
@@ -1864,6 +1873,15 @@ pub fn pulse_timing(v: &Visual) -> (f32, f32, i32) {
         Visual::Shield(s) => if s.duration > 0.0 { (600.0, s.duration, 1) } else { (600.0, 600.0, -1) },
         Visual::Shield2(s) => if s.duration > 0.0 { (600.0, s.duration, 1) } else { (600.0, 600.0, -1) },
         Visual::EffectMesh(m) => if m.duration > 0.0 { (600.0, m.duration, 1) } else { (600.0, 600.0, -1) },
+        // (a bundle's children started together: the pulse lasts the longest of them and repeats with the longest period; it plays
+        // once only when every child does)
+        Visual::Meta(children) => {
+            let timings: Vec<(f32, f32, i32)> = children.iter().map(pulse_timing).collect();
+            let period = timings.iter().map(|t| t.0).fold(0.0, f32::max);
+            let life = timings.iter().map(|t| t.1).fold(0.0, f32::max);
+            let plays = if timings.iter().all(|t| t.2 == 1) { 1 } else { -1 };
+            (period.max(0.1), life.max(0.05), plays)
+        }
         _ => (4.0, 1.5, -1),
     }
 }

@@ -206,12 +206,13 @@ pub(crate) fn load_sprites(renderer: &mut Renderer, gpu: &Gpu, textures: &Textur
 /// [`headless`] with the interface painted over the image: the heads-up
 /// display and, when the flag is set, the options window.
 pub fn headless_with(model: &Model, textures: &Textures, out: &str, ui: Option<(&Hud, bool)>) -> Result<(), String> {
-    headless_on(model, textures, out, ui, &[])
+    headless_on(model, textures, out, ui, &[], false)
 }
 
 /// [`headless_with`] for a scene that is one posed body at the origin: `attractors` are its attractors' frames (the server's
-/// frame), where `MAO_AURA`'s effect meshes at attach points 2000–2023 are held.
-pub fn headless_on(model: &Model, textures: &Textures, out: &str, ui: Option<(&Hud, bool)>, attractors: &[(String, mao_formats::model::Matrix)]) -> Result<(), String> {
+/// frame), where `MAO_AURA`'s effect meshes at attach points 2000–2023 are held; `atrox`, whether the body is an Atrox's (the
+/// hoverbike circles have Atrox meshes).
+pub fn headless_on(model: &Model, textures: &Textures, out: &str, ui: Option<(&Hud, bool)>, attractors: &[(String, mao_formats::model::Matrix)], atrox: bool) -> Result<(), String> {
     let gpu = Gpu::headless()?;
     eprintln!("adapter: {:?}", gpu.adapter.get_info());
     let mut renderer = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8UnormSrgb);
@@ -244,7 +245,7 @@ pub fn headless_on(model: &Model, textures: &Textures, out: &str, ui: Option<(&H
                 [e.x, e.y, e.z]
             };
             for (m, at, t) in crate::effects::visual_meshes(&visual, crate::effects::Locator::feet(feet, 0.0), time, &|attach| crate::effects::Locator::attractor(attach, attractors)) {
-                let Some(model) = m.mesh_file(false).and_then(|name| textures.mesh_named(name)) else { continue };
+                let Some(model) = m.mesh_file(atrox).and_then(|name| textures.mesh_named(name)) else { continue };
                 for part in &model.parts {
                     let Some(&key) = part.material.textures.first() else { continue };
                     if !sheets.contains_key(&key) {
@@ -258,6 +259,10 @@ pub fn headless_on(model: &Model, textures: &Textures, out: &str, ui: Option<(&H
                 scene.shells.extend(crate::effects::effect_mesh_shells(&m, &model, &|k, i| sheets.get(&(k, i)).copied().unwrap_or(mao_render::NO_SPRITE), &at, Some(eye), t));
             }
             eprintln!("aura: {} mesh shells", scene.shells.len());
+            for shell in &scene.shells {
+                let (lo, hi) = shell.vertices.iter().fold(([f32::MAX; 3], [f32::MIN; 3]), |(lo, hi), v| ([0, 1, 2].map(|k| lo[k].min(v.position[k])), [0, 1, 2].map(|k| hi[k].max(v.position[k]))));
+                eprintln!("  shell of {} vertices from {lo:.2?} to {hi:.2?}, alpha {:.2}", shell.vertices.len(), shell.vertices.first().map_or(0.0, |v| v.colour[3]));
+            }
         }
     }
     // `MAO_CAST=<effect id>` (with `MAO_GFX`, `MAO_AURA_AT` for the origin and `MAO_AURA_TIME` for the age): the emitters of a cast, hit or
@@ -1150,7 +1155,9 @@ impl ApplicationHandler for App {
                                     shells.extend(crate::effects::visual_shells(aura, &c.surface, c.translation, age));
                                 }
                                 let attractors = c.as_ref().map_or(&[][..], |c| c.attractors.as_slice());
-                                meshes.extend(crate::effects::visual_meshes(aura, crate::effects::Locator::feet(feet, heading), age, &|attach| crate::effects::Locator::attractor(attach, attractors)));
+                                // (an Atrox's hoverbike circles are its own meshes: FUN_1010d457 with the breed 4)
+                                let atrox = body.is_some_and(|b| b.0 == 4);
+                                meshes.extend(crate::effects::visual_meshes(aura, crate::effects::Locator::feet(feet, heading), age, &|attach| crate::effects::Locator::attractor(attach, attractors)).into_iter().map(|(m, l, t)| (m, l, t, atrox)));
                                 sparks.extend(crate::effects::pulse_particles(aura, feet, heading, age, *body));
                             }
                         }
@@ -1182,7 +1189,7 @@ impl ApplicationHandler for App {
                                     shells.extend(crate::effects::visual_shells(hit, &c.surface, c.translation, landed));
                                 }
                                 let attractors = c.as_ref().map_or(&[][..], |c| c.attractors.as_slice());
-                                meshes.extend(crate::effects::visual_meshes(hit, crate::effects::Locator::feet(shot.to, 0.0), landed, &|attach| crate::effects::Locator::attractor(attach, attractors)));
+                                meshes.extend(crate::effects::visual_meshes(hit, crate::effects::Locator::feet(shot.to, 0.0), landed, &|attach| crate::effects::Locator::attractor(attach, attractors)).into_iter().map(|(m, l, t)| (m, l, t, false)));
                             }
                         }
                     }
@@ -1191,8 +1198,8 @@ impl ApplicationHandler for App {
                         let e = w.camera.eye();
                         [e.x, e.y, e.z]
                     };
-                    for (m, at, t) in &meshes {
-                        let Some(name) = m.mesh_file(false) else { continue };
+                    for (m, at, t, atrox) in &meshes {
+                        let Some(name) = m.mesh_file(*atrox) else { continue };
                         let textures = &self.textures;
                         let Some(model) = self.effect_meshes.entry(name).or_insert_with(|| textures.mesh_named(name)).as_ref() else { continue };
                         for part in &model.parts {

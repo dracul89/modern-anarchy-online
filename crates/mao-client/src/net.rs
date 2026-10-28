@@ -1574,11 +1574,11 @@ pub(crate) fn ride_preview(db: Arc<ResourceDatabase>, breed: u8, sex: u8, nano: 
     // (at the origin facing the server's +z: the local frame is the server's)
     let attractors = chars.frames.get(&0).cloned().unwrap_or_default();
     for (name, m) in attractors.iter().filter(|(n, _)| n.contains("special") || n.contains("head")) {
-        eprintln!("  {name} at {:.2} {:.2} {:.2}", m[12], m[13], m[14]);
+        eprintln!("  {name} at {:.2} {:.2} {:.2}, axes {:.2?} {:.2?} {:.2?}", m[12], m[13], m[14], &m[0..3], &m[4..7], &m[8..11]);
     }
     let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     let model = Model { instances: (0..parts.len()).map(|i| (i, swap)).collect(), parts, water: None, lod_groups: Vec::new() };
-    crate::viewer::headless_on(&model, &crate::Textures::new(db), out, None, &attractors)
+    crate::viewer::headless_on(&model, &crate::Textures::new(db), out, None, &attractors, breed == mao_formats::appearance::ATROX)
 }
 
 /// The entities' markers alone (own character red, the others blue): two
@@ -3259,7 +3259,13 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                     return None;
                                 }
                                 // (a hit that bends the target's mesh is noted for its character)
-                                if let Some(mao_formats::gfx::Visual::Deform(d)) = &hit {
+                                // (a bundle's deformer too)
+                                let bent = match &hit {
+                                    Some(mao_formats::gfx::Visual::Deform(d)) => Some(d),
+                                    Some(mao_formats::gfx::Visual::Meta(children)) => children.iter().find_map(|c| if let mao_formats::gfx::Visual::Deform(d) = c { Some(d) } else { None }),
+                                    _ => None,
+                                };
+                                if let Some(d) = bent {
                                     deforms_landed.borrow_mut().push((target, d.clone()));
                                 }
                                 // (Z up: from the caster's hands to the target's chest)
