@@ -2212,6 +2212,70 @@ pub fn bparticles_states(b: &BParticles, time: f32) -> Vec<BState> {
     out
 }
 
+/// `_GfxControlFire_t`'s flames `time` seconds in, for a dynel whose feet are at `feet` (world, Z up) facing `heading`, as
+/// FUN_100dbed5 makes them and `GfxVisualSprite2Type0::ProcessSprites` moves them: one each time `rate × τ` passes a whole number
+/// (none a life before the duration), at a random point `p` of the unit sphere: placed at `(p.x r, p.z r, 0)` in the dynel's frame
+/// (a disc across its facing, `r` from words 11–12), set off by the locator's offset (words 1–3 along the frame's axes),
+/// flying along the frame's z backwards (flag 0x100: up) at `|p.y| × word 13 / life`, its width, height and colour running
+/// from start to end over its life, pushed by the wind with its push kind. The original's random numbers are hashes of the
+/// flame's number; the `rand()` gate (word 31) is not played.
+pub fn fire_particles(f: &mao_formats::gfx::Fire, feet: [f32; 3], heading: f32, time: f32) -> Vec<Particle> {
+    let mut out = Vec::new();
+    if time < 0.0 || f.rate <= 0.0 {
+        return out;
+    }
+    let life = f.life.max(0.01);
+    let until = if f.duration >= 0.0 { f.duration - life } else { f32::INFINITY };
+    let (sh, ch) = heading.sin_cos();
+    // (the dynel's frame in the world: x across, z its facing, y up)
+    let (right, forward) = ([ch, -sh, 0.0], [sh, ch, 0.0]);
+    let world = |x: f32, y: f32, z: f32| [0, 1, 2].map(|i| right[i] * x + forward[i] * z + if i == 2 { y } else { 0.0 });
+    let origin = {
+        let o = world(f.place[0], f.place[1], f.place[2]);
+        [feet[0] + o[0], feet[1] + o[1], feet[2] + o[2]]
+    };
+    let first = ((time - life).max(0.0) * f.rate).floor() as u32;
+    let last = (time.min(until).max(0.0) * f.rate).floor() as u32;
+    for k in first..=last.min(first + 600) {
+        if k == 0 {
+            continue;
+        }
+        let born = k as f32 / f.rate;
+        let age = time - born;
+        if !(0.0..life).contains(&age) {
+            continue;
+        }
+        let salt = k.wrapping_mul(1004).wrapping_add(31);
+        let r = f.radius.0 + (f.radius.1 - f.radius.0) * hash(salt, 1);
+        let (a, z) = (hash(salt, 2) * std::f32::consts::TAU, 2.0 * hash(salt, 3) - 1.0);
+        let flat = (1.0 - z * z).max(0.0).sqrt();
+        // (a point on the unit sphere: x, y up, z)
+        let p = [flat * a.cos(), z, flat * a.sin()];
+        let start = world(p[0] * r, p[2] * r, 0.0);
+        let speed = p[1].abs() * f.speed / life;
+        let v = if f.flags & 0x100 != 0 { [0.0, 0.0, speed] } else { forward.map(|c| -c * speed) };
+        let mut position = [0, 1, 2].map(|i| origin[i] + start[i] + v[i] * age);
+        if f.push != 0 {
+            let strength = (0.1 + 0.9 * hash(salt, 12)) * f.push_strength;
+            let (now, _) = wind();
+            let steps = 12;
+            let mut weight = 0.0;
+            for i in 0..steps {
+                let tau = (i as f32 + 0.5) / steps as f32 * age;
+                weight += push_curve(f.push, push_fraction(v[2] * tau, f.push_heights)) * age / steps as f32;
+            }
+            for i in 0..3 {
+                position[i] += now[i] * strength * weight;
+            }
+        }
+        let t = age / life;
+        let lerp = |(a, b): (f32, f32)| a + (b - a) * t;
+        let colour = [1, 2, 3, 0].map(|c| f.start[c] + (f.end[c] - f.start[c]) * t);
+        out.push(sprite(f.material, t, position, lerp(f.width).max(lerp(f.height)).max(0.0), colour));
+    }
+    out
+}
+
 /// `GfxControlTParticle2_t`'s streaks `time` seconds in about `origin` (world, Z up): each particle of [`bparticles_states`] a
 /// `GfxVisualTParticle2` (displaysystem `gfxbparticle.rs` `tp2_draw`): two crossed strips (across the world's up and across
 /// that) from its place to its place plus its velocity times `length`, `size` wide at the head and `size / aspect` at the tail,
@@ -2690,6 +2754,7 @@ pub fn visual_particles(v: &Visual, feet: [f32; 3], time: f32, reach: Reach) -> 
         Visual::Tracer5(_) | Visual::Tracer1(_) | Visual::Tracer3(_) => Vec::new(),
         // (crossed strips and cones: see `tparticle_shells`, `skyflash_shells`)
         Visual::TParticle(_) | Visual::SkyFlash(_) | Visual::Spiral2(_) | Visual::TParticle2 { .. } => Vec::new(),
+        Visual::Fire(f) => fire_particles(f, feet, 0.0, time),
         Visual::Nano(n) => {
             let up = match reach {
                 Reach::Small => 0.0,
@@ -2845,6 +2910,8 @@ pub fn pulse_particles(v: &Visual, feet: [f32; 3], heading: f32, age: f32, body:
                 out.extend(pulse_particles(c, feet, heading, age, body));
             }
         }
+        // (a fire's disc and flight are in the body's frame)
+        Visual::Fire(f) => out.extend(fire_particles(f, feet, heading, age)),
         Visual::Delayed(child, start) => {
             if age >= *start && age - start < pulse_timing(child).1 {
                 out.extend(pulse_particles(child, feet, heading, age - start, body));
@@ -2878,6 +2945,7 @@ pub fn pulse_timing(v: &Visual) -> (f32, f32, i32) {
         Visual::Tracer5(_) | Visual::Tracer1(_) | Visual::Tracer3(_) => (600.0, 1.0, 1),
         Visual::TParticle(p) => if p.duration >= 0.0 { (600.0, p.duration.max(0.05), 1) } else { (600.0, 600.0, -1) },
         Visual::SkyFlash(s) => (600.0, s.length().max(0.05), 1),
+        Visual::Fire(f) => if f.duration >= 0.0 { (600.0, f.duration.max(0.05), 1) } else { (600.0, 600.0, -1) },
         Visual::Spiral2(s) => if s.duration > 0.0 { (600.0, s.duration, 1) } else { (600.0, 600.0, -1) },
         Visual::TParticle2 { particles, .. } => pulse_timing(&Visual::BParticles(particles.clone())),
         // (a nano makes sprites until a life before its duration, and its last ones live out their lives; for ever without one)
@@ -3477,6 +3545,39 @@ mod tests {
         assert!(n > 0 && s[0].vertices.len() <= n * 12);
         // (the head is the brighter end: the head curve's white)
         assert!(s[0].vertices.iter().any(|v| v.colour == [1.0, 1.0, 1.0, 1.0]));
+    }
+
+    #[test]
+    fn rage_flames_stream_back_off_a_disc_behind_the_body() {
+        // (template 2200: sixteen flames a second off a disc 0.5 wide a quarter behind the feet, a second each, growing 3 to 1 wide)
+        let f = mao_formats::gfx::Fire {
+            flags: 5,
+            place: [0.0, 0.0, -0.25],
+            attach: 0,
+            duration: -1.0,
+            material: 9,
+            rate: 16.0,
+            radius: (0.0, 0.5),
+            speed: 4.0,
+            width: (3.0, 1.0),
+            height: (3.0, 3.0),
+            start: [1.0; 4],
+            end: [1.0; 4],
+            life: 1.0,
+            push_heights: (0.0, 4.0),
+            push: 0,
+            push_strength: 0.25,
+        };
+        // facing +y (heading 0): the flames start within 0.5 of a point a quarter behind and run back along −y
+        let at = fire_particles(&f, [0.0; 3], 0.0, 5.0);
+        assert!((15..=17).contains(&at.len()), "{}", at.len());
+        for p in &at {
+            assert!(p.position[1] <= -0.25 + 0.5 + 1e-4 && p.position[0].abs() <= 0.5 + 1e-4 && p.position[2].abs() <= 0.5 + 1e-4);
+            assert!(p.size >= 3.0 - 1e-4 && p.size <= 3.0 + 1e-4);
+        }
+        // (with flag 0x100 they rise instead)
+        let rising = fire_particles(&mao_formats::gfx::Fire { flags: 0x105, ..f.clone() }, [0.0; 3], 0.0, 5.0);
+        assert!(rising.iter().all(|p| p.position[1] >= -0.75 - 1e-4 && p.position[2] >= -0.5 - 1e-4));
     }
 
     #[test]

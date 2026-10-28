@@ -156,6 +156,8 @@ fn effect_classes_come_to_visuals() {
     assert!(matches!(gfx.visual(17500), Some(Visual::Plasma { material: 8, duration, .. }) if duration == 1.0));
     // the null gather effect has none
     assert!(gfx.visual(49999).is_none());
+    // (the Rage buffs' flames: sixteen a second off a disc behind the body, a second each)
+    assert!(matches!(gfx.visual(2200), Some(Visual::Fire(f)) if f.rate == 16.0 && f.radius == (0.0, 0.5) && f.life == 1.0 && f.place == [0.0, 0.0, -0.25] && f.push == 4));
     // (a fountain of streaks: 80 particles drawn along their velocities, two six-key colour curves)
     assert!(matches!(gfx.visual(73001), Some(Visual::TParticle2 { ref particles, length, ref head }) if particles.count == 80 && particles.colours.len() == 6 && head.len() == 6 && length == 1.0));
     // (five spiralling ribbons, their colour and radius curves read)

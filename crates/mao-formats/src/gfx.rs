@@ -980,6 +980,60 @@ impl Trail2 {
     }
 }
 
+/// A kind-1004 template as `_GfxControlFire_t` reads it (FUN_100dcb72 / FUN_100dc7ee; FUN_100dc433 the words, FUN_100dc59c the
+/// `GfxVisualSprite2Type0`, FUN_100dbed5 the run): word 0 the flags (0x100 the flames rise; else they run back along the
+/// locator's z), words 1–3 the locator's offset, word 7 the attach point, word 8 the duration (none made a life before it),
+/// word 9 the material, word 10 the flames a second, words 11–12 the radius of the disc they start on, word 13 their speed
+/// (times the height of their start on the sphere, over the life), words 14–17 the width and height at the start and the end,
+/// words 18–21 and 22–25 the colours (alpha, red, green, blue) at the start and the end, word 26 the life, words 27–28 the push's
+/// heights over the start, word 29 the push kind, word 30 its strength, word 31 a mask of `rand()`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Fire {
+    pub flags: u32,
+    pub place: [f32; 3],
+    pub attach: i32,
+    pub duration: f32,
+    pub material: i32,
+    pub rate: f32,
+    pub radius: (f32, f32),
+    pub speed: f32,
+    pub width: (f32, f32),
+    pub height: (f32, f32),
+    pub start: [f32; 4],
+    pub end: [f32; 4],
+    pub life: f32,
+    pub push_heights: (f32, f32),
+    pub push: i32,
+    pub push_strength: f32,
+}
+
+impl Fire {
+    pub fn read(r: &Record) -> Option<Fire> {
+        if r.payload.len() < 31 {
+            return None;
+        }
+        let v4 = |k: usize| [r.float(k), r.float(k + 1), r.float(k + 2), r.float(k + 3)];
+        Some(Fire {
+            flags: r.int(0) as u32,
+            place: [r.float(1), r.float(2), r.float(3)],
+            attach: r.int(7),
+            duration: r.float(8),
+            material: r.int(9),
+            rate: r.float(10),
+            radius: (r.float(11), r.float(12)),
+            speed: r.float(13),
+            width: (r.float(14), r.float(15)),
+            height: (r.float(16), r.float(17)),
+            start: v4(18),
+            end: v4(22),
+            life: r.float(26),
+            push_heights: (r.float(27), r.float(28)),
+            push: r.int(29),
+            push_strength: r.float(30),
+        })
+    }
+}
+
 /// A kind-3033 template as `GfxControlSpiral2_t` reads it (FUN_1011230d; FUN_10111e9d the words, FUN_10111fdb the
 /// `GfxVisualSpiral2`s (displaysystem `gfxspiral2.rs`), FUN_10111c40 the run): word 0 the flags (0x200 added, 0x400 the alpha
 /// pulsing), word 7 the attach point, word 8 the duration, word 9 the material, word 10 the ribbons, word 11 their segments,
@@ -1855,6 +1909,8 @@ pub enum Visual {
     SkyFlash(SkyFlash),
     /// Ribbons spiralling round the point, turning (kind 3033, `GfxControlSpiral2_t`).
     Spiral2(Spiral2),
+    /// Flames off a disc at the point (kind 1004, `_GfxControlFire_t`).
+    Fire(Fire),
     /// Kind 3031, `GfxControlTParticle2_t` (FUN_1011490c; FUN_1011373d the words, those of `GfxControlBParticle2_t` up to word 33,
     /// then its two colour curves from word 34; FUN_10113b55 the run): `BParticles`' particles, each drawn as a
     /// `GfxVisualTParticle2` streak from its place along its velocity times word 14 (its `length`; the run does not damp the
@@ -2013,6 +2069,7 @@ impl Gfx {
             3020 => TParticle::read(r).map(Visual::TParticle),
             3006 => SkyFlash::read(r).map(Visual::SkyFlash),
             3033 => Spiral2::read(r).map(Visual::Spiral2),
+            1004 => Fire::read(r).map(Visual::Fire),
             3031 => {
                 // (its curves follow word 33, a word sooner than `BParticles`')
                 let particles = BParticles::read(r)?;
