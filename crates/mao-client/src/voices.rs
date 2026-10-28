@@ -11,9 +11,11 @@
 //!   `<breed>_<sex>_<mood>_<line>_01`, `<sex>_<mood>_<line>_01`, `<sex>_<line>_01`, `<line>_01`; the first whose `.wav` is
 //!   there (with any `..` taken out) plays as `PlayPlayerFX(name.wav, 1)`.
 //!
-//! Not here: vicinity speech (`HandleVicinityMessage`, the same voice after a leading type byte, under
-//! `VoiceSndFxHearVicinityOn`: the client shows no vicinity speech yet) and sending a voice (the `/voice`-style command
-//! FUN_100b88b1 → FUN_1008cbc2).
+//! * Vicinity speech (chat packets 34 and 35, `ChatGUIModule_c::HandleVicinityMessage`) carries the same records after a
+//!   leading byte (the speech's kind, which picks its group); its voice plays under `VoiceSndFxHearVicinityOn`.
+//!
+//! Not here: sending a voice (the `/voice`-style command FUN_100b88b1 → FUN_1008cbc2), and the ignore list's say (a sender on
+//! it is heard only when record 2's flag has bit 0).
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicI64, Ordering};
@@ -126,16 +128,32 @@ fn preference(name: &str) -> Option<bool> {
 
 /// A group message from `sender` in a group of `kind` with `blob`: its voice line played as FUN_1008cdb3 plays it.
 pub fn group_message(limiter: &mut Limiter, sender: &str, kind: u8, blob: &[u8]) {
-    if STAT_389.load(Ordering::Relaxed) & 1 == 0 {
-        return;
-    }
     let allowed = match kind {
         3 => preference("VoiceSndFxHearGuildOn").unwrap_or(false),
         0x82 => preference("VoiceSndFxHearTeamOn").unwrap_or(false),
         _ => true,
     };
-    let (Some(voice), _) = parse(blob) else { return };
-    if !allowed || voice.line.is_empty() {
+    if allowed {
+        play(limiter, sender, parse(blob).0);
+    }
+}
+
+/// Vicinity speech from `sender` (empty for an anonymous one) with `blob`: after its leading byte the records
+/// (`HandleVicinityMessage` reads them when the blob has more than the byte), the voice played under
+/// `VoiceSndFxHearVicinityOn`.
+pub fn vicinity_message(limiter: &mut Limiter, sender: &str, blob: &[u8]) {
+    if blob.len() > 1 && preference("VoiceSndFxHearVicinityOn").unwrap_or(false) {
+        play(limiter, sender, parse(&blob[1..]).0);
+    }
+}
+
+/// FUN_1008cdb3: a voice line played (the client's stat 389 bit 0, a line, the sender not heard lately).
+fn play(limiter: &mut Limiter, sender: &str, voice: Option<Voice>) {
+    if STAT_389.load(Ordering::Relaxed) & 1 == 0 {
+        return;
+    }
+    let Some(voice) = voice else { return };
+    if voice.line.is_empty() {
         return;
     }
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64);
