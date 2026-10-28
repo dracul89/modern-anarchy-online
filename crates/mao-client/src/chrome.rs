@@ -225,6 +225,18 @@ pub fn scroll<R>(ui: &mut egui::Ui, palette: &Palette, area: egui::ScrollArea, a
     out.inner
 }
 
+/// The colour of colour code 0x1000000 (`GUIColors.xml`'s `Default`) for a control's art and labels: `Default` itself, but on a
+/// dark theme (the AOU Translucent's `Default` is near black, 0x051a2a) the palette's border colour, its `Selected`, as the
+/// palette already draws the window frames (`Palette::from_gui_colors`), so the controls stay visible.
+fn code1(palette: &Palette) -> crate::theme::Rgb {
+    if dark(palette) { palette.accent } else { palette.default }
+}
+
+/// Whether the theme's `Default` is dark, the palette then bordering in `Selected` (`Palette::from_gui_colors`).
+fn dark(palette: &Palette) -> bool {
+    palette.accent != palette.default
+}
+
 /// The size `Button_c::CalculatePreferredSize` (GUI.dll 0x10128396) gives a button whose label is `label` big and whose border
 /// pieces are `left`, `top`, `right`, `bottom` (`BorderView_c::GetBorderSizes`: the left and right pieces' widths, the top and
 /// bottom's heights): the label plus the sides and 10, and the label plus the top and bottom and 4.
@@ -247,7 +259,7 @@ pub fn button(ui: &mut egui::Ui, palette: &Palette, text: &str, enabled: bool) -
     let (rect, response) = ui.allocate_exact_size(want, if enabled { egui::Sense::click() } else { egui::Sense::hover() });
     let pressed = enabled && response.is_pointer_button_down_on();
     let grey = |c: egui::Color32| if enabled { c } else { c * egui::Color32::from_rgb(0x90, 0x90, 0x90) };
-    let colour = grey(rgb(if pressed { palette.selected } else { palette.default }));
+    let colour = grey(rgb(if pressed { palette.selected } else { code1(palette) }));
     let painter = ui.painter();
     skin.nine_slice(painter, if pressed { "GFX_GUI_BORDER04" } else { "GFX_GUI_BORDER01" }, rect, colour, true);
     if enabled && response.hovered() {
@@ -274,8 +286,8 @@ pub fn checkbox(ui: &mut egui::Ui, palette: &Palette, on: &mut bool, text: &str)
         response.mark_changed();
     }
     let at = egui::Rect::from_min_size(egui::pos2(rect.left(), rect.center().y - boxed.y * 0.5), boxed);
-    skin.draw_in(ui.painter(), if *on { "GFX_GUI_CHECKBOX_CHECKED" } else { "GFX_GUI_CHECKBOX_UNCHECKED" }, at, rgb(if *on { palette.selected } else { palette.default }));
-    ui.painter().galley_with_override_text_color(egui::pos2(at.right() + 10.0, rect.center().y - galley.size().y * 0.5), galley, rgb(palette.default));
+    skin.draw_in(ui.painter(), if *on { "GFX_GUI_CHECKBOX_CHECKED" } else { "GFX_GUI_CHECKBOX_UNCHECKED" }, at, rgb(if *on { palette.selected } else { code1(palette) }));
+    ui.painter().galley_with_override_text_color(egui::pos2(at.right() + 10.0, rect.center().y - galley.size().y * 0.5), galley, rgb(code1(palette)));
     response
 }
 
@@ -291,7 +303,7 @@ pub fn text_edit(ui: &mut egui::Ui, palette: &Palette, edit: egui::TextEdit<'_>)
     let (left, top, right, bottom) = (size("GFX_GUI_INSET_LEFT").x, size("GFX_GUI_INSET_TOP").y, size("GFX_GUI_INSET_RIGHT").x, size("GFX_GUI_INSET_BOTTOM").y);
     let margin = egui::Margin { left: (left + 3.0) as i8, right: (right + 3.0) as i8, top: (top + 1.0) as i8, bottom: (bottom + 1.0) as i8 };
     let response = ui.add(edit.frame(egui::Frame::NONE).margin(margin));
-    skin.nine_slice(ui.painter(), "GFX_GUI_INSET", response.rect, rgb(palette.default), false);
+    skin.nine_slice(ui.painter(), "GFX_GUI_INSET", response.rect, rgb(code1(palette)), false);
     response
 }
 
@@ -357,7 +369,8 @@ pub fn tab_view<R>(ui: &mut egui::Ui, palette: &Palette, names: &[&str], selecte
         }
         let active = i == *selected;
         skin.three_slice(&painter, if active { "GFX_GUI_TAB_ACTIVE" } else { "GFX_GUI_TAB_INACTIVE" }, rect, if active { tint } else { tint.gamma_multiply(0.6) });
-        let text = if active { egui::Color32::WHITE } else { egui::Color32::BLACK };
+        // (a dark theme's tabs are dark: their black text gives way to the theme's text colour there)
+        let text = if active { egui::Color32::WHITE } else if dark(palette) { rgb(palette.text) } else { egui::Color32::BLACK };
         // (the text is the tab's child view: what does not fit inside its right margin is cut off)
         painter.with_clip_rect(rect.intersect(egui::Rect::from_min_max(rect.min, egui::pos2(rect.right() - 12.0, rect.bottom())))).text(egui::pos2(rect.left() + 5.0, rect.center().y), egui::Align2::LEFT_CENTER, names[i], font.clone(), text);
     }
