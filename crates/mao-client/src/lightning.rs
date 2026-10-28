@@ -9,9 +9,15 @@
 //! (blended, `D3DBLEND_ONE`, no z writes), the cloud light with `dustcloud.png` (the environment's texture 7) and the bolt with
 //! `newsun_frame01.png` (texture 0).
 //!
-//! Not here: the effects each bolt starts at its end every frame (0x2c, Gamecode's gfx effect 0x859b, and 0x2d, rocks:
-//! queued, they wait for FUN_100afc4c's next run), FUN_100b8b35's note of the bolt's ground place (radius 50), the water level
-//! in the ground's height, and the pools: each strike gets its own effects, so none is ever refused.
+//! Each frame a bolt lives it starts effects 0x2d and 0x2c at its tip (force 100), which the environment's frame runs straight
+//! after (FUN_100b05b4: `ReadyNextFX` → FUN_100afc4c). 0x2d, out of the water and over force 80, throws a rock ([`Rock`]):
+//! effect 0xb to 0x11 at random (`rand() % 7`, `rock01` to `rock07.abiff`, `VisualTinyRock_t`) at force 5, flown by Gamecode's
+//! `EnvFXGravityObject_t` (FUN_100b103b made, FUN_100b0d0f each frame). 0x2c is gfx effect 0x859b, a `_GfxControlSplash_t`,
+//! which only makes its cones over a liquid (FUN_100f5a77: `GetLiquidSurfaceHeight`).
+//!
+//! Not here: the splash (the client knows no liquids, so it would make none either way), FUN_100b8b35's note of the bolt's
+//! ground place (radius 50), the water level in the ground's height (a rock never enters the water), and the pools: each strike
+//! gets its own effects, so none is ever refused.
 
 use crate::ambience::R250;
 use crate::audio::Rand;
@@ -38,12 +44,47 @@ pub struct Bolt {
     lit: bool,
 }
 
+/// A thrown rock (`EnvFXGravityObject_t`, 0x50 bytes, over a `VisualTinyRock_t`): its mesh, place and velocity (Y up), the
+/// axis it turns about, its spin and angle, the bounces left (7) and whether it is done.
+#[derive(Clone, Debug)]
+pub struct Rock {
+    mesh: &'static str,
+    at: [f32; 3],
+    velocity: [f32; 3],
+    axis: [f32; 3],
+    spin: f32,
+    angle: f32,
+    bounces: i32,
+    done: bool,
+}
+
+/// `EnvFXGravityObject_t`'s constants: the throw's force (+0x1a0 set to 5, DAT_101584fc), the bounce's divisor and the drag
+/// in water (+0x44 and +0x4c, 4), the fall (+0x48, 9.8 a second a second).
+const ROCK_FORCE: f32 = 5.0;
+const ROCK_BOUNCE: f32 = 4.0;
+const ROCK_FALL: f32 = 9.8;
+
 /// The strikes' effects under way, and the CRT's `rand` they draw from.
 #[derive(Default)]
 pub struct Sky {
     rand: Rand,
     clouds: Vec<Cloud>,
     bolts: Vec<Bolt>,
+    rocks: Vec<Rock>,
+}
+
+fn normalized(v: [f32; 3]) -> [f32; 3] {
+    let l = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+    if l > 0.0 { v.map(|c| c / l) } else { v }
+}
+
+/// The ground's normal under (x, z) (Y up), from its heights either side: what the ground probe (FUN_100ada15) gives back.
+fn ground_normal(ground: &dyn Fn(f32, f32) -> Option<f32>, x: f32, z: f32) -> [f32; 3] {
+    let e = 0.5;
+    match (ground(x - e, z), ground(x + e, z), ground(x, z - e), ground(x, z + e)) {
+        (Some(a), Some(b), Some(c), Some(d)) => normalized([a - b, 2.0 * e, c - d]),
+        _ => [0.0, 1.0, 0.0],
+    }
 }
 
 /// A flash's corners round (`x`, `z`), half-side `s`, and its centre.
@@ -147,9 +188,68 @@ impl Sky {
         [x, 0.0, z]
     }
 
-    /// A frame of `dt` seconds: the cloud lights age (FUN_10050bc3: lit while above 0.01), the bolts age and jitter more
-    /// (FUN_10051e5a: each segment by `offset(16) × share × width × dt`; gone at 0).
-    pub fn step(&mut self, dt: f32) {
+    /// FUN_100b103b: a rock thrown from `at` at the force's speed (`rand() % 1000 / 1000 × 3 − 1.5 + 5`, at least 0.3) in a
+    /// random direction (`rand() % 10000 − 5000`, `rand() % 10000`, `rand() % 10000 − 5000`, made a unit), turning about the
+    /// up direction crossed with its way at `rand() % 4000 / 1000 + 2` radians a second; 7 bounces.
+    fn throw(&mut self, mesh: &'static str, at: [f32; 3]) {
+        let speed = ((self.rand.next() % 1000) as f32 / 1000.0 * 3.0 - 1.5 + ROCK_FORCE).max(0.3);
+        let dx = (self.rand.next() % 10000 - 5000) as f32 / 1000.0;
+        let dy = (self.rand.next() % 10000) as f32 / 1000.0;
+        let dz = (self.rand.next() % 10000 - 5000) as f32 / 1000.0;
+        let mut velocity = normalized([dx, dy, dz]).map(|c| c * speed);
+        if velocity[0] == 0.0 && velocity[2] == 0.0 {
+            velocity[0] = 0.1;
+        }
+        let axis = normalized([velocity[2], 0.0, -velocity[0]]);
+        let spin = (self.rand.next() % 4000) as f32 / 1000.0 + 2.0;
+        self.rocks.push(Rock { mesh, at, velocity, axis, spin, angle: 0.0, bounces: 7, done: false });
+    }
+
+    /// The rocks thrown and still flying, for the viewer to draw (Z up).
+    pub fn rocks(&self) -> Vec<crate::effects::Rock> {
+        let z_up = |v: [f32; 3]| [v[0], v[2], v[1]];
+        self.rocks.iter().map(|r| crate::effects::Rock { mesh: r.mesh, at: z_up(r.at), axis: z_up(r.axis), angle: r.angle.rem_euclid(std::f32::consts::TAU) }).collect()
+    }
+
+    /// A frame of `dt` seconds (`ground` the ground's height under a point, Y up): the rocks fly (FUN_100b0d0f: their turn on
+    /// by the spin, done past 2000; on by their velocity; set on the ground when below it, which bounces them: a bounce
+    /// spent, the velocity divided by `4 × normal.y + 4` and given `|vy| / 4` along the normal, moved on once more, the spin
+    /// divided by 1.5; then they fall), the cloud lights age (FUN_10050bc3: lit while above 0.01), the bolts age and jitter
+    /// more (FUN_10051e5a: each segment by `offset(16) × share × width × dt`; gone at 0) and each throws a rock from its tip
+    /// (effect 0x2d's run, then the rock's: each put 0.2 lower and kept above the ground).
+    pub fn step(&mut self, dt: f32, ground: &dyn Fn(f32, f32) -> Option<f32>) {
+        for r in &mut self.rocks {
+            r.angle += dt * r.spin;
+            if 2000.0 < r.angle {
+                r.done = true;
+            }
+            let mut at = [0, 1, 2].map(|c| r.at[c] + r.velocity[c] * dt);
+            let before = at[1];
+            let mut normal = [0.0, 1.0, 0.0];
+            if let Some(h) = ground(at[0], at[2]) {
+                if at[1] < h {
+                    at[1] = h;
+                    normal = ground_normal(ground, at[0], at[2]);
+                }
+            }
+            if before < at[1] {
+                r.bounces -= 1;
+                if r.bounces == 0 {
+                    r.done = true;
+                } else {
+                    let up = r.velocity[1].abs() / ROCK_BOUNCE;
+                    let k = normal[1] * ROCK_BOUNCE + ROCK_BOUNCE;
+                    for c in 0..3 {
+                        r.velocity[c] = r.velocity[c] / k + normal[c] * up;
+                        at[c] += r.velocity[c] * dt;
+                    }
+                    r.spin /= 1.5;
+                }
+            }
+            r.at = at;
+            r.velocity[1] -= ROCK_FALL * dt;
+        }
+        self.rocks.retain(|r| !r.done);
         for c in &mut self.clouds {
             c.age -= dt;
             c.lit = 0.01 < c.age;
@@ -178,7 +278,23 @@ impl Sky {
             b.lit = true;
             true
         });
+        // (each live bolt's tip, its last segment's fourth vertex, starts 0x2d: a rock, thrown from it twice settled)
+        let tips: Vec<[f32; 3]> = bolts.iter().filter_map(|b| b.crosses.last().map(|c| [b.at[0] + c[3][0], b.at[1] + c[3][1], b.at[2] + c[3][2]])).collect();
         self.bolts = bolts;
+        let settle = |mut p: [f32; 3]| {
+            p[1] -= 0.2;
+            if let Some(h) = ground(p[0], p[2]) {
+                p[1] = p[1].max(h);
+            }
+            p
+        };
+        for tip in tips {
+            let kind = 0xb + self.rand.next() % 7;
+            let at = settle(settle(tip));
+            if let Some(mesh) = mao_formats::gfx::rock_mesh(kind) {
+                self.throw(mesh, at);
+            }
+        }
     }
 
     /// The shells to draw (Z up): each lit cloud light's flashes (`bolt_sheet`, `cloud_sheet` the textures' sheets), their
@@ -226,7 +342,7 @@ impl Sky {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.clouds.is_empty() && self.bolts.is_empty()
+        self.clouds.is_empty() && self.bolts.is_empty() && self.rocks.is_empty()
     }
 }
 
@@ -247,16 +363,26 @@ mod tests {
         assert!(first.crosses.len() >= 5 && first.crosses.len() < 15);
         // (nothing drawn before the first frame; then the flashes and the bolts that still live)
         assert!(sky.shells(1, 2).is_empty());
-        sky.step(0.016);
+        let ground = |_: f32, _: f32| Some(10.0);
+        sky.step(0.016, &ground);
+        // (each live bolt threw a rock from its tip, above the ground)
+        assert_eq!(sky.rocks.len(), sky.bolts.len());
+        assert!(sky.rocks.iter().all(|r| r.at[1] >= 10.0 && r.mesh.starts_with("rock0")));
         let shells = sky.shells(1, 2);
         assert!(shells.iter().any(|s| s.sprite == 2 && s.vertices.len() == 10 * 12));
         // (the cloud light fades within its second; the bolts within half a second)
         for _ in 0..32 {
-            sky.step(0.016);
+            sky.step(0.016, &ground);
         }
         assert!(sky.bolts.is_empty() && !sky.clouds.is_empty());
         for _ in 0..40 {
-            sky.step(0.016);
+            sky.step(0.016, &ground);
+        }
+        assert!(sky.clouds.is_empty() && sky.bolts.is_empty());
+        // (the rocks bounce on the ground, never through it, and come to an end)
+        for _ in 0..2000 {
+            sky.step(0.016, &ground);
+            assert!(sky.rocks.iter().all(|r| r.at[1] >= 10.0 - 1e-3));
         }
         assert!(sky.is_empty());
     }

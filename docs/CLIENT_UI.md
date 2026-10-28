@@ -929,3 +929,10 @@ original says them: GUI.dll packs the text's length, the text, its kind (0 say, 
 with the current target's identity and the data's length before it (`Client_t::SendVicinityMessage` and its kin). The line
 comes back from the chat server as vicinity speech (packet 34), so nothing is echoed here. `/voice` lines are said this way too:
 the original sends them to the chat window's selected group, Vicinity unless another is picked.
+
+**A bolt's rocks.** Each frame a bolt lives, its tip throws a rock (effect 0x2d, run straight away by the environment's frame):
+one of `rock01` to `rock07.abiff` at random, set off at 3.5 to 6.5 a second in a random upward direction, spinning at 2 to 6
+radians a second about the up direction crossed with its way, falling at 9.8 (Gamecode's `EnvFXGravityObject_t`). On the
+ground it bounces, up to seven times: its speed divided by `4 × normal.y + 4` and kicked a quarter of its fall along the
+ground's normal, its spin slowed by a third; then it is gone. The tip's other effect, a water splash, only shows over a liquid,
+which this client does not know yet.

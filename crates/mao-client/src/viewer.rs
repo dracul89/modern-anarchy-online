@@ -1218,7 +1218,8 @@ impl ApplicationHandler for App {
                     let mut sparks = Vec::new();
                     let mut shells = Vec::new();
                     // (the lightning's flashes and bolts, with the environment's textures 0 and 7 as their sheets)
-                    self.sky.step(frame_time.min(0.5));
+                    let terrain_ground = self.ground.clone();
+                    self.sky.step(frame_time.min(0.5), &|x, z| terrain_ground.as_ref().map(|(t, o)| t.height_at(x, z, t.height_scale) + o));
                     if !self.sky.is_empty() {
                         for (id, name) in [(BOLT_SHEET, "newsun_frame01.png"), (CLOUD_SHEET, "dustcloud.png")] {
                             if !w.renderer.has_sprite(id) && self.tried_sprites.insert(id) {
@@ -1370,8 +1371,11 @@ impl ApplicationHandler for App {
                         shells.extend(crate::effects::effect_mesh_shells(m, model, &|k, i| sheets.get(&(k, i)).copied().unwrap_or(mao_render::NO_SPRITE), at, Some(eye), *t));
                     }
                     // (the thrown rocks, their meshes loaded and their textures made sheets as the effect meshes')
-                    for (r, from, t, seed) in &rocks {
-                        for rock in crate::effects::vulcan_rocks(r, *from, *t, *seed, &ground) {
+                    // (the vulcan rocks' and the lightning's)
+                    let mut thrown: Vec<crate::effects::Rock> = rocks.iter().flat_map(|(r, from, t, seed)| crate::effects::vulcan_rocks(r, *from, *t, *seed, &ground)).collect();
+                    thrown.extend(self.sky.rocks());
+                    {
+                        for rock in thrown {
                             let textures = &self.textures;
                             let Some(model) = self.effect_meshes.entry(rock.mesh).or_insert_with(|| textures.mesh_named(rock.mesh)).as_ref() else { continue };
                             for part in &model.parts {
