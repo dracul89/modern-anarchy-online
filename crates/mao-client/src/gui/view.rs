@@ -71,6 +71,11 @@ pub trait Control: Any {
     fn mouse(&mut self, _m: Mouse, _at: Point) -> Option<Signal> {
         None
     }
+    /// The mouse wheel over the view (`View::WheelMoved`): `dy` points down, the view `height` pixels tall; whether it
+    /// used it.
+    fn wheel(&mut self, _dy: f32, _height: f32) -> bool {
+        false
+    }
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
 }

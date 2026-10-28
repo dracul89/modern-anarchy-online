@@ -1001,4 +1001,6 @@ system (`docs/GUI_DLL_PARITY.md`): the view tree and its horizontal/vertical lay
 the XML loader (labels like `#Back` or `#10010:0` from the text database), the font table, and the first classes (border
 views, buttons, check boxes, pictures, plain text). Such a window sits in the client's window frame; `MAO_UI_PREVIEW=view
 MAO_VIEW=<file>.xml` with `map <pf> --image` draws one offscreen (all 27 files load and lay out; Skills, Tip and Info look
-right in outline, their HTML text still shown raw). Not used by the game's windows yet.
+right, their text through the port of `HTMLParser_c`/`TextRenderer_c`: colours by `#rrggbb` or `TextColors.xml` name, fonts
+by face, centring and right alignment, `indent=wrapped` blocks, underlines, clickable links in 0x2299ff; `MAO_VIEW_TEXT=<markup>`
+puts text into a view named BrowserView). Not used by the game's windows yet.

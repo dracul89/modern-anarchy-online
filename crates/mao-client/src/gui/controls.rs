@@ -363,30 +363,65 @@ impl Control for BitmapView {
     any!();
 }
 
-/// `TextView_c`, for now its plain text: `value`, `font` (font 5 by default), one line or, with `TVF_WORD_WRAP`, wrapped
-/// to the view's width; its colour `TEXT`. The full class (`TextRenderer_c`, `HTMLParser_c`, scrolling, selection, links)
-/// is the next step.
+/// `TextView_c` (the XML constructor 0x1016538c, `Initialize` 0x10164f66): a scroll view holding a `TextRenderer_c` of
+/// `value` (looked up when it starts with `#`) in `font` (NORMAL by default), its `feature_flags`, `min_size`/`max_size`
+/// also given to the renderer as its preferred sizes, its colour `color` (white by default: the colour of text with
+/// none of its own). The text is the markup of `text.rs`; a click on a link is a [`Signal::Link`]; the wheel scrolls
+/// text taller than the view.
 pub struct TextView {
     pub text: String,
     pub font: FontId,
-    pub flags: u32,
+    pub feature: u32,
     pub colour: Colour,
+    /// `SetMinPreferredSize` / `SetMaxPreferredSize` (+0x278, +0x280): (-1, -1) when not given.
+    pub min: Point,
+    pub max: Point,
+    /// How far the text is scrolled up, and how tall it was when last drawn.
+    pub scroll: f32,
+    content: std::cell::Cell<f32>,
+    /// The link under the pointer when the button went down.
+    pressed_link: Option<String>,
+    /// Where each drawn link is (relative to the view's top left), for the mouse.
+    links: std::cell::RefCell<Vec<(egui::Rect, String)>>,
 }
-
-pub const TVF_MULTILINE: u32 = 1;
-pub const TVF_WORD_WRAP: u32 = 2;
 
 impl TextView {
     pub fn new(text: &str) -> TextView {
-        TextView { text: text.to_string(), font: FontId::NORMAL, flags: 0, colour: Colour::TEXT }
+        TextView {
+            text: text.to_string(),
+            font: FontId::NORMAL,
+            feature: 0,
+            colour: Colour::WHITE,
+            min: Point::new(-1.0, -1.0),
+            max: Point::new(-1.0, -1.0),
+            scroll: 0.0,
+            content: std::cell::Cell::new(0.0),
+            pressed_link: None,
+            links: Default::default(),
+        }
     }
 
     pub fn create(tree: &mut Tree, e: &Element) -> Id {
         let mut t = TextView::new(&e.text("value", ""));
         t.font = FontId::named(&e.text("font", "NORMAL"));
-        let names = [("TVF_MULTILINE", TVF_MULTILINE), ("TVF_WORD_WRAP", TVF_WORD_WRAP)];
-        t.flags = super::xml::flags(&e.text("feature_flags", "0"), &names);
+        t.feature = super::text::flags::parse(&e.text("feature_flags", ""));
+        t.min = e.point("min_size", Point::new(-1.0, -1.0));
+        t.max = e.point("max_size", Point::new(-1.0, -1.0));
+        t.colour = Colour(e.int("color", 0xff_ffff) as u32);
         tree.add(Node::from_element(e, 4, Box::new(t)))
+    }
+
+    /// `TextView_c::SetText`.
+    pub fn set_text(&mut self, text: &str) {
+        if self.text != text {
+            self.text = text.to_string();
+            self.scroll = 0.0;
+        }
+    }
+
+    fn words(&self, m: &Measure, named: &dyn Fn(&str) -> Option<u32>) -> Vec<super::text::Word> {
+        let items = super::text::parse(&self.text, named);
+        super::text::words(&items, m, self.font, self.feature, &|_| None)
     }
 }
 
@@ -395,48 +430,100 @@ impl Control for TextView {
         "TextView"
     }
     fn preferred(&self, m: &Measure, max: bool) -> Option<Point> {
-        if self.flags & TVF_WORD_WRAP != 0 {
-            return Some(if max { Point::new(16000.0, 16000.0) } else { Point::new(-1.0, m.height(self.font) - 1.0) });
-        }
-        let lines: Vec<&str> = self.text.split('\n').collect();
-        let w = lines.iter().map(|l| m.width(self.font, l)).fold(0.0, f32::max);
-        Some(Point::new(w - 1.0, m.height(self.font) * lines.len() as f32 - 1.0))
+        let words = self.words(m, &|_| None);
+        let given = if max { self.max } else { self.min };
+        let min_width = (self.min.x >= 0.0).then_some(self.min.x);
+        Some(super::text::preferred(&words, self.feature, m.height(self.font), Some(given), min_width))
     }
     fn paint(&self, p: &Paint) {
-        let colour = self.colour.rgb(p.env.palette);
-        let height = p.env.measure.height(self.font);
-        let mut y = p.rect.top();
-        let lines: Vec<String> = if self.flags & TVF_WORD_WRAP != 0 {
-            wrap(p.env.measure, self.font, &self.text, p.rect.width())
-        } else {
-            self.text.split('\n').map(str::to_string).collect()
-        };
-        for l in lines {
-            if y > p.rect.bottom() {
-                break;
+        use super::text::{DEFAULT_COLOUR, LINK_COLOUR};
+        let palette = p.env.palette;
+        let named = |n: &str| palette.text_colors.iter().find(|(k, _)| k.eq_ignore_ascii_case(n)).map(|(_, c)| u32::from(c[0]) << 16 | u32::from(c[1]) << 8 | u32::from(c[2]));
+        let m = p.env.measure;
+        let words = self.words(m, &named);
+        let width = p.rect.width();
+        let (lines, _) = super::text::wrap(&words, self.feature, width, m.height(self.font));
+        let total = lines.last().map_or(0.0, |l| l.y + l.height);
+        self.content.set(total);
+        let view_colour = self.colour.rgb(palette);
+        let clip = p.painter.with_clip_rect(p.rect.intersect(p.painter.clip_rect()));
+        let sub = Paint { painter: &clip, env: p.env, rect: p.rect, hovered: p.hovered, pressed: p.pressed, enabled: p.enabled };
+        let mut links = self.links.borrow_mut();
+        links.clear();
+        for line in &lines {
+            let top = p.rect.top() + line.y - self.scroll;
+            if top + line.height < p.rect.top() || top > p.rect.bottom() {
+                continue;
             }
-            text(p, self.font, egui::pos2(p.rect.left(), y), &l, colour);
-            y += height;
+            // (the alignment of the line's first text, `_RenderLine`)
+            let align = words[line.first..line.end].iter().flat_map(|w| w.pieces.first()).next().map_or(0, |pc| pc.style.align);
+            let mut x = p.rect.left() + line.indent;
+            match align {
+                1 => x += (width - 1.0) - line.width + 1.0,
+                4 => x += ((width - line.width) * 0.5).floor(),
+                _ => {}
+            }
+            for w in &words[line.first..line.end] {
+                if let Some(s) = w.space_style.as_ref().filter(|s| (s.underline || s.link_look) && w.space > 0.0) {
+                    let colour = if s.link_look { LINK_COLOUR & 0xff_ffff } else if s.colour == DEFAULT_COLOUR { u32::from(view_colour.r()) << 16 | u32::from(view_colour.g()) << 8 | u32::from(view_colour.b()) } else { s.colour };
+                    let c = egui::Color32::from_rgb((colour >> 16) as u8, (colour >> 8) as u8, colour as u8);
+                    let h = m.height(s.font.unwrap_or(self.font));
+                    let y = top + line.height - h;
+                    clip.rect_filled(egui::Rect::from_min_max(egui::pos2(x, y + h - 2.0), egui::pos2(x + w.space, y + h - 1.0)), 0.0, c);
+                }
+                x += w.space;
+                for piece in &w.pieces {
+                    let font = piece.style.font.unwrap_or(self.font);
+                    let colour = if piece.style.link_look {
+                        LINK_COLOUR & 0xff_ffff
+                    } else if piece.style.colour == DEFAULT_COLOUR {
+                        u32::from(view_colour.r()) << 16 | u32::from(view_colour.g()) << 8 | u32::from(view_colour.b())
+                    } else {
+                        piece.style.colour
+                    };
+                    let c = egui::Color32::from_rgb((colour >> 16) as u8, (colour >> 8) as u8, colour as u8);
+                    // (the words of a line stand on its bottom: a smaller font lower)
+                    let h = m.height(font);
+                    let y = top + line.height - h;
+                    text(&sub, font, egui::pos2(x, y), &piece.text, c);
+                    if piece.style.underline || piece.style.link_look {
+                        // (`_RenderString`: a line a pixel high two above the glyphs' bottom)
+                        clip.rect_filled(egui::Rect::from_min_max(egui::pos2(x, y + h - 2.0), egui::pos2(x + piece.width, y + h - 1.0)), 0.0, c);
+                    }
+                    if let Some(link) = &piece.style.link {
+                        let r = egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(piece.width, h));
+                        links.push((r.translate(-p.rect.min.to_vec2()), link.clone()));
+                    }
+                    x += piece.width;
+                }
+            }
         }
+    }
+    fn takes_mouse(&self) -> bool {
+        self.feature & super::text::flags::ACCEPT_MOUSE_INPUT != 0
+    }
+    fn mouse(&mut self, m: Mouse, at: Point) -> Option<Signal> {
+        let link_at = |links: &Vec<(egui::Rect, String)>| links.iter().find(|(r, _)| r.contains(egui::pos2(at.x, at.y))).map(|(_, l)| l.clone());
+        match m {
+            Mouse::Down => {
+                self.pressed_link = link_at(&self.links.borrow());
+                None
+            }
+            Mouse::Up { .. } => {
+                let up = link_at(&self.links.borrow());
+                let pressed = self.pressed_link.take();
+                if up.is_some() && up == pressed { up.map(Signal::Link) } else { None }
+            }
+            Mouse::Move => None,
+        }
+    }
+    fn wheel(&mut self, dy: f32, height: f32) -> bool {
+        let room = (self.content.get() - height).max(0.0);
+        if room <= 0.0 {
+            return false;
+        }
+        self.scroll = (self.scroll - dy).clamp(0.0, room);
+        true
     }
     any!();
-}
-
-/// Words wrapped to `width` pixels.
-pub fn wrap(m: &Measure, font: FontId, s: &str, width: f32) -> Vec<String> {
-    let mut out = Vec::new();
-    for para in s.split('\n') {
-        let mut line = String::new();
-        for word in para.split(' ') {
-            let candidate = if line.is_empty() { word.to_string() } else { format!("{line} {word}") };
-            if !line.is_empty() && m.width(font, &candidate) > width {
-                out.push(std::mem::take(&mut line));
-                line = word.to_string();
-            } else {
-                line = candidate;
-            }
-        }
-        out.push(line);
-    }
-    out
 }

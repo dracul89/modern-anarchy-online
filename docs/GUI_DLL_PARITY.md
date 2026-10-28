@@ -16,7 +16,9 @@ The user's choice (2026-10-28): port GUI.dll's view system itself, then move the
 text first. Steps: (1) the view tree, layouts and XML loader — done; (2) drawing the tree and routing the mouse through it, inside
 the existing window frame — done for the mouse (`gui/host.rs`, `gui/window.rs`; keys and focus still to come), with
 `BorderView_c`, `Button_c`, `CheckBox_c`, `BitmapView_c` and a plain-text `TextView_c` (`gui/controls.rs`) and the font
-table (`gui/font.rs`); (3) `TextView_c` with `TextRenderer_c` and `HTMLParser_c`; (4) the info view
+table (`gui/font.rs`); (3) `TextView_c` with `TextRenderer_c` and `HTMLParser_c` — done (`gui/text.rs`: the markup, words, wrapping, sizes,
+drawing, links; not yet: text input, selection, the cursor, `<img>` pictures, bold and italic faces, shadows, the scroll
+bar's art); (4) the info view
 (`InfoView_c`, `Views/InfoView.xml`, `text://` and `itemref://` links); then the other XML classes and windows.
 
 ## 1. The framework
@@ -34,8 +36,8 @@ table (`gui/font.rs`); (3) `TextView_c` with `TextRenderer_c` and `HTMLParser_c`
 | `ScrollBar_c`, `ScrollBarInterface_c`, `ScrollView_c`, `ScrollViewChild_c` | scrolling | `chrome::scroll` | done (the wheel is egui's) |
 | `TabView` | tabs | `chrome::tab_view` | done |
 | `TextInputView_c`, `TextInputModule_t`, `TextInputDialogForm_c` | text fields, the chat input, a "type a name" dialog | `chrome::text_edit` | part (chat input plain) |
-| `TextView_c`, `TextRenderer_c`, `TextLine_t`, `ATextString_t`, `FontSystem_t` | text: wrapping, colours, the bitmap and Verdana fonts | `font.rs` | part |
-| `HTMLParser_c` | the text markup in chat, info and NPC text: `<font color>`, `<a href="text://...">`, `itemref://`, `chatcmd://`, `<img src=rdb://>`, `<br>`, `<div align>` | none: markup shows as text or is stripped | no |
+| `TextView_c`, `TextRenderer_c`, `TextLine_t`, `ATextString_t`, `FontSystem_t` | text: wrapping, colours, the bitmap and Verdana fonts | `font.rs`, `gui/text.rs`, `gui::controls::TextView`, `gui/font.rs` | part (display only) |
+| `HTMLParser_c` | the text markup in chat, info and NPC text: `<font color>`, `<a href="text://...">`, `itemref://`, `chatcmd://`, `<img src=rdb://>`, `<br>`, `<div align>` | `gui/text.rs` for the XML views' text views | part (no `<img>`; the client's own chat and NPC windows still strip it) |
 | `ListViewBase_c`, `ListViewBaseItem_c`, `MultiListView_c`, `MultiListViewItem_c`, `ScrolledListView_c`, `StringListViewItem_c` | list and grid views: columns, sorting (`grid_sort_column`), icon views (`iconview_flags`, `listview_mode`) | egui lists per window | ours |
 | `PopupMenu_c`, `PopupMenuItem_c`, `PopupMenuStringItem_c`, `PopupMenuSliderItem_c`, `PopupMenuSeparatorItem_c` | right-click menus (with sliders and separators) | egui context menus | ours |
 | `ToolTip_c` | tool tips | egui's hover text | ours |

@@ -645,6 +645,14 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
                 if preview_view.is_none() {
                     let file = std::env::var("MAO_VIEW").unwrap_or_else(|_| "TipView.xml".into());
                     preview_view = crate::gui::window::XmlWindow::load(&ctx, "view", &file, &file);
+                    // MAO_VIEW_TEXT=<markup>: put into the view named BrowserView (the info and tip views' text)
+                    if let (Some(w), Ok(text)) = (preview_view.as_mut(), std::env::var("MAO_VIEW_TEXT")) {
+                        if let Some(id) = w.tree.find(w.root, "BrowserView") {
+                            if let Some(t) = w.tree.control_mut::<crate::gui::controls::TextView>(id) {
+                                t.set_text(&text);
+                            }
+                        }
+                    }
                 }
                 if let Some(window) = preview_view.as_mut() {
                     window.show(&ctx, &palette);

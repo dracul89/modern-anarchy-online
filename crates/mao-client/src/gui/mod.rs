@@ -14,6 +14,7 @@ pub mod font;
 pub mod geom;
 pub mod host;
 pub mod layout;
+pub mod text;
 pub mod view;
 pub mod window;
 pub mod xml;

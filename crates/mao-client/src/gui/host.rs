@@ -137,6 +137,18 @@ pub fn show(ui: &mut egui::Ui, tree: &mut Tree, root: Id, skin: Option<&crate::s
         }
     }
     tree.hover = under;
+    // (the wheel: the topmost view under the pointer that uses it)
+    let wheel = ui.input(|i| i.smooth_scroll_delta.y);
+    if wheel != 0.0 {
+        if let Some(p) = pointer.filter(|p| rect.contains(*p)) {
+            for &v in views.iter().rev() {
+                let r = screen_rect(tree, v, origin);
+                if r.contains(p) && tree.get_mut(v).control.wheel(wheel, r.height()) {
+                    break;
+                }
+            }
+        }
+    }
 
     // the pictures
     let measure = tree.measure.clone();
