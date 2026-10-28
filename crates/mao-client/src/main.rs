@@ -33,6 +33,7 @@ mod ambience;
 mod music;
 mod sounds;
 mod hazards;
+mod lightning;
 mod voices;
 mod friends;
 mod help;

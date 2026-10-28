@@ -905,3 +905,12 @@ across around you and plays `SM_Sandy_Env_NearLightning`, quieter the farther it
 made at once (its word 31, which `_GfxControlFlare_t` makes first, FUN_100dd071 taking it off the count it has made, before the
 rate of word 10 — none here — adds more), flying out in every direction for 1 to 2 s. Flares started this way stand alone in
 the world (`Update::flares`) and go when their streaks have.
+
+**Lightning's light.** Each strike heard is also seen (`lightning.rs`), as DisplaySystem's environment effects draw it: a cloud
+light 30 above you at the strike (effect 8, `VisualCloudlight_t`), ten square flashes across the sky (the first 55 either way,
+the rest scattered by an R250 generator seeded with the strike's word), yellow or blue-white at their centres and clear at their
+corners, fading over a second (`1 − (1 − age)³`, each flickering); and bolts (effect 9, `VisualLightning_t`), one from the
+strike to the ground and one at each scattered flash four times in ten, 5 to 14 jittered segments narrowing from 2, living up
+to half a second and shaking more each frame. Both are added to the scene with the environment's `dustcloud.png` and
+`newsun_frame01.png`. A strike within 25 jolts the eye: the quake is kicked to `1.5 × (1 − d / 25)` of its full strength, its
+rumble and shake with it (FUN_100bdfe3, the environment's +0x78).

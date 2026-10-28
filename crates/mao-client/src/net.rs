@@ -239,6 +239,9 @@ struct World {
     hazard_sounds: Vec<(u32, [f32; 3])>,
     /// Effects to make at a place (`CreateEffect2` at a dynel): (template, where), for the viewer.
     placed_effects: Vec<(i32, [f32; 3])>,
+    /// The lightning's strikes heard (where, seed) and the eye's jolts, for the viewer.
+    strikes: Vec<([f32; 3], u32)>,
+    jolts: Vec<f32>,
     /// Each character's last attack (`AttackInfo`, `MissedAttackInfo`, `SpecialAttackInfo`): the weapon's place, when, a count
     /// picking the swing, and the animation class (0xb, or a special's).
     swings: BTreeMap<u32, (u32, Instant, u32, u32)>,
@@ -3616,6 +3619,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 for t in thunder {
                     let id = mao_formats::sound::sound_id("SM_Sandy_Env_NearLightning");
                     crate::audio::with(|m| m.play_env_sound(id, [0.0; 3], 0.0, t.volume, 0, t.defer, 100));
+                    state.strikes.push((t.at, t.seed));
+                    state.jolts.extend(t.jolt);
                 }
             }
             // (the fight's report for the combat music, FUN_10059c7d: the character's health in percent of its maximum, at
@@ -4071,6 +4076,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             })
                             .collect(),
                     ),
+                    strikes: std::mem::take(&mut state.strikes),
+                    jolts: std::mem::take(&mut state.jolts),
                     flares: std::mem::take(&mut state.placed_effects)
                         .into_iter()
                         .filter_map(|(id, at)| Some(([at[0], at[2], at[1]], mao_formats::gfx::Flare::read(gfx.as_ref()?.get(id)?)?)))

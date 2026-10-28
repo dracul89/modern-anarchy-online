@@ -73,6 +73,10 @@ pub struct Input {
     pub put: (u8, u32, u32, u32),
 }
 
+/// The sheets of the lightning's bolt and flashes (`newsun_frame01.png`, `dustcloud.png`).
+const BOLT_SHEET: u16 = 0xb100;
+const CLOUD_SHEET: u16 = 0xb101;
+
 /// The overlay to draw and where the player's character is (the view
 /// follows it).
 #[derive(Default)]
@@ -109,6 +113,10 @@ pub struct Update {
     pub shots: Option<Vec<crate::effects::Shot>>,
     /// Flare effects made alone at a place (Z up), as a sprung mine's blast (template 2100).
     pub flares: Vec<([f32; 3], mao_formats::gfx::Flare)>,
+    /// The lightning's strikes to light (server coordinates, Y up) and their seeds (`lightning.rs`).
+    pub strikes: Vec<([f32; 3], u32)>,
+    /// The eye's jolts from strikes near (the quake's kick, `Quake::jolt`).
+    pub jolts: Vec<f32>,
     /// What the server said of the specials' recharge (skill stat, seconds; 0 = ready).
     pub special_cooldowns: Vec<(u32, f32)>,
     /// The ground (and how far the server's heights sit above it), to keep the camera above it.
@@ -400,6 +408,8 @@ struct App {
     bursts: Vec<(std::time::Instant, crate::effects::CastShow)>,
     shots: Vec<(std::time::Instant, crate::effects::Shot)>,
     flares: Vec<(std::time::Instant, [f32; 3], mao_formats::gfx::Flare)>,
+    /// The lightning's flashes and bolts under way.
+    sky: crate::lightning::Sky,
     /// The effect sprite sheets already asked for.
     tried_sprites: std::collections::HashSet<u16>,
     /// The effect meshes by file name (`GfxControlEffectMesh_t`), and the sheets their textures were made (from 0xa000).
@@ -486,7 +496,7 @@ pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<()
     let settings = Settings::load();
     crate::ui::set_debug_overlay(settings.debug_overlay);
     crate::font::set_enabled(settings.original_font);
-    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), flares: Vec::new(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), trails: Default::default(), motions: Default::default(), shake: (0.0, 0), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, casters: Vec::new(), follow_shift: [0.0; 3], environment: Default::default(), quake: Default::default(), quake_offset: [0.0; 3], wind: Default::default(), wind_at: std::time::Instant::now(), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
+    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), flares: Vec::new(), sky: Default::default(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), trails: Default::default(), motions: Default::default(), shake: (0.0, 0), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, casters: Vec::new(), follow_shift: [0.0; 3], environment: Default::default(), quake: Default::default(), quake_offset: [0.0; 3], wind: Default::default(), wind_at: std::time::Instant::now(), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
     event_loop.run_app(&mut app).map_err(|e| e.to_string())?;
     if app.logged_out {
         // (the launcher that started the game sees this code and shows the character screen again)
@@ -1081,6 +1091,13 @@ impl ApplicationHandler for App {
                         for (at, flare) in std::mem::take(&mut u.flares) {
                             self.flares.push((std::time::Instant::now(), at, flare));
                         }
+                        let ground = self.ground.clone();
+                        for (at, seed) in std::mem::take(&mut u.strikes) {
+                            self.sky.strike(at, seed, &|x, z| ground.as_ref().map(|(t, o)| t.height_at(x, z, t.height_scale) + o));
+                        }
+                        for level in std::mem::take(&mut u.jolts) {
+                            self.quake.jolt(level);
+                        }
                         self.hud.glows.retain(|g| g.born.elapsed().as_secs_f32() < crate::ui::GLOW_LIFE);
                         self.hud.floaters.retain(|f| f.born.elapsed().as_secs_f32() < crate::ui::FLOATER_LIFE);
                         if let Some(labels) = u.labels.take() {
@@ -1200,6 +1217,18 @@ impl ApplicationHandler for App {
                     let own_feet = [self.own_base[0] + self.own_velocity[0] * ahead, self.own_base[2] + self.own_velocity[2] * ahead, self.own_base[1]];
                     let mut sparks = Vec::new();
                     let mut shells = Vec::new();
+                    // (the lightning's flashes and bolts, with the environment's textures 0 and 7 as their sheets)
+                    self.sky.step(frame_time.min(0.5));
+                    if !self.sky.is_empty() {
+                        for (id, name) in [(BOLT_SHEET, "newsun_frame01.png"), (CLOUD_SHEET, "dustcloud.png")] {
+                            if !w.renderer.has_sprite(id) && self.tried_sprites.insert(id) {
+                                if let Some(texture) = self.textures.sheet(name) {
+                                    w.renderer.add_sprite(&w.gpu, id, &texture);
+                                }
+                            }
+                        }
+                        shells.extend(self.sky.shells(BOLT_SHEET, CLOUD_SHEET));
+                    }
                     // (a character's posed mesh: the caster standing nearest a point, and the feet it stands on)
                     let follow = self.follow_shift;
                     let body_at = |point: [f32; 3]| {

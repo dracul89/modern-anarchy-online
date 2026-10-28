@@ -80,12 +80,21 @@ pub struct Quake {
     pub amount: f32,
     count: f32,
     rand: crate::audio::Rand,
+    /// The kick asked for this frame (+0x78: FUN_100bdfe3 keeps the largest, a lightning strike's jolt).
+    kick: f32,
 }
 
 /// The quake's full strength (+0x58, 0x10159794).
 const QUAKE: f32 = 2.0;
 
 impl Quake {
+    /// A jolt of `level` (a strike's, FUN_100bdfe3): the frame's quake is at least `level` of its full strength.
+    pub fn jolt(&mut self, level: f32) {
+        if self.kick < level {
+            self.kick = level;
+        }
+    }
+
     /// A frame of `dt` seconds under the weather's entry 12: the sound's volume (none: stopped) and the eye's offset (Y up).
     pub fn step(&mut self, entry12: f32, dt: f32) -> (Option<f32>, [f32; 3]) {
         if 0.0 < entry12 {
@@ -101,6 +110,12 @@ impl Quake {
                 }
             }
         }
+        // (the kick: the quake at least that share of its full strength, then cleared)
+        let kicked = self.kick * QUAKE;
+        if self.amount < kicked {
+            self.amount = kicked;
+        }
+        self.kick = 0.0;
         if self.amount <= 0.0 {
             return (None, [0.0; 3]);
         }
@@ -117,17 +132,23 @@ impl Quake {
 /// fallout's (0x1e23a, 0.1 to 2 s over 300 s), the second used while the weather's entries 5 and 6 add up to more than 0.2
 /// (FUN_100becbe sets +0x74). While the weather's entry 9 is above 0 (+0x68, FUN_100b9aff) and its entry 2 at least 0.4
 /// (+0x60), each strike due plays `SM_Sandy_Env_NearLightning` (+0x70) through `PlayEnvSound` at `1 − d / S × 0.5`, deferred
-/// `d / 100` s, `d` the strike's distance across the ground; otherwise the due strikes pass unheard. Not here: the bolt drawn
-/// (`VisualEnvFX_t` effect 8, whose `ActivateFX` is taken to succeed) and the eye's shake within 25 m (AFCM message 9/0xbf).
+/// `d / 100` s, `d` the strike's distance across the ground; otherwise the due strikes pass unheard. Each strike heard is
+/// also lit (`VisualEnvFX_t` effect 8 at it, 30 above the eye, seeded by the strike: `lightning.rs`; its `ActivateFX` is taken
+/// to succeed) and, within 25, jolts the eye (AFCM message 9/0xbf to FUN_100b2ef8 → FUN_100bdfe3: the environment's +0x78, the
+/// quake's kick, `1.5 × (1 − d / 25)`).
 pub struct Lightning {
     bolts: [Bolts; 2],
 }
 
-/// One strike: its sound's volume and deferral.
+/// One strike: its sound's volume and deferral, where it is lit (Y up: across the ground at 30 above the listener,
+/// FUN_100b9da8's `local_1c`), its seed (the strike's word, `SetSeed`) and the eye's jolt, if near.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Thunder {
     pub volume: f32,
     pub defer: f32,
+    pub at: [f32; 3],
+    pub seed: u32,
+    pub jolt: Option<f32>,
 }
 
 impl Lightning {
@@ -163,7 +184,9 @@ impl Lightning {
                 let z = place(b, at[2]);
                 let (dx, dz) = (x - at[0], z - at[2]);
                 let d = (dx * dx + dz * dz).sqrt();
-                out.push(Thunder { volume: (1.0 - (d as f64 / s as f64) * 0.5) as f32, defer: (d as f64 / 100.0) as f32 });
+                let seed = b.strikes[b.last].seed;
+                let jolt = (d < 25.0).then(|| (1.5 - (d as f64 / 25.0) * 1.5) as f32);
+                out.push(Thunder { volume: (1.0 - (d as f64 / s as f64) * 0.5) as f32, defer: (d as f64 / 100.0) as f32, at: [x, at[1] + 30.0, z], seed, jolt });
             }
         }
         while b.step(now) {}
@@ -174,13 +197,13 @@ impl Lightning {
 /// A seeded R250 generator (Gamecode FUN_1013de47 seeds it from the table at 0x101727f8, FUN_1013de89 a word, FUN_1013dec9
 /// a word over 2³²).
 #[derive(Clone)]
-struct R250 {
+pub(crate) struct R250 {
     w: [u32; 250],
     i: usize,
 }
 
 impl R250 {
-    fn new(seed: u32) -> R250 {
+    pub(crate) fn new(seed: u32) -> R250 {
         let mut r = R250 { w: R250_TABLE, i: 0 };
         r.seed(seed);
         r
@@ -192,7 +215,7 @@ impl R250 {
         self.w[self.i] = self.w[self.i].wrapping_add(seed);
     }
 
-    fn next(&mut self) -> u32 {
+    pub(crate) fn next(&mut self) -> u32 {
         let j = if self.i < 0x93 { self.i + 0x67 } else { self.i - 0x93 };
         let v = self.w[j] ^ self.w[self.i];
         self.w[self.i] = v;
@@ -209,6 +232,7 @@ impl R250 {
 #[derive(Clone)]
 struct Strike {
     time: f32,
+    seed: u32,
     floats: Vec<f32>,
     read: usize,
 }
@@ -257,7 +281,7 @@ impl Bolts {
             .map(|(time, seed)| {
                 r.seed(seed);
                 let floats = (0..16).map(|_| r.float()).collect();
-                Strike { time, floats, read: 0 }
+                Strike { time, seed, floats, read: 0 }
             })
             .collect();
         let mut b = Bolts { period, strikes, current: 0, last: 0, previous: 0.0, fired: 0, started: false };
@@ -377,6 +401,9 @@ mod tests {
             calm.step(0.0, 0.016);
         }
         assert_eq!(calm.step(0.0, 0.016).0, None);
+        // (a strike's jolt of 0.75: a quake of 1.5, three quarters of the sound)
+        calm.jolt(0.75);
+        assert_eq!(calm.step(0.0, 0.016).0, Some(0.75));
     }
 
     #[test]
