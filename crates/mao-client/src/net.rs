@@ -1326,7 +1326,7 @@ impl Characters {
         // (an attack swings as FUN_1006a782 makes it: a body with weapon attachment points (`Attractor03_lefthand`,
         // `HasWeaponAttractors`) the weapon's actions, one without `unarmed-rswing` (0x40a); the animation from the creature's own
         // set, one of the action's at random (FUN_1003cac9 → FUN_10045976), along FUN_10010b3c's fallbacks; once at priority −2 on the
-        // action's layer, sped up by its first note over the weapon's attack time held to 1..2)
+        // action's layer, at its own speed: FUN_1006a782 sets the speed scale only for players, `[0x21c] == 0`)
         let swing = match swing {
             Some((weapon, slot, began, pick, class)) if death.is_none() && self.swings_started.get(&id) != Some(&began) => {
                 let data = db.get(Id { kind: mao_formats::item::TEMPLATE, instance: weapon }).ok().flatten();
@@ -1338,7 +1338,6 @@ impl Characters {
                     Some(_) => vec![0x40a],
                     None => vec![],
                 };
-                let attack_ms = data.as_deref().and_then(mao_formats::item::Item::parse).and_then(|i| i.stat(294)).map_or(0.0, |d| d as f32 * 10.0);
                 let mut found = None;
                 if !actions.is_empty() {
                     let mut action = actions[pick as usize % actions.len()];
@@ -1361,8 +1360,7 @@ impl Characters {
                         Some((a, length))
                     });
                     let (a, length) = loaded.as_ref()?;
-                    let note = a.notes.first().map_or(0.0, |n| n.time);
-                    let speed = if attack_ms > 0.0 && note > 0.0 { (note / attack_ms).clamp(1.0, 2.0) } else { 1.0 };
+                    let speed = 1.0;
                     if !self.anims_by_id.contains_key(&anim) {
                         self.anims_by_id.insert(anim, (Arc::new(a.clone()), *length));
                     }
