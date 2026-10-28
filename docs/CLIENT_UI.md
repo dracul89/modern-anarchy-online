@@ -847,7 +847,8 @@ dawn, day, dusk or night); in a fight, the battle layers (`ProcessCombatMusic` o
 health in percent, its level). The sound preferences (volumes, mutes, the battle music mode) come from the GUI's
 `LoginPrefs.xml`. `mao-client music <game> <layer> [seconds]` plays a layer and prints the samples. The server can override a district's music for a while (a
 `ScriptIIR_t` of type 3: the music's layer name, the district's name, a start and a length; type 1 ends the last), which then
-plays in its place. Not followed: the other script events (FXS scripts) and land control's layer, indoor rooms' zones.
+plays in its place. With Notum Wars (the character's stat 389 bit 0) a district of land control (one with a land control
+level range) plays the land control music (`Landcontrol_neutral`, the layer -911) instead. Not followed: the other script events (FXS scripts) and land control's layer, indoor rooms' zones.
 
 **Environment sounds.** The world sounds as `Environment_t`'s frame (FUN_100becbe) plays it, every frame through
 `PlayEnvSound` (`ambience.rs`): the district's background for the time of day, `SM_Sandy_Env_Background<Night|Dawn|Day|Dusk>_<district>`

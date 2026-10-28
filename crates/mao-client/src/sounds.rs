@@ -204,15 +204,18 @@ impl DistrictMap {
     /// FUN_100b72bf's district sound and music layer at a position and hour under the weather: the district of the
     /// character's zone (indoors zone 0: the client keeps no rooms' zones), its music of the slot [`music_slot`] picks, or
     /// the layer `over` finds for the district's name (the playfield's override, `GetDistrictMusicOverride` then
-    /// `FindLayerID`), 0xffff when out of 0..0xffff. (The land control layer, -911, is not followed.)
-    pub fn music(&self, position: [f32; 3], hour: i32, weather: &[f32; 14], over: impl FnOnce(&str) -> Option<i32>) -> Option<(u32, i32)> {
+    /// `FindLayerID`), 0xffff when out of 0..0xffff; with Notum Wars (`expansion`: the sound module's +0xbc, FUN_100b1f3c
+    /// setting it for good once the character's stat 389 has bit 0) in a district of land control (its range's low end,
+    /// `DistrictData_t` +0x44, not 0) the land control layer -911 (`SetupENVSounds`' `Landcontrol_neutral`).
+    pub fn music(&self, position: [f32; 3], hour: i32, weather: &[f32; 14], expansion: bool, over: impl FnOnce(&str) -> Option<i32>) -> Option<(u32, i32)> {
         let zone = match self.grid {
             Some((w, h, tile, size)) => mao_formats::districts::zone_at(position, tile, w, h, size),
             None => 0,
         };
         let d = self.districts.of_zone(zone)?;
         let layer = over(&d.name).unwrap_or(d.music[music_slot(hour, weather)] as i32);
-        Some((d.music[0] as u32, if (0..=0xffff).contains(&layer) { layer } else { 0xffff }))
+        let layer = if (0..=0xffff).contains(&layer) { layer } else { 0xffff };
+        Some((d.music[0] as u32, if expansion && d.control.0 != 0 { -0x38f } else { layer }))
     }
 }
 

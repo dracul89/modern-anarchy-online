@@ -237,6 +237,8 @@ struct World {
     hazards: crate::hazards::Hazards,
     /// The playfield's district music overrides (`ScriptIIR_t`).
     music_overrides: crate::sounds::MusicOverrides,
+    /// Notum Wars seen on the character (the sound module's +0xbc: stat 389 bit 0 once, kept).
+    expansion: bool,
     /// The hazards' sounds to play: (sound, where).
     hazard_sounds: Vec<(u32, [f32; 3])>,
     /// Effects to make at a place (`CreateEffect2` at a dynel): (template, where), for the viewer.
@@ -3656,13 +3658,16 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     districts = Some((current, crate::sounds::DistrictMap::load(&gear_db, current)));
                 }
                 ambient_weather = crate::environment::compute(&areas, base_environment.as_ref(), position, state.game_clock.day(), state.game_clock.seconds(), state.game_clock.day_intensity()).weather;
+                // (FUN_100b1f3c: the expansion flag, set once the character's stat 389 has bit 0)
+                state.expansion |= state.stats.get(&389).is_some_and(|s| s & 1 != 0);
+                let expansion = state.expansion;
                 let (overrides, now) = (&mut state.music_overrides, state.game_clock.server_time());
                 let over = |name: &str| {
                     // (FindLayerID of a named override, when the sound system is up)
                     let o = overrides.get(name, now).filter(|o| !o.is_empty())?;
                     crate::audio::with(|m| m.find_layer(&o))
                 };
-                let music = districts.as_ref().and_then(|d| d.1.as_ref()).and_then(|d| d.music(position, state.game_clock.time().0, &ambient_weather, over));
+                let music = districts.as_ref().and_then(|d| d.1.as_ref()).and_then(|d| d.music(position, state.game_clock.time().0, &ambient_weather, expansion, over));
                 if let Some((district, layer)) = music {
                     crate::audio::with(|m| m.activate_env_zone(district, layer));
                 }
