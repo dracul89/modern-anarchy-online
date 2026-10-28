@@ -123,6 +123,73 @@ pub fn polymorph_template(template: &[u8]) -> Option<u32> {
     })
 }
 
+/// The body a vehicle program's spells are tested against: the stats its `ChangeMesh` criteria read.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Body {
+    /// Stat 4 `Breed`, stat 59 `Sex` and stat 12 `Mesh` (the body's CAT mesh instance).
+    pub breed: u32,
+    pub sex: u32,
+    pub mesh: u32,
+}
+
+/// The `ChangeMesh` spells (type `0xcf44`) of a program, as (criteria, NPC template): spell records read `type, 0, 4, n, n
+/// criteria (stat, value, operator), 1, 0, x, 9`, then the arguments, the template first.
+fn change_mesh_spells(template: &[u8]) -> Vec<(Vec<(u32, u32, u32)>, u32)> {
+    let word = |at: usize| u32::from_le_bytes(template[at..at + 4].try_into().unwrap());
+    (0..template.len().saturating_sub(40))
+        .filter_map(|at| {
+            if word(at) != 0xcf44 || word(at + 4) != 0 || word(at + 8) != 4 || word(at + 12) >= 16 {
+                return None;
+            }
+            let n = word(at + 12) as usize;
+            let tail = at + 16 + 12 * n;
+            if tail + 20 > template.len() || word(tail) != 1 || word(tail + 12) != 9 {
+                return None;
+            }
+            Some(((0..n).map(|i| (word(at + 16 + 12 * i), word(at + 20 + 12 * i), word(at + 24 + 12 * i))).collect(), word(tail + 16)))
+        })
+        .collect()
+}
+
+/// Whether a body meets a spell's criteria, read in reverse Polish order as the item actions' are (see [`Action`]): a comparison
+/// (operator 0, equal) pushes its result, operator 3 ORs and 4 ANDs the two before it. Stats other than the body's are not known
+/// and compare false (stat 359 `MonsterData` among them: the body is not on the vehicle yet).
+fn body_meets(criteria: &[(u32, u32, u32)], body: &Body) -> bool {
+    let mut stack: Vec<bool> = Vec::new();
+    for &(stat, value, operator) in criteria {
+        match operator {
+            3 | 4 if stat == 0 => {
+                let (Some(b), Some(a)) = (stack.pop(), stack.pop()) else { return false };
+                stack.push(if operator == 3 { a || b } else { a && b });
+            }
+            0 => stack.push(match stat {
+                4 => body.breed == value,
+                59 => body.sex == value,
+                12 => body.mesh == value,
+                _ => false,
+            }),
+            _ => return false,
+        }
+    }
+    stack.len() == 1 && stack[0]
+}
+
+/// The vehicle a program puts a body on: the NPC template (type `0xfde97`) of its `ChangeMesh` spell whose criteria the body
+/// meets. The Phasefront programs carry one such spell per body. The hoverboards (270431, 270327, 284003) key them on stat 12
+/// `Mesh`: the thin, the plain or the fat mesh of a breed and sex (robed or not), ORed, or stat 359 `MonsterData` already the
+/// template; the hoverbikes (270836) on stat 4 `Breed` AND stat 59 `Sex`. The template's mesh is the rider and vehicle as one
+/// CAT body (`Hoverboard_b_male.cir`, `Hoverbike_a_atrox_t9.cir`). The server applies the spell by setting `MonsterData`, and the
+/// client then takes the template's mesh and animations (FUN_1005a3b1's case 0x167 → FUN_10052686 → FUN_10052271).
+pub fn vehicle_template(template: &[u8], body: &Body) -> Option<u32> {
+    change_mesh_spells(template).into_iter().find(|(criteria, _)| body_meets(criteria, body)).map(|(_, t)| t)
+}
+
+/// Whether a program changes its target's mesh by its body (see [`vehicle_template`]): one of its `ChangeMesh` spells has
+/// criteria on the body (`Mesh`, `Breed` or `Sex`). A polymorph's has none.
+pub fn is_vehicle_program(template: &[u8]) -> bool {
+    change_mesh_spells(template).iter().any(|(criteria, _)| criteria.iter().any(|c| matches!(c.0, 4 | 12 | 59) && c.2 == 0))
+}
+
 /// What an item's action needs: the item's trailing tables hold, after each event's spells, the marker `22, 36, 2018`, the action
 /// (3 = use, 6 = wear, 8 = wield) and a criteria list: `(n + 1) * 0x3f1`, then `n` criteria `(stat, value, operator)` in reverse
 /// Polish order (a comparison pushes its result, operator 4 is AND and 3 is OR of the two before it). Operators: 0 equal, 1 less than,
@@ -203,6 +270,38 @@ mod tests {
         let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
         assert_eq!(polymorph_template(&bytes), Some(0x768c));
         assert_eq!(polymorph_template(&bytes[..40]), None);
+    }
+
+    #[test]
+    fn a_vehicle_spell_is_keyed_on_the_body() {
+        // Phasefront Phantom - Beige (270431), its first two body spells: Mesh 17534 or 5907 or 17532 (or MonsterData already the
+        // board) gives template 270044; the robed meshes 272944.
+        let spell = |meshes: [u32; 3], board: u32| {
+            let mut w = vec![0xcf44u32, 0, 4, 7, 12, meshes[0], 0, 12, meshes[1], 0, 0, 0, 3, 12, meshes[2], 0, 0, 0, 3, 359, board, 0, 0, 0, 3];
+            w.extend([1, 0, 1, 9, board, 0]);
+            w
+        };
+        let mut words = vec![0xcf35u32, 0, 4, 0, 1, 0, 1, 9, 156, 150];
+        words.extend(spell([17534, 5907, 17532], 270044));
+        words.extend(spell([17872, 17870, 17867], 272944));
+        words.extend([0; 10]);
+        let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
+        let body = |mesh: u32| Body { breed: 1, sex: 2, mesh };
+        assert_eq!(vehicle_template(&bytes, &body(5907)), Some(270044));
+        assert_eq!(vehicle_template(&bytes, &body(17867)), Some(272944));
+        assert_eq!(vehicle_template(&bytes, &body(5927)), None);
+        assert!(is_vehicle_program(&bytes));
+        // Phasefront Spectre (270836), a hoverbike: Breed and Sex ANDed
+        let bike = |breed: u32, sex: u32, t: u32| vec![0xcf44u32, 0, 4, 3, 4, breed, 0, 59, sex, 0, 0, 0, 4, 1, 0, 2, 9, t, 0];
+        let mut words = bike(1, 2, 270812);
+        words.extend(bike(4, 1, 270823));
+        words.extend([0; 10]);
+        let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
+        assert_eq!(vehicle_template(&bytes, &Body { breed: 4, sex: 1, mesh: 5900 }), Some(270823));
+        assert_eq!(vehicle_template(&bytes, &Body { breed: 1, sex: 3, mesh: 5927 }), None);
+        // (a polymorph keys nothing on the body)
+        let calia: Vec<u8> = [0xcf44u32, 0, 4, 0, 1, 0, 2, 9, 0x768c, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].iter().flat_map(|w| w.to_le_bytes()).collect();
+        assert!(!is_vehicle_program(&calia));
     }
 
     /// Item 0x4321c, "Dream Mesh Circuit", as the game's database holds it.

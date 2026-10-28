@@ -778,6 +778,15 @@ fn run(args: &[String]) -> Result<(), String> {
             return net::creature_preview(db, number(template).ok_or("bad template")?, out);
         }
     }
+    // `ride <game> <breed> <sex> <nano program> <out.png>`: a character of that breed and sex on the vehicle the program (decimal,
+    // such as 270431) puts it on; with `MAO_AURA=<the program's running effect, stat 413> MAO_GFX=<gfxtweak.bin>` its effect meshes
+    // at the body's attractors too (`MAO_ACTION=walk|run|left|right` for another animation, `MAO_AURA_TIME` for the moment).
+    if let [game, word, breed, sex, nano, out] = args {
+        if word == "ride" {
+            let db = Arc::new(ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?);
+            return net::ride_preview(db, breed.parse().map_err(|_| "bad breed")?, sex.parse().map_err(|_| "bad sex")?, nano.parse().map_err(|_| "bad program")?, out);
+        }
+    }
     // `instance-name <game> <instance hex>...`: the names the instance index gives to those instances, with their types.
     if let [game, word, wanted @ ..] = args {
         if word == "instance-name" {

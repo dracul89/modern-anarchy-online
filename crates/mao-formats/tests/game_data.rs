@@ -173,3 +173,37 @@ fn the_effect_meshes_are_in_the_name_index() {
     let Some(Visual::EffectMesh(m)) = gfx.visual(71224) else { unreachable!() };
     assert!(m.duration == 2.5 && m.scale == [2.0, 10.0, 20.0] && m.effect == 4 && m.opacity == vec![(0.0, 0.0), (0.1, 1.0), (1.0, 0.0)]);
 }
+
+#[test]
+fn a_hoverboard_program_puts_each_body_on_its_board() {
+    let Some(db) = database() else { return };
+    let index = mao_formats::instances::Instances::parse(&db.get(Id { kind: 0xf424a, instance: 1 }).unwrap().unwrap()).unwrap();
+    let program = |nano: u32| db.get(Id { kind: mao_formats::item::NANO_TEMPLATE, instance: nano }).unwrap().unwrap();
+    // (Phasefront Phantom - Beige: a Solitus male's plain body (5907) rides template 270044, an Atrox's (5900) 270331)
+    let phantom = program(270431);
+    assert!(mao_formats::item::is_vehicle_program(&phantom));
+    let body = |breed: u32, sex: u32, file: &str| mao_formats::item::Body { breed, sex, mesh: index.find(0xf6952, file).unwrap() };
+    assert_eq!(body(1, 2, "solitus_male.cir").mesh, 5907);
+    assert_eq!(mao_formats::item::vehicle_template(&phantom, &body(1, 2, "solitus_male.cir")), Some(270044));
+    assert_eq!(mao_formats::item::vehicle_template(&phantom, &body(4, 1, "athrox_male.cir")), Some(270331));
+    // (every breed and sex has a board or bike in each of the four programs: Spectre's are keyed on breed and sex)
+    let bodies = [(1, 2, "solitus_male.cir"), (1, 3, "solitus_female.cir"), (2, 2, "opifex_male.cir"), (2, 3, "opifex_female.cir"), (3, 2, "nanomage_male.cir"), (3, 3, "nanomage_female.cir"), (4, 1, "athrox_male.cir")];
+    for nano in [270431, 270327, 270836, 284003] {
+        let data = program(nano);
+        assert!(mao_formats::item::is_vehicle_program(&data), "{nano}");
+        for (breed, sex, file) in bodies {
+            assert!(mao_formats::item::vehicle_template(&data, &body(breed, sex, file)).is_some(), "{nano} {file}");
+        }
+    }
+    assert_eq!(mao_formats::item::vehicle_template(&program(270836), &body(4, 1, "athrox_male.cir")), Some(270823));
+    // the template: the rider and board as one CAT body, with the attractors the program's effects hang on, and its own animations
+    let template = mao_formats::npc::Template::parse(&db.get(Id { kind: mao_formats::npc::TEMPLATE, instance: 270044 }).unwrap().unwrap()).unwrap();
+    let mesh = template.mesh.unwrap();
+    assert_eq!(index.find(0xf6952, "Hoverboard_b_male.cir"), Some(mesh));
+    let body = mao_formats::catmesh::parse(&db.get(Id { kind: 0xf6952, instance: mesh }).unwrap().unwrap()).unwrap();
+    for name in ["Attractor01_head", "Attractor07_special", "Attractor08_special", "Attractor09_special"] {
+        assert!(body.attractor_named(name).is_some(), "{name}");
+    }
+    assert_eq!(template.animation(mao_formats::appearance::Action::Run), index.find(0xf6953, "Hoverboard_a_male_run_001.ani"));
+    assert_eq!(template.animation(mao_formats::appearance::Action::Idle), index.find(0xf6953, "Hoverboard_a_male_idle_stand_001.ani"));
+}

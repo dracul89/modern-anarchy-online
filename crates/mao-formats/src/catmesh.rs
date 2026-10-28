@@ -448,24 +448,41 @@ impl CatMesh {
         self.groups.iter().flat_map(|g| &g.attractors).find(|a| a.name.to_lowercase().contains(&wanted))
     }
 
+    /// The attractor named exactly `name` (`RCATMesh_t::GetAttractor` compares the whole name, FUN_10054df1), such as
+    /// `Attractor07_special`.
+    pub fn attractor_named(&self, name: &str) -> Option<&Attractor> {
+        self.groups.iter().flat_map(|g| &g.attractors).find(|a| a.name == name)
+    }
+
+    /// The attractor's frame on the posed body (a row-vector matrix in the mesh's space, Y up): its placement (position,
+    /// quaternion x y z w and scale, in its bone's space) then its bone's matrix from `bones`.
+    pub fn attractor_matrix(&self, bones: &[BoneMatrix], attractor: &Attractor) -> crate::model::Matrix {
+        let v = attractor.values;
+        let placement = crate::model::trs_matrix([v[0], v[1], v[2]], [v[3], v[4], v[5], v[6]], [v[7]; 3]);
+        let bone = usize::try_from(attractor.extra).ok().and_then(|i| bones.get(i)).copied().unwrap_or(IDENTITY_BONE);
+        let bone4 = [bone[0], bone[1], bone[2], 0.0, bone[3], bone[4], bone[5], 0.0, bone[6], bone[7], bone[8], 0.0, bone[9], bone[10], bone[11], 1.0];
+        crate::model::multiply(&placement, &bone4)
+    }
+
+    /// Every attractor of the body with its frame on the posed body (see [`CatMesh::attractor_matrix`]).
+    pub fn attractor_frames(&self, bones: &[BoneMatrix]) -> Vec<(String, crate::model::Matrix)> {
+        self.groups.iter().flat_map(|g| &g.attractors).map(|a| (a.name.clone(), self.attractor_matrix(bones, a))).collect()
+    }
+
     /// A static mesh (`piece`, such as a head, a helmet or a weapon) held at
     /// an attractor: its vertices put through the attractor's placement
     /// (a position, a quaternion x y z w and a scale, in the bone's space)
     /// and then the bone's matrix from `bones`. Returned as parts ready to
     /// add to the skinned model (Z-up).
     pub fn attach(&self, bones: &[BoneMatrix], attractor: &Attractor, piece: &crate::model::Model) -> Vec<crate::model::Part> {
-        use crate::model::{multiply, trs_matrix};
+        use crate::model::multiply;
         let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
-        let v = attractor.values;
-        let quat = [v[3], v[4], v[5], v[6]];
-        let placement = trs_matrix([v[0], v[1], v[2]], quat, [v[7]; 3]);
-        let bone = usize::try_from(attractor.extra).ok().and_then(|i| bones.get(i)).copied().unwrap_or(IDENTITY_BONE);
-        let bone4 = [bone[0], bone[1], bone[2], 0.0, bone[3], bone[4], bone[5], 0.0, bone[6], bone[7], bone[8], 0.0, bone[9], bone[10], bone[11], 1.0];
+        let frame = self.attractor_matrix(bones, attractor);
         let mut parts = Vec::new();
         let instances: Vec<(usize, [f32; 16])> = if piece.instances.is_empty() { (0..piece.parts.len()).map(|i| (i, crate::model::IDENTITY)).collect() } else { piece.instances.clone() };
         for (index, instance) in instances {
             let Some(part) = piece.parts.get(index) else { continue };
-            let m = multiply(&multiply(&multiply(&part.world, &instance), &placement), &bone4);
+            let m = multiply(&multiply(&part.world, &instance), &frame);
             let point = |p: [f32; 3]| [p[0] * m[0] + p[1] * m[4] + p[2] * m[8] + m[12], p[0] * m[1] + p[1] * m[5] + p[2] * m[9] + m[13], p[0] * m[2] + p[1] * m[6] + p[2] * m[10] + m[14]];
             let direction = |p: [f32; 3]| [p[0] * m[0] + p[1] * m[4] + p[2] * m[8], p[0] * m[1] + p[1] * m[5] + p[2] * m[9], p[0] * m[2] + p[1] * m[6] + p[2] * m[10]];
             let mut moved = part.clone();

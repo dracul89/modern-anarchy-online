@@ -206,6 +206,12 @@ pub(crate) fn load_sprites(renderer: &mut Renderer, gpu: &Gpu, textures: &Textur
 /// [`headless`] with the interface painted over the image: the heads-up
 /// display and, when the flag is set, the options window.
 pub fn headless_with(model: &Model, textures: &Textures, out: &str, ui: Option<(&Hud, bool)>) -> Result<(), String> {
+    headless_on(model, textures, out, ui, &[])
+}
+
+/// [`headless_with`] for a scene that is one posed body at the origin: `attractors` are its attractors' frames (the server's
+/// frame), where `MAO_AURA`'s effect meshes at attach points 2000–2023 are held.
+pub fn headless_on(model: &Model, textures: &Textures, out: &str, ui: Option<(&Hud, bool)>, attractors: &[(String, mao_formats::model::Matrix)]) -> Result<(), String> {
     let gpu = Gpu::headless()?;
     eprintln!("adapter: {:?}", gpu.adapter.get_info());
     let mut renderer = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8UnormSrgb);
@@ -237,7 +243,7 @@ pub fn headless_with(model: &Model, textures: &Textures, out: &str, ui: Option<(
                 let e = c.eye();
                 [e.x, e.y, e.z]
             };
-            for (m, at, heading, t) in crate::effects::visual_meshes(&visual, feet, 0.0, time) {
+            for (m, at, t) in crate::effects::visual_meshes(&visual, crate::effects::Locator::feet(feet, 0.0), time, &|attach| crate::effects::Locator::attractor(attach, attractors)) {
                 let Some(model) = m.mesh_file(false).and_then(|name| textures.mesh_named(name)) else { continue };
                 for part in &model.parts {
                     let Some(&key) = part.material.textures.first() else { continue };
@@ -249,7 +255,7 @@ pub fn headless_with(model: &Model, textures: &Textures, out: &str, ui: Option<(
                         sheets.insert(key, id);
                     }
                 }
-                scene.shells.extend(crate::effects::effect_mesh_shells(&m, &model, &|k, i| sheets.get(&(k, i)).copied().unwrap_or(mao_render::NO_SPRITE), at, heading, Some(eye), t));
+                scene.shells.extend(crate::effects::effect_mesh_shells(&m, &model, &|k, i| sheets.get(&(k, i)).copied().unwrap_or(mao_render::NO_SPRITE), &at, Some(eye), t));
             }
             eprintln!("aura: {} mesh shells", scene.shells.len());
         }
@@ -1134,13 +1140,17 @@ impl ApplicationHandler for App {
                     for (id, own, at, heading, body, auras) in &self.auras {
                         let feet = if *own && self.hud.position.is_some() { own_feet } else { *at };
                         let heading = if *own { self.heading } else { *heading };
+                        // (the character's posed body, found once: its surface for the shells, its attractors for the meshes on them)
+                        let mut posed: Option<Option<crate::blobshadow::Caster>> = None;
                         for (nano, aura) in auras {
                             let (period, life, plays) = crate::effects::pulse_timing(aura);
                             if let Some(age) = self.pulses.tick(*id, *nano, period, life, plays, time) {
-                                if let Some(c) = body_at(feet) {
+                                let c = posed.get_or_insert_with(|| body_at(feet));
+                                if let Some(c) = c {
                                     shells.extend(crate::effects::visual_shells(aura, &c.surface, c.translation, age));
                                 }
-                                meshes.extend(crate::effects::visual_meshes(aura, feet, heading, age));
+                                let attractors = c.as_ref().map_or(&[][..], |c| c.attractors.as_slice());
+                                meshes.extend(crate::effects::visual_meshes(aura, crate::effects::Locator::feet(feet, heading), age, &|attach| crate::effects::Locator::attractor(attach, attractors)));
                                 sparks.extend(crate::effects::pulse_particles(aura, feet, heading, age, *body));
                             }
                         }
@@ -1167,10 +1177,12 @@ impl ApplicationHandler for App {
                         if let Some(hit) = &shot.hit {
                             let landed = began.elapsed().as_secs_f32() - if shot.from != shot.to { crate::effects::FLIGHT } else { 0.0 };
                             if landed >= 0.0 {
-                                if let Some(c) = body_at(shot.to) {
+                                let c = body_at(shot.to);
+                                if let Some(c) = &c {
                                     shells.extend(crate::effects::visual_shells(hit, &c.surface, c.translation, landed));
                                 }
-                                meshes.extend(crate::effects::visual_meshes(hit, shot.to, 0.0, landed));
+                                let attractors = c.as_ref().map_or(&[][..], |c| c.attractors.as_slice());
+                                meshes.extend(crate::effects::visual_meshes(hit, crate::effects::Locator::feet(shot.to, 0.0), landed, &|attach| crate::effects::Locator::attractor(attach, attractors)));
                             }
                         }
                     }
@@ -1179,7 +1191,7 @@ impl ApplicationHandler for App {
                         let e = w.camera.eye();
                         [e.x, e.y, e.z]
                     };
-                    for (m, feet, heading, t) in &meshes {
+                    for (m, at, t) in &meshes {
                         let Some(name) = m.mesh_file(false) else { continue };
                         let textures = &self.textures;
                         let Some(model) = self.effect_meshes.entry(name).or_insert_with(|| textures.mesh_named(name)).as_ref() else { continue };
@@ -1194,7 +1206,7 @@ impl ApplicationHandler for App {
                             }
                         }
                         let sheets = &self.mesh_sheets;
-                        shells.extend(crate::effects::effect_mesh_shells(m, model, &|k, i| sheets.get(&(k, i)).copied().unwrap_or(mao_render::NO_SPRITE), *feet, *heading, Some(eye), *t));
+                        shells.extend(crate::effects::effect_mesh_shells(m, model, &|k, i| sheets.get(&(k, i)).copied().unwrap_or(mao_render::NO_SPRITE), at, Some(eye), *t));
                     }
                     // (the shells' sheets too)
                     let sheets: Vec<mao_render::Particle> = shells

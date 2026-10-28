@@ -840,13 +840,88 @@ pub fn shield2_shell(s: &Shield2, surface: &crate::blobshadow::Surface, origin: 
     Some(Shell { sprite: s.material.max(0) as u16, additive: s.flags & 0x400 != 0, vertices })
 }
 
-/// The effect meshes a visual shows `t` seconds in about the feet `feet` (world, Z up) of a dynel facing `heading`: itself,
-/// or (a scatter) each copy alive at its place. Only those at the dynel itself (attach point 0) are given: the client has no
-/// bone or attractor frames here (the most used, the hoverboards' fans and circles, need the hoverboard bodies'
-/// `Attractor07_special` and kin anyway).
-pub fn visual_meshes(v: &Visual, feet: [f32; 3], heading: f32, t: f32) -> Vec<(EffectMesh, [f32; 3], f32, f32)> {
+/// Where a control is held: the frame its locator takes (FUN_10106591), a point and the frame's axes. At the dynel itself
+/// (attach point 0) that is the dynel's own frame, the feet turned by the heading; at an attractor (2000–2023) the attractor's
+/// frame on the posed body times the dynel's (FUN_1013be32 of the two, see [`Locator::attractor`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Locator {
+    /// The frame's origin (world, Z up).
+    pub origin: [f32; 3],
+    /// The frame's axes as rows in the server's frame (Y up), of unit length.
+    pub axes: [[f32; 3]; 3],
+    /// The scale the frame carries (the body's scale on an attractor; 1 at the feet), which flag 0x200 grows the mesh by.
+    pub scale: f32,
+}
+
+/// The attractors of locators 2000–2023, in order (the name table at 0x102c63f8 in Gamecode.dll that FUN_10105e6d reads).
+pub const ATTRACTOR_NAMES: [&str; 24] = [
+    "Attractor02_righthand",
+    "Attractor03_lefthand",
+    "Attractor01_head",
+    "Attractor06_back",
+    "Attractor05_leftshoulder",
+    "Attractor04_rightshoulder",
+    "Attractor07_special",
+    "Attractor08_special",
+    "Attractor09_special",
+    "Attractor10_special",
+    "Attractor11_special",
+    "Attractor12_attack1",
+    "Attractor13_attack2",
+    "Attractor14_destroyed",
+    "Attractor15_flare1_flash",
+    "Attractor16_flare2_flash",
+    "Attractor17_smoke75",
+    "Attractor18_smoke50",
+    "Attractor19_smoke25",
+    "Attractor20_sparks50",
+    "Attractor21_flames15",
+    "Attractor22_flare1",
+    "Attractor23_flare2",
+    "Attractor30_beam",
+];
+
+impl Locator {
+    /// The dynel's own frame: its feet (world, Z up) facing `heading`.
+    pub fn feet(feet: [f32; 3], heading: f32) -> Locator {
+        let (sh, ch) = heading.sin_cos();
+        Locator { origin: feet, axes: [[ch, 0.0, -sh], [0.0, 1.0, 0.0], [sh, 0.0, ch]], scale: 1.0 }
+    }
+
+    /// A frame given as a row-vector matrix in the server's frame (Y up): its rows made unit (their length the scale) and its
+    /// translation the origin.
+    pub fn from_matrix(m: &mao_formats::model::Matrix) -> Locator {
+        let row = |i: usize| [m[4 * i], m[4 * i + 1], m[4 * i + 2]];
+        let length = |r: [f32; 3]| (r[0] * r[0] + r[1] * r[1] + r[2] * r[2]).sqrt();
+        let unit = |r: [f32; 3]| {
+            let l = length(r);
+            if l > 1e-9 { r.map(|c| c / l) } else { r }
+        };
+        Locator { origin: [m[12], m[14], m[13]], axes: [unit(row(0)), unit(row(1)), unit(row(2))], scale: length(row(0)).max(1e-6) }
+    }
+
+    /// The locator of attach point `attach` on a body whose attractors (by name, their frames in the server's frame) are
+    /// `attractors`, as FUN_10105e6d finds it: 2000–2023 the attractor of that name (`ATTRACTOR_NAMES`), else the head's
+    /// (`Attractor01_head`), else none (the control is then not shown). The bones (1000–1018), the weapon (3000) and the
+    /// mesh's own attractors (3001) are not given here.
+    pub fn attractor(attach: i32, attractors: &[(String, mao_formats::model::Matrix)]) -> Option<Locator> {
+        let name = ATTRACTOR_NAMES.get(usize::try_from(attach.checked_sub(2000)?).ok()?)?;
+        let find = |wanted: &str| attractors.iter().find(|(n, _)| n == wanted).map(|(_, m)| Locator::from_matrix(m));
+        find(name).or_else(|| find("Attractor01_head"))
+    }
+
+    fn shifted(&self, by: [f32; 3]) -> Locator {
+        Locator { origin: [self.origin[0] + by[0], self.origin[1] + by[1], self.origin[2] + by[2]], ..*self }
+    }
+}
+
+/// The effect meshes a visual shows `t` seconds in for a dynel whose own frame is `at`: itself, or (a scatter) each copy alive
+/// at its place, each with its locator: the dynel's frame for attach point 0, the frame `attractors` gives for the others
+/// (`Locator::attractor` on the posed body; none, and the mesh is not shown, without one).
+pub fn visual_meshes(v: &Visual, at: Locator, t: f32, attractors: &dyn Fn(i32) -> Option<Locator>) -> Vec<(EffectMesh, Locator, f32)> {
     match v {
-        Visual::EffectMesh(m) if m.attach == 0 => vec![(m.clone(), feet, heading, t)],
+        Visual::EffectMesh(m) if m.attach == 0 => vec![(m.clone(), at, t)],
+        Visual::EffectMesh(m) => attractors(m.attach).map(|place| (m.clone(), place, t)).into_iter().collect(),
         Visual::Scatter { child, children, looping } => {
             let life = pulse_timing(child).1.max(0.05);
             let round = children.iter().map(|c| c.0).fold(0.0, f32::max) + life;
@@ -854,7 +929,7 @@ pub fn visual_meshes(v: &Visual, feet: [f32; 3], heading: f32, t: f32) -> Vec<(E
             children
                 .iter()
                 .filter(|(born, _)| t >= *born && t - born < life)
-                .flat_map(|(born, at)| visual_meshes(child, [feet[0] + at[0], feet[1] + at[1], feet[2] + at[2]], heading, t - born))
+                .flat_map(|(born, by)| visual_meshes(child, at.shifted(*by), t - born, &|attach| attractors(attach).map(|l| l.shifted(*by))))
                 .collect()
         }
         _ => Vec::new(),
@@ -881,25 +956,31 @@ fn locator_turn(turn: [f32; 3], reversed: bool) -> [[f32; 3]; 3] {
     m
 }
 
-/// `GfxControlEffectMesh_t`'s mesh `t` seconds in (see `mao_formats::gfx::EffectMesh`), for a dynel whose feet are at `feet`
-/// (world, Z up) facing `heading`, seen from `camera`, as shells, as FUN_1010ce9c places its `VisualMesh_t`: the position the
-/// locator's (the feet, plus its offset turned by its turn and the heading) plus the run's offset in the world's axes (Y up:
-/// `FUN_10023b81` is a sum); the rotation the spin about the axis (up when it is zero, FUN_1010d457) then the locator's turn and
-/// the heading, or with flag 0x400 the shortest arc taking up to the camera's direction (FUN_100ad4f8: its half vector of up and
-/// the unnormalized direction); the scale the pose's; the opacity the pose's, with flag 0x800 none within 5 of the camera and
+/// `GfxControlEffectMesh_t`'s mesh `t` seconds in (see `mao_formats::gfx::EffectMesh`), held by the locator `at` (the dynel's
+/// feet and heading, or an attractor's frame on its body), seen from `camera`, as shells, as FUN_1010ce9c places its
+/// `VisualMesh_t`: the position the locator's (its origin, plus its offset turned by its turn and the frame) plus the run's
+/// offset in the world's axes (Y up: `FUN_10023b81` is a sum); the rotation the spin about the axis (up when it is zero,
+/// FUN_1010d457) then the locator's turn and the frame, or with flag 0x400 the shortest arc taking up to the camera's direction
+/// (FUN_100ad4f8: its half vector of up and the unnormalized direction); the scale the pose's, times the frame's (the body's)
+/// with flag 0x200 (FUN_1010ce9c: `SetScale(body scale × scale)`, the frame's rotation taken without it); the opacity the
+/// pose's, with flag 0x800 none within 5 of the camera and
 /// `(d − 5) / 10` to 10. Each vertex of `model` (Y up, the mesh's own root transform kept) is put through that, white at the
 /// opacity, its part's texture by `sheet` (its sheet number), added for the rendering effects 4–6 (`Transparent*DeltaState`:
 /// source alpha onto the scene) and blended for the others. Not: the lighting of the plain effect (0) and its depth writes, the
-/// body's scale (flag 0x200), the mesh's own animation (0x1000) and its attractor effects (FUN_1010ca78).
-pub fn effect_mesh_shells(m: &EffectMesh, model: &mao_formats::model::Model, sheet: &dyn Fn(u32, u32) -> u16, feet: [f32; 3], heading: f32, camera: Option<[f32; 3]>, t: f32) -> Vec<Shell> {
-    let Some(pose) = m.pose(t) else { return Vec::new() };
+/// body's scale at the feet (flag 0x200 there), the vehicle flags (0x2000 / 0x4000: shown while the vehicle moves forward),
+/// the mesh's own animation (0x1000) and its attractor effects (FUN_1010ca78).
+pub fn effect_mesh_shells(m: &EffectMesh, model: &mao_formats::model::Model, sheet: &dyn Fn(u32, u32) -> u16, at: &Locator, camera: Option<[f32; 3]>, t: f32) -> Vec<Shell> {
+    let Some(mut pose) = m.pose(t) else { return Vec::new() };
+    if m.flags & 0x200 != 0 {
+        pose.scale *= at.scale;
+    }
     // (the server's frame, Y up)
     let to_server = |p: [f32; 3]| [p[0], p[2], p[1]];
     let turn = locator_turn(m.turn, m.flags & 4 != 0);
-    let (sh, ch) = heading.sin_cos();
-    let by_heading = |q: [f32; 3]| [q[0] * ch + q[2] * sh, q[1], -q[0] * sh + q[2] * ch];
+    let frame = at.axes;
+    let by_heading = |q: [f32; 3]| [0, 1, 2].map(|j| q[0] * frame[0][j] + q[1] * frame[1][j] + q[2] * frame[2][j]);
     let by_turn = |q: [f32; 3]| [0, 1, 2].map(|j| q[0] * turn[0][j] + q[1] * turn[1][j] + q[2] * turn[2][j]);
-    let base = to_server(feet);
+    let base = to_server(at.origin);
     let located = by_heading(by_turn(m.place));
     let centre = [0, 1, 2].map(|k| base[k] + located[k] + pose.offset[k]);
     let mut opacity = pose.opacity;
@@ -2325,43 +2406,65 @@ mod tests {
             material: Default::default(),
         };
         let model = mao_formats::model::Model { parts: vec![tri], ..Default::default() };
-        let shells = effect_mesh_shells(&m, &model, &|_, _| 7, [10.0, 20.0, 30.0], 0.0, None, 0.5);
+        let shells = effect_mesh_shells(&m, &model, &|_, _| 7, &Locator::feet([10.0, 20.0, 30.0], 0.0), None, 0.5);
         assert_eq!(shells.len(), 1);
         assert!(shells[0].additive && shells[0].sprite == NO_SPRITE);
         let v = shells[0].vertices[0].position;
         assert!((v[0] - (10.0 + 9.5)).abs() < 1e-4 && (v[1] - 20.0).abs() < 1e-4 && (v[2] - 30.0).abs() < 1e-4);
         // (a quarter turn of heading: the model's x to the world's −y, as `trs_matrix`'s turn about Y does)
-        let turned = effect_mesh_shells(&m, &model, &|_, _| 7, [0.0; 3], std::f32::consts::FRAC_PI_2, None, 0.5);
+        let turned = effect_mesh_shells(&m, &model, &|_, _| 7, &Locator::feet([0.0; 3], std::f32::consts::FRAC_PI_2), None, 0.5);
         let v = turned[0].vertices[0].position;
         assert!(v[0].abs() < 1e-4 && (v[1] + 9.5).abs() < 1e-4);
         // a spin about up by a quarter turn takes x to −z (the world's −y), a bob lifts the offset
         let spun = EffectMesh { spin: [std::f32::consts::FRAC_PI_2, 0.0, 0.0], scale: [1.0, 0.0, 0.0], opacity: Vec::new(), duration: -1.0, ..m.clone() };
-        let v = effect_mesh_shells(&spun, &model, &|_, _| 7, [0.0; 3], 0.0, None, 1.0)[0].vertices[0].position;
+        let v = effect_mesh_shells(&spun, &model, &|_, _| 7, &Locator::feet([0.0; 3], 0.0), None, 1.0)[0].vertices[0].position;
         assert!(v[0].abs() < 1e-4 && (v[1] + 1.0).abs() < 1e-4);
         let bob = EffectMesh { motion: 1, velocity: [0.0, 1.5, 0.0], duration: 8.0, ..spun.clone() };
         assert!((bob.pose(4.0).unwrap().offset[1] - 1.5 * 8.0 / std::f32::consts::TAU * 2.0).abs() < 1e-4);
         // (the run's offset is in the world's axes: the heading leaves it alone; flag 0x400 turns up toward the camera)
         let moved = EffectMesh { offset: [0.0, 0.0, 2.0], ..spun.clone() };
-        let v = effect_mesh_shells(&moved, &model, &|_, _| 7, [0.0; 3], 1.0, None, 1.0)[0].vertices[0].position;
+        let v = effect_mesh_shells(&moved, &model, &|_, _| 7, &Locator::feet([0.0; 3], 1.0), None, 1.0)[0].vertices[0].position;
         assert!((v[1] - (2.0 + (-(std::f32::consts::FRAC_PI_2 + 1.0).sin()))).abs() < 1e-4, "{v:?}");
         let up = mao_formats::model::Part { vertices: vec![mao_formats::model::Vertex { position: [0.0, 1.0, 0.0], normal: [0.0; 3], uv: [0.0; 2] }; 3], ..model.parts[0].clone() };
         let upward = mao_formats::model::Model { parts: vec![up], ..Default::default() };
         let faced = EffectMesh { flags: 0x400, ..spun.clone() };
-        let v = effect_mesh_shells(&faced, &upward, &|_, _| 7, [0.0; 3], 0.0, Some([0.0, 0.0, 0.0]), 1.0);
+        let v = effect_mesh_shells(&faced, &upward, &|_, _| 7, &Locator::feet([0.0; 3], 0.0), Some([0.0, 0.0, 0.0]), 1.0);
         assert!(v.is_empty() || v[0].vertices[0].position[2] > 0.99);
-        let v = effect_mesh_shells(&faced, &upward, &|_, _| 7, [0.0; 3], 0.0, Some([1.0, 0.0, 0.0]), 1.0)[0].vertices[0].position;
+        let v = effect_mesh_shells(&faced, &upward, &|_, _| 7, &Locator::feet([0.0; 3], 0.0), Some([1.0, 0.0, 0.0]), 1.0)[0].vertices[0].position;
         // (the half vector of up and (1, 0, 0) is 45° over: up turned twice that, onto x)
         assert!((v[0] - 1.0).abs() < 1e-4 && v[2].abs() < 1e-4, "{v:?}");
         // (flag 0x800: gone within 5 of the camera, half at 10)
         let near = EffectMesh { flags: 0x800, ..spun.clone() };
-        assert!(effect_mesh_shells(&near, &model, &|_, _| 7, [0.0; 3], 0.0, Some([3.0, 0.0, 0.0]), 1.0).is_empty());
-        assert!((effect_mesh_shells(&near, &model, &|_, _| 7, [0.0; 3], 0.0, Some([9.0, 0.0, 0.0]), 1.0)[0].vertices[0].colour[3] - 0.4).abs() < 1e-4);
+        assert!(effect_mesh_shells(&near, &model, &|_, _| 7, &Locator::feet([0.0; 3], 0.0), Some([3.0, 0.0, 0.0]), 1.0).is_empty());
+        assert!((effect_mesh_shells(&near, &model, &|_, _| 7, &Locator::feet([0.0; 3], 0.0), Some([9.0, 0.0, 0.0]), 1.0)[0].vertices[0].colour[3] - 0.4).abs() < 1e-4);
         // (the locator's E2 turn by π takes x to −x)
         let t = locator_turn([0.0, 0.0, std::f32::consts::PI], false);
         assert!((t[0][0] + 1.0).abs() < 1e-5);
-        // only the meshes at the dynel itself are drawn here
-        assert_eq!(visual_meshes(&Visual::EffectMesh(m.clone()), [0.0; 3], 0.0, 0.5).len(), 1);
-        assert!(visual_meshes(&Visual::EffectMesh(EffectMesh { attach: 2006, ..m }), [0.0; 3], 0.0, 0.5).is_empty());
+        // at the dynel itself the feet; at an attractor the body's frame for it, and none without a body
+        let feet = Locator::feet([0.0; 3], 0.0);
+        assert_eq!(visual_meshes(&Visual::EffectMesh(m.clone()), feet, 0.5, &|_| None).len(), 1);
+        let fan = EffectMesh { attach: 2006, ..m.clone() };
+        assert!(visual_meshes(&Visual::EffectMesh(fan.clone()), feet, 0.5, &|_| None).is_empty());
+        // (a board's Attractor07_special half a metre ahead (server z) and turned a quarter about up, on a body scaled 1.2)
+        let (s, c) = (1.2 * std::f32::consts::FRAC_PI_2.sin(), 1.2 * std::f32::consts::FRAC_PI_2.cos());
+        let special = [c, 0.0, -s, 0.0, 0.0, 1.2, 0.0, 0.0, s, 0.0, c, 0.0, 3.0, 1.0, 0.5, 1.0];
+        let head = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.8, 0.0, 1.0];
+        let board = vec![("Attractor01_head".to_string(), head), ("Attractor07_special".to_string(), special)];
+        let place = Locator::attractor(2006, &board).unwrap();
+        assert_eq!(place.origin, [3.0, 0.5, 1.0]);
+        assert!((place.scale - 1.2).abs() < 1e-5 && (place.axes[0][2] + 1.0).abs() < 1e-5);
+        // (a missing attractor falls back to the head's; the bones and the weapon are not given)
+        assert_eq!(Locator::attractor(2007, &board).unwrap().origin, [0.0, 0.0, 1.8]);
+        assert!(Locator::attractor(1006, &board).is_none() && Locator::attractor(3000, &board).is_none());
+        let found = visual_meshes(&Visual::EffectMesh(fan.clone()), feet, 0.5, &|a| Locator::attractor(a, &board));
+        assert_eq!(found.len(), 1);
+        // the triangle a unit along x: grown 9.5 (and 1.2 by the body with 0x200), turned by the frame onto the server's −z
+        // (the world's −y), from the attractor's point
+        let v = effect_mesh_shells(&fan, &model, &|_, _| 7, &place, None, 0.5)[0].vertices[0].position;
+        assert!((v[0] - 3.0).abs() < 1e-3 && (v[1] - (0.5 - 9.5)).abs() < 1e-3 && (v[2] - 1.0).abs() < 1e-3, "{v:?}");
+        let grown = EffectMesh { flags: m.flags | 0x200, ..fan };
+        let v = effect_mesh_shells(&grown, &model, &|_, _| 7, &place, None, 0.5)[0].vertices[0].position;
+        assert!((v[1] - (0.5 - 9.5 * 1.2)).abs() < 1e-3, "{v:?}");
     }
 
     #[test]

@@ -195,6 +195,11 @@ struct World {
     active_buffs: BTreeMap<u32, BTreeMap<u32, Instant>>,
     /// The polymorph of each other character: the creature and when its program was last announced.
     morphed_until: BTreeMap<u32, (u32, Instant)>,
+    /// The vehicle program (a Phasefront hoverboard or hoverbike) each character runs: its `ChangeMesh` spells, keyed on the
+    /// body, give the vehicle body the character is drawn as (`Characters::vehicle`).
+    riding: BTreeMap<u32, u32>,
+    /// The vehicle program of each other character and when its buff was last announced.
+    riding_until: BTreeMap<u32, (u32, Instant)>,
     /// Health and maximum from the info packets (the server answers an info request with them).
     health: BTreeMap<u32, (i64, i64)>,
     /// The health each character was last known to have (from the damage events: the target's health after the hit).
@@ -403,6 +408,12 @@ impl World {
             match morph {
                 Some(creature) => self.morphs.insert(self.own, creature),
                 None => self.morphs.remove(&self.own),
+            };
+            // A running vehicle program puts the character on its hoverboard or hoverbike.
+            let vehicle = self.nanos.iter().copied().find(|&n| db.get(id(0xfde85, n)).ok().flatten().is_some_and(|d| mao_formats::item::is_vehicle_program(&d)));
+            match vehicle {
+                Some(nano) => self.riding.insert(self.own, nano),
+                None => self.riding.remove(&self.own),
             };
         }
     }
@@ -972,6 +983,21 @@ struct Characters {
     /// The player head meshes (`head_solitusmale12.abiff` and so on): an appearance update that names one at position 0 replaces
     /// the breed's default head.
     head_meshes: std::collections::HashSet<u32>,
+    /// The vehicle body (an NPC template) a vehicle program gives each body, by (program, body CAT mesh).
+    vehicles: std::collections::HashMap<(u32, u32), Option<u32>>,
+    /// Each character's attractors on its last posed body, by name: frames in its local space (Y up, the body's scale
+    /// applied), for the effects attached to them (`effects::Locator`).
+    frames: std::collections::HashMap<u32, Vec<(String, model::Matrix)>>,
+}
+
+/// An NPC template and its CAT mesh and head (the creature or the vehicle body a character is drawn as).
+fn load_template(db: &ResourceDatabase, template: u32) -> Option<(mao_formats::npc::Template, mao_formats::catmesh::CatMesh, Option<Model>)> {
+    use mao_formats::resource::Id;
+    let record = mao_formats::npc::Template::parse(&db.get(Id { kind: mao_formats::npc::TEMPLATE, instance: template }).ok()??)?;
+    let mesh = mao_formats::catmesh::parse(&db.get(Id { kind: 0xf6952, instance: record.mesh? }).ok()??).ok()?;
+    // A humanoid's head is a separate mesh on the body's head attractor.
+    let head = record.head.filter(|&h| h != 0).and_then(|h| crate::load_model_attached(db, Id { kind: 0xf6951, instance: h }).ok());
+    Some((record, mesh, head))
 }
 
 /// Whether a static mesh's file name is a player head (`head_opifexfemale37.abiff`, `head_athrox05.abiff`).
@@ -1066,7 +1092,7 @@ impl Characters {
         let index = mao_formats::instances::Instances::parse(&get(0xf424a, 1)?).map_err(|e| e.to_string())?;
         let _ = get;
         let head_meshes = index.iter().filter(|(kind, name, _)| *kind == 0xf6951 && is_head_name(name)).map(|(_, _, instance)| instance).collect();
-        Ok(Characters { head_meshes, db, index, anims: Default::default(), ids: Default::default(), bodies: Default::default(), creatures: Default::default(), creature_anims: Default::default(), motions: Default::default(), segment: 0, stacks: Default::default(), anims_by_id: Default::default(), movement_keys: Default::default(), movement_handles: Default::default(), socials_started: Default::default(), started: Instant::now(), props: Default::default(), statics: Default::default() })
+        Ok(Characters { head_meshes, db, index, anims: Default::default(), ids: Default::default(), bodies: Default::default(), creatures: Default::default(), creature_anims: Default::default(), motions: Default::default(), segment: 0, stacks: Default::default(), anims_by_id: Default::default(), movement_keys: Default::default(), movement_handles: Default::default(), socials_started: Default::default(), started: Instant::now(), props: Default::default(), statics: Default::default(), vehicles: Default::default(), frames: Default::default() })
     }
 
     /// The parts of a machine's model (Y-up local space), loaded once.
@@ -1080,13 +1106,7 @@ impl Characters {
     fn creature_parts(&mut self, id: u32, template: u32, action: mao_formats::appearance::Action, _phase: f32, rate: f32, textures: &[(String, u32)], clothes: &[(String, u32)], deform: Option<(&mao_formats::gfx::Deform, f32)>) -> Option<Vec<Part>> {
         use mao_formats::resource::Id;
         let db = self.db.clone();
-        let entry = self.creatures.entry(template).or_insert_with(|| {
-            let record = mao_formats::npc::Template::parse(&db.get(Id { kind: mao_formats::npc::TEMPLATE, instance: template }).ok()??)?;
-            let mesh = mao_formats::catmesh::parse(&db.get(Id { kind: 0xf6952, instance: record.mesh? }).ok()??).ok()?;
-            // A humanoid's head is a separate mesh on the body's head attractor.
-            let head = record.head.filter(|&h| h != 0).and_then(|h| crate::load_model_attached(&db, Id { kind: 0xf6951, instance: h }).ok());
-            Some((record, mesh, head))
-        });
+        let entry = self.creatures.entry(template).or_insert_with(|| load_template(&db, template));
         let (record, mesh, head) = entry.as_ref()?;
         // (the first of the action's animations the database really holds)
         let mut chosen = None;
@@ -1144,7 +1164,119 @@ impl Characters {
         for p in &mut parts {
             p.world = model::IDENTITY;
         }
+        self.frames.insert(id, mesh.attractor_frames(&bones));
         Some(parts)
+    }
+
+    /// The vehicle body a vehicle program (`nano`) puts a character of this breed and sex on: the NPC template of its `ChangeMesh`
+    /// spell whose criteria the body meets (`mao_formats::item::vehicle_template`). The character's own mesh is the breed's
+    /// plain body (the thin, fat and robed ones the spells also name are not drawn here).
+    fn vehicle(&mut self, nano: u32, breed: u8, sex: u8) -> Option<u32> {
+        use mao_formats::resource::Id;
+        let mesh = self.find_cached(0xf6952, mao_formats::appearance::player_meshes(breed, sex)?.0)?;
+        let db = self.db.clone();
+        *self.vehicles.entry((nano, mesh)).or_insert_with(|| {
+            let data = db.get(Id { kind: 0xfde85, instance: nano }).ok()??;
+            let template = mao_formats::item::vehicle_template(&data, &mao_formats::item::Body { breed: breed as u32, sex: sex as u32, mesh })?;
+            db.get(Id { kind: mao_formats::npc::TEMPLATE, instance: template }).ok()?.map(|_| template)
+        })
+    }
+
+    /// A player on a vehicle body (`template`, from [`Characters::vehicle`]), Y-up local space: the template's CAT mesh (the
+    /// rider and board as one body, `Hoverboard_b_male.cir`) posed by the template's animations as a creature's are (its
+    /// `Hoverboard_a_male_run_001.ani` for walking and running, `turn_left` / `turn_right` for the sidesteps, `runbackwards`,
+    /// `idle_stand`), as the original does once `MonsterData` (359) names the template (FUN_10052686: FUN_100525f3 sets the
+    /// template's stats on the character, among them its `Mesh` (12), so the body is the template's; the animations follow
+    /// the template's list). The board's body has no head of its own: the rider keeps the character's head (and worn
+    /// meshes) on the body's head attractor, and its clothes by material name.
+    fn vehicle_parts(&mut self, id: u32, breed: u8, sex: u8, template: u32, moving: Option<mao_formats::appearance::Action>, speed: f32, scale: f32, textures: &[(String, u32)], clothes: &[(String, u32)], gear: &[(u8, u32, u32)], deform: Option<(&mao_formats::gfx::Deform, f32)>) -> Option<Vec<Part>> {
+        use mao_formats::resource::Id;
+        let db = self.db.clone();
+        self.ensure_body(breed, sex);
+        self.creatures.entry(template).or_insert_with(|| load_template(&db, template));
+        let action = moving.unwrap_or(mao_formats::appearance::Action::Idle);
+        let (candidates, mesh_id) = {
+            let (record, _, _) = self.creatures.get(&template)?.as_ref()?;
+            (record.animation_candidates(action), record.mesh.unwrap_or(0))
+        };
+        // (the first of the action's animations the database really holds)
+        let mut chosen = None;
+        for (_, anim) in candidates {
+            let loaded = self.creature_anims.entry(anim).or_insert_with(|| {
+                let a = mao_formats::catanim::parse(&db.get(Id { kind: 0xf6953, instance: anim }).ok()??).ok()?;
+                let length = a.tracks.iter().flat_map(|t| t.rotations.iter().map(|k| k.0)).fold(1.0f32, f32::max);
+                Some((a, length))
+            });
+            if let Some((a, length)) = loaded {
+                if !self.anims_by_id.contains_key(&anim) {
+                    self.anims_by_id.insert(anim, (Arc::new(a.clone()), *length));
+                }
+                chosen = Some((anim, *length));
+                break;
+            }
+        }
+        let (anim, length) = chosen?;
+        // (the movement plays at the original's rate for the board's body and animation, FUN_1007009f)
+        let rate = match action.reference_speed() {
+            Some(reference) if moving.is_some() => movement_rate(crate::effects::calibration(mesh_id, anim), scale, speed, reference),
+            _ => 1.0,
+        };
+        let (stack, tick) = self.stacks.entry(id).or_insert_with(|| (Default::default(), Instant::now()));
+        let dt = tick.elapsed().as_secs_f32().min(0.5);
+        *tick = Instant::now();
+        // (the movement looping at priority 0 on layer 2, as a player's and a creature's)
+        let key = (action, 20, anim);
+        if self.movement_keys.get(&id) != Some(&key) {
+            let handle = stack.set_animation(anim, 0, -1, 2, 0, 1.0, length);
+            stack.set_time(handle, 0.0, length);
+            self.movement_keys.insert(id, key);
+            self.movement_handles.insert(id, handle);
+        }
+        if let Some(&handle) = self.movement_handles.get(&id) {
+            stack.set_speed_scale(handle, rate.max(0.05));
+        }
+        stack.advance(dt);
+        let (_, mesh, _) = self.creatures.get(&template)?.as_ref()?;
+        let anims = &self.anims_by_id;
+        let bones = stack.pose(mesh, &|a| anims.get(&a).map(|(anim, _)| anim.as_ref()));
+        let mut parts = mesh.skinned_model(&bones, 0xf6954).parts;
+        if let Some((d, age)) = deform {
+            crate::effects::deform_parts(&mut parts, d, age);
+        }
+        for part in &mut parts {
+            let wanted = clothes.iter().chain(textures.iter()).find(|(n, i)| *i != 0 && n.eq_ignore_ascii_case(&part.material.name));
+            if let Some((_, instance)) = wanted {
+                part.material.textures = vec![(0xf6954, *instance)];
+            }
+        }
+        let custom_head = gear.iter().any(|g| g.0 == 0 && self.head_meshes.contains(&g.1));
+        if let (Some(Some((_, head, _))), Some(attractor), false) = (self.bodies.get(&(breed, sex)), mesh.attractor("head"), custom_head) {
+            parts.extend(mesh.attach(&bones, attractor, head));
+        }
+        parts.extend(wear(&db, &mut self.statics, mesh, &bones, gear));
+        let k = (scale / 100.0).max(0.01);
+        let mut world = model::IDENTITY;
+        (world[0], world[5], world[10]) = (k, k, k);
+        for p in &mut parts {
+            p.world = world;
+        }
+        let frames = mesh.attractor_frames(&bones).into_iter().map(|(name, m)| (name, model::multiply(&m, &world))).collect();
+        self.frames.insert(id, frames);
+        Some(parts)
+    }
+
+    /// The breed's and sex's body, its default head and the head's attractor, loaded once.
+    fn ensure_body(&mut self, breed: u8, sex: u8) {
+        use mao_formats::resource::Id;
+        let db = self.db.clone();
+        let index = &self.index;
+        self.bodies.entry((breed, sex)).or_insert_with(|| {
+            let (body_name, head_name) = mao_formats::appearance::player_meshes(breed, sex)?;
+            let body = mao_formats::catmesh::parse(&db.get(Id { kind: 0xf6952, instance: index.find(0xf6952, body_name)? }).ok()??).ok()?;
+            let head = crate::load_model_attached(&db, Id { kind: 0xf6951, instance: index.find(0xf6951, head_name)? }).ok()?;
+            let attractor = body.attractor("head").cloned();
+            Some((body, head, attractor))
+        });
     }
 
     /// Loads a player animation by action (cached) and returns its file name.
@@ -1327,8 +1459,13 @@ impl Characters {
 
     /// The parts of a player of this breed and sex at `t` ms into the walk,
     /// in Y-up local space (world matrices identity), if its meshes exist.
-    fn parts(&mut self, id: u32, breed: u8, sex: u8, moving: Option<mao_formats::appearance::Action>, jumped: Option<Duration>, _phase: f32, speed: f32, scale: f32, textures: &[(String, u32)], clothes: &[(String, u32)], gear: &[(u8, u32, u32)], social: Option<(&str, Instant)>, deform: Option<(&mao_formats::gfx::Deform, f32)>) -> Option<Vec<Part>> {
-        use mao_formats::resource::Id;
+    /// `vehicle`: the vehicle body (NPC template) a vehicle program puts the character on, drawn instead of its own.
+    fn parts(&mut self, id: u32, breed: u8, sex: u8, moving: Option<mao_formats::appearance::Action>, jumped: Option<Duration>, _phase: f32, speed: f32, scale: f32, textures: &[(String, u32)], clothes: &[(String, u32)], gear: &[(u8, u32, u32)], social: Option<(&str, Instant)>, deform: Option<(&mao_formats::gfx::Deform, f32)>, vehicle: Option<u32>) -> Option<Vec<Part>> {
+        if let Some(template) = vehicle {
+            if let Some(parts) = self.vehicle_parts(id, breed, sex, template, moving, speed, scale, textures, clothes, gear, deform) {
+                return Some(parts);
+            }
+        }
         // The movement plays at the original's rate for this body, animation and speed.
         let rate = match moving.and_then(|a| a.reference_speed().map(|r| (a, r))) {
             Some((a, reference)) => {
@@ -1352,15 +1489,8 @@ impl Characters {
         self.drive(id, key, movement, points, rate, social);
         let dt = self.stack_tick(id);
         let db = self.db.clone();
-        let index = &self.index;
-        let entry = self.bodies.entry((breed, sex)).or_insert_with(|| {
-            let (body_name, head_name) = mao_formats::appearance::player_meshes(breed, sex)?;
-            let body = mao_formats::catmesh::parse(&db.get(Id { kind: 0xf6952, instance: index.find(0xf6952, body_name)? }).ok()??).ok()?;
-            let head = crate::load_model_attached(&db, Id { kind: 0xf6951, instance: index.find(0xf6951, head_name)? }).ok()?;
-            let attractor = body.attractor("head").cloned();
-            Some((body, head, attractor))
-        });
-        let (body, head, attractor) = entry.as_ref()?;
+        self.ensure_body(breed, sex);
+        let (body, head, attractor) = self.bodies.get(&(breed, sex))?.as_ref()?;
         let bones = {
             let (stack, _) = self.stacks.get_mut(&id)?;
             stack.advance(dt);
@@ -1392,6 +1522,8 @@ impl Characters {
         for p in &mut parts {
             p.world = world;
         }
+        let frames = body.attractor_frames(&bones).into_iter().map(|(name, m)| (name, model::multiply(&m, &world))).collect();
+        self.frames.insert(id, frames);
         Some(parts)
     }
 }
@@ -1402,7 +1534,7 @@ pub(crate) fn character_model(db: &Arc<ResourceDatabase>, breed: i32, sex: i32, 
     let (breed, sex) = (breed as u8, if breed == 4 { 1 } else { sex as u8 });
     let mut chars = Characters::new(db.clone()).ok()?;
     let (textures, clothes, gear) = look.map_or((&[][..], &[][..], &[][..]), |l| (l.textures.as_slice(), l.clothes.as_slice(), l.gear.as_slice()));
-    let parts = chars.parts(0, breed, sex, None, None, 0.0, 0.0, 100.0, textures, clothes, gear, None, None)?;
+    let parts = chars.parts(0, breed, sex, None, None, 0.0, 0.0, 100.0, textures, clothes, gear, None, None, None)?;
     let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     Some(Model { instances: (0..parts.len()).map(|i| (i, swap)).collect(), parts, water: None, lod_groups: Vec::new() })
 }
@@ -1424,14 +1556,43 @@ pub(crate) fn creature_preview(db: Arc<ResourceDatabase>, template: u32, out: &s
     crate::viewer::headless(&model, &crate::Textures::new(db), out)
 }
 
+/// `ride <game> <breed> <sex> <nano> <out.png>`: a character on the vehicle body its vehicle program gives it, as the world draws
+/// it, with the effect meshes of `MAO_AURA` at the body's attractors.
+pub(crate) fn ride_preview(db: Arc<ResourceDatabase>, breed: u8, sex: u8, nano: u32, out: &str) -> Result<(), String> {
+    let mut chars = Characters::new(db.clone())?;
+    let template = chars.vehicle(nano, breed, sex).ok_or("that program puts this body on no vehicle")?;
+    eprintln!("vehicle body: NPC template {template}");
+    use mao_formats::appearance::Action;
+    let action = match std::env::var("MAO_ACTION").unwrap_or_default().as_str() {
+        "left" => Some(Action::StrafeLeft),
+        "right" => Some(Action::StrafeRight),
+        "walk" => Some(Action::Walk),
+        "run" => Some(Action::Run),
+        _ => None,
+    };
+    let parts = chars.parts(0, breed, sex, action, None, 0.0, 5.0, 100.0, &[], &[], &[], None, None, Some(template)).ok_or("the vehicle body did not load")?;
+    // (at the origin facing the server's +z: the local frame is the server's)
+    let attractors = chars.frames.get(&0).cloned().unwrap_or_default();
+    for (name, m) in attractors.iter().filter(|(n, _)| n.contains("special") || n.contains("head")) {
+        eprintln!("  {name} at {:.2} {:.2} {:.2}", m[12], m[13], m[14]);
+    }
+    let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
+    let model = Model { instances: (0..parts.len()).map(|i| (i, swap)).collect(), parts, water: None, lod_groups: Vec::new() };
+    crate::viewer::headless_on(&model, &crate::Textures::new(db), out, None, &attractors)
+}
+
 /// The entities' markers alone (own character red, the others blue): two
 /// parts and an instance per entity, placed Z-up.
 fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>, characters: &mut Option<Characters>, include: &dyn Fn(u32) -> bool) -> (Model, Vec<crate::blobshadow::Caster>) {
     let mut model = Model { parts: vec![marker([0.9, 0.1, 0.1]), marker([0.2, 0.4, 0.95]), nose(), marker([0.2, 0.8, 0.3])], instances: Vec::new(), water: None, lod_groups: Vec::new() };
     // (the characters' meshes throw the original's blob shadows: each is noted as a caster)
     let mut casters = Vec::new();
-    fn push_character(model: &mut Model, casters: &mut Vec<crate::blobshadow::Caster>, parts: Vec<mao_formats::model::Part>, place: mao_formats::model::Matrix, own: bool) {
-        casters.push(crate::blobshadow::Caster::new(&parts, &place, own));
+    // (`frames`: the body's attractors in its local space, carried by the caster in the server's frame for the effects on them)
+    fn push_character(model: &mut Model, casters: &mut Vec<crate::blobshadow::Caster>, parts: Vec<mao_formats::model::Part>, place: mao_formats::model::Matrix, own: bool, frames: Option<&Vec<(String, mao_formats::model::Matrix)>>) {
+        let mut caster = crate::blobshadow::Caster::new(&parts, &place, own);
+        let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
+        caster.attractors = frames.map_or(Vec::new(), |f| f.iter().map(|(name, m)| (name.clone(), model::multiply(&model::multiply(m, &place), &swap))).collect());
+        casters.push(caster);
         let base = model.parts.len();
         for (k, p) in parts.into_iter().enumerate() {
             model.parts.push(p);
@@ -1450,7 +1611,7 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
             let moving = world.last_move.get(&id).is_some_and(|t| t.elapsed() < Duration::from_millis(900));
             let action = if moving { mao_formats::appearance::Action::Walk } else { mao_formats::appearance::Action::Idle };
             if let Some(parts) = chars.creature_parts(id, info.template.unwrap(), action, (id % 997) as f32 * 3.0, 1.0, &info.textures, &info.clothes, deform) {
-                push_character(&mut model, &mut casters, parts, place, id == world.own);
+                push_character(&mut model, &mut casters, parts, place, id == world.own, chars.frames.get(&id));
                 continue;
             }
         }
@@ -1468,7 +1629,7 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
                 _ => Action::Walk,
             };
             if let Some(parts) = chars.creature_parts(id, creature, action, (id % 997) as f32 * 3.0, MORPH_ANIM_RATE, &[], &[], deform) {
-                push_character(&mut model, &mut casters, parts, place, id == world.own);
+                push_character(&mut model, &mut casters, parts, place, id == world.own, chars.frames.get(&id));
                 continue;
             }
         }
@@ -1493,8 +1654,10 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
             let scale = if id == world.own { world.stats.get(&360).copied().filter(|&s| s > 0).unwrap_or(100) as f32 } else { 100.0 };
             let jumped = world.jumped.get(&id).map(|t| t.elapsed());
             // (A phase per entity keeps a crowd from moving in step.)
-            if let Some(parts) = chars.parts(id, info.breed, info.sex, action, jumped, (id % 997) as f32 * 3.0, speed, scale, &info.textures, &info.clothes, world.equipment.get(&id).map_or(&[][..], |v| v.as_slice()), social, deform) {
-                push_character(&mut model, &mut casters, parts, place, id == world.own);
+            // (a character running a vehicle program rides its board or bike)
+            let vehicle = world.riding.get(&id).and_then(|&nano| chars.vehicle(nano, info.breed, info.sex));
+            if let Some(parts) = chars.parts(id, info.breed, info.sex, action, jumped, (id % 997) as f32 * 3.0, speed, scale, &info.textures, &info.clothes, world.equipment.get(&id).map_or(&[][..], |v| v.as_slice()), social, deform, vehicle) {
+                push_character(&mut model, &mut casters, parts, place, id == world.own, chars.frames.get(&id));
                 continue;
             }
         }
@@ -2002,6 +2165,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         // (the effect templates: what a running nano program looks like)
         let gfx = std::fs::read(Path::new(&game_dir).join("Setupf").join("gfxtweak.bin")).ok().and_then(|d| mao_formats::gfx::Gfx::parse(&d).ok());
         let mut polymorph_cache: std::collections::HashMap<u32, Option<u32>> = std::collections::HashMap::new();
+        let mut vehicle_cache: std::collections::HashMap<u32, bool> = std::collections::HashMap::new();
         let mut delete_seen = 0u8;
         let mut cancel_seen = 0u8;
         let mut inspect_seen = 0u8;
@@ -2881,7 +3045,17 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     if let Some(creature) = creature {
                         state.morphed_until.insert(who, (creature, Instant::now()));
                     }
+                    // (and on a vehicle program, its board or bike)
+                    let vehicle = *vehicle_cache.entry(nano).or_insert_with(|| gear_db.get(mao_formats::resource::Id { kind: 0xfde85, instance: nano }).ok().flatten().is_some_and(|d| mao_formats::item::is_vehicle_program(&d)));
+                    if vehicle {
+                        state.riding_until.insert(who, (nano, Instant::now()));
+                    }
                 }
+                state.riding_until.retain(|_, (_, at)| at.elapsed() < Duration::from_secs(30));
+                for (who, (nano, _)) in &state.riding_until {
+                    state.riding.insert(*who, *nano);
+                }
+                state.riding.retain(|who, _| *who == own || state.riding_until.contains_key(who));
                 state.morphed_until.retain(|_, (_, at)| at.elapsed() < Duration::from_secs(30));
                 for (who, (creature, _)) in &state.morphed_until {
                     state.morphs.insert(*who, *creature);

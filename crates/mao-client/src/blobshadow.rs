@@ -37,6 +37,9 @@ pub struct Caster {
     pub surface: Surface,
     /// The player's own character (moved on between updates like its parts).
     pub own: bool,
+    /// The body's attractors by name and their frames on the posed body, row-vector matrices in the server's frame (Y up), for
+    /// the effects attached to them (`effects::Locator::attractor`).
+    pub attractors: Vec<(String, Matrix)>,
 }
 
 /// A character's whole posed mesh (world, Z up).
@@ -83,13 +86,23 @@ impl Caster {
             }
             surface.indices.extend(part.indices.iter().map(|&i| first + i as u32));
         }
-        Caster { translation: transform(place, [0.0; 3]), points, normals, surface, own }
+        Caster { translation: transform(place, [0.0; 3]), points, normals, surface, own, attractors: Vec::new() }
     }
 
     pub fn shifted(&self, by: [f32; 3]) -> Caster {
         let add = |p: &[f32; 3]| [p[0] + by[0], p[1] + by[1], p[2] + by[2]];
         let surface = Surface { positions: self.surface.positions.iter().map(add).collect(), ..self.surface.clone() };
-        Caster { translation: add(&self.translation), points: self.points.iter().map(add).collect(), normals: self.normals.clone(), surface, own: self.own }
+        // (the attractors' frames are in the server's frame: Y up)
+        let attractors = self
+            .attractors
+            .iter()
+            .map(|(name, m)| {
+                let mut m = *m;
+                (m[12], m[13], m[14]) = (m[12] + by[0], m[13] + by[2], m[14] + by[1]);
+                (name.clone(), m)
+            })
+            .collect();
+        Caster { translation: add(&self.translation), points: self.points.iter().map(add).collect(), normals: self.normals.clone(), surface, own: self.own, attractors }
     }
 }
 
@@ -226,7 +239,7 @@ mod tests {
                 points.push([10.0 + x, 20.0 + y, 5.0 + z]);
             }
         }
-        Caster { translation: [10.0, 20.0, 5.0], points, normals: Vec::new(), surface: Surface::default(), own: false }
+        Caster { translation: [10.0, 20.0, 5.0], points, normals: Vec::new(), surface: Surface::default(), own: false, attractors: Vec::new() }
     }
 
     #[test]
