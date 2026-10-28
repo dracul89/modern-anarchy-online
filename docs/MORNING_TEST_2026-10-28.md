@@ -74,7 +74,7 @@ Added after the overnight run, on request: audio through rodio, ported from the 
 
 | Commit | What | What to try |
 |---|---|---|
-| (next) | **Landing splash and district music overrides**: a landing at a water's edge splashes; a server music override (`ScriptIIR_t`, e.g. at a city event) plays instead of the district's music | jump at a shallow shore; watch for "ScriptIIR" events in a city (none in the captures yet) |
+| 219c623 | **Landing splash and district music overrides**: a landing at a water's edge splashes; a server music override (`ScriptIIR_t`, e.g. at a city event) plays instead of the district's music | jump at a shallow shore; watch for "ScriptIIR" events in a city (none in the captures yet) |
 | eb604d5 | **Weather music and liquid steps**: the district plays its rain/snow/storm music past 0.4 of the weather; steps in water sound wet (8–11), no landing sound in water | stand out in a storm and listen for the music change; wade into a lake and walk |
 | ac6b5b4 | **Lightning's splash**: a bolt over water splashes on the surface; rocks falling into water splash | watch a storm over a lake or the sea |
 | fdec0fc | **Emotes**: `/wave`, `/bow`, `/emote dance-name`, the hotbar's social actions; `/me` text | `/wave`; `/me waves`; drag a social action to the hotbar and press it |
