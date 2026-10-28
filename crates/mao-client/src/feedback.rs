@@ -5,10 +5,14 @@
 
 use mao_formats::ldb::{self, Arg};
 
-/// The game's text database (`cd_image/text/text.mdb`), read once.
+/// The game's text database (`cd_image/text/text.mdb`), read once it can be (the game's folder may be set later).
 pub fn texts() -> Option<&'static ldb::Texts> {
-    static TEXTS: std::sync::OnceLock<Option<ldb::Texts>> = std::sync::OnceLock::new();
-    TEXTS.get_or_init(|| ldb::Texts::parse(&std::fs::read(crate::theme::game_dir()?.join("cd_image/text/text.mdb")).ok()?)).as_ref()
+    static TEXTS: std::sync::OnceLock<ldb::Texts> = std::sync::OnceLock::new();
+    if let Some(t) = TEXTS.get() {
+        return Some(t);
+    }
+    let parsed = ldb::Texts::parse(&std::fs::read(crate::theme::game_dir()?.join("cd_image/text/text.mdb")).ok()?)?;
+    Some(TEXTS.get_or_init(|| parsed))
 }
 
 /// The feedback text of a name, filled in order.
