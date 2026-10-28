@@ -260,6 +260,12 @@ fn specials_swing_their_class_of_the_weapon() {
     assert_eq!(mao_formats::item::weapon_actions(&get(265091), 6, 0x17), vec![0x401]);
     assert_eq!(mao_formats::item::weapon_actions(&get(122829), 6, 0x1d), vec![0x3ec]);
     assert_eq!(mao_formats::item::special_class(147), Some((0x19, false)));
+    // (and they are held: the pistol's idle, the rifle's, the crowbar's)
+    assert_eq!(mao_formats::item::weapon_actions(&get(301709), 6, 0x10), vec![0x3f3]);
+    assert_eq!(mao_formats::item::weapon_actions(&get(265091), 6, 0x10), vec![0x3fd]);
+    assert_eq!(mao_formats::item::weapon_actions(&get(122829), 6, 0x10), vec![0x3e9]);
+    // (a blade has no burst: the class is erased and not filled)
+    assert!(mao_formats::item::weapon_actions(&get(122829), 6, 0x16).is_empty());
 }
 
 #[test]

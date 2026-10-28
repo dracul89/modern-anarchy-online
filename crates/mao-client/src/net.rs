@@ -1463,6 +1463,26 @@ impl Characters {
     /// weapon's attack time (stat 294 × 10 ms), held to 1..2. The animation, its length, the layer it claims and the speed. Not
     /// followed: the character's own animation set (its 0xfde97 map, which picks among an action's variants), the height of
     /// the target (FUN_1006a782's `param_3`, which FUN_1003cac9 does not pass on) and the crawling variants.
+    /// The animation file of a wielded weapon's action of one class (its first action, along FUN_10010b3c's fallbacks) and the
+    /// layer it claims.
+    fn ensure_weapon_action(&mut self, breed: u8, sex: u8, template: u32, slot: u32, class: u32) -> Option<(String, u32)> {
+        use mao_formats::resource::Id;
+        let data = self.db.get(Id { kind: mao_formats::item::TEMPLATE, instance: template }).ok()??;
+        let mut action = *mao_formats::item::weapon_actions(&data, slot, class).first()?;
+        for _ in 0..8 {
+            if let Some((files, claims)) = mao_formats::appearance::action_animation_names(breed, sex, action) {
+                if let Some(file) = files.into_iter().find(|f| self.ensure_file(f)) {
+                    return Some((file, claims));
+                }
+            }
+            action = mao_formats::appearance::action_fallback(action);
+            if action == 0 {
+                break;
+            }
+        }
+        None
+    }
+
     /// A special's class (FUN_1003c7a6) swings its own actions, else the plain attack's.
     fn ensure_swing(&mut self, breed: u8, sex: u8, template: u32, slot: u32, pick: u32, class: u32) -> Option<((u32, f32), u32, f32)> {
         use mao_formats::resource::Id;
@@ -1573,7 +1593,7 @@ impl Characters {
     /// The parts of a player of this breed and sex at `t` ms into the walk,
     /// in Y-up local space (world matrices identity), if its meshes exist.
     /// `vehicle`: the vehicle body (NPC template) a vehicle program puts the character on, drawn instead of its own.
-    fn parts(&mut self, id: u32, breed: u8, sex: u8, moving: Option<mao_formats::appearance::Action>, jumped: Option<Duration>, _phase: f32, speed: f32, scale: f32, textures: &[(String, u32)], clothes: &[(String, u32)], gear: &[(u8, u32, u32)], social: Option<(&str, Instant)>, swing: Option<(u32, u32, Instant, u32, u32)>, deform: Option<(&mao_formats::gfx::Deform, f32)>, vehicle: Option<u32>) -> Option<Vec<Part>> {
+    fn parts(&mut self, id: u32, breed: u8, sex: u8, moving: Option<mao_formats::appearance::Action>, jumped: Option<Duration>, _phase: f32, speed: f32, scale: f32, textures: &[(String, u32)], clothes: &[(String, u32)], gear: &[(u8, u32, u32)], social: Option<(&str, Instant)>, swing: Option<(u32, u32, Instant, u32, u32)>, weapon: Option<(u32, u32)>, deform: Option<(&mao_formats::gfx::Deform, f32)>, vehicle: Option<u32>) -> Option<Vec<Part>> {
         if let Some(template) = vehicle {
             if let Some(parts) = self.vehicle_parts(id, breed, sex, template, moving, speed, scale, textures, clothes, gear, deform) {
                 return Some(parts);
@@ -1592,9 +1612,21 @@ impl Characters {
         let (action, _) = self.motion(id, breed, sex, moving, jumped, rate);
         let custom_head = gear.iter().any(|g| g.0 == 0 && self.head_meshes.contains(&g.1));
         let name = self.ensure_anim(breed, sex, action);
-        let movement = self.anim_by_name(&name);
+        // (standing with a weapon in hand, the weapon's idle: FUN_1003cce2, the controller's draw, loops class 0x10 of the weapon
+        // in place 6, else 8, else 0)
+        let weapon_idle = match (action, weapon) {
+            (mao_formats::appearance::Action::Idle, Some((template, slot))) => self.ensure_weapon_action(breed, sex, template, slot, 0x10),
+            _ => None,
+        };
+        let movement = match &weapon_idle {
+            Some((file, _)) => self.anim_by_name(file),
+            None => self.anim_by_name(&name),
+        };
         let key = (action, self.segment, movement.map_or(0, |m| m.0));
-        let points = self.loop_points(breed, sex, action).unwrap_or((0.0, 0.0, 0.0));
+        let points = match movement.filter(|_| weapon_idle.is_some()) {
+            Some((_, length)) => (0.0, length, length),
+            None => self.loop_points(breed, sex, action).unwrap_or((0.0, 0.0, 0.0)),
+        };
         let social = social.and_then(|(n, began)| {
             let file = self.ensure_social(breed, sex, n)?;
             self.anim_by_name(&file).map(|a| (a, began))
@@ -1648,7 +1680,7 @@ pub(crate) fn character_model(db: &Arc<ResourceDatabase>, breed: i32, sex: i32, 
     let (breed, sex) = (breed as u8, if breed == 4 { 1 } else { sex as u8 });
     let mut chars = Characters::new(db.clone()).ok()?;
     let (textures, clothes, gear) = look.map_or((&[][..], &[][..], &[][..]), |l| (l.textures.as_slice(), l.clothes.as_slice(), l.gear.as_slice()));
-    let parts = chars.parts(0, breed, sex, None, None, 0.0, 0.0, 100.0, textures, clothes, gear, None, None, None, None)?;
+    let parts = chars.parts(0, breed, sex, None, None, 0.0, 0.0, 100.0, textures, clothes, gear, None, None, None, None, None)?;
     let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     Some(Model { instances: (0..parts.len()).map(|i| (i, swap)).collect(), parts, water: None, lod_groups: Vec::new() })
 }
@@ -1684,7 +1716,7 @@ pub(crate) fn ride_preview(db: Arc<ResourceDatabase>, breed: u8, sex: u8, nano: 
         "run" => Some(Action::Run),
         _ => None,
     };
-    let parts = chars.parts(0, breed, sex, action, None, 0.0, 5.0, 100.0, &[], &[], &[], None, None, None, Some(template)).ok_or("the vehicle body did not load")?;
+    let parts = chars.parts(0, breed, sex, action, None, 0.0, 5.0, 100.0, &[], &[], &[], None, None, None, None, Some(template)).ok_or("the vehicle body did not load")?;
     // (at the origin facing the server's +z: the local frame is the server's)
     let attractors = chars.frames.get(&0).cloned().unwrap_or_default();
     for (name, m) in attractors.iter().filter(|(n, _)| n.contains("special") || n.contains("head")) {
@@ -1777,6 +1809,11 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
                 let template = world.weapons.get(&(id, slot as u8)).copied().or_else(|| (id == world.own).then(|| world.inventory.as_ref()?.iter().find(|e| e.slot == slot).map(|e| e.low_id)).flatten())?;
                 Some((template, slot, began, pick, class))
             });
+            // (the weapon in hand: place 6, else 8, else 0, as FUN_1003cce2 looks)
+            let weapon = [6u32, 8, 0].into_iter().find_map(|slot| {
+                let template = world.weapons.get(&(id, slot as u8)).copied().or_else(|| (id == world.own).then(|| world.inventory.as_ref()?.iter().find(|e| e.slot == slot).map(|e| e.low_id)).flatten())?;
+                Some((template, slot))
+            });
             // Movement animates while the position changes (our own is sampled every frame, the others' every few hundred ms).
             let moving = world.last_move.get(&id).is_some_and(|t| t.elapsed() < Duration::from_millis(if id == world.own { 90 } else { 700 }));
             let speed = world.speeds.get(&id).copied().unwrap_or(0.0);
@@ -1796,7 +1833,7 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
             // (A phase per entity keeps a crowd from moving in step.)
             // (a character running a vehicle program rides its board or bike)
             let vehicle = world.riding.get(&id).and_then(|&nano| chars.vehicle(nano, info.breed, info.sex));
-            if let Some(parts) = chars.parts(id, info.breed, info.sex, action, jumped, (id % 997) as f32 * 3.0, speed, scale, &info.textures, &info.clothes, world.equipment.get(&id).map_or(&[][..], |v| v.as_slice()), social, swing, deform, vehicle) {
+            if let Some(parts) = chars.parts(id, info.breed, info.sex, action, jumped, (id % 997) as f32 * 3.0, speed, scale, &info.textures, &info.clothes, world.equipment.get(&id).map_or(&[][..], |v| v.as_slice()), social, swing, weapon, deform, vehicle) {
                 push_character(&mut model, &mut casters, parts, place, id == world.own, chars.frames.get(&id));
                 continue;
             }

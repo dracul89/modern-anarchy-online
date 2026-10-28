@@ -246,52 +246,39 @@ pub fn attack_actions(template: &[u8], slot: u32) -> Vec<u32> {
     weapon_actions(template, slot, 0xb)
 }
 
-/// The actions of one class of a wielded weapon's animation map (see [`attack_actions`]): the classes FUN_1009d964 sets for the
-/// weapon's AnimSet (it erases them first, FUN_10065b56, then fills them: the attack 0xb and the specials' classes, 0x15
-/// aimed shot, 0x16 burst, 0x17 full auto, 0x1c fling shot, 0x19 fast attack, 0x1d sneak attack), else the template's own.
+/// The actions of one class of a wielded weapon's animation map (see [`attack_actions`]): the classes FUN_1009d964 erases for the
+/// weapon's AnimSet (FUN_10065b56) and fills (the draw 0x1a, the idle 0x10 and the holster 0x1b; the attack 0xb and the
+/// specials' classes, 0x15 aimed shot, 0x16 burst, 0x17 full auto, 0x1c fling shot, 0x19 fast attack, 0x1d sneak attack; and
+/// for the two-handed sets 0x27 to 0x2b, the start, stop, idle, walk and run with it), else the template's own (its animation
+/// set, chunk 0x12 or 0x0e). A class erased and not filled has none. The crawling variants (the owner's stat 430 at 14) are not
+/// taken.
 pub fn weapon_actions(template: &[u8], slot: u32, class: u32) -> Vec<u32> {
     let left = slot == 8;
     let set = Item::parse(template).and_then(|i| i.stat(353));
-    let filled: Option<(&[u32], Vec<u32>)> = match set {
+    // (class, actions) as FUN_1009d964 inserts them, and the classes it erased first
+    let (erased, filled): (&[u32], Vec<(u32, u32)>) = match set {
         Some(0) => {
             let (shot, burst, auto) = if left { (0x3f8, 0x3f9, 0x3fa) } else { (0x3f5, 0x3f6, 0x3f7) };
-            Some((&[0xb, 0x16, 0x15, 0x17, 0x1c], match class {
-                0xb | 0x15 | 0x1c => vec![shot],
-                0x16 => vec![burst],
-                0x17 => vec![auto],
-                _ => vec![],
-            }))
+            (&[0x1a, 0x10, 0x1b, 0xb, 0x16, 0x15, 0x17, 0x1c], vec![(0x1a, 0x3f2), (0x10, 0x3f3), (0x1b, 0x3f4), (0xb, shot), (0x16, burst), (0x15, shot), (0x17, auto), (0x1c, shot)])
         }
         Some(1) => {
             let (slash, stab) = if left { (0x3ee, 0x3ef) } else { (0x3eb, 0x3ec) };
-            Some((&[0xb, 0x19, 0x1d], match class {
-                0xb => vec![slash, stab, slash],
-                0x19 => vec![slash],
-                0x1d => vec![stab],
-                _ => vec![],
-            }))
+            (&[0x1a, 0x10, 0x1b, 0xb, 0x19, 0x1d], vec![(0x1a, 0x3e8), (0x10, 0x3e9), (0x1b, 0x3ea), (0xb, slash), (0xb, stab), (0xb, slash), (0x19, slash), (0x1d, stab)])
         }
-        Some(2) => Some((&[0xb, 0x1d, 0x19], match class {
-            0xb => vec![0x41a, 0x41b, 0x41c, 0x41d],
-            0x1d => vec![0x41b],
-            0x19 => vec![0x41d],
-            _ => vec![],
-        })),
-        Some(3) => Some((&[0xb, 0x16, 0x17, 0x1c, 0x15], match class {
-            0xb | 0x1c | 0x15 => vec![0x3ff],
-            0x16 => vec![0x400],
-            0x17 => vec![0x401],
-            _ => vec![],
-        })),
-        Some(6) => Some((&[0xb], if class == 0xb { vec![0xb7] } else { vec![] })),
-        Some(7) => Some((&[0xb], if class == 0xb { vec![0xcb] } else { vec![] })),
-        Some(8) => Some((&[0xb], if class == 0xb { vec![0x426] } else { vec![] })),
-        _ => None,
+        Some(2) => (&[0x1a, 0x10, 0x1b, 0xb, 0x1d, 0x19], vec![(0x1a, 0x3e8), (0x10, 0x3e9), (0x1b, 0x3ea), (0xb, 0x41a), (0xb, 0x41b), (0xb, 0x41c), (0xb, 0x41d), (0x1d, 0x41b), (0x19, 0x41d)]),
+        Some(3) => (
+            &[0x1a, 0x10, 0x1b, 0xb, 0x16, 0x17, 0x1c, 0x15, 0x27, 0x29, 0x28, 0x2a, 0x2b],
+            vec![(0x1a, 0x3fc), (0x10, 0x3fd), (0x1b, 0x3fe), (0xb, 0x3ff), (0x16, 0x400), (0x17, 0x401), (0x1c, 0x3ff), (0x15, 0x3ff), (0x27, 0x41f), (0x29, 0x41e), (0x28, 0x420), (0x2a, 0x421), (0x2b, 0x422)],
+        ),
+        Some(6) => (&[0x1a, 0x10, 0x1b, 0xb, 0x27, 0x29, 0x28], vec![(0x1a, 0xb5), (0x10, 0xb6), (0x1b, 0xb8), (0x27, 0xb5), (0x29, 0xb6), (0x28, 0xb8), (0xb, 0xb7)]),
+        Some(7) => (&[0x1a, 0x10, 0x1b, 0xb, 0x27, 0x29, 0x28], vec![(0x10, 0xcb), (0xb, 0xcb)]),
+        Some(8) => (&[0x1a, 0x10, 0x1b, 0xb, 0x27, 0x29, 0x28, 0x2a, 0x2b], vec![(0x10, 0x424), (0xb, 0x426), (0x29, 0x424), (0x2a, 0x421), (0x2b, 0x422)]),
+        _ => (&[], vec![]),
     };
-    match filled {
-        Some((classes, actions)) if classes.contains(&class) => actions,
-        _ => anim_sets(template).into_iter().filter(|(c, _)| *c == class).flat_map(|(_, actions)| actions).collect(),
+    if erased.contains(&class) {
+        return filled.into_iter().filter(|(c, _)| *c == class).map(|(_, a)| a).collect();
     }
+    anim_sets(template).into_iter().filter(|(c, _)| *c == class).flat_map(|(_, actions)| actions).collect()
 }
 
 /// The animation class a special attack swings with (Gamecode FUN_1003c7a6, by the special's skill stat): 148 Burst 0x16, 167

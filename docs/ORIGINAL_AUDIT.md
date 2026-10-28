@@ -122,7 +122,7 @@ then check a render. Never the other way round.
    (`mao_formats::animstack`) kept and blended as `VisualCATMesh_t` keeps its list. The attack swings are ported (2026-10-28, see CLIENT_UI "Attack swings": `AttackInfo` /
    `MissedAttackInfo` → FUN_1006ae3c → FUN_1006a782; the weapon's actions by its AnimSet as FUN_1009d964 fills them, the
    animation by FUN_10010cc2's names and FUN_10010b3c's fallbacks, at priority −2 as FUN_10010dee sets it). Left: the
-   character's own animation set (type 0xfde97, which picks among an action's `_01_0n` variants), the crawling variants, `wield` and the `op1h`/`op2h` actions, the camera attractor's
+   character's own animation set (type 0xfde97, which picks among an action's `_01_0n` variants), the crawling variants, the draw's start and the holster's stop (the weapon's idle is ported: FUN_1003cce2's class 0x10), `wield` and the `op1h`/`op2h` actions, the camera attractor's
    smoothing; `catmesh.rs` skinning and attractors were already as the original's.
 9. **Statel LOD and culling** — the LOD manager is ported (see the table; `MAO_NO_LOD=1` draws every full mesh to
    compare). It does change the look a little: small props (a 1-unit bin) are gone 50 units out, as in the original, and the
