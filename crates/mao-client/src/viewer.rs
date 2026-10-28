@@ -1707,6 +1707,12 @@ impl ApplicationHandler for App {
                     if let Some(nano) = requests.cancel_nano.take() {
                         self.keys.cancel = (self.keys.cancel.0.wrapping_add(1), nano);
                     }
+                    // (the info view's item pages: N3's item descriptions, built here from the database)
+                    for url in ui.info.take_requests() {
+                        if let Some(page) = crate::gui::iteminfo::page(self.textures.db(), &url) {
+                            ui.info.show_page(&url, &page);
+                        }
+                    }
                     for place in requests.item_uses.drain(..) {
                         self.keys.fire = (self.keys.fire.0.wrapping_add(1), place);
                     }

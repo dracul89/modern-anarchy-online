@@ -19,7 +19,11 @@ the existing window frame — done for the mouse (`gui/host.rs`, `gui/window.rs`
 table (`gui/font.rs`); (3) `TextView_c` with `TextRenderer_c` and `HTMLParser_c` — done (`gui/text.rs`: the markup, words, wrapping, sizes,
 drawing, links; not yet: text input, selection, the cursor, `<img>` pictures, bold and italic faces, shadows, the scroll
 bar's art); (4) the info view
-(`InfoView_c`, `Views/InfoView.xml`, `text://` and `itemref://` links); then the other XML classes and windows.
+(`InfoView_c`, `Views/InfoView.xml`, `text://` and `itemref://` links) — first part done (`gui/infoview.rs`,
+`gui/iteminfo.rs`, `gui/criteria.rs`: the window and its history, item pages from the inventory's Info menu with name,
+rarity, quality, requirements, locations, charges and description; to come: the weapon/armour/implant/nano sections and
+the modifiers, `N3Msg_ConvertSpellList`); then the other XML classes and windows. Skins carry their own `Views/*.xml`
+(the user's AOU skins in `70dad3e6/Anarchy Online/Gui`): all of them load (`MAO_SKINS` test).
 
 ## 1. The framework
 
@@ -63,7 +67,7 @@ bar's art); (4) the info view
 | Targeting (`TargetingModule_t`, `TargetView`, friendly/hostile health bars) | | `ui.rs::target_frame` | part |
 | Chat (`ChatGUIModule_c`, `chat_group_window`, `ChatGroupWindowConfig`, `ChatConfig`, `log_window_config`, `/filter`) | | `chatwindow.rs` | part: tabs; no chat config window, no groups per window, no links, no timestamps option |
 | Wear / inventory / backpacks / bank (`InventoryGUIModule_c`, `wear_window`, `inventory_window`, `bank_window`, `ItemSlotView`) | | `gear.rs` | part: wear + inventory; no backpack windows, no bank |
-| Info view: item, nano, character info (`InfoViewModule_c`, `info_window`, `InfoViewConfig`, `InspectViewConfig`) | `InfoView.xml` | none | no |
+| Info view: item, nano, character info (`InfoViewModule_c`, `info_window`, `InfoViewConfig`, `InspectViewConfig`) | `InfoView.xml` | `gui/infoview.rs`, `gui/iteminfo.rs`, `gui/criteria.rs` | part (general item page; no weapon/nano sections, modifiers, character info) |
 | Skills (`skill_window`, `SkillConfig`) | `Skills.xml` | `skills.rs` | ours (IP raising?) |
 | Stats (`stat_window`, `zFStatViewConfig`) | | `stats.rs` | ours |
 | NCU (`ncu_window`, `zFNCUWindowConfig`), target NCU (`target_ncu_window`, `FightTargetNCUWindowConfig`, `NanoTargetNCUWindowConfig`) | | `ncu.rs` | part: own NCU only |

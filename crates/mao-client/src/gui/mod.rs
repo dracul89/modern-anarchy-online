@@ -10,9 +10,12 @@
 //! plain view that keeps its class name ([`Unported`]), so a file still lays out.
 
 pub mod controls;
+pub mod criteria;
 pub mod font;
 pub mod geom;
 pub mod host;
+pub mod infoview;
+pub mod iteminfo;
 pub mod layout;
 pub mod text;
 pub mod view;
@@ -160,5 +163,25 @@ mod tests {
             count += 1;
         }
         assert_eq!(count, 27);
+    }
+
+    /// `MAO_SKINS=<a Gui folder of skins>` (the user's `70dad3e6/Anarchy Online/Gui`: AOU_CYT, AOU_Slim_*,
+    /// AOU_Translucent, each with its own `Views/*.xml`): every skin's views load and lay out too.
+    #[test]
+    fn every_view_file_of_the_skins_loads() {
+        let Some(skins) = std::env::var_os("MAO_SKINS") else { return };
+        let mut count = 0;
+        for skin in std::fs::read_dir(&skins).unwrap() {
+            let Ok(files) = std::fs::read_dir(skin.unwrap().path().join("Views")) else { continue };
+            for f in files {
+                let path = f.unwrap().path();
+                let text = String::from_utf8_lossy(&std::fs::read(&path).unwrap()).into_owned();
+                let (mut t, root) = load(&text, "").unwrap_or_else(|| panic!("{} did not load", path.display()));
+                let size = t.preferred(root, false);
+                t.set_frame(root, geom::Rect::new(0.0, 0.0, size.x.max(1023.0), size.y.max(767.0)));
+                count += 1;
+            }
+        }
+        assert!(count > 0);
     }
 }

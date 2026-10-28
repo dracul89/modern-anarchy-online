@@ -23,8 +23,9 @@ pub struct Icon {
 /// One item ready to show.
 pub struct GearItem {
     pub slot: u32,
-    /// The item's template id (what a hotbar slot remembers it by).
+    /// The item's template id (what a hotbar slot remembers it by), and its high template's.
     pub item_id: u32,
+    pub high_id: u32,
     pub count: u16,
     pub quality: u32,
     pub bag: bool,
@@ -57,6 +58,8 @@ pub struct GearEvents {
     pub moves: Vec<(u32, u32)>,
     pub uses: Vec<u32>,
     pub deletes: Vec<u32>,
+    /// Info pages asked for (`itemref://` URLs for the info view).
+    pub infos: Vec<String>,
 }
 
 /// How many places the backpack has.
@@ -130,6 +133,7 @@ pub fn from_entries(db: &ResourceDatabase, textures: &crate::Textures, entries: 
             GearItem {
                 slot: e.slot,
                 item_id: e.low_id,
+                high_id: e.high_id,
                 count: e.count,
                 quality: e.quality,
                 bag: e.is_bag(),
@@ -198,6 +202,8 @@ pub struct GearWindow {
     moves: Vec<(u32, u32)>,
     uses: Vec<u32>,
     deletes: Vec<u32>,
+    /// Info pages asked for since the last frame.
+    infos: Vec<String>,
     /// The place an item awaits a second click to be destroyed.
     confirm: Option<u32>,
     /// Items whose name does not contain this are dimmed (any case).
@@ -262,9 +268,16 @@ impl GearWindow {
         }
         let menu_slot = item.slot;
         let menu_name = item.name.clone();
+        let info_url = format!("itemref://{}/{}/{}", item.item_id, item.high_id, item.quality);
         let (mut uses, mut deletes, mut confirm) = (Vec::new(), Vec::new(), self.confirm);
+        let mut infos = Vec::new();
         response.context_menu(|ui| {
             ui.label(egui::RichText::new(&menu_name).strong());
+            // (the original's info view: `ChatGUIModule_c::ShowItemRefLink` / `InfoViewModule_c::ShowURL`)
+            if ui.button("Info").clicked() {
+                infos.push(info_url.clone());
+                ui.close();
+            }
             if ui.button("Use").clicked() {
                 uses.push(menu_slot);
                 ui.close();
@@ -282,6 +295,7 @@ impl GearWindow {
             }
         });
         self.uses.extend(uses);
+        self.infos.extend(infos);
         self.deletes.extend(deletes);
         self.confirm = confirm;
         response.on_hover_ui(|ui| {
@@ -417,7 +431,7 @@ impl GearWindow {
         if ctx.input(|i| i.pointer.any_released()) {
             self.dragging = None;
         }
-        GearEvents { moves: std::mem::take(&mut self.moves), uses: std::mem::take(&mut self.uses), deletes: std::mem::take(&mut self.deletes) }
+        GearEvents { moves: std::mem::take(&mut self.moves), uses: std::mem::take(&mut self.uses), deletes: std::mem::take(&mut self.deletes), infos: std::mem::take(&mut self.infos) }
     }
 }
 
@@ -427,7 +441,7 @@ mod tests {
 
     #[test]
     fn the_pack_counts_only_its_own_places() {
-        let item = |slot| GearItem { slot, item_id: 1, count: 1, quality: 1, bag: false, name: String::new(), description: String::new(), icon: None, effects: Vec::new(), actions: Vec::new() };
+        let item = |slot| GearItem { slot, item_id: 1, high_id: 1, count: 1, quality: 1, bag: false, name: String::new(), description: String::new(), icon: None, effects: Vec::new(), actions: Vec::new() };
         let items = vec![item(0x10), item(inventory::BACKPACK_FIRST), item(inventory::BACKPACK_FIRST + 5), item(inventory::BACKPACK_FIRST + PACK_SLOTS)];
         assert_eq!(pack_used(&items), 2);
     }

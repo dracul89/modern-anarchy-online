@@ -114,6 +114,11 @@ impl Textures {
         Textures { db, index: Default::default(), ready: Default::default() }
     }
 
+    /// The resource database the textures come from.
+    pub fn db(&self) -> &ResourceDatabase {
+        &self.db
+    }
+
     /// A static mesh (type 0xf6951) by its file name, e.g. `EP03_EMP_blast.abiff`, with its root transform (as a mesh hung
     /// from a `VisualMesh_t`'s frame: Y up).
     pub fn mesh_named(&self, name: &str) -> Option<Model> {
