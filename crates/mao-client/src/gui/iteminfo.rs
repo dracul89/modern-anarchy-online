@@ -13,8 +13,10 @@
 //! " (Stackable)" for stat 30 bit 0x200, " (Splitable)" without bit 0x1000000) and the description (FUN_100332ff,
 //! `N3Msg_GetDesc`, "\n" as a new line).
 //!
+//! The modifiers (FUN_10032c1d): the worn (14) and used (0) spell lists as `spells.rs` writes them.
+//!
 //! Not yet: the weapon, armour, implant and nano pages' own sections (FUN_1003732c, FUN_1003826b, FUN_10038586,
-//! FUN_1003683d), the modifiers (`N3Msg_ConvertSpellList`), the shop price, fixtures, towers and buildings, and the
+//! FUN_1003683d), the shop price, fixtures, towers and buildings, and the
 //! stats interpolated between the low and high templates (the requirements are).
 
 use mao_formats::item::{self, Item};
@@ -46,7 +48,7 @@ pub fn parse_itemref(url: &str) -> Option<(u32, u32, u32)> {
 }
 
 /// The page of an item at a quality.
-pub fn item_page(db: &ResourceDatabase, low: u32, high: u32, ql: u32) -> Option<String> {
+pub fn item_page(db: &ResourceDatabase, low: u32, high: u32, ql: u32, level: u32) -> Option<String> {
     let template = |id: u32| db.get(Id { kind: item::TEMPLATE, instance: id }).ok().flatten();
     let data = template(low).or_else(|| template(high))?;
     let it = Item::parse(&data)?;
@@ -111,6 +113,22 @@ pub fn item_page(db: &ResourceDatabase, low: u32, high: u32, ql: u32) -> Option<
         }
     }
 
+    // modifiers (FUN_10032c1d: `N3Msg_GetModifierString` of the worn list, 14, and the used one, 0)
+    let lists = mao_formats::spell::lists(&data);
+    let nano_name = |id: u32| {
+        let d = db.get(Id { kind: item::NANO_TEMPLATE, instance: id }).ok().flatten().or_else(|| db.get(Id { kind: item::TEMPLATE, instance: id }).ok().flatten())?;
+        Item::parse(&d).map(|i| i.name)
+    };
+    let mut modifiers = String::new();
+    for list in [14, 0] {
+        for (_, spells) in lists.iter().filter(|(l, _)| *l == list) {
+            modifiers += &super::spells::convert(spells, level, &nano_name);
+        }
+    }
+    if !modifiers.is_empty() {
+        page += &section(&text("Modifier"), &modifiers, 0);
+    }
+
     // charges
     if let Some(c) = stat(26).filter(|c| *c >= 0 && low != 0xc788) {
         let mut v = c.to_string();
@@ -132,9 +150,9 @@ pub fn item_page(db: &ResourceDatabase, low: u32, high: u32, ql: u32) -> Option<
 }
 
 /// The page for one of the URLs the game builds (`itemref://`); `None` when it is not one of those.
-pub fn page(db: &ResourceDatabase, url: &str) -> Option<String> {
+pub fn page(db: &ResourceDatabase, url: &str, level: u32) -> Option<String> {
     let (low, high, ql) = parse_itemref(url)?;
-    item_page(db, low, high, ql)
+    item_page(db, low, high, ql, level)
 }
 
 #[cfg(test)]
@@ -148,8 +166,23 @@ mod tests {
         let Some(game) = std::env::var_os("MAO_GAME") else { return };
         crate::theme::set_game_dir(&game.to_string_lossy());
         let db = ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap();
+        if let Ok(id) = std::env::var("MAO_ITEM_WORDS") {
+            let data = db.get(Id { kind: item::TEMPLATE, instance: id.parse().unwrap() }).ok().flatten().unwrap();
+            let at = data.windows(4).position(|w| w == 0xcf35u32.to_le_bytes()).unwrap_or(0);
+            let from = at.saturating_sub(48);
+            let words: Vec<String> = data[from..(at + 160).min(data.len())].chunks(4).map(|c| format!("{:x}", u32::from_le_bytes([c[0], *c.get(1).unwrap_or(&0), *c.get(2).unwrap_or(&0), *c.get(3).unwrap_or(&0)]))).collect();
+            println!("len {} spell at {at}: {}", data.len(), words.join(" "));
+            let mut p = at;
+            while let Some((s, end)) = mao_formats::spell::read(&data, p) {
+                println!("{:x} {:?} -> {end}", s.kind, s.stats);
+                p = end;
+            }
+            let w = |o: usize| data.get(o..o + 4).map(|b| format!("{:x}", u32::from_le_bytes(b.try_into().unwrap()))).unwrap_or_default();
+            println!("stopped at {p}: {} {} {} {} {} {}", w(p), w(p + 4), w(p + 8), w(p + 12), w(p + 16), w(p + 20));
+            return;
+        }
         if let Ok(spec) = std::env::var("MAO_ITEM") {
-            let page = page(&db, &format!("itemref://{spec}")).unwrap();
+            let page = page(&db, &format!("itemref://{spec}"), 200).unwrap();
             println!("{page}");
             return;
         }
@@ -160,7 +193,7 @@ mod tests {
             has.then(|| (id, it.name))
         });
         let (id, name) = found.expect("an item with wear requirements");
-        let page = item_page(&db, id, id, 100).unwrap();
+        let page = item_page(&db, id, id, 100, 200).unwrap();
         println!("{id} {name}\n{page}");
         assert!(page.contains(&name));
         assert!(page.contains("CCInfoHeader"));

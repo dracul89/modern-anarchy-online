@@ -30,3 +30,4 @@ pub mod ldb;
 pub mod sound;
 pub mod music;
 pub mod districts;
+pub mod spell;

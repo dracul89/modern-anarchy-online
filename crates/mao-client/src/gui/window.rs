@@ -10,6 +10,8 @@ pub struct XmlWindow {
     pub tree: Tree,
     pub root: Id,
     pub open: bool,
+    /// The size it opens at when larger than the views' minimum.
+    pub default_size: egui::Vec2,
 }
 
 impl XmlWindow {
@@ -17,7 +19,7 @@ impl XmlWindow {
     pub fn load(ctx: &egui::Context, name: &str, title: &str, file: &str) -> Option<XmlWindow> {
         let dirs: Vec<std::path::PathBuf> = crate::skin::skin(ctx).map(|s| s.dirs().into_iter().map(|d| d.to_path_buf()).collect()).unwrap_or_default();
         let (tree, root) = super::load_view(&dirs, file, "")?;
-        Some(XmlWindow { name: name.to_string(), title: title.to_string(), tree, root, open: true })
+        Some(XmlWindow { name: name.to_string(), title: title.to_string(), tree, root, open: true, default_size: egui::vec2(320.0, 240.0) })
     }
 
     /// Shows the window; the views' signals since the last call.
@@ -28,7 +30,7 @@ impl XmlWindow {
         let skin = crate::skin::skin(ctx);
         let min = super::host::preferred_pixels(&self.tree, self.root, false);
         let (tree, root) = (&mut self.tree, self.root);
-        crate::chrome::window(ctx, palette, &self.name, &self.title, &mut self.open, |w| w.default_size(min.max(egui::vec2(320.0, 240.0))).resizable(true), |ui| {
+        crate::chrome::window(ctx, palette, &self.name, &self.title, &mut self.open, |w| w.default_size(min.max(self.default_size)).resizable(true), |ui| {
             super::host::show(ui, tree, root, skin.as_deref(), palette);
         });
         std::mem::take(&mut self.tree.signals)

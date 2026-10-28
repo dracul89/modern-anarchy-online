@@ -17,6 +17,7 @@ pub mod host;
 pub mod infoview;
 pub mod iteminfo;
 pub mod layout;
+pub mod spells;
 pub mod text;
 pub mod view;
 pub mod window;

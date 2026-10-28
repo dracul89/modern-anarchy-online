@@ -152,6 +152,9 @@ impl InfoView {
         }
         if self.window.is_none() {
             self.window = XmlWindow::load(ctx, "Info", "Info", "InfoView.xml");
+            if let Some(w) = self.window.as_mut() {
+                w.default_size = egui::vec2(360.0, 480.0);
+            }
             self.refresh();
         }
         let Some(w) = self.window.as_mut() else { return };
