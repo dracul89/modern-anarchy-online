@@ -980,6 +980,44 @@ impl Trail2 {
     }
 }
 
+/// A kind-1019 template as `_GfxControlTracer1_t` reads it (made by `CreateGfxControlTracer` FUN_100d176c through FUN_100fec4e;
+/// FUN_100fe3b0 the words, FUN_100fe9f9 the frame along the line, FUN_100fe845 the `GfxVisualFlareType0`, FUN_100fe545 its
+/// streaks, FUN_100fe7e1 / FUN_100fe706 the run): words 1–3 and 4–6 the locator's offset and turn, word 9 the material, words
+/// 10–13 the colour (packed as `gfxvec::pack`: alpha, red, green, blue), word 18 the streaks' size, word 19 a count of point
+/// pairs from word 21 (each a streak's head and tail in the model), word 20 the copies of them turned about the model's y axis.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Tracer1 {
+    pub flags: u32,
+    pub place: [f32; 3],
+    pub turn: [f32; 3],
+    pub material: i32,
+    pub colour: u32,
+    pub size: f32,
+    pub copies: i32,
+    pub streaks: Vec<([f32; 3], [f32; 3])>,
+}
+
+impl Tracer1 {
+    pub fn read(r: &Record) -> Option<Tracer1> {
+        if r.payload.len() < 21 {
+            return None;
+        }
+        let byte = |k: usize| ((r.float(k) * 255.0 - 0.49999).round() as i32 as u32) & 0xff;
+        let n = r.int(19).clamp(0, 64) as usize;
+        let v = |k: usize| [r.float(k), r.float(k + 1), r.float(k + 2)];
+        Some(Tracer1 {
+            flags: r.int(0) as u32,
+            place: v(1),
+            turn: v(4),
+            material: r.int(9),
+            colour: byte(10) << 24 | byte(11) << 16 | byte(12) << 8 | byte(13),
+            size: r.float(18),
+            copies: r.int(20),
+            streaks: (0..n).map(|k| (v(21 + 6 * k), v(24 + 6 * k))).collect(),
+        })
+    }
+}
+
 /// A kind-1025 template as `_GfxControlTracer5_t` reads it (made by `CreateGfxControlTracer` FUN_100d176c through FUN_10100b0d;
 /// FUN_101003f9 the words, FUN_1010077d the frame along the line, FUN_101004b4 the `GfxVisualCord4` of three links,
 /// FUN_10100aa3 / FUN_1010065a the run): word 9 the material, word 10 the speed of the head (at most five lengths of the line a
@@ -1543,6 +1581,8 @@ pub enum Visual {
     BParticle(BParticle),
     /// A thin streak running from the caster to the target (kind 1025, `_GfxControlTracer5_t`).
     Tracer5(Tracer5),
+    /// A little model of streaks flying from the caster to the target (kind 1019, `_GfxControlTracer1_t`).
+    Tracer1(Tracer1),
     /// Kind 3036, `GfxControlToggle_t` (FUN_101128d1 / FUN_1011279a / FUN_101127fc; FUN_1011265a the words, FUN_10112952 the run,
     /// FUN_101125ed the playfield test, FUN_10112580 the vehicle's state): word 0 the flags, word 1 the duration, word 2 the child
     /// effect, word 3 a mask of the playfield's flags, word 4 a count of playfield ids that follow. The child is started when
@@ -1688,6 +1728,7 @@ impl Gfx {
             1029 => VulcanRocks::read(r).map(Visual::VulcanRocks),
             3024 => BParticle::read(r).map(Visual::BParticle),
             1025 => Tracer5::read(r).map(Visual::Tracer5),
+            1019 => Tracer1::read(r).map(Visual::Tracer1),
             3036 if r.payload.len() >= 5 && r.int(2) != id => {
                 let child = self.visual(r.int(2))?;
                 let n = r.int(4).clamp(0, 64) as usize;

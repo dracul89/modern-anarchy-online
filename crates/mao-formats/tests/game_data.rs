@@ -156,6 +156,8 @@ fn effect_classes_come_to_visuals() {
     assert!(matches!(gfx.visual(17500), Some(Visual::Plasma { material: 8, duration, .. }) if duration == 1.0));
     // the null gather effect has none
     assert!(gfx.visual(49999).is_none());
+    // (the commonest streak model: three streaks, turned a quarter about x, blue-violet)
+    assert!(matches!(gfx.visual(45694), Some(Visual::Tracer1(t)) if t.streaks.len() == 3 && t.copies == 1 && t.size == 0.06 && t.material == 16 && t.colour == 0xff4c_99ff));
     // (the hoverbike's toggles: a puff as it moves off, a stream stopped with it)
     assert!(matches!(gfx.visual(72412), Some(Visual::Toggle { flags: 0x2c03, ref places, .. }) if places.is_empty()));
     assert!(matches!(gfx.visual(72416), Some(Visual::Toggle { flags, .. }) if flags & 0x8000 != 0));

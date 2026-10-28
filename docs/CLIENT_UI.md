@@ -725,3 +725,5 @@ BParticle (`GfxControlBParticle_t`, kind 3024), the hit of Pulse of Frost, Cast 
 Tracer5 (`_GfxControlTracer5_t`, kind 1025), the tracer of the flechettes and Molecule Lance, is a thin glowing streak running from the caster to the target at fifty units a second (at least a fifth of a second), its bright head half a unit long (`effects::tracer5_shell`, from Gamecode's FUN_1010065a and displaysystem's `GfxVisualCord4`).
 
 Toggles (`GfxControlToggle_t`, kind 3036) start their child effect as a hoverbike moves off (`effects::resolve_toggles`, from Gamecode's FUN_10112952): the Spectre bikes give a puff from both exhausts each time they start forward, and a stream of exhaust while they keep moving, gone when they stop. The viewer tells moving off from each character's movement along its facing.
+
+Tracer1 (`_GfxControlTracer1_t`, kind 1019), the tracer of Ice Flechette, Glacial Advance and Frost Slivers, flies a little model of glowing streaks, about two and a half units long, along the line from the caster to the target (`effects::tracer1_shells`, from Gamecode's FUN_100fe545 and displaysystem's `GfxVisualFlareType0`).

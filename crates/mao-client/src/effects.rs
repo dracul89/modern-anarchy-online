@@ -5,7 +5,7 @@
 //! forward-spinning one).
 
 use mao_formats::gfx::{colour_curve, curve, unpack_argb, BParticles, Cast, Cords, Deform, Emitter, Flare, Helix, Smoke, Sparks, Sprite, Stars, Visual, VolGrid};
-use mao_formats::gfx::{EffectMesh, Shield, Shield2, ShockWave, Suns, Trail2, Tracer5, VulcanRocks};
+use mao_formats::gfx::{EffectMesh, Shield, Shield2, ShockWave, Suns, Trail2, Tracer1, Tracer5, VulcanRocks};
 use mao_render::{Particle, Shell, ShellVertex, NO_SPRITE};
 
 /// The wind the effects are pushed by, Z up: the effect handler's wind (+0x24, Sparks) and its smoothed copy (+0x30, Smoke).
@@ -2122,6 +2122,73 @@ pub fn visual_tracers(v: &Visual) -> Vec<&Tracer5> {
     }
 }
 
+/// The streak models a tracer visual flies (itself, or a bundle's children's).
+pub fn visual_tracer1s(v: &Visual) -> Vec<&Tracer1> {
+    match v {
+        Visual::Tracer1(t) => vec![t],
+        Visual::Meta(children) => children.iter().flat_map(visual_tracer1s).collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// `_GfxControlTracer1_t`'s model at `at` (world, Z up) flying along `dir` (a unit vector), seen from `eye`, as shells
+/// (FUN_100fe545's streaks in `GfxVisualFlareType0`, displaysystem `gfxflare.rs`): the frame FUN_100fe9f9 builds (z along the
+/// flight, y a perpendicular: here the one nearest up, x across them) turned by the locator's turn (words 4–6) and set off by
+/// its offset (words 1–3) along the turned rows; each pair of points a streak, in each of the copies turned `k 2π / copies`
+/// about the model's y axis; each streak a quad facing the camera from its head to its tail, `size` to either side and beyond
+/// each end, its texture the material's first frame, its colour the template's, added.
+pub fn tracer1_shells(t: &Tracer1, at: [f32; 3], dir: [f32; 3], eye: [f32; 3]) -> Vec<Shell> {
+    let cross = |a: [f32; 3], b: [f32; 3]| [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    let unit = |v: [f32; 3]| {
+        let l = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+        if l > 1e-6 { v.map(|c| c / l) } else { v }
+    };
+    // (the flight frame's rows: x, y, z, in the world)
+    let z = unit(dir);
+    let up = if z[2].abs() < 0.99 { [0.0, 0.0, 1.0] } else { [1.0, 0.0, 0.0] };
+    let y = unit([0, 1, 2].map(|k| up[k] - z[k] * (up[0] * z[0] + up[1] * z[1] + up[2] * z[2])));
+    let x = cross(y, z);
+    let frame = [x, y, z];
+    let turn = locator_turn(t.turn, t.flags & 4 != 0);
+    let rows: [[f32; 3]; 3] = [0, 1, 2].map(|i| [0, 1, 2].map(|k| turn[i][0] * frame[0][k] + turn[i][1] * frame[1][k] + turn[i][2] * frame[2][k]));
+    let origin = [0, 1, 2].map(|k| at[k] + rows[0][k] * t.place[0] + rows[1][k] * t.place[1] + rows[2][k] * t.place[2]);
+    let world = |p: [f32; 3]| [0, 1, 2].map(|k| origin[k] + rows[0][k] * p[0] + rows[1][k] * p[1] + rows[2][k] * p[2]);
+    let cell = match mao_formats::gfx::material(t.material) {
+        Some((_, cols, rows, first, _)) => {
+            let (cols, rows_n) = (cols.max(1) as u32, rows.max(1) as u32);
+            let (du, dv) = (1.0 / cols as f32, 1.0 / rows_n as f32);
+            [(first as u32 % cols) as f32 * du, (first as u32 / cols) as f32 * dv, du, dv]
+        }
+        None => [0.0, 0.0, 1.0, 1.0],
+    };
+    let colour = shell_colour(t.colour);
+    let copies = t.copies.max(1);
+    let mut vertices = Vec::new();
+    for k in 0..copies {
+        let (s, c) = (k as f32 / copies as f32 * std::f32::consts::TAU).sin_cos();
+        let spin = |p: [f32; 3]| [p[0] * c - p[2] * s, p[1], p[0] * s + p[2] * c];
+        for (head, tail) in &t.streaks {
+            let (h, l) = (world(spin(*head)), world(spin(*tail)));
+            let along = unit([0, 1, 2].map(|i| l[i] - h[i]));
+            let mid = [0, 1, 2].map(|i| (h[i] + l[i]) / 2.0);
+            let side = unit(cross(along, [0, 1, 2].map(|i| eye[i] - mid[i]))).map(|q| q * t.size);
+            let a = [0, 1, 2].map(|i| h[i] - along[i] * t.size);
+            let b = [0, 1, 2].map(|i| l[i] + along[i] * t.size);
+            let corner = |p: [f32; 3], sign: f32, u: f32, v: f32| ShellVertex {
+                position: [0, 1, 2].map(|i| p[i] + side[i] * sign),
+                uv: [cell[0] + u * cell[2], cell[1] + v * cell[3]],
+                colour,
+            };
+            let quad = [corner(a, -1.0, 0.0, 0.0), corner(a, 1.0, 1.0, 0.0), corner(b, -1.0, 0.0, 1.0), corner(b, 1.0, 1.0, 1.0)];
+            vertices.extend(strip_triangles(&quad));
+        }
+    }
+    if vertices.is_empty() {
+        return Vec::new();
+    }
+    vec![Shell { sprite: t.material.max(0) as u16, additive: true, vertices }]
+}
+
 /// `_GfxControlTracer5_t`'s streak `age` seconds after the cast, from `from` to `to` (world, Z up), seen from `eye`, as
 /// FUN_1010065a moves its three links and `GfxVisualCord4` draws them (displaysystem `gfxcord.rs`): the head `speed × age` along
 /// the line (at most five lengths a second), the lead link `lead` beyond it, both kept to the target, the third at the caster;
@@ -2170,7 +2237,16 @@ impl Shot {
         if self.from == self.to {
             return Vec::new();
         }
-        visual_tracers(tracer).into_iter().filter_map(|t| tracer5_shell(t, self.from, self.to, age, eye)).collect()
+        let mut out: Vec<Shell> = visual_tracers(tracer).into_iter().filter_map(|t| tracer5_shell(t, self.from, self.to, age, eye)).collect();
+        // (the streak models flown along the line over the client's flight, gone on landing)
+        if age < FLIGHT {
+            let d = [0, 1, 2].map(|k| self.to[k] - self.from[k]);
+            let at = [0, 1, 2].map(|k| self.from[k] + d[k] * age / FLIGHT);
+            for t in visual_tracer1s(tracer) {
+                out.extend(tracer1_shells(t, at, d, eye));
+            }
+        }
+        out
     }
 
     pub fn lasts(&self) -> f32 {
@@ -2260,8 +2336,8 @@ pub fn visual_particles(v: &Visual, feet: [f32; 3], time: f32, reach: Reach) -> 
             };
             bparticles(b, [feet[0], feet[1], feet[2] + up], time)
         }
-        // (a streak along a shot's line: see `tracer5_shell`)
-        Visual::Tracer5(_) => Vec::new(),
+        // (a streak along a shot's line: see `tracer5_shell`, `tracer1_shells`)
+        Visual::Tracer5(_) | Visual::Tracer1(_) => Vec::new(),
         Visual::BParticle(b) => {
             let up = match reach {
                 Reach::Small => 0.0,
@@ -2439,7 +2515,7 @@ pub fn pulse_timing(v: &Visual) -> (f32, f32, i32) {
         Visual::Cords(c) => (4.0, if c.duration > 0.0 { c.duration } else { 1.0 }, -1),
         Visual::VolGrid(g) => (if g.duration > 0.0 { g.duration } else { 3.0 }, if g.duration > 0.0 { g.duration } else { 3.0 }, -1),
         // (a burst lives its longest life; a stream runs its duration and that life, or for ever)
-        Visual::Tracer5(_) => (600.0, 1.0, 1),
+        Visual::Tracer5(_) | Visual::Tracer1(_) => (600.0, 1.0, 1),
         // (kind 8's particles have each popped and gone within a second or so; with a duration, it)
         Visual::BParticle(b) => {
             let pops = 0.2 / b.spin.max(0.01) + 1.0 / b.phase_rate.max(0.01);
@@ -3002,6 +3078,30 @@ mod tests {
         }
         // late, only the top of the coil is left
         assert!(late.iter().all(|p| p.position[2] > 1.0));
+    }
+
+    #[test]
+    fn a_tracer1_model_flies_its_streaks_along_the_line() {
+        // (template 45694: three streaks along the model's y, turned a quarter about x so y runs along the flight)
+        let t = Tracer1 {
+            flags: 2050,
+            place: [0.0; 3],
+            turn: [std::f32::consts::FRAC_PI_2, 0.0, 0.0],
+            material: 16,
+            colour: 0xff4c_99ff,
+            size: 0.06,
+            copies: 1,
+            streaks: vec![([0.0, -1.25, 0.15], [0.0, 0.675, 0.0]), ([0.0, -0.25, 0.03], [0.0, 1.155, 0.06]), ([0.0, 0.225, 0.18], [0.0, 1.275, -0.3])],
+        };
+        let s = tracer1_shells(&t, [10.0, 0.0, 1.0], [1.0, 0.0, 0.0], [10.0, -10.0, 1.0]);
+        assert_eq!(s.len(), 1);
+        assert_eq!(s[0].vertices.len(), 3 * 6);
+        // (the streaks lie along the flight, from about −1.3 to 1.3 of the point)
+        let xs: Vec<f32> = s[0].vertices.iter().map(|v| v.position[0] - 10.0).collect();
+        assert!(xs.iter().all(|&x| x > -1.4 && x < 1.4) && xs.iter().any(|&x| x < -1.2) && xs.iter().any(|&x| x > 1.2));
+        assert!(s[0].vertices.iter().all(|v| v.position[1].abs() < 0.35));
+        // two copies make twice the streaks
+        assert_eq!(tracer1_shells(&Tracer1 { copies: 2, ..t.clone() }, [0.0; 3], [1.0, 0.0, 0.0], [0.0, -10.0, 0.0])[0].vertices.len(), 2 * 3 * 6);
     }
 
     #[test]
