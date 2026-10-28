@@ -5,7 +5,7 @@
 //! forward-spinning one).
 
 use mao_formats::gfx::{colour_curve, curve, unpack_argb, BParticles, Cast, Cords, Deform, Emitter, Flare, Helix, Smoke, Sparks, Sprite, Stars, Visual, VolGrid};
-use mao_formats::gfx::{EffectMesh, Shield, Shield2, ShockWave, Suns, Trail2};
+use mao_formats::gfx::{EffectMesh, Shield, Shield2, ShockWave, Suns, Trail2, VulcanRocks};
 use mao_render::{Particle, Shell, ShellVertex, NO_SPRITE};
 
 /// The wind the effects are pushed by, Z up: the effect handler's wind (+0x24, Sparks) and its smoothed copy (+0x30, Smoke).
@@ -934,6 +934,158 @@ pub fn visual_trails(v: &Visual, at: Locator, t: f32, attractors: &dyn Fn(i32) -
         }
         _ => Vec::new(),
     }
+}
+
+/// The rock throwers a visual runs `t` seconds in about `feet` (world, Z up): itself (at the dynel itself; attach point 0), or a
+/// bundle's or a scatter's children's.
+pub fn visual_rocks(v: &Visual, feet: [f32; 3], t: f32) -> Vec<(VulcanRocks, [f32; 3], f32)> {
+    match v {
+        Visual::VulcanRocks(r) if r.attach == 0 => vec![(r.clone(), feet, t)],
+        Visual::Meta(children) => children.iter().filter(|c| t < pulse_timing(c).1).flat_map(|c| visual_rocks(c, feet, t)).collect(),
+        Visual::Scatter { child, children, looping } => {
+            let life = pulse_timing(child).1.max(0.05);
+            let round = children.iter().map(|c| c.0).fold(0.0, f32::max) + life;
+            let t = if *looping { t.rem_euclid(round.max(0.05)) } else { t };
+            children
+                .iter()
+                .filter(|(born, _)| t >= *born && t - born < life)
+                .flat_map(|(born, at)| visual_rocks(child, [feet[0] + at[0], feet[1] + at[1], feet[2] + at[2]], t - born))
+                .collect()
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// A rock of `_GfxControlVulcanRocks_t` at a moment: its mesh, where it is (world, Z up) and its turn (an axis and an angle).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Rock {
+    pub mesh: &'static str,
+    pub at: [f32; 3],
+    pub axis: [f32; 3],
+    pub angle: f32,
+}
+
+/// How long the client keeps running a rock thrower (its rocks are gone once enough rest, usually well before).
+pub const ROCKS_LAST: f32 = 10.0;
+
+/// The step the client runs the rocks in (the original steps once a frame).
+const ROCK_STEP: f32 = 1.0 / 30.0;
+
+/// `_GfxControlVulcanRocks_t`'s rocks `t` seconds in (FUN_10103bc1), thrown from `from` (world, Z up) over the ground `ground`
+/// (none indoors: the level of `from`), run from the start in steps of [`ROCK_STEP`] with a random sequence of `seed`; none
+/// once the effect has ended (as many rocks at rest as word 20, unless word 23 + count says not to count them). Each try (word
+/// 21 a second) picks a kind from the list (`floor(random × count)`) and, while there are fewer rocks than word 20 and the
+/// kind has a mesh (`mao_formats::gfx::rock_mesh`), throws a rock at word 10 a second at a random heading and an angle over the
+/// level between words 11 and 12, turning about a random axis from a random angle at `(random × 2π − π) × 8` radians a
+/// second. Each step a rock falls at 9.8 a second a second and moves; below the ground it is set on it and its velocity
+/// mirrored in the ground's normal and halved: up to four bounces while it is faster than 0.1 (each with a new turn), and
+/// then it rests.
+pub fn vulcan_rocks(r: &VulcanRocks, from: [f32; 3], t: f32, seed: u32, ground: &dyn Fn(f32, f32) -> Option<f32>) -> Vec<Rock> {
+    struct Live {
+        rock: Rock,
+        velocity: [f32; 3],
+        rate: f32,
+        bounces: i32,
+        resting: bool,
+    }
+    let mut state = seed | 1;
+    let mut random = || {
+        state ^= state << 13;
+        state ^= state >> 17;
+        state ^= state << 5;
+        (state >> 8) as f32 / (1u32 << 24) as f32
+    };
+    let floor = |x: f32, y: f32| ground(x, y).unwrap_or(from[2]);
+    let normal = |x: f32, y: f32| {
+        let (dx, dy) = ((floor(x + 0.25, y) - floor(x - 0.25, y)) / 0.5, (floor(x, y + 0.25) - floor(x, y - 0.25)) / 0.5);
+        let l = (dx * dx + dy * dy + 1.0).sqrt();
+        [-dx / l, -dy / l, 1.0 / l]
+    };
+    let most = r.most.max(0.0) as usize;
+    let mut rocks: Vec<Live> = Vec::new();
+    let mut tries = 0.0f32;
+    let turn = |random: &mut dyn FnMut() -> f32| {
+        let a = [random() * 2.0 - 1.0, random() * 2.0 - 1.0, random() * 2.0 - 1.0];
+        let l = (a[0] * a[0] + a[1] * a[1] + a[2] * a[2]).sqrt();
+        let axis = if l > 0.0 { a.map(|c| c / l) } else { [0.0, 0.0, 1.0] };
+        (axis, random() * std::f32::consts::TAU - std::f32::consts::PI, (random() * std::f32::consts::TAU - std::f32::consts::PI) * 8.0)
+    };
+    let steps = (t / ROCK_STEP).floor() as i32;
+    for step in 0..=steps {
+        let now = step as f32 * ROCK_STEP;
+        // (the tries due by now)
+        while tries <= r.rate * now && !r.kinds.is_empty() {
+            tries += 1.0;
+            let kind = r.kinds[((random() * (r.kinds.len() as f32 - 0.0001)) as usize).min(r.kinds.len() - 1)];
+            let Some(mesh) = mao_formats::gfx::rock_mesh(kind) else { continue };
+            if rocks.len() >= most {
+                continue;
+            }
+            let heading = random() * std::f32::consts::TAU;
+            let rise = r.angles.0 + (r.angles.1 - r.angles.0) * random();
+            let velocity = [heading.sin() * rise.cos() * r.speed, heading.cos() * rise.cos() * r.speed, rise.sin() * r.speed];
+            let (axis, angle, rate) = turn(&mut random);
+            rocks.push(Live { rock: Rock { mesh, at: from, axis, angle }, velocity, rate, bounces: 0, resting: false });
+        }
+        if step == steps {
+            break;
+        }
+        for live in rocks.iter_mut().filter(|l| !l.resting) {
+            live.velocity[2] -= ROCK_STEP * 9.8;
+            live.rock.at = [0, 1, 2].map(|k| live.rock.at[k] + live.velocity[k] * ROCK_STEP);
+            let level = floor(live.rock.at[0], live.rock.at[1]);
+            if live.rock.at[2] < level {
+                live.rock.at[2] = level;
+                let n = normal(live.rock.at[0], live.rock.at[1]);
+                let d = 2.0 * (live.velocity[0] * n[0] + live.velocity[1] * n[1] + live.velocity[2] * n[2]);
+                live.velocity = [0, 1, 2].map(|k| (live.velocity[k] - n[k] * d) * 0.5);
+                let speed = (live.velocity[0].powi(2) + live.velocity[1].powi(2) + live.velocity[2].powi(2)).sqrt();
+                if live.bounces < 4 && speed >= 0.1 {
+                    let (axis, angle, rate) = turn(&mut random);
+                    (live.rock.axis, live.rock.angle, live.rate) = (axis, angle, rate);
+                    live.bounces += 1;
+                } else {
+                    live.velocity = [0.0; 3];
+                    live.rate = 0.0;
+                    live.resting = true;
+                }
+            }
+            live.rock.angle += live.rate * ROCK_STEP;
+        }
+        if !r.endless && most > 0 && rocks.iter().filter(|l| l.resting).count() >= most {
+            return Vec::new();
+        }
+    }
+    rocks.into_iter().map(|l| l.rock).collect()
+}
+
+/// A rock's mesh (`model`, Y up) as shells: turned about its axis, set at its place, white and opaque, its parts' textures by
+/// `sheet` (`VisualTinyRock_t` draws it as a lit triangle mesh; here unlit).
+pub fn rock_shells(rock: &Rock, model: &mao_formats::model::Model, sheet: &dyn Fn(u32, u32) -> u16) -> Vec<Shell> {
+    let k = rock.axis;
+    let (s, c) = rock.angle.sin_cos();
+    let place = |p: [f32; 3]| {
+        // (the model's Y up to the world's Z up, then the turn)
+        let q = [p[0], p[2], p[1]];
+        let dot = k[0] * q[0] + k[1] * q[1] + k[2] * q[2];
+        let cross = [k[1] * q[2] - k[2] * q[1], k[2] * q[0] - k[0] * q[2], k[0] * q[1] - k[1] * q[0]];
+        [0, 1, 2].map(|i| rock.at[i] + q[i] * c + cross[i] * s + k[i] * dot * (1.0 - c))
+    };
+    let parts: Vec<(usize, mao_formats::model::Matrix)> =
+        if model.instances.is_empty() { (0..model.parts.len()).map(|i| (i, mao_formats::model::IDENTITY)).collect() } else { model.instances.clone() };
+    let mut out = Vec::new();
+    for (index, instance) in parts {
+        let Some(part) = model.parts.get(index) else { continue };
+        let w = mao_formats::model::multiply(&part.world, &instance);
+        let at = |p: [f32; 3]| [0, 1, 2].map(|j| p[0] * w[j] + p[1] * w[4 + j] + p[2] * w[8 + j] + w[12 + j]);
+        let sprite = part.material.textures.first().map_or(NO_SPRITE, |&(kind, instance)| sheet(kind, instance));
+        let vertices: Vec<ShellVertex> =
+            part.indices.iter().filter_map(|&i| part.vertices.get(i as usize)).map(|v| ShellVertex { position: place(at(v.position)), uv: v.uv, colour: [1.0; 4] }).collect();
+        if !vertices.is_empty() {
+            out.push(Shell { sprite, additive: false, vertices });
+        }
+    }
+    out
 }
 
 /// One sample of a `GfxVisualTrail2`: a frame's origin and its x, y and z axes (the x and y scaled by the half-widths), in the
@@ -1882,6 +2034,7 @@ impl Shot {
         fn rings(v: &Visual) -> f32 {
             match v {
                 Visual::ShockWave(s) => s.length(),
+                Visual::VulcanRocks(_) => ROCKS_LAST,
                 Visual::Meta(children) => children.iter().map(rings).fold(0.0, f32::max),
                 _ => 0.0,
             }
@@ -1996,8 +2149,8 @@ pub fn visual_particles(v: &Visual, feet: [f32; 3], time: f32, reach: Reach) -> 
         Visual::Shield(_) | Visual::Shield2(_) => Vec::new(),
         // (drawn as shells of its mesh: see `effect_mesh_shells`; its rings and cones: `shockwave_shells`)
         Visual::EffectMesh(_) | Visual::ShockWave(_) => Vec::new(),
-        // (a trail keeps its samples: see `TrailState`)
-        Visual::Trail2(_) => Vec::new(),
+        // (a trail keeps its samples: see `TrailState`; rocks are meshes: `vulcan_rocks`)
+        Visual::Trail2(_) | Visual::VulcanRocks(_) => Vec::new(),
         Visual::Suns(s) => {
             let up = match reach {
                 Reach::Small => 0.0,
@@ -2157,6 +2310,8 @@ pub fn pulse_timing(v: &Visual) -> (f32, f32, i32) {
         Visual::EffectMesh(m) => if m.duration > 0.0 { (600.0, m.duration, 1) } else { (600.0, 600.0, -1) },
         Visual::ShockWave(s) => (600.0, s.length().max(0.05), 1),
         Visual::Trail2(t) => if t.duration > 0.0 { (600.0, t.duration, 1) } else { (600.0, 600.0, -1) },
+        // (the rocks run until they rest: `vulcan_rocks` gives none then)
+        Visual::VulcanRocks(_) => (600.0, ROCKS_LAST, 1),
         // (a bundle's children started together: the pulse lasts the longest of them and repeats with the longest period; it plays
         // once only when every child does)
         Visual::Meta(children) => {
@@ -2671,6 +2826,24 @@ mod tests {
         }
         // late, only the top of the coil is left
         assert!(late.iter().all(|p| p.position[2] > 1.0));
+    }
+
+    #[test]
+    fn vulcan_rocks_are_thrown_up_fall_bounce_and_rest() {
+        // (template 45060: rocks at 18 a second, 72° to 90° up, 23 at most, 256 tries a second over seven kinds of which only
+        // kind 4 has a mesh)
+        let r = VulcanRocks { flags: 1, place: [0.0; 3], attach: 0, duration: -1.0, speed: 18.0, angles: (1.257, 1.571), most: 23.0, rate: 256.0, kinds: vec![4, 5, 6, 7, 8, 9, 10], endless: false };
+        let flat = |_: f32, _: f32| Some(0.0);
+        let early = vulcan_rocks(&r, [0.0; 3], 0.5, 7, &flat);
+        assert!(!early.is_empty() && early.len() <= 23 && early.iter().all(|k| k.mesh == "rock01.abiff"));
+        // (up to 18² / 19.6 ≈ 16.5 high, near the point)
+        assert!(early.iter().all(|k| k.at[2] >= 0.0 && k.at[2] < 16.6 && k.at[0].hypot(k.at[1]) < 18.0 * 0.31 * 0.5 + 0.1));
+        let mid = vulcan_rocks(&r, [0.0; 3], 2.0, 7, &flat);
+        assert_eq!(mid.len(), 23);
+        // every rock comes to rest on the ground, and then the effect has ended
+        assert!(vulcan_rocks(&r, [0.0; 3], ROCKS_LAST - 0.1, 7, &flat).is_empty());
+        // (a kind without a mesh throws nothing)
+        assert!(vulcan_rocks(&VulcanRocks { kinds: vec![5], ..r.clone() }, [0.0; 3], 1.0, 7, &flat).is_empty());
     }
 
     #[test]

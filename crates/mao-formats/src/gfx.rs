@@ -980,6 +980,68 @@ impl Trail2 {
     }
 }
 
+/// A kind-1029 template as `_GfxControlVulcanRocks_t` reads it (the dynel and point constructors FUN_10103a18 / FUN_1010369d;
+/// FUN_10103448 the words, FUN_10103595 the `GfxVisualRockList`, FUN_10103bc1 the run): word 0 the flags (the locator's 1, 2 and
+/// 4; 0x400 kept without its locator), words 1–6 the locator's offset and turn, word 7 the attach point, word 8 the duration,
+/// word 10 the speed a rock is thrown at, words 11 and 12 the least and most angle over the level, word 20 the most rocks
+/// (and how many come to rest before the effect ends), word 21 the rocks tried a second, word 22 a count of the kinds that
+/// follow (the visual environment's effect pools: `rock_mesh`), then a word that keeps resting rocks from counting.
+#[derive(Clone, Debug, PartialEq)]
+pub struct VulcanRocks {
+    pub flags: u32,
+    pub place: [f32; 3],
+    pub attach: i32,
+    pub duration: f32,
+    pub speed: f32,
+    pub angles: (f32, f32),
+    pub most: f32,
+    pub rate: f32,
+    pub kinds: Vec<i32>,
+    pub endless: bool,
+}
+
+impl VulcanRocks {
+    pub fn read(r: &Record) -> Option<VulcanRocks> {
+        if r.payload.len() < 23 {
+            return None;
+        }
+        let n = r.int(22).clamp(0, 64) as usize;
+        Some(VulcanRocks {
+            flags: r.int(0) as u32,
+            place: [r.float(1), r.float(2), r.float(3)],
+            attach: r.int(7),
+            duration: r.float(8),
+            speed: r.float(10),
+            angles: (r.float(11), r.float(12)),
+            most: r.float(20),
+            rate: r.float(21),
+            kinds: (0..n).map(|k| r.int(23 + k)).collect(),
+            endless: r.int(23 + n) > 0,
+        })
+    }
+}
+
+/// The mesh of an effect pool kind of the visual environment (displaysystem FUN_100616e4's switch, `envfx.rs` `source`), for
+/// the kinds made from a mesh; the others are a material alone, and `GfxVisualRockList::GetNew` makes no rock of them
+/// (FUN_1001c199 needs the pool's mesh data).
+pub fn rock_mesh(kind: i32) -> Option<&'static str> {
+    const GIBS: [&str; 24] = [
+        "gib_skull.abiff", "gib01.abiff", "gib02.abiff", "gib03.abiff", "gib04.abiff", "gib05.abiff", "gib06.abiff", "gib07.abiff",
+        "gib_skull_ice.abiff", "gib01_ice.abiff", "gib02_ice.abiff", "gib03_ice.abiff", "gib04_ice.abiff", "gib05_ice.abiff", "gib06_ice.abiff", "gib07_ice.abiff",
+        "gib_skull_slime.abiff", "gib01_slime.abiff", "gib02_slime.abiff", "gib03_slime.abiff", "gib04_slime.abiff", "gib05_slime.abiff", "gib06_slime.abiff", "gib07_slime.abiff",
+    ];
+    const ROCKS: [&str; 7] = ["rock01.abiff", "rock02.abiff", "rock03.abiff", "rock04.abiff", "rock05.abiff", "rock06.abiff", "rock07.abiff"];
+    const SHRAPNEL: [&str; 7] = ["tower_shrapnel1.abiff", "tower_shrapnel2.abiff", "tower_shrapnel3.abiff", "tower_shrapnel4.abiff", "tower_shrapnel5.abiff", "tower_shrapnel6.abiff", "tower_shrapnel7.abiff"];
+    match kind {
+        4 => Some("rock01.abiff"),
+        0xb..=0x11 => Some(ROCKS[(kind - 0xb) as usize]),
+        0x12..=0x29 => Some(GIBS[(kind - 0x12) as usize]),
+        0x2e => Some("shell_casing.abiff"),
+        0x2f..=0x35 => Some(SHRAPNEL[(kind - 0x2f) as usize]),
+        _ => None,
+    }
+}
+
 /// A curve of (time, value) keys at `f`, as FUN_1011689d reads it: the last key's value (1 with none), or the two keys about
 /// `f` (the first whose time is at most `f` with the next's past it) mixed linearly.
 pub fn key_curve(keys: &[(f32, f32)], f: f32) -> f32 {
@@ -1348,6 +1410,8 @@ pub enum Visual {
     EffectMesh(EffectMesh),
     /// Four crossed ribbons along the attach point's recent frames (kind 3039, `GfxControlTrail2_t`).
     Trail2(Trail2),
+    /// Rocks thrown up from the point, falling and bouncing on the ground (kind 1029, `_GfxControlVulcanRocks_t`).
+    VulcanRocks(VulcanRocks),
     /// Rings spreading over the ground one after another and cones of light rising with them (kind 3000,
     /// `_GfxControlShockWave_t`).
     ShockWave(ShockWave),
@@ -1481,6 +1545,7 @@ impl Gfx {
             3025 => EffectMesh::read(r).map(Visual::EffectMesh),
             3000 => ShockWave::read(r).map(Visual::ShockWave),
             3039 => Trail2::read(r).map(Visual::Trail2),
+            1029 => VulcanRocks::read(r).map(Visual::VulcanRocks),
             2005 if r.payload.len() >= 32 && matches!(r.int(10), 0 | 4) => Some(Visual::Suns(Suns {
                 mode: r.int(10),
                 attach: r.int(7),

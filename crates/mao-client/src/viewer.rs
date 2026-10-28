@@ -259,6 +259,23 @@ pub fn headless_on(model: &Model, textures: &Textures, out: &str, ui: Option<(&H
                 scene.shells.extend(crate::effects::effect_mesh_shells(&m, &model, &|k, i| sheets.get(&(k, i)).copied().unwrap_or(mao_render::NO_SPRITE), &at, Some(eye), t));
             }
             scene.shells.extend(crate::effects::visual_ground_shells(&visual, feet, time, &|_, _| None));
+            // (its rocks, over a level ground at the feet)
+            for (r, from, t) in crate::effects::visual_rocks(&visual, feet, time) {
+                for rock in crate::effects::vulcan_rocks(&r, from, t, 7, &|_, _| None) {
+                    let Some(model) = textures.mesh_named(rock.mesh) else { continue };
+                    for part in &model.parts {
+                        let Some(&key) = part.material.textures.first() else { continue };
+                        if !sheets.contains_key(&key) {
+                            let id = 0xa000 + sheets.len() as u16;
+                            if let Some(texture) = textures.get(key.0, key.1) {
+                                renderer.add_sprite(&gpu, id, &texture);
+                            }
+                            sheets.insert(key, id);
+                        }
+                    }
+                    scene.shells.extend(crate::effects::rock_shells(&rock, &model, &|k, i| sheets.get(&(k, i)).copied().unwrap_or(mao_render::NO_SPRITE)));
+                }
+            }
             // (its trails, run at thirty frames a second up to the time, the body moving along +y at `MAO_RIDE_SPEED` units a
             // second, 0 by default)
             let speed: f32 = std::env::var("MAO_RIDE_SPEED").ok().and_then(|v| v.parse().ok()).unwrap_or(0.0);
@@ -1167,6 +1184,7 @@ impl ApplicationHandler for App {
                     };
                     self.pulses.begin_frame();
                     let mut meshes = Vec::new();
+                    let mut rocks = Vec::new();
                     let terrain = self.ground.clone();
                     let ground = |x: f32, y: f32| terrain.as_ref().map(|(t, o)| t.height_at(x, y, t.height_scale) + o);
                     for (id, own, at, heading, body, auras) in &self.auras {
@@ -1186,6 +1204,7 @@ impl ApplicationHandler for App {
                                 let atrox = body.is_some_and(|b| b.0 == 4);
                                 meshes.extend(crate::effects::visual_meshes(aura, crate::effects::Locator::feet(feet, heading), age, &|attach| crate::effects::Locator::attractor(attach, attractors)).into_iter().map(|(m, l, t)| (m, l, t, atrox)));
                                 shells.extend(crate::effects::visual_ground_shells(aura, feet, age, &ground));
+                                rocks.extend(crate::effects::visual_rocks(aura, feet, age).into_iter().map(|(r, at, t)| (r, at, t, id ^ nano.rotate_left(16))));
                                 // (the trails, each keeping its samples from frame to frame)
                                 let forward = [heading.sin(), heading.cos(), 0.0];
                                 for (k, (trail, place, t)) in crate::effects::visual_trails(aura, crate::effects::Locator::feet(feet, heading), age, &|attach| crate::effects::Locator::attractor(attach, attractors)).into_iter().enumerate() {
@@ -1229,6 +1248,7 @@ impl ApplicationHandler for App {
                                 let attractors = c.as_ref().map_or(&[][..], |c| c.attractors.as_slice());
                                 meshes.extend(crate::effects::visual_meshes(hit, crate::effects::Locator::feet(shot.to, 0.0), landed, &|attach| crate::effects::Locator::attractor(attach, attractors)).into_iter().map(|(m, l, t)| (m, l, t, false)));
                                 shells.extend(crate::effects::visual_ground_shells(hit, shot.to, landed, &ground));
+                                rocks.extend(crate::effects::visual_rocks(hit, shot.to, landed).into_iter().map(|(r, at, t)| (r, at, t, shot.to[0].to_bits() ^ shot.to[1].to_bits().rotate_left(7))));
                             }
                         }
                     }
@@ -1253,6 +1273,25 @@ impl ApplicationHandler for App {
                         }
                         let sheets = &self.mesh_sheets;
                         shells.extend(crate::effects::effect_mesh_shells(m, model, &|k, i| sheets.get(&(k, i)).copied().unwrap_or(mao_render::NO_SPRITE), at, Some(eye), *t));
+                    }
+                    // (the thrown rocks, their meshes loaded and their textures made sheets as the effect meshes')
+                    for (r, from, t, seed) in &rocks {
+                        for rock in crate::effects::vulcan_rocks(r, *from, *t, *seed, &ground) {
+                            let textures = &self.textures;
+                            let Some(model) = self.effect_meshes.entry(rock.mesh).or_insert_with(|| textures.mesh_named(rock.mesh)).as_ref() else { continue };
+                            for part in &model.parts {
+                                let Some(&key) = part.material.textures.first() else { continue };
+                                if !self.mesh_sheets.contains_key(&key) {
+                                    let id = 0xa000 + self.mesh_sheets.len() as u16;
+                                    if let Some(texture) = self.textures.get(key.0, key.1) {
+                                        w.renderer.add_sprite(&w.gpu, id, &texture);
+                                    }
+                                    self.mesh_sheets.insert(key, id);
+                                }
+                            }
+                            let sheets = &self.mesh_sheets;
+                            shells.extend(crate::effects::rock_shells(&rock, model, &|k, i| sheets.get(&(k, i)).copied().unwrap_or(mao_render::NO_SPRITE)));
+                        }
                     }
                     // (the shells' sheets too)
                     let sheets: Vec<mao_render::Particle> = shells
