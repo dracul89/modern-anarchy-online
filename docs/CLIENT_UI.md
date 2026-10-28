@@ -430,6 +430,7 @@ Missed attacks at or by the character (`MissedAttackInfo`: the attacker and the 
 
 - `Absorb` (FUN_1009ef78): "You absorbed 1581 points of cold damage."; another character's absorb is "Someone absorbed ..." (the handler gives no name).
 - `ShieldAttack` / `ReflectAttack` (FUN_100a134d / FUN_100a11c2: the one hurt is the identity, the shield's owner `Target`, and its health goes down by the amount): "Your damage shield hit Rollerrat for 173 points of damage.", "Bob's reflect shield hit Rollerrat ...", and "Someone's damage shield hit you ..." (the handler drops the owner when it is you who is hurt).
+- Another character's health in a `Stat` message is held, and a drop tells "Rollerrat was attacked with nanobots for 81 points of unknown damage." (FUN_100a2006's 0x1b: no source, no type).
 - Your own `Stat` changes (FUN_100a2006, by the change from the value held): "You received 1200 xp." / "You lost 5 xp.", "You gained N new Alien Experience Points.", "You gained/lost N points of Shadowknowledge.", and health changes not already told by a `HealthDamage` (which now sets the stat, as the original does).
 
 **Fixed with it: `HealthDamage`'s direction.** The one hurt is the message's own identity, whose health is `TargetHp`; the `Target` field is the source. The client had it the other way round, so the floating numbers and the health bars followed the wrong character (a monster's health was given to you). Checked on the captured messages.

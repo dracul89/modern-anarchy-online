@@ -995,6 +995,26 @@ impl World {
             }
         }
         // A stat of the character changed.
+        // Another character's health in a `Stat` (FUN_100a2006): held, and a drop told as the original tells it (0x1b, no source:
+        // "... was attacked with nanobots for N points of unknown damage.").
+        if m.kind == 0x2b333d6e && m.identity.1 != self.own {
+            if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
+                if let Some(mao_net::schema::Value::List(items)) = p.value.get("Stats") {
+                    let health = items.iter().filter(|i| i.get("Item1").and_then(mao_net::schema::Value::as_int) == Some(27)).filter_map(|i| i.get("Item2")?.as_int()).last();
+                    if let Some(hp) = health {
+                        let id = m.identity.1;
+                        if let Some(old) = self.last_hp.insert(id, hp) {
+                            if let Some(line) = crate::feedback::health(self.who(id), crate::feedback::Who::Unknown, (hp - old).min(0), 0, None) {
+                                self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
+                            }
+                        }
+                        if let Some(entry) = self.health.get_mut(&id) {
+                            entry.0 = hp;
+                        }
+                    }
+                }
+            }
+        }
         if m.kind == 0x2b333d6e && m.identity.1 == self.own {
             if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
                 // (FUN_100a2006 tells the change of the health, experience, alien experience and shadowknowledge from the value
@@ -4960,6 +4980,10 @@ mod door_tests {
         w.add(&Message { kind: 0x3710256c, identity: (0xc350, 0x4bc80), data: hex("000000ce670000007400000000000000000000c3500004bc8000000000") }.frame(1));
         assert_eq!(lines(&mut w), ["You were healed for 116 points."]);
         assert_eq!(w.stats.get(&27), Some(&52839));
+        // (another's health dropping in a Stat: 0x7aedad06 renamed to the rat, 2381 then 2300)
+        w.add(&Message { kind: 0x2b333d6e, identity: (0xc350, 0x7b017c26), data: hex("00000000010000001b0000094d") }.frame(1));
+        w.add(&Message { kind: 0x2b333d6e, identity: (0xc350, 0x7b017c26), data: hex("00000000010000001b000008fc") }.frame(1));
+        assert_eq!(lines(&mut w), ["Rollerrat was attacked with nanobots for 81 points of unknown damage."]);
         // the client's damage shield striking 0x7b017c26 (renamed from the capture's 0x7b017c24), and a reflect of nothing
         w.add(&Message { kind: 0x25192476, identity: (0xc350, 0x7b017c26), data: hex("00000000ad0000c3500004bc8000000003") }.frame(1));
         assert_eq!(lines(&mut w), ["Your damage shield hit Rollerrat for 173 points of damage."]);
