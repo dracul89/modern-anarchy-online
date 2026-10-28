@@ -1915,6 +1915,58 @@ pub fn bparticles(b: &BParticles, origin: [f32; 3], time: f32) -> Vec<Particle> 
     out
 }
 
+/// `GfxVisualBParticle`'s particles `time` seconds in about `at` (world, Z up), for its kind 8 (every template a program names
+/// but three, of kind 1), as the constructor (`bp_new`) makes them and `ProcessParticles` / the draw run them: particle k waits
+/// `r × 0.2` (the first none) run down at the spin rate (word 16), then pops at a random place within ±the spread of the
+/// point (each axis) with a phase of `0.5 + r × 0.5` that runs down at the phase rate (word 17); while it is above 0 its size
+/// and alpha are scaled by `sin(phase × π / 2)`; then it is gone. The quad is the run's half sizes about it (drawn a billboard
+/// of their mean), coloured by the run's colour, its frame of the material's grid run on at word 38 a second from 0 and back
+/// to the first past the last (bounds 1), added with flag 0x200. Not: the quad's turn, the distance fade (words 28–30; zero in
+/// the templates programs name), the point on the ground (flag 0x400), the other kinds.
+fn bparticle_particles(b: &mao_formats::gfx::BParticle, at: [f32; 3], time: f32) -> Vec<Particle> {
+    let mut out = Vec::new();
+    if b.kind != 8 || time < 0.0 {
+        return out;
+    }
+    let Some((colour, (across, up))) = b.look(time) else { return out };
+    let rgba = shell_colour(colour);
+    let cell = |frame: f32| -> Option<[f32; 4]> {
+        let (_, cols, rows, first, last) = mao_formats::gfx::material(b.material)?;
+        let (first, last) = (first as f32, last as f32);
+        let mut f = frame;
+        if b.bounds == 1 && f > last && last > first {
+            f = first + (f - last).rem_euclid(last - first);
+        }
+        let k = f.max(0.0) as u32;
+        let (cols, rows) = (cols.max(1) as u32, rows.max(1) as u32);
+        let (du, dv) = (1.0 / cols as f32, 1.0 / rows as f32);
+        Some([(k % cols) as f32 * du, (k / cols) as f32 * dv, du, dv])
+    };
+    for k in 0..b.count.max(0) as u32 {
+        let wait = if k == 0 { 0.0 } else { hash(k, 0x3024) * 0.2 / b.spin.max(0.01) };
+        if time < wait {
+            continue;
+        }
+        let phase = 0.5 + hash(k, 0x3025) * 0.5 - b.phase_rate * (time - wait);
+        if phase <= 0.0 {
+            continue;
+        }
+        let s = (phase * std::f32::consts::FRAC_PI_2).sin();
+        // (the spread in the original's Y-up frame: its y the client's z)
+        let off = [0x3026, 0x3027, 0x3028].map(|salt| (2.0 * hash(k, salt) - 1.0) * b.spread);
+        let position = [at[0] + off[0], at[1] + off[2], at[2] + off[1]];
+        let size = (across + up) * s;
+        let colour = [rgba[0], rgba[1], rgba[2], rgba[3] * s];
+        let mut p = Particle::dot(position, size.max(0.0), colour);
+        if let Some(rect) = cell(b.frame_rate * time) {
+            p.sprite = b.material as u16;
+            p.rect = rect;
+        }
+        out.push(p);
+    }
+    out
+}
+
 /// A particle cut from a material's sprite sheet (`mao_formats::gfx::MATERIALS`), `t` (0 to 1) of the way through the sheet's frames; a
 /// material that is not known gives a soft dot.
 fn sprite(material: i32, t: f32, position: [f32; 3], size: f32, colour: [f32; 4]) -> Particle {
@@ -2116,6 +2168,13 @@ pub fn visual_particles(v: &Visual, feet: [f32; 3], time: f32, reach: Reach) -> 
             };
             bparticles(b, [feet[0], feet[1], feet[2] + up], time)
         }
+        Visual::BParticle(b) => {
+            let up = match reach {
+                Reach::Small => 0.0,
+                _ => anchor(b.attach).0,
+            };
+            bparticle_particles(b, [feet[0], feet[1], feet[2] + up], time)
+        }
         Visual::Sprite(s) => {
             let up = match reach {
                 Reach::Small => 0.0,
@@ -2276,6 +2335,12 @@ pub fn pulse_timing(v: &Visual) -> (f32, f32, i32) {
         Visual::Cords(c) => (4.0, if c.duration > 0.0 { c.duration } else { 1.0 }, -1),
         Visual::VolGrid(g) => (if g.duration > 0.0 { g.duration } else { 3.0 }, if g.duration > 0.0 { g.duration } else { 3.0 }, -1),
         // (a burst lives its longest life; a stream runs its duration and that life, or for ever)
+        // (kind 8's particles have each popped and gone within a second or so; with a duration, it)
+        Visual::BParticle(b) => {
+            let pops = 0.2 / b.spin.max(0.01) + 1.0 / b.phase_rate.max(0.01);
+            let long = if b.duration >= 0.0 { b.duration } else { pops };
+            (600.0, long.max(0.1), 1)
+        }
         Visual::BParticles(b) => {
             let longest = b.life.1.max(b.life.0) + b.interval.max(0.0);
             let long = if b.mode != 1 { longest } else if b.duration >= 0.0 { b.duration + longest } else { 600.0 };
@@ -2826,6 +2891,46 @@ mod tests {
         }
         // late, only the top of the coil is left
         assert!(late.iter().all(|p| p.position[2] > 1.0));
+    }
+
+    #[test]
+    fn a_kind_8_bparticle_pops_its_particles_after_a_wait_and_shrinks_them_away() {
+        // (template 97121: Pulse of Frost's ten pale blue pops of 5 by 5 within ±1)
+        let b = mao_formats::gfx::BParticle {
+            flags: 0x203,
+            attach: 2011,
+            duration: -1.0,
+            material: 100,
+            kind: 8,
+            count: 10,
+            spread: 1.0,
+            motion: 0,
+            shape: 0,
+            fading: 0,
+            spin: 5.5,
+            phase_rate: 2.0,
+            colours: [0x00aa_80ff, 0xffaa_dbff, 0x00aa_80ff],
+            fade: [0.0; 3],
+            sizes: [(10.0, 10.0), (5.0, 5.0), (0.0, 0.0)],
+            frame_rate: 1.0,
+            bounds: 1,
+            ramp: (-1.0, -1.0),
+        };
+        let at = bparticle_particles(&b, [0.0; 3], 0.05);
+        assert!(!at.is_empty() && at.len() <= 10);
+        for p in &at {
+            assert!(p.position.iter().all(|c| c.abs() <= 1.0 + 1e-5));
+            // (a full width of at most 10: the half sizes 5 and 5)
+            assert!(p.size > 0.0 && p.size <= 10.0 + 1e-4);
+        }
+        // all have popped by a second
+        assert!(bparticle_particles(&b, [0.0; 3], 0.6).is_empty());
+        // with a duration the look runs from the start's to the middle's and on to the end's
+        let timed = mao_formats::gfx::BParticle { duration: 2.0, ramp: (0.25, 0.75), ..b.clone() };
+        assert_eq!(timed.look(0.25).unwrap().1, (7.5, 7.5));
+        assert_eq!(timed.look(1.0).unwrap(), (0xffaa_dbff, (5.0, 5.0)));
+        assert_eq!(timed.look(2.0).unwrap().1, (0.0, 0.0));
+        assert!(timed.look(2.1).is_none());
     }
 
     #[test]

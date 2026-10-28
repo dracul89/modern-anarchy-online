@@ -980,6 +980,93 @@ impl Trail2 {
     }
 }
 
+/// A kind-3024 template as `GfxControlBParticle_t` reads it (the dynel and point constructors FUN_1010ad28 / FUN_1010ac00;
+/// FUN_1010a644 the words, FUN_1010a412 the `GfxVisualBParticle` (displaysystem `gfxbparticle.rs`), FUN_1010a909 the run):
+/// word 0 the flags (0x100 flipped, 0x200 added, 0x400 the point on the ground, 0x1000 opaque), word 7 the attach point, word 8
+/// the duration, word 9 the material, word 10 the visual's kind (how its particles are made and run), word 11 their count,
+/// word 12 their spread, words 13–15 the motion, shape and fading, word 16 the spin rate (kind 8: how fast its wait runs
+/// down), word 17 the phase rate, word 18 the lift, words 19–24 the velocity's least and most (x, then y, then z), words
+/// 25–27 the colours (ARGB) at the start, the middle and the end, words 28–30 a fade with the distance, words 31–36 the half
+/// sizes across and up at the start, the middle and the end, word 37 an interval, words 38 and 39 the frame rate and the
+/// frames' bounds, words 40 and 41 the fractions of the duration the start and the end take, words 42 and 43 the lives.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BParticle {
+    pub flags: u32,
+    pub attach: i32,
+    pub duration: f32,
+    pub material: i32,
+    pub kind: i32,
+    pub count: i32,
+    pub spread: f32,
+    pub motion: i32,
+    pub shape: i32,
+    pub fading: i32,
+    pub spin: f32,
+    pub phase_rate: f32,
+    pub colours: [u32; 3],
+    pub fade: [f32; 3],
+    /// Across and up, at the start, the middle and the end.
+    pub sizes: [(f32, f32); 3],
+    pub frame_rate: f32,
+    pub bounds: i32,
+    pub ramp: (f32, f32),
+}
+
+impl BParticle {
+    pub fn read(r: &Record) -> Option<BParticle> {
+        if r.payload.len() < 42 {
+            return None;
+        }
+        Some(BParticle {
+            flags: r.int(0) as u32,
+            attach: r.int(7),
+            duration: r.float(8),
+            material: r.int(9),
+            kind: r.int(10),
+            count: r.int(11),
+            spread: r.float(12),
+            motion: r.int(13),
+            shape: r.int(14),
+            fading: r.int(15),
+            spin: r.float(16),
+            phase_rate: r.float(17),
+            colours: [r.int(25) as u32, r.int(26) as u32, r.int(27) as u32],
+            fade: [r.float(28), r.float(29), r.float(30)],
+            sizes: [(r.float(31), r.float(32)), (r.float(33), r.float(34)), (r.float(35), r.float(36))],
+            frame_rate: r.float(38),
+            bounds: r.int(39),
+            ramp: (r.float(40), r.float(41)),
+        })
+    }
+
+    /// The colour (ARGB) and half sizes the run gives the visual `t` seconds in (FUN_1010a909), or none once past the duration:
+    /// without a duration the middle ones; else over the start (word 40 of the duration, 0.5 when negative) from the start's to
+    /// the middle's, then the middle's, and past word 41 over `1 − word 41` (0.5 when that is negative) to the end's; the
+    /// colours mixed by `Color_t::Interpolate`, the sizes by the fraction (its eighth power with motion 4).
+    pub fn look(&self, t: f32) -> Option<(u32, (f32, f32))> {
+        let mix = |a: (f32, f32), b: (f32, f32), u: f32| (a.0 + (b.0 - a.0) * u, a.1 + (b.1 - a.1) * u);
+        if self.duration < 0.0 {
+            return Some((self.colours[1], self.sizes[1]));
+        }
+        let f = t / self.duration;
+        if f > 1.0 {
+            return None;
+        }
+        let start = if self.ramp.0 < 0.0 { 0.5 } else { self.ramp.0 };
+        let end_span = if 1.0 - self.ramp.1 < 0.0 { 0.5 } else { 1.0 - self.ramp.1 };
+        let power = |u: f32| if self.motion == 4 { u.powi(8) } else { u };
+        if f < start {
+            let u = f / if start == 0.0 { 1.0 } else { start };
+            Some((key_colour(&[(0.0, self.colours[0]), (1.0, self.colours[1])], u), mix(self.sizes[0], self.sizes[1], power(u))))
+        } else if f > self.ramp.1 {
+            let u = (f - self.ramp.1) / if end_span == 0.0 { 1.0 } else { end_span };
+            Some((key_colour(&[(0.0, self.colours[1]), (1.0, self.colours[2])], u), mix(self.sizes[1], self.sizes[2], power(u))))
+        } else {
+            Some((self.colours[1], self.sizes[1]))
+        }
+    }
+}
+
 /// A kind-1029 template as `_GfxControlVulcanRocks_t` reads it (the dynel and point constructors FUN_10103a18 / FUN_1010369d;
 /// FUN_10103448 the words, FUN_10103595 the `GfxVisualRockList`, FUN_10103bc1 the run): word 0 the flags (the locator's 1, 2 and
 /// 4; 0x400 kept without its locator), words 1–6 the locator's offset and turn, word 7 the attach point, word 8 the duration,
@@ -1412,6 +1499,8 @@ pub enum Visual {
     Trail2(Trail2),
     /// Rocks thrown up from the point, falling and bouncing on the ground (kind 1029, `_GfxControlVulcanRocks_t`).
     VulcanRocks(VulcanRocks),
+    /// A pool of billboard particles in one of the visual's kinds (kind 3024, `GfxControlBParticle_t`).
+    BParticle(BParticle),
     /// Rings spreading over the ground one after another and cones of light rising with them (kind 3000,
     /// `_GfxControlShockWave_t`).
     ShockWave(ShockWave),
@@ -1546,6 +1635,7 @@ impl Gfx {
             3000 => ShockWave::read(r).map(Visual::ShockWave),
             3039 => Trail2::read(r).map(Visual::Trail2),
             1029 => VulcanRocks::read(r).map(Visual::VulcanRocks),
+            3024 => BParticle::read(r).map(Visual::BParticle),
             2005 if r.payload.len() >= 32 && matches!(r.int(10), 0 | 4) => Some(Visual::Suns(Suns {
                 mode: r.int(10),
                 attach: r.int(7),
