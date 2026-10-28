@@ -733,3 +733,5 @@ Tracer3 (`_GfxControlTracer3_t`, kind 1022) drags a nano emitter (`_GfxControlNa
 TParticle (`GfxControlTParticle_t`, kind 3020) is a pool of streaks, each two crossed strips from its head to its trailing tail (`effects::tparticle_shells`, from displaysystem's `GfxVisualTParticle`): bursts of white sparks thrown up and falling, their heads brightest at half the effect's second, and still rays from a point out to scattered tails.
 
 Sky flashes (`_GfxControlSkyFlash_t`, kind 3006), the hit of Gift of Life and Holy Book Blessings, are a beam of nested cones of light sixty units tall coming down on the target and fading over a few seconds (`effects::skyflash_shells`, from Gamecode's FUN_100ef141).
+
+Spiral2 (`GfxControlSpiral2_t`, kind 3033) winds ribbons of light round the target, climbing as they turn and spinning about it (`effects::spiral2_shells`, from Gamecode's FUN_10111c40 and displaysystem's `GfxVisualSpiral2`).

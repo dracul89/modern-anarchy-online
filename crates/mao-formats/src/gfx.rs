@@ -980,6 +980,71 @@ impl Trail2 {
     }
 }
 
+/// A kind-3033 template as `GfxControlSpiral2_t` reads it (FUN_1011230d; FUN_10111e9d the words, FUN_10111fdb the
+/// `GfxVisualSpiral2`s (displaysystem `gfxspiral2.rs`), FUN_10111c40 the run): word 0 the flags (0x200 added, 0x400 the alpha
+/// pulsing), word 7 the attach point, word 8 the duration, word 9 the material, word 10 the ribbons, word 11 their segments,
+/// word 12 the pulse's rate, word 13 the half height of the band, word 14 the rise along the ribbon, word 15 the first angle
+/// (999 random), word 16 the turn along it, word 17 the texture's extent along it, words 18–19 the spin about the up axis and
+/// its acceleration, words 20–21 the fractions faded out at the end and in at the start, then a colour curve and a radius
+/// curve over the fraction of the duration (both read as words: the radius's keys are floats in them).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Spiral2 {
+    pub flags: u32,
+    pub attach: i32,
+    pub duration: f32,
+    pub material: i32,
+    pub ribbons: i32,
+    pub segments: i32,
+    pub pulse: f32,
+    pub band: f32,
+    pub rise: f32,
+    pub angle: f32,
+    pub turn: f32,
+    pub texture: f32,
+    pub spin: (f32, f32),
+    pub fade_out: f32,
+    pub fade_in: f32,
+    pub colours: Vec<(f32, u32)>,
+    pub radii: Vec<(f32, f32)>,
+}
+
+impl Spiral2 {
+    pub fn read(r: &Record) -> Option<Spiral2> {
+        if r.payload.len() < 23 {
+            return None;
+        }
+        let mut at = 22;
+        let mut pairs = |r: &Record| {
+            let n = r.int(at).clamp(0, 64) as usize;
+            at += 1;
+            let keys: Vec<(f32, i32)> = (0..n).map(|k| (r.float(at + 2 * k), r.int(at + 2 * k + 1))).collect();
+            at += 2 * n;
+            keys
+        };
+        let colours = pairs(r).into_iter().map(|(t, c)| (t, c as u32)).collect();
+        let radii = pairs(r).into_iter().map(|(t, w)| (t, f32::from_bits(w as u32))).collect();
+        Some(Spiral2 {
+            flags: r.int(0) as u32,
+            attach: r.int(7),
+            duration: r.float(8),
+            material: r.int(9),
+            ribbons: r.int(10),
+            segments: r.int(11),
+            pulse: r.float(12),
+            band: r.float(13),
+            rise: r.float(14),
+            angle: r.float(15),
+            turn: r.float(16),
+            texture: r.float(17),
+            spin: (r.float(18), r.float(19)),
+            fade_out: r.float(20),
+            fade_in: r.float(21),
+            colours,
+            radii,
+        })
+    }
+}
+
 /// A kind-3006 template as `_GfxControlSkyFlash_t` reads it (FUN_100ef80f / FUN_100ef6eb; FUN_100eefd2 the words, FUN_100ef58b
 /// the `GfxVisualCone`s, FUN_100ef141 the run): word 0 the flags (0x200 added, 0x400 the cones widen from the top's radius
 /// and lengthen as they rise, 0x800 / 0x1000 following the point while rising / falling, 0x2000 each cone turned a share of a
@@ -1788,6 +1853,8 @@ pub enum Visual {
     TParticle(TParticle),
     /// Nested cones of light coming down from the sky (kind 3006, `_GfxControlSkyFlash_t`).
     SkyFlash(SkyFlash),
+    /// Ribbons spiralling round the point, turning (kind 3033, `GfxControlSpiral2_t`).
+    Spiral2(Spiral2),
     /// A nano emitter dragged from the caster to the target (kind 1022, `_GfxControlTracer3_t`).
     Tracer3(Tracer3),
     /// Kind 3036, `GfxControlToggle_t` (FUN_101128d1 / FUN_1011279a / FUN_101127fc; FUN_1011265a the words, FUN_10112952 the run,
@@ -1939,6 +2006,7 @@ impl Gfx {
             1007 => Nano::read(r).map(Visual::Nano),
             3020 => TParticle::read(r).map(Visual::TParticle),
             3006 => SkyFlash::read(r).map(Visual::SkyFlash),
+            3033 => Spiral2::read(r).map(Visual::Spiral2),
             1022 if r.payload.len() >= 16 => {
                 let child = self.get(r.int(15)).filter(|c| c.kind == 1007).and_then(Nano::read)?;
                 Some(Visual::Tracer3(Tracer3 { speed: r.float(10), colour: [r.float(11), r.float(12), r.float(13), r.float(14)], child }))

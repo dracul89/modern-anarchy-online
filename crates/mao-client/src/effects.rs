@@ -1487,6 +1487,53 @@ fn cone_vertices(foot: [f32; 3], segments: i32, below: f32, above: f32, height: 
     strip_triangles(&strip)
 }
 
+/// `GfxControlSpiral2_t`'s ribbons `t` seconds in about `at` (world, Z up), as FUN_10111fdb makes its `GfxVisualSpiral2`s,
+/// FUN_10111c40 runs them and `build` (displaysystem `gfxspiral2.rs`) draws them: ribbon k from the angle `k 6.28 / ribbons`
+/// past the first (999: a random one), `segments` steps along it at the fraction `s` of the way, each at the angle on by
+/// `turn s` and the radius (the radius curve at the fraction of the duration) out, the band `±word 13` about the height
+/// `rise s`; all turned about the up axis by the spin (its rate and acceleration run over the time); coloured by the colour
+/// curve, its alpha times (flag 0x400) `(sin(pulse × fraction + 4 × angle) + 1) / 2` and faded in over `fade_in` of the
+/// ribbon and out over its last `fade_out`; the texture `word 17 × s` along it; added with 0x200. Not: the body's torso
+/// scale on the radius, rise and turn (taken as 1).
+pub fn spiral2_shells(s: &mao_formats::gfx::Spiral2, at: [f32; 3], t: f32) -> Vec<Shell> {
+    if t < 0.0 || (s.duration > 0.0 && t >= s.duration) {
+        return Vec::new();
+    }
+    let f = if s.duration > 0.0 { t / s.duration } else { 0.0 };
+    let colour = mao_formats::gfx::key_colour(&s.colours, f);
+    let radius = mao_formats::gfx::key_curve(&s.radii, f);
+    let spin = s.spin.0 * t + 0.5 * s.spin.1 * t * t;
+    let first = if s.angle == 999.0 { hash(0x3033, 1) * 6.28 } else { s.angle };
+    let base = shell_colour(colour);
+    let n = s.segments.max(1);
+    let mut out = Vec::new();
+    for k in 0..s.ribbons.max(0) {
+        let start = k as f32 * 6.28 / s.ribbons as f32 + first;
+        let mut strip = Vec::new();
+        for j in 0..n {
+            let along = j as f32 / n as f32;
+            let angle = start + s.turn / n as f32 * j as f32;
+            let pulse = if s.flags & 0x400 != 0 { ((s.pulse * f + angle * 4.0).sin() + 1.0) * 0.5 } else { 1.0 };
+            let mut fade = 1.0;
+            if s.fade_in != 0.0 && s.fade_in > along {
+                fade = along / s.fade_in;
+            }
+            if s.fade_out != 0.0 && 1.0 - s.fade_out < along {
+                fade = 1.0 - (along - (1.0 - s.fade_out)) / s.fade_out;
+            }
+            let colour = [base[0], base[1], base[2], (base[3] * pulse * fade).clamp(0.0, 1.0)];
+            // (the original's x sin, z cos about its y, turned by the spin; the client's y is its z)
+            let a = angle + spin;
+            let (x, y) = (a.sin() * radius, a.cos() * radius);
+            let h = s.rise * along;
+            strip.push(ShellVertex { position: [at[0] + x, at[1] + y, at[2] + h + s.band], uv: [s.texture * along, 0.0], colour });
+            strip.push(ShellVertex { position: [at[0] + x, at[1] + y, at[2] + h - s.band], uv: [s.texture * along, 1.0], colour });
+        }
+        out.push(Shell { sprite: s.material.max(0) as u16, additive: s.flags & 0x200 != 0, vertices: strip_triangles(&strip) });
+    }
+    out
+}
+
 /// `_GfxControlSkyFlash_t`'s cones `t` seconds in about `at` (world, Z up), as FUN_100ef141 sets them each frame: within a
 /// cycle (`fmod(t, rise + fall)`), the radii below and above grown by words 22–23 over it, cone k widened by k steps; while
 /// rising (the fraction `u` of the rise) the colours from the start's to the middle's and, with flag 0x400, the bottom radius
@@ -1549,6 +1596,7 @@ fn strip_triangles(strip: &[ShellVertex]) -> Vec<ShellVertex> {
 pub fn visual_ground_shells(v: &Visual, feet: [f32; 3], t: f32, ground: &dyn Fn(f32, f32) -> Option<f32>) -> Vec<Shell> {
     match v {
         Visual::ShockWave(s) => shockwave_shells(s, feet, t, ground),
+        Visual::Spiral2(s) => spiral2_shells(s, [feet[0], feet[1], feet[2] + if s.attach == 0 { 0.0 } else { anchor(s.attach).0 }], t),
         Visual::SkyFlash(s) => skyflash_shells(s, [feet[0], feet[1], feet[2] + if s.attach == 0 { 0.0 } else { anchor(s.attach).0 }], t, ground),
         Visual::TParticle(p) => tparticle_shells(p, [feet[0], feet[1], feet[2] + if p.attach == 0 { 0.0 } else { anchor(p.attach).0 }], t),
         Visual::Meta(children) => children.iter().filter(|c| t < pulse_timing(c).1).flat_map(|c| visual_ground_shells(c, feet, t, ground)).collect(),
@@ -2484,6 +2532,7 @@ impl Shot {
                 Visual::VulcanRocks(_) => ROCKS_LAST,
                 Visual::TParticle(p) => p.duration.max(0.0),
                 Visual::SkyFlash(s) => s.length(),
+                Visual::Spiral2(s) => s.duration.max(0.0),
                 Visual::Meta(children) => children.iter().map(rings).fold(0.0, f32::max),
                 _ => 0.0,
             }
@@ -2570,7 +2619,7 @@ pub fn visual_particles(v: &Visual, feet: [f32; 3], time: f32, reach: Reach) -> 
         // (a streak along a shot's line: see `tracer5_shell`, `tracer1_shells`, `tracer3_particles`)
         Visual::Tracer5(_) | Visual::Tracer1(_) | Visual::Tracer3(_) => Vec::new(),
         // (crossed strips and cones: see `tparticle_shells`, `skyflash_shells`)
-        Visual::TParticle(_) | Visual::SkyFlash(_) => Vec::new(),
+        Visual::TParticle(_) | Visual::SkyFlash(_) | Visual::Spiral2(_) => Vec::new(),
         Visual::Nano(n) => {
             let up = match reach {
                 Reach::Small => 0.0,
@@ -2759,6 +2808,7 @@ pub fn pulse_timing(v: &Visual) -> (f32, f32, i32) {
         Visual::Tracer5(_) | Visual::Tracer1(_) | Visual::Tracer3(_) => (600.0, 1.0, 1),
         Visual::TParticle(p) => if p.duration >= 0.0 { (600.0, p.duration.max(0.05), 1) } else { (600.0, 600.0, -1) },
         Visual::SkyFlash(s) => (600.0, s.length().max(0.05), 1),
+        Visual::Spiral2(s) => if s.duration > 0.0 { (600.0, s.duration, 1) } else { (600.0, 600.0, -1) },
         // (a nano makes sprites until a life before its duration, and its last ones live out their lives; for ever without one)
         Visual::Nano(n) => if n.duration >= 0.0 { (600.0, n.duration.max(0.05), 1) } else { (600.0, 600.0, -1) },
         // (kind 8's particles have each popped and gone within a second or so; with a duration, it)
@@ -3323,6 +3373,41 @@ mod tests {
         }
         // late, only the top of the coil is left
         assert!(late.iter().all(|p| p.position[2] > 1.0));
+    }
+
+    #[test]
+    fn spiral2_ribbons_climb_round_the_point_and_turn() {
+        // (template 71108: five green ribbons of 25 steps, 3 high, a turn of 3.5 about a radius of 1, spinning at −5)
+        let s = mao_formats::gfx::Spiral2 {
+            flags: 0x201,
+            attach: 0,
+            duration: 10.0,
+            material: 96,
+            ribbons: 5,
+            segments: 25,
+            pulse: 4.0,
+            band: 0.5,
+            rise: 3.0,
+            angle: 0.0,
+            turn: 3.5,
+            texture: 10.0,
+            spin: (-5.0, 0.0),
+            fade_out: 0.9,
+            fade_in: 0.1,
+            colours: vec![(0.0, 0x0040_7040), (0.5, 0xff40_7040), (0.9, 0xff40_7040), (1.0, 0)],
+            radii: vec![(0.0, 1.0), (0.9, 1.0), (1.0, 1.0)],
+        };
+        let at = spiral2_shells(&s, [0.0; 3], 6.0);
+        assert_eq!(at.len(), 5);
+        assert_eq!(at[0].vertices.len(), (50 - 2) * 3);
+        for v in &at[0].vertices {
+            assert!((v.position[0].hypot(v.position[1]) - 1.0).abs() < 1e-4);
+            assert!(v.position[2] >= -0.5 - 1e-4 && v.position[2] <= 3.0 + 0.5);
+        }
+        assert!(spiral2_shells(&s, [0.0; 3], 10.0).is_empty());
+        // (the spin turns the ribbons)
+        let later = spiral2_shells(&s, [0.0; 3], 6.1);
+        assert!((at[0].vertices[0].position[0] - later[0].vertices[0].position[0]).abs() > 1e-3);
     }
 
     #[test]
