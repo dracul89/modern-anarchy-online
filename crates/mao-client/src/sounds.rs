@@ -132,6 +132,15 @@ pub fn ground_material(terrain: Option<&mao_formats::terrain::Terrain>, material
     materials.get(&id).map_or(0, |m| m.material as i32)
 }
 
+/// A death's sound (`CharDie_t`, FUN_1007b803): an animation set's for the death (0x1e), else by the sex stat (59) a woman's
+/// (3) or a man's.
+pub fn death(set: Option<(&mao_formats::npc::Template, u32)>, sex: u8) -> Option<u32> {
+    match set {
+        Some((set, seed)) => set.sound(0x1e, seed),
+        None => Some(sound_id(if sex == 3 { "SM_Sandy_Game_FemaleDies" } else { "SM_Sandy_Game_MaleDies" })),
+    }
+}
+
 /// A play of `PlayGameSound` with its place, deferral and mode (the variant offset by a hit's size).
 #[derive(Debug, PartialEq)]
 pub struct GamePlay {
@@ -272,6 +281,16 @@ mod tests {
         assert_eq!(p.last().map(|p| (p.id, p.material, p.mode)), Some((sound_id("SM_Sandy_Game_FemaleGetsHit"), 7, 2)));
         assert_eq!(attack(&shot(1, 0, target(None)), || 0).len(), 1);
         assert_eq!(attack(&Attack { energy: Some(0), ..shot(1, 0, None) }, || 0)[0].id, 300);
+    }
+
+    #[test]
+    fn deaths() {
+        let mut set = mao_formats::npc::Template::default();
+        set.sounds = vec![(0x1e, 9)];
+        assert_eq!(death(Some((&set, 4)), 2), Some(9));
+        assert_eq!(death(None, 3), Some(sound_id("SM_Sandy_Game_FemaleDies")));
+        assert_eq!(death(None, 1), Some(sound_id("SM_Sandy_Game_MaleDies")));
+        assert_eq!(death(Some((&mao_formats::npc::Template::default(), 0)), 3), None);
     }
 
     #[test]

@@ -227,6 +227,8 @@ struct World {
     /// What the last attack of each (attacker, place) put on the place's weapon (FUN_1006ae3c: the target, the hit type +0x2c
     /// and the damage +0x30), for the attack notes' sounds (FUN_1009b9f3).
     attacks: BTreeMap<(u32, u32), (u32, i32, i64)>,
+    /// The characters that died since the last frame, for their death's sound (`CharDie_t`, FUN_1007b803).
+    died: Vec<u32>,
     /// Each character's last attack (`AttackInfo`, `MissedAttackInfo`, `SpecialAttackInfo`): the weapon's place, when, a count
     /// picking the swing, and the animation class (0xb, or a special's).
     swings: BTreeMap<u32, (u32, Instant, u32, u32)>,
@@ -626,6 +628,7 @@ impl World {
             let action = u32::from_be_bytes(m.data[21..25].try_into().unwrap());
             self.dead.insert(m.identity.1, (action, Instant::now()));
             self.fighting.remove(&m.identity.1);
+            self.died.push(m.identity.1);
         }
         if m.kind == 0x36510078 {
             self.dead.remove(&m.identity.1);
@@ -3630,8 +3633,16 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 let (model, mut casters) = overlay_model(&state, &state.props, &mut characters, &|id| id != own && near(id));
                 let (own_model, own_casters) = overlay_model(&state, &state.props, &mut characters, &|id| id == own);
                 // The notes the animations went past play their sounds at the characters (FUN_100452d3), on the material
-                // under each one.
+                // under each one; and the deaths theirs.
                 if let Some(c) = &mut characters {
+                    for id in std::mem::take(&mut state.died) {
+                        let Some(at) = (if id == own { Some(position) } else { state.position_of(id) }) else { continue };
+                        let info = state.infos.get(&id);
+                        let set = info.and_then(|i| i.template).and_then(|t| c.set_of(t));
+                        if let Some(sound) = crate::sounds::death(set.map(|s| (s, sound_rand.next() as u32)), info.map_or(0, |i| i.sex)) {
+                            crate::audio::with(|m| m.play_game_sound(sound, at, 0.0, 1.0, 0, 0.0, 100, 1, 0, [0.0; 3]));
+                        }
+                    }
                     for (id, event, template) in std::mem::take(&mut c.notes) {
                         let Some(at) = (if id == own { Some(position) } else { state.position_of(id) }) else { continue };
                         let set = template.and_then(|t| c.set_of(t)).map(|t| (t, sound_rand.next() as u32));
