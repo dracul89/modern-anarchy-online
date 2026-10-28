@@ -74,7 +74,7 @@ Added after the overnight run, on request: audio through rodio, ported from the 
 
 | Commit | What | What to try |
 |---|---|---|
-| (next) | **GUI.dll's view system, step 3**: the text views' markup, word wrap and links (`HTMLParser_c`, `TextRenderer_c`) | `MAO_UI_PREVIEW=view MAO_VIEW=Skills.xml ... --image x.png`: the Skills window's help text as the original shows it |
+| 8b79b1a | **GUI.dll's view system, step 3**: the text views' markup, word wrap and links (`HTMLParser_c`, `TextRenderer_c`) | `MAO_UI_PREVIEW=view MAO_VIEW=Skills.xml ... --image x.png`: the Skills window's help text as the original shows it |
 | 28a030f | **GUI.dll's view system, step 2**: XML windows drawn and clickable (border views, buttons, check boxes, pictures, plain text) | `MAO_UI_PREVIEW=view MAO_VIEW=Skills.xml mao-client <game> map 566 --image x.png` |
 | ed626d8 | **GUI.dll's view system, step 1**: the view tree, its horizontal/vertical layouts and the XML loader for the skin's `Views/*.xml` (`gui/`); not drawn yet | nothing to see yet |
 | e963eaf | **The game's resource index repaired** (your install, not the code): 1836 of the 2006 index entries that pointed at no record or another texture now point at their own records; the old index is kept as `ResourceDatabase.idx.before_repair`. 170 textures have no record anywhere and stay missing | textures that were white or wrong (e.g. some sky/pinging glows, sewer tiles): in the new client and in the original; if anything breaks, copy the `.before_repair` file back over `ResourceDatabase.idx` |
