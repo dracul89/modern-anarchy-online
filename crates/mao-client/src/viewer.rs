@@ -406,6 +406,8 @@ struct App {
     trails: std::collections::HashMap<(u32, u32, usize), (crate::effects::TrailState, bool)>,
     /// Each character's place a moment ago (and when), and its vehicle's motion for the toggles (`GfxControlToggle_t`).
     motions: std::collections::HashMap<u32, ([f32; 3], f32, crate::effects::Motion)>,
+    /// How far the camera is shaken this frame (`GfxControlGroundShake_t`), and a count of frames for its random direction.
+    shake: (f32, u32),
     /// The character's position and speed at the last update, and when it arrived (for the prediction).
     own_base: [f32; 3],
     own_velocity: [f32; 3],
@@ -478,7 +480,7 @@ pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<()
     let settings = Settings::load();
     crate::ui::set_debug_overlay(settings.debug_overlay);
     crate::font::set_enabled(settings.original_font);
-    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), trails: Default::default(), motions: Default::default(), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, casters: Vec::new(), follow_shift: [0.0; 3], environment: Default::default(), wind: Default::default(), wind_at: std::time::Instant::now(), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
+    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), trails: Default::default(), motions: Default::default(), shake: (0.0, 0), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, casters: Vec::new(), follow_shift: [0.0; 3], environment: Default::default(), wind: Default::default(), wind_at: std::time::Instant::now(), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
     event_loop.run_app(&mut app).map_err(|e| e.to_string())?;
     if app.logged_out {
         // (the launcher that started the game sees this code and shows the character screen again)
@@ -1187,6 +1189,11 @@ impl ApplicationHandler for App {
                     self.pulses.begin_frame();
                     let mut meshes = Vec::new();
                     let mut rocks = Vec::new();
+                    let eye_now = {
+                        let e = w.camera.eye();
+                        [e.x, e.y, e.z]
+                    };
+                    let mut shaking = 0.0f32;
                     let terrain = self.ground.clone();
                     let ground = |x: f32, y: f32| terrain.as_ref().map(|(t, o)| t.height_at(x, y, t.height_scale) + o);
                     for (id, own, at, heading, body, auras) in &self.auras {
@@ -1227,6 +1234,7 @@ impl ApplicationHandler for App {
                                 let atrox = body.is_some_and(|b| b.0 == 4);
                                 meshes.extend(crate::effects::visual_meshes(aura, crate::effects::Locator::feet(feet, heading), age, &|attach| crate::effects::Locator::attractor(attach, attractors)).into_iter().map(|(m, l, t)| (m, l, t, atrox)));
                                 shells.extend(crate::effects::visual_ground_shells(aura, feet, age, &ground));
+                                shaking = shaking.max(crate::effects::shake(aura, feet, age, eye_now));
                                 rocks.extend(crate::effects::visual_rocks(aura, feet, age).into_iter().map(|(r, at, t)| (r, at, t, id ^ nano.rotate_left(16))));
                                 // (the trails, each keeping its samples from frame to frame)
                                 let forward = [heading.sin(), heading.cos(), 0.0];
@@ -1241,6 +1249,7 @@ impl ApplicationHandler for App {
                         }
                     }
                     self.pulses.end_frame();
+                    self.shake.0 = shaking;
                     // (a trail that did not run this frame has ended)
                     self.trails.retain(|_, (_, ran)| std::mem::take(ran));
                     // (a cast effect emits for a second and lives out its particles' lives)
@@ -1274,6 +1283,7 @@ impl ApplicationHandler for App {
                                 let attractors = c.as_ref().map_or(&[][..], |c| c.attractors.as_slice());
                                 meshes.extend(crate::effects::visual_meshes(hit, crate::effects::Locator::feet(shot.to, 0.0), landed, &|attach| crate::effects::Locator::attractor(attach, attractors)).into_iter().map(|(m, l, t)| (m, l, t, false)));
                                 shells.extend(crate::effects::visual_ground_shells(hit, shot.to, landed, &ground));
+                                shaking = shaking.max(crate::effects::shake(hit, shot.to, landed, eye_now));
                                 rocks.extend(crate::effects::visual_rocks(hit, shot.to, landed).into_iter().map(|(r, at, t)| (r, at, t, shot.to[0].to_bits() ^ shot.to[1].to_bits().rotate_left(7))));
                             }
                         }
@@ -1362,6 +1372,18 @@ impl ApplicationHandler for App {
                 w.renderer.sharpness = self.settings.sharpness;
                 // The camera stays above the ground (else the ground's back is culled and the sky shows through it).
                 let mut camera = w.camera;
+                // (a ground shake moves the eye by a random vector of its size each frame: `n3Camera_t` +0x1d4)
+                if self.shake.0 > 0.0 {
+                    self.shake.1 = self.shake.1.wrapping_add(1);
+                    let r = |salt: u32| {
+                        let mut x = self.shake.1.wrapping_mul(0x9e37_79b1) ^ salt.wrapping_mul(0x85eb_ca6b);
+                        x ^= x >> 15;
+                        x = x.wrapping_mul(0x2c1b_3c6d);
+                        x ^= x >> 12;
+                        (x & 0xffff) as f32 / 65535.0 * 2.0 - 1.0
+                    };
+                    camera.target += mao_render::glam::Vec3::new(r(1), r(2), r(3)) * self.shake.0;
+                }
                 if let Some((terrain, offset)) = &self.ground {
                     for _ in 0..24 {
                         let eye = camera.eye();

@@ -739,3 +739,5 @@ Spiral2 (`GfxControlSpiral2_t`, kind 3033) winds ribbons of light round the targ
 TParticle2 (`GfxControlTParticle2_t`, kind 3031) throws the same particles as BParticle2 but draws each as a streak along its flight, bright at its head and fading to its tail (`effects::tparticle2_shells`).
 
 The Rage buffs (Berserk, Incandescent and Fell Rage) burn (`_GfxControlFire_t`, kind 1004, `effects::fire_particles`): sixteen flames a second off a disc just behind the character, streaming back from it and shrinking over a second, pushed by the wind.
+
+Ground shakes (`GfxControlGroundShake_t`, kind 3032) shake the camera: its eye jitters each frame by up to the effect's curve (a fifth of a unit for the commonest), less the further the camera is from the effect, to nothing at thirty units (`effects::shake`, from Gamecode's FUN_1010f12a).

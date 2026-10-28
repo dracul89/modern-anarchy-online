@@ -2212,6 +2212,24 @@ pub fn bparticles_states(b: &BParticles, time: f32) -> Vec<BState> {
     out
 }
 
+/// How far the camera is shaken `t` seconds into a visual at `at` (world, Z up) seen from `eye` (FUN_1010f12a): a ground shake's
+/// curve at the fraction of its duration times `(reach − d) / reach`, `d` the eye's distance held to the reach; the strongest of
+/// a bundle's.
+pub fn shake(v: &Visual, at: [f32; 3], t: f32, eye: [f32; 3]) -> f32 {
+    match v {
+        Visual::GroundShake { duration, reach, curve } => {
+            if t < 0.0 || *duration <= 0.0 || t > *duration || *reach <= 0.0 {
+                return 0.0;
+            }
+            let d = ((eye[0] - at[0]).powi(2) + (eye[1] - at[1]).powi(2) + (eye[2] - at[2]).powi(2)).sqrt().min(*reach);
+            mao_formats::gfx::key_curve(curve, t / duration) * (reach - d) / reach
+        }
+        Visual::Meta(children) => children.iter().map(|c| shake(c, at, t, eye)).fold(0.0, f32::max),
+        Visual::Delayed(child, start) => shake(child, at, t - start, eye),
+        _ => 0.0,
+    }
+}
+
 /// `_GfxControlFire_t`'s flames `time` seconds in, for a dynel whose feet are at `feet` (world, Z up) facing `heading`, as
 /// FUN_100dbed5 makes them and `GfxVisualSprite2Type0::ProcessSprites` moves them: one each time `rate × τ` passes a whole number
 /// (none a life before the duration), at a random point `p` of the unit sphere: placed at `(p.x r, p.z r, 0)` in the dynel's frame
@@ -2666,6 +2684,7 @@ impl Shot {
                 Visual::VulcanRocks(_) => ROCKS_LAST,
                 Visual::TParticle(p) => p.duration.max(0.0),
                 Visual::SkyFlash(s) => s.length(),
+                Visual::GroundShake { duration, .. } => duration.max(0.0),
                 Visual::Spiral2(s) => s.duration.max(0.0),
                 Visual::Meta(children) => children.iter().map(rings).fold(0.0, f32::max),
                 _ => 0.0,
@@ -2755,6 +2774,8 @@ pub fn visual_particles(v: &Visual, feet: [f32; 3], time: f32, reach: Reach) -> 
         // (crossed strips and cones: see `tparticle_shells`, `skyflash_shells`)
         Visual::TParticle(_) | Visual::SkyFlash(_) | Visual::Spiral2(_) | Visual::TParticle2 { .. } => Vec::new(),
         Visual::Fire(f) => fire_particles(f, feet, 0.0, time),
+        // (it shakes the camera: see `shake`)
+        Visual::GroundShake { .. } => Vec::new(),
         Visual::Nano(n) => {
             let up = match reach {
                 Reach::Small => 0.0,
@@ -2946,6 +2967,7 @@ pub fn pulse_timing(v: &Visual) -> (f32, f32, i32) {
         Visual::TParticle(p) => if p.duration >= 0.0 { (600.0, p.duration.max(0.05), 1) } else { (600.0, 600.0, -1) },
         Visual::SkyFlash(s) => (600.0, s.length().max(0.05), 1),
         Visual::Fire(f) => if f.duration >= 0.0 { (600.0, f.duration.max(0.05), 1) } else { (600.0, 600.0, -1) },
+        Visual::GroundShake { duration, .. } => (600.0, duration.max(0.05), 1),
         Visual::Spiral2(s) => if s.duration > 0.0 { (600.0, s.duration, 1) } else { (600.0, 600.0, -1) },
         Visual::TParticle2 { particles, .. } => pulse_timing(&Visual::BParticles(particles.clone())),
         // (a nano makes sprites until a life before its duration, and its last ones live out their lives; for ever without one)
@@ -3545,6 +3567,16 @@ mod tests {
         assert!(n > 0 && s[0].vertices.len() <= n * 12);
         // (the head is the brighter end: the head curve's white)
         assert!(s[0].vertices.iter().any(|v| v.colour == [1.0, 1.0, 1.0, 1.0]));
+    }
+
+    #[test]
+    fn a_ground_shake_is_strongest_near_and_follows_its_curve() {
+        // (template 72380: 2.3 s, felt to 30 away, up to 0.2)
+        let v = Visual::GroundShake { duration: 2.3, reach: 30.0, curve: vec![(0.0, 0.0), (0.1, 0.2), (0.9, 0.2), (1.0, 0.0)] };
+        assert!((shake(&v, [0.0; 3], 1.0, [0.0; 3]) - 0.2).abs() < 1e-5);
+        assert!((shake(&v, [0.0; 3], 1.0, [15.0, 0.0, 0.0]) - 0.1).abs() < 1e-5);
+        assert_eq!(shake(&v, [0.0; 3], 1.0, [40.0, 0.0, 0.0]), 0.0);
+        assert_eq!(shake(&v, [0.0; 3], 2.4, [0.0; 3]), 0.0);
     }
 
     #[test]

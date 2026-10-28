@@ -1911,6 +1911,11 @@ pub enum Visual {
     Spiral2(Spiral2),
     /// Flames off a disc at the point (kind 1004, `_GfxControlFire_t`).
     Fire(Fire),
+    /// Kind 3032, `GfxControlGroundShake_t` (FUN_1010f333; FUN_1010eff5 the words, FUN_1010f12a the run): the camera's eye shaken
+    /// by a random vector each frame (`n3Camera_t` +0x1d4 then `UpdateTargetEye`), as large as the curve (from word 13) at the
+    /// fraction of the duration (word 8) times `(reach − d) / reach`, `d` the eye's distance from the point held to the reach
+    /// (word 12).
+    GroundShake { duration: f32, reach: f32, curve: Vec<(f32, f32)> },
     /// Kind 3031, `GfxControlTParticle2_t` (FUN_1011490c; FUN_1011373d the words, those of `GfxControlBParticle2_t` up to word 33,
     /// then its two colour curves from word 34; FUN_10113b55 the run): `BParticles`' particles, each drawn as a
     /// `GfxVisualTParticle2` streak from its place along its velocity times word 14 (its `length`; the run does not damp the
@@ -2070,6 +2075,11 @@ impl Gfx {
             3006 => SkyFlash::read(r).map(Visual::SkyFlash),
             3033 => Spiral2::read(r).map(Visual::Spiral2),
             1004 => Fire::read(r).map(Visual::Fire),
+            3032 if r.payload.len() >= 14 => {
+                let n = r.int(13).clamp(0, 64) as usize;
+                let curve = (0..n).map(|k| (r.float(14 + 2 * k), r.float(15 + 2 * k))).collect();
+                Some(Visual::GroundShake { duration: r.float(8), reach: r.float(12), curve })
+            }
             3031 => {
                 // (its curves follow word 33, a word sooner than `BParticles`')
                 let particles = BParticles::read(r)?;
