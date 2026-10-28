@@ -1576,6 +1576,27 @@ pub(crate) fn ride_preview(db: Arc<ResourceDatabase>, breed: u8, sex: u8, nano: 
     for (name, m) in attractors.iter().filter(|(n, _)| n.contains("special") || n.contains("head")) {
         eprintln!("  {name} at {:.2} {:.2} {:.2}, axes {:.2?} {:.2?} {:.2?}", m[12], m[13], m[14], &m[0..3], &m[4..7], &m[8..11]);
     }
+    // (`MAO_PROBE=x,y,z;...`, Z up: the nearest vertex of the posed body to each point, and the body's extent there)
+    if let Ok(probe) = std::env::var("MAO_PROBE") {
+        let points: Vec<[f32; 3]> = parts.iter().flat_map(|p| p.vertices.iter().map(|v| [v.position[0], v.position[2], v.position[1]])).collect();
+        for q in probe.split(';') {
+            let c: Vec<f32> = q.split(',').filter_map(|n| n.trim().parse().ok()).collect();
+            let [x, y, z] = c[..] else { continue };
+            let near = points.iter().map(|p| ((p[0] - x).powi(2) + (p[1] - y).powi(2) + (p[2] - z).powi(2)).sqrt()).fold(f32::MAX, f32::min);
+            let column: Vec<f32> = points.iter().filter(|p| (p[0] - x).abs() < 0.15 && (p[1] - y).abs() < 0.15).map(|p| p[2]).collect();
+            let (lo, hi) = column.iter().fold((f32::MAX, f32::MIN), |(a, b), &h| (a.min(h), b.max(h)));
+            eprintln!("  probe {x:.2} {y:.2} {z:.2}: nearest vertex {near:.2}, body from {lo:.2} to {hi:.2} above it");
+        }
+        let (ymin, ymax) = points.iter().fold((f32::MAX, f32::MIN), |(a, b), p| (a.min(p[1]), b.max(p[1])));
+        eprintln!("  body from {ymin:.2} to {ymax:.2} along its length");
+    }
+    // (each special attractor's own placement and the bone it hangs on)
+    if let Some(Some((_, mesh, _))) = chars.creatures.get(&template) {
+        for a in mesh.groups.iter().flat_map(|g| &g.attractors).filter(|a| a.name.contains("special")) {
+            let bone = usize::try_from(a.extra).ok().and_then(|b| mesh.bones.get(b)).map_or("-", |b| b.name.as_str());
+            eprintln!("  {} placed {:.3?} on bone {} ({bone})", a.name, a.values, a.extra);
+        }
+    }
     let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     let model = Model { instances: (0..parts.len()).map(|i| (i, swap)).collect(), parts, water: None, lod_groups: Vec::new() };
     crate::viewer::headless_on(&model, &crate::Textures::new(db), out, None, &attractors, breed == mao_formats::appearance::ATROX)
