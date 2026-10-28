@@ -816,8 +816,9 @@ indoors or in the air (more than 0.1 above the height of the tile's corner), els
 (0xf4258:1). The game's own table is version 3, which N3.dll's reader skips (only versions 1 and 2 are read, 0x1001c582), so in
 the original, and here, every ground tile is material 0, which `MapGameMaterialToSoundMaterial` makes 3. In a liquid (`liquid.rs`,
 the character under the surface: the vehicle's +0x10c depth and +0x110 type) a step is on material 10 for liquid type 2, 11 for
-type 6, else 8 deeper than 0.35 and 9 shallower, and a landing makes no sound. Not followed: a fly-mode step at a quarter of the
-volume, the landing's dust.
+type 6, else 8 deeper than 0.35 and 9 shallower, and a landing makes no sound. A landing (without an animation set's own sound) starts the
+environment's effect 0x2c where it lands, 0.2 lower and kept above the ground: the lightning's splash, which shows only where
+that is in a liquid. Not followed: a fly-mode step at a quarter of the volume.
 
 **Shots and hits.** An attack's swing fires its `attack` note (0xb; `attack_effect_1..4` 0x8e..0x91), and the attack's sounds
 play as FUN_10068e42 → FUN_1009bd92 plays them, with the weapon of the place the swing used (the server's
@@ -844,7 +845,9 @@ GUI.dll's `CharacterLoggedInMessage` starts it) at login, then once a second the
 0.4 of the strongest precipitation the 7th, of the weather's entry 0 the 6th, of entry 1 the 5th, else for the day's period:
 dawn, day, dusk or night); in a fight, the battle layers (`ProcessCombatMusic` over the character's reports, FUN_10059c7d: its
 health in percent, its level). The sound preferences (volumes, mutes, the battle music mode) come from the GUI's
-`LoginPrefs.xml`. `mao-client music <game> <layer> [seconds]` plays a layer and prints the samples. Not followed: the playfield's music override and land control's layer, indoor rooms' zones.
+`LoginPrefs.xml`. `mao-client music <game> <layer> [seconds]` plays a layer and prints the samples. The server can override a district's music for a while (a
+`ScriptIIR_t` of type 3: the music's layer name, the district's name, a start and a length; type 1 ends the last), which then
+plays in its place. Not followed: the other script events (FXS scripts) and land control's layer, indoor rooms' zones.
 
 **Environment sounds.** The world sounds as `Environment_t`'s frame (FUN_100becbe) plays it, every frame through
 `PlayEnvSound` (`ambience.rs`): the district's background for the time of day, `SM_Sandy_Env_Background<Night|Dawn|Day|Dusk>_<district>`

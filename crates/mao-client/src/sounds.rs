@@ -202,16 +202,123 @@ impl DistrictMap {
     }
 
     /// FUN_100b72bf's district sound and music layer at a position and hour under the weather: the district of the
-    /// character's zone (indoors zone 0: the client keeps no rooms' zones), its music of the slot [`music_slot`] picks, held
-    /// to 0..0xffff. (The playfield's music override and the land control layer, -911, are not followed.)
-    pub fn music(&self, position: [f32; 3], hour: i32, weather: &[f32; 14]) -> Option<(u32, i32)> {
+    /// character's zone (indoors zone 0: the client keeps no rooms' zones), its music of the slot [`music_slot`] picks, or
+    /// the layer `over` finds for the district's name (the playfield's override, `GetDistrictMusicOverride` then
+    /// `FindLayerID`), 0xffff when out of 0..0xffff. (The land control layer, -911, is not followed.)
+    pub fn music(&self, position: [f32; 3], hour: i32, weather: &[f32; 14], over: impl FnOnce(&str) -> Option<i32>) -> Option<(u32, i32)> {
         let zone = match self.grid {
             Some((w, h, tile, size)) => mao_formats::districts::zone_at(position, tile, w, h, size),
             None => 0,
         };
         let d = self.districts.of_zone(zone)?;
-        let layer = d.music[music_slot(hour, weather)] as i32;
+        let layer = over(&d.name).unwrap_or(d.music[music_slot(hour, weather)] as i32);
         Some((d.music[0] as u32, if (0..=0xffff).contains(&layer) { layer } else { 0xffff }))
+    }
+}
+
+/// A `ScriptIIR_t` (0x204f4871): what FUN_101308ee reads after the header byte, big-endian: three words (+0x18, +0x1c, the
+/// type +0x20), a text (+0x24: a 16-bit length and the bytes, FUN_10038af8; none past 0x7fff), the start, the length and
+/// the server's time it was sent (+0x40, +0x44, +0x48, seconds), a text (+0x4c) and a place (+0x68, +0x6c).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ScriptIir {
+    pub words: [i32; 2],
+    pub kind: i32,
+    pub script: String,
+    pub start: i32,
+    pub length: i32,
+    pub sent: i32,
+    pub name: String,
+    pub place: [i32; 2],
+}
+
+/// The message kind of a `ScriptIIR_t`.
+pub const SCRIPT_IIR: u32 = 0x204f4871;
+
+impl ScriptIir {
+    pub fn parse(data: &[u8]) -> Option<ScriptIir> {
+        let mut at = 1;
+        let mut word = || {
+            let w = i32::from_be_bytes(data.get(at..at + 4)?.try_into().ok()?);
+            at += 4;
+            Some(w)
+        };
+        let (a, b, kind) = (word()?, word()?, word()?);
+        let text = |at: &mut usize| {
+            let n = u16::from_be_bytes(data.get(*at..*at + 2)?.try_into().ok()?) as usize;
+            *at += 2;
+            if n >= 0x8000 {
+                return None;
+            }
+            let s = String::from_utf8_lossy(data.get(*at..*at + n)?).into_owned();
+            *at += n;
+            Some(s)
+        };
+        let script = text(&mut at)?;
+        let w = |at: &mut usize| {
+            let v = i32::from_be_bytes(data.get(*at..*at + 4)?.try_into().ok()?);
+            *at += 4;
+            Some(v)
+        };
+        let (start, length, sent) = (w(&mut at)?, w(&mut at)?, w(&mut at)?);
+        let name = text(&mut at)?;
+        let place = [w(&mut at)?, w(&mut at)?];
+        Some(ScriptIir { words: [a, b], kind, script, start, length, sent, name, place })
+    }
+}
+
+/// The playfield's district music overrides (`PlayfieldAnarchy_t` +0xe0: by the `ElfHash` of a district's name, a stack of
+/// (music name, when it ends; 0 or less never)), set by a `ScriptIIR_t` of type 3 and popped by one of type 1 (FUN_10130a1b),
+/// with the clock's lag behind the server's it keeps (DAT_102eaca4: the first IIR's, then any smaller).
+#[derive(Clone, Debug, Default)]
+pub struct MusicOverrides {
+    lag: Option<i32>,
+    map: std::collections::HashMap<u32, Vec<(String, i32)>>,
+}
+
+impl MusicOverrides {
+    /// FUN_10130a1b at `now` (`GameTime_t` +0xb4, the server's seconds: `Clock::server_time`): type 3 pushes the IIR's script text as its name's override for
+    /// the start (moved by the lag) plus the length less now, `SetDistrictMusicOverride` making it an end (when over 0); type
+    /// 1 pops its name's last (`PopDistrictMusicOverride`; the original only when its script made nothing, which the client
+    /// runs none of). The other types run FXS scripts, not here.
+    pub fn script(&mut self, iir: &ScriptIir, now: i32) {
+        let behind = now.wrapping_sub(iir.sent);
+        let lag = match self.lag {
+            Some(l) if l <= behind => l,
+            _ => behind,
+        };
+        self.lag = Some(lag);
+        let start = iir.start.wrapping_add(lag);
+        let key = mao_formats::ldb::elf_hash(&iir.name);
+        match iir.kind {
+            3 => {
+                let left = iir.length.wrapping_sub(now).wrapping_add(start);
+                let end = if 0 < left { left.wrapping_add(now) } else { left };
+                self.map.entry(key).or_default().push((iir.script.clone(), end));
+            }
+            1 => {
+                if let Some(s) = self.map.get_mut(&key) {
+                    s.pop();
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// `GetDistrictMusicOverride(name)` at `now`: the ended overrides dropped from the top (FUN_10122d49: an end other than
+    /// 0 at or before now, as unsigned), then the top's music name, none for an empty stack.
+    pub fn get(&mut self, name: &str, now: i32) -> Option<String> {
+        let s = self.map.get_mut(&mao_formats::ldb::elf_hash(name))?;
+        while let Some(&(_, end)) = s.last() {
+            if end == 0 || (now as u32) <= (end as u32) {
+                break;
+            }
+            s.pop();
+        }
+        s.last().map(|o| o.0.clone())
+    }
+
+    pub fn clear(&mut self) {
+        self.map.clear();
     }
 }
 
@@ -591,6 +698,37 @@ mod tests {
         let n = |event: i32| Note { event, position: [0.0; 3], set: None, falling: false, material: 9, liquid: 0.5 };
         assert_eq!(note(&g, &n(0x85)), None);
         assert_eq!(note(&g, &n(0x26)), Some(Play { id: g.walk, volume: 1.0, material: 9 }));
+    }
+
+    #[test]
+    fn a_district_s_music_override() {
+        let mut data = vec![0u8];
+        let text = |d: &mut Vec<u8>, s: &str| {
+            d.extend((s.len() as u16).to_be_bytes());
+            d.extend(s.as_bytes());
+        };
+        for w in [1, 0, 3] {
+            data.extend(i32::to_be_bytes(w));
+        }
+        text(&mut data, "EP_01\\Battle_new");
+        for w in [1000, 60, 990] {
+            data.extend(i32::to_be_bytes(w));
+        }
+        text(&mut data, "Newland City");
+        data.extend([0u8; 8]);
+        let iir = ScriptIir::parse(&data).unwrap();
+        assert_eq!((iir.kind, iir.script.as_str(), iir.name.as_str(), iir.start, iir.length), (3, "EP_01\\Battle_new", "Newland City", 1000, 60));
+        // (the client 10 s behind: it starts at 1010 and ends at 1070)
+        let mut o = MusicOverrides::default();
+        o.script(&iir, 1000);
+        assert_eq!(o.get("Newland City", 1069).as_deref(), Some("EP_01\\Battle_new"));
+        assert_eq!(o.get("Other", 1069), None);
+        assert_eq!(o.get("Newland City", 1071), None);
+        // (one already over never ends; a type 1 pops it)
+        o.script(&ScriptIir { length: 0, sent: 0, start: -100, ..iir.clone() }, 1000);
+        assert!(o.get("Newland City", 5000).is_some());
+        o.script(&ScriptIir { kind: 1, ..iir.clone() }, 1000);
+        assert_eq!(o.get("Newland City", 5000), None);
     }
 
     #[test]

@@ -117,6 +117,8 @@ pub struct Update {
     pub strikes: Vec<([f32; 3], u32)>,
     /// The eye's jolts from strikes near (the quake's kick, `Quake::jolt`).
     pub jolts: Vec<f32>,
+    /// The characters' landings (server coordinates, Y up): the environment's effect 0x2c at each (`Sky::landing`).
+    pub landings: Vec<[f32; 3]>,
     /// What the server said of the specials' recharge (skill stat, seconds; 0 = ready).
     pub special_cooldowns: Vec<(u32, f32)>,
     /// The ground (and how far the server's heights sit above it), to keep the camera above it.
@@ -1094,6 +1096,9 @@ impl ApplicationHandler for App {
                         let ground = self.ground.clone();
                         for (at, seed) in std::mem::take(&mut u.strikes) {
                             self.sky.strike(at, seed, &|x, z| ground.as_ref().map(|(t, o)| t.height_at(x, z, t.height_scale) + o));
+                        }
+                        for at in std::mem::take(&mut u.landings) {
+                            self.sky.landing(at, &|x, z| ground.as_ref().map(|(t, o)| t.height_at(x, z, t.height_scale) + o));
                         }
                         for level in std::mem::take(&mut u.jolts) {
                             self.quake.jolt(level);

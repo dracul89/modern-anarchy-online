@@ -26,6 +26,8 @@ pub struct Clock {
     set: Instant,
     /// The day count (`GameTime_t` +0x4c, the weather's seed): the server's, or the days of the real clock at the pace.
     day: i32,
+    /// The server's time less the real clock's (`GameTime_t` +0xb8, `Update`'s last argument less `_time64`).
+    server_offset: i32,
 }
 
 impl Default for Clock {
@@ -33,7 +35,7 @@ impl Default for Clock {
         // (the real clock, at the game's pace, until the server says)
         let real = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64());
         let game = real * PACE as f64;
-        Clock { seconds: (game % DAY as f64) as f32, set: Instant::now(), day: (game / DAY as f64) as i32 }
+        Clock { seconds: (game % DAY as f64) as f32, set: Instant::now(), day: (game / DAY as f64) as i32, server_offset: 0 }
     }
 }
 
@@ -50,6 +52,16 @@ impl Clock {
 
     pub fn set_day(&mut self, day: i32) {
         self.day = day;
+    }
+
+    /// The server's word of its time (`GameTime_t::Update`'s last argument, seconds).
+    pub fn set_server_time(&mut self, time: i32) {
+        self.server_offset = time.wrapping_sub(unix_now());
+    }
+
+    /// The server's time now (`GameTime_t` +0xb4: `_time64` plus +0xb8, `RunFunction` each frame).
+    pub fn server_time(&self) -> i32 {
+        unix_now().wrapping_add(self.server_offset)
     }
 
     /// The day count now (the days passed since the clock was set count on).
@@ -73,6 +85,11 @@ impl Clock {
         let (hour, minute) = self.time();
         day_intensity(hour, minute)
     }
+}
+
+/// `_time64`, in seconds (the original keeps its low word).
+fn unix_now() -> i32 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i32)
 }
 
 /// `GameTime_t::GetDayIntensity`: the hour's place in dawn or dusk, with the minute's share.

@@ -235,6 +235,8 @@ struct World {
     cast_sounds: Vec<(u32, u32, f32, f32)>,
     /// The mines, traps and central controllers, for their sounds (`hazards`).
     hazards: crate::hazards::Hazards,
+    /// The playfield's district music overrides (`ScriptIIR_t`).
+    music_overrides: crate::sounds::MusicOverrides,
     /// The hazards' sounds to play: (sound, where).
     hazard_sounds: Vec<(u32, [f32; 3])>,
     /// Effects to make at a place (`CreateEffect2` at a dynel): (template, where), for the viewer.
@@ -242,6 +244,8 @@ struct World {
     /// The lightning's strikes heard (where, seed) and the eye's jolts, for the viewer.
     strikes: Vec<([f32; 3], u32)>,
     jolts: Vec<f32>,
+    /// The landings' places (Y up) for their effect 0x2c, for the viewer.
+    landings: Vec<[f32; 3]>,
     /// Each character's last attack (`AttackInfo`, `MissedAttackInfo`, `SpecialAttackInfo`): the weapon's place, when, a count
     /// picking the swing, and the animation class (0xb, or a special's).
     swings: BTreeMap<u32, (u32, Instant, u32, u32)>,
@@ -601,6 +605,7 @@ impl World {
         if let Some((seconds, period, day, server_time)) = m.game_time() {
             self.game_clock.set(seconds);
             self.game_clock.set_day(day);
+            self.game_clock.set_server_time(server_time as i32);
             let (hour, minute) = self.game_clock.time();
             eprintln!("game time: {hour:02}:{minute:02} (period {period}, day {day}, server time {server_time})");
         }
@@ -666,6 +671,12 @@ impl World {
                 self.hazards.full_update(m.kind, m.identity.1, &m.data);
             }
             crate::hazards::CONTROLLER_STATE => self.hazards.state(m.identity.1, &m.data),
+            // (a script event: FUN_10130a1b, run as it comes)
+            crate::sounds::SCRIPT_IIR => {
+                if let Some(iir) = crate::sounds::ScriptIir::parse(&m.data) {
+                    self.music_overrides.script(&iir, self.game_clock.server_time());
+                }
+            }
             crate::hazards::ACTION => {
                 let out = self.hazards.action(m.identity.1, &m.data, self.own);
                 self.hazard_sounds.extend(out.sounds);
@@ -3638,10 +3649,20 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             if district_tick.elapsed() >= Duration::from_secs(1) {
                 district_tick = Instant::now();
                 if districts.as_ref().is_none_or(|d| d.0 != current) {
+                    // (a new playfield: its own overrides)
+                    if districts.is_some() {
+                        state.music_overrides.clear();
+                    }
                     districts = Some((current, crate::sounds::DistrictMap::load(&gear_db, current)));
                 }
                 ambient_weather = crate::environment::compute(&areas, base_environment.as_ref(), position, state.game_clock.day(), state.game_clock.seconds(), state.game_clock.day_intensity()).weather;
-                let music = districts.as_ref().and_then(|d| d.1.as_ref()).and_then(|d| d.music(position, state.game_clock.time().0, &ambient_weather));
+                let (overrides, now) = (&mut state.music_overrides, state.game_clock.server_time());
+                let over = |name: &str| {
+                    // (FindLayerID of a named override, when the sound system is up)
+                    let o = overrides.get(name, now).filter(|o| !o.is_empty())?;
+                    crate::audio::with(|m| m.find_layer(&o))
+                };
+                let music = districts.as_ref().and_then(|d| d.1.as_ref()).and_then(|d| d.music(position, state.game_clock.time().0, &ambient_weather, over));
                 if let Some((district, layer)) = music {
                     crate::audio::with(|m| m.activate_env_zone(district, layer));
                 }
@@ -3926,6 +3947,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         let note = crate::sounds::Note { event, position: at, set, falling: id == own && airborne, material, liquid };
                         if let Some(p) = crate::sounds::note(&generic, &note) {
                             crate::audio::with(|m| m.play_game_sound(p.id, at, 0.0, p.volume, p.material, 0.0, 100, 1, 0, [0.0; 3]));
+                            // (FUN_100452d3: a landing played without a set starts the environment's effect 0x2c there)
+                            if event == 0x85 && set.is_none() {
+                                state.landings.push(at);
+                            }
                         }
                     }
                 }
@@ -4129,6 +4154,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     ),
                     strikes: std::mem::take(&mut state.strikes),
                     jolts: std::mem::take(&mut state.jolts),
+                    landings: std::mem::take(&mut state.landings),
                     flares: std::mem::take(&mut state.placed_effects)
                         .into_iter()
                         .filter_map(|(id, at)| Some(([at[0], at[2], at[1]], mao_formats::gfx::Flare::read(gfx.as_ref()?.get(id)?)?)))

@@ -231,6 +231,18 @@ impl Sky {
         self.rocks.push(Rock { mesh, at, velocity, axis, spin, angle: 0.0, bounces: 7, done: false, wet: false });
     }
 
+    /// A landing's effect (FUN_100452d3: `SetFXPos` the vehicle's place, `SetFXForce`, then FUN_100afc4c's 0x2c): its splash at
+    /// the place 0.2 lower and kept above the ground, which shows only where that is in a liquid (the landing itself is
+    /// silent and makes none under the surface).
+    pub fn landing(&mut self, at: [f32; 3], ground: &dyn Fn(f32, f32) -> Option<f32>) {
+        let mut p = at;
+        p[1] -= 0.2;
+        if let Some(h) = ground(p[0], p[2]) {
+            p[1] = p[1].max(h);
+        }
+        self.splash(p, &crate::liquid::current());
+    }
+
     /// FUN_100f5c5c: a splash made at `at` (Y up) moved by its offset, kept when a liquid (not of type 2) is there at or above
     /// it, and then put on its surface (FUN_100f5a77).
     fn splash(&mut self, at: [f32; 3], liquid: &Option<std::sync::Arc<crate::liquid::Liquid>>) {
