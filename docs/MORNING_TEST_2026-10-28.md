@@ -74,7 +74,7 @@ Added after the overnight run, on request: audio through rodio, ported from the 
 
 | Commit | What | What to try |
 |---|---|---|
-| (next) | **A bolt's rocks**: lightning bolts throw little rocks from where they hit, which bounce away | watch a strike near you in a storm |
+| 857166d | **A bolt's rocks**: lightning bolts throw little rocks from where they hit, which bounce away | watch a strike near you in a storm |
 | a58ce7e | **Vicinity speech sent**: plain text, `/s` and `/w` are said to the people around; `/voice` lines go there too | type a line; `/s hello`; `/voice heal`; check that others (or the line coming back) show it |
 | 2fe5f13 | **/voice**: speak a voice line to your org channel; you and org mates with "hear guild" on hear it | `/voice heal` (or help, inc, no, run, yes) while in an organization |
 | 5f8561a | **Lightning's light and jolt**: strikes flash across the sky with bolts to the ground; a near one shakes the camera and rumbles | stand outdoors in a storm; watch the sky |
