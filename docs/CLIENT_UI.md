@@ -986,3 +986,12 @@ brings back their textures.
 scaled as the original's environment scales them) as well as against your movement. The scripts' texture transforms are
 followed, but the thick clouds' and horizon's scrolling never comes to anything, in the original as here: their matrices name
 `This.ScrollMatrix`, which a state blob's transform cannot reach, so they stay still and untiled.
+
+**The resource database (this install).** The texture pack installed on 2026-08-01 left the database inconsistent: the main
+`.dat`'s header (restored from a backup of 2026-07-31) counts 3 of the 14 segment files, and 2006 of the index's 460193 entries
+pointed at no record or at another key's. `mao-formats` examples find and fix it: `dbbroken` groups the broken entries,
+`dbscan` scans every segment for their records (`docs/db-repair/dbscan.txt`: one intact copy each for 1836 keys), `dbverify`
+decodes them, `dbmissing` names the 170 found nowhere (`docs/db-repair/dbmissing.txt`: their positions in segments 0, 4 and 8,
+the part the restored main file overwrote), and `dbrepair <game> [--write]` rewrites only the leaf
+entries' position words, after checking each new position holds that key's record and no other entry's, keeping the old index as
+`ResourceDatabase.idx.before_repair`. Done on 2026-10-28: 170 broken entries are left. The main `.dat`'s header was not touched.
