@@ -730,7 +730,7 @@ fn whompah_window(ctx: &egui::Context, open: &mut bool, hud: &Hud, palette: &Pal
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new(&label.text).strong());
                 ui.label(egui::RichText::new(format!("{distance:.0} m")).weak());
-                if ui.button("Go").on_hover_text("Walk to the booth (any movement key stops)").clicked() {
+                if crate::chrome::button(ui, palette, "Go", true).on_hover_text("Walk to the booth (any movement key stops)").clicked() {
                     requests.goto = Some([label.world.x, label.world.y]);
                 }
             });
@@ -1123,7 +1123,7 @@ fn options_window(ctx: &egui::Context, open: &mut bool, rebinding: &mut Option<A
             ui.add(egui::DragValue::new(&mut settings.width).range(640..=7680).speed(8));
             ui.label("x");
             ui.add(egui::DragValue::new(&mut settings.height).range(480..=4320).speed(8));
-            if ui.button("Apply").clicked() {
+            if crate::chrome::button(ui, palette, "Apply", true).clicked() {
                 requests.size = Some((settings.width, settings.height));
             }
         });
@@ -1200,18 +1200,18 @@ fn options_window(ctx: &egui::Context, open: &mut bool, rebinding: &mut Option<A
         });
         ui.separator();
         ui.horizontal(|ui| {
-            if ui.button("Default keys").clicked() {
+            if crate::chrome::button(ui, palette, "Default keys", true).clicked() {
                 settings.keymap = crate::settings::Keymap::default();
                 requests.save = true;
             }
-            if ui.button("Save settings").clicked() {
+            if crate::chrome::button(ui, palette, "Save settings", true).clicked() {
                 requests.save = true;
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("Quit game").clicked() {
+                if crate::chrome::button(ui, palette, "Quit game", true).clicked() {
                     requests.quit = true;
                 }
-                if ui.button("Resume").clicked() {
+                if crate::chrome::button(ui, palette, "Resume", true).clicked() {
                     close = true;
                 }
             });

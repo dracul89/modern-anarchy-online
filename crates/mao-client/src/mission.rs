@@ -165,7 +165,7 @@ impl MissionWindow {
                 });
             }
             ui.horizontal(|ui| {
-                if ui.button("Request Missions").clicked() {
+                if crate::chrome::button(ui, palette, "Request Missions", true).clicked() {
                     command = Command { what: 1, sliders: self.sliders, mission: (0, 0) };
                     self.status = "Asking the booth ...".into();
                 }
@@ -194,13 +194,13 @@ impl MissionWindow {
             }
             ui.horizontal(|ui| {
                 let can = self.selected.is_some_and(|s| s < self.offers.len());
-                if ui.add_enabled(can, egui::Button::new("Accept Mission")).clicked() {
+                if crate::chrome::button(ui, palette, "Accept Mission", can).clicked() {
                     if let Some(offer) = self.selected.and_then(|s| self.offers.get(s)) {
                         command = Command { what: 2, sliders: self.sliders, mission: offer.id };
                         self.status = format!("Accepting {} ...", offer.title);
                     }
                 }
-                if ui.button("Cancel").clicked() {
+                if crate::chrome::button(ui, palette, "Cancel", true).clicked() {
                     close = true;
                 }
             });

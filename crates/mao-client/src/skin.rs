@@ -140,6 +140,31 @@ impl Skin {
         true
     }
 
+    /// Draws a `BorderView_c` (GUI.dll) of `<prefix>_TL`, `_TOP`, `_TR`, `_LEFT`, `_RIGHT`, `_BL`, `_BOTTOM`, `_BR` round `rect`, the
+    /// corners at their size and the sides stretched between them, and `<prefix>_BACKGROUND` stretched inside them when
+    /// `background`; false when a piece is missing.
+    pub fn nine_slice(&self, painter: &egui::Painter, prefix: &str, rect: egui::Rect, tint: egui::Color32, background: bool) -> bool {
+        let get = |name: &str| self.get(&format!("{prefix}_{name}"));
+        let (Some(tl), Some(top), Some(tr), Some(left), Some(right), Some(bl), Some(bottom), Some(br)) = (get("TL"), get("TOP"), get("TR"), get("LEFT"), get("RIGHT"), get("BL"), get("BOTTOM"), get("BR")) else { return false };
+        let uv = egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0));
+        let (l, t, r, b) = (rect.left(), rect.top(), rect.right(), rect.bottom());
+        let mut piece = |s: &Sprite, at: egui::Rect| painter.image(s.texture.id(), at, uv, tint);
+        if background {
+            if let Some(bg) = get("BACKGROUND") {
+                piece(&bg, egui::Rect::from_min_max(egui::pos2(l + left.size.x, t + top.size.y), egui::pos2(r - right.size.x, b - bottom.size.y)));
+            }
+        }
+        piece(&top, egui::Rect::from_min_max(egui::pos2(l + tl.size.x, t), egui::pos2(r - tr.size.x, t + top.size.y)));
+        piece(&bottom, egui::Rect::from_min_max(egui::pos2(l + bl.size.x, b - bottom.size.y), egui::pos2(r - br.size.x, b)));
+        piece(&left, egui::Rect::from_min_max(egui::pos2(l, t + tl.size.y), egui::pos2(l + left.size.x, b - bl.size.y)));
+        piece(&right, egui::Rect::from_min_max(egui::pos2(r - right.size.x, t + tr.size.y), egui::pos2(r, b - br.size.y)));
+        piece(&tl, egui::Rect::from_min_size(egui::pos2(l, t), tl.size));
+        piece(&tr, egui::Rect::from_min_size(egui::pos2(r - tr.size.x, t), tr.size));
+        piece(&bl, egui::Rect::from_min_size(egui::pos2(l, b - bl.size.y), bl.size));
+        piece(&br, egui::Rect::from_min_size(egui::pos2(r - br.size.x, b - br.size.y), br.size));
+        true
+    }
+
     /// Draws a sprite stretched over `rect`.
     pub fn draw_in(&self, painter: &egui::Painter, name: &str, rect: egui::Rect, tint: egui::Color32) -> bool {
         match self.get(name) {

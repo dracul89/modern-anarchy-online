@@ -76,7 +76,7 @@ impl LootWindow {
                 }
             });
             ui.separator();
-            if ui.button("Take all").clicked() {
+            if crate::chrome::button(ui, palette, "Take all", true).clicked() {
                 take = Some(Take::All { handle: view.handle });
             }
             if view.identity.0 != CORPSE {

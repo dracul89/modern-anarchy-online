@@ -225,6 +225,38 @@ pub fn scroll<R>(ui: &mut egui::Ui, palette: &Palette, area: egui::ScrollArea, a
     out.inner
 }
 
+/// The size `Button_c::CalculatePreferredSize` (GUI.dll 0x10128396) gives a button whose label is `label` big and whose border
+/// pieces are `left`, `top`, `right`, `bottom` (`BorderView_c::GetBorderSizes`: the left and right pieces' widths, the top and
+/// bottom's heights): the label plus the sides and 10, and the label plus the top and bottom and 4.
+pub fn button_size(label: egui::Vec2, left: f32, top: f32, right: f32, bottom: f32) -> egui::Vec2 {
+    egui::vec2(label.x + left + right + 10.0, label.y + top + bottom + 4.0)
+}
+
+/// A `Button_c` (GUI.dll 0x10129021) in the skin's art labelled `text`: `Initialize` (0x10128e46) makes it a `BorderView_c` of
+/// `GFX_GUI_BORDER01_*` in the theme's `Default` colour, its label in font 5 (Verdana 13) in the same colour and centred;
+/// `StateChanged` (0x101287ea) swaps in `GFX_GUI_BORDER04_*` in `Selected` (and the label in `Selected`) while it is pressed,
+/// lays the `GFX_GUI_BORDER03_*` frame in `Hover` over it while the pointer is on it, and greys the whole by 0x909090 when it
+/// is disabled. Without the pictures it is egui's button.
+pub fn button(ui: &mut egui::Ui, palette: &Palette, text: &str, enabled: bool) -> egui::Response {
+    let skin = crate::skin::skin(ui.ctx()).filter(|s| s.has("GFX_GUI_BORDER01_TL") && s.has("GFX_GUI_BORDER04_TL"));
+    let Some(skin) = skin else { return ui.add_enabled(enabled, egui::Button::new(text)) };
+    let size = |name: &str| skin.get(name).map(|s| s.size).unwrap_or(egui::Vec2::ZERO);
+    let font = crate::font::verdana(ui.ctx(), 13.0);
+    let galley = ui.painter().layout_no_wrap(text.to_string(), font, egui::Color32::WHITE);
+    let want = button_size(galley.size(), size("GFX_GUI_BORDER01_LEFT").x, size("GFX_GUI_BORDER01_TOP").y, size("GFX_GUI_BORDER01_RIGHT").x, size("GFX_GUI_BORDER01_BOTTOM").y);
+    let (rect, response) = ui.allocate_exact_size(want, if enabled { egui::Sense::click() } else { egui::Sense::hover() });
+    let pressed = enabled && response.is_pointer_button_down_on();
+    let grey = |c: egui::Color32| if enabled { c } else { c * egui::Color32::from_rgb(0x90, 0x90, 0x90) };
+    let colour = grey(rgb(if pressed { palette.selected } else { palette.default }));
+    let painter = ui.painter();
+    skin.nine_slice(painter, if pressed { "GFX_GUI_BORDER04" } else { "GFX_GUI_BORDER01" }, rect, colour, true);
+    if enabled && response.hovered() {
+        skin.nine_slice(painter, "GFX_GUI_BORDER03", rect, grey(rgb(palette.hover)), false);
+    }
+    painter.galley_with_override_text_color(rect.center() - galley.size() * 0.5, galley, colour);
+    response
+}
+
 /// Where `TopBorderView_c` (GUI.dll, laid out by FUN_10147438) puts tabs `widths` wide in a strip `room` wide: the first 2 points
 /// in, each overlapping the one before by 6, every tab its own width (a `Tab`'s text width plus a point plus its 5 and 16 point
 /// margins, FUN_101463a4) when they fit, else all narrowed in proportion (`View::SpaceOut`'s share; not followed exactly). The
@@ -335,6 +367,12 @@ mod tests {
         assert!(pinned("Test window"));
         set_pinned("Test window", false);
         assert!(!pinned("Test window"));
+    }
+
+    #[test]
+    fn a_button_is_its_label_and_borders() {
+        // (the default skin's GFX_GUI_BORDER01 sides: 5 wide, 11 high; a Verdana 13 label about 16 high)
+        assert_eq!(button_size(egui::vec2(40.0, 16.0), 5.0, 11.0, 5.0, 11.0), egui::vec2(60.0, 42.0));
     }
 
     #[test]

@@ -135,7 +135,7 @@ impl NcuWindow {
                     let response = row.response.interact(egui::Sense::click());
                     response.context_menu(|ui| {
                         ui.label(egui::RichText::new(&nano.name).strong());
-                        if ui.button("Cancel this nano").clicked() {
+                        if crate::chrome::button(ui, palette, "Cancel this nano", true).clicked() {
                             cancel = Some(nano.id);
                             ui.close();
                         }

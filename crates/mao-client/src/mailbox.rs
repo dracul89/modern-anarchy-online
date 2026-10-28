@@ -185,24 +185,24 @@ impl MailWindow {
                     }
                     ui.horizontal(|ui| {
                         let can_take = !taken && (m.credits > 0 || m.item.is_some());
-                        if ui.add_enabled(can_take, egui::Button::new("Take")).on_hover_text("Takes the item and the credits").clicked() {
+                        if crate::chrome::button(ui, palette, "Take", can_take).on_hover_text("Takes the item and the credits").clicked() {
                             command = Some(MailCommand::Take(m.id));
                         }
-                        if ui.button("Delete").clicked() {
+                        if crate::chrome::button(ui, palette, "Delete", true).clicked() {
                             command = Some(MailCommand::Delete(m.id));
                         }
                     });
                 }
                 ui.horizontal(|ui| {
-                    if ui.button("Check mail").on_hover_text("Uses the nearest known mail terminal and asks for the inbox").clicked() {
+                    if crate::chrome::button(ui, palette, "Check mail", true).on_hover_text("Uses the nearest known mail terminal and asks for the inbox").clicked() {
                         command = Some(MailCommand::Inbox);
                         self.status = "Asking the mail terminal ...".into();
                     }
-                    if ui.button("New").clicked() {
+                    if crate::chrome::button(ui, palette, "New", true).clicked() {
                         self.compose_open = true;
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("Close").clicked() {
+                        if crate::chrome::button(ui, palette, "Close", true).clicked() {
                             close = true;
                         }
                     });
@@ -268,13 +268,13 @@ impl MailWindow {
                 });
                 ui.horizontal(|ui| {
                     let can = !self.to.trim().is_empty() && !self.subject.trim().is_empty();
-                    if ui.add_enabled(can, egui::Button::new("Send")).clicked() {
+                    if crate::chrome::button(ui, palette, "Send", can).clicked() {
                         let item = self.item.map_or((0, 0), |s| (0x68, s));
                         command = Some(MailCommand::Send { recipient: self.to.trim().to_string(), subject: self.subject.trim().to_string(), body: self.body.clone(), item, credits: self.credits, express: self.express });
                         self.status = "Sending ...".into();
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("Close").clicked() {
+                        if crate::chrome::button(ui, palette, "Close", true).clicked() {
                             close = true;
                         }
                     });

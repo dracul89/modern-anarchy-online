@@ -121,14 +121,14 @@ impl ShopWindow {
                 });
             });
             ui.horizontal(|ui| {
-                if ui.add_enabled(self.selected.is_some(), egui::Button::new("Buy")).clicked() {
+                if crate::chrome::button(ui, palette, "Buy", self.selected.is_some()).clicked() {
                     if let Some(i) = self.selected {
                         command = Some(ShopCommand::Buy(i));
                         self.status = format!("Asking to buy {} ...", self.stock.get(i).map_or("", |s| s.name.as_str()));
                     }
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("Close").clicked() {
+                    if crate::chrome::button(ui, palette, "Close", true).clicked() {
                         close = true;
                     }
                 });

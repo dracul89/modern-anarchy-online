@@ -59,7 +59,7 @@ impl FriendsWindow {
             ui.separator();
             ui.horizontal(|ui| {
                 let response = ui.add(egui::TextEdit::singleline(&mut self.add).desired_width(150.0).hint_text("Name"));
-                let go = ui.button("Add").clicked() || (response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)));
+                let go = crate::chrome::button(ui, palette, "Add", true).clicked() || (response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)));
                 let name = self.add.trim().to_string();
                 if go && !name.is_empty() {
                     outs.push(Out::Befriend { name });

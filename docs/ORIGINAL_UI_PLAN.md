@@ -103,7 +103,7 @@ mao-client`, a live look if the user is around, a paragraph in `docs/CLIENT_UI.m
 4. Mouse pointers from `GFX_GUI_POINTER_STANDARD_*` (winit custom cursors) — optional, cheap, very "original".
 
 ### Phase B — window chrome
-*(B.1 and B.2's conversion done 2026-10-26: `chrome.rs`, all 17 windows. Scrollbars and tabs in the skin's art done 2026-10-28 (`chrome::scroll`, `chrome::tab_view`). Open: buttons in the skin's art, the ? button, the launcher's windows, B.3 titles.)*
+*(B.1 and B.2's conversion done 2026-10-26: `chrome.rs`, all 17 windows. Scrollbars, tabs and buttons in the skin's art done 2026-10-28 (`chrome::scroll`, `chrome::tab_view`, `chrome::button`). Open: the ? button, the launcher's windows, B.3 titles.)*
 1. A `skin_window()` helper that draws an `egui::Window` with the original's nine-slice frame
    (`GFX_GUI_WINDOW3_BORDER_*`: corners, edges, title strip), the title in the skin's text colour, and the title
    buttons (`WINDOW_CLOSE`, `WINDOW_PIN` = stays open when Escape closes dialogs, `WINDOW_MAXIMIZE`,
