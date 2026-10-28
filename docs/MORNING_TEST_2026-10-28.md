@@ -1,0 +1,66 @@
+# What changed overnight (2026-10-28) and what to test
+
+The overnight run went through effects (particle system), then the GUI controls, then combat. Each item was read from the
+decompiled original (`exports_*`) and the drop-ins, ported, unit-tested and checked offscreen where it can be drawn. Little of
+it has been seen live: that is what the morning test is for. Commits in order, oldest first. The three hoverboard commits in
+between (1960b16, 10bd999, 9a7beba) came from the other session.
+
+## 1. Effects (nano and item visuals)
+
+| Commit | Effect kind | Where to see it |
+|---|---|---|
+| 94fce6f | 3034 Shield2: a shell over the target's body | shield/reflect nanos on a character |
+| b17c213 | 3025 EffectMesh: a named mesh as a shell | buffs that wrap a mesh round the body |
+| 55086b0 | 3000 ShockWave: ground rings and light cones | AoE nukes, landings |
+| bd5405e | 3039 Trail2: exhaust ribbons | hoverboards/hoverbikes moving |
+| d891a40 | 1029 VulcanRocks: rocks thrown up that bounce and rest | earth/rock nukes |
+| 869f2e4 | 3024 BParticle (kind-8 pops) | hits that "pop" |
+| 7b5a8f8, d925729, 1a6902b | 1025/1019 flechette streaks, 1022 Tracer3, 1007 Nano0 | projectile nanos in flight |
+| d601b51 | 3036 Toggle: effects that start when a vehicle moves off | hoverboards starting to move |
+| 3130396 | 3020 TParticle streaks | various hits |
+| b5945df | 3006 SkyFlash: cones coming down from the sky | "from above" nukes |
+| b91adf9 | 3033 Spiral2: ribbons spiralling round the point | buff casts |
+| 689ed7e | 3031 TParticle2: particles as streaks | sparks |
+| a0fcadd | 1004 Fire: the Rage buffs' flames off the back | Berserk / Incandescent / Fell Rage |
+| 226a1d9 | 3032 GroundShake: the camera shakes near the effect | big nukes landing near you |
+| d3df9c3 | 3030 GroundGrid: a grid sheet on the ground | some area effects |
+
+**Test:** cast or watch nanos and specials and look for anything badly placed or stuck. The ledger
+(`docs/ORIGINAL_AUDIT.md`, item 10) lists the kinds still not ported, all used by fewer than eight programs.
+
+## 2. GUI controls in the original's art (`chrome.rs`)
+
+| Commit | Control | Test |
+|---|---|---|
+| de24640 | Scroll bars (`chrome::scroll`): `SIMPLE_SB` arrows and knob, no track | Skills, Options key list, chat, inventory backpack: click the arrows (5 points, holding repeats), click above or below the knob (20 points), drag the knob; the wheel as before |
+| 9aa227f | Tabs (`chrome::tab_view`): the TabView strip, overlapping tabs, the border round the content, Verdana 13 | Actions (Combat/Perks/Social), inventory wear tabs (Weap/Cloth/Imp/Social), chat tabs: a tab opens on the press |
+| 50175ed | Buttons (`chrome::button`): `BORDER01` at rest, `BORDER04` pressed, the `BORDER03` frame under the pointer | mail, shop, missions, loot, friends, NCU, options. Button rows are taller (about 42 points, as the original sizes them) |
+| e963950 | Check boxes (`chrome::checkbox`) | Options: auto-loot, original chat font |
+| 73ea999 | Text fields (`chrome::text_edit`): the `INSET` frame | find boxes, friends "Add", mail To/Subject/body, the skin folder |
+| e9986bc | Dark themes (AOU Translucent): controls in the theme's cyan, inactive tab names readable | switch between the AOU and original themes |
+
+**Things to look at:** the tab text (the original's font 5 is Verdana 13, read from Windows' fonts); whether the inventory's
+four tabs are too cramped (the wear column is narrow, so their names are cut); the taller button rows.
+
+## 3. Combat
+
+| Commit | What | Test |
+|---|---|---|
+| 6256efa | **Attack swings**: `AttackInfo` and misses make the attacker swing its weapon (pistol shot, rifle shot, blade slash/stab, two-handed cuts, martial-arts punches and kicks), at the original's speed scaling | fight something, watch yourself and others |
+| 178f42c | **Special attacks** swing their own class (Burst, Full Auto, Aimed Shot, Fling Shot, Fast Attack, Sneak Attack) | use specials from the hotbar |
+| bb4cb96, b356f25 | **Weapon stance in a fight**: a fighting character with a weapon stands in the weapon's idle (`idle-smallarms`, `idle-blade`, `idle-rifle` ...). Fights tracked from `Attack`/`StopFight` | start and stop a fight, standing still |
+| 8d1871e | **Draw and holster**: starting a fight plays the weapon's start once, ending it the stop | as above |
+| 64a056c | **Out of a fight**: a rifle is held two-handed (`idle-2h`) and walked/run with `walk-2h`/`run-2h`; bows and bazookas their own idles | wield a rifle and walk |
+| 1f8c538 | **Deaths**: the dying play their death (`die-knees`, `die-shot` ... as the server says) and lie until despawned (~10 s), instead of standing on | kill something |
+| 888a011 | **Creature swings**: monsters attacking play their own attack animation | get hit by a monster |
+
+**Not done in combat:** the muzzle flash. It is traced as far as the weapon mesh's `eff_muzzleflash` connector → effect
+template 2000 (kind 1006, `_GfxControlFlare1_t`); what switches it on around a shot is not yet clear. Also not done: the
+combat chat lines in the original's own wording (they come from `text.mdb` through the feedback events; the `ldb` drop-in
+reads that file), facing the target in a fight, and the hit/impact sounds.
+
+## How to run
+
+The release client was rebuilt and restarted after every commit:
+`target/release/mao-client.exe "<game>" play`. Unit tests:
+`MAO_GAME="<game>" cargo test --target-dir target-dev -p mao-client -p mao-formats -p mao-net` (all passing).
