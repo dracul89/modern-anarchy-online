@@ -74,7 +74,7 @@ Added after the overnight run, on request: audio through rodio, ported from the 
 
 | Commit | What | What to try |
 |---|---|---|
-| (next) | **Info view, nano pages**: right-click a program in **Nano programs**, **Info** — nano cost (red when short), NCU, school, stacking order, nanolines, duration, range, speed, cooldowns, attack/defence skills, on death/cancel, requirements; weapons now list attack/defence skills too | Nano programs window, right-click, Info; a weapon's Info |
+| 45708bd | **Info view, nano pages**: right-click a program in **Nano programs**, **Info** — nano cost (red when short), NCU, school, stacking order, nanolines, duration, range, speed, cooldowns, attack/defence skills, on death/cancel, requirements; weapons now list attack/defence skills too | Nano programs window, right-click, Info; a weapon's Info |
 | e2b01c0 | **Info view, armour and implant pages** (no charges) | Info on armour or an implant |
 | e190df2 | **Info view, weapon page**: ammunition, damage, speed, equip delay, initiative, range, dual wield, specials, damage type | Info on a weapon |
 | ff0eaef | **Info view modifiers**: the item page lists what the item modifies ("On User: Modify Fire AC 819") | Info on armour or an implant |
