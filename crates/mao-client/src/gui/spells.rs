@@ -40,6 +40,35 @@ fn printf(format: &str, args: &[String]) -> String {
     out
 }
 
+/// `LDBformat` of ints over `%d`/`%u` (and `%%`).
+pub fn printf_ints(format: &str, args: &[i32]) -> String {
+    printf(format, &args.iter().map(i32::to_string).collect::<Vec<_>>())
+}
+
+/// `LDBformat` of floats over `%.02f`-style (two places) or `%f`.
+pub fn printf_floats(format: &str, args: &[f32]) -> String {
+    let mut out = String::new();
+    let mut it = args.iter();
+    let mut rest = format;
+    while let Some(i) = rest.find('%') {
+        out += &rest[..i];
+        let spec_end = rest[i + 1..].find(|c: char| c.is_ascii_alphabetic() || c == '%').map_or(rest.len(), |e| i + 1 + e);
+        let spec = &rest[i + 1..spec_end.min(rest.len())];
+        let conv = rest[spec_end..].chars().next().unwrap_or('f');
+        if conv == '%' {
+            out.push('%');
+        } else {
+            let places = spec.trim_start_matches('.').trim_start_matches('0').parse::<usize>().unwrap_or(if spec.contains('.') { 0 } else { 6 });
+            let places = if spec.starts_with(".0") && places == 0 { 0 } else { places };
+            if let Some(v) = it.next() {
+                out += &format!("{v:.places$}");
+            }
+        }
+        rest = &rest[(spec_end + conv.len_utf8()).min(rest.len())..];
+    }
+    out + rest
+}
+
 /// One spell's text (the switch of `N3Msg_ConvertSpellList`); `None` for a type it does not write.
 pub fn spell_text(s: &Spell, level: u32, nano_name: &dyn Fn(u32) -> Option<String>) -> Option<String> {
     let stat_name = |k: i32| super::criteria::stat_name(k as u32);
