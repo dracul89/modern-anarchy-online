@@ -5,7 +5,7 @@
 //! forward-spinning one).
 
 use mao_formats::gfx::{colour_curve, curve, unpack_argb, BParticles, Cast, Cords, Deform, Emitter, Flare, Helix, Smoke, Sparks, Sprite, Stars, Visual, VolGrid};
-use mao_formats::gfx::{EffectMesh, Shield, Shield2, ShockWave, Suns, Trail2, Tracer1, Tracer5, VulcanRocks};
+use mao_formats::gfx::{EffectMesh, Nano, Shield, Shield2, ShockWave, Suns, Trail2, Tracer1, Tracer3, Tracer5, VulcanRocks};
 use mao_render::{Particle, Shell, ShellVertex, NO_SPRITE};
 
 /// The wind the effects are pushed by, Z up: the effect handler's wind (+0x24, Sparks) and its smoothed copy (+0x30, Smoke).
@@ -151,6 +151,95 @@ pub fn sparks_particles(s: &Sparks, origin: [f32; 3], time: f32) -> Vec<Particle
         out.push(sprite(s.material, t, position, size.max(0.0), [colour[0], colour[1], colour[2], colour[3]]));
     }
     out
+}
+
+/// `_GfxControlNano0_t`'s sprites `time` seconds in, its point at `path(τ)` (world, Z up) at each earlier time `τ` (still, or
+/// dragged by a tracer), as FUN_100e6f76 makes them and `GfxVisualSprite2Type0::ProcessSprites` moves them: word 31 at once at
+/// the start, then one each time `rate × τ` passes a whole number (while the duration, less the longest life, has not run out),
+/// each laid at the point then; each flies at a heading and an angle over the level drawn from their ranges, at the speed drawn
+/// from its range times word 32 (in the client's frame: the original turns the direction by the locator, here the world's),
+/// lives a life drawn from its range, its width, height, colour (alpha, red, green, blue) and frame running from start to end
+/// over it, pushed by the wind with its push kind. `stop` ends the making of new sprites early (a tracer's arrival), and `gone`
+/// removes them all (the original deletes the emitter with its tracer). The `rand()` gate (word 24) is not played (zero in the
+/// templates traced so far); the original's random numbers are hashes of the sprite's number.
+pub fn nano_particles(n: &Nano, path: &dyn Fn(f32) -> [f32; 3], time: f32, stop: Option<f32>, colours: Option<([f32; 4], [f32; 4])>) -> Vec<Particle> {
+    let mut out = Vec::new();
+    if time < 0.0 {
+        return out;
+    }
+    let lerp = |(a, b): (f32, f32), r: f32| a + (b - a) * r;
+    let longest = n.life.0.max(n.life.1).max(0.01);
+    let mut until = if n.duration >= 0.0 { n.duration - longest } else { f32::INFINITY };
+    if let Some(s) = stop {
+        until = until.min(s);
+    }
+    let (start, end) = colours.unwrap_or((n.start, n.end));
+    let burst = n.burst.max(0) as u32;
+    let rate = n.rate.max(0.0);
+    // (the sprites alive now were born no more than the longest life ago)
+    let first = if rate > 0.0 { ((time - longest).max(0.0) * rate).floor() as u32 } else { 0 };
+    let last = if rate > 0.0 { (time.min(until).max(0.0) * rate).floor() as u32 } else { 0 };
+    let born_at = |k: u32| if k < burst { 0.0 } else { (k - burst + 1) as f32 / rate.max(1e-6) };
+    let made = (0..burst).chain((burst + first..burst + last.min(first + 600)).filter(|_| rate > 0.0));
+    for k in made {
+        let born = born_at(k);
+        if born > until && k >= burst {
+            continue;
+        }
+        let age = time - born;
+        let salt = k.wrapping_mul(7703).wrapping_add(1007);
+        let life = lerp(n.life, hash(salt, 1)).max(0.01);
+        if age < 0.0 || age >= life {
+            continue;
+        }
+        let t = age / life;
+        let (az, el) = (lerp(n.heading, hash(salt, 2)), lerp(n.rise, hash(salt, 3)));
+        let speed = lerp(n.speed, hash(salt, 4)) * n.scale;
+        // (the original's local x, y up, z: cos a cos e, sin e, sin a cos e; the client's y is its z)
+        let v = [az.cos() * el.cos() * speed, az.sin() * el.cos() * speed, el.sin() * speed];
+        let origin = path(born);
+        let mut position = [0, 1, 2].map(|i| origin[i] + v[i] * age);
+        if n.push != 0 {
+            let strength = (0.1 + 0.9 * hash(salt, 12)) * n.push_strength;
+            let (now, _) = wind();
+            let steps = 12;
+            let mut weight = 0.0;
+            for i in 0..steps {
+                let tau = (i as f32 + 0.5) / steps as f32 * age;
+                weight += push_curve(n.push, push_fraction(v[2] * tau, n.push_heights)) * age / steps as f32;
+            }
+            for i in 0..3 {
+                position[i] += now[i] * strength * weight;
+            }
+        }
+        let colour = [1, 2, 3, 0].map(|c| start[c] + (end[c] - start[c]) * t);
+        let size = lerp(n.width, t).max(lerp(n.height, t));
+        out.push(sprite(n.material, t, position, size.max(0.0), colour));
+    }
+    out
+}
+
+/// `_GfxControlTracer3_t`'s nano `age` seconds after the cast, dragged from `from` to `to` (world, Z up) as FUN_100ff754 moves
+/// it (`speed` a second, at most five lengths of the line a second): its sprites laid along the way, coloured from the tracer's
+/// colour to that colour clear; none once the point has arrived (the tracer ends and deletes its nano).
+pub fn tracer3_particles(t: &Tracer3, from: [f32; 3], to: [f32; 3], age: f32) -> Vec<Particle> {
+    let d = [0, 1, 2].map(|k| to[k] - from[k]);
+    let length = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+    if length < 0.01 {
+        return Vec::new();
+    }
+    let speed = t.speed.min(length * 5.0).max(1e-3);
+    let arrival = length / speed;
+    if age >= arrival {
+        return Vec::new();
+    }
+    let path = |tau: f32| {
+        let s = (speed * tau).min(length) / length;
+        [0, 1, 2].map(|k| from[k] + d[k] * s)
+    };
+    let mut end = t.colour;
+    end[0] = 0.0;
+    nano_particles(&t.child, &path, age, Some(arrival), Some((t.colour, end)))
 }
 
 /// `_GfxControlStars_t`'s stars at `time` seconds into the effect, about `centre` (world, Z up: the attach point's place), as the
@@ -2271,6 +2360,8 @@ impl Shot {
             match tracer {
                 // (the cords span the whole line of flight for the tracer's duration)
                 Visual::Cords(c) => out.extend(cords_particles(c, self.from, self.to, age)),
+                // (a nano dragged along the line at its own speed, its sprites laid along the way)
+                Visual::Tracer3(t) => out.extend(tracer3_particles(t, self.from, self.to, age)),
                 _ => {
                     let t = age / FLIGHT;
                     let at = [0, 1, 2].map(|i| self.from[i] + (self.to[i] - self.from[i]) * t);
@@ -2336,8 +2427,16 @@ pub fn visual_particles(v: &Visual, feet: [f32; 3], time: f32, reach: Reach) -> 
             };
             bparticles(b, [feet[0], feet[1], feet[2] + up], time)
         }
-        // (a streak along a shot's line: see `tracer5_shell`, `tracer1_shells`)
-        Visual::Tracer5(_) | Visual::Tracer1(_) => Vec::new(),
+        // (a streak along a shot's line: see `tracer5_shell`, `tracer1_shells`, `tracer3_particles`)
+        Visual::Tracer5(_) | Visual::Tracer1(_) | Visual::Tracer3(_) => Vec::new(),
+        Visual::Nano(n) => {
+            let up = match reach {
+                Reach::Small => 0.0,
+                _ => anchor(n.attach).0,
+            };
+            let at = [feet[0], feet[1], feet[2] + up];
+            nano_particles(n, &|_| at, time, None, None)
+        }
         Visual::BParticle(b) => {
             let up = match reach {
                 Reach::Small => 0.0,
@@ -2515,7 +2614,9 @@ pub fn pulse_timing(v: &Visual) -> (f32, f32, i32) {
         Visual::Cords(c) => (4.0, if c.duration > 0.0 { c.duration } else { 1.0 }, -1),
         Visual::VolGrid(g) => (if g.duration > 0.0 { g.duration } else { 3.0 }, if g.duration > 0.0 { g.duration } else { 3.0 }, -1),
         // (a burst lives its longest life; a stream runs its duration and that life, or for ever)
-        Visual::Tracer5(_) | Visual::Tracer1(_) => (600.0, 1.0, 1),
+        Visual::Tracer5(_) | Visual::Tracer1(_) | Visual::Tracer3(_) => (600.0, 1.0, 1),
+        // (a nano makes sprites until a life before its duration, and its last ones live out their lives; for ever without one)
+        Visual::Nano(n) => if n.duration >= 0.0 { (600.0, n.duration.max(0.05), 1) } else { (600.0, 600.0, -1) },
         // (kind 8's particles have each popped and gone within a second or so; with a duration, it)
         Visual::BParticle(b) => {
             let pops = 0.2 / b.spin.max(0.01) + 1.0 / b.phase_rate.max(0.01);
@@ -3078,6 +3179,45 @@ mod tests {
         }
         // late, only the top of the coil is left
         assert!(late.iter().all(|p| p.position[2] > 1.0));
+    }
+
+    #[test]
+    fn a_tracer3_drags_its_nano_and_lays_its_sprites_along_the_line() {
+        // (templates 2660 and 2683: 50 a second, blue; the nano 300 sprites a second, half a unit, half a second, drifting half a
+        // unit a second)
+        let nano = Nano {
+            flags: 1797,
+            attach: 0,
+            duration: -1.0,
+            material: 10,
+            rate: 300.0,
+            width: (0.5, 0.5),
+            height: (0.5, 0.5),
+            start: [1.0; 4],
+            end: [0.0, 1.0, 1.0, 1.0],
+            mask: 0,
+            heading: (0.0, std::f32::consts::TAU),
+            rise: (-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2),
+            speed: (1.0, 1.0),
+            burst: 1,
+            scale: 0.5,
+            life: (0.5, 0.5),
+            push_heights: (0.5, 0.0),
+            push: 0,
+            push_strength: 0.0,
+        };
+        let t = Tracer3 { speed: 50.0, colour: [1.0, 0.1, 0.3, 1.0], child: nano.clone() };
+        let (from, to) = ([0.0, 0.0, 1.0], [20.0, 0.0, 1.0]);
+        let at = tracer3_particles(&t, from, to, 0.2);
+        // (the point 10 along: sprites from the caster up to it, the youngest brightest)
+        assert!(at.len() > 50, "{}", at.len());
+        assert!(at.iter().all(|p| p.position[0] > -0.3 && p.position[0] < 10.3 && (p.position[2] - 1.0).abs() < 0.3));
+        assert!(at.iter().all(|p| (p.colour[2] - 1.0).abs() < 1e-5 && p.colour[3] <= 1.0));
+        // gone once the point is at the target (0.4 s)
+        assert!(tracer3_particles(&t, from, to, 0.41).is_empty());
+        // a still nano at a point keeps 150 alive at 300 a second for half a second
+        let still = nano_particles(&nano, &|_| [0.0; 3], 2.0, None, None);
+        assert!((140..=152).contains(&still.len()), "{}", still.len());
     }
 
     #[test]

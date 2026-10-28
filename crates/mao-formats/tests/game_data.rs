@@ -156,6 +156,9 @@ fn effect_classes_come_to_visuals() {
     assert!(matches!(gfx.visual(17500), Some(Visual::Plasma { material: 8, duration, .. }) if duration == 1.0));
     // the null gather effect has none
     assert!(gfx.visual(49999).is_none());
+    // (a nano dragged along the line: 50 a second, blue; its nano 300 sprites a second, half a second each)
+    assert!(matches!(gfx.visual(2660), Some(Visual::Tracer3(t)) if t.speed == 50.0 && t.colour == [1.0, 0.1, 0.3, 1.0] && t.child.rate == 300.0 && t.child.life == (0.5, 0.5) && t.child.burst == 1));
+    assert!(matches!(gfx.visual(2683), Some(Visual::Nano(n)) if n.material == 10 && n.scale == 0.5 && n.end[0] == 0.0));
     // (the commonest streak model: three streaks, turned a quarter about x, blue-violet)
     assert!(matches!(gfx.visual(45694), Some(Visual::Tracer1(t)) if t.streaks.len() == 3 && t.copies == 1 && t.size == 0.06 && t.material == 16 && t.colour == 0xff4c_99ff));
     // (the hoverbike's toggles: a puff as it moves off, a stream stopped with it)

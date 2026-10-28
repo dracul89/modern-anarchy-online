@@ -980,6 +980,79 @@ impl Trail2 {
     }
 }
 
+/// A kind-1007 template as `_GfxControlNano0_t` reads it (the point constructor FUN_100e73ea; FUN_100e67f8 the words, FUN_100e7146
+/// the `GfxVisualSprite2Type0` and the first burst, FUN_100e6f76 the run, FUN_100e6ca4 / FUN_100e69ca a sprite): word 8 the
+/// duration (it stops making sprites a life before it), word 9 the material, word 10 the sprites a second (`ftol(rate ×
+/// elapsed)` made in all, laid along the way the point moved since the last frame), words 12–15 the sizes (width at the start
+/// and end, height at the start and end), words 16–19 and 20–23 the colours at the start and the end (alpha, red, green, blue),
+/// word 24 a mask of `rand()` (a frame makes none unless it clears it), words 25–30 the heading, the angle over the level and
+/// the speed (each a range), word 31 the sprites made at once, word 32 the speed's scale, words 34–35 the life, words 35–36 the
+/// push's heights over the sprite's birth, word 37 the push kind, word 38 its strength.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Nano {
+    pub flags: u32,
+    pub attach: i32,
+    pub duration: f32,
+    pub material: i32,
+    pub rate: f32,
+    pub width: (f32, f32),
+    pub height: (f32, f32),
+    pub start: [f32; 4],
+    pub end: [f32; 4],
+    pub mask: u32,
+    pub heading: (f32, f32),
+    pub rise: (f32, f32),
+    pub speed: (f32, f32),
+    pub burst: i32,
+    pub scale: f32,
+    pub life: (f32, f32),
+    pub push_heights: (f32, f32),
+    pub push: i32,
+    pub push_strength: f32,
+}
+
+impl Nano {
+    pub fn read(r: &Record) -> Option<Nano> {
+        if r.payload.len() < 38 {
+            return None;
+        }
+        let v4 = |k: usize| [r.float(k), r.float(k + 1), r.float(k + 2), r.float(k + 3)];
+        Some(Nano {
+            flags: r.int(0) as u32,
+            attach: r.int(7),
+            duration: r.float(8),
+            material: r.int(9),
+            rate: r.float(10),
+            width: (r.float(12), r.float(13)),
+            height: (r.float(14), r.float(15)),
+            start: v4(16),
+            end: v4(20),
+            mask: r.int(24) as u32,
+            heading: (r.float(25), r.float(26)),
+            rise: (r.float(27), r.float(28)),
+            speed: (r.float(29), r.float(30)),
+            burst: r.int(31),
+            scale: r.float(32),
+            life: (r.float(34), r.float(35)),
+            push_heights: (r.float(35), r.float(36)),
+            push: r.int(37),
+            push_strength: r.float(38),
+        })
+    }
+}
+
+/// A kind-1022 template as `_GfxControlTracer3_t` reads it (made by `CreateGfxControlTracer` FUN_100d176c through FUN_100ff933;
+/// FUN_100ff657 the words, FUN_100ff7f3 / FUN_100ff6e2 the start, FUN_100ff91b / FUN_100ff754 the run): word 10 the speed (at
+/// most five lengths of the line a second), words 11–14 the colour its nano (word 15, kind 1007) starts with (alpha, red,
+/// green, blue; it ends with that colour clear), dragged from the caster to the target and gone with the tracer when it
+/// arrives.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Tracer3 {
+    pub speed: f32,
+    pub colour: [f32; 4],
+    pub child: Nano,
+}
+
 /// A kind-1019 template as `_GfxControlTracer1_t` reads it (made by `CreateGfxControlTracer` FUN_100d176c through FUN_100fec4e;
 /// FUN_100fe3b0 the words, FUN_100fe9f9 the frame along the line, FUN_100fe845 the `GfxVisualFlareType0`, FUN_100fe545 its
 /// streaks, FUN_100fe7e1 / FUN_100fe706 the run): words 1–3 and 4–6 the locator's offset and turn, word 9 the material, words
@@ -1583,6 +1656,10 @@ pub enum Visual {
     Tracer5(Tracer5),
     /// A little model of streaks flying from the caster to the target (kind 1019, `_GfxControlTracer1_t`).
     Tracer1(Tracer1),
+    /// A stream of sprites from its point (kind 1007, `_GfxControlNano0_t`).
+    Nano(Nano),
+    /// A nano emitter dragged from the caster to the target (kind 1022, `_GfxControlTracer3_t`).
+    Tracer3(Tracer3),
     /// Kind 3036, `GfxControlToggle_t` (FUN_101128d1 / FUN_1011279a / FUN_101127fc; FUN_1011265a the words, FUN_10112952 the run,
     /// FUN_101125ed the playfield test, FUN_10112580 the vehicle's state): word 0 the flags, word 1 the duration, word 2 the child
     /// effect, word 3 a mask of the playfield's flags, word 4 a count of playfield ids that follow. The child is started when
@@ -1729,6 +1806,11 @@ impl Gfx {
             3024 => BParticle::read(r).map(Visual::BParticle),
             1025 => Tracer5::read(r).map(Visual::Tracer5),
             1019 => Tracer1::read(r).map(Visual::Tracer1),
+            1007 => Nano::read(r).map(Visual::Nano),
+            1022 if r.payload.len() >= 16 => {
+                let child = self.get(r.int(15)).filter(|c| c.kind == 1007).and_then(Nano::read)?;
+                Some(Visual::Tracer3(Tracer3 { speed: r.float(10), colour: [r.float(11), r.float(12), r.float(13), r.float(14)], child }))
+            }
             3036 if r.payload.len() >= 5 && r.int(2) != id => {
                 let child = self.visual(r.int(2))?;
                 let n = r.int(4).clamp(0, 64) as usize;
