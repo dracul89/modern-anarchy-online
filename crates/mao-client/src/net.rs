@@ -2783,6 +2783,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         // (the effect scripts' playfield and expansion, and Gamecode's `rand()` for the script events)
         let (mut fxs_playfield, mut fxs_expansion, mut script_rand): (Option<u32>, bool, crate::audio::Rand) = (None, false, Default::default());
         let mut fxs_visuals = crate::fxs::visuals::Visuals::default();
+        // (the environment's own wind for the scripts' high wind: FUN_100becbe takes it before the frame's step)
+        let mut fxs_wind = crate::wind::Wind::default();
         // `MAO_MAILBOX=type,instance` (a mail terminal, 0xc773 and its serial) uses it 8 s into the session (or
         // after the walk) and asks for the inbox; the answer is printed (raw when the schema can't read it).
         let mut mailbox: Option<(u32, u32)> = std::env::var("MAO_MAILBOX").ok().and_then(|t| {
@@ -3685,6 +3687,11 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             // them the frame block: +0xf0 the strongest precipitation, +0xf4 entry 0, +0x114 entry 2, +0x1134)
             let (sun1, sun2) = crate::fxs::sun::rotations(state.game_clock.seconds());
             let w = &ambient_weather;
+            let (wind, base) = fxs_wind.raw();
+            let high_wind = [0.004 * (wind[0] + base[0]) * dt * 0.5, 0.004 * (wind[2] + base[2]) * dt * 0.5];
+            fxs_wind.advance(w[7], dt);
+            // (FUN_100b8e6f, with Notum Wars: the eye's offset on the planet from the headquarters)
+            let offset_from_hq = if state.expansion { crate::fxs::planet::offset_from_hq(current, position) } else { [0.0; 2] };
             crate::fxs::set_game(&crate::fxs::Game {
                 delta_time: dt,
                 day_time: state.game_clock.seconds() / crate::gametime::PACE,
@@ -3696,6 +3703,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 precipitation: w[0],
                 thick_clouds: w[2],
                 cloud_transparency: 1.0 - w[2] / 2.333,
+                high_wind,
+                offset_from_hq,
                 sun1,
                 sun2,
                 ..Default::default()
@@ -3720,6 +3729,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 storm: w[3].max(w[4]).max(w[5]).max(w[6]),
                 thick_clouds: w[2],
                 ground: None,
+                wind: [high_wind[0], 0.0, high_wind[1]],
             };
             state.sky_frame = Some(fxs_visuals.frame(&sky));
             for m in crate::fxs::take_messages() {

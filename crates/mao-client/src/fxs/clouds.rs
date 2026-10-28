@@ -7,8 +7,7 @@
 //!   across the row, `0.1`–`0.2` deep), each vertex across the grid scaled by the rows its side takes, flat, with a random
 //!   mostly level normal; texture coordinates across the grid inset 0.5%; a light factor `1 ± 0.1`.
 //! - Each frame (FUN_1005485a): the camera's level move taken (a jump over 800 scatters every puff); each puff moves
-//!   against the move by a tenth (the high wind's drift is not here: its scale, the environment's +0x44/+0x48, is not
-//!   found), is reshaped and placed again across the 3200-wide box when it leaves it (FUN_10053e45: wrapped to the far side,
+//!   against the move by a tenth and with the high wind (the frame block's +0xd8 times its speed times 100), is reshaped and placed again across the 3200-wide box when it leaves it (FUN_10053e45: wrapped to the far side,
 //!   placed apart from the others on the other axis), sinks with its distance from the altitude (`altitude × −1.5 × t²`,
 //!   `t` its distance over 1500 up to 1), tilts away from the middle by a quarter of `t²`, fades with the storm (`1 −
 //!   storm²`) and takes a light level from the suns' height and the clouds (`((b − 0.14) × (1 − clouds × 0.9) + 0.14) ×`
@@ -50,6 +49,8 @@ pub struct Sky {
     pub storm: f32,
     pub thick_clouds: f32,
     pub ground: Option<Light>,
+    /// The high wind's drift this frame (the frame block's +0xd8: x, 0, z).
+    pub wind: V3,
 }
 
 impl Clouds {
@@ -224,9 +225,9 @@ impl Clouds {
         let b = (sky.sun_direction[1] + 0.89).clamp(0.14, 1.0);
         let mut shown: Vec<(V3, Q4, u8)> = Vec::with_capacity(PUFFS);
         for k in 0..PUFFS {
-            let drift = moved.map(|c| c / 10.0);
             let p = &mut self.puffs[k];
-            let _ = p.speed;
+            let wind = math::scale(&math::scale(&sky.wind, p.speed), 100.0);
+            let drift = math::add(&moved.map(|c| c / 10.0), &wind);
             p.place = math::add(&p.place, &drift);
             let [x, _, z] = p.place;
             if x <= -1600.0 || x >= 1600.0 || z <= -1600.0 || z >= 1600.0 || jump {
@@ -292,7 +293,7 @@ mod tests {
     #[test]
     fn the_puffs_sit_round_the_camera() {
         let mut c = Clouds::new();
-        let sky = Sky { camera: [500.0, 10.0, 500.0], sun_direction: [0.0, 1.0, 0.0], storm: 0.0, thick_clouds: 0.0, ground: None };
+        let sky = Sky { camera: [500.0, 10.0, 500.0], sun_direction: [0.0, 1.0, 0.0], ..Default::default() };
         // (the first frame is a jump: every puff scattered across the box at the altitude)
         let groups = c.frame(100.0, &sky);
         assert_eq!(groups.len(), 4);
@@ -305,6 +306,11 @@ mod tests {
         let before = c.puffs[k].place;
         c.frame(100.0, &Sky { camera: [600.0, 10.0, 500.0], ..sky });
         assert!((c.puffs[k].place[0] - (before[0] - 10.0)).abs() < 1e-3, "{before:?} {:?}", c.puffs[k].place);
+        // (the high wind carries each puff by its speed times 100)
+        let before = c.puffs[k].place;
+        let speed = c.puffs[k].speed;
+        c.frame(100.0, &Sky { camera: [600.0, 10.0, 500.0], wind: [0.0, 0.0, 0.01], ..sky });
+        assert!((c.puffs[k].place[2] - (before[2] + 0.01 * speed * 100.0)).abs() < 1e-3);
     }
 }
 

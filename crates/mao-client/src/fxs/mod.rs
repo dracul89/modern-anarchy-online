@@ -30,6 +30,7 @@ pub mod enums;
 pub mod math;
 pub mod parser;
 pub mod clouds;
+pub mod planet;
 pub mod sun;
 pub mod visuals;
 
@@ -2361,6 +2362,10 @@ pub struct Game {
     /// (`CloudTranspariency`, +0x1134: 1 − entry 8 / 2.333).
     pub thick_clouds: f32,
     pub cloud_transparency: f32,
+    /// The high wind's drift this frame (`HighAltitudeWindX/Z`, the frame block's +0xd8 and +0xe0: FUN_100becbe's
+    /// `0.004 × (wind + base wind) × dt × 0.5`) and the eye's offset from the headquarters (`OffsetFromHQ_X/Z`).
+    pub high_wind: [f32; 2],
+    pub offset_from_hq: [f32; 2],
 }
 
 /// The game interface's frame: the `GAME` object's variables given the frame's values (their last value, as the
@@ -2385,6 +2390,10 @@ pub fn set_game(g: &Game) {
     set("GameStormIntensity", &|v| v.f = g.storm);
     set("GamePrecipitationIntensity", &|v| v.f = g.precipitation);
     set("ThickCloudsIntensity", &|v| v.f = g.thick_clouds);
+    set("HighAltitudeWindX", &|v| v.f = g.high_wind[0]);
+    set("HighAltitudeWindZ", &|v| v.f = g.high_wind[1]);
+    set("OffsetFromHQ_X", &|v| v.f = g.offset_from_hq[0]);
+    set("OffsetFromHQ_Z", &|v| v.f = g.offset_from_hq[1]);
     set("CloudTranspariency", &|v| v.f = g.cloud_transparency);
     set("GameSun1Rotation", &|v| v.q = g.sun1);
     set("GameSun2Rotation", &|v| v.q = g.sun2);

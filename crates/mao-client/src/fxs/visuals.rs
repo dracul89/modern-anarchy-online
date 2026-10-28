@@ -20,9 +20,11 @@
 //!
 //! The state blob drawn with is the last valid one (its criteria all nonzero, no render target); its render states give
 //! the depth test (`ZFUNC` always: drawn before the world, [`Draw::backdrop`]), the blending, the lighting, the ambient
-//! light, the texture factor and `MODULATE2X`; its texture names one. Not here: the render targets, texture transforms
-//! (the clouds' and horizon's scrolling), the single clouds (0x38), the screen fills (0x3d), the debug line monitor (7),
-//! the occluders and the attractors' effects.
+//! light, the texture factor and `MODULATE2X`; its texture names one; its first stage's texture transform (`TEXTURE0`
+//! under `COUNT2`) moves the coordinates — the clouds' and horizon's `This.ScrollMatrix` works out to the identity, as in
+//! the original: a transform has no owner, so `This` finds nothing on the call stack. The single clouds (0x38) are
+//! `clouds.rs`'. Not here: the render targets, the screen fills (0x3d), the debug line monitor (7), the occluders and
+//! the attractors' effects.
 
 use super::math::{self, Q4, V3};
 use super::parser::enum_value;
@@ -97,6 +99,9 @@ pub struct Draw {
     pub texture: Option<String>,
     /// A material from the blob (D3D's 17 floats: diffuse, ambient, specular, emissive RGBA, power).
     pub material: Option<[f32; 17]>,
+    /// The first stage's texture transform (`TEXTURE0` with `TEXTURETRANSFORMFLAGS` `COUNT2`): the coordinates (u, v, 1)
+    /// by its first three rows.
+    pub texture_matrix: Option<[f32; 16]>,
 }
 
 /// The frame: the draws and the lights.
@@ -137,6 +142,7 @@ struct Look {
     ambient: [f32; 3],
     factor: [f32; 4],
     texture: Option<String>,
+    texture_matrix: Option<[f32; 16]>,
 }
 
 fn look(b: &StateBlob) -> Look {
@@ -180,6 +186,9 @@ fn look(b: &StateBlob) -> Look {
         }),
         factor,
         texture: b.textures.last().map(|t| String::from_utf8_lossy(&t.2).into_owned()),
+        texture_matrix: (stage(e("e_D3DTSS_TEXTURETRANSFORMFLAGS")) == Some(e("e_D3DTTFF_COUNT2")))
+            .then(|| b.transforms.iter().rev().find(|t| t.1 == e("e_D3DTRANSFORMSTATE_TEXTURE0")).map(|t| super::rt_matrix(&t.2)))
+            .flatten(),
     }
 }
 
@@ -311,6 +320,7 @@ impl Visuals {
             factor: l.factor,
             texture: l.texture,
             material,
+            texture_matrix: l.texture_matrix,
         })
     }
 
@@ -344,6 +354,7 @@ impl Visuals {
                 factor: [1.0; 4],
                 texture: Some(texture.to_string()),
                 material: None,
+                texture_matrix: None,
             })
             .collect()
     }
@@ -525,6 +536,14 @@ pub fn place(d: &Draw, eye: V3, forward: V3, distance: f32) -> [f32; 16] {
     m
 }
 
+/// Texture coordinates by a draw's texture transform: (u, v, 1) by its first three rows (D3D's `COUNT2`).
+pub fn texture_uv(d: &Draw, uv: [f32; 2]) -> [f32; 2] {
+    match &d.texture_matrix {
+        Some(m) => [uv[0] * m[0] + uv[1] * m[4] + m[8], uv[0] * m[1] + uv[1] * m[5] + m[9]],
+        None => uv,
+    }
+}
+
 /// A point (row vector) by a world matrix.
 pub fn transform(m: &[f32; 16], p: V3) -> V3 {
     [0, 1, 2].map(|j| p[0] * m[j] + p[1] * m[4 + j] + p[2] * m[8 + j] + m[12 + j])
@@ -565,9 +584,18 @@ mod tests {
         v.start(super::super::take_started());
         super::super::frame_process();
         super::super::set_game(&super::super::Game { delta_time: 0.05, day_time: 12.0 * 3600.0 / 15.0, sun1, sun2, ..Default::default() });
-        let sky = super::super::clouds::Sky { camera: [0.0; 3], sun_direction: [0.0, 1.0, 0.0], storm: 0.0, thick_clouds: 0.0, ground: None };
+        let sky = super::super::clouds::Sky { sun_direction: [0.0, 1.0, 0.0], ..Default::default() };
         let f = v.frame(&sky);
         assert!(f.draws.iter().any(|d| d.kind == 0x38));
+        // (the thick clouds' and the horizon's texture transforms are taken, but their `This.ScrollMatrix` finds no object:
+        // a state blob's transform has no owner, so nothing is on the call stack when it is worked out and the lazy pointer
+        // drops its path — the identity, as in the original, where nothing else pushes the call stack)
+        let clouds = f.draws.iter().find(|d| d.shape == Shape::Mesh("skydome_clouds.abiff".into())).unwrap();
+        assert_eq!(clouds.texture_matrix, Some(math::IDENTITY));
+        let horizon = f.draws.iter().find(|d| d.shape == Shape::Mesh("horizon_object.abiff".into())).unwrap();
+        assert_eq!(horizon.texture_matrix, Some(math::IDENTITY));
+        let shifted = Draw { texture_matrix: Some([3.0, 0.0, 0.0, 0.0, 0.0, 3.0, 0.0, 0.0, 0.25, 0.5, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0]), ..clouds.clone() };
+        assert_eq!(texture_uv(&shifted, [0.5, 0.25]), [1.75, 1.25]);
         assert!(f.fog.is_some());
         for d in &f.draws {
             let shape = match &d.shape {

@@ -87,6 +87,11 @@ impl Wind {
         (self.gust[0] * self.gust[0] + self.gust[1] * self.gust[1] + self.gust[2] * self.gust[2]).sqrt()
     }
 
+    /// The wind and the base wind as the original keeps them (Y up: the wind object's +0xc and +0x30).
+    pub fn raw(&self) -> ([f32; 3], [f32; 3]) {
+        (self.wind, self.base)
+    }
+
     /// The wind the Sparks are pushed by (the handler's +0x24), Z up.
     pub fn now(&self) -> [f32; 3] {
         [self.wind[0], self.wind[2], self.wind[1]]

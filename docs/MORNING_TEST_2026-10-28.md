@@ -74,6 +74,7 @@ Added after the overnight run, on request: audio through rodio, ported from the 
 
 | Commit | What | What to try |
 |---|---|---|
+| (next) | **Cloud wind drift**: the single clouds drift with the weather's wind; texture transforms followed (the clouds' and horizon's stay still, as in the original) | in a windy weather, watch the cloud puffs move while standing still |
 | 41fafd5 | **Single clouds and the scripts' light**: cloud puffs round the camera; the world lit in the scripts' ambient and sun colours, hazed in the atmosphere's colour; the sky scaled by the view distance setting | look up and around outdoors; compare dawn, noon, dusk and night lighting; move fast and watch the clouds drift |
 | db3b5ef | **The scripted sky**: star dome, moons, atmosphere gradient, two suns, battle stations, clouds and horizon from the FXS scripts; the sun direction (and shadows) from the solar model | look up outdoors at day, dusk and night; watch the suns set around 20:30 game time; shadows should follow the sun |
 | 1c56f81 | **FXS effect scripts**: the playfield's tweak scripts load and run each frame; server script events (alien flybys) run and their sounds play (nothing drawn yet) | `MAO_FXS=1`: the log lists the effects started on login and any script errors; listen for flyby engine sounds during an alien event |

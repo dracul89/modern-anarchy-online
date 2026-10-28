@@ -1814,7 +1814,7 @@ fn sky_draws(frame: &crate::fxs::visuals::Frame, eye: [f32; 3], forward: [f32; 3
         match &d.shape {
             Shape::Triangles(t) => {
                 let sprite = d.texture.as_deref().map_or(mao_render::NO_SPRITE, |n| named_sheet(c.named, renderer, n));
-                parts.push((sprite, t.iter().map(|v| mao_render::ShellVertex { position: world(visuals::transform(&m, v.pos)), uv: v.uv, colour: scaled(v.colour) }).collect()));
+                parts.push((sprite, t.iter().map(|v| mao_render::ShellVertex { position: world(visuals::transform(&m, v.pos)), uv: visuals::texture_uv(d, v.uv), colour: scaled(v.colour) }).collect()));
             }
             Shape::Mesh(name) => {
                 let Some(model) = c.meshes.entry(name.clone()).or_insert_with(|| textures.mesh_named(name)).as_ref() else { continue };
@@ -1856,7 +1856,7 @@ fn sky_draws(frame: &crate::fxs::visuals::Frame, eye: [f32; 3], forward: [f32; 3
                             let p = visuals::transform(&m, visuals::transform(&own, flip(v.position)));
                             let n = visuals::turn(&m, visuals::turn(&own, flip(v.normal)));
                             let colour = if d.light.is_some() { visuals::lit(d, n, material) } else { [1.0, 1.0, 1.0, material.0[3].max(0.0)] };
-                            mao_render::ShellVertex { position: world(p), uv: v.uv, colour: scaled(colour) }
+                            mao_render::ShellVertex { position: world(p), uv: visuals::texture_uv(d, v.uv), colour: scaled(colour) }
                         })
                         .collect();
                     parts.push((sprite, vertices));

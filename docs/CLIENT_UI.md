@@ -972,7 +972,7 @@ day, alpha by its intensity row: stars show at night), the battle stations, the 
 they rise about 7:15 and set about 20:30 and dim below the horizon), the thick clouds (by the weather's cloud intensity) and the
 horizon's dish under the horizon line. The scripts' ground light (`GAME.Sun1Rotation`) is the scene's sun, so shadows follow
 the sun over the day (held a little above the horizon at night). `MAO_SKY=<hour>` with `map <playfield> --image` renders it
-headless (`MAO_SKY_ONLY=<sorting,…>` for single layers). Not drawn yet: the clouds' and horizon's texture scrolling, the interiors' and other environments' skies (orbit, sand, rock).
+headless (`MAO_SKY_ONLY=<sorting,…>` for single layers). Not drawn yet: the interiors' and other environments' skies (orbit, sand, rock).
 
 **Single clouds and the scripts' light.** Thirty cloud puffs (`single_cloud01`–`04`) hang round the camera at the script's
 altitude, sinking toward the horizon with distance, drifting back as you move and wrapping across a 3200-wide field; they fade
@@ -981,3 +981,8 @@ night, brighter by day) and the ground light's colour (warm at dawn and dusk, bl
 and sun colours, and distance hazes into the atmosphere's horizon colour. The game database may hold more segment files than
 its main file's header counts (an install updated by a texture pack): the reader opens the further ones that belong, which
 brings back their textures.
+
+**Cloud drift and texture scrolling.** The single clouds drift with the high-altitude wind (the weather's wind and its gusts,
+scaled as the original's environment scales them) as well as against your movement. The scripts' texture transforms are
+followed, but the thick clouds' and horizon's scrolling never comes to anything, in the original as here: their matrices name
+`This.ScrollMatrix`, which a state blob's transform cannot reach, so they stay still and untiled.
