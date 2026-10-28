@@ -298,11 +298,24 @@ fn captured_weapons_swing_animations_the_files_have() {
 }
 
 #[test]
-fn weapon_animations_carry_their_notes() {
+fn weapon_animations_carry_their_attack_notes() {
+    // (the moment of the shot or blow, which the swing's speed is measured by: the first note, `GetNoteTime(id, 0)`)
     let Some(db) = database() else { return };
-    for (id, name) in [(10170, "smallarms-shot"), (14773, "rifle-shot"), (10181, "blade1h-slash"), (10175, "unarmed-rswing")] {
+    for (id, first, time) in [(10170, "attack", 300.0), (14773, "attack", 200.0), (10181, "attack", 233.0), (10175, "swish_punch", 33.0)] {
         let data = db.get(Id { kind: 0xf6953, instance: id }).unwrap().unwrap();
         let anim = mao_formats::catanim::parse(&data).unwrap();
-        println!("{name}: {:?}", anim.notes.iter().map(|n| (n.name.clone(), n.time)).collect::<Vec<_>>());
+        assert_eq!((anim.notes[0].name.as_str(), anim.notes[0].time), (first, time));
     }
+}
+
+#[test]
+fn a_creature_set_swings_and_dies() {
+    // (the grid default character, 99902: its set has the unarmed swing FUN_1006a782 gives a body without weapon points, and a
+    // death the fallbacks reach)
+    let Some(db) = database() else { return };
+    let data = db.get(Id { kind: mao_formats::npc::TEMPLATE, instance: 99902 }).unwrap().unwrap();
+    let record = mao_formats::npc::Template::parse(&data).unwrap();
+    assert!(record.animations.iter().any(|a| a.0 == 0x40a));
+    assert_eq!(mao_formats::appearance::action_fallback(500), 6000);
+    assert!(record.animations.iter().any(|a| a.0 == 6000));
 }

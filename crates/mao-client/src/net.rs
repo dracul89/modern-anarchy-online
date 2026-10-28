@@ -1193,7 +1193,7 @@ impl Characters {
     /// animations its record names), in Y-up local space.
     /// A dead one (`dying`: the death's action) plays its death once and lies in its last pose: the template's animation for the
     /// action (FUN_1003cac9 asks the creature's own set), else along FUN_10010b3c's fallbacks (`die-knees` to `die-pain`).
-    fn creature_parts(&mut self, id: u32, template: u32, action: mao_formats::appearance::Action, _phase: f32, rate: f32, textures: &[(String, u32)], clothes: &[(String, u32)], deform: Option<(&mao_formats::gfx::Deform, f32)>, dying: Option<u32>) -> Option<Vec<Part>> {
+    fn creature_parts(&mut self, id: u32, template: u32, action: mao_formats::appearance::Action, _phase: f32, rate: f32, textures: &[(String, u32)], clothes: &[(String, u32)], deform: Option<(&mao_formats::gfx::Deform, f32)>, dying: Option<u32>, swing: Option<(u32, u32, Instant, u32, u32)>) -> Option<Vec<Part>> {
         use mao_formats::resource::Id;
         let db = self.db.clone();
         let entry = self.creatures.entry(template).or_insert_with(|| load_template(&db, template));
@@ -1237,6 +1237,57 @@ impl Characters {
         if !self.anims_by_id.contains_key(&anim_id) {
             self.anims_by_id.insert(anim_id, (Arc::new(anim.clone()), *length));
         }
+        let length = *length;
+        // (an attack swings as FUN_1006a782 makes it: a body with weapon attachment points (`Attractor03_lefthand`,
+        // `HasWeaponAttractors`) the weapon's actions, one without `unarmed-rswing` (0x40a); the animation from the creature's own
+        // set, one of the action's at random (FUN_1003cac9 → FUN_10045976), along FUN_10010b3c's fallbacks; once at priority −2 on the
+        // action's layer, sped up by its first note over the weapon's attack time held to 1..2)
+        let swing = match swing {
+            Some((weapon, slot, began, pick, class)) if death.is_none() && self.swings_started.get(&id) != Some(&began) => {
+                let data = db.get(Id { kind: mao_formats::item::TEMPLATE, instance: weapon }).ok().flatten();
+                let actions = match &data {
+                    Some(d) if mesh.attractor_named("Attractor03_lefthand").is_some() => {
+                        let a = mao_formats::item::weapon_actions(d, slot, class);
+                        if a.is_empty() && class != 0xb { mao_formats::item::attack_actions(d, slot) } else { a }
+                    }
+                    Some(_) => vec![0x40a],
+                    None => vec![],
+                };
+                let attack_ms = data.as_deref().and_then(mao_formats::item::Item::parse).and_then(|i| i.stat(294)).map_or(0.0, |d| d as f32 * 10.0);
+                let mut found = None;
+                if !actions.is_empty() {
+                    let mut action = actions[pick as usize % actions.len()];
+                    for _ in 0..8 {
+                        let matches: Vec<u32> = record.animations.iter().filter(|x| x.0 == action).map(|x| x.1).collect();
+                        if !matches.is_empty() {
+                            found = Some((action, matches[pick as usize % matches.len()]));
+                            break;
+                        }
+                        action = mao_formats::appearance::action_fallback(action);
+                        if action == 0 {
+                            break;
+                        }
+                    }
+                }
+                let found = found.and_then(|(action, anim)| {
+                    let loaded = self.creature_anims.entry(anim).or_insert_with(|| {
+                        let a = mao_formats::catanim::parse(&db.get(Id { kind: 0xf6953, instance: anim }).ok()??).ok()?;
+                        let length = a.tracks.iter().flat_map(|t| t.rotations.iter().map(|k| k.0)).fold(1.0f32, f32::max);
+                        Some((a, length))
+                    });
+                    let (a, length) = loaded.as_ref()?;
+                    let note = a.notes.first().map_or(0.0, |n| n.time);
+                    let speed = if attack_ms > 0.0 && note > 0.0 { (note / attack_ms).clamp(1.0, 2.0) } else { 1.0 };
+                    if !self.anims_by_id.contains_key(&anim) {
+                        self.anims_by_id.insert(anim, (Arc::new(a.clone()), *length));
+                    }
+                    let claims = mao_formats::appearance::action_name(action).map_or(0, |(_, mask)| (!mask & 3) as u32);
+                    Some((anim, *length, claims, speed))
+                });
+                Some((began, found))
+            }
+            _ => None,
+        };
         // The creature's stack: its movement looping at priority 0 on layer 2, as a player's.
         let (stack, tick) = self.stacks.entry(id).or_insert_with(|| (Default::default(), Instant::now()));
         let dt = tick.elapsed().as_secs_f32().min(0.5);
@@ -1244,13 +1295,21 @@ impl Characters {
         let stack_key = (action, if death.is_some() { 9 } else { hold as u8 }, anim_id);
         if self.movement_keys.get(&id) != Some(&stack_key) {
             // (a death is held at its end: direction 3 plays it once and keeps the last frame)
-            let handle = stack.set_animation(anim_id, 0, -1, 2, if death.is_some() { 3 } else { 0 }, 1.0, *length);
-            stack.set_time(handle, 0.0, if hold { 0.0 } else { *length });
+            let handle = stack.set_animation(anim_id, 0, -1, 2, if death.is_some() { 3 } else { 0 }, 1.0, length);
+            stack.set_time(handle, 0.0, if hold { 0.0 } else { length });
             self.movement_keys.insert(id, stack_key);
             self.movement_handles.insert(id, handle);
         }
         if let Some(&handle) = self.movement_handles.get(&id) {
             stack.set_speed_scale(handle, rate.max(0.05));
+        }
+        if let Some((began, found)) = swing {
+            if let Some((anim, total, claims, speed)) = found {
+                let handle = stack.set_animation(anim, -2, 1, claims, 0, 1.0, total);
+                stack.set_time(handle, 0.0, total);
+                stack.set_speed_scale(handle, speed);
+            }
+            self.swings_started.insert(id, began);
         }
         stack.advance(dt);
         let anims = &self.anims_by_id;
@@ -1801,7 +1860,7 @@ pub(crate) fn creature_preview(db: Arc<ResourceDatabase>, template: u32, out: &s
         "run" => mao_formats::appearance::Action::Run,
         _ => mao_formats::appearance::Action::Idle,
     };
-    let parts = chars.creature_parts(0, template, action, 0.0, 1.0, &[], &[], None, None).ok_or("that template has no mesh")?;
+    let parts = chars.creature_parts(0, template, action, 0.0, 1.0, &[], &[], None, None, None).ok_or("that template has no mesh")?;
     let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     let model = Model { instances: (0..parts.len()).map(|i| (i, swap)).collect(), parts, water: None, lod_groups: Vec::new() };
     crate::viewer::headless(&model, &crate::Textures::new(db), out)
@@ -1882,7 +1941,9 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
         if let (Some(info), Some(chars)) = (world.infos.get(&id).filter(|i| i.template.is_some()), characters.as_mut()) {
             let moving = world.last_move.get(&id).is_some_and(|t| t.elapsed() < Duration::from_millis(900));
             let action = if moving { mao_formats::appearance::Action::Walk } else { mao_formats::appearance::Action::Idle };
-            if let Some(parts) = chars.creature_parts(id, info.template.unwrap(), action, (id % 997) as f32 * 3.0, 1.0, &info.textures, &info.clothes, deform, world.dead.get(&id).map(|d| d.0)) {
+            // (an attack swings the weapon the server said the creature holds in the place it names)
+            let swing = world.swings.get(&id).and_then(|&(slot, began, pick, class)| Some((*world.weapons.get(&(id, slot as u8))?, slot, began, pick, class)));
+            if let Some(parts) = chars.creature_parts(id, info.template.unwrap(), action, (id % 997) as f32 * 3.0, 1.0, &info.textures, &info.clothes, deform, world.dead.get(&id).map(|d| d.0), swing) {
                 push_character(&mut model, &mut casters, parts, place, id == world.own, chars.frames.get(&id));
                 continue;
             }
@@ -1900,7 +1961,7 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
                 _ if speed > 2.2 => Action::Run,
                 _ => Action::Walk,
             };
-            if let Some(parts) = chars.creature_parts(id, creature, action, (id % 997) as f32 * 3.0, MORPH_ANIM_RATE, &[], &[], deform, world.dead.get(&id).map(|d| d.0)) {
+            if let Some(parts) = chars.creature_parts(id, creature, action, (id % 997) as f32 * 3.0, MORPH_ANIM_RATE, &[], &[], deform, world.dead.get(&id).map(|d| d.0), None) {
                 push_character(&mut model, &mut casters, parts, place, id == world.own, chars.frames.get(&id));
                 continue;
             }
