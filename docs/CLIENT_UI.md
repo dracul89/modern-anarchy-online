@@ -888,3 +888,8 @@ its top byte, height from its second, through DisplaySystem's curve) times the b
 collisions on the frames its count of every other second is a multiple of its stat 437, when it wants them (flags bit
 0x80000), and bleeps when its stat 36 is set, it is armed (its full update's flags bit 1) and has not malfunctioned, once each
 time the game clock's second turns, higher the closer you are: `(3 − distance) × 10 + 100`.
+
+**Vicinity speech.** Chat packet 34 (`u32 speaker, text, blob`, the ppj parser's `S2C_VIS_MESSAGE_FMT`) is vicinity speech:
+it shows as `Name: text` and its voice line (the blob's records after its first byte) plays when `VoiceSndFxHearVicinityOn`
+is set; packet 35 (`name, text, blob`, `S2C_VIS_ANON_MESSAGE`) is the anonymous kind the system lines come as, read the same
+way.
