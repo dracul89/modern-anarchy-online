@@ -260,6 +260,16 @@ pub struct Helix {
     pub table: Vec<(f32, f32)>,
     /// How long one pulse of the ring lasts, in seconds (1.5 in every template).
     pub life: f32,
+    /// The cord the placeholder lays (word 11, kind 1003, `_GfxControlCord_t`: FUN_100d60d5 reads it): its links' width (word
+    /// 12), life (word 35), the cord's duration (word 8) and material (word 9). Every placeholder's cord is the same: 0.05,
+    /// 0.5 s, 1.5 s and light_halo2 (8).
+    pub ribbon_width: f32,
+    pub ribbon_life: f32,
+    pub ribbon_duration: f32,
+    pub ribbon_material: i32,
+    /// The rate (word 10) of the flare the placeholder carries (word 10, kind 1005, `_GfxControlFlare_t`): sprites a second; 0 in
+    /// every placeholder's flare, so the ring has no sparkles.
+    pub sparkle_rate: f32,
 }
 
 impl Helix {
@@ -307,7 +317,27 @@ impl Gfx {
             .references(root.id)
             .into_iter()
             .filter_map(|c| self.get(c).filter(|c| c.kind == 1002))
-            .map(|c| Helix { spin: c.float(23), phase: c.float(22), size: c.float(21), count: c.int(20).max(1) as u32, colour: [c.float(13), c.float(14), c.float(15)], material: self.get(c.int(10)).map_or(15, |spark| spark.int(9)), attach: c.int(7), offset: c.float(3), radius: c.float(21).abs().max(0.02), table: self.get(c.int(26)).filter(|t| t.kind == 0).map(|t| t.payload.chunks_exact(2).map(|p| (f32::from_bits(p[0] as u32), f32::from_bits(p[1] as u32))).collect()).unwrap_or_default(), life: if (0.2..10.0).contains(&c.float(8)) { c.float(8) } else { 1.5 } })
+            .map(|c| {
+                let cord = self.get(c.int(11)).filter(|r| r.kind == 1003 && r.payload.len() >= 36);
+                Helix {
+                    spin: c.float(23),
+                    phase: c.float(22),
+                    size: c.float(21),
+                    count: c.int(20).max(1) as u32,
+                    colour: [c.float(13), c.float(14), c.float(15)],
+                    material: self.get(c.int(10)).map_or(15, |spark| spark.int(9)),
+                    attach: c.int(7),
+                    offset: c.float(3),
+                    radius: c.float(21).abs().max(0.02),
+                    table: self.get(c.int(26)).filter(|t| t.kind == 0).map(|t| t.payload.chunks_exact(2).map(|p| (f32::from_bits(p[0] as u32), f32::from_bits(p[1] as u32))).collect()).unwrap_or_default(),
+                    life: if (0.2..10.0).contains(&c.float(8)) { c.float(8) } else { 1.5 },
+                    ribbon_width: cord.map_or(0.05, |r| r.float(12)),
+                    ribbon_life: cord.map_or(0.5, |r| r.float(35)),
+                    ribbon_duration: cord.map_or(1.5, |r| r.float(8)),
+                    ribbon_material: cord.map_or(8, |r| r.int(9)),
+                    sparkle_rate: self.get(c.int(10)).filter(|r| r.kind == 1005).map_or(0.0, |r| r.float(10)),
+                }
+            })
             .collect();
         let rgb = |at: usize| tint.unwrap_or([root.float(at), root.float(at + 1), root.float(at + 2)]);
         let period = root.float(20);

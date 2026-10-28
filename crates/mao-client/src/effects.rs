@@ -1,13 +1,10 @@
 //! Nano effects drawn as glowing sprites in the world (the renderer's particle pass). The templates come from `gfxtweak.bin`
-//! (`mao_formats::gfx`). A running buff's effect (kind 1001) is played as the original plays it: a short pulse every few seconds,
-//! a ring of sparks at a height on the body that forms, spins and fades in a second and a half ([`running_particles`]); the hits
-//! and tracers built on the same spirals run continuously for their short lives ([`aura_shaped`]).
-//!
-//! What the data gives: the colour, each spiral's spin (about two turns a second), its start angle, spark size and count. What it
-//! does not say (or is not read yet): the radius (the radius path's numbers, 0.06 to 0.15, are too small for a body; 0.42 m is used),
-//! how high and how long a spark lives (1.9 m and 1.6 s here), and the trail (a short tail of fading sparks behind each one).
+//! (`mao_formats::gfx`); each effect class is played as its control in Gamecode plays it (the addresses are at each function).
+//! A running buff's effect (kind 1001) pulses every few seconds (`pulses`); each pulse plays its two placeholders' rings
+//! ([`ring`]: the cord ribbon `_GfxControlBuffPlaceHolder_t` lays as its point turns, of which the original only ever draws the
+//! forward-spinning one).
 
-use mao_formats::gfx::{colour_curve, curve, unpack_argb, Aura, BParticles, Cords, Deform, Emitter, Smoke, Sparks, Sprite, Stars, Visual, VolGrid};
+use mao_formats::gfx::{colour_curve, curve, unpack_argb, Aura, BParticles, Cords, Deform, Emitter, Helix, Smoke, Sparks, Sprite, Stars, Visual, VolGrid};
 use mao_render::{Particle, NO_SPRITE};
 
 /// The wind the effects are pushed by, Z up: the effect handler's wind (+0x24, Sparks) and its smoothed copy (+0x30, Smoke).
@@ -883,18 +880,62 @@ pub fn calibration(mesh: u32, animation: u32) -> f32 {
     CALIBRATION.get().and_then(|t| t.get(&(mesh, animation))).copied().unwrap_or(1.0)
 }
 
-/// How far from the body the spirals run, in metres (a choice: see above).
-const RADIUS: f32 = 0.42;
-/// How tall the spirals climb, in metres, and how long a spark takes to do it.
-const HEIGHT: f32 = 1.9;
-const LIFE: f32 = 1.6;
-/// The sparks behind each spark of a spiral, and how far apart they trail (radians).
-const TRAIL: usize = 5;
-const TRAIL_STEP: f32 = 0.22;
+/// The step of a placeholder's angle (0x10168fc8): the cord gets a link and the flare runs once each time the point has turned
+/// this far.
+const RING_STEP: f32 = 0.45;
+/// The frame the placeholder's children run their clocks by: they run once a step, by the frame's step, so their clocks follow
+/// the frame rate; the effects were made at 30 a second.
+const RING_FRAME: f32 = 1.0 / 30.0;
+/// A cord link's drift a run: the frame's step held to 0.01..0.025 (0x10161994, 0x1016c558): 0.025 at 30 a second.
+const RING_DRIFT: f32 = 0.025;
+/// The links a cord draws (`GfxVisualCord4`'s list).
+const RING_LINKS: u32 = 32;
 
-/// The sparks of an aura at `time` seconds, round a character whose feet are at `feet` (world, Z up).
-pub fn aura_particles(aura: &Aura, feet: [f32; 3], time: f32) -> Vec<Particle> {
-    aura_shaped(aura, feet, time, HEIGHT, RADIUS)
+/// One placeholder's ring `t` seconds into its pulse, about `centre` (world, Z up) at `radius`, as the original makes it:
+/// `_GfxControlBuffPlaceHolder_t`'s run (FUN_100d52c3) turns its point at word 23 rad/s and, for each 0.45 rad of turn
+/// (`(target - angle) / 0.45` whole steps a frame: none at all when the spin is negative, the reason the left limb's ring of
+/// every pair never shows), moves the angle on a step and hands the new point to its children: the cord (FUN_100d69d8 lays a
+/// link there with FUN_100d6323 while its clock is under its duration less its life) and the flare (whose rate is 0 in every
+/// template, so nothing). The cord's run (FUN_100d5f5a) moves each link by its offset from the ring's centre times the clamped
+/// step (so the ring widens as it fades) and sets its alpha to `life left / life`; `GfxVisualCord4` draws a ribbon twice the
+/// link width through the newest 32 links. The placeholder ends with its duration (word 8) and takes its children with it.
+fn ring(out: &mut Vec<Particle>, centre: [f32; 3], radius: f32, helix: &Helix, colour: [f32; 3], t: f32) {
+    if helix.spin <= 0.0 || t < 0.0 || t >= helix.life {
+        return;
+    }
+    let now = (t * helix.spin / RING_STEP).floor() as u32;
+    let (width, life) = (helix.ribbon_width.max(0.005), helix.ribbon_life.max(0.05));
+    let mut links: Vec<([f32; 3], f32)> = Vec::new();
+    for n in (1..=now).rev().take(RING_LINKS as usize) {
+        // (the cord's clock when this link was laid, and the link's age, both in steps of a frame)
+        let clock = n as f32 * RING_FRAME;
+        if helix.ribbon_duration >= 0.0 && clock >= helix.ribbon_duration - life {
+            continue;
+        }
+        let steps = now - n;
+        let age = steps as f32 * RING_FRAME;
+        if age >= life {
+            break;
+        }
+        let angle = helix.phase + n as f32 * RING_STEP;
+        let out_by = radius * (1.0 + RING_DRIFT * steps as f32);
+        links.push(([centre[0] + out_by * angle.cos(), centre[1] + out_by * angle.sin(), centre[2]], (life - age) / life));
+    }
+    // (the ribbon: sprites along each segment, as wide as the ribbon, close enough to join)
+    for pair in links.windows(2) {
+        let ((a, fa), (b, fb)) = (pair[0], pair[1]);
+        let length = ((b[0] - a[0]).powi(2) + (b[1] - a[1]).powi(2) + (b[2] - a[2]).powi(2)).sqrt();
+        let pieces = ((length / width).ceil() as u32).clamp(1, 8);
+        for i in 0..pieces {
+            let u = i as f32 / pieces as f32;
+            let at = [0, 1, 2].map(|k| a[k] + (b[k] - a[k]) * u);
+            let alpha = fa + (fb - fa) * u;
+            out.push(sprite(helix.ribbon_material, 0.0, at, width * 2.0, [colour[0], colour[1], colour[2], alpha]));
+        }
+    }
+    if let [(only, alpha)] = links.as_slice() {
+        out.push(sprite(helix.ribbon_material, 0.0, *only, width * 2.0, [colour[0], colour[1], colour[2], *alpha]));
+    }
 }
 
 /// A spell's flight and landing: the tracer's spiral travels from the caster to the target, then the hit effect's spiral stands at the
@@ -1006,11 +1047,19 @@ pub fn visual_particles(v: &Visual, feet: [f32; 3], time: f32, reach: Reach) -> 
             };
             smoke_particles(s, [feet[0], feet[1], feet[2] + up], time)
         }
-        Visual::Spiral(aura) => match reach {
-            Reach::Body => aura_shaped(aura, feet, time, HEIGHT, RADIUS),
-            Reach::Medium => aura_shaped(aura, feet, time, 1.5, 0.35),
-            Reach::Small => aura_shaped(aura, feet, time, 0.5, 0.18),
-        },
+        // (the placeholders' rings at their attach points; a tracer carries them at its point)
+        Visual::Spiral(aura) => {
+            let mut out = Vec::new();
+            let pulse = time.rem_euclid(aura.period.max(0.5));
+            for helix in &aura.helices {
+                let centre = match reach {
+                    Reach::Small => feet,
+                    _ => attach_point(helix.attach, helix.offset, feet, 0.0),
+                };
+                ring(&mut out, centre, helix.radius.max(0.03), helix, aura.colour, pulse);
+            }
+            out
+        }
         // a halo under the feet that breathes
         Visual::Glow { colour, .. } => {
             let breathe = 0.75 + 0.25 * (time * 2.5).sin();
@@ -1058,8 +1107,9 @@ fn anchor(attach: i32) -> (f32, f32, f32) {
         1005 => (1.52, 0.0, 1.0),
         1006 | 2002 => (1.62, 0.0, 1.0),
         // The left limbs' bone frames are mirrored in the Biped rig, so the template's offset, which runs down the right limb, runs up
-        // the left one into the body, where the ring is hidden: the original shows these effects on the right limb only (seen on the
-        // thigh ring of a Martial Artist's buff).
+        // the left one. (The original shows these effects on the right limb only, seen on the thigh ring of a Martial Artist's buff;
+        // the reason is the placeholder's run, not the frame: every left-limb placeholder spins backwards and so never steps, see
+        // [`ring`].)
         1007 => (1.45, -0.2, 1.0),
         1008 => (1.45, 0.2, -1.0),
         1009 => (1.15, -0.22, 1.0),
@@ -1129,7 +1179,7 @@ pub fn pulse_particles(v: &Visual, feet: [f32; 3], heading: f32, age: f32, body:
                 }
                 let (offset, radius) = body.map_or((helix.offset, helix.radius), |(b, s, f)| helix.fit(b, s, f));
                 let at = attach_point(helix.attach, offset, feet, heading);
-                ride(&mut out, at, at[2], radius.max(0.03), helix.phase, helix.spin, age, helix.life, aura.colour);
+                ring(&mut out, at, radius.max(0.03), helix, aura.colour, age);
             }
         }
         Visual::Glow { colour, size } => {
@@ -1183,41 +1233,6 @@ pub fn pulse_timing(v: &Visual) -> (f32, f32, i32) {
     }
 }
 
-/// [`aura_particles`] for a spiral of another height and radius (a tracer is short, a body's is tall).
-pub fn aura_shaped(aura: &Aura, feet: [f32; 3], time: f32, height_m: f32, radius_m: f32) -> Vec<Particle> {
-    let mut out = Vec::new();
-    for helix in &aura.helices {
-        // (the spirals' sparks start at the colour of the buff and warm toward the helix's own light colour)
-        let n = (helix.count as usize).clamp(1, 24);
-        for i in 0..n {
-            let age = (time / LIFE + i as f32 / n as f32).fract();
-            let height = age * height_m;
-            let strength = (1.0 - age).powf(0.7) * (age * 8.0).min(1.0);
-            let colour = |t: f32| {
-                [
-                    aura.colour[0] * (1.0 - t) + helix.colour[0] * t,
-                    aura.colour[1] * (1.0 - t) + helix.colour[1] * t,
-                    aura.colour[2] * (1.0 - t) + helix.colour[2] * t,
-                ]
-            };
-            let c = colour(0.12 + 0.2 * age);
-            for k in 0..=TRAIL {
-                let angle = helix.phase + helix.spin * time - helix.spin.signum() * TRAIL_STEP * k as f32 + i as f32 * 0.6;
-                let fade = 1.0 - k as f32 / (TRAIL + 1) as f32;
-                // each spark leans in a little as it rises, like a flame
-                let radius = radius_m * (1.0 - 0.25 * age);
-                out.push(sprite(
-                    helix.material,
-                    age,
-                    [feet[0] + radius * angle.cos(), feet[1] + radius * angle.sin(), feet[2] + height - 0.04 * k as f32],
-                    helix.size.max(0.05) * (0.45 + 0.55 * fade) * 0.85,
-                    [c[0], c[1], c[2], 0.75 * strength * fade * fade],
-                ));
-            }
-        }
-    }
-    out
-}
 
 /// A cheap deterministic number in 0..1 for particle `k` and a purpose `salt` (so particles need no stored state).
 fn hash(k: u32, salt: u32) -> f32 {
@@ -1640,7 +1655,7 @@ mod tests {
 
     #[test]
     fn a_pulse_rides_a_ring_at_the_body_s_place() {
-        let helix = mao_formats::gfx::Helix { spin: 12.6, phase: 0.0, size: 0.13, count: 10, colour: [0.5, 0.4, 1.0], material: 15, attach: 1006, offset: -0.1, radius: 0.13, table: vec![(-0.5, 0.2); 24], life: 1.5 };
+        let helix = mao_formats::gfx::Helix { spin: 12.6, phase: 0.0, size: 0.13, count: 10, colour: [0.5, 0.4, 1.0], material: 15, attach: 1006, offset: -0.1, radius: 0.13, table: vec![(-0.5, 0.2); 24], life: 1.5, ribbon_width: 0.05, ribbon_life: 0.5, ribbon_duration: 1.5, ribbon_material: 8, sparkle_rate: 0.0 };
         let aura = Visual::Spiral(mao_formats::gfx::Aura { colour: [0.99, 0.99, 0.2], end: [0.99, 0.99, 0.2], helices: vec![helix], period: 4.0, plays: -1 });
         // without a body: the template's own place; with one: the table's
         // the head bone at 1.62 m: the offset climbs toward the crown
@@ -1648,8 +1663,10 @@ mod tests {
         assert!(!own.is_empty() && own.iter().all(|p| (p.position[2] - 1.72).abs() < 0.06));
         let fitted = pulse_particles(&aura, [0.0, 0.0, 0.0], 0.0, 0.8, Some((1, 2, 1)));
         assert!(fitted.iter().all(|p| (p.position[2] - 2.12).abs() < 0.06));
-        // the trail grows with the pulse, and nothing is drawn past its life
-        assert!(pulse_particles(&aura, [0.0, 0.0, 0.0], 0.0, 0.2, None).len() < own.len());
+        // the ribbon grows with the pulse, the cord stops laying links a life before its duration, nothing past the pulse
+        assert!(pulse_particles(&aura, [0.0, 0.0, 0.0], 0.0, 0.1, None).len() < own.len());
+        // (the last links, laid by 1.04 s, are still fading at 1.45 s: faint)
+        assert!(pulse_particles(&aura, [0.0, 0.0, 0.0], 0.0, 1.45, None).iter().all(|p| p.colour[3] < 0.3));
         assert!(pulse_particles(&aura, [0.0, 0.0, 0.0], 0.0, 1.6, None).is_empty());
         // a calf ring sits at mid-shin, a right-hand ring to the character's right
         assert!((attach_point(1014, -0.25, [0.0; 3], 0.0)[2] - 0.25).abs() < 0.01);
@@ -1661,34 +1678,38 @@ mod tests {
     use mao_formats::gfx::Helix;
 
     fn aura() -> Aura {
-        let helix = |spin: f32| Helix { spin, phase: 0.0, size: 0.15, count: 10, colour: [0.5, 0.4, 1.0], material: 15, attach: 1006, offset: -0.25, radius: 0.15, table: Vec::new(), life: 1.5 };
+        let helix = |spin: f32| Helix { spin, phase: 0.0, size: 0.15, count: 10, colour: [0.5, 0.4, 1.0], material: 15, attach: 1006, offset: -0.25, radius: 0.15, table: Vec::new(), life: 1.5, ribbon_width: 0.05, ribbon_life: 0.5, ribbon_duration: 1.5, ribbon_material: 8, sparkle_rate: 0.0 };
         Aura { colour: [0.2, 0.2, 0.99], end: [0.2, 0.2, 0.99], helices: vec![helix(-12.566), helix(12.566)], period: 4.0, plays: -1 }
     }
 
     #[test]
-    fn sparks_stay_round_the_character_and_below_head_height() {
-        let sparks = aura_particles(&aura(), [10.0, 20.0, 5.0], 0.7);
-        // two spirals of ten sparks, each with its trail
-        assert_eq!(sparks.len(), 2 * 10 * (TRAIL + 1));
-        for s in &sparks {
-            let (dx, dy) = (s.position[0] - 10.0, s.position[1] - 20.0);
-            assert!((dx * dx + dy * dy).sqrt() <= RADIUS + 1e-3);
-            assert!(s.position[2] >= 5.0 - 0.04 * TRAIL as f32 - 1e-3 && s.position[2] <= 5.0 + HEIGHT + 1e-3);
-            assert!(s.colour[3] >= 0.0 && s.colour[3] <= 1.0);
+    fn the_ring_is_the_cord_s_ribbon_laid_a_link_each_step_and_widening_as_it_fades() {
+        let a = aura();
+        let mut out = Vec::new();
+        ring(&mut out, [10.0, 20.0, 5.0], 0.15, &a.helices[1], a.colour, 0.7);
+        assert!(!out.is_empty());
+        // on the ring's height, out from the centre by the radius to the drift of a whole life (15 steps of 0.025)
+        for p in &out {
+            let r = (p.position[0] - 10.0).hypot(p.position[1] - 20.0);
+            assert!(p.position[2] == 5.0 && r >= 0.15 * 0.99 - 1e-3 && r <= 0.15 * (1.0 + 0.025 * 15.0) + 1e-3, "{r}");
+            assert!(p.colour[3] > 0.0 && p.colour[3] <= 1.0 && p.size == 0.1);
         }
+        // no more than the 32 newest links, and a life of 0.5 s at 30 a second is 15 of them
+        let steps = (0.7f32 * 12.566 / 0.45).floor() as usize;
+        assert!(steps > 15);
     }
 
     #[test]
-    fn the_two_spirals_turn_opposite_ways() {
+    fn a_placeholder_that_spins_backwards_never_steps_so_draws_nothing() {
         let a = aura();
-        let at = |time: f32| aura_particles(&a, [0.0; 3], time);
-        // the lead spark of each spiral: indices 0 and 10 * (TRAIL + 1)
-        let angle = |p: &Particle| p.position[1].atan2(p.position[0]);
-        let (first, second) = (0, 10 * (TRAIL + 1));
-        let (a0, b0) = (angle(&at(0.0)[first]), angle(&at(0.0)[second]));
-        let (a1, b1) = (angle(&at(0.02)[first]), angle(&at(0.02)[second]));
-        let turn = |x: f32, y: f32| (y - x + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
-        assert!(turn(a0, a1) < 0.0 && turn(b0, b1) > 0.0);
+        let mut back = Vec::new();
+        ring(&mut back, [0.0; 3], 0.15, &a.helices[0], a.colour, 0.7);
+        assert!(a.helices[0].spin < 0.0 && back.is_empty());
+        // the whole aura: only the forward ring shows
+        let all = visual_particles(&Visual::Spiral(a.clone()), [0.0; 3], 0.7, Reach::Body);
+        let mut forward = Vec::new();
+        ring(&mut forward, attach_point(1006, -0.25, [0.0; 3], 0.0), 0.15, &a.helices[1], a.colour, 0.7);
+        assert_eq!(all, forward);
     }
 
     #[test]
