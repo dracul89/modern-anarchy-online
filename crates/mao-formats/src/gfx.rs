@@ -987,6 +987,12 @@ pub enum Visual {
     /// `(word 28 + k × word 29) × (1 − (2 frac − 1)⁴)` over the duration (word 26), turned by `t × 0.5 × (k − 4)`, coloured from
     /// the table at 0x102c60a0 with their alpha held to 0xc0. Modes 1–3 (21 uses) are not played.
     Suns(Suns),
+    /// Kind 2006, `_GfxControlElectra_t` (FUN_100d9aa9; FUN_100d97ba the words, FUN_100d98e0 the `GfxVisualElectra`
+    /// (displaysystem `gfxsol.rs`), FUN_100d9de5 the run), mode 1 (word 10; every template a program names): 64 quads of the
+    /// material (word 9), born at `28 / life` a second (at most two a frame) on a random point of a sphere stretched 1.5 up and
+    /// scaled by word 29 about the attach point, each turned at random (its two half-axes word 28 long, flipped at random), living
+    /// word 30 ms, its frame running over its life, its colour picked between words 18–21 and 22–25; the effect lasts word 26.
+    Electra { material: i32, attach: i32, colour_a: [f32; 4], colour_b: [f32; 4], duration: f32, size: f32, reach: f32, life: f32 },
     /// Kind 2001, `_GfxControlSpiral_t` (the point `CreateGfxControl` FUN_100cea4b / FUN_100f500b; FUN_100f4ef1 the words,
     /// FUN_100f4f45 the visuals, FUN_100f4cb5 the run; displaysystem `gfxbeams.rs`'s `GfxVisualSpiral`): two strips of the
     /// material (word 9) half a turn apart, each one turn of 12 segments 0.6 out, rising 0.3 a radian (1.88 over the turn) and
@@ -1062,6 +1068,16 @@ impl Gfx {
                 step: r.float(29),
                 life: r.int(30) as f32 / 1000.0,
             })),
+            2006 if r.payload.len() >= 32 && r.int(10) == 1 => Some(Visual::Electra {
+                material: r.int(9),
+                attach: r.int(7),
+                colour_a: [r.float(18), r.float(19), r.float(20), r.float(21)],
+                colour_b: [r.float(22), r.float(23), r.float(24), r.float(25)],
+                duration: r.float(26),
+                size: r.float(28),
+                reach: r.float(29),
+                life: r.int(30) as f32 / 1000.0,
+            }),
             2001 if r.payload.len() >= 18 => Some(Visual::Coil { colour: [r.float(10), r.float(11), r.float(12), r.float(13)], material: r.int(9), duration: r.float(8) }),
             // (word 10 and the pairs after it are the range each colour channel is drawn from: 0.3 to 1)
             2002 if r.payload.len() >= 19 => Some(Visual::Plasma {

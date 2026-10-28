@@ -592,6 +592,61 @@ pub fn suns_particles(s: &Suns, at: [f32; 3], time: f32) -> Vec<Particle> {
     out
 }
 
+/// `_GfxControlElectra_t`'s quads (mode 1) `time` seconds in about `at` (world, Z up), as FUN_100d9de5 bears and places them (see
+/// `mao_formats::gfx::Visual::Electra`): laid in the world, each a random turn of its two half-axes, not faded by its facing.
+#[allow(clippy::too_many_arguments)]
+fn electra_particles(material: i32, colour_a: [f32; 4], colour_b: [f32; 4], duration: f32, size: f32, out_to: f32, life: f32, at: [f32; 3], time: f32) -> Vec<Particle> {
+    const SLOTS: u32 = 64;
+    let mut out = Vec::new();
+    if time < 0.0 || (duration > 0.0 && time >= duration) {
+        return out;
+    }
+    let life = life.max(0.02);
+    // (born at 28 / life a second, at most two a frame of the 64 slots: each reborn every `64 / rate` s, or at its death)
+    let rate = (28.0 / life).min(2.0 * 30.0);
+    let period = life.max(SLOTS as f32 / rate);
+    let sheet = mao_formats::gfx::material(material).map(|_| material as u16).unwrap_or(NO_SPRITE);
+    for k in 0..SLOTS {
+        let stagger = k as f32 / SLOTS as f32 * period;
+        if time < stagger {
+            continue;
+        }
+        let generation = ((time - stagger) / period).floor();
+        let age = time - stagger - generation * period;
+        if age >= life || (duration > 0.0 && time - age > duration) {
+            continue;
+        }
+        let salt = k.wrapping_mul(2006).wrapping_add(generation as u32 * 7919);
+        let (a, b) = (hash(salt, 1) * std::f32::consts::TAU, hash(salt, 2) * 2.0 - 1.0);
+        let flat = (1.0 - b * b).sqrt();
+        // (the sphere stretched 1.5 up: the original's y is the client's z)
+        let p = [at[0] + flat * a.cos() * out_to, at[1] + flat * a.sin() * out_to, at[2] + b * 1.5 * out_to];
+        // (a random turn of the quad: two perpendicular half-axes)
+        let (c, d) = (hash(salt, 3) * std::f32::consts::TAU, hash(salt, 4) * 2.0 - 1.0);
+        let flat2 = (1.0 - d * d).sqrt();
+        let n = [flat2 * c.cos(), flat2 * c.sin(), d];
+        let helper = if n[2].abs() < 0.9 { [0.0, 0.0, 1.0] } else { [1.0, 0.0, 0.0] };
+        let cross = |u: [f32; 3], v: [f32; 3]| [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+        let unit = |v: [f32; 3]| {
+            let l = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt().max(1e-6);
+            v.map(|x| x / l)
+        };
+        let mut right = unit(cross(n, helper));
+        let up = unit(cross(n, right));
+        if hash(salt, 5) < 0.5 {
+            right = right.map(|x| -x);
+        }
+        let u = age / life;
+        let colour = [1, 2, 3, 0].map(|ch| colour_a[ch] + (colour_b[ch] - colour_a[ch]) * hash(salt, 10 + ch as u32));
+        let rect = match mao_formats::gfx::material(material) {
+            Some(_) => sprite(material, u, p, 1.0, colour).rect,
+            None => [0.0; 4],
+        };
+        out.push(Particle::quad(p, right.map(|x| x * size), up.map(|x| x * size), colour, sheet, rect, false));
+    }
+    out
+}
+
 /// `_GfxControlSpiral_t`'s two strips `time` seconds in about `at` (world, Z up: the strips' foot), as FUN_100f4cb5 runs them and
 /// `GfxVisualSpiral` (FUN_10021924) draws them (see `mao_formats::gfx::Visual::Coil`), each as sprites along its visible part, a
 /// segment's length faded in from its black ends.
@@ -1336,6 +1391,13 @@ pub fn visual_particles(v: &Visual, feet: [f32; 3], time: f32, reach: Reach) -> 
             };
             suns_particles(s, [feet[0], feet[1], feet[2] + up], time)
         }
+        Visual::Electra { material, attach, colour_a, colour_b, duration, size, reach: out_to, life } => {
+            let up = match reach {
+                Reach::Small => 0.0,
+                _ => anchor(*attach).0,
+            };
+            electra_particles(*material, *colour_a, *colour_b, *duration, *size, *out_to, *life, [feet[0], feet[1], feet[2] + up], time)
+        }
         // (round the body from the feet; a tracer's at its point)
         Visual::Coil { colour, material, duration } => coil_particles(*colour, *material, *duration, feet, time),
         // (the point a tracer carries; see `plasma_particles`)
@@ -1447,6 +1509,10 @@ pub fn pulse_timing(v: &Visual) -> (f32, f32, i32) {
             (long, long, -1)
         }
         Visual::Coil { duration, .. } => (4.0, duration.max(0.1), -1),
+        Visual::Electra { duration, .. } => {
+            let long = if *duration > 0.0 { *duration } else { 600.0 };
+            (long, long, -1)
+        }
         // (a shield plays once for its duration; one without a duration runs while the effect does)
         Visual::Shield(s) => if s.duration > 0.0 { (600.0, s.duration, 1) } else { (600.0, 600.0, -1) },
         _ => (4.0, 1.5, -1),
@@ -1900,6 +1966,24 @@ mod tests {
     fn aura() -> Aura {
         let helix = |spin: f32| Helix { spin, phase: 0.0, size: 0.15, count: 10, colour: [0.5, 0.4, 1.0], material: 15, attach: 1006, offset: -0.25, radius: 0.15, table: Vec::new(), life: 1.5, ribbon_width: 0.05, ribbon_life: 0.5, ribbon_duration: 1.5, ribbon_material: 8, sparkle_rate: 0.0 };
         Aura { colour: [0.2, 0.2, 0.99], end: [0.2, 0.2, 0.99], helices: vec![helix(-12.566), helix(12.566)], period: 4.0, plays: -1 }
+    }
+
+    #[test]
+    fn electra_crackles_with_turned_quads_round_the_point_for_its_duration() {
+        // (template 43457: Electricify, 0.7 quads, 0.7 out, half a second each, 6 s)
+        let v = Visual::Electra { material: 2, attach: 1000, colour_a: [0.7, 0.7, 0.8, 0.6], colour_b: [0.3, 0.3, 1.0, 1.0], duration: 6.0, size: 0.7, reach: 0.7, life: 0.5 };
+        let at = visual_particles(&v, [0.0; 3], 2.0, Reach::Small);
+        // 28 alive (56 a second for half a second)
+        assert!((20..=34).contains(&at.len()), "{}", at.len());
+        for p in &at {
+            let r = p.position[0].hypot(p.position[1]);
+            assert!(r <= 0.7 + 1e-3 && p.position[2].abs() <= 1.05 + 1e-3);
+            // laid quads of 0.7 half-axes, perpendicular
+            let len = |v: [f32; 3]| (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+            assert!((len(p.right) - 0.7).abs() < 1e-3 && (len(p.up) - 0.7).abs() < 1e-3);
+            assert!((p.right[0] * p.up[0] + p.right[1] * p.up[1] + p.right[2] * p.up[2]).abs() < 1e-3);
+        }
+        assert!(visual_particles(&v, [0.0; 3], 6.0, Reach::Small).is_empty());
     }
 
     #[test]
