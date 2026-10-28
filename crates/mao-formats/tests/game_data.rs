@@ -148,6 +148,10 @@ fn effect_classes_come_to_visuals() {
     assert!(matches!(gfx.visual(1000), Some(Visual::Spiral(_))));
     assert!(matches!(gfx.visual(17300), Some(Visual::Stars(s)) if s.mode == 18));
     assert!(matches!(gfx.visual(43608), Some(Visual::Shield(s)) if s.material == 32 && s.duration == 3.0 && s.flags & 0x400 != 0));
+    // (the most used second shield: red in and out over 20 s on the target's own mesh, pushed 0.01)
+    assert!(matches!(gfx.visual(72274), Some(Visual::Shield2(s)) if s.material == 32 && s.duration == 20.0 && s.mesh == -1 && s.alpha == 2
+        && s.colours == vec![(0.0, 0), (0.4, 0xffff_3030), (0.6, 0xffff_3030), (1.0, 0)] && s.pushes.len() == 2 && s.passes == 1));
+    assert!(matches!(gfx.visual(96113), Some(Visual::Shield2(s)) if s.colours.len() == 7 && s.material == 77));
     assert!(matches!(gfx.visual(43010), Some(Visual::Coil { material: 32, duration, .. }) if duration == 4.0));
     assert!(matches!(gfx.visual(17500), Some(Visual::Plasma { material: 8, duration, .. }) if duration == 1.0));
     // the null gather effect has none

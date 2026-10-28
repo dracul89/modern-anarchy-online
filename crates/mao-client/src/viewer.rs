@@ -1110,10 +1110,8 @@ impl ApplicationHandler for App {
                         for (nano, aura) in auras {
                             let (period, life, plays) = crate::effects::pulse_timing(aura);
                             if let Some(age) = self.pulses.tick(*id, *nano, period, life, plays, time) {
-                                if let mao_formats::gfx::Visual::Shield(s) = aura {
-                                    if let Some(c) = body_at(feet) {
-                                        shells.extend(crate::effects::shield_shell(s, &c.surface, c.translation, age));
-                                    }
+                                if let Some(c) = body_at(feet) {
+                                    shells.extend(crate::effects::visual_shells(aura, &c.surface, c.translation, age));
                                 }
                                 sparks.extend(crate::effects::pulse_particles(aura, feet, heading, age, *body));
                             }
@@ -1138,11 +1136,11 @@ impl ApplicationHandler for App {
                             .map(|(_, c)| crate::effects::Body { points: &c.points, normals: &c.normals });
                         sparks.extend(shot.particles(began.elapsed().as_secs_f32(), body));
                         // (a hit that is a shield: the shell over the target from the landing)
-                        if let Some(mao_formats::gfx::Visual::Shield(s)) = &shot.hit {
+                        if let Some(hit) = &shot.hit {
                             let landed = began.elapsed().as_secs_f32() - if shot.from != shot.to { crate::effects::FLIGHT } else { 0.0 };
                             if landed >= 0.0 {
                                 if let Some(c) = body_at(shot.to) {
-                                    shells.extend(crate::effects::shield_shell(s, &c.surface, c.translation, landed));
+                                    shells.extend(crate::effects::visual_shells(hit, &c.surface, c.translation, landed));
                                 }
                             }
                         }

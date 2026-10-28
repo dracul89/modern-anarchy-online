@@ -832,6 +832,93 @@ pub struct Suns {
     pub life: f32,
 }
 
+/// A kind-3034 template as `GfxControlShield2_t` reads it (FUN_10111a4d; FUN_1011148b the words, FUN_10111877 / FUN_10111698
+/// the visual on the target's CAT mesh, FUN_10111110 the run) and `GfxVisualShield2` draws it (displaysystem `gfxshield2.rs`):
+/// word 0 the flags (0x400 added, 0x800 a pulse, 0x1000 each pass lowered, 0x4000 / 0x8000 the depth modes, 0x10000 the mesh's
+/// own material, 0x40000 nothing past 1000 vertices), word 8 the duration, words 9–11 the push (0 along the normals, 1
+/// wobbled), the texture mapping and the alpha mode, word 12 the material, words 13–16 the texture's scales and speeds, word 17
+/// unused by the draw, word 18 the pulse rate, word 19 the passes, word 20 the mesh (−1 the target's own, 0–9 the EP03 mechs'),
+/// then a colour curve (a count, then time and ARGB pairs), a push curve (a count, then time and push pairs) and a last word.
+/// The curves run over the fraction of the duration, as the visual's time does.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Shield2 {
+    pub flags: u32,
+    pub duration: f32,
+    pub wobble: i32,
+    pub mapping: i32,
+    pub alpha: i32,
+    pub material: i32,
+    pub scale: (f32, f32),
+    pub speed: (f32, f32),
+    pub rate: f32,
+    pub passes: i32,
+    pub mesh: i32,
+    pub colours: Vec<(f32, u32)>,
+    pub pushes: Vec<(f32, f32)>,
+}
+
+impl Shield2 {
+    pub fn read(r: &Record) -> Option<Shield2> {
+        if r.payload.len() < 22 {
+            return None;
+        }
+        let mut at = 21;
+        let mut pairs = |r: &Record| {
+            let n = r.int(at).clamp(0, 64) as usize;
+            at += 1;
+            let keys: Vec<(f32, u32)> = (0..n).map(|k| (r.float(at + 2 * k), r.int(at + 2 * k + 1) as u32)).collect();
+            at += 2 * n;
+            keys
+        };
+        let colours = pairs(r);
+        let pushes = pairs(r).into_iter().map(|(t, w)| (t, f32::from_bits(w))).collect();
+        Some(Shield2 {
+            flags: r.int(0) as u32,
+            duration: r.float(8),
+            wobble: r.int(9),
+            mapping: r.int(10),
+            alpha: r.int(11),
+            material: r.int(12),
+            scale: (r.float(13), r.float(14)),
+            speed: (r.float(15), r.float(16)),
+            rate: r.float(18),
+            passes: r.int(19),
+            mesh: r.int(20),
+            colours,
+            pushes,
+        })
+    }
+
+    /// The key of `f` (FUN_1011678b / FUN_1011689d's search): the first whose time is at most `f` with the next's past it,
+    /// else none (the last value holds).
+    fn segment(times: impl Iterator<Item = f32> + Clone, f: f32) -> Option<usize> {
+        let t: Vec<f32> = times.collect();
+        (0..t.len().saturating_sub(1)).find(|&i| t[i] <= f && f < t[i + 1])
+    }
+
+    /// The colour (ARGB) at the fraction `f` (FUN_1011678b): the last key's (white with none), or the two keys about `f`
+    /// mixed by `Color_t::Interpolate` (each channel `(a × (256 − w) + b × w) >> 8`, `w` the fraction by 256 truncated).
+    pub fn colour_at(&self, f: f32) -> u32 {
+        let Some(&(_, last)) = self.colours.last() else { return u32::MAX };
+        let Some(i) = Self::segment(self.colours.iter().map(|k| k.0), f) else { return last };
+        let ((t0, a), (t1, b)) = (self.colours[i], self.colours[i + 1]);
+        let span = if t1 - t0 == 0.0 { 1.0 } else { t1 - t0 };
+        let w = ((f - t0) / span * 256.0) as i32;
+        let mix = |shift: u32| ((((a >> shift) & 0xff) as i32 * (256 - w) + ((b >> shift) & 0xff) as i32 * w) >> 8) as u32 & 0xff;
+        mix(24) << 24 | mix(16) << 16 | mix(8) << 8 | mix(0)
+    }
+
+    /// The push at the fraction `f` (FUN_1011689d): the last key's (1 with none), or the two keys about `f` mixed linearly.
+    pub fn push_at(&self, f: f32) -> f32 {
+        let Some(&(_, last)) = self.pushes.last() else { return 1.0 };
+        let Some(i) = Self::segment(self.pushes.iter().map(|k| k.0), f) else { return last };
+        let ((t0, a), (t1, b)) = (self.pushes[i], self.pushes[i + 1]);
+        let span = if t1 - t0 == 0.0 { 1.0 } else { t1 - t0 };
+        let u = (f - t0) / span;
+        b * u + (1.0 - u) * a
+    }
+}
+
 /// A kind-3003 template as `_GfxControlShield_t` reads it (FUN_100ee24e; FUN_100edeed the words, FUN_100ee1d2 / FUN_100edf78
 /// the visual on the character's CAT mesh, FUN_100edcf4 the run) and `GfxVisualShield` draws it (displaysystem `gfxshield.rs`,
 /// FUN_1001c94f): the character's skinned mesh again, every vertex pushed out along its normal by word 11, textured with the
@@ -979,6 +1066,8 @@ pub enum Visual {
     Spiral(Aura),
     /// The character's own mesh drawn again as a shell (kind 3003, `_GfxControlShield_t`).
     Shield(Shield),
+    /// The character's own mesh drawn again as a shell by its colour and push curves (kind 3034, `GfxControlShield2_t`).
+    Shield2(Shield2),
     /// Kind 2005, `_GfxControlSuns_t` (FUN_100fd851; FUN_100fd14e the words, FUN_100fd274 the `GfxVisualSol`, FUN_100fc425 the
     /// run): 32 suns, each a camera-facing quad of the material (word 9) turned by its own angle, placed by the mode (word 10).
     /// Mode 4 (385 uses): up to three a frame born at the hit location's point and standing there, living word 30 ms, word 28
@@ -1093,6 +1182,7 @@ impl Gfx {
                 Some(Visual::Scatter { child: Box::new(child), children, looping: flags & 0x400 != 0 })
             }
             3003 => Shield::read(r).map(Visual::Shield),
+            3034 => Shield2::read(r).map(Visual::Shield2),
             2005 if r.payload.len() >= 32 && matches!(r.int(10), 0 | 4) => Some(Visual::Suns(Suns {
                 mode: r.int(10),
                 attach: r.int(7),

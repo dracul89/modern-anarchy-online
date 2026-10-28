@@ -124,11 +124,12 @@ fn vs_shell(in: ShellIn) -> ShellOut {
 
 @fragment
 fn fs_shell_add(in: ShellOut) -> @location(0) vec4<f32> {
-    let texel = textureSample(sheet, samp, in.uv) * in.colour;
+    // (clamped as the fixed-function stages clamp: `GfxVisualShield2`'s colours are doubled for its `MODULATE2X`)
+    let texel = clamp(textureSample(sheet, samp, in.uv) * in.colour, vec4(0.0), vec4(1.0));
     return vec4(texel.rgb * texel.a, 0.0);
 }
 
 @fragment
 fn fs_shell_blend(in: ShellOut) -> @location(0) vec4<f32> {
-    return textureSample(sheet, samp, in.uv) * in.colour;
+    return clamp(textureSample(sheet, samp, in.uv) * in.colour, vec4(0.0), vec4(1.0));
 }

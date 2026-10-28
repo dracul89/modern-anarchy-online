@@ -5,7 +5,7 @@
 //! forward-spinning one).
 
 use mao_formats::gfx::{colour_curve, curve, unpack_argb, BParticles, Cast, Cords, Deform, Emitter, Flare, Helix, Smoke, Sparks, Sprite, Stars, Visual, VolGrid};
-use mao_formats::gfx::{Shield, Suns};
+use mao_formats::gfx::{Shield, Shield2, Suns};
 use mao_render::{Particle, Shell, ShellVertex, NO_SPRITE};
 
 /// The wind the effects are pushed by, Z up: the effect handler's wind (+0x24, Sparks) and its smoothed copy (+0x30, Smoke).
@@ -754,6 +754,108 @@ pub fn shield_shell(s: &Shield, surface: &crate::blobshadow::Surface, origin: [f
     Some(Shell { sprite: s.material.max(0) as u16, additive: s.flags & 0x400 != 0, vertices })
 }
 
+/// The pulse of `GfxVisualShield2` (flag 0x800) at `q`: `sin(1.8q) × sin(2.3q) × cos(2.75q) × 0.1 + 0.5`.
+fn shield2_pulse(q: f32) -> f32 {
+    (q * 1.2 * 1.5).sin() * ((q * 2.3).sin() * (q * 1.1 * 2.5).cos()) * 0.1 + 0.5
+}
+
+/// `GfxVisualShield2`'s shell `t` seconds into a `GfxControlShield2_t` (see `mao_formats::gfx::Shield2`) over a character's
+/// whole posed mesh (`surface`, world, Z up; `origin` its feet), as FUN_10111110 runs it and FUN_1001d569 fills its vertices:
+/// the visual's time the fraction of the duration, the colour and push from their curves at it; each vertex pushed out along
+/// its normal (word 9 1: by `sin²(2x + 3y + z + 30 time)` of it); its texture by the mapping (0 `(uv + speed × time) × scale`,
+/// 1 round the up axis, 2 the position, 3–5 a random place a vertex); its alpha the colour's (0: pulsing with flag 0x800; 1
+/// and 2 by the product of sines of the position and the time by the rate, 2 also by 1.5 the time); the colour and alpha
+/// doubled (the states' `MODULATE2X`); drawn once a pass, each pass scaled one more step of the push (and lowered with flag
+/// 0x1000). The model frame (Y up, its origin the feet) is the world's, unturned by the heading. Not drawn: the EP03 mechs'
+/// meshes (word 20 from 0), the mesh's own material (flag 0x10000), the depth modes.
+pub fn shield2_shell(s: &Shield2, surface: &crate::blobshadow::Surface, origin: [f32; 3], t: f32) -> Option<Shell> {
+    // (the run stops it two seconds before its duration and it fades out over those two: it ends at the duration)
+    if s.mesh >= 0 || t < 0.0 || (s.duration > 0.0 && t >= s.duration) {
+        return None;
+    }
+    let n = surface.positions.len().min(surface.normals.len()).min(surface.uvs.len());
+    if n == 0 || surface.indices.is_empty() || (s.flags & 0x40000 != 0 && n > 1000) {
+        return None;
+    }
+    let time = if s.duration > 0.0 { t / s.duration } else { 0.0 };
+    let colour = s.colour_at(time);
+    let push = s.push_at(time);
+    let channel = |shift: u32| ((colour >> shift) & 0xff) as f32 / 255.0;
+    let rgb = [channel(16), channel(8), channel(0)].map(|c| 2.0 * c);
+    let top = (colour >> 24) as f32;
+    let (b, d) = (s.speed.0 * time, s.speed.1 * time);
+    let pulse = if s.flags & 0x800 != 0 { shield2_pulse(s.rate * time * 10.0) } else { 1.0 };
+    let tq = time * s.rate;
+    let vertex = |i: usize| {
+        let p = surface.positions[i];
+        let nrm = surface.normals[i];
+        // (the model frame: x, y up, z)
+        let [x, y, z] = [p[0] - origin[0], p[2] - origin[2], p[1] - origin[1]];
+        let out = match s.wobble {
+            1 => (2.0 * x + 3.0 * y + z + 30.0 * time).sin().powi(2) * push,
+            _ => push,
+        };
+        let position = [0, 1, 2].map(|k| p[k] + nrm[k] * out);
+        let uv0 = surface.uvs[i];
+        let uv = match s.mapping {
+            0 => [(uv0[0] + b) * s.scale.0, (uv0[1] + d) * s.scale.1],
+            1 => [x.atan2(z) * (s.scale.0 / std::f32::consts::TAU) + b, y * s.scale.1 + d],
+            2 => [x * s.scale.0 + b, y * s.scale.1 + d],
+            // (modes 3 and 4 make a sphere map that the random place a vertex then overwrites)
+            3..=5 => [(hash(i as u32, 3034) + b) * s.scale.0, (hash(i as u32, 3035) + d) * s.scale.1],
+            _ => [0.0, 0.0],
+        };
+        let alpha = match s.alpha {
+            0 => (top * pulse).clamp(0.0, 255.0).trunc(),
+            1 | 2 => {
+                let e1 = (((2.5 * y + 4.0 * x) + 3.0 * z + 1.1 * tq) * 2.5).cos();
+                let e2 = (((3.0 * y + 2.5 * x) + 4.0 * z + tq) * 2.3).sin();
+                let e3 = ((1.5 * z + (4.0 * y + 3.0 * x) + 1.2 * tq) * 1.5).sin();
+                let mut w = e3 * (e2 * e1) * pulse;
+                if s.alpha == 2 {
+                    w *= time * 1.5;
+                }
+                (top * w).trunc().clamp(0.0, 255.0)
+            }
+            _ => 0.0,
+        };
+        ShellVertex { position, uv, colour: [rgb[0], rgb[1], rgb[2], 2.0 * alpha / 255.0] }
+    };
+    let posed: Vec<ShellVertex> = surface.indices.iter().filter(|&&i| (i as usize) < n).map(|&i| vertex(i as usize)).collect();
+    let passes = s.passes.max(0);
+    let mut vertices = Vec::with_capacity(posed.len() * passes as usize);
+    for k in 0..passes {
+        let step = k as f32 / passes as f32 * push;
+        let lower = if s.flags & 0x1000 != 0 { step } else { 0.0 };
+        vertices.extend(posed.iter().map(|v| {
+            let mut v = *v;
+            v.position = [0, 1, 2].map(|c| origin[c] + (v.position[c] - origin[c]) * (1.0 + step));
+            v.position[2] -= lower;
+            v
+        }));
+    }
+    if vertices.is_empty() {
+        return None;
+    }
+    Some(Shell { sprite: s.material.max(0) as u16, additive: s.flags & 0x400 != 0, vertices })
+}
+
+/// The shells a visual draws over a character's posed mesh `t` seconds in: a shield's, a second shield's, or (a scatter) its
+/// child's for each copy alive (on the body: their places unused).
+pub fn visual_shells(v: &Visual, surface: &crate::blobshadow::Surface, origin: [f32; 3], t: f32) -> Vec<Shell> {
+    match v {
+        Visual::Shield(s) => shield_shell(s, surface, origin, t).into_iter().collect(),
+        Visual::Shield2(s) => shield2_shell(s, surface, origin, t).into_iter().collect(),
+        Visual::Scatter { child, children, looping } => {
+            let life = pulse_timing(child).1.max(0.05);
+            let round = children.iter().map(|c| c.0).fold(0.0, f32::max) + life;
+            let t = if *looping { t.rem_euclid(round.max(0.05)) } else { t };
+            children.iter().filter(|(born, _)| t >= *born && t - born < life).flat_map(|(born, _)| visual_shells(child, surface, origin, t - born)).collect()
+        }
+        _ => Vec::new(),
+    }
+}
+
 /// A character's posed surface: world points (Z up) and their unit normals, from its blob-shadow caster (every fourth vertex).
 #[derive(Clone, Copy, Debug)]
 pub struct Body<'a> {
@@ -1382,8 +1484,8 @@ pub fn visual_particles(v: &Visual, feet: [f32; 3], time: f32, reach: Reach) -> 
             }
             out
         }
-        // (drawn as a shell over the character's mesh: see `shield_shell`)
-        Visual::Shield(_) => Vec::new(),
+        // (drawn as a shell over the character's mesh: see `shield_shell`, `shield2_shell`)
+        Visual::Shield(_) | Visual::Shield2(_) => Vec::new(),
         Visual::Suns(s) => {
             let up = match reach {
                 Reach::Small => 0.0,
@@ -1532,6 +1634,7 @@ pub fn pulse_timing(v: &Visual) -> (f32, f32, i32) {
         }
         // (a shield plays once for its duration; one without a duration runs while the effect does)
         Visual::Shield(s) => if s.duration > 0.0 { (600.0, s.duration, 1) } else { (600.0, 600.0, -1) },
+        Visual::Shield2(s) => if s.duration > 0.0 { (600.0, s.duration, 1) } else { (600.0, 600.0, -1) },
         _ => (4.0, 1.5, -1),
     }
 }
@@ -2037,6 +2140,46 @@ mod tests {
         }
         // late, only the top of the coil is left
         assert!(late.iter().all(|p| p.position[2] > 1.0));
+    }
+
+    #[test]
+    fn a_second_shield_follows_its_curves_over_the_duration() {
+        // (template 72274: thin smoke added, red in from 0 to 0.4, out from 0.6, pushed 0.01, the alpha by sines and time)
+        let s = Shield2 {
+            flags: 0x61400,
+            duration: 20.0,
+            wobble: 0,
+            mapping: 0,
+            alpha: 2,
+            material: 32,
+            scale: (2.0, 2.0),
+            speed: (3.0, 1.0),
+            rate: 10.0,
+            passes: 1,
+            mesh: -1,
+            colours: vec![(0.0, 0), (0.4, 0xffff_3030), (0.6, 0xffff_3030), (1.0, 0)],
+            pushes: vec![(0.0, 0.01), (1.0, 0.01)],
+        };
+        assert_eq!(s.colour_at(0.0), 0);
+        assert_eq!(s.colour_at(0.5), 0xffff_3030);
+        // (half way in: each channel (0 × 128 + c × 128) >> 8)
+        assert_eq!(s.colour_at(0.2), 0x7f7f_1818);
+        assert_eq!(s.colour_at(1.5), 0);
+        assert!((s.push_at(0.3) - 0.01).abs() < 1e-6);
+        let surface = crate::blobshadow::Surface { positions: vec![[0.0, 0.0, 1.0], [0.5, 0.0, 1.0], [0.0, 0.5, 1.2]], normals: vec![[1.0, 0.0, 0.0]; 3], uvs: vec![[0.25, 0.5]; 3], indices: vec![0, 1, 2] };
+        let shell = shield2_shell(&s, &surface, [0.0; 3], 10.0).unwrap();
+        assert!(shell.additive && shell.vertices.len() == 3);
+        let v = shell.vertices[0];
+        assert!((v.position[0] - 0.01).abs() < 1e-6);
+        // (the texture (uv + speed × time) × scale at half the duration; the colour doubled)
+        assert!((v.uv[0] - (0.25 + 1.5) * 2.0).abs() < 1e-5 && (v.uv[1] - (0.5 + 0.5) * 2.0).abs() < 1e-5);
+        assert!((v.colour[0] - 2.0).abs() < 1e-6 && v.colour[3] >= 0.0 && v.colour[3] <= 2.0);
+        assert!(shield2_shell(&s, &surface, [0.0; 3], 20.0).is_none());
+        // (a mech's mesh is not drawn; nor past 1000 vertices with flag 0x40000)
+        assert!(shield2_shell(&Shield2 { mesh: 0, ..s.clone() }, &surface, [0.0; 3], 10.0).is_none());
+        let big = crate::blobshadow::Surface { positions: vec![[0.0; 3]; 1001], normals: vec![[0.0; 3]; 1001], uvs: vec![[0.0; 2]; 1001], indices: vec![0, 1, 2] };
+        assert!(shield2_shell(&s, &big, [0.0; 3], 10.0).is_none());
+        assert!(shield2_shell(&Shield2 { flags: 0x1400, ..s.clone() }, &big, [0.0; 3], 10.0).is_some());
     }
 
     #[test]
