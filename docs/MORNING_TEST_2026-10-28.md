@@ -54,8 +54,10 @@ four tabs are too cramped (the wear column is narrow, so their names are cut); t
 | 1f8c538 | **Deaths**: the dying play their death (`die-knees`, `die-shot` ... as the server says) and lie until despawned (~10 s), instead of standing on | kill something |
 | 888a011 | **Creature swings**: monsters attacking play their own attack animation | get hit by a monster |
 
-**Not done in combat:** the muzzle flash. It is traced as far as the weapon mesh's `eff_muzzleflash` connector → effect
-template 2000 (kind 1006, `_GfxControlFlare1_t`); what switches it on around a shot is not yet clear. Also not done: the
+**Looked for, not found: a muzzle flash on held guns.** The `muzzleflash` effect (an `eff_muzzleflash` connector → effect
+template 2000, kind 1006, `_GfxControlFlare1_t`, which bursts on its own timer while its mesh is shown) belongs to statel
+meshes such as turrets. The guns' held meshes (the Peregrine's 264695, the Shark's 262556) have only `Attractor01_weaponfire`,
+and their templates name no effect: their stat 420 picks the fire *sound* (FUN_1009d1f1). **Not done:** the
 combat chat lines in the original's own wording (they come from `text.mdb` through the feedback events; the `ldb` drop-in
 reads that file), facing the target in a fight, and the hit/impact sounds.
 
