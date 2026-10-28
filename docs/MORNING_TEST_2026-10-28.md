@@ -54,7 +54,7 @@ four tabs are too cramped (the wear column is narrow, so their names are cut); t
 | 1f8c538 | **Deaths**: the dying play their death (`die-knees`, `die-shot` ... as the server says) and lie until despawned (~10 s), instead of standing on | kill something |
 | 888a011 | **Creature swings**: monsters attacking play their own attack animation | get hit by a monster |
 | 2c2d490 | **Combat tab in the original's words** (`text.mdb`): "You hit X for N points of melee damage.", "X hit you for ...", "You tried to hit X, but missed!", "You hit X with nanobots for ...", "You were healed for N points.", "Critical hit!" | fight; compare the Combat tab with the original client's |
-| (next) | **Shields, absorbs, XP in the original's words**: "Your damage shield hit X for N points of damage.", "You absorbed N points of cold damage.", "You received N xp." | kill something with a damage shield up; check the XP line on a kill |
+| e1b8a69 | **Shields, absorbs, XP in the original's words**: "Your damage shield hit X for N points of damage.", "You absorbed N points of cold damage.", "You received N xp." | kill something with a damage shield up; check the XP line on a kill |
 | 2c2d490 | **Fix: `HealthDamage` direction**: the floating numbers and health bars now follow the one hurt (the message's sender), not the source | your health bar should no longer jump to a monster's health in a fight |
 
 **Looked for, not found: a muzzle flash on held guns.** The `muzzleflash` effect (an `eff_muzzleflash` connector → effect
