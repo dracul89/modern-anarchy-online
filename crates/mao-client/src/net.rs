@@ -221,6 +221,12 @@ struct World {
     /// The weapons the characters hold, by (owner, place): the item's template (`WeaponItemFullUpdate`: the owner, the place in
     /// `Unknown2`'s low byte, the template in stat 702, `ACGItemTemplateID`).
     weapons: BTreeMap<(u32, u8), u32>,
+    /// Their Energy (stat 26: the rounds left), by (owner, place): `WeaponItemFullUpdate`'s, then each attack's `AmmoCount`
+    /// (FUN_1006ae3c sets it when the weapon has the stat).
+    weapon_energy: BTreeMap<(u32, u8), i64>,
+    /// What the last attack of each (attacker, place) put on the place's weapon (FUN_1006ae3c: the target, the hit type +0x2c
+    /// and the damage +0x30), for the attack notes' sounds (FUN_1009b9f3).
+    attacks: BTreeMap<(u32, u32), (u32, i32, i64)>,
     /// Each character's last attack (`AttackInfo`, `MissedAttackInfo`, `SpecialAttackInfo`): the weapon's place, when, a count
     /// picking the swing, and the animation class (0xb, or a special's).
     swings: BTreeMap<u32, (u32, Instant, u32, u32)>,
@@ -406,6 +412,11 @@ pub fn send_chat(out: crate::chatwindow::Out) {
 }
 
 impl World {
+    /// The weapon template a character holds in a place: the server's `WeaponItemFullUpdate`, or the client's own inventory.
+    fn weapon_of(&self, id: u32, slot: u32) -> Option<u32> {
+        self.weapons.get(&(id, slot as u8)).copied().or_else(|| (id == self.own).then(|| self.inventory.as_ref()?.iter().find(|e| e.slot == slot).map(|e| e.low_id)).flatten())
+    }
+
     /// The lines due by now: the end of a reload.
     fn tick_lines(&mut self) {
         if self.reload_done.is_some_and(|t| Instant::now() >= t) {
@@ -600,6 +611,8 @@ impl World {
                 let slot = p.value.get("Unknown2").and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
                 let n = self.swings.get(&attacker).map_or(0, |s| s.2.wrapping_add(1));
                 self.swings.insert(attacker, (slot, Instant::now(), n, 0xb));
+                // (FUN_1006b399 → FUN_1006ae3c: no damage, no hit)
+                self.attacks.insert((attacker, slot), (defender, 0, 0));
                 // (the line: FUN_1006b399's feedback 0x3b, with the skill its stat names, `Unknown3`)
                 let skill = p.value.get("Unknown3").and_then(mao_net::schema::Value::as_int).filter(|&s| s != 0).map(|s| crate::skills::stat_name(s as u32).to_string());
                 if let Some(line) = crate::feedback::miss(self.who(defender), self.who(attacker), skill.as_deref()) {
@@ -637,6 +650,11 @@ impl World {
                 // (the line: FUN_1009b6b7's feedback, the damage type the attacking weapon's, FUN_1009b525)
                 let int = |name: &str| p.value.get(name).and_then(mao_net::schema::Value::as_int).unwrap_or(0);
                 let target = p.value.get("Target").and_then(|t| t.get("Instance")).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
+                // (FUN_1006ae3c: the place's weapon given the damage and hit type, and its Energy the rounds left)
+                self.attacks.insert((m.identity.1, slot), (target, int("HitType") as i32, int("Amount")));
+                if let Some(e) = self.weapon_energy.get_mut(&(m.identity.1, slot as u8)) {
+                    *e = int("AmmoCount");
+                }
                 let kind = crate::feedback::weapon_damage_type(self.weapons.get(&(m.identity.1, slot as u8)).and_then(|&t| template_stat(t, 436)));
                 if let Some(line) = crate::feedback::attack(self.who(target), self.who(m.identity.1), int("Amount"), kind, int("HitType")) {
                     self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
@@ -673,6 +691,14 @@ impl World {
                     self.weapons.insert((owner, slot), template as u32);
                     self.weapon_templates.insert(weapon_id, template as u32);
                 }
+                let energy = match p.value.get("Stats") {
+                    Some(mao_net::schema::Value::List(stats)) => stats.iter().find(|s| s.get("Item1").and_then(mao_net::schema::Value::as_int) == Some(26)).and_then(|s| s.get("Item2")?.as_int()),
+                    _ => None,
+                };
+                match energy {
+                    Some(e) => self.weapon_energy.insert((owner, slot), e),
+                    None => self.weapon_energy.remove(&(owner, slot)),
+                };
             }
         }
         // What a character wears: its clothes' textures and the meshes held at its body's attachment points.
@@ -3609,6 +3635,27 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     for (id, event, template) in std::mem::take(&mut c.notes) {
                         let Some(at) = (if id == own { Some(position) } else { state.position_of(id) }) else { continue };
                         let set = template.and_then(|t| c.set_of(t)).map(|t| (t, sound_rand.next() as u32));
+                        // (an attack's notes, FUN_10068e42: the weapon of the swing's place, the animation's +8, and what the
+                        // attack put on it)
+                        if matches!(event, 0xb | 0x8e..=0x91) {
+                            let Some(&(slot, ..)) = state.swings.get(&id) else { continue };
+                            let Some(weapon) = state.weapon_of(id, slot) else { continue };
+                            let data = gear_db.get(mao_formats::resource::Id { kind: mao_formats::item::TEMPLATE, instance: weapon }).ok().flatten();
+                            let sounds = data.map(|d| mao_formats::item::class_sets(&d, 0x14)).unwrap_or_default();
+                            let (target, hit, amount) = state.attacks.get(&(id, slot)).copied().unwrap_or((0, 0, 0));
+                            let target = (if target == own { Some(position) } else { state.position_of(target) }).map(|position| {
+                                let info = state.infos.get(&target);
+                                let max_health = if target == own { state.stats.get(&1).copied().unwrap_or(0) } else { state.health.get(&target).map_or(0, |h| h.1) };
+                                let set = info.and_then(|i| i.template).and_then(|t| c.set_of(t)).map(|t| (t, sound_rand.next() as u32));
+                                crate::sounds::Target { position, max_health, set, breed: info.map_or(0, |i| i.breed), sex: info.map_or(0, |i| i.sex) }
+                            });
+                            let npc = id != own && !state.infos.get(&id).is_some_and(|i| i.is_player());
+                            let attack = crate::sounds::Attack { event, position: at, npc, weapon: &sounds, energy: state.weapon_energy.get(&(id, slot as u8)).copied(), hit, amount, target };
+                            for p in crate::sounds::attack(&attack, || sound_rand.next() as u32) {
+                                crate::audio::with(|m| m.play_game_sound(p.id, p.position, 0.0, p.volume, p.material, p.defer, 100, p.mode, 0, [0.0; 3]));
+                            }
+                            continue;
+                        }
                         let material = crate::sounds::ground_material(terrain.as_deref(), &tile_materials, at);
                         let note = crate::sounds::Note { event, position: at, set, falling: id == own && airborne, material };
                         if let Some(p) = crate::sounds::note(&generic, &note) {

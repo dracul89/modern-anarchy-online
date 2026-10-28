@@ -132,6 +132,106 @@ pub fn ground_material(terrain: Option<&mao_formats::terrain::Terrain>, material
     materials.get(&id).map_or(0, |m| m.material as i32)
 }
 
+/// A play of `PlayGameSound` with its place, deferral and mode (the variant offset by a hit's size).
+#[derive(Debug, PartialEq)]
+pub struct GamePlay {
+    pub id: u32,
+    pub position: [f32; 3],
+    pub volume: f32,
+    pub material: i32,
+    pub defer: f32,
+    pub mode: i32,
+}
+
+/// The one hit by an attack (FUN_1009b9f3's `SimpleChar_t`).
+pub struct Target<'a> {
+    pub position: [f32; 3],
+    /// Its maximum health (+0x218).
+    pub max_health: i64,
+    /// Its animation set (FUN_100524b2) and the seed picking a variant.
+    pub set: Option<(&'a mao_formats::npc::Template, u32)>,
+    /// Its breed (stat 4) and sex (stat 59).
+    pub breed: u8,
+    pub sex: u8,
+}
+
+/// An attack note's attack: the attacker, the weapon of the slot the swing used (its template's sound set, chunk 0x14 into the
+/// item's +0x88, and its Energy, stat 26) and what FUN_1006ae3c put on the slot's weapon from the server's `AttackInfo`: the
+/// hit type (+0x2c: 2 glancing, 3 normal, 4 critical; a miss less) and the damage (+0x30).
+pub struct Attack<'a> {
+    pub event: i32,
+    pub position: [f32; 3],
+    /// The attacker is an NPC (+0x21c).
+    pub npc: bool,
+    pub weapon: &'a [(u32, Vec<u32>)],
+    pub energy: Option<i64>,
+    pub hit: i32,
+    pub amount: i64,
+    pub target: Option<Target<'a>>,
+}
+
+/// The sounds of an attack note (FUN_10068e42 → FUN_1009bd92): the weapon's (FUN_1009d2b2: its sound for the event, or with no
+/// Energy left in a player's hands its 0x2c, at the attacker) and the hit's (FUN_1009b9f3, for a hit: the weapon's sound for
+/// the event or else its attack's, 0xb, at the attacker; with damage, at the one hit and 0.4 s later, the impacts of an animation
+/// set (the weapon's 0x1f and the set's 0x1f on the set's material, stat 0x29) or a player's being hit (by sex, on material 7),
+/// the variant moved by the damage against the maximum health: mode 2 from a tenth, 1 from a twentieth, else 0). `pick`
+/// stands for FUN_10045976's `rand()`.
+pub fn attack(a: &Attack, mut pick: impl FnMut() -> u32) -> Vec<GamePlay> {
+    let mut plays = Vec::new();
+    let mut weapon_sound = |key: i32, pick: &mut dyn FnMut() -> u32| {
+        let all: Vec<u32> = a.weapon.iter().filter(|s| s.0 as i32 == key).flat_map(|s| s.1.iter().copied()).collect();
+        (!all.is_empty()).then(|| all[pick() as usize % all.len()])
+    };
+    let at = |id: u32, position: [f32; 3]| GamePlay { id, position, volume: 1.0, material: 0, defer: 0.0, mode: 1 };
+    if !a.weapon.is_empty() {
+        let key = if a.energy == Some(0) && !a.npc { 0x2c } else { a.event };
+        if let Some(id) = weapon_sound(key, &mut pick) {
+            plays.push(at(id, a.position));
+        }
+    }
+    let Some(t) = &a.target else { return plays };
+    if a.hit < 2 {
+        return plays;
+    }
+    let fired = weapon_sound(a.event, &mut pick).or_else(|| if a.event != 0xb { weapon_sound(0xb, &mut pick) } else { None });
+    if let Some(id) = fired {
+        plays.push(at(id, a.position));
+    }
+    if a.amount <= 0 {
+        return plays;
+    }
+    let mode = if a.amount >= t.max_health / 10 {
+        2
+    } else if a.amount >= t.max_health / 20 {
+        1
+    } else {
+        0
+    };
+    let impact = |id: u32, material: i32| GamePlay { id, position: t.position, volume: 1.0, material, defer: f32::from_bits(0x3ecccccd), mode };
+    let (mut material, mut sound) = (0i32, None);
+    if let Some((set, seed)) = t.set {
+        material = set.stat(0x29) as i32;
+        sound = set.sound(0x1f, seed);
+        if (1..=0x11).contains(&material) {
+            if let Some(id) = weapon_sound(0x1f, &mut pick) {
+                plays.push(impact(id, material));
+            }
+        }
+    }
+    if material == 0 && matches!(t.breed, 1 | 7 | 3 | 2 | 4) {
+        material = 7;
+        match t.sex {
+            2 | 1 => sound = Some(sound_id("SM_Sandy_Game_MaleGetsHit")),
+            3 => sound = Some(sound_id("SM_Sandy_Game_FemaleGetsHit")),
+            _ => {}
+        }
+    }
+    if let Some(id) = sound.filter(|_| (1..=0x11).contains(&material)) {
+        plays.push(impact(id, material));
+    }
+    plays
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -153,6 +253,25 @@ mod tests {
         assert_eq!(note(&g, &npc(0x26)), Some(Play { id: 11, volume: 1.0, material: 3 }));
         assert_eq!(note(&g, &npc(0xf)), Some(Play { id: 12, volume: 1.0, material: 0 }));
         assert_eq!(note(&g, &npc(0x73)), None);
+    }
+
+    #[test]
+    fn a_shot_and_its_hit() {
+        let weapon = vec![(0xb, vec![100, 101]), (0x1f, vec![200]), (0x2c, vec![300])];
+        let mut set = mao_formats::npc::Template::default();
+        set.stats = vec![(0x29, 3)];
+        set.sounds = vec![(0x1f, 400)];
+        let target = |set| Some(Target { position: [5.0; 3], max_health: 1000, set, breed: 1, sex: 3 });
+        let shot = |hit, amount, target| Attack { event: 0xb, position: [1.0; 3], npc: false, weapon: &weapon, energy: Some(5), hit, amount, target };
+        // (a normal hit for 60 of 1000 on a creature: the shot twice (one play in the frame), its impact and the creature's on dirt)
+        let p = attack(&shot(3, 60, target(Some((&set, 0)))), || 1);
+        assert_eq!(p.iter().map(|p| (p.id, p.position[0], p.material, p.mode)).collect::<Vec<_>>(), vec![(101, 1.0, 0, 1), (101, 1.0, 0, 1), (200, 5.0, 3, 1), (400, 5.0, 3, 1)]);
+        assert_eq!(p[3].defer, 0.4);
+        // (a woman hit hard; a miss only fires; a player's empty gun clicks)
+        let p = attack(&shot(4, 100, target(None)), || 0);
+        assert_eq!(p.last().map(|p| (p.id, p.material, p.mode)), Some((sound_id("SM_Sandy_Game_FemaleGetsHit"), 7, 2)));
+        assert_eq!(attack(&shot(1, 0, target(None)), || 0).len(), 1);
+        assert_eq!(attack(&Attack { energy: Some(0), ..shot(1, 0, None) }, || 0)[0].id, 300);
     }
 
     #[test]

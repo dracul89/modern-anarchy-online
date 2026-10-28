@@ -33,6 +33,9 @@ pub struct Template {
     /// variants listed once per variant; Gamecode plays them by the animation notes' events (FUN_100452d3: 0x26 a step, 0x85 a
     /// landing, 0xf an idle, 0x77.. an attack's start) and the attacks' (0xb, 0x1f an impact).
     pub sounds: Vec<(u32, u32)>,
+    /// The stats section's (stat, value) pairs (FUN_1002e7d9; FUN_1002e740 looks one up, 0 by default): 12 the mesh, 64 the
+    /// head, 0x29 the sound material its impacts play on (FUN_1009b9f3).
+    pub stats: Vec<(u32, u32)>,
 }
 
 impl Template {
@@ -67,6 +70,7 @@ impl Template {
         let mut at = 4;
         let n = count(*words.get(at + 1)?)?;
         for pair in words.get(at + 2..at + 2 + 2 * n)?.chunks_exact(2) {
+            template.stats.push((pair[0], pair[1]));
             match pair[0] {
                 12 => template.mesh = Some(pair[1]),
                 64 => template.head = Some(pair[1]),
@@ -99,6 +103,11 @@ impl Template {
             }
         }
         Some(template)
+    }
+
+    /// A stat of the set (FUN_1002e740 with its default 0).
+    pub fn stat(&self, stat: u32) -> u32 {
+        self.stats.iter().find(|s| s.0 == stat).map_or(0, |s| s.1)
     }
 
     /// The sound of an event `seed` picks among its variants (FUN_10045976 picks with `rand()`), if the set has one.

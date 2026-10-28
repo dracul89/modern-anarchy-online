@@ -450,3 +450,27 @@ fn animation_notes_are_events() {
     let walk = &seen.iter().find(|s| s.0 == "male_walk_01_01.ani").unwrap().1;
     assert!(walk.iter().filter(|n| n.2 == 0x26).count() >= 2);
 }
+
+/// The captured weapons' sound sets (chunk 0x14) name sources of the game's source file, and their swings carry `attack` notes.
+#[test]
+fn weapon_sounds_and_attack_notes() {
+    let Some(db) = database() else { return };
+    let game = PathBuf::from(std::env::var_os("MAO_GAME").unwrap());
+    let bank = mao_formats::sound::parse_bank(&std::fs::read(game.join("cd_image/sound/SourceFiles/SM_Sandy_Game_Dummy.sbf")).unwrap()).unwrap();
+    let ids: std::collections::HashSet<u32> = bank.iter().map(|r| r.id).collect();
+    let mut with = 0;
+    for template in [258818, 122829, 123362, 265091, 264957, 271074, 301709, 43712] {
+        let data = db.get(Id { kind: mao_formats::item::TEMPLATE, instance: template }).unwrap().unwrap();
+        let sets = mao_formats::item::class_sets(&data, 0x14);
+        let known = sets.iter().flat_map(|s| s.1.iter()).filter(|id| ids.contains(id)).count();
+        eprintln!("{template}: {:x?}, {known} sources", sets);
+        with += (known > 0) as usize;
+    }
+    assert!(with >= 6);
+    let index = mao_formats::instances::Instances::parse(&db.get(Id { kind: 0xf424a, instance: 1 }).unwrap().unwrap()).unwrap();
+    for name in ["male_smallarms-shot_01_01.ani", "male_1h-slash_01_01.ani", "male_2h-shot_01_01.ani", "male_punch_01_01.ani"] {
+        let Some(id) = index.find(0xf6953, name) else { eprintln!("{name}: none"); continue };
+        let anim = mao_formats::catanim::parse(&db.get(Id { kind: 0xf6953, instance: id }).unwrap().unwrap()).unwrap();
+        eprintln!("{name}: {:?}", anim.notes.iter().map(|n| (n.name.as_str(), n.time, n.event())).collect::<Vec<_>>());
+    }
+}

@@ -816,3 +816,16 @@ indoors or in the air (more than 0.1 above the height of the tile's corner), els
 the original, and here, every ground tile is material 0, which `MapGameMaterialToSoundMaterial` makes 3. Not followed: steps in
 liquids (materials 8 to 11 by the vehicle's liquid medium, which the client does not track), a fly-mode step at a quarter of the
 volume, the landing's dust.
+
+**Shots and hits.** An attack's swing fires its `attack` note (0xb; `attack_effect_1..4` 0x8e..0x91), and the attack's sounds
+play as FUN_10068e42 → FUN_1009bd92 plays them, with the weapon of the place the swing used (the server's
+`WeaponItemFullUpdate`, or the client's own inventory) and what the server's `AttackInfo` put on it (FUN_1006ae3c: the target,
+the hit type and the damage; a `MissedAttackInfo` no hit): the weapon's sound for the event from its template's sound set (chunk
+0x14, the item's +0x88 map; every captured weapon has a shot sound under 0xb), or its 0x2c when a player's weapon has no Energy
+left (stat 26, the rounds: `WeaponItemFullUpdate`'s, then each attack's `AmmoCount`), at the attacker (FUN_1009d2b2). For a hit
+(type 2 glancing, 3 normal, 4 critical; the capture's 202 attacks are all hits) FUN_1009b9f3 plays the weapon's sound for the
+event again (else its 0xb), and with damage the impacts at the one hit, 0.4 s later: a creature with an animation set its set's
+impact (0x1f) and the weapon's (0x1f) on the set's material (its stat 0x29), a player `SM_Sandy_Game_MaleGetsHit` or
+`..._FemaleGetsHit` by sex on material 7; the variant moves by the damage against the maximum health (a tenth or more: mode 2,
+a twentieth: mode 1, less: mode 0, which pick the material's variant +15, itself, or +30). Not followed: a special attack's own
+fields (FUN_1006af0e), hits on items (FUN_1009b4b0), the "Sneak Attack!" texts.
