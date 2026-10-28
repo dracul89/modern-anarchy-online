@@ -204,10 +204,16 @@ impl Gfx {
     }
 
     /// The records a template refers to: the payload words that are ids of other templates (not the template itself). Small numbers
-    /// that happen to be ids are skipped (a flag of 5 or a count of 8 is not a reference), so only ids of 100 and up count.
+    /// that happen to be ids are skipped (a flag of 5 or a count of 8 is not a reference), so only ids of 100 and up count. So are
+    /// the words that hold numbers which are not references but coincide with ids: word 7, the attach point of every control
+    /// (`InitDynelTemplate` / FUN_10106be2 read it; 1000 the pelvis is also template 1000's id, 2000–2009 the right hand and the
+    /// other attractors those of ten 1004–1006 parts), except in a bundle (2007), whose children are its first words; word 30 of
+    /// a Stars template (its life in milliseconds: 1000, 2000, 3000); and the Deformer's bone list from word 14 (attach points).
+    /// Read as references, these made every effect at the pelvis look as if it carried the buff spiral of template 1000.
     pub fn references(&self, id: i32) -> Vec<i32> {
         let Some(r) = self.get(id) else { return Vec::new() };
-        r.payload.iter().copied().filter(|&w| w >= 100 && w != id && self.by_id.contains_key(&w)).collect()
+        let not_a_reference = |at: usize| (at == 7 && r.kind != 2007) || (at == 30 && r.kind == 2004) || (at >= 14 && r.kind == 3001);
+        r.payload.iter().copied().enumerate().filter(|&(at, w)| !not_a_reference(at) && w >= 100 && w != id && self.by_id.contains_key(&w)).map(|(_, w)| w).collect()
     }
 
     /// The template and every template below it, each once, in the order they are first reached.
@@ -935,6 +941,15 @@ mod tests {
         assert_eq!(gfx.tree(1000).iter().map(|r| r.id).collect::<Vec<_>>(), vec![1000, 20040]);
         // a count that outruns the file is an error, not a panic
         assert!(Gfx::parse(&bytes(&[5, 1, 2, 9, 0])).is_err());
+        // an attach point (word 7) that equals a template's id is not a reference to it; nor is a Stars template's life (word 30)
+        let mut stars = vec![3, 1000, 1001, 1, 5, 7, 2004, 31];
+        stars.extend([0; 7]);
+        stars.push(1000);
+        stars.extend([0; 22]);
+        stars.push(1000);
+        stars.extend([5, 1, 2, 1, 7]);
+        let gfx = Gfx::parse(&bytes(&stars)).unwrap();
+        assert!(gfx.references(7).is_empty());
     }
 
     #[test]
