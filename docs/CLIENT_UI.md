@@ -963,5 +963,14 @@ frame and the object ended when its `Use` reaches `e_Kill`. When a playfield bec
 (`Tweak_Playfield_<n>`, else the outdoor or indoor default: the `GAME` interface, the sun, moons, clouds, horizon...), and
 the `GAME` object gets the frame's time, the day's time, the server's clock and the place each frame. The server's script
 events (`ScriptIIR_t` types 0, 2 and 4, such as the alien flybys) run their scripts: an event's heartbeat spawns its
-children (`[SEND]`, the crafts), and their sounds play. What they show is not drawn yet: the effects their `FXID`s start
-(`MAO_FXS=1` lists them and the scripts' errors) are the next step, the sky's among them.
+children (`[SEND]`, the crafts), and their sounds play. What they show is drawn (see the sky below); `MAO_FXS=1` lists the
+effects started and the scripts' errors.
+
+**The sky.** Outdoors the sky is the effect scripts' (`Tweak_Playfield_<n>` or the outdoor default): behind the world, in the
+scripts' order, the star dome, the three moons (lit by the space lights), the atmosphere's gradient (its colours by the time of
+day, alpha by its intensity row: stars show at night), the battle stations, the two suns' ray fans (Gamecode's solar model:
+they rise about 7:15 and set about 20:30 and dim below the horizon), the thick clouds (by the weather's cloud intensity) and the
+horizon's dish under the horizon line. The scripts' ground light (`GAME.Sun1Rotation`) is the scene's sun, so shadows follow
+the sun over the day (held a little above the horizon at night). `MAO_SKY=<hour>` with `map <playfield> --image` renders it
+headless (`MAO_SKY_ONLY=<sorting,…>` for single layers). Not drawn yet: the single clouds, the clouds' and horizon's texture
+scrolling, the interiors' and other environments' skies (orbit, sand, rock).

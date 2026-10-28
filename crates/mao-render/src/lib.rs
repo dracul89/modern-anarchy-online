@@ -160,6 +160,10 @@ pub struct Scene {
     /// Translucent textured shells over characters (the original's `GfxVisualShield`): triangle lists of a sprite sheet, added
     /// or blended, depth-tested without writing depth, after the particles' sheets are loaded. Set by the caller every frame.
     pub shells: Vec<Shell>,
+    /// The sky's backdrops, in the order drawn (see [`Backdrop`]). Set by the caller every frame.
+    pub backdrops: Vec<Backdrop>,
+    /// The way to the sun (world, Z up) when the effect scripts give it: the light and its shadow map follow it.
+    pub sun: Option<Vec3>,
     /// The day's intensity, 0 at night to 1 by day (`GameTime_t::GetDayIntensity`): the sky light, the sun and the sky
     /// are scaled by it (a night keeps a little, so the world stays visible).
     pub daylight: f32,
@@ -208,6 +212,23 @@ pub struct ShellVertex {
     pub position: [f32; 3],
     pub uv: [f32; 2],
     pub colour: [f32; 4],
+}
+
+/// How a backdrop is drawn over what is behind it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum BackdropBlend {
+    Opaque,
+    Alpha,
+    Add,
+}
+
+/// A backdrop: a triangle list of the sky (the effect scripts' domes, moons, suns and clouds), textured with a sprite
+/// sheet, drawn in order after the sky's colours and before the world, without the depth test.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Backdrop {
+    pub sprite: u16,
+    pub blend: BackdropBlend,
+    pub vertices: Vec<ShellVertex>,
 }
 
 /// A shell: a triangle list textured with a sprite sheet ([`Renderer::add_sprite`]), added to the scene or blended over it.
@@ -378,6 +399,7 @@ pub struct Renderer {
     /// The shells, added and blended.
     shell_add: wgpu::RenderPipeline,
     shell_blend: wgpu::RenderPipeline,
+    backdrop_pipelines: [wgpu::RenderPipeline; 3],
     /// The sprite sheets uploaded so far, by number, as the bind group the particle pass uses, and the plain white one dots use.
     sprites: HashMap<u16, wgpu::BindGroup>,
     sprite_layout: wgpu::BindGroupLayout,
@@ -699,31 +721,37 @@ impl Renderer {
             wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x2, offset: 12, shader_location: 1 },
             wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x4, offset: 20, shader_location: 2 },
         ];
-        let shell_pipeline = |entry: &str, blend: wgpu::BlendState| {
+        let shell_like = |vertex: &str, entry: &str, blend: Option<wgpu::BlendState>, compare: wgpu::CompareFunction| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("shell"),
                 layout: Some(&particle_layout),
                 vertex: wgpu::VertexState {
                     module: &particle_shader,
-                    entry_point: Some("vs_shell"),
+                    entry_point: Some(vertex),
                     compilation_options: Default::default(),
                     buffers: &[Some(wgpu::VertexBufferLayout { array_stride: 36, step_mode: wgpu::VertexStepMode::Vertex, attributes: &shell_attributes })],
                 },
                 primitive: wgpu::PrimitiveState { cull_mode: None, ..Default::default() },
-                depth_stencil: Some(wgpu::DepthStencilState { format: DEPTH, depth_write_enabled: Some(false), depth_compare: Some(wgpu::CompareFunction::Less), stencil: Default::default(), bias: Default::default() }),
+                depth_stencil: Some(wgpu::DepthStencilState { format: DEPTH, depth_write_enabled: Some(false), depth_compare: Some(compare), stencil: Default::default(), bias: Default::default() }),
                 multisample: wgpu::MultisampleState { count: samples, mask: !0, alpha_to_coverage_enabled: false },
                 fragment: Some(wgpu::FragmentState {
                     module: &particle_shader,
                     entry_point: Some(entry),
                     compilation_options: Default::default(),
-                    targets: &[Some(wgpu::ColorTargetState { format, blend: Some(blend), write_mask: wgpu::ColorWrites::ALL })],
+                    targets: &[Some(wgpu::ColorTargetState { format, blend, write_mask: wgpu::ColorWrites::ALL })],
                 }),
                 multiview_mask: None,
                 cache: None,
             })
         };
+        let shell_pipeline = |entry: &str, blend: wgpu::BlendState| shell_like("vs_shell", entry, Some(blend), wgpu::CompareFunction::Less);
         let shell_add = shell_pipeline("fs_shell_add", wgpu::BlendState { color: additive, alpha: additive });
         let shell_blend = shell_pipeline("fs_shell_blend", wgpu::BlendState::ALPHA_BLENDING);
+        let backdrop_pipelines = [
+            shell_like("vs_backdrop", "fs_backdrop_opaque", None, wgpu::CompareFunction::Always),
+            shell_like("vs_backdrop", "fs_shell_blend", Some(wgpu::BlendState::ALPHA_BLENDING), wgpu::CompareFunction::Always),
+            shell_like("vs_backdrop", "fs_shell_add", Some(wgpu::BlendState { color: additive, alpha: additive }), wgpu::CompareFunction::Always),
+        ];
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::Repeat,
             address_mode_v: wgpu::AddressMode::Repeat,
@@ -770,7 +798,7 @@ impl Renderer {
             layout: &sprite_layout,
             entries: &[wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&white) }, wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&sampler) }],
         });
-        Renderer { pipeline, sky_pipeline, shadow_pipeline, water_pipeline, water_mesh_pipeline, blob_pipeline, particle_pipeline, shell_add, shell_blend, sprites: HashMap::new(), sprite_layout, white_sprite, shadow_view, shadow_bind, shadows: true, stats: Stats::default(), render_scale: 1.0, sharpness: 0.2, fsr_easu, fsr_rcas, fsr_layout, fsr_sampler, fsr: None, samples, msaa: None, started: std::time::Instant::now(), globals_layout, part_layout, sampler, white, format, depth: None, textures: Default::default() }
+        Renderer { pipeline, sky_pipeline, shadow_pipeline, water_pipeline, water_mesh_pipeline, blob_pipeline, particle_pipeline, shell_add, shell_blend, backdrop_pipelines, sprites: HashMap::new(), sprite_layout, white_sprite, shadow_view, shadow_bind, shadows: true, stats: Stats::default(), render_scale: 1.0, sharpness: 0.2, fsr_easu, fsr_rcas, fsr_layout, fsr_sampler, fsr: None, samples, msaa: None, started: std::time::Instant::now(), globals_layout, part_layout, sampler, white, format, depth: None, textures: Default::default() }
     }
 
     /// Puts a model on the GPU. `texture` finds a texture by (type, instance).
@@ -966,7 +994,7 @@ impl Renderer {
             let buffer = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("water"), contents: bytemuck::cast_slice(&data), usage: wgpu::BufferUsages::VERTEX });
             (buffer, data.len() as u32)
         });
-        Scene { parts, overlay: Vec::new(), follow: Vec::new(), center, radius, player: None, fog: (1.0e9, 2.0e9), sky: DAY_SKY, water: model.water.clone(), water_mesh, particles: Vec::new(), blobs: Vec::new(), shells: Vec::new(), daylight: 1.0, ambient: [0.0; 3], area_fog: None }
+        Scene { parts, overlay: Vec::new(), follow: Vec::new(), center, radius, player: None, fog: (1.0e9, 2.0e9), sky: DAY_SKY, water: model.water.clone(), water_mesh, particles: Vec::new(), blobs: Vec::new(), shells: Vec::new(), backdrops: Vec::new(), sun: None, daylight: 1.0, ambient: [0.0; 3], area_fog: None }
     }
 
     fn depth_view(&mut self, gpu: &Gpu, size: (u32, u32)) {
@@ -1036,7 +1064,14 @@ impl Renderer {
         let player = scene.player.unwrap_or(Vec3::splat(1.0e9));
         // The sun's box: around the player (or the whole scene with none),
         // its edges snapped to texels so the shadows don't shimmer as it moves.
-        let sun = Vec3::new(0.4, -0.5, 0.8).normalize();
+        // (the scripts' sun when it is given, held a little over the horizon so the shadow map stays above the ground)
+        let sun = match scene.sun {
+            Some(s) if s.length_squared() > 0.0 => {
+                let s = s.normalize();
+                Vec3::new(s.x, s.y, s.z.max(0.15)).normalize()
+            }
+            _ => Vec3::new(0.4, -0.5, 0.8).normalize(),
+        };
         let (focus, extent) = match scene.player {
             Some(p) => (p, 70.0f32.min(scene.radius.max(1.0))),
             None => (scene.center, scene.radius.max(1.0)),
@@ -1197,6 +1232,19 @@ impl Renderer {
             pass.set_pipeline(&self.sky_pipeline);
             pass.set_bind_group(0, &globals_bind, &[]);
             pass.draw(0..3, 0..1);
+            for b in scene.backdrops.iter().filter(|b| !b.vertices.is_empty()) {
+                let buffer = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("backdrop"), contents: bytemuck::cast_slice(&b.vertices), usage: wgpu::BufferUsages::VERTEX });
+                let k = match b.blend {
+                    BackdropBlend::Opaque => 0,
+                    BackdropBlend::Alpha => 1,
+                    BackdropBlend::Add => 2,
+                };
+                pass.set_pipeline(&self.backdrop_pipelines[k]);
+                pass.set_bind_group(0, &globals_bind, &[]);
+                pass.set_bind_group(1, self.sprites.get(&b.sprite).unwrap_or(&self.white_sprite), &[]);
+                pass.set_vertex_buffer(0, buffer.slice(..));
+                pass.draw(0..b.vertices.len() as u32, 0..1);
+            }
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &globals_bind, &[]);
             pass.set_bind_group(2, &self.shadow_bind, &[]);

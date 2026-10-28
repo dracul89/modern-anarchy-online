@@ -122,6 +122,24 @@ fn vs_shell(in: ShellIn) -> ShellOut {
     return out;
 }
 
+// A backdrop's vertex (the effect scripts' sky): drawn behind everything, its depth held at the far plane so a dome bigger
+// than the view is not cut away.
+@vertex
+fn vs_backdrop(in: ShellIn) -> ShellOut {
+    var out: ShellOut;
+    let p = globals.view_proj * vec4(in.position, 1.0);
+    out.position = vec4(p.x, p.y, p.w * 0.999999, p.w);
+    out.uv = in.uv;
+    out.colour = in.colour;
+    return out;
+}
+
+@fragment
+fn fs_backdrop_opaque(in: ShellOut) -> @location(0) vec4<f32> {
+    let texel = clamp(textureSample(sheet, samp, in.uv) * in.colour, vec4(0.0), vec4(1.0));
+    return vec4(texel.rgb, 1.0);
+}
+
 @fragment
 fn fs_shell_add(in: ShellOut) -> @location(0) vec4<f32> {
     // (clamped as the fixed-function stages clamp: `GfxVisualShield2`'s colours are doubled for its `MODULATE2X`)

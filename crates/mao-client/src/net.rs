@@ -250,6 +250,8 @@ struct World {
     jolts: Vec<f32>,
     /// The landings' places (Y up) for their effect 0x2c, for the viewer.
     landings: Vec<[f32; 3]>,
+    /// The effect scripts' visuals this frame (the sky), for the viewer.
+    sky_frame: Option<crate::fxs::visuals::Frame>,
     /// Each character's last attack (`AttackInfo`, `MissedAttackInfo`, `SpecialAttackInfo`): the weapon's place, when, a count
     /// picking the swing, and the animation class (0xb, or a special's).
     swings: BTreeMap<u32, (u32, Instant, u32, u32)>,
@@ -2780,6 +2782,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let (mut ambient_district, mut ambient_weather): (Option<u32>, [f32; 14]) = (None, [0.0; 14]);
         // (the effect scripts' playfield and expansion, and Gamecode's `rand()` for the script events)
         let (mut fxs_playfield, mut fxs_expansion, mut script_rand): (Option<u32>, bool, crate::audio::Rand) = (None, false, Default::default());
+        let mut fxs_visuals = crate::fxs::visuals::Visuals::default();
         // `MAO_MAILBOX=type,instance` (a mail terminal, 0xc773 and its serial) uses it 8 s into the session (or
         // after the walk) and asks for the inbox; the answer is printed (raw when the schema can't read it).
         let mut mailbox: Option<(u32, u32)> = std::env::var("MAO_MAILBOX").ok().and_then(|t| {
@@ -3659,6 +3662,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             // place as the eye's; no storm, precipitation or wind) and the sounds it played.
             if fxs_playfield != Some(current) {
                 fxs_playfield = Some(current);
+                fxs_visuals.clear();
                 crate::fxs::set_data_path(&Path::new(&game_dir).join("cd_image"));
                 crate::fxs::load_playfield(current, if terrain.is_some() { 0 } else { 1 });
                 crate::fxs::start_automatic();
@@ -3677,6 +3681,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             }
             crate::fxs::frame_process();
             let (system_time, system_second) = state.game_clock.server_clock();
+            // (FUN_100b8cf3's suns at the clock's seconds into the day; the weather's clouds and storm as FUN_100becbe gives
+            // them the frame block: +0xf0 the strongest precipitation, +0xf4 entry 0, +0x114 entry 2, +0x1134)
+            let (sun1, sun2) = crate::fxs::sun::rotations(state.game_clock.seconds());
+            let w = &ambient_weather;
             crate::fxs::set_game(&crate::fxs::Game {
                 delta_time: dt,
                 day_time: state.game_clock.seconds() / crate::gametime::PACE,
@@ -3684,17 +3692,26 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 system_second,
                 camera_position: position,
                 camera_rotation: [0.0, 1.0, 0.0, 0.0],
+                storm: w[3].max(w[4]).max(w[5]).max(w[6]),
+                precipitation: w[0],
+                thick_clouds: w[2],
+                cloud_transparency: 1.0 - w[8] / 2.333,
+                sun1,
+                sun2,
                 ..Default::default()
             });
             for s in crate::fxs::take_sounds() {
                 let r = crate::fxs::math::round;
                 crate::audio::with(|m| m.play_game_sound(s.id, s.pos, s.f10, s.volume, s.i18, s.f1c, r(s.f20), r(s.f24), r(s.f28) as u16 as u32, s.vel));
             }
-            for (fxid, _) in crate::fxs::take_started() {
-                if std::env::var_os("MAO_FXS").is_some() {
-                    eprintln!("fxs: effect {fxid} started");
+            let started = crate::fxs::take_started();
+            if std::env::var_os("MAO_FXS").is_some() {
+                for (fxid, o) in &started {
+                    eprintln!("fxs: effect {fxid} started ({:x})", o.name);
                 }
             }
+            fxs_visuals.start(started);
+            state.sky_frame = Some(fxs_visuals.frame());
             for m in crate::fxs::take_messages() {
                 if std::env::var_os("MAO_FXS").is_some() {
                     eprintln!("fxs: {m}");
@@ -4213,6 +4230,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     strikes: std::mem::take(&mut state.strikes),
                     jolts: std::mem::take(&mut state.jolts),
                     landings: std::mem::take(&mut state.landings),
+                    sky_frame: state.sky_frame.take(),
                     flares: std::mem::take(&mut state.placed_effects)
                         .into_iter()
                         .filter_map(|(id, at)| Some(([at[0], at[2], at[1]], mao_formats::gfx::Flare::read(gfx.as_ref()?.get(id)?)?)))

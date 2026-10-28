@@ -29,6 +29,8 @@
 pub mod enums;
 pub mod math;
 pub mod parser;
+pub mod sun;
+pub mod visuals;
 
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
@@ -2053,11 +2055,23 @@ fn vector(acc: &mut Value, op: i32, o: &Operand) {
     }
 }
 
+/// Quaternion `[ROT]` composed the other way (see `quaternion`); off only to compare.
+pub static ROT_REVERSED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
 /// With a quaternion so far.
 fn quaternion(acc: &mut Value, op: i32, o: &Operand) {
     match o.kind {
         6 => match op {
             0 => acc.q = o.q,
+            // (FUN_10005600 calls FUN_10004f91 at 0x10008027 with the value so far as `this`, which makes it `o·acc` (Hamilton):
+            // the turn so far applied first. Composed the other way here: the scripts' sky draws right only so — the horizon's
+            // dish, `v(0,0,1),90 [ROT] v(0,1,0),90` over its mesh data with z negated, lies level below the eye; the faithful
+            // order stands it on edge across half the sky. A departure until the conflict is found.)
+            0xc if ROT_REVERSED.load(std::sync::atomic::Ordering::Relaxed) => {
+                let mut r = o.q;
+                math::q_mul_in(&mut r, &acc.q);
+                acc.q = r;
+            }
             0xc => math::q_mul_in(&mut acc.q, &o.q),
             0x11 => (acc.kind, acc.u) = (1, math::q_eq(&acc.q, &o.q) as u32),
             0x12 => (acc.kind, acc.u) = (1, !math::q_eq(&acc.q, &o.q) as u32),
@@ -2339,6 +2353,13 @@ pub struct Game {
     pub storm: f32,
     pub precipitation: f32,
     pub low_wind: V3,
+    /// The suns' rotations (`GameSun1Rotation`, `GameSun2Rotation`: [`sun::rotations`]).
+    pub sun1: Q4,
+    pub sun2: Q4,
+    /// The weather's clouds (`ThickCloudsIntensity`, the frame block's +0x114: entry 2) and how much they let through
+    /// (`CloudTranspariency`, +0x1134: 1 − entry 8 / 2.333).
+    pub thick_clouds: f32,
+    pub cloud_transparency: f32,
 }
 
 /// The game interface's frame: the `GAME` object's variables given the frame's values (their last value, as the
@@ -2362,6 +2383,10 @@ pub fn set_game(g: &Game) {
     set("LowAltitudeWind", &|v| v.v = g.low_wind);
     set("GameStormIntensity", &|v| v.f = g.storm);
     set("GamePrecipitationIntensity", &|v| v.f = g.precipitation);
+    set("ThickCloudsIntensity", &|v| v.f = g.thick_clouds);
+    set("CloudTranspariency", &|v| v.f = g.cloud_transparency);
+    set("GameSun1Rotation", &|v| v.q = g.sun1);
+    set("GameSun2Rotation", &|v| v.q = g.sun2);
 }
 
 /// Gamecode's run of a `ScriptIIR_t` (FUN_10130a1b, past its district music, `sounds::MusicOverrides`): types 0, 2 and 4
@@ -2453,6 +2478,59 @@ pub fn quaternion_of(v: &Variable) -> Q4 {
 
 pub fn string_of(v: &Variable) -> Option<String> {
     v.string.as_ref().map(|s| String::from_utf8_lossy(s).into_owned())
+}
+
+/// A variable's elements (0 for one value) and its type.
+pub fn count_of(v: &Variable) -> u32 {
+    v.count
+}
+
+pub fn kind_of(v: &Variable) -> i32 {
+    v.kind.get()
+}
+
+/// Element `i`'s float (slot 15), vector (slot 23) and word (slot 7); the value's for a single one.
+pub fn float_at(v: &Variable, i: u32) -> f32 {
+    v.values.get(i as usize).map_or(0.0, |rt| work(rt).f)
+}
+
+pub fn vector_at(v: &Variable, i: u32) -> V3 {
+    v.values.get(i as usize).map_or([0.0; 3], |rt| work(rt).v)
+}
+
+pub fn word_at(v: &Variable, i: u32) -> u32 {
+    v.values.get(i as usize).map_or(0, |rt| {
+        let x = work(rt);
+        if v.kind.get() == 3 { x.s as u32 } else { x.u }
+    })
+}
+
+/// A runtime value's word (a state blob's criterion or special render state).
+pub fn rt_word(rt: &RtRef) -> u32 {
+    let r = rt.borrow().kind;
+    let x = work(rt);
+    if r == 3 { x.s as u32 } else { x.u }
+}
+
+/// A runtime value's matrix (a state blob's transform).
+pub fn rt_matrix(rt: &RtRef) -> M16 {
+    work(rt).m
+}
+
+/// `UpdateStateBlobVisual`'s check (`StateBlob_c::Validate`'s part here): every criterion nonzero.
+pub fn blob_valid(b: &StateBlob) -> bool {
+    b.criteria.iter().all(|c| rt_word(c) != 0)
+}
+
+/// A state blob material's variable (`GetMaterial` then `GetPointer`), resolved on the owner's call stack.
+pub fn blob_material(b: &StateBlob, owner: &Obj) -> Option<Rc<Variable>> {
+    let (_, lazy) = b.materials.last()?;
+    let mut lazy = lazy.borrow_mut();
+    let lp = lazy.as_mut()?;
+    push_callstack(owner);
+    let v = lp.pointer();
+    pop_callstack();
+    v
 }
 
 /// The live objects (`Noname` and named).

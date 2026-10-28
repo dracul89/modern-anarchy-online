@@ -119,6 +119,8 @@ pub struct Update {
     pub jolts: Vec<f32>,
     /// The characters' landings (server coordinates, Y up): the environment's effect 0x2c at each (`Sky::landing`).
     pub landings: Vec<[f32; 3]>,
+    /// The effect scripts' visuals and lights this frame (`fxs::visuals`): the sky.
+    pub sky_frame: Option<crate::fxs::visuals::Frame>,
     /// What the server said of the specials' recharge (skill stat, seconds; 0 = ready).
     pub special_cooldowns: Vec<(u32, f32)>,
     /// The ground (and how far the server's heights sit above it), to keep the camera above it.
@@ -355,6 +357,46 @@ pub fn headless_on(model: &Model, textures: &Textures, out: &str, ui: Option<(&H
     }
     let mut camera = Camera::fit(&scene);
     camera_override(&mut camera);
+    // `MAO_SKY=<hour>`: the effect scripts' outdoor sky at that hour (the playfield's tweaks, or the outdoor default's, run
+    // a few frames at it), its ground light the scene's sun.
+    if let (Some(hour), Some(game)) = (std::env::var("MAO_SKY").ok().and_then(|v| v.parse::<f32>().ok()), crate::theme::game_dir()) {
+        if let Ok(v) = std::env::var("MAO_SKY_VARIANT") {
+            crate::fxs::ROT_REVERSED.store(v.contains("rev"), std::sync::atomic::Ordering::Relaxed);
+        }
+        let number = std::env::var("MAO_SKY_PLAYFIELD").ok().and_then(|v| v.parse().ok()).unwrap_or(999_999);
+        crate::fxs::set_data_path(&game.join("cd_image"));
+        crate::fxs::load_playfield(number, 0);
+        crate::fxs::start_automatic();
+        let seconds = hour * 3600.0;
+        let (sun1, sun2) = crate::fxs::sun::rotations(seconds);
+        let e = camera.eye();
+        let game_frame = crate::fxs::Game { delta_time: 0.05, day_time: seconds / crate::gametime::PACE, camera_position: [e.x, e.z, e.y], sun1, sun2, cloud_transparency: 1.0, ..Default::default() };
+        let mut visuals = crate::fxs::visuals::Visuals::default();
+        for _ in 0..3 {
+            crate::fxs::set_game(&game_frame);
+            crate::fxs::frame_process();
+            visuals.start(crate::fxs::take_started());
+        }
+        crate::fxs::set_game(&game_frame);
+        let mut frame = visuals.frame();
+        // (`MAO_SKY_ONLY=<sorting>,…`: only those)
+        if let Ok(only) = std::env::var("MAO_SKY_ONLY") {
+            let keep: Vec<u32> = only.split(',').filter_map(|s| s.trim().parse().ok()).collect();
+            frame.draws.retain(|d| keep.contains(&d.sorting));
+        }
+        for m in crate::fxs::take_messages() {
+            eprintln!("fxs: {m}");
+        }
+        let target = camera.target;
+        let forward = (target - e).normalize_or_zero();
+        let (mut meshes, mut sheets, mut named) = Default::default();
+        let mut caches = SkyCaches { meshes: &mut meshes, mesh_sheets: &mut sheets, named: &mut named };
+        let (backdrops, others) = sky_draws(&frame, [e.x, e.z, e.y], [forward.x, forward.z, forward.y], textures, &mut renderer, &gpu, &mut caches);
+        eprintln!("sky: {} draws, {} backdrops, {} others; lights {:?}", frame.draws.len(), backdrops.len(), others.len(), frame.lights.ground);
+        scene.backdrops = backdrops;
+        scene.shells.extend(others);
+        scene.sun = frame.lights.ground.map(|l| mao_render::glam::Vec3::new(-l.direction[0], -l.direction[2], -l.direction[1]));
+    }
     let (w, h) = (960, 720);
     let format = wgpu::TextureFormat::Rgba8UnormSrgb;
     let radius = scene.radius;
@@ -417,6 +459,10 @@ struct App {
     /// The effect meshes by file name (`GfxControlEffectMesh_t`), and the sheets their textures were made (from 0xa000).
     effect_meshes: std::collections::HashMap<&'static str, Option<Model>>,
     mesh_sheets: std::collections::HashMap<(u32, u32), u16>,
+    /// The effect scripts' last frame, their meshes by name and their textures' sheets by name (from 0xb200).
+    fxs_frame: Option<crate::fxs::visuals::Frame>,
+    script_meshes: std::collections::HashMap<String, Option<Model>>,
+    named_sheets: std::collections::HashMap<String, u16>,
     /// The running trails (`GfxControlTrail2_t`) by (character, program, trail), and whether each ran this frame.
     trails: std::collections::HashMap<(u32, u32, usize), (crate::effects::TrailState, bool)>,
     /// Each character's place a moment ago (and when), and its vehicle's motion for the toggles (`GfxControlToggle_t`).
@@ -498,7 +544,7 @@ pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<()
     let settings = Settings::load();
     crate::ui::set_debug_overlay(settings.debug_overlay);
     crate::font::set_enabled(settings.original_font);
-    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), flares: Vec::new(), sky: Default::default(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), trails: Default::default(), motions: Default::default(), shake: (0.0, 0), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, casters: Vec::new(), follow_shift: [0.0; 3], environment: Default::default(), quake: Default::default(), quake_offset: [0.0; 3], wind: Default::default(), wind_at: std::time::Instant::now(), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
+    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), flares: Vec::new(), sky: Default::default(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), fxs_frame: None, script_meshes: Default::default(), named_sheets: Default::default(), trails: Default::default(), motions: Default::default(), shake: (0.0, 0), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, casters: Vec::new(), follow_shift: [0.0; 3], environment: Default::default(), quake: Default::default(), quake_offset: [0.0; 3], wind: Default::default(), wind_at: std::time::Instant::now(), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
     event_loop.run_app(&mut app).map_err(|e| e.to_string())?;
     if app.logged_out {
         // (the launcher that started the game sees this code and shows the character screen again)
@@ -1097,6 +1143,9 @@ impl ApplicationHandler for App {
                         for (at, seed) in std::mem::take(&mut u.strikes) {
                             self.sky.strike(at, seed, &|x, z| ground.as_ref().map(|(t, o)| t.height_at(x, z, t.height_scale) + o));
                         }
+                        if let Some(f) = u.sky_frame.take() {
+                            self.fxs_frame = Some(f);
+                        }
                         for at in std::mem::take(&mut u.landings) {
                             self.sky.landing(at, &|x, z| ground.as_ref().map(|(t, o)| t.height_at(x, z, t.height_scale) + o));
                         }
@@ -1405,6 +1454,21 @@ impl ApplicationHandler for App {
                         .collect();
                     load_sprites(&mut w.renderer, &w.gpu, &self.textures, &sheets, &mut self.tried_sprites);
                     load_sprites(&mut w.renderer, &w.gpu, &self.textures, &sparks, &mut self.tried_sprites);
+                    // (the effect scripts' sky: its backdrops behind the world, its other visuals among the shells, its ground
+                    // light the world's sun)
+                    if let Some(frame) = &self.fxs_frame {
+                        let e = w.camera.eye();
+                        let t = w.camera.target;
+                        let (eye, forward) = ([e.x, e.z, e.y], {
+                            let f = (t - e).normalize_or_zero();
+                            [f.x, f.z, f.y]
+                        });
+                        let mut caches = SkyCaches { meshes: &mut self.script_meshes, mesh_sheets: &mut self.mesh_sheets, named: &mut self.named_sheets };
+                        let (backdrops, others) = sky_draws(frame, eye, forward, &self.textures, &mut w.renderer, &w.gpu, &mut caches);
+                        w.scene.backdrops = backdrops;
+                        shells.extend(others);
+                        w.scene.sun = frame.lights.ground.map(|l| mao_render::glam::Vec3::new(-l.direction[0], -l.direction[2], -l.direction[1]));
+                    }
                     w.scene.particles = sparks;
                     w.scene.shells = shells;
                 }
@@ -1704,4 +1768,110 @@ mod camera_tests {
             assert!(((back - h + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI).abs() < 1e-4, "{h} -> {back}");
         }
     }
+}
+
+/// The viewer's caches for the effect scripts' sky: their meshes by name, the meshes' texture sheets, the named sheets.
+struct SkyCaches<'a> {
+    meshes: &'a mut std::collections::HashMap<String, Option<Model>>,
+    mesh_sheets: &'a mut std::collections::HashMap<(u32, u32), u16>,
+    named: &'a mut std::collections::HashMap<String, u16>,
+}
+
+/// The effect scripts' draws made triangles (`fxs::visuals`): each placed at the camera (`place`, the view distance 1000),
+/// a mesh's parts through their own frames then the draw's, lit as D3D lights them when the draw is (the blob's material,
+/// else the part's), times the draw's factor; the server's frame (Y up) made the world's (Z up). The backdrops in order,
+/// the others as shells.
+fn sky_draws(frame: &crate::fxs::visuals::Frame, eye: [f32; 3], forward: [f32; 3], textures: &crate::Textures, renderer: &mut mao_render::Renderer, gpu: &mao_render::Gpu, c: &mut SkyCaches) -> (Vec<mao_render::Backdrop>, Vec<mao_render::Shell>) {
+    use crate::fxs::visuals::{self, Blend, Shape};
+    let world = |p: [f32; 3]| [p[0], p[2], p[1]];
+    let named_sheet = |named: &mut std::collections::HashMap<String, u16>, renderer: &mut mao_render::Renderer, name: &str| -> u16 {
+        if let Some(&id) = named.get(name) {
+            return id;
+        }
+        let id = 0xb200 + named.len() as u16;
+        if let Some(t) = textures.sheet(name) {
+            renderer.add_sprite(gpu, id, &t);
+        }
+        named.insert(name.to_string(), id);
+        id
+    };
+    let (mut backdrops, mut shells) = (Vec::new(), Vec::new());
+    for d in &frame.draws {
+        let m = visuals::place(d, eye, forward, 1000.0);
+        let mut parts: Vec<(u16, Vec<mao_render::ShellVertex>)> = Vec::new();
+        let scaled = |c: [f32; 4]| [c[0] * d.factor[0], c[1] * d.factor[1], c[2] * d.factor[2], c[3] * d.factor[3]];
+        match &d.shape {
+            Shape::Triangles(t) => {
+                let sprite = d.texture.as_deref().map_or(mao_render::NO_SPRITE, |n| named_sheet(c.named, renderer, n));
+                parts.push((sprite, t.iter().map(|v| mao_render::ShellVertex { position: world(visuals::transform(&m, v.pos)), uv: v.uv, colour: scaled(v.colour) }).collect()));
+            }
+            Shape::Mesh(name) => {
+                let Some(model) = c.meshes.entry(name.clone()).or_insert_with(|| textures.mesh_named(name)).as_ref() else { continue };
+                let placements: Vec<(usize, mao_formats::model::Matrix)> =
+                    if model.instances.is_empty() { (0..model.parts.len()).map(|i| (i, mao_formats::model::IDENTITY)).collect() } else { model.instances.clone() };
+                for (index, instance) in placements {
+                    let Some(part) = model.parts.get(index) else { continue };
+                    // (the mesh pool's data: the triangle mesh as stored, its frames not applied, FUN_10061505; its z negated, as
+                    // the left-handed device takes it — with quaternion `[ROT]` composed the other way, see `fxs`, the only
+                    // reading that lays the horizon's dish level. `MAO_SKY_VARIANT` (shown, zneg) compares others.)
+                    let variant = std::env::var("MAO_SKY_VARIANT").unwrap_or_else(|_| "zneg".into());
+                    let own = if variant.contains("shown") { mao_formats::model::multiply(&part.world, &instance) } else { instance };
+                    let zneg = variant.contains("zneg");
+                    let sprite = match part.material.textures.first() {
+                        Some(&key) => match c.mesh_sheets.get(&key) {
+                            Some(&id) => id,
+                            None => {
+                                let id = 0xa000 + c.mesh_sheets.len() as u16;
+                                if let Some(t) = textures.get(key.0, key.1) {
+                                    renderer.add_sprite(gpu, id, &t);
+                                }
+                                c.mesh_sheets.insert(key, id);
+                                id
+                            }
+                        },
+                        None => d.texture.as_deref().map_or(mao_render::NO_SPRITE, |n| named_sheet(c.named, renderer, n)),
+                    };
+                    // (the pool makes the mesh's material plain white with nothing else; a blob's material over it)
+                    let material = match d.material {
+                        Some(b) => ([b[0], b[1], b[2], b[3]], [b[4], b[5], b[6]], [b[12], b[13], b[14]]),
+                        None => ([1.0, 1.0, 1.0, 1.0], [0.0; 3], [0.0; 3]),
+                    };
+                    let vertices = part
+                        .indices
+                        .iter()
+                        .filter_map(|&i| part.vertices.get(i as usize))
+                        .map(|v| {
+                            let flip = |p: [f32; 3]| if zneg { [p[0], p[1], -p[2]] } else { p };
+                            let p = visuals::transform(&m, visuals::transform(&own, flip(v.position)));
+                            let n = visuals::turn(&m, visuals::turn(&own, flip(v.normal)));
+                            let colour = if d.light.is_some() { visuals::lit(d, n, material) } else { [1.0, 1.0, 1.0, material.0[3].max(0.0)] };
+                            mao_render::ShellVertex { position: world(p), uv: v.uv, colour: scaled(colour) }
+                        })
+                        .collect();
+                    parts.push((sprite, vertices));
+                }
+            }
+        }
+        if std::env::var_os("MAO_SKY_DEBUG").is_some() {
+            let el: Vec<f32> = parts.iter().flat_map(|(_, v)| v.iter()).map(|v| {
+                let r = [v.position[0] - eye[0], v.position[1] - eye[2], v.position[2] - eye[1]];
+                (r[2] / (r[0] * r[0] + r[1] * r[1]).sqrt()).atan().to_degrees()
+            }).collect();
+            let (lo, hi) = el.iter().fold((f32::MAX, f32::MIN), |(a, b), &x| (a.min(x), b.max(x)));
+            eprintln!("sky draw {} sorting {}: elevations {lo:.1}..{hi:.1} matrix {:?}", d.kind, d.sorting, &m[..]);
+        }
+        for (sprite, vertices) in parts {
+            if d.backdrop {
+                let blend = match d.blend {
+                    Blend::Opaque => mao_render::BackdropBlend::Opaque,
+                    Blend::Alpha => mao_render::BackdropBlend::Alpha,
+                    Blend::Add => mao_render::BackdropBlend::Add,
+                };
+                backdrops.push(mao_render::Backdrop { sprite, blend, vertices });
+            } else {
+                shells.push(mao_render::Shell { sprite, additive: d.blend == Blend::Add, vertices });
+            }
+        }
+    }
+    (backdrops, shells)
 }
