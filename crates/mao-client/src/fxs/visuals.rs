@@ -104,6 +104,9 @@ pub struct Draw {
 pub struct Frame {
     pub draws: Vec<Draw>,
     pub lights: Lights,
+    /// The fog the generic visuals add (`AddFogR/G/B`, `VisualFog_t::AddFog` from FUN_1005b633): the atmosphere's
+    /// colour of the haze at the horizon.
+    pub fog: Option<[f32; 3]>,
 }
 
 /// The visuals running: each started effect's kind and its FXS object, and a generated blueprint's points by object.
@@ -112,6 +115,8 @@ pub struct Visuals {
     list: Vec<(u32, Obj)>,
     blueprints: std::collections::HashMap<u32, Vec<Vert>>,
     rand: crate::audio::Rand,
+    /// The single clouds' field (made when the effect starts).
+    clouds: Option<super::clouds::Clouds>,
 }
 
 fn e(name: &str) -> u32 {
@@ -211,7 +216,7 @@ impl Visuals {
     /// The effects the scripts started (`FrameProcess`'s requests made visuals): the kinds drawn here kept.
     pub fn start(&mut self, started: Vec<(u32, Obj)>) {
         for (kind, o) in started {
-            if matches!(kind, 1 | 4 | 5 | 0x2a) && !self.list.iter().any(|(k, x)| *k == kind && std::rc::Rc::ptr_eq(x, &o)) {
+            if matches!(kind, 1 | 4 | 5 | 0x2a | 0x38) && !self.list.iter().any(|(k, x)| *k == kind && std::rc::Rc::ptr_eq(x, &o)) {
                 self.list.push((kind, o));
             }
         }
@@ -223,7 +228,7 @@ impl Visuals {
     }
 
     /// The frame: each visual's draw (a visual whose object has ended, or whose `Use` is 1, let go), the lights.
-    pub fn frame(&mut self) -> Frame {
+    pub fn frame(&mut self, sky: &super::clouds::Sky) -> Frame {
         let mut frame = Frame::default();
         self.list.retain(|(_, o)| o.alive() && word(o, "Use") != Some(1));
         let list = self.list.clone();
@@ -239,6 +244,18 @@ impl Visuals {
             };
         }
         for (kind, o) in list.iter().filter(|(k, _)| *k != 1) {
+            if *kind == 0x38 {
+                frame.draws.extend(self.clouds(o, sky, &frame.lights));
+                continue;
+            }
+            if *kind == 5 {
+                let f = ["AddFogR", "AddFogG", "AddFogB"].map(|n| float(o, n));
+                if let [Some(r), Some(g), Some(b)] = f {
+                    if float(o, "AddFogI").is_some() {
+                        frame.fog = Some([r, g, b].map(|c| c.clamp(0.0, 1.0)));
+                    }
+                }
+            }
             if let Some(d) = self.draw(*kind, o, &frame.lights) {
                 frame.draws.push(d);
             }
@@ -295,6 +312,40 @@ impl Visuals {
             texture: l.texture,
             material,
         })
+    }
+
+    /// The single clouds (`VisualSingleCloud_t`, `clouds.rs`): their four material groups, each a backdrop blended at the
+    /// object's priority and sorting, round the camera.
+    fn clouds(&mut self, o: &Obj, sky: &super::clouds::Sky, lights: &Lights) -> Vec<Draw> {
+        let altitude = float(o, "Altitude").unwrap_or(0.0);
+        let sky = super::clouds::Sky { ground: lights.ground, ..*sky };
+        let field = self.clouds.get_or_insert_with(super::clouds::Clouds::new);
+        field
+            .frame(altitude, &sky)
+            .into_iter()
+            .filter(|(_, v)| !v.is_empty())
+            .map(|(texture, vertices)| Draw {
+                kind: 0x38,
+                priority: word(o, "Priority").unwrap_or(0),
+                sorting: word(o, "Sorting").unwrap_or(0),
+                shape: Shape::Triangles(vertices),
+                position: [0.0; 3],
+                rotation: [0.0, 0.0, 0.0, 1.0],
+                scale: 1.0,
+                position_type: 1,
+                rotation_type: 0,
+                scale_type: 0,
+                init_direction: [0.0, 0.0, 1.0],
+                backdrop: true,
+                blend: Blend::Alpha,
+                cull: false,
+                light: None,
+                ambient: [0.0; 3],
+                factor: [1.0; 4],
+                texture: Some(texture.to_string()),
+                material: None,
+            })
+            .collect()
     }
 
     /// `BlueprintGenerateMesh` then `BlueprintRender`: the blob's blueprint object's points (made once: strict, the
@@ -514,7 +565,10 @@ mod tests {
         v.start(super::super::take_started());
         super::super::frame_process();
         super::super::set_game(&super::super::Game { delta_time: 0.05, day_time: 12.0 * 3600.0 / 15.0, sun1, sun2, ..Default::default() });
-        let f = v.frame();
+        let sky = super::super::clouds::Sky { camera: [0.0; 3], sun_direction: [0.0, 1.0, 0.0], storm: 0.0, thick_clouds: 0.0, ground: None };
+        let f = v.frame(&sky);
+        assert!(f.draws.iter().any(|d| d.kind == 0x38));
+        assert!(f.fog.is_some());
         for d in &f.draws {
             let shape = match &d.shape {
                 Shape::Mesh(m) => m.clone(),

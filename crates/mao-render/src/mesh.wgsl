@@ -23,6 +23,15 @@ struct Globals {
     ambient: vec4<f32>,
     // rgb: the fog's colour; w: 1 when it is an area's fog (not scaled by the day: it was scaled by the fog light already).
     fog: vec4<f32>,
+    // The effect scripts' lighting (the environment light's): rgb the ground light's colour, w 1 when it is given; and the
+    // ambient light's colour.
+    script_sun: vec4<f32>,
+    script_ambient: vec4<f32>,
+}
+
+// Whether the effect scripts light the world (their colours already follow the day).
+fn scripted() -> bool {
+    return globals.script_sun.w > 0.5;
 }
 
 // The day's light: the sky light, the sun and the sky keep a fifth at night so the world stays visible (the original's
@@ -33,7 +42,11 @@ fn day() -> f32 {
 
 // The fog's colour at the horizon: the sky's by day, an area's as it is.
 fn fog_colour() -> vec3<f32> {
-    return mix(globals.horizon.rgb * day(), globals.fog.rgb, globals.fog.w);
+    var haze = globals.horizon.rgb * day();
+    if scripted() {
+        haze = globals.horizon.rgb;
+    }
+    return mix(haze, globals.fog.rgb, globals.fog.w);
 }
 
 struct Part {
@@ -162,8 +175,14 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     let diffuse = abs(dot(n, sun)) * shadow_at(in.world, n);
     let d = day();
     // The area's ambient light is added as the original's `AddAmbientLight` adds it: each channel at its maximum.
-    let ambient = max(mix(vec3<f32>(0.34, 0.32, 0.30), vec3<f32>(0.60, 0.66, 0.76), n.z * 0.5 + 0.5) * d, globals.ambient.rgb);
-    var colour = base.rgb * min(ambient + vec3<f32>(0.60, 0.56, 0.48) * d * diffuse + vec3<f32>(baked), vec3<f32>(1.0));
+    var ambient = max(mix(vec3<f32>(0.34, 0.32, 0.30), vec3<f32>(0.60, 0.66, 0.76), n.z * 0.5 + 0.5) * d, globals.ambient.rgb);
+    var sun_colour = vec3<f32>(0.60, 0.56, 0.48) * d;
+    // (the scripts' light: D3D's ambient plus the ground light by how the normal faces it, the area's ambient kept as a floor)
+    if scripted() {
+        ambient = max(globals.script_ambient.rgb, globals.ambient.rgb);
+        sun_colour = globals.script_sun.rgb;
+    }
+    var colour = base.rgb * min(ambient + sun_colour * diffuse + vec3<f32>(baked), vec3<f32>(1.0));
     // Distance fades into the fog's colour (linear when the fog is an area's, as Direct3D's was).
     let far = globals.horizon.w;
     let near = globals.eye.w;

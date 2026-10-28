@@ -3695,7 +3695,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 storm: w[3].max(w[4]).max(w[5]).max(w[6]),
                 precipitation: w[0],
                 thick_clouds: w[2],
-                cloud_transparency: 1.0 - w[8] / 2.333,
+                cloud_transparency: 1.0 - w[2] / 2.333,
                 sun1,
                 sun2,
                 ..Default::default()
@@ -3711,7 +3711,17 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 }
             }
             fxs_visuals.start(started);
-            state.sky_frame = Some(fxs_visuals.frame());
+            // (the frame block the single clouds read: the eye — the character's place here —, `GameSunDirection` toward the two
+            // suns together, the storm and the clouds)
+            let (s1, s2) = crate::fxs::sun::places(state.game_clock.seconds());
+            let sky = crate::fxs::clouds::Sky {
+                camera: position,
+                sun_direction: crate::fxs::math::with_len(&crate::fxs::math::add(&s1, &s2), 1.0),
+                storm: w[3].max(w[4]).max(w[5]).max(w[6]),
+                thick_clouds: w[2],
+                ground: None,
+            };
+            state.sky_frame = Some(fxs_visuals.frame(&sky));
             for m in crate::fxs::take_messages() {
                 if std::env::var_os("MAO_FXS").is_some() {
                     eprintln!("fxs: {m}");

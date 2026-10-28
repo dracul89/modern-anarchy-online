@@ -972,5 +972,12 @@ day, alpha by its intensity row: stars show at night), the battle stations, the 
 they rise about 7:15 and set about 20:30 and dim below the horizon), the thick clouds (by the weather's cloud intensity) and the
 horizon's dish under the horizon line. The scripts' ground light (`GAME.Sun1Rotation`) is the scene's sun, so shadows follow
 the sun over the day (held a little above the horizon at night). `MAO_SKY=<hour>` with `map <playfield> --image` renders it
-headless (`MAO_SKY_ONLY=<sorting,…>` for single layers). Not drawn yet: the single clouds, the clouds' and horizon's texture
-scrolling, the interiors' and other environments' skies (orbit, sand, rock).
+headless (`MAO_SKY_ONLY=<sorting,…>` for single layers). Not drawn yet: the clouds' and horizon's texture scrolling, the interiors' and other environments' skies (orbit, sand, rock).
+
+**Single clouds and the scripts' light.** Thirty cloud puffs (`single_cloud01`–`04`) hang round the camera at the script's
+altitude, sinking toward the horizon with distance, drifting back as you move and wrapping across a 3200-wide field; they fade
+in a storm and darken at night and under thick cloud. The world is lit with the scripts' colours: their ambient light (dim at
+night, brighter by day) and the ground light's colour (warm at dawn and dusk, blue at night) in place of the client's fixed sky
+and sun colours, and distance hazes into the atmosphere's horizon colour. The game database may hold more segment files than
+its main file's header counts (an install updated by a texture pack): the reader opens the further ones that belong, which
+brings back their textures.

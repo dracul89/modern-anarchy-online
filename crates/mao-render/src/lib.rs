@@ -80,6 +80,9 @@ struct Globals {
     ambient: [f32; 4],
     /// rgb: the fog's colour; w: 1 when the fog is an area's (from the camera out), 0 for the distance haze.
     fog: [f32; 4],
+    /// The effect scripts' ground light colour (w: 1 when given) and ambient colour.
+    script_sun: [f32; 4],
+    script_ambient: [f32; 4],
 }
 
 #[repr(C)]
@@ -164,6 +167,9 @@ pub struct Scene {
     pub backdrops: Vec<Backdrop>,
     /// The way to the sun (world, Z up) when the effect scripts give it: the light and its shadow map follow it.
     pub sun: Option<Vec3>,
+    /// The effect scripts' lighting when they give it: the ambient colour and the ground light's colour, in place of the
+    /// fixed sky and sun colours scaled by the day.
+    pub lighting: Option<([f32; 3], [f32; 3])>,
     /// The day's intensity, 0 at night to 1 by day (`GameTime_t::GetDayIntensity`): the sky light, the sun and the sky
     /// are scaled by it (a night keeps a little, so the world stays visible).
     pub daylight: f32,
@@ -994,7 +1000,7 @@ impl Renderer {
             let buffer = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("water"), contents: bytemuck::cast_slice(&data), usage: wgpu::BufferUsages::VERTEX });
             (buffer, data.len() as u32)
         });
-        Scene { parts, overlay: Vec::new(), follow: Vec::new(), center, radius, player: None, fog: (1.0e9, 2.0e9), sky: DAY_SKY, water: model.water.clone(), water_mesh, particles: Vec::new(), blobs: Vec::new(), shells: Vec::new(), backdrops: Vec::new(), sun: None, daylight: 1.0, ambient: [0.0; 3], area_fog: None }
+        Scene { parts, overlay: Vec::new(), follow: Vec::new(), center, radius, player: None, fog: (1.0e9, 2.0e9), sky: DAY_SKY, water: model.water.clone(), water_mesh, particles: Vec::new(), blobs: Vec::new(), shells: Vec::new(), backdrops: Vec::new(), sun: None, lighting: None, daylight: 1.0, ambient: [0.0; 3], area_fog: None }
     }
 
     fn depth_view(&mut self, gpu: &Gpu, size: (u32, u32)) {
@@ -1138,6 +1144,8 @@ impl Renderer {
             zenith: [scene.sky.1[0], scene.sky.1[1], scene.sky.1[2], 0.0],
             ambient: [scene.ambient[0], scene.ambient[1], scene.ambient[2], scene.daylight],
             fog: [fog_colour[0], fog_colour[1], fog_colour[2], area],
+            script_sun: scene.lighting.map_or([0.0; 4], |(_, s)| [s[0], s[1], s[2], 1.0]),
+            script_ambient: scene.lighting.map_or([0.0; 4], |(a, _)| [a[0], a[1], a[2], 1.0]),
             right: {
                 let forward = (camera.target - eye).normalize_or_zero();
                 let right = forward.cross(Vec3::Z).normalize_or_zero();

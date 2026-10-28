@@ -29,6 +29,7 @@
 pub mod enums;
 pub mod math;
 pub mod parser;
+pub mod clouds;
 pub mod sun;
 pub mod visuals;
 

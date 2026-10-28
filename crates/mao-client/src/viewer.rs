@@ -378,7 +378,9 @@ pub fn headless_on(model: &Model, textures: &Textures, out: &str, ui: Option<(&H
             visuals.start(crate::fxs::take_started());
         }
         crate::fxs::set_game(&game_frame);
-        let mut frame = visuals.frame();
+        let (s1, s2) = crate::fxs::sun::places(seconds);
+        let sky = crate::fxs::clouds::Sky { camera: [e.x, e.z, e.y], sun_direction: crate::fxs::math::with_len(&crate::fxs::math::add(&s1, &s2), 1.0), ..Default::default() };
+        let mut frame = visuals.frame(&sky);
         // (`MAO_SKY_ONLY=<sorting>,…`: only those)
         if let Ok(only) = std::env::var("MAO_SKY_ONLY") {
             let keep: Vec<u32> = only.split(',').filter_map(|s| s.trim().parse().ok()).collect();
@@ -391,11 +393,15 @@ pub fn headless_on(model: &Model, textures: &Textures, out: &str, ui: Option<(&H
         let forward = (target - e).normalize_or_zero();
         let (mut meshes, mut sheets, mut named) = Default::default();
         let mut caches = SkyCaches { meshes: &mut meshes, mesh_sheets: &mut sheets, named: &mut named };
-        let (backdrops, others) = sky_draws(&frame, [e.x, e.z, e.y], [forward.x, forward.z, forward.y], textures, &mut renderer, &gpu, &mut caches);
+        let (backdrops, others) = sky_draws(&frame, [e.x, e.z, e.y], [forward.x, forward.z, forward.y], 1000.0, textures, &mut renderer, &gpu, &mut caches);
         eprintln!("sky: {} draws, {} backdrops, {} others; lights {:?}", frame.draws.len(), backdrops.len(), others.len(), frame.lights.ground);
         scene.backdrops = backdrops;
         scene.shells.extend(others);
         scene.sun = frame.lights.ground.map(|l| mao_render::glam::Vec3::new(-l.direction[0], -l.direction[2], -l.direction[1]));
+        scene.lighting = frame.lights.ground.map(|g| (frame.lights.ambient, g.colour));
+        if let Some(fog) = frame.fog {
+            scene.sky.0 = fog;
+        }
     }
     let (w, h) = (960, 720);
     let format = wgpu::TextureFormat::Rgba8UnormSrgb;
@@ -1464,7 +1470,7 @@ impl ApplicationHandler for App {
                             [f.x, f.z, f.y]
                         });
                         let mut caches = SkyCaches { meshes: &mut self.script_meshes, mesh_sheets: &mut self.mesh_sheets, named: &mut self.named_sheets };
-                        let (backdrops, others) = sky_draws(frame, eye, forward, &self.textures, &mut w.renderer, &w.gpu, &mut caches);
+                        let (backdrops, others) = sky_draws(frame, eye, forward, self.settings.view_distance as f32, &self.textures, &mut w.renderer, &w.gpu, &mut caches);
                         w.scene.backdrops = backdrops;
                         shells.extend(others);
                         w.scene.sun = frame.lights.ground.map(|l| mao_render::glam::Vec3::new(-l.direction[0], -l.direction[2], -l.direction[1]));
@@ -1489,6 +1495,11 @@ impl ApplicationHandler for App {
                     // The day's light and the area's environment (`Environment_t`'s per-frame work, see `mao_formats::areas`): an
                     // interior is lit as it is; outside, the area's ambient is kept against the sky light and its fog, when it has
                     // one, is lit by the fog light (`AddFogLightIntensity`: the day's intensity, at least a half).
+                    // (the effect scripts' lighting and, outdoors, their haze: the atmosphere's fog colour)
+                    w.scene.lighting = self.fxs_frame.as_ref().and_then(|f| f.lights.ground.map(|g| (f.lights.ambient, g.colour)));
+                    if let Some(fog) = self.fxs_frame.as_ref().and_then(|f| f.fog).filter(|_| !interior) {
+                        w.scene.sky.0 = fog;
+                    }
                     let e = self.environment;
                     w.scene.daylight = if interior { 1.0 } else { self.daylight * e.sky };
                     w.scene.ambient = e.ambient;
@@ -1781,7 +1792,7 @@ struct SkyCaches<'a> {
 /// a mesh's parts through their own frames then the draw's, lit as D3D lights them when the draw is (the blob's material,
 /// else the part's), times the draw's factor; the server's frame (Y up) made the world's (Z up). The backdrops in order,
 /// the others as shells.
-fn sky_draws(frame: &crate::fxs::visuals::Frame, eye: [f32; 3], forward: [f32; 3], textures: &crate::Textures, renderer: &mut mao_render::Renderer, gpu: &mao_render::Gpu, c: &mut SkyCaches) -> (Vec<mao_render::Backdrop>, Vec<mao_render::Shell>) {
+fn sky_draws(frame: &crate::fxs::visuals::Frame, eye: [f32; 3], forward: [f32; 3], distance: f32, textures: &crate::Textures, renderer: &mut mao_render::Renderer, gpu: &mao_render::Gpu, c: &mut SkyCaches) -> (Vec<mao_render::Backdrop>, Vec<mao_render::Shell>) {
     use crate::fxs::visuals::{self, Blend, Shape};
     let world = |p: [f32; 3]| [p[0], p[2], p[1]];
     let named_sheet = |named: &mut std::collections::HashMap<String, u16>, renderer: &mut mao_render::Renderer, name: &str| -> u16 {
@@ -1797,7 +1808,7 @@ fn sky_draws(frame: &crate::fxs::visuals::Frame, eye: [f32; 3], forward: [f32; 3
     };
     let (mut backdrops, mut shells) = (Vec::new(), Vec::new());
     for d in &frame.draws {
-        let m = visuals::place(d, eye, forward, 1000.0);
+        let m = visuals::place(d, eye, forward, distance);
         let mut parts: Vec<(u16, Vec<mao_render::ShellVertex>)> = Vec::new();
         let scaled = |c: [f32; 4]| [c[0] * d.factor[0], c[1] * d.factor[1], c[2] * d.factor[2], c[3] * d.factor[3]];
         match &d.shape {
