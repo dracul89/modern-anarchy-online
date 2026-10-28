@@ -340,6 +340,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_draw_plays_before_the_idle_set_to_wait_for_it() {
+        // (FUN_1003cce2: the weapon's start once, then its idle delayed by the start's length less 300 ms)
+        let mut s = Stack::default();
+        let start = s.set_animation(1, 0, 1, 2, 0, 1.0, 1000.0);
+        s.set_time(start, 0.0, 1000.0);
+        let idle = s.set_animation(2, 0, -1, 2, 0, 1.0, 2000.0);
+        s.set_delay(idle, 700.0);
+        s.advance(0.5);
+        let weight = |s: &Stack, h: u32| s.entries.iter().find(|e| e.handle == h).map(|e| e.weight);
+        assert!(weight(&s, start).unwrap() > 0.9);
+        assert_eq!(weight(&s, idle), Some(0.0));
+        // (once the idle has faded in the start is dropped)
+        for _ in 0..20 {
+            s.advance(0.1);
+        }
+        assert!(!s.is_playing(start));
+        assert_eq!(weight(&s, idle), Some(1.0));
+    }
+
+    #[test]
     fn a_new_animation_fades_in_and_a_looping_one_drops_the_old() {
         let mut s = Stack::default();
         let idle = s.set_animation(1, 0, -1, 2, 0, 1.0, 1000.0);

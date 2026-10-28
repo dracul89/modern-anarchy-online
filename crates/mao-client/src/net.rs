@@ -1047,6 +1047,8 @@ struct Characters {
     socials_started: std::collections::HashMap<u32, Instant>,
     /// When each character's last attack swing was set on its stack.
     swings_started: std::collections::HashMap<u32, Instant>,
+    /// The weapon each character had drawn when last drawn (template and place), to play the draw and the holster.
+    drawn: std::collections::HashMap<u32, Option<(u32, u32)>>,
     started: Instant,
     /// Machine models by mesh instance.
     props: std::collections::HashMap<u32, Option<Vec<Part>>>,
@@ -1164,7 +1166,7 @@ impl Characters {
         let index = mao_formats::instances::Instances::parse(&get(0xf424a, 1)?).map_err(|e| e.to_string())?;
         let _ = get;
         let head_meshes = index.iter().filter(|(kind, name, _)| *kind == 0xf6951 && is_head_name(name)).map(|(_, _, instance)| instance).collect();
-        Ok(Characters { head_meshes, db, index, anims: Default::default(), ids: Default::default(), bodies: Default::default(), creatures: Default::default(), creature_anims: Default::default(), motions: Default::default(), segment: 0, stacks: Default::default(), anims_by_id: Default::default(), movement_keys: Default::default(), movement_handles: Default::default(), socials_started: Default::default(), swings_started: Default::default(), started: Instant::now(), props: Default::default(), statics: Default::default(), vehicles: Default::default(), frames: Default::default() })
+        Ok(Characters { head_meshes, db, index, anims: Default::default(), ids: Default::default(), bodies: Default::default(), creatures: Default::default(), creature_anims: Default::default(), motions: Default::default(), segment: 0, stacks: Default::default(), anims_by_id: Default::default(), movement_keys: Default::default(), movement_handles: Default::default(), socials_started: Default::default(), swings_started: Default::default(), drawn: Default::default(), started: Instant::now(), props: Default::default(), statics: Default::default(), vehicles: Default::default(), frames: Default::default() })
     }
 
     /// The parts of a machine's model (Y-up local space), loaded once.
@@ -1422,9 +1424,16 @@ impl Characters {
     /// length). `movement` is the animation and its total time, `points` the loop notes and the length, `key` what the
     /// movement is now (a change sets it anew; a looping one already playing is only topped up).
     /// An attack swing (FUN_10010dee: `SetAnimation` at priority −2 claiming the action's layer, once over its whole length) is
-    /// set too, sped up by its scale (FUN_1006a782's `SetSpeedScale`).
-    fn drive(&mut self, id: u32, key: (mao_formats::appearance::Action, u8, u32), movement: Option<(u32, f32)>, points: (f32, f32, f32), rate: f32, social: Option<((u32, f32), Instant)>, swing: Option<((u32, f32), u32, f32, Instant)>) {
+    /// set too, sped up by its scale (FUN_1006a782's `SetSpeedScale`). A weapon's draw or holster (`flourish`: FUN_1003cce2's
+    /// start, FUN_1003ce27's stop) plays once before the movement, and the idle set with it waits for it (`SetAnimationDelay`,
+    /// FUN_1003c6b2, by its length less 300 ms).
+    fn drive(&mut self, id: u32, key: (mao_formats::appearance::Action, u8, u32), movement: Option<(u32, f32)>, points: (f32, f32, f32), rate: f32, social: Option<((u32, f32), Instant)>, swing: Option<((u32, f32), u32, f32, Instant)>, flourish: Option<(u32, f32)>) {
         let (stack, _) = self.stacks.entry(id).or_insert_with(|| (Default::default(), Instant::now()));
+        let flourish = flourish.map(|(anim, total)| {
+            let handle = stack.set_animation(anim, 0, 1, 2, 0, 1.0, total);
+            stack.set_time(handle, 0.0, total);
+            total
+        });
         if let Some((anim, total)) = movement {
             if self.movement_keys.get(&id) != Some(&key) {
                 let (start, end, length) = points;
@@ -1438,6 +1447,9 @@ impl Characters {
                 };
                 let handle = stack.set_animation(anim, 0, loops, 2, 0, 1.0, total);
                 stack.set_time(handle, range.0, range.1);
+                if let Some(length) = flourish {
+                    stack.set_delay(handle, (length - 300.0).max(0.0));
+                }
                 self.movement_keys.insert(id, key);
                 self.movement_handles.insert(id, handle);
             }
@@ -1653,7 +1665,15 @@ impl Characters {
             self.anim_by_name(&file).map(|a| (a, began))
         });
         let swing = swing.and_then(|(template, slot, began, pick, class)| self.ensure_swing(breed, sex, template, slot, pick, class).map(|(anim, claims, speed)| (anim, claims, speed, began)));
-        self.drive(id, key, movement, points, rate, social, swing);
+        // (drawing the weapon plays its start, class 0x1a; putting it away its stop, 0x1b)
+        let before = self.drawn.insert(id, weapon).flatten();
+        let flourish = match (before, weapon) {
+            (None, Some((template, slot))) => self.ensure_weapon_action(breed, sex, template, slot, 0x1a),
+            (Some((template, slot)), None) => self.ensure_weapon_action(breed, sex, template, slot, 0x1b),
+            _ => None,
+        };
+        let flourish = flourish.and_then(|(file, _)| self.anim_by_name(&file));
+        self.drive(id, key, movement, points, rate, social, swing, flourish);
         let dt = self.stack_tick(id);
         let db = self.db.clone();
         self.ensure_body(breed, sex);
