@@ -49,8 +49,10 @@ pub struct Note<'a> {
     pub set: Option<(&'a mao_formats::npc::Template, u32)>,
     /// Its vehicle is falling (`Vehicle_t` +0x52): no steps.
     pub falling: bool,
-    /// The material under it ([`ground_material`]).
+    /// The material under it ([`ground_material`], then [`liquid_material`]).
     pub material: i32,
+    /// How deep under a liquid's surface it is (`Vehicle_t` +0x10c, [`liquid_depth`]): 0 or less out of one.
+    pub liquid: f32,
 }
 
 /// A play of FUN_100452d3: the sound, its volume and material (`PlayGameSound`'s arguments, the rest the defaults: no delay
@@ -103,7 +105,8 @@ pub fn note(generic: &Generic, n: &Note) -> Option<Play> {
                 0x36 => generic.run,
                 0x38 => generic.swim,
                 0x39 => generic.swim_fast,
-                // (a landing louder, twice the step's held to 1; none in a liquid, which the client does not track)
+                // (a landing louder, twice the step's held to 1; none in a liquid)
+                0x85 if 0.0 < n.liquid => return None,
                 0x85 => return Some(Play { id: generic.land, volume: (volume + volume).min(1.0), material: n.material }),
                 _ => return None,
             };
@@ -116,7 +119,7 @@ pub fn note(generic: &Generic, n: &Note) -> Option<Play> {
 /// The material FUN_100452d3 plays a step on: 5 (concrete) indoors and in the air (higher than 0.1 above the ground's height
 /// at the tile's corner, FUN_10045a44: the height's high byte times the scale); on the ground the tile's material
 /// (`n3Tilemap_t::GetTileTypeGround` at the position over the tile size, its main tile ID, `GetTileMaterialType`). In a liquid
-/// 8 or 9 by depth (0.35), 10 and 11 for two liquid types: the client does not track the vehicle's liquid medium.
+/// [`liquid_material`] has it.
 pub fn ground_material(terrain: Option<&mao_formats::terrain::Terrain>, materials: &std::collections::HashMap<u16, mao_formats::tilemap::TileMaterial>, position: [f32; 3]) -> i32 {
     let Some(t) = terrain else { return 5 };
     // (the x87 truncation of `_ftol`)
@@ -130,6 +133,34 @@ pub fn ground_material(terrain: Option<&mao_formats::terrain::Terrain>, material
     }
     let id = t.tile_types.get(tile as usize).copied().unwrap_or(0);
     materials.get(&id).map_or(0, |m| m.material as i32)
+}
+
+/// How deep a character is under the playfield's liquid, as its vehicle keeps it (`Vehicle_t` +0x10c, the vehicle drop-in's
+/// `ensure_surface_alignment`): the surface's height (`LiquidMediumData_t::m_vLiquidHeight`, from the ground probe's
+/// `n3Playfield_t::GetLiquidSurfaceHeight`) less its own when under it, with the liquid's type (the probe's +0x110); none
+/// out of one. (The original's probe tests at the ground point under the character with the character's height for the
+/// depth; here the test is at the character, and the 0.1 above the surface where the vehicle keeps its last depth is out.)
+pub fn liquid_depth(liquid: Option<&crate::liquid::Liquid>, position: [f32; 3]) -> (f32, u32) {
+    match liquid.and_then(|l| l.at(position)) {
+        Some(s) if position[1] < s.height => (s.height - position[1], s.kind),
+        _ => (-9999.0, 0),
+    }
+}
+
+/// FUN_100452d3's material in a liquid (over [`ground_material`]'s): 10 for the liquid type 2, 11 for type 6, else 8 when
+/// deeper than 0.35 (`_DAT_1015ef34`) and 9 when not.
+pub fn liquid_material(ground: i32, depth: f32, kind: u32) -> i32 {
+    if !(0.0 < depth) {
+        ground
+    } else if kind == 2 {
+        10
+    } else if kind == 6 {
+        11
+    } else if depth <= 0.35 {
+        9
+    } else {
+        8
+    }
 }
 
 /// `GameTime_t::UpdateDayPeriod` (0x1000b22c): 0 dawn (from hour 7 for 2), 1 day, 2 dusk (from 21 for 2), 3 night.
@@ -170,18 +201,35 @@ impl DistrictMap {
         Some(DistrictMap { districts, grid })
     }
 
-    /// FUN_100b72bf's district sound and music layer at a position and hour: the district of the character's zone (indoors
-    /// zone 0: the client keeps no rooms' zones), its music for the day's period (+1: 1 dawn to 4 night; the weather's 5 to
-    /// 7, past 0.4 of a precipitation, are not followed), held to 0..0xffff. (The playfield's music override and the land
-    /// control layer, -911, are not followed.)
-    pub fn music(&self, position: [f32; 3], hour: i32) -> Option<(u32, i32)> {
+    /// FUN_100b72bf's district sound and music layer at a position and hour under the weather: the district of the
+    /// character's zone (indoors zone 0: the client keeps no rooms' zones), its music of the slot [`music_slot`] picks, held
+    /// to 0..0xffff. (The playfield's music override and the land control layer, -911, are not followed.)
+    pub fn music(&self, position: [f32; 3], hour: i32, weather: &[f32; 14]) -> Option<(u32, i32)> {
         let zone = match self.grid {
             Some((w, h, tile, size)) => mao_formats::districts::zone_at(position, tile, w, h, size),
             None => 0,
         };
         let d = self.districts.of_zone(zone)?;
-        let layer = d.music[(day_period(hour) + 1) as usize] as i32;
+        let layer = d.music[music_slot(hour, weather)] as i32;
         Some((d.music[0] as u32, if (0..=0xffff).contains(&layer) { layer } else { 0xffff }))
+    }
+}
+
+/// FUN_100b72bf's music slot: past 0.4 of the strongest precipitation (the weather's entries 3 to 6, FUN_100be088 over
+/// FUN_100bf4f9) the seventh, else past 0.4 of entry 0 (FUN_100bdb85) the sixth, else past 0.4 of entry 1 (FUN_100bdb9e) the
+/// fifth, else the day's period's (+1: 1 dawn to 4 night).
+pub fn music_slot(hour: i32, weather: &[f32; 14]) -> usize {
+    // (FUN_1003c45f keeps the first unless the second is greater: max, with a NaN losing to the other)
+    let most = |a: f32, b: f32| if b <= a { a } else { b };
+    let precipitation = most(most(weather[6], weather[5]), most(weather[3], weather[4]));
+    if precipitation > 0.4 {
+        7
+    } else if weather[0] > 0.4 {
+        6
+    } else if weather[1] > 0.4 {
+        5
+    } else {
+        (day_period(hour) + 1) as usize
     }
 }
 
@@ -436,7 +484,7 @@ mod tests {
     #[test]
     fn steps_swishes_and_sets() {
         let g = Generic::default();
-        let at = |event: i32| Note { event, position: [0.0; 3], set: None, falling: false, material: 3 };
+        let at = |event: i32| Note { event, position: [0.0; 3], set: None, falling: false, material: 3, liquid: -9999.0 };
         assert_eq!(note(&g, &at(0x26)), Some(Play { id: g.walk, volume: 1.0, material: 3 }));
         assert_eq!(note(&g, &at(0x85)), Some(Play { id: g.land, volume: 1.0, material: 3 }));
         assert_eq!(note(&g, &at(0x74)), Some(Play { id: g.kick, volume: 1.0, material: 0 }));
@@ -523,5 +571,40 @@ mod tests {
         assert_eq!(ground_material(Some(&t), &m, [1.0, 0.61, 1.0]), 5);
         assert_eq!(ground_material(Some(&t), &m, [5.0, 0.5, 1.0]), 0);
         assert_eq!(ground_material(None, &m, [1.0, 0.0, 1.0]), 5);
+    }
+
+    #[test]
+    fn steps_in_a_liquid() {
+        assert_eq!(liquid_material(0xf, -9999.0, 0), 0xf);
+        assert_eq!(liquid_material(0xf, 0.2, 0), 9);
+        assert_eq!(liquid_material(0xf, 0.35, 4), 9);
+        assert_eq!(liquid_material(0xf, 0.5, 0), 8);
+        assert_eq!(liquid_material(0xf, 0.01, 2), 10);
+        assert_eq!(liquid_material(0xf, 3.0, 6), 11);
+        let tri = |points| mao_formats::playfield::WaterTriangle { kind: 4, value: 100000.0, points };
+        let l = crate::liquid::Liquid::new(&[tri([[100.0, 20.0, 100.0], [300.0, 20.0, 100.0], [300.0, 20.0, 300.0]]), tri([[100.0, 20.0, 100.0], [300.0, 20.0, 300.0], [100.0, 20.0, 300.0]])]);
+        assert_eq!(liquid_depth(Some(&l), [210.0, 19.5, 160.0]), (0.5, 4));
+        assert_eq!(liquid_depth(Some(&l), [210.0, 20.5, 160.0]).0, -9999.0);
+        assert_eq!(liquid_depth(None, [210.0, 19.5, 160.0]).0, -9999.0);
+        // (a landing in it is silent; a step in it sounds)
+        let g = Generic::default();
+        let n = |event: i32| Note { event, position: [0.0; 3], set: None, falling: false, material: 9, liquid: 0.5 };
+        assert_eq!(note(&g, &n(0x85)), None);
+        assert_eq!(note(&g, &n(0x26)), Some(Play { id: g.walk, volume: 1.0, material: 9 }));
+    }
+
+    #[test]
+    fn the_weather_s_music() {
+        let mut w = [0.0f32; 14];
+        assert_eq!(music_slot(12, &w), 2);
+        assert_eq!(music_slot(3, &w), 4);
+        w[1] = 0.5;
+        assert_eq!(music_slot(12, &w), 5);
+        w[0] = 0.41;
+        assert_eq!(music_slot(12, &w), 6);
+        w[5] = 0.6;
+        assert_eq!(music_slot(12, &w), 7);
+        // (0.4 itself is not past it)
+        assert_eq!(music_slot(8, &[0.4; 14]), 1);
     }
 }

@@ -814,8 +814,9 @@ controller's own sounds (`SM_Sandy_Game_Feet_Man_Walk`, `..._Swim`, `..._Land` a
 985 of the 1469 sets have some), a variant picked at random. Steps play on the material under the character: 5 (concrete)
 indoors or in the air (more than 0.1 above the height of the tile's corner), else the tile's material from `RDBTileMaterial_t`
 (0xf4258:1). The game's own table is version 3, which N3.dll's reader skips (only versions 1 and 2 are read, 0x1001c582), so in
-the original, and here, every ground tile is material 0, which `MapGameMaterialToSoundMaterial` makes 3. Not followed: steps in
-liquids (materials 8 to 11 by the vehicle's liquid medium, which the client does not track), a fly-mode step at a quarter of the
+the original, and here, every ground tile is material 0, which `MapGameMaterialToSoundMaterial` makes 3. In a liquid (`liquid.rs`,
+the character under the surface: the vehicle's +0x10c depth and +0x110 type) a step is on material 10 for liquid type 2, 11 for
+type 6, else 8 deeper than 0.35 and 9 shallower, and a landing makes no sound. Not followed: a fly-mode step at a quarter of the
 volume, the landing's dust.
 
 **Shots and hits.** An attack's swing fires its `attack` note (0xb; `attack_effect_1..4` 0x8e..0x91), and the attack's sounds
@@ -839,11 +840,11 @@ there, by weight; forced, one made to an entry sample of that layer; else one wi
 200 ms ahead and started at the fade out, the two cross-faded by the fades' tables (50 ms steps). A layer's pause track holds the
 music to stretches (the desert by day plays 188 beats, then rests 940). What plays: the startup music (`mountain\night`, as
 GUI.dll's `CharacterLoggedInMessage` starts it) at login, then once a second the music of the district the character is in
-(FUN_100b72bf: the playfield's districts, `mao_formats::districts`, by N3's zone grid; the district's layer for the day's period:
+(FUN_100b72bf: the playfield's districts, `mao_formats::districts`, by N3's zone grid; the district's layer for the weather, past
+0.4 of the strongest precipitation the 7th, of the weather's entry 0 the 6th, of entry 1 the 5th, else for the day's period:
 dawn, day, dusk or night); in a fight, the battle layers (`ProcessCombatMusic` over the character's reports, FUN_10059c7d: its
 health in percent, its level). The sound preferences (volumes, mutes, the battle music mode) come from the GUI's
-`LoginPrefs.xml`. `mao-client music <game> <layer> [seconds]` plays a layer and prints the samples. Not followed: the weather's
-music (the districts' entries 5 to 7), the playfield's music override and land control's layer, indoor rooms' zones.
+`LoginPrefs.xml`. `mao-client music <game> <layer> [seconds]` plays a layer and prints the samples. Not followed: the playfield's music override and land control's layer, indoor rooms' zones.
 
 **Environment sounds.** The world sounds as `Environment_t`'s frame (FUN_100becbe) plays it, every frame through
 `PlayEnvSound` (`ambience.rs`): the district's background for the time of day, `SM_Sandy_Env_Background<Night|Dawn|Day|Dusk>_<district>`

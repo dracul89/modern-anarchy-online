@@ -3640,12 +3640,12 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 if districts.as_ref().is_none_or(|d| d.0 != current) {
                     districts = Some((current, crate::sounds::DistrictMap::load(&gear_db, current)));
                 }
-                let music = districts.as_ref().and_then(|d| d.1.as_ref()).and_then(|d| d.music(position, state.game_clock.time().0));
+                ambient_weather = crate::environment::compute(&areas, base_environment.as_ref(), position, state.game_clock.day(), state.game_clock.seconds(), state.game_clock.day_intensity()).weather;
+                let music = districts.as_ref().and_then(|d| d.1.as_ref()).and_then(|d| d.music(position, state.game_clock.time().0, &ambient_weather));
                 if let Some((district, layer)) = music {
                     crate::audio::with(|m| m.activate_env_zone(district, layer));
                 }
                 ambient_district = music.map(|m| m.0);
-                ambient_weather = crate::environment::compute(&areas, base_environment.as_ref(), position, state.game_clock.day(), state.game_clock.seconds(), state.game_clock.day_intensity()).weather;
             }
             // (the environment's sounds each frame, FUN_100becbe: the district's background by the time of day, the rain)
             if let Some(district) = ambient_district {
@@ -3921,8 +3921,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             }
                             continue;
                         }
-                        let material = crate::sounds::ground_material(terrain.as_deref(), &tile_materials, at);
-                        let note = crate::sounds::Note { event, position: at, set, falling: id == own && airborne, material };
+                        let (liquid, kind) = crate::sounds::liquid_depth(crate::liquid::current().as_deref(), at);
+                        let material = crate::sounds::liquid_material(crate::sounds::ground_material(terrain.as_deref(), &tile_materials, at), liquid, kind);
+                        let note = crate::sounds::Note { event, position: at, set, falling: id == own && airborne, material, liquid };
                         if let Some(p) = crate::sounds::note(&generic, &note) {
                             crate::audio::with(|m| m.play_game_sound(p.id, at, 0.0, p.volume, p.material, 0.0, 100, 1, 0, [0.0; 3]));
                         }
