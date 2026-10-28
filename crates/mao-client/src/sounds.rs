@@ -180,6 +180,141 @@ impl DistrictMap {
     }
 }
 
+/// A nano cast's sounds, as `CharCastNano_t` plays the nano's own (its template's stats 269 to 272): made (FUN_1007b5cd), the
+/// gather's (269) at the caster, at 0.6 and held 0.2 s; each frame while it gathers (FUN_1007b1e3's phase 0, until the server
+/// starts the cast) the gather's again at full volume; when the cast starts (FUN_1004f434) the cast's (270) and the travel's
+/// (271, held 0.2 s) at the caster; while the cast animation plays (phase 1) the travel's each frame; when it ends the hit's
+/// (272) at the target. The cast animation's end is taken as the nano's cast time (its stat 294, in hundredths of a second):
+/// the client does not ask the animation.
+#[derive(Clone, Debug)]
+pub struct NanoCast {
+    pub nano: u32,
+    pub target: u32,
+    /// None while gathering; the cast's end once started.
+    pub until: Option<std::time::Instant>,
+    /// When the gather began (a gather the server never answers ends after 5 s).
+    pub began: std::time::Instant,
+}
+
+/// The casts under way, by caster.
+#[derive(Default)]
+pub struct NanoCasts {
+    pub casts: std::collections::HashMap<u32, NanoCast>,
+}
+
+/// `GetStat(stat)` of a nano's template, a sound to play (0 for none).
+pub type NanoStat<'a> = &'a dyn Fn(u32, u32) -> Option<i64>;
+
+impl NanoCasts {
+    /// FUN_1007b5cd: a cast made (the client's own request, or the server's cast of someone): the gather's sound at 0.6, held.
+    pub fn gather(&mut self, caster: u32, nano: u32, stat: NanoStat) -> Vec<(u32, f32, f32)> {
+        let now = std::time::Instant::now();
+        self.casts.insert(caster, NanoCast { nano, target: 0, until: None, began: now });
+        sound(stat(nano, 0x10d)).map(|id| vec![(id, 0.2, f32::from_bits(0x3f19999a))]).unwrap_or_default()
+    }
+
+    /// The server's `CastNanoSpell`: the cast made if it was not gathering, then started (FUN_1004f434): the cast's and the
+    /// travel's sounds.
+    pub fn cast(&mut self, caster: u32, target: u32, nano: u32, stat: NanoStat) -> Vec<(u32, f32, f32)> {
+        let mut plays = Vec::new();
+        if self.casts.get(&caster).is_none_or(|c| c.nano != nano || c.until.is_some()) {
+            plays.extend(self.gather(caster, nano, stat));
+        }
+        let time = stat(nano, 294).unwrap_or(0).max(0) as u64 * 10;
+        if let Some(c) = self.casts.get_mut(&caster) {
+            c.target = target;
+            c.until = Some(std::time::Instant::now() + std::time::Duration::from_millis(time));
+        }
+        plays.extend(sound(stat(nano, 0x10e)).map(|id| (id, 0.0, 1.0)));
+        plays.extend(sound(stat(nano, 0x10f)).map(|id| (id, 0.2, 1.0)));
+        plays
+    }
+
+    /// FUN_1007b1e3's frame: (caster or target, sound, delay, volume) to play now; the ended casts dropped.
+    pub fn frame(&mut self, stat: NanoStat) -> Vec<(u32, u32, f32, f32)> {
+        let now = std::time::Instant::now();
+        let mut plays = Vec::new();
+        self.casts.retain(|&caster, c| match c.until {
+            None => {
+                if now.duration_since(c.began) > std::time::Duration::from_secs(5) {
+                    return false;
+                }
+                plays.extend(sound(stat(c.nano, 0x10d)).map(|id| (caster, id, 0.2, 1.0)));
+                true
+            }
+            Some(end) if now < end => {
+                plays.extend(sound(stat(c.nano, 0x10f)).map(|id| (caster, id, 0.2, 1.0)));
+                true
+            }
+            Some(_) => {
+                if c.target != 0 {
+                    plays.extend(sound(stat(c.nano, 0x110)).map(|id| (c.target, id, 0.0, 1.0)));
+                }
+                false
+            }
+        });
+        plays
+    }
+}
+
+fn sound(v: Option<i64>) -> Option<u32> {
+    v.filter(|&v| v != 0).map(|v| v as u32)
+}
+
+/// The sounds `_GfxControlAudio_t` (an effect template of kind 4000, Gamecode FUN_100d3616) names, by its word 0 (the table at
+/// 0x102c4f28, 64-byte names).
+const EFFECT_SOUNDS: [&str; 14] = [
+    "SM_Sandy_Buff_Ping",
+    "SM_Sandy_Debuff_Ping",
+    "SM_Sandy_Tower_Beam",
+    "SM_Sandy_Tower_Hit",
+    "SM_Sandy_Tower_Fire_Start",
+    "SM_Sandy_Tower_Fire",
+    "SM_Sandy_Tower_Creation_Basic",
+    "SM_Sandy_Tower_Creation_Superior",
+    "SM_Sandy_Tower_Destruction_Basic",
+    "SM_Sandy_Tower_Destruction_Superior",
+    "SM_Sandy_Tower_Powerdown",
+    "SM_Sandy_Game_Explo_small",
+    "SM_Sandy_Game_Explo_Med",
+    "SM_Sandy_Game_Explo_Big",
+];
+
+/// A sound control of an effect (`_GfxControlAudio_t`, FUN_100d3616): its sound, velocity (words 1–3), volume (4, held to
+/// 0..1), range (5), delay (6), deferral (7) and pitch (8). When it is first run (FUN_100d3567) it sends SandyInterface's
+/// `PlaySoundCommand` (AFCM 0x1a, 0x103) at the effect's place: once.
+#[derive(Clone, Debug, PartialEq)]
+pub struct EffectSound {
+    pub id: u32,
+    pub velocity: [f32; 3],
+    pub volume: f32,
+    pub range: f32,
+    pub delay: f32,
+    pub defer: f32,
+    pub pitch: i32,
+}
+
+/// The sound controls of an effect template's tree (each made with the effect, `CreateGfxControl`).
+pub fn effect_sounds(gfx: &mao_formats::gfx::Gfx, effect: i32) -> Vec<EffectSound> {
+    gfx.tree(effect)
+        .into_iter()
+        .filter(|r| r.kind == 4000)
+        .filter_map(|r| {
+            let id = sound_id(EFFECT_SOUNDS.get(usize::try_from(r.int(0)).ok()?)?);
+            let volume = r.float(4);
+            Some(EffectSound {
+                id,
+                velocity: [r.float(1), r.float(2), r.float(3)],
+                volume: if volume < 0.0 { 0.0 } else if 1.0 < volume { 1.0 } else { volume },
+                range: r.float(5),
+                delay: r.float(6),
+                defer: r.float(7),
+                pitch: r.int(8),
+            })
+        })
+        .collect()
+}
+
 /// A death's sound (`CharDie_t`, FUN_1007b803): an animation set's for the death (0x1e), else by the sex stat (59) a woman's
 /// (3) or a man's.
 pub fn death(set: Option<(&mao_formats::npc::Template, u32)>, sex: u8) -> Option<u32> {
@@ -329,6 +464,38 @@ mod tests {
         assert_eq!(p.last().map(|p| (p.id, p.material, p.mode)), Some((sound_id("SM_Sandy_Game_FemaleGetsHit"), 7, 2)));
         assert_eq!(attack(&shot(1, 0, target(None)), || 0).len(), 1);
         assert_eq!(attack(&Attack { energy: Some(0), ..shot(1, 0, None) }, || 0)[0].id, 300);
+    }
+
+    #[test]
+    fn a_nano_cast_s_sounds() {
+        // (a nano of gather 1, cast 2, travel 3, hit 4 and no cast time)
+        let stat = |_: u32, s: u32| Some(match s {
+            0x10d => 1,
+            0x10e => 2,
+            0x10f => 3,
+            0x110 => 4,
+            _ => 0,
+        });
+        let mut c = NanoCasts::default();
+        assert_eq!(c.gather(7, 99, &stat), vec![(1, 0.2, f32::from_bits(0x3f19999a))]);
+        assert_eq!(c.frame(&stat), vec![(7, 1, 0.2, 1.0)]);
+        assert_eq!(c.cast(7, 8, 99, &stat), vec![(2, 0.0, 1.0), (3, 0.2, 1.0)]);
+        // (the cast time is over: the hit at the target, the cast gone)
+        assert_eq!(c.frame(&stat), vec![(8, 4, 0.0, 1.0)]);
+        assert!(c.casts.is_empty());
+        // (someone else's cast, not gathered: made then started)
+        assert_eq!(c.cast(5, 5, 99, &stat).len(), 3);
+    }
+
+    #[test]
+    fn an_effect_s_sound_controls() {
+        // (a bundle, 500, of a sound control, 600: the medium explosion at full volume, range 120, pitch 100)
+        let mut words: Vec<u32> = vec![2, 500, 2007, 1, 600, 600, 4000, 9, 12];
+        words.extend([0.0f32, 0.0, 0.0, 1.5, 120.0, 0.0, 0.25].map(f32::to_bits));
+        words.push(100);
+        let data: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
+        let gfx = mao_formats::gfx::Gfx::parse(&data).unwrap();
+        assert_eq!(effect_sounds(&gfx, 500), vec![EffectSound { id: sound_id("SM_Sandy_Game_Explo_Med"), velocity: [0.0; 3], volume: 1.0, range: 120.0, delay: 0.0, defer: 0.25, pitch: 100 }]);
     }
 
     #[test]

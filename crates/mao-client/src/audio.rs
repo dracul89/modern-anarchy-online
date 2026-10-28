@@ -1555,6 +1555,17 @@ impl Module {
         }
     }
 
+    /// `PlaySoundCommand()`: a play as an effect's sound control sends it: the range less 0.49999, rounded to even.
+    #[allow(clippy::too_many_arguments)]
+    pub fn play_sound_command(&mut self, id: u32, position: [f32; 3], velocity: [f32; 3], volume: f32, range: f32, delay: f32, defer: f32, pitch: i32) {
+        if let Some(s) = &mut self.sandy {
+            let r = (range as f64 - 0.49999).round_ties_even();
+            let range = if r.is_nan() || !(-2147483648.0..=2147483647.0).contains(&r) { i32::MIN } else { r as i32 };
+            let source = s.source_of(id);
+            s.play_sample(source, volume, position, delay, 0, defer, pitch, 1, range as u32, velocity);
+        }
+    }
+
     /// `PlayPlayerFX(name, volume)`: at the player effect total.
     pub fn play_player_fx(&mut self, name: &str, v: f32) {
         let total = self.total_player_fx;

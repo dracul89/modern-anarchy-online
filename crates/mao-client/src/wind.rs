@@ -82,6 +82,11 @@ impl Wind {
         self.smooth = [0, 1, 2].map(|i| self.wind[i] * 0.04 + self.smooth[i] * 0.96);
     }
 
+    /// The gust's length (the wind object's +0xc, which FUN_100bff68 scales the winds' sounds by).
+    pub fn gust_length(&self) -> f32 {
+        (self.gust[0] * self.gust[0] + self.gust[1] * self.gust[1] + self.gust[2] * self.gust[2]).sqrt()
+    }
+
     /// The wind the Sparks are pushed by (the handler's +0x24), Z up.
     pub fn now(&self) -> [f32; 3] {
         [self.wind[0], self.wind[2], self.wind[1]]

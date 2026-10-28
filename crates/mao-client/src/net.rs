@@ -229,6 +229,10 @@ struct World {
     attacks: BTreeMap<(u32, u32), (u32, i32, i64)>,
     /// The characters that died since the last frame, for their death's sound (`CharDie_t`, FUN_1007b803).
     died: Vec<u32>,
+    /// The nano casts under way, for their sounds (`CharCastNano_t`).
+    nano_casts: crate::sounds::NanoCasts,
+    /// The casts' sounds to play: (at whom, sound, delay, volume).
+    cast_sounds: Vec<(u32, u32, f32, f32)>,
     /// Each character's last attack (`AttackInfo`, `MissedAttackInfo`, `SpecialAttackInfo`): the weapon's place, when, a count
     /// picking the swing, and the animation class (0xb, or a special's).
     swings: BTreeMap<u32, (u32, Instant, u32, u32)>,
@@ -316,6 +320,12 @@ static ITEM_DB: std::sync::OnceLock<Arc<ResourceDatabase>> = std::sync::OnceLock
 /// A stat of an item template.
 fn template_stat(template: u32, stat: u32) -> Option<i64> {
     let data = ITEM_DB.get()?.get(mao_formats::resource::Id { kind: mao_formats::item::TEMPLATE, instance: template }).ok().flatten()?;
+    mao_formats::item::Item::parse(&data)?.stat(stat).map(|v| v as i64)
+}
+
+/// A stat of a nano program (type 0xfde85).
+fn nano_stat(nano: u32, stat: u32) -> Option<i64> {
+    let data = ITEM_DB.get()?.get(mao_formats::resource::Id { kind: 0xfde85, instance: nano }).ok().flatten()?;
     mao_formats::item::Item::parse(&data)?.stat(stat).map(|v| v as i64)
 }
 
@@ -807,6 +817,8 @@ impl World {
                     if caster == self.own || target == self.own {
                         self.casts.push((caster, target, nano));
                     }
+                    let plays = self.nano_casts.cast(caster, target, nano, &|n, s| nano_stat(n, s));
+                    self.cast_sounds.extend(plays.into_iter().map(|(id, delay, volume)| (caster, id, delay, volume)));
                     self.landed.push((target, nano));
                     self.cast_bursts.push((caster, target, nano));
                     self.shots_pending.push((caster, target, nano));
@@ -2653,6 +2665,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut sound_rand = crate::audio::Rand::default();
         // The district's music (FUN_100b72bf, once a second) and the playfield whose districts are loaded.
         let (mut districts, mut district_tick): (Option<(u32, Option<crate::sounds::DistrictMap>)>, Instant) = (None, Instant::now());
+        // The district and the weather at the character, for the environment's sounds (refreshed with the music).
+        let (mut ambient_district, mut ambient_weather): (Option<u32>, [f32; 14]) = (None, [0.0; 14]);
         // `MAO_MAILBOX=type,instance` (a mail terminal, 0xc773 and its serial) uses it 8 s into the session (or
         // after the walk) and asks for the inbox; the answer is printed (raw when the schema can't read it).
         let mut mailbox: Option<(u32, u32)> = std::env::var("MAO_MAILBOX").ok().and_then(|t| {
@@ -3374,6 +3388,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             if keys.cast.0 != cast_seen {
                 cast_seen = keys.cast.0;
                 state.asked_casts.insert(keys.cast.1, Instant::now());
+                let plays = state.nano_casts.gather(own, keys.cast.1, &|n, s| nano_stat(n, s));
+                state.cast_sounds.extend(plays.into_iter().map(|(id, delay, volume)| (own, id, delay, volume)));
                 let aim = target.filter(|t| !state.objects.contains_key(t));
                 let _ = connection.send(&n3::cast_nano(own, aim, keys.cast.1));
                 let name = thread_db.get(mao_formats::resource::Id { kind: 0xfde85, instance: keys.cast.1 }).ok().flatten().and_then(|d| mao_formats::item::Item::parse(&d)).map_or_else(|| format!("nano #{}", keys.cast.1), |t| t.name);
@@ -3508,10 +3524,21 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 if districts.as_ref().is_none_or(|d| d.0 != current) {
                     districts = Some((current, crate::sounds::DistrictMap::load(&gear_db, current)));
                 }
-                if let Some((district, layer)) = districts.as_ref().and_then(|d| d.1.as_ref()).and_then(|d| d.music(position, state.game_clock.time().0)) {
+                let music = districts.as_ref().and_then(|d| d.1.as_ref()).and_then(|d| d.music(position, state.game_clock.time().0));
+                if let Some((district, layer)) = music {
                     crate::audio::with(|m| m.activate_env_zone(district, layer));
                 }
+                ambient_district = music.map(|m| m.0);
+                ambient_weather = crate::environment::compute(&areas, base_environment.as_ref(), position, state.game_clock.day(), state.game_clock.seconds(), state.game_clock.day_intensity()).weather;
             }
+            // (the environment's sounds each frame, FUN_100becbe: the district's background by the time of day, the rain)
+            if let Some(district) = ambient_district {
+                for id in crate::ambience::background(state.game_clock.seconds(), district) {
+                    crate::ambience::play(id, 1.0);
+                }
+            }
+            let (rain, volume) = crate::ambience::rain(&ambient_weather);
+            crate::ambience::play(rain, volume);
             // (the fight's report for the combat music, FUN_10059c7d: the character's health in percent of its maximum, at
             // least 1 while alive, its stat 421, side (33), instance, not an NPC, and level (54))
             {
@@ -3668,6 +3695,31 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 // The notes the animations went past play their sounds at the characters (FUN_100452d3), on the material
                 // under each one; and the deaths theirs.
                 if let Some(c) = &mut characters {
+                    // (the effects' sound controls, made with the effects: a cast's at the caster, a tracer's at the caster
+                    // and a hit's at the target as the shot lands)
+                    if let Some(g) = gfx.as_ref() {
+                        let place = |id: u32| if id == own { Some(position) } else { state.position_of(id) };
+                        let mut made: Vec<(u32, i32, f32)> = Vec::new();
+                        for &(caster, _, nano) in &state.cast_bursts {
+                            made.extend(nano_stat(nano, 428).map(|e| (caster, e as i32, 0.0)));
+                        }
+                        for &(caster, target, nano) in &state.shots_pending {
+                            made.extend(nano_stat(nano, 419).map(|e| (caster, e as i32, 0.0)));
+                            made.extend(nano_stat(nano, 361).map(|e| (target, e as i32, if caster != target { crate::effects::FLIGHT } else { 0.0 })));
+                        }
+                        for (at, effect, later) in made {
+                            let Some(p) = place(at) else { continue };
+                            for s in crate::sounds::effect_sounds(g, effect) {
+                                crate::audio::with(|m| m.play_sound_command(s.id, p, s.velocity, s.volume, s.range, s.delay, s.defer + later, s.pitch));
+                            }
+                        }
+                    }
+                    let frame = state.nano_casts.frame(&|n, s| nano_stat(n, s));
+                    state.cast_sounds.extend(frame);
+                    for (at, id, delay, volume) in std::mem::take(&mut state.cast_sounds) {
+                        let Some(p) = (if at == own { Some(position) } else { state.position_of(at) }) else { continue };
+                        crate::audio::with(|m| m.play_game_sound(id, p, delay, volume, 0, 0.0, 100, 1, 0, [0.0; 3]));
+                    }
                     for id in std::mem::take(&mut state.died) {
                         let Some(at) = (if id == own { Some(position) } else { state.position_of(id) }) else { continue };
                         let info = state.infos.get(&id);

@@ -525,3 +525,61 @@ fn zones_and_districts() {
         eprintln!("pf {pf}: zone size {size}, map {}x{}, zones {zones} (grid {}), districts object {districts:?}", map.width, map.height, (map.width as u32 / size.max(1)) * (map.height as u32 / size.max(1)));
     }
 }
+
+/// Nano programs name their sounds (stats 269 to 272) among the game's sources.
+#[test]
+fn nano_sounds() {
+    let Some(db) = database() else { return };
+    let game = PathBuf::from(std::env::var_os("MAO_GAME").unwrap());
+    let bank = mao_formats::sound::parse_bank(&std::fs::read(game.join("cd_image/sound/SourceFiles/SM_Sandy_Game_Dummy.sbf")).unwrap()).unwrap();
+    let ids: std::collections::HashSet<u32> = bank.iter().map(|r| r.id).collect();
+    let (mut with, mut known, mut total) = (0, 0, 0);
+    let mut shown = 0;
+    let mut all = 0;
+    for id in db.ids().unwrap().filter_map(Result::ok).filter(|i| i.kind == 0xfde85) {
+        let template = id.instance;
+        let Some(item) = db.get(id).ok().flatten().and_then(|d| mao_formats::item::Item::parse(&d)) else { continue };
+        all += 1;
+        if !(269..273).any(|k| item.stat(k).is_some_and(|v| v != 0)) {
+            continue;
+        }
+        shown += 1;
+        if shown > 5 {
+            with += 1;
+            for v in (269..273).filter_map(|k| item.stat(k)).filter(|&v| v != 0) {
+                total += 1;
+                known += ids.contains(&v) as usize;
+            }
+            continue;
+        }
+        let s: Vec<Option<u32>> = (269..273).map(|k| item.stat(k)).collect();
+        eprintln!("{template:#x} {:?}: sounds {s:?}, cast time {:?}", item.name, item.stat(294));
+        with += s.iter().any(|v| v.is_some_and(|v| v != 0)) as usize;
+        for v in s.into_iter().flatten().filter(|&v| v != 0) {
+            total += 1;
+            known += ids.contains(&v) as usize;
+        }
+    }
+    eprintln!("{all} nanos, {with} with sounds, {known} of {total} sounds sources");
+    assert!(with > 0 && known * 10 >= total * 9, "{known} of {total}");
+}
+
+/// The nanos whose effects carry a sound control (kind 4000, `_GfxControlAudio_t`), by effect stat.
+#[test]
+fn nano_effect_sounds() {
+    let Some(db) = database() else { return };
+    let game = PathBuf::from(std::env::var_os("MAO_GAME").unwrap());
+    let gfx = mao_formats::gfx::Gfx::parse(&std::fs::read(game.join("Setupf/gfxtweak.bin")).unwrap()).unwrap();
+    let mut by: std::collections::BTreeMap<u32, usize> = Default::default();
+    for id in db.ids().unwrap().filter_map(Result::ok).filter(|i| i.kind == 0xfde85) {
+        let Some(item) = db.get(id).ok().flatten().and_then(|d| mao_formats::item::Item::parse(&d)) else { continue };
+        for stat in [366u32, 428, 419, 361, 414, 413] {
+            if let Some(e) = item.stat(stat) {
+                if gfx.tree(e as i32).iter().any(|r| r.kind == 4000) {
+                    *by.entry(stat).or_default() += 1;
+                }
+            }
+        }
+    }
+    eprintln!("nanos with a sound control, by effect stat: {by:?}");
+}

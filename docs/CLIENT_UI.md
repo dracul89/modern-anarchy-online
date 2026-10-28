@@ -844,3 +844,19 @@ dawn, day, dusk or night); in a fight, the battle layers (`ProcessCombatMusic` o
 health in percent, its level). The sound preferences (volumes, mutes, the battle music mode) come from the GUI's
 `LoginPrefs.xml`. `mao-client music <game> <layer> [seconds]` plays a layer and prints the samples. Not followed: the weather's
 music (the districts' entries 5 to 7), the playfield's music override and land control's layer, indoor rooms' zones.
+
+**Environment sounds.** The world sounds as `Environment_t`'s frame (FUN_100becbe) plays it, every frame through
+`PlayEnvSound` (`ambience.rs`): the district's background for the time of day, `SM_Sandy_Env_Background<Night|Dawn|Day|Dusk>_<district>`
+(FUN_100bd930's windows: night to 7:00, dawn 7–9, day 9–21, dusk 21–23, each fading in and out over 300 game seconds, late
+night counted as 1:00; 103 districts have all four; each background is a loop with timed calls of its own); the rain at the
+weather table's entry 0 squared times entry 8 over 3.5; and the four winds (FUN_100bff68: the plain wind, the sand storm, the red
+and the green fallout winds) at `(0.5 + 0.5 × gust) × strength / 33` times their shares of the weather (`max(1 − entry 2,
+entry 4)`, entries 3, 5 and 6), the gust being the wind object's (`wind.rs`). Not done: the quake and the thunder.
+
+**Nano and effect sounds.** A nano cast plays the program's own sounds as `CharCastNano_t` does (5255 of the 10964 programs
+have some, all sources of the game's file): its gather sound (stat 269) when the cast is made, at 0.6 and held a moment, then
+each frame while it gathers (your own until the server starts the cast); when it starts (FUN_1004f434) the cast sound (270) and
+the travel sound (271) at the caster, the travel sound on while the cast lasts (the nano's cast time, stat 294); then the hit
+sound (272) at the target. Effects carry sound controls too (`_GfxControlAudio_t`, kind 4000: twelve templates, the buff and
+debuff pings, the land control towers' sounds and an explosion): each plays once at the effect's place when the effect is made,
+as SandyInterface's `PlaySoundCommand` (with its range, delay, deferral and pitch).

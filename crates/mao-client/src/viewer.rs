@@ -1169,6 +1169,10 @@ impl ApplicationHandler for App {
                     let time = self.fx_clock.elapsed().as_secs_f32();
                     // (the wind run on from the weather's wind, entry 7, and handed to the effects that it pushes)
                     self.wind.advance(self.environment.weather[7], self.wind_at.elapsed().as_secs_f32());
+                    // (the winds' sounds, FUN_100bff68, at the weather's shares and the gust)
+                    for (id, volume) in crate::ambience::winds(&self.environment.weather, self.wind.gust_length()) {
+                        crate::ambience::play(id, volume);
+                    }
                     self.wind_at = std::time::Instant::now();
                     crate::effects::set_wind(self.wind.now(), self.wind.smooth());
                     let ahead = self.own_at.elapsed().as_secs_f32().min(0.12);
