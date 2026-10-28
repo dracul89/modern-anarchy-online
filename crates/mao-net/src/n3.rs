@@ -561,7 +561,7 @@ mod tests {
 /// After the identity: a byte 0 (header), a version byte (0x39 or 0x3a), a
 /// flags `i32`, then, by the flags:
 /// * bit 6: the playfield (`i32`);
-/// * bit 5: an identity (not decoded here: a capture without it);
+/// * bit 5: the identity the character is fighting (`FightingTarget`, type and instance);
 /// * always the position (three floats);
 /// * bit 9: the rotation (four floats, x y z w);
 /// * always a packed `i32`: three bits, two bits, breed (3 bits at 5), sex (2
@@ -575,6 +575,8 @@ pub struct EntityInfo {
     pub version: u8,
     pub flags: u32,
     pub playfield: Option<u32>,
+    /// Whom the character is fighting (flag bit 5): the target's identity.
+    pub fighting: Option<(u32, u32)>,
     pub position: [f32; 3],
     pub rotation: Option<[f32; 4]>,
     pub breed: u8,
@@ -767,9 +769,7 @@ impl Message {
         let f32_at = |at: &mut usize| take(at, 4).map(|b| f32::from_be_bytes(b.try_into().unwrap()));
         let flags = u32_at(&mut at)?;
         let playfield = if flags & 0x40 != 0 { Some(u32_at(&mut at)?) } else { None };
-        if flags & 0x20 != 0 {
-            return None;
-        }
+        let fighting = if flags & 0x20 != 0 { Some((u32_at(&mut at)?, u32_at(&mut at)?)) } else { None };
         let position = [f32_at(&mut at)?, f32_at(&mut at)?, f32_at(&mut at)?];
         let rotation = if flags & 0x200 != 0 { Some([f32_at(&mut at)?, f32_at(&mut at)?, f32_at(&mut at)?, f32_at(&mut at)?]) } else { None };
         let packed = u32_at(&mut at)?;
@@ -785,7 +785,7 @@ impl Message {
         let textures = if flags & 0x10 != 0 { texture_overrides(tail) } else { Vec::new() };
         let clothes = cloth_list(tail);
         let template = if flags & 1 != 0 { d.get(at - 8..).and_then(npc_template) } else { None };
-        Some(EntityInfo { version, flags, playfield, position, rotation, breed, sex, name, flags2, unknown_a0: model, textures, clothes, template })
+        Some(EntityInfo { version, flags, playfield, fighting, position, rotation, breed, sex, name, flags2, unknown_a0: model, textures, clothes, template })
     }
 }
 

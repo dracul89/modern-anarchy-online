@@ -206,6 +206,9 @@ struct World {
     last_hp: BTreeMap<u32, i64>,
     /// The social action each character is doing: its name and when it began (from `SocialActionCmd`).
     socials: BTreeMap<u32, (&'static str, Instant)>,
+    /// Whom each character is fighting (the `Attack` message from it, its full update's `FightingTarget`; `StopFight` ends it):
+    /// a fighting character has its weapon drawn (`WeaponHolder_t` +0x44 at 2, FUN_1006a1b1; 1 again at FUN_100690c8).
+    fighting: BTreeMap<u32, u32>,
     /// The weapons the characters hold, by (owner, place): the item's template (`WeaponItemFullUpdate`: the owner, the place in
     /// `Unknown2`'s low byte, the template in stat 702, `ACGItemTemplateID`).
     weapons: BTreeMap<(u32, u8), u32>,
@@ -550,6 +553,16 @@ impl World {
                     self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
                 }
             }
+        }
+        // A character starts fighting (`Attack`, from it: its target) and stops (`StopFight`, from it).
+        if m.kind == 0x28494070 {
+            if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
+                let target = p.value.get("Target").and_then(|t| t.get("Instance")).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
+                self.fighting.insert(m.identity.1, target);
+            }
+        }
+        if m.kind == 0x4a41203e {
+            self.fighting.remove(&m.identity.1);
         }
         // An attack (`AttackInfo`, from the attacker): it swings the weapon in the place the message names (FUN_1009f257 →
         // FUN_1006ae3c → FUN_1006a782, which `Characters::ensure_swing` follows).
@@ -896,6 +909,14 @@ impl World {
             self.rotations.insert(m.identity.1, q);
         }
         if let Some(info) = m.entity_info() {
+            match info.fighting {
+                Some((_, target)) => {
+                    self.fighting.insert(m.identity.1, target);
+                }
+                None => {
+                    self.fighting.remove(&m.identity.1);
+                }
+            }
             let player = info.is_player();
             self.names.insert(m.identity.1, (info.name.clone(), player));
             self.infos.insert(m.identity.1, info);
@@ -1809,8 +1830,8 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
                 let template = world.weapons.get(&(id, slot as u8)).copied().or_else(|| (id == world.own).then(|| world.inventory.as_ref()?.iter().find(|e| e.slot == slot).map(|e| e.low_id)).flatten())?;
                 Some((template, slot, began, pick, class))
             });
-            // (the weapon in hand: place 6, else 8, else 0, as FUN_1003cce2 looks)
-            let weapon = [6u32, 8, 0].into_iter().find_map(|slot| {
+            // (the weapon drawn while fighting: place 6, else 8, else 0, as FUN_1003cce2 looks)
+            let weapon = [6u32, 8, 0].into_iter().filter(|_| world.fighting.contains_key(&id)).find_map(|slot| {
                 let template = world.weapons.get(&(id, slot as u8)).copied().or_else(|| (id == world.own).then(|| world.inventory.as_ref()?.iter().find(|e| e.slot == slot).map(|e| e.low_id)).flatten())?;
                 Some((template, slot))
             });
@@ -4611,6 +4632,11 @@ mod door_tests {
         assert_eq!((slot, pick, class), (6, 0, 0xb));
         w.add(&attack.frame(1));
         assert_eq!(w.swings[&0x630193db].2, 1);
+        // (a captured Attack: the player 0x4bc80 attacks 0x7b017c2a; its StopFight ends it)
+        w.add(&Message { kind: 0x28494070, identity: (0xc350, 0x4bc80), data: hex("000000c3507b017c2a00") }.frame(1));
+        assert_eq!(w.fighting.get(&0x4bc80), Some(&0x7b017c2a));
+        w.add(&Message { kind: 0x4a41203e, identity: (0xc350, 0x4bc80), data: hex("0000000001") }.frame(1));
+        assert!(!w.fighting.contains_key(&0x4bc80));
     }
 
     #[test]
