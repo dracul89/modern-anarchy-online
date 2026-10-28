@@ -156,6 +156,8 @@ fn effect_classes_come_to_visuals() {
     assert!(matches!(gfx.visual(17500), Some(Visual::Plasma { material: 8, duration, .. }) if duration == 1.0));
     // the null gather effect has none
     assert!(gfx.visual(49999).is_none());
+    // (a burst of spark streaks: twenty, falling at 6.5, their heads white at half the second)
+    assert!(matches!(gfx.visual(71342), Some(Visual::TParticle(p)) if p.kind == 0 && p.count == 20 && p.lift == -6.5 && p.drag == 0.2 && p.colours[1].1 == 0xffff_ffff));
     // (a nano dragged along the line: 50 a second, blue; its nano 300 sprites a second, half a second each)
     assert!(matches!(gfx.visual(2660), Some(Visual::Tracer3(t)) if t.speed == 50.0 && t.colour == [1.0, 0.1, 0.3, 1.0] && t.child.rate == 300.0 && t.child.life == (0.5, 0.5) && t.child.burst == 1));
     assert!(matches!(gfx.visual(2683), Some(Visual::Nano(n)) if n.material == 10 && n.scale == 0.5 && n.end[0] == 0.0));

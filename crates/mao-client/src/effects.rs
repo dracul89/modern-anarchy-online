@@ -1399,6 +1399,76 @@ pub fn shockwave_shells(s: &ShockWave, feet: [f32; 3], t: f32, ground: &dyn Fn(f
     out
 }
 
+/// `GfxControlTParticle_t`'s streaks `t` seconds in about `at` (world, Z up), as `GfxVisualTParticle` makes them (`tp_new`),
+/// moves them (`tp_process`) and draws them (`tp_draw`), with the run's colours and widths (`TParticle::look`): kind 0 each at a
+/// random point within the spread of the point, flying at a velocity drawn from its box and the lift along y, its tail its head
+/// less its velocity times the drag; kind 1 from the point to a tail scattered within ±the spread, still; kind 2 on a ring of
+/// the spread at a random height of up to 600, flying out at the box's x and z turned two radians on and its y; each two
+/// crossed strips from the head to the tail (across the world's up and across that), the head's half width and colour at the
+/// head, the tail's at the tail, the whole texture along it, added with flag 0x200. Kind 3 has its tails at its heads and draws
+/// nothing. The original's random numbers are hashes of the streak's number; its frame turned by FUN_10112ff1 and moved by
+/// FUN_100d6a3d is not played.
+pub fn tparticle_shells(p: &mao_formats::gfx::TParticle, at: [f32; 3], t: f32) -> Vec<Shell> {
+    let Some(((tail_colour, head_colour), (tail_width, head_width))) = p.look(t) else { return Vec::new() };
+    if t < 0.0 || !matches!(p.kind, 0..=2) {
+        return Vec::new();
+    }
+    let (tc, hc) = (shell_colour(tail_colour), shell_colour(head_colour));
+    let lerp = |a: f32, b: f32, r: f32| a + (b - a) * r;
+    // (the original's Y-up frame to the world's Z-up one)
+    let world = |v: [f32; 3]| [at[0] + v[0], at[1] + v[2], at[2] + v[1]];
+    let cross = |a: [f32; 3], b: [f32; 3]| [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    let unit = |v: [f32; 3]| {
+        let l = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+        if l > 1e-6 { Some(v.map(|c| c / l)) } else { None }
+    };
+    let mut vertices = Vec::new();
+    for k in 0..p.count.max(0) as u32 {
+        let salt = k.wrapping_mul(3020).wrapping_add(17);
+        let r = |s: u32| hash(salt, s);
+        let (head, tail) = match p.kind {
+            0 => {
+                let dir = unit([2.0 * r(1) - 1.0, 2.0 * r(2) - 1.0, 2.0 * r(3) - 1.0]).unwrap_or([0.0; 3]);
+                let p0 = dir.map(|c| c * p.spread * r(4));
+                let v0 = [lerp(p.low[0], p.high[0], r(5)), lerp(p.low[1], p.high[1], r(6)), lerp(p.low[2], p.high[2], r(7))];
+                let head = [p0[0] + v0[0] * t, p0[1] + v0[1] * t + 0.5 * p.lift * t * t, p0[2] + v0[2] * t];
+                let v = [v0[0], v0[1] + p.lift * t, v0[2]];
+                (head, [0, 1, 2].map(|i| head[i] - v[i] * p.drag))
+            }
+            1 => ([0.0; 3], [0, 1, 2].map(|i| (2.0 * r(10 + i as u32) - 1.0) * p.spread)),
+            _ => {
+                let a = r(1) * std::f32::consts::TAU;
+                let p0 = [a.sin() * p.spread, r(2) * 600.0, a.cos() * p.spread];
+                let v0 = [(a + 2.0).sin() * p.high[0], p.high[1], (a + 2.0).cos() * p.high[2]];
+                let head = [p0[0] + v0[0] * t, p0[1] + v0[1] * t + 0.5 * p.lift * t * t, p0[2] + v0[2] * t];
+                let v = [v0[0], v0[1] + p.lift * t, v0[2]];
+                (head, [0, 1, 2].map(|i| head[i] - v[i] * p.drag))
+            }
+        };
+        let (head, tail) = (world(head), world(tail));
+        let Some(dir) = unit([0, 1, 2].map(|i| tail[i] - head[i])) else { continue };
+        let side = unit(cross(dir, [0.0, 0.0, 1.0])).unwrap_or([1.0, 0.0, 0.0]);
+        let up = unit(cross(side, dir)).unwrap_or([0.0, 0.0, 1.0]);
+        let flipped = p.flags & 0x100 != 0;
+        for across in [up, side] {
+            let h = across.map(|c| c * head_width);
+            let w = across.map(|c| c * tail_width);
+            let v = |u: f32, v: f32| if flipped { [v, 1.0 - u] } else { [u, v] };
+            let quad = [
+                ShellVertex { position: [0, 1, 2].map(|i| head[i] - h[i]), uv: v(0.0, 0.0), colour: hc },
+                ShellVertex { position: [0, 1, 2].map(|i| head[i] + h[i]), uv: v(0.0, 1.0), colour: hc },
+                ShellVertex { position: [0, 1, 2].map(|i| tail[i] - w[i]), uv: v(1.0, 0.0), colour: tc },
+                ShellVertex { position: [0, 1, 2].map(|i| tail[i] + w[i]), uv: v(1.0, 1.0), colour: tc },
+            ];
+            vertices.extend(strip_triangles(&quad));
+        }
+    }
+    if vertices.is_empty() {
+        return Vec::new();
+    }
+    vec![Shell { sprite: p.material.max(0) as u16, additive: p.flags & 0x200 != 0, vertices }]
+}
+
 /// A triangle strip's vertices as a list of triangles.
 fn strip_triangles(strip: &[ShellVertex]) -> Vec<ShellVertex> {
     let mut out = Vec::with_capacity(strip.len().saturating_sub(2) * 3);
@@ -1413,6 +1483,7 @@ fn strip_triangles(strip: &[ShellVertex]) -> Vec<ShellVertex> {
 pub fn visual_ground_shells(v: &Visual, feet: [f32; 3], t: f32, ground: &dyn Fn(f32, f32) -> Option<f32>) -> Vec<Shell> {
     match v {
         Visual::ShockWave(s) => shockwave_shells(s, feet, t, ground),
+        Visual::TParticle(p) => tparticle_shells(p, [feet[0], feet[1], feet[2] + if p.attach == 0 { 0.0 } else { anchor(p.attach).0 }], t),
         Visual::Meta(children) => children.iter().filter(|c| t < pulse_timing(c).1).flat_map(|c| visual_ground_shells(c, feet, t, ground)).collect(),
         Visual::Scatter { child, children, looping } => {
             let life = pulse_timing(child).1.max(0.05);
@@ -2344,6 +2415,7 @@ impl Shot {
             match v {
                 Visual::ShockWave(s) => s.length(),
                 Visual::VulcanRocks(_) => ROCKS_LAST,
+                Visual::TParticle(p) => p.duration.max(0.0),
                 Visual::Meta(children) => children.iter().map(rings).fold(0.0, f32::max),
                 _ => 0.0,
             }
@@ -2429,6 +2501,8 @@ pub fn visual_particles(v: &Visual, feet: [f32; 3], time: f32, reach: Reach) -> 
         }
         // (a streak along a shot's line: see `tracer5_shell`, `tracer1_shells`, `tracer3_particles`)
         Visual::Tracer5(_) | Visual::Tracer1(_) | Visual::Tracer3(_) => Vec::new(),
+        // (crossed strips: see `tparticle_shells`)
+        Visual::TParticle(_) => Vec::new(),
         Visual::Nano(n) => {
             let up = match reach {
                 Reach::Small => 0.0,
@@ -2615,6 +2689,7 @@ pub fn pulse_timing(v: &Visual) -> (f32, f32, i32) {
         Visual::VolGrid(g) => (if g.duration > 0.0 { g.duration } else { 3.0 }, if g.duration > 0.0 { g.duration } else { 3.0 }, -1),
         // (a burst lives its longest life; a stream runs its duration and that life, or for ever)
         Visual::Tracer5(_) | Visual::Tracer1(_) | Visual::Tracer3(_) => (600.0, 1.0, 1),
+        Visual::TParticle(p) => if p.duration >= 0.0 { (600.0, p.duration.max(0.05), 1) } else { (600.0, 600.0, -1) },
         // (a nano makes sprites until a life before its duration, and its last ones live out their lives; for ever without one)
         Visual::Nano(n) => if n.duration >= 0.0 { (600.0, n.duration.max(0.05), 1) } else { (600.0, 600.0, -1) },
         // (kind 8's particles have each popped and gone within a second or so; with a duration, it)
@@ -3179,6 +3254,39 @@ mod tests {
         }
         // late, only the top of the coil is left
         assert!(late.iter().all(|p| p.position[2] > 1.0));
+    }
+
+    #[test]
+    fn tparticle_streaks_fly_and_fade_in_and_out_over_the_duration() {
+        // (template 71342: twenty white streaks thrown up and out, falling at 6.5, their heads bright at half the second)
+        let p = mao_formats::gfx::TParticle {
+            flags: 0x203,
+            attach: 0,
+            duration: 1.0,
+            material: 55,
+            kind: 0,
+            count: 20,
+            spread: 2.0,
+            drag: 0.2,
+            lift: -6.5,
+            low: [-8.0, -2.0, -8.0],
+            high: [8.0, 8.0, 8.0],
+            colours: [(0x00ff_ffff, 0x00ff_ffff), (0x00ff_ffff, 0xffff_ffff), (0x00ff_ffff, 0x00ff_ffff)],
+            widths: [(0.075, 0.075); 3],
+            sharp: false,
+        };
+        assert_eq!(p.look(0.5).unwrap().0, (0x00ff_ffff, 0xffff_ffff));
+        assert!(p.look(1.1).is_none());
+        let s = tparticle_shells(&p, [0.0; 3], 0.5);
+        assert_eq!(s.len(), 1);
+        assert!(s[0].additive && s[0].vertices.len() == 20 * 2 * 6);
+        // (each within the spread plus the box's reach by then)
+        assert!(s[0].vertices.iter().all(|v| v.position.iter().all(|c| c.abs() < 10.0)));
+        // kind 1: still streaks from the point to their tails
+        let one = mao_formats::gfx::TParticle { kind: 1, spread: 10.0, ..p.clone() };
+        let a = tparticle_shells(&one, [0.0; 3], 0.2);
+        let b = tparticle_shells(&one, [0.0; 3], 0.7);
+        assert_eq!(a[0].vertices.iter().map(|v| v.position).collect::<Vec<_>>(), b[0].vertices.iter().map(|v| v.position).collect::<Vec<_>>());
     }
 
     #[test]

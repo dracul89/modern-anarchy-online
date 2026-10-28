@@ -980,6 +980,76 @@ impl Trail2 {
     }
 }
 
+/// A kind-3020 template as `GfxControlTParticle_t` reads it (the dynel constructor FUN_101134ed; FUN_10112ccd the words,
+/// FUN_10112b4e the `GfxVisualTParticle` (displaysystem `gfxbparticle.rs` `tp_new`, `tp_process`, `tp_draw`), FUN_10113101 the
+/// run): word 0 the flags (0x100 flipped, 0x200 added, 0x400 the point on the ground), word 7 the attach point, word 8 the
+/// duration, word 9 the material, word 10 the kind (0 scattered in a ball and flying, 1 tails scattered about the point, 2 in a
+/// ring rising), word 11 the streaks, word 12 the spread, word 15 the drag (the tail is the head less the velocity times it),
+/// word 16 the lift (along y), words 17–22 the velocity's least and most (x, x, y, y, z, z), words 23–28 the tail's and head's
+/// colours (ARGB) at the start, the middle and the end, words 35–40 the tail's and head's half widths at the start, the middle
+/// and the end (word 34 of 4: the fraction's eighth power).
+#[derive(Clone, Debug, PartialEq)]
+pub struct TParticle {
+    pub flags: u32,
+    pub attach: i32,
+    pub duration: f32,
+    pub material: i32,
+    pub kind: i32,
+    pub count: i32,
+    pub spread: f32,
+    pub drag: f32,
+    pub lift: f32,
+    pub low: [f32; 3],
+    pub high: [f32; 3],
+    /// (tail, head) at the start, the middle and the end.
+    pub colours: [(u32, u32); 3],
+    pub widths: [(f32, f32); 3],
+    pub sharp: bool,
+}
+
+impl TParticle {
+    pub fn read(r: &Record) -> Option<TParticle> {
+        if r.payload.len() < 41 {
+            return None;
+        }
+        let c = |k: usize| r.int(k) as u32;
+        Some(TParticle {
+            flags: r.int(0) as u32,
+            attach: r.int(7),
+            duration: r.float(8),
+            material: r.int(9),
+            kind: r.int(10),
+            count: r.int(11),
+            spread: r.float(12),
+            drag: r.float(15),
+            lift: r.float(16),
+            low: [r.float(17), r.float(19), r.float(21)],
+            high: [r.float(18), r.float(20), r.float(22)],
+            colours: [(c(23), c(24)), (c(25), c(26)), (c(27), c(28))],
+            widths: [(r.float(35), r.float(36)), (r.float(37), r.float(38)), (r.float(39), r.float(40))],
+            sharp: r.int(34) == 4,
+        })
+    }
+
+    /// The tail's and head's colours (ARGB) and half widths `t` seconds in (FUN_10113101), or none past the duration: over its
+    /// first half from the start's to the middle's, over the second to the end's (`Color_t::Interpolate`; the widths by the
+    /// fraction's eighth power with word 34 of 4); without a duration the start's.
+    pub fn look(&self, t: f32) -> Option<((u32, u32), (f32, f32))> {
+        let f = if self.duration >= 0.0 { t / self.duration } else { 0.0 };
+        if f > 1.0 {
+            return None;
+        }
+        let (a, b, u) = if f < 0.5 { (0, 1, 2.0 * f) } else { (1, 2, 2.0 * f - 1.0) };
+        let mix = |x: u32, y: u32| key_colour(&[(0.0, x), (1.0, y)], u);
+        let w = if self.sharp { u.powi(8) } else { u };
+        let (wa, wb) = (self.widths[a], self.widths[b]);
+        Some((
+            (mix(self.colours[a].0, self.colours[b].0), mix(self.colours[a].1, self.colours[b].1)),
+            (wa.0 + (wb.0 - wa.0) * w, wa.1 + (wb.1 - wa.1) * w),
+        ))
+    }
+}
+
 /// A kind-1007 template as `_GfxControlNano0_t` reads it (the point constructor FUN_100e73ea; FUN_100e67f8 the words, FUN_100e7146
 /// the `GfxVisualSprite2Type0` and the first burst, FUN_100e6f76 the run, FUN_100e6ca4 / FUN_100e69ca a sprite): word 8 the
 /// duration (it stops making sprites a life before it), word 9 the material, word 10 the sprites a second (`ftol(rate ×
@@ -1658,6 +1728,8 @@ pub enum Visual {
     Tracer1(Tracer1),
     /// A stream of sprites from its point (kind 1007, `_GfxControlNano0_t`).
     Nano(Nano),
+    /// A pool of streaks, each two crossed strips from its head to its tail (kind 3020, `GfxControlTParticle_t`).
+    TParticle(TParticle),
     /// A nano emitter dragged from the caster to the target (kind 1022, `_GfxControlTracer3_t`).
     Tracer3(Tracer3),
     /// Kind 3036, `GfxControlToggle_t` (FUN_101128d1 / FUN_1011279a / FUN_101127fc; FUN_1011265a the words, FUN_10112952 the run,
@@ -1807,6 +1879,7 @@ impl Gfx {
             1025 => Tracer5::read(r).map(Visual::Tracer5),
             1019 => Tracer1::read(r).map(Visual::Tracer1),
             1007 => Nano::read(r).map(Visual::Nano),
+            3020 => TParticle::read(r).map(Visual::TParticle),
             1022 if r.payload.len() >= 16 => {
                 let child = self.get(r.int(15)).filter(|c| c.kind == 1007).and_then(Nano::read)?;
                 Some(Visual::Tracer3(Tracer3 { speed: r.float(10), colour: [r.float(11), r.float(12), r.float(13), r.float(14)], child }))

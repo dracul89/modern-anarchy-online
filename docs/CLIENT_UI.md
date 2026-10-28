@@ -729,3 +729,5 @@ Toggles (`GfxControlToggle_t`, kind 3036) start their child effect as a hoverbik
 Tracer1 (`_GfxControlTracer1_t`, kind 1019), the tracer of Ice Flechette, Glacial Advance and Frost Slivers, flies a little model of glowing streaks, about two and a half units long, along the line from the caster to the target (`effects::tracer1_shells`, from Gamecode's FUN_100fe545 and displaysystem's `GfxVisualFlareType0`).
 
 Tracer3 (`_GfxControlTracer3_t`, kind 1022) drags a nano emitter (`_GfxControlNano0_t`, kind 1007, now played wherever an effect names one) from the caster to the target: the commonest leaves a trail of soft blue sprites, three hundred a second, each half a unit wide, drifting and fading over half a second, gone as the tracer arrives (`effects::tracer3_particles`, `effects::nano_particles`).
+
+TParticle (`GfxControlTParticle_t`, kind 3020) is a pool of streaks, each two crossed strips from its head to its trailing tail (`effects::tparticle_shells`, from displaysystem's `GfxVisualTParticle`): bursts of white sparks thrown up and falling, their heads brightest at half the effect's second, and still rays from a point out to scattered tails.
