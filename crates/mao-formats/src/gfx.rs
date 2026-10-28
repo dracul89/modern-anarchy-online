@@ -739,6 +739,82 @@ impl BParticles {
     }
 }
 
+/// A kind-1005 template as `_GfxControlFlare_t` reads it (FUN_100dcedb; FUN_100dd2eb makes a particle, FUN_100ddc6d runs them,
+/// displaysystem's `GfxVisualFlareType0` (`gfxflare.rs`) draws each as a streak from its head to its tail): word 8 the duration
+/// (below 0: for ever), 9 the material, 10 the rate (a run makes particles until `rate × elapsed` of them exist, while
+/// `elapsed < duration − longest life`, through the gate of word 24, a mask on `rand()`), 12–13 the streak's width from birth to
+/// death, 16–19 and 20–23 its colour (alpha, red, green, blue) from birth to death (a Spell1 sets both from its own), 25–26,
+/// 27–28 and 29–30 the ranges of its direction's two angles and its speed, 32 and 33 how far the head and the tail travel along
+/// that velocity over the life (the head −0.3, the tail 1: the streak grows backwards from the hand), 34–35 the life's range.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Flare {
+    pub duration: f32,
+    pub material: i32,
+    pub rate: f32,
+    pub width: (f32, f32),
+    pub colour_a: [f32; 4],
+    pub colour_b: [f32; 4],
+    pub gate: i32,
+    pub azimuth: (f32, f32),
+    pub elevation: (f32, f32),
+    pub speed: (f32, f32),
+    pub head: f32,
+    pub tail: f32,
+    pub life: (f32, f32),
+    pub attach: i32,
+}
+
+impl Flare {
+    pub fn read(r: &Record) -> Option<Flare> {
+        if r.kind != 1005 || r.payload.len() < 36 {
+            return None;
+        }
+        Some(Flare {
+            duration: r.float(8),
+            material: r.int(9),
+            rate: r.float(10),
+            width: (r.float(12), r.float(13)),
+            colour_a: [r.float(16), r.float(17), r.float(18), r.float(19)],
+            colour_b: [r.float(20), r.float(21), r.float(22), r.float(23)],
+            gate: r.int(24),
+            azimuth: (r.float(25), r.float(26)),
+            elevation: (r.float(27), r.float(28)),
+            speed: (r.float(29), r.float(30)),
+            head: r.float(32),
+            tail: r.float(33),
+            life: (r.float(34), r.float(35)),
+            attach: r.int(7),
+        })
+    }
+}
+
+/// A kind-1010 template, the cast effect, as `_GfxControlSpell1_t` reads it (made by the point-and-number `CreateGfxControl`,
+/// FUN_100d15d0 / FUN_100f331d, from `CreateEffect2`; FUN_100f2789 the words, FUN_100f3f59 the run, FUN_100f3f30 its phases):
+/// three locators, the left hand (attractor 2001), the right hand (2000) and the target's point, and its words: 9 the material,
+/// 10–13 and 14–17 the two colours (alpha, red, green, blue) it gives its parts, 18–26 the phases' times, 27–28 the flares at
+/// the left and right hand (kind 1005), 29–30 cords there (kind 1003: made at a point, their set-position moves their own
+/// locator (FUN_100d69d8) instead of laying a link, so they draw nothing), 31 the projectile (kind 1007, `_GfxControlNano0_t`),
+/// 32 the impact on the target (kind 1008 `_GfxControlNano1_t`, or a 1005), 33 whether phases 3 and 4 are off.
+/// * Phase 1 (FUN_100f3022: words 18–20): the four hand parts made at word 18, moved to the hands and run every frame, stopped
+///   at word 19 (no more particles), deleted after word 20;
+/// * phase 2 (FUN_100f3ee7, FUN_100f3d22 / FUN_100f3205: words 21–22): a line of quads of the material between the hands in the
+///   first colour, growing from both hands to the middle in its first half and shrinking onto the middle in its second;
+/// * phases 3 and 4 (word 33 = 0 only): the projectile from the hands' midpoint to the target and the impact there; `NextState`
+///   (the release of the cast, FUN_100f2617) retimes phases 1–3 to it.
+/// 178 of the 180 templates have word 33 set, phase 1 at 0–6 s (deleted at 8) and phase 2 at 4–5 s; the two with the projectile
+/// (9000, 9002) are named by no program.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Cast {
+    pub material: i32,
+    pub colour_a: [f32; 4],
+    pub colour_b: [f32; 4],
+    /// Words 18 to 26.
+    pub times: [f32; 9],
+    /// The left hand's and the right hand's flares.
+    pub flares: [Option<Flare>; 2],
+    pub released: bool,
+}
+
 /// The Stars modes the client plays as the original does; the others fall back to the spiral child:
 /// * 3: born in a sphere of the radius, swirling across it (no rise), two a frame, the parabolic size of mode 6;
 /// * 4: born at the point, thrown in a random direction at the radius a second, slowed by 5% a frame and pulled down by 0.1,
@@ -890,6 +966,20 @@ pub struct Emitter {
 
 impl Gfx {
     /// The emitters of a template and everything under it (a cast effect has six).
+    /// The cast effect an id names (a kind-1010 template), as `_GfxControlSpell1_t` plays it.
+    pub fn cast(&self, id: i32) -> Option<Cast> {
+        let r = self.get(id).filter(|r| r.kind == 1010 && r.payload.len() >= 33)?;
+        let flare = |at: usize| self.get(r.int(at)).and_then(Flare::read);
+        Some(Cast {
+            material: r.int(9),
+            colour_a: [r.float(10), r.float(11), r.float(12), r.float(13)],
+            colour_b: [r.float(14), r.float(15), r.float(16), r.float(17)],
+            times: std::array::from_fn(|i| r.float(18 + i)),
+            flares: [flare(27), flare(28)],
+            released: r.int(33) == 0,
+        })
+    }
+
     pub fn emitters(&self, id: i32) -> Vec<Emitter> {
         // a cast template (kind 1010) tints its parts: its colour sits in words 11 to 13 (red, green, blue)
         let tint = self.get(id).filter(|r| r.kind == 1010).map_or([1.0; 3], |r| [r.float(11), r.float(12), r.float(13)]);

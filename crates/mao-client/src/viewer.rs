@@ -103,8 +103,8 @@ pub struct Update {
     /// (Z-up), its heading, the body (breed, sex, fatness) when known, and each program with its running effect. The whole list when it is given
     /// (an update without one leaves the last in place).
     pub auras: Option<Vec<(u32, bool, [f32; 3], f32, Option<(i32, i32, i32)>, Vec<(u32, mao_formats::gfx::Visual)>)>>,
-    /// Cast effects to start: where (Z up) and the emitters of the program's cast template.
-    pub bursts: Option<Vec<([f32; 3], Vec<mao_formats::gfx::Emitter>)>>,
+    /// Cast effects to start: the caster, its cast template and the cast's length.
+    pub bursts: Option<Vec<crate::effects::CastShow>>,
     /// Spells in flight and landing: the tracer's and the hit effect's spirals.
     pub shots: Option<Vec<crate::effects::Shot>>,
     /// What the server said of the specials' recharge (skill stat, seconds; 0 = ready).
@@ -320,8 +320,8 @@ struct App {
     mouse_look: (f32, f32),
     wheel: f32,
     cam_reset: bool,
-    /// The cast effects running: when each began, where, and its emitters.
-    bursts: Vec<(std::time::Instant, [f32; 3], Vec<mao_formats::gfx::Emitter>)>,
+    /// The cast effects running: when each began, and what.
+    bursts: Vec<(std::time::Instant, crate::effects::CastShow)>,
     shots: Vec<(std::time::Instant, crate::effects::Shot)>,
     /// The effect sprite sheets already asked for.
     tried_sprites: std::collections::HashSet<u16>,
@@ -986,8 +986,8 @@ impl ApplicationHandler for App {
                         for shot in u.shots.take().unwrap_or_default() {
                             self.shots.push((std::time::Instant::now(), shot));
                         }
-                        for (at, emitters) in u.bursts.take().unwrap_or_default() {
-                            self.bursts.push((std::time::Instant::now(), at, emitters));
+                        for cast in u.bursts.take().unwrap_or_default() {
+                            self.bursts.push((std::time::Instant::now(), cast));
                         }
                         self.hud.glows.retain(|g| g.born.elapsed().as_secs_f32() < crate::ui::GLOW_LIFE);
                         self.hud.floaters.retain(|f| f.born.elapsed().as_secs_f32() < crate::ui::FLOATER_LIFE);
@@ -1104,12 +1104,9 @@ impl ApplicationHandler for App {
                     }
                     self.pulses.end_frame();
                     // (a cast effect emits for a second and lives out its particles' lives)
-                    self.bursts.retain(|(began, _, emitters)| began.elapsed().as_secs_f32() < 1.0 + emitters.iter().map(|e| e.life).fold(0.0, f32::max).min(6.0));
-                    for (began, at, emitters) in &self.bursts {
-                        let age = began.elapsed().as_secs_f32();
-                        for e in emitters {
-                            sparks.extend(crate::effects::emitter_particles(e, *at, age, 1.0));
-                        }
+                    self.bursts.retain(|(began, cast)| began.elapsed().as_secs_f32() < cast.length);
+                    for (began, cast) in &self.bursts {
+                        sparks.extend(crate::effects::cast_particles(cast, began.elapsed().as_secs_f32()));
                     }
                     self.shots.retain(|(began, shot)| began.elapsed().as_secs_f32() < shot.lasts());
                     for (began, shot) in &self.shots {

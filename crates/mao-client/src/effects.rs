@@ -4,7 +4,7 @@
 //! ([`ring`]: the cord ribbon `_GfxControlBuffPlaceHolder_t` lays as its point turns, of which the original only ever draws the
 //! forward-spinning one).
 
-use mao_formats::gfx::{colour_curve, curve, unpack_argb, Aura, BParticles, Cords, Deform, Emitter, Helix, Smoke, Sparks, Sprite, Stars, Visual, VolGrid};
+use mao_formats::gfx::{colour_curve, curve, unpack_argb, Aura, BParticles, Cast, Cords, Deform, Emitter, Flare, Helix, Smoke, Sparks, Sprite, Stars, Visual, VolGrid};
 use mao_render::{Particle, NO_SPRITE};
 
 /// The wind the effects are pushed by, Z up: the effect handler's wind (+0x24, Sparks) and its smoothed copy (+0x30, Smoke).
@@ -428,6 +428,117 @@ fn stars_collapse(s: &Stars, centre: [f32; 3], time: f32, stopped: bool) -> Vec<
         let size = frac * 0.01 * TABLE[frame];
         let colour = [1, 2, 3, 0].map(|c| s.colour_a[c] + (s.colour_b[c] - s.colour_a[c]) * hash(salt, c as u32));
         out.push(sprite(s.material, frame as f32 / 15.0, [centre[0] + start[0] * x, centre[1] + start[1] * x, centre[2] + start[2] * x], size, colour));
+    }
+    out
+}
+
+/// A cast effect to play: the caster's feet (world, Z up) and heading, the cast template, and how long the cast lasts (the
+/// casting state machine deletes the effect when the cast ends: here the length of the cast animation the caster plays).
+#[derive(Clone, Debug, PartialEq)]
+pub struct CastShow {
+    pub feet: [f32; 3],
+    pub heading: f32,
+    pub cast: Cast,
+    pub length: f32,
+}
+
+/// The length of the player cast animations: at someone (`spell-dir`: 1.17 to 1.23 s) and at oneself (`spell-self`: 1.9 to 2 s).
+pub const CAST_AT_OTHER: f32 = 1.2;
+pub const CAST_AT_SELF: f32 = 1.95;
+
+/// A flare's streaks `t` seconds into its run, emitted at `at` (world, Z up), stopped (no more particles) at `stop`, as
+/// `_GfxControlFlare_t` makes them (FUN_100ddc6d: up to `rate × elapsed` particles, FUN_100dd2eb each one) and
+/// `GfxVisualFlareType0` moves them: particle `k` born at `(k + 1) / rate` with a life from words 34–35 and a velocity from the
+/// two angles and the speed; over its life its head moves `head` times that velocity and its tail `tail` times it (both spread
+/// over the life), its width and colour run from start to end. The streak is drawn as sprites from head to tail. `colours`
+/// replace the flare's own (a Spell1 sets them from its words 10–17).
+pub fn flare_particles(f: &Flare, at: [f32; 3], t: f32, stop: f32, colours: Option<([f32; 4], [f32; 4])>) -> Vec<Particle> {
+    let mut out = Vec::new();
+    if f.rate <= 0.0 || t < 0.0 {
+        return out;
+    }
+    let (ca, cb) = colours.unwrap_or((f.colour_a, f.colour_b));
+    let lerp = |(a, b): (f32, f32), r: f32| a + (b - a) * r;
+    let longest = f.life.0.max(f.life.1).max(0.05);
+    let emitting = if f.duration >= 0.0 { (f.duration - longest).min(stop) } else { stop };
+    let made = (f.rate * t.min(emitting)).floor().max(0.0) as u32;
+    let first = ((t - longest).max(0.0) * f.rate).floor() as u32;
+    for k in first..made.min(first + 400) {
+        let born = (k + 1) as f32 / f.rate;
+        let salt = k.wrapping_mul(1005);
+        let life = lerp(f.life, hash(salt, 1)).max(0.02);
+        let age = t - born;
+        if age < 0.0 || age >= life {
+            continue;
+        }
+        let u = age / life;
+        let (az, el, speed) = (lerp(f.azimuth, hash(salt, 2)), lerp(f.elevation, hash(salt, 3)), lerp(f.speed, hash(salt, 4)));
+        let v = [el.cos() * az.cos() * speed, el.cos() * az.sin() * speed, el.sin() * speed];
+        let head = [0, 1, 2].map(|i| at[i] + v[i] * f.head * u);
+        let tail = [0, 1, 2].map(|i| at[i] + v[i] * f.tail * u);
+        let width = lerp(f.width, u).max(0.0);
+        let c = [1, 2, 3, 0].map(|i| ca[i] + (cb[i] - ca[i]) * u);
+        for s in 0..3 {
+            let w = s as f32 / 2.0;
+            let p = [0, 1, 2].map(|i| head[i] + (tail[i] - head[i]) * w);
+            out.push(sprite(f.material, u, p, width, c));
+        }
+    }
+    out
+}
+
+/// `_GfxControlSpell1_t`'s cast effect `t` seconds after it began (see `mao_formats::gfx::Cast`): phase 1, the two hand flares
+/// (words 27 and 28) emitting from word 18 until word 19 and deleted (with their particles) after word 20; phase 2, between
+/// words 21 and 22, the line of quads between the hands (FUN_100f3d22 / FUN_100f3205: from each hand to the middle, the
+/// quads `0.75 − c` to 0.25 wide, then from the middle back, 0.25 to `0.25 + 0.75 f`, `ftol(|span| × length × 50)` of them
+/// between 2 and 50, each jittered by up to 0.01 of the line, in the first colour). All of it ends when the cast does
+/// (`length`: the casting state machine deletes the effect). Phases 3 and 4 (the projectile and the impact) are not played:
+/// no program names a template that has them.
+pub fn cast_particles(c: &CastShow, t: f32) -> Vec<Particle> {
+    let mut out = Vec::new();
+    let s = &c.cast;
+    if t < 0.0 || t >= c.length {
+        return out;
+    }
+    let hands = [attach_point(2001, 0.0, c.feet, c.heading), attach_point(2000, 0.0, c.feet, c.heading)];
+    let [start, stop, end] = [s.times[0], s.times[1], s.times[2]];
+    if t >= start && t <= end {
+        for (flare, hand) in s.flares.iter().zip(hands) {
+            if let Some(f) = flare {
+                out.extend(flare_particles(f, hand, t - start, stop - start, Some((s.colour_a, s.colour_b))));
+            }
+        }
+    }
+    let (from, to) = (s.times[3], s.times[4]);
+    if t >= from && t <= to && to > from {
+        let length = to - from;
+        let half = length * 0.5;
+        let into = t - from;
+        let frame = (t * 30.0) as u32;
+        let colour = [s.colour_a[1], s.colour_a[2], s.colour_a[3], s.colour_a[0]];
+        let mut line = |a: f32, size_a: f32, b: f32, size_b: f32| {
+            let d = [0, 1, 2].map(|i| hands[1][i] - hands[0][i]);
+            let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+            let count = (((b - a) * len).abs() * 50.0) as i32;
+            let count = if count < 0 { 2 } else { count.min(50) }.max(1);
+            let steps = (count - 1).max(1) as f32;
+            for k in 0..count {
+                let u = k as f32 / steps;
+                let frac = a + (b - a) * u + hash(k as u32 ^ frame.wrapping_mul(977), 0x1010) * 0.02 - 0.01;
+                let p = [0, 1, 2].map(|i| hands[0][i] + d[i] * frac);
+                out.push(sprite(s.material, 0.0, p, (size_a + (size_b - size_a) * u).max(0.0), colour));
+            }
+        };
+        if into < half {
+            let c = 0.5 * into / half;
+            line(0.0, 0.75 - c, c, 0.25);
+            line(1.0, 0.75 - c, 1.0 - c, 0.25);
+        } else {
+            let f = (into - half) / half;
+            let size = f * 0.75 + 0.25;
+            line(0.5 * f, 0.25, 0.5, size);
+            line(1.0 - 0.5 * f, 0.25, 0.5, size);
+        }
     }
     out
 }
@@ -1680,6 +1791,31 @@ mod tests {
     fn aura() -> Aura {
         let helix = |spin: f32| Helix { spin, phase: 0.0, size: 0.15, count: 10, colour: [0.5, 0.4, 1.0], material: 15, attach: 1006, offset: -0.25, radius: 0.15, table: Vec::new(), life: 1.5, ribbon_width: 0.05, ribbon_life: 0.5, ribbon_duration: 1.5, ribbon_material: 8, sparkle_rate: 0.0 };
         Aura { colour: [0.2, 0.2, 0.99], end: [0.2, 0.2, 0.99], helices: vec![helix(-12.566), helix(12.566)], period: 4.0, plays: -1 }
+    }
+
+    #[test]
+    fn a_cast_sparkles_at_both_hands_until_the_cast_ends() {
+        let flare = |attach: i32| Flare { duration: -1.0, material: 15, rate: 16.0, width: (0.05, 0.1), colour_a: [1.0, 0.5, 0.4, 1.0], colour_b: [0.0, 0.5, 0.4, 1.0], gate: 0, azimuth: (0.0, 6.283), elevation: (-1.571, 1.571), speed: (0.35, 0.85), head: -0.3, tail: 1.0, life: (0.5, 1.0), attach };
+        // (template 46133: blue, phase 1 at 0–6 s, the beam at 4–5 s)
+        let cast = Cast { material: 8, colour_a: [1.0, 0.2, 0.2, 1.0], colour_b: [0.0, 0.2, 0.2, 1.0], times: [0.0, 6.0, 8.0, 4.0, 5.0, 64.35, 70.0, 70.0, 80.0], flares: [Some(flare(2001)), Some(flare(2000))], released: false };
+        let show = CastShow { feet: [10.0, 20.0, 0.0], heading: 0.0, cast, length: CAST_AT_OTHER };
+        // nothing before the first particle, then streaks round each hand in the cast's colour, fading as they go
+        assert!(cast_particles(&show, 0.01).is_empty());
+        let at = cast_particles(&show, 0.8);
+        assert!(at.len() >= 2 * 3 * 8, "{}", at.len());
+        let hands = [attach_point(2001, 0.0, show.feet, 0.0), attach_point(2000, 0.0, show.feet, 0.0)];
+        for p in &at {
+            let near = hands.iter().map(|h| ((p.position[0] - h[0]).powi(2) + (p.position[1] - h[1]).powi(2) + (p.position[2] - h[2]).powi(2)).sqrt()).fold(f32::MAX, f32::min);
+            assert!(near <= 0.85 + 1e-3, "{near}");
+            assert!((p.colour[0] - 0.2).abs() < 1e-4 && (p.colour[2] - 1.0).abs() < 1e-4 && p.colour[3] <= 1.0);
+        }
+        // both hands: streaks to either side of the body
+        assert!(at.iter().any(|p| p.position[0] < 10.0) && at.iter().any(|p| p.position[0] > 10.0));
+        // gone with the cast; and a long cast shows the beam between the hands from 4 s
+        assert!(cast_particles(&show, 1.3).is_empty());
+        let long = CastShow { length: 10.0, ..show.clone() };
+        let beam = cast_particles(&long, 4.2);
+        assert!(beam.iter().any(|p| p.sprite == 8 && (p.size - 0.25).abs() < 0.6));
     }
 
     #[test]

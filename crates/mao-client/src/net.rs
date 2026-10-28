@@ -171,7 +171,7 @@ struct World {
     /// Nano programs that landed: (target, nano id), to be drawn as glows.
     landed: Vec<(u32, u32)>,
     /// Casts to show the cast effect of: (caster, nano program).
-    cast_bursts: Vec<(u32, u32)>,
+    cast_bursts: Vec<(u32, u32, u32)>,
     /// When a character last cast a nano on itself, by (character, nano): the server repeats an aura's cast every few seconds.
     self_casts: std::collections::HashMap<(u32, u32), Instant>,
     /// The nanos the player asked to cast and when: those casts always show.
@@ -619,7 +619,7 @@ impl World {
                         self.casts.push((caster, target, nano));
                     }
                     self.landed.push((target, nano));
-                    self.cast_bursts.push((caster, nano));
+                    self.cast_bursts.push((caster, target, nano));
                     self.shots_pending.push((caster, target, nano));
                     // The caster plays its casting animation (at itself or at someone).
                     self.socials.insert(caster, (if caster == target { "spell-self" } else { "spell-dir" }, Instant::now()));
@@ -1997,7 +1997,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut put_seen = 0u8;
         let mut saved_look: Option<crate::look::Look> = None;
         let mut shot_cache: std::collections::HashMap<u32, (Option<mao_formats::gfx::Visual>, Option<mao_formats::gfx::Visual>)> = std::collections::HashMap::new();
-        let mut burst_cache: std::collections::HashMap<u32, Option<Vec<mao_formats::gfx::Emitter>>> = std::collections::HashMap::new();
+        let mut burst_cache: std::collections::HashMap<u32, Option<mao_formats::gfx::Cast>> = std::collections::HashMap::new();
         let mut aura_cache: std::collections::HashMap<u32, Option<mao_formats::gfx::Visual>> = std::collections::HashMap::new();
         // (the effect templates: what a running nano program looks like)
         let gfx = std::fs::read(Path::new(&game_dir).join("Setupf").join("gfxtweak.bin")).ok().and_then(|d| mao_formats::gfx::Gfx::parse(&d).ok());
@@ -3047,20 +3047,21 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     bursts: Some(
                         std::mem::take(&mut state.cast_bursts)
                             .into_iter()
-                            .filter_map(|(caster, nano)| {
+                            .filter_map(|(caster, target, nano)| {
                                 let at = if caster == own { position } else { state.entities.get(&caster)?.0 };
-                                let emitters = burst_cache
+                                let cast = burst_cache
                                     .entry(nano)
                                     .or_insert_with(|| {
                                         let data = gear_db.get(mao_formats::resource::Id { kind: 0xfde85, instance: nano }).ok().flatten()?;
-                                        // (the cast effect of a program is its `CastEffectType` stat)
+                                        // (the cast effect of a program is its `CastEffectType` stat, a `_GfxControlSpell1_t` template)
                                         let effect = mao_formats::item::Item::parse(&data)?.stat(428)?;
-                                        let list = gfx.as_ref()?.emitters(effect as i32);
-                                        Some(list).filter(|l| !l.is_empty())
+                                        gfx.as_ref()?.cast(effect as i32)
                                     })
                                     .clone()?;
-                                // (over the caster's hands, Z up)
-                                Some(([at[0], at[2], at[1] + 1.1], emitters))
+                                let heading = state.rotations.get(&caster).map(|q| 2.0 * q[1].atan2(q[3])).unwrap_or(0.0);
+                                // (the effect lasts the cast: the casting animation the caster plays, at itself or at someone)
+                                let length = if caster == target { crate::effects::CAST_AT_SELF } else { crate::effects::CAST_AT_OTHER };
+                                Some(crate::effects::CastShow { feet: [at[0], at[2], at[1]], heading, cast, length })
                             })
                             .collect(),
                     ),

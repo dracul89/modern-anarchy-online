@@ -129,6 +129,13 @@ fn a_cast_effect_has_its_emitters() {
     let emitters = gfx.emitters(46133);
     assert!(emitters.len() >= 6);
     assert!(emitters.iter().all(|e| e.life > 0.0 && e.rate > 0.0 && e.start[0] >= 0.0));
+    // as `_GfxControlSpell1_t` reads it: a flare at each hand, 16 a second, phase 1 at 0–6 s, no projectile
+    let cast = gfx.cast(46133).unwrap();
+    assert_eq!(cast.times[..5], [0.0, 6.0, 8.0, 4.0, 5.0]);
+    assert!(!cast.released);
+    let flares: Vec<_> = cast.flares.iter().flatten().collect();
+    assert_eq!(flares.iter().map(|f| f.attach).collect::<Vec<_>>(), vec![2001, 2000]);
+    assert!(flares.iter().all(|f| f.rate == 16.0 && f.material == 15));
 }
 
 #[test]
@@ -136,9 +143,10 @@ fn effect_classes_come_to_visuals() {
     use mao_formats::gfx::Visual;
     let Some(game) = std::env::var_os("MAO_GAME").map(PathBuf::from) else { return };
     let gfx = mao_formats::gfx::Gfx::parse(&std::fs::read(game.join("Setupf").join("gfxtweak.bin")).unwrap()).unwrap();
-    // a buff, a tinted tracer, the common cyan ground glow, a hit flash, a tracer ball, and a bundle that holds a spiral
+    // a buff, a gold tracer (Stars mode 18: its attach point 1000 is not the buff spiral), the common cyan ground glow, a hit
+    // flash, a tracer ball
     assert!(matches!(gfx.visual(1000), Some(Visual::Spiral(_))));
-    assert!(matches!(gfx.visual(17300), Some(Visual::Spiral(_))));
+    assert!(matches!(gfx.visual(17300), Some(Visual::Stars(s)) if s.mode == 18));
     assert!(matches!(gfx.visual(43608), Some(Visual::Glow { .. })));
     assert!(matches!(gfx.visual(43010), Some(Visual::Flash { .. })));
     assert!(matches!(gfx.visual(17500), Some(Visual::Orb { .. })));
