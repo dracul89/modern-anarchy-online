@@ -153,6 +153,11 @@ pub struct DistrictMap {
 }
 
 impl DistrictMap {
+    /// Outdoors, a zone's side in world units (the tile size times the zone size in tiles).
+    pub fn zone_side(&self) -> Option<f32> {
+        self.grid.map(|(_, _, tile, zone)| tile * zone as f32)
+    }
+
     /// The playfield's districts (0xf424e) and, outdoors, its zone grid (the tile map 0xf4249 and the zone size of 0xf4241).
     pub fn load(db: &mao_formats::resource::ResourceDatabase, playfield: u32) -> Option<DistrictMap> {
         use mao_formats::resource::Id;

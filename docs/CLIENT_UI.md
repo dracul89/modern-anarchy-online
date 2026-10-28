@@ -893,3 +893,10 @@ time the game clock's second turns, higher the closer you are: `(3 − distance)
 it shows as `Name: text` and its voice line (the blob's records after its first byte) plays when `VoiceSndFxHearVicinityOn`
 is set; packet 35 (`name, text, blob`, `S2C_VIS_ANON_MESSAGE`) is the anonymous kind the system lines come as, read the same
 way.
+
+**Thunder.** Storms thunder as the original's rain does (`ambience::Lightning`): two schedules of strikes, the same for every
+client (an R250 generator seeded 0x85c19 for storms, gaps of 0.1 to 20 s over 600 s, and 0x1e23a for fallout, 0.1 to 2 s over
+300 s, used while the weather's entries 5 and 6 add up to more than 0.2), run on the game clock (its seconds into the day over
+15). While the weather's entry 9 is above 0 and its entry 2 at least 0.4, each strike falls somewhere in a cell six zones
+across around you and plays `SM_Sandy_Env_NearLightning`, quieter the farther it is (`1 − d / cell × 0.5`) and later by
+`d / 100` seconds, like sound travelling. Not done: the bolt itself and the camera's jolt near one.

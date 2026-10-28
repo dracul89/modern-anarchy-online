@@ -2726,6 +2726,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut sound_rand = crate::audio::Rand::default();
         // The mines' bleeps: the game clock's turns of a second and the mines' meshes' sphere words, by mesh.
         let mut second_ticks = crate::hazards::SecondTicks::default();
+        // The rain's lightning (its schedules made with the environment, at the first frame).
+        let mut lightning: Option<crate::ambience::Lightning> = None;
         let mine_spheres: std::cell::RefCell<std::collections::HashMap<u32, Option<u32>>> = Default::default();
         // The district's music (FUN_100b72bf, once a second) and the playfield whose districts are loaded.
         let (mut districts, mut district_tick): (Option<(u32, Option<crate::sounds::DistrictMap>)>, Instant) = (None, Instant::now());
@@ -3603,6 +3605,16 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             }
             let (rain, volume) = crate::ambience::rain(&ambient_weather);
             crate::ambience::play(rain, volume);
+            // (the lightning's thunder, FUN_100b9da8: `PlayEnvSound(NearLightning, origin, 0, volume, 0, deferral, 100)`)
+            {
+                let zone_side = districts.as_ref().and_then(|d| d.1.as_ref()).and_then(|d| d.zone_side());
+                let now = state.game_clock.seconds();
+                let thunder = lightning.get_or_insert_with(|| crate::ambience::Lightning::new(now)).frame(&ambient_weather, now, position, zone_side);
+                for t in thunder {
+                    let id = mao_formats::sound::sound_id("SM_Sandy_Env_NearLightning");
+                    crate::audio::with(|m| m.play_env_sound(id, [0.0; 3], 0.0, t.volume, 0, t.defer, 100));
+                }
+            }
             // (the fight's report for the combat music, FUN_10059c7d: the character's health in percent of its maximum, at
             // least 1 while alive, its stat 421, side (33), instance, not an NPC, and level (54))
             {
