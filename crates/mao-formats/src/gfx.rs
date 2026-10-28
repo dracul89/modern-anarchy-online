@@ -925,6 +925,71 @@ pub fn key_curve(keys: &[(f32, f32)], f: f32) -> f32 {
     b * u + (1.0 - u) * a
 }
 
+/// A kind-3000 template as `_GfxControlShockWave_t` reads it (the dynel, point and matrix constructors FUN_100eeec0 / FUN_100eed45
+/// / FUN_100eedfb; FUN_100ee3cc the words, FUN_100eeacb the visuals, FUN_100ee525 the run): word 0 the flags (1 following the
+/// dynel, 0x800 the rings added, 0x1000 their texture round them, 0x2000 their radii kept from below zero, 0x4000 the cones'
+/// texture up them), word 8 a ring's life, word 11 the rings (`GfxVisualGroundRing`s of word 10 segments and word 9's
+/// material, its texture scaled by words 20 and 21), one born every word 23 seconds; over its life a ring's inner and outer
+/// radii run from words 12 and 13 to 16 and 17 and its inner and outer colours (ARGB) from words 14 and 15 to 18 and 19, laid
+/// word 22 over the ground. Word 24 the cones (`GfxVisualCone`s of word 26 segments, word 25's material, their texture's extent
+/// words 27 and 28), cone k word 29 tall, `word 30 + k × word 32` wide below and `word 31 × word 33^k + k × word 32` above,
+/// coloured words 34 below and 35 above with their alphas by the time into each ring's interval.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ShockWave {
+    pub flags: u32,
+    pub life: f32,
+    pub ring_material: i32,
+    pub segments: i32,
+    pub rings: i32,
+    /// Inner and outer radii, born and at the end of its life.
+    pub radii: [f32; 4],
+    /// Inner and outer colours (ARGB), born and at the end.
+    pub colours: [u32; 4],
+    pub texture: (f32, f32),
+    pub lift: f32,
+    pub interval: f32,
+    pub cones: i32,
+    pub cone_material: i32,
+    pub cone_segments: i32,
+    pub cone_texture: (f32, f32),
+    pub height: f32,
+    /// Words 30–33: the width below, above, the step a cone and the factor a cone above.
+    pub widths: [f32; 4],
+    pub cone_colours: [u32; 2],
+}
+
+impl ShockWave {
+    pub fn read(r: &Record) -> Option<ShockWave> {
+        if r.payload.len() < 36 {
+            return None;
+        }
+        Some(ShockWave {
+            flags: r.int(0) as u32,
+            life: r.float(8),
+            ring_material: r.int(9),
+            segments: r.int(10),
+            rings: r.int(11),
+            radii: [r.float(12), r.float(13), r.float(16), r.float(17)],
+            colours: [r.int(14) as u32, r.int(15) as u32, r.int(18) as u32, r.int(19) as u32],
+            texture: (r.float(20), r.float(21)),
+            lift: r.float(22),
+            interval: r.float(23),
+            cones: r.int(24),
+            cone_material: r.int(25),
+            cone_segments: r.int(26),
+            cone_texture: (r.float(27), r.float(28)),
+            height: r.float(29),
+            widths: [r.float(30), r.float(31), r.float(32), r.float(33)],
+            cone_colours: [r.int(34) as u32, r.int(35) as u32],
+        })
+    }
+
+    /// How long the rings run: the last born `(rings − 1) × interval` in, living its life.
+    pub fn length(&self) -> f32 {
+        (self.rings.max(1) - 1) as f32 * self.interval.max(0.0) + self.life.max(0.0)
+    }
+}
+
 /// The meshes `GfxControlEffectMesh_t` shows by word 10 (FUN_1010d457), and the Atrox ones flag 0x10000 picks instead for an
 /// Atrox (the body's stat 4 of 4) on the hoverbikes.
 const EFFECT_MESHES: [&str; 28] = [
@@ -1215,6 +1280,9 @@ pub enum Visual {
     Shield2(Shield2),
     /// A named mesh moved, spun and grown by its run (kind 3025, `GfxControlEffectMesh_t`).
     EffectMesh(EffectMesh),
+    /// Rings spreading over the ground one after another and cones of light rising with them (kind 3000,
+    /// `_GfxControlShockWave_t`).
+    ShockWave(ShockWave),
     /// Kind 2005, `_GfxControlSuns_t` (FUN_100fd851; FUN_100fd14e the words, FUN_100fd274 the `GfxVisualSol`, FUN_100fc425 the
     /// run): 32 suns, each a camera-facing quad of the material (word 9) turned by its own angle, placed by the mode (word 10).
     /// Mode 4 (385 uses): up to three a frame born at the hit location's point and standing there, living word 30 ms, word 28
@@ -1343,6 +1411,7 @@ impl Gfx {
             3003 => Shield::read(r).map(Visual::Shield),
             3034 => Shield2::read(r).map(Visual::Shield2),
             3025 => EffectMesh::read(r).map(Visual::EffectMesh),
+            3000 => ShockWave::read(r).map(Visual::ShockWave),
             2005 if r.payload.len() >= 32 && matches!(r.int(10), 0 | 4) => Some(Visual::Suns(Suns {
                 mode: r.int(10),
                 attach: r.int(7),

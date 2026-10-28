@@ -258,7 +258,8 @@ pub fn headless_on(model: &Model, textures: &Textures, out: &str, ui: Option<(&H
                 }
                 scene.shells.extend(crate::effects::effect_mesh_shells(&m, &model, &|k, i| sheets.get(&(k, i)).copied().unwrap_or(mao_render::NO_SPRITE), &at, Some(eye), t));
             }
-            eprintln!("aura: {} mesh shells", scene.shells.len());
+            scene.shells.extend(crate::effects::visual_ground_shells(&visual, feet, time, &|_, _| None));
+            eprintln!("aura: {} shells", scene.shells.len());
             for shell in &scene.shells {
                 let (lo, hi) = shell.vertices.iter().fold(([f32::MAX; 3], [f32::MIN; 3]), |(lo, hi), v| ([0, 1, 2].map(|k| lo[k].min(v.position[k])), [0, 1, 2].map(|k| hi[k].max(v.position[k]))));
                 eprintln!("  shell of {} vertices from {lo:.2?} to {hi:.2?}, alpha {:.2}", shell.vertices.len(), shell.vertices.first().map_or(0.0, |v| v.colour[3]));
@@ -1142,6 +1143,8 @@ impl ApplicationHandler for App {
                     };
                     self.pulses.begin_frame();
                     let mut meshes = Vec::new();
+                    let terrain = self.ground.clone();
+                    let ground = |x: f32, y: f32| terrain.as_ref().map(|(t, o)| t.height_at(x, y, t.height_scale) + o);
                     for (id, own, at, heading, body, auras) in &self.auras {
                         let feet = if *own && self.hud.position.is_some() { own_feet } else { *at };
                         let heading = if *own { self.heading } else { *heading };
@@ -1158,6 +1161,7 @@ impl ApplicationHandler for App {
                                 // (an Atrox's hoverbike circles are its own meshes: FUN_1010d457 with the breed 4)
                                 let atrox = body.is_some_and(|b| b.0 == 4);
                                 meshes.extend(crate::effects::visual_meshes(aura, crate::effects::Locator::feet(feet, heading), age, &|attach| crate::effects::Locator::attractor(attach, attractors)).into_iter().map(|(m, l, t)| (m, l, t, atrox)));
+                                shells.extend(crate::effects::visual_ground_shells(aura, feet, age, &ground));
                                 sparks.extend(crate::effects::pulse_particles(aura, feet, heading, age, *body));
                             }
                         }
@@ -1190,6 +1194,7 @@ impl ApplicationHandler for App {
                                 }
                                 let attractors = c.as_ref().map_or(&[][..], |c| c.attractors.as_slice());
                                 meshes.extend(crate::effects::visual_meshes(hit, crate::effects::Locator::feet(shot.to, 0.0), landed, &|attach| crate::effects::Locator::attractor(attach, attractors)).into_iter().map(|(m, l, t)| (m, l, t, false)));
+                                shells.extend(crate::effects::visual_ground_shells(hit, shot.to, landed, &ground));
                             }
                         }
                     }

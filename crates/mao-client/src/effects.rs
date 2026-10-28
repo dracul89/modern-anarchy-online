@@ -5,7 +5,7 @@
 //! forward-spinning one).
 
 use mao_formats::gfx::{colour_curve, curve, unpack_argb, BParticles, Cast, Cords, Deform, Emitter, Flare, Helix, Smoke, Sparks, Sprite, Stars, Visual, VolGrid};
-use mao_formats::gfx::{EffectMesh, Shield, Shield2, Suns};
+use mao_formats::gfx::{EffectMesh, Shield, Shield2, ShockWave, Suns};
 use mao_render::{Particle, Shell, ShellVertex, NO_SPRITE};
 
 /// The wind the effects are pushed by, Z up: the effect handler's wind (+0x24, Sparks) and its smoothed copy (+0x30, Smoke).
@@ -915,6 +915,141 @@ impl Locator {
     }
 }
 
+/// An ARGB colour as the shell's red, green, blue and alpha.
+fn shell_colour(c: u32) -> [f32; 4] {
+    [(c >> 16) & 0xff, (c >> 8) & 0xff, c & 0xff, c >> 24].map(|x| x as f32 / 255.0)
+}
+
+/// `_GfxControlShockWave_t`'s rings and cones `t` seconds in about `feet` (world, Z up), as FUN_100ee525 runs them (see
+/// `mao_formats::gfx::ShockWave`), as shells, `ground` the ground's height under a world point (none indoors: the feet's).
+/// Ring k is born `k × interval` in and lives its life: at the fraction `f` of it, a strip of `segments` steps between the inner
+/// and outer circles of the radii mixed from their born values to their end values (kept from below zero with flag 0x2000),
+/// each point laid `lift` over the ground under it, coloured inside and outside by the colours mixed alike (`Color_t`'s `*` and
+/// `+`), its texture round it (flag 0x1000: `u` the step's share of word 20, `v` 0 inside and word 21 outside) or by the
+/// world's x and z; added with flag 0x800 (`GfxVisualGroundRing`'s source alpha onto the scene), else added as its colour
+/// (one onto the inverse source colour, drawn here as added). The cones stand at the feet while rings are being born, cone k
+/// `height` tall between a circle of `widths[0] + k × widths[2]` on the ground and one of `widths[1] × widths[3]^k + k ×
+/// widths[2]` at the top, their alphas below and above by the time `c` into the current interval (`10c` both before 0.1; 1 and
+/// `2 − 10c` to 0.2; then `1 − (c − 0.2) / 0.8` and 0), added (`GfxVisualCone` with its source alpha onto the scene), their
+/// texture round them (flag 0x4000: up them). The ring's centre and the cones follow the feet (the original keeps a ring's
+/// centre from its first frames).
+pub fn shockwave_shells(s: &ShockWave, feet: [f32; 3], t: f32, ground: &dyn Fn(f32, f32) -> Option<f32>) -> Vec<Shell> {
+    let mut out = Vec::new();
+    if t < 0.0 {
+        return out;
+    }
+    let tau = std::f32::consts::TAU;
+    let n = s.segments.max(1);
+    let mix = |a: u32, b: u32, f: f32| {
+        let (a, b) = (shell_colour(a), shell_colour(b));
+        [0, 1, 2, 3].map(|k| (a[k] * (1.0 - f) + b[k] * f).clamp(0.0, 1.0))
+    };
+    for k in 0..s.rings.max(0) {
+        let f = (t - s.interval * k as f32) / s.life;
+        if !(0.0..=1.0).contains(&f) {
+            continue;
+        }
+        let mut inner = s.radii[0] * (1.0 - f) + s.radii[2] * f;
+        let mut outer = s.radii[1] * (1.0 - f) + s.radii[3] * f;
+        if s.flags & 0x2000 != 0 {
+            (inner, outer) = (inner.max(0.0), outer.max(0.0));
+        }
+        let (ci, co) = (mix(s.colours[0], s.colours[2], f), mix(s.colours[1], s.colours[3], f));
+        let point = |j: i32, r: f32| {
+            let angle = tau / n as f32 * j as f32;
+            // (the original's ring is round its y axis: x cos, z sin; the client's y is the server's z)
+            let (x, y) = (feet[0] + angle.cos() * r, feet[1] + angle.sin() * r);
+            [x, y, ground(x, y).unwrap_or(feet[2]) + s.lift]
+        };
+        let uv = |j: i32, p: [f32; 3], outside: bool| {
+            if s.flags & 0x1000 != 0 {
+                [s.texture.0 / n as f32 * j as f32, if outside { s.texture.1 } else { 0.0 }]
+            } else {
+                [p[0] * s.texture.0, p[1] * s.texture.1]
+            }
+        };
+        let mut strip = Vec::new();
+        for j in 0..=n {
+            let (a, b) = (point(j, inner), point(j, outer));
+            strip.push(ShellVertex { position: a, uv: uv(j, a, false), colour: ci });
+            strip.push(ShellVertex { position: b, uv: uv(j, b, true), colour: co });
+        }
+        let vertices = strip_triangles(&strip);
+        // (without flag 0x800: one onto the inverse source colour, its alpha unused)
+        let vertices = if s.flags & 0x800 != 0 { vertices } else { vertices.into_iter().map(|mut v| { v.colour[3] = 1.0; v }).collect() };
+        out.push(Shell { sprite: s.ring_material.max(0) as u16, additive: true, vertices });
+    }
+    // the cones, while rings are being born
+    if s.cones > 0 && s.interval > 0.0 {
+        let phase = t / s.interval;
+        if (phase.floor() as i32) < s.rings {
+            let c = phase.rem_euclid(1.0);
+            let (below, above) = if c < 0.1 {
+                (10.0 * c, 10.0 * c)
+            } else if c < 0.2 {
+                (1.0, 2.0 - 10.0 * c)
+            } else {
+                ((1.0 - (c - 0.2) / 0.8).max(0.0), 0.0)
+            };
+            let colour = |c: u32, a: f32| {
+                let mut v = shell_colour(c);
+                v[3] *= a;
+                v
+            };
+            let (cb, ca) = (colour(s.cone_colours[0], below), colour(s.cone_colours[1], above));
+            let m = s.cone_segments.max(1);
+            for k in 0..s.cones {
+                let low = s.widths[0] + k as f32 * s.widths[2];
+                let high = s.widths[1] * s.widths[3].powi(k) + k as f32 * s.widths[2];
+                let mut strip = Vec::new();
+                for j in 0..=m {
+                    let angle = tau / m as f32 * j as f32;
+                    let (cos, sin) = (angle.cos(), angle.sin());
+                    let step = j as f32 / m as f32;
+                    let (uv_low, uv_high) = if s.flags & 0x4000 != 0 {
+                        ([0.0, step * s.cone_texture.1], [s.cone_texture.0, step * s.cone_texture.1])
+                    } else {
+                        ([step * s.cone_texture.0, 0.0], [step * s.cone_texture.0, s.cone_texture.1])
+                    };
+                    strip.push(ShellVertex { position: [feet[0] + cos * low, feet[1] + sin * low, feet[2]], uv: uv_low, colour: cb });
+                    strip.push(ShellVertex { position: [feet[0] + cos * high, feet[1] + sin * high, feet[2] + s.height], uv: uv_high, colour: ca });
+                }
+                out.push(Shell { sprite: s.cone_material.max(0) as u16, additive: true, vertices: strip_triangles(&strip) });
+            }
+        }
+    }
+    out
+}
+
+/// A triangle strip's vertices as a list of triangles.
+fn strip_triangles(strip: &[ShellVertex]) -> Vec<ShellVertex> {
+    let mut out = Vec::with_capacity(strip.len().saturating_sub(2) * 3);
+    for k in 2..strip.len() {
+        out.extend([strip[k - 2], strip[k - 1], strip[k]]);
+    }
+    out
+}
+
+/// The shells a visual lays round a point `t` seconds in (world, Z up): a shock wave's rings and cones, or (a scatter) its
+/// copies'.
+pub fn visual_ground_shells(v: &Visual, feet: [f32; 3], t: f32, ground: &dyn Fn(f32, f32) -> Option<f32>) -> Vec<Shell> {
+    match v {
+        Visual::ShockWave(s) => shockwave_shells(s, feet, t, ground),
+        Visual::Meta(children) => children.iter().filter(|c| t < pulse_timing(c).1).flat_map(|c| visual_ground_shells(c, feet, t, ground)).collect(),
+        Visual::Scatter { child, children, looping } => {
+            let life = pulse_timing(child).1.max(0.05);
+            let round = children.iter().map(|c| c.0).fold(0.0, f32::max) + life;
+            let t = if *looping { t.rem_euclid(round.max(0.05)) } else { t };
+            children
+                .iter()
+                .filter(|(born, _)| t >= *born && t - born < life)
+                .flat_map(|(born, at)| visual_ground_shells(child, [feet[0] + at[0], feet[1] + at[1], feet[2] + at[2]], t - born, ground))
+                .collect()
+        }
+        _ => Vec::new(),
+    }
+}
+
 /// The effect meshes a visual shows `t` seconds in for a dynel whose own frame is `at`: itself, or (a scatter) each copy alive
 /// at its place, each with its locator: the dynel's frame for attach point 0, the frame `attractors` gives for the others
 /// (`Locator::attractor` on the posed body; none, and the mesh is not shown, without one).
@@ -1606,7 +1741,15 @@ const LANDING: f32 = 1.4;
 
 impl Shot {
     pub fn lasts(&self) -> f32 {
-        FLIGHT + LANDING
+        // (a hit that runs longer, such as a shock wave's rings, is let run, up to ten seconds)
+        fn rings(v: &Visual) -> f32 {
+            match v {
+                Visual::ShockWave(s) => s.length(),
+                Visual::Meta(children) => children.iter().map(rings).fold(0.0, f32::max),
+                _ => 0.0,
+            }
+        }
+        FLIGHT + LANDING.max(self.hit.as_ref().map_or(0.0, |h| rings(h).min(10.0)))
     }
 
     /// The sparks of the shot `age` seconds after it was cast; `body` is the target's posed surface when it is known (the hits
@@ -1714,8 +1857,8 @@ pub fn visual_particles(v: &Visual, feet: [f32; 3], time: f32, reach: Reach) -> 
         }
         // (drawn as a shell over the character's mesh: see `shield_shell`, `shield2_shell`)
         Visual::Shield(_) | Visual::Shield2(_) => Vec::new(),
-        // (drawn as shells of its mesh: see `effect_mesh_shells`)
-        Visual::EffectMesh(_) => Vec::new(),
+        // (drawn as shells of its mesh: see `effect_mesh_shells`; its rings and cones: `shockwave_shells`)
+        Visual::EffectMesh(_) | Visual::ShockWave(_) => Vec::new(),
         Visual::Suns(s) => {
             let up = match reach {
                 Reach::Small => 0.0,
@@ -1873,6 +2016,7 @@ pub fn pulse_timing(v: &Visual) -> (f32, f32, i32) {
         Visual::Shield(s) => if s.duration > 0.0 { (600.0, s.duration, 1) } else { (600.0, 600.0, -1) },
         Visual::Shield2(s) => if s.duration > 0.0 { (600.0, s.duration, 1) } else { (600.0, 600.0, -1) },
         Visual::EffectMesh(m) => if m.duration > 0.0 { (600.0, m.duration, 1) } else { (600.0, 600.0, -1) },
+        Visual::ShockWave(s) => (600.0, s.length().max(0.05), 1),
         // (a bundle's children started together: the pulse lasts the longest of them and repeats with the longest period; it plays
         // once only when every child does)
         Visual::Meta(children) => {
@@ -2387,6 +2531,52 @@ mod tests {
         }
         // late, only the top of the coil is left
         assert!(late.iter().all(|p| p.position[2] > 1.0));
+    }
+
+    #[test]
+    fn a_shock_wave_spreads_its_rings_one_after_another_with_cones_rising() {
+        // (template 43104: nine rings a quarter second apart, each 1.5 s, from −2..0 to 14..15, red fading out; nine cones)
+        let s = ShockWave {
+            flags: 0x3801,
+            life: 1.5,
+            ring_material: 34,
+            segments: 40,
+            rings: 9,
+            radii: [-2.0, 0.0, 14.0, 15.0],
+            colours: [0xffff_5050, 0xffff_1515, 0x00ff_2020, 0x00ff_1515],
+            texture: (10.0, -1.0),
+            lift: 0.21,
+            interval: 0.25,
+            cones: 9,
+            cone_material: 13,
+            cone_segments: 10,
+            cone_texture: (1.0, 1.0),
+            height: 40.0,
+            widths: [1.3, 1.3, -0.05, 0.75],
+            cone_colours: [0x80ff_2020, 0x00ff_ffff],
+        };
+        assert!((s.length() - 3.5).abs() < 1e-5);
+        let flat = |_: f32, _: f32| Some(0.0);
+        // at 0.3 s: rings 0 and 1, and the nine cones
+        let at = shockwave_shells(&s, [0.0; 3], 0.3, &flat);
+        assert_eq!(at.len(), 2 + 9);
+        // ring 0 at 0.2 of its life: inner radius 1.2, outer 3, laid 0.21 over the ground
+        let ring = &at[0];
+        assert_eq!(ring.vertices.len(), 80 * 3);
+        let r = |v: &ShellVertex| v.position[0].hypot(v.position[1]);
+        assert!((r(&ring.vertices[0]) - 1.2).abs() < 1e-4 && (r(&ring.vertices[1]) - 3.0).abs() < 1e-4);
+        assert!((ring.vertices[0].position[2] - 0.21).abs() < 1e-6);
+        // cone 0 1.3 wide below and above, 40 tall; cone 2 above 1.3 × 0.75² − 0.1
+        let cone = &at[2 + 2];
+        let top = cone.vertices.iter().map(|v| v.position[2]).fold(0.0, f32::max);
+        assert!((top - 40.0).abs() < 1e-4);
+        let top_r = cone.vertices.iter().filter(|v| v.position[2] > 39.0).map(r).fold(0.0, f32::max);
+        assert!((top_r - (1.3 * 0.5625 - 0.1)).abs() < 1e-3);
+        // (0.3 s is 0.2 into the second interval: the cones' below alpha 1 × 0x80, above 0)
+        assert!((at[2].vertices[0].colour[3] - 128.0 / 255.0).abs() < 1e-3);
+        // past the last birth the cones are gone; past the last ring's life, everything
+        assert_eq!(shockwave_shells(&s, [0.0; 3], 2.4, &flat).len(), 5);
+        assert!(shockwave_shells(&s, [0.0; 3], 3.6, &flat).is_empty());
     }
 
     #[test]
