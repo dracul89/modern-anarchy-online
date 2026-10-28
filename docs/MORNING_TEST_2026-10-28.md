@@ -56,13 +56,14 @@ four tabs are too cramped (the wear column is narrow, so their names are cut); t
 | 2c2d490 | **Combat tab in the original's words** (`text.mdb`): "You hit X for N points of melee damage.", "X hit you for ...", "You tried to hit X, but missed!", "You hit X with nanobots for ...", "You were healed for N points.", "Critical hit!" | fight; compare the Combat tab with the original client's |
 | e1b8a69 | **Shields, absorbs, XP in the original's words**: "Your damage shield hit X for N points of damage.", "You absorbed N points of cold damage.", "You received N xp." | kill something with a damage shield up; check the XP line on a kill |
 | d129213 | **Facing the target**: a standing fighter turns to face its target (every 0.67 s, when more than ~15° off, at 7.2 rad/s) | start a fight with the monster beside or behind you and stand still |
+| b55e7f0 | **Nano casts**: casting tells "Executing Nano Program: <nano>." in the Combat tab (the original's line); the client's own "X casts Y on you" lines are gone (the original has none) | cast a nano |
 | 2c2d490 | **Fix: `HealthDamage` direction**: the floating numbers and health bars now follow the one hurt (the message's sender), not the source | your health bar should no longer jump to a monster's health in a fight |
 
 **Looked for, not found: a muzzle flash on held guns.** The `muzzleflash` effect (an `eff_muzzleflash` connector → effect
 template 2000, kind 1006, `_GfxControlFlare1_t`, which bursts on its own timer while its mesh is shown) belongs to statel
 meshes such as turrets. The guns' held meshes (the Peregrine's 264695, the Shark's 262556) have only `Attractor01_weaponfire`,
 and their templates name no effect: their stat 420 picks the fire *sound* (FUN_1009d1f1). **Not done:** the
-hit/impact sounds, and the nano-cast lines in the original's wording (still the client's own).
+hit/impact sounds (**the client has no audio at all yet**: sounds need a new audio dependency and the sound formats, so that is left for you to decide), and the nano-cast lines in the original's wording (still the client's own).
 
 ## How to run
 
