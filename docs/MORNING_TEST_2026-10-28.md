@@ -74,6 +74,7 @@ Added after the overnight run, on request: audio through rodio, ported from the 
 
 | Commit | What | What to try |
 |---|---|---|
+| ff0eaef | **Info view modifiers**: the item page lists what the item modifies ("On User: Modify Fire AC 819") | Info on armour or an implant |
 | 49ef4da | **The info view**: GUI.dll's info window with item pages (name, rarity, QL, requirements in the original's words, location, description) | right-click an item in the inventory, **Info**; try Back/Forward after opening two items |
 | 8b79b1a | **GUI.dll's view system, step 3**: the text views' markup, word wrap and links (`HTMLParser_c`, `TextRenderer_c`) | `MAO_UI_PREVIEW=view MAO_VIEW=Skills.xml ... --image x.png`: the Skills window's help text as the original shows it |
 | 28a030f | **GUI.dll's view system, step 2**: XML windows drawn and clickable (border views, buttons, check boxes, pictures, plain text) | `MAO_UI_PREVIEW=view MAO_VIEW=Skills.xml mao-client <game> map 566 --image x.png` |

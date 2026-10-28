@@ -1009,6 +1009,7 @@ puts text into a view named BrowserView). Not used by the game's windows yet.
 inventory's right-click **Info**: an item page built as GUI.dll's FUN_1003882b builds it (`gui/iteminfo.rs`) — the name in
 its rarity's colour, NODROP/UNIQUE, rarity, quality level, the requirements of each action in Gamecode's words
 (`gui/criteria.rs`, a port of `N3Msg_GetUseByString`/`CriteriaAndOrNot`/`ConvertCriteria`: "Wear: / On Self: / Strength
-from 826 and ..."), the locations, charges and description, all labels from the text database. Back/Forward walk its
-history; links in its text open their page (`text://`, `file://`, `chatcmd://` run as chat commands). Not yet: weapon,
-armour, implant and nano pages' own sections and the modifiers.
+from 826 and ..."), the locations, the modifiers (`gui/spells.rs`, `N3Msg_ConvertSpellList`: "On User: / Modify Radiation AC 819", read with a
+spell reader in `mao_formats::spell` from GameData's spell formats), charges and description, all labels from the text
+database. Back/Forward walk its history; links in its text open their page (`text://`, `file://`, `chatcmd://` run as chat
+commands). Not yet: weapon, armour, implant and nano pages' own sections; spell types other than the common ones.
