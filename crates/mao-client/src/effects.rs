@@ -4,8 +4,9 @@
 //! ([`ring`]: the cord ribbon `_GfxControlBuffPlaceHolder_t` lays as its point turns, of which the original only ever draws the
 //! forward-spinning one).
 
-use mao_formats::gfx::{colour_curve, curve, unpack_argb, Aura, BParticles, Cast, Cords, Deform, Emitter, Flare, Helix, Smoke, Sparks, Sprite, Stars, Visual, VolGrid};
-use mao_render::{Particle, NO_SPRITE};
+use mao_formats::gfx::{colour_curve, curve, unpack_argb, BParticles, Cast, Cords, Deform, Emitter, Flare, Helix, Smoke, Sparks, Sprite, Stars, Visual, VolGrid};
+use mao_formats::gfx::Shield;
+use mao_render::{Particle, Shell, ShellVertex, NO_SPRITE};
 
 /// The wind the effects are pushed by, Z up: the effect handler's wind (+0x24, Sparks) and its smoothed copy (+0x30, Smoke).
 /// The viewer sets it every frame (`crate::wind`); still air until then.
@@ -569,6 +570,54 @@ fn plasma_particles(colour_a: [f32; 4], colour_b: [f32; 4], material: i32, durat
         .collect()
 }
 
+/// `GfxVisualShield`'s shell `t` seconds into a `_GfxControlShield_t` (see `mao_formats::gfx::Shield`) over a character's whole
+/// posed mesh (`surface`, world, Z up; `origin` its feet), as FUN_1001c94f builds its vertices: each pushed out along its normal,
+/// its texture coordinates by the mapping, its colour the template's, its alpha the template's times the run's factor times
+/// `sin²` of the fade (from a point or along an axis with flags 0x800 / 0x1000), shimmering with flag 0x2000. The model frame
+/// (Y up, its origin the feet) the mapping, the point and the shimmer are taken in is the world's, unturned by the heading.
+pub fn shield_shell(s: &Shield, surface: &crate::blobshadow::Surface, origin: [f32; 3], t: f32) -> Option<Shell> {
+    let (time, factor) = s.time(t)?;
+    let n = surface.positions.len().min(surface.normals.len()).min(surface.uvs.len());
+    if n == 0 || surface.indices.is_empty() {
+        return None;
+    }
+    let channel = |shift: u32| ((s.colour >> shift) & 0xff) as f32 / 255.0;
+    let (rgb, base) = ([channel(16), channel(8), channel(0)], channel(24) * factor);
+    let (b, d) = (s.speed.0 * time, s.speed.1 * time);
+    let axis = {
+        let l = (s.axis[0] * s.axis[0] + s.axis[1] * s.axis[1] + s.axis[2] * s.axis[2]).sqrt();
+        if l > 0.0 { s.axis.map(|c| c / l) } else { s.axis }
+    };
+    let vertex = |i: usize| {
+        let p = surface.positions[i];
+        let nrm = surface.normals[i];
+        let position = [0, 1, 2].map(|k| p[k] + nrm[k] * s.push);
+        // (the model frame: x, y up, z)
+        let m = [p[0] - origin[0], p[2] - origin[2], p[1] - origin[1]];
+        let uv0 = surface.uvs[i];
+        let uv = match s.mapping {
+            1 => [m[0].atan2(m[2]) * s.scale.0 / std::f32::consts::TAU + b, m[1] * s.scale.1 + b],
+            2 => [m[0] * s.scale.0 + b, m[1] * s.scale.1 + d],
+            _ => [(uv0[0] + b) * s.scale.0, (uv0[1] + d) * s.scale.1],
+        };
+        let q = if s.flags & 0x800 != 0 {
+            let dv = [0, 1, 2].map(|k| m[k] - s.point[k]);
+            let x = if s.flags & 0x1000 != 0 { dv[0] * axis[0] + dv[1] * axis[1] + dv[2] * axis[2] } else { (dv[0] * dv[0] + dv[1] * dv[1] + dv[2] * dv[2]).sqrt() };
+            (s.fade * time - x * s.distance).clamp(0.0, s.most.max(0.0)).sin()
+        } else {
+            (s.fade * time).clamp(0.0, s.most.max(0.0)).sin()
+        };
+        let mut alpha = base * q * q;
+        if s.flags & 0x2000 != 0 {
+            let w = (10.0 * m[0] + 10.0 * m[1] + 10.0 * m[2] + 3.0 * time).sin();
+            alpha *= w * w;
+        }
+        ShellVertex { position, uv, colour: [rgb[0], rgb[1], rgb[2], alpha] }
+    };
+    let vertices = surface.indices.iter().filter(|&&i| (i as usize) < n).map(|&i| vertex(i as usize)).collect();
+    Some(Shell { sprite: s.material.max(0) as u16, additive: s.flags & 0x400 != 0, vertices })
+}
+
 /// A character's posed surface: world points (Z up) and their unit normals, from its blob-shadow caster (every fourth vertex).
 #[derive(Clone, Copy, Debug)]
 pub struct Body<'a> {
@@ -1086,7 +1135,7 @@ pub struct Shot {
 }
 
 /// How long the tracer flies and how long the hit effect stays (seconds).
-const FLIGHT: f32 = 0.45;
+pub const FLIGHT: f32 = 0.45;
 const LANDING: f32 = 1.4;
 
 impl Shot {
@@ -1197,19 +1246,8 @@ pub fn visual_particles(v: &Visual, feet: [f32; 3], time: f32, reach: Reach) -> 
             }
             out
         }
-        // a halo under the feet that breathes
-        Visual::Glow { colour, .. } => {
-            let breathe = 0.75 + 0.25 * (time * 2.5).sin();
-            let wide = match reach {
-                Reach::Body => 1.7,
-                Reach::Medium => 1.4,
-                Reach::Small => 0.6,
-            };
-            vec![
-                sprite(8, 0.0, [feet[0], feet[1], feet[2] + 0.08], wide, [colour[0], colour[1], colour[2], colour[3] * 0.55 * breathe]),
-                sprite(8, 0.0, [feet[0], feet[1], feet[2] + 0.12], wide * 0.55, [colour[0], colour[1], colour[2], colour[3] * 0.5 * breathe]),
-            ]
-        }
+        // (drawn as a shell over the character's mesh: see `shield_shell`)
+        Visual::Shield(_) => Vec::new(),
         // a quick bright burst: a core and a ring of sparks flying out
         Visual::Flash { colour, size } => {
             let t = (time / 0.5).clamp(0.0, 1.0);
@@ -1268,39 +1306,9 @@ pub fn attach_point(attach: i32, offset: f32, feet: [f32; 3], heading: f32) -> [
     let (rx, ry) = (heading.cos(), -heading.sin());
     [feet[0] + rx * right, feet[1] + ry * right, feet[2] + height - dir * offset]
 }
-/// The shield effect (kind 3003, `_GfxControlShield_t`: the character's own mesh drawn again with a material) is stood in for by a
-/// ring that climbs the legs about every twenty seconds, as the recording shows its band doing; its real timing is in the material.
-const SHIELD_PERIOD: f32 = 20.0;
-const SHIELD_LIFE: f32 = 1.5;
-/// The trail behind the riding point (kind 1003: 60 sprites a second of light_halo2, each 0.05 m, living 1.5 s).
-const TRAIL_RATE: f32 = 60.0;
-const TRAIL_LIFE: f32 = 1.5;
-
-/// One placeholder's pulse `t` seconds in: the point riding the circle (radius `radius`, centre `feet` + `z`) at `spin` radians a second
-/// from `angle0`, drawn as the trail it leaves (one sprite per 1/60 s of its path, each fading over its 1.5 s life) and a few sparkles at
-/// the point. The whole pulse fades out over its last 0.3 s.
-fn ride(out: &mut Vec<Particle>, feet: [f32; 3], z: f32, radius: f32, angle0: f32, spin: f32, t: f32, life: f32, colour: [f32; 3]) {
-    let end_fade = ((life - t) / 0.3).clamp(0.0, 1.0);
-    let samples = (t * TRAIL_RATE) as usize;
-    let first = samples.saturating_sub((TRAIL_LIFE * TRAIL_RATE) as usize);
-    for k in first..=samples {
-        let born = k as f32 / TRAIL_RATE;
-        let age = (t - born) / TRAIL_LIFE;
-        let angle = angle0 + spin * born;
-        let alpha = (1.0 - age).clamp(0.0, 1.0) * 0.55 * end_fade;
-        out.push(sprite(8, 0.0, [feet[0] + radius * angle.cos(), feet[1] + radius * angle.sin(), z], 0.05 + 0.03 * age, [colour[0], colour[1], colour[2], alpha]));
-    }
-    // the sparkles: tiny bright points scattered round the riding point
-    let head = angle0 + spin * t;
-    for k in 0..4u32 {
-        let (dx, dy, dz) = (hash(k, 11) - 0.5, hash(k, 12) - 0.5, hash(k, 13) - 0.5);
-        out.push(sprite(15, 0.0, [feet[0] + radius * head.cos() + dx * 0.05, feet[1] + radius * head.sin() + dy * 0.05, z + dz * 0.05], 0.025, [1.0, 1.0, 1.0, 0.8 * end_fade]));
-    }
-}
-
 /// The sparks of one running effect `age` seconds into its pulse (from `pulses::Pulses::tick`), round a character whose feet are at `feet`
-/// (world, Z up) facing `heading`, and whose body is `(breed, sex, fatness)` when known. `Visual::Spiral` is the kind-1001 pair of placeholders; the shield
-/// and the rest are stood in for.
+/// (world, Z up) facing `heading`, and whose body is `(breed, sex, fatness)` when known. `Visual::Spiral` is the kind-1001 pair of placeholders; a
+/// shield is drawn as a shell (`shield_shell`).
 pub fn pulse_particles(v: &Visual, feet: [f32; 3], heading: f32, age: f32, body: Option<(i32, i32, i32)>) -> Vec<Particle> {
     let mut out = Vec::new();
     match v {
@@ -1312,12 +1320,6 @@ pub fn pulse_particles(v: &Visual, feet: [f32; 3], heading: f32, age: f32, body:
                 let (offset, radius) = body.map_or((helix.offset, helix.radius), |(b, s, f)| helix.fit(b, s, f));
                 let at = attach_point(helix.attach, offset, feet, heading);
                 ring(&mut out, at, radius.max(0.03), helix, aura.colour, age);
-            }
-        }
-        Visual::Glow { colour, size } => {
-            if age < SHIELD_LIFE {
-                let u = age / SHIELD_LIFE;
-                ride(&mut out, feet, feet[2] + 0.12 + 0.55 * u, 0.3 * size.max(0.5).min(1.5), 0.0, 9.0, age, SHIELD_LIFE, [colour[0], colour[1], colour[2]]);
             }
         }
         other => return visual_particles(other, feet, age, Reach::Body),
@@ -1360,7 +1362,8 @@ pub fn pulse_timing(v: &Visual) -> (f32, f32, i32) {
             let long = if s.duration >= 0.0 { s.duration + s.life * 1.3 } else { 600.0 };
             (long, long, -1)
         }
-        Visual::Glow { .. } => (SHIELD_PERIOD, SHIELD_LIFE, -1),
+        // (a shield plays once for its duration; one without a duration runs while the effect does)
+        Visual::Shield(s) => if s.duration > 0.0 { (600.0, s.duration, 1) } else { (600.0, 600.0, -1) },
         _ => (4.0, 1.5, -1),
     }
 }
@@ -1807,11 +1810,35 @@ mod tests {
         assert!(attach_point(2000, 0.0, [0.0; 3], 0.0)[0] > 0.2);
         assert_eq!(pulse_timing(&aura), (4.0, 1.5, -1));
     }
-    use mao_formats::gfx::Helix;
+    use mao_formats::gfx::{Aura, Helix};
 
     fn aura() -> Aura {
         let helix = |spin: f32| Helix { spin, phase: 0.0, size: 0.15, count: 10, colour: [0.5, 0.4, 1.0], material: 15, attach: 1006, offset: -0.25, radius: 0.15, table: Vec::new(), life: 1.5, ribbon_width: 0.05, ribbon_life: 0.5, ribbon_duration: 1.5, ribbon_material: 8, sparkle_rate: 0.0 };
         Aura { colour: [0.2, 0.2, 0.99], end: [0.2, 0.2, 0.99], helices: vec![helix(-12.566), helix(12.566)], period: 4.0, plays: -1 }
+    }
+
+    #[test]
+    fn a_shield_is_the_mesh_pushed_out_fading_in_and_gone_at_its_duration() {
+        // (template 43608: cyan at 0x88, 0.255 out, thin smoke scrolling, in over a second, 3 s, added)
+        let s = Shield { flags: 0x400, duration: 3.0, material: 32, colour: 0x8800_ffff, push: 0.255, point: [0.0; 3], axis: [0.0; 3], mapping: 0, scale: (2.0, 2.0), fade: 1.571, distance: 15.0, most: 1.571, speed: (0.05, 0.2), looping: 0, loop_range: (0.0, 0.0), ending: 1, end_time: 0.0, end_from: 0.0 };
+        let surface = crate::blobshadow::Surface { positions: vec![[0.0, 0.0, 1.0], [1.0, 0.0, 1.0], [0.0, 1.0, 1.0]], normals: vec![[0.0, 0.0, 1.0]; 3], uvs: vec![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]], indices: vec![0, 1, 2] };
+        let at = |t: f32| shield_shell(&s, &surface, [0.0; 3], t);
+        let half = at(0.5).unwrap();
+        assert!(half.additive && half.sprite == 32 && half.vertices.len() == 3);
+        // pushed out along the normal, cyan, the alpha sin² of the fade times 0x88 / 255
+        let v = half.vertices[1];
+        assert!((v.position[2] - 1.255).abs() < 1e-5 && v.colour[..3] == [0.0, 1.0, 1.0]);
+        let q = (1.571f32 * 0.5).sin();
+        assert!((v.colour[3] - 136.0 / 255.0 * q * q).abs() < 1e-4);
+        // the texture scrolls: (uv + speed t) × scale
+        assert!((v.uv[0] - (1.0 + 0.05 * 0.5) * 2.0).abs() < 1e-5 && (v.uv[1] - 0.2 * 0.5 * 2.0).abs() < 1e-5);
+        // fully in after a second, ended at its duration (no fade-out time)
+        assert!((at(1.5).unwrap().vertices[0].colour[3] - 136.0 / 255.0).abs() < 1e-3);
+        assert!(at(3.01).is_none());
+        // a fade-out of mode 1 over a second: half at its middle
+        let fading = Shield { end_time: 1.0, ..s.clone() };
+        assert!((fading.time(2.5).unwrap().1 - 0.5).abs() < 1e-5 && fading.time(3.1).is_none());
+        assert_eq!(pulse_timing(&Visual::Shield(s)), (600.0, 3.0, 1));
     }
 
     #[test]

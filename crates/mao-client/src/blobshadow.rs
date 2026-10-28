@@ -32,8 +32,20 @@ pub struct Caster {
     pub points: Vec<[f32; 3]>,
     /// The points' unit normals (world, Z up), for the effects that throw from the body's surface (Stars mode 15).
     pub normals: Vec<[f32; 3]>,
+    /// The whole posed mesh (world, Z up): every vertex's place, normal and texture coordinates, and the triangles by index;
+    /// for the shells drawn over the character (the original's `GfxVisualShield`).
+    pub surface: Surface,
     /// The player's own character (moved on between updates like its parts).
     pub own: bool,
+}
+
+/// A character's whole posed mesh (world, Z up).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Surface {
+    pub positions: Vec<[f32; 3]>,
+    pub normals: Vec<[f32; 3]>,
+    pub uvs: Vec<[f32; 2]>,
+    pub indices: Vec<u32>,
 }
 
 fn transform(m: &Matrix, p: [f32; 3]) -> [f32; 3] {
@@ -48,25 +60,36 @@ impl Caster {
     /// A character drawn as `parts` placed by `place` (each part's own matrix first).
     pub fn new(parts: &[Part], place: &Matrix, own: bool) -> Caster {
         let (mut points, mut normals) = (Vec::new(), Vec::new());
+        let mut surface = Surface::default();
         for part in parts {
             let m = multiply(&part.world, place);
             let mut turn = m;
             turn[12] = 0.0;
             turn[13] = 0.0;
             turn[14] = 0.0;
-            for v in part.vertices.iter().step_by(4) {
-                points.push(transform(&m, v.position));
+            let first = surface.positions.len() as u32;
+            for (k, v) in part.vertices.iter().enumerate() {
+                let p = transform(&m, v.position);
                 let n = transform(&turn, v.normal);
                 let l = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
-                normals.push(if l > 0.0 { [n[0] / l, n[1] / l, n[2] / l] } else { [0.0, 0.0, 1.0] });
+                let n = if l > 0.0 { [n[0] / l, n[1] / l, n[2] / l] } else { [0.0, 0.0, 1.0] };
+                surface.positions.push(p);
+                surface.normals.push(n);
+                surface.uvs.push(v.uv);
+                if k % 4 == 0 {
+                    points.push(p);
+                    normals.push(n);
+                }
             }
+            surface.indices.extend(part.indices.iter().map(|&i| first + i as u32));
         }
-        Caster { translation: transform(place, [0.0; 3]), points, normals, own }
+        Caster { translation: transform(place, [0.0; 3]), points, normals, surface, own }
     }
 
     pub fn shifted(&self, by: [f32; 3]) -> Caster {
         let add = |p: &[f32; 3]| [p[0] + by[0], p[1] + by[1], p[2] + by[2]];
-        Caster { translation: add(&self.translation), points: self.points.iter().map(add).collect(), normals: self.normals.clone(), own: self.own }
+        let surface = Surface { positions: self.surface.positions.iter().map(add).collect(), ..self.surface.clone() };
+        Caster { translation: add(&self.translation), points: self.points.iter().map(add).collect(), normals: self.normals.clone(), surface, own: self.own }
     }
 }
 
@@ -203,7 +226,7 @@ mod tests {
                 points.push([10.0 + x, 20.0 + y, 5.0 + z]);
             }
         }
-        Caster { translation: [10.0, 20.0, 5.0], points, normals: Vec::new(), own: false }
+        Caster { translation: [10.0, 20.0, 5.0], points, normals: Vec::new(), surface: Surface::default(), own: false }
     }
 
     #[test]

@@ -1091,6 +1091,18 @@ impl ApplicationHandler for App {
                     let ahead = self.own_at.elapsed().as_secs_f32().min(0.12);
                     let own_feet = [self.own_base[0] + self.own_velocity[0] * ahead, self.own_base[2] + self.own_velocity[2] * ahead, self.own_base[1]];
                     let mut sparks = Vec::new();
+                    let mut shells = Vec::new();
+                    // (a character's posed mesh: the caster standing nearest a point, and the feet it stands on)
+                    let follow = self.follow_shift;
+                    let body_at = |point: [f32; 3]| {
+                        self.casters
+                            .iter()
+                            .filter(|c| !c.surface.positions.is_empty())
+                            .map(|c| ((c.translation[0] - point[0]).hypot(c.translation[1] - point[1]), c))
+                            .filter(|(d, _)| *d < 2.0)
+                            .min_by(|a, b| a.0.total_cmp(&b.0))
+                            .map(|(_, c)| if c.own { c.shifted(follow) } else { c.clone() })
+                    };
                     self.pulses.begin_frame();
                     for (id, own, at, heading, body, auras) in &self.auras {
                         let feet = if *own && self.hud.position.is_some() { own_feet } else { *at };
@@ -1098,6 +1110,11 @@ impl ApplicationHandler for App {
                         for (nano, aura) in auras {
                             let (period, life, plays) = crate::effects::pulse_timing(aura);
                             if let Some(age) = self.pulses.tick(*id, *nano, period, life, plays, time) {
+                                if let mao_formats::gfx::Visual::Shield(s) = aura {
+                                    if let Some(c) = body_at(feet) {
+                                        shells.extend(crate::effects::shield_shell(s, &c.surface, c.translation, age));
+                                    }
+                                }
                                 sparks.extend(crate::effects::pulse_particles(aura, feet, heading, age, *body));
                             }
                         }
@@ -1120,9 +1137,25 @@ impl ApplicationHandler for App {
                             .min_by(|a, b| a.0.total_cmp(&b.0))
                             .map(|(_, c)| crate::effects::Body { points: &c.points, normals: &c.normals });
                         sparks.extend(shot.particles(began.elapsed().as_secs_f32(), body));
+                        // (a hit that is a shield: the shell over the target from the landing)
+                        if let Some(mao_formats::gfx::Visual::Shield(s)) = &shot.hit {
+                            let landed = began.elapsed().as_secs_f32() - if shot.from != shot.to { crate::effects::FLIGHT } else { 0.0 };
+                            if landed >= 0.0 {
+                                if let Some(c) = body_at(shot.to) {
+                                    shells.extend(crate::effects::shield_shell(s, &c.surface, c.translation, landed));
+                                }
+                            }
+                        }
                     }
+                    // (the shells' sheets too)
+                    let sheets: Vec<mao_render::Particle> = shells
+                        .iter()
+                        .map(|s: &mao_render::Shell| mao_render::Particle { sprite: s.sprite, ..mao_render::Particle::dot([0.0; 3], 0.0, [0.0; 4]) })
+                        .collect();
+                    load_sprites(&mut w.renderer, &w.gpu, &self.textures, &sheets, &mut self.tried_sprites);
                     load_sprites(&mut w.renderer, &w.gpu, &self.textures, &sparks, &mut self.tried_sprites);
                     w.scene.particles = sparks;
+                    w.scene.shells = shells;
                 }
                 let frame = match w.surface.get_current_texture() {
                     wgpu::CurrentSurfaceTexture::Success(frame) | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,

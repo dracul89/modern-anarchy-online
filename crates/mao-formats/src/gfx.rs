@@ -815,6 +815,96 @@ pub struct Cast {
     pub released: bool,
 }
 
+/// A kind-3003 template as `_GfxControlShield_t` reads it (FUN_100ee24e; FUN_100edeed the words, FUN_100ee1d2 / FUN_100edf78
+/// the visual on the character's CAT mesh, FUN_100edcf4 the run) and `GfxVisualShield` draws it (displaysystem `gfxshield.rs`,
+/// FUN_1001c94f): the character's skinned mesh again, every vertex pushed out along its normal by word 11, textured with the
+/// material (word 9) mapped by word 18 (0: `(uv + speed × t) × scale`; 1: round the up axis; 2: `position × scale + speed × t`)
+/// with the scales of words 19–20 and the speeds of words 24–25, coloured by word 10 (alpha, red, green, blue packed), its alpha
+/// `sin²(clamp(word 21 × t, 0, word 23))` (with flag 0x800 a front from the point of words 12–14 at word 22 a unit of
+/// distance, along the axis of words 15–17 with flag 0x1000), shimmering by `sin²(10(x + y + z) + 3t)` with flag 0x2000, added
+/// with flag 0x400 or blended. The run: the time loops past word 27 (word 26: 1 wrapping to word 28, 2 back and forth); the
+/// shield stops at its duration (word 8) less word 30 and ends word 30 after (word 29: 1 fading the alpha over it, 2 the time
+/// running back, 3 the time counting down from word 31).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Shield {
+    pub flags: u32,
+    pub duration: f32,
+    pub material: i32,
+    pub colour: u32,
+    pub push: f32,
+    pub point: [f32; 3],
+    pub axis: [f32; 3],
+    pub mapping: i32,
+    pub scale: (f32, f32),
+    pub fade: f32,
+    pub distance: f32,
+    pub most: f32,
+    pub speed: (f32, f32),
+    pub looping: i32,
+    pub loop_range: (f32, f32),
+    pub ending: i32,
+    pub end_time: f32,
+    pub end_from: f32,
+}
+
+impl Shield {
+    pub fn read(r: &Record) -> Option<Shield> {
+        if r.payload.len() < 32 {
+            return None;
+        }
+        Some(Shield {
+            flags: r.int(0) as u32,
+            duration: r.float(8),
+            material: r.int(9),
+            colour: r.int(10) as u32,
+            push: r.float(11),
+            point: [r.float(12), r.float(13), r.float(14)],
+            axis: [r.float(15), r.float(16), r.float(17)],
+            mapping: r.int(18),
+            scale: (r.float(19), r.float(20)),
+            fade: r.float(21),
+            distance: r.float(22),
+            most: r.float(23),
+            speed: (r.float(24), r.float(25)),
+            looping: r.int(26),
+            loop_range: (r.float(27), r.float(28)),
+            ending: r.int(29),
+            end_time: r.float(30),
+            end_from: r.float(31),
+        })
+    }
+
+    /// The visual's time and alpha factor `t` seconds in (FUN_100edcf4), or none once it has ended.
+    pub fn time(&self, t: f32) -> Option<(f32, f32)> {
+        let (mut time, mut factor) = (t, 1.0);
+        if self.duration > 0.0 {
+            let stop = self.duration - self.end_time;
+            if t > stop {
+                let since = t - stop;
+                if since > self.end_time {
+                    return None;
+                }
+                match self.ending {
+                    1 => factor = 1.0 - since / self.end_time.max(1e-6),
+                    2 => time = stop - since,
+                    3 => time = self.end_from - since,
+                    _ => {}
+                }
+            }
+        }
+        let (from, to) = self.loop_range;
+        if time > from && to > from {
+            let span = to - from;
+            match self.looping {
+                1 => time = from + (time - from) % span,
+                2 => time = from + (span - (time - from) % (2.0 * span)).abs(),
+                _ => {}
+            }
+        }
+        Some((time, factor))
+    }
+}
+
 /// The Stars modes the client plays as the original does; the others fall back to the spiral child:
 /// * 3: born in a sphere of the radius, swirling across it (no rise), two a frame, the parabolic size of mode 6;
 /// * 4: born at the point, thrown in a random direction at the radius a second, slowed by 5% a frame and pulled down by 0.1,
@@ -870,8 +960,8 @@ pub enum Visual {
     BParticles(BParticles),
     /// Two spirals of sparks (the buff's aura, and the tracers and hits built on it).
     Spiral(Aura),
-    /// A soft glow under the feet (kind 3003: the running effect of 114 programs, 52 of them the same cyan one).
-    Glow { colour: [f32; 4], size: f32 },
+    /// The character's own mesh drawn again as a shell (kind 3003, `_GfxControlShield_t`).
+    Shield(Shield),
     /// A short bright flash (kind 2001: the hit of 123 programs).
     Flash { colour: [f32; 3], size: f32 },
     /// A kind-2002 template, `_GfxControlPlasma_t` (made by the number-taking `CreateGfxControl` FUN_100d19b0 / FUN_100ec5ae;
@@ -930,12 +1020,7 @@ impl Gfx {
             3001 if r.payload.len() >= 16 && r.int(10) == 1 => Some(Visual::Deform(Deform { duration: r.float(8), strength: r.float(11), ramp_in: r.float(12), ramp_out: r.float(13), frequency: r.float(14), amplitude: r.float(15) })),
             1001 | 2004 | 2005 | 2006 | 1018 => self.aura(id).map(Visual::Spiral),
             2007 | 3004 => self.references(id).into_iter().filter(|&c| c != id).find_map(|c| self.visual(c)),
-            3003 => {
-                // word 10 is a packed colour (alpha, red, green, blue as one integer), word 11 the size of a sprite
-                let argb = r.int(10) as u32;
-                let channel = |shift: u32| ((argb >> shift) & 0xff) as f32 / 255.0;
-                Some(Visual::Glow { colour: [channel(16), channel(8), channel(0), channel(24)], size: r.float(11) })
-            }
+            3003 => Shield::read(r).map(Visual::Shield),
             2001 => Some(Visual::Flash { colour: [1.0, 0.95, 0.8], size: 0.9 }),
             // (word 10 and the pairs after it are the range each colour channel is drawn from: 0.3 to 1)
             2002 if r.payload.len() >= 19 => Some(Visual::Plasma {

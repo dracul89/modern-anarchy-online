@@ -98,3 +98,37 @@ fn fs_particle(in: Out) -> @location(0) vec4<f32> {
     let texel = textureSample(sheet, samp, in.uv);
     return vec4(texel.rgb * texel.a * in.colour.rgb * in.colour.a, 0.0);
 }
+
+// The shells (the original's `GfxVisualShield`): textured triangles, the texture times the vertex colour, added (its alpha
+// scaling the colour) or blended by its alpha.
+struct ShellIn {
+    @location(0) position: vec3<f32>,
+    @location(1) uv: vec2<f32>,
+    @location(2) colour: vec4<f32>,
+}
+
+struct ShellOut {
+    @builtin(position) position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+    @location(1) colour: vec4<f32>,
+}
+
+@vertex
+fn vs_shell(in: ShellIn) -> ShellOut {
+    var out: ShellOut;
+    out.position = globals.view_proj * vec4(in.position, 1.0);
+    out.uv = in.uv;
+    out.colour = in.colour;
+    return out;
+}
+
+@fragment
+fn fs_shell_add(in: ShellOut) -> @location(0) vec4<f32> {
+    let texel = textureSample(sheet, samp, in.uv) * in.colour;
+    return vec4(texel.rgb * texel.a, 0.0);
+}
+
+@fragment
+fn fs_shell_blend(in: ShellOut) -> @location(0) vec4<f32> {
+    return textureSample(sheet, samp, in.uv) * in.colour;
+}
