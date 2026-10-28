@@ -251,6 +251,18 @@ fn a_bundle_runs_every_child() {
 }
 
 #[test]
+fn specials_swing_their_class_of_the_weapon() {
+    let Some(db) = database() else { return };
+    let get = |t: u32| db.get(Id { kind: mao_formats::item::TEMPLATE, instance: t }).unwrap().unwrap();
+    // (the Ofab Peregrine is small arms: a burst bursts, a full auto runs; the Ofab Shark a rifle; a crowbar's sneak attack stabs)
+    assert_eq!(mao_formats::item::weapon_actions(&get(301709), 6, 0x16), vec![0x3f6]);
+    assert_eq!(mao_formats::item::weapon_actions(&get(301709), 8, 0x17), vec![0x3fa]);
+    assert_eq!(mao_formats::item::weapon_actions(&get(265091), 6, 0x17), vec![0x401]);
+    assert_eq!(mao_formats::item::weapon_actions(&get(122829), 6, 0x1d), vec![0x3ec]);
+    assert_eq!(mao_formats::item::special_class(147), Some((0x19, false)));
+}
+
+#[test]
 fn captured_weapons_swing_animations_the_files_have() {
     // (the weapons a captured fight's WeaponItemFullUpdates named, and the martial arts item)
     let Some(db) = database() else { return };

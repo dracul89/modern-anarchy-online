@@ -209,8 +209,9 @@ struct World {
     /// The weapons the characters hold, by (owner, place): the item's template (`WeaponItemFullUpdate`: the owner, the place in
     /// `Unknown2`'s low byte, the template in stat 702, `ACGItemTemplateID`).
     weapons: BTreeMap<(u32, u8), u32>,
-    /// Each character's last attack (`AttackInfo`, `MissedAttackInfo`): the weapon's place, when, and a count picking the swing.
-    swings: BTreeMap<u32, (u32, Instant, u32)>,
+    /// Each character's last attack (`AttackInfo`, `MissedAttackInfo`, `SpecialAttackInfo`): the weapon's place, when, a count
+    /// picking the swing, and the animation class (0xb, or a special's).
+    swings: BTreeMap<u32, (u32, Instant, u32, u32)>,
     /// The specials the server timed (skill stat, seconds; 0 = ready again), not yet given to the hotbars.
     special_events: Vec<(u32, f32)>,
     /// Damage and healing events not yet shown as floating numbers: (target id, amount, stat).
@@ -536,7 +537,7 @@ impl World {
                 // (a miss swings the weapon too: FUN_100a1077 → FUN_1006b399 → FUN_1006ae3c with the place in `Unknown2`)
                 let slot = p.value.get("Unknown2").and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
                 let n = self.swings.get(&attacker).map_or(0, |s| s.2.wrapping_add(1));
-                self.swings.insert(attacker, (slot, Instant::now(), n));
+                self.swings.insert(attacker, (slot, Instant::now(), n, 0xb));
                 let name = |id: u32| self.names.get(&id).map_or_else(|| "Something".to_string(), |n| n.0.clone());
                 let line = if attacker == self.own {
                     Some(format!("You miss {}.", name(defender)))
@@ -556,7 +557,23 @@ impl World {
             if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
                 let slot = p.value.get("WeaponSlot").and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
                 let n = self.swings.get(&m.identity.1).map_or(0, |s| s.2.wrapping_add(1));
-                self.swings.insert(m.identity.1, (slot, Instant::now(), n));
+                self.swings.insert(m.identity.1, (slot, Instant::now(), n, 0xb));
+            }
+        }
+        // A special attack (`SpecialAttackInfo`, from the attacker: FUN_100a1f10 → FUN_1006af0e → FUN_1006a782 with the special
+        // flag): the weapon in `EquipSlot` swings the special's class; only the client's own character has a queued special
+        // (FUN_10068aa3 reads +0x9c), the others swing the plain attack. The specials that take their own item (Brawl,
+        // Dimach) find none here and swing the weapon's plain attack, as the original does when FUN_10068c19 has no item.
+        if m.kind == 0x754f1115 {
+            if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
+                let slot = p.value.get("EquipSlot").and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
+                let stat = p.value.get("Stat").and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
+                let class = match mao_formats::item::special_class(stat) {
+                    Some((class, false)) if m.identity.1 == self.own => class,
+                    _ => 0xb,
+                };
+                let n = self.swings.get(&m.identity.1).map_or(0, |s| s.2.wrapping_add(1));
+                self.swings.insert(m.identity.1, (slot, Instant::now(), n, class));
             }
         }
         // A weapon a character holds: its owner, its place and its template.
@@ -1446,10 +1463,14 @@ impl Characters {
     /// weapon's attack time (stat 294 × 10 ms), held to 1..2. The animation, its length, the layer it claims and the speed. Not
     /// followed: the character's own animation set (its 0xfde97 map, which picks among an action's variants), the height of
     /// the target (FUN_1006a782's `param_3`, which FUN_1003cac9 does not pass on) and the crawling variants.
-    fn ensure_swing(&mut self, breed: u8, sex: u8, template: u32, slot: u32, pick: u32) -> Option<((u32, f32), u32, f32)> {
+    /// A special's class (FUN_1003c7a6) swings its own actions, else the plain attack's.
+    fn ensure_swing(&mut self, breed: u8, sex: u8, template: u32, slot: u32, pick: u32, class: u32) -> Option<((u32, f32), u32, f32)> {
         use mao_formats::resource::Id;
         let data = self.db.get(Id { kind: mao_formats::item::TEMPLATE, instance: template }).ok()??;
-        let actions = mao_formats::item::attack_actions(&data, slot);
+        let mut actions = mao_formats::item::weapon_actions(&data, slot, class);
+        if actions.is_empty() && class != 0xb {
+            actions = mao_formats::item::attack_actions(&data, slot);
+        }
         let attack_ms = mao_formats::item::Item::parse(&data).and_then(|i| i.stat(294)).map_or(0.0, |d| d as f32 * 10.0);
         let (file, claims) = if actions.is_empty() {
             (self.ensure_social(breed, sex, "wave")?, 0)
@@ -1552,7 +1573,7 @@ impl Characters {
     /// The parts of a player of this breed and sex at `t` ms into the walk,
     /// in Y-up local space (world matrices identity), if its meshes exist.
     /// `vehicle`: the vehicle body (NPC template) a vehicle program puts the character on, drawn instead of its own.
-    fn parts(&mut self, id: u32, breed: u8, sex: u8, moving: Option<mao_formats::appearance::Action>, jumped: Option<Duration>, _phase: f32, speed: f32, scale: f32, textures: &[(String, u32)], clothes: &[(String, u32)], gear: &[(u8, u32, u32)], social: Option<(&str, Instant)>, swing: Option<(u32, u32, Instant, u32)>, deform: Option<(&mao_formats::gfx::Deform, f32)>, vehicle: Option<u32>) -> Option<Vec<Part>> {
+    fn parts(&mut self, id: u32, breed: u8, sex: u8, moving: Option<mao_formats::appearance::Action>, jumped: Option<Duration>, _phase: f32, speed: f32, scale: f32, textures: &[(String, u32)], clothes: &[(String, u32)], gear: &[(u8, u32, u32)], social: Option<(&str, Instant)>, swing: Option<(u32, u32, Instant, u32, u32)>, deform: Option<(&mao_formats::gfx::Deform, f32)>, vehicle: Option<u32>) -> Option<Vec<Part>> {
         if let Some(template) = vehicle {
             if let Some(parts) = self.vehicle_parts(id, breed, sex, template, moving, speed, scale, textures, clothes, gear, deform) {
                 return Some(parts);
@@ -1578,7 +1599,7 @@ impl Characters {
             let file = self.ensure_social(breed, sex, n)?;
             self.anim_by_name(&file).map(|a| (a, began))
         });
-        let swing = swing.and_then(|(template, slot, began, pick)| self.ensure_swing(breed, sex, template, slot, pick).map(|(anim, claims, speed)| (anim, claims, speed, began)));
+        let swing = swing.and_then(|(template, slot, began, pick, class)| self.ensure_swing(breed, sex, template, slot, pick, class).map(|(anim, claims, speed)| (anim, claims, speed, began)));
         self.drive(id, key, movement, points, rate, social, swing);
         let dt = self.stack_tick(id);
         let db = self.db.clone();
@@ -1752,9 +1773,9 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
             // (a social action in progress plays over the movement on the character's animation stack)
             let social = world.socials.get(&id).map(|&(social, began)| (social, began));
             // (an attack swings the weapon held in the place it names: the server's WeaponItemFullUpdate, or our own inventory)
-            let swing = world.swings.get(&id).and_then(|&(slot, began, pick)| {
+            let swing = world.swings.get(&id).and_then(|&(slot, began, pick, class)| {
                 let template = world.weapons.get(&(id, slot as u8)).copied().or_else(|| (id == world.own).then(|| world.inventory.as_ref()?.iter().find(|e| e.slot == slot).map(|e| e.low_id)).flatten())?;
-                Some((template, slot, began, pick))
+                Some((template, slot, began, pick, class))
             });
             // Movement animates while the position changes (our own is sampled every frame, the others' every few hundred ms).
             let moving = world.last_move.get(&id).is_some_and(|t| t.elapsed() < Duration::from_millis(if id == world.own { 90 } else { 700 }));
@@ -4549,8 +4570,8 @@ mod door_tests {
         assert_eq!(w.weapons.get(&(0x630193db, 6)), Some(&301709));
         let attack = Message { kind: 0x46002f16, identity: (0xc350, 0x630193db), data: hex("0000000008ffffffff000000060000c3500004bc80000000000000000300000000") };
         w.add(&attack.frame(1));
-        let (slot, _, pick) = w.swings[&0x630193db];
-        assert_eq!((slot, pick), (6, 0));
+        let (slot, _, pick, class) = w.swings[&0x630193db];
+        assert_eq!((slot, pick, class), (6, 0, 0xb));
         w.add(&attack.frame(1));
         assert_eq!(w.swings[&0x630193db].2, 1);
     }

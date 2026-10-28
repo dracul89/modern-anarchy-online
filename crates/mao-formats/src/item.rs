@@ -243,18 +243,74 @@ pub fn anim_sets(template: &[u8]) -> Vec<(u32, Vec<u32>)> {
 /// without the stat (taken as unset: FUN_1009d964's stat read was not traced to its default). The crawling variants (the
 /// owner's stat 430 at 14) are not used.
 pub fn attack_actions(template: &[u8], slot: u32) -> Vec<u32> {
+    weapon_actions(template, slot, 0xb)
+}
+
+/// The actions of one class of a wielded weapon's animation map (see [`attack_actions`]): the classes FUN_1009d964 sets for the
+/// weapon's AnimSet (it erases them first, FUN_10065b56, then fills them: the attack 0xb and the specials' classes, 0x15
+/// aimed shot, 0x16 burst, 0x17 full auto, 0x1c fling shot, 0x19 fast attack, 0x1d sneak attack), else the template's own.
+pub fn weapon_actions(template: &[u8], slot: u32, class: u32) -> Vec<u32> {
     let left = slot == 8;
     let set = Item::parse(template).and_then(|i| i.stat(353));
-    match set {
-        Some(0) => vec![if left { 0x3f8 } else { 0x3f5 }],
-        Some(1) => if left { vec![0x3ee, 0x3ef, 0x3ee] } else { vec![0x3eb, 0x3ec, 0x3eb] },
-        Some(2) => vec![0x41a, 0x41b, 0x41c, 0x41d],
-        Some(3) => vec![0x3ff],
-        Some(6) => vec![0xb7],
-        Some(7) => vec![0xcb],
-        Some(8) => vec![0x426],
-        _ => anim_sets(template).into_iter().filter(|(class, _)| *class == 0xb).flat_map(|(_, actions)| actions).collect(),
+    let filled: Option<(&[u32], Vec<u32>)> = match set {
+        Some(0) => {
+            let (shot, burst, auto) = if left { (0x3f8, 0x3f9, 0x3fa) } else { (0x3f5, 0x3f6, 0x3f7) };
+            Some((&[0xb, 0x16, 0x15, 0x17, 0x1c], match class {
+                0xb | 0x15 | 0x1c => vec![shot],
+                0x16 => vec![burst],
+                0x17 => vec![auto],
+                _ => vec![],
+            }))
+        }
+        Some(1) => {
+            let (slash, stab) = if left { (0x3ee, 0x3ef) } else { (0x3eb, 0x3ec) };
+            Some((&[0xb, 0x19, 0x1d], match class {
+                0xb => vec![slash, stab, slash],
+                0x19 => vec![slash],
+                0x1d => vec![stab],
+                _ => vec![],
+            }))
+        }
+        Some(2) => Some((&[0xb, 0x1d, 0x19], match class {
+            0xb => vec![0x41a, 0x41b, 0x41c, 0x41d],
+            0x1d => vec![0x41b],
+            0x19 => vec![0x41d],
+            _ => vec![],
+        })),
+        Some(3) => Some((&[0xb, 0x16, 0x17, 0x1c, 0x15], match class {
+            0xb | 0x1c | 0x15 => vec![0x3ff],
+            0x16 => vec![0x400],
+            0x17 => vec![0x401],
+            _ => vec![],
+        })),
+        Some(6) => Some((&[0xb], if class == 0xb { vec![0xb7] } else { vec![] })),
+        Some(7) => Some((&[0xb], if class == 0xb { vec![0xcb] } else { vec![] })),
+        Some(8) => Some((&[0xb], if class == 0xb { vec![0x426] } else { vec![] })),
+        _ => None,
+    };
+    match filled {
+        Some((classes, actions)) if classes.contains(&class) => actions,
+        _ => anim_sets(template).into_iter().filter(|(c, _)| *c == class).flat_map(|(_, actions)| actions).collect(),
     }
+}
+
+/// The animation class a special attack swings with (Gamecode FUN_1003c7a6, by the special's skill stat): 148 Burst 0x16, 167
+/// Full Auto 0x17, 151 Aimed Shot 0x15, 150 Fling Shot 0x1c, 147 Fast Attack 0x19, 146 Sneak Attack 0x1d, 489 Backstab 0x89;
+/// and Brawl (142, 0x23), Dimach (144, 0x24) and 121 (0x87), which take the special's own item rather than the weapon (`true`).
+pub fn special_class(stat: u32) -> Option<(u32, bool)> {
+    Some(match stat {
+        148 => (0x16, false),
+        167 => (0x17, false),
+        151 => (0x15, false),
+        150 => (0x1c, false),
+        147 => (0x19, false),
+        146 => (0x1d, false),
+        489 => (0x89, false),
+        142 => (0x23, true),
+        144 => (0x24, true),
+        121 => (0x87, true),
+        _ => return None,
+    })
 }
 
 pub fn actions(template: &[u8]) -> Vec<Action> {
