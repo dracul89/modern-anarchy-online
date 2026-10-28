@@ -37,6 +37,7 @@ mod lightning;
 mod liquid;
 mod voices;
 mod friends;
+mod fxs;
 mod help;
 mod launcher;
 mod look;

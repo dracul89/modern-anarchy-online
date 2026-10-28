@@ -279,11 +279,11 @@ pub struct MusicOverrides {
 }
 
 impl MusicOverrides {
-    /// FUN_10130a1b at `now` (`GameTime_t` +0xb4, the server's seconds: `Clock::server_time`): type 3 pushes the IIR's script text as its name's override for
-    /// the start (moved by the lag) plus the length less now, `SetDistrictMusicOverride` making it an end (when over 0); type
-    /// 1 pops its name's last (`PopDistrictMusicOverride`; the original only when its script made nothing, which the client
-    /// runs none of). The other types run FXS scripts, not here.
-    pub fn script(&mut self, iir: &ScriptIir, now: i32) {
+    /// FUN_10130a1b at `now` (`GameTime_t` +0xb4, the server's seconds: `Clock::server_time`): the start moved by the lag
+    /// (returned, for the script types' text: `fxs::script_event`); type 3 pushes the IIR's script text as its name's
+    /// override for the start plus the length less now, `SetDistrictMusicOverride` making it an end (when over 0); type 1
+    /// pops its name's last (`PopDistrictMusicOverride`) when no script has made an object (`scripted`, FUN_1002a15e's).
+    pub fn script(&mut self, iir: &ScriptIir, now: i32, scripted: bool) -> i32 {
         let behind = now.wrapping_sub(iir.sent);
         let lag = match self.lag {
             Some(l) if l <= behind => l,
@@ -298,13 +298,14 @@ impl MusicOverrides {
                 let end = if 0 < left { left.wrapping_add(now) } else { left };
                 self.map.entry(key).or_default().push((iir.script.clone(), end));
             }
-            1 => {
+            1 if !scripted => {
                 if let Some(s) = self.map.get_mut(&key) {
                     s.pop();
                 }
             }
             _ => {}
         }
+        start
     }
 
     /// `GetDistrictMusicOverride(name)` at `now`: the ended overrides dropped from the top (FUN_10122d49: an end other than
@@ -723,14 +724,16 @@ mod tests {
         assert_eq!((iir.kind, iir.script.as_str(), iir.name.as_str(), iir.start, iir.length), (3, "EP_01\\Battle_new", "Newland City", 1000, 60));
         // (the client 10 s behind: it starts at 1010 and ends at 1070)
         let mut o = MusicOverrides::default();
-        o.script(&iir, 1000);
+        o.script(&iir, 1000, false);
         assert_eq!(o.get("Newland City", 1069).as_deref(), Some("EP_01\\Battle_new"));
         assert_eq!(o.get("Other", 1069), None);
         assert_eq!(o.get("Newland City", 1071), None);
         // (one already over never ends; a type 1 pops it)
-        o.script(&ScriptIir { length: 0, sent: 0, start: -100, ..iir.clone() }, 1000);
+        o.script(&ScriptIir { length: 0, sent: 0, start: -100, ..iir.clone() }, 1000, false);
         assert!(o.get("Newland City", 5000).is_some());
-        o.script(&ScriptIir { kind: 1, ..iir.clone() }, 1000);
+        o.script(&ScriptIir { kind: 1, ..iir.clone() }, 1000, true);
+        assert!(o.get("Newland City", 5000).is_some());
+        o.script(&ScriptIir { kind: 1, ..iir.clone() }, 1000, false);
         assert_eq!(o.get("Newland City", 5000), None);
     }
 

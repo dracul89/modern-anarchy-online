@@ -64,6 +64,14 @@ impl Clock {
         unix_now().wrapping_add(self.server_offset)
     }
 
+    /// The server's time in whole seconds and the second's fraction (`GameTime_t` +0xc0 and +0xc4, which `RunFunction`
+    /// counts on by the frames' times from `Update`'s; the real clock's here).
+    pub fn server_clock(&self) -> (u32, f32) {
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64());
+        let t = now + self.server_offset as f64;
+        (t.floor() as i64 as u32, (t - t.floor()) as f32)
+    }
+
     /// The day count now (the days passed since the clock was set count on).
     pub fn day(&self) -> i32 {
         self.day + ((self.seconds + self.set.elapsed().as_secs_f32() * PACE) / DAY) as i32

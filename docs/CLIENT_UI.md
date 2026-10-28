@@ -848,7 +848,7 @@ health in percent, its level). The sound preferences (volumes, mutes, the battle
 `LoginPrefs.xml`. `mao-client music <game> <layer> [seconds]` plays a layer and prints the samples. The server can override a district's music for a while (a
 `ScriptIIR_t` of type 3: the music's layer name, the district's name, a start and a length; type 1 ends the last), which then
 plays in its place. With Notum Wars (the character's stat 389 bit 0) a district of land control (one with a land control
-level range) plays the land control music (`Landcontrol_neutral`, the layer -911) instead. Not followed: the other script events (FXS scripts) and land control's layer, indoor rooms' zones.
+level range) plays the land control music (`Landcontrol_neutral`, the layer -911) instead. Not followed: indoor rooms' zones.
 
 **Environment sounds.** The world sounds as `Environment_t`'s frame (FUN_100becbe) plays it, every frame through
 `PlayEnvSound` (`ambience.rs`): the district's background for the time of day, `SM_Sandy_Env_Background<Night|Dawn|Day|Dusk>_<district>`
@@ -955,3 +955,13 @@ triangle, and its depth reaching past the point. A bolt over water ends on the s
 splashes (gfx 0x859b, `_GfxControlSplash_t`): four cones of material 35 on the surface, each starting 0.025 s after the last
 and living 0.75 s, swelling up from a 0.8 ring and fading from a faint white. A rock that falls into water splashes there too,
 and in the water its speed and spin are halved each frame.
+
+**Effect scripts (FXS).** The game's effect scripts run now (`fxs/`, FXS.dll ported): the text files of `cd_image/twk` read
+into objects of typed variables (strings, numbers, vectors, quaternions, matrices, sounds, arrays of them) whose values are
+formulas over other objects' variables (`This`, `Parent`, `Spawner`, `GAME`...), each object's `Heartbeat` worked out every
+frame and the object ended when its `Use` reaches `e_Kill`. When a playfield becomes current its tweaks load
+(`Tweak_Playfield_<n>`, else the outdoor or indoor default: the `GAME` interface, the sun, moons, clouds, horizon...), and
+the `GAME` object gets the frame's time, the day's time, the server's clock and the place each frame. The server's script
+events (`ScriptIIR_t` types 0, 2 and 4, such as the alien flybys) run their scripts: an event's heartbeat spawns its
+children (`[SEND]`, the crafts), and their sounds play. What they show is not drawn yet: the effects their `FXID`s start
+(`MAO_FXS=1` lists them and the scripts' errors) are the next step, the sky's among them.

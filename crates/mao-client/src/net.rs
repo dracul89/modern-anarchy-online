@@ -239,6 +239,8 @@ struct World {
     music_overrides: crate::sounds::MusicOverrides,
     /// Notum Wars seen on the character (the sound module's +0xbc: stat 389 bit 0 once, kept).
     expansion: bool,
+    /// The script events come (`ScriptIIR_t`), run by the game loop.
+    script_events: Vec<crate::sounds::ScriptIir>,
     /// The hazards' sounds to play: (sound, where).
     hazard_sounds: Vec<(u32, [f32; 3])>,
     /// Effects to make at a place (`CreateEffect2` at a dynel): (template, where), for the viewer.
@@ -676,7 +678,7 @@ impl World {
             // (a script event: FUN_10130a1b, run as it comes)
             crate::sounds::SCRIPT_IIR => {
                 if let Some(iir) = crate::sounds::ScriptIir::parse(&m.data) {
-                    self.music_overrides.script(&iir, self.game_clock.server_time());
+                    self.script_events.push(iir);
                 }
             }
             crate::hazards::ACTION => {
@@ -2776,6 +2778,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let (mut districts, mut district_tick): (Option<(u32, Option<crate::sounds::DistrictMap>)>, Instant) = (None, Instant::now());
         // The district and the weather at the character, for the environment's sounds (refreshed with the music).
         let (mut ambient_district, mut ambient_weather): (Option<u32>, [f32; 14]) = (None, [0.0; 14]);
+        // (the effect scripts' playfield and expansion, and Gamecode's `rand()` for the script events)
+        let (mut fxs_playfield, mut fxs_expansion, mut script_rand): (Option<u32>, bool, crate::audio::Rand) = (None, false, Default::default());
         // `MAO_MAILBOX=type,instance` (a mail terminal, 0xc773 and its serial) uses it 8 s into the session (or
         // after the walk) and asks for the inbox; the answer is printed (raw when the schema can't read it).
         let mut mailbox: Option<(u32, u32)> = std::env::var("MAO_MAILBOX").ok().and_then(|t| {
@@ -3647,6 +3651,55 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 m.set_listener(position);
                 m.frame_process(dt);
             });
+            // The effect scripts (`fxs`): the playfield's tweaks once it is current (PlayfieldInit FUN_100b2478: FUN_100b1e95's
+            // `LoadPFTweakData`, outdoors 0 or indoors 1 — the environment types 2 to 12 are not known — then the automatic-run
+            // objects), Notum Wars merged in (FUN_100b1f3c: `SetExpansion` of stat 389 once), the script events
+            // (FUN_10130a1b), then the frame (`VisualEnvFX_t::FrameProcess` from FUN_100b05b4: FXS's frame, then the game
+            // interface's variables: the day time is the clock's seconds over its pace, the server's clock, the character's
+            // place as the eye's; no storm, precipitation or wind) and the sounds it played.
+            if fxs_playfield != Some(current) {
+                fxs_playfield = Some(current);
+                crate::fxs::set_data_path(&Path::new(&game_dir).join("cd_image"));
+                crate::fxs::load_playfield(current, if terrain.is_some() { 0 } else { 1 });
+                crate::fxs::start_automatic();
+            }
+            if state.expansion && !fxs_expansion {
+                fxs_expansion = true;
+                crate::fxs::set_expansion(state.stats.get(&389).copied().unwrap_or(0) as u32);
+            }
+            for iir in std::mem::take(&mut state.script_events) {
+                let now = state.game_clock.server_time();
+                let start = state.music_overrides.script(&iir, now, crate::fxs::has_event());
+                let text = mao_formats::ldb::format(&iir.script, &[mao_formats::ldb::Arg::Int(iir.length as i64), mao_formats::ldb::Arg::Int(start as i64)]);
+                if iir.kind != 3 {
+                    crate::fxs::script_event(iir.kind, &text, iir.place, position, now, &mut script_rand);
+                }
+            }
+            crate::fxs::frame_process();
+            let (system_time, system_second) = state.game_clock.server_clock();
+            crate::fxs::set_game(&crate::fxs::Game {
+                delta_time: dt,
+                day_time: state.game_clock.seconds() / crate::gametime::PACE,
+                system_time,
+                system_second,
+                camera_position: position,
+                camera_rotation: [0.0, 1.0, 0.0, 0.0],
+                ..Default::default()
+            });
+            for s in crate::fxs::take_sounds() {
+                let r = crate::fxs::math::round;
+                crate::audio::with(|m| m.play_game_sound(s.id, s.pos, s.f10, s.volume, s.i18, s.f1c, r(s.f20), r(s.f24), r(s.f28) as u16 as u32, s.vel));
+            }
+            for (fxid, _) in crate::fxs::take_started() {
+                if std::env::var_os("MAO_FXS").is_some() {
+                    eprintln!("fxs: effect {fxid} started");
+                }
+            }
+            for m in crate::fxs::take_messages() {
+                if std::env::var_os("MAO_FXS").is_some() {
+                    eprintln!("fxs: {m}");
+                }
+            }
             // (the district's music each second: FUN_100b72bf → `ActivateEnvZone`)
             if district_tick.elapsed() >= Duration::from_secs(1) {
                 district_tick = Instant::now();
