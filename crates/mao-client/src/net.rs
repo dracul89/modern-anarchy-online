@@ -233,6 +233,10 @@ struct World {
     nano_casts: crate::sounds::NanoCasts,
     /// The casts' sounds to play: (at whom, sound, delay, volume).
     cast_sounds: Vec<(u32, u32, f32, f32)>,
+    /// The mines, traps and central controllers, for their sounds (`hazards`).
+    hazards: crate::hazards::Hazards,
+    /// The hazards' sounds to play: (sound, where).
+    hazard_sounds: Vec<(u32, [f32; 3])>,
     /// Each character's last attack (`AttackInfo`, `MissedAttackInfo`, `SpecialAttackInfo`): the weapon's place, when, a count
     /// picking the swing, and the animation class (0xb, or a special's).
     swings: BTreeMap<u32, (u32, Instant, u32, u32)>,
@@ -642,6 +646,22 @@ impl World {
         }
         if m.kind == 0x36510078 {
             self.dead.remove(&m.identity.1);
+        }
+        // The hazards (`hazards`): their full updates, a controller's state, and what befalls a mine or trap.
+        match m.kind {
+            crate::hazards::MINE_FULL_UPDATE | crate::hazards::TRAP_FULL_UPDATE | crate::hazards::CONTROLLER_FULL_UPDATE => {
+                self.hazards.full_update(m.kind, m.identity.1, &m.data);
+            }
+            crate::hazards::CONTROLLER_STATE => self.hazards.state(m.identity.1, &m.data),
+            crate::hazards::ACTION => {
+                let out = self.hazards.action(m.identity.1, &m.data, self.own);
+                self.hazard_sounds.extend(out.sounds);
+                if let Some(name) = out.line {
+                    // (FUN_10059047: the feedback told as it is)
+                    self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, crate::feedback::plain(name)));
+                }
+            }
+            _ => {}
         }
         // The jingles: a new level (`NewLevel`, FUN_10075f55: `SM_Sandy_Game_Level_Complete`), a new shadow level
         // (`ShadowLevel`, FUN_10077ae7: `..._Neutral`, `..._Clan` or `..._Omni` by the side, stat 33) and a mission done
@@ -3746,6 +3766,12 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     for (at, id, delay, volume) in std::mem::take(&mut state.cast_sounds) {
                         let Some(p) = (if at == own { Some(position) } else { state.position_of(at) }) else { continue };
                         crate::audio::with(|m| m.play_game_sound(id, p, delay, volume, 0, 0.0, 100, 1, 0, [0.0; 3]));
+                    }
+                    // (the hazards' sounds: `PlayGameSound(id, at, 0, 1, 0, 0, 100, 1)`, FUN_10085b15, FUN_10099536, FUN_1007e0a8)
+                    let controllers = state.hazards.frame();
+                    state.hazard_sounds.extend(controllers);
+                    for (id, at) in std::mem::take(&mut state.hazard_sounds) {
+                        crate::audio::with(|m| m.play_game_sound(id, at, 0.0, 1.0, 0, 0.0, 100, 1, 0, [0.0; 3]));
                     }
                     for id in std::mem::take(&mut state.died) {
                         let Some(at) = (if id == own { Some(position) } else { state.position_of(id) }) else { continue };

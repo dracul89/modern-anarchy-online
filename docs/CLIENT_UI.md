@@ -867,3 +867,10 @@ its share of the full strength and shakes the eye by up to about 8 cm on each ax
 stops. Your own new level plays `SM_Sandy_Game_Level_Complete` (`NewLevel`, FUN_10075f55), a new shadow level its Neutral, Clan
 or Omni version by your side (`ShadowLevel`, FUN_10077ae7), and a finished mission (`CharacterAction` 59, FUN_1005d61f) the
 mission-complete jingle by your side.
+
+**Hazards.** Mines, traps and central controllers sound as the original's `Mine_t`, `TrapItem_t` and `CentralController_t`
+do (`hazards.rs`): their places come from their full updates (each a simple item's update first); when the server says one was
+sprung (`ActionIIR_t` 0x6d) `SM_Sandy_Game_Explo_Big` plays at it and, if it caught you, the Combat tab says so; a disarm
+(0x6c) says you succeeded; a mine's malfunction (0x8c) plays its malfunction sound. A central controller hums its idle sound
+while idle and plays its shutdown sound once when it shuts down. Not done: the explosion's effect and a mine's bleep as you walk
+into it.

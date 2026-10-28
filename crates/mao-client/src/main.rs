@@ -32,6 +32,7 @@ mod mixer;
 mod ambience;
 mod music;
 mod sounds;
+mod hazards;
 mod friends;
 mod help;
 mod launcher;

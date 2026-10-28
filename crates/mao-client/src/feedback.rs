@@ -59,6 +59,10 @@ fn english(name: &str) -> &'static str {
         "Feedback_ReloadingCompleted" => "Reloading completed",
         "Feedback_CriticalHit" => "Critical hit!",
         "Feedback_GlancingHit" => "Glancing hit.",
+        "Feedback_MineWasSprung" => "The mine was sprung! You failed disarming the mine!",
+        "Feedback_ATrapWasSprung" => "A trap was sprung! You failed disarming the trap!.",
+        "Feedback_YouSuccededDisarmingMine" => "You succeeded disarming the mine!",
+        "Feedback_YouSuccededDisarmingTrap" => "You succeded disarming the trap!.",
         _ => "",
     }
 }
