@@ -312,7 +312,8 @@ impl Ctx<'_> {
     }
 }
 
-/// The page of an item at a quality (FUN_10038f6b): a weapon's (FUN_1003732c), else the general one (FUN_1003882b).
+/// The page of an item at a quality (FUN_10038f6b by item class, stat 76): a weapon's (1, FUN_1003732c), armour's (2,
+/// FUN_1003826b) and implants' (3 and 5, FUN_10038586), else the general one (FUN_1003882b).
 pub fn item_page(db: &ResourceDatabase, low: u32, high: u32, ql: u32, level: u32) -> Option<String> {
     let template = |id: u32| db.get(Id { kind: item::TEMPLATE, instance: id }).ok().flatten();
     let data = template(low).or_else(|| template(high))?;
@@ -326,6 +327,9 @@ pub fn item_page(db: &ResourceDatabase, low: u32, high: u32, ql: u32, level: u32
             c.equip_delay(), c.initiative(), c.location(), c.range(), c.dual_wield(), c.specials(), c.max_beneficial(), c.modifiers(),
             c.damage_type(), c.description(),
         ]
+    } else if matches!(c.stat(76), Some(2) | Some(3) | Some(5)) {
+        // (armour FUN_1003826b, implants FUN_10038586: no charges; armour's "Fabric" shows only in a debug input mode)
+        vec![c.header(), c.flags(), c.temporary(), c.pvp(), c.rarity(), c.requirements(), c.location(), c.modifiers(), c.description()]
     } else {
         vec![c.header(), c.flags(), c.temporary(), c.pvp(), c.rarity(), c.requirements(), c.location(), c.modifiers(), c.charges(), c.description()]
     };
