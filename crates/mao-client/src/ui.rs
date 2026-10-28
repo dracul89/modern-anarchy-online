@@ -717,7 +717,6 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
 /// The Whom-Pah window: the booths of this area (their labels say where each leads, once known), how
 /// far they are, and a button that walks to one (the server zones a character that walks into a booth).
 fn whompah_window(ctx: &egui::Context, open: &mut bool, hud: &Hud, palette: &Palette, requests: &mut Requests) {
-    let accent = rgb(palette.accent);
     let mut is_open = *open;
     crate::chrome::window(ctx, palette, "Whom-Pah", "Whom-Pah", &mut is_open, |w| w.resizable(true).default_width(340.0).anchor(egui::Align2::RIGHT_CENTER, egui::vec2(-16.0, 0.0)), |ui| {
         let here = hud.position;

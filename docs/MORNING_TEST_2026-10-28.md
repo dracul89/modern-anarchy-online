@@ -53,13 +53,14 @@ four tabs are too cramped (the wear column is narrow, so their names are cut); t
 | 64a056c | **Out of a fight**: a rifle is held two-handed (`idle-2h`) and walked/run with `walk-2h`/`run-2h`; bows and bazookas their own idles | wield a rifle and walk |
 | 1f8c538 | **Deaths**: the dying play their death (`die-knees`, `die-shot` ... as the server says) and lie until despawned (~10 s), instead of standing on | kill something |
 | 888a011 | **Creature swings**: monsters attacking play their own attack animation | get hit by a monster |
+| (this) | **Combat tab in the original's words** (`text.mdb`): "You hit X for N points of melee damage.", "X hit you for ...", "You tried to hit X, but missed!", "You hit X with nanobots for ...", "You were healed for N points.", "Critical hit!" | fight; compare the Combat tab with the original client's |
+| (this) | **Fix: `HealthDamage` direction**: the floating numbers and health bars now follow the one hurt (the message's sender), not the source | your health bar should no longer jump to a monster's health in a fight |
 
 **Looked for, not found: a muzzle flash on held guns.** The `muzzleflash` effect (an `eff_muzzleflash` connector → effect
 template 2000, kind 1006, `_GfxControlFlare1_t`, which bursts on its own timer while its mesh is shown) belongs to statel
 meshes such as turrets. The guns' held meshes (the Peregrine's 264695, the Shark's 262556) have only `Attractor01_weaponfire`,
-and their templates name no effect: their stat 420 picks the fire *sound* (FUN_1009d1f1). **Not done:** the
-combat chat lines in the original's own wording (they come from `text.mdb` through the feedback events; the `ldb` drop-in
-reads that file), facing the target in a fight, and the hit/impact sounds.
+and their templates name no effect: their stat 420 picks the fire *sound* (FUN_1009d1f1). **Not done:** facing
+the target in a fight, the hit/impact sounds, and the shield/absorb/XP lines in the original's wording (still the client's own).
 
 ## How to run
 

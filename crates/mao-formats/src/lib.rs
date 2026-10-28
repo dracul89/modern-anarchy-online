@@ -26,3 +26,4 @@ pub mod weather;
 pub mod rooms;
 pub mod dynels;
 pub mod gfx;
+pub mod ldb;

@@ -27,7 +27,6 @@ pub fn sorted(friends: &[Friend]) -> Vec<&Friend> {
 impl FriendsWindow {
     /// Shows the window; returns what to send to the chat server and the name to start a tell to, if one was chosen.
     pub fn show(&mut self, ctx: &egui::Context, friends: &[Friend], palette: &Palette) -> (Vec<Out>, Option<String>) {
-        let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
         let (mut outs, mut tell) = (Vec::new(), None);
         let mut open = self.open;
         let online = friends.iter().filter(|f| f.online).count();

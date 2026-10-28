@@ -39,7 +39,6 @@ const ICON: f32 = 28.0;
 
 impl LootWindow {
     pub fn show(&mut self, ctx: &egui::Context, view: &LootView, palette: &Palette) -> Option<Take> {
-        let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
         let mut take = None;
         let mut open = self.open;
         let shown = crate::chrome::window(ctx, palette, "loot", &view.title, &mut open, |w| w.id(egui::Id::unique("loot")).default_pos(crate::layout::pos("loot", egui::pos2(380.0, 140.0))).default_width(280.0), |ui| {

@@ -249,20 +249,19 @@ struct World {
     objects: BTreeMap<u32, [f32; 3]>,
 }
 
-/// A fight line from a `HealthDamage`: a negative amount is damage of the stat's type (the armour class it was met by), a positive
-/// one healing.
-fn combat_line(who: &str, you: bool, amount: i64, stat: u32) -> String {
-    let n = amount.abs();
-    if amount > 0 {
-        return if you { format!("You are healed for {n} points.") } else { format!("{who} is healed for {n} points.") };
-    }
-    // (stat 0 is "no type": the damage was not met by an armour class)
-    let kind = if stat == 0 { String::new() } else { format!("{} ", crate::skills::stat_name(stat).trim_end_matches("AC").trim().to_lowercase()) };
-    if you {
-        format!("You take {n} points of {kind}damage.")
-    } else {
-        format!("{who} takes {n} points of {kind}damage.")
-    }
+/// The game's resources, for the item names and stats the fight lines need (set when play starts).
+static ITEM_DB: std::sync::OnceLock<Arc<ResourceDatabase>> = std::sync::OnceLock::new();
+
+/// A stat of an item template.
+fn template_stat(template: u32, stat: u32) -> Option<i64> {
+    let data = ITEM_DB.get()?.get(mao_formats::resource::Id { kind: mao_formats::item::TEMPLATE, instance: template }).ok().flatten()?;
+    mao_formats::item::Item::parse(&data)?.stat(stat).map(|v| v as i64)
+}
+
+/// The name of an item template.
+fn template_name(template: u32) -> Option<String> {
+    let data = ITEM_DB.get()?.get(mao_formats::resource::Id { kind: mao_formats::item::TEMPLATE, instance: template }).ok().flatten()?;
+    Some(mao_formats::item::Item::parse(&data)?.name)
 }
 
 /// The line for an `Absorb` (the character's armour soaked up damage of a type) or a `ShieldAttack` (a damage shield struck the character).
@@ -367,6 +366,15 @@ pub fn send_chat(out: crate::chatwindow::Out) {
 }
 
 impl World {
+    /// Who a character is in a fight line: the client's own, one it knows by name, or one it doesn't.
+    fn who(&self, id: u32) -> crate::feedback::Who<'_> {
+        if id == self.own {
+            crate::feedback::Who::You
+        } else {
+            self.names.get(&id).map_or(crate::feedback::Who::Unknown, |n| crate::feedback::Who::Named(&n.0, n.1))
+        }
+    }
+
     /// A nano landed on the character (or its duration changed): it joins the running list with that time, the others' times first
     /// brought up to now.
     fn nano_duration(&mut self, nano: u32, ms: u32) {
@@ -544,15 +552,9 @@ impl World {
                 let slot = p.value.get("Unknown2").and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
                 let n = self.swings.get(&attacker).map_or(0, |s| s.2.wrapping_add(1));
                 self.swings.insert(attacker, (slot, Instant::now(), n, 0xb));
-                let name = |id: u32| self.names.get(&id).map_or_else(|| "Something".to_string(), |n| n.0.clone());
-                let line = if attacker == self.own {
-                    Some(format!("You miss {}.", name(defender)))
-                } else if defender == self.own {
-                    Some(format!("{} misses you.", name(attacker)))
-                } else {
-                    None
-                };
-                if let Some(line) = line {
+                // (the line: FUN_1006b399's feedback 0x3b, with the skill its stat names, `Unknown3`)
+                let skill = p.value.get("Unknown3").and_then(mao_net::schema::Value::as_int).filter(|&s| s != 0).map(|s| crate::skills::stat_name(s as u32).to_string());
+                if let Some(line) = crate::feedback::miss(self.who(defender), self.who(attacker), skill.as_deref()) {
                     self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
                 }
             }
@@ -584,6 +586,13 @@ impl World {
                 let slot = p.value.get("WeaponSlot").and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
                 let n = self.swings.get(&m.identity.1).map_or(0, |s| s.2.wrapping_add(1));
                 self.swings.insert(m.identity.1, (slot, Instant::now(), n, 0xb));
+                // (the line: FUN_1009b6b7's feedback, the damage type the attacking weapon's, FUN_1009b525)
+                let int = |name: &str| p.value.get(name).and_then(mao_net::schema::Value::as_int).unwrap_or(0);
+                let target = p.value.get("Target").and_then(|t| t.get("Instance")).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
+                let kind = crate::feedback::weapon_damage_type(self.weapons.get(&(m.identity.1, slot as u8)).and_then(|&t| template_stat(t, 436)));
+                if let Some(line) = crate::feedback::attack(self.who(target), self.who(m.identity.1), int("Amount"), kind, int("HitType")) {
+                    self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
+                }
             }
         }
         // A special attack (`SpecialAttackInfo`, from the attacker: FUN_100a1f10 → FUN_1006af0e → FUN_1006a782 with the special
@@ -767,8 +776,11 @@ impl World {
             if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
                 let amount = p.value.get("Amount").and_then(mao_net::schema::Value::as_int).unwrap_or(0);
                 let stat = p.value.get("Stat").and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
-                let target = p.value.get("Target").and_then(|t| t.get("Instance")).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
-                let who = if target == self.own { "You".to_string() } else { self.names.get(&target).map_or_else(|| "Something".to_string(), |n| n.0.clone()) };
+                // (FUN_100a0611: the one hurt is the message's own identity, its health `TargetHp`; `Target` is the source and the
+                // last field, `Unk2`, an item template the hit came from)
+                let target = m.identity.1;
+                let source = p.value.get("Target").and_then(|t| t.get("Instance")).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
+                let nano = p.value.get("Unk2").and_then(mao_net::schema::Value::as_int).filter(|&n| n != 0).map(|n| template_name(n as u32).unwrap_or_else(|| format!("item #{n}")));
                 self.damage.push((target, amount, stat));
                 if let Some(hp) = p.value.get("TargetHp").and_then(mao_net::schema::Value::as_int) {
                     self.last_hp.insert(target, hp);
@@ -777,8 +789,9 @@ impl World {
                         entry.0 = hp;
                     }
                 }
-                let line = combat_line(&who, target == self.own, amount, stat);
-                self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
+                if let Some(line) = crate::feedback::health(self.who(target), self.who(source), amount, stat, nano.as_deref()) {
+                    self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
+                }
             }
         }
         // A container the character used lists its contents; the server moves an item out with a `ContainerAddItem`; a corpse that
@@ -2282,6 +2295,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     let start = state.entities.get(&own).map(|e| e.0).unwrap_or([0.0; 3]);
     let heading = state.rotations.get(&own).map(|q| 2.0 * q[1].atan2(q[3])).unwrap_or(0.0);
     let (gear_db, gear_textures) = (db.clone(), crate::Textures::new(db.clone()));
+    let _ = ITEM_DB.set(db.clone());
     // The chat server (once per run, kept across zonings): its lines go to the chat window (and the on-screen log), and what the
     // window sends goes out through `send_chat`.
     if std::env::var_os("MAO_NO_CHAT").is_none() && !CHAT_STARTED.swap(true, std::sync::atomic::Ordering::SeqCst) {
@@ -4791,11 +4805,31 @@ mod door_tests {
     }
 
     #[test]
+    fn fight_lines_follow_the_originals_feedback() {
+        // (captured, the client 0x4bc80 against 0x7b017c26 and 0x7b017c5b)
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let mut w = World { own: 0x4bc80, ..World::default() };
+        w.names.insert(0x7b017c26, ("Rollerrat".into(), false));
+        w.names.insert(0x7b017c5b, ("Tower Shark".into(), false));
+        let lines = |w: &mut World| w.game_lines.drain(..).map(|l| l.text).collect::<Vec<String>>();
+        // an AttackInfo from the client: 1913 at 0x7b017c26 (no weapon known: projectile)
+        w.add(&Message { kind: 0x46002f16, identity: (0xc350, 0x4bc80), data: hex("0000000779ffffffff000000080000c3507b017c26000000040000000300000000") }.frame(1));
+        assert_eq!(lines(&mut w), ["You hit Rollerrat for 1913 points of projectile damage."]);
+        // a miss at the client
+        w.add(&Message { kind: 0x5c654b28, identity: (0xc350, 0x4bc80), data: hex("01ffffffff000000060000c3507b017c260000c3500004bc8000000000") }.frame(1));
+        assert_eq!(lines(&mut w), ["Rollerrat tried to hit you, but missed!"]);
+        // a HealthDamage from 0x7b017c5b: it is the one hurt (its health 19908), the client the source
+        w.add(&Message { kind: 0x3710256c, identity: (0xc350, 0x7b017c5b), data: hex("0000004dc4fffff4ef0000005b000000000000c3500004bc8000000000") }.frame(1));
+        assert_eq!(lines(&mut w), ["You hit Tower Shark with nanobots for 2833 points of melee damage."]);
+        assert_eq!(w.last_hp.get(&0x7b017c5b), Some(&19908));
+        assert_eq!(w.damage.last().map(|d| d.0), Some(0x7b017c5b));
+        // and the client healing itself
+        w.add(&Message { kind: 0x3710256c, identity: (0xc350, 0x4bc80), data: hex("000000ce670000007400000000000000000000c3500004bc8000000000") }.frame(1));
+        assert_eq!(lines(&mut w), ["You were healed for 116 points."]);
+    }
+
+    #[test]
     fn fight_lines_name_who_and_what() {
-        assert_eq!(combat_line("Rollerrat", false, -49, 92), "Rollerrat takes 49 points of energy damage.");
-        assert_eq!(combat_line("You", true, -1581, 95), "You take 1581 points of cold damage.");
-        assert_eq!(combat_line("Rollerrat", false, 49, 0), "Rollerrat is healed for 49 points.");
-        assert_eq!(combat_line("You", true, -7, 0), "You take 7 points of damage.");
         assert_eq!(absorb_line(1581, 95), "You absorb 1581 points of cold damage.");
         assert_eq!(reload_line(75, 25260), "You reload: 75 rounds in the weapon, 25260 left.");
         assert_eq!(shield_line("Rat", 173), "Rat's damage shield hits you for 173 points.");

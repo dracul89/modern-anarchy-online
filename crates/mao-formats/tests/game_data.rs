@@ -319,3 +319,15 @@ fn a_creature_set_swings_and_dies() {
     assert_eq!(mao_formats::appearance::action_fallback(500), 6000);
     assert!(record.animations.iter().any(|a| a.0 == 6000));
 }
+
+/// The original's feedback lines, read from `text.mdb` by the names FUN_10012c3e hashes.
+#[test]
+fn feedback_texts() {
+    let Some(game) = std::env::var_os("MAO_GAME").map(PathBuf::from) else { return };
+    let texts = mao_formats::ldb::Texts::parse(&std::fs::read(game.join("cd_image/text/text.mdb")).unwrap()).unwrap();
+    let f = |name: &str| texts.named(mao_formats::ldb::FEEDBACK, name).unwrap().to_string();
+    assert_eq!(f("Feedback_HitWithSpecial"), "You hit %s for %u points of %s damage.");
+    assert_eq!(f("Feedback_OtherTriedToHitMissed"), "%s tried to hit you, but missed!");
+    assert_eq!(f("Feedback_CriticalHit"), "Critical hit!");
+    assert_eq!(f("TryToAttackWithSpecialButMiss"), "You try to attack %s with %s, but you miss!");
+}
