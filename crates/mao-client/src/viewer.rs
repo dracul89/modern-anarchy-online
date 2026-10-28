@@ -259,6 +259,25 @@ pub fn headless_on(model: &Model, textures: &Textures, out: &str, ui: Option<(&H
                 scene.shells.extend(crate::effects::effect_mesh_shells(&m, &model, &|k, i| sheets.get(&(k, i)).copied().unwrap_or(mao_render::NO_SPRITE), &at, Some(eye), t));
             }
             scene.shells.extend(crate::effects::visual_ground_shells(&visual, feet, time, &|_, _| None));
+            // (its trails, run at thirty frames a second up to the time, the body moving along +y at `MAO_RIDE_SPEED` units a
+            // second, 0 by default)
+            let speed: f32 = std::env::var("MAO_RIDE_SPEED").ok().and_then(|v| v.parse().ok()).unwrap_or(0.0);
+            let mut trails: Vec<crate::effects::TrailState> = Vec::new();
+            let mut last = Vec::new();
+            for frame in 0..=(time * 30.0) as i32 {
+                let t = frame as f32 / 30.0;
+                let shift = [0.0, speed * (t - time), 0.0];
+                let moved = |l: crate::effects::Locator| crate::effects::Locator { origin: [l.origin[0] + shift[0], l.origin[1] + shift[1], l.origin[2] + shift[2]], ..l };
+                let found = crate::effects::visual_trails(&visual, moved(crate::effects::Locator::feet(feet, 0.0)), t, &|attach| crate::effects::Locator::attractor(attach, attractors).map(moved));
+                trails.resize_with(found.len(), Default::default);
+                for (state, (trail, place, age)) in trails.iter_mut().zip(&found) {
+                    state.step(trail, place, *age, t, [0.0, 1.0, 0.0]);
+                }
+                last = found;
+            }
+            for (state, (trail, _, _)) in trails.iter().zip(&last) {
+                scene.shells.extend(state.shells(trail));
+            }
             eprintln!("aura: {} shells", scene.shells.len());
             for shell in &scene.shells {
                 let (lo, hi) = shell.vertices.iter().fold(([f32::MAX; 3], [f32::MIN; 3]), |(lo, hi), v| ([0, 1, 2].map(|k| lo[k].min(v.position[k])), [0, 1, 2].map(|k| hi[k].max(v.position[k]))));
@@ -282,6 +301,9 @@ pub fn headless_on(model: &Model, textures: &Textures, out: &str, ui: Option<(&H
     }
     let mut tried = std::collections::HashSet::new();
     load_sprites(&mut renderer, &gpu, textures, &scene.particles, &mut tried);
+    // (the shells' sheets too)
+    let sheets: Vec<mao_render::Particle> = scene.shells.iter().map(|s| mao_render::Particle { sprite: s.sprite, ..mao_render::Particle::dot([0.0; 3], 0.0, [0.0; 4]) }).collect();
+    load_sprites(&mut renderer, &gpu, textures, &sheets, &mut tried);
     // `MAO_DAYLIGHT=<0..1>` sets the day's intensity and `MAO_AREA_FOG=r,g,b,density` an area's fog, for pictures of them.
     if let Some(d) = std::env::var("MAO_DAYLIGHT").ok().and_then(|v| v.parse::<f32>().ok()) {
         scene.daylight = d.clamp(0.0, 1.0);
@@ -363,6 +385,8 @@ struct App {
     /// The effect meshes by file name (`GfxControlEffectMesh_t`), and the sheets their textures were made (from 0xa000).
     effect_meshes: std::collections::HashMap<&'static str, Option<Model>>,
     mesh_sheets: std::collections::HashMap<(u32, u32), u16>,
+    /// The running trails (`GfxControlTrail2_t`) by (character, program, trail), and whether each ran this frame.
+    trails: std::collections::HashMap<(u32, u32, usize), (crate::effects::TrailState, bool)>,
     /// The character's position and speed at the last update, and when it arrived (for the prediction).
     own_base: [f32; 3],
     own_velocity: [f32; 3],
@@ -435,7 +459,7 @@ pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<()
     let settings = Settings::load();
     crate::ui::set_debug_overlay(settings.debug_overlay);
     crate::font::set_enabled(settings.original_font);
-    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, casters: Vec::new(), follow_shift: [0.0; 3], environment: Default::default(), wind: Default::default(), wind_at: std::time::Instant::now(), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
+    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), trails: Default::default(), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, casters: Vec::new(), follow_shift: [0.0; 3], environment: Default::default(), wind: Default::default(), wind_at: std::time::Instant::now(), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
     event_loop.run_app(&mut app).map_err(|e| e.to_string())?;
     if app.logged_out {
         // (the launcher that started the game sees this code and shows the character screen again)
@@ -1162,11 +1186,21 @@ impl ApplicationHandler for App {
                                 let atrox = body.is_some_and(|b| b.0 == 4);
                                 meshes.extend(crate::effects::visual_meshes(aura, crate::effects::Locator::feet(feet, heading), age, &|attach| crate::effects::Locator::attractor(attach, attractors)).into_iter().map(|(m, l, t)| (m, l, t, atrox)));
                                 shells.extend(crate::effects::visual_ground_shells(aura, feet, age, &ground));
+                                // (the trails, each keeping its samples from frame to frame)
+                                let forward = [heading.sin(), heading.cos(), 0.0];
+                                for (k, (trail, place, t)) in crate::effects::visual_trails(aura, crate::effects::Locator::feet(feet, heading), age, &|attach| crate::effects::Locator::attractor(attach, attractors)).into_iter().enumerate() {
+                                    let (state, ran) = self.trails.entry((*id, *nano, k)).or_default();
+                                    state.step(&trail, &place, t, time, forward);
+                                    *ran = true;
+                                    shells.extend(state.shells(&trail));
+                                }
                                 sparks.extend(crate::effects::pulse_particles(aura, feet, heading, age, *body));
                             }
                         }
                     }
                     self.pulses.end_frame();
+                    // (a trail that did not run this frame has ended)
+                    self.trails.retain(|_, (_, ran)| std::mem::take(ran));
                     // (a cast effect emits for a second and lives out its particles' lives)
                     self.bursts.retain(|(began, cast)| began.elapsed().as_secs_f32() < cast.length);
                     for (began, cast) in &self.bursts {

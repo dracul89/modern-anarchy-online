@@ -899,18 +899,84 @@ impl Shield2 {
     /// The colour (ARGB) at the fraction `f` (FUN_1011678b): the last key's (white with none), or the two keys about `f`
     /// mixed by `Color_t::Interpolate` (each channel `(a × (256 − w) + b × w) >> 8`, `w` the fraction by 256 truncated).
     pub fn colour_at(&self, f: f32) -> u32 {
-        let Some(&(_, last)) = self.colours.last() else { return u32::MAX };
-        let Some(i) = Self::segment(self.colours.iter().map(|k| k.0), f) else { return last };
-        let ((t0, a), (t1, b)) = (self.colours[i], self.colours[i + 1]);
-        let span = if t1 - t0 == 0.0 { 1.0 } else { t1 - t0 };
-        let w = ((f - t0) / span * 256.0) as i32;
-        let mix = |shift: u32| ((((a >> shift) & 0xff) as i32 * (256 - w) + ((b >> shift) & 0xff) as i32 * w) >> 8) as u32 & 0xff;
-        mix(24) << 24 | mix(16) << 16 | mix(8) << 8 | mix(0)
+        key_colour(&self.colours, f)
     }
 
     /// The push at the fraction `f` (FUN_1011689d, see [`key_curve`]).
     pub fn push_at(&self, f: f32) -> f32 {
         key_curve(&self.pushes, f)
+    }
+}
+
+/// A curve of (time, ARGB) keys at `f`, as FUN_1011678b reads it: the last key's colour (white with none), or the two keys
+/// about `f` mixed by `Color_t::Interpolate` (each channel `(a × (256 − w) + b × w) >> 8`, `w` the fraction by 256 truncated).
+pub fn key_colour(keys: &[(f32, u32)], f: f32) -> u32 {
+    let Some(&(_, last)) = keys.last() else { return u32::MAX };
+    let Some(i) = (0..keys.len().saturating_sub(1)).find(|&i| keys[i].0 <= f && f < keys[i + 1].0) else { return last };
+    let ((t0, a), (t1, b)) = (keys[i], keys[i + 1]);
+    let span = if t1 - t0 == 0.0 { 1.0 } else { t1 - t0 };
+    let w = ((f - t0) / span * 256.0) as i32;
+    let mix = |shift: u32| ((((a >> shift) & 0xff) as i32 * (256 - w) + ((b >> shift) & 0xff) as i32 * w) >> 8) as u32 & 0xff;
+    mix(24) << 24 | mix(16) << 16 | mix(8) << 8 | mix(0)
+}
+
+/// A kind-3039 template as `GfxControlTrail2_t` reads it (the dynel and point constructors FUN_1011548d / FUN_101153a5;
+/// FUN_1011518a the words, FUN_10115260 the visual, FUN_10115605 the run, FUN_101150ff the sampling) and `GfxVisualTrail2`
+/// draws it (displaysystem `gfxtrail.rs`): word 0 the flags (the locator's 1, 2 and 4; 0x400 the texture across the ribbons,
+/// 0x800 coloured only while the head is not behind the oldest sample, 0x1000 the samples blown along the head's z), words 1–3
+/// and 4–6 the locator's offset and turn, word 7 the attach point, word 8 the duration, word 10 the material, word 11 the
+/// samples, word 12 the time between samples (0: every frame), word 13 the rate of the phase the curves run over, words 14 and
+/// 15 the thrust and its random part (units a second along the head's z), then a colour curve and the curves of the frame's x
+/// and y half-widths.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Trail2 {
+    pub flags: u32,
+    pub place: [f32; 3],
+    pub turn: [f32; 3],
+    pub attach: i32,
+    pub duration: f32,
+    pub material: i32,
+    pub samples: i32,
+    pub period: f32,
+    pub rate: f32,
+    pub thrust: f32,
+    pub fluctuate: f32,
+    pub colours: Vec<(f32, u32)>,
+    pub widths: (Vec<(f32, f32)>, Vec<(f32, f32)>),
+}
+
+impl Trail2 {
+    pub fn read(r: &Record) -> Option<Trail2> {
+        if r.payload.len() < 17 {
+            return None;
+        }
+        let mut at = 16;
+        let mut pairs = |r: &Record| {
+            let n = r.int(at).clamp(0, 64) as usize;
+            at += 1;
+            let keys: Vec<(f32, i32)> = (0..n).map(|k| (r.float(at + 2 * k), r.int(at + 2 * k + 1))).collect();
+            at += 2 * n;
+            keys
+        };
+        let colours = pairs(r).into_iter().map(|(t, c)| (t, c as u32)).collect();
+        let x = pairs(r).into_iter().map(|(t, w)| (t, f32::from_bits(w as u32))).collect();
+        let y = pairs(r).into_iter().map(|(t, w)| (t, f32::from_bits(w as u32))).collect();
+        let v = |k: usize| [r.float(k), r.float(k + 1), r.float(k + 2)];
+        Some(Trail2 {
+            flags: r.int(0) as u32,
+            place: v(1),
+            turn: v(4),
+            attach: r.int(7),
+            duration: r.float(8),
+            material: r.int(10),
+            samples: r.int(11),
+            period: r.float(12),
+            rate: r.float(13),
+            thrust: r.float(14),
+            fluctuate: r.float(15),
+            colours,
+            widths: (x, y),
+        })
     }
 }
 
@@ -1280,6 +1346,8 @@ pub enum Visual {
     Shield2(Shield2),
     /// A named mesh moved, spun and grown by its run (kind 3025, `GfxControlEffectMesh_t`).
     EffectMesh(EffectMesh),
+    /// Four crossed ribbons along the attach point's recent frames (kind 3039, `GfxControlTrail2_t`).
+    Trail2(Trail2),
     /// Rings spreading over the ground one after another and cones of light rising with them (kind 3000,
     /// `_GfxControlShockWave_t`).
     ShockWave(ShockWave),
@@ -1412,6 +1480,7 @@ impl Gfx {
             3034 => Shield2::read(r).map(Visual::Shield2),
             3025 => EffectMesh::read(r).map(Visual::EffectMesh),
             3000 => ShockWave::read(r).map(Visual::ShockWave),
+            3039 => Trail2::read(r).map(Visual::Trail2),
             2005 if r.payload.len() >= 32 && matches!(r.int(10), 0 | 4) => Some(Visual::Suns(Suns {
                 mode: r.int(10),
                 attach: r.int(7),

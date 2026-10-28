@@ -5,7 +5,7 @@
 //! forward-spinning one).
 
 use mao_formats::gfx::{colour_curve, curve, unpack_argb, BParticles, Cast, Cords, Deform, Emitter, Flare, Helix, Smoke, Sparks, Sprite, Stars, Visual, VolGrid};
-use mao_formats::gfx::{EffectMesh, Shield, Shield2, ShockWave, Suns};
+use mao_formats::gfx::{EffectMesh, Shield, Shield2, ShockWave, Suns, Trail2};
 use mao_render::{Particle, Shell, ShellVertex, NO_SPRITE};
 
 /// The wind the effects are pushed by, Z up: the effect handler's wind (+0x24, Sparks) and its smoothed copy (+0x30, Smoke).
@@ -912,6 +912,143 @@ impl Locator {
 
     fn shifted(&self, by: [f32; 3]) -> Locator {
         Locator { origin: [self.origin[0] + by[0], self.origin[1] + by[1], self.origin[2] + by[2]], ..*self }
+    }
+}
+
+/// The trails a visual runs `t` seconds in for a dynel whose own frame is `at` (as [`visual_meshes`] finds the meshes): itself
+/// at its locator, or those of a bundle's or a scatter's children.
+pub fn visual_trails(v: &Visual, at: Locator, t: f32, attractors: &dyn Fn(i32) -> Option<Locator>) -> Vec<(Trail2, Locator, f32)> {
+    match v {
+        Visual::Trail2(trail) if trail.attach == 0 => vec![(trail.clone(), at, t)],
+        Visual::Trail2(trail) => attractors(trail.attach).map(|place| (trail.clone(), place, t)).into_iter().collect(),
+        Visual::Meta(children) => children.iter().filter(|c| t < pulse_timing(c).1).flat_map(|c| visual_trails(c, at, t, attractors)).collect(),
+        Visual::Scatter { child, children, looping } => {
+            let life = pulse_timing(child).1.max(0.05);
+            let round = children.iter().map(|c| c.0).fold(0.0, f32::max) + life;
+            let t = if *looping { t.rem_euclid(round.max(0.05)) } else { t };
+            children
+                .iter()
+                .filter(|(born, _)| t >= *born && t - born < life)
+                .flat_map(|(born, by)| visual_trails(child, at.shifted(*by), t - born, &|attach| attractors(attach).map(|l| l.shifted(*by))))
+                .collect()
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// One sample of a `GfxVisualTrail2`: a frame's origin and its x, y and z axes (the x and y scaled by the half-widths), in the
+/// world (Z up), and its colour (ARGB).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TrailSample {
+    pub at: [f32; 3],
+    pub x: [f32; 3],
+    pub y: [f32; 3],
+    pub z: [f32; 3],
+    pub colour: u32,
+}
+
+/// A running trail's samples (oldest first, at most the template's count), its head (`SetOrigin`), the time since the last
+/// sample and the last step's time.
+#[derive(Clone, Debug, Default)]
+pub struct TrailState {
+    pub samples: std::collections::VecDeque<TrailSample>,
+    pub head: Option<TrailSample>,
+    carry: f32,
+    last: Option<f32>,
+    seed: u32,
+}
+
+/// The client's sampling when the template samples every frame (word 12 at most 0): thirty a second, the original's rate at
+/// thirty frames a second (its trails are as long as its frames are many).
+const TRAIL_FRAME: f32 = 1.0 / 30.0;
+
+impl TrailState {
+    fn random(&mut self) -> f32 {
+        self.seed = self.seed.wrapping_mul(1_103_515_245).wrapping_add(12345);
+        ((self.seed >> 8) & 0xffff) as f32 / 65535.0
+    }
+
+    /// A frame of `GfxControlTrail2_t`'s run (FUN_10115605 with `GfxVisualTrail2::Process`, FUN_1002d169) at `now` seconds,
+    /// the effect `age` seconds in, its locator `place` and the dynel facing `forward` (world): with flag 0x1000 the samples
+    /// blown along the head's z by `(thrust + random × fluctuate) × dt`; the locator's frame (plus the locator's offset words
+    /// 1–3 along its axes) with its x axis scaled by the first width curve and its y by the second at the phase
+    /// `fmod(rate × age, 1)`, coloured by the colour curve at it (flag 0x800: black when the head is more than 0.75 behind the
+    /// oldest sample along `forward`); the head that frame, and a sample every word 12 seconds (or [`TRAIL_FRAME`]).
+    pub fn step(&mut self, t: &Trail2, place: &Locator, age: f32, now: f32, forward: [f32; 3]) {
+        let dt = self.last.map_or(0.0, |l| (now - l).clamp(0.0, 0.25));
+        self.last = Some(now);
+        let world = |v: [f32; 3]| [v[0], v[2], v[1]];
+        if t.flags & 0x1000 != 0 {
+            if let Some(head) = self.head {
+                let push = (t.thrust + self.random() * (t.fluctuate)) * dt;
+                for s in &mut self.samples {
+                    s.at = [0, 1, 2].map(|k| s.at[k] + head.z[k] * push);
+                }
+            }
+        }
+        let phase = (t.rate * age).rem_euclid(1.0);
+        let (a, b) = (mao_formats::gfx::key_curve(&t.widths.0, phase), mao_formats::gfx::key_curve(&t.widths.1, phase));
+        // (the locator's rows carry its frame's scale: FUN_10106193 offsets along them, the run scales them by the curves)
+        let axes = place.axes.map(|r| world(r).map(|c| c * place.scale));
+        let at = [0, 1, 2].map(|k| place.origin[k] + axes[0][k] * t.place[0] + axes[1][k] * t.place[1] + axes[2][k] * t.place[2]);
+        let mut colour = mao_formats::gfx::key_colour(&t.colours, phase);
+        if t.flags & 0x800 != 0 {
+            let oldest = self.samples.front().map_or(at, |s| s.at);
+            let d = [0, 1, 2].map(|k| at[k] - oldest[k]);
+            if d != [0.0; 3] && d[0] * forward[0] + d[1] * forward[1] + d[2] * forward[2] < -0.75 {
+                colour = 0;
+            }
+        }
+        let sample = TrailSample { at, x: axes[0].map(|c| c * a), y: axes[1].map(|c| c * b), z: world(place.axes[2]), colour };
+        self.head = Some(sample);
+        let every = if t.period > 0.0 { t.period } else { TRAIL_FRAME };
+        let room = t.samples.max(1) as usize;
+        if self.samples.is_empty() {
+            self.samples.push_back(sample);
+        }
+        self.carry += dt;
+        while self.carry >= every {
+            self.samples.push_back(sample);
+            while self.samples.len() > room {
+                self.samples.pop_front();
+            }
+            self.carry -= every;
+        }
+    }
+
+    /// `GfxVisualTrail2`'s ribbons (FUN_1002c918) as shells: through the samples, oldest first, and the head, four strips: across
+    /// each frame's y, its x and both diagonals (`x + y`, `x − y`); the texture along them by the share of the samples taken
+    /// (flag 0x400: across), the colours the samples', added (`SRCALPHA` onto the scene).
+    pub fn shells(&self, t: &Trail2) -> Vec<Shell> {
+        let Some(head) = self.head else { return Vec::new() };
+        let room = t.samples.max(1) as usize;
+        let mut points: Vec<TrailSample> = self.samples.iter().skip(self.samples.len().saturating_sub(room.saturating_sub(1))).copied().collect();
+        points.push(head);
+        if points.len() < 2 {
+            return Vec::new();
+        }
+        let taken = (points.len() - 1) as f32;
+        let add = |p: [f32; 3], q: [f32; 3], s: f32| [0, 1, 2].map(|k| p[k] + q[k] * s);
+        let mut out = Vec::new();
+        for pass in 0..4 {
+            let mut strip = Vec::new();
+            for (i, p) in points.iter().enumerate() {
+                let (first, second) = match pass {
+                    0 => (add(p.at, p.y, 1.0), add(p.at, p.y, -1.0)),
+                    1 => (add(p.at, p.x, -1.0), add(p.at, p.x, 1.0)),
+                    2 => (add(add(p.at, p.x, -1.0), p.y, 1.0), add(add(p.at, p.x, 1.0), p.y, -1.0)),
+                    _ => (add(add(p.at, p.x, 1.0), p.y, 1.0), add(add(p.at, p.x, -1.0), p.y, -1.0)),
+                };
+                let f = i as f32 / taken;
+                let colour = shell_colour(p.colour);
+                for (k, position) in [first, second].into_iter().enumerate() {
+                    let uv = if t.flags & 0x400 != 0 { [k as f32, f] } else { [f, k as f32] };
+                    strip.push(ShellVertex { position, uv, colour });
+                }
+            }
+            out.push(Shell { sprite: t.material.max(0) as u16, additive: true, vertices: strip_triangles(&strip) });
+        }
+        out
     }
 }
 
@@ -1859,6 +1996,8 @@ pub fn visual_particles(v: &Visual, feet: [f32; 3], time: f32, reach: Reach) -> 
         Visual::Shield(_) | Visual::Shield2(_) => Vec::new(),
         // (drawn as shells of its mesh: see `effect_mesh_shells`; its rings and cones: `shockwave_shells`)
         Visual::EffectMesh(_) | Visual::ShockWave(_) => Vec::new(),
+        // (a trail keeps its samples: see `TrailState`)
+        Visual::Trail2(_) => Vec::new(),
         Visual::Suns(s) => {
             let up = match reach {
                 Reach::Small => 0.0,
@@ -2017,6 +2156,7 @@ pub fn pulse_timing(v: &Visual) -> (f32, f32, i32) {
         Visual::Shield2(s) => if s.duration > 0.0 { (600.0, s.duration, 1) } else { (600.0, 600.0, -1) },
         Visual::EffectMesh(m) => if m.duration > 0.0 { (600.0, m.duration, 1) } else { (600.0, 600.0, -1) },
         Visual::ShockWave(s) => (600.0, s.length().max(0.05), 1),
+        Visual::Trail2(t) => if t.duration > 0.0 { (600.0, t.duration, 1) } else { (600.0, 600.0, -1) },
         // (a bundle's children started together: the pulse lasts the longest of them and repeats with the longest period; it plays
         // once only when every child does)
         Visual::Meta(children) => {
@@ -2531,6 +2671,52 @@ mod tests {
         }
         // late, only the top of the coil is left
         assert!(late.iter().all(|p| p.position[2] > 1.0));
+    }
+
+    #[test]
+    fn a_trail_samples_its_frames_and_draws_four_crossed_ribbons() {
+        // (template 72301: a hoverboard's blue exhaust, ten samples, 0.2 wide, blown back four to five units a second)
+        let t = Trail2 {
+            flags: 0x1c03,
+            place: [0.0; 3],
+            turn: [0.0; 3],
+            attach: 2006,
+            duration: -1.0,
+            material: 45,
+            samples: 10,
+            period: 0.0,
+            rate: 0.5,
+            thrust: 4.0,
+            fluctuate: 1.0,
+            colours: vec![(0.0, 0xff70_8eff), (1.0, 0xff70_8eff)],
+            widths: (vec![(0.0, 0.2)], vec![(0.0, 0.2)]),
+        };
+        let mut s = TrailState::default();
+        // standing still facing +y, the frame's z (the server's z) pointing along the world's y
+        let place = Locator::feet([0.0; 3], 0.0);
+        for k in 0..30 {
+            s.step(&t, &place, k as f32 / 30.0, k as f32 / 30.0, [0.0, 1.0, 0.0]);
+        }
+        assert_eq!(s.samples.len(), 10);
+        // the oldest sample blown along z (the world's y) by 4–5 units a second over its age, the head at the frame
+        let oldest = s.samples.front().unwrap().at;
+        assert!(oldest[1] > 4.0 * 9.0 / 30.0 * 0.9 && oldest[1] < 5.0 * 10.0 / 30.0 * 1.1, "{oldest:?}");
+        assert_eq!(s.head.unwrap().at, [0.0; 3]);
+        // (the head is behind the oldest along forward: black with flag 0x800)
+        assert_eq!(s.head.unwrap().colour, 0);
+        let shells = s.shells(&t);
+        assert_eq!(shells.len(), 4);
+        // ten points: nine samples and the head, two vertices each, as triangles
+        assert_eq!(shells[0].vertices.len(), (20 - 2) * 3);
+        // moving forward faster than the blow, it is coloured
+        let mut m = TrailState::default();
+        for k in 0..30 {
+            let place = Locator::feet([0.0, k as f32 * 0.5, 0.0], 0.0);
+            m.step(&t, &place, k as f32 / 30.0, k as f32 / 30.0, [0.0, 1.0, 0.0]);
+        }
+        assert_eq!(m.head.unwrap().colour, 0xff70_8eff);
+        // (the half-width along the frame's x)
+        assert!((m.head.unwrap().x[0] - 0.2).abs() < 1e-6);
     }
 
     #[test]

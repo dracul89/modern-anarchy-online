@@ -156,6 +156,9 @@ fn effect_classes_come_to_visuals() {
     assert!(matches!(gfx.visual(17500), Some(Visual::Plasma { material: 8, duration, .. }) if duration == 1.0));
     // the null gather effect has none
     assert!(gfx.visual(49999).is_none());
+    // (a hoverboard's exhaust trail: ten samples blown back, 0.2 to 0.22 wide)
+    assert!(matches!(gfx.visual(72301), Some(Visual::Trail2(t)) if t.attach == 2006 && t.material == 45 && t.samples == 10 && t.rate == 0.5
+        && t.thrust == 4.0 && t.colours.len() == 4 && t.widths.0 == vec![(0.0, 0.2), (0.5, 0.22), (1.0, 0.2)] && t.widths.1.len() == 3));
 }
 
 #[test]
