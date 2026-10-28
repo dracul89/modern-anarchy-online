@@ -74,7 +74,7 @@ Added after the overnight run, on request: audio through rodio, ported from the 
 
 | Commit | What | What to try |
 |---|---|---|
-| (next) | **Level-up and mission jingles, the quake**: the level-up and shadow-level jingles, the mission-complete jingle by side; quakes in quake-prone areas shake the camera and rumble | level up; finish a mission; stand in an area with quakes |
+| 7901b85 | **Level-up and mission jingles, the quake**: the level-up and shadow-level jingles, the mission-complete jingle by side; quakes in quake-prone areas shake the camera and rumble | level up; finish a mission; stand in an area with quakes |
 | 41be03c | **Nano and effect sounds**: gather, cast, travel and hit sounds of each program; effects' own sounds | cast nanos on yourself and on a monster |
 | 41be03c | **Environment sounds**: the district's background by the time of day, the rain, the winds (and sand and fallout storms) | stand outdoors by day and by night; in bad weather |
 | 36b49df | **Music**: the original's interactive music (SIMPlayer): startup music at login, the district's music by the time of day, battle music in fights, cross-fades and pauses | walk between districts; fight; `mao-client "<game>" music "plains\day"` |
