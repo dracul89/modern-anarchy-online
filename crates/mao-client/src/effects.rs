@@ -1469,6 +1469,72 @@ pub fn tparticle_shells(p: &mao_formats::gfx::TParticle, at: [f32; 3], t: f32) -
     vec![Shell { sprite: p.material.max(0) as u16, additive: p.flags & 0x200 != 0, vertices }]
 }
 
+/// `GfxVisualCone`'s strip (displaysystem `gfxcone.rs` `build`) about `foot` (world, Z up): `segments` steps round between a
+/// circle of `below` on the foot's level and one of `above` `height` over it, turned `turn` about the up axis, coloured
+/// `colours` (below, above), its texture round it by `texture.0` and up by `texture.1` (or, `upward`, the other way).
+#[allow(clippy::too_many_arguments)]
+fn cone_vertices(foot: [f32; 3], segments: i32, below: f32, above: f32, height: f32, turn: f32, colours: ([f32; 4], [f32; 4]), texture: (f32, f32), upward: bool) -> Vec<ShellVertex> {
+    let m = segments.max(1);
+    let mut strip = Vec::new();
+    for j in 0..=m {
+        let angle = std::f32::consts::TAU / m as f32 * j as f32 + turn;
+        let (cos, sin) = (angle.cos(), angle.sin());
+        let step = j as f32 / m as f32;
+        let (low, high) = if upward { ([0.0, step * texture.1], [texture.0, step * texture.1]) } else { ([step * texture.0, 0.0], [step * texture.0, texture.1]) };
+        strip.push(ShellVertex { position: [foot[0] + cos * below, foot[1] + sin * below, foot[2]], uv: low, colour: colours.0 });
+        strip.push(ShellVertex { position: [foot[0] + cos * above, foot[1] + sin * above, foot[2] + height], uv: high, colour: colours.1 });
+    }
+    strip_triangles(&strip)
+}
+
+/// `_GfxControlSkyFlash_t`'s cones `t` seconds in about `at` (world, Z up), as FUN_100ef141 sets them each frame: within a
+/// cycle (`fmod(t, rise + fall)`), the radii below and above grown by words 22–23 over it, cone k widened by k steps; while
+/// rising (the fraction `u` of the rise) the colours from the start's to the middle's and, with flag 0x400, the bottom radius
+/// from the top's to its own and the cone `u` of its height long; while falling from the middle's to the end's. The cones hang
+/// from the height down to the point (flag 0x8000: they stand on it, on the ground with 0x4000), turned `k 6.28 / cones` with
+/// flag 0x2000, added with 0x200. Not: the torso's radius (word 18 negative: the client takes 0.5 for it), following the
+/// point (the client always does), the cones' texture extents read as floats.
+pub fn skyflash_shells(s: &mao_formats::gfx::SkyFlash, at: [f32; 3], t: f32, ground: &dyn Fn(f32, f32) -> Option<f32>) -> Vec<Shell> {
+    let period = s.rise + s.fall;
+    if t < 0.0 || period <= 0.0 || t >= s.length() {
+        return Vec::new();
+    }
+    let c = t.rem_euclid(period);
+    let mut below = s.growth.0 * (c / period) + if s.radii.0 < 0.0 { -s.radii.0 * 0.5 } else { s.radii.0 };
+    let above = s.growth.1 * (c / period) + s.radii.1;
+    let (mut step_below, step_above) = s.steps;
+    let mut height = s.height;
+    let mix = |a: u32, b: u32, u: f32| mao_formats::gfx::key_colour(&[(0.0, a), (1.0, b)], u);
+    let (cb, ca) = if c < s.rise {
+        let u = c / s.rise.max(1e-6);
+        if s.flags & 0x400 != 0 {
+            below = above * (1.0 - u) + u * below;
+            step_below = step_above * (1.0 - u) + u * step_below;
+            height *= u;
+        }
+        (mix(s.colours[0].0, s.colours[1].0, u), mix(s.colours[0].1, s.colours[1].1, u))
+    } else {
+        let u = (c - s.rise) / s.fall.max(1e-6);
+        (mix(s.colours[1].0, s.colours[2].0, u), mix(s.colours[1].1, s.colours[2].1, u))
+    };
+    let mut foot = at;
+    if s.flags & 0x4000 != 0 {
+        foot[2] = ground(at[0], at[1]).unwrap_or(at[2]);
+    }
+    if s.flags & 0x8000 == 0 {
+        // (hung from the height: the top stays there as the cone lengthens)
+        foot[2] += s.height - height;
+    }
+    let colours = (shell_colour(cb), shell_colour(ca));
+    let mut out = Vec::new();
+    for k in 0..s.cones {
+        let turn = if s.flags & 0x2000 != 0 { k as f32 * 6.28 / s.cones as f32 } else { 0.0 };
+        let vertices = cone_vertices(foot, s.segments, below + k as f32 * step_below, above + k as f32 * step_above, height, turn, colours, s.texture, s.flags & 0x100 != 0);
+        out.push(Shell { sprite: s.material.max(0) as u16, additive: s.flags & 0x200 != 0, vertices });
+    }
+    out
+}
+
 /// A triangle strip's vertices as a list of triangles.
 fn strip_triangles(strip: &[ShellVertex]) -> Vec<ShellVertex> {
     let mut out = Vec::with_capacity(strip.len().saturating_sub(2) * 3);
@@ -1483,6 +1549,7 @@ fn strip_triangles(strip: &[ShellVertex]) -> Vec<ShellVertex> {
 pub fn visual_ground_shells(v: &Visual, feet: [f32; 3], t: f32, ground: &dyn Fn(f32, f32) -> Option<f32>) -> Vec<Shell> {
     match v {
         Visual::ShockWave(s) => shockwave_shells(s, feet, t, ground),
+        Visual::SkyFlash(s) => skyflash_shells(s, [feet[0], feet[1], feet[2] + if s.attach == 0 { 0.0 } else { anchor(s.attach).0 }], t, ground),
         Visual::TParticle(p) => tparticle_shells(p, [feet[0], feet[1], feet[2] + if p.attach == 0 { 0.0 } else { anchor(p.attach).0 }], t),
         Visual::Meta(children) => children.iter().filter(|c| t < pulse_timing(c).1).flat_map(|c| visual_ground_shells(c, feet, t, ground)).collect(),
         Visual::Scatter { child, children, looping } => {
@@ -2416,6 +2483,7 @@ impl Shot {
                 Visual::ShockWave(s) => s.length(),
                 Visual::VulcanRocks(_) => ROCKS_LAST,
                 Visual::TParticle(p) => p.duration.max(0.0),
+                Visual::SkyFlash(s) => s.length(),
                 Visual::Meta(children) => children.iter().map(rings).fold(0.0, f32::max),
                 _ => 0.0,
             }
@@ -2501,8 +2569,8 @@ pub fn visual_particles(v: &Visual, feet: [f32; 3], time: f32, reach: Reach) -> 
         }
         // (a streak along a shot's line: see `tracer5_shell`, `tracer1_shells`, `tracer3_particles`)
         Visual::Tracer5(_) | Visual::Tracer1(_) | Visual::Tracer3(_) => Vec::new(),
-        // (crossed strips: see `tparticle_shells`)
-        Visual::TParticle(_) => Vec::new(),
+        // (crossed strips and cones: see `tparticle_shells`, `skyflash_shells`)
+        Visual::TParticle(_) | Visual::SkyFlash(_) => Vec::new(),
         Visual::Nano(n) => {
             let up = match reach {
                 Reach::Small => 0.0,
@@ -2690,6 +2758,7 @@ pub fn pulse_timing(v: &Visual) -> (f32, f32, i32) {
         // (a burst lives its longest life; a stream runs its duration and that life, or for ever)
         Visual::Tracer5(_) | Visual::Tracer1(_) | Visual::Tracer3(_) => (600.0, 1.0, 1),
         Visual::TParticle(p) => if p.duration >= 0.0 { (600.0, p.duration.max(0.05), 1) } else { (600.0, 600.0, -1) },
+        Visual::SkyFlash(s) => (600.0, s.length().max(0.05), 1),
         // (a nano makes sprites until a life before its duration, and its last ones live out their lives; for ever without one)
         Visual::Nano(n) => if n.duration >= 0.0 { (600.0, n.duration.max(0.05), 1) } else { (600.0, 600.0, -1) },
         // (kind 8's particles have each popped and gone within a second or so; with a duration, it)
@@ -3254,6 +3323,41 @@ mod tests {
         }
         // late, only the top of the coil is left
         assert!(late.iter().all(|p| p.position[2] > 1.0));
+    }
+
+    #[test]
+    fn a_sky_flash_comes_down_from_the_height_and_fades() {
+        // (template 43108: Gift of Life's six cones 60 high, 0.45 wide, coming down in 0.4 s and fading over 4.5)
+        let s = mao_formats::gfx::SkyFlash {
+            flags: 0x3a03,
+            attach: 0,
+            material: 13,
+            cycles: 1,
+            rise: 0.4,
+            fall: 4.5,
+            cones: 6,
+            segments: 10,
+            texture: (4.0, 60.0),
+            height: 60.0,
+            radii: (0.45, 0.45),
+            steps: (0.003, 0.003),
+            growth: (0.0, 0.0),
+            colours: [(0x00ff_ffff, 0x00ff_ffff), (0xffff_ffff, 0xffff_ffff), (0x00ff_ffff, 0x00ff_ffff)],
+        };
+        let flat = |_: f32, _: f32| Some(0.0);
+        let at = skyflash_shells(&s, [0.0; 3], 2.0, &flat);
+        assert_eq!(at.len(), 6);
+        let top = at[0].vertices.iter().map(|v| v.position[2]).fold(f32::MIN, f32::max);
+        let bottom = at[0].vertices.iter().map(|v| v.position[2]).fold(f32::MAX, f32::min);
+        assert!((top - 60.0).abs() < 1e-3 && bottom.abs() < 1e-3);
+        // (falling: the middle's colour to the end's)
+        assert!(at[0].vertices[0].colour[3] < 1.0 && at[0].vertices[0].colour[3] > 0.4);
+        assert!(skyflash_shells(&s, [0.0; 3], 4.9, &flat).is_empty());
+        // flag 0x400: half way through the rise the cone is half as long, hung from the top
+        let grow = mao_formats::gfx::SkyFlash { flags: 0x3e03, ..s.clone() };
+        let half = skyflash_shells(&grow, [0.0; 3], 0.2, &flat);
+        let low = half[0].vertices.iter().map(|v| v.position[2]).fold(f32::MAX, f32::min);
+        assert!((low - 30.0).abs() < 1e-3);
     }
 
     #[test]

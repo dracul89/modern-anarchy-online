@@ -980,6 +980,62 @@ impl Trail2 {
     }
 }
 
+/// A kind-3006 template as `_GfxControlSkyFlash_t` reads it (FUN_100ef80f / FUN_100ef6eb; FUN_100eefd2 the words, FUN_100ef58b
+/// the `GfxVisualCone`s, FUN_100ef141 the run): word 0 the flags (0x200 added, 0x400 the cones widen from the top's radius
+/// and lengthen as they rise, 0x800 / 0x1000 following the point while rising / falling, 0x2000 each cone turned a share of a
+/// turn, 0x4000 on the ground, 0x8000 standing on it), word 7 the attach point, word 9 the material, word 10 the cycles, words
+/// 11 and 12 a cycle's rise and fall, word 13 the cones, words 14–16 their segments and texture's extents, word 17 the height,
+/// words 18–19 the radii below and above (below and negative: times the body's torso), words 20–21 the step of each a cone,
+/// words 22–23 their growth over a cycle, words 24–29 the colours (ARGB) below and above at the start, the middle and the end.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SkyFlash {
+    pub flags: u32,
+    pub attach: i32,
+    pub material: i32,
+    pub cycles: u32,
+    pub rise: f32,
+    pub fall: f32,
+    pub cones: u32,
+    pub segments: i32,
+    pub texture: (f32, f32),
+    pub height: f32,
+    pub radii: (f32, f32),
+    pub steps: (f32, f32),
+    pub growth: (f32, f32),
+    /// (below, above) at the start, the middle and the end.
+    pub colours: [(u32, u32); 3],
+}
+
+impl SkyFlash {
+    pub fn read(r: &Record) -> Option<SkyFlash> {
+        if r.payload.len() < 30 {
+            return None;
+        }
+        let c = |k: usize| r.int(k) as u32;
+        Some(SkyFlash {
+            flags: r.int(0) as u32,
+            attach: r.int(7),
+            material: r.int(9),
+            cycles: r.int(10) as u32,
+            rise: r.float(11),
+            fall: r.float(12),
+            cones: r.int(13) as u32,
+            segments: r.int(14),
+            texture: (r.float(15), r.float(16)),
+            height: r.float(17),
+            radii: (r.float(18), r.float(19)),
+            steps: (r.float(20), r.float(21)),
+            growth: (r.float(22), r.float(23)),
+            colours: [(c(24), c(25)), (c(26), c(27)), (c(28), c(29))],
+        })
+    }
+
+    /// How long it runs: its cycles of a rise and a fall.
+    pub fn length(&self) -> f32 {
+        self.cycles as f32 * (self.rise + self.fall).max(0.0)
+    }
+}
+
 /// A kind-3020 template as `GfxControlTParticle_t` reads it (the dynel constructor FUN_101134ed; FUN_10112ccd the words,
 /// FUN_10112b4e the `GfxVisualTParticle` (displaysystem `gfxbparticle.rs` `tp_new`, `tp_process`, `tp_draw`), FUN_10113101 the
 /// run): word 0 the flags (0x100 flipped, 0x200 added, 0x400 the point on the ground), word 7 the attach point, word 8 the
@@ -1730,6 +1786,8 @@ pub enum Visual {
     Nano(Nano),
     /// A pool of streaks, each two crossed strips from its head to its tail (kind 3020, `GfxControlTParticle_t`).
     TParticle(TParticle),
+    /// Nested cones of light coming down from the sky (kind 3006, `_GfxControlSkyFlash_t`).
+    SkyFlash(SkyFlash),
     /// A nano emitter dragged from the caster to the target (kind 1022, `_GfxControlTracer3_t`).
     Tracer3(Tracer3),
     /// Kind 3036, `GfxControlToggle_t` (FUN_101128d1 / FUN_1011279a / FUN_101127fc; FUN_1011265a the words, FUN_10112952 the run,
@@ -1880,6 +1938,7 @@ impl Gfx {
             1019 => Tracer1::read(r).map(Visual::Tracer1),
             1007 => Nano::read(r).map(Visual::Nano),
             3020 => TParticle::read(r).map(Visual::TParticle),
+            3006 => SkyFlash::read(r).map(Visual::SkyFlash),
             1022 if r.payload.len() >= 16 => {
                 let child = self.get(r.int(15)).filter(|c| c.kind == 1007).and_then(Nano::read)?;
                 Some(Visual::Tracer3(Tracer3 { speed: r.float(10), colour: [r.float(11), r.float(12), r.float(13), r.float(14)], child }))

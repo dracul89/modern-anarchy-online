@@ -156,6 +156,8 @@ fn effect_classes_come_to_visuals() {
     assert!(matches!(gfx.visual(17500), Some(Visual::Plasma { material: 8, duration, .. }) if duration == 1.0));
     // the null gather effect has none
     assert!(gfx.visual(49999).is_none());
+    // (Gift of Life's sky flash: six cones 60 high, rising 0.4 s and falling 4.5)
+    assert!(matches!(gfx.visual(43108), Some(Visual::SkyFlash(s)) if s.cones == 6 && s.height == 60.0 && s.rise == 0.4 && s.fall == 4.5 && s.cycles == 1));
     // (a burst of spark streaks: twenty, falling at 6.5, their heads white at half the second)
     assert!(matches!(gfx.visual(71342), Some(Visual::TParticle(p)) if p.kind == 0 && p.count == 20 && p.lift == -6.5 && p.drag == 0.2 && p.colours[1].1 == 0xffff_ffff));
     // (a nano dragged along the line: 50 a second, blue; its nano 300 sprites a second, half a second each)
