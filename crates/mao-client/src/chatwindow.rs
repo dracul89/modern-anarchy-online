@@ -284,35 +284,18 @@ impl ChatWindow {
         if !self.open {
             return None;
         }
-        let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
         let text = |name: &str, (r, g, b): (u8, u8, u8)| palette.text(name).map_or(egui::Color32::from_rgb(r, g, b), |c| egui::Color32::from_rgb(c[0], c[1], c[2]));
         let mut out = None;
         let screen = ctx.content_rect();
         let mut open = self.open;
         crate::chrome::window(ctx, palette, "Chat", "Chat", &mut open, |w| w.default_pos(crate::layout::pos("Chat", egui::pos2(8.0, (screen.height() - 270.0).max(40.0)))).default_size([560.0, 230.0]), |ui| {
-                // The tabs in the original's tab pieces (greyscale masks tinted with the theme's colours), the input line in its input bar.
-                let skin = crate::skin::skin(ctx).filter(|s| s.has("GFX_GUI_TAB_ACTIVE_LEFT"));
+                // The tabs in the original's TabView (`chrome::tab_view`), the input line in its input bar.
                 let chat_font = if crate::font::enabled() { crate::font::chat(ctx) } else { None };
-                let col = |c: [u8; 3]| egui::Color32::from_rgb(c[0], c[1], c[2]);
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 2.0;
-                    for (tab, name) in [(Tab::All, "All"), (Tab::Tells, "Tells"), (Tab::Channels, "Channels"), (Tab::System, "System"), (Tab::Combat, "Combat")] {
-                        let Some(skin) = &skin else {
-                            ui.selectable_value(&mut self.tab, tab, name);
-                            continue;
-                        };
-                        let galley = ui.painter().layout_no_wrap(name.to_string(), egui::FontId::proportional(13.0), egui::Color32::WHITE);
-                        let (rect, response) = ui.allocate_exact_size(egui::vec2(galley.size().x + 26.0, 17.0), egui::Sense::click());
-                        let active = self.tab == tab;
-                        let tint = if active { accent } else if response.hovered() { col(palette.hover) } else { accent.gamma_multiply(0.55) };
-                        skin.three_slice(ui.painter(), if active { "GFX_GUI_TAB_ACTIVE" } else { "GFX_GUI_TAB_INACTIVE" }, rect, tint);
-                        ui.painter().galley(egui::pos2(rect.center().x - galley.size().x * 0.5, rect.center().y - galley.size().y * 0.5), galley, if active { col(palette.text_selected) } else { col(palette.text) });
-                        if response.clicked() {
-                            self.tab = tab;
-                        }
-                    }
-                });
-                let height = (ui.available_height() - 30.0).max(40.0);
+                const TABS: [Tab; 5] = [Tab::All, Tab::Tells, Tab::Channels, Tab::System, Tab::Combat];
+                let mut tab = TABS.iter().position(|t| *t == self.tab).unwrap_or(0);
+                crate::chrome::tab_view(ui, palette, &["All", "Tells", "Channels", "System", "Combat"], &mut tab, |ui, tab| {
+                self.tab = TABS[tab.min(4)];
+                let height = (ui.available_height() - 41.0).max(40.0);
                 crate::chrome::scroll(ui, palette, egui::ScrollArea::vertical().max_height(height).min_scrolled_height(height).stick_to_bottom(true), |ui| {
                     for line in self.lines.iter().filter(|l| match self.tab {
                         Tab::All => true,
@@ -338,6 +321,7 @@ impl ChatWindow {
                             }
                         }
                     }
+                });
                 });
                 self.scroll_to_end = false;
                 let input_id = egui::Id::unique("chat-input");

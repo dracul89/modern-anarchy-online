@@ -195,6 +195,25 @@ pub fn text(ctx: &egui::Context, painter: &egui::Painter, pos: egui::Pos2, text:
     }
 }
 
+/// The original's TrueType interface font at `size` points: `FontSystem_t`'s fonts 4 to 11 are Verdana at 12 to 24 points (the
+/// table at GUI.dll 0x10272df0; font 5, Verdana 13, is the tabs'), read from the system's fonts folder the first time it is
+/// asked for. egui's proportional font until it is in (the frame after) or when the system has none.
+pub fn verdana(ctx: &egui::Context, size: f32) -> egui::FontId {
+    static TRIED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    let family = egui::FontFamily::Name("verdana".into());
+    if ctx.fonts(|f| f.families().contains(&family)) {
+        return egui::FontId::new(size, family);
+    }
+    if !TRIED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        let dir = std::env::var("WINDIR").map(|w| std::path::PathBuf::from(w).join("Fonts")).unwrap_or_else(|_| std::path::PathBuf::from("C:/Windows/Fonts"));
+        if let Ok(bytes) = std::fs::read(dir.join("verdana.ttf")) {
+            let insert = egui::epaint::text::InsertFontFamily { family, priority: egui::epaint::text::FontPriority::Highest };
+            ctx.add_font(egui::epaint::text::FontInsert::new("verdana", egui::FontData::from_owned(bytes), vec![insert]));
+        }
+    }
+    egui::FontId::proportional(size)
+}
+
 pub fn drop_cache(d: &mut egui::util::IdTypeMap) {
     for which in ["chat", "shell", "tooltip"] {
         d.remove::<Option<Arc<BitmapFont>>>(egui::Id::new(("font", which.to_string())));

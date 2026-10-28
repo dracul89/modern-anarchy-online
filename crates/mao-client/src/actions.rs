@@ -113,11 +113,10 @@ impl ActionsWindow {
         let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
         let mut open = self.open;
         crate::chrome::window(ctx, palette, "Actions", "Actions", &mut open, |w| w.resizable(false).default_pos(crate::layout::pos("Actions", egui::pos2(520.0, 70.0))), |ui| {
-            ui.horizontal(|ui| {
-                ui.selectable_value(&mut self.tab, Tab::Combat, "Combat");
-                ui.selectable_value(&mut self.tab, Tab::Perks, "Perks");
-                ui.selectable_value(&mut self.tab, Tab::Social, "Social");
-            });
+            const TABS: [Tab; 3] = [Tab::Combat, Tab::Perks, Tab::Social];
+            let mut tab = TABS.iter().position(|t| *t == self.tab).unwrap_or(0);
+            crate::chrome::tab_view(ui, palette, &["Combat", "Perks", "Social"], &mut tab, |ui, tab| {
+            self.tab = TABS[tab.min(2)];
             ui.label(egui::RichText::new("Click to do it, drag onto a hotbar slot").small().weak());
             ui.separator();
             crate::chrome::scroll(ui, palette, egui::ScrollArea::vertical().max_height(420.0), |ui| {
@@ -172,6 +171,7 @@ impl ActionsWindow {
                         });
                     }
                 });
+            });
             });
         });
         self.open = open;

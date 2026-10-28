@@ -370,14 +370,10 @@ impl GearWindow {
             ui.horizontal_top(|ui| {
                 ui.vertical(|ui| {
                     ui.set_width(3.0 * (CELL + 3.0) + 8.0);
-                    ui.horizontal(|ui| {
-                        for (i, (tab, _)) in TABS.iter().enumerate() {
-                            if ui.selectable_label(self.tab == i, *tab).clicked() {
-                                self.tab = i;
-                            }
-                        }
-                    });
-                    let (_, cells) = TABS[self.tab.min(TABS.len() - 1)];
+                    let names: Vec<&str> = TABS.iter().map(|(t, _)| *t).collect();
+                    let mut tab = self.tab;
+                    crate::chrome::tab_view(ui, palette, &names, &mut tab, |ui, tab| {
+                    let (_, cells) = TABS[tab.min(TABS.len() - 1)];
                     egui::Grid::new("wear").spacing(egui::vec2(3.0, 3.0)).show(ui, |ui| {
                         for (n, (label, slot)) in cells.iter().enumerate() {
                             match slot {
@@ -391,6 +387,8 @@ impl GearWindow {
                             }
                         }
                     });
+                    });
+                    self.tab = tab;
                 });
                 ui.separator();
                 ui.vertical(|ui| {

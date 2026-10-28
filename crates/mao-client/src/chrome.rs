@@ -225,6 +225,105 @@ pub fn scroll<R>(ui: &mut egui::Ui, palette: &Palette, area: egui::ScrollArea, a
     out.inner
 }
 
+/// Where `TopBorderView_c` (GUI.dll, laid out by FUN_10147438) puts tabs `widths` wide in a strip `room` wide: the first 2 points
+/// in, each overlapping the one before by 6, every tab its own width (a `Tab`'s text width plus a point plus its 5 and 16 point
+/// margins, FUN_101463a4) when they fit, else all narrowed in proportion (`View::SpaceOut`'s share; not followed exactly). The
+/// tabs' left edges and widths.
+pub fn tab_places(widths: &[f32], room: f32) -> Vec<(f32, f32)> {
+    let total: f32 = widths.iter().sum::<f32>() - 6.0 * widths.len().saturating_sub(1) as f32;
+    let space = room - 2.0;
+    let scale = if total > space && total > 0.0 { (space / total).max(0.2) } else { 1.0 };
+    let mut x = 2.0;
+    widths
+        .iter()
+        .map(|w| {
+            let w = (w * scale).floor();
+            let at = (x, w);
+            x += w - 6.0;
+            at
+        })
+        .collect()
+}
+
+/// A `TabView` (GUI.dll 0x10146767) in the skin's art with `names` for tabs, `selected` the open one, `add` filling it: its strip
+/// (`TopBorderView_c`, FUN_10147b0f / FUN_1014706e: `GFX_GUI_TAB_BORDER_TL`, `_TOP`, `_TR` along its foot) with the tabs (`Tab`,
+/// FUN_1014694d: `BorderView_c`s of `GFX_GUI_TAB_INACTIVE_LEFT/MIDDLE/RIGHT` at 0.6 of the alpha with black text and the open
+/// one `GFX_GUI_TAB_ACTIVE_*` in front with white text, FUN_101462d8; the text in font 5, Verdana 13, from 5 points in), then
+/// the body (`TabView::SetRenderFlags` 0x101464c4 and `LayoutBorders` 0x10145dad: `GFX_GUI_TAB_BORDER_LEFT`, `_RIGHT`, `_BL`,
+/// `_BOTTOM`, `_BR` round it and `GFX_GUI_TAB_BACKGROUND` inside, the content 2 points inside the borders), all tinted with the
+/// theme's border colour. A tab opens when it is pressed; `add` is told which is open. Without the pictures it is a row of egui's
+/// selectable labels.
+pub fn tab_view<R>(ui: &mut egui::Ui, palette: &Palette, names: &[&str], selected: &mut usize, add: impl FnOnce(&mut egui::Ui, usize) -> R) -> R {
+    let skin = crate::skin::skin(ui.ctx()).filter(|s| s.has("GFX_GUI_TAB_ACTIVE_MIDDLE") && s.has("GFX_GUI_TAB_BORDER_LEFT"));
+    let Some(skin) = skin else {
+        ui.horizontal(|ui| {
+            for (i, name) in names.iter().enumerate() {
+                if ui.selectable_label(*selected == i, *name).clicked() {
+                    *selected = i;
+                }
+            }
+        });
+        return add(ui, *selected);
+    };
+    let tint = rgb(palette.accent);
+    let size = |name: &str| skin.get(name).map(|s| s.size).unwrap_or(egui::vec2(1.0, 1.0));
+    let height = size("GFX_GUI_TAB_ACTIVE_MIDDLE").y;
+    let font = crate::font::verdana(ui.ctx(), 13.0);
+    let widths: Vec<f32> = names.iter().map(|n| ui.painter().layout_no_wrap(n.to_string(), font.clone(), egui::Color32::WHITE).size().x.ceil() + 1.0 + 5.0 + 16.0).collect();
+    let room = ui.available_width();
+    let places = tab_places(&widths, room.max(40.0));
+    let need = places.last().map(|(x, w)| x + w + 2.0).unwrap_or(40.0);
+    let (strip, _) = ui.allocate_exact_size(egui::vec2(need.min(room), height + 1.0), egui::Sense::hover());
+    let painter = ui.painter().clone();
+    let under = painter.add(egui::Shape::Noop);
+    let mut order: Vec<usize> = (0..names.len()).filter(|&i| i != *selected).collect();
+    order.extend((*selected < names.len()).then_some(*selected));
+    for i in order {
+        let (x, w) = places[i];
+        let rect = egui::Rect::from_min_size(egui::pos2(strip.left() + x, strip.top()), egui::vec2(w, height));
+        let response = ui.interact(rect, ui.id().with(("tab", i)), egui::Sense::click());
+        if response.hovered() && ui.input(|inp| inp.pointer.primary_pressed()) {
+            *selected = i;
+        }
+        let active = i == *selected;
+        skin.three_slice(&painter, if active { "GFX_GUI_TAB_ACTIVE" } else { "GFX_GUI_TAB_INACTIVE" }, rect, if active { tint } else { tint.gamma_multiply(0.6) });
+        let text = if active { egui::Color32::WHITE } else { egui::Color32::BLACK };
+        // (the text is the tab's child view: what does not fit inside its right margin is cut off)
+        painter.with_clip_rect(rect.intersect(egui::Rect::from_min_max(rect.min, egui::pos2(rect.right() - 12.0, rect.bottom())))).text(egui::pos2(rect.left() + 5.0, rect.center().y), egui::Align2::LEFT_CENTER, names[i], font.clone(), text);
+    }
+    let (left, right, bottom) = (size("GFX_GUI_TAB_BORDER_LEFT").x, size("GFX_GUI_TAB_BORDER_RIGHT").x, size("GFX_GUI_TAB_BORDER_BOTTOM").y);
+    let body = ui.painter().add(egui::Shape::Noop);
+    let open = *selected;
+    let inner = ui.scope(|ui| egui::Frame::NONE.inner_margin(egui::Margin { left: (left + 2.0) as i8, right: (right + 2.0) as i8, top: 2, bottom: (bottom + 2.0) as i8 }).show(ui, |ui| add(ui, open)).inner);
+    let content = inner.response.rect;
+    let (l, r) = (strip.left(), content.right().max(strip.right()));
+    let piece = |shapes: &mut Vec<egui::Shape>, name: &str, rect: egui::Rect| {
+        if let Some(s) = skin.get(name) {
+            shapes.push(egui::Shape::image(s.texture.id(), rect, egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)), tint));
+        }
+    };
+    // (the strip's foot: its corners at the bottom left and right, the top line between)
+    let (tl, tr, top) = (size("GFX_GUI_TAB_BORDER_TL"), size("GFX_GUI_TAB_BORDER_TR"), size("GFX_GUI_TAB_BORDER_TOP").y);
+    let foot = strip.bottom();
+    let mut line = Vec::new();
+    piece(&mut line, "GFX_GUI_TAB_BORDER_TL", egui::Rect::from_min_size(egui::pos2(l, foot - tl.y), tl));
+    piece(&mut line, "GFX_GUI_TAB_BORDER_TOP", egui::Rect::from_min_max(egui::pos2(l + tl.x, foot - top), egui::pos2(r - tr.x, foot)));
+    piece(&mut line, "GFX_GUI_TAB_BORDER_TR", egui::Rect::from_min_size(egui::pos2(r - tr.x, foot - tr.y), tr));
+    painter.set(under, egui::Shape::Vec(line));
+    // (the body round the content: the sides, the bottom corners and the bottom, the background inside)
+    let (t, b) = (foot, content.bottom());
+    let (bl, br) = (size("GFX_GUI_TAB_BORDER_BL"), size("GFX_GUI_TAB_BORDER_BR"));
+    let mut frame = Vec::new();
+    piece(&mut frame, "GFX_GUI_TAB_BACKGROUND", egui::Rect::from_min_max(egui::pos2(l + left + 1.0, t + 1.0), egui::pos2(r - right - 1.0, b - bottom - 1.0)));
+    piece(&mut frame, "GFX_GUI_TAB_BORDER_LEFT", egui::Rect::from_min_max(egui::pos2(l, t), egui::pos2(l + left, b - bl.y)));
+    piece(&mut frame, "GFX_GUI_TAB_BORDER_RIGHT", egui::Rect::from_min_max(egui::pos2(r - right, t), egui::pos2(r, b - br.y)));
+    piece(&mut frame, "GFX_GUI_TAB_BORDER_BL", egui::Rect::from_min_size(egui::pos2(l, b - bl.y), bl));
+    piece(&mut frame, "GFX_GUI_TAB_BORDER_BOTTOM", egui::Rect::from_min_max(egui::pos2(l + bl.x, b - bottom), egui::pos2(r - br.x, b)));
+    piece(&mut frame, "GFX_GUI_TAB_BORDER_BR", egui::Rect::from_min_size(egui::pos2(r - br.x, b - br.y), br));
+    ui.painter().set(body, egui::Shape::Vec(frame));
+    inner.inner
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -236,6 +335,14 @@ mod tests {
         assert!(pinned("Test window"));
         set_pinned("Test window", false);
         assert!(!pinned("Test window"));
+    }
+
+    #[test]
+    fn tabs_overlap_by_six_from_two_in() {
+        assert_eq!(tab_places(&[40.0, 30.0, 50.0], 500.0), vec![(2.0, 40.0), (36.0, 30.0), (60.0, 50.0)]);
+        // (too wide: narrowed in proportion)
+        let p = tab_places(&[100.0, 100.0], 98.0);
+        assert!(p[1].0 + p[1].1 <= 98.0 + 1e-3);
     }
 
     #[test]
