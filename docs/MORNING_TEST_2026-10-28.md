@@ -74,6 +74,7 @@ Added after the overnight run, on request: audio through rodio, ported from the 
 
 | Commit | What | What to try |
 |---|---|---|
+| (next) | **/voice**: speak a voice line to your org channel; you and org mates with "hear guild" on hear it | `/voice heal` (or help, inc, no, run, yes) while in an organization |
 | 5f8561a | **Lightning's light and jolt**: strikes flash across the sky with bolts to the ground; a near one shakes the camera and rumbles | stand outdoors in a storm; watch the sky |
 | acff03e | **Sprung blast**: a sprung mine or trap bursts in a flare of streaks as it explodes | spring a mine or trap |
 | 6f8b98f | **Thunder**: storms thunder, near strikes loud and soon, far ones quiet and late | stand outdoors in a storm (rain with lightning weather) |

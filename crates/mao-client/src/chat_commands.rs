@@ -16,6 +16,7 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
     ("tell <name> <text>", "a private message (also /t)"),
     ("reply <text>", "answer the last tell (also /r)"),
     ("org <text>", "your organization's channel (also /o)"),
+    ("voice <sound name>", "speak a voice line (heal, help, inc, no, run, yes) to your organization's channel"),
     ("befriend <name>", "put a character on your friends list (L shows it)"),
     ("ignore [name]", "hide a character's tells and channel lines (again: show them; alone: the list)"),
     ("camp", "sit down to log out (stand up or move to cancel)"),
@@ -64,6 +65,8 @@ pub enum Parsed {
     SetOption { name: String, value: String },
     /// `/camp`: sit down to log out.
     Camp,
+    /// `/voice <sound name>`: a voice line spoken (GUI.dll FUN_100b88b1; the name its first word).
+    Voice { line: String },
     /// `/quit`: leave the client.
     Quit,
     /// A line for the organization channel.
@@ -130,6 +133,10 @@ pub fn parse(line: &str) -> Parsed {
         }
         "ignore" => Parsed::Ignore { name: text.split_whitespace().next().unwrap_or("").to_string() },
         "camp" => Parsed::Camp,
+        "voice" => match text.split_whitespace().next() {
+            Some(line) => Parsed::Voice { line: line.to_string() },
+            None => Parsed::Usage("/voice <sound name>"),
+        },
         "follow" => Parsed::Follow,
         "inspect" => Parsed::Inspect,
         "open" | "items" => Parsed::Window { name: if command.eq_ignore_ascii_case("items") { "inventory".to_string() } else { text.to_string() }, open: true },
@@ -220,6 +227,8 @@ mod tests {
         assert_eq!(parse("/befriend Abc"), Parsed::Befriend { name: "Abc".into() });
         assert_eq!(parse("/befriend"), Parsed::Usage("/befriend <name>"));
         assert_eq!(parse("/o hello org"), Parsed::Org { text: "hello org".into() });
+        assert_eq!(parse("/voice heal"), Parsed::Voice { line: "heal".into() });
+        assert_eq!(parse("/voice"), Parsed::Usage("/voice <sound name>"));
         assert_eq!(parse("hello world"), Parsed::Vicinity { command: "say", text: "hello world".into() });
         assert_eq!(parse("/s HEY"), Parsed::Vicinity { command: "shout", text: "HEY".into() });
         assert_eq!(parse("/help"), Parsed::Help);

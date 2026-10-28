@@ -14,8 +14,15 @@
 //! * Vicinity speech (chat packets 34 and 35, `ChatGUIModule_c::HandleVicinityMessage`) carries the same records after a
 //!   leading byte (the speech's kind, which picks its group); its voice plays under `VoiceSndFxHearVicinityOn`.
 //!
-//! Not here: sending a voice (the `/voice`-style command FUN_100b88b1 → FUN_1008cbc2), and the ignore list's say (a sender on
-//! it is heard only when record 2's flag has bit 0).
+//! * `/voice <line>` ([`command`], GUI.dll FUN_100b88b1) speaks one: with stat 389's bit 0 (else "This function requires
+//!   Notum Wars.", FUN_1016c32c's names of the expansions), the character's breed (stat 4), sex (stat 59) and the
+//!   `VoiceSndFxType` mood (`CharPrefs.xml`: 0 simple, 1 distunguished, as the files spell it, 2 cool, 3 military;
+//!   FUN_1008c472), when some name tried has both its `.wav` and its `.txt` (FUN_1008cbc2; else "You do not have that voice
+//!   effect installed."); its text the first line of the first `.txt` (FUN_1008cfe3), any leading `[tags]` taken off
+//!   (FUN_1008c5db), sent with record 1 (`BBBSS`, FUN_10089628) as the blob.
+//!
+//! Not here: the ignore list's say (a sender on it is heard only when record 2's flag has bit 0), and the tags' doings
+//! (FUN_1008c5db: `T` flashes the speaker's name in the team window, `M` signals `GlobalSignals_c` +0x150).
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicI64, Ordering};
@@ -34,6 +41,68 @@ static STAT_389: AtomicI64 = AtomicI64::new(0);
 
 pub fn set_stat_389(v: i64) {
     STAT_389.store(v, Ordering::Relaxed);
+}
+
+/// Who speaks a `/voice` line: the client's character's name, breed and sex (kept by the game connection).
+static OWN: std::sync::Mutex<(String, u8, u8)> = std::sync::Mutex::new((String::new(), 0, 0));
+
+pub fn set_own(name: String, breed: u8, sex: u8) {
+    *OWN.lock().unwrap_or_else(|e| e.into_inner()) = (name, breed, sex);
+}
+
+/// FUN_1008c472(1): the mood of `VoiceSndFxType` (the character's preference, 0 by `CharPrefs.xml`).
+fn mood() -> &'static str {
+    let kind = setting("cd_image/gui/Default/CharPrefs.xml", "VoiceSndFxType").and_then(|v| v.parse::<i32>().ok()).unwrap_or(0);
+    match kind {
+        1 => "distunguished",
+        2 => "cool",
+        3 => "military",
+        _ => "simple",
+    }
+}
+
+/// Record 1 packed (FUN_10089628, `BBBSS`: the tag 1, breed, sex, mood, line), none for an empty line.
+pub fn pack(v: &Voice) -> Vec<u8> {
+    if v.line.is_empty() {
+        return Vec::new();
+    }
+    let mut out = vec![1, v.breed, v.sex];
+    for s in [&v.mood, &v.line] {
+        out.extend((s.len() as u16).to_be_bytes());
+        out.extend(s.as_bytes());
+    }
+    out
+}
+
+/// FUN_1008c5db: a voice text's leading `[tags]` taken off.
+fn untagged(text: &str) -> &str {
+    match (text.starts_with('['), text.find(']')) {
+        (true, Some(end)) => &text[end + 1..],
+        _ => text,
+    }
+}
+
+/// `/voice <line>` (FUN_100b88b1): the text to send and its blob, or the line to tell why not.
+pub fn command(line: &str) -> Result<(String, Vec<u8>), String> {
+    if STAT_389.load(Ordering::Relaxed) & 1 == 0 {
+        return Err("This function requires Notum Wars.".into());
+    }
+    let (name, breed, sex) = OWN.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let voice = Voice { breed, sex, mood: mood().to_string(), line: line.to_string() };
+    let dir = crate::theme::game_dir().ok_or("You do not have that voice effect installed.")?.join("cd_image/sound/sfx/player");
+    let names: Vec<String> = candidates(&name, &voice).into_iter().map(|n| n.replace("..", "")).collect();
+    // (FUN_1008cbc2: installed when a name has both its sound and its text)
+    if !names.iter().any(|n| dir.join(format!("{n}.wav")).exists() && dir.join(format!("{n}.txt")).exists()) {
+        return Err("You do not have that voice effect installed.".into());
+    }
+    // (FUN_1008cfe3: the first line of the first text that opens, up to 1023 characters)
+    let text = names.iter().find_map(|n| std::fs::read(dir.join(format!("{n}.txt"))).ok()).map(|b| {
+        let s = String::from_utf8_lossy(&b).into_owned();
+        let first: String = s.split_inclusive('\n').next().unwrap_or("").chars().take(1023).collect();
+        first.trim_end_matches(['\r', '\n']).to_string()
+    });
+    let text = untagged(&text.unwrap_or_default()).to_string();
+    Ok((text, pack(&voice)))
 }
 
 /// The blob's voice and its flag (record 2).
@@ -116,14 +185,18 @@ impl Limiter {
     }
 }
 
-/// A preference of the GUI's `LoginPrefs.xml` (true or false).
-fn preference(name: &str) -> Option<bool> {
-    static TEXT: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
-    let text = TEXT.get_or_init(|| std::fs::read_to_string(crate::theme::game_dir()?.join("cd_image/gui/Default/LoginPrefs.xml")).ok()).as_ref()?;
+/// A value of one of the GUI's preference files (`<Value name=... value=...>`).
+fn setting(file: &str, name: &str) -> Option<String> {
+    let text = std::fs::read_to_string(crate::theme::game_dir()?.join(file)).ok()?;
     let at = text.find(&format!("name=\"{name}\""))?;
     let tag = &text[text[..at].rfind('<')?..at + text[at..].find('>')?];
     let v = tag.find("value=\"")? + 7;
-    Some(&tag[v..v + tag[v..].find('"')?] == "true")
+    Some(tag[v..v + tag[v..].find('"')?].to_string())
+}
+
+/// A preference of the GUI's `LoginPrefs.xml` (true or false).
+fn preference(name: &str) -> Option<bool> {
+    setting("cd_image/gui/Default/LoginPrefs.xml", name).map(|v| v == "true")
 }
 
 /// A group message from `sender` in a group of `kind` with `blob`: its voice line played as FUN_1008cdb3 plays it.
@@ -197,6 +270,21 @@ mod tests {
         assert_eq!(candidates("Leet", &v), ["Leet_heal_01", "atrox_male_cool_heal_01", "male_cool_heal_01", "male_heal_01", "heal_01"]);
         // (a short record ends it)
         assert_eq!(parse(&[1, 4]), (None, 0));
+    }
+
+    #[test]
+    fn a_spoken_voice_s_record_and_text() {
+        let v = Voice { breed: 4, sex: 2, mood: "cool".into(), line: "heal".into() };
+        let blob = pack(&v);
+        assert_eq!(blob, [&[1u8, 4, 2, 0, 4][..], b"cool", &[0, 4], b"heal"].concat());
+        // (what the receiving side reads back)
+        assert_eq!(parse(&blob).0, Some(v));
+        assert!(pack(&Voice::default()).is_empty());
+        assert_eq!(untagged("[T]Medic!"), "Medic!");
+        assert_eq!(untagged("[TM]Run!"), "Run!");
+        assert_eq!(untagged("Yes!"), "Yes!");
+        set_stat_389(0);
+        assert_eq!(command("heal").unwrap_err(), "This function requires Notum Wars.");
     }
 
     #[test]

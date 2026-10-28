@@ -36,6 +36,8 @@ impl Line {
 pub enum Out {
     Tell { name: String, text: String },
     Org { text: String },
+    /// `/voice`: a voice line to speak (its checks and text are the chat connection's, `voices::command`).
+    Voice { line: String },
     /// Put a character on the friends list / take one off.
     Befriend { name: String },
     Unfriend { id: u32 },
@@ -194,6 +196,7 @@ impl ChatWindow {
                     None
                 }
             },
+            Parsed::Voice { line } => Some(Out::Voice { line }),
             Parsed::Camp => {
                 self.push(Line::new(Kind::System, "Sitting down to log out (stand up or move to cancel)."));
                 Some(Out::Camp)

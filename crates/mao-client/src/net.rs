@@ -2563,6 +2563,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     let mut names: BTreeMap<u32, String> = BTreeMap::new();
                     let mut ids: BTreeMap<String, u32> = BTreeMap::new();
                     let mut channels: BTreeMap<u32, (u8, String)> = BTreeMap::new();
+                    // each channel's flags (0x40: no voice lines)
+                    let mut channel_flags: BTreeMap<u32, u32> = BTreeMap::new();
                     // tells waiting for the id of the character they go to: (lower-case name, text)
                     let mut waiting: Vec<(String, String)> = Vec::new();
                     // names of characters to put on the friends list once their id is known
@@ -2609,7 +2611,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                 }
                                 None
                             }
-                            Some(Packet::Channel { kind, id, name }) => {
+                            Some(Packet::Channel { kind, id, name, flags }) => {
+                                channel_flags.insert(id, flags);
                                 channels.insert(id, (kind, name));
                                 None
                             }
@@ -2631,6 +2634,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                     None => Some(Line::new(Kind::System, text)),
                                 }
                             }
+                            // (a voice line in a channel that allows none is dropped, line and all: `HandleGroupMessage`)
+                            Some(Packet::Message { channel, blob, .. }) if channel_flags.get(&channel.1).is_some_and(|f| f & 0x40 != 0) && crate::voices::parse(&blob).0.is_some_and(|v| !v.line.is_empty()) => None,
                             Some(Packet::Message { channel, sender, text, blob }) => {
                                 let who = names.get(&sender).cloned().unwrap_or_else(|| format!("{sender:x}"));
                                 let place = channels.get(&channel.1).map(|c| c.1.clone()).unwrap_or_default();
@@ -2690,6 +2695,21 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                 Out::Org { text } => match channels.iter().find(|(_, (kind, _))| *kind == ORG_CHANNEL_KIND) {
                                     Some((&id, _)) => chat.send(&mao_net::chat::channel_packet(ORG_CHANNEL_KIND, id, &text))?,
                                     None => CHAT_LINES.lock().unwrap().push(Line::new(Kind::System, "You are not in an organization.")),
+                                },
+                                // `/voice` (FUN_100b88b1): its line and record, to the organization's channel (the only group this client
+                                // sends to: the original's goes to the chat window's selected group)
+                                Out::Voice { line } => match crate::voices::command(&line) {
+                                    Err(e) => CHAT_LINES.lock().unwrap().push(Line::new(Kind::System, e)),
+                                    Ok((text, blob)) => match channels.iter().find(|(_, (kind, _))| *kind == ORG_CHANNEL_KIND) {
+                                        Some((&id, _)) if channel_flags.get(&id).is_some_and(|f| f & 0x40 != 0) => {
+                                            CHAT_LINES.lock().unwrap().push(Line::new(Kind::System, "You are not allowed to use voice commands in the selected chat group."));
+                                        }
+                                        Some((&id, _)) => {
+                                            chat.send(&mao_net::chat::channel_packet_with_blob(ORG_CHANNEL_KIND, id, &text, &blob))?;
+                                            CHAT_LINES.lock().unwrap().push(Line::new(Kind::Own, format!("[Org] {text}")));
+                                        }
+                                        None => CHAT_LINES.lock().unwrap().push(Line::new(Kind::System, "You are not in an organization.")),
+                                    },
                                 },
                             }
                         }
@@ -3806,6 +3826,12 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     }
                     // (the hazards' sounds: `PlayGameSound(id, at, 0, 1, 0, 0, 100, 1)`, FUN_10085b15, FUN_10099536, FUN_1007e0a8)
                     crate::voices::set_stat_389(state.stats.get(&389).copied().unwrap_or(0));
+                    // (who speaks a `/voice` line: the character's name, breed (stat 4) and sex (stat 59))
+                    crate::voices::set_own(
+                        state.names.get(&own).map(|n| n.0.clone()).unwrap_or_default(),
+                        state.stats.get(&4).copied().unwrap_or(0) as u8,
+                        state.stats.get(&59).copied().unwrap_or(0) as u8,
+                    );
                     let controllers = state.hazards.frame();
                     state.hazard_sounds.extend(controllers);
                     for (id, at) in std::mem::take(&mut state.hazard_sounds) {

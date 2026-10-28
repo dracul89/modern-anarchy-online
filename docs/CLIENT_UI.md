@@ -914,3 +914,11 @@ strike to the ground and one at each scattered flash four times in ten, 5 to 14 
 to half a second and shaking more each frame. Both are added to the scene with the environment's `dustcloud.png` and
 `newsun_frame01.png`. A strike within 25 jolts the eye: the quake is kicked to `1.5 × (1 − d / 25)` of its full strength, its
 rumble and shake with it (FUN_100bdfe3, the environment's +0x78).
+
+**Speaking a voice line.** `/voice <sound name>` (heal, help, inc, no, run, yes) speaks one as the original's FUN_100b88b1 does
+(`voices::command`): it needs Notum Wars (stat 389 bit 0, else "This function requires Notum Wars."), picks your breed's and
+sex's voice in your `VoiceSndFxType` mood (`CharPrefs.xml`, simple by default), refuses one you don't have ("You do not have that
+voice effect installed.": a name with both a `.wav` and a `.txt` in `sfx/player`), and sends the first line of its `.txt` (any
+`[T]`/`[M]` tags taken off: "Medic!") with the voice record as the message's blob. The original sends to the chat window's
+selected group; this client has no group selection, so it goes to your organization's channel. A channel flagged 0x40 takes no
+voices: the send is refused with the original's words, and a voice line received in one is dropped.
