@@ -980,6 +980,55 @@ impl Trail2 {
     }
 }
 
+/// A kind-3030 template as `GfxControlGroundGrid_t` reads it (FUN_1010eebc; FUN_1010ebbd the words, FUN_1010e951 the
+/// `GfxVisualGroundGrid` (displaysystem `gfxground.rs`) and its first points, FUN_1010e704 the run): word 0 the flags (0x200
+/// added unless 0x400, 0x800 laid once where it began, 0x2000 / 0x4000 a wave lifting the points / scaling their alpha, 0x8000
+/// the texture centred, 0x10000 clamped, 0x20000 turned at random), word 8 the duration, word 9 the material, word 10 the
+/// points along a side, word 11 the fade with the distance from the centre (1 a diamond, 2 round), words 12–13 the texture's
+/// scales, words 14–15 the fade in and out, word 16 the colour (ARGB), word 18 the spacing, word 19 the lift over the
+/// ground, word 20 the wave's rate, words 21–22 the scales' rates, words 23–24 the texture's offsets, words 25–26 their rates.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GroundGrid {
+    pub flags: u32,
+    pub duration: f32,
+    pub material: i32,
+    pub points: i32,
+    pub fade_mode: i32,
+    pub scale: (f32, f32),
+    pub fade: (f32, f32),
+    pub colour: u32,
+    pub spacing: f32,
+    pub lift: f32,
+    pub wave: f32,
+    pub scale_rate: (f32, f32),
+    pub offset: (f32, f32),
+    pub offset_rate: (f32, f32),
+}
+
+impl GroundGrid {
+    pub fn read(r: &Record) -> Option<GroundGrid> {
+        if r.payload.len() < 27 {
+            return None;
+        }
+        Some(GroundGrid {
+            flags: r.int(0) as u32,
+            duration: r.float(8),
+            material: r.int(9),
+            points: r.int(10),
+            fade_mode: r.int(11),
+            scale: (r.float(12), r.float(13)),
+            fade: (r.float(14), r.float(15)),
+            colour: r.int(16) as u32,
+            spacing: r.float(18),
+            lift: r.float(19),
+            wave: r.float(20),
+            scale_rate: (r.float(21), r.float(22)),
+            offset: (r.float(23), r.float(24)),
+            offset_rate: (r.float(25), r.float(26)),
+        })
+    }
+}
+
 /// A kind-1004 template as `_GfxControlFire_t` reads it (FUN_100dcb72 / FUN_100dc7ee; FUN_100dc433 the words, FUN_100dc59c the
 /// `GfxVisualSprite2Type0`, FUN_100dbed5 the run): word 0 the flags (0x100 the flames rise; else they run back along the
 /// locator's z), words 1–3 the locator's offset, word 7 the attach point, word 8 the duration (none made a life before it),
@@ -1911,6 +1960,8 @@ pub enum Visual {
     Spiral2(Spiral2),
     /// Flames off a disc at the point (kind 1004, `_GfxControlFire_t`).
     Fire(Fire),
+    /// A grid laid on the ground round the point (kind 3030, `GfxControlGroundGrid_t`).
+    GroundGrid(GroundGrid),
     /// Kind 3032, `GfxControlGroundShake_t` (FUN_1010f333; FUN_1010eff5 the words, FUN_1010f12a the run): the camera's eye shaken
     /// by a random vector each frame (`n3Camera_t` +0x1d4 then `UpdateTargetEye`), as large as the curve (from word 13) at the
     /// fraction of the duration (word 8) times `(reach − d) / reach`, `d` the eye's distance from the point held to the reach
@@ -2075,6 +2126,7 @@ impl Gfx {
             3006 => SkyFlash::read(r).map(Visual::SkyFlash),
             3033 => Spiral2::read(r).map(Visual::Spiral2),
             1004 => Fire::read(r).map(Visual::Fire),
+            3030 => GroundGrid::read(r).map(Visual::GroundGrid),
             3032 if r.payload.len() >= 14 => {
                 let n = r.int(13).clamp(0, 64) as usize;
                 let curve = (0..n).map(|k| (r.float(14 + 2 * k), r.float(15 + 2 * k))).collect();

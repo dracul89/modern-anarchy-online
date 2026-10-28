@@ -1487,6 +1487,71 @@ fn cone_vertices(foot: [f32; 3], segments: i32, below: f32, above: f32, height: 
     strip_triangles(&strip)
 }
 
+/// `GfxControlGroundGrid_t`'s grid `t` seconds in about `at` (world, Z up), as FUN_1010e704 lays its points and
+/// `GfxVisualGroundGrid::Update` (displaysystem `gfxground.rs` `grid_update`, `grid_point`) colours them: an n by n grid of
+/// `spacing` steps centred on the point (turned at random with flag 0x20000), each point `lift` over the ground under it; its
+/// alpha the colour's times its fade with the distance from the centre (`1 − d`: a diamond for fade mode 1, round for 2, none
+/// otherwise) and (0x4000) the wave `(sin((32 d + phase) / 2) + 1) / 2`, lifted by half the wave with 0x2000; its texture its
+/// place in the grid (centred with 0x8000) times the scales plus the offsets, both moving at their rates; the whole faded in
+/// over word 14 and out over the last word 15 of the duration; added with 0x200 unless 0x400. The phase is the wave's rate
+/// times the time.
+pub fn groundgrid_shells(g: &mao_formats::gfx::GroundGrid, at: [f32; 3], t: f32, ground: &dyn Fn(f32, f32) -> Option<f32>) -> Vec<Shell> {
+    let n = g.points.clamp(0, 256);
+    if t < 0.0 || n < 2 || (g.duration > 0.0 && t >= g.duration) {
+        return Vec::new();
+    }
+    let fade_out_from = g.duration - g.fade.1;
+    let fade = if t < g.fade.0 {
+        t / g.fade.0.max(1e-6)
+    } else if g.duration > 0.0 && t >= fade_out_from {
+        1.0 - (t - fade_out_from) / g.fade.1.max(1e-6)
+    } else {
+        1.0
+    };
+    let half = (n - 1) as f32 * g.spacing * 0.5;
+    let turn = if g.flags & 0x20000 != 0 { hash(0x3030, 1) * std::f32::consts::TAU } else { 0.0 };
+    let (s, c) = turn.sin_cos();
+    let colour = shell_colour(g.colour);
+    let (su, sv) = (g.scale.0 + g.scale_rate.0 * t, g.scale.1 + g.scale_rate.1 * t);
+    let (ou, ov) = (g.offset.0 + g.offset_rate.0 * t, g.offset.1 + g.offset_rate.1 * t);
+    let phase = g.wave * t;
+    let shift = if g.flags & 0x8000 != 0 { -((n - 1) as f32) * 0.5 } else { 0.0 };
+    let halfn = n as f32 * 0.5;
+    let point = |i: i32, j: i32| -> ShellVertex {
+        // (the original's x along j, z along i, turned about its y; the client's y is its z)
+        let (x, z) = (j as f32 * g.spacing - half, i as f32 * g.spacing - half);
+        let (x, z) = (x * c + z * s, -x * s + z * c);
+        let (wx, wy) = (at[0] + x, at[1] + z);
+        let d = match g.fade_mode {
+            2 => {
+                let hn = (n - 1) as f32 * 0.5;
+                ((i as f32 - hn).powi(2) + (j as f32 - hn).powi(2)).sqrt() / hn
+            }
+            1 => ((j as f32 - halfn).abs() + (i as f32 - halfn).abs()) / halfn,
+            _ => 0.0,
+        };
+        let wave = ((d * 32.0 + phase) * 0.5).sin() * 0.5 + 0.5;
+        let k = if g.flags & 0x4000 != 0 { wave } else { 1.0 };
+        let lift = if g.flags & 0x2000 != 0 { 0.5 * wave } else { 0.0 };
+        let alpha = (1.0 - d).max(0.0) * colour[3] * k * fade;
+        ShellVertex {
+            position: [wx, wy, ground(wx, wy).unwrap_or(at[2]) + g.lift + lift],
+            uv: [(j as f32 + shift) / (n - 1) as f32 * su + ou, (i as f32 + shift) / (n - 1) as f32 * sv + ov],
+            colour: [colour[0], colour[1], colour[2], alpha.clamp(0.0, 1.0)],
+        }
+    };
+    let mut vertices = Vec::with_capacity(((n - 1) * (n - 1) * 6) as usize);
+    for i in 0..n - 1 {
+        let mut strip = Vec::with_capacity((2 * n) as usize);
+        for j in 0..n {
+            strip.push(point(i, j));
+            strip.push(point(i + 1, j));
+        }
+        vertices.extend(strip_triangles(&strip));
+    }
+    vec![Shell { sprite: g.material.max(0) as u16, additive: g.flags & 0x200 != 0 && g.flags & 0x400 == 0, vertices }]
+}
+
 /// `GfxControlSpiral2_t`'s ribbons `t` seconds in about `at` (world, Z up), as FUN_10111fdb makes its `GfxVisualSpiral2`s,
 /// FUN_10111c40 runs them and `build` (displaysystem `gfxspiral2.rs`) draws them: ribbon k from the angle `k 6.28 / ribbons`
 /// past the first (999: a random one), `segments` steps along it at the fraction `s` of the way, each at the angle on by
@@ -1601,6 +1666,7 @@ pub fn visual_ground_shells(v: &Visual, feet: [f32; 3], t: f32, ground: &dyn Fn(
             tparticle2_shells(particles, *length, head, [feet[0], feet[1], feet[2] + up], t)
         }
         Visual::Spiral2(s) => spiral2_shells(s, [feet[0], feet[1], feet[2] + if s.attach == 0 { 0.0 } else { anchor(s.attach).0 }], t),
+        Visual::GroundGrid(g) => groundgrid_shells(g, feet, t, ground),
         Visual::SkyFlash(s) => skyflash_shells(s, [feet[0], feet[1], feet[2] + if s.attach == 0 { 0.0 } else { anchor(s.attach).0 }], t, ground),
         Visual::TParticle(p) => tparticle_shells(p, [feet[0], feet[1], feet[2] + if p.attach == 0 { 0.0 } else { anchor(p.attach).0 }], t),
         Visual::Meta(children) => children.iter().filter(|c| t < pulse_timing(c).1).flat_map(|c| visual_ground_shells(c, feet, t, ground)).collect(),
@@ -2685,6 +2751,7 @@ impl Shot {
                 Visual::TParticle(p) => p.duration.max(0.0),
                 Visual::SkyFlash(s) => s.length(),
                 Visual::GroundShake { duration, .. } => duration.max(0.0),
+                Visual::GroundGrid(g) => g.duration.max(0.0),
                 Visual::Spiral2(s) => s.duration.max(0.0),
                 Visual::Meta(children) => children.iter().map(rings).fold(0.0, f32::max),
                 _ => 0.0,
@@ -2772,7 +2839,7 @@ pub fn visual_particles(v: &Visual, feet: [f32; 3], time: f32, reach: Reach) -> 
         // (a streak along a shot's line: see `tracer5_shell`, `tracer1_shells`, `tracer3_particles`)
         Visual::Tracer5(_) | Visual::Tracer1(_) | Visual::Tracer3(_) => Vec::new(),
         // (crossed strips and cones: see `tparticle_shells`, `skyflash_shells`)
-        Visual::TParticle(_) | Visual::SkyFlash(_) | Visual::Spiral2(_) | Visual::TParticle2 { .. } => Vec::new(),
+        Visual::TParticle(_) | Visual::SkyFlash(_) | Visual::Spiral2(_) | Visual::TParticle2 { .. } | Visual::GroundGrid(_) => Vec::new(),
         Visual::Fire(f) => fire_particles(f, feet, 0.0, time),
         // (it shakes the camera: see `shake`)
         Visual::GroundShake { .. } => Vec::new(),
@@ -2968,6 +3035,7 @@ pub fn pulse_timing(v: &Visual) -> (f32, f32, i32) {
         Visual::SkyFlash(s) => (600.0, s.length().max(0.05), 1),
         Visual::Fire(f) => if f.duration >= 0.0 { (600.0, f.duration.max(0.05), 1) } else { (600.0, 600.0, -1) },
         Visual::GroundShake { duration, .. } => (600.0, duration.max(0.05), 1),
+        Visual::GroundGrid(g) => if g.duration > 0.0 { (600.0, g.duration, 1) } else { (600.0, 600.0, -1) },
         Visual::Spiral2(s) => if s.duration > 0.0 { (600.0, s.duration, 1) } else { (600.0, 600.0, -1) },
         Visual::TParticle2 { particles, .. } => pulse_timing(&Visual::BParticles(particles.clone())),
         // (a nano makes sprites until a life before its duration, and its last ones live out their lives; for ever without one)
@@ -3567,6 +3635,41 @@ mod tests {
         assert!(n > 0 && s[0].vertices.len() <= n * 12);
         // (the head is the brighter end: the head curve's white)
         assert!(s[0].vertices.iter().any(|v| v.colour == [1.0, 1.0, 1.0, 1.0]));
+    }
+
+    #[test]
+    fn a_ground_grid_lies_on_the_ground_and_fades_from_its_centre() {
+        // (template 71233: a 20 by 20 grid of 2, blue, fading in over 2 s and out over the last 2 of 10, round)
+        let g = mao_formats::gfx::GroundGrid {
+            flags: 0xe203,
+            duration: 10.0,
+            material: 58,
+            points: 20,
+            fade_mode: 2,
+            scale: (3.0, 3.0),
+            fade: (2.0, 2.0),
+            colour: 0xff80_c0ff,
+            spacing: 2.0,
+            lift: 0.25,
+            wave: 5.0,
+            scale_rate: (0.1, 0.1),
+            offset: (0.5, 0.5),
+            offset_rate: (-0.02, 0.02),
+        };
+        let flat = |_: f32, _: f32| Some(1.0);
+        let s = groundgrid_shells(&g, [0.0; 3], 5.0, &flat);
+        assert_eq!(s.len(), 1);
+        assert_eq!(s[0].vertices.len(), 19 * (40 - 2) * 3);
+        assert!(s[0].vertices.iter().all(|v| v.position[0].abs() <= 19.0 + 1e-3 && v.position[2] >= 1.25 - 1e-4));
+        // (the corners have faded out: round fade beyond the half side)
+        let corner = s[0].vertices.iter().find(|v| (v.position[0] + 19.0).abs() < 1e-3 && (v.position[1] + 19.0).abs() < 1e-3).unwrap();
+        assert_eq!(corner.colour[3], 0.0);
+        // (half way into the fade in, half as strong)
+        let early = groundgrid_shells(&g, [0.0; 3], 1.0, &flat);
+        let a = s[0].vertices.iter().map(|v| v.colour[3]).fold(0.0, f32::max);
+        let b = early[0].vertices.iter().map(|v| v.colour[3]).fold(0.0, f32::max);
+        assert!(b <= a * 0.5 + 1e-3);
+        assert!(groundgrid_shells(&g, [0.0; 3], 10.0, &flat).is_empty());
     }
 
     #[test]

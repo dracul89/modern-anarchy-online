@@ -156,6 +156,8 @@ fn effect_classes_come_to_visuals() {
     assert!(matches!(gfx.visual(17500), Some(Visual::Plasma { material: 8, duration, .. }) if duration == 1.0));
     // the null gather effect has none
     assert!(gfx.visual(49999).is_none());
+    // (a ground grid: 20 by 20 of 2, round fade)
+    assert!(matches!(gfx.visual(71233), Some(Visual::GroundGrid(g)) if g.points == 20 && g.spacing == 2.0 && g.fade_mode == 2 && g.duration == 10.0));
     // (a ground shake: 2.3 s, felt to 30 away)
     assert!(matches!(gfx.visual(72380), Some(Visual::GroundShake { duration, reach, ref curve }) if duration == 2.3 && reach == 30.0 && curve.len() == 4));
     // (the Rage buffs' flames: sixteen a second off a disc behind the body, a second each)
