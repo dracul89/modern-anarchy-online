@@ -74,8 +74,8 @@ Added after the overnight run, on request: audio through rodio, ported from the 
 
 | Commit | What | What to try |
 |---|---|---|
-| (next) | **Nano and effect sounds**: gather, cast, travel and hit sounds of each program; effects' own sounds | cast nanos on yourself and on a monster |
-| (next) | **Environment sounds**: the district's background by the time of day, the rain, the winds (and sand and fallout storms) | stand outdoors by day and by night; in bad weather |
+| 41be03c | **Nano and effect sounds**: gather, cast, travel and hit sounds of each program; effects' own sounds | cast nanos on yourself and on a monster |
+| 41be03c | **Environment sounds**: the district's background by the time of day, the rain, the winds (and sand and fallout storms) | stand outdoors by day and by night; in bad weather |
 | 36b49df | **Music**: the original's interactive music (SIMPlayer): startup music at login, the district's music by the time of day, battle music in fights, cross-fades and pauses | walk between districts; fight; `mao-client "<game>" music "plains\day"` |
 | 742e3a9 | **Death sounds**: a creature's own, else a man's or a woman's | kill something |
 | 9f7aa87 | **Shots and hits**: each swing's `attack` note plays the weapon's sound; hits play the impact and the one hit's grunt (by sex) or a creature's own impact | fight a monster with a gun and with your fists |
