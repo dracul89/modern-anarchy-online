@@ -11,8 +11,13 @@
 //! * A central controller plays its state's sound every frame (FUN_1007e0a8): idle, or shutdown once; its state comes in its
 //!   full update and in `CentralControllerStateIIR_t` (0x08536f65, FUN_1009f624; FUN_1009f5e2 → FUN_1007e206).
 //!
-//! Not here: the sprung item's effect (0x834, `_EffectHandler_t::CreateEffect2`) and a mine's bleep when a player walks into
-//! it (FUN_10085faa, from FUN_10089f0a's collisions: it needs the mine's collision volume).
+//! * A mine bleeps when the client's character walks into it ([`Hazards::bleeps`]): FUN_10089f0a, the item's frame, reads the
+//!   collisions N3 found (`RunDynelDynelCollChecking`: only the client's character is checked, `n3Dynel_t::CheckBodyCollision`
+//!   against every other dynel within 10 m on x and z, sphere against sphere, `CollPrim_t::CheckSphSph`) and hands each to the
+//!   mine's slot 55 (FUN_10085faa), which plays `SM_Sandy_Hazards_mine_bleep` on the frames the game clock's second turns.
+//!
+//! Not here: the sprung item's effect (0x834, `_EffectHandler_t::CreateEffect2`) and the signal FUN_10085faa sends after the
+//! bleep (`GlobalSignals_c` +0x14c with 3.0, FUN_10011a4b).
 
 use std::collections::BTreeMap;
 
@@ -40,6 +45,89 @@ pub struct Hazard {
     pub at: [f32; 3],
     /// A controller's shutdown sound has played (FUN_1007e0a8 clears its +0x12c after it).
     shut: bool,
+    /// The item's stats from its full update (the `StatHolder_t`, FUN_1002e62b: 1234567890 for one not given).
+    pub stats: BTreeMap<u32, i64>,
+    /// A trap's or mine's "armed" flag (+0x1e4: bit 1 of the full update's flags byte, FUN_100a28ca; FUN_100a2a42 →
+    /// FUN_10085de7 → FUN_1009979d).
+    armed: bool,
+    /// A mine has malfunctioned (+0x1f8, set by the action 0x8c).
+    malfunctioned: bool,
+    /// The item frame's count (+0x114 of the visual dynel: one more every other second of the game clock).
+    count: i64,
+}
+
+impl Hazard {
+    fn new(kind: Kind, at: [f32; 3]) -> Hazard {
+        Hazard { kind, at, shut: false, stats: BTreeMap::new(), armed: false, malfunctioned: false, count: 0 }
+    }
+
+    /// A stat (`GetStat`): the given value, else the holder's 1234567890; a mine's 36 is 1 until told (FUN_10085ec5's
+    /// `SetStat(0x24, 1)`).
+    pub fn stat(&self, stat: u32) -> i64 {
+        match self.stats.get(&stat) {
+            Some(&v) => v,
+            None if stat == 36 && self.kind == Kind::Mine => 1,
+            None => 1234567890,
+        }
+    }
+}
+
+/// FUN_1006aa89 (DisplaySystem): a byte of a mesh's packed sphere word (signed) as `0.05x + 6e-6x³`.
+pub fn curve(byte: u8) -> f32 {
+    let x = byte as i8 as f64;
+    (x * 0.05000000074505806 + 6.000000212225132e-06 * x * x * x) as f32
+}
+
+/// A mesh's torso sphere from its packed word (`RDBMesh_t::ReadBlob`, `RDBCATMesh_t`'s FUN_1006aab4): the radius from the top
+/// byte, the centre from the low three; as `n3VisualDynel_t::UpdateCollision` (N3 0x10019be4) makes the body's sphere of it:
+/// a radius below 0 taken as 0.5, both times the body's scale, the centre straight above the dynel at its height times the
+/// scale. Returns (height of the centre, radius).
+pub fn body_sphere(packed: u32, scale: f32) -> (f32, f32) {
+    let [_, b1, _, b3] = packed.to_le_bytes();
+    let mut radius = curve(b3);
+    if radius < 0.0 {
+        radius = 0.5;
+    }
+    (curve(b1) * scale, scale * radius)
+}
+
+/// `GameTime_t::RunFunction`'s turns of a second (Gamecode 0x1000b27e): the real time (+0x28) runs on by the frame's; once it
+/// reaches the last turn (+0x30) plus 1 the second turns (+0x18), the next turn kept no later than a second ago, and every
+/// other turn (+0x1a, by the parity +0xb0) the items' frames count on.
+#[derive(Default)]
+pub struct SecondTicks {
+    last: Option<std::time::Instant>,
+    real: f64,
+    turn: f64,
+    parity: u32,
+}
+
+impl SecondTicks {
+    /// A frame: (the second turned, the other second turned).
+    pub fn step(&mut self) -> (bool, bool) {
+        let now = std::time::Instant::now();
+        let dt = self.last.map_or(0.0, |l| now.duration_since(l).as_secs_f32());
+        self.last = Some(now);
+        self.real += dt as f64;
+        if self.real < self.turn + 1.0 {
+            return (false, false);
+        }
+        self.parity = self.parity.wrapping_sub(1) & 1;
+        let left = 1.0 - (self.real - self.turn);
+        let keep = if left <= 1.0 { left.max(0.0) } else { 1.0 };
+        self.turn = self.real - keep;
+        (true, self.parity != 0)
+    }
+}
+
+/// What a frame of the mines needs: the game clock's turns (`GameTime_t` +0x18 a second, +0x1a every other second), the
+/// client's character's place and body sphere (height, radius), and each mine's body sphere by its stats.
+pub struct Frame<'a> {
+    pub second: bool,
+    pub other_second: bool,
+    pub own: [f32; 3],
+    pub own_sphere: (f32, f32),
+    pub sphere: &'a dyn Fn(&Hazard) -> Option<(f32, f32)>,
 }
 
 /// What an action did: the sounds to play (id, where) and the feedback line's name.
@@ -78,8 +166,25 @@ impl Hazards {
             }
             _ => return,
         };
-        let shut = self.map.get(&instance).is_some_and(|h| h.shut);
-        self.map.insert(instance, Hazard { kind, at, shut });
+        let mut h = Hazard::new(kind, at);
+        if let Some(old) = self.map.get(&instance) {
+            (h.shut, h.malfunctioned, h.count) = (old.shut, old.malfunctioned, old.count);
+        }
+        if let Some(mao_net::schema::Value::List(stats)) = p.value.get("Stats") {
+            for s in stats {
+                if let (Some(k), Some(v)) = (s.get("Item1").and_then(mao_net::schema::Value::as_int), s.get("Item2").and_then(mao_net::schema::Value::as_int)) {
+                    h.stats.insert(k as u32, v);
+                }
+            }
+        }
+        // (a trap's fields, FUN_100a28ca: its version 2, a word, two identities, the flags byte)
+        if matches!(kind, Kind::Mine | Kind::Trap) {
+            let rest = &data[data.len() - p.left..];
+            if rest.len() >= 25 && u32::from_be_bytes(rest[0..4].try_into().unwrap()) == 2 {
+                h.armed = rest[24] >> 1 & 1 != 0;
+            }
+        }
+        self.map.insert(instance, h);
     }
 
     /// A controller's new state (`CentralControllerStateIIR_t`: after the header byte, the state, below 3).
@@ -115,8 +220,53 @@ impl Hazards {
             (0x6c, Kind::Mine | Kind::Trap) if character => {
                 out.line = Some(if mine { "Feedback_YouSuccededDisarmingMine" } else { "Feedback_YouSuccededDisarmingTrap" });
             }
-            (0x8c, Kind::Mine) => out.sounds.push((sound_id("SM_Sandy_Hazards_mine_malfunction"), h.at)),
+            (0x8c, Kind::Mine) => {
+                out.sounds.push((sound_id("SM_Sandy_Hazards_mine_malfunction"), h.at));
+                self.map.get_mut(&instance).unwrap().malfunctioned = true;
+            }
             _ => {}
+        }
+        out
+    }
+
+    /// The mines' bleeps this frame: (sound, where, pitch). Each mine's frame (FUN_10089f0a) counts every other second, and
+    /// on the frames its count is a multiple of its stat 437 reads its collisions: the client's character's sphere against
+    /// the mine's (when the mine wants to be told, its flags stat 0 bit 0x80000, `SetWantCollinfo`; within 10 m on x and z;
+    /// `dist² < (r1 + r2)²`). FUN_10085faa then bleeps when the mine's stat 36 is set, it has not malfunctioned, it is armed
+    /// and the game clock's second has just turned, at the mine, at the pitch `(3 − d) × 10 + 100` (truncated) of the
+    /// distance `d` between the two.
+    pub fn bleeps(&mut self, f: &Frame) -> Vec<(u32, [f32; 3], u32)> {
+        let mut out = Vec::new();
+        for h in self.map.values_mut() {
+            if h.kind != Kind::Mine {
+                continue;
+            }
+            if f.other_second {
+                h.count += 1;
+            }
+            let every = h.stat(437);
+            if every == 0 || h.count % every != 0 {
+                continue;
+            }
+            if h.stat(0) & 0x80000 == 0 {
+                continue;
+            }
+            let (dx, dz) = (h.at[0] - f.own[0], h.at[2] - f.own[2]);
+            if !(-10.0..=10.0).contains(&dx) || !(-10.0..=10.0).contains(&dz) {
+                continue;
+            }
+            let Some((height, radius)) = (f.sphere)(h) else { continue };
+            let dy = (h.at[1] + height) - (f.own[1] + f.own_sphere.0);
+            let (d2, r) = (dx * dx + dy * dy + dz * dz, radius + f.own_sphere.1);
+            if !(d2 < r * r) {
+                continue;
+            }
+            if h.stat(36) == 0 || h.malfunctioned || !h.armed || !f.second {
+                continue;
+            }
+            let d = (dx * dx + (h.at[1] - f.own[1]).powi(2) + dz * dz).sqrt();
+            let pitch = ((3.0 - d as f64) * 10.0 + 100.0) as i32 as u32;
+            out.push((sound_id("SM_Sandy_Hazards_mine_bleep"), h.at, pitch));
         }
         out
     }
@@ -161,8 +311,8 @@ mod tests {
     #[test]
     fn mines_traps_and_controllers() {
         let mut h = Hazards::default();
-        h.map.insert(1, Hazard { kind: Kind::Mine, at: [1.0, 2.0, 3.0], shut: false });
-        h.map.insert(2, Hazard { kind: Kind::Trap, at: [4.0, 5.0, 6.0], shut: false });
+        h.map.insert(1, Hazard::new(Kind::Mine, [1.0, 2.0, 3.0]));
+        h.map.insert(2, Hazard::new(Kind::Trap, [4.0, 5.0, 6.0]));
         let boom = sound_id("SM_Sandy_Game_Explo_Big");
         assert_eq!(h.action(1, &action(0x6d, (0xc350, 7)), 7), Outcome { sounds: vec![(boom, [1.0, 2.0, 3.0])], line: Some("Feedback_MineWasSprung") });
         assert_eq!(h.action(2, &action(0x6d, (0xc350, 8)), 7), Outcome { sounds: vec![(boom, [4.0, 5.0, 6.0])], line: None });
@@ -171,12 +321,40 @@ mod tests {
         assert_eq!(h.action(2, &action(0x8c, (0, 0)), 7), Outcome::default());
         assert_eq!(h.action(3, &action(0x6d, (0xc350, 7)), 7), Outcome::default());
 
-        h.map.insert(9, Hazard { kind: Kind::Controller(0), at: [0.0; 3], shut: false });
+        h.map.insert(9, Hazard::new(Kind::Controller(0), [0.0; 3]));
         assert_eq!(h.frame(), vec![(sound_id("SM_Sandy_Hazards_central_controller_idle"), [0.0; 3])]);
         h.state(9, &[1, 1]);
         assert_eq!(h.frame(), vec![(sound_id("SM_Sandy_Hazards_central_controller_shutdown"), [0.0; 3])]);
         assert!(h.frame().is_empty());
         h.state(9, &[1, 2]);
         assert!(h.frame().is_empty());
+    }
+
+    #[test]
+    fn a_mine_bleeps_when_walked_into() {
+        let mut h = Hazards::default();
+        let mut mine = Hazard::new(Kind::Mine, [10.0, 0.0, 10.0]);
+        mine.stats.extend([(0, 0x80000), (437, 1)]);
+        mine.armed = true;
+        h.map.insert(1, mine);
+        let sphere = |_: &Hazard| Some((0.2, 0.5));
+        let frame = |own: [f32; 3], second: bool| Frame { second, other_second: true, own, own_sphere: (1.0, 0.5), sphere: &sphere };
+        // (touching: the spheres 0.8 apart, under their 1.0; the pitch of 0.5 m: 125)
+        assert_eq!(h.bleeps(&frame([10.0, 0.0, 10.5], true)), vec![(sound_id("SM_Sandy_Hazards_mine_bleep"), [10.0, 0.0, 10.0], 125)]);
+        // (not on the second's turn, nor out of reach)
+        assert!(h.bleeps(&frame([10.0, 0.0, 10.5], false)).is_empty());
+        assert!(h.bleeps(&frame([10.0, 0.0, 12.0], true)).is_empty());
+        // (unarmed, malfunctioned, or without stat 437: silent)
+        h.action(1, &action(0x8c, (0, 0)), 7);
+        assert!(h.bleeps(&frame([10.0, 0.0, 10.5], true)).is_empty());
+        let mut quiet = Hazard::new(Kind::Mine, [0.0; 3]);
+        quiet.stats.insert(0, 0x80000);
+        quiet.armed = true;
+        h.map.insert(1, quiet);
+        assert!(h.bleeps(&frame([0.0, 0.0, 0.2], true)).is_empty());
+        // (the sphere words: radius byte 0x14 = 20 → 1.048, height byte 0x0a = 10 → 0.506)
+        let (y, r) = body_sphere(0x1400_0a00, 1.0);
+        assert!((y - 0.506).abs() < 1e-6 && (r - 1.048).abs() < 1e-6);
+        assert_eq!(body_sphere(0xf000_0000, 2.0).1, 1.0);
     }
 }

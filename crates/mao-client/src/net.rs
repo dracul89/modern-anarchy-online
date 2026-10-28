@@ -2607,7 +2607,16 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                 channels.insert(id, (kind, name));
                                 None
                             }
-                            Some(Packet::Notice { text }) => Some(Line::new(Kind::System, mao_net::chat::plain(&text))),
+                            Some(Packet::Notice { name, text, blob }) => {
+                                // (`HandleVicinityMessage` → FUN_1008cdb3: its voice line, if any)
+                                crate::voices::vicinity_message(&mut voices, &name, &blob);
+                                Some(Line::new(Kind::System, mao_net::chat::plain(&text)))
+                            }
+                            Some(Packet::Vicinity { sender, text, blob }) => {
+                                let who = names.get(&sender).cloned().unwrap_or_else(|| format!("{sender:x}"));
+                                crate::voices::vicinity_message(&mut voices, &who, &blob);
+                                Some(Line { kind: Kind::Channel, text: format!("{who}: {}", mao_net::chat::plain(&text)), from: Some(who) })
+                            }
                             Some(Packet::Tell { sender, text }) => {
                                 let text = mao_net::chat::plain(&text);
                                 match names.get(&sender) {
@@ -2715,6 +2724,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let generic = crate::sounds::Generic::default();
         let tile_materials = gear_db.get(mao_formats::resource::Id { kind: mao_formats::tilemap::TILE_MATERIALS, instance: 1 }).ok().flatten().and_then(|o| mao_formats::tilemap::tile_materials(&o)).unwrap_or_default();
         let mut sound_rand = crate::audio::Rand::default();
+        // The mines' bleeps: the game clock's turns of a second and the mines' meshes' sphere words, by mesh.
+        let mut second_ticks = crate::hazards::SecondTicks::default();
+        let mine_spheres: std::cell::RefCell<std::collections::HashMap<u32, Option<u32>>> = Default::default();
         // The district's music (FUN_100b72bf, once a second) and the playfield whose districts are loaded.
         let (mut districts, mut district_tick): (Option<(u32, Option<crate::sounds::DistrictMap>)>, Instant) = (None, Instant::now());
         // The district and the weather at the character, for the environment's sounds (refreshed with the music).
@@ -3778,6 +3790,34 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     state.hazard_sounds.extend(controllers);
                     for (id, at) in std::mem::take(&mut state.hazard_sounds) {
                         crate::audio::with(|m| m.play_game_sound(id, at, 0.0, 1.0, 0, 0.0, 100, 1, 0, [0.0; 3]));
+                    }
+                    // (a mine's bleep: the client's body sphere from its breed's and sex's body mesh, the mine's from its
+                    // `Mesh` stat's mesh, each by its scale, stat 360 / 100; the game clock's turns of a second)
+                    let turned = second_ticks.step();
+                    if state.hazards.map.values().any(|h| h.kind == crate::hazards::Kind::Mine) {
+                        let own_sphere = state.infos.get(&own).and_then(|i| {
+                            c.ensure_body(i.breed, i.sex);
+                            let packed = c.bodies.get(&(i.breed, i.sex))?.as_ref()?.0.colour;
+                            let scale = state.stats.get(&360).map_or(1.0, |&s| s as f32 / 100.0);
+                            Some(crate::hazards::body_sphere(packed, scale))
+                        });
+                        if let Some(own_sphere) = own_sphere {
+                            let db = c.db.clone();
+                            let meshes = &mine_spheres;
+                            let sphere = |h: &crate::hazards::Hazard| -> Option<(f32, f32)> {
+                                let mesh = *h.stats.get(&12)? as u32;
+                                let packed = *meshes.borrow_mut().entry(mesh).or_insert_with(|| {
+                                    let object = db.get(mao_formats::resource::Id { kind: 0xf6951, instance: mesh }).ok()??;
+                                    Some(mao_formats::mesh::parse(&object).ok()?.colour)
+                                });
+                                let scale = h.stats.get(&360).map_or(1.0, |&s| s as f32 / 100.0);
+                                Some(crate::hazards::body_sphere(packed?, scale))
+                            };
+                            let frame = crate::hazards::Frame { second: turned.0, other_second: turned.1, own: position, own_sphere, sphere: &sphere };
+                            for (id, at, pitch) in state.hazards.bleeps(&frame) {
+                                crate::audio::with(|m| m.play_game_sound(id, at, 0.0, 1.0, 0, 0.0, pitch as i32, 1, 0, [0.0; 3]));
+                            }
+                        }
                     }
                     for id in std::mem::take(&mut state.died) {
                         let Some(at) = (if id == own { Some(position) } else { state.position_of(id) }) else { continue };

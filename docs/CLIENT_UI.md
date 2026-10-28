@@ -881,3 +881,10 @@ original's chat does (`voices.rs`): when your character's stat 389 has bit 0, th
 3 s, the first of `<sender>_<line>_01`, `<breed>_<sex>_<mood>_<line>_01`, `<sex>_<mood>_<line>_01`, `<sex>_<line>_01` and
 `<line>_01` found in `cd_image/sound/sfx/player/` plays at the voice volume (e.g. `atrox_male_cool_heal_01.wav`). Not done:
 voices in vicinity speech, and sending one.
+
+**A mine's bleep.** Walking into an armed mine bleeps it as the original does (`hazards::Hazards::bleeps`): N3 checks only
+your character's body against the other dynels, sphere against sphere, each sphere the mesh's packed sphere word (radius from
+its top byte, height from its second, through DisplaySystem's curve) times the body's scale (stat 360); the mine reads its
+collisions on the frames its count of every other second is a multiple of its stat 437, when it wants them (flags bit
+0x80000), and bleeps when its stat 36 is set, it is armed (its full update's flags bit 1) and has not malfunctioned, once each
+time the game clock's second turns, higher the closer you are: `(3 − distance) × 10 + 100`.
