@@ -428,6 +428,10 @@ Missed attacks at or by the character (`MissedAttackInfo`: the attacker and the 
 - `MissedAttackInfo` (FUN_1006b399): "You tried to hit Rollerrat, but missed!" / "Rollerrat tried to hit you, but missed!", or "... with <skill> ..." when the message names a stat.
 - `HealthDamage` (FUN_100a0611): "You hit Tower Shark with nanobots for 2833 points of melee damage.", "You were attacked with nanobots from Rollerrat for 1581 points of cold damage.", "Rollerrat was attacked with nanobots for ...", "You were healed for 116 points." (only your own heals have a line), and the fall-damage lines.
 
+- `Absorb` (FUN_1009ef78): "You absorbed 1581 points of cold damage."; another character's absorb is "Someone absorbed ..." (the handler gives no name).
+- `ShieldAttack` / `ReflectAttack` (FUN_100a134d / FUN_100a11c2: the one hurt is the identity, the shield's owner `Target`, and its health goes down by the amount): "Your damage shield hit Rollerrat for 173 points of damage.", "Bob's reflect shield hit Rollerrat ...", and "Someone's damage shield hit you ..." (the handler drops the owner when it is you who is hurt).
+- Your own `Stat` changes (FUN_100a2006, by the change from the value held): "You received 1200 xp." / "You lost 5 xp.", "You gained N new Alien Experience Points.", "You gained/lost N points of Shadowknowledge.", and health changes not already told by a `HealthDamage` (which now sets the stat, as the original does).
+
 **Fixed with it: `HealthDamage`'s direction.** The one hurt is the message's own identity, whose health is `TargetHp`; the `Target` field is the source. The client had it the other way round, so the floating numbers and the health bars followed the wrong character (a monster's health was given to you). Checked on the captured messages.
 
 - **Inspect answers**: an `Inspect` message (`5a585f65`: identity, count, 32-byte records of slot, flags, identity, low id, high id, quality) is decoded (`n3::inspect_items`, tested on captured bytes) and told in the chat window as "Name wears N items:" with each slot and item name. Not tried live: whether `/inspect`'s info request is what makes the server send it is unknown from the capture.

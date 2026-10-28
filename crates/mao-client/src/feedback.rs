@@ -39,6 +39,21 @@ fn english(name: &str) -> &'static str {
         "Feedback_YouTriedToHitMissed" => "You tried to hit %s, but missed!",
         "OtherTriesToAttackWithSpecialButMisses" => "%s tries to attack you with %s, but misses!",
         "Feedback_OtherTriedToHitMissed" => "%s tried to hit you, but missed!",
+        "Feedback_YouAbsorbedDamage" => "You absorbed %u points of %s damage.",
+        "Feedback_SomeoneAbsorbedDamage" => "Someone absorbed %u points of %s damage.",
+        "Feedback_SomeonesDamageShieldHitYou" => "Someone's damage shield hit you for %u points of damage.",
+        "Feedback_YourDamageShieldHitOther" => "Your damage shield hit %s for %u points of damage.",
+        "Feedback_OtherDamageShieldHitOther" => "%s's damage shield hit %s for %u points of damage.",
+        "Feedback_SomethingHitOtherWithDamageShield" => "Something hit %s for %u points of damage by damage shield.",
+        "Feedback_SomeonesReflectShieldHitYou" => "Someone's reflect shield hit you for %u points of damage.",
+        "Feedback_YourReflectShieldHitOther" => "Your reflect shield hit %s for %u points of damage.",
+        "Feedback_OtherReflectShieldHitOther" => "%s's reflect shield hit %s for %u points of damage.",
+        "Feedback_SomethingHitOtherWithReflectShield" => "Something hit %s for %u points of damage by reflect shield.",
+        "Feedback_LostXP" => "You lost %u xp.",
+        "Feedback_ReceivedXP" => "You received %u xp.",
+        "Feedback_GainedAlienXP" => "You gained %d new Alien Experience Points.",
+        "Feedback_LostSK" => "You lost %d points of Shadowknowledge.",
+        "Feedback_GainedSK" => "You gained %d points of Shadowknowledge.",
         "Feedback_CriticalHit" => "Critical hit!",
         "Feedback_GlancingHit" => "Glancing hit.",
         _ => "",
@@ -175,6 +190,58 @@ pub fn health(victim: Who, source: Who, amount: i64, stat: u32, nano: Option<&st
     })
 }
 
+/// Damage soaked up (`Absorb`, FUN_1009ef78: the one absorbing is the message's identity): 0x34 for the client, 0x35 for the
+/// others, who are never named (the handler passes no source, so FUN_10012c3e takes its "Someone" branch).
+pub fn absorb(who: Who, amount: i64, kind: u32) -> Option<String> {
+    if amount == 0 {
+        return None;
+    }
+    let (n, kind) = (Arg::Int(amount), Arg::Text(damage_type(if kind == 0 { 0x1b } else { kind })));
+    match who {
+        Who::You => Some(line("Feedback_YouAbsorbedDamage", &[n, kind])),
+        Who::Named(..) => Some(line("Feedback_SomeoneAbsorbedDamage", &[n, kind])),
+        Who::Unknown => None,
+    }
+}
+
+/// A damage shield (`ShieldAttack`, FUN_100a134d: 0x25/0x26) or reflect shield (`ReflectAttack`, FUN_100a11c2: 0x27/0x28)
+/// striking: the one hurt is the message's identity, the shield's owner its `Target`. When the client is the one hurt the
+/// handler drops the owner, so the line is always "Someone's".
+pub fn shield(victim: Who, owner: Who, amount: i64, reflect: bool) -> Option<String> {
+    if amount == 0 {
+        return None;
+    }
+    let n = Arg::Int(amount);
+    let pick = |damage: &'static str, reflected: &'static str| if reflect { reflected } else { damage };
+    Some(match (victim, owner) {
+        (Who::You, _) => line(pick("Feedback_SomeonesDamageShieldHitYou", "Feedback_SomeonesReflectShieldHitYou"), &[n]),
+        (Who::Named(victim, _), Who::You) => line(pick("Feedback_YourDamageShieldHitOther", "Feedback_YourReflectShieldHitOther"), &[Arg::Text(victim), n]),
+        (Who::Named(victim, _), Who::Named(owner, _)) => line(pick("Feedback_OtherDamageShieldHitOther", "Feedback_OtherReflectShieldHitOther"), &[Arg::Text(owner), Arg::Text(victim), n]),
+        (Who::Named(victim, _), Who::Unknown) => line(pick("Feedback_SomethingHitOtherWithDamageShield", "Feedback_SomethingHitOtherWithReflectShield"), &[Arg::Text(victim), n]),
+        (Who::Unknown, _) => return None,
+    })
+}
+
+/// A change of one of the client's own stats (the `Stat` message, FUN_100a2006, by the change from the value held): its health
+/// (27: 0x1a / 0x22, no source and no type), experience (52: 0x24), alien experience (40, gains only: 0x45) and
+/// shadowknowledge (573: 0x3e).
+pub fn own_stat(stat: u32, change: i64) -> Option<String> {
+    if change == 0 {
+        return None;
+    }
+    let n = Arg::Int(change.abs());
+    Some(match stat {
+        27 if change < 0 => line("Feedback_AttackedByNanobotsForPointsOfDamage", &[n, Arg::Text(damage_type(0x1b))]),
+        27 => line("Feedback_HealedForPoints", &[n]),
+        52 if change < 0 => line("Feedback_LostXP", &[n]),
+        52 => line("Feedback_ReceivedXP", &[n]),
+        40 if change > 0 => line("Feedback_GainedAlienXP", &[n]),
+        573 if change < 0 => line("Feedback_LostSK", &[n]),
+        573 => line("Feedback_GainedSK", &[n]),
+        _ => return None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -200,6 +267,24 @@ mod tests {
         assert_eq!(miss(Who::You, rat, None).unwrap(), "Rollerrat tried to hit you, but missed!");
         assert_eq!(miss(Who::You, rat, Some("Aimed Shot")).unwrap(), "Rollerrat tries to attack you with Aimed Shot, but misses!");
         assert_eq!(miss(rat, Who::Named("Bob", true), None), None);
+    }
+
+    #[test]
+    fn shield_absorb_and_stat_lines() {
+        let rat = Who::Named("Rollerrat", false);
+        // (captured: the client's damage shield struck 0x7b017c24 for 173; the client absorbed 1581 cold)
+        assert_eq!(shield(rat, Who::You, 173, false).unwrap(), "Your damage shield hit Rollerrat for 173 points of damage.");
+        assert_eq!(shield(Who::You, rat, 9, true).unwrap(), "Someone's reflect shield hit you for 9 points of damage.");
+        assert_eq!(shield(rat, Who::Named("Bob", true), 9, false).unwrap(), "Bob's damage shield hit Rollerrat for 9 points of damage.");
+        assert_eq!(shield(Who::You, rat, 0, true), None);
+        assert_eq!(absorb(Who::You, 1581, 95).unwrap(), "You absorbed 1581 points of cold damage.");
+        assert_eq!(absorb(rat, 10, 91).unwrap(), "Someone absorbed 10 points of melee damage.");
+        assert_eq!(own_stat(52, 1200).unwrap(), "You received 1200 xp.");
+        assert_eq!(own_stat(52, -5).unwrap(), "You lost 5 xp.");
+        assert_eq!(own_stat(40, -5), None);
+        assert_eq!(own_stat(573, 3).unwrap(), "You gained 3 points of Shadowknowledge.");
+        assert_eq!(own_stat(27, 40).unwrap(), "You were healed for 40 points.");
+        assert_eq!(own_stat(1, 40), None);
     }
 
     #[test]

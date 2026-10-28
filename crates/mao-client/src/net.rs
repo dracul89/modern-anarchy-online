@@ -265,17 +265,8 @@ fn template_name(template: u32) -> Option<String> {
 }
 
 /// The line for an `Absorb` (the character's armour soaked up damage of a type) or a `ShieldAttack` (a damage shield struck the character).
-fn absorb_line(amount: i64, stat: u32) -> String {
-    let kind = if stat == 0 { String::new() } else { format!("{} ", crate::skills::stat_name(stat).trim_end_matches("AC").trim().to_lowercase()) };
-    format!("You absorb {amount} points of {kind}damage.")
-}
-
 fn reload_line(loaded: i64, left: i64) -> String {
     format!("You reload: {loaded} rounds in the weapon, {left} left.")
-}
-
-fn shield_line(who: &str, amount: i64) -> String {
-    format!("{who}'s damage shield hits you for {amount} points.")
 }
 
 /// What an `InventoryUpdate` lists for a container the character used.
@@ -677,21 +668,36 @@ impl World {
         if m.kind == 0x4a41203e && m.identity.1 == self.own {
             self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, "You stop fighting."));
         }
-        // Damage the character's armour absorbed, and a damage shield that struck it.
-        if m.kind == 0x264e5f61 && m.identity.1 == self.own {
+        // Damage a character's armour absorbed (`Absorb`, FUN_1009ef78: from the one absorbing).
+        if m.kind == 0x264e5f61 {
             if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
                 let amount = p.value.get("Amount").and_then(mao_net::schema::Value::as_int).unwrap_or(0);
                 let stat = p.value.get("DmgType").and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
-                self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, absorb_line(amount, stat)));
+                if let Some(line) = crate::feedback::absorb(self.who(m.identity.1), amount, stat) {
+                    self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
+                }
             }
         }
-        if m.kind == 0x25192476 {
+        // A damage shield (`ShieldAttack`, FUN_100a134d) or reflect shield (`ReflectAttack`, FUN_100a11c2) struck: the one hurt
+        // is the message's identity (its health goes down by the amount), the shield's owner `Target`.
+        if m.kind == 0x25192476 || m.kind == 0x1c3a4f77 {
             if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
                 let amount = p.value.get("Amount").and_then(mao_net::schema::Value::as_int).unwrap_or(0);
-                let target = p.value.get("Target").and_then(|t| t.get("Instance")).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
-                if target == self.own {
-                    let who = self.names.get(&m.identity.1).map_or_else(|| "Something".to_string(), |n| n.0.clone());
-                    self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, shield_line(&who, amount)));
+                let owner = p.value.get("Target").and_then(|t| t.get("Instance")).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
+                let victim = m.identity.1;
+                if let Some(hp) = self.last_hp.get_mut(&victim) {
+                    *hp -= amount;
+                    if let Some(entry) = self.health.get_mut(&victim) {
+                        entry.0 = *hp;
+                    }
+                }
+                if victim == self.own {
+                    if let Some(hp) = self.stats.get_mut(&27) {
+                        *hp -= amount;
+                    }
+                }
+                if let Some(line) = crate::feedback::shield(self.who(victim), self.who(owner), amount, m.kind == 0x1c3a4f77) {
+                    self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
                 }
             }
         }
@@ -784,6 +790,10 @@ impl World {
                 self.damage.push((target, amount, stat));
                 if let Some(hp) = p.value.get("TargetHp").and_then(mao_net::schema::Value::as_int) {
                     self.last_hp.insert(target, hp);
+                    // (the original sets the stat itself, so a later `Stat` message with the same health tells no change)
+                    if target == self.own {
+                        self.stats.insert(27, hp);
+                    }
                     // (the maximum stays; the health follows the fight)
                     if let Some(entry) = self.health.get_mut(&target) {
                         entry.0 = hp;
@@ -928,7 +938,16 @@ impl World {
         // A stat of the character changed.
         if m.kind == 0x2b333d6e && m.identity.1 == self.own {
             if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
+                // (FUN_100a2006 tells the change of the health, experience, alien experience and shadowknowledge from the value
+                // held; a stat not held yet has no change to tell)
+                let before: Vec<(u32, Option<i64>)> = [27u32, 52, 40, 573].iter().map(|&s| (s, self.stats.get(&s).copied())).collect();
                 self.read_stats(p.value.get("Stats"));
+                for (stat, old) in before {
+                    let (Some(old), Some(&new)) = (old, self.stats.get(&stat)) else { continue };
+                    if let Some(line) = crate::feedback::own_stat(stat, new - old) {
+                        self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
+                    }
+                }
             }
         }
         if let Some(q) = m.rotation() {
@@ -4826,13 +4845,17 @@ mod door_tests {
         // and the client healing itself
         w.add(&Message { kind: 0x3710256c, identity: (0xc350, 0x4bc80), data: hex("000000ce670000007400000000000000000000c3500004bc8000000000") }.frame(1));
         assert_eq!(lines(&mut w), ["You were healed for 116 points."]);
+        assert_eq!(w.stats.get(&27), Some(&52839));
+        // the client's damage shield striking 0x7b017c26 (renamed from the capture's 0x7b017c24), and a reflect of nothing
+        w.add(&Message { kind: 0x25192476, identity: (0xc350, 0x7b017c26), data: hex("00000000ad0000c3500004bc8000000003") }.frame(1));
+        assert_eq!(lines(&mut w), ["Your damage shield hit Rollerrat for 173 points of damage."]);
+        w.add(&Message { kind: 0x1c3a4f77, identity: (0xc350, 0x7b017c53), data: hex("00000000000000c3500004bc8000000000") }.frame(1));
+        assert!(lines(&mut w).is_empty());
     }
 
     #[test]
     fn fight_lines_name_who_and_what() {
-        assert_eq!(absorb_line(1581, 95), "You absorb 1581 points of cold damage.");
         assert_eq!(reload_line(75, 25260), "You reload: 75 rounds in the weapon, 25260 left.");
-        assert_eq!(shield_line("Rat", 173), "Rat's damage shield hits you for 173 points.");
     }
 
     #[test]
