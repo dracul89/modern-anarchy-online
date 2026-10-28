@@ -5,7 +5,9 @@
 //! (0x1014acda) over its control's `CalculatePreferredSize`, or its layout node's (`layout.rs`) when the control has none,
 //! widened to its width/height group's (`View::PreferredSizeChanged` 0x1014d8f8).
 
+use super::font::Measure;
 use super::geom::{Point, Rect};
+use super::host::{Mouse, Paint, Signal};
 use super::xml::Element;
 use std::any::Any;
 
@@ -56,7 +58,17 @@ pub trait Control: Any {
     /// The class name (the XML element it is registered under).
     fn class(&self) -> &'static str;
     /// `CalculatePreferredSize(max)` when the class overrides it; `None` for `View`'s (the layout node's).
-    fn preferred(&self, _max: bool) -> Option<Point> {
+    fn preferred(&self, _m: &Measure, _max: bool) -> Option<Point> {
+        None
+    }
+    /// `Render`: the view's own pictures and text (its children are drawn after it, over it).
+    fn paint(&self, _p: &Paint) {}
+    /// Whether the view takes the mouse (a plain view lets it through to the one below).
+    fn takes_mouse(&self) -> bool {
+        false
+    }
+    /// `MouseDown` / `MouseUp` / `MouseMove` at a point in the view's bounds; a signal for the window's code.
+    fn mouse(&mut self, _m: Mouse, _at: Point) -> Option<Signal> {
         None
     }
     fn as_any(&self) -> &dyn Any;
@@ -89,7 +101,7 @@ impl Control for Spacer {
     fn class(&self) -> &'static str {
         "LayoutSpacer"
     }
-    fn preferred(&self, max: bool) -> Option<Point> {
+    fn preferred(&self, _m: &Measure, max: bool) -> Option<Point> {
         Some(if max { self.max } else { self.min })
     }
     fn as_any(&self) -> &dyn Any {
@@ -196,6 +208,18 @@ impl Node {
 #[derive(Default)]
 pub struct Tree {
     pub nodes: Vec<Node>,
+    /// How text is measured for the preferred sizes.
+    pub measure: Measure,
+    /// The views' signals since the window's code last took them.
+    pub signals: Vec<(Id, Signal)>,
+    /// The view under the pointer, and the one a button is held on (`Window`'s mouse capture).
+    pub hover: Option<Id>,
+    pub pressed: Option<Id>,
+    /// Set while a group's members are sized (their own sizes, without their groups); and the sizes worked out in one
+    /// call (cleared at its start): the original keeps each view's preferred size and recomputes it when told it changed.
+    no_groups: std::cell::Cell<bool>,
+    depth: std::cell::Cell<u32>,
+    cache: std::cell::RefCell<std::collections::HashMap<(Id, bool, bool), Point>>,
 }
 
 impl Tree {
@@ -276,7 +300,7 @@ impl Tree {
     /// `CalculatePreferredSize` (vtable +0x7c): the control's, else the layout node's (`View::CalculatePreferredSize`
     /// 0x1014a335: (-1, -1) without one).
     fn calculate_preferred(&self, id: Id, max: bool) -> Point {
-        if let Some(p) = self.nodes[id].control.preferred(max) {
+        if let Some(p) = self.nodes[id].control.preferred(&self.measure, max) {
             return p;
         }
         super::layout::preferred(self, id, max)
@@ -303,6 +327,18 @@ impl Tree {
         None
     }
 
+    /// Whether `a` holds `b`.
+    pub fn is_ancestor(&self, a: Id, b: Id) -> bool {
+        let mut at = self.nodes[b].parent;
+        while let Some(p) = at {
+            if p == a {
+                return true;
+            }
+            at = self.nodes[p].parent;
+        }
+        false
+    }
+
     fn subtree(&self, id: Id, out: &mut Vec<Id>) {
         out.push(id);
         for &c in &self.nodes[id].children {
@@ -311,23 +347,46 @@ impl Tree {
     }
 
     /// `GetPreferredSize(max)` (0x1014b47d): the view's own preferred size, with the width taken as the largest of its
-    /// width group's members (and the height of its height group's): `PreferredSizeChanged`'s +0x44/+0x4c.
+    /// width group's members (and the height of its height group's): `PreferredSizeChanged`'s +0x44/+0x4c. The members
+    /// are taken at their own sizes worked out without groups: two groups can hold each other's views (a border view's
+    /// client copies its element's group), which the original settles through its cached sizes.
     pub fn preferred(&self, id: Id, max: bool) -> Point {
+        let outer = self.depth.get() == 0;
+        if outer {
+            self.cache.borrow_mut().clear();
+        }
+        let key = (id, max, self.no_groups.get());
+        if let Some(p) = self.cache.borrow().get(&key) {
+            return *p;
+        }
+        self.depth.set(self.depth.get() + 1);
+        let p = self.preferred_uncached(id, max);
+        self.depth.set(self.depth.get() - 1);
+        self.cache.borrow_mut().insert(key, p);
+        p
+    }
+
+    fn preferred_uncached(&self, id: Id, max: bool) -> Point {
         let mut p = self.own_preferred(id, max);
+        if self.no_groups.get() {
+            return p;
+        }
         for height in [false, true] {
             let Some(owner) = self.group_owner(id, height) else { continue };
             let name = if height { &self.nodes[id].height_group } else { &self.nodes[id].width_group };
             let mut members = Vec::new();
             self.subtree(owner, &mut members);
             for m in members {
-                if m == id || self.group_owner(m, height) != Some(owner) {
+                if m == id || self.is_ancestor(m, id) || self.group_owner(m, height) != Some(owner) {
                     continue;
                 }
                 let theirs = if height { &self.nodes[m].height_group } else { &self.nodes[m].width_group };
                 if theirs != name {
                     continue;
                 }
+                self.no_groups.set(true);
                 let q = self.own_preferred(m, max);
+                self.no_groups.set(false);
                 if height {
                     p.y = p.y.max(q.y);
                 } else {
@@ -340,12 +399,22 @@ impl Tree {
 
     /// `View::SetFrame` then the layout of its children (`_ReLayout`), all the way down.
     pub fn set_frame(&mut self, id: Id, frame: Rect) {
+        // (the sizes are kept for the whole layout)
+        if self.depth.get() == 0 {
+            self.cache.borrow_mut().clear();
+        }
+        self.depth.set(self.depth.get() + 1);
+        self.frame_inner(id, frame);
+        self.depth.set(self.depth.get() - 1);
+    }
+
+    fn frame_inner(&mut self, id: Id, frame: Rect) {
         self.nodes[id].frame = frame;
         super::layout::layout(self, id);
         let children = self.nodes[id].children.clone();
         for c in children {
             let f = self.nodes[c].frame;
-            self.set_frame(c, f);
+            self.frame_inner(c, f);
         }
     }
 

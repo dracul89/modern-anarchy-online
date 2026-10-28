@@ -228,7 +228,7 @@ pub fn scroll<R>(ui: &mut egui::Ui, palette: &Palette, area: egui::ScrollArea, a
 /// The colour of colour code 0x1000000 (`GUIColors.xml`'s `Default`) for a control's art and labels: `Default` itself, but on a
 /// dark theme (the AOU Translucent's `Default` is near black, 0x051a2a) the palette's border colour, its `Selected`, as the
 /// palette already draws the window frames (`Palette::from_gui_colors`), so the controls stay visible.
-fn code1(palette: &Palette) -> crate::theme::Rgb {
+pub fn code1(palette: &Palette) -> crate::theme::Rgb {
     if dark(palette) { palette.accent } else { palette.default }
 }
 

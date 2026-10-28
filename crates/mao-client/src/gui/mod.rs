@@ -9,9 +9,13 @@
 //! `ScrollingTextView`; FUN_100c306d: `OptionCheckBox`, `OptionRadioButtonGroup`). A class not ported yet is made as a
 //! plain view that keeps its class name ([`Unported`]), so a file still lays out.
 
+pub mod controls;
+pub mod font;
 pub mod geom;
+pub mod host;
 pub mod layout;
 pub mod view;
+pub mod window;
 pub mod xml;
 
 use geom::Point;
@@ -67,6 +71,11 @@ pub fn create(tree: &mut Tree, e: &Element) -> Option<Id> {
             // either is at least a pixel across)
             tree.add(Node::from_element(e, 4, Box::new(spacer)))
         }
+        "BorderView" => controls::BorderView::create(tree, e),
+        "Button" => controls::Button::create(tree, e),
+        "CheckBox" => controls::CheckBox::create(tree, e),
+        "TextView" => controls::TextView::create(tree, e),
+        "BitmapView" => tree.add(Node::from_element(e, 4, Box::new(controls::BitmapView { bitmap: e.text("bitmap_id", "") }))),
         other => {
             let id = tree.add(Node::from_element(e, 4, Box::new(Unported(other))));
             load_child_views(tree, id, e);

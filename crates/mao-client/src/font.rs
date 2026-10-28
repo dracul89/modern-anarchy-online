@@ -182,6 +182,11 @@ pub fn chat(ctx: &egui::Context) -> Option<Arc<BitmapFont>> {
     cached(ctx, "chat")
 }
 
+/// The tool tip font (9 px).
+pub fn tooltip(ctx: &egui::Context) -> Option<Arc<BitmapFont>> {
+    cached(ctx, "tooltip")
+}
+
 /// The interface font (12 px): window titles and the like.
 pub fn shell(ctx: &egui::Context) -> Option<Arc<BitmapFont>> {
     cached(ctx, "shell")

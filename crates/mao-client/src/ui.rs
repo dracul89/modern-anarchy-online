@@ -618,6 +618,8 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
     let mut preview_programs = hud.programs_preview.lock().ok().and_then(|mut m| m.take());
     let mut preview_perks = hud.perks_preview.lock().ok().and_then(|mut m| m.take());
     let mut preview_loot = hud.loot_preview.lock().ok().and_then(|mut m| m.take());
+    // MAO_UI_PREVIEW=view MAO_VIEW=<file in the skin's Views>: that file's window, made by the GUI.dll view system (`gui/`).
+    let mut preview_view: Option<crate::gui::window::XmlWindow> = None;
     let mut last = None;
     // Several frames: the first lays out and uploads the fonts, and the windows
     // fade in over the next ones; the last is what is drawn.
@@ -638,6 +640,15 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
             }
             if let Some(window) = preview_mission.as_mut() {
                 window.show(&ctx, &mut gear, &palette);
+            }
+            if std::env::var("MAO_UI_PREVIEW").as_deref() == Ok("view") {
+                if preview_view.is_none() {
+                    let file = std::env::var("MAO_VIEW").unwrap_or_else(|_| "TipView.xml".into());
+                    preview_view = crate::gui::window::XmlWindow::load(&ctx, "view", &file, &file);
+                }
+                if let Some(window) = preview_view.as_mut() {
+                    window.show(&ctx, &palette);
+                }
             }
             if let Some(window) = preview_stats.as_mut() {
                 window.show(&ctx, &hud.character_name, &hud.stats, &hud.stat_parts, &palette);

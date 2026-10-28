@@ -995,3 +995,10 @@ decodes them, `dbmissing` names the 170 found nowhere (`docs/db-repair/dbmissing
 the part the restored main file overwrote), and `dbrepair <game> [--write]` rewrites only the leaf
 entries' position words, after checking each new position holds that key's record and no other entry's, keeping the old index as
 `ResourceDatabase.idx.before_repair`. Done on 2026-10-28: 170 broken entries are left. The main `.dat`'s header was not touched.
+
+**GUI.dll's view system (`gui/`).** The skin's `Views/*.xml` windows are being moved onto a port of GUI.dll's own view
+system (`docs/GUI_DLL_PARITY.md`): the view tree and its horizontal/vertical layouts with `SpaceOut`, spacers and width groups,
+the XML loader (labels like `#Back` or `#10010:0` from the text database), the font table, and the first classes (border
+views, buttons, check boxes, pictures, plain text). Such a window sits in the client's window frame; `MAO_UI_PREVIEW=view
+MAO_VIEW=<file>.xml` with `map <pf> --image` draws one offscreen (all 27 files load and lay out; Skills, Tip and Info look
+right in outline, their HTML text still shown raw). Not used by the game's windows yet.

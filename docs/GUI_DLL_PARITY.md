@@ -13,8 +13,10 @@ slash-command strings and `cd_image/gui/Default/Views/`.
 ## 0. The port, in order
 
 The user's choice (2026-10-28): port GUI.dll's view system itself, then move the windows onto it; the info view and the HTML
-text first. Steps: (1) the view tree, layouts and XML loader — done; (2) drawing the tree and routing the mouse and keys
-through it, inside the existing window frame; (3) `TextView_c` with `TextRenderer_c` and `HTMLParser_c`; (4) the info view
+text first. Steps: (1) the view tree, layouts and XML loader — done; (2) drawing the tree and routing the mouse through it, inside
+the existing window frame — done for the mouse (`gui/host.rs`, `gui/window.rs`; keys and focus still to come), with
+`BorderView_c`, `Button_c`, `CheckBox_c`, `BitmapView_c` and a plain-text `TextView_c` (`gui/controls.rs`) and the font
+table (`gui/font.rs`); (3) `TextView_c` with `TextRenderer_c` and `HTMLParser_c`; (4) the info view
 (`InfoView_c`, `Views/InfoView.xml`, `text://` and `itemref://` links); then the other XML classes and windows.
 
 ## 1. The framework
@@ -24,9 +26,9 @@ through it, inside the existing window frame; (3) `TextView_c` with `TextRendere
 | `GuiSystem_c`, `WindowController_c`, `Window`, `WndBorder` | the window manager: windows, frames, z-order, focus, `is_frontmost`/`is_backmost`, docking (`DockTabbedWindow`, `dock_config`), fade groups, `AutofadeWindow` | egui windows; `chrome::window` draws the frame, pin and close | part: no docking, no auto-fade, no `?` button |
 | `View`, `LayoutNode`, `HLayoutNode`, `VLayoutNode`, `LayoutSpacer`, `HLayoutSpacer`, `VLayoutSpacer`, `LayoutGrid` | the view tree and its layout (`view_layout`, `layout_borders`, preferred/min/max sizes, `SpaceOut`) | `gui/view.rs`, `gui/layout.rs` | done (not `LayoutGrid`); not yet drawn or given input |
 | XML view loader (`XMLObject_c` registry: `View`, `BorderView`, `BitmapView`, `TextView`, `ScrollView`, `TextInputView`, `StringListView`, `BrowserView`, `ItemView`, `ItemIconView`, `ItemSlotView`, ...; `activate_criteria`, `fade_group`) | builds the windows of `Views/*.xml` (27 files) | `gui/xml.rs`, `gui::load_view`: all 27 files load and lay out; classes not ported yet stand in as plain views | part |
-| `BorderView_c`, `BitmapView_c`, `PlainSpriteFade_t`, `Sprite_t`, `SpriteList_t` | nine-slices and pictures from the skin | `skin.rs`, `chrome.rs` | done |
-| `Button_c`, `ButtonBase_c`, `BorderButton_c`, `TextButton_c`, `InvisibleButton_t`, `MouseDetectorButton_t` | buttons | `chrome::button` | part (only `Button_c`'s look) |
-| `CheckBox_c`, `RadioButton_c`, `RadioButtonGroup_c` | toggles | `chrome::checkbox` | part (no radio buttons) |
+| `BorderView_c`, `BitmapView_c`, `PlainSpriteFade_t`, `Sprite_t`, `SpriteList_t` | nine-slices and pictures from the skin | `skin.rs`, `chrome.rs`; `gui/controls.rs` for the XML views | done (the three-slice and single-picture modes of `BorderView_c` only as a check box's button) |
+| `Button_c`, `ButtonBase_c`, `BorderButton_c`, `TextButton_c`, `InvisibleButton_t`, `MouseDetectorButton_t` | buttons | `chrome::button`; `gui::controls::Button` (its size from `CalculatePreferredSize` 0x10128396, clicks, toggles) | part (no icons, drag, repeat) |
+| `CheckBox_c`, `RadioButton_c`, `RadioButtonGroup_c` | toggles | `chrome::checkbox`; `gui::controls::CheckBox` (its button and label views as `Initialize` builds them) | part (no radio buttons) |
 | `Slider_c` | sliders (`gfxid_slider`) | egui's | no |
 | `ComboBox_c`, `DropdownMenu_c` | drop-down lists | egui's | no |
 | `ScrollBar_c`, `ScrollBarInterface_c`, `ScrollView_c`, `ScrollViewChild_c` | scrolling | `chrome::scroll` | done (the wheel is egui's) |
