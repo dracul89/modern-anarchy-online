@@ -608,3 +608,18 @@ fn a_playfield_s_collision_surfaces() {
     }
     assert_eq!(triangles, 12538);
 }
+
+#[test]
+fn old_athens_ways_out() {
+    // (playfield 566's zones: four teleportals, all to playfield 567; the one at x 214..234, z 300..314 a rectangle)
+    let Some(db) = database() else { return };
+    let mut ways = Vec::new();
+    for id in db.ids().unwrap().flatten().filter(|i| i.kind == mao_formats::surface::KIND && i.instance >> 16 == 566) {
+        ways.extend(mao_formats::surface::parse(&db.get(id).unwrap().unwrap()).expect("a readable surface").teleportal);
+    }
+    assert_eq!(ways.len(), 4);
+    assert!(ways.iter().all(|t| t.destination() == 567));
+    let gate = ways.iter().find(|t| t.contains(224.0, 307.0)).expect("the gate's outline");
+    assert_eq!(gate.points.len(), 4);
+    assert!(!gate.contains(240.0, 307.0) && !gate.contains(224.0, 320.0));
+}

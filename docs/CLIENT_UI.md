@@ -1320,3 +1320,24 @@ step less its part into them, `Collision::wall_normal`) before a single axis is 
 N3's position callbacks, not yet read. `MAO_COLLISION_PNG=out.png mao-client net <game> area <playfield>` draws the
 blocked places from above (`MAO_COMPARE_COLLISION=1` logs both sources' sizes). Tried live (Sadlee, playfield 952):
 walked into a wall and around a rock, every report echoed back by the server unchanged.
+
+**Swimming** (Vehicle.dll `Vehicle_t::EnsureSurfaceAlignment` 0x1000d1aa, liquid mode 0, and Gamecode's `CharVehicle_t`):
+the liquid at the character (`liquid.rs`, `GetLiquidSurfaceHeight`); with the feet under its surface plus 0.1, water more
+than 1.19 deep (surface to ground) is swimming, the feet held 0.01 under the surface; shallower is wading, and walking out
+or wading ends it. The change of the vehicle's in-liquid flag makes the character ask for the swim mode (movement 0x1a,
+`SwitchToSwimModeTransitionAction_t`; FUN_10044aac) or to leave it (0x23, back to the walk or run), which the server
+hears. Swimming's speed is mode 4 of FUN_1006f9eb: `RunSpeed / 440 + 3` within 1.5 and 8, both ways; no jumping in the
+water; the animations `swim` (0x85, played at the reference speed 3) and `idle-swim` (0xc3). Other characters swim on
+their own 0x1a until their 0x23. Casting, attacking and social actions are refused while swimming (the existing
+`Caster.swimming` checks, now fed). An arrival in deep water takes no ground offset from its height (it used to lift
+the ground to the surface and walk on the water). `MAO_COLLISION_PNG` draws swimmable water blue (wading light blue).
+Tried live (Sadlee, the backyard pond of playfield 952): in at the edge (surface 13.02, feet 13.01), about 3 m/s
+in the water, out again with the 0x23, and a login in the pond starting swimming; the server echoed the 0x1a and the
+surface heights without a correction.
+
+**Ways out** (`n3Zone_t::IsPosInTeleportal`): a zone's surface may end with a teleportal, `PortalArea_t` (FUN_1001b473:
+an outline of up to 999 corners, coded unsigned and scaled 0.01, then the localizer whose low half is the destination
+playfield); 8,638 in the game, all decoding to the stream's end mark 0x79 (after the KD tree's nodes, now walked too).
+Standing inside one's outline (FUN_1001b21a, crossings on the ground plane) starts the teleport try, as a door does.
+**Doors** now start it only within 0.5 m of their place: live, a report 1.1 m (and 2 m) from the backyard door was
+ignored and one 0.24 m from it zoned Sadlee to playfield 3132.

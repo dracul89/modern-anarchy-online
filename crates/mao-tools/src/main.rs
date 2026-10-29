@@ -148,6 +148,7 @@ fn run(args: &[String]) -> Result<(), String> {
             let pf = if *playfield == "all" { u32::MAX } else { number(playfield).ok_or("bad playfield")? };
             let (mut ok, mut bad, mut tris) = (0, 0, 0);
             let mut facing = [0usize; 3];
+            let mut portals = 0;
             let (mut lo, mut hi) = ([f32::MAX; 3], [f32::MIN; 3]);
             for id in db.ids().map_err(|e| e.to_string())?.flatten().filter(|i| i.kind == mao_formats::surface::KIND && (pf == u32::MAX || i.instance >> 16 == pf)) {
                 let Some(data) = db.get(id).ok().flatten() else { continue };
@@ -167,6 +168,12 @@ fn run(args: &[String]) -> Result<(), String> {
                                 hi[c] = hi[c].max(v[c]);
                             }
                         }
+                        if let Some(t) = &s.teleportal {
+                            portals += 1;
+                            if std::env::var("MAO_VERBOSE").is_ok() || pf != u32::MAX {
+                                println!("{:#x}: way out to playfield {} (localizer {:#x}), {} corners {:?}", id.instance, t.destination(), t.localizer, t.points.len(), t.points.iter().map(|p| [p[0].round(), p[1].round(), p[2].round()]).collect::<Vec<_>>());
+                            }
+                        }
                         if std::env::var("MAO_VERBOSE").is_ok() {
                             println!("{:#x}: {} triangles", id.instance, s.triangles.len());
                         }
@@ -178,7 +185,7 @@ fn run(args: &[String]) -> Result<(), String> {
                 }
             }
             println!("{ok} surfaces read, {bad} failed, {tris} triangles, box {lo:?} to {hi:?}");
-            println!("triangles facing mostly along x, y, z: {facing:?}");
+            println!("triangles facing mostly along x, y, z: {facing:?}; {portals} ways out");
         }
         ("item", [id]) => {
             // An item template's name, description and stats; "scan" tries every item and counts the ones that don't parse.

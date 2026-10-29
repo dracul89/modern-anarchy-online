@@ -241,6 +241,9 @@ struct World {
     /// The characters sitting on the ground (their `SwitchToSit` movement, until a `LeaveSit` or another movement): drawn
     /// in the sitting-down animation (action 0xd5, `ground-start`), held.
     seated: std::collections::BTreeSet<u32>,
+    /// The characters swimming (their `SwitchToSwimMode` movement, until a `LeaveSwimMode`; one's own also by the client's
+    /// own test of the water's depth): drawn in the swim and idle-swim animations.
+    swimming: std::collections::BTreeSet<u32>,
     /// The characters that died (`CharacterAction` 99, `Death`, from the one dying): the death's action (its `Parameter2`: 500
     /// `die-knees`, 503 `die-shot` ...) and when. Cleared by its `Despawn` or a new full update.
     dead: BTreeMap<u32, (u32, Instant)>,
@@ -1419,6 +1422,17 @@ impl World {
                     self.seated.remove(&m.identity.1);
                 }
             }
+            if m.identity.1 != self.own {
+                match kind {
+                    mao_net::n3::movement::SWIM_MODE => {
+                        self.swimming.insert(m.identity.1);
+                    }
+                    mao_net::n3::movement::LEAVE_SWIM => {
+                        self.swimming.remove(&m.identity.1);
+                    }
+                    _ => {}
+                }
+            }
             if kind == mao_net::n3::movement::JUMP {
                 self.jumped.insert(m.identity.1, Instant::now());
             }
@@ -1744,6 +1758,25 @@ fn movement_rate(calibration: f32, scale: f32, speed: f32, reference: f32) -> f3
         rate
     }
 }
+
+/// Swimming's speed (`CharVehicle_t` in mode 4, FUN_1006f9eb): `RunSpeed / 440 + 3` (`_DAT_10161ab0`, `_DAT_1015e6dc`) within
+/// 1.5 and 8 (`_DAT_1015e7ac`, `_DAT_10161a78`), the run speed falling off at low health as running's does.
+pub(crate) fn swim_speed(stats: &BTreeMap<u32, i64>) -> f32 {
+    let stat = |n: u32| stats.get(&n).copied().unwrap_or(0) as f32;
+    let (run_speed, health, max_health) = (stat(156), stat(27), stat(1));
+    let ratio = if max_health > 0.0 { health / (max_health * 0.15) } else { 1.0 };
+    let effective = if ratio < 1.0 { ratio * (run_speed + 1000.0) - 1000.0 } else { run_speed };
+    (effective * 0.002_272_727_3 + 3.0).clamp(1.5, 8.0)
+}
+
+/// How near a door's place a report starts a teleport try (see the touch test).
+const DOOR_REACH: f32 = 0.5;
+
+/// The vehicle's liquid test (`Vehicle_t::EnsureSurfaceAlignment`): the feet within this of the surface count as in it, the
+/// water must be deeper than this to swim, and a swimmer's feet are held this far under the surface.
+const SWIM_ABOVE: f32 = 0.1;
+const SWIM_DEPTH: f32 = 1.19;
+const SWIM_SINK: f32 = 0.01;
 
 /// Walking's speed (`CharVehicle_t` in mode 2, FUN_1006f9eb: `_DAT_1015e7ac`).
 const WALK_SPEED: f32 = 1.5;
@@ -2640,7 +2673,9 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
             use mao_formats::appearance::Action;
             // (one's own character runs or walks by its mode, as the original's FUN_1006c370 does; the others by their speed)
             let running = if id == world.own { !world.own_walking } else { speed > 2.2 };
+            let swimming = world.swimming.contains(&id);
             let action = match world.strafing.get(&id).copied().unwrap_or(0) {
+                _ if swimming => Some(if moving { Action::Swim } else { Action::IdleSwim }),
                 _ if !moving => None,
                 -1 => Some(Action::StrafeLeft),
                 1 => Some(Action::StrafeRight),
@@ -2735,14 +2770,23 @@ fn surface_collision(db: &ResourceDatabase, playfield: u32) -> Option<mao_format
     if std::env::var("MAO_VISUAL_COLLISION").is_ok_and(|v| v == "1") {
         return None;
     }
+    zone_surfaces(db, playfield).0
+}
+
+/// The playfield's zones' surfaces: the collision built from their triangles (none without any surface) and their ways out
+/// (the teleportals, `n3SurfaceResource_t::GetTeleportalArea`).
+fn zone_surfaces(db: &ResourceDatabase, playfield: u32) -> (Option<mao_formats::collision::Collision>, Vec<mao_formats::surface::Teleportal>) {
+    let mut teleportals = Vec::new();
     let mut collision = mao_formats::collision::Collision::default();
     let (mut zones, mut failed) = (0, 0);
-    for id in db.ids().ok()?.flatten().filter(|i| i.kind == mao_formats::surface::KIND && i.instance >> 16 == playfield) {
+    let Ok(ids) = db.ids() else { return (None, teleportals) };
+    for id in ids.flatten().filter(|i| i.kind == mao_formats::surface::KIND && i.instance >> 16 == playfield) {
         let Some(surface) = db.get(id).ok().flatten().and_then(|o| mao_formats::surface::parse(&o)) else {
             failed += 1;
             continue;
         };
         zones += 1;
+        teleportals.extend(surface.teleportal);
         // (the game's y up; the viewer's z)
         for t in surface.triangles {
             collision.add(t.map(|v| [v[0], v[2], v[1]]));
@@ -2751,7 +2795,7 @@ fn surface_collision(db: &ResourceDatabase, playfield: u32) -> Option<mao_format
     if failed > 0 {
         eprintln!("playfield {playfield}: {failed} collision surfaces could not be read");
     }
-    (zones > 0).then_some(collision)
+    ((zones > 0).then_some(collision), teleportals)
 }
 
 /// What blocks a walking character: the props' opaque triangles (a part
@@ -2823,6 +2867,8 @@ pub(crate) struct Area {
     /// own environment bytes (the base the areas blend into).
     pub(crate) areas: Vec<mao_formats::areas::Area>,
     pub(crate) base_environment: Option<[u8; 26]>,
+    /// The zones' ways out (standing in one starts a teleport try).
+    pub(crate) teleportals: Vec<mao_formats::surface::Teleportal>,
 }
 
 pub(crate) fn load_area(game: &str, db: &Arc<ResourceDatabase>, playfield: u32) -> Result<Area, String> {
@@ -2873,7 +2919,9 @@ pub(crate) fn load_area_with(game: &str, db: &Arc<ResourceDatabase>, playfield: 
             &own_textures
         }
     };
-    let collision = match surface_collision(db, playfield) {
+    let (surfaces, teleportals) = zone_surfaces(db, playfield);
+    let surfaces = surfaces.filter(|_| !std::env::var("MAO_VISUAL_COLLISION").is_ok_and(|v| v == "1"));
+    let collision = match surfaces {
         Some(c) => {
             if std::env::var("MAO_COMPARE_COLLISION").is_ok() {
                 let visual = build_collision(&scene, ground_parts, textures, &passable);
@@ -2901,7 +2949,7 @@ pub(crate) fn load_area_with(game: &str, db: &Arc<ResourceDatabase>, playfield: 
     if let Some(e) = &base_environment {
         eprintln!("playfield {playfield}: environment weather {:?} ambient {:?} fog {:?} density {}", &e[..8], &e[19..22], &e[22..25], e[25]);
     }
-    Ok(Area { scene, terrain, collision, booths, areas, base_environment })
+    Ok(Area { scene, terrain, collision, booths, areas, base_environment, teleportals })
 }
 
 /// The label over each whompah booth: where it leads, when that is known.
@@ -2934,7 +2982,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     let db = Arc::new(ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?);
     crate::effects::load_calibration(game);
     let textures = crate::Textures::new(db.clone());
-    let Area { scene, terrain, collision, booths, areas, base_environment } = load_area_with(game, &db, playfield, Some(&textures))?;
+    let Area { scene, terrain, collision, booths, areas, base_environment, teleportals } = load_area_with(game, &db, playfield, Some(&textures))?;
+    let mut teleportals = teleportals;
     let mut areas = areas;
     let mut base_environment = base_environment;
     let thread_textures = textures.clone_handle();
@@ -3171,7 +3220,13 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         // The server's heights sit a little off the ground model's; walk at
         // the ground's height plus the offset seen at the start.
         let ground = |terrain: &Option<Arc<mao_formats::terrain::Terrain>>, p: [f32; 3]| terrain.as_ref().map_or(0.0, |t| t.height_at(p[0], p[2], t.height_scale));
-        let mut offset = start[1] - ground(&terrain, start);
+        // (not where the character arrives swimming: its height is the water's then, not the ground's)
+        let ground_offset = |terrain: &Option<Arc<mao_formats::terrain::Terrain>>, p: [f32; 3]| {
+            let g = ground(terrain, p);
+            let wet = crate::liquid::current().and_then(|l| l.at(p)).is_some_and(|l| p[1] < l.height + SWIM_ABOVE && l.height - g > SWIM_DEPTH);
+            if wet { 0.0 } else { p[1] - g }
+        };
+        let mut offset = ground_offset(&terrain, start);
         let mut base = start[1];
         let clock = Instant::now();
         let tracing = std::env::var("MAO_TRACE").is_ok_and(|v| v == "1");
@@ -3533,7 +3588,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     pending_location = Some(names.get(&playfield).cloned().unwrap_or_else(|| format!("playfield {playfield}")));
                     match load_area_with(&game_dir, &thread_db, playfield, Some(&thread_textures)) {
                         Ok(area) => {
-                            (terrain, collision) = (area.terrain, area.collision);
+                            (terrain, collision, teleportals) = (area.terrain, area.collision, area.teleportals);
                             state.set_static_props(crate::static_props(&thread_db, playfield));
                             state.table = crate::table_dynels(&thread_db, playfield);
                             let mut scene = area.scene;
@@ -3559,7 +3614,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         }
                     }
                     position = arrival;
-                    offset = arrival[1] - ground(&terrain, arrival);
+                    offset = ground_offset(&terrain, arrival);
                     map = crate::automap::MapBuilder::new(terrain.as_deref(), arrival, playfield);
                     pending_map = None;
                     base = arrival[1];
@@ -3567,6 +3622,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     rise = 0.0;
                     state.entities.insert(own, (position, 0));
                     mode_told = false;
+                    state.swimming.clear();
                     // Ready again, as the original does after loading.
                     if connection.send(&n3::ready(own)).is_err() {
                         break;
@@ -4156,7 +4212,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 'cast: {
                 // (the client's own check first: FUN_1004fbe4)
                 let stat = |s: u32| state.stats.get(&s).copied();
-                let caster = crate::combat::Caster { dead: state.own_dead, swimming: false, falling: airborne, moving: keys.forward || keys.back || keys.strafe != 0 || goto.is_some(), nano: stat(214).unwrap_or(0) };
+                let caster = crate::combat::Caster { dead: state.own_dead, swimming: state.swimming.contains(&own), falling: airborne, moving: keys.forward || keys.back || keys.strafe != 0 || goto.is_some(), nano: stat(214).unwrap_or(0) };
                 let modifier = crate::combat::nano_cost_modifier(stat(318).unwrap_or(100), stat(4).unwrap_or(0), true);
                 if let Some((name, number)) = crate::combat::cast_refusal(caster, nano_stat(keys.cast.1, 407).unwrap_or(0), modifier) {
                     if !name.is_empty() {
@@ -4242,7 +4298,14 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             state.backing.insert(own, walk < 0);
             // (the speeds the original moves at, from the character's RunSpeed and health)
             #[allow(non_snake_case)]
-            let (SPEED, BACK_SPEED) = if state.own_walking { (WALK_SPEED, WALK_SPEED) } else { movement_speeds(&state.stats) };
+            let (SPEED, BACK_SPEED) = if state.swimming.contains(&own) {
+                let s = swim_speed(&state.stats);
+                (s, s)
+            } else if state.own_walking {
+                (WALK_SPEED, WALK_SPEED)
+            } else {
+                movement_speeds(&state.stats)
+            };
             // (`CharVehicle_t`'s steering, FUN_10071537: pushed along the facing, forwards or back, with the maximum force, which
             // FUN_1006f9eb makes `2 × mass × the maximum speed`, so full speed comes in half a second; a stop or a change of
             // direction halts it at once, `Vehicle_t::Halt` from the stop transition FUN_1006f0ac and `SetDirection`)
@@ -4278,7 +4341,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     break;
                 }
             }
-            let start_jump = keys.jump && !was_jumping && !airborne;
+            let start_jump = keys.jump && !was_jumping && !airborne && !state.swimming.contains(&own);
             was_jumping = keys.jump;
             let mut landed = false;
             if airborne {
@@ -4301,7 +4364,34 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             } else if !airborne {
                 rise = 0.0;
             }
+            let previous_height = position[1];
             position[1] = base + rise;
+            // Swimming (Vehicle.dll `Vehicle_t::EnsureSurfaceAlignment` 0x1000d1aa, its liquid mode 0): the liquid where the
+            // character is (`LiquidMediumData_t::m_vLiquidHeight`, from the surface's `GetLiquidSurfaceHeight`); with the feet
+            // under its surface plus 0.1 (`_DAT_100127a8`), more than 1.19 (+0x100, `_DAT_100127a4`) between the surface and
+            // the ground is swimming and holds the feet at the surface less 0.01 (`_DAT_100124e0`), less is wading; out of it,
+            // or wading, swimming ends. The vehicle's in-liquid flag (+0x120) changing makes the character ask for the swim
+            // mode (0x1a; FUN_10044aac) or to leave it (0x23), which the server hears.
+            let swimming = state.swimming.contains(&own);
+            let probe = if swimming { previous_height.max(position[1]) } else { position[1] };
+            let liquid = if keys.noclip { None } else { crate::liquid::current().and_then(|l| l.at([position[0], probe, position[2]])) };
+            let swim = liquid.and_then(|l| (position[1] < l.height + SWIM_ABOVE).then_some(l.height)).filter(|&surface| surface - base > SWIM_DEPTH);
+            if let Some(surface) = swim {
+                position[1] = position[1].max(surface - SWIM_SINK);
+                (airborne, vy) = (false, 0.0);
+            }
+            if swim.is_some() != swimming {
+                if swim.is_some() {
+                    state.swimming.insert(own);
+                } else {
+                    state.swimming.remove(&own);
+                }
+                if tracing {
+                    eprintln!("[{:7.2}] {} at ({:.2}, {:.2}, {:.2})", clock.elapsed().as_secs_f32(), if swim.is_some() { "swimming" } else { "out of the water" }, position[0], position[1], position[2]);
+                }
+                last_send = Instant::now();
+                send(&mut connection, if swim.is_some() { movement::SWIM_MODE } else { movement::LEAVE_SWIM }, heading, position, &mut sent);
+            }
             // Standing at a booth?
             if let Some(b) = booths.iter().find(|b| ((b[0] - position[0]).powi(2) + (b[2] - position[2]).powi(2)).sqrt() < 4.0) {
                 near_booth = Some((booth_playfield, *b, Instant::now()));
@@ -4487,7 +4577,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     crate::audio::with(|m| m.combat_update(true, percent as i32, stat(421) as i32, stat(33) as i32, own as i32, false, stat(54) as i32));
                 }
             }
-            let at_door = state.door_slots.values().any(|(_, d)| ((d[0] - position[0]).powi(2) + (d[2] - position[2]).powi(2)).sqrt() < 2.0 && (d[1] - position[1]).abs() < 3.0);
+            // (the server zones from a door only within about half a metre of its place: measured live, a report 1.1 m off was
+            // ignored and one 0.24 m off zoned; a zone's way out is its outline, `n3Zone_t::IsPosInTeleportal` FUN_10058b35)
+            let at_door = state.door_slots.values().any(|(_, d)| ((d[0] - position[0]).powi(2) + (d[2] - position[2]).powi(2)).sqrt() < DOOR_REACH && (d[1] - position[1]).abs() < 3.0)
+                || teleportals.iter().any(|t| t.contains(position[0], position[2]));
             match teleport_try {
                 None if at_door => {
                     teleport_try = Some(Instant::now());
@@ -5315,7 +5408,8 @@ pub fn run(args: &[String]) -> Result<(), String> {
             let area = load_area_with(game, &db, pf.parse().map_err(|_| "bad playfield")?, Some(&textures))?;
             eprintln!("loaded in {:.1}s: {} parts, {} booths", start.elapsed().as_secs_f32(), area.scene.parts.len(), area.booths.len());
             // MAO_COLLISION_PNG=out.png: the collision from above, two pixels a metre: red where a character standing on the
-            // ground would be blocked, the ground's height in grey.
+            // ground would be blocked, blue where the liquid is deep enough to swim (light blue: wading), the ground's height
+            // in grey.
             if let Ok(out) = std::env::var("MAO_COLLISION_PNG")
                 && let Some((lo, hi)) = area.collision.bounds()
             {
@@ -5326,7 +5420,17 @@ pub fn run(args: &[String]) -> Result<(), String> {
                         let (x, z) = (lo[0] + px as f32 * 0.5, lo[1] + py as f32 * 0.5);
                         let ground = area.terrain.as_deref().map_or(lo[2], |t| t.height_at(x, z, t.height_scale));
                         let shade = (ground.rem_euclid(50.0) * 3.0) as u8 + 40;
-                        let colour = if area.collision.blocked(x, z, ground, 0.25, 1.8, 0.5) { [230, 30, 30] } else { [shade; 3] };
+                        // (blue where the liquid is deep enough to swim in, light blue where it is waded)
+                        let water = crate::liquid::current().and_then(|l| l.at([x, ground, z])).map(|l| l.height - ground);
+                        let colour = if area.collision.blocked(x, z, ground, 0.25, 1.8, 0.5) {
+                            [230, 30, 30]
+                        } else if water.is_some_and(|d| d > SWIM_DEPTH) {
+                            [30, 60, 200]
+                        } else if water.is_some() {
+                            [120, 170, 230]
+                        } else {
+                            [shade; 3]
+                        };
                         image.put_pixel(px, h - 1 - py, image::Rgb(colour));
                     }
                 }
@@ -5339,6 +5443,11 @@ pub fn run(args: &[String]) -> Result<(), String> {
             let t = Instant::now();
             let props = crate::static_props(&db, pf.parse().unwrap_or(0));
             eprintln!("static props: {} in {:?}", props.len(), t.elapsed());
+            for (_, (mesh, at, _), door) in &props {
+                if let Some(n) = door {
+                    eprintln!("door {n} (mesh {mesh:#x}) at ({:.1}, {:.1}, {:.1})", at[0], at[1], at[2]);
+                }
+            }
             let t = Instant::now();
             let _ = Characters::new(db.clone());
             eprintln!("Characters::new in {:?}", t.elapsed());

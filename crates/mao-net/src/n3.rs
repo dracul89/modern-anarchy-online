@@ -38,6 +38,10 @@ pub mod movement {
     /// Switching the movement mode (cases 0x17..0x1d: frozen, walk, run, swim, crawl, sneak, fly).
     pub const WALK_MODE: u8 = 0x18;
     pub const RUN_MODE: u8 = 0x19;
+    /// Swimming, and leaving it for the walk or run before (`SwitchToSwimModeTransitionAction_t`,
+    /// `LeaveSwimModeTransitionAction_t`: the character asks for them as its vehicle enters and leaves deep liquid).
+    pub const SWIM_MODE: u8 = 0x1a;
+    pub const LEAVE_SWIM: u8 = 0x23;
     /// A new heading while standing.
     pub const HEADING: u8 = 14;
     /// Sitting down on the ground and getting up (`SwitchToSitGroundModeTransitionAction_t`, `LeaveSitModeTransitionAction_t`:

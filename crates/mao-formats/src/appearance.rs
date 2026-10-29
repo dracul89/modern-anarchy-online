@@ -46,6 +46,9 @@ pub enum Action {
     /// creature's `sidestep-left` and `sidestep-right`, which roll the ball-shaped ones).
     StrafeLeft,
     StrafeRight,
+    /// Swimming and treading water (the original's actions 0x85 `swim` and 0xc3 `idle-swim`).
+    Swim,
+    IdleSwim,
 }
 
 impl Action {
@@ -55,6 +58,8 @@ impl Action {
         match self {
             Action::Run => Some(5.0),
             Action::RunBack => Some(3.0),
+            // (mode 4, swimming: `_DAT_1015e6dc`)
+            Action::Swim => Some(3.0),
             Action::Walk | Action::WalkBack | Action::StrafeLeft | Action::StrafeRight => Some(1.5),
             _ => None,
         }
@@ -80,6 +85,8 @@ pub fn animation_name(breed: u8, sex: u8, action: Action) -> String {
         Action::RunBack => "run-back",
         Action::StrafeLeft => "walk-left",
         Action::StrafeRight => "walk-right",
+        Action::Swim => "swim",
+        Action::IdleSwim => "idle-swim",
     };
     format!("{prefix}_{stem}_01_01.ani")
 }

@@ -253,11 +253,108 @@ fn decode_mesh(s: &mut Reader, q: &[i32; 6]) -> Option<(Vec<u32>, Vec<[i32; 3]>)
     Some((d.idx, d.verts))
 }
 
+/// FUN_1002f1b0's node reader (city.dll's FUN_10021411 without a
+/// transform): a split (its axis and place in the quantized box, then the
+/// two halves) or a leaf (its volumes, ascending); the nodes read.
+fn skip_node(r: &mut Reader, volumes: u32, min: [i32; 3], max: [i32; 3], depth: u32) -> Option<u32> {
+    if r.broken || depth > 200 {
+        return None;
+    }
+    if !r.bit(1, 1) {
+        let axis = r.uniform(3) as usize;
+        let v = r.uniform(max[axis].wrapping_sub(min[axis]).wrapping_add(1) as u32).wrapping_add(min[axis] as u32) as i32;
+        let mut below = max;
+        below[axis] = v;
+        let left = skip_node(r, volumes, min, below, depth + 1)?;
+        let mut above = min;
+        above[axis] = v;
+        let right = skip_node(r, volumes, above, max, depth + 1)?;
+        return Some(1 + left + right);
+    }
+    let count = r.uniform(volumes.wrapping_add(1));
+    let (mut lo, mut hi) = (0i32, volumes as i32 - 1);
+    let mut left = count;
+    for _ in 0..count {
+        let v = r.uniform(hi.wrapping_sub(lo).wrapping_add(1) as u32).wrapping_add(lo as u32) as i32;
+        if left & 1 != 0 {
+            lo = v + 1;
+        } else {
+            hi = v - 1;
+        }
+        left = left.wrapping_sub(1);
+    }
+    Some(1)
+}
+
+/// A zone's way out (`PortalArea_t`, FUN_1001b473): standing inside its
+/// outline (on the ground plane) starts a teleport try
+/// (`n3Zone_t::IsPosInTeleportal`).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Teleportal {
+    /// The outline's corners (y up).
+    pub points: Vec<[f32; 3]>,
+    /// The localizer's instance; its low half the destination playfield
+    /// (`GetTeleportDestinationPlayfield`), its type 0x186a1.
+    pub localizer: u32,
+}
+
+impl Teleportal {
+    pub fn destination(&self) -> u32 {
+        self.localizer & 0xffff
+    }
+
+    /// FUN_1001b21a: whether (`x`, `z`) is inside the outline (crossings
+    /// to its +x side counted).
+    pub fn contains(&self, x: f32, z: f32) -> bool {
+        let n = self.points.len();
+        let mut crossings = 0;
+        for k in 0..n {
+            let (a, b) = (self.points[k], self.points[(k + 1) % n]);
+            let (da, db) = (a[2] - z, b[2] - z);
+            // (`_DAT_1003cb08` 0 and `_DAT_1003da14` a small span)
+            if da * db < 0.0 {
+                let d = db - da;
+                if d.abs() >= 1e-6 && x < (a[0] * db - b[0] * da) / d {
+                    crossings += 1;
+                }
+            }
+        }
+        crossings & 1 != 0
+    }
+}
+
 /// A zone's collision surface: its triangles in the game's coordinates
-/// (y up).
+/// (y up), and its way out if it has one.
 #[derive(Debug, Default)]
 pub struct Surface {
     pub triangles: Vec<Triangle>,
+    pub teleportal: Option<Teleportal>,
+}
+
+/// FUN_1002f1b0 after the volume count: the node count, the quantized box,
+/// the volumes' meshes (their triangles kept), the marker and the nodes.
+fn read_tree(r: &mut Reader, volumes: u32, surface: &mut Surface) -> Option<()> {
+    let nodes = r.count();
+    let mut q = [0i32; 6];
+    for c in &mut q {
+        *c = r.uniform(0x0100_0000).wrapping_sub(0x80_0000) as i32;
+    }
+    // (the grid's cells by their centres, FUN_10014307)
+    let cell = |c: i32| ((c as f64 + 0.5) * PRECISION as f64) as f32;
+    for _ in 0..volumes {
+        let (idx, verts) = decode_mesh(r, &q)?;
+        let at = |i: u32| verts.get(i as usize).map(|v| v.map(cell));
+        for t in idx.chunks_exact(3) {
+            surface.triangles.push([at(t[0])?, at(t[1])?, at(t[2])?]);
+        }
+    }
+    if r.broken || r.uniform(0xff) != 0x5a {
+        return None;
+    }
+    if skip_node(r, volumes, [q[0], q[1], q[2]], [q[3], q[4], q[5]], 0)? != nodes {
+        return None;
+    }
+    Some(())
 }
 
 /// Reads a surface object (the whole database object, its head included);
@@ -271,25 +368,20 @@ pub fn parse(object: &[u8]) -> Option<Surface> {
     r.uniform(15);
     let volumes = r.count();
     let mut surface = Surface::default();
-    if volumes == 0 {
-        return Some(surface);
+    // (no volumes: the tree is done, FUN_1002f1b0 returning at once)
+    if volumes != 0 {
+        read_tree(&mut r, volumes, &mut surface)?;
     }
-    let _nodes = r.count();
-    let mut q = [0i32; 6];
-    for c in &mut q {
-        *c = r.uniform(0x0100_0000).wrapping_sub(0x80_0000) as i32;
+    // (`ReadVersion5`: the way out, then the end mark)
+    if r.bit(7, 1) {
+        r.uniform(10);
+        let count = r.uniform(1000);
+        // (each corner unsigned: `(u - 0x800000)` converted as an unsigned number, times 0.01)
+        let coordinate = |r: &mut Reader| r.uniform(0x0100_0000).wrapping_sub(0x80_0000) as f32 * PRECISION;
+        let points = (0..count).map(|_| [coordinate(&mut r), coordinate(&mut r), coordinate(&mut r)]).collect();
+        let high = r.uniform(0x10000);
+        let localizer = (high << 16).wrapping_add(r.uniform(0x10000));
+        surface.teleportal = Some(Teleportal { points, localizer });
     }
-    // (the grid's cells by their centres, FUN_10014307)
-    let cell = |c: i32| ((c as f64 + 0.5) * PRECISION as f64) as f32;
-    for _ in 0..volumes {
-        let (idx, verts) = decode_mesh(&mut r, &q)?;
-        let at = |i: u32| verts.get(i as usize).map(|v| v.map(cell));
-        for t in idx.chunks_exact(3) {
-            surface.triangles.push([at(t[0])?, at(t[1])?, at(t[2])?]);
-        }
-    }
-    if r.broken || r.uniform(0xff) != 0x5a {
-        return None;
-    }
-    Some(surface)
+    (!r.broken && r.uniform(0xfe) == 0x79).then_some(surface)
 }
