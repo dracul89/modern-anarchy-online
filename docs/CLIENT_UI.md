@@ -1256,3 +1256,14 @@ letters, digits only at the end after the fourth; a capital then small letters) 
 
 Tried live: `mao-client net <game> suggest 4 4` got "Nath"; `mao-client net <game> create Maotestone 4 4 0 1 1` made an
 Opifex male soldier (id 2063341223), listed at level 1. Next: the launcher's New Character screens.
+
+**Step 2: the launcher's New Character screens.** The character screen's New Character button opens four steps in a
+window at the left, with the chosen breed standing in the 3D preview: **Breed** (the seven choices; text.mdb's
+`BreedHelp`, `ChooseBreed`, `<Breed><Sex>Selected`, `<Breed>Description`), **Profession** (the fourteen in the original's
+order; `<Profession>Selected` and `Description<Profession>`, the Meta-Physicist's being GUI.dll's
+`DescriptionMetaPhysicists`, their `<font>` tags and entities taken out), **Appearance** (`SelectAppearance`; the head by
+number among the breed's heads, height short/normal/tall, build small/medium/large), **Name** (the name, Suggest Name,
+Create). Create checks the name as the original does, logs in on a connection of its own, sends the creation and shows a
+refusal's text (category 600); once made, the list is fetched again with the new character selected (the original logs it
+straight in). Not ported: the original's 3D creation scenes and camera, the head shown on the preview, the intro.
+Preview: `MAO_LAUNCHER_DEMO=1 MAO_LAUNCHER_CREATE=<0-3> MAO_LAUNCHER_SHOT=out.png mao-client <game> play`.

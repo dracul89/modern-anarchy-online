@@ -104,6 +104,8 @@ enum Stage {
     Form,
     Busy,
     Characters(Vec<Character>),
+    /// Making a character (`charcreate`), the list to come back to.
+    Create(Box<crate::charcreate::Creating>, Vec<Character>),
 }
 
 struct Gfx {
@@ -183,7 +185,7 @@ impl Launcher {
     /// 276 px panel at the right (the selected character's name in red with its level, gender, breed, profession and location; the
     /// others in the border colour with one summary line), New Character under it; a bar across the bottom with Back at the left
     /// and Delete at the right, and Play centred above the bar.
-    fn character_screen(&mut self, ctx: &egui::Context, list: &[Character], play: &mut Option<String>, back: &mut bool) {
+    fn character_screen(&mut self, ctx: &egui::Context, list: &[Character], play: &mut Option<String>, back: &mut bool, new_character: &mut bool) {
         let palette = self.palette.clone();
         let col = |c: [u8; 3]| egui::Color32::from_rgb(c[0], c[1], c[2]);
         let (accent, text) = (col(palette.accent), col(palette.text));
@@ -292,7 +294,9 @@ impl Launcher {
             });
             ui.add_space(6.0);
             ui.vertical_centered(|ui| {
-                ui.add_enabled(false, egui::Button::new("New Character")).on_disabled_hover_text("Making a character is not in this client yet: use the original client for it");
+                if ui.add(egui::Button::new("New Character")).clicked() {
+                    *new_character = true;
+                }
                 line(ui, &format!("{} characters", list.len()), &chat, 11.0, text);
             });
         });
@@ -339,11 +343,38 @@ impl Launcher {
         let mut play = None;
         let mut back = false;
         let mut submit = false;
+        let mut new_character = false;
         if let Stage::Characters(list) = &self.stage {
             let list = list.clone();
-            self.character_screen(ctx, &list, &mut play, &mut back);
+            self.character_screen(ctx, &list, &mut play, &mut back, &mut new_character);
         }
-        if !matches!(self.stage, Stage::Characters(_)) {
+        if new_character {
+            if let Stage::Characters(list) = &self.stage {
+                self.stage = Stage::Create(Box::default(), list.clone());
+            }
+        }
+        // (making a character: the four steps; made, the list is fetched again with it selected)
+        let account = crate::charcreate::Account {
+            user: self.user.trim().to_string(),
+            password: self.password.clone(),
+            server: self.server.trim().to_string(),
+            version: std::fs::read_to_string(std::path::Path::new(&self.game).join("version.id")).map(|t| t.lines().next().unwrap_or("").trim().to_string()).unwrap_or_default(),
+        };
+        let palette_now = self.palette.clone();
+        let game = self.game.clone();
+        let mut made = None;
+        if let Stage::Create(creating, list) = &mut self.stage {
+            match creating.show(ctx, &palette_now, &account, &game) {
+                crate::charcreate::Outcome::Stay => {}
+                crate::charcreate::Outcome::Back => self.stage = Stage::Characters(list.clone()),
+                crate::charcreate::Outcome::Created(name) => made = Some(name),
+            }
+        }
+        if let Some(name) = made {
+            self.selected = Some(name);
+            self.log_in();
+        }
+        if !matches!(self.stage, Stage::Characters(_) | Stage::Create(..)) {
             // The login dialog as the original's (`Views/LoginWindow.xml`): the username list with Remove, the password, Login and Quit.
             let palette = self.palette.clone();
             let mut open = true;
@@ -407,7 +438,7 @@ impl Launcher {
                         ui.label("Logging in...");
                     });
                 }
-                Stage::Characters(_) => {}
+                Stage::Characters(_) | Stage::Create(..) => {}
             });
             if quit || !open {
                 self.quit = true;
@@ -470,6 +501,8 @@ impl ApplicationHandler for Launcher {
                     // the character picked in the list is built once and turned slowly
                     let want = match &self.stage {
                         Stage::Characters(list) => self.selected.as_ref().and_then(|n| list.iter().find(|c| &c.name == n)).cloned(),
+                        // (the breed being made, as the list shows a character)
+                        Stage::Create(creating, _) => creating.breed_and_sex().map(|(breed, sex)| Character { name: format!("(new {breed} {sex})"), breed, sex, ..Default::default() }),
                         _ => None,
                     };
                     if want.as_ref().map(|c| &c.name) != gfx.shown.as_ref() {
@@ -590,7 +623,13 @@ pub fn run(game: &str) -> Result<(), String> {
         // (and whatever the live client has written down on this machine)
         launcher.looks.extend(crate::look::load());
         launcher.selected = Some(std::env::var("MAO_LAUNCHER_PICK").ok().filter(|n| list.iter().any(|c| &c.name == n)).unwrap_or_else(|| list[0].name.clone()));
-        launcher.stage = Stage::Characters(list);
+        launcher.stage = Stage::Characters(list.clone());
+        // (MAO_LAUNCHER_CREATE=<step 0-3>: the New Character screens at that step, a Nanomage female Metaphysicist chosen)
+        if let Some(step) = std::env::var("MAO_LAUNCHER_CREATE").ok().and_then(|v| v.parse().ok()) {
+            let mut creating = crate::charcreate::Creating::default();
+            (creating.step, creating.breed, creating.profession, creating.name) = (step, 5, 1, "Zibblet".into());
+            launcher.stage = Stage::Create(Box::new(creating), list);
+        }
     }
     // After a logout the launcher starts again with the account (MAO_RELOGIN): it logs in at once and lists the characters.
     if std::env::var_os("MAO_RELOGIN").is_some() {
