@@ -1,0 +1,2 @@
+# The bundled skins stay byte for byte as the game reads them
+assets/gui/** -text
