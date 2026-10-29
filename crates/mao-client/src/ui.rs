@@ -349,6 +349,14 @@ impl Ui {
     /// Gives the interface a window event; true when it used the event (the
     /// pointer is over one of its windows) and the game should not.
     pub fn event(&mut self, window: &Window, event: &WindowEvent) -> bool {
+        // (a key is the interface's only while a text field is typed in: egui takes the keyboard whenever any widget has
+        // the focus, and its Tab moves the focus to the first button, after which every game key went to the interface)
+        if matches!(event, WindowEvent::KeyboardInput { .. }) && !self.ctx.text_edit_focused() {
+            if let Some(id) = self.ctx.memory(|m| m.focused()) {
+                self.ctx.memory_mut(|m| m.surrender_focus(id));
+            }
+            return false;
+        }
         self.state.on_window_event(window, event).consumed
     }
 

@@ -952,9 +952,16 @@ impl ApplicationHandler for App {
                                 press_slot(ui, n as usize, &mut self.keys, &mut self.hud);
                             }
                         }
-                        Action::ChatInput | Action::ChatCommand if !event.repeat => {
+                        // (`COMMAND_TEXT_INPUT_START_TEXT_INPUT` on Enter, `COMMAND_START_CHAT_CMD_INPUT` on `/`: the line
+                        // starts with the slash)
+                        Action::ChatInput if !event.repeat => {
                             if let Some(ui) = w.ui.as_mut() {
                                 ui.chat.focus();
+                            }
+                        }
+                        Action::ChatCommand if !event.repeat => {
+                            if let Some(ui) = w.ui.as_mut() {
+                                ui.chat.type_text("/");
                             }
                         }
                         Action::UiLarger | Action::UiSmaller => {
@@ -1052,6 +1059,9 @@ impl ApplicationHandler for App {
                                 _ => 6,
                             };
                             self.keys.commands[slot] = self.keys.commands[slot].wrapping_add(1);
+                            if std::env::var_os("MAO_COMBAT_LOG").is_some() {
+                                eprintln!("combat: key {:?} -> command {slot} now {}", event.physical_key, self.keys.commands[slot]);
+                            }
                         }
                         // (the rotate and zoom keys act while held: the frame reads them from `held`)
                         Action::CameraRotateLeft | Action::CameraRotateRight | Action::CameraRotateUp | Action::CameraRotateDown | Action::CameraZoomIn | Action::CameraZoomOut => {}

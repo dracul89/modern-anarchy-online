@@ -103,7 +103,7 @@ fn trace(frame: &frame::Frame, clock: Instant) {
     let t = clock.elapsed().as_secs_f32();
     if let Some(m) = Message::parse(frame) {
         if !BULK.contains(&m.kind) {
-            let head: String = m.data.iter().take(28).map(|b| format!("{b:02x}")).collect();
+            let head: String = m.data.iter().take(if m.kind == 0x52526858 { 64 } else { 28 }).map(|b| format!("{b:02x}")).collect();
             eprintln!("[{t:7.2}] server n3 {:08x} from {:x}:{:x} ({} bytes) {head}", m.kind, m.identity.0, m.identity.1, m.data.len());
         }
     } else if frame.kind != frame::PING {
@@ -209,6 +209,11 @@ struct World {
     /// The characters that died (`CharacterAction` 99, `Death`, from the one dying): the death's action (its `Parameter2`: 500
     /// `die-knees`, 503 `die-shot` ...) and when. Cleared by its `Despawn` or a new full update.
     dead: BTreeMap<u32, (u32, Instant)>,
+    /// The corpse (its 0xc76a instance, from `CorpseFullUpdate`) left by each dead character: the one announced where the
+    /// body lies. Using the body uses the corpse, as clicking a body does in the original (the corpse is what the server opens).
+    corpses: BTreeMap<u32, u32>,
+    /// The characters that died lately and where (kept past their `Despawn`, which the server sends just before the corpse).
+    bodies: BTreeMap<u32, ([f32; 3], Instant)>,
     /// Whom each character is fighting (the `Attack` message from it, its full update's `FightingTarget`; `StopFight` ends it):
     /// a fighting character has its weapon drawn (`WeaponHolder_t` +0x44 at 2, FUN_1006a1b1; 1 again at FUN_100690c8).
     fighting: BTreeMap<u32, u32>,
@@ -641,6 +646,13 @@ impl World {
             self.server_id = frame.source;
         }
         let Some(m) = Message::parse(frame) else { return };
+        // (MAO_COMBAT_LOG: the fight's messages as they come)
+        if std::env::var_os("MAO_COMBAT_LOG").is_some() && matches!(m.kind, 0x28494070 | 0x46002f16 | 0x4a41203e | 0x5c654b28 | 0x206b4b73 | 0x50544d19 | 0x1d3c0f1c) || (m.kind == 0x5e477770 && m.data.get(4) == Some(&0x63)) {
+            if std::env::var_os("MAO_COMBAT_LOG").is_some() {
+                let name = mao_net::schema::Schema::global().n3_name(m.kind).unwrap_or("?");
+                eprintln!("combat: server {name} ({:#x}) from ({:x},{:x}) {} bytes", m.kind, m.identity.0, m.identity.1, m.data.len());
+            }
+        }
         if let Some(arrival) = m.arrival() {
             eprintln!("playfield message: identity ({:x},{:x}) -> playfield {} at {:?}", m.identity.0, m.identity.1, arrival.0, arrival.1);
             self.arrival = Some(arrival);
@@ -712,6 +724,10 @@ impl World {
         if m.kind == 0x5e477770 && m.data.len() >= 25 && u32::from_be_bytes(m.data[1..5].try_into().unwrap()) == 99 {
             let action = u32::from_be_bytes(m.data[21..25].try_into().unwrap());
             self.dead.insert(m.identity.1, (action, Instant::now()));
+            if let Some(e) = self.entities.get(&m.identity.1) {
+                self.bodies.retain(|_, b| b.1.elapsed() < Duration::from_secs(120));
+                self.bodies.insert(m.identity.1, (e.0, Instant::now()));
+            }
             self.fighting.remove(&m.identity.1);
             if m.identity.1 == self.own {
                 self.own_dead = true;
@@ -721,6 +737,11 @@ impl World {
         }
         if m.kind == 0x36510078 {
             self.dead.remove(&m.identity.1);
+            // (a corpse gone: its body's link with it)
+            self.corpses.retain(|_, c| *c != m.identity.1);
+            if m.identity.0 == OBJECT_TYPE {
+                self.objects.remove(&m.identity.1);
+            }
         }
         // The hazards (`hazards`): their full updates, a controller's state, and what befalls a mine or trap.
         match m.kind {
@@ -1009,6 +1030,16 @@ impl World {
                 self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, text));
             }
         }
+        // `Feedback` (`50544d19`): a text.mdb line by its category and key ("You are too far away; please move closer!" when a
+        // fight is out of reach), shown in the chat as the original's feedback lines are.
+        if m.kind == 0x50544d19 && m.identity.1 == self.own {
+            if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
+                let int = |f: &str| p.value.get(f).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as i32;
+                if let Some(text) = crate::feedback::texts().and_then(|t| t.get(int("CategoryId"), int("MessageId"))).filter(|t| !t.is_empty()) {
+                    self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, text.to_string()));
+                }
+            }
+        }
         if m.kind == 0x206b4b73 && m.identity.1 == self.own {
             // (its `Message` is packed, `~&` and base-85 words naming a text.mdb text and its arguments: LDB.dll's
             // `RemoteFormat` unpacks it)
@@ -1067,6 +1098,9 @@ impl World {
                     if identity.0 == 0xc76a {
                         self.fresh_corpse = Some((handle, entries.iter().map(|e| e.slot).collect()));
                     }
+                    if std::env::var_os("MAO_COMBAT_LOG").is_some() {
+                        eprintln!("combat: container ({:#x}, {:#x}) handle {handle:#x} opened with {} items", identity.0, identity.1, entries.len());
+                    }
                     self.loot = Some(Loot { identity, handle, entries });
                     self.loot_changed = true;
                 }
@@ -1119,8 +1153,23 @@ impl World {
             // The position follows 17 bytes of header (the capture's objects stand where a
             // terminal or door of that playfield does).
             let f = |at: usize| f32::from_be_bytes(m.data[at..at + 4].try_into().unwrap());
-            self.objects.insert(m.identity.1, [f(17), f(21), f(25)]);
-            self.names.entry(m.identity.1).or_insert_with(|| (format!("Object {:x}", m.identity.1 & 0xffff), false));
+            let at = [f(17), f(21), f(25)];
+            self.objects.insert(m.identity.1, at);
+            // (a corpse: announced on a body that died, within a few metres of it)
+            let body = self.bodies.iter().filter(|(id, _)| !self.corpses.contains_key(id)).map(|(id, b)| (*id, b.0)).map(|(id, p)| (id, ((p[0] - at[0]).powi(2) + (p[2] - at[2]).powi(2)).sqrt())).filter(|(_, d)| *d < 4.0).min_by(|a, b| a.1.total_cmp(&b.1)).map(|b| b.0);
+            if std::env::var_os("MAO_COMBAT_LOG").is_some() {
+                eprintln!("combat: object {:#x} at {at:?}; bodies {:?} -> {body:?}", m.identity.1, self.bodies.iter().map(|(id, b)| (*id, b.0)).collect::<Vec<_>>());
+            }
+            match body {
+                Some(body) => {
+                    self.corpses.insert(body, m.identity.1);
+                    let name = self.names.get(&body).map(|n| n.0.clone()).filter(|n| !n.is_empty()).unwrap_or_else(|| "the dead".into());
+                    self.names.insert(m.identity.1, (format!("Remains of {name}"), false));
+                }
+                None => {
+                    self.names.entry(m.identity.1).or_insert_with(|| (format!("Object {:x}", m.identity.1 & 0xffff), false));
+                }
+            }
         }
         if m.identity.0 != 0 {
             self.types.entry(m.identity.1).or_insert(m.identity.0);
@@ -1260,6 +1309,14 @@ impl World {
             self.last_seen.insert(m.identity.1, Instant::now());
             e.0 = p;
             e.1 += 1;
+        }
+    }
+
+    /// What using `(kind, id)` uses: a dead body's corpse, else itself.
+    fn used(&self, kind: u32, id: u32) -> (u32, u32) {
+        match self.corpses.get(&id) {
+            Some(&corpse) if self.objects.contains_key(&corpse) => (OBJECT_TYPE, corpse),
+            _ => (kind, id),
         }
     }
 
@@ -2639,6 +2696,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     let (shop_tx, shop_rx) = std::sync::mpsc::channel::<crate::shop::ShopCommand>();
     let own = state.own;
     let start = state.entities.get(&own).map(|e| e.0).unwrap_or([0.0; 3]);
+    eprintln!("start: the entity's place {start:?}, the playfield message's {:?}", state.arrival.map(|a| a.1));
     let heading = state.rotations.get(&own).map(|q| 2.0 * q[1].atan2(q[3])).unwrap_or(0.0);
     let (gear_db, gear_textures) = (db.clone(), crate::Textures::new(db.clone()));
     let _ = ITEM_DB.set(db.clone());
@@ -2903,6 +2961,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             Some((*n.first()?, *n.get(1)?, n.get(2).copied().unwrap_or(5) as u8, sliders))
         });
         let (mut seen, mut target): ([u8; 7], Option<u32>) = ([0; 7], None);
+        // `MAO_AUTOPLAY=5:tab,6:follow,9:attack,...`: the keys pressed by themselves that many seconds in (for testing
+        // the fight live without a keyboard): tab, attack, use, follow (the target), stop (following).
+        let mut autoplay: Vec<(f32, String)> = std::env::var("MAO_AUTOPLAY").ok().map_or_else(Vec::new, |v| v.split(',').filter_map(|s| s.split_once(':').and_then(|(t, c)| Some((t.trim().parse().ok()?, c.trim().to_string())))).collect());
+        let autoplay_clock = Instant::now();
         let (mut sitting, mut uses, mut fired) = (false, 0u32, 0u8);
         let (mut special_seen, mut social_seen, mut pick_seen) = (0u8, 0u8, 0u8);
         let mut aggdef_seen = 0u8;
@@ -3254,6 +3316,20 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     None => pending_messages.push("Nothing targeted to inspect (Tab selects)".into()),
                 }
             }
+            while autoplay.first().is_some_and(|(t, _)| autoplay_clock.elapsed().as_secs_f32() >= *t) {
+                let (_, what) = autoplay.remove(0);
+                eprintln!("autoplay: {what} (target {target:?})");
+                match what.as_str() {
+                    "tab" => seen[0] = seen[0].wrapping_sub(1),
+                    "attack" => seen[4] = seen[4].wrapping_sub(1),
+                    "use" => seen[6] = seen[6].wrapping_sub(1),
+                    "follow" => following = target.filter(|t| state.entities.contains_key(t)),
+                    _ => {
+                        following = None;
+                        goto = None;
+                    }
+                }
+            }
             // Follow (`/follow`): walk after the target; a movement key of the player's own stops it.
             if raw.follow != follow_seen {
                 follow_seen = raw.follow;
@@ -3275,7 +3351,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 match state.entities.get(&id) {
                     Some((p, _)) => {
                         let distance = ((p[0] - position[0]).powi(2) + (p[2] - position[2]).powi(2)).sqrt();
-                        if distance > 3.5 {
+                        // (the one fought is followed into reach: 3.5 m is past a fist's, where the server only says "too far")
+                        let near = if state.fighting.get(&own) == Some(&id) { 2.0 } else { 3.5 };
+                        if distance > near {
                             // (the progress watch only restarts when a walk starts: the target keeps moving)
                             if goto.is_none() {
                                 (goto_best, goto_progress, detour, detours) = (f32::MAX, Instant::now(), None, 0);
@@ -3342,7 +3420,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     match target {
                         Some(t) => {
                             uses += 1;
-                            let kind = state.types.get(&t).copied().unwrap_or(n3::CHARACTER);
+                            let (kind, t) = state.used(state.types.get(&t).copied().unwrap_or(n3::CHARACTER), t);
+                            if std::env::var_os("MAO_COMBAT_LOG").is_some() {
+                                eprintln!("combat: use ({kind:#x}, {t:#x})");
+                            }
                             let _ = connection.send(&n3::use_object(own, uses, (kind, t)));
                             state.door_used(t);
                             state.opened_by_use(&gear_db, kind, t);
@@ -3371,7 +3452,13 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         Some(_) => crate::combat::Target::Other,
                     };
                     let pending = attack_sent.is_some_and(|t| t.elapsed() < Duration::from_secs(3));
-                    match crate::combat::default_attack(state.fighting.contains_key(&own), false, pending, target, kind) {
+                    let decision = crate::combat::default_attack(state.fighting.contains_key(&own), false, pending, target, kind);
+                    if std::env::var_os("MAO_COMBAT_LOG").is_some() {
+                        let there = target.and_then(|t| state.entities.get(&t).map(|e| e.0));
+                        let distance = there.map(|p| ((p[0] - position[0]).powi(2) + (p[2] - position[2]).powi(2)).sqrt());
+                        eprintln!("combat: attack key: target {target:?} {kind:?}, fighting {:?}, pending {pending} -> {decision:?}; own at {position:?}, target at {there:?}, {distance:?} m", state.fighting.get(&own));
+                    }
+                    match decision {
                         crate::combat::Attack::Stop => {
                             let _ = connection.send(&n3::stop_fight(own));
                         }
@@ -3392,7 +3479,14 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     .filter_map(|(id, i)| Some(crate::combat::Candidate { id: *id, position: state.entities.get(id)?.0, side: i.side }))
                     .collect();
                 let own_side = state.stats.get(&33).copied().unwrap_or(0) as u8;
-                let Some(id) = crate::combat::close_target(position, own_side, target, &list, slot % 2 == 0, slot >= 2) else { continue };
+                if std::env::var_os("MAO_COMBAT_LOG").is_some() {
+                    eprintln!("combat: command {slot}: count {count}, {presses} presses");
+                }
+                let picked = crate::combat::close_target(position, own_side, target, &list, slot % 2 == 0, slot >= 2);
+                if std::env::var_os("MAO_COMBAT_LOG").is_some() {
+                    eprintln!("combat: tab key {slot}: own side {own_side}, {} characters, from {target:?} to {picked:?} {:?}", list.len(), picked.and_then(|p| state.names.get(&p).map(|n| n.0.clone())));
+                }
+                let Some(id) = picked else { continue };
                 target = Some(id);
                 // Objects are targeted here only: the server's select names characters and creatures.
                 if !state.objects.contains_key(&id) {
@@ -3613,7 +3707,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 }
                 if double {
                     uses += 1;
-                    let kind = state.types.get(&id).copied().unwrap_or(n3::CHARACTER);
+                    let (kind, id) = state.used(state.types.get(&id).copied().unwrap_or(n3::CHARACTER), id);
                     let _ = connection.send(&n3::use_object(own, uses, (kind, id)));
                     state.door_used(id);
                     // (a mail terminal opens the mail window on the inbox, as its own button does; a mission booth the
@@ -3819,6 +3913,12 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             if let Some(b) = booths.iter().find(|b| ((b[0] - position[0]).powi(2) + (b[2] - position[2]).powi(2)).sqrt() < 4.0) {
                 near_booth = Some((booth_playfield, *b, Instant::now()));
             }
+            if tracing && walk == 0 && last_report.elapsed() >= Duration::from_secs(2) {
+                if let Some(f) = state.fighting.get(&own).and_then(|f| state.entities.get(f)) {
+                    last_report = Instant::now();
+                    eprintln!("[{:7.2}] standing at ({:.2}, {:.2}), the one fought at ({:.2}, {:.2}), {:.2} m", clock.elapsed().as_secs_f32(), position[0], position[2], f.0[0], f.0[2], ((f.0[0] - position[0]).powi(2) + (f.0[2] - position[2]).powi(2)).sqrt());
+                }
+            }
             if tracing && walk != 0 && last_report.elapsed() >= Duration::from_secs(1) {
                 last_report = Instant::now();
                 eprintln!("[{:7.2}] walking at ({:.1}, {:.1}, {:.1}) heading {:.2} in playfield {current}", clock.elapsed().as_secs_f32(), position[0], position[1], position[2], heading);
@@ -3826,6 +3926,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             let mut ok = true;
             let due = last_send.elapsed() >= Duration::from_millis(400);
             let mut send_kind = |kind: u8, connection: &mut Connection| {
+                if tracing {
+                    eprintln!("[{:7.2}] sent move {kind} at ({:.2}, {:.2}, {:.2}) heading {heading:.2}", clock.elapsed().as_secs_f32(), position[0], position[1], position[2]);
+                }
                 last_send = Instant::now();
                 ok &= send(connection, kind, heading, position, &mut sent);
             };
@@ -4528,7 +4631,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     chat_lines: chat_lines_now,
                     friends: friends_now,
                     loot: std::mem::take(&mut state.loot_changed).then(|| {
-                        state.loot.as_ref().map(|l| crate::loot::LootView { title: crate::loot::title(l.identity.0).to_string(), identity: l.identity, handle: l.handle, items: crate::gear::from_entries(&gear_db, &gear_textures, &l.entries, state.stats.get(&0x36).copied().unwrap_or(1)) })
+                        state.loot.as_ref().map(|l| crate::loot::LootView { title: state.names.get(&l.identity.1).map(|n| n.0.clone()).filter(|n| !n.starts_with("Object ")).unwrap_or_else(|| crate::loot::title(l.identity.0).to_string()), identity: l.identity, handle: l.handle, items: crate::gear::from_entries(&gear_db, &gear_textures, &l.entries, state.stats.get(&0x36).copied().unwrap_or(1)) })
                     }),
                     perk_list: std::mem::take(&mut state.perks_changed).then(|| crate::perks::describe(&gear_db, &gear_textures, &state.perks, state.stats.get(&0x36).copied().unwrap_or(1))),
                     programs: std::mem::take(&mut state.programs_changed).then(|| crate::nanoprograms::describe(&gear_db, &gear_textures, &state.program_ids, state.stats.get(&0x36).copied().unwrap_or(1))),
@@ -5012,7 +5115,8 @@ fn fight(game: &str, who: &str, seconds: u64, waypoints: Vec<(f32, f32)>) -> Res
         let (dx, dz) = (goal[0] - position[0], goal[2] - position[2]);
         let left = (dx * dx + dz * dz).sqrt();
         let heading = dx.atan2(dz);
-        if left <= 2.5 {
+        // (MAO_ATTACK_RANGE: stop this far off, to see what the server says about range)
+        if left <= std::env::var("MAO_ATTACK_RANGE").ok().and_then(|v| v.parse().ok()).unwrap_or(2.5f32) {
             if started {
                 send(&mut connection, movement::FORWARD_STOP, heading, position, &mut since)?;
             }
@@ -5759,4 +5863,3 @@ mod movement_tests {
         assert!((movement_rate(1.0, 200.0, 5.0, 5.0) - 0.5).abs() < 0.001);
     }
 }
-

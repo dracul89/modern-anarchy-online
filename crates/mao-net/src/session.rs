@@ -3,7 +3,6 @@
 //! never stored, printed or put in an error.
 
 use std::fmt;
-use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
@@ -60,20 +59,21 @@ pub struct Connection {
     stream: TcpStream,
     reader: Reader,
     sequence: u16,
+    timeout: Duration,
 }
 
 impl Connection {
     pub fn connect(address: impl ToSocketAddrs) -> Result<Self, Error> {
         let stream = TcpStream::connect(address)?;
-        stream.set_read_timeout(Some(Duration::from_secs(20)))?;
-        stream.set_nodelay(true)?;
-        Ok(Connection { stream, reader: Reader::default(), sequence: 0 })
+        crate::socket::prepare(&stream)?;
+        Ok(Connection { stream, reader: Reader::default(), sequence: 0, timeout: Duration::from_secs(20) })
     }
 
     /// How long `receive` waits for data before failing with a timeout
     /// error (the connection stays usable).
     pub fn set_timeout(&mut self, timeout: Duration) -> Result<(), Error> {
-        Ok(self.stream.set_read_timeout(Some(timeout))?)
+        self.timeout = timeout;
+        Ok(())
     }
 
     pub fn send(&mut self, frame: &Frame) -> Result<(), Error> {
@@ -81,7 +81,7 @@ impl Connection {
         if self.sequence == 0xffff {
             self.sequence = 0;
         }
-        self.stream.write_all(&frame.encode(self.sequence))?;
+        crate::socket::write_all(&mut self.stream, &frame.encode(self.sequence))?;
         Ok(())
     }
 
@@ -97,7 +97,7 @@ impl Connection {
                 return Ok(frame);
             }
             let mut buffer = [0u8; 8192];
-            let n = self.stream.read(&mut buffer)?;
+            let n = crate::socket::read(&mut self.stream, &mut buffer, self.timeout)?;
             if n == 0 {
                 return Err(Error::Closed);
             }

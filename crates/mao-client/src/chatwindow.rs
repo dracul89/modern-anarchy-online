@@ -363,6 +363,10 @@ impl ChatWindow {
                 if self.focus_next {
                     ctx.memory_mut(|m| m.request_focus(input_id));
                     self.focus_next = false;
+                    // (the cursor after what is already there: `/` starts the line with its slash)
+                    let mut state = egui::TextEdit::load_state(ctx, input_id).unwrap_or_default();
+                    state.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(self.input.chars().count()))));
+                    state.store(ctx, input_id);
                 }
                 let suggestions = chat_commands::suggest(&self.input);
                 let has_focus = ctx.memory(|m| m.has_focus(input_id));
@@ -412,9 +416,10 @@ impl ChatWindow {
                         state.store(ctx, input_id);
                     }
                 } else if enter {
+                    // (the line sent, the keys are the game's again: Enter starts the next one)
                     let line = std::mem::take(&mut self.input);
                     out = self.run(&line);
-                    response.request_focus();
+                    response.surrender_focus();
                 }
                 // The list of commands, above the input line, as the original's.
                 if (has_focus || response.has_focus() || self.keep_list) && !suggestions.is_empty() {

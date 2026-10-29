@@ -22,4 +22,5 @@ pub mod mail;
 pub mod n3;
 pub mod schema;
 pub mod session;
+pub mod socket;
 pub mod system;
