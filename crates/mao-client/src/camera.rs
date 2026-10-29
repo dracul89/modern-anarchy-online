@@ -162,6 +162,18 @@ impl SteeringCamera {
         }
     }
 
+    /// A new camera for a character entering a playfield (`n3EngineClient_t::SetMainDynel` → `CreateCamera`, N3.dll
+    /// 0x10007842): put at the character's place plus (0, 2, −1) turned by its rotation (2 up, 1 behind), at rest; from
+    /// there it steers out to the preferred place as usual. (The old camera does not fly across the world to it.)
+    pub fn create(&mut self, feet: [f32; 3], heading: f32) {
+        self.pos = add(feet, rotate_y([0.0, 2.0, -1.0], heading));
+        self.vel = [0.0; 3];
+        self.speed = 0.0;
+        self.placed = true;
+        self.first_yaw = 0.0;
+        self.first_pitch = 0.0;
+    }
+
     /// `ToggleCameraView`: first person and back to the preferred third-person mode.
     pub fn toggle_view(&mut self) {
         if self.mode == Mode::First {

@@ -1213,3 +1213,19 @@ disconnects or errors; 26 kills, 26 corpses opened (4 with items, all taken); me
 sixth minute on and flat to the end; 55 to 175 fps by the view (the slow windows were while builds ran beside it). Tab in
 that field also picks the guards and guides (another side than a neutral's, as `N3Msg_GetCloseTarget` counts it); attacking
 them does nothing, and Q while "fighting" one stops instead of attacking the next: the original's toggle.
+
+## Stopping and zoning (2026-10-29)
+
+**The stop shuffle.** The original never plays a movement animation's start (before `loopstart`) or its tail (after
+`loopend`): `ForwardStartTransitionAction_t` (Gamecode FUN_1006ef8d) sets the walk's or run's loop, segment 2, at once, and
+the stop (`ForwardStopTransitionAction_t` FUN_1006f0ac → FUN_1006c5ae → FUN_1006c370) sets the idle's loop; the mesh's
+blending eases each change. The client played the first step, the loop, then jumped from wherever the cycle was to the tail
+(`motion`, now the original's). Also one's own character counted as moving for 90 ms after its last step (walking in place
+for that long; now `World::own_moving`, from the keys), and the window glided it on between updates (every ~40 ms) for up to
+0.12 s and stepped it back when the stop came (up to ~30 cm at a run): a stop now sends the window an update at once.
+
+**The camera on zoning.** The original makes a new camera whenever the character enters a playfield
+(`n3EngineClient_t::SetMainDynel` → `CreateCamera`, N3.dll 0x10007842): at the character's place plus (0, 2, −1) turned by
+its rotation (2 up, 1 behind), at rest, and it steers out to the preferred place from there. The client kept the old camera,
+which flew from the old playfield's place to the new one. Now `SteeringCamera::create` does the original's placement on
+every new playfield (the first one too). (Not ported: `SetMainDynel` also makes playfield 0x380 use the free camera.)

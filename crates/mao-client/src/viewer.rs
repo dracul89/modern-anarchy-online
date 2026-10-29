@@ -1347,6 +1347,10 @@ impl ApplicationHandler for App {
                         w.renderer.reupload_follow(&w.gpu, &mut w.scene, &update.own_model, &mut |k, i| self.textures.get_for_upload(k, i));
                         crate::prof::add("upload-own", own_started.elapsed());
                         self.casters = std::mem::take(&mut update.casters);
+                        // (a playfield entered, the first one too: the original makes a new camera behind the character)
+                        if let (true, Some(p)) = (update.scene.is_some(), update.own) {
+                            self.steering.create(p, self.heading);
+                        }
                         if let Some(p) = update.own {
                             self.own_base = p;
                             self.own_velocity = update.own_velocity;

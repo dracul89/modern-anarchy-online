@@ -253,6 +253,8 @@ struct World {
     /// along a path of waypoints (type 1) or after a target (type 2). The client walks them there between the server's
     /// own position messages; a `SetPos` (`195e496e`) puts one down where it says.
     paths: BTreeMap<u32, Route>,
+    /// Whether one's own character is walking, running or sidestepping this moment (its animation follows it exactly).
+    own_moving: bool,
     /// Each walked creature's last path (when it came, its start, its end) and its speed as the paths show it.
     path_seen: BTreeMap<u32, (Instant, [f32; 3], [f32; 3])>,
     path_speeds: BTreeMap<u32, f32>,
@@ -2265,10 +2267,13 @@ impl Characters {
             }
         }
         let st = self.motions.entry(id).or_insert(Motion { stage: Stage::Idle, action: Idle, clock: 0.0, tick: now });
+        // (as the original: `ForwardStartTransitionAction_t` (FUN_1006ef8d) plays the walk's or run's loop, segment 2, from the
+        // first step, and the stop (FUN_1006f0ac → FUN_1006c5ae → FUN_1006c370) goes straight to the idle's loop; neither the
+        // start before `loopstart` nor the tail after `loopend` is played, and the mesh's own blending eases the change)
         match (st.stage, moving) {
-            (Stage::Idle | Stage::Stop, Some(a)) => *st = Motion { stage: Stage::Start, action: a, clock: 0.0, tick: now },
+            (Stage::Idle | Stage::Stop, Some(a)) => *st = Motion { stage: Stage::Loop, action: a, clock: 0.0, tick: now },
             (Stage::Start | Stage::Loop, Some(a)) if a != st.action => *st = Motion { stage: Stage::Loop, action: a, clock: 0.0, tick: now },
-            (Stage::Start | Stage::Loop, None) => *st = Motion { stage: Stage::Stop, action: st.action, clock: 0.0, tick: now },
+            (Stage::Start | Stage::Loop, None) => *st = Motion { stage: Stage::Idle, action: Idle, clock: 0.0, tick: now },
             _ => {}
         }
         // (the clock runs at the playback rate: a fast runner's cycle turns faster)
@@ -2542,7 +2547,7 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
         }
         // (a polymorphed character is drawn as the creature it became)
         if let (Some(&creature), Some(chars)) = (world.morphs.get(&id), characters.as_mut()) {
-            let moving = world.last_move.get(&id).is_some_and(|t| t.elapsed() < Duration::from_millis(if id == world.own { 90 } else { 700 }));
+            let moving = if id == world.own { world.own_moving } else { world.last_move.get(&id).is_some_and(|t| t.elapsed() < Duration::from_millis(700)) };
             let speed = world.speeds.get(&id).copied().unwrap_or(0.0);
             use mao_formats::appearance::Action;
             let action = match world.strafing.get(&id).copied().unwrap_or(0) {
@@ -2574,7 +2579,7 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
                 Some((template, slot))
             });
             // Movement animates while the position changes (our own is sampled every frame, the others' every few hundred ms).
-            let moving = world.last_move.get(&id).is_some_and(|t| t.elapsed() < Duration::from_millis(if id == world.own { 90 } else { 700 }));
+            let moving = if id == world.own { world.own_moving } else { world.last_move.get(&id).is_some_and(|t| t.elapsed() < Duration::from_millis(700)) };
             let speed = world.speeds.get(&id).copied().unwrap_or(0.0);
             // The original's choice (FUN_1006c370): a sidestep plays walk-left/right, moving against the facing the back
             // animations; walking is 1.5 units a second and running from 3 (backwards) or 5, so 2.2 tells them apart.
@@ -4360,6 +4365,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 state.jumped.insert(own, Instant::now());
                 send_kind(movement::JUMP, &mut connection);
             }
+            if walk != moving && walk == 0 {
+                last_overlay = Instant::now() - Duration::from_secs(1);
+            }
             if walk != moving {
                 match (moving, walk) {
                     (_, 1) => send_kind(movement::FORWARD_START, &mut connection),
@@ -4415,6 +4423,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     state.rotations.insert(id, [0.0, (after * 0.5).sin(), 0.0, (after * 0.5).cos()]);
                 }
             }
+            state.own_moving = walk != 0 || keys.strafe != 0;
             if walk != 0 || keys.turn != 0 || keys.strafe != 0 || moving != 0 || airborne {
                 state.entities.insert(own, (position, 0));
                 if walk != 0 || keys.strafe != 0 {
