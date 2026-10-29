@@ -1470,3 +1470,12 @@ now shows the button as the original does.
 closes it. Choosing an item puts its label in the field, and a changed text is the editor's `Edited` signal
 (`SlotMenuItemSelected` 0x100020f2). Items are a label and an id (`combobox::append_item`, `clear`). The preview's
 `MAO_DROPDOWN_ITEMS` fills combo boxes too. The launcher's login dialog still draws its own list.
+
+**Sliders** (`gui/controls.rs` `Slider`). The `Slider` elements (the research and tradeskill windows) and the options'
+sliders are GUI.dll's `Slider_c` (0x10144647, from XML 0x1014485a: `min_value`, `max_value`, `default_value`). The track
+is `GFX_GUI_CONTROLCENTER_AGGDEF_SLIDER_BACKGROUND` stretched over the slider, and the knob is
+`GFX_GUI_CONTROLCENTER_AGGDEF_SLIDER` in `Default`, centred upright and placed by the value (`_Layout` 0x101442fe). Only
+the knob is grabbed: a press on the track does nothing, dragging the knob sets the value (held to the range), and
+letting go is the change. It is as tall as the knob and any width. It used to be drawn with option-slider pictures the
+skins don't have, and a press anywhere on it moved the value. `gfxid_slider`/`gfxid_background` (picture numbers) are
+not read; no skin gives them.

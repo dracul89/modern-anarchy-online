@@ -109,6 +109,7 @@ pub fn create(tree: &mut Tree, e: &Element) -> Option<Id> {
         "ScrollingTextView" => scrolling::create(tree, e),
         "TextButton" => textbutton::create(tree, e),
         "ComboBox" => combobox::create(tree, e),
+        "Slider" => controls::Slider::create(tree, e),
         "ItemIconView" => itemslot::create(tree, e, false),
         "BitmapView" => tree.add(Node::from_element(e, 4, Box::new(controls::BitmapView { bitmap: e.text("bitmap_id", "") }))),
         "CCMenu" => controlcenter::CCMenuView::create(tree, e),

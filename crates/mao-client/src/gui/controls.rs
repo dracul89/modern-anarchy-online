@@ -370,27 +370,63 @@ impl Control for RadioButton {
     any!();
 }
 
-/// `Slider_c`: a horizontal track (`GFX_GUI_OPTION_SLIDER`, stretched across) with its knob
-/// (`GFX_GUI_OPTION_SLIDER_THING`) where the value lies between the least and the most; pressing or dragging on it moves
-/// the value there. As wide as it is given (its maximum width open), as tall as the taller picture.
+/// `Slider_c` (0x10144647; from XML 0x1014485a: `min_value`, `max_value`, `default_value`, `gfxid_slider`,
+/// `gfxid_background`): a `BorderView_c` of only a background picture (`GFX_GUI_CONTROLCENTER_AGGDEF_SLIDER_BACKGROUND`,
+/// 0x92) stretched over the slider, and on it the knob, a `BitmapView_c` (`GFX_GUI_CONTROLCENTER_AGGDEF_SLIDER`, 0x91) in
+/// colour code 0x1000000, centred upright and across at the value's place between the least and the most (`_Layout`
+/// 0x101442fe). Only the knob is grabbed (`MouseDown` 0x101440b9); dragging it sets the value from where it is
+/// (`MouseMove` 0x10144147, `SetValue` 0x10144434: held between the least and the most) and letting go is the final
+/// change (`MouseUp` 0x10144570). As tall as the knob, as wide as the knob at least and any width at most
+/// (`CalculatePreferredSize` 0x10144281).
 pub struct Slider {
     pub min: f64,
     pub max: f64,
     pub value: f64,
-    /// How wide it was drawn (for the mouse).
+    pub knob: String,
+    pub background: String,
+    /// Where the knob was grabbed (from its left), while dragged.
+    grab: Option<f32>,
+    /// How wide it was drawn and the knob's size (for the mouse).
     width: std::cell::Cell<f32>,
-    knob: std::cell::Cell<f32>,
+    knob_size: std::cell::Cell<egui::Vec2>,
 }
+
+pub const SLIDER_KNOB: &str = "GFX_GUI_CONTROLCENTER_AGGDEF_SLIDER";
+pub const SLIDER_BACKGROUND: &str = "GFX_GUI_CONTROLCENTER_AGGDEF_SLIDER_BACKGROUND";
 
 impl Slider {
     pub fn new(min: f64, max: f64, value: f64) -> Slider {
-        Slider { min, max, value, width: std::cell::Cell::new(100.0), knob: std::cell::Cell::new(8.0) }
+        Slider {
+            min,
+            max,
+            value,
+            knob: SLIDER_KNOB.into(),
+            background: SLIDER_BACKGROUND.into(),
+            grab: None,
+            width: std::cell::Cell::new(100.0),
+            knob_size: std::cell::Cell::new(egui::vec2(8.0, 12.0)),
+        }
     }
 
-    fn at(&mut self, x: f32) {
-        let span = (self.width.get() - self.knob.get()).max(1.0);
-        let f = ((x - self.knob.get() * 0.5) / span).clamp(0.0, 1.0) as f64;
-        self.value = self.min + f * (self.max - self.min);
+    /// The knob's left in the slider (`_Layout`).
+    fn knob_x(&self) -> f32 {
+        let span = self.width.get() - self.knob_size.get().x;
+        if self.max == self.min {
+            return 0.0;
+        }
+        ((self.value - self.min) * span as f64 / (self.max - self.min)).floor() as f32
+    }
+
+    /// `SetValue`: held between the least and the most.
+    pub fn set(&mut self, v: f64) {
+        self.value = v.max(self.min).min(self.max);
+    }
+
+    /// A `Slider` element.
+    pub fn create(tree: &mut Tree, e: &Element) -> Id {
+        // (`gfxid_slider` / `gfxid_background` are picture numbers; no skin gives them)
+        let s = Slider::new(e.float("min_value", 0.0) as f64, e.float("max_value", 0.0) as f64, e.float("default_value", 0.0) as f64);
+        tree.add(Node::from_element(e, 4, Box::new(s)))
     }
 }
 
@@ -399,29 +435,22 @@ impl Control for Slider {
         "Slider"
     }
     fn preferred(&self, m: &Measure, max: bool) -> Option<Point> {
-        let skin = m.ctx.as_ref().and_then(|c| crate::skin::skin(c));
-        let size = |n: &str| skin.as_ref().and_then(|s| s.get(n)).map(|s| s.size);
-        let track = size("GFX_GUI_OPTION_SLIDER").unwrap_or(egui::vec2(100.0, 6.0));
-        let knob = size("GFX_GUI_OPTION_SLIDER_THING").unwrap_or(egui::vec2(8.0, 12.0));
-        let h = track.y.max(knob.y) - 1.0;
-        Some(Point::new(if max { 16000.0 } else { track.x.min(120.0) - 1.0 }, h))
+        let knob = m.ctx.as_ref().and_then(|c| crate::skin::skin(c)).and_then(|s| s.get(&self.knob)).map_or(egui::vec2(8.0, 12.0), |s| s.size);
+        Some(Point::new(if max { 16000.0 } else { knob.x - 1.0 }, knob.y - 1.0))
     }
     fn paint(&self, p: &Paint) {
-        let knob = sprite_size(p, "GFX_GUI_OPTION_SLIDER_THING");
+        let knob = sprite_size(p, &self.knob);
         let knob = if knob.x > 0.0 { knob } else { egui::vec2(8.0, 12.0) };
-        let track = sprite_size(p, "GFX_GUI_OPTION_SLIDER");
-        let track_h = if track.y > 0.0 { track.y } else { 4.0 };
         self.width.set(p.rect.width());
-        self.knob.set(knob.x);
-        let bar = egui::Rect::from_center_size(p.rect.center(), egui::vec2(p.rect.width(), track_h));
-        if !p.env.skin.is_some_and(|s| s.draw_in(p.painter, "GFX_GUI_OPTION_SLIDER", bar, greyed(egui::Color32::WHITE, p.enabled))) {
-            p.painter.rect_filled(bar, 1.0, egui::Color32::from_black_alpha(160));
+        self.knob_size.set(knob);
+        if !p.env.skin.is_some_and(|s| s.draw_in(p.painter, &self.background, p.rect, greyed(egui::Color32::WHITE, p.enabled))) {
+            p.painter.rect_filled(egui::Rect::from_center_size(p.rect.center(), egui::vec2(p.rect.width(), 4.0)), 1.0, egui::Color32::from_black_alpha(160));
         }
-        let span = (p.rect.width() - knob.x).max(1.0);
-        let f = if self.max > self.min { ((self.value - self.min) / (self.max - self.min)).clamp(0.0, 1.0) as f32 } else { 0.0 };
-        let at = egui::Rect::from_min_size(egui::pos2(p.rect.left() + f * span, p.rect.center().y - knob.y * 0.5), knob);
-        if !p.env.skin.is_some_and(|s| s.draw_in(p.painter, "GFX_GUI_OPTION_SLIDER_THING", at, greyed(egui::Color32::WHITE, p.enabled))) {
-            p.painter.rect_filled(at, 1.0, Colour::DEFAULT.rgb(p.env.palette));
+        let y = (p.rect.height() * 0.5 - knob.y * 0.5).floor();
+        let at = egui::Rect::from_min_size(p.rect.min + egui::vec2(self.knob_x(), y), knob);
+        let colour = greyed(Colour::DEFAULT.rgb(p.env.palette), p.enabled);
+        if !p.env.skin.is_some_and(|s| s.draw_in(p.painter, &self.knob, at, colour)) {
+            p.painter.rect_filled(at, 1.0, colour);
         }
     }
     fn takes_mouse(&self) -> bool {
@@ -429,14 +458,21 @@ impl Control for Slider {
     }
     fn mouse(&mut self, m: Mouse, at: Point) -> Option<Signal> {
         match m {
-            Mouse::Down | Mouse::Move => {
-                self.at(at.x);
+            Mouse::Down => {
+                let x = self.knob_x();
+                if at.x >= x && at.x < x + self.knob_size.get().x {
+                    self.grab = Some(at.x - x);
+                }
                 None
             }
-            Mouse::Up { .. } => {
-                self.at(at.x);
-                Some(Signal::Clicked)
+            Mouse::Move => {
+                if let Some(g) = self.grab {
+                    let span = (self.width.get() - self.knob_size.get().x).max(1.0);
+                    self.set((self.max - self.min) * (at.x - g) as f64 / span as f64 + self.min);
+                }
+                None
             }
+            Mouse::Up { .. } => self.grab.take().map(|_| Signal::Clicked),
         }
     }
     any!();
@@ -840,4 +876,29 @@ impl Control for TextView {
         true
     }
     any!();
+}
+
+#[cfg(test)]
+mod slider_tests {
+    use super::*;
+
+    #[test]
+    fn only_the_knob_is_dragged() {
+        let mut s = Slider::new(0.0, 100.0, 50.0);
+        s.width.set(108.0);
+        s.knob_size.set(egui::vec2(8.0, 12.0));
+        assert_eq!(s.knob_x(), 50.0);
+        // a press on the track does nothing
+        s.mouse(Mouse::Down, Point::new(10.0, 5.0));
+        s.mouse(Mouse::Move, Point::new(20.0, 5.0));
+        assert_eq!((s.value, s.mouse(Mouse::Up { inside: true }, Point::new(20.0, 5.0))), (50.0, None));
+        // the knob grabbed 3 from its left, dragged to 78: its left at 75
+        s.mouse(Mouse::Down, Point::new(53.0, 5.0));
+        s.mouse(Mouse::Move, Point::new(78.0, 5.0));
+        assert_eq!(s.value, 75.0);
+        // held to the most
+        s.mouse(Mouse::Move, Point::new(400.0, 5.0));
+        assert_eq!(s.value, 100.0);
+        assert_eq!(s.mouse(Mouse::Up { inside: false }, Point::new(400.0, 5.0)), Some(Signal::Clicked));
+    }
 }
