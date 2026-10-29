@@ -3,6 +3,7 @@
 
 pub mod collision;
 pub mod surface;
+pub mod zones;
 pub mod ctree;
 pub mod instances;
 pub mod resource;

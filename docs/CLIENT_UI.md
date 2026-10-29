@@ -1341,3 +1341,33 @@ playfield); 8,638 in the game, all decoding to the stream's end mark 0x79 (after
 Standing inside one's outline (FUN_1001b21a, crossings on the ground plane) starts the teleport try, as a door does.
 **Doors** now start it only within 0.5 m of their place: live, a report 1.1 m (and 2 m) from the backyard door was
 ignored and one 0.24 m from it zoned Sadlee to playfield 3132.
+
+**The original's vehicle** (`vehicle.rs`). Where the playfield has collision surfaces the character now moves as
+Vehicle.dll moves it. `Vehicle_t::Run` (FUN_1000e3d3) takes steps of at most 0.4 s: gravity −20 in the air, the
+vertical speed held within 50, the move by the steering's velocity. After each, `Vehicle_t::EnsureSurfaceAlignment`
+(0x1000d1aa) settles the body:
+- a sphere of radius 0.4 centred 0.4 over the feet is swept from the last place along the move (FUN_1000b2e5, ten tries at
+  most): rays of the radius to each side centre it between near walls, three rays (the centre's and half a radius to
+  each side) find the nearest face ahead, the sphere stops a radius short of it and slides along it (a wall met going up
+  is laid flat and the radius grown; a slide may not climb a vertical face);
+- the ground under the feet is the playfield's closest point (`n3TilemapSurface_t::CalculateClosestPoint` 0x10018f0c: the
+  tile-map's ground, or a zone's floor found within 0.3 under the ground's height over it, raised to 1.2 under a
+  liquid's surface) and three rays down round the feet (0.04 out at 0°, 135°, 225°) from over the highest point reached;
+- within `0.48 + 1.1547 × the step` over the highest of these the body stands, snapped 0.01 over it, unless the rays'
+  face is steeper than 60° (normal y under 0.5); else it falls (and lands when it stands again: the jump's stop, 16, is
+  sent only after a jump, as `LandNow`'s callback FUN_1006f442 does);
+- then the liquid (swimming, below) and `VetoPosition` (0x10018a7c: held 0.1 inside the map, between 0.01 and 1999.9 high).
+The playfield's side: the zones' surfaces (`mao_formats::zones`, the KD records' segment test FUN_10012014, front faces
+only) and the tile-map's ground, now planar per tile triangle with N3's split (`Terrain::surface`, FUN_10017800 over
+FUN_1001769d), stepped tile by tile for segments (`GetLineIntersection` 0x10018b72); its heights are the server's exactly
+(the backyard 14.0 against the server's 14.01, 3132 25.0 against 25.01: the 0.01 is the vehicle's), so the ground offset
+is gone on this path. **The jump** is the original's (CharVehicle_t FUN_1006ff32, FUN_10058994): `(Strength + Agility) /
+200 + 1` metres high (at least 0.5, the sum held to 800 unless stat 215), less what a ceiling 100 up leaves (two body
+scales and 0.1 clear), at `√(2 × h × 20)` up; it replaced the invented 7 m/s and gravity 10. The client's old steps (the
+props' triangles, the per-axis slide) stay for playfields without surfaces and noclip. Tests: walls, sliding, steps (0.3
+climbed, 1.0 not), ramps (30° walked, 70° not), a jump; `mao-client net <game> simwalk <pf> <x> <z> <heading> <s>` runs
+it offline (Old Athens: up the hill, over a low bevelled object, held by the wall; into the lake swimming at 32.09 under
+32.10, out at the shore), `net <game> ground <pf> <x> <z> [y]` shows the ground queries. Live (Sadlee, 3132): walking at
+the server's heights, a jump (15 then 16 0.7 s later), sliding along the building's front; every report echoed unchanged.
+Not ported: the room surface (`n3RoomSurface_t`) of indoor playfields without a tile-map (the zones alone answer there),
+`VetoPosition`'s other surfaces, the vehicle's turn (orientation, FUN_1000c616).

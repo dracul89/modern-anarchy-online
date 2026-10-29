@@ -183,6 +183,38 @@ impl Terrain {
         top * (1.0 - ty) + bottom * ty
     }
 
+    /// The ground's height and unit normal (y up) at (`x`, `z`) as N3.dll's tile-map has them (FUN_10017800 over
+    /// FUN_1001769d): the tile's two triangles, split from (i+1, j) to (i, j+1) when i and j differ in parity, else from
+    /// (i, j) to (i+1, j+1), each a plane; none off the map (the original's height 0 there).
+    pub fn surface(&self, x: f32, z: f32, height_scale: f32) -> Option<(f32, [f32; 3])> {
+        let t = self.tile_size;
+        if x < 0.0 || t * self.width as f32 <= x || z < 0.0 || t * self.height as f32 <= z {
+            return None;
+        }
+        let (i, j) = ((x / t) as usize, (z / t) as usize);
+        let (i1, j1) = ((i + 1).min(self.width - 1), (j + 1).min(self.height - 1));
+        let h = |a: usize, b: usize| self.heights[b.min(self.height - 1) * self.width + a.min(self.width - 1)] as f32 / 256.0 * height_scale;
+        let (x0, z0) = (t * i as f32, t * j as f32);
+        let p0 = [x0, h(i, j), z0];
+        let p1 = [x0 + t, h(i1, j), z0];
+        let p2 = [x0 + t, h(i1, j1), z0 + t];
+        let p3 = [x0, h(i, j1), z0 + t];
+        let sub = |a: [f32; 3], b: [f32; 3]| [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+        let cross = |a: [f32; 3], b: [f32; 3]| [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+        let (dx, dz) = (x - x0, z - z0);
+        let same_parity = (!j ^ i) & 1 != 0;
+        let (base, n) = if !same_parity {
+            if t - dz < dx { (p1, cross(sub(p1, p3), sub(p1, p2))) } else { (p0, cross(sub(p0, p3), sub(p0, p1))) }
+        } else if dx <= dz {
+            (p0, cross(sub(p0, p3), sub(p0, p2)))
+        } else {
+            (p0, cross(sub(p0, p2), sub(p0, p1)))
+        };
+        let height = -((x - base[0]) * n[0] + (z - base[2]) * n[2]) / n[1] + base[1];
+        let length = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+        Some((height, [n[0] / length, n[1] / length, n[2] / length]))
+    }
+
     /// The ground as drawable parts, one per tile texture. A height unit of
     /// 1/256 of an eight-bit step is `height_scale` world units.
     pub fn model(&self, quality_type: u32, height_scale: f32) -> Model {

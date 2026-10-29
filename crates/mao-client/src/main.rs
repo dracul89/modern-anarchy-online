@@ -26,6 +26,7 @@ mod actions;
 mod charcreate;
 mod loading;
 mod prof;
+mod vehicle;
 mod chat_commands;
 mod chatwindow;
 mod chatlog;
