@@ -1158,3 +1158,8 @@ half a metre. Dead ones stop. Kills and loots tried live (2026-10-29, Sadlee): t
 fell; the client used to clear the death on the despawn, so the body stood up again. Now a dead body's despawn keeps it lying
 there (dead, its death animation held) as its corpse's picture until the corpse itself despawns, and then both go; any other
 despawned character leaves the world (it used to stay drawn where it was last seen). Tested on the captured death and live.
+
+**Corpse names.** The server names a corpse in its `CorpseFullUpdate` ("Remains of Leet": a big-endian length and that many
+bytes ending in a zero, after the corpse's stats; `corpse_name`, tested on a live corpse). The corpse and the body it stands
+for are shown by that name (target bar, tags, the loot window's title, "Using ..."); "Remains of " and the creature's name is
+the fallback when no name is found.

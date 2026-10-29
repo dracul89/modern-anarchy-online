@@ -108,6 +108,17 @@ enum Route {
 const PATH_SPEED: f32 = 1.5;
 const CHASE_NEAR: f32 = 1.5;
 
+/// The name a `CorpseFullUpdate` carries ("Remains of Leet"): a big-endian length, then that many bytes, the last a zero.
+/// Found live (after the corpse's stats); read as the first such string of letters.
+fn corpse_name(data: &[u8]) -> Option<String> {
+    (0..data.len().saturating_sub(4)).find_map(|i| {
+        let length = u32::from_be_bytes(data[i..i + 4].try_into().ok()?) as usize;
+        let text = data.get(i + 4..i + 4 + length)?;
+        let (last, name) = text.split_last()?;
+        (*last == 0 && name.len() >= 3 && name[0].is_ascii_uppercase() && name.iter().all(|b| b.is_ascii_graphic() || *b == b' ')).then(|| String::from_utf8_lossy(name).into_owned())
+    })
+}
+
 /// A creature's speed from two paths in a row: how far along the first one the second starts, over the time between them
 /// (none when the first was already walked to its end, or the second does not start on it).
 fn path_speed(previous: (Instant, [f32; 3], [f32; 3]), start: [f32; 3], now: Instant) -> Option<f32> {
@@ -1264,13 +1275,15 @@ impl World {
             // (a corpse: announced on a body that died, within a few metres of it)
             let body = self.bodies.iter().filter(|(id, _)| !self.corpses.contains_key(id)).map(|(id, b)| (*id, b.0)).map(|(id, p)| (id, ((p[0] - at[0]).powi(2) + (p[2] - at[2]).powi(2)).sqrt())).filter(|(_, d)| *d < 4.0).min_by(|a, b| a.1.total_cmp(&b.1)).map(|b| b.0);
             if std::env::var_os("MAO_COMBAT_LOG").is_some() {
-                eprintln!("combat: object {:#x} at {at:?}; bodies {:?} -> {body:?}", m.identity.1, self.bodies.iter().map(|(id, b)| (*id, b.0)).collect::<Vec<_>>());
+                eprintln!("combat: object {:#x} at {at:?}; bodies {:?} -> {body:?}; named {:?}", m.identity.1, self.bodies.iter().map(|(id, b)| (*id, b.0)).collect::<Vec<_>>(), corpse_name(&m.data));
             }
             match body {
                 Some(body) => {
+                    // (the server names the corpse, "Remains of <name>"; the body lying there is shown by that name too)
                     self.corpses.insert(body, m.identity.1);
-                    let name = self.names.get(&body).map(|n| n.0.clone()).filter(|n| !n.is_empty()).unwrap_or_else(|| "the dead".into());
-                    self.names.insert(m.identity.1, (format!("Remains of {name}"), false));
+                    let name = corpse_name(&m.data).unwrap_or_else(|| format!("Remains of {}", self.names.get(&body).map(|n| n.0.clone()).filter(|n| !n.is_empty()).unwrap_or_else(|| "the dead".into())));
+                    self.names.insert(m.identity.1, (name.clone(), false));
+                    self.names.insert(body, (name, false));
                 }
                 None => {
                     self.names.entry(m.identity.1).or_insert_with(|| (format!("Object {:x}", m.identity.1 & 0xffff), false));
@@ -6042,6 +6055,14 @@ mod movement_tests {
         assert!((movement_rate(1.15, 100.0, 6.0, 5.0) - 1.3).abs() < 0.001);
         assert!((movement_rate(0.9, 100.0, 1.5, 1.5) - 0.9).abs() < 0.001);
         assert!((movement_rate(1.0, 200.0, 5.0, 5.0) - 0.5).abs() < 0.001);
+    }
+
+    #[test]
+    fn a_corpse_names_itself() {
+        let hex = "00000000080000000b000000000000000042449be54167ab1442b70037000000003ec6fc78000000003f6be00f0020d97c0000000000000000006f000046f200000000001818050000001700000000000002bd00000000000002be00000000000002bf000000000000019c00000001000001680000005a000000df000000000000003b00000001000000040000000600000059000000010000019f0000c350000001a07b15cf090000002a000058f50000003d000000010000000800004650000000220000003c0000001d52656d61696e73206f6620566976697061726f7573204c697a617264000000000200000032000003f100000003000007e20000cf273a4acb800000000400000000000000010000000000000000000000000000000000000000000001f600000001000000040000590a000000000000c3507b15cf09000017a600000000000000000000000000000001000000000000000000000002000000000000000000000003000000000000000000000004000000000000000000000000";
+        let data: Vec<u8> = (0..hex.len() / 2).map(|i| u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).unwrap()).collect();
+        assert_eq!(corpse_name(&data).as_deref(), Some("Remains of Viviparous Lizard"));
+        assert_eq!(corpse_name(&[0, 0, 0, 2, b'x', 0]), None);
     }
 
     #[test]
