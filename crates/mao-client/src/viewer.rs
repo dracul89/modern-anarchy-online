@@ -103,7 +103,7 @@ pub struct Update {
     pub stats: Option<(String, std::collections::BTreeMap<u32, i64>, std::collections::BTreeMap<u32, crate::derived::Breakdown>)>,
     pub map_dots: Vec<([f32; 2], crate::automap::DotKind)>,
     /// The names to float over the characters and creatures near (Z-up position over the head).
-    pub nameplates: Vec<(crate::automap::DotKind, [f32; 3], String)>,
+    pub nameplates: Vec<crate::nametag::Tag>,
     /// Numbers to float over the fight: Z-up position, text and kind (see `ui::Floater`).
     pub floaters: Vec<([f32; 3], String, u8)>,
     /// Where a nano program landed (Z-up) and the glow's colour.

@@ -54,6 +54,7 @@ mod stats;
 mod trickle_data;
 mod chrome;
 mod combat;
+mod nametag;
 mod font;
 mod gui;
 mod pointer;
@@ -1301,9 +1302,13 @@ fn run(args: &[String]) -> Result<(), String> {
                     }
                     // MAO_PLATES=1: sample names floating over the ground near the point the preview looks at.
                     if std::env::var_os("MAO_PLATES").is_some() {
-                        use automap::DotKind::*;
-                        for (kind, dx, dz, name) in [(Player, -6.0, 4.0, "Mothra"), (Friendly, 5.0, 8.0, "Vanguard Guard"), (Hostile, 2.0, -7.0, "Rollerrat"), (Target, -3.0, -3.0, "Tsunamisbot")] {
-                            hud.nameplates.push((kind, [449.0 + dx, 313.0 + dz, 10.3], name.to_string()));
+                        // (the selected one, the one fought, a plain one with its organization; their health and consider)
+                        for (brackets, dx, dz, name, org, health, consider) in [
+                            (Some(false), -3.0, -3.0, "Tsunamisbot", None, Some((1890, 2400)), 0.3),
+                            (Some(true), 2.0, -7.0, "Rollerrat", None, Some((600, 2400)), 0.8),
+                            (None, -6.0, 4.0, "Mothra", Some(("Rubi-Ka Defenders".to_string(), 1u8)), None, 0.0),
+                        ] {
+                            hud.nameplates.push(nametag::Tag { at: [449.0 + dx, 313.0 + dz, 10.3], name: name.to_string(), org, brackets, health, consider });
                         }
                     }
                     hud.labels = net::booth_labels(number, &whompah_booths(game, &db, number), &destinations, &names).into_iter().map(|(p, text)| ui::Label { world: mao_render::glam::Vec3::from(p), text }).collect();

@@ -112,6 +112,25 @@ impl BitmapFont {
         x - pos.x
     }
 
+    /// Paints one line scaled (the font's pixels by `scale`), its top left at `pos`; returns its width on the screen.
+    pub fn paint_scaled(&self, painter: &egui::Painter, pos: egui::Pos2, text: &str, color: egui::Color32, scale: egui::Vec2) -> f32 {
+        let mut mesh = egui::Mesh::with_texture(self.texture.id());
+        let pitch = self.height as u16 + 2;
+        let mut x = 0.0;
+        for c in text.chars() {
+            if let Some(g) = self.glyph(c) {
+                let (w, h) = ((g[2] - g[0]) as f32, (g[3] - g[1]) as f32);
+                let offset = (g[1] % pitch) as f32;
+                let rect = egui::Rect::from_min_size(egui::pos2(pos.x + x * scale.x, pos.y + (2.0 + offset) * scale.y), egui::vec2(w * scale.x, h * scale.y));
+                let uv = egui::Rect::from_min_max(egui::pos2(g[0] as f32 / self.strip[0], g[1] as f32 / self.strip[1]), egui::pos2(g[2] as f32 / self.strip[0], g[3] as f32 / self.strip[1]));
+                mesh.add_rect_with_uv(rect, uv, color);
+            }
+            x += self.advance(c);
+        }
+        painter.add(egui::Shape::mesh(mesh));
+        x * scale.x
+    }
+
     /// The text broken into lines no wider than `width`: at spaces, or inside a word longer than a line.
     pub fn wrap(&self, text: &str, width: f32) -> Vec<String> {
         let mut lines = Vec::new();

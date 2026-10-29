@@ -164,7 +164,7 @@ struct World {
     inspected: Option<(u32, Vec<mao_net::n3::Inspected>)>,
     /// Nano casts that involve the character, not yet told: (caster, target, nano).
     casts: Vec<(u32, u32, u32)>,
-    /// The level of the characters (not creatures) whose info packets came.
+    /// The level of the characters and creatures whose info packets came.
     levels: BTreeMap<u32, u8>,
     /// The organization name of the characters an `OrgInfoPacket` told about.
     orgs: BTreeMap<u32, String>,
@@ -229,6 +229,11 @@ struct World {
     attacks: BTreeMap<(u32, u32), (u32, i32, i64)>,
     /// The characters that died since the last frame, for their death's sound (`CharDie_t`, FUN_1007b803).
     died: Vec<u32>,
+    /// The character itself is dead (GUI.dll `FlowControlModule_t::DeadMessage`: `m_isAlive` false and the movement input
+    /// mode cleared) until it is back (`AliveMessage`: the arrival in a playfield, or health again).
+    own_dead: bool,
+    /// The health when it died: health above it is a revival.
+    dead_health: i64,
     /// The nano casts under way, for their sounds (`CharCastNano_t`).
     nano_casts: crate::sounds::NanoCasts,
     /// The casts' sounds to play: (at whom, sound, delay, volume).
@@ -639,6 +644,7 @@ impl World {
         if let Some(arrival) = m.arrival() {
             eprintln!("playfield message: identity ({:x},{:x}) -> playfield {} at {:?}", m.identity.0, m.identity.1, arrival.0, arrival.1);
             self.arrival = Some(arrival);
+            self.own_dead = false;
         }
         if let Some((seconds, period, day, server_time)) = m.game_time() {
             self.game_clock.set(seconds);
@@ -707,6 +713,10 @@ impl World {
             let action = u32::from_be_bytes(m.data[21..25].try_into().unwrap());
             self.dead.insert(m.identity.1, (action, Instant::now()));
             self.fighting.remove(&m.identity.1);
+            if m.identity.1 == self.own {
+                self.own_dead = true;
+                self.dead_health = self.stats.get(&27).copied().unwrap_or(0);
+            }
             self.died.push(m.identity.1);
         }
         if m.kind == 0x36510078 {
@@ -971,7 +981,7 @@ impl World {
         if m.kind == 0x4d38242e {
             if let Some(info) = mao_net::n3::info_packet(&m.data) {
                 self.health.insert(m.identity.1, (info.health as i64, info.max_health as i64));
-                if !info.monster && info.level > 0 {
+                if info.level > 0 {
                     self.levels.insert(m.identity.1, info.level);
                 }
                 if self.inspecting == Some(m.identity.1) {
@@ -3194,6 +3204,15 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 }
             }
             keys = raw;
+            // (dead: no moving, as the original clears its movement input mode, until health comes back or a playfield is entered)
+            if state.own_dead && state.stats.get(&27).is_some_and(|&h| h > state.dead_health.max(0)) {
+                state.own_dead = false;
+                state.dead.remove(&own);
+            }
+            if state.own_dead {
+                (keys.forward, keys.back, keys.jump, keys.turn, keys.strafe, keys.face) = (false, false, false, 0, 0, None);
+                goto = None;
+            }
             // Vicinity speech: a text message to the server, at the current target (a character's; none for an object or nobody).
             for (kind, text, record) in std::mem::take(&mut *SPEECH.lock().unwrap_or_else(|e| e.into_inner())) {
                 let object = match kind {
@@ -4424,37 +4443,34 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             Some(([at[0], at[2], at[1] + 2.0], amount.abs().to_string(), kind))
                         })
                         .collect(),
+                    // (`TargetingModule_t`'s tags: the selection's and the attack's indicators, everyone's with `ShowAllNames`)
                     nameplates: {
-                        let own_side = state.stats.get(&33).copied().unwrap_or(0) as u8;
-                        let mut plates: Vec<(f32, crate::automap::DotKind, [f32; 3], String)> = state
-                            .entities
-                            .iter()
-                            .filter(|(id, _)| **id != own)
-                            .filter_map(|(id, (p, _))| {
-                                let info = state.infos.get(id)?;
-                                let name = state.names.get(id).map(|n| n.0.clone()).filter(|n| !n.is_empty()).or_else(|| Some(info.name.clone()).filter(|n| !n.is_empty()))?;
-                                let distance = ((p[0] - position[0]).powi(2) + (p[2] - position[2]).powi(2)).sqrt();
-                                if distance > 40.0 {
-                                    return None;
-                                }
-                                let kind = if target == Some(*id) {
-                                    crate::automap::DotKind::Target
-                                } else if info.is_player() && *id < DYNAMIC_NPC {
-                                    crate::automap::DotKind::Player
-                                } else if crate::combat::friendly(own_side, info.side) {
-                                    crate::automap::DotKind::Friendly
-                                } else {
-                                    crate::automap::DotKind::Hostile
-                                };
-                                // (a character whose level is known carries it)
-                                let name = state.levels.get(id).map_or(name.clone(), |level| format!("{name} ({level})"));
-                                let name = state.orgs.get(id).map_or(name.clone(), |org| format!("{name} <{org}>"));
-                                Some((distance, kind, [p[0], p[2], p[1] + 2.3], name))
+                        let own_level = state.stats.get(&54).copied().unwrap_or(1);
+                        let range = state.stats.get(&275).copied();
+                        let orgs_shown = crate::prefs::get("IsOrgNameShownOverHead").is_some_and(|v| v != 0.0);
+                        let attacking = state.fighting.get(&own).copied();
+                        let tag = |id: u32, brackets: Option<bool>| -> Option<crate::nametag::Tag> {
+                            let p = if id == own { position } else { state.entities.get(&id)?.0 };
+                            let info = state.infos.get(&id);
+                            let name = state.names.get(&id).map(|n| n.0.clone()).filter(|n| !n.is_empty()).or_else(|| info.map(|i| i.name.clone()).filter(|n| !n.is_empty()))?;
+                            let side = info.map_or_else(|| state.stats.get(&33).copied().unwrap_or(0) as u8, |i| i.side);
+                            let level = if id == own { own_level } else { state.levels.get(&id).map_or(0, |l| *l as i64) };
+                            Some(crate::nametag::Tag {
+                                at: [p[0], p[2], p[1] + crate::nametag::height(None)],
+                                name,
+                                org: state.orgs.get(&id).filter(|_| orgs_shown).map(|o| (o.clone(), side)),
+                                brackets,
+                                health: state.health.get(&id).copied(),
+                                consider: crate::nametag::consider(own_level, range, level),
                             })
-                            .collect();
-                        // the nearest forty
-                        plates.sort_by(|a, b| a.0.total_cmp(&b.0));
-                        plates.into_iter().take(40).map(|(_, kind, at, name)| (kind, at, name)).collect()
+                        };
+                        let mut tags = Vec::new();
+                        if crate::prefs::on("ShowAllNames") {
+                            tags.extend(state.entities.keys().filter(|id| **id != own && Some(**id) != target && Some(**id) != attacking).filter_map(|id| tag(*id, None)));
+                        }
+                        tags.extend(target.filter(|t| *t == own || state.infos.contains_key(t)).and_then(|t| tag(t, Some(false))));
+                        tags.extend(attacking.and_then(|a| tag(a, Some(true))));
+                        tags
                     },
                     ground: terrain.clone().map(|t| (t, offset)),
                     own: Some(position),

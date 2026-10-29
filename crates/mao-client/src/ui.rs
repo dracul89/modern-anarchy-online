@@ -73,7 +73,7 @@ pub struct Hud {
     pub floaters: Vec<Floater>,
     pub glows: Vec<Glow>,
     /// The names floating over the characters and creatures near.
-    pub nameplates: Vec<(crate::automap::DotKind, [f32; 3], String)>,
+    pub nameplates: Vec<crate::nametag::Tag>,
     pub labels: Vec<Label>,
     /// The friends list.
     pub friends: Vec<crate::friends::Friend>,
@@ -1162,22 +1162,8 @@ fn hud_layer(ctx: &egui::Context, hud: &Hud, project: &dyn Fn(Vec3) -> Option<[f
         painter.galley_with_override_text_color(pos + egui::vec2(1.0, 1.0), galley.clone(), egui::Color32::from_black_alpha(alpha));
         painter.galley(pos, galley, egui::Color32::from_rgba_unmultiplied(r, g, b, alpha));
     }
-    // The names over the characters and creatures near, coloured by what they are.
-    for (kind, at, name) in &hud.nameplates {
-        let Some([x, y]) = project(Vec3::from(*at)) else { continue };
-        let at = egui::pos2(screen.left() + x * screen.width(), screen.top() + y * screen.height());
-        let color = match kind {
-            crate::automap::DotKind::Player => egui::Color32::from_rgb(130, 190, 255),
-            crate::automap::DotKind::Friendly => egui::Color32::from_rgb(120, 230, 120),
-            crate::automap::DotKind::Hostile => egui::Color32::from_rgb(240, 120, 110),
-            crate::automap::DotKind::Target => egui::Color32::from_rgb(255, 220, 90),
-        };
-        let galley = painter.layout_no_wrap(name.clone(), egui::FontId::proportional(13.0), color);
-        let pos = egui::pos2(at.x - galley.size().x * 0.5, at.y - galley.size().y);
-        // a dark shadow keeps the name readable on any ground
-        painter.galley_with_override_text_color(pos + egui::vec2(1.0, 1.0), galley.clone(), egui::Color32::BLACK);
-        painter.galley(pos, galley, color);
-    }
+    // The tags over the characters (`Indicator_t`): the selected one's, the fought one's, and with `ShowAllNames` everyone's.
+    crate::nametag::draw(ctx, &painter, screen, &hud.nameplates, project, palette);
     let frame = || egui::Frame::new().fill(egui::Color32::from_black_alpha(130)).corner_radius(4).inner_margin(6);
     // (the location, the coordinates and the frame rate are for developers: the original shows none of them)
     if debug_overlay() {
