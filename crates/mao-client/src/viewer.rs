@@ -616,13 +616,17 @@ impl ApplicationHandler for App {
             return;
         }
         self.moved += dx.abs() as f32 + dy.abs() as f32;
+        if !self.buttons[1] && !crate::prefs::on("LMBMouseLook") {
+            return;
+        }
         let Some(w) = self.state.as_mut() else { return };
         // The mouse look goes to the game's camera at the next frame (across: right positive; up: mouse up positive).
         self.mouse_look.0 += dx as f32 * 0.005;
         // (`MouseLookInverted`: the option panel's Mouse page, Gamecode's `StaticMouseLookInvertCallback`)
         let invert = if crate::prefs::on("MouseLookInverted") { -1.0 } else { 1.0 };
         self.mouse_look.1 -= invert * dy as f32 * 0.005;
-        if self.buttons[1] {
+        // (the right button turns the character, `N3Msg_MouseMovement`; with Shift or Ctrl only the camera, as the left does)
+        if self.buttons[1] && !(self.modifiers.shift_key() || self.modifiers.control_key()) {
             self.keys.face = Some(heading_from_yaw(w.camera.yaw));
             if let Some(live) = &self.live {
                 let _ = live.input.send(self.keys);
@@ -708,11 +712,15 @@ impl ApplicationHandler for App {
                 w.surface.configure(&w.gpu.device, &w.config);
                 w.window.request_redraw();
             }
-            // Playing: the left button orbits the camera, the right one steers the character
-            // with it, both together walk forward (as in WoW). A click without moving the mouse is
-            // GUI.dll's `ActionViewMouseHandler_c` (its mouse-up FUN_1002cfac): the left button
-            // selects what is under the pointer, the right one uses it (a character's default action,
-            // `N3Msg_DefaultActionOnDynel`; anything else `N3Msg_UseItem`).
+            // Playing: GUI.dll's `ActionViewMouseHandler_c`. Held and moved (FUN_1002ccbe), the left button looks
+            // round with the camera (`LMBMouseLook`, on by default: `N3Msg_CameraMouseLookMovement`) and the right
+            // one turns the character (`N3Msg_MouseMovement`; with Shift or Ctrl the camera only). A click without
+            // moving the mouse (its mouse-up FUN_1002cfac): the left button selects what is under the pointer, the
+            // right one uses it (a character's default action, `N3Msg_DefaultActionOnDynel`; anything else
+            // `N3Msg_UseItem`). The middle button resets the camera, its wheel zooms.
+            WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Middle, .. } if self.live.is_some() => {
+                self.cam_reset = true;
+            }
             WindowEvent::MouseInput { state, button: button @ (MouseButton::Left | MouseButton::Right), .. } if self.live.is_some() => {
                 if state == ElementState::Pressed && !self.buttons[0] && !self.buttons[1] {
                     self.moved = 0.0;
@@ -747,7 +755,8 @@ impl ApplicationHandler for App {
                         self.keys.pick = (self.keys.pick.0.wrapping_add(1), id, double);
                     }
                 }
-                let any = self.buttons[0] || self.buttons[1];
+                // (the left button looks round only with `LMBMouseLook`)
+                let any = (self.buttons[0] && crate::prefs::on("LMBMouseLook")) || self.buttons[1];
                 w.window.set_cursor_visible(!any);
                 if any {
                     if w.window.set_cursor_grab(CursorGrabMode::Locked).is_err() {
@@ -756,8 +765,8 @@ impl ApplicationHandler for App {
                 } else {
                     let _ = w.window.set_cursor_grab(CursorGrabMode::None);
                 }
-                self.keys.face = self.buttons[1].then(|| heading_from_yaw(w.camera.yaw));
-                self.keys.forward = self.held.contains(&Action::Forward) || self.autorun || (self.buttons[0] && self.buttons[1]);
+                self.keys.face = (self.buttons[1] && !(self.modifiers.shift_key() || self.modifiers.control_key())).then(|| heading_from_yaw(w.camera.yaw));
+                self.keys.forward = self.held.contains(&Action::Forward) || self.autorun;
                 if let Some(live) = &self.live {
                     let _ = live.input.send(self.keys);
                 }
@@ -969,7 +978,7 @@ impl ApplicationHandler for App {
                     }
                 }
                 let held = |a: Action| self.held.contains(&a);
-                self.keys.forward = held(Action::Forward) || self.autorun || (self.buttons[0] && self.buttons[1]);
+                self.keys.forward = held(Action::Forward) || self.autorun;
                 self.keys.back = held(Action::Back);
                 self.keys.jump = held(Action::Jump);
                 self.keys.turn = held(Action::TurnRight) as i8 - held(Action::TurnLeft) as i8;
