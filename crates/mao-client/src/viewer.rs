@@ -707,14 +707,24 @@ impl ApplicationHandler for App {
                 w.window.request_redraw();
             }
             // Playing: the left button orbits the camera, the right one steers the character
-            // with it, both together walk forward (as in WoW).
+            // with it, both together walk forward (as in WoW). A click without moving the mouse is
+            // GUI.dll's `ActionViewMouseHandler_c` (its mouse-up FUN_1002cfac): the left button
+            // selects what is under the pointer, the right one uses it (a character's default action,
+            // `N3Msg_DefaultActionOnDynel`; anything else `N3Msg_UseItem`).
             WindowEvent::MouseInput { state, button: button @ (MouseButton::Left | MouseButton::Right), .. } if self.live.is_some() => {
-                if button == MouseButton::Left && state == ElementState::Pressed {
+                if state == ElementState::Pressed && !self.buttons[0] && !self.buttons[1] {
                     self.moved = 0.0;
                 }
-                let clicked = button == MouseButton::Left && state == ElementState::Released && self.buttons[0] && !self.buttons[1] && self.moved < 5.0;
+                let released = state == ElementState::Released && self.moved < 5.0;
+                let clicked = if released && button == MouseButton::Left && self.buttons[0] && !self.buttons[1] {
+                    Some(false)
+                } else if released && button == MouseButton::Right && self.buttons[1] && !self.buttons[0] {
+                    Some(true)
+                } else {
+                    None
+                };
                 self.buttons[(button == MouseButton::Right) as usize] = state == ElementState::Pressed;
-                if clicked {
+                if let Some(use_it) = clicked {
                     let size = w.window.inner_size();
                     let (camera, radius) = (w.camera, w.scene.radius);
                     let aspect = size.width as f32 / size.height.max(1) as f32;
@@ -730,7 +740,7 @@ impl ApplicationHandler for App {
                         .filter(|c| c.0 < 48.0)
                         .min_by(|a, b| a.0.total_cmp(&b.0));
                     if let Some((_, id)) = nearest {
-                        let double = self.last_click.is_some_and(|(last, at)| last == id && at.elapsed() < std::time::Duration::from_millis(500));
+                        let double = use_it || self.last_click.is_some_and(|(last, at)| last == id && at.elapsed() < std::time::Duration::from_millis(500));
                         self.last_click = Some((id, std::time::Instant::now()));
                         self.keys.pick = (self.keys.pick.0.wrapping_add(1), id, double);
                     }
