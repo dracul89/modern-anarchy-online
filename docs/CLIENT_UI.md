@@ -1229,3 +1229,14 @@ for that long; now `World::own_moving`, from the keys), and the window glided it
 its rotation (2 up, 1 behind), at rest, and it steers out to the preferred place from there. The client kept the old camera,
 which flew from the old playfield's place to the new one. Now `SteeringCamera::create` does the original's placement on
 every new playfield (the first one too). (Not ported: `SetMainDynel` also makes playfield 0x380 use the free camera.)
+
+## Loading screen
+
+`loading.rs`, from GUI.dll's `ServerLogin3DModule_t` (`SetupScreen` 0x10017331, `FrameProcess` 0x1001713c): a black sheet over
+the whole screen, `cd_image/gui/Default/gfx/ai_loading_login.png` scaled from 1024 by 768 to the display (kept in
+proportion here) in the middle, text.mdb's `AO_Loading` ("..Anarchy Online is loading..") in 0xdddddd 50 pixels above the
+bottom. Entering the game the picture and text fade in over 4 s on the black; when the playfield is drawn all of it fades
+out over 7 s (the original's timings). The client's own additions: the picture is tinted blue (each channel multiplied by
+`TINT` = 0.35, 0.6, 1.45), and a zoning shows the screen too (at once, fading out over 1.5 s when the new playfield is
+drawn). Not ported: `welcome_to_rubika.jpg`, which the original shows instead after a character was made. Preview:
+`MAO_UI_PREVIEW=loading mao-client <game> map 566 --image out.png`.

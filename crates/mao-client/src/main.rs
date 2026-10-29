@@ -23,6 +23,7 @@ macro_rules! profile {
 }
 
 mod actions;
+mod loading;
 mod prof;
 mod chat_commands;
 mod chatwindow;
@@ -1395,6 +1396,10 @@ fn run(args: &[String]) -> Result<(), String> {
                             window.open = true;
                             *hud.loot_preview.lock().unwrap() = Some(window);
                         }
+                    }
+                    // MAO_UI_PREVIEW=loading: the loading screen (fully shown).
+                    if preview.as_deref() == Some("loading") {
+                        loading::begin(std::time::Duration::ZERO, loading::FADE_OUT);
                     }
                     if preview.as_deref() == Some("perks") {
                         let ids: Vec<u32> = std::env::var("MAO_PERKS").unwrap_or_default().split(',').filter_map(|t| t.trim().parse().ok()).collect();

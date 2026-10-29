@@ -569,6 +569,10 @@ pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<()
     crate::ui::set_debug_overlay(settings.debug_overlay);
     crate::font::set_enabled(settings.original_font);
     let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), flares: Vec::new(), sky: Default::default(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), fxs_frame: None, script_meshes: Default::default(), named_sheets: Default::default(), trails: Default::default(), motions: Default::default(), shake: (0.0, 0), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, casters: Vec::new(), follow_shift: [0.0; 3], environment: Default::default(), quake: Default::default(), quake_offset: [0.0; 3], wind: Default::default(), wind_at: std::time::Instant::now(), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
+    // (entering the game: the loading screen, `ServerLogin3DModule_t::InitialiseMessage`)
+    if app.live.is_some() {
+        crate::loading::begin(crate::loading::FADE_IN, crate::loading::FADE_OUT);
+    }
     event_loop.run_app(&mut app).map_err(|e| e.to_string())?;
     // (the game closing, `FlowControlModule_t::ActivateGameClosing`: `ControlCenterModule_c::SaveUserConfig`, where the windows
     // are written down at once)
@@ -1341,6 +1345,8 @@ impl ApplicationHandler for App {
                             w.scene = w.renderer.upload(&w.gpu, model, &mut |k, i| self.textures.get_for_upload(k, i));
                             profile!("[profile] area scene upload {:?} ({} parts)", uploading.elapsed(), model.parts.len());
                             w.scene.fog = fog_for(self.settings.view_distance);
+                            // (the world is in: the loading screen goes, `StartClosingLoadscreenMessage`)
+                            crate::loading::done();
                         }
                         let own_started = std::time::Instant::now();
                         // (into the last update's buffers where the parts kept their sizes: `Renderer::reupload`)

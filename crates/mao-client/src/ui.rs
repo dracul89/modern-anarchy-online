@@ -1213,6 +1213,8 @@ fn hud_layer(ctx: &egui::Context, hud: &Hud, project: &dyn Fn(Vec3) -> Option<[f
     // The tags over the characters (`Indicator_t`): the selected one's, the fought one's, and with `ShowAllNames` everyone's.
     crate::nametag::draw(ctx, &painter, screen, &hud.nameplates, project, palette);
     camp_bar(ctx, screen, palette);
+    // (the loading screen over everything while the world comes in)
+    crate::loading::draw(ctx, screen);
     let frame = || egui::Frame::new().fill(egui::Color32::from_black_alpha(130)).corner_radius(4).inner_margin(6);
     // (the location, the coordinates and the frame rate are for developers: the original shows none of them)
     if debug_overlay() {
