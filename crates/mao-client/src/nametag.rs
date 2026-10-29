@@ -106,7 +106,7 @@ pub fn draw(ctx: &egui::Context, painter: &egui::Painter, screen: egui::Rect, ta
             painter.rect_filled(egui::Rect::from_min_max(at(left + filled, 14.0), at(left + 64.0, 18.0)), 0.0, rgb(0x33_3333));
         }
         // the name (row 1) and the organization (row 19), each centred
-        let mut line = |text: &str, row: f32, colour: u32| {
+        let line = |text: &str, row: f32, colour: u32| {
             let w = font.as_ref().map_or(text.len() as f32 * 7.0, |f| f.width(text));
             let pos = at((width_px - w) / 2.0, row);
             match font.as_ref() {

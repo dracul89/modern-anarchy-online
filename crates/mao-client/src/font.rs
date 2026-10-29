@@ -187,7 +187,7 @@ fn cached(ctx: &egui::Context, which: &str) -> Option<Arc<BitmapFont>> {
     if !enabled() {
         return None;
     }
-    let id = egui::Id::new(("font", which.to_string()));
+    let id = egui::Id::unique(("font", which.to_string()));
     if let Some(found) = ctx.data(|d| d.get_temp::<Option<Arc<BitmapFont>>>(id)) {
         return found;
     }
@@ -240,7 +240,7 @@ pub fn verdana(ctx: &egui::Context, size: f32) -> egui::FontId {
 
 pub fn drop_cache(d: &mut egui::util::IdTypeMap) {
     for which in ["chat", "shell", "tooltip"] {
-        d.remove::<Option<Arc<BitmapFont>>>(egui::Id::new(("font", which.to_string())));
+        d.remove::<Option<Arc<BitmapFont>>>(egui::Id::unique(("font", which.to_string())));
     }
 }
 

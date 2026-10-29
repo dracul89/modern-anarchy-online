@@ -534,7 +534,7 @@ pub struct Attack<'a> {
 /// stands for FUN_10045976's `rand()`.
 pub fn attack(a: &Attack, mut pick: impl FnMut() -> u32) -> Vec<GamePlay> {
     let mut plays = Vec::new();
-    let mut weapon_sound = |key: i32, pick: &mut dyn FnMut() -> u32| {
+    let weapon_sound = |key: i32, pick: &mut dyn FnMut() -> u32| {
         let all: Vec<u32> = a.weapon.iter().filter(|s| s.0 as i32 == key).flat_map(|s| s.1.iter().copied()).collect();
         (!all.is_empty()).then(|| all[pick() as usize % all.len()])
     };

@@ -1286,7 +1286,7 @@ fn target_frame(ctx: &egui::Context, skin: &crate::skin::Skin, bar: &TargetBar, 
     let width = 200.0f32;
     // (each a window of its own the player can move, `CCFriendlyHealthBarConfig` / `CCHostileHealthBarConfig`, starting where
     // the original puts it)
-    egui::Area::new(egui::Id::new(("target", bar.hostile))).default_pos(top_centre - egui::vec2(width * 0.5, 0.0)).movable(true).show(ctx, |ui| {
+    egui::Area::new(egui::Id::unique(("target", bar.hostile))).default_pos(top_centre - egui::vec2(width * 0.5, 0.0)).movable(true).show(ctx, |ui| {
         // (the header's title over the frame)
         let (title, _) = ui.allocate_exact_size(egui::vec2(width, 13.0), egui::Sense::hover());
         match crate::font::tooltip(ctx) {

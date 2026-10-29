@@ -292,7 +292,7 @@ impl ControlCenter {
             let rect = super::host::screen_rect(&self.tree, id, screen.min);
             let Some(view) = self.tree.get(id).control.as_any().downcast_ref::<CCMenuView>() else { continue };
             let entries: Vec<(Entry, egui::Vec2)> = view.entries.iter().zip(&view.sizes).zip(&view.shown).filter(|(_, on)| **on).map(|((e, s), _)| (e.clone(), *s)).collect();
-            egui::Area::new(egui::Id::new(("cc-menu", id))).fixed_pos(rect.min).order(egui::Order::Foreground).show(ctx, |ui| {
+            egui::Area::new(egui::Id::unique(("cc-menu", id))).fixed_pos(rect.min).order(egui::Order::Foreground).show(ctx, |ui| {
                 let mut x = rect.left();
                 for (e, size) in &entries {
                     let r = egui::Rect::from_min_size(egui::pos2(x, rect.bottom() - size.y), *size);
@@ -315,7 +315,7 @@ impl ControlCenter {
             let total = height * entries.len() as f32;
             // (a menu from a button opens above it; one from a menu entry beside it)
             let at = if p.beside { egui::pos2(p.anchor.right(), (p.anchor.bottom() - total).max(screen.top())) } else { egui::pos2(p.anchor.left(), (p.anchor.top() - total).max(screen.top())) };
-            egui::Area::new(egui::Id::new(("cc-popup", depth))).fixed_pos(at).order(egui::Order::Foreground).show(ctx, |ui| {
+            egui::Area::new(egui::Id::unique(("cc-popup", depth))).fixed_pos(at).order(egui::Order::Foreground).show(ctx, |ui| {
                 ui.painter().rect_filled(egui::Rect::from_min_size(at, egui::vec2(width, total)), 0.0, egui::Color32::from_black_alpha(170));
                 for (i, e) in entries.iter().enumerate() {
                     let r = egui::Rect::from_min_size(at + egui::vec2(0.0, i as f32 * height), egui::vec2(width, height));
@@ -387,7 +387,7 @@ impl ControlCenter {
 
     /// One entry's button: the strip for its state and its label; the rect when it was clicked.
     fn button(&self, ui: &mut egui::Ui, env: &Env, e: &Entry, r: egui::Rect) -> Option<egui::Rect> {
-        let response = ui.interact(r, ui.id().with((&e.name, &e.label, r.min.x as i32, r.min.y as i32)), egui::Sense::click());
+        let response = ui.interact(r, ui.scope_id().with((&e.name, &e.label, r.min.x as i32, r.min.y as i32)), egui::Sense::click());
         let on = e.mode == Mode::Toggle && self.store.get_bool(&e.name);
         // (an icon button: its picture, brighter under the pointer or while on)
         if let Some(skin) = env.skin.filter(|s| !e.icon.is_empty() && s.has(&e.icon)) {

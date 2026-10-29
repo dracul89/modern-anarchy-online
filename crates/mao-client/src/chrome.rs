@@ -40,7 +40,7 @@ const BOTTOM: i8 = 10;
 /// size and place (`|w| w.resizable(false).default_pos(..)`), `add` fills it. Returns what `egui::Window::show` returns.
 pub fn window<R>(ctx: &egui::Context, palette: &Palette, name: &str, title: &str, open: &mut bool, build: impl FnOnce(egui::Window<'static>) -> egui::Window<'static>, add: impl FnOnce(&mut egui::Ui) -> R) -> Option<egui::InnerResponse<Option<R>>> {
     let accent = rgb(palette.accent);
-    let id = egui::Id::new(name);
+    let id = egui::Id::unique(name);
     let skin = crate::skin::skin(ctx).filter(|s| s.has("GFX_GUI_WINDOW3_BORDER_TL"));
     let Some(skin) = skin else {
         let mut is_open = *open;
@@ -363,7 +363,7 @@ pub fn tab_view<R>(ui: &mut egui::Ui, palette: &Palette, names: &[&str], selecte
     for i in order {
         let (x, w) = places[i];
         let rect = egui::Rect::from_min_size(egui::pos2(strip.left() + x, strip.top()), egui::vec2(w, height));
-        let response = ui.interact(rect, ui.id().with(("tab", i)), egui::Sense::click());
+        let response = ui.interact(rect, ui.scope_id().with(("tab", i)), egui::Sense::click());
         if response.hovered() && ui.input(|inp| inp.pointer.primary_pressed()) {
             *selected = i;
         }

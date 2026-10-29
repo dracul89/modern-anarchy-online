@@ -52,7 +52,7 @@ fn target_buttons(ctx: &egui::Context, skin: &Skin, clicked: &mut Option<&'stati
             (egui::Align2::RIGHT_BOTTOM, -(5.0 + right_strip + 10.0), "target_next", "GFX_GUI_CONTROLCENTER_TARGET_ICON_OTHER", "Target the next enemy")
         };
         let Some(size) = skin.get("GFX_GUI_CONTROLCENTER_TARGET_BUTTON").map(|s| s.size) else { return };
-        egui::Area::new(egui::Id::new(window)).anchor(anchor, egui::vec2(x, -8.0)).show(ctx, |ui| {
+        egui::Area::new(egui::Id::unique(window)).anchor(anchor, egui::vec2(x, -8.0)).show(ctx, |ui| {
             let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
             let state = if response.is_pointer_button_down_on() { "_STATE3" } else if response.hovered() { "_STATE2" } else { "" };
             skin.draw(ui.painter(), &format!("GFX_GUI_CONTROLCENTER_TARGET_BUTTON{state}"), rect.min, 1.0, egui::Color32::WHITE);
@@ -102,11 +102,11 @@ fn icon_menu(window: &str) -> Option<&'static str> {
 
 /// The open sub-menu (which one and where its bottom left corner is), kept in the context.
 fn menu_state(ctx: &egui::Context) -> Option<(&'static str, egui::Pos2)> {
-    ctx.data(|d| d.get_temp::<Option<(&'static str, egui::Pos2)>>(egui::Id::new("cc-menu"))).flatten()
+    ctx.data(|d| d.get_temp::<Option<(&'static str, egui::Pos2)>>(egui::Id::unique("cc-menu"))).flatten()
 }
 
 fn set_menu_state(ctx: &egui::Context, state: Option<(&'static str, egui::Pos2)>) {
-    ctx.data_mut(|d| d.insert_temp(egui::Id::new("cc-menu"), state));
+    ctx.data_mut(|d| d.insert_temp(egui::Id::unique("cc-menu"), state));
 }
 
 /// The open sub-menu as a list over its icon; a click on a window entry or a camera mode closes it and is returned like an icon's.
@@ -116,7 +116,7 @@ fn sub_menu(ctx: &egui::Context, accent: egui::Color32, open: &dyn Fn(&str) -> b
     let Some((menu, at)) = menu_state(ctx).or(preview) else { return };
     let (back, items) = menu_items(menu);
     let mut next = Some((menu, at));
-    let response = egui::Area::new(egui::Id::new("cc-popup")).order(egui::Order::Foreground).fixed_pos(at).pivot(egui::Align2::LEFT_BOTTOM).show(ctx, |ui| {
+    let response = egui::Area::new(egui::Id::unique("cc-popup")).order(egui::Order::Foreground).fixed_pos(at).pivot(egui::Align2::LEFT_BOTTOM).show(ctx, |ui| {
         egui::Frame::popup(ui.style()).show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 2.0;
             if let Some(parent) = back {
@@ -214,7 +214,7 @@ fn wing_bar(ui: &mut egui::Ui, skin: &Skin, painter: &egui::Painter, at: egui::P
         (Some(v), None) => format!("{label}: {v}"),
         _ => format!("{label}: -"),
     };
-    ui.interact(rect, ui.id().with(name).with(label), egui::Sense::hover()).on_hover_text(text)
+    ui.interact(rect, ui.scope_id().with(name).with(label), egui::Sense::hover()).on_hover_text(text)
 }
 
 /// The original's control center drawn from its own pictures: the left wing (health and nano) and the right wing (experience), with
@@ -228,12 +228,12 @@ fn show_skinned(ctx: &egui::Context, yaw: f32, stats: &BTreeMap<u32, i64>, parts
         sub_menu(ctx, accent, open, clicked);
     }
     // The rollup (the original's `cc_rollup_panel` button): folds the wings and their bars away, leaving the menu strips.
-    let rolled_id = egui::Id::new("cc-rolled");
+    let rolled_id = egui::Id::unique("cc-rolled");
     let mut rolled = ctx.data(|d| d.get_temp::<bool>(rolled_id)).unwrap_or(false);
     for left in [true, false] {
         let anchor = if left { egui::Align2::LEFT_BOTTOM } else { egui::Align2::RIGHT_BOTTOM };
         let offset = egui::vec2(if left { 5.0 } else { -5.0 }, -5.0);
-        egui::Area::new(egui::Id::new(if left { "cc-left" } else { "cc-right" })).anchor(anchor, offset).show(ctx, |ui| {
+        egui::Area::new(egui::Id::unique(if left { "cc-left" } else { "cc-right" })).anchor(anchor, offset).show(ctx, |ui| {
             let wing = if left { "GFX_GUI_CONTROLCENTER_WING_LEFT" } else { "GFX_GUI_CONTROLCENTER_WING_RIGHT" };
             let strip = if left { "GFX_GUI_CONTROLCENTER_BOTTOM_LEFT" } else { "GFX_GUI_CONTROLCENTER_BOTTOM_RIGHT" };
             let (Some(wing_size), Some(strip_size)) = (skin.get(wing).map(|s| s.size), skin.get(strip).map(|s| s.size)) else { return };
@@ -250,7 +250,7 @@ fn show_skinned(ctx: &egui::Context, yaw: f32, stats: &BTreeMap<u32, i64>, parts
                 let size = egui::vec2(15.0, 15.0);
                 // (at the strip's left end, clear of the bars)
                 let at = egui::pos2(rect.left() + 6.0, rect.top() + wing_h - size.y - 3.0);
-                let response = ui.interact(egui::Rect::from_min_size(at, size), ui.id().with("rollup"), egui::Sense::click());
+                let response = ui.interact(egui::Rect::from_min_size(at, size), ui.scope_id().with("rollup"), egui::Sense::click());
                 let state = if response.is_pointer_button_down_on() { 3 } else if response.hovered() { 2 } else { 1 };
                 skin.draw(&painter, &format!("GFX_GUI_ROLLUP_{}_STATE{state}", if rolled { "EXPAND" } else { "COLLAPSE" }), at, 1.0, accent);
                 if response.on_hover_text(if rolled { "Show the control center" } else { "Fold the control center away" }).clicked() {
@@ -281,7 +281,7 @@ fn show_skinned(ctx: &egui::Context, yaw: f32, stats: &BTreeMap<u32, i64>, parts
                 let name = format!("GFX_GUI_CC_ICONS_{icon}");
                 let Some(size) = skin.get(&name).map(|s| s.size) else { continue };
                 let at = egui::pos2(rect.left() + 10.0 + i as f32 * (size.x + 1.0), rect.top() + wing_h + (strip_size.y - size.y) * 0.5);
-                let response = ui.interact(egui::Rect::from_min_size(at, size), ui.id().with(window), egui::Sense::click()).on_hover_text(tip);
+                let response = ui.interact(egui::Rect::from_min_size(at, size), ui.scope_id().with(window), egui::Sense::click()).on_hover_text(tip);
                 let tint = if open(window) { accent } else if response.hovered() { egui::Color32::WHITE } else { egui::Color32::from_gray(200) };
                 skin.draw(&painter, &name, at, 1.0, tint);
                 if response.clicked() {
@@ -372,7 +372,7 @@ pub fn show_docked(ctx: &egui::Context, yaw: f32, stats: &BTreeMap<u32, i64>, pa
     // `LeftBarView_c` (FUN_10070040): within borders 6, 2, 23, 2, "NCU" and the NCU in use of the most (stats 180 and 181,
     // `%u/%u`), then at the right end "CRED" and the credits (stat 61, `FormatNumeric`), 5 pixels after each label
     if let Some(rect) = d.left_bar {
-        egui::Area::new(egui::Id::new("cc-left-bar")).fixed_pos(rect.min).interactable(false).show(ctx, |ui| {
+        egui::Area::new(egui::Id::unique("cc-left-bar")).fixed_pos(rect.min).interactable(false).show(ctx, |ui| {
             ui.allocate_exact_size(rect.size(), egui::Sense::hover());
             let painter = ui.painter();
             skin.draw(painter, "GFX_GUI_CONTROLCENTER_BOTTOM_LEFT", rect.min, 1.0, white);
@@ -389,7 +389,7 @@ pub fn show_docked(ctx: &egui::Context, yaw: f32, stats: &BTreeMap<u32, i64>, pa
     // `RightBarView_c` (FUN_1007077c): within borders 23, 2, 6, 2, "DEF", the slider of the aggression setting (stat 51,
     // -100 defensive to 100 aggressive; `N3Msg_SetAggDef` when let go) and "AGG", 5 pixels between them
     if let Some(rect) = d.right_bar {
-        egui::Area::new(egui::Id::new("cc-right-bar")).fixed_pos(rect.min).show(ctx, |ui| {
+        egui::Area::new(egui::Id::unique("cc-right-bar")).fixed_pos(rect.min).show(ctx, |ui| {
             ui.allocate_exact_size(rect.size(), egui::Sense::hover());
             let painter = ui.painter().clone();
             skin.draw(&painter, "GFX_GUI_CONTROLCENTER_BOTTOM_RIGHT", rect.min, 1.0, white);
@@ -405,8 +405,8 @@ pub fn show_docked(ctx: &egui::Context, yaw: f32, stats: &BTreeMap<u32, i64>, pa
             if !skin.draw_in(&painter, "GFX_GUI_CONTROLCENTER_AGGDEF_SLIDER_BACKGROUND", bg_rect, white) {
                 painter.rect_filled(bg_rect, 1.0, egui::Color32::from_black_alpha(160));
             }
-            let response = ui.interact(track, ui.id().with("aggdef"), egui::Sense::click_and_drag());
-            let drag_id = egui::Id::new("cc-aggdef-drag");
+            let response = ui.interact(track, ui.scope_id().with("aggdef"), egui::Sense::click_and_drag());
+            let drag_id = egui::Id::unique("cc-aggdef-drag");
             let span = (track.width() - knob.x).max(1.0);
             let value_at = |x: f32| (((x - track.left() - knob.x * 0.5) / span).clamp(0.0, 1.0) * 200.0 - 100.0).floor();
             let mut value = ctx.data(|m| m.get_temp::<f32>(drag_id)).unwrap_or(get(51).unwrap_or(0).clamp(-100, 100) as f32);
@@ -430,7 +430,7 @@ pub fn show_docked(ctx: &egui::Context, yaw: f32, stats: &BTreeMap<u32, i64>, pa
     for (rect, left) in [(d.left_wing, true), (d.right_wing, false)] {
         let Some(rect) = rect.filter(|_| !d.rolled) else { continue };
         // (under the strips, which ControlCenter.xml lists after the wings: a stacked view draws its later children on top)
-        egui::Area::new(egui::Id::new(if left { "cc-left" } else { "cc-right" })).fixed_pos(rect.min).interactable(false).order(egui::Order::Background).show(ctx, |ui| {
+        egui::Area::new(egui::Id::unique(if left { "cc-left" } else { "cc-right" })).fixed_pos(rect.min).interactable(false).order(egui::Order::Background).show(ctx, |ui| {
             ui.allocate_exact_size(rect.size(), egui::Sense::hover());
             skin.draw(ui.painter(), if left { "GFX_GUI_CONTROLCENTER_WING_LEFT" } else { "GFX_GUI_CONTROLCENTER_WING_RIGHT" }, rect.min, 1.0, egui::Color32::WHITE);
         });
@@ -457,7 +457,7 @@ pub fn show_docked(ctx: &egui::Context, yaw: f32, stats: &BTreeMap<u32, i64>, pa
         // (at the bottom of its dock, whose area above is where windows dock)
         let size = skin.get("GFX_GUI_ROLLUP_COLLAPSE_STATE1").map_or(egui::vec2(15.0, 15.0), |s| s.size);
         let at = egui::pos2(dock.right() - size.x, dock.bottom() - size.y);
-        egui::Area::new(egui::Id::new("cc-rollup")).fixed_pos(at).order(egui::Order::Foreground).show(ctx, |ui| {
+        egui::Area::new(egui::Id::unique("cc-rollup")).fixed_pos(at).order(egui::Order::Foreground).show(ctx, |ui| {
             let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
             let state = if response.is_pointer_button_down_on() { 3 } else if response.hovered() { 2 } else { 1 };
             skin.draw(ui.painter(), &format!("GFX_GUI_ROLLUP_{}_STATE{state}", if d.rolled { "EXPAND" } else { "COLLAPSE" }), rect.min, 1.0, accent);
@@ -472,7 +472,7 @@ pub fn show_docked(ctx: &egui::Context, yaw: f32, stats: &BTreeMap<u32, i64>, pa
         (d.right_target, "target_next", "GFX_GUI_CONTROLCENTER_TARGET_ICON_OTHER", "Target the next enemy"),
     ] {
         let Some(rect) = rect else { continue };
-        egui::Area::new(egui::Id::new(window)).fixed_pos(rect.min).order(egui::Order::Foreground).show(ctx, |ui| {
+        egui::Area::new(egui::Id::unique(window)).fixed_pos(rect.min).order(egui::Order::Foreground).show(ctx, |ui| {
             let (rect, response) = ui.allocate_exact_size(rect.size(), egui::Sense::click());
             let state = if response.is_pointer_button_down_on() { "_STATE3" } else if response.hovered() { "_STATE2" } else { "" };
             skin.draw(ui.painter(), &format!("GFX_GUI_CONTROLCENTER_TARGET_BUTTON{state}"), rect.min, 1.0, egui::Color32::WHITE);

@@ -148,7 +148,7 @@ impl Skin {
         let (Some(tl), Some(top), Some(tr), Some(left), Some(right), Some(bl), Some(bottom), Some(br)) = (get("TL"), get("TOP"), get("TR"), get("LEFT"), get("RIGHT"), get("BL"), get("BOTTOM"), get("BR")) else { return false };
         let uv = egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0));
         let (l, t, r, b) = (rect.left(), rect.top(), rect.right(), rect.bottom());
-        let mut piece = |s: &Sprite, at: egui::Rect| painter.image(s.texture.id(), at, uv, tint);
+        let piece = |s: &Sprite, at: egui::Rect| painter.image(s.texture.id(), at, uv, tint);
         if background {
             if let Some(bg) = get("BACKGROUND") {
                 piece(&bg, egui::Rect::from_min_max(egui::pos2(l + left.size.x, t + top.size.y), egui::pos2(r - right.size.x, b - bottom.size.y)));
@@ -201,19 +201,19 @@ pub fn dirs(gui_dir: &str, theme: &str, aou_mod: &str) -> Vec<PathBuf> {
 /// Sets the folders the context's skin is read from (and drops the skin loaded before, so the next `skin` reloads it).
 pub fn configure(ctx: &egui::Context, dirs: Vec<PathBuf>) {
     ctx.data_mut(|d| {
-        d.insert_temp(egui::Id::new("skin-dirs"), dirs);
-        d.remove::<Option<Arc<Skin>>>(egui::Id::new("skin"));
+        d.insert_temp(egui::Id::unique("skin-dirs"), dirs);
+        d.remove::<Option<Arc<Skin>>>(egui::Id::unique("skin"));
         crate::font::drop_cache(d);
     });
 }
 
 /// The skin of this context, loaded once per configuration; None when no folder with the pictures can be found.
 pub fn skin(ctx: &egui::Context) -> Option<Arc<Skin>> {
-    let id = egui::Id::new("skin");
+    let id = egui::Id::unique("skin");
     if let Some(found) = ctx.data(|d| d.get_temp::<Option<Arc<Skin>>>(id)) {
         return found;
     }
-    let dirs = ctx.data(|d| d.get_temp::<Vec<PathBuf>>(egui::Id::new("skin-dirs"))).unwrap_or_else(|| dirs("", "", ""));
+    let dirs = ctx.data(|d| d.get_temp::<Vec<PathBuf>>(egui::Id::unique("skin-dirs"))).unwrap_or_else(|| dirs("", "", ""));
     let loaded = Skin::open(ctx, &dirs).map(Arc::new);
     match &loaded {
         Some(s) => eprintln!("skin: {}", s.dirs().iter().map(|d| d.display().to_string()).collect::<Vec<_>>().join(" > ")),

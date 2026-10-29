@@ -445,7 +445,7 @@ pub fn wrap(words: &[Word], feature: u32, avail: f32, default_height: f32) -> (V
     let mut line = Line::default();
     // the wrapped-indent counter (-1 outside an indent=wrapped block)
     let mut counter: i32 = -1;
-    let mut add = |lines: &mut Vec<Line>, line: &mut Line, end: usize, counter: &mut i32, widest: &mut f32| {
+    let add = |lines: &mut Vec<Line>, line: &mut Line, end: usize, counter: &mut i32, widest: &mut f32| {
         if line.height == 0.0 {
             line.height = default_height;
         }

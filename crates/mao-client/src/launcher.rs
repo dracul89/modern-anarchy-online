@@ -195,7 +195,7 @@ impl Launcher {
         // the panel: the tab border pieces around a tab background, 90% opaque
         let panel_width = 276.0;
         let panel = egui::Rect::from_min_max(egui::pos2(screen.right() - 15.0 - panel_width, screen.top() + 15.0), egui::pos2(screen.right() - 15.0, screen.bottom() - 130.0));
-        egui::Area::new(egui::Id::new("characters")).fixed_pos(panel.min).show(ctx, |ui| {
+        egui::Area::new(egui::Id::unique("characters")).fixed_pos(panel.min).show(ctx, |ui| {
             ui.set_clip_rect(panel.expand(2.0));
             let painter = ui.painter().clone();
             let fill = egui::Color32::from_rgba_unmultiplied(palette.panel[0], palette.panel[1], palette.panel[2], 230);
@@ -298,7 +298,7 @@ impl Launcher {
         });
         // the bottom bar: Back at the left, Delete at the right, Play above its middle
         let bar = egui::Rect::from_min_max(egui::pos2(screen.left(), screen.bottom() - 46.0), egui::pos2(screen.right(), screen.bottom()));
-        egui::Area::new(egui::Id::new("bottom-bar")).fixed_pos(bar.min).show(ctx, |ui| {
+        egui::Area::new(egui::Id::unique("bottom-bar")).fixed_pos(bar.min).show(ctx, |ui| {
             ui.painter().rect_filled(bar, 0.0, egui::Color32::from_rgba_unmultiplied(palette.panel[0], palette.panel[1], palette.panel[2], 235));
             ui.painter().line_segment([bar.left_top(), bar.right_top()], egui::Stroke::new(1.0, accent));
             let mut inner = ui.new_child(egui::UiBuilder::new().max_rect(bar.shrink2(egui::vec2(30.0, 12.0))).layout(egui::Layout::left_to_right(egui::Align::Center)));
@@ -309,7 +309,7 @@ impl Launcher {
                 ui.add_enabled(false, egui::Button::new("Delete")).on_disabled_hover_text("Deleting a character is not in this client: use the original client for it");
             });
         });
-        egui::Area::new(egui::Id::new("play")).anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -56.0)).show(ctx, |ui| {
+        egui::Area::new(egui::Id::unique("play")).anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -56.0)).show(ctx, |ui| {
             if ui.add_enabled(self.selected.is_some(), egui::Button::new(egui::RichText::new("Play").size(14.0)).min_size(egui::vec2(60.0, 24.0))).clicked() {
                 *play = self.selected.clone();
             }
