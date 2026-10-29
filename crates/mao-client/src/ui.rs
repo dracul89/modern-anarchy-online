@@ -95,7 +95,7 @@ pub struct Hud {
     /// The current target, for the target frame.
     pub target: Option<String>,
     /// The target for the original's frame at the top: name, level, health, distance and what it is.
-    pub target_bar: Option<TargetBar>,
+    pub target_bars: Vec<TargetBar>,
     /// The character's items (the inventory window), and whether a headless preview shows it.
     pub gear: Vec<crate::gear::GearItem>,
     /// The running nano programs.
@@ -140,6 +140,13 @@ impl Hud {
 /// What the target frame shows.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TargetBar {
+    /// The control center's hostile bar (the one fought) or friendly one (the selection): `CCTargetControl_c`'s +0x154.
+    pub hostile: bool,
+    /// Its header (`TargetHeader_c`): "Selection", "Nano Target", "Fighting Target" or "Nano & Fighting Target".
+    pub title: String,
+    /// The name's colour (the one fought 0xff4444, else white) and the health bar's (`N3Msg_Consider`'s for a character).
+    pub name_colour: u32,
+    pub fill: u32,
     pub name: String,
     pub level: Option<i64>,
     /// Health and its maximum (0 when the maximum is not known).
@@ -1186,9 +1193,15 @@ fn hud_layer(ctx: &egui::Context, hud: &Hud, project: &dyn Fn(Vec3) -> Option<[f
         });
     });
     }
-    let skinned_target = match (&hud.target_bar, crate::skin::skin(ctx)) {
-        (Some(bar), Some(skin)) if skin.has("GFX_GUI_TARGET_HB_LEFT") => {
-            target_frame(ctx, &skin, bar, palette);
+    // (ControlCenterModule_c::CreateTargetMenus: the friendly bar centred at a quarter of the width less 192, the hostile at
+    // three quarters, 5 down)
+    let skinned_target = match crate::skin::skin(ctx) {
+        Some(skin) if skin.has("GFX_GUI_TARGET_HB_LEFT") && !hud.target_bars.is_empty() => {
+            for bar in &hud.target_bars {
+                let half = (screen.width() - 192.0) * 0.5;
+                let x = screen.left() + if bar.hostile { half * 1.5 } else { half * 0.5 };
+                target_frame(ctx, &skin, bar, egui::pos2(x, screen.top() + 5.0), palette);
+            }
             true
         }
         _ => false,
@@ -1224,15 +1237,24 @@ fn hud_layer(ctx: &egui::Context, hud: &Hud, project: &dyn Fn(Vec3) -> Option<[f
 /// The original's target frame under the compass: the name (with the level when known) between the frame's corners
 /// (`GFX_GUI_CC_TARGET_FRAME_*`), and the health bar (`GFX_GUI_TARGET_HB_*`: end caps, groove and the sliding fill, tinted red for
 /// an enemy, green for a friend, blue for a player), with the distance at its right.
-fn target_frame(ctx: &egui::Context, skin: &crate::skin::Skin, bar: &TargetBar, palette: &Palette) {
+fn target_frame(ctx: &egui::Context, skin: &crate::skin::Skin, bar: &TargetBar, top_centre: egui::Pos2, palette: &Palette) {
     let accent = rgb(palette.accent);
-    let (fill, text_color) = match bar.kind {
-        crate::automap::DotKind::Hostile => (egui::Color32::from_rgb(230, 60, 50), egui::Color32::from_rgb(255, 150, 140)),
-        crate::automap::DotKind::Player => (egui::Color32::from_rgb(90, 150, 255), egui::Color32::from_rgb(160, 200, 255)),
-        _ => (egui::Color32::from_rgb(80, 210, 90), egui::Color32::from_rgb(150, 240, 150)),
-    };
+    let colour = |c: u32| egui::Color32::from_rgb((c >> 16) as u8, (c >> 8) as u8, c as u8);
+    let (fill, text_color) = (colour(bar.fill), colour(bar.name_colour));
     let width = 200.0f32;
-    egui::Area::new(egui::Id::unique("target")).anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 32.0)).interactable(false).show(ctx, |ui| {
+    // (each a window of its own the player can move, `CCFriendlyHealthBarConfig` / `CCHostileHealthBarConfig`, starting where
+    // the original puts it)
+    egui::Area::new(egui::Id::new(("target", bar.hostile))).default_pos(top_centre - egui::vec2(width * 0.5, 0.0)).movable(true).show(ctx, |ui| {
+        // (the header's title over the frame)
+        let (title, _) = ui.allocate_exact_size(egui::vec2(width, 13.0), egui::Sense::hover());
+        match crate::font::tooltip(ctx) {
+            Some(font) => {
+                font.paint(ui.painter(), egui::pos2(title.center().x - font.width(&bar.title) * 0.5, title.top()), &bar.title, accent);
+            }
+            None => {
+                ui.painter().text(title.center_top(), egui::Align2::CENTER_TOP, &bar.title, egui::FontId::proportional(10.0), accent);
+            }
+        }
         let (rect, _) = ui.allocate_exact_size(egui::vec2(width, 40.0), egui::Sense::hover());
         let painter = ui.painter();
         painter.rect_filled(rect, 3.0, egui::Color32::from_black_alpha(120));

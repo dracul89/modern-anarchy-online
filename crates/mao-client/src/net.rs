@@ -4546,18 +4546,31 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     mail_status: pending_mail_status.take(),
                     destinations: pending_destinations.take(),
                     heading: Some(heading),
-                    target_bar: target.and_then(|t| {
-                        let name = state.names.get(&t).map(|n| n.0.clone()).filter(|n| !n.is_empty()).or_else(|| state.infos.get(&t).map(|i| i.name.clone()))?;
-                        let p = state.position_of(t)?;
-                        let distance = ((p[0] - position[0]).powi(2) + (p[2] - position[2]).powi(2)).sqrt();
-                        let hp = state.health.get(&t).map(|&(hp, max)| (hp as i64, max as i64)).or_else(|| state.last_hp.get(&t).map(|&hp| (hp as i64, 0)));
-                        let kind = match state.infos.get(&t) {
-                            Some(info) if info.is_player() && t < DYNAMIC_NPC => crate::automap::DotKind::Player,
-                            Some(info) if ["Vanguard", "Watcher", "Commander", "Guard", "Merchant", "Trader", "Recruiter", "Helper"].iter().any(|w| info.name.contains(w)) => crate::automap::DotKind::Friendly,
-                            Some(_) => crate::automap::DotKind::Hostile,
-                            None => crate::automap::DotKind::Friendly,
+                    // (the control center's two target bars, `CCTargetControl_c`'s update FUN_10074349: the friendly one the
+                    // selection unless it is the one fought, the hostile one the one fought)
+                    target_bars: Some({
+                        let fighting = state.fighting.get(&own).copied();
+                        let own_level = state.stats.get(&54).copied().unwrap_or(1);
+                        let range = state.stats.get(&275).copied();
+                        let bar = |t: u32, hostile: bool, title: &str| -> Option<crate::ui::TargetBar> {
+                            let name = state.names.get(&t).map(|n| n.0.clone()).filter(|n| !n.is_empty()).or_else(|| state.infos.get(&t).map(|i| i.name.clone()))?;
+                            let p = if t == own { position } else { state.position_of(t)? };
+                            let distance = ((p[0] - position[0]).powi(2) + (p[2] - position[2]).powi(2)).sqrt();
+                            let hp = state.health.get(&t).map(|&(hp, max)| (hp as i64, max as i64)).or_else(|| state.last_hp.get(&t).map(|&hp| (hp as i64, 0)));
+                            let character = t == own || state.infos.contains_key(&t);
+                            let level = if t == own { Some(own_level) } else { state.levels.get(&t).map(|&l| l as i64) };
+                            let fill = if character { crate::nametag::consider_colour(crate::nametag::consider(own_level, range, level.unwrap_or(0))) } else { 0xff_ffff };
+                            let kind = if hostile { crate::automap::DotKind::Hostile } else { crate::automap::DotKind::Friendly };
+                            Some(crate::ui::TargetBar { hostile, title: title.to_string(), name_colour: if hostile { 0xff_4444 } else { 0xff_ffff }, fill, name, level, hp, distance, kind })
                         };
-                        Some(crate::ui::TargetBar { name, level: state.levels.get(&t).map(|&l| l as i64), hp, distance, kind })
+                        let mut bars = Vec::new();
+                        if let Some(s) = target.filter(|s| Some(*s) != fighting) {
+                            bars.extend(bar(s, false, if s == own || state.infos.contains_key(&s) { "Nano Target" } else { "Selection" }));
+                        }
+                        if let Some(f) = fighting {
+                            bars.extend(bar(f, true, if target == Some(f) { "Nano & Fighting Target" } else { "Fighting Target" }));
+                        }
+                        bars
                     }),
                     target: target.and_then(|t| Some(format!("{}{}  ({:.0} m)", state.names.get(&t)?.0, state.health.get(&t).map(|(hp, max)| format!("  HP {hp}/{max}")).or_else(|| state.last_hp.get(&t).map(|hp| format!("  HP {hp}"))).unwrap_or_default(), ((state.position_of(t)?[0] - position[0]).powi(2) + (state.position_of(t)?[2] - position[2]).powi(2)).sqrt()))),
                 };
