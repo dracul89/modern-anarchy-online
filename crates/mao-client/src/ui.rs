@@ -179,6 +179,8 @@ pub struct Requests {
     pub action: Option<hotbar::Action>,
     /// A control center target button: 0 yourself, 1 the next hostile.
     pub target: Option<u8>,
+    /// The AGG/DEF slider let go at this value (stat 51).
+    pub aggdef: Option<i32>,
     /// A place to walk to (world x, z), from the Whom-Pah window.
     pub goto: Option<[f32; 2]>,
     /// The hotbars were edited (to be saved).
@@ -475,6 +477,9 @@ impl Ui {
                 }
                 if let Some(t) = clicks.target {
                     menu_click = Some(t);
+                }
+                if clicks.aggdef.is_some() {
+                    requests.aggdef = clicks.aggdef;
                 }
             } else if let Some(w) = crate::vitals::show(&ctx, hud.camera_yaw, &hud.stats, &hud.stat_parts, palette, &|n| states.contains(&n), true) {
                 menu_click = Some(w);

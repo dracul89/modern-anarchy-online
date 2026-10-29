@@ -190,7 +190,13 @@ places kept in `layout.ini` under the original's names (`CCHealthBarConfig`,
 `CCNanoBarConfig`, `CCXPBarConfig`, `CCAlienXPBarConfig`), shown by `cc_health_bar`,
 `cc_nano_bar`, `cc_xp_bar`, `cc_alienxp_bar`, drawn from the skin's `GFX_GUI_HOR_BAR_*`
 pictures with `value / max`. The compass (`compass_window`, by `cc_compass`) can be
-dragged too and keeps its place. The rollup's dock
+dragged too and keeps its place. The strips hold what GUI.dll's bar views hold: the
+left one (`LeftBarView_c`) the NCU in use of the most (stats 180/181) and the credits
+(stat 61, grouped), the right one (`RightBarView_c`) the AGG/DEF slider: the
+aggression setting (stat 51, -100 to 100), which when let go is sent to the server as
+`SetStat` (`6e5f566e`, `N3Msg_SetAggDef` → `N3Msg_SetStat(51)`, the format from a
+capture). The wings lie under the strips (the AOU skins put the right strip on the
+right wing). The rollup's dock
 grows (it holds the `RollupArea` windows dock into), which puts the right wing at
 the screen's bottom; the rollup folds the wings by `cc_left_wing`/`cc_right_wing`.
 Each skin puts them where its XML says (the AOU skins' left strip is at the top

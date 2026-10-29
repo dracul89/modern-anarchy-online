@@ -2835,6 +2835,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let (mut seen, mut target): ([u8; 7], Option<u32>) = ([0; 7], None);
         let (mut sitting, mut uses, mut fired) = (false, 0u32, 0u8);
         let (mut special_seen, mut social_seen, mut pick_seen) = (0u8, 0u8, 0u8);
+        let mut aggdef_seen = 0u8;
         let mut friends_seen = u64::MAX;
         let mut cast_seen = 0u8;
         let mut move_seen = 0u8;
@@ -3443,6 +3444,11 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 } else {
                     let _ = connection.send(&n3::social_action(own, id));
                 }
+            }
+            // The AGG/DEF slider (GUI.dll FUN_1006f283 → `N3Msg_SetAggDef` → `N3Msg_SetStat(51)`): a `SetStat` to the server.
+            if keys.aggdef.0 != aggdef_seen {
+                aggdef_seen = keys.aggdef.0;
+                let _ = connection.send(&n3::set_stat(own, 51, keys.aggdef.1.clamp(-100, 100)));
             }
             // A click on something in the world selects it; a double click uses it.
             if keys.pick.0 != pick_seen {

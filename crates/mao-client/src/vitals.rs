@@ -324,6 +324,30 @@ pub struct Docks {
 pub struct DockClicks {
     pub target: Option<&'static str>,
     pub rollup: bool,
+    /// The AGG/DEF slider let go at this value.
+    pub aggdef: Option<i32>,
+}
+
+/// `FormatNumeric`: the number with the thousands grouped (the user's locale's grouping; commas here).
+fn grouped(v: i64) -> String {
+    let digits = v.unsigned_abs().to_string();
+    let mut out = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    if v < 0 { format!("-{out}") } else { out }
+}
+
+/// A strip's text (the strips' `TextView_c`s, font 5: NORMAL), its left edge at `x`, centred in `row` from top to bottom;
+/// its width.
+fn strip_text(painter: &egui::Painter, m: &crate::gui::font::Measure, x: f32, row: egui::Rect, text: &str, colour: egui::Color32) -> f32 {
+    let font = crate::gui::font::FontId::NORMAL;
+    let w = m.width(font, text);
+    painter.text(egui::pos2(x, row.center().y), egui::Align2::LEFT_CENTER, text, m.egui_font(font), colour);
+    w
 }
 
 /// The control center's parts drawn where the skin's `ControlCenter.xml` docks them (GUI.dll FUN_1006f911 puts a
@@ -339,17 +363,74 @@ pub fn show_docked(ctx: &egui::Context, yaw: f32, stats: &BTreeMap<u32, i64>, pa
         compass(ctx, &skin, yaw);
     }
     // the strips (under the wings: drawn first)
-    for (rect, name, id) in [(d.left_bar, "GFX_GUI_CONTROLCENTER_BOTTOM_LEFT", "cc-left-bar"), (d.right_bar, "GFX_GUI_CONTROLCENTER_BOTTOM_RIGHT", "cc-right-bar")] {
-        let Some(rect) = rect else { continue };
-        egui::Area::new(egui::Id::new(id)).fixed_pos(rect.min).interactable(false).show(ctx, |ui| {
+    let measure = crate::gui::font::Measure { ctx: Some(ctx.clone()) };
+    let white = egui::Color32::WHITE;
+    let label = {
+        let c = crate::chrome::code1(palette);
+        egui::Color32::from_rgb(c[0], c[1], c[2])
+    };
+    // `LeftBarView_c` (FUN_10070040): within borders 6, 2, 23, 2, "NCU" and the NCU in use of the most (stats 180 and 181,
+    // `%u/%u`), then at the right end "CRED" and the credits (stat 61, `FormatNumeric`), 5 pixels after each label
+    if let Some(rect) = d.left_bar {
+        egui::Area::new(egui::Id::new("cc-left-bar")).fixed_pos(rect.min).interactable(false).show(ctx, |ui| {
             ui.allocate_exact_size(rect.size(), egui::Sense::hover());
-            skin.draw(ui.painter(), name, rect.min, 1.0, egui::Color32::WHITE);
+            let painter = ui.painter();
+            skin.draw(painter, "GFX_GUI_CONTROLCENTER_BOTTOM_LEFT", rect.min, 1.0, white);
+            let row = egui::Rect::from_min_max(rect.min + egui::vec2(6.0, 2.0), rect.max - egui::vec2(23.0, 2.0));
+            let w = strip_text(painter, &measure, row.left(), row, "NCU", label);
+            strip_text(painter, &measure, row.left() + w + 5.0, row, &format!("{}/{}", get(180).unwrap_or(0).max(0), get(181).unwrap_or(0).max(0)), white);
+            let cash = grouped(get(61).unwrap_or(0));
+            let font = crate::gui::font::FontId::NORMAL;
+            let x = row.right() - measure.width(font, &cash) - 5.0 - measure.width(font, "CRED");
+            let w = strip_text(painter, &measure, x, row, "CRED", label);
+            strip_text(painter, &measure, x + w + 5.0, row, &cash, white);
+        });
+    }
+    // `RightBarView_c` (FUN_1007077c): within borders 23, 2, 6, 2, "DEF", the slider of the aggression setting (stat 51,
+    // -100 defensive to 100 aggressive; `N3Msg_SetAggDef` when let go) and "AGG", 5 pixels between them
+    if let Some(rect) = d.right_bar {
+        egui::Area::new(egui::Id::new("cc-right-bar")).fixed_pos(rect.min).show(ctx, |ui| {
+            ui.allocate_exact_size(rect.size(), egui::Sense::hover());
+            let painter = ui.painter().clone();
+            skin.draw(&painter, "GFX_GUI_CONTROLCENTER_BOTTOM_RIGHT", rect.min, 1.0, white);
+            let row = egui::Rect::from_min_max(rect.min + egui::vec2(23.0, 2.0), rect.max - egui::vec2(6.0, 2.0));
+            let font = crate::gui::font::FontId::NORMAL;
+            let def = strip_text(&painter, &measure, row.left(), row, "DEF", label);
+            let agg_w = measure.width(font, "AGG");
+            strip_text(&painter, &measure, row.right() - agg_w, row, "AGG", label);
+            let track = egui::Rect::from_min_max(egui::pos2(row.left() + def + 5.0, row.top()), egui::pos2(row.right() - agg_w - 5.0, row.bottom()));
+            let knob = skin.get("GFX_GUI_CONTROLCENTER_AGGDEF_SLIDER").map_or(egui::vec2(8.0, 12.0), |s| s.size);
+            let bg = skin.get("GFX_GUI_CONTROLCENTER_AGGDEF_SLIDER_BACKGROUND").map_or(egui::vec2(track.width(), 4.0), |s| s.size);
+            let bg_rect = egui::Rect::from_center_size(track.center(), egui::vec2(track.width(), bg.y.min(track.height())));
+            if !skin.draw_in(&painter, "GFX_GUI_CONTROLCENTER_AGGDEF_SLIDER_BACKGROUND", bg_rect, white) {
+                painter.rect_filled(bg_rect, 1.0, egui::Color32::from_black_alpha(160));
+            }
+            let response = ui.interact(track, ui.id().with("aggdef"), egui::Sense::click_and_drag());
+            let drag_id = egui::Id::new("cc-aggdef-drag");
+            let span = (track.width() - knob.x).max(1.0);
+            let value_at = |x: f32| (((x - track.left() - knob.x * 0.5) / span).clamp(0.0, 1.0) * 200.0 - 100.0).floor();
+            let mut value = ctx.data(|m| m.get_temp::<f32>(drag_id)).unwrap_or(get(51).unwrap_or(0).clamp(-100, 100) as f32);
+            if let Some(p) = response.interact_pointer_pos().filter(|_| response.dragged() || response.is_pointer_button_down_on()) {
+                value = value_at(p.x);
+                ctx.data_mut(|m| m.insert_temp(drag_id, value));
+            }
+            if response.drag_stopped() || response.clicked() {
+                ctx.data_mut(|m| m.remove::<f32>(drag_id));
+                out.aggdef = Some(value as i32);
+            }
+            let x = track.left() + (value + 100.0) / 200.0 * span;
+            let at = egui::pos2(x, track.center().y - knob.y * 0.5);
+            if skin.draw(&painter, "GFX_GUI_CONTROLCENTER_AGGDEF_SLIDER", at, 1.0, white).is_none() {
+                painter.rect_filled(egui::Rect::from_min_size(at, knob), 1.0, label);
+            }
+            response.on_hover_text(format!("Aggression {value:+.0} (DEF -100 to AGG +100)"));
         });
     }
     // the wings with their bars (standing in the wing's tall side, on its floor)
     for (rect, left) in [(d.left_wing, true), (d.right_wing, false)] {
         let Some(rect) = rect.filter(|_| !d.rolled) else { continue };
-        egui::Area::new(egui::Id::new(if left { "cc-left" } else { "cc-right" })).fixed_pos(rect.min).interactable(false).show(ctx, |ui| {
+        // (under the strips, which ControlCenter.xml lists after the wings: a stacked view draws its later children on top)
+        egui::Area::new(egui::Id::new(if left { "cc-left" } else { "cc-right" })).fixed_pos(rect.min).interactable(false).order(egui::Order::Background).show(ctx, |ui| {
             ui.allocate_exact_size(rect.size(), egui::Sense::hover());
             skin.draw(ui.painter(), if left { "GFX_GUI_CONTROLCENTER_WING_LEFT" } else { "GFX_GUI_CONTROLCENTER_WING_RIGHT" }, rect.min, 1.0, egui::Color32::WHITE);
         });

@@ -42,6 +42,8 @@ pub struct Input {
     /// action or dance (the same).
     pub special: (u8, u32),
     pub social: (u8, u32),
+    /// The control center's AGG/DEF slider let go: a counter that steps with each, and the value (stat 51).
+    pub aggdef: (u8, i32),
     /// A place to walk to (a counter that steps with each, and the world's x, z).
     pub goto: (u8, [f32; 2]),
     /// A mission window command: a counter that steps with each, and the command.
@@ -1653,6 +1655,10 @@ impl ApplicationHandler for App {
                         if let Some(live) = &self.live {
                             let _ = live.input.send(self.keys);
                         }
+                    }
+                    if let Some(v) = requests.aggdef {
+                        self.keys.aggdef = (self.keys.aggdef.0.wrapping_add(1), v);
+                        self.hud.stats.insert(51, i64::from(v));
                     }
                     if let Some(which) = requests.target {
                         match which {

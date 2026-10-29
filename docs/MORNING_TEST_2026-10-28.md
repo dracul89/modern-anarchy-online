@@ -74,6 +74,7 @@ Added after the overnight run, on request: audio through rodio, ported from the 
 
 | Commit | What | What to try |
 |---|---|---|
+| (next) | **The strips' contents**: left strip NCU used/max and credits; right strip the AGG/DEF slider, sent to the server when let go (`SetStat` 51) | look at the strips (AOU: left strip top-left); drag the slider, check the server keeps it (relog) and attack speed changes |
 | 2168275 | **Movable bars and compass**: health, nano, XP and alien XP are separate bars (the original's CharBar windows) you drag anywhere, under the target frame at first; the compass drags too; places are remembered | drag each bar and the compass, restart: they stay where you left them |
 | d8573e8 | **The wings, bars, strips, target buttons and rollup placed by the skin's ControlCenter.xml** (its docks) and shown by its values; the rollup folds the wings | switch themes (original, AOU): each lays the control center out its own way; click the rollup button above the right wing |
 | 9c24e07 | **The skins' own control center**: the AOU skins bundled (`assets/gui`); `ControlCenter.xml` and the menu scripts drive the bottom menus (AOU: View/Team/Maps/Options/Skills/AOU text buttons; Default: the icon menus), menus open above, entries open the client's windows | theme `aou_translucent` (or any AOU) in the options; click View, then Inventory/Skills/Stats; `/script` entries in AOU's menu run as chat commands |

@@ -457,6 +457,16 @@ pub fn social_action(character: u32, action: u32) -> Frame {
     Message { kind: 0x3b290771, identity: (CHARACTER, character), data }.frame(character)
 }
 
+/// `SetStat` (`6e5f566e`, Gamecode's `SetStatIIR_t` from `N3Msg_SetStat` 0x10026dc5: the value, then the stat): the client
+/// asks for one of its own settings stats, as the control center's AGG/DEF slider does for stat 51 (-100 to 100; the
+/// server's copy refuses others). The captured ones carry a leading 1.
+pub fn set_stat(character: u32, stat: u32, value: i32) -> Frame {
+    let mut data = vec![1u8];
+    data.extend_from_slice(&value.to_be_bytes());
+    data.extend_from_slice(&stat.to_be_bytes());
+    Message { kind: 0x6e5f566e, identity: (CHARACTER, character), data }.frame(character)
+}
+
 pub fn set_target(character: u32, target: u32) -> Frame {
     let mut data = vec![0u8; 13];
     if target != 0 {
@@ -502,6 +512,13 @@ mod tests {
             Some("You successfully perform a Quick Bash attack.")
         );
         assert_eq!(feedback_text(&hex("010000000000267e26212121223a234852624b7318426f78207769746820612050756d706b696e20486561647e00000000")).as_deref(), None);
+    }
+
+    #[test]
+    fn set_stat_matches_the_capture() {
+        // capture-225436: C>S 6e5f566e of (c350, 4bc80): 01 00000064 00000107
+        let m = Message::parse(&set_stat(0x4bc80, 0x107, 100)).unwrap();
+        assert_eq!((m.kind, m.data.clone()), (0x6e5f566e, vec![1, 0, 0, 0, 0x64, 0, 0, 1, 7]));
     }
 
     #[test]
