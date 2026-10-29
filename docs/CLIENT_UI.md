@@ -1207,3 +1207,9 @@ frame's own work), so at most about 75 messages a second; messages that have alr
 The characters (every network update uploads them again, about 24 times a second) now go into the last update's GPU buffers
 and bind groups where a part has the same sizes and texture (`Renderer::reupload_overlay` / `reupload_follow`): the
 overlay's upload went from 3.6 to 1.7 ms and the player's from 1.2 to 0.4 ms, the worst frame from 7 to 4.5 ms.
+
+**Soak test (20 minutes, live, Sadlee, `MAO_AUTOPLAY` repeating Tab / attack / follow / use / loot every 40 s).** No
+disconnects or errors; 26 kills, 26 corpses opened (4 with items, all taken); memory 302 MB at the start, 330 MB from the
+sixth minute on and flat to the end; 55 to 175 fps by the view (the slow windows were while builds ran beside it). Tab in
+that field also picks the guards and guides (another side than a neutral's, as `N3Msg_GetCloseTarget` counts it); attacking
+them does nothing, and Q while "fighting" one stops instead of attacking the next: the original's toggle.
