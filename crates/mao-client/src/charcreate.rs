@@ -252,6 +252,12 @@ impl Creating {
         breed_and_sex(self.breed)
     }
 
+    /// The chosen head's mesh (the breed's `head`-th), for the preview.
+    pub fn head_mesh(&self, game: &str) -> Option<u32> {
+        let (breed, sex) = self.breed_and_sex()?;
+        heads_of(game, breed, sex).get(self.head).map(|h| h.0)
+    }
+
     fn ask(&mut self, account: &Account, frame: mao_net::frame::Frame, is_create: bool) {
         let (tx, rx) = std::sync::mpsc::channel();
         let account = account.clone();

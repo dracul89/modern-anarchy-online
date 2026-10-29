@@ -502,7 +502,7 @@ impl ApplicationHandler for Launcher {
                     let want = match &self.stage {
                         Stage::Characters(list) => self.selected.as_ref().and_then(|n| list.iter().find(|c| &c.name == n)).cloned(),
                         // (the breed being made, as the list shows a character)
-                        Stage::Create(creating, _) => creating.breed_and_sex().map(|(breed, sex)| Character { name: format!("(new {breed} {sex})"), breed, sex, ..Default::default() }),
+                        Stage::Create(creating, _) => creating.breed_and_sex().map(|(breed, sex)| Character { name: format!("(new {breed} {sex} {} {} {})", creating.head, creating.build, creating.height), breed, sex, width: creating.build, height: crate::charcreate::height(creating.height), ..Default::default() }),
                         _ => None,
                     };
                     if want.as_ref().map(|c| &c.name) != gfx.shown.as_ref() {
@@ -516,13 +516,28 @@ impl ApplicationHandler for Launcher {
                                 }
                             }
                             if let Some((db, textures)) = &gfx.db {
-                                if let Some(model) = crate::net::character_model(db, c.breed, c.sex, crate::look::find(&self.looks, &c.name).as_ref()) {
+                                // (a character being made wears its chosen head: the look's gear at attachment 0)
+                                let look = match &self.stage {
+                                    Stage::Create(creating, _) => creating.head_mesh(&self.game).map(|mesh| crate::look::Look { name: c.name.clone(), breed: c.breed as u8, sex: c.sex as u8, clothes: Vec::new(), textures: Vec::new(), gear: vec![(0, mesh, 0)] }),
+                                    _ => crate::look::find(&self.looks, &c.name),
+                                };
+                                let shaped = match &self.stage {
+                                    Stage::Create(..) => crate::net::character_model_shaped(db, c.breed, c.sex, look.as_ref(), c.width, c.height as f32),
+                                    _ => crate::net::character_model(db, c.breed, c.sex, look.as_ref()),
+                                };
+                                if let Some(model) = shaped {
                                     let mut scene = gfx.renderer.upload(&gfx.gpu, &model, &mut |k, i| textures.get_for_upload(k, i));
                                     scene.sky = ([0.05, 0.09, 0.15], [0.01, 0.03, 0.07]);
                                     scene.fog = (400.0, 800.0);
                                     let mut camera = Camera::fit(&scene);
                                     // (the whole figure, from a little above its middle)
                                     camera.distance = scene.radius * 3.0;
+                                    // (a character being made: the camera as for a normal height, so a short or tall one shows)
+                                    if matches!(self.stage, Stage::Create(..)) && c.height > 0 {
+                                        let k = 100.0 / c.height as f32;
+                                        camera.distance *= k;
+                                        camera.target.z *= k;
+                                    }
                                     camera.pitch = 0.12;
                                     gfx.camera = Some(camera);
                                     gfx.scene = Some(scene);
@@ -628,6 +643,9 @@ pub fn run(game: &str) -> Result<(), String> {
         if let Some(step) = std::env::var("MAO_LAUNCHER_CREATE").ok().and_then(|v| v.parse().ok()) {
             let mut creating = crate::charcreate::Creating::default();
             (creating.step, creating.breed, creating.profession, creating.name) = (step, 5, 1, "Zibblet".into());
+            creating.head = std::env::var("MAO_LAUNCHER_HEAD").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+            creating.build = std::env::var("MAO_LAUNCHER_BUILD").ok().and_then(|v| v.parse().ok()).unwrap_or(1);
+            creating.height = std::env::var("MAO_LAUNCHER_HEIGHT").ok().and_then(|v| v.parse().ok()).unwrap_or(1);
             launcher.stage = Stage::Create(Box::new(creating), list);
         }
     }

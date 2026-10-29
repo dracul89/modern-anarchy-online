@@ -1621,6 +1621,9 @@ struct Characters {
     /// The player head meshes (`head_solitusmale12.abiff` and so on): an appearance update that names one at position 0 replaces
     /// the breed's default head.
     head_meshes: std::collections::HashSet<u32>,
+    /// The body's build (0 small, 1 medium, 2 large: GUI.dll's `CCCharacter_t::ChangeMesh` names the bodies
+    /// `<breed>_<sex>_thin.cir` and `_fat.cir`), where such a body exists; medium for the world's characters.
+    build: i32,
     /// The vehicle body (an NPC template) a vehicle program gives each body, by (program, body CAT mesh).
     vehicles: std::collections::HashMap<(u32, u32), Option<u32>>,
     /// Each character's attractors on its last posed body, by name: frames in its local space (Y up, the body's scale
@@ -1755,7 +1758,7 @@ impl Characters {
         let index = mao_formats::instances::Instances::parse(&get(0xf424a, 1)?).map_err(|e| e.to_string())?;
         let _ = get;
         let head_meshes = index.iter().filter(|(kind, name, _)| *kind == 0xf6951 && is_head_name(name)).map(|(_, _, instance)| instance).collect();
-        Ok(Characters { head_meshes, db, index, anims: Default::default(), ids: Default::default(), bodies: Default::default(), creatures: Default::default(), creature_anims: Default::default(), motions: Default::default(), segment: 0, stacks: Default::default(), anims_by_id: Default::default(), notes: Vec::new(), movement_keys: Default::default(), movement_handles: Default::default(), socials_started: Default::default(), swings_started: Default::default(), drawn: Default::default(), wielded: Default::default(), started: Instant::now(), props: Default::default(), statics: Default::default(), vehicles: Default::default(), frames: Default::default() })
+        Ok(Characters { head_meshes, build: 1, db, index, anims: Default::default(), ids: Default::default(), bodies: Default::default(), creatures: Default::default(), creature_anims: Default::default(), motions: Default::default(), segment: 0, stacks: Default::default(), anims_by_id: Default::default(), notes: Vec::new(), movement_keys: Default::default(), movement_handles: Default::default(), socials_started: Default::default(), swings_started: Default::default(), drawn: Default::default(), wielded: Default::default(), started: Instant::now(), props: Default::default(), statics: Default::default(), vehicles: Default::default(), frames: Default::default() })
     }
 
     /// The parts of a machine's model (Y-up local space), loaded once.
@@ -2013,9 +2016,15 @@ impl Characters {
         use mao_formats::resource::Id;
         let db = self.db.clone();
         let index = &self.index;
+        let build = self.build;
         self.bodies.entry((breed, sex)).or_insert_with(|| {
             let (body_name, head_name) = mao_formats::appearance::player_meshes(breed, sex)?;
-            let body = mao_formats::catmesh::parse(&db.get(Id { kind: 0xf6952, instance: index.find(0xf6952, body_name)? }).ok()??).ok()?;
+            let built = match build {
+                0 => index.find(0xf6952, &body_name.replace(".cir", "_thin.cir")),
+                2 => index.find(0xf6952, &body_name.replace(".cir", "_fat.cir")),
+                _ => None,
+            };
+            let body = mao_formats::catmesh::parse(&db.get(Id { kind: 0xf6952, instance: built.or_else(|| index.find(0xf6952, body_name))? }).ok()??).ok()?;
             let head = crate::load_model_attached(&db, Id { kind: 0xf6951, instance: index.find(0xf6951, head_name)? }).ok()?;
             let attractor = body.attractor("head").cloned();
             Some((body, head, attractor))
@@ -2437,11 +2446,17 @@ impl Characters {
 
 /// A character of the launcher's list as the world draws it (its breed's and sex's body and head, standing), Z-up.
 pub(crate) fn character_model(db: &Arc<ResourceDatabase>, breed: i32, sex: i32, look: Option<&crate::look::Look>) -> Option<Model> {
+    character_model_shaped(db, breed, sex, look, 1, 100.0)
+}
+
+/// [`character_model`] with a build (0 small, 1 medium, 2 large) and a height in percent (character creation's preview).
+pub(crate) fn character_model_shaped(db: &Arc<ResourceDatabase>, breed: i32, sex: i32, look: Option<&crate::look::Look>, build: i32, height: f32) -> Option<Model> {
     // (the Atrox has one body, whatever the list says)
     let (breed, sex) = (breed as u8, if breed == 4 { 1 } else { sex as u8 });
     let mut chars = Characters::new(db.clone()).ok()?;
+    chars.build = build;
     let (textures, clothes, gear) = look.map_or((&[][..], &[][..], &[][..]), |l| (l.textures.as_slice(), l.clothes.as_slice(), l.gear.as_slice()));
-    let parts = chars.parts(0, breed, sex, None, None, 0.0, 0.0, 100.0, textures, clothes, gear, None, None, None, false, None, None, None)?;
+    let parts = chars.parts(0, breed, sex, None, None, 0.0, 0.0, height, textures, clothes, gear, None, None, None, false, None, None, None)?;
     let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     Some(Model { instances: (0..parts.len()).map(|i| (i, swap)).collect(), parts, water: None, lod_groups: Vec::new() })
 }
