@@ -181,9 +181,15 @@ Maps, Options, Skills, AOU; the Default skin's icon menus at the wings' ends),
 whose menus open above them, entries shown by their criteria, with their actions
 (`SetValue`, `CloseMenu`, `RunChatScript`). A menu entry's value is a window's
 open flag: Inventory, Skills, Stats, Nano, NCU, Missions, Friends, Map, Actions,
-Mail and Options open the client's windows. The docks (wings, bars, rollup) are
-still drawn by `vitals.rs`, which leaves its own icon menus out when the skin's
-control center is up. Preview: `MAO_THEME=aou_cyt MAO_UI_PREVIEW=chat ... --image
+Mail and Options open the client's windows. The docks GUI.dll fills itself
+(FUN_1006f911) take the size of their pictures and are laid out with the rest;
+`vitals::show_docked` draws the wings (with the health, nano and experience bars
+by `cc_health_bar`, `cc_nano_bar`, `cc_xp_bar`, `cc_alienxp_bar`), the strips, the
+target buttons and the rollup there, the compass by `cc_compass`. The rollup's dock
+grows (it holds the `RollupArea` windows dock into), which puts the right wing at
+the screen's bottom; the rollup folds the wings by `cc_left_wing`/`cc_right_wing`.
+Each skin puts them where its XML says (the AOU skins' left strip is at the top
+left). Without a skin the old plain strip (`vitals::show`) is drawn. Preview: `MAO_THEME=aou_cyt MAO_UI_PREVIEW=chat ... --image
 x.png`, with `MAO_CLICK=x,y;x,y` to click (e.g. `25,707` opens View at 960x720).
 
 ## 6. Whompah labels (done for the mechanism; destinations learned)

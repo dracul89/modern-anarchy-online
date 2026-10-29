@@ -252,6 +252,118 @@ fn show_skinned(ctx: &egui::Context, yaw: f32, stats: &BTreeMap<u32, i64>, parts
     true
 }
 
+/// Where the skin's control center (`gui::controlcenter`, its `ControlCenter.xml`) placed the parts this file draws, on screen,
+/// and which of them its distributed values show: a dock is `None` when its view is hidden.
+#[derive(Clone, Default)]
+pub struct Docks {
+    pub left_wing: Option<egui::Rect>,
+    pub right_wing: Option<egui::Rect>,
+    pub left_bar: Option<egui::Rect>,
+    pub right_bar: Option<egui::Rect>,
+    pub rollup: Option<egui::Rect>,
+    pub left_target: Option<egui::Rect>,
+    pub right_target: Option<egui::Rect>,
+    /// `cc_section1 && cc_compass`, `cc_health_bar`, `cc_nano_bar`, `cc_xp_bar`, `cc_alienxp_bar`.
+    pub compass: bool,
+    pub health: bool,
+    pub nano: bool,
+    pub xp: bool,
+    pub alien_xp: bool,
+    /// The wings are folded away (the rollup's state).
+    pub rolled: bool,
+}
+
+/// What the docked parts were asked to do: a target button's or the rollup's click.
+#[derive(Default)]
+pub struct DockClicks {
+    pub target: Option<&'static str>,
+    pub rollup: bool,
+}
+
+/// The control center's parts drawn where the skin's `ControlCenter.xml` docks them (GUI.dll FUN_1006f911 puts a
+/// `CollapsingBitmapView_c` wing in `LeftWingDock` and `RightWingDock`, `LeftBarView_c` and `RightBarView_c` strips in the bar
+/// docks, a `CCTargetControl_c` in each target dock and the rollup's `DockArea_c` in `RollupControllerDock`): the wings with
+/// their bars, the strips, the rollup button and the target buttons, each only where its dock is shown.
+pub fn show_docked(ctx: &egui::Context, yaw: f32, stats: &BTreeMap<u32, i64>, parts: &BTreeMap<u32, crate::derived::Breakdown>, palette: &Palette, d: &Docks) -> DockClicks {
+    let mut out = DockClicks::default();
+    let Some(skin) = crate::skin::skin(ctx) else { return out };
+    let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
+    let get = |s: u32| stats.get(&s).copied();
+    if d.compass {
+        compass(ctx, &skin, yaw);
+    }
+    // the strips (under the wings: drawn first)
+    for (rect, name, id) in [(d.left_bar, "GFX_GUI_CONTROLCENTER_BOTTOM_LEFT", "cc-left-bar"), (d.right_bar, "GFX_GUI_CONTROLCENTER_BOTTOM_RIGHT", "cc-right-bar")] {
+        let Some(rect) = rect else { continue };
+        egui::Area::new(egui::Id::new(id)).fixed_pos(rect.min).interactable(false).show(ctx, |ui| {
+            ui.allocate_exact_size(rect.size(), egui::Sense::hover());
+            skin.draw(ui.painter(), name, rect.min, 1.0, egui::Color32::WHITE);
+        });
+    }
+    // the wings with their bars (standing in the wing's tall side, on its floor)
+    for (rect, left) in [(d.left_wing, true), (d.right_wing, false)] {
+        let Some(rect) = rect.filter(|_| !d.rolled) else { continue };
+        egui::Area::new(egui::Id::new(if left { "cc-left" } else { "cc-right" })).fixed_pos(rect.min).show(ctx, |ui| {
+            ui.allocate_exact_size(rect.size(), egui::Sense::hover());
+            let painter = ui.painter().clone();
+            skin.draw(&painter, if left { "GFX_GUI_CONTROLCENTER_WING_LEFT" } else { "GFX_GUI_CONTROLCENTER_WING_RIGHT" }, rect.min, 1.0, egui::Color32::WHITE);
+            let top = rect.bottom() - 152.0 - 4.0;
+            if left {
+                if d.health {
+                    let health = wing_bar(ui, &skin, &painter, egui::pos2(rect.left() + 8.0, top), "HEALTH_BAR", egui::Color32::WHITE, get(stat::HEALTH), get(stat::MAX_HEALTH), "Health");
+                    crate::stats::hover(health, "Max health", parts.get(&stat::MAX_HEALTH), accent);
+                }
+                if d.nano {
+                    let nano = wing_bar(ui, &skin, &painter, egui::pos2(rect.left() + 24.0, top), "NANO_BAR", egui::Color32::WHITE, get(stat::CURRENT_NANO), get(stat::MAX_NANO), "Nano");
+                    crate::stats::hover(nano, "Max nano energy", parts.get(&stat::MAX_NANO), accent);
+                }
+            } else {
+                if d.xp {
+                    let (value, span) = progress(get(stat::XP), get(stat::LAST_XP).unwrap_or(0), get(stat::NEXT_XP));
+                    wing_bar(ui, &skin, &painter, egui::pos2(rect.right() - 20.0, top), "XP_BAR", egui::Color32::WHITE, value, span, "Experience");
+                }
+                if d.alien_xp && get(stat::ALIEN_LEVEL).is_some_and(|l| l > 0) {
+                    let (value, span) = progress(get(stat::ALIEN_XP), 0, get(stat::ALIEN_NEXT_XP));
+                    wing_bar(ui, &skin, &painter, egui::pos2(rect.right() - 36.0, top), "XP_BAR", egui::Color32::from_rgb(190, 110, 255), value, span, "Alien experience");
+                }
+            }
+        });
+    }
+    // the rollup button: folds the wings away
+    if let Some(dock) = d.rollup {
+        // (at the bottom of its dock, whose area above is where windows dock)
+        let size = skin.get("GFX_GUI_ROLLUP_COLLAPSE_STATE1").map_or(egui::vec2(15.0, 15.0), |s| s.size);
+        let at = egui::pos2(dock.right() - size.x, dock.bottom() - size.y);
+        egui::Area::new(egui::Id::new("cc-rollup")).fixed_pos(at).order(egui::Order::Foreground).show(ctx, |ui| {
+            let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+            let state = if response.is_pointer_button_down_on() { 3 } else if response.hovered() { 2 } else { 1 };
+            skin.draw(ui.painter(), &format!("GFX_GUI_ROLLUP_{}_STATE{state}", if d.rolled { "EXPAND" } else { "COLLAPSE" }), rect.min, 1.0, accent);
+            if response.on_hover_text(if d.rolled { "Show the control center" } else { "Fold the control center away" }).clicked() {
+                out.rollup = true;
+            }
+        });
+    }
+    // the target buttons: the left one targets the character itself (F1), the right one the next hostile (Tab)
+    for (rect, window, icon, tip) in [
+        (d.left_target, "target_self", "GFX_GUI_CONTROLCENTER_TARGET_ICON_SELF", "Target yourself"),
+        (d.right_target, "target_next", "GFX_GUI_CONTROLCENTER_TARGET_ICON_OTHER", "Target the next enemy"),
+    ] {
+        let Some(rect) = rect else { continue };
+        egui::Area::new(egui::Id::new(window)).fixed_pos(rect.min).order(egui::Order::Foreground).show(ctx, |ui| {
+            let (rect, response) = ui.allocate_exact_size(rect.size(), egui::Sense::click());
+            let state = if response.is_pointer_button_down_on() { "_STATE3" } else if response.hovered() { "_STATE2" } else { "" };
+            skin.draw(ui.painter(), &format!("GFX_GUI_CONTROLCENTER_TARGET_BUTTON{state}"), rect.min, 1.0, egui::Color32::WHITE);
+            if let Some(icon_size) = skin.get(icon).map(|s| s.size) {
+                skin.draw(ui.painter(), icon, rect.center() - icon_size * 0.5, 1.0, egui::Color32::WHITE);
+            }
+            if response.on_hover_text(tip).clicked() {
+                out.target = Some(window);
+            }
+        });
+    }
+    out
+}
+
 /// The control center's menus, as in the original's `LeftMenu.xml` and `RightMenu.xml`: (label, window name for `Ui::set_window`, tooltip).
 pub const LEFT_MENU: &[(&str, &str, &str)] = &[("Actions", "actions", "Special actions"), ("Character", "stats", "Character: your stats"), ("Nano", "programs", "Nano programs"), ("Inv", "inventory", "Inventory and worn gear")];
 pub const RIGHT_MENU: &[(&str, &str, &str)] = &[("NCU", "ncu", "Nano control units"), ("Map", "map", "The map"), ("Mission", "missions", "Missions"), ("Friends", "friends", "Friends list")];

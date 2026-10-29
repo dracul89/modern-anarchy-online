@@ -457,9 +457,6 @@ impl Ui {
             hud_layer(&ctx, hud, project, fps, settings.mode, palette);
             let booths: Vec<[f32; 2]> = hud.labels.iter().map(|l| [l.world.x, l.world.y]).collect();
             automap.show(&ctx, hud.position.map(|p| ([p[0], p[2]], hud.heading)), hud.camera_yaw, &hud.map_dots, &booths, &hud.location);
-            if let Some(w) = crate::vitals::show(&ctx, hud.camera_yaw, &hud.stats, &hud.stat_parts, palette, &|n| states.contains(&n), control_center.is_none()) {
-                menu_click = Some(w);
-            }
             if control_center.is_none() && crate::skin::skin(&ctx).is_some() {
                 *control_center = crate::gui::controlcenter::ControlCenter::load(&ctx);
             }
@@ -471,6 +468,16 @@ impl Ui {
                         requests.chat.push(line);
                     }
                 }
+                // (the wings, bars and buttons where the skin's ControlCenter.xml docks them)
+                let clicks = crate::vitals::show_docked(&ctx, hud.camera_yaw, &hud.stats, &hud.stat_parts, palette, &cc.docks);
+                if clicks.rollup {
+                    cc.toggle_rollup();
+                }
+                if let Some(t) = clicks.target {
+                    menu_click = Some(t);
+                }
+            } else if let Some(w) = crate::vitals::show(&ctx, hud.camera_yaw, &hud.stats, &hud.stat_parts, palette, &|n| states.contains(&n), true) {
+                menu_click = Some(w);
             }
             hotbar_layer(&ctx, hotbars, gear, &hud.gear, &*actions, clock_now, palette, &mut requests);
             if stats_window.open {
@@ -690,12 +697,19 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
         let output = ctx.run_ui(raw, |ui| {
             let ctx = ui.ctx().clone();
             hud_layer(&ctx, hud, project, 60.0, settings.mode, &palette);
-            crate::vitals::show(&ctx, hud.camera_yaw, &hud.stats, &hud.stat_parts, &palette, &|_| false, preview_cc.is_none());
             if preview_cc.is_none() && crate::skin::skin(&ctx).is_some() {
                 preview_cc = crate::gui::controlcenter::ControlCenter::load(&ctx);
             }
-            if let Some(cc) = preview_cc.as_mut() {
-                cc.show(&ctx, &palette, &hud.stats, &|_| false);
+            match preview_cc.as_mut() {
+                Some(cc) => {
+                    cc.show(&ctx, &palette, &hud.stats, &|_| false);
+                    if crate::vitals::show_docked(&ctx, hud.camera_yaw, &hud.stats, &hud.stat_parts, &palette, &cc.docks).rollup {
+                        cc.toggle_rollup();
+                    }
+                }
+                None => {
+                    crate::vitals::show(&ctx, hud.camera_yaw, &hud.stats, &hud.stat_parts, &palette, &|_| false, true);
+                }
             }
             hotbar_layer(&ctx, &mut hotbars, &mut gear, &hud.gear, &crate::actions::ActionsWindow::default(), 1.5, &palette, &mut requests);
             if hud.whompah_open {

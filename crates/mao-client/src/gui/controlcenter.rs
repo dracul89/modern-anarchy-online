@@ -3,9 +3,11 @@
 //! (`dvalue.rs`), and its `CCMenu` views — `ControlMenu_c`s of the skin's menu scripts (`menu.rs`) — as rows of
 //! buttons whose `<Menu>` entries open menus above them.
 //!
-//! The docks the program fills itself (`LeftWingDock`, `RightWingDock`, `LeftBarDock`, `RightBarDock`,
-//! `RollupControllerDock`: the wings, health and nano bars, the rollup) stay empty here; the client draws those parts
-//! (`vitals.rs`). A menu entry's value is a window's open flag where the client has that window ([`WINDOWS`]): the
+//! The docks the program fills itself (FUN_1006f911: `LeftWingDock`, `RightWingDock`, `LeftBarDock`, `RightBarDock`,
+//! `LeftTargetCtrlDock`, `RightTargetCtrlDock`, `RollupControllerDock`) take the size of what goes in them (the skin's
+//! wing, strip, target button and rollup pictures), are laid out with the rest, and are handed to `vitals.rs`
+//! ([`ControlCenter::docks`]), which draws those parts there; the rollup folds the wings by `cc_left_wing` and
+//! `cc_right_wing`. A menu entry's value is a window's open flag where the client has that window ([`WINDOWS`]): the
 //! client's window state is written into the values before the frame, and the values the menus changed are handed back
 //! ([`Output::windows`]).
 //!
@@ -116,8 +118,21 @@ pub struct Output {
     pub commands: Vec<String>,
 }
 
+/// The docks and the pictures that size them.
+const DOCKS: [(&str, &str); 7] = [
+    ("LeftWingDock", "GFX_GUI_CONTROLCENTER_WING_LEFT"),
+    ("RightWingDock", "GFX_GUI_CONTROLCENTER_WING_RIGHT"),
+    ("LeftBarDock", "GFX_GUI_CONTROLCENTER_BOTTOM_LEFT"),
+    ("RightBarDock", "GFX_GUI_CONTROLCENTER_BOTTOM_RIGHT"),
+    ("LeftTargetCtrlDock", "GFX_GUI_CONTROLCENTER_TARGET_BUTTON"),
+    ("RightTargetCtrlDock", "GFX_GUI_CONTROLCENTER_TARGET_BUTTON"),
+    ("RollupControllerDock", "GFX_GUI_ROLLUP_COLLAPSE_STATE1"),
+];
+
 pub struct ControlCenter {
     pub store: Store,
+    /// Where the docks were laid out in the last frame.
+    pub docks: crate::vitals::Docks,
     dirs: Vec<PathBuf>,
     tree: Tree,
     root: Id,
@@ -134,6 +149,16 @@ impl ControlCenter {
         let store = Store::load(game_default.as_deref(), own.as_deref());
         let (mut tree, root) = super::load_view(&dirs, "ControlCenter.xml", "")?;
         let measure = Measure { ctx: Some(ctx.clone()) };
+        // (each dock the size of what goes in it)
+        for (dock, picture) in DOCKS {
+            if let (Some(id), Some(size)) = (tree.find(root, dock), skin.get(picture).map(|s| s.size)) {
+                let p = super::geom::Point::new(size.x - 1.0, size.y - 1.0);
+                // (the rollup's dock holds the `RollupArea` DockArea_c windows dock into, which takes the height to spare:
+                // it pushes the right wing down to the screen's bottom)
+                let max = if dock == "RollupControllerDock" { super::geom::Point::new(p.x, 16000.0) } else { p };
+                tree.get_mut(id).control = Box::new(super::view::Spacer { min: p, max });
+            }
+        }
         for n in &mut tree.nodes {
             if let Some(m) = n.control.as_any_mut().downcast_mut::<CCMenuView>() {
                 m.entries = super::menu::load_script(&dirs, &m.script);
@@ -142,7 +167,7 @@ impl ControlCenter {
             }
         }
         eprintln!("control center: {} views from {}", tree.nodes.len(), dirs.first().map_or(String::new(), |d| d.display().to_string()));
-        Some(ControlCenter { store, dirs, tree, root, popups: Vec::new() })
+        Some(ControlCenter { store, docks: Default::default(), dirs, tree, root, popups: Vec::new() })
     }
 
     fn holds(&self, criteria: &str, stats: &BTreeMap<u32, i64>) -> bool {
@@ -274,6 +299,25 @@ impl ControlCenter {
             self.invoke(&entry, rect, beside, depth, stats, &mut out);
         }
 
+        // the docks, for `vitals.rs`
+        let dock = |name: &str| self.tree.find(self.root, name).filter(|&id| self.tree.is_visible(id)).map(|id| super::host::screen_rect(&self.tree, id, screen.min));
+        let on = |name: &str| self.store.get_bool("cc_section1") && self.store.get_bool(name);
+        self.docks = crate::vitals::Docks {
+            left_wing: dock("LeftWingDock"),
+            right_wing: dock("RightWingDock"),
+            left_bar: dock("LeftBarDock"),
+            right_bar: dock("RightBarDock"),
+            rollup: dock("RollupControllerDock"),
+            left_target: dock("LeftTargetCtrlDock"),
+            right_target: dock("RightTargetCtrlDock"),
+            compass: on("cc_compass"),
+            health: on("cc_health_bar"),
+            nano: on("cc_nano_bar"),
+            xp: on("cc_xp_bar"),
+            alien_xp: on("cc_alienxp_bar"),
+            rolled: !self.store.get_bool("cc_left_wing") && !self.store.get_bool("cc_right_wing"),
+        };
+
         // the values the menus changed, back to the client's windows
         for name in self.store.take_changed() {
             if let Some((_, w)) = WINDOWS.iter().find(|(dv, _)| *dv == name) {
@@ -281,6 +325,14 @@ impl ControlCenter {
             }
         }
         out
+    }
+
+    /// The rollup's click: the wings fold away, or come back.
+    pub fn toggle_rollup(&mut self) {
+        let rolled = self.docks.rolled;
+        self.store.set("cc_left_wing", Variant::from(rolled));
+        self.store.set("cc_right_wing", Variant::from(rolled));
+        self.store.take_changed();
     }
 
     /// One entry's button: the strip for its state and its label; the rect when it was clicked.
