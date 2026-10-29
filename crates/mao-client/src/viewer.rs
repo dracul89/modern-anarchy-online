@@ -462,6 +462,8 @@ struct App {
     /// The character's heading, and whether the camera has been put behind it yet.
     heading: f32,
     behind_set: bool,
+    /// Whether a world update has come (the login's loading screen goes with the first one).
+    world_in: bool,
     last_follow: std::time::Instant,
     /// The nano programs running on characters (see `Update::auras`) and the clock their sparks run on.
     auras: Vec<(u32, bool, [f32; 3], f32, Option<(i32, i32, i32)>, Vec<(u32, mao_formats::gfx::Visual)>)>,
@@ -570,7 +572,7 @@ pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<()
     let settings = Settings::load();
     crate::ui::set_debug_overlay(settings.debug_overlay);
     crate::font::set_enabled(settings.original_font);
-    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), flares: Vec::new(), sky: Default::default(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), fxs_frame: None, script_meshes: Default::default(), named_sheets: Default::default(), trails: Default::default(), motions: Default::default(), shake: (0.0, 0), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, casters: Vec::new(), follow_shift: [0.0; 3], environment: Default::default(), quake: Default::default(), quake_offset: [0.0; 3], wind: Default::default(), wind_at: std::time::Instant::now(), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
+    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, world_in: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), flares: Vec::new(), sky: Default::default(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), fxs_frame: None, script_meshes: Default::default(), named_sheets: Default::default(), trails: Default::default(), motions: Default::default(), shake: (0.0, 0), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, casters: Vec::new(), follow_shift: [0.0; 3], environment: Default::default(), quake: Default::default(), quake_offset: [0.0; 3], wind: Default::default(), wind_at: std::time::Instant::now(), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
     // (entering the game: the loading screen, `ServerLogin3DModule_t::InitialiseMessage`)
     if app.live.is_some() {
         crate::loading::begin(crate::loading::FADE_IN, crate::loading::FADE_OUT);
@@ -702,6 +704,11 @@ impl ApplicationHandler for App {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        // (the window is made hidden and shown once its first frame is presented; a hidden window is sent no redraws, so
+        // that first frame is drawn from here)
+        if let Some(id) = self.state.as_ref().filter(|w| w.window.is_visible() == Some(false)).map(|w| w.window.id()) {
+            self.window_event(event_loop, id, WindowEvent::RedrawRequested);
+        }
         if self.live.is_some() {
             // No frame cap: draw as fast as the present mode allows (the original stopped at 100 fps).
             event_loop.set_control_flow(winit::event_loop::ControlFlow::Poll);
@@ -715,7 +722,8 @@ impl ApplicationHandler for App {
         if self.state.is_some() {
             return;
         }
-        let window = Arc::new(event_loop.create_window(Window::default_attributes().with_title("Modern Anarchy Online").with_inner_size(PhysicalSize::new(self.settings.width, self.settings.height))).expect("a window"));
+        // (hidden until its first frame is presented: otherwise the system's white fills it first, then the black)
+        let window = Arc::new(event_loop.create_window(Window::default_attributes().with_title("Modern Anarchy Online").with_inner_size(PhysicalSize::new(self.settings.width, self.settings.height)).with_visible(false)).expect("a window"));
         apply_mode(&window, self.settings.mode);
         eprintln!("window mode: {} (F11 or Alt+Enter change it)", self.settings.mode.name());
         let instance = wgpu::Instance::default();
@@ -1327,6 +1335,12 @@ impl ApplicationHandler for App {
                     }
                     let latest = updates.into_iter().filter(|u| !u.messages_only).last();
                     if let Some(mut update) = latest {
+                        // (the first world update after logging in: the world is in and the loading screen goes,
+                        // `StartClosingLoadscreenMessage`; the login's playfield was drawn before the window opened, so no
+                        // scene comes with it)
+                        if !std::mem::replace(&mut self.world_in, true) {
+                            crate::loading::done();
+                        }
                         self.hud.position = update.own;
                         self.hud.heading = self.heading;
                         self.hud.map_dots = std::mem::take(&mut update.map_dots);
@@ -1998,6 +2012,9 @@ impl ApplicationHandler for App {
                 }
                 w.window.pre_present_notify();
                 w.gpu.queue.present(frame);
+                if w.window.is_visible() == Some(false) {
+                    w.window.set_visible(true);
+                }
                 crate::prof::lap("present", prof_t);
                 crate::prof::frame();
             }

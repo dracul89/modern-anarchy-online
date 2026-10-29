@@ -3603,9 +3603,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             burst = 0;
             // Zoning: the server announces the new playfield and where we arrive.
             if let Some((playfield, arrival)) = state.arrival.take() {
-                // (a zoning: the loading screen until the new playfield is drawn)
-                crate::loading::begin(Duration::ZERO, crate::loading::ZONE_FADE_OUT);
                 if playfield != current {
+                    // (a zoning: the loading screen until the new playfield is drawn; an arrival in the same playfield, as
+                    // the playfield message at login, draws no new one, so it must not raise the screen)
+                    crate::loading::begin(Duration::ZERO, crate::loading::ZONE_FADE_OUT);
                     eprintln!("zoning to playfield {playfield}");
                     teleport_try = None;
                     current = playfield;
