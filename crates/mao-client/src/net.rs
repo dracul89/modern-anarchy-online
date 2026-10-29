@@ -2842,7 +2842,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     let (shop_tx, shop_rx) = std::sync::mpsc::channel::<crate::shop::ShopCommand>();
     let own = state.own;
     let start = state.entities.get(&own).map(|e| e.0).unwrap_or([0.0; 3]);
-    eprintln!("start: the entity's place {start:?}, the playfield message's {:?}", state.arrival.map(|a| a.1));
+    if std::env::var_os("MAO_COMBAT_LOG").is_some() {
+        eprintln!("start: the entity's place {start:?}, the playfield message's {:?}", state.arrival.map(|a| a.1));
+    }
     let heading = state.rotations.get(&own).map(|q| 2.0 * q[1].atan2(q[3])).unwrap_or(0.0);
     let (gear_db, gear_textures) = (db.clone(), crate::Textures::new(db.clone()));
     let _ = ITEM_DB.set(db.clone());
