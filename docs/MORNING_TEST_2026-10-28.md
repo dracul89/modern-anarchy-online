@@ -47,6 +47,7 @@ four tabs are too cramped (the wear column is narrow, so their names are cut); t
 | Commit | What | Test |
 |---|---|---|
 | c962627 | **Position reports as the original** (every 5 s running straight, on a turn of the view; not every 0.4 s); the walk/run mode told to the server on entering (it remembered walk from a test and pulled the character back) | run far in a straight line and with the mouse; no rubber-banding |
+| (next) | **View selectors** (`ViewSelector_c`): one page at a time in the XML windows | the skills window (XML) no longer draws its pages over each other; the mail window shows To or From |
 | 4ef8db7 | **Tool tips** as the original's (half a second, title over body, `Hover` frame); wrapped text lines no longer start with a space | rest the pointer on a control center button; read a long text window (Skills) |
 | be1acea | **Radio button groups** (`RadioButtonGroup_c`) in the XML windows | the mail window's delivery mode: one of Standard and Express at a time |
 | a80fb17 | **Drop-down lists** (`DropdownMenu_c`) and the pop-up list (`PopupMenu_c`) in the XML windows | open the looking-for-team window: each drop-down opens its list, hover highlights, a click chooses, a click outside closes |

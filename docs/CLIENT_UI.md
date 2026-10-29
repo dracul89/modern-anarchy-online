@@ -1430,3 +1430,10 @@ a dark ground, the title ruled off from the body; the original's exact surface s
 of every view's text now start at their first word's text, as `TextRenderer_c::_RenderLine` draws a line from its start
 in the buffer: the space before a word that moved to the next line is neither drawn nor counted there (it was drawn as a
 one-space indent).
+
+**View selectors** (`gui/selector.rs`). The skins' `ViewSelector` elements (16: the skills window's pages and groups, the
+mail window's To/From and Send/Take rows, the city terminal, the mech selection) are GUI.dll's `ViewSelector_c`: one of
+its views shown at a time over its whole bounds (`SetValue` 0x10150236, `FrameSized` 0x1015000e), the first shown at load
+(`InsertView` 0x1015050e), its preferred size the largest of its views' with `use_max_size` (on by default), else the
+shown one's (`CalculatePreferredSize` 0x10150074). They used to draw every page at once (the skills window's intro over its
+skill page). `selector::set_value` / `show_named` switch the page.

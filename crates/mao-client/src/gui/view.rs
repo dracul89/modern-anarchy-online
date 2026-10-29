@@ -52,6 +52,8 @@ pub enum Layout {
     Scroll,
     /// A `ScrollViewChild_c`: its inner view sized to its content and moved by the scroll.
     ScrollChild,
+    /// A `ViewSelector_c`: one view at a time over the whole bounds (`gui::selector`).
+    Selector,
 }
 
 /// A view that is hidden is still laid out unless it has this flag (`GetFlags() & 0x100`).

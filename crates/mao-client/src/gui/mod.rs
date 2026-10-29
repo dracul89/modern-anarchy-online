@@ -25,6 +25,7 @@ pub mod options;
 pub mod spells;
 pub mod stat_names;
 pub mod text;
+pub mod selector;
 pub mod tooltip;
 pub mod radio;
 pub mod popup;
@@ -98,6 +99,7 @@ pub fn create(tree: &mut Tree, e: &Element) -> Option<Id> {
         "ScrollView" => scroll::create_view(tree, e),
         "DropdownMenu" => dropdown::create(tree, e),
         "RadioButtonGroup" => radio::create(tree, e),
+        "ViewSelector" => selector::create(tree, e),
         "ScrollViewChild" => scroll::create_child(tree, e),
         "BitmapView" => tree.add(Node::from_element(e, 4, Box::new(controls::BitmapView { bitmap: e.text("bitmap_id", "") }))),
         "CCMenu" => controlcenter::CCMenuView::create(tree, e),
