@@ -290,6 +290,12 @@ impl ShopWindow {
         let tree = &mut w.tree;
         let (stock, bought, sold, selected, info_url) = (&self.stock, &self.bought, &self.sold, &mut self.selected, &mut self.info_url);
         let name = if self.name.is_empty() { format!("Booth {:x}", self.shop.1 & 0xffff) } else { self.name.clone() };
+        // (the partner's name in its `ScrollingTextView`, started over only when it changes)
+        if let Some(id) = tree.find(root, "PartnerName") {
+            if tree.control::<crate::gui::scrolling::ScrollingText>(id).is_some_and(|v| v.text.text != name) {
+                crate::gui::scrolling::set_text(tree, id, &name, None, false);
+            }
+        }
         let dragged = crate::gear::DRAGGED.load(std::sync::atomic::Ordering::Relaxed);
         let mut is_open = self.open;
         // (the shop's name in the title too: the skins' `ShopTrade` views leave `PartnerName` out)
@@ -300,10 +306,7 @@ impl ShopWindow {
             let tree: &crate::gui::view::Tree = tree;
             let rect_of = |name: &str| tree.find(root, name).map(|id| crate::gui::host::screen_rect(tree, id, origin));
             let font = egui::FontId::proportional(12.0);
-            // (the partner's name, and each side's cost in the green GUI.dll gives the cash fields, 0x44dd44)
-            if let Some(r) = rect_of("PartnerName") {
-                ui.painter().text(r.left_center(), egui::Align2::LEFT_CENTER, &name, font.clone(), accent);
-            }
+            // (each side's cost in the green GUI.dll gives the cash fields, 0x44dd44)
             for (field, rows) in [("PartnerCashView", bought), ("OurCashView", sold)] {
                 if let Some(r) = rect_of(field) {
                     ui.painter().rect_stroke(r, 2.0, egui::Stroke::new(1.0, egui::Color32::from_white_alpha(40)), egui::StrokeKind::Inside);

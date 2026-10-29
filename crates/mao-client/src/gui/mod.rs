@@ -32,6 +32,7 @@ pub mod radio;
 pub mod popup;
 pub mod dropdown;
 pub mod scroll;
+pub mod scrolling;
 pub mod textinput;
 pub mod edit;
 pub mod variant;
@@ -103,6 +104,7 @@ pub fn create(tree: &mut Tree, e: &Element) -> Option<Id> {
         "ViewSelector" => selector::create(tree, e),
         "ScrollViewChild" => scroll::create_child(tree, e),
         "ItemSlotView" => itemslot::create(tree, e, true),
+        "ScrollingTextView" => scrolling::create(tree, e),
         "ItemIconView" => itemslot::create(tree, e, false),
         "BitmapView" => tree.add(Node::from_element(e, 4, Box::new(controls::BitmapView { bitmap: e.text("bitmap_id", "") }))),
         "CCMenu" => controlcenter::CCMenuView::create(tree, e),

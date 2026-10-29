@@ -1446,3 +1446,11 @@ element alone is the icon without the slot. The window sets what a slot shows (`
 and the item's name as the slot's tip); a click on a slot is its `Clicked` signal. The market deposit window now uses these
 slots and the XML's real `Cash` field (`TextInputView`, `TVF_NUMERIC`) instead of drawing its own boxes and an egui text
 edit over them. Not ported: the icon flags' meaning, the open slot picture (0x11e) and dragging from a slot.
+
+**Scrolling text** (`gui/scrolling.rs`). `ScrollingTextView` (the trade and shop windows' `PartnerName`) is GUI.dll's
+`ScrollingTextView_c` (FUN_10008da8): one line in the normal font, centred upright, and centred across when it fits.
+A text wider than its view starts at the left, waits `initial_scroll_delay` (1.5 s), then moves 0.4 px every
+`scroll_delay` (20 ms) until its end shows, waits `turn_scroll_delay` (0.7 s) and comes back, and so on (FUN_1000871e,
+FUN_1000886a, the timer at 0x10008853). `scrolling::set_text` gives it its text, optionally a colour and flashing
+(FUN_10008a02: shown `flash_on_time` 0.6 s, hidden `flash_off_time` 0.3 s, FUN_100089b4). The shop window's partner name
+is now this view instead of text drawn over it.
