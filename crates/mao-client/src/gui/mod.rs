@@ -26,6 +26,7 @@ pub mod options;
 pub mod spells;
 pub mod stat_names;
 pub mod text;
+pub mod textbutton;
 pub mod selector;
 pub mod tooltip;
 pub mod radio;
@@ -105,6 +106,7 @@ pub fn create(tree: &mut Tree, e: &Element) -> Option<Id> {
         "ScrollViewChild" => scroll::create_child(tree, e),
         "ItemSlotView" => itemslot::create(tree, e, true),
         "ScrollingTextView" => scrolling::create(tree, e),
+        "TextButton" => textbutton::create(tree, e),
         "ItemIconView" => itemslot::create(tree, e, false),
         "BitmapView" => tree.add(Node::from_element(e, 4, Box::new(controls::BitmapView { bitmap: e.text("bitmap_id", "") }))),
         "CCMenu" => controlcenter::CCMenuView::create(tree, e),

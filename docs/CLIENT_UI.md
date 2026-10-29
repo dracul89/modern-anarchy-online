@@ -1454,3 +1454,11 @@ A text wider than its view starts at the left, waits `initial_scroll_delay` (1.5
 FUN_1000886a, the timer at 0x10008853). `scrolling::set_text` gives it its text, optionally a colour and flashing
 (FUN_10008a02: shown `flash_on_time` 0.6 s, hidden `flash_off_time` 0.3 s, FUN_100089b4). The shop window's partner name
 is now this view instead of text drawn over it.
+
+**Text buttons** (`gui/textbutton.rs`). `TextButton` (the character selection's name buttons) is GUI.dll's
+`TextButton_c` (XML constructor 0x1000507a, `StateChanged` 0x10004ca2): a button that is only its text, a `TextView_c`
+made from the same element (its `font`, e.g. `HUGE`). It shows `raised_text` in `raised_color`, under the pointer
+`hover_text` in `hover_color`, and while a toggle button is on `pressed_text` in `pressed_color` (each defaults to `text`
+and `color`; no colour means white). Disabled, the colour's channels are two thirds (`ButtonBase_c::GetDisabledColor`
+0x10129421). Its preferred size is its text's. The launcher's character screen still draws its own list; the XML item
+now shows the button as the original does.
