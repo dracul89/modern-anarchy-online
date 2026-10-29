@@ -1037,6 +1037,25 @@ right, their text through the port of `HTMLParser_c`/`TextRenderer_c`: colours b
 by face, centring and right alignment, `indent=wrapped` blocks, underlines, clickable links in 0x2299ff; `MAO_VIEW_TEXT=<markup>`
 puts text into a view named BrowserView). Not used by the game's windows yet.
 
+**The option panel** (`gui/options.rs`, the control center's Options menu entry,
+`optionpanel_window`): the skin's `OptionPanel/Root.xml` as GUI.dll's
+`OptionPanelModule_c` shows it (FUN_100c3d62): a folder list of its pages on the left
+(each page's `label`, looked up in category 700, split at `/`: Audio, Video, GUI,
+Controls ...), the page picked on the right. The game's own `Root.xml` is empty; the
+AOU skins fill it. The controls are ports of `OptionControl_c` (FUN_100c29cd):
+`OptionCheckBox`, `OptionSlider` (FUN_100c1178: label, `value_fmt` value, `Slider_c`),
+`OptionRadioButtonGroup` with `RadioButton`s; `view_enable_expression` greys a control
+out. Each shows one setting: a distributed value (`opt_type="variant"`, ranges from the
+prefs files' `min`/`max`) or an `IndependentPrefs_t` preference (`int`/`float`, with
+GUI.dll's defaults and ranges from `Preferences_t::SetDefaultCharPrefs` /
+`SetDefaultLoginPrefs`). What the player changes is saved to `prefs.xml` beside
+`mao.ini` and loaded at the next start. The sound settings drive the sound module as
+GUI.dll's do (FUN_100c573c: `MasterVolume`, `FXVolume`, `MusicVolume`,
+`VoiceSndFxVolume` and the on/off switches mute); the others are kept but not yet used
+by the client (view distance, effects, fog ...). The client's own settings window
+(window mode, keys) is still there for what the original has no option for.
+`MAO_UI_PREVIEW=optionpanel` (with `MAO_OPTION_PAGE=<n>`) shows it.
+
 **Chat markup.** A chat line the server sends with markup (`<font color=...>`, `<a href="itemref://...">`) keeps it and is
 drawn with GUI.dll's text view (`gui::controls::markup`: `HTMLParser_c`/`TextRenderer_c` from `gui/text.rs`, the chat bitmap
 font); clicking a link opens it in the info view (an item's page for `itemref://`). Lines without tags are drawn as before.

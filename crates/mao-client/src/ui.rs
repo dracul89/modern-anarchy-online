@@ -232,6 +232,8 @@ pub struct Ui {
     pub info: crate::gui::infoview::InfoView,
     /// The skin's control center (`Views/ControlCenter.xml` and its menus), once the skin has loaded.
     pub control_center: Option<crate::gui::controlcenter::ControlCenter>,
+    /// The skin's option panel (`OptionPanel/Root.xml`).
+    pub option_panel: crate::gui::options::OptionPanel,
     pub loot: crate::loot::LootWindow,
     pub chat: crate::chatwindow::ChatWindow,
     gear: crate::gear::GearWindow,
@@ -291,7 +293,7 @@ impl Ui {
         crate::skin::configure(&ctx, crate::skin::dirs(&settings.gui_dir, &settings.theme, &settings.aou_mod));
         let state = egui_winit::State::new(ctx.clone(), egui::ViewportId::ROOT, window, Some(window.scale_factor() as f32), window.theme(), None);
         let renderer = egui_wgpu::Renderer::new(&gpu.device, format, egui_wgpu::RendererOptions::default());
-        let mut ui = Ui { ctx, state, renderer, open_seen: Vec::new(), options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), shop: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), ncu: Default::default(), friends: Default::default(), programs: Default::default(), perks: Default::default(), help: Default::default(), info: Default::default(), control_center: None, loot: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0 };
+        let mut ui = Ui { ctx, state, renderer, open_seen: Vec::new(), options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), shop: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), ncu: Default::default(), friends: Default::default(), programs: Default::default(), perks: Default::default(), help: Default::default(), info: Default::default(), control_center: None, option_panel: Default::default(), loot: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0 };
         // (the windows the player left open come back open)
         for name in crate::layout::load_open() {
             ui.set_window(&name, true);
@@ -370,6 +372,7 @@ impl Ui {
             "missions" => self.mission.open,
             "friends" => self.friends.open,
             "map" => self.automap.overlay,
+            "optionpanel" => self.option_panel.open,
             _ => false,
         }
     }
@@ -413,6 +416,7 @@ impl Ui {
             "chat" => &mut self.chat.open,
             "whompah" | "whom-pah" | "travel" => &mut self.whompah_open,
             "loot" | "container" => &mut self.loot.open,
+            "optionpanel" | "option panel" => &mut self.option_panel.open,
             _ => return false,
         };
         *flag = open;
@@ -447,6 +451,7 @@ impl Ui {
         let (friends_window, programs_window, perks_window, loot_window, help_window) = (&mut self.friends, &mut self.programs, &mut self.perks, &mut self.loot, &mut self.help);
         let info_view = &mut self.info;
         let control_center = &mut self.control_center;
+        let option_panel = &mut self.option_panel;
         let mut cc_windows: Vec<(&'static str, bool)> = Vec::new();
         let (hotbars, clock_now) = (&mut self.hotbars, self.clock.elapsed().as_secs_f64());
         crate::layout::remember(&self.ctx);
@@ -470,6 +475,7 @@ impl Ui {
                         requests.chat.push(line);
                     }
                 }
+                option_panel.show(&ctx, palette, &mut cc.store, &hud.stats);
                 // (the wings, bars and buttons where the skin's ControlCenter.xml docks them)
                 let clicks = crate::vitals::show_docked(&ctx, hud.camera_yaw, &hud.stats, &hud.stat_parts, palette, &cc.docks);
                 if clicks.rollup {
@@ -576,11 +582,7 @@ impl Ui {
             crate::gear::DRAGGED.store(u32::MAX, std::sync::atomic::Ordering::Relaxed);
         }
         for (w, on) in cc_windows {
-            if w == "options" {
-                self.options_open = on;
-            } else {
-                self.set_window(w, on);
-            }
+            self.set_window(w, on);
         }
         if let Some(n) = menu_click.and_then(|n| ["target_self", "target_next", "camera_1st", "camera_3rd", "camera_lock", "camera_rubber", "camera_trail"].iter().position(|t| *t == n)) {
             requests.target = Some(n as u8);
@@ -675,6 +677,12 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
     // MAO_UI_PREVIEW=view MAO_VIEW=<file in the skin's Views>: that file's window, made by the GUI.dll view system (`gui/`).
     let mut preview_view: Option<crate::gui::window::XmlWindow> = None;
     let mut preview_cc: Option<crate::gui::controlcenter::ControlCenter> = None;
+    // MAO_UI_PREVIEW=optionpanel: the skin's option panel (MAO_OPTION_PAGE=<n> picks a page).
+    let mut preview_panel = crate::gui::options::OptionPanel::default();
+    preview_panel.open = std::env::var("MAO_UI_PREVIEW").as_deref() == Ok("optionpanel");
+    if let Some(n) = std::env::var("MAO_OPTION_PAGE").ok().and_then(|v| v.parse().ok()) {
+        preview_panel.select(n);
+    }
     let mut last = None;
     // Several frames: the first lays out and uploads the fonts, and the windows
     // fade in over the next ones; the last is what is drawn.
@@ -708,6 +716,7 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
             match preview_cc.as_mut() {
                 Some(cc) => {
                     cc.show(&ctx, &palette, &hud.stats, &|_| false);
+                    preview_panel.show(&ctx, &palette, &mut cc.store, &hud.stats);
                     if crate::vitals::show_docked(&ctx, hud.camera_yaw, &hud.stats, &hud.stat_parts, &palette, &cc.docks).rollup {
                         cc.toggle_rollup();
                     }

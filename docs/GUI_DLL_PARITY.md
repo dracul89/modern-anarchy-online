@@ -34,8 +34,8 @@ programs window's Info, `itemid://53019/<id>`; weapons' damage per second; to co
 | XML view loader (`XMLObject_c` registry: `View`, `BorderView`, `BitmapView`, `TextView`, `ScrollView`, `TextInputView`, `StringListView`, `BrowserView`, `ItemView`, `ItemIconView`, `ItemSlotView`, ...; `activate_criteria`, `fade_group`) | builds the windows of `Views/*.xml` (27 files) | `gui/xml.rs`, `gui::load_view`: all 27 files load and lay out; classes not ported yet stand in as plain views | part |
 | `BorderView_c`, `BitmapView_c`, `PlainSpriteFade_t`, `Sprite_t`, `SpriteList_t` | nine-slices and pictures from the skin | `skin.rs`, `chrome.rs`; `gui/controls.rs` for the XML views | done (the three-slice and single-picture modes of `BorderView_c` only as a check box's button) |
 | `Button_c`, `ButtonBase_c`, `BorderButton_c`, `TextButton_c`, `InvisibleButton_t`, `MouseDetectorButton_t` | buttons | `chrome::button`; `gui::controls::Button` (its size from `CalculatePreferredSize` 0x10128396, clicks, toggles) | part (no icons, drag, repeat) |
-| `CheckBox_c`, `RadioButton_c`, `RadioButtonGroup_c` | toggles | `chrome::checkbox`; `gui::controls::CheckBox` (its button and label views as `Initialize` builds them) | part (no radio buttons) |
-| `Slider_c` | sliders (`gfxid_slider`) | egui's | no |
+| `CheckBox_c`, `RadioButton_c`, `RadioButtonGroup_c` | toggles | `chrome::checkbox`; `gui::controls::CheckBox` (its button and label views as `Initialize` builds them) | part (`RadioButton` as a check box with the radio pictures; no `RadioButtonGroup_c` outside the option panel) |
+| `Slider_c` | sliders (`gfxid_slider`) | `gui::controls::Slider` (the option slider's pictures) | part (no `gfxid_slider` art choice, no steps) |
 | `ComboBox_c`, `DropdownMenu_c` | drop-down lists | egui's | no |
 | `ScrollBar_c`, `ScrollBarInterface_c`, `ScrollView_c`, `ScrollViewChild_c` | scrolling | `chrome::scroll` | done (the wheel is egui's) |
 | `TabView` | tabs | `chrome::tab_view` | done |
@@ -99,7 +99,7 @@ programs window's Info, `itemid://53019/<id>`; weapons' damage per second; to co
 | Reclaim (`reclaim_window`, `/reclaim`) | | none | no |
 | Daily login / check rewards (`dailylogin_window`, `checkrewards_window`) | | none | no |
 | Tips (`tip_window`) | `TipView.xml` | none | no |
-| Options (`OptionPanelModule_c`, `optionpanel_window`) | `OptionPanel/*` | the client's own options | ours |
+| Options (`OptionPanelModule_c`, `optionpanel_window`) | `OptionPanel/*` | `gui/options.rs` (the skin's `Root.xml` pages and option controls, settings saved in `prefs.xml`, sound applied); the client's own options window for the display and keys | part (`HotKeys.xml` not used; most settings kept but not yet acted on) |
 | Help (`help` / info about this window) | | `help.rs` | ours |
 | Notum Wars: tower build menu, laser target, airstrike, battlestation, signup terminal, mech select, teleport target | `LaserTarget.xml`, `SignupTerminal.xml`, `MechSelect.xml`, `TeleportTarget.xml` | none | no |
 | Whom-pah (in GUI.dll's NPC/terminal handling) | | `whompah.rs` | ours |

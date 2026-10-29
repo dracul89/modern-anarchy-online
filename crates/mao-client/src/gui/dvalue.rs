@@ -20,11 +20,73 @@ use std::path::Path;
 use super::expression::{self, Host, State};
 use super::variant::Variant;
 
+/// `IndependentPrefs_t`'s preferences as GUI.dll's `Preferences_t::SetDefaultCharPrefs` (0x10124951) and
+/// `SetDefaultLoginPrefs` (0x1012500a) start them (`InitDefaultInt` / `InitDefaultFloat`): name, a float, the default,
+/// the least and the most. The option panel's `opt_type="int"`/`"float"` settings are these.
+pub const INDEPENDENT_PREFS: &[(&str, bool, f64, f64, f64)] = &[
+    ("IsFirstTime", false, 1.0, 0.0, 1.0),
+    ("ShowDropItemDialog", false, 1.0, 0.0, 1.0),
+    ("IsOrgNameShownOverHead", false, 1.0, 0.0, 1.0),
+    ("IsSpaceShipsShown", false, 1.0, 0.0, 1.0),
+    ("BuildMenuX", false, 0.0, 0.0, 9999.0),
+    ("BuildMenuY", false, 0.0, 0.0, 9999.0),
+    ("BuildMenuCX", false, 0.0, 0.0, 1000.0),
+    ("BuildMenuCY", false, 0.0, 0.0, 1000.0),
+    ("IsFactionTitleShown", false, 1.0, 0.0, 1.0),
+    ("WaitForVertSync", false, 0.0, 0.0, 1.0),
+    ("MouseLagFix", false, 0.0, 0.0, 1.0),
+    ("UseOffscreenSurfaceTechnology", false, 0.0, 0.0, 1.0),
+    ("FadeCharacter", false, 1.0, 0.0, 1.0),
+    ("FadeCharacterStartDist", true, 1.5, 0.1, 10.0),
+    ("FadeCharacterEndDist", true, 0.7, 0.1, 10.0),
+    ("FadeCharacterEndAlpha", true, 0.15, 0.0, 1.0),
+    ("WasCharacterCreated", false, 1.0, 0.0, 1.0),
+    ("CCSelectedBreed", false, 0.0, 0.0, 7.0),
+    ("CCSelectedHeight", false, 0.0, 0.0, 3.0),
+    ("CCSelectedSize", false, 0.0, 0.0, 3.0),
+    ("CCSelectedHead", false, 0.0, 0.0, 300.0),
+    ("CCSelectedProfession", false, 0.0, 0.0, 14.0),
+    ("PreferredCameraMode", false, 3.0, 0.0, 3.0),
+    ("UseNoBobCamera", false, 0.0, 0.0, 1.0),
+    ("IsChatHidden", false, 0.0, 0.0, 1.0),
+    ("StarRotation", false, 1.0, 0.0, 1.0),
+    ("RealisticMoons", false, 1.0, 0.0, 1.0),
+    ("UseWindEngine", false, 1.0, 0.0, 1.0),
+    ("UseCloudShadows", false, 1.0, 0.0, 1.0),
+    ("UseParticleWeightPhysics", false, 1.0, 0.0, 1.0),
+    ("UseStormParticles", false, 1.0, 0.0, 1.0),
+    ("RealisticWater", false, 1.0, 0.0, 1.0),
+    ("Wildlife", false, 1.0, 0.0, 1.0),
+    ("RealisticClouds", false, 1.0, 0.0, 1.0),
+    ("SimpleClouds", false, 1.0, 0.0, 1.0),
+    ("Shadows", false, 1.0, 0.0, 1.0),
+    ("BuffsFX", false, 1.0, 0.0, 1.0),
+    ("TracersFX", false, 1.0, 0.0, 1.0),
+    ("NanoEffectFX", false, 1.0, 0.0, 1.0),
+    ("MuzzleFlashFX", false, 1.0, 0.0, 1.0),
+    ("EnvironmentFX", false, 1.0, 0.0, 1.0),
+    ("OthersFX", false, 1.0, 0.0, 1.0),
+    ("ShowAllNames", false, 1.0, 0.0, 1.0),
+    ("SmoothAnimations", false, 1.0, 0.0, 1.0),
+    ("ShowIPPerkbutton", false, 1.0, 0.0, 1.0),
+    ("ChatIndicator", false, 1.0, 0.0, 1.0),
+    ("3rdPersonCamera", false, 1.0, 0.0, 1.0),
+    ("ShowNPCQuestions", false, 1.0, 0.0, 1.0),
+    ("MouseLookInverted", false, 0.0, 0.0, 1.0),
+    ("FogMode", false, 3.0, 0.0, 3.0),
+    ("GroundRendering", false, 3.0, 0.0, 3.0),
+    ("ViewDistance", true, 0.8, 0.0, 1.0),
+];
+
 #[derive(Default)]
 pub struct Store {
     values: BTreeMap<String, Variant>,
+    /// A value's range (`min`/`max` of its `<Value>`, or its preference's), for the option panel's sliders.
+    ranges: BTreeMap<String, (f64, f64)>,
     /// The names set since [`Store::take_changed`] (`SetDValue`'s observers).
     changed: Vec<String>,
+    /// The names the player changed (written to their preferences file).
+    user: std::collections::BTreeSet<String>,
 }
 
 impl Store {
@@ -38,8 +100,56 @@ impl Store {
                 }
             }
         }
+        for &(name, float, default, lo, hi) in INDEPENDENT_PREFS {
+            s.values.entry(name.to_string()).or_insert(if float { Variant::Float(default as f32) } else { Variant::Int32(default as i32) });
+            s.ranges.entry(name.to_string()).or_insert((lo, hi));
+        }
         s.changed.clear();
         s
+    }
+
+    /// The player's own values over the defaults: a file of `<Value>`s as the program saves its `Prefs.xml`.
+    pub fn load_user(&mut self, path: &Path) {
+        let Ok(text) = std::fs::read_to_string(path) else { return };
+        let before: Vec<String> = self.values.keys().cloned().collect();
+        self.load_config(&text);
+        for root in super::xml::parse(&text) {
+            for e in root.children.iter().filter(|e| e.name == "Value") {
+                if let Some(n) = e.attribute("name") {
+                    self.user.insert(n.to_string());
+                }
+            }
+        }
+        let _ = before;
+        self.changed.clear();
+    }
+
+    /// Writes the values the player changed (`DistributedValue_c::SaveConfig`'s form: `<Value name=".." value=".."/>`).
+    pub fn save_user(&self, path: &Path) {
+        let mut out = String::from("<Root>\n");
+        for name in &self.user {
+            let Some(v) = self.values.get(name) else { continue };
+            let text = match v {
+                Variant::String(s) => format!("&quot;{}&quot;", String::from_utf8_lossy(s).replace('&', "&amp;").replace('<', "&lt;").replace('"', "&quot;")),
+                Variant::Float(f) => format!("{f:.6}"),
+                Variant::Double(d) => format!("{d:.6}"),
+                other => String::from_utf8_lossy(&other.as_string()).into_owned(),
+            };
+            out += &format!("    <Value name=\"{name}\" value='{text}' />\n");
+        }
+        out += "</Root>\n";
+        let _ = std::fs::write(path, out);
+    }
+
+    /// A value's range, if it has one.
+    pub fn range(&self, name: &str) -> Option<(f64, f64)> {
+        self.ranges.get(name).copied()
+    }
+
+    /// A value the player set (in the option panel): set, and kept in their preferences.
+    pub fn set_user(&mut self, name: &str, value: Variant) {
+        self.user.insert(name.to_string());
+        self.set(name, value);
     }
 
     /// `LoadConfig`: each `<Value name="..." value="..."/>` of the file's root.
@@ -50,6 +160,10 @@ impl Store {
                 let mut v = Variant::new();
                 if v.load_from_string(value.as_bytes()) {
                     self.values.insert(name.to_string(), v);
+                }
+                let bound = |n: &str| e.attribute(n).and_then(|t| t.trim().parse::<f64>().ok());
+                if let (Some(lo), Some(hi)) = (bound("min"), bound("max")) {
+                    self.ranges.insert(name.to_string(), (lo, hi));
                 }
             }
         }
@@ -144,6 +258,18 @@ mod tests {
         s.set("inventory_window", Variant::from(true));
         assert!(s.eval("dvalue:inventory_window==false", &stats, &none).is_some_and(|v| !v.as_bool()));
         assert_eq!(s.take_changed(), vec!["inventory_window".to_string()]);
+        s.load_config(r#"<Root><Value max="1.0" min="0.0" name="MasterVolume" value="1.0"/></Root>"#);
+        assert_eq!(s.range("MasterVolume"), Some((0.0, 1.0)));
+        // the player's own values round trip
+        s.set_user("MasterVolume", Variant::Float(0.25));
+        s.set_user("Font", Variant::from("Arial"));
+        let path = std::env::temp_dir().join(format!("mao-prefs-{}.xml", std::process::id()));
+        s.save_user(&path);
+        let mut t = Store::default();
+        t.load_user(&path);
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(t.get("MasterVolume").map(|v| v.as_float()), Some(0.25));
+        assert_eq!(t.get("Font").map(|v| v.as_string()), Some(b"Arial".to_vec()));
         let extra = |n: &str| (n == "active_item_count").then(|| Variant::from(3));
         assert!(s.criteria("active_item_count>0", &stats, &extra));
     }

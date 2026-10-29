@@ -80,7 +80,8 @@ fn order(tree: &Tree, id: Id, out: &mut Vec<Id>) {
 /// Lays the tree out to `size` (pixels) when it is not that size already.
 pub fn fit(tree: &mut Tree, root: Id, size: egui::Vec2) {
     let want = Rect::new(0.0, 0.0, size.x.floor() - 1.0, size.y.floor() - 1.0);
-    if tree.get(root).frame != want {
+    if tree.get(root).frame != want || tree.relayout {
+        tree.relayout = false;
         tree.set_frame(root, want);
     }
 }

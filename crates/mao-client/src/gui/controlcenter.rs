@@ -42,7 +42,7 @@ pub const WINDOWS: &[(&str, &str)] = &[
     ("planetmap_window", "map"),
     ("specialaction_window", "actions"),
     ("mail_window", "mail"),
-    ("optionpanel_window", "options"),
+    ("optionpanel_window", "optionpanel"),
 ];
 
 /// A `CCMenu` view in the tree: its script's entries (loaded once the skin's folders are known) and where each was last
@@ -118,6 +118,32 @@ pub struct Output {
     pub commands: Vec<String>,
 }
 
+/// Where the player's own values are kept (beside the client's settings, as the program's `Prefs.xml`).
+pub fn prefs_path() -> PathBuf {
+    crate::settings::Settings::path().with_file_name("prefs.xml")
+}
+
+/// GUI.dll's sound settings (FUN_100c573c's observers, FUN_100c5242 on): the volumes and the switches (off mutes) given
+/// to the sound module (SandyInterface).
+fn apply_sound(store: &Store, name: &str) {
+    let v = store.get(name).cloned().unwrap_or_default();
+    let (f, on) = (v.as_float(), v.as_bool());
+    crate::audio::with(|m| match name {
+        "MasterVolume" => m.set_master_volume(f),
+        "SoundFXOn" => m.set_master_fx_mute(!on),
+        "FXVolume" => m.set_master_fx_volume(f),
+        "MusicOn" => m.set_master_music_mute(!on),
+        "MusicVolume" => m.set_master_music_volume(f),
+        "VoiceSndFxOn" => m.set_master_player_fx_mute(!on),
+        "VoiceSndFxVolume" => m.set_master_player_fx_volume(f),
+        // (`SoundOnOff`: everything)
+        "SoundOnOff" => m.set_master_mute(!on),
+        _ => {}
+    });
+}
+
+const SOUND: [&str; 8] = ["SoundOnOff", "MasterVolume", "SoundFXOn", "FXVolume", "MusicOn", "MusicVolume", "VoiceSndFxOn", "VoiceSndFxVolume"];
+
 /// The docks and the pictures that size them.
 const DOCKS: [(&str, &str); 7] = [
     ("LeftWingDock", "GFX_GUI_CONTROLCENTER_WING_LEFT"),
@@ -146,7 +172,13 @@ impl ControlCenter {
         let dirs: Vec<PathBuf> = skin.dirs().into_iter().map(|d| d.to_path_buf()).collect();
         let game_default = crate::theme::game_dir().map(|g| g.join("cd_image/gui/Default"));
         let own = dirs.first().filter(|d| Some(*d) != game_default.as_ref()).cloned();
-        let store = Store::load(game_default.as_deref(), own.as_deref());
+        let mut store = Store::load(game_default.as_deref(), own.as_deref());
+        store.load_user(&prefs_path());
+        for name in SOUND {
+            if store.get(name).is_some() {
+                apply_sound(&store, name);
+            }
+        }
         let (mut tree, root) = super::load_view(&dirs, "ControlCenter.xml", "")?;
         let measure = Measure { ctx: Some(ctx.clone()) };
         // (each dock the size of what goes in it)
@@ -318,11 +350,20 @@ impl ControlCenter {
             rolled: !self.store.get_bool("cc_left_wing") && !self.store.get_bool("cc_right_wing"),
         };
 
-        // the values the menus changed, back to the client's windows
+        // the values the menus and the option panel changed: the client's windows, the sound, the player's file
+        let mut save = false;
         for name in self.store.take_changed() {
             if let Some((_, w)) = WINDOWS.iter().find(|(dv, _)| *dv == name) {
                 out.windows.push((w, self.store.get_bool(&name)));
+            } else {
+                save = true;
             }
+            if SOUND.contains(&name.as_str()) {
+                apply_sound(&self.store, &name);
+            }
+        }
+        if save {
+            self.store.save_user(&prefs_path());
         }
         out
     }

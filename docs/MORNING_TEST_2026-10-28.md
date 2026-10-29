@@ -74,6 +74,7 @@ Added after the overnight run, on request: audio through rodio, ported from the 
 
 | Commit | What | What to try |
 |---|---|---|
+| (next) | **The skin's option panel**: Options in the control center opens `OptionPanel/Root.xml`'s pages (Audio, Video, GUI, Controls ...) with check boxes, sliders and radio groups; changes are saved to `prefs.xml`; the sound volumes and switches work | AOU theme, Options > Audio Settings: move Master/Music volume, switch music off; restart: the values stay |
 | 526a2e9 | **The strips' contents**: left strip NCU used/max and credits; right strip the AGG/DEF slider, sent to the server when let go (`SetStat` 51) | look at the strips (AOU: left strip top-left); drag the slider, check the server keeps it (relog) and attack speed changes |
 | 2168275 | **Movable bars and compass**: health, nano, XP and alien XP are separate bars (the original's CharBar windows) you drag anywhere, under the target frame at first; the compass drags too; places are remembered | drag each bar and the compass, restart: they stay where you left them |
 | d8573e8 | **The wings, bars, strips, target buttons and rollup placed by the skin's ControlCenter.xml** (its docks) and shown by its values; the rollup folds the wings | switch themes (original, AOU): each lays the control center out its own way; click the rollup button above the right wing |

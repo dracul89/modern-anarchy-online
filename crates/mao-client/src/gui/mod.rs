@@ -21,6 +21,7 @@ pub mod infoview;
 pub mod iteminfo;
 pub mod layout;
 pub mod menu;
+pub mod options;
 pub mod spells;
 pub mod stat_names;
 pub mod text;
@@ -34,11 +35,11 @@ use view::{Control, Id, Layout, Node, Plain, Spacer, Tree};
 use xml::Element;
 
 /// The XML classes GUI.dll registers (names are matched in any case).
-pub const CLASSES: [&str; 27] = [
+pub const CLASSES: [&str; 28] = [
     "BorderView", "Button", "CheckBox", "DropdownMenu", "RadioButton", "RadioButtonGroup", "StringListView", "TextInputView",
     "TextView", "View", "ViewSelector", "VLayoutSpacer", "HLayoutSpacer", "Slider", "ScrollViewChild", "ScrollView", "PowerBar",
     "BitmapView", "ComboBox", "TextButton", "ItemSlotView", "ItemIconView", "CCMenu", "CCMiniToolbar", "ScrollingTextView",
-    "OptionCheckBox", "OptionRadioButtonGroup",
+    "OptionCheckBox", "OptionRadioButtonGroup", "OptionSlider",
 ];
 
 /// A registered class whose own behaviour is not ported yet: laid out as a plain `View` (its children loaded).
@@ -88,6 +89,10 @@ pub fn create(tree: &mut Tree, e: &Element) -> Option<Id> {
         "TextView" => controls::TextView::create(tree, e),
         "BitmapView" => tree.add(Node::from_element(e, 4, Box::new(controls::BitmapView { bitmap: e.text("bitmap_id", "") }))),
         "CCMenu" => controlcenter::CCMenuView::create(tree, e),
+        "RadioButton" => controls::RadioButton::create(tree, e),
+        "OptionCheckBox" => options::create_check(tree, e),
+        "OptionSlider" => options::create_slider(tree, e),
+        "OptionRadioButtonGroup" => options::create_radio_group(tree, e),
         other => {
             let id = tree.add(Node::from_element(e, 4, Box::new(Unported(other))));
             load_child_views(tree, id, e);

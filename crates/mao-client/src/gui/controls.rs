@@ -344,6 +344,104 @@ impl Control for CheckBox {
     any!();
 }
 
+/// `RadioButton_c`: a check box drawn with `GFX_GUI_RADIOBUTTON_UNCHECKED` / `GFX_GUI_RADIOBUTTON_CHECKED`, its `value`
+/// the one its group takes when it is picked.
+pub struct RadioButton {
+    pub value: String,
+}
+
+impl RadioButton {
+    pub fn create(tree: &mut Tree, e: &Element) -> Id {
+        let id = CheckBox::create(tree, e);
+        if let Some(&b) = tree.get(id).children.first() {
+            if let Some(b) = tree.control_mut::<Button>(b) {
+                b.pictures = Some(["GFX_GUI_RADIOBUTTON_UNCHECKED".to_string(), "GFX_GUI_RADIOBUTTON_CHECKED".to_string()]);
+            }
+        }
+        tree.get_mut(id).control = Box::new(RadioButton { value: e.text("value", "") });
+        id
+    }
+}
+
+impl Control for RadioButton {
+    fn class(&self) -> &'static str {
+        "RadioButton"
+    }
+    any!();
+}
+
+/// `Slider_c`: a horizontal track (`GFX_GUI_OPTION_SLIDER`, stretched across) with its knob
+/// (`GFX_GUI_OPTION_SLIDER_THING`) where the value lies between the least and the most; pressing or dragging on it moves
+/// the value there. As wide as it is given (its maximum width open), as tall as the taller picture.
+pub struct Slider {
+    pub min: f64,
+    pub max: f64,
+    pub value: f64,
+    /// How wide it was drawn (for the mouse).
+    width: std::cell::Cell<f32>,
+    knob: std::cell::Cell<f32>,
+}
+
+impl Slider {
+    pub fn new(min: f64, max: f64, value: f64) -> Slider {
+        Slider { min, max, value, width: std::cell::Cell::new(100.0), knob: std::cell::Cell::new(8.0) }
+    }
+
+    fn at(&mut self, x: f32) {
+        let span = (self.width.get() - self.knob.get()).max(1.0);
+        let f = ((x - self.knob.get() * 0.5) / span).clamp(0.0, 1.0) as f64;
+        self.value = self.min + f * (self.max - self.min);
+    }
+}
+
+impl Control for Slider {
+    fn class(&self) -> &'static str {
+        "Slider"
+    }
+    fn preferred(&self, m: &Measure, max: bool) -> Option<Point> {
+        let skin = m.ctx.as_ref().and_then(|c| crate::skin::skin(c));
+        let size = |n: &str| skin.as_ref().and_then(|s| s.get(n)).map(|s| s.size);
+        let track = size("GFX_GUI_OPTION_SLIDER").unwrap_or(egui::vec2(100.0, 6.0));
+        let knob = size("GFX_GUI_OPTION_SLIDER_THING").unwrap_or(egui::vec2(8.0, 12.0));
+        let h = track.y.max(knob.y) - 1.0;
+        Some(Point::new(if max { 16000.0 } else { track.x.min(120.0) - 1.0 }, h))
+    }
+    fn paint(&self, p: &Paint) {
+        let knob = sprite_size(p, "GFX_GUI_OPTION_SLIDER_THING");
+        let knob = if knob.x > 0.0 { knob } else { egui::vec2(8.0, 12.0) };
+        let track = sprite_size(p, "GFX_GUI_OPTION_SLIDER");
+        let track_h = if track.y > 0.0 { track.y } else { 4.0 };
+        self.width.set(p.rect.width());
+        self.knob.set(knob.x);
+        let bar = egui::Rect::from_center_size(p.rect.center(), egui::vec2(p.rect.width(), track_h));
+        if !p.env.skin.is_some_and(|s| s.draw_in(p.painter, "GFX_GUI_OPTION_SLIDER", bar, greyed(egui::Color32::WHITE, p.enabled))) {
+            p.painter.rect_filled(bar, 1.0, egui::Color32::from_black_alpha(160));
+        }
+        let span = (p.rect.width() - knob.x).max(1.0);
+        let f = if self.max > self.min { ((self.value - self.min) / (self.max - self.min)).clamp(0.0, 1.0) as f32 } else { 0.0 };
+        let at = egui::Rect::from_min_size(egui::pos2(p.rect.left() + f * span, p.rect.center().y - knob.y * 0.5), knob);
+        if !p.env.skin.is_some_and(|s| s.draw_in(p.painter, "GFX_GUI_OPTION_SLIDER_THING", at, greyed(egui::Color32::WHITE, p.enabled))) {
+            p.painter.rect_filled(at, 1.0, Colour::DEFAULT.rgb(p.env.palette));
+        }
+    }
+    fn takes_mouse(&self) -> bool {
+        true
+    }
+    fn mouse(&mut self, m: Mouse, at: Point) -> Option<Signal> {
+        match m {
+            Mouse::Down | Mouse::Move => {
+                self.at(at.x);
+                None
+            }
+            Mouse::Up { .. } => {
+                self.at(at.x);
+                Some(Signal::Clicked)
+            }
+        }
+    }
+    any!();
+}
+
 /// `BitmapView_c` (0x10125cc7 from XML: `bitmap_id`): a picture of the skin at its size.
 pub struct BitmapView {
     pub bitmap: String,

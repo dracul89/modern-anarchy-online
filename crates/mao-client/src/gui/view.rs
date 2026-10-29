@@ -150,6 +150,8 @@ pub struct Node {
     /// `activate_criteria` (the views that show only when it holds), and whether it last failed (holding one hide).
     pub criteria: String,
     pub criteria_off: bool,
+    /// `view_enable_expression` (View 0x1014e42e): enabled only while it holds.
+    pub enable_expression: String,
     pub tooltip: String,
 }
 
@@ -172,6 +174,7 @@ impl Node {
             flags: 4,
             hidden: 0,
             criteria_off: false,
+            enable_expression: String::new(),
             enabled: true,
             layout: Layout::None,
             resize_mask: 0,
@@ -203,6 +206,7 @@ impl Node {
         n.h_align = Align::parse(&e.text("h_alignment", ""));
         n.v_align = Align::parse(&e.text("v_alignment", ""));
         n.criteria = e.text("activate_criteria", "");
+        n.enable_expression = e.attribute("view_enable_expression").unwrap_or("").to_string();
         n
     }
 
@@ -215,6 +219,8 @@ impl Node {
 #[derive(Default)]
 pub struct Tree {
     pub nodes: Vec<Node>,
+    /// Lay out again at the next fit even when the size is the same (texts or values changed).
+    pub relayout: bool,
     /// How text is measured for the preferred sizes.
     pub measure: Measure,
     /// The views' signals since the window's code last took them.
@@ -269,6 +275,15 @@ impl Tree {
             }
         }
         None
+    }
+
+    /// Each view's `view_enable_expression` evaluated: enabled while it holds.
+    pub fn apply_enable(&mut self, holds: &dyn Fn(&str) -> bool) {
+        for n in &mut self.nodes {
+            if !n.enable_expression.trim().is_empty() {
+                n.enabled = holds(&n.enable_expression);
+            }
+        }
     }
 
     /// Forgets the preferred sizes (a control's own size changed).
