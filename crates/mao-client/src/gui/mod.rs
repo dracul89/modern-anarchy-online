@@ -184,8 +184,14 @@ mod tests {
             let size = t.preferred(root, false);
             // (a window the size of a screen, or the view's own if larger: a stacked view has no preferred size)
             t.set_frame(root, geom::Rect::new(0.0, 0.0, size.x.max(1023.0), size.y.max(767.0)));
-            for n in &t.nodes {
-                assert!(n.frame.width() >= -1.0 && n.frame.height() >= -1.0, "{}: {} {:?}", path.display(), n.name, n.frame);
+            for (k, n) in t.nodes.iter().enumerate() {
+                let mut chain = Vec::new();
+                let mut at = Some(k);
+                while let Some(a) = at {
+                    chain.push(format!("{}:{}:{:?}", t.get(a).control.class(), t.get(a).name, t.get(a).frame));
+                    at = t.get(a).parent;
+                }
+                assert!(n.frame.width() >= -1.0 && n.frame.height() >= -1.0, "{}: {} {:?} {chain:#?}", path.display(), n.name, n.frame);
             }
             count += 1;
         }

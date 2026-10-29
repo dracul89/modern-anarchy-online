@@ -369,9 +369,10 @@ impl Tree {
         }
     }
 
-    /// Whether a child takes part in its parent's layout: visible, or hidden without [`FLAG_COLLAPSE`].
+    /// Whether a child takes part in its parent's layout: not hidden itself, or hidden without [`FLAG_COLLAPSE`] (its own
+    /// hide count: inside a hidden page the views lay out as they would shown).
     pub fn laid_out(&self, id: Id) -> bool {
-        self.is_visible(id) || self.nodes[id].flags & FLAG_COLLAPSE == 0
+        self.nodes[id].hidden == 0 || self.nodes[id].flags & FLAG_COLLAPSE == 0
     }
 
     /// `UpdatePreferredSize` (0x1014acda): the calculated size clamped by the view's own limits.
