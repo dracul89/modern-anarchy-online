@@ -1141,3 +1141,15 @@ an undefined state, and the client lost the connection mid-fight (error 997, or 
   world (`tab`, `attack`, `use`, `follow` the target, `stop` following), for testing a fight without a keyboard.
 * `MAO_TRACE=1`: also each movement message sent, and while fighting where one stands against the one fought.
 * `net <game> attack <character> <seconds>` with `MAO_ATTACK_RANGE=<m>`: the headless fight stops that far from the creature.
+
+## Creatures walking (`FollowTarget`, `SetPos`)
+
+The server moves creatures mostly by `FollowTarget` (`260f3671`, Gamecode's `FollowTargetIIR_c`, up to 30 places): type 1 a
+path of waypoints, type 2 a target to follow (live, always identity 0: stop where it is). The client ignored it, so a
+wandering or charging creature stood still until its next full update: Tab's distances, /follow and the place of the body a
+corpse is matched to were all off by metres. Now (`World::paths`, `walk_paths`) each path's first place is taken as where the
+server has the creature (it is moved there), and it walks the rest at its speed; `SetPos` (`195e496e`) puts it down. Live,
+wandering creatures send a two-place path every 1-3 s and walk a steady 1.5 m/s (the default); the speed of each creature is
+learnt from two paths in a row (how far along the first the second starts, over the time between them: `path_speed`), so a
+running one keeps up. Tested (`creatures_walk_their_paths`) and checked live: the body's place now matches its corpse's to
+half a metre. Dead ones stop. Kills and loots tried live (2026-10-29, Sadlee): two items taken from a Reet of Paradise.

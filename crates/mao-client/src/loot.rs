@@ -36,8 +36,8 @@ pub enum Take {
 pub struct LootWindow {
     pub open: bool,
     textures: HashMap<u32, egui::TextureId>,
-    /// Since when the container shown has been empty (it closes a second later).
-    empty_since: Option<std::time::Instant>,
+    /// Which container (identity, handle) has been empty since when (it closes a second later).
+    empty_since: Option<((u32, u32), u32, std::time::Instant)>,
 }
 
 /// An icon's square, and the icons in a row (`InventoryView_c`'s position map: place % 3, place / 3).
@@ -50,8 +50,10 @@ impl LootWindow {
         let mut open = self.open;
         // (FUN_100ccefe: an empty corpse or chest closes after a second)
         if view.items.is_empty() {
-            let since = *self.empty_since.get_or_insert_with(std::time::Instant::now);
-            if since.elapsed() >= std::time::Duration::from_secs(1) {
+            if self.empty_since.is_none_or(|e| (e.0, e.1) != (view.identity, view.handle)) {
+                self.empty_since = Some((view.identity, view.handle, std::time::Instant::now()));
+            }
+            if self.empty_since.is_some_and(|e| e.2.elapsed() >= std::time::Duration::from_secs(1)) {
                 self.open = false;
                 return None;
             }

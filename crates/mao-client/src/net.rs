@@ -96,6 +96,27 @@ fn hop(game: &str, target: &str, character: u32, say: &dyn Fn(String)) -> Result
     Err(last)
 }
 
+/// Where a creature is being walked to (see `World::paths`).
+#[derive(Clone, Debug, PartialEq)]
+enum Route {
+    Waypoints(Vec<[f32; 3]>),
+    Chase(u32),
+}
+
+/// How fast the walked creatures go (m/s) until their own paths show otherwise (wandering creatures, live: a steady 1.5),
+/// and how near a chased one stops.
+const PATH_SPEED: f32 = 1.5;
+const CHASE_NEAR: f32 = 1.5;
+
+/// A creature's speed from two paths in a row: how far along the first one the second starts, over the time between them
+/// (none when the first was already walked to its end, or the second does not start on it).
+fn path_speed(previous: (Instant, [f32; 3], [f32; 3]), start: [f32; 3], now: Instant) -> Option<f32> {
+    let flat = |a: [f32; 3], b: [f32; 3]| ((a[0] - b[0]).powi(2) + (a[2] - b[2]).powi(2)).sqrt();
+    let dt = now.duration_since(previous.0).as_secs_f32();
+    let (moved, length) = (flat(previous.1, start), flat(previous.1, previous.2));
+    (dt > 0.4 && moved < length - 0.3 && moved > 0.2).then(|| (moved / dt).clamp(0.5, 15.0))
+}
+
 /// `MAO_TRACE=1`: print the server messages that matter for zoning and
 /// the like (not the bulk of entity and position traffic), with the time.
 fn trace(frame: &frame::Frame, clock: Instant) {
@@ -214,6 +235,13 @@ struct World {
     corpses: BTreeMap<u32, u32>,
     /// The characters that died lately and where (kept past their `Despawn`, which the server sends just before the corpse).
     bodies: BTreeMap<u32, ([f32; 3], Instant)>,
+    /// How the server moves the creatures (`FollowTarget`, `260f3671`, Gamecode's `FollowTargetIIR_c`, up to 30 places):
+    /// along a path of waypoints (type 1) or after a target (type 2). The client walks them there between the server's
+    /// own position messages; a `SetPos` (`195e496e`) puts one down where it says.
+    paths: BTreeMap<u32, Route>,
+    /// Each walked creature's last path (when it came, its start, its end) and its speed as the paths show it.
+    path_seen: BTreeMap<u32, (Instant, [f32; 3], [f32; 3])>,
+    path_speeds: BTreeMap<u32, f32>,
     /// Whom each character is fighting (the `Attack` message from it, its full update's `FightingTarget`; `StopFight` ends it):
     /// a fighting character has its weapon drawn (`WeaponHolder_t` +0x44 at 2, FUN_1006a1b1; 1 again at FUN_100690c8).
     fighting: BTreeMap<u32, u32>,
@@ -724,6 +752,11 @@ impl World {
         if m.kind == 0x5e477770 && m.data.len() >= 25 && u32::from_be_bytes(m.data[1..5].try_into().unwrap()) == 99 {
             let action = u32::from_be_bytes(m.data[21..25].try_into().unwrap());
             self.dead.insert(m.identity.1, (action, Instant::now()));
+            // (dead: no health left, whatever the last hit said)
+            if let Some(h) = self.health.get_mut(&m.identity.1) {
+                h.0 = 0;
+            }
+            self.last_hp.insert(m.identity.1, 0);
             if let Some(e) = self.entities.get(&m.identity.1) {
                 self.bodies.retain(|_, b| b.1.elapsed() < Duration::from_secs(120));
                 self.bodies.insert(m.identity.1, (e.0, Instant::now()));
@@ -1088,12 +1121,16 @@ impl World {
                 let part = |name: &str, field: &str| p.value.get(name).and_then(|v| v.get(field)).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
                 let identity = (part("InventoryIdentity", "Type"), part("InventoryIdentity", "Instance"));
                 let entries = inventory_from_schema_items(p.value.get("Items"));
-                if entries.is_empty() {
+                if std::env::var_os("MAO_COMBAT_LOG").is_some() && entries.is_empty() {
+                    eprintln!("combat: container ({:#x}, {:#x}) is empty", identity.0, identity.1);
+                }
+                if entries.is_empty() && identity.0 != 0xc76a && identity.0 != 0xc749 {
                     if self.loot.as_ref().is_some_and(|l| l.identity == identity) {
                         self.loot = None;
                         self.loot_changed = true;
                     }
                 } else if identity.0 != 0 {
+                    // (an empty corpse or chest still opens, and closes itself a second later: `InventoryView_c`'s timer)
                     let handle = p.value.get("Handle").and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
                     if identity.0 == 0xc76a {
                         self.fresh_corpse = Some((handle, entries.iter().map(|e| e.slot).collect()));
@@ -1128,6 +1165,9 @@ impl World {
                     if let Some(loot) = self.loot.as_mut() {
                         if let Some(at) = loot.entries.iter().position(|e| e.slot == place) {
                             let mut entry = loot.entries.remove(at);
+                            if std::env::var_os("MAO_COMBAT_LOG").is_some() {
+                                eprintln!("combat: took item {} (place {place}) from the container", entry.low_id);
+                            }
                             if let Some(free) = (inventory::BACKPACK_FIRST..inventory::BACKPACK_FIRST + crate::gear::PACK_SLOTS).find(|s| !self.worn.iter().any(|e| e.slot == *s)) {
                                 entry.slot = free;
                                 self.worn.push(entry);
@@ -1148,6 +1188,60 @@ impl World {
         }
         if m.kind == mao_net::destinations::DESTINATION_LIST {
             self.destinations = mao_net::destinations::parse(&m.data);
+        }
+        if m.kind == 0x260f3671 {
+            if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
+                let kind = p.value.get("Type").and_then(mao_net::schema::Value::as_int).unwrap_or(0);
+                let info = p.value.get("Info");
+                let vector = |v: &mao_net::schema::Value| -> Option<[f32; 3]> {
+                    let f = |n: &str| match v.get(n) {
+                        Some(mao_net::schema::Value::Float(x)) => Some(*x as f32),
+                        _ => None,
+                    };
+                    Some([f("X")?, f("Y")?, f("Z")?])
+                };
+                let path = match kind {
+                    1 => match info.and_then(|i| i.get("Waypoints")) {
+                        Some(mao_net::schema::Value::List(points)) => Some(Route::Waypoints(points.iter().filter_map(vector).collect())),
+                        _ => None,
+                    },
+                    2 => info.and_then(|i| i.get("Target")).and_then(|t| t.get("Instance")).and_then(mao_net::schema::Value::as_int).map(|t| Route::Chase(t as u32)),
+                    _ => None,
+                };
+                if std::env::var_os("MAO_COMBAT_LOG").is_some() {
+                    eprintln!("combat: [{:.2}] {:#x} {} follows {path:?}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64() % 1000.0), m.identity.1, self.names.get(&m.identity.1).map_or("?", |n| n.0.as_str()));
+                }
+                match path {
+                    Some(Route::Waypoints(mut points)) if m.identity.1 != self.own && !points.is_empty() => {
+                        // (the first place is where the server has it now: it starts from there, and the paths in a row tell
+                        // its speed)
+                        let start = points.remove(0);
+                        if let Some(previous) = self.path_seen.get(&m.identity.1) {
+                            if let Some(speed) = path_speed(*previous, start, Instant::now()) {
+                                self.path_speeds.insert(m.identity.1, speed);
+                            }
+                        }
+                        self.path_seen.insert(m.identity.1, (Instant::now(), start, *points.last().unwrap_or(&start)));
+                        if let Some(e) = self.entities.get_mut(&m.identity.1) {
+                            e.0 = start;
+                        }
+                        self.paths.insert(m.identity.1, Route::Waypoints(points));
+                    }
+                    Some(path) if m.identity.1 != self.own => {
+                        self.paths.insert(m.identity.1, path);
+                    }
+                    _ => {
+                        self.paths.remove(&m.identity.1);
+                    }
+                }
+            }
+        }
+        if m.kind == 0x195e496e && m.data.len() >= 12 && m.identity.1 != self.own {
+            let f = |at: usize| f32::from_be_bytes(m.data[at..at + 4].try_into().unwrap());
+            self.paths.remove(&m.identity.1);
+            if let Some(e) = self.entities.get_mut(&m.identity.1) {
+                e.0 = [f(0), f(4), f(8)];
+            }
         }
         if m.kind == OBJECT_ANNOUNCE && m.identity.0 == OBJECT_TYPE && m.data.len() >= 29 {
             // The position follows 17 bytes of header (the capture's objects stand where a
@@ -1309,6 +1403,58 @@ impl World {
             self.last_seen.insert(m.identity.1, Instant::now());
             e.0 = p;
             e.1 += 1;
+        }
+    }
+
+    /// Walks the creatures the server set on a path or after a target (`paths`) for `dt` seconds; `own` is one's own place.
+    fn walk_paths(&mut self, dt: f32, own: [f32; 3]) {
+        let ids: Vec<u32> = self.paths.keys().copied().collect();
+        for id in ids {
+            if self.dead.contains_key(&id) {
+                self.paths.remove(&id);
+                continue;
+            }
+            let Some(at) = self.entities.get(&id).map(|e| e.0) else {
+                self.paths.remove(&id);
+                continue;
+            };
+            let (goal, near) = match &self.paths[&id] {
+                Route::Waypoints(points) => match points.first() {
+                    Some(p) => (*p, 0.1),
+                    None => {
+                        self.paths.remove(&id);
+                        continue;
+                    }
+                },
+                Route::Chase(t) => match if *t == self.own { Some(own) } else { self.entities.get(t).map(|e| e.0) } {
+                    Some(p) => (p, CHASE_NEAR),
+                    None => {
+                        self.paths.remove(&id);
+                        continue;
+                    }
+                },
+            };
+            let (dx, dz) = (goal[0] - at[0], goal[2] - at[2]);
+            let left = (dx * dx + dz * dz).sqrt();
+            if left <= near {
+                if let Some(Route::Waypoints(points)) = self.paths.get_mut(&id) {
+                    points.remove(0);
+                }
+                continue;
+            }
+            let speed = self.path_speeds.get(&id).copied().unwrap_or(PATH_SPEED);
+            let step = (speed * dt).min(left - near);
+            let to = [at[0] + dx / left * step, at[1] + (goal[1] - at[1]) * (step / left), at[2] + dz / left * step];
+            if let Some(e) = self.entities.get_mut(&id) {
+                e.0 = to;
+            }
+            self.last_move.insert(id, Instant::now());
+            self.speeds.insert(id, speed);
+            self.backing.insert(id, false);
+            let heading = dx.atan2(dz);
+            if !self.fighting.contains_key(&id) {
+                self.rotations.insert(id, [0.0, (heading * 0.5).sin(), 0.0, (heading * 0.5).cos()]);
+            }
         }
     }
 
@@ -3323,6 +3469,13 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     "tab" => seen[0] = seen[0].wrapping_sub(1),
                     "attack" => seen[4] = seen[4].wrapping_sub(1),
                     "use" => seen[6] = seen[6].wrapping_sub(1),
+                    "loot" => {
+                        if let Some(l) = state.loot.as_ref() {
+                            for e in &l.entries {
+                                let _ = connection.send(&n3::take_from_container(own, l.handle, e.slot));
+                            }
+                        }
+                    }
                     "follow" => following = target.filter(|t| state.entities.contains_key(t)),
                     _ => {
                         following = None;
@@ -3422,7 +3575,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             uses += 1;
                             let (kind, t) = state.used(state.types.get(&t).copied().unwrap_or(n3::CHARACTER), t);
                             if std::env::var_os("MAO_COMBAT_LOG").is_some() {
-                                eprintln!("combat: use ({kind:#x}, {t:#x})");
+                                let there = state.objects.get(&t).copied().or_else(|| state.entities.get(&t).map(|e| e.0));
+                                eprintln!("combat: use ({kind:#x}, {t:#x}) at {there:?}, {:?} m away", there.map(|p| ((p[0] - position[0]).powi(2) + (p[1] - position[1]).powi(2) + (p[2] - position[2]).powi(2)).sqrt()));
                             }
                             let _ = connection.send(&n3::use_object(own, uses, (kind, t)));
                             state.door_used(t);
@@ -4140,6 +4294,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             turning = keys.turn;
             strafing = keys.strafe;
             state.rotations.insert(own, [0.0, (heading * 0.5).sin(), 0.0, (heading * 0.5).cos()]);
+            // (the creatures the server walks: along their paths, after their targets)
+            state.walk_paths(dt, position);
             // (and the others fighting turn the same way, between the server's rotations)
             let fighters: Vec<(u32, u32)> = state.fighting.iter().map(|(&a, &b)| (a, b)).filter(|&(id, _)| id != own).collect();
             state.facings.retain(|id, _| *id == own || state.fighting.contains_key(id));
@@ -5861,5 +6017,30 @@ mod movement_tests {
         assert!((movement_rate(1.15, 100.0, 6.0, 5.0) - 1.3).abs() < 0.001);
         assert!((movement_rate(0.9, 100.0, 1.5, 1.5) - 0.9).abs() < 0.001);
         assert!((movement_rate(1.0, 200.0, 5.0, 5.0) - 0.5).abs() < 0.001);
+    }
+
+    #[test]
+    fn creatures_walk_their_paths() {
+        // a path's speed: 3 m along a 5 m path in 2 s is 1.5 m/s; a path walked to its end tells nothing
+        let then = Instant::now();
+        let now = then + Duration::from_secs(2);
+        assert_eq!(path_speed((then, [0.0; 3], [0.0, 0.0, 5.0]), [0.0, 0.0, 3.0], now), Some(1.5));
+        assert_eq!(path_speed((then, [0.0; 3], [0.0, 0.0, 3.0]), [0.0, 0.0, 3.0], now), None);
+        // walked at 1.5 m/s toward the path's end, then stopped there
+        let mut w = World { own: 1, ..World::default() };
+        w.entities.insert(7, ([0.0; 3], 0));
+        w.paths.insert(7, Route::Waypoints(vec![[0.0, 0.0, 3.0]]));
+        w.walk_paths(1.0, [50.0, 0.0, 0.0]);
+        assert!((w.entities[&7].0[2] - 1.5).abs() < 1e-4);
+        for _ in 0..3 {
+            w.walk_paths(1.0, [50.0, 0.0, 0.0]);
+        }
+        assert!((w.entities[&7].0[2] - 3.0).abs() < 0.11);
+        // after oneself: stops 1.5 m short
+        w.paths.insert(7, Route::Chase(1));
+        for _ in 0..40 {
+            w.walk_paths(1.0, [0.0, 0.0, 20.0]);
+        }
+        assert!((w.entities[&7].0[2] - 18.5).abs() < 1e-3);
     }
 }
