@@ -345,6 +345,7 @@ impl Ui {
             }
         };
         shut("Options", &mut self.options_open);
+        shut("Option panel", &mut self.option_panel.open);
         shut("loot", &mut self.loot.open);
         shut("Shop", &mut self.shop.open);
         shut("Perks", &mut self.perks.open);
@@ -423,6 +424,18 @@ impl Ui {
         true
     }
 
+    /// The options key (F10, `optionpanel_window`): the skin's option panel when the skin has one, else (and from the
+    /// panel's "Client settings") the client's own settings window.
+    pub fn toggle_options(&mut self) {
+        let dirs: Vec<std::path::PathBuf> = crate::skin::skin(&self.ctx).map(|s| s.dirs().into_iter().map(|d| d.to_path_buf()).collect()).unwrap_or_default();
+        if crate::gui::options::skin_has_panel(&dirs) {
+            self.option_panel.open = !self.option_panel.open;
+        } else {
+            self.options_open = !self.options_open;
+            self.rebinding = None;
+        }
+    }
+
     /// Seconds on the hotbars' clock.
     pub fn now(&self) -> f64 {
         self.clock.elapsed().as_secs_f64()
@@ -476,6 +489,9 @@ impl Ui {
                     }
                 }
                 option_panel.show(&ctx, palette, &mut cc.store, &hud.stats);
+                if std::mem::take(&mut option_panel.client_settings) {
+                    *options_open = true;
+                }
                 // (the wings, bars and buttons where the skin's ControlCenter.xml docks them)
                 let clicks = crate::vitals::show_docked(&ctx, hud.camera_yaw, &hud.stats, &hud.stat_parts, palette, &cc.docks);
                 if clicks.rollup {
@@ -587,7 +603,7 @@ impl Ui {
         if let Some(n) = menu_click.and_then(|n| ["target_self", "target_next", "camera_1st", "camera_3rd", "camera_lock", "camera_rubber", "camera_trail"].iter().position(|t| *t == n)) {
             requests.target = Some(n as u8);
         } else if menu_click == Some("options") {
-            self.options_open = !self.options_open;
+            self.toggle_options();
         } else if let Some(name) = menu_click {
             let now = self.window_open(name);
             self.set_window(name, !now);

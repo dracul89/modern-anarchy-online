@@ -927,8 +927,7 @@ impl ApplicationHandler for App {
                         }
                         Action::ToggleOptions if !event.repeat => {
                             if let Some(ui) = w.ui.as_mut() {
-                                ui.options_open = !ui.options_open;
-                                ui.rebinding = None;
+                                ui.toggle_options();
                             }
                         }
                         Action::Quit => {

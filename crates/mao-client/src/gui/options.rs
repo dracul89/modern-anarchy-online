@@ -249,9 +249,16 @@ struct Page {
     root: Id,
 }
 
+/// Whether a skin's folders hold an option panel (an `OptionPanel/Root.xml` with something in it).
+pub fn skin_has_panel(dirs: &[std::path::PathBuf]) -> bool {
+    dirs.iter().any(|d| std::fs::read_to_string(d.join("OptionPanel/Root.xml")).is_ok_and(|t| t.contains("label")))
+}
+
 #[derive(Default)]
 pub struct OptionPanel {
     pub open: bool,
+    /// The "Client settings" link was clicked (the client's own window: display, keys, theme).
+    pub client_settings: bool,
     pages: Vec<Page>,
     selected: usize,
     loaded: bool,
@@ -296,7 +303,7 @@ impl OptionPanel {
             self.load(&dirs);
         }
         let mut open = self.open;
-        let (pages, selected) = (&mut self.pages, &mut self.selected);
+        let (pages, selected, client_settings) = (&mut self.pages, &mut self.selected, &mut self.client_settings);
         crate::chrome::window(ctx, palette, "Option panel", "Options", &mut open, |w| w.default_size([640.0, 460.0]).resizable(true), |ui| {
             if pages.is_empty() {
                 ui.label("This skin has no option panel (its OptionPanel/Root.xml is empty).");
@@ -331,6 +338,11 @@ impl OptionPanel {
                         }
                         if let Some(i) = pick {
                             *selected = i;
+                        }
+                        // (what the original has no option for: the window mode, resolution, keys and theme)
+                        ui.separator();
+                        if ui.link("Client settings").clicked() {
+                            *client_settings = true;
                         }
                     });
                 });
