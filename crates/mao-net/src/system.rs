@@ -44,7 +44,7 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-fn system(kind: u32, payload: &[u8]) -> Frame {
+pub(crate) fn system(kind: u32, payload: &[u8]) -> Frame {
     let mut body = kind.to_be_bytes().to_vec();
     body.extend_from_slice(payload);
     // A client's messages go from source 0 to destination 1 in the capture.

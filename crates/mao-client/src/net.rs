@@ -5108,6 +5108,39 @@ pub fn run(args: &[String]) -> Result<(), String> {
             }
             Ok(())
         }
+        // `net <game> suggest <breed choice 1-7> <profession choice 1-14>`: the login server's suggested name.
+        [game, word, breed, prof] if word == "suggest" => {
+            let (b, s) = crate::charcreate::breed_and_sex(breed.parse().map_err(|_| "bad breed")?).ok_or("the breed choice is 1 to 7")?;
+            let (mut connection, _) = login(game)?;
+            let reply = session::ask_creation(&mut connection, &mao_net::create::suggest_name(b, s, crate::charcreate::profession(prof.parse().map_err(|_| "bad profession")?))).map_err(|e| e.to_string())?;
+            connection.close();
+            println!("{reply:?}");
+            Ok(())
+        }
+        // `net <game> create <name> <breed 1-7> <profession 1-14> <head n> <height 0-2> <build 0-2>`: makes a character (the
+        // original's `CreateCharacter`), the head the n-th the breed may have.
+        [game, word, name, breed, prof, head, height, width] if word == "create" => {
+            let (b, s) = crate::charcreate::breed_and_sex(breed.parse().map_err(|_| "bad breed")?).ok_or("the breed choice is 1 to 7")?;
+            let name = crate::charcreate::proper(name);
+            if let Some(problem) = crate::charcreate::name_problem(&name) {
+                return Err(crate::charcreate::text(problem));
+            }
+            let db = Arc::new(ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?);
+            let index = mao_formats::instances::Instances::parse(&db.get(mao_formats::resource::Id { kind: 0xf424a, instance: 1 }).map_err(|e| e.to_string())?.ok_or("no instance index")?).map_err(|_| "the instance index is cut short")?;
+            let heads = crate::charcreate::heads(b, s, &|n| index.find(0xf6951, n));
+            let n: usize = head.parse().map_err(|_| "bad head")?;
+            let (mesh, race, file) = heads.get(n).cloned().ok_or_else(|| format!("{} heads for that breed", heads.len()))?;
+            let c = mao_net::create::NewCharacter { name, breed: b, sex: s, profession: crate::charcreate::profession(prof.parse().map_err(|_| "bad profession")?), head: mesh as i32, height: crate::charcreate::height(height.parse().map_err(|_| "bad height")?), width: width.parse().map_err(|_| "bad build")? };
+            println!("making {c:?} (head {file}, race {race})");
+            let (mut connection, _) = login(game)?;
+            let reply = session::ask_creation(&mut connection, &mao_net::create::create_character(&c)).map_err(|e| e.to_string())?;
+            connection.close();
+            match reply {
+                mao_net::create::Reply::Refused(code) => println!("refused: {code} {}", crate::charcreate::text(crate::charcreate::refusal(code))),
+                other => println!("{other:?}"),
+            }
+            Ok(())
+        }
         [game, word, who, rest @ ..] if word == "attack" => fight(game, who, rest.first().and_then(|s| s.parse().ok()).unwrap_or(40), rest.get(1..).unwrap_or(&[]).chunks_exact(2).filter_map(|c| Some((c[0].parse().ok()?, c[1].parse().ok()?))).collect()),
         [game, word, who, target] if word == "hop" => {
             // Log the character in at a redirect's address and say where the world puts it.

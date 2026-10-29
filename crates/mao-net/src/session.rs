@@ -156,6 +156,18 @@ pub fn login_character(connection: &mut Connection, id: u32) -> Result<system::T
     Ok(ticket)
 }
 
+/// Sends a creation message ([`crate::create`]) on a logged-in connection and waits for the login server's answer (other
+/// messages that come first are passed over).
+pub fn ask_creation(connection: &mut Connection, frame: &Frame) -> Result<crate::create::Reply, Error> {
+    connection.send(frame)?;
+    loop {
+        let reply = connection.receive()?;
+        if let Ok(Some(r)) = crate::create::reply(&reply) {
+            return Ok(r);
+        }
+    }
+}
+
 /// The ticket the last [`login_character`] got.
 pub fn last_ticket() -> Option<system::Ticket> {
     LAST_TICKET.lock().ok().and_then(|t| t.clone())

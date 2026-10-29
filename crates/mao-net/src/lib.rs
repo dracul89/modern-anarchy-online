@@ -14,6 +14,7 @@
 //! * [`session`]: a blocking connection that logs in and lists characters.
 
 pub mod chat;
+pub mod create;
 pub mod crypto;
 pub mod destinations;
 pub mod frame;

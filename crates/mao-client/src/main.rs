@@ -23,6 +23,7 @@ macro_rules! profile {
 }
 
 mod actions;
+mod charcreate;
 mod loading;
 mod prof;
 mod chat_commands;

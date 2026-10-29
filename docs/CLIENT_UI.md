@@ -1240,3 +1240,19 @@ out over 7 s (the original's timings). The client's own additions: the picture i
 `TINT` = 0.35, 0.6, 1.45), and a zoning shows the screen too (at once, fading out over 1.5 s when the new playfield is
 drawn). Not ported: `welcome_to_rubika.jpg`, which the original shows instead after a character was made. Preview:
 `MAO_UI_PREVIEW=loading mao-client <game> map 566 --image out.png`.
+
+## Character creation (step 1: the protocol, 2026-10-29)
+
+From Interfaces.dll's `Client_t` and MessageProtocol.dll's `CharacterData_t` (`mao_net::create`): making a character is
+system message 0x0f to the login server, the `CharacterData_t` as `WriteStream` writes it (version 4, id 0, an empty
+playfield proxy, "not created"; then the `CharacterInfo_c`, version 5: the name, breed, sex, profession, level 0, "area
+unknown", not banned, head, height, width) and an int 0; asking for a name is 0x55 with the breed, sex and profession. The
+server answers 0x11 with the new character's id, 0x10 with a refusal code, 0x56 with a suggested name (a `u16` length).
+GUI.dll's rules are in `charcreate.rs`: the screens' seven breed choices and fourteen professions as the game's numbers,
+the heads (mesh instances of `head_<breed><sex>NN.abiff`, type 0xf6951, with the African and Asian Solitus sets; the
+original's counts without the expansion flag), height 90/100/110 and build 0/1/2, the name's rules (4 to 12 characters,
+letters, digits only at the end after the fourth; a capital then small letters) and the refusal codes' texts (category
+600: 8 CantCreateMoreChars, 30 NicknameTaken, 31 NicknameInvalid ...).
+
+Tried live: `mao-client net <game> suggest 4 4` got "Nath"; `mao-client net <game> create Maotestone 4 4 0 1 1` made an
+Opifex male soldier (id 2063341223), listed at level 1. Next: the launcher's New Character screens.
