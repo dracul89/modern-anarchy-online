@@ -2,6 +2,8 @@
 //! them: a typed line becomes a [`Parsed`].
 
 /// Every command the original lists, in its order (the case is the original's).
+/// (Under review: the AOU and other script-file names in this list, `aliens` to `MapMarker`, came from one install's
+/// `scripts` folder, not the game; see docs/ORIGINAL_AUDIT.md, "For review and removal".)
 pub const COMMANDS: &[&str] = &[
     "afk", "aliens", "anon", "aou_about", "aou_gui_default", "aou_gui_default_1", "aou_gui_slim", "aou_gui_slim_1", "aou_gui_slim_2", "aou_gui_slim_3",
     "aou_gui_translucent", "AOU_mod", "ao_original", "APanel", "assist", "AVbasic", "bank", "Befriend", "born", "bug", "camp", "cc", "ch", "char&viewdist",

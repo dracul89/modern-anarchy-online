@@ -54,6 +54,22 @@ then check a render. Never the other way round.
 | Vicinity speech sent | GUI.dll FUN_10089669 (the data: `u16` length, text, kind, voice record; AFCM 0x16d/0x170/0x129), Interfaces.dll `NetworkModule_t::VicinityTextMessage` → `Client_t::SendVicinityMessage` / `SendShoutMessage` / `SendWhisperMessage` (a `TextMessage_t` of object 3, 4 or 2: the target's identity, the length, the data) | `n3::vicinity_data`, `n3::text_message`, `net::speak` | done for say, shout, whisper and `/me` (FUN_1009d247: kind 3) and `/voice`; not: `ExpandChatTextArgs` (the text's macros) and the chat indicator's head flash |
 | Emotes | GUI.dll's emote table (0x101bae30, FUN_100b2fc3), `/emote` and `/<name>` (FUN_100b348c registers them, FUN_100b30bf runs them), Gamecode's `N3Msg_DoSocialAction` (0x10026b4f) and `SocialActionCmd_t` (FUN_1007b000, its writer FUN_1007af4c over `n3Command_t::WriteSubClass`, the counter `s_nCommandRefCntr` from 1) | `chat_commands::EMOTES`, `n3::social_action`, `net.rs` | done, with the hotbar's social actions now sent too; lounge and sleep need sitting (the client's sitting is the camp's); not: the swimming and vehicle checks (the client knows neither) |
 
+## For review and removal: script-file commands in the `/` list
+
+`chat_commands::COMMANDS` (the 88 names offered when `/` is typed) was copied from the list a live install showed. Some of
+them are not the original game's commands: they are text files in that install's `scripts` folder (the AOU mod's and the
+player's own, `%LOCALAPPDATA%/Funcom/Anarchy Online/<id>/Anarchy Online/scripts`), which the original lists alongside its own
+commands and runs line by line. These seventeen are marked for review and removal from the built-in list (to be offered only
+when such a file exists, once `/script` and `/macro` are ported):
+
+`aliens`, `aou_about`, `aou_gui_default`, `aou_gui_default_1`, `aou_gui_slim`, `aou_gui_slim_1`, `aou_gui_slim_2`,
+`aou_gui_slim_3`, `aou_gui_translucent`, `AOU_mod`, `ao_original`, `APanel`, `AVbasic`, `custom_maps`, `FriendshipInvite`,
+`Link_URL_Description`, `lof`, `MapMarker`.
+
+Checking that folder also found two more to review with them: `text` (also a script file, though the name may be a game
+command too) and `Befriend` (a script file that this client handles itself, `Parsed::Befriend`). With those the list above is
+eighteen names, not seventeen: `AOU_mod` was missed in the first count.
+
 ## To do, in order of what the player sees
 
 1. **Environment: sky, sun, weather** — what is left after the area environments and the clock (above). Read this pass:
