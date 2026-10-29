@@ -46,8 +46,8 @@ four tabs are too cramped (the wear column is narrow, so their names are cut); t
 
 | Commit | What | Test |
 |---|---|---|
-| (next) | **No shuffle when you stop**: walking and running play only their loop and switch straight to standing on a stop, as the original; the character no longer walks in place for a moment or slides on and steps back | walk and run, then stop, from several speeds |
-| (next) | **The camera after zoning**: a new camera just behind and above the character, which then pulls back, as the original (it used to fly from the old place) | zone through a door or a zone line; log in |
+| d97f57a | **No shuffle when you stop**: walking and running play only their loop and switch straight to standing on a stop, as the original; the character no longer walks in place for a moment or slides on and steps back | walk and run, then stop, from several speeds |
+| d97f57a | **The camera after zoning**: a new camera just behind and above the character, which then pulls back, as the original (it used to fly from the old place) | zone through a door or a zone line; log in |
 | 5e5c076 | **Smoother frames around characters**: their meshes are written into the last update's buffers instead of new ones (half the upload time, fewer hitches) | characters and monsters should look and animate as before |
 | a312778 | **About three times the frame rate**: the sun's shadow map is kept until you move 8 m or the sun turns (55 → ~165 fps standing, ~140 walking, measured live); the network handles every message that has come before the frame's work (no queue in busy areas); `MAO_PROFILE=1` prints where the frame time goes | play as usual: shadows should look the same; watch for shadows lagging or popping as you walk |
 | 79523b7 | **X just sits** (and `/sit`): sit down or stand up, no logout; /camp is the only way to log out | press X, wait a minute, press X |
