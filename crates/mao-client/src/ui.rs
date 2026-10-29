@@ -88,7 +88,9 @@ pub struct Hud {
     pub programs_preview: std::sync::Mutex<Option<crate::nanoprograms::ProgramsWindow>>,
     pub friends_preview: std::sync::Mutex<Option<crate::friends::FriendsWindow>>,
     /// What can be clicked in the world: ids and Z-up positions.
-    pub pickables: Vec<(u32, [f32; 3])>,
+    /// What the mouse can pick: (kind, id, feet (Z up), radius, height, picked only when nothing else is (the
+    /// character itself)).
+    pub pickables: Vec<(u32, u32, [f32; 3], f32, f32, bool)>,
     pub log: VecDeque<(Instant, String)>,
     /// The current target, for the target frame.
     pub target: Option<String>,
@@ -331,6 +333,12 @@ impl Ui {
     /// pointer is over one of its windows) and the game should not.
     pub fn event(&mut self, window: &Window, event: &WindowEvent) -> bool {
         self.state.on_window_event(window, event).consumed
+    }
+
+    /// What is under the pointer (for the mouse log): the interface's layer there and the widget it is dragging.
+    pub fn under_pointer(&self) -> String {
+        let at = self.ctx.pointer_latest_pos();
+        format!("layer {:?}, dragging {:?}", at.and_then(|p| self.ctx.layer_id_at(p)), self.ctx.dragged_id())
     }
 
     /// What Escape does in the original: closes the windows that are set to close with it (dialogs, containers, shops, the options and

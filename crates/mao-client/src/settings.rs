@@ -146,6 +146,8 @@ pub enum Action {
     Quit,
     /// Target the character itself (the original's F1).
     SelectSelf,
+    /// The info view on the target (what `/inspect` says, and a terminal's description).
+    TargetInfo,
     /// Close the windows the original closes with Escape (dialogs, containers, shops, the options...).
     CloseWindows,
     /// Say where the character is in the chat window (the original's F9).
@@ -197,6 +199,7 @@ pub const ACTIONS: &[(Action, &str, &str)] = &[
     (Action::NextFriendlyTarget, "next_friendly_target", "Ctrl+Tab"),
     (Action::PrevFriendlyTarget, "prev_friendly_target", "Ctrl+Shift+Tab"),
     (Action::SelectSelf, "select_self", "F1"),
+    (Action::TargetInfo, "target_info", "T"),
     (Action::Attack, "attack", "Q"),
     (Action::SitStand, "sit_stand", "X"),
     (Action::Use, "use", "E"),

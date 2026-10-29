@@ -48,8 +48,9 @@ pub struct Input {
     pub goto: (u8, [f32; 2]),
     /// A mission window command: a counter that steps with each, and the command.
     pub mission: (u8, crate::mission::Command),
-    /// Something clicked in the world: a counter that steps with each click, its id, and whether it was a double click (use it).
-    pub pick: (u8, u32, bool),
+    /// Something clicked in the world: a counter that steps with each click, its kind and id, and whether to use it (a
+    /// right or double click).
+    pub pick: (u8, u32, u32, bool),
     /// A nano program to cast: a counter that steps with each, and the program's id.
     pub cast: (u8, u32),
     /// An item to move: a counter that steps with each, the place it is in and the place it goes to.
@@ -136,7 +137,13 @@ pub struct Update {
     /// The labels over the world (Z-up positions), when they change.
     pub labels: Option<Vec<([f32; 3], String)>>,
     /// What can be clicked in the world: ids and Z-up positions.
-    pub pickables: Option<Vec<(u32, [f32; 3])>>,
+    pub pickables: Option<Vec<(u32, u32, [f32; 3], f32, f32, bool)>>,
+    /// Pages for the info view (what T says of the target).
+    pub info_urls: Vec<String>,
+    /// The shop trade's changes (the server's echoes).
+    pub shop_changes: Vec<crate::shop::Change>,
+    /// Windows to open (a mail terminal or mission booth used).
+    pub open_windows: Vec<&'static str>,
     /// Messages for the log.
     pub messages: Vec<String>,
     /// The current target (name and distance), for the target frame.
@@ -609,13 +616,54 @@ fn camera_mode(name: &str) -> crate::camera::Mode {
     }
 }
 
+/// Where a line (from `from`, along the unit `dir`) first meets an upright cylinder standing at `feet` (Z up), as a
+/// distance along it; none when it misses or meets it behind the start.
+fn ray_cylinder(from: mao_render::glam::Vec3, dir: mao_render::glam::Vec3, feet: [f32; 3], r: f32, h: f32) -> Option<f32> {
+    let (ox, oy) = (from.x - feet[0], from.y - feet[1]);
+    let a = dir.x * dir.x + dir.y * dir.y;
+    let mut best: Option<f32> = None;
+    let mut take = |t: f32| {
+        if t > 0.0 && best.is_none_or(|b| t < b) {
+            best = Some(t);
+        }
+    };
+    // the side
+    if a > 1e-9 {
+        let b = 2.0 * (ox * dir.x + oy * dir.y);
+        let c = ox * ox + oy * oy - r * r;
+        let disc = b * b - 4.0 * a * c;
+        if disc >= 0.0 {
+            for t in [(-b - disc.sqrt()) / (2.0 * a), (-b + disc.sqrt()) / (2.0 * a)] {
+                let z = from.z + t * dir.z;
+                if z >= feet[2] && z <= feet[2] + h {
+                    take(t);
+                }
+            }
+        }
+    }
+    // the top and the bottom
+    if dir.z.abs() > 1e-9 {
+        for cap in [feet[2], feet[2] + h] {
+            let t = (cap - from.z) / dir.z;
+            let (x, y) = (ox + t * dir.x, oy + t * dir.y);
+            if x * x + y * y <= r * r {
+                take(t);
+            }
+        }
+    }
+    best
+}
+
 impl ApplicationHandler for App {
     fn device_event(&mut self, _: &ActiveEventLoop, _: DeviceId, event: DeviceEvent) {
         let DeviceEvent::MouseMotion { delta: (dx, dy) } = event else { return };
         if self.live.is_none() || self.buttons == [false; 2] {
             return;
         }
-        self.moved += dx.abs() as f32 + dy.abs() as f32;
+        // (how far the mouse went while held, in screen heights: past 0.02 it is a drag, not a click, as
+        // ActionViewMouseHandler_c's FUN_1002ccbe counts it against 0x101aeafc)
+        let height = self.state.as_ref().map_or(1080.0, |w| w.window.inner_size().height.max(1) as f32);
+        self.moved += (dx * dx + dy * dy).sqrt() as f32 / height;
         if !self.buttons[1] && !crate::prefs::on("LMBMouseLook") {
             return;
         }
@@ -687,7 +735,18 @@ impl ApplicationHandler for App {
         if let Some(ui) = w.ui.as_mut() {
             // The key the options window waits for goes to it, not to the interface.
             let capturing = ui.rebinding.is_some() && matches!(event, WindowEvent::KeyboardInput { .. });
-            if !capturing && !matches!(event, WindowEvent::RedrawRequested | WindowEvent::ModifiersChanged(_) | WindowEvent::CloseRequested | WindowEvent::Resized(_)) && ui.event(&w.window, &event) {
+            // (a button let go that went down in the world is the world's, wherever the pointer is now)
+            let world_release = match &event {
+                WindowEvent::MouseInput { state: ElementState::Released, button: MouseButton::Left, .. } => self.buttons[0],
+                WindowEvent::MouseInput { state: ElementState::Released, button: MouseButton::Right, .. } => self.buttons[1],
+                _ => false,
+            };
+            let taken = !capturing && !matches!(event, WindowEvent::RedrawRequested | WindowEvent::ModifiersChanged(_) | WindowEvent::CloseRequested | WindowEvent::Resized(_)) && ui.event(&w.window, &event);
+            if taken && !world_release {
+                // (MAO_MOUSE_LOG=1: where the buttons go and what the mouse picks)
+                if let (WindowEvent::MouseInput { state, button, .. }, true) = (&event, std::env::var_os("MAO_MOUSE_LOG").is_some()) {
+                    eprintln!("mouse {button:?} {state:?} at {:?}: taken by the interface ({})", self.last, ui.under_pointer());
+                }
                 if matches!(event, WindowEvent::MouseInput { state: ElementState::Released, .. }) {
                     self.dragging = false;
                     if self.buttons != [false; 2] {
@@ -725,7 +784,7 @@ impl ApplicationHandler for App {
                 if state == ElementState::Pressed && !self.buttons[0] && !self.buttons[1] {
                     self.moved = 0.0;
                 }
-                let released = state == ElementState::Released && self.moved < 5.0;
+                let released = state == ElementState::Released && self.moved < 0.02;
                 let clicked = if released && button == MouseButton::Left && self.buttons[0] && !self.buttons[1] {
                     Some(false)
                 } else if released && button == MouseButton::Right && self.buttons[1] && !self.buttons[0] {
@@ -734,25 +793,31 @@ impl ApplicationHandler for App {
                     None
                 };
                 self.buttons[(button == MouseButton::Right) as usize] = state == ElementState::Pressed;
+                let log = std::env::var_os("MAO_MOUSE_LOG").is_some();
+                if log {
+                    eprintln!("mouse {button:?} {state:?} at {:?}: moved {:.3}, click {:?}, {} pickables", self.last, self.moved, clicked, self.hud.pickables.len());
+                }
                 if let Some(use_it) = clicked {
                     let size = w.window.inner_size();
                     let (camera, radius) = (w.camera, w.scene.radius);
                     let aspect = size.width as f32 / size.height.max(1) as f32;
                     let (cx, cy) = (self.last.0 as f32, self.last.1 as f32);
+                    // (the first thing the line from the eye through the pointer meets, as the original's camera line
+                    // finds the first dynel on it: each a cylinder standing on its feet)
+                    let (from, dir) = camera.ray(cx / size.width.max(1) as f32, cy / size.height.max(1) as f32, aspect, radius);
                     let nearest = self
                         .hud
                         .pickables
                         .iter()
-                        .filter_map(|&(id, p)| {
-                            let [x, y] = camera.project(mao_render::glam::Vec3::from(p), aspect, radius)?;
-                            Some((((x * size.width as f32 - cx).powi(2) + (y * size.height as f32 - cy).powi(2)).sqrt(), id))
-                        })
-                        .filter(|c| c.0 < 48.0)
-                        .min_by(|a, b| a.0.total_cmp(&b.0));
-                    if let Some((_, id)) = nearest {
+                        .filter_map(|&(kind, id, feet, r, h, last)| ray_cylinder(from, dir, feet, r, h).map(|t| ((last, t), (kind, id))))
+                        .min_by(|a, b| a.0 .0.cmp(&b.0 .0).then(a.0 .1.total_cmp(&b.0 .1)));
+                    if log {
+                        eprintln!("  first on the line {nearest:?} of {}", self.hud.pickables.len());
+                    }
+                    if let Some((_, (kind, id))) = nearest {
                         let double = use_it || self.last_click.is_some_and(|(last, at)| last == id && at.elapsed() < std::time::Duration::from_millis(500));
                         self.last_click = Some((id, std::time::Instant::now()));
-                        self.keys.pick = (self.keys.pick.0.wrapping_add(1), id, double);
+                        self.keys.pick = (self.keys.pick.0.wrapping_add(1), kind, id, double);
                     }
                 }
                 // (the left button looks round only with `LMBMouseLook`)
@@ -840,6 +905,9 @@ impl ApplicationHandler for App {
                         }
                         Action::SelectSelf if !event.repeat => {
                             self.keys.select_self = self.keys.select_self.wrapping_add(1);
+                        }
+                        Action::TargetInfo if !event.repeat => {
+                            self.keys.inspect = self.keys.inspect.wrapping_add(1);
                         }
                         Action::Coordinates if !event.repeat => {
                             if let Some([x, _, z]) = self.hud.position {
@@ -1085,11 +1153,20 @@ impl ApplicationHandler for App {
                             if let Some(opened) = u.mail_opened.take() {
                                 ui.mail.opened = Some(opened);
                             }
+                            for url in std::mem::take(&mut u.info_urls) {
+                                ui.info.show_url(&url);
+                            }
+                            for name in std::mem::take(&mut u.open_windows) {
+                                ui.set_window(name, true);
+                            }
                             if let Some(state) = u.shop.take() {
                                 ui.shop.set(state);
                             }
                             if let Some(status) = u.shop_status.take() {
                                 ui.shop.status = status;
+                            }
+                            for change in std::mem::take(&mut u.shop_changes) {
+                                ui.shop.apply(change);
                             }
                             if let Some((id, flags)) = u.mail_flags.take() {
                                 ui.mail.set_flags(id, flags);
@@ -1141,7 +1218,7 @@ impl ApplicationHandler for App {
                             self.hud.location = name;
                         }
                         if let Some(p) = u.pickables.take() {
-                            self.hud.pickables = p.into_iter().map(|(id, p)| (id, p)).collect();
+                            self.hud.pickables = p;
                         }
                         if let Some(ui) = w.ui.as_mut() {
                             let now = ui.now();
@@ -1813,6 +1890,20 @@ impl ApplicationHandler for App {
 #[cfg(test)]
 mod camera_tests {
     use super::*;
+
+    #[test]
+    fn a_line_meets_the_near_side_of_a_cylinder() {
+        use mao_render::glam::Vec3;
+        // from 10 m west at chest height, looking east at a 0.5 m cylinder 2 m tall
+        let t = ray_cylinder(Vec3::new(-10.0, 0.0, 1.0), Vec3::X, [0.0, 0.0, 0.0], 0.5, 2.0).unwrap();
+        assert!((t - 9.5).abs() < 1e-4);
+        // over its top, or behind the start: missed
+        assert!(ray_cylinder(Vec3::new(-10.0, 0.0, 3.0), Vec3::X, [0.0, 0.0, 0.0], 0.5, 2.0).is_none());
+        assert!(ray_cylinder(Vec3::new(10.0, 0.0, 1.0), Vec3::X, [0.0, 0.0, 0.0], 0.5, 2.0).is_none());
+        // looking down on it: its top
+        let t = ray_cylinder(Vec3::new(0.1, 0.0, 10.0), -Vec3::Z, [0.0, 0.0, 0.0], 0.5, 2.0).unwrap();
+        assert!((t - 8.0).abs() < 1e-4);
+    }
 
     #[test]
     fn the_camera_sits_behind_the_character() {

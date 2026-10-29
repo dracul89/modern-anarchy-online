@@ -329,6 +329,17 @@ impl Camera {
         (x.abs() <= 1.2 && y.abs() <= 1.2).then(|| [x * 0.5 + 0.5, 0.5 - y * 0.5])
     }
 
+    /// The line from the eye through a point of the screen ((x, y) in 0..1 from the top left): its start (on the near
+    /// plane) and unit direction.
+    pub fn ray(&self, x: f32, y: f32, aspect: f32, radius: f32) -> (Vec3, Vec3) {
+        let inverse = self.view_proj(aspect, radius).inverse();
+        let (nx, ny) = (x * 2.0 - 1.0, 1.0 - y * 2.0);
+        let near = inverse * glam::Vec4::new(nx, ny, 0.0, 1.0);
+        let far = inverse * glam::Vec4::new(nx, ny, 1.0, 1.0);
+        let (near, far) = (near.truncate() / near.w, far.truncate() / far.w);
+        (near, (far - near).normalize_or_zero())
+    }
+
     fn view_proj(&self, aspect: f32, radius: f32) -> Mat4 {
         let eye = self.eye();
         let far = (self.distance + radius * 4.0).max(1.0);
@@ -1439,6 +1450,20 @@ fn upload_texture(gpu: &Gpu, t: &Texture) -> wgpu::TextureView {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_screen_centre_looks_at_the_target() {
+        let c = Camera { target: Vec3::new(10.0, 5.0, 1.0), distance: 8.0, yaw: 0.7, pitch: 0.3 };
+        let (from, dir) = c.ray(0.5, 0.5, 16.0 / 9.0, 100.0);
+        let want = (c.target - c.eye()).normalize();
+        assert!(dir.dot(want) > 0.9999, "{dir:?} {want:?}");
+        assert!((from - c.eye()).length() < 0.5);
+        // (and a point projects back to where its ray starts)
+        let p = Vec3::new(12.0, 6.0, 0.5);
+        let [x, y] = c.project(p, 16.0 / 9.0, 100.0).unwrap();
+        let (from, dir) = c.ray(x, y, 16.0 / 9.0, 100.0);
+        assert!(dir.dot((p - from).normalize()) > 0.9999);
+    }
 
     #[test]
     fn mip_chain_halves_down_to_one_pixel() {

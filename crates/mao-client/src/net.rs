@@ -284,6 +284,15 @@ struct World {
     /// The usable objects the server announces (doors, mail terminals, booths: identity type
     /// 0xc76a, message `4f474e05`) with their positions; targeted with Ctrl+Tab and used with E.
     objects: BTreeMap<u32, [f32; 3]>,
+    /// The playfield's built-in terminals, booths and signs (`crate::table_dynels`): picked with the mouse, used and
+    /// described like the others.
+    table: Vec<(u32, u32, [f32; 3], u32, String)>,
+    /// Pages for the info view (a target's description), until taken.
+    info_urls: Vec<String>,
+    /// Windows to open (by `Ui::set_window` name), until taken.
+    open_windows: Vec<&'static str>,
+    /// The template (`StaticInstance`, stat 23) of each vending machine the server announced: its prices' stats.
+    vendor_templates: BTreeMap<u32, u32>,
 }
 
 /// A fighting character turning to face its target, as its state machine does: `CharFight_t` (FUN_1007bd5f, its step
@@ -630,11 +639,20 @@ impl World {
                         _ => None,
                     };
                     if let Some(mesh) = mesh.filter(|&m| m > 0) {
+                        // (an announced model takes the place of the playfield's own copy (its dynel table's); the
+                        // usual announcement has none, only the template (`StaticInstance`), and the table's stays)
+                        let at = [f("X"), f("Y"), f("Z")];
+                        self.props.retain(|k, p| *k < 0xfe00_0000 || (p.1[0] - at[0]).powi(2) + (p.1[1] - at[1]).powi(2) + (p.1[2] - at[2]).powi(2) > 2.0);
                         let r = |n: &str| match p.value.get("Rotation").and_then(|q| q.get(n)) {
                             Some(mao_net::schema::Value::Float(x)) => *x as f32,
                             _ => 0.0,
                         };
                         self.props.insert(m.identity.1, (mesh as u32, [f("X"), f("Y"), f("Z")], [r("X"), r("Y"), r("Z"), r("W")]));
+                    }
+                    if let Some(mao_net::schema::Value::List(stats)) = p.value.get("Stats") {
+                        if let Some(t) = stats.iter().find(|s| s.get("Item1").and_then(mao_net::schema::Value::as_int) == Some(23)).and_then(|s| s.get("Item2")?.as_int()) {
+                            self.vendor_templates.insert(m.identity.1, t as u32);
+                        }
                     }
                     // Shops can be targeted (Ctrl+Tab) and used (E) like the other objects.
                     self.objects.insert(m.identity.1, [f("X"), f("Y"), f("Z")]);
@@ -941,7 +959,14 @@ impl World {
                     } else {
                         format!("{name}: level {} {}, health {} of {}.", info.level, crate::launcher::profession(info.profession as i32), info.health, info.max_health)
                     };
-                    self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, text));
+                    self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, text.clone()));
+                    // (and the info view on it, as the original's `charid://50000/<id>` page)
+                    let mut page = format!("<font color=#ffffff>{name}</font><br><br>");
+                    if !info.monster {
+                        page += &format!("Level: {}<br>Profession: {}<br>", info.level, crate::launcher::profession(info.profession as i32));
+                    }
+                    page += &format!("Health: {} / {}<br>", info.health, info.max_health);
+                    self.info_urls.push(format!("text://{page}"));
                 }
             }
         }
@@ -952,7 +977,17 @@ impl World {
             }
         }
         if m.kind == 0x206b4b73 && m.identity.1 == self.own {
-            if let Some(text) = mao_net::n3::feedback_text(&m.data) {
+            // (its `Message` is packed, `~&` and base-85 words naming a text.mdb text and its arguments: LDB.dll's
+            // `RemoteFormat` unpacks it)
+            let packed = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data).ok().and_then(|p| match p.value.get("Message") {
+                Some(mao_net::schema::Value::Str(t)) if t.starts_with("~&") => Some(t.clone()),
+                _ => None,
+            });
+            let text = match (packed, crate::feedback::texts()) {
+                (Some(t), Some(texts)) => Some(mao_formats::ldb::remote(texts, &t)).filter(|t| !t.is_empty()),
+                _ => mao_net::n3::feedback_text(&m.data),
+            };
+            if let Some(text) = text {
                 self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, text));
             }
         }
@@ -2532,6 +2567,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     let thread_textures = textures.clone_handle();
     let started_props = Instant::now();
     state.set_static_props(crate::static_props(&db, playfield));
+    state.table = crate::table_dynels(&db, playfield);
     profile!("[profile] static_props {:?}", started_props.elapsed());
     let (mut terrain, mut collision) = (terrain, collision);
     // The interface: the names of the playfields, and where the booths lead.
@@ -2814,6 +2850,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         // Shops: the stock to show, a note, the open booth and the trade's bag (from the server's Trade open).
         let (mut pending_shop, mut pending_shop_status): (Option<crate::shop::ShopState>, Option<String>) = (None, None);
         let mut shop_booth: Option<(u32, u32)> = None;
+        let (mut shop_rates, mut shop_rows, mut pending_shop_changes) = (crate::shop::Rates { buy: 0, sell: 0, kind: 0 }, Vec::<crate::shop::Row>::new(), Vec::<crate::shop::Change>::new());
         // After a trade completes the server wants the booth used again (as the original does) for the next one.
         let mut shop_reuse: Option<Instant> = None;
         let (mut pending_mail_entries, mut pending_mail_opened, mut pending_mail_flags): (Option<Vec<mao_net::mail::Entry>>, Option<crate::mailbox::Opened>, Option<(u32, u32)>) = (None, None, None);
@@ -2836,6 +2873,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let (mut sitting, mut uses, mut fired) = (false, 0u32, 0u8);
         let (mut special_seen, mut social_seen, mut pick_seen) = (0u8, 0u8, 0u8);
         let mut aggdef_seen = 0u8;
+        let mut mission_booth: Option<u32> = None;
         let mut friends_seen = u64::MAX;
         let mut cast_seen = 0u8;
         let mut move_seen = 0u8;
@@ -2969,29 +3007,47 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
                             let int = |v: &mao_net::schema::Value, f: &str| v.get(f).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
                             if let Some(mao_net::schema::Value::List(list)) = p.value.get("VendingMachineSlots") {
-                                let stock = list
-                                    .iter()
-                                    .map(|s| {
-                                        let (low, high, quality) = (int(s, "ItemLowId"), int(s, "ItemHighId"), int(s, "Quality"));
-                                        let lookup = |id: u32| gear_db.get(mao_formats::resource::Id { kind: mao_formats::item::TEMPLATE, instance: id }).ok().flatten().and_then(|d| mao_formats::item::Item::parse(&d));
-                                        match lookup(low).or_else(|| lookup(high)) {
-                                            Some(t) => {
-                                                let icon = t.icon().and_then(|id| gear_textures.get(mao_formats::item::ICON_TYPE, id).map(|x| std::sync::Arc::new(crate::gear::Icon { id, width: x.width as usize, height: x.height as usize, rgba: x.rgba })));
-                                                crate::shop::Slot { low, high, quality, name: t.name, description: t.description, icon }
-                                            }
-                                            None => crate::shop::Slot { low, high, quality, name: format!("Item #{low:x}"), description: String::new(), icon: None },
-                                        }
-                                    })
-                                    .collect();
+                                // (the shop's prices are its template's stats: the playfield table's record, else the
+                                // announcement's `StaticInstance`)
+                                let table = state.table.iter().find(|d| (d.0, d.1) == m.identity);
+                                let template = table.map(|d| d.3).or_else(|| state.vendor_templates.get(&m.identity.1).copied());
+                                let item = template.and_then(|t| gear_db.get(mao_formats::resource::Id { kind: mao_formats::item::TEMPLATE, instance: t }).ok().flatten()).and_then(|d| mao_formats::item::Item::parse(&d));
+                                shop_rates = item.as_ref().map_or(crate::shop::Rates { buy: 0, sell: 0, kind: 0 }, crate::shop::Rates::of);
+                                let literacy = state.stats.get(&161).copied().unwrap_or(0);
+                                let icon = |id: u32| gear_textures.get(mao_formats::item::ICON_TYPE, id).map(|x| std::sync::Arc::new(crate::gear::Icon { id, width: x.width as usize, height: x.height as usize, rgba: x.rgba }));
+                                let stock: Vec<crate::shop::Slot> = list.iter().map(|s| crate::shop::slot(&gear_db, &icon, (int(s, "ItemLowId"), int(s, "ItemHighId"), int(s, "Quality")), shop_rates, literacy)).collect();
+                                shop_rows = stock.iter().map(|s| crate::shop::Row { item: [0; 4], name: s.name.clone(), icon: s.icon.clone(), count: 1, quality: s.quality, price: s.price }).collect();
+                                let name = table.map(|d| d.4.clone()).filter(|n| !n.is_empty()).or_else(|| item.map(|i| i.name)).unwrap_or_default();
                                 shop_booth = Some(m.identity);
-                                pending_shop = Some(crate::shop::ShopState { shop: m.identity, stock });
+                                pending_shop = Some(crate::shop::ShopState { shop: m.identity, name, stock });
                             }
                         }
                     }
-                    // Trade action 4 from the server (captured after both a purchase and a sale): the trade completed.
-                    if Message::parse(&frame).is_some_and(|m| m.kind == 0x36284f6e && m.identity.0 == 0xc350 && m.data.get(5) == Some(&4)) && shop_booth.is_some() {
-                        pending_shop_status = Some("Trade complete.".into());
-                        shop_reuse = Some(Instant::now() + Duration::from_millis(300));
+                    // The trade's echoes (to us): an item put in (5) shows in its list, one taken out (6) leaves it, and
+                    // action 4 (captured after both a purchase and a sale) is the trade completed.
+                    if let Some(m) = Message::parse(&frame).filter(|m| m.kind == 0x36284f6e && m.identity == (0xc350, own) && m.data.len() >= 22) {
+                        let word = |i: usize| u32::from_be_bytes(m.data[6 + 4 * i..10 + 4 * i].try_into().unwrap());
+                        let item = [word(0), word(1), word(2), word(3)];
+                        match m.data[5] {
+                            5 if item[0] == 0xc75b && item[2] == 0x6f => {
+                                if let Some(row) = shop_rows.get(item[3] as usize) {
+                                    pending_shop_changes.push(crate::shop::Change::Bought(crate::shop::Row { item, ..row.clone() }));
+                                }
+                            }
+                            5 if item[0] == n3::CHARACTER && item[2] == 0x68 => {
+                                if let Some(entry) = state.worn.iter().find(|e| e.slot == item[3]) {
+                                    let literacy = state.stats.get(&161).copied().unwrap_or(0);
+                                    let icon = |id: u32| gear_textures.get(mao_formats::item::ICON_TYPE, id).map(|x| std::sync::Arc::new(crate::gear::Icon { id, width: x.width as usize, height: x.height as usize, rgba: x.rgba }));
+                                    pending_shop_changes.push(crate::shop::Change::Sold(crate::shop::sold_row(&gear_db, &icon, item, entry, shop_rates, literacy)));
+                                }
+                            }
+                            6 => pending_shop_changes.push(crate::shop::Change::Removed(item)),
+                            4 if shop_booth.is_some() => {
+                                pending_shop_changes.push(crate::shop::Change::Complete);
+                                shop_reuse = Some(Instant::now() + Duration::from_millis(300));
+                            }
+                            _ => {}
+                        }
                     }
                     if let Some(m) = Message::parse(&frame).filter(|m| m.kind == 0x5c436609) {
                         if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
@@ -3062,6 +3118,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         Ok(area) => {
                             (terrain, collision) = (area.terrain, area.collision);
                             state.set_static_props(crate::static_props(&thread_db, playfield));
+                            state.table = crate::table_dynels(&thread_db, playfield);
                             let mut scene = area.scene;
                             if terrain.is_none() && crate::load_rooms(&thread_db, playfield).is_none() {
                                 // An interior: the floor isn't readable, so lay a plain one at the arrival height.
@@ -3132,7 +3189,18 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             // `/inspect`: ask for the target's info packet and tell what comes.
             if raw.inspect != inspect_seen {
                 inspect_seen = raw.inspect;
-                match target.filter(|t| !state.objects.contains_key(t)) {
+                let kind = target.and_then(|t| state.types.get(&t).copied());
+                let table = target.and_then(|t| state.table.iter().find(|d| Some(d.0) == kind && d.1 == t));
+                match target {
+                    // (a built-in terminal or booth: its item template's description, `itemid://` in the original)
+                    Some(_) if table.is_some() => {
+                        let template = table.map_or(0, |d| d.3);
+                        state.info_urls.push(format!("itemref://{template}/{template}/1"));
+                    }
+                    Some(t) if state.objects.contains_key(&t) => {
+                        let name = state.names.get(&t).map_or_else(|| "Object".to_string(), |n| n.0.clone());
+                        state.info_urls.push(format!("text://<font color=#ffffff>{name}</font>"));
+                    }
                     Some(t) => {
                         state.inspecting = Some(t);
                         let _ = connection.send(&n3::info_request(own, t));
@@ -3317,24 +3385,27 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         let _ = connection.send(&n3::trade_decline(own));
                         shop_booth = None;
                     }
-                    // As captured: add the stock item (action 5: the booth, 0x6f, the stock index), then accept (action 1).
+                    // As captured: a stock item put in (action 5: the booth, 0x6f, the stock index); the echo lists it.
                     crate::shop::ShopCommand::Buy(index) => match shop_booth {
                         Some(booth) => {
                             let _ = connection.send(&n3::trade(own, 5, [booth.0, booth.1, 0x6f, index as u32]));
-                            let _ = connection.send(&n3::trade(own, 1, [0, 0, 0, 0]));
-                            pending_shop_status = Some("Buying...".into());
                         }
                         None => pending_shop_status = Some("No open trade to buy in.".into()),
                     },
-                    // As captured: add one of your own items (action 5: yourself, the inventory page 0x68, the slot), then accept.
+                    // As captured: one of your own items put in (action 5: yourself, the inventory page 0x68, the slot).
                     crate::shop::ShopCommand::Sell(slot) => match shop_booth {
                         Some(_) => {
                             let _ = connection.send(&n3::trade(own, 5, [0xc350, own, 0x68, slot]));
-                            let _ = connection.send(&n3::trade(own, 1, [0, 0, 0, 0]));
-                            pending_shop_status = Some("Selling...".into());
                         }
                         None => pending_shop_status = Some("No open trade to sell in.".into()),
                     },
+                    // (action 6, as captured: the item as it went in)
+                    crate::shop::ShopCommand::Remove(item) => {
+                        let _ = connection.send(&n3::trade(own, 6, item));
+                    }
+                    crate::shop::ShopCommand::Accept => {
+                        let _ = connection.send(&n3::trade(own, 1, [0, 0, 0, 0]));
+                    }
                 }
             }
             if shop_reuse.is_some_and(|t| Instant::now() >= t) {
@@ -3353,7 +3424,13 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 mission_seen = raw.mission.0;
                 let cmd = raw.mission.1;
                 if cmd.what == 1 {
-                    let nearest = state.vendors.iter().map(|(id, p)| (((p[0] - position[0]).powi(2) + (p[2] - position[2]).powi(2)).sqrt(), *id)).filter(|(d, _)| *d < 40.0).min_by(|a, b| a.0.total_cmp(&b.0));
+                    // (the booth last used, else the nearest of the playfield's own (its dynel table's `0xdac1`s))
+                    let near = |p: &[f32; 3]| ((p[0] - position[0]).powi(2) + (p[2] - position[2]).powi(2)).sqrt();
+                    let nearest = mission_booth
+                        .and_then(|b| state.table.iter().find(|d| d.0 == 0xdac1 && d.1 == b))
+                        .filter(|d| near(&d.2) < 40.0)
+                        .or_else(|| state.table.iter().filter(|d| d.0 == 0xdac1 && near(&d.2) < 40.0).min_by(|a, b| near(&a.2).total_cmp(&near(&b.2))))
+                        .map(|d| (near(&d.2), d.1));
                     match nearest {
                         Some((_, serial)) => {
                             uses += 1;
@@ -3453,9 +3530,15 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             // A click on something in the world selects it; a double click uses it.
             if keys.pick.0 != pick_seen {
                 pick_seen = keys.pick.0;
-                let (_, id, double) = keys.pick;
+                let (_, kind, id, double) = keys.pick;
                 target = Some(id);
-                if !state.objects.contains_key(&id) {
+                // (a table dynel's instance can be another's too: the kind picked is the one meant)
+                state.types.insert(id, kind);
+                if let Some(d) = state.table.iter().find(|d| d.0 == kind && d.1 == id) {
+                    let name = if d.4.is_empty() { format!("Terminal {:x}", id & 0xffff) } else { d.4.clone() };
+                    state.names.insert(id, (name, false));
+                }
+                if kind == n3::CHARACTER {
                     let _ = connection.send(&n3::select_target(own, id));
                     let _ = connection.send(&n3::set_target(own, id));
                     let _ = connection.send(&n3::info_request(own, id));
@@ -3465,6 +3548,16 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     let kind = state.types.get(&id).copied().unwrap_or(n3::CHARACTER);
                     let _ = connection.send(&n3::use_object(own, uses, (kind, id)));
                     state.door_used(id);
+                    // (a mail terminal opens the mail window on the inbox, as its own button does; a mission booth the
+                    // mission window, which is the client's own: the server only echoes the use)
+                    if kind == 0xc773 {
+                        inbox_due = Some(Instant::now() + Duration::from_millis(900));
+                        state.open_windows.push("mail");
+                    }
+                    if kind == 0xdac1 {
+                        mission_booth = Some(id);
+                        state.open_windows.push("missions");
+                    }
                     pending_messages.push(format!("Using {}", state.names.get(&id).map_or("the target", |n| n.0.as_str())));
                 }
             }
@@ -4319,7 +4412,33 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     daylight: Some(state.game_clock.day_intensity()),
                     location: pending_location.take(),
                     labels: pending_labels.take(),
-                    pickables: Some(state.objects.iter().map(|(id, p)| (*id, [p[0], p[2], p[1] + 1.2])).chain(state.entities.iter().filter(|(id, _)| **id != own).map(|(id, (p, _))| (*id, [p[0], p[2], p[1] + 1.0]))).collect()),
+                    // (what the mouse can pick, as cylinders standing on their feet: the original casts the camera's line
+                    // through the mouse against the dynels' collision, `n3Camera_t::SetMousePos` / `GetObjectUnderColLine`)
+                    // (the character itself last: picked only where nothing else is on the line)
+                    pickables: Some({
+                        let size = |kind: u32| match kind {
+                            0xc75b => (1.0, 2.6),
+                            DOOR_TYPE => (1.0, 3.0),
+                            _ => (0.8, 2.2),
+                        };
+                        let kind_of = |id: &u32| state.types.get(id).copied().unwrap_or(n3::CHARACTER);
+                        state
+                            .objects
+                            .iter()
+                            .map(|(id, p)| {
+                                let (r, h) = size(kind_of(id));
+                                (kind_of(id), *id, [p[0], p[2], p[1]], r, h, false)
+                            })
+                            .chain(state.table.iter().map(|&(kind, id, p, _, _)| {
+                                let (r, h) = size(kind);
+                                (kind, id, [p[0], p[2], p[1]], r, h, false)
+                            }))
+                            .chain(state.entities.iter().filter(|(id, _)| **id != own).map(|(id, (p, _))| (kind_of(id), *id, [p[0], p[2], p[1]], 0.5, 1.9, false)))
+                            .chain(std::iter::once((n3::CHARACTER, own, [position[0], position[2], position[1]], 0.5, 1.9, true)))
+                            .collect()
+                    }),
+                    info_urls: std::mem::take(&mut state.info_urls),
+                    open_windows: std::mem::take(&mut state.open_windows),
                     messages: {
                         for line in &chat_lines_now {
                             pending_messages.push(line.text.clone());
@@ -4342,6 +4461,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     mail_opened: pending_mail_opened.take(),
                     shop: pending_shop.take(),
                     shop_status: pending_shop_status.take(),
+                    shop_changes: std::mem::take(&mut pending_shop_changes),
                     mail_flags: pending_mail_flags.take(),
                     mail_status: pending_mail_status.take(),
                     destinations: pending_destinations.take(),

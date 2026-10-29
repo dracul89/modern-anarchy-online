@@ -95,6 +95,11 @@ pub fn preferred_pixels(tree: &Tree, root: Id, max: bool) -> egui::Vec2 {
 /// Shows the tree in the space `ui` has left (at least its minimum size), handles the mouse and draws it.
 pub fn show(ui: &mut egui::Ui, tree: &mut Tree, root: Id, skin: Option<&crate::skin::Skin>, palette: &Palette) -> egui::Response {
     tree.measure = Measure { ctx: Some(ui.ctx().clone()) };
+    let probe = Some(tree.measure.width(super::font::FontId::NORMAL, "Mg"));
+    if tree.fitted_probe != probe {
+        tree.fitted_probe = probe;
+        tree.relayout = true;
+    }
     let min = preferred_pixels(tree, root, false);
     let size = ui.available_size().max(min);
     let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click_and_drag());

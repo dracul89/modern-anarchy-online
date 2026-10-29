@@ -326,14 +326,14 @@ pub(crate) fn load_rooms(db: &ResourceDatabase, playfield: u32) -> Option<mao_fo
 }
 
 /// The doors, terminals and other machines a playfield has built in (its dynel table), with the mesh of each one's item template:
-/// `(key, (mesh, position, rotation), door number)`. The vending machines are left out: the server announces the ones that are in use.
+/// `(key, (mesh, position, rotation), door number)`. The vending machines are in too: the server announces some of them again (with
+/// their own identity), and those take the table's place (`State`'s vendor announcement drops the table's one standing there).
 pub(crate) fn static_props(db: &ResourceDatabase, playfield: u32) -> Vec<(u32, (u32, [f32; 3], [f32; 4]), Option<u8>)> {
     let Some(object) = db.get(Id { kind: mao_formats::dynels::KIND, instance: playfield }).ok().flatten() else { return Vec::new() };
     let mut meshes: std::collections::HashMap<u32, Option<u32>> = std::collections::HashMap::new();
     mao_formats::dynels::parse(&object)
         .into_iter()
         .enumerate()
-        .filter(|(_, d)| d.kind != 0xc75b)
         .filter_map(|(i, d)| {
             // The record's own mesh first: the doors of a city each have their own. A door without one is a shuttle, a Whom-Pah or a
             // dungeon entrance whose visual is a statel: it gets nothing (the template's `door_omni_med_blue2` put a white door there).
@@ -357,6 +357,30 @@ pub(crate) fn static_props(db: &ResourceDatabase, playfield: u32) -> Vec<(u32, (
                 d.rotation
             };
             Some((0xfe00_0000 | i as u32, (mesh, d.position, rotation), door))
+        })
+        .collect()
+}
+
+/// The playfield's built-in terminals, booths and signs (its dynel table, the doors left out: the server announces
+/// those), for the mouse to pick: `(kind, instance, position, template, name)`, the name its item template's.
+pub(crate) fn table_dynels(db: &ResourceDatabase, playfield: u32) -> Vec<(u32, u32, [f32; 3], u32, String)> {
+    let Some(object) = db.get(Id { kind: mao_formats::dynels::KIND, instance: playfield }).ok().flatten() else { return Vec::new() };
+    let mut names: std::collections::HashMap<u32, String> = std::collections::HashMap::new();
+    mao_formats::dynels::parse(&object)
+        .into_iter()
+        .filter(|d| d.kind != 0xc748)
+        .map(|d| {
+            let name = names
+                .entry(d.template)
+                .or_insert_with(|| {
+                    db.get(Id { kind: mao_formats::item::TEMPLATE, instance: d.template })
+                        .ok()
+                        .flatten()
+                        .and_then(|data| mao_formats::item::Item::parse(&data))
+                        .map_or_else(String::new, |i| i.name)
+                })
+                .clone();
+            (d.kind, d.instance, d.position, d.template, name)
         })
         .collect()
 }
@@ -1420,21 +1444,16 @@ fn run(args: &[String]) -> Result<(), String> {
                                 let int = |v: &mao_net::schema::Value, f: &str| v.get(f).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
                                 let mut window = shop::ShopWindow::default();
                                 if let Some(mao_net::schema::Value::List(list)) = value.get("VendingMachineSlots") {
-                                    let stock = list
-                                        .iter()
-                                        .map(|s| {
-                                            let (low, high, quality) = (int(s, "ItemLowId"), int(s, "ItemHighId"), int(s, "Quality"));
-                                            let template = db.get(mao_formats::resource::Id { kind: mao_formats::item::TEMPLATE, instance: low }).ok().flatten().and_then(|d| mao_formats::item::Item::parse(&d));
-                                            match template {
-                                                Some(t) => {
-                                                    let icon = t.icon().and_then(|id| tex.get(mao_formats::item::ICON_TYPE, id).map(|x| std::sync::Arc::new(gear::Icon { id, width: x.width as usize, height: x.height as usize, rgba: x.rgba })));
-                                                    shop::Slot { low, high, quality, name: t.name, description: t.description, icon }
-                                                }
-                                                None => shop::Slot { low, high, quality, name: format!("Item #{low:x}"), description: String::new(), icon: None },
-                                            }
-                                        })
-                                        .collect();
-                                    window.set(shop::ShopState { shop: (0xc75b, 0xc000021c), stock });
+                                    // (Old Athens' booth template 0x184f1's rates, Computer Literacy 400)
+                                    let rates = db.get(mao_formats::resource::Id { kind: mao_formats::item::TEMPLATE, instance: 0x184f1 }).ok().flatten().and_then(|d| mao_formats::item::Item::parse(&d)).map_or(shop::Rates { buy: 0, sell: 0, kind: 0 }, |t| shop::Rates::of(&t));
+                                    let icon = |id: u32| tex.get(mao_formats::item::ICON_TYPE, id).map(|x| std::sync::Arc::new(gear::Icon { id, width: x.width as usize, height: x.height as usize, rgba: x.rgba }));
+                                    let stock: Vec<shop::Slot> = list.iter().map(|s| shop::slot(&db, &icon, (int(s, "ItemLowId"), int(s, "ItemHighId"), int(s, "Quality")), rates, 400)).collect();
+                                    let row = |i: usize| stock.get(i).map(|s| shop::Row { item: [0xc75b, 0xc000021c, 0x6f, i as u32], name: s.name.clone(), icon: s.icon.clone(), count: 1, quality: s.quality, price: s.price });
+                                    let bought: Vec<shop::Row> = [0, 2].into_iter().filter_map(row).collect();
+                                    window.set(shop::ShopState { shop: (0xc75b, 0xc000021c), name: "Clan Basic Startup Equipment".into(), stock });
+                                    for r in bought {
+                                        window.apply(shop::Change::Bought(r));
+                                    }
                                     window.selected = Some(0);
                                 }
                                 *hud.shop_preview.lock().unwrap() = Some(window);
@@ -1606,5 +1625,26 @@ fn main() -> ExitCode {
             eprintln!("mao-client: {e}");
             ExitCode::FAILURE
         }
+    }
+}
+
+#[cfg(test)]
+mod table_tests {
+    /// `MAO_GAME`: Old Athens' (540) dynel table gives its vending machines a model (their template's mesh) and lists
+    /// its mission booths and mail terminals by name for the mouse.
+    #[test]
+    fn old_athens_machines_come_from_the_table() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let db = mao_formats::resource::ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap();
+        let props = super::static_props(&db, 540);
+        // (the vending machine at (418, 8, 458), template 0x184f1)
+        assert!(props.iter().any(|(_, p, _)| (p.1[0] - 418.0).abs() < 0.1 && (p.1[2] - 458.0).abs() < 0.1), "no vending machine model");
+        let table = super::table_dynels(&db, 540);
+        assert!(table.iter().any(|d| d.0 == 0xdac1));
+        assert!(table.iter().any(|d| d.0 == 0xc773 && d.4 == "Mail Terminal"));
+        let data = db.get(mao_formats::resource::Id { kind: mao_formats::item::TEMPLATE, instance: 0x184f1 }).unwrap().unwrap();
+        let it = mao_formats::item::Item::parse(&data).unwrap();
+        // (the booths' prices: 105 % to buy, 4 % to sell, no type of their own)
+        assert_eq!(crate::shop::Rates::of(&it), crate::shop::Rates { buy: 105, sell: 4, kind: 0x3d });
     }
 }

@@ -79,7 +79,7 @@ programs window's Info, `itemid://53019/<id>`; weapons' damage per second; to co
 | Friends (`friends_window`) | | `friends.rs` | ours |
 | Mail (`mail_window`, `MailIconWindowConfig`) | `MailWindow.xml`, `MailMessageWindow.xml` | `mailbox.rs` | ours |
 | Missions, mission selection (`mission_window`, `missionselection_window`, `BMissionSelectionViewConfig`) | | `mission.rs` | part |
-| Shops, NPC trade (`ShopViewConfig`, `itemshop_window`, `ItemShopWindowConfig`) | | `shop.rs` | part (the item shop is a web page) |
+| Shops, NPC trade (`TradeView_c` FUN_100e121e modes 1/2, `ShopViewConfig`, `itemshop_window`, `ItemShopWindowConfig`) | `TradeGUI.xml` `ShopTrade` | `shop.rs` (the view from the skin; the docks' `ItemContainerView_c` lists drawn by it; Gamecode's prices) | part: `ShopBuy` mode and the list configs (`shop_listview_config`) not read; the item shop is a web page |
 | Player trade (`TradeViewConfig`) | `TradeGUI.xml` | none | no |
 | Tradeskill (`tradeskill_window`, `TradeSkillViewConfig`) | `TradeskillPanel.xml` | none | no |
 | Team (`TeamViewModule_c`, `TeamViewConfig`, `/team`, `/invite`, `/kick`, `/leave`) | | none | no |

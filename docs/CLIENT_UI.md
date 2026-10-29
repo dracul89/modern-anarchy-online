@@ -215,16 +215,26 @@ booth at (444.2, 313.0) leads to Tir (640); the other three booths show
 (`sign_jobe-whompa_borealis / old_athend / rome_green`) were rendered and show
 matching names.
 
-## 4j. Shop window (use a booth with `E`)
+## 4j. Shop window (right-click a vending machine)
 
-Booths (vending machines, identity `0xc75b`) are targetable (Ctrl+Tab) and usable (`E`). Using one makes the server send
-`ShopUpdate` (the stock: low id, high id, quality) and a `Trade` open. The window shows the stock as an icon grid with the
-selected item's name and description from the item templates; Close sends a `Trade` decline, as the original does.
-**Buying and selling are from the fifth capture** (`capture-225436.log`): `Trade` action 5 (add) with
-`(0xc75b, booth, 0x6f, stock index)` to buy or `(0xc350, character, 0x68, inventory slot)` to sell, then action 1 (accept);
-the server answers action 4 (complete), a credits update and the item changes, and the client uses the booth again for the
-next trade (so does this one). Prices are not in the messages, so none are shown. The Sell list shows the backpack (slots
-from 64). Not yet checked live. Preview: `MAO_UI_PREVIEW=shop MAO_CAPTURE=<log>`.
+Vending machines (identity `0xc75b`) are the playfield's own (its dynel table, drawn with their template's mesh: the
+server's `VendingMachineFullUpdate` names the same identity with no mesh, only `StaticInstance`). Using one makes the server
+send `ShopUpdate` (the stock: low id, high id, quality) and a `Trade` open. The window is GUI.dll's `TradeView_c` in shop
+mode (FUN_100e121e): the skin's `Views/TradeGUI.xml` view `ShopTrade` (`shop.rs`), with the three `ItemContainerView_c`
+lists (FUN_100ce55d: Icon, Name, Count, Price, Quality) in `ShopInventoryDock`, `PartnerInventoryDock` (Bought Items) and
+`OurInventoryDock` (Sold Items), each side's cost in `PartnerCashView` / `OurCashView`, and Accept / Decline.
+
+* **Double-click** a stock item: `Trade` action 5 `(0xc75b, booth, 0x6f, index)`; **drag** an inventory item onto Sold
+  Items: action 5 `(0xc350, you, 0x68, slot)`; double-click a row of either list: action 6 (remove). The server echoes 5
+  and 6 (`capture-225436.log`), and the lists follow the echoes. Accept is action 1; the server answers 4 (complete) and
+  the booth is used again; Decline (or closing) is action 2.
+* **Prices** are the client's own, Gamecode's `VendingMachine_t`: an item's value is stat 74 between its low and high
+  templates at its quality (FUN_10099991: FUN_100cb909's line, then FUN_100cbb68's curve). Buying costs value x stat 427
+  / 100 less a Computer Literacy discount (min(CL, 3000) / 10 x 0.25 points, at most 90, in percent; only at shops of
+  type 61, stat 156, the default) (FUN_10099e9b). Selling fetches value (divided by stat 212 when set) plus the same points
+  in percent, x count x stat 426 / 100 (FUN_1009a12d). The shop's stats are its template's: Old Athens' booths
+  (0x184f1) sell at 105 % and buy at 4 %.
+* Preview: `MAO_UI_PREVIEW=shop MAO_CAPTURE=capture-221539.log` (two stock items in Bought Items).
 
 ## 4k. Chat server and the chat window
 

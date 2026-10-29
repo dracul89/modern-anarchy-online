@@ -118,9 +118,103 @@ pub fn format(text: &str, args: &[Arg]) -> String {
     out
 }
 
+/// `FromBase85`: five digits (`!` + digit, most significant first); `None` at a byte outside `!`..`u`.
+fn from_base85(b: &[u8]) -> Option<u32> {
+    let digits = b.get(..5)?;
+    digits.iter().try_fold(0u32, |v, &c| (c.wrapping_sub(0x21) <= 0x54).then(|| v.wrapping_mul(85).wrapping_add((c - 0x21) as u32)))
+}
+
+/// The UTF-8 character at the start of `b` and its length (the ldb drop-in's `utf8_decode` / `utf8_length`: 0x92 reads as `'`,
+/// a byte that doesn't begin a well-formed sequence as itself).
+fn utf8_char(b: &[u8]) -> (u32, usize) {
+    let Some(&c) = b.first() else { return (0, 1) };
+    let length = if c >= 0x80 && c & 0xc0 != 0xc0 { 1 } else { ((0xe500_0000u32 >> ((c >> 3) & 0x1e)) & 3) as usize + 1 };
+    if c == 0x92 {
+        return (0x27, length);
+    }
+    match std::str::from_utf8(b.get(..length).unwrap_or(b)).ok().and_then(|t| t.chars().next()) {
+        Some(ch) if length > 1 => (ch as u32, length),
+        _ => (c as u32, length),
+    }
+}
+
+/// `RemoteFormat(text)` (LDB.dll; the drop-in's `remote::init`): a text the server packs as `~&`, the category and id as five
+/// base-85 digits each, then the arguments (`i`/`u`/`f` a word in base 85, `R` another text's category and id, `s` a string and
+/// `F` a nested packed text, both as their length + 1 as a UTF-8 character and the bytes) up to a closing `~`. The text is
+/// looked up and filled with the arguments. A text not packed so comes back as it is.
+pub fn remote(texts: &Texts, s: &str) -> String {
+    let b = s.as_bytes();
+    if !(b.len() > 11 && b.starts_with(b"~&")) {
+        return s.to_string();
+    }
+    let (Some(category), Some(id)) = (from_base85(&b[2..]), from_base85(&b[7..])) else { return s.to_string() };
+    let text = texts.get(category as i32, id as i32).unwrap_or("");
+    let mut parts: Vec<String> = Vec::new();
+    let mut numbers: Vec<Option<i64>> = Vec::new();
+    let mut i = 12;
+    while i < b.len() {
+        let c = b[i];
+        let at = &b[i + 1..];
+        match c {
+            b'F' | b's' => {
+                let (n, skip) = utf8_char(at);
+                if n == 0 {
+                    break;
+                }
+                i += 1 + skip;
+                let n = (n - 1) as usize;
+                let part = String::from_utf8_lossy(&b[i..(i + n).min(b.len())]).into_owned();
+                parts.push(remote(texts, &part));
+                numbers.push(None);
+                i += n;
+            }
+            b'R' => {
+                let (Some(category), Some(id)) = (from_base85(at), from_base85(at.get(5..).unwrap_or(&[]))) else { break };
+                parts.push(texts.get(category as i32, id as i32).unwrap_or("").to_string());
+                numbers.push(None);
+                i += 11;
+            }
+            b'f' | b'i' | b'u' => {
+                let Some(value) = from_base85(at) else { break };
+                match c {
+                    b'f' => {
+                        parts.push(format!("{}", f32::from_bits(value)));
+                        numbers.push(None);
+                    }
+                    b'i' => {
+                        parts.push(String::new());
+                        numbers.push(Some(value as i32 as i64));
+                    }
+                    _ => {
+                        parts.push(String::new());
+                        numbers.push(Some(value as i64));
+                    }
+                }
+                i += 6;
+            }
+            _ => break,
+        }
+    }
+    let args: Vec<Arg> = parts.iter().zip(&numbers).map(|(t, n)| n.map_or(Arg::Text(t), Arg::Int)).collect();
+    format(text, &args)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_packed_text_is_looked_up_and_filled() {
+        // (the server's answer to a clan cell scanner used by someone else: 110/55195541 with the text 2005/1)
+        let mut texts = Texts::default();
+        texts.categories.insert(110, HashMap::from([(55195541, "Target side must be %s!".to_string())]));
+        texts.categories.insert(2005, HashMap::from([(1, "clan".to_string())]));
+        assert_eq!(remote(&texts, "~&!!!\":\"%kM;R!!!8S!!!!\""), "Target side must be clan!");
+        // (a string and a word, then the closing `~`)
+        texts.categories.insert(1, HashMap::from([(2, "%s has %d".to_string())]));
+        assert_eq!(remote(&texts, "~&!!!!\"!!!!#s\u{4}Bobi!!!!#~"), "Bob has 2");
+        assert_eq!(remote(&texts, "plain"), "plain");
+    }
 
     #[test]
     fn elf_hash_matches_the_games() {

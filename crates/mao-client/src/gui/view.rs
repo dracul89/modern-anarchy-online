@@ -221,6 +221,9 @@ pub struct Tree {
     pub nodes: Vec<Node>,
     /// Lay out again at the next fit even when the size is the same (texts or values changed).
     pub relayout: bool,
+    /// A sample text's width when the tree was last fitted: when the fonts change (the real ones arriving after the
+    /// first frame), every text's preferred size does and the tree is laid out again.
+    pub fitted_probe: Option<f32>,
     /// How text is measured for the preferred sizes.
     pub measure: Measure,
     /// The views' signals since the window's code last took them.
