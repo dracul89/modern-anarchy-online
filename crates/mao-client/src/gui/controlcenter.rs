@@ -393,7 +393,7 @@ impl ControlCenter {
         if let Some(skin) = env.skin.filter(|s| !e.icon.is_empty() && s.has(&e.icon)) {
             let tint = if on || response.is_pointer_button_down_on() { egui::Color32::WHITE } else if response.hovered() { egui::Color32::from_gray(235) } else { egui::Color32::from_gray(190) };
             skin.draw_in(ui.painter(), &e.icon, r, tint);
-            let response = if e.tooltip.is_empty() { response } else { response.on_hover_ui(|ui| { ui.strong(&e.tooltip); if !e.tooltip_body.is_empty() { ui.label(&e.tooltip_body); } }) };
+            tip(ui, env, &response, e);
             return response.clicked().then_some(r);
         }
         let strip = if response.is_pointer_button_down_on() || on {
@@ -413,18 +413,15 @@ impl ControlCenter {
         let text = label.preferred(env.measure, false).unwrap_or_default();
         let text_rect = egui::Rect::from_min_size(egui::pos2(r.center().x - (text.x + 1.0) / 2.0, r.center().y - (text.y + 1.0) / 2.0), egui::vec2(text.x + 1.0, text.y + 1.0));
         label.paint(&Paint { painter, env, rect: text_rect, hovered: false, pressed: false, enabled: true });
-        let response = if e.tooltip.is_empty() {
-            response
-        } else {
-            response.on_hover_ui(|ui| {
-                ui.strong(&e.tooltip);
-                if !e.tooltip_body.is_empty() {
-                    ui.label(&e.tooltip_body);
-                }
-            })
-        };
+        tip(ui, env, &response, e);
         response.clicked().then_some(r)
     }
+}
+
+/// An entry's tip while the pointer rests on its button (`tooltip`, `tooltip_body`; the window controller's tip).
+fn tip(ui: &egui::Ui, env: &Env, response: &egui::Response, e: &Entry) {
+    let source = response.id.with("tip");
+    super::tooltip::hover(ui.ctx(), env, source, response.hovered().then_some(response.id), &e.tooltip, &e.tooltip_body);
 }
 
 #[cfg(test)]

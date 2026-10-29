@@ -343,7 +343,7 @@ pub fn show(ui: &mut egui::Ui, tree: &mut Tree, root: Id, skin: Option<&crate::s
     let measure = tree.measure.clone();
     let env = Env { skin, palette, measure: &measure };
     let painter = ui.painter_at(rect);
-    for v in views {
+    for &v in &views {
         let clipped = painter.with_clip_rect(clip(tree, v, origin, rect));
         let p = Paint {
             painter: &clipped,
@@ -354,6 +354,14 @@ pub fn show(ui: &mut egui::Ui, tree: &mut Tree, root: Id, skin: Option<&crate::s
             enabled: enabled(tree, v),
         };
         tree.get(v).control.paint(&p);
+    }
+    // (the tip of the topmost view under the pointer that has one: `WindowController_c::UpdateToolTip`)
+    let tipped = pointer.filter(|p| rect.contains(*p) && response.hovered()).and_then(|p| {
+        views.iter().rev().copied().find(|&v| (!tree.get(v).tooltip.is_empty() || !tree.get(v).tooltip_body.is_empty()) && screen_rect(tree, v, origin).contains(p) && clip(tree, v, origin, rect).contains(p))
+    });
+    {
+        let (title, body) = tipped.map_or((String::new(), String::new()), |v| (tree.get(v).tooltip.clone(), tree.get(v).tooltip_body.clone()));
+        super::tooltip::hover(ui.ctx(), &env, response.id, tipped.map(|v| response.id.with(("tip", v))), &title, &body);
     }
     // (the radio button groups' part in the signals)
     super::radio::take_signals(tree);

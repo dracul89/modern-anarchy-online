@@ -25,6 +25,7 @@ pub mod options;
 pub mod spells;
 pub mod stat_names;
 pub mod text;
+pub mod tooltip;
 pub mod radio;
 pub mod popup;
 pub mod dropdown;

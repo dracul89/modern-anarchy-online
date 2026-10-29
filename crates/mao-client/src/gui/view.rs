@@ -183,7 +183,9 @@ pub struct Node {
     pub criteria_off: bool,
     /// `view_enable_expression` (View 0x1014e42e): enabled only while it holds.
     pub enable_expression: String,
+    /// `tooltip` and `tooltip_body` (`View::SetToolTip`): the tip shown while the pointer rests on the view.
     pub tooltip: String,
+    pub tooltip_body: String,
 }
 
 impl Node {
@@ -216,6 +218,7 @@ impl Node {
             fade_group: String::new(),
             criteria: String::new(),
             tooltip: String::new(),
+            tooltip_body: String::new(),
         }
     }
 
@@ -238,6 +241,8 @@ impl Node {
         n.v_align = Align::parse(&e.text("v_alignment", ""));
         n.criteria = e.text("activate_criteria", "");
         n.enable_expression = e.attribute("view_enable_expression").unwrap_or("").to_string();
+        n.tooltip = e.text("tooltip", "");
+        n.tooltip_body = e.text("tooltip_body", "");
         n
     }
 

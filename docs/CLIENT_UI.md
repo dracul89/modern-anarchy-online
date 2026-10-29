@@ -1419,3 +1419,14 @@ are GUI.dll's `RadioButtonGroup_c`: a radio button turned on turns the group's o
 `_ClearButtons`) and the window hears the button's value (`RadioButtonActivated` 0x10140453, `ValueChanged`:
 `Signal::Value`); the group's value is the first button on (`GetValue` 0x101402f5) and setting it turns on the buttons of
 that value (`SetValue` 0x101405cb); a button on stays on when clicked again.
+
+**Tool tips** (`gui/tooltip.rs`). What the pointer rests on for half a second shows its tip as GUI.dll does
+(`WindowController_c::UpdateToolTip` 0x10157adc starts a 500 ms timer when the tip under the pointer changes; `Render`
+opens a `ToolTip_c` at the pointer holding an `InfoContainer_c`, FUN_101494d9): the title in font 5 (in `Default` when
+alone), under it the body word-wrapped two wide to one high (`SetAspectRatio(2)`), framed in colour code 0x3000000
+(`Hover`, 2 wide with a body, 1 without). It serves the XML views' `tooltip` and `tooltip_body` (text database names
+with `#`) and the control center's menu entries (they had egui's hover text). The frame's pieces are drawn as lines round
+a dark ground, the title ruled off from the body; the original's exact surface sizes are not followed. **Wrapped lines**
+of every view's text now start at their first word's text, as `TextRenderer_c::_RenderLine` draws a line from its start
+in the buffer: the space before a word that moved to the next line is neither drawn nor counted there (it was drawn as a
+one-space indent).

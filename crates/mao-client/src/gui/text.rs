@@ -430,6 +430,9 @@ pub fn words(items: &[Item], m: &Measure, default_font: FontId, feature: u32, im
 pub struct Line {
     pub first: usize,
     pub end: usize,
+    /// It began where a word did not fit on the line before: its first word's white space stays on that line (the line
+    /// starts at the word's text) and is neither counted nor drawn here.
+    pub wrapped: bool,
     pub indent: f32,
     pub width: f32,
     pub height: f32,
@@ -457,7 +460,7 @@ pub fn wrap(words: &[Word], feature: u32, avail: f32, default_height: f32) -> (V
         }
         let y = line.y + line.height;
         lines.push(line.clone());
-        *line = Line { first: end, end, indent: if *counter > 0 { 10.0 } else { 0.0 }, width: 0.0, height: 0.0, y };
+        *line = Line { first: end, end, wrapped: false, indent: if *counter > 0 { 10.0 } else { 0.0 }, width: 0.0, height: 0.0, y };
     };
     if feature & flags::MULTILINE == 0 {
         let width: f32 = words.iter().map(|w| w.space + w.width).sum();
@@ -476,16 +479,18 @@ pub fn wrap(words: &[Word], feature: u32, avail: f32, default_height: f32) -> (V
         if feature & flags::WORD_WRAP == 0 || w.width < avail - line.indent {
             if starts || (feature & flags::WORD_WRAP != 0 && avail < line.indent + whole + line.width) {
                 add(&mut lines, &mut line, k, &mut counter, &mut widest);
+                line.wrapped = !starts;
             }
-            line.width += whole;
+            line.width += if line.wrapped && k == line.first { w.width } else { whole };
             line.height = line.height.max(w.height);
         } else {
             // (wider than a line: on a line of its own, its overflow left to the edge: the original splits it at a
             // character, `GetBufferLocation`)
             if line.width != 0.0 {
                 add(&mut lines, &mut line, k, &mut counter, &mut widest);
+                line.wrapped = !w.newline;
             }
-            line.width += whole;
+            line.width += if line.wrapped && k == line.first { w.width } else { whole };
             line.height = line.height.max(w.height);
         }
         if w.block {

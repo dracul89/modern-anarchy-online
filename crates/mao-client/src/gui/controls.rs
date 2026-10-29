@@ -698,15 +698,17 @@ impl Control for TextView {
                 4 => x += ((width - line.width) * 0.5).floor(),
                 _ => {}
             }
-            for w in &words[line.first..line.end] {
-                if let Some(s) = w.space_style.as_ref().filter(|s| (s.underline || s.link_look) && w.space > 0.0) {
+            for (k, w) in words[line.first..line.end].iter().enumerate() {
+                // (a wrapped line starts at its first word's text)
+                let space = if line.wrapped && k == 0 { 0.0 } else { w.space };
+                if let Some(s) = w.space_style.as_ref().filter(|s| (s.underline || s.link_look) && space > 0.0) {
                     let colour = if s.link_look { LINK_COLOUR & 0xff_ffff } else if s.colour == DEFAULT_COLOUR { u32::from(view_colour.r()) << 16 | u32::from(view_colour.g()) << 8 | u32::from(view_colour.b()) } else { s.colour };
                     let c = egui::Color32::from_rgb((colour >> 16) as u8, (colour >> 8) as u8, colour as u8);
                     let h = m.height(s.font.unwrap_or(self.font));
                     let y = top + line.height - h;
-                    clip.rect_filled(egui::Rect::from_min_max(egui::pos2(x, y + h - 2.0), egui::pos2(x + w.space, y + h - 1.0)), 0.0, c);
+                    clip.rect_filled(egui::Rect::from_min_max(egui::pos2(x, y + h - 2.0), egui::pos2(x + space, y + h - 1.0)), 0.0, c);
                 }
-                x += w.space;
+                x += space;
                 for piece in &w.pieces {
                     let font = piece.style.font.unwrap_or(self.font);
                     let colour = if piece.style.link_look {
