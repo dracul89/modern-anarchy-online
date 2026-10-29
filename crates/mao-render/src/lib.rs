@@ -126,6 +126,12 @@ struct Lod {
     far: std::cell::Cell<bool>,
 }
 
+/// How far the player may go from where the shadow map was last drawn before it is drawn again (m), and how much the sun may
+/// turn (the cosine of the angle). The map covers 70 m around that place and only the playfield throws shadows into it (the
+/// characters have blob shadows), so until then the old map is still right.
+const SHADOW_MOVE: f32 = 8.0;
+const SHADOW_TURN: f32 = 0.99999;
+
 const LOD_NEAR: f32 = 4000.0;
 const LOD_FAR: f32 = 6000.0;
 const LOD_CULL: f32 = 2500.0;
@@ -384,6 +390,9 @@ pub struct Stats {
     pub parts: usize,
     pub drawn: usize,
     pub shadow_drawn: usize,
+    /// Where `draw`'s time went (for the client's profile): choosing the levels of detail and the frame's buffers, recording
+    /// the shadow pass, the scene pass and the rest, and handing the work to the queue.
+    pub times: [(&'static str, std::time::Duration); 5],
 }
 
 /// The six planes (normal xyz, distance w; inside is positive) of a
@@ -405,7 +414,21 @@ fn sphere_visible(planes: &[glam::Vec4; 6], center: Vec3, radius: f32) -> bool {
 /// The shadow map's side in texels.
 const SHADOW_SIZE: u32 = 4096;
 
+/// The shadow map last drawn, and what it was drawn for (see `Renderer::draw`).
+#[derive(Clone, Copy)]
+struct ShadowCache {
+    /// The scene's parts (their list's address and length) and whether shadows were on.
+    scene: (usize, usize),
+    shadows: bool,
+    focus: Vec3,
+    sun: Vec3,
+    extent: f32,
+    light_vp: Mat4,
+    texel: f32,
+}
+
 pub struct Renderer {
+    shadow_cache: Option<ShadowCache>,
     pipeline: wgpu::RenderPipeline,
     sky_pipeline: wgpu::RenderPipeline,
     shadow_pipeline: wgpu::RenderPipeline,
@@ -815,7 +838,7 @@ impl Renderer {
             layout: &sprite_layout,
             entries: &[wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&white) }, wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&sampler) }],
         });
-        Renderer { pipeline, sky_pipeline, shadow_pipeline, water_pipeline, water_mesh_pipeline, blob_pipeline, particle_pipeline, shell_add, shell_blend, backdrop_pipelines, sprites: HashMap::new(), sprite_layout, white_sprite, shadow_view, shadow_bind, shadows: true, stats: Stats::default(), render_scale: 1.0, sharpness: 0.2, fsr_easu, fsr_rcas, fsr_layout, fsr_sampler, fsr: None, samples, msaa: None, started: std::time::Instant::now(), globals_layout, part_layout, sampler, white, format, depth: None, textures: Default::default() }
+        Renderer { shadow_cache: None, pipeline, sky_pipeline, shadow_pipeline, water_pipeline, water_mesh_pipeline, blob_pipeline, particle_pipeline, shell_add, shell_blend, backdrop_pipelines, sprites: HashMap::new(), sprite_layout, white_sprite, shadow_view, shadow_bind, shadows: true, stats: Stats::default(), render_scale: 1.0, sharpness: 0.2, fsr_easu, fsr_rcas, fsr_layout, fsr_sampler, fsr: None, samples, msaa: None, started: std::time::Instant::now(), globals_layout, part_layout, sampler, white, format, depth: None, textures: Default::default() }
     }
 
     /// Puts a model on the GPU. `texture` finds a texture by (type, instance).
@@ -1072,6 +1095,13 @@ impl Renderer {
 
     /// Draws the scene into `target`, of `size` pixels.
     pub fn draw(&mut self, gpu: &Gpu, scene: &Scene, camera: &Camera, target: &wgpu::TextureView, size: (u32, u32)) {
+        let mut clock = std::time::Instant::now();
+        let mut times = [("render-setup", std::time::Duration::ZERO); 5];
+        let mut lap = |i: usize, name: &'static str| {
+            let now = std::time::Instant::now();
+            times[i] = (name, now - clock);
+            clock = now;
+        };
         let aspect = size.0 as f32 / size.1.max(1) as f32;
         // Below native, the scene is drawn small and upscaled afterwards.
         let scale = self.render_scale.clamp(0.4, 1.0);
@@ -1093,12 +1123,23 @@ impl Renderer {
             Some(p) => (p, 70.0f32.min(scene.radius.max(1.0))),
             None => (scene.center, scene.radius.max(1.0)),
         };
-        let depth_range = extent * 3.0 + scene.radius.min(400.0);
-        let light_view = look_at(focus + sun * depth_range, focus, Vec3::Z);
-        let texel = 2.0 * extent / SHADOW_SIZE as f32;
-        let c = light_view.transform_point3(focus);
-        let snap = Vec3::new((c.x / texel).round() * texel - c.x, (c.y / texel).round() * texel - c.y, 0.0);
-        let light_vp = orthographic(extent, 0.1, depth_range * 2.0) * Mat4::from_translation(snap) * light_view;
+        // (the shadow map is kept while it still holds: the same scene, the player near where it was drawn, the sun where it was)
+        let scene_key = (scene.parts.as_ptr() as usize, scene.parts.len());
+        let cached = self.shadow_cache.filter(|c| c.scene == scene_key && c.shadows == self.shadows && c.extent == extent && (c.focus - focus).length() < SHADOW_MOVE && c.sun.dot(sun) > SHADOW_TURN);
+        let redraw_shadows = cached.is_none() || std::env::var_os("MAO_SHADOW_EVERY_FRAME").is_some();
+        let (focus, light_vp, texel) = match cached {
+            Some(c) => (c.focus, c.light_vp, c.texel),
+            None => {
+                let depth_range = extent * 3.0 + scene.radius.min(400.0);
+                let light_view = look_at(focus + sun * depth_range, focus, Vec3::Z);
+                let texel = 2.0 * extent / SHADOW_SIZE as f32;
+                let c = light_view.transform_point3(focus);
+                let snap = Vec3::new((c.x / texel).round() * texel - c.x, (c.y / texel).round() * texel - c.y, 0.0);
+                let light_vp = orthographic(extent, 0.1, depth_range * 2.0) * Mat4::from_translation(snap) * light_view;
+                self.shadow_cache = Some(ShadowCache { scene: scene_key, shadows: self.shadows, focus, sun, extent, light_vp, texel });
+                (focus, light_vp, texel)
+            }
+        };
         // (the flat sheet only where the playfield has no water triangles)
         let water = scene.water.as_ref().filter(|w| w.triangles.is_empty());
         let planes = frustum(&camera.view_proj(aspect, scene.radius));
@@ -1192,8 +1233,9 @@ impl Renderer {
             Some((_, msaa)) if self.samples > 1 => (msaa, Some(scene_target)),
             _ => (scene_target, None),
         };
+        lap(0, "render-setup");
         let mut encoder = gpu.device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-        {
+        if redraw_shadows {
             // The shadow map: what the sun sees (always cleared, so a frame with shadows off reads "lit").
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("shadow"),
@@ -1230,6 +1272,7 @@ impl Renderer {
                 }
             }
         }
+        lap(1, "render-shadow");
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("scene"),
@@ -1336,7 +1379,24 @@ impl Renderer {
                 }
             }
         }
-        self.stats = Stats { parts, drawn, shadow_drawn };
+        lap(2, "render-scene");
+        if std::env::var_os("MAO_DRAW_GROUPS").is_some() {
+            let mut sources = std::collections::BTreeMap::<usize, usize>::new();
+            for (k, part) in scene.parts.iter().enumerate() {
+                if lod_draw[k] && sphere_visible(&planes, part.center + part.shift, part.radius + 2.0) {
+                    *sources.entry(part.source).or_default() += 1;
+                }
+            }
+            let many = sources.values().filter(|&&n| n > 1).count();
+            let reach = extent * 1.6;
+            let casters: Vec<&GpuPart> = scene.parts.iter().enumerate().filter(|(k, p)| lod_draw[*k] && (p.center + p.shift - focus).truncate().length() <= reach + p.radius).map(|(_, p)| p).collect();
+            let small = casters.iter().filter(|p| p.radius < 1.0).count();
+            let medium = casters.iter().filter(|p| p.radius >= 1.0 && p.radius < 3.0).count();
+            let foliage = casters.iter().filter(|p| p.uniform.flags[2] > 0.5).count();
+            eprintln!("shadow casters: {} ({} under 1 m, {} 1-3 m, {} foliage), extent {extent}", casters.len(), small, medium, foliage);
+            eprintln!("draw groups: {} playfield draws from {} meshes ({} repeated), {} overlay, {} follow", sources.values().sum::<usize>(), sources.len(), many, scene.overlay.len(), scene.follow.len());
+        }
+        self.stats = Stats { parts, drawn, shadow_drawn, times: [("", std::time::Duration::ZERO); 5] };
         if let Some((scene_view, mid_view)) = &fsr_views {
             let (inw, inh) = (render_size.0 as f32, render_size.1 as f32);
             let (outw, outh) = (size.0 as f32, size.1 as f32);
@@ -1373,7 +1433,10 @@ impl Renderer {
                 pass.draw(0..3, 0..1);
             }
         }
+        lap(3, "render-post");
         gpu.queue.submit(Some(encoder.finish()));
+        lap(4, "render-submit");
+        self.stats.times = times;
     }
 
     /// Draws the scene to a `width` x `height` RGBA image (headless).
@@ -1463,6 +1526,68 @@ mod tests {
         let [x, y] = c.project(p, 16.0 / 9.0, 100.0).unwrap();
         let (from, dir) = c.ray(x, y, 16.0 / 9.0, 100.0);
         assert!(dir.dot((p - from).normalize()) > 0.9999);
+    }
+
+    /// A flat ground 200 m across with a pillar 2 m wide and 12 m tall standing on it at the origin (Z up).
+    fn pillar_scene() -> Model {
+        let quad = |c: [[f32; 3]; 4], n: [f32; 3]| -> (Vec<mao_formats::model::Vertex>, Vec<u16>) {
+            (c.iter().map(|&p| mao_formats::model::Vertex { position: p, normal: n, uv: [0.0, 0.0] }).collect(), vec![0, 1, 2, 0, 2, 3])
+        };
+        let mut parts = Vec::new();
+        let identity: [f32; 16] = Mat4::IDENTITY.to_cols_array();
+        let mut add = |(vertices, indices): (Vec<mao_formats::model::Vertex>, Vec<u16>)| {
+            parts.push(mao_formats::model::Part { name: String::new(), world: identity, vertices, indices, material: mao_formats::model::Material { diffuse: [0.8, 0.8, 0.8], opacity: 1.0, ..Default::default() } });
+        };
+        add(quad([[-100.0, -100.0, 0.0], [100.0, -100.0, 0.0], [100.0, 100.0, 0.0], [-100.0, 100.0, 0.0]], [0.0, 0.0, 1.0]));
+        let (a, b, h) = (-1.0f32, 1.0f32, 12.0f32);
+        add(quad([[a, a, 0.0], [b, a, 0.0], [b, a, h], [a, a, h]], [0.0, -1.0, 0.0]));
+        add(quad([[b, a, 0.0], [b, b, 0.0], [b, b, h], [b, a, h]], [1.0, 0.0, 0.0]));
+        add(quad([[b, b, 0.0], [a, b, 0.0], [a, b, h], [b, b, h]], [0.0, 1.0, 0.0]));
+        add(quad([[a, b, 0.0], [a, a, 0.0], [a, a, h], [a, b, h]], [-1.0, 0.0, 0.0]));
+        add(quad([[a, a, h], [b, a, h], [b, b, h], [a, b, h]], [0.0, 0.0, 1.0]));
+        Model { parts, ..Default::default() }
+    }
+
+    #[test]
+    fn a_kept_shadow_map_draws_the_same_shadows() {
+        // (skipped on a machine without a graphics device)
+        let Ok(gpu) = Gpu::headless() else { return };
+        let format = wgpu::TextureFormat::Rgba8Unorm;
+        let camera = Camera { target: Vec3::new(-6.0, 0.0, 0.0), distance: 40.0, yaw: 0.3, pitch: 1.2 };
+        let (start, moved) = (Vec3::new(0.0, 6.0, 0.0), Vec3::new(5.0, 6.0, 0.0));
+        let picture = |renderer: &mut Renderer, scene: &mut Scene, at: Vec3| {
+            scene.player = Some(at);
+            renderer.render_to_image(&gpu, scene, &camera, 160, 120)
+        };
+        let mut setup = || {
+            let mut renderer = Renderer::new(&gpu, format);
+            let mut scene = renderer.upload(&gpu, &pillar_scene(), &mut |_, _| None);
+            scene.sun = Some(Vec3::new(1.0, 0.0, 0.7));
+            (renderer, scene)
+        };
+        // drawn afresh where the player stands now, and kept from 5 m back (under `SHADOW_MOVE`)
+        let (mut fresh, mut fresh_scene) = setup();
+        let want = picture(&mut fresh, &mut fresh_scene, moved);
+        let (mut kept, mut kept_scene) = setup();
+        picture(&mut kept, &mut kept_scene, start);
+        let got = picture(&mut kept, &mut kept_scene, moved);
+        assert_eq!(kept.shadow_cache.map(|c| c.focus), Some(start), "the map was kept");
+        let differ = |a: &[u8], b: &[u8]| a.chunks(4).zip(b.chunks(4)).filter(|(p, q)| p.iter().zip(q.iter()).any(|(x, y)| x.abs_diff(*y) > 24)).count();
+        let pixels = want.len() / 4;
+        assert!(differ(&want, &got) * 200 < pixels, "{} of {pixels} pixels differ", differ(&want, &got));
+        // (and there is a shadow to compare: without shadows the picture changes)
+        let (mut dark, mut dark_scene) = setup();
+        dark.shadows = false;
+        let unlit = picture(&mut dark, &mut dark_scene, moved);
+        if let Some(dir) = std::env::var_os("MAO_TEST_DUMP") {
+            for (name, img) in [("fresh", &want), ("kept", &got), ("unlit", &unlit)] {
+                let mut ppm = b"P6 160 120 255
+".to_vec();
+                ppm.extend(img.chunks(4).flat_map(|p| [p[0], p[1], p[2]]));
+                let _ = std::fs::write(std::path::Path::new(&dir).join(format!("{name}.ppm")), ppm);
+            }
+        }
+        assert!(differ(&want, &unlit) * 400 > pixels, "the pillar throws a shadow ({} pixels differ)", differ(&want, &unlit));
     }
 
     #[test]

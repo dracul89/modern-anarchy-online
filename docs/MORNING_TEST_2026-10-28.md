@@ -46,6 +46,7 @@ four tabs are too cramped (the wear column is narrow, so their names are cut); t
 
 | Commit | What | Test |
 |---|---|---|
+| (next) | **About three times the frame rate**: the sun's shadow map is kept until you move 8 m or the sun turns (55 → ~165 fps standing, ~140 walking, measured live); the network handles every message that has come before the frame's work (no queue in busy areas); `MAO_PROFILE=1` prints where the frame time goes | play as usual: shadows should look the same; watch for shadows lagging or popping as you walk |
 | 79523b7 | **X just sits** (and `/sit`): sit down or stand up, no logout; /camp is the only way to log out | press X, wait a minute, press X |
 | 0cd8a0e | **/camp logs out as the original**: sits down, "Timed logout started. This will take 30 seconds.", a "Logout" timer bar in the middle of the screen; X or moving stands up and aborts it; refused in a fight; window positions saved when the game closes | /camp and wait; /camp then press X; /camp while a monster hits you |
 | bd86cca | **Corpses named as the server names them**: "Remains of Leet" in the target bar, over the body and on the loot window | kill something and select the body |

@@ -1183,3 +1183,23 @@ Sadlee: logged out after the countdown; cancelled by X with the server's 0x7a.
 on the ground (`SwitchToSit`; a fight of one's own stops first) or stands it up (`LeaveSit`); it no longer logs out. Standing
 up still gives up a `/camp` under way, and `/camp` while seated logs out without sitting again (the original sits only a
 character not sitting). Tried live: seated 50 s and still in the game.
+
+## Frame-rate work (2026-10-29)
+
+`MAO_PROFILE=1` now also prints, every five seconds, the frames per second and each stage's average and worst time: the
+frame's `update` (the network's news, the characters' upload), `acquire`, `scene`, `draw` (with the renderer's own
+`render-setup`, `render-shadow`, `render-scene`, `render-post`, `render-submit`), `ui`, `paint`, `present`, and the network
+thread's `net-iteration` / `net-receive-*` (`prof.rs`). `MAO_DRAW_GROUPS=1` prints the draws and shadow casters each frame.
+
+Measured live (Sadlee, 2560 by 1440, no vsync): 55 fps, with `queue.submit` taking 7 ms a frame. Halving the render scale
+changed nothing; leaving out the shadow pass gave 134 fps. The sun's shadow map drew 1 212 parts every frame (the
+playfield within 112 m all round, half of them plants) against 363 in the camera's view. Since only the playfield throws
+those shadows (the characters have the original's blob shadows), the map is now kept while it still holds and drawn again
+only when the player is 8 m from where it was drawn, the sun has turned (cosine under 0.99999), shadows were switched, or
+the playfield changed (`ShadowCache`; `MAO_SHADOW_EVERY_FRAME=1` draws it every frame as before). Now about 165 fps
+standing and 140 walking (one 9 ms frame per 8 m). Checked by `a_kept_shadow_map_draws_the_same_shadows`: a pillar's
+shadow drawn afresh and from a map kept 5 m back are the same picture.
+
+The network thread handled one message per pass of its loop (a pass is about 13 ms: the wait for the next message and the
+frame's own work), so at most about 75 messages a second; messages that have already come are now handled in a row (up to
+200) before the frame's work, unless a zoning is due (`Connection::try_receive`).

@@ -1139,6 +1139,7 @@ impl ApplicationHandler for App {
                 w.window.request_redraw();
             }
             WindowEvent::RedrawRequested => {
+                let mut prof_t = std::time::Instant::now();
                 // Queued hotbar presses fire as soon as something in their slot is ready.
                 if let Some(ui) = w.ui.as_mut() {
                     let now = ui.now();
@@ -1341,7 +1342,9 @@ impl ApplicationHandler for App {
                             profile!("[profile] area scene upload {:?} ({} parts)", uploading.elapsed(), model.parts.len());
                             w.scene.fog = fog_for(self.settings.view_distance);
                         }
+                        let own_started = std::time::Instant::now();
                         let own_scene = w.renderer.upload(&w.gpu, &update.own_model, &mut |k, i| self.textures.get_for_upload(k, i));
+                        crate::prof::add("upload-own", own_started.elapsed());
                         w.scene.set_follow(own_scene);
                         self.casters = std::mem::take(&mut update.casters);
                         if let Some(p) = update.own {
@@ -1352,6 +1355,7 @@ impl ApplicationHandler for App {
                         let uploading = std::time::Instant::now();
                         let overlay = w.renderer.upload(&w.gpu, &update.model, &mut |k, i| self.textures.get_for_upload(k, i));
                         w.scene.set_overlay(overlay);
+                        crate::prof::add("upload-overlay", uploading.elapsed());
                         if std::env::var_os("MAO_PROFILE").is_some() && uploading.elapsed() > std::time::Duration::from_millis(2) {
                             eprintln!("[profile] overlay upload {:?}", uploading.elapsed());
                         }
@@ -1631,6 +1635,7 @@ impl ApplicationHandler for App {
                     w.scene.particles = sparks;
                     w.scene.shells = shells;
                 }
+                prof_t = crate::prof::lap("update", prof_t);
                 let frame = match w.surface.get_current_texture() {
                     wgpu::CurrentSurfaceTexture::Success(frame) | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
                     _ => {
@@ -1639,6 +1644,7 @@ impl ApplicationHandler for App {
                     }
                 };
                 let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
+                prof_t = crate::prof::lap("acquire", prof_t);
                 let size = (w.config.width, w.config.height);
                 if self.live.is_some() {
                     w.scene.fog = fog_for(self.settings.view_distance);
@@ -1746,8 +1752,15 @@ impl ApplicationHandler for App {
                     let saved = std::fs::create_dir_all(&dir).is_ok() && image::save_buffer(&path, &pixels, width, height, image::ColorType::Rgba8).is_ok();
                     self.hud.say(if saved { format!("Screenshot saved: {}", path.display()) } else { "The screenshot could not be saved".to_string() });
                 }
+                prof_t = crate::prof::lap("scene", prof_t);
                 w.renderer.draw(&w.gpu, &w.scene, &camera, &view, size);
+                prof_t = crate::prof::lap("draw", prof_t);
                 let stats = w.renderer.stats;
+                for (name, took) in stats.times {
+                    if !name.is_empty() {
+                        crate::prof::add(name, took);
+                    }
+                }
                 self.hud.draw_info = format!("{} of {} parts, {} in shadow", stats.drawn, stats.parts, stats.shadow_drawn);
                 if let Some(ui) = w.ui.as_mut() {
                     let (camera, radius) = (w.camera, w.scene.radius);
@@ -1755,6 +1768,7 @@ impl ApplicationHandler for App {
                     let project = |p: mao_render::glam::Vec3| camera.project(p, aspect, radius);
                     self.hud.camera_yaw = w.camera.yaw;
                     let (frame, mut requests) = ui.run(&w.window, &mut self.settings, &self.hud, &project);
+                    prof_t = crate::prof::lap("ui", prof_t);
                     // (the web page follows its window: opened when it opens, moved with it, gone when it closes)
                     #[cfg(windows)]
                     match ui.browser_bounds() {
@@ -1938,7 +1952,9 @@ impl ApplicationHandler for App {
                     if requests.hotbars_changed {
                         crate::hotbar::save(&ui.hotbars);
                     }
+                    prof_t = crate::prof::lap("ui-requests", prof_t);
                     ui.paint(&w.gpu, &view, size, frame);
+                    prof_t = crate::prof::lap("paint", prof_t);
                     if let Some(theme) = requests.theme {
                         ui.set_theme(&theme, &self.settings.aou_mod);
                         self.settings.theme = theme;
@@ -1968,6 +1984,8 @@ impl ApplicationHandler for App {
                 }
                 w.window.pre_present_notify();
                 w.gpu.queue.present(frame);
+                crate::prof::lap("present", prof_t);
+                crate::prof::frame();
             }
             _ => {}
         }

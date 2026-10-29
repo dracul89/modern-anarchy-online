@@ -23,6 +23,7 @@ macro_rules! profile {
 }
 
 mod actions;
+mod prof;
 mod chat_commands;
 mod chatwindow;
 mod chatlog;

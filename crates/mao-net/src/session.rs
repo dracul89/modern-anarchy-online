@@ -90,6 +90,25 @@ impl Connection {
         let _ = self.stream.shutdown(std::net::Shutdown::Both);
     }
 
+    /// The next message if one has already come (nothing is waited for).
+    pub fn try_receive(&mut self) -> Result<Option<Frame>, Error> {
+        loop {
+            if let Some(frame) = self.reader.next()? {
+                return Ok(Some(frame));
+            }
+            let mut buffer = [0u8; 8192];
+            let n = match crate::socket::read(&mut self.stream, &mut buffer, Duration::ZERO) {
+                Ok(n) => n,
+                Err(e) if e.kind() == std::io::ErrorKind::TimedOut => return Ok(None),
+                Err(e) => return Err(e.into()),
+            };
+            if n == 0 {
+                return Err(Error::Closed);
+            }
+            self.reader.push(&buffer[..n])?;
+        }
+    }
+
     /// The next message, waiting for it.
     pub fn receive(&mut self) -> Result<Frame, Error> {
         loop {

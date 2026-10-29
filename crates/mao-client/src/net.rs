@@ -3205,14 +3205,25 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             connection.send(&n3::position_update(own, kind, heading, position, ms)).is_ok()
         };
         let mut sent = Instant::now();
+        let mut prof_iter = Instant::now();
+        // (a message that came while one was handled waits here: up to `BURST` are handled in a row before the frame's
+        // own work, so a busy area does not queue up behind it)
+        const BURST: u32 = 200;
+        let (mut stash, mut burst): (Option<frame::Frame>, u32) = (None, 0);
         loop {
+            prof_iter = crate::prof::lap("net-iteration", prof_iter);
             // MAO_FAKE_REDIRECT=<seconds>: behave as if the server sent a redirect then (to test the hop without a zone line).
             let fake_due = !fake_done && std::env::var("MAO_FAKE_REDIRECT").ok().and_then(|v| v.parse::<u64>().ok()).is_some_and(|s| clock.elapsed() > Duration::from_secs(s));
             let received = if fake_due {
                 fake_done = true;
                 Ok(system::redirect_frame([37, 18, 193, 19], 7509))
+            } else if let Some(frame) = stash.take() {
+                Ok(frame)
             } else {
-                connection.receive()
+                let started = Instant::now();
+                let r = connection.receive();
+                crate::prof::add(if r.is_ok() { "net-receive-got" } else { "net-receive-wait" }, started.elapsed());
+                r
             };
             match received {
                 Ok(frame) => {
@@ -3377,6 +3388,16 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     break;
                 }
             }
+            // (more already here: handled first, unless a zoning is to be done, which clears the old playfield's state)
+            if burst < BURST && state.arrival.is_none() {
+                if let Ok(Some(frame)) = connection.try_receive() {
+                    stash = Some(frame);
+                    burst += 1;
+                    continue;
+                }
+            }
+            crate::prof::add("net-burst", Duration::from_micros(burst as u64));
+            burst = 0;
             // Zoning: the server announces the new playfield and where we arrive.
             if let Some((playfield, arrival)) = state.arrival.take() {
                 if playfield != current {
