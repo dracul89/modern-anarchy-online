@@ -364,7 +364,9 @@ pub fn tab_view<R>(ui: &mut egui::Ui, palette: &Palette, names: &[&str], selecte
         let (x, w) = places[i];
         let rect = egui::Rect::from_min_size(egui::pos2(strip.left() + x, strip.top()), egui::vec2(w, height));
         let response = ui.interact(rect, ui.scope_id().with(("tab", i)), egui::Sense::click());
-        if response.hovered() && ui.input(|inp| inp.pointer.primary_pressed()) {
+        // (opens when pressed, as the original's; egui may not count the tab hovered on the press's own frame, so a click
+        // opens it too)
+        if response.clicked() || response.is_pointer_button_down_on() || (response.hovered() && ui.input(|inp| inp.pointer.primary_pressed())) {
             *selected = i;
         }
         let active = i == *selected;
