@@ -768,12 +768,24 @@ impl World {
             }
             self.died.push(m.identity.1);
         }
-        if m.kind == 0x36510078 {
-            self.dead.remove(&m.identity.1);
-            // (a corpse gone: its body's link with it)
-            self.corpses.retain(|_, c| *c != m.identity.1);
+        // A `Despawn`: a dynel leaves. A body that died stays lying where it fell (the server despawns it just before it
+        // announces the corpse there, and the corpse is what the original draws dead) until its corpse goes; anyone else
+        // leaves the world.
+        if m.kind == 0x36510078 && m.identity.1 != self.own {
+            let id = m.identity.1;
             if m.identity.0 == OBJECT_TYPE {
-                self.objects.remove(&m.identity.1);
+                self.objects.remove(&id);
+                let bodies: Vec<u32> = self.corpses.iter().filter(|(_, c)| **c == id).map(|(b, _)| *b).collect();
+                for body in bodies {
+                    self.corpses.remove(&body);
+                    self.bodies.remove(&body);
+                    self.dead.remove(&body);
+                    self.entities.remove(&body);
+                }
+            } else if !self.dead.contains_key(&id) {
+                self.entities.remove(&id);
+                self.paths.remove(&id);
+                self.fighting.remove(&id);
             }
         }
         // The hazards (`hazards`): their full updates, a controller's state, and what befalls a mine or trap.
@@ -5905,11 +5917,22 @@ mod door_tests {
         assert_eq!(w.fighting.get(&0x4bc80), Some(&0x7b017c2a));
         w.add(&Message { kind: 0x4a41203e, identity: (0xc350, 0x4bc80), data: hex("0000000001") }.frame(1));
         assert!(!w.fighting.contains_key(&0x4bc80));
-        // (a captured death: 0x7b017c2a dies kneeling, 500, and is despawned ten seconds on)
+        // (a captured death: 0x7b017c2a dies kneeling, 500, and is despawned ten seconds on; it stays lying there as its
+        // corpse, announced where it fell, until the corpse goes)
+        w.entities.insert(0x7b017c2a, ([277.1, 8.1, 278.3], 0));
         w.add(&Message { kind: 0x5e477770, identity: (0xc350, 0x7b017c2a), data: hex("000000006300000000000000000000000000000000000001f40000") }.frame(1));
         assert_eq!(w.dead.get(&0x7b017c2a).map(|d| d.0), Some(500));
         w.add(&Message { kind: 0x36510078, identity: (0xc350, 0x7b017c2a), data: hex("00") }.frame(1));
-        assert!(!w.dead.contains_key(&0x7b017c2a));
+        assert!(w.dead.contains_key(&0x7b017c2a) && w.entities.contains_key(&0x7b017c2a));
+        w.add(&Message { kind: 0x4f474e05, identity: (0xc76a, 0x103b002), data: hex("00000000080000000b0000000000000000438a90bd410228f6438b24b000000000") }.frame(1));
+        assert_eq!(w.corpses.get(&0x7b017c2a), Some(&0x103b002));
+        assert_eq!(w.used(0xc350, 0x7b017c2a), (0xc76a, 0x103b002));
+        w.add(&Message { kind: 0x36510078, identity: (0xc76a, 0x103b002), data: hex("00") }.frame(1));
+        assert!(!w.dead.contains_key(&0x7b017c2a) && !w.entities.contains_key(&0x7b017c2a));
+        // (a living one despawned leaves)
+        w.entities.insert(9, ([0.0; 3], 0));
+        w.add(&Message { kind: 0x36510078, identity: (0xc350, 9), data: hex("00") }.frame(1));
+        assert!(!w.entities.contains_key(&9));
     }
 
     #[test]

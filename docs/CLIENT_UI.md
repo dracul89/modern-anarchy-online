@@ -1153,3 +1153,8 @@ wandering creatures send a two-place path every 1-3 s and walk a steady 1.5 m/s 
 learnt from two paths in a row (how far along the first the second starts, over the time between them: `path_speed`), so a
 running one keeps up. Tested (`creatures_walk_their_paths`) and checked live: the body's place now matches its corpse's to
 half a metre. Dead ones stop. Kills and loots tried live (2026-10-29, Sadlee): two items taken from a Reet of Paradise.
+
+**Bodies stay down.** The server despawns a dead creature ten seconds or so after it dies and announces its corpse where it
+fell; the client used to clear the death on the despawn, so the body stood up again. Now a dead body's despawn keeps it lying
+there (dead, its death animation held) as its corpse's picture until the corpse itself despawns, and then both go; any other
+despawned character leaves the world (it used to stay drawn where it was last seen). Tested on the captured death and live.
