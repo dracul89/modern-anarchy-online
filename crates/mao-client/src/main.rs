@@ -45,6 +45,7 @@ mod layout;
 mod loot;
 mod nanoprograms;
 mod perks;
+mod prefs;
 mod ncu;
 mod skills;
 mod stats;

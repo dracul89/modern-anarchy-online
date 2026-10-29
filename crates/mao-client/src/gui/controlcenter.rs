@@ -174,6 +174,9 @@ impl ControlCenter {
         let own = dirs.first().filter(|d| Some(*d) != game_default.as_ref()).cloned();
         let mut store = Store::load(game_default.as_deref(), own.as_deref());
         store.load_user(&prefs_path());
+        for (name, v) in store.numbers() {
+            crate::prefs::set(&name, v);
+        }
         for name in SOUND {
             if store.get(name).is_some() {
                 apply_sound(&store, name);
@@ -360,6 +363,9 @@ impl ControlCenter {
             }
             if SOUND.contains(&name.as_str()) {
                 apply_sound(&self.store, &name);
+            }
+            if let Some(v) = self.store.get(&name).filter(|v| !matches!(v, Variant::String(_) | Variant::Void)) {
+                crate::prefs::set(&name, v.as_double());
             }
         }
         if save {

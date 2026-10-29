@@ -1051,8 +1051,13 @@ GUI.dll's defaults and ranges from `Preferences_t::SetDefaultCharPrefs` /
 `SetDefaultLoginPrefs`). What the player changes is saved to `prefs.xml` beside
 `mao.ini` and loaded at the next start. The sound settings drive the sound module as
 GUI.dll's do (FUN_100c573c: `MasterVolume`, `FXVolume`, `MusicVolume`,
-`VoiceSndFxVolume` and the on/off switches mute); the others are kept but not yet used
-by the client (view distance, effects, fog ...). The client's own settings window
+`VoiceSndFxVolume` and the on/off switches mute). The client reads the rest through
+`prefs.rs` (a copy the control center keeps): the Effects page's switches decide which
+effects are made, as Gamecode's `_EffectHandler_t::isEffectInCategoryActive` does
+(the nano programs' visuals on characters `BuffsFX`, casts `NanoEffectFX`, shots
+`TracersFX`, strikes `EnvironmentFX`, flares and landings `OthersFX`), `Shadows` the
+ground shadows, `MouseLookInverted` the mouse look. Not used yet: view distance, fog
+mode, water, clouds, wildlife, names, character fading. The client's own settings window
 (window mode, keys) is still there for what the original has no option for.
 `MAO_UI_PREVIEW=optionpanel` (with `MAO_OPTION_PAGE=<n>`) shows it.
 

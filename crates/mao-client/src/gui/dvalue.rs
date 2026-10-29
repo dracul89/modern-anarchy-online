@@ -141,6 +141,11 @@ impl Store {
         let _ = std::fs::write(path, out);
     }
 
+    /// Every value's number (for `prefs.rs`).
+    pub fn numbers(&self) -> Vec<(String, f64)> {
+        self.values.iter().filter(|(_, v)| !matches!(v, Variant::String(_) | Variant::Void)).map(|(k, v)| (k.clone(), v.as_double())).collect()
+    }
+
     /// A value's range, if it has one.
     pub fn range(&self, name: &str) -> Option<(f64, f64)> {
         self.ranges.get(name).copied()

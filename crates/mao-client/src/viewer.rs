@@ -619,7 +619,9 @@ impl ApplicationHandler for App {
         let Some(w) = self.state.as_mut() else { return };
         // The mouse look goes to the game's camera at the next frame (across: right positive; up: mouse up positive).
         self.mouse_look.0 += dx as f32 * 0.005;
-        self.mouse_look.1 -= dy as f32 * 0.005;
+        // (`MouseLookInverted`: the option panel's Mouse page, Gamecode's `StaticMouseLookInvertCallback`)
+        let invert = if crate::prefs::on("MouseLookInverted") { -1.0 } else { 1.0 };
+        self.mouse_look.1 -= invert * dy as f32 * 0.005;
         if self.buttons[1] {
             self.keys.face = Some(heading_from_yaw(w.camera.yaw));
             if let Some(live) = &self.live {
@@ -1147,24 +1149,38 @@ impl ApplicationHandler for App {
                         if let Some(auras) = u.auras.take() {
                             self.auras = auras;
                         }
+                        // (each effect made only while its category is on: Gamecode's `isEffectInCategoryActive`, the
+                        // option panel's Effects switches; a shot's trail and flash are the tracers', a cast's the nano
+                        // effects', a lone flare and a landing others', a strike the environment's)
+                        let shown = crate::prefs::effect_category_active;
                         for shot in u.shots.take().unwrap_or_default() {
-                            self.shots.push((std::time::Instant::now(), shot));
+                            if shown(crate::prefs::TRACERS) {
+                                self.shots.push((std::time::Instant::now(), shot));
+                            }
                         }
                         for cast in u.bursts.take().unwrap_or_default() {
-                            self.bursts.push((std::time::Instant::now(), cast));
+                            if shown(crate::prefs::NANO) {
+                                self.bursts.push((std::time::Instant::now(), cast));
+                            }
                         }
                         for (at, flare) in std::mem::take(&mut u.flares) {
-                            self.flares.push((std::time::Instant::now(), at, flare));
+                            if shown(crate::prefs::OTHERS) {
+                                self.flares.push((std::time::Instant::now(), at, flare));
+                            }
                         }
                         let ground = self.ground.clone();
                         for (at, seed) in std::mem::take(&mut u.strikes) {
-                            self.sky.strike(at, seed, &|x, z| ground.as_ref().map(|(t, o)| t.height_at(x, z, t.height_scale) + o));
+                            if shown(crate::prefs::ENVIRONMENT) {
+                                self.sky.strike(at, seed, &|x, z| ground.as_ref().map(|(t, o)| t.height_at(x, z, t.height_scale) + o));
+                            }
                         }
                         if let Some(f) = u.sky_frame.take() {
                             self.fxs_frame = Some(f);
                         }
                         for at in std::mem::take(&mut u.landings) {
-                            self.sky.landing(at, &|x, z| ground.as_ref().map(|(t, o)| t.height_at(x, z, t.height_scale) + o));
+                            if shown(crate::prefs::OTHERS) {
+                                self.sky.landing(at, &|x, z| ground.as_ref().map(|(t, o)| t.height_at(x, z, t.height_scale) + o));
+                            }
                         }
                         for level in std::mem::take(&mut u.jolts) {
                             self.quake.jolt(level);
@@ -1345,7 +1361,9 @@ impl ApplicationHandler for App {
                         };
                         // (the character's posed body, found once: its surface for the shells, its attractors for the meshes on them)
                         let mut posed: Option<Option<crate::blobshadow::Caster>> = None;
-                        for (nano, aura) in auras {
+                        // (the running nano programs' visuals on the characters: the buffs, while `BuffsFX` is on)
+                        let buffs = crate::prefs::effect_category_active(crate::prefs::BUFFS);
+                        for (nano, aura) in auras.iter().filter(|_| buffs) {
                             let (period, life, plays) = crate::effects::pulse_timing(aura);
                             if let Some(age) = self.pulses.tick(*id, *nano, period, life, plays, time) {
                                 // (its toggles started by the vehicle's motion, the times as the effect's)
@@ -1558,7 +1576,8 @@ impl ApplicationHandler for App {
                     let height = self.ground.as_ref().map(|(t, o)| (t.clone(), *o));
                     let height_at = |x: f32, y: f32| height.as_ref().map_or(0.0, |(t, o)| t.height_at(x, y, t.height_scale) + o);
                     let mut blobs = Vec::new();
-                    for caster in &self.casters {
+                    // (the ground shadows while `Shadows` is on: the option panel's Effects page)
+                    for caster in self.casters.iter().filter(|_| crate::prefs::on("Shadows")) {
                         let shifted;
                         let caster = if caster.own {
                             shifted = caster.shifted(self.follow_shift);
