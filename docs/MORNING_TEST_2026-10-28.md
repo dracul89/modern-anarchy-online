@@ -47,7 +47,7 @@ four tabs are too cramped (the wear column is narrow, so their names are cut); t
 | Commit | What | Test |
 |---|---|---|
 | c962627 | **Position reports as the original** (every 5 s running straight, on a turn of the view; not every 0.4 s); the walk/run mode told to the server on entering (it remembered walk from a test and pulled the character back) | run far in a straight line and with the mouse; no rubber-banding |
-| (next) | **Doors follow the server's open/closed word** (DoorStatusUpdate decoded) | in a shop, see whether doors open and close by themselves when others use them |
+| 01780a8 | **Doors follow the server's open/closed word** (DoorStatusUpdate decoded) | in a shop, see whether doors open and close by themselves when others use them |
 | c3720bf | **Interior floors for the vehicle**: shops and apartments stand on their rooms' floors (they had none on the new path) | walk round a shop, up its ramps |
 | 72e6ba6 | **Movement as the original's vehicle** (sphere sweep and slide, ground from three rays, 60° footing limit, steps, falling, the original's jump height from Strength + Agility, gravity 20) | walk into walls at angles, up steps and slopes, off ledges; jump (height by stats); no rubber-banding |
 | 61f03f2 | **Swimming** as the original (deeper than 1.19 m, swim speed `RunSpeed/440+3`, swim animations, 0x1a/0x23 to the server); **ways out** of zones decoded and used for zoning; doors zone within 0.5 m | swim in the Old Athens lake; walk out; walk through a door and a zone exit |
