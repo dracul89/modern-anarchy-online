@@ -454,6 +454,15 @@ const DOOR_STATUS: u32 = 0x4c7d403b;
 const DOOR_TYPE: u32 = 0xc748;
 /// How long a door that was used stays open.
 const DOOR_OPEN: Duration = Duration::from_secs(5);
+/// A door the server opened, until it says closed.
+const SERVER_OPEN: Duration = Duration::from_secs(24 * 3600);
+
+/// Whether a `DoorStatusUpdate` says the door is open: its `DoorStatusUpdateIIR_t` (read by FUN_100a0330) after a byte: the
+/// version (2), the locked flag, the open flag, stat 195 (`int`), a flag byte and a list (`000003f1` empty); none when the
+/// version is another.
+fn door_open(data: &[u8]) -> Option<bool> {
+    (data.get(1..5)? == [0, 0, 0, 2]).then(|| data.get(6).map(|&b| b != 0)).flatten()
+}
 const OBJECT_TYPE: u32 = 0xc76a;
 
 /// The items of a parsed world-entry message's `InventorySlots` list.
@@ -629,6 +638,18 @@ impl World {
             let Some((_, position)) = self.door_number(id).and_then(|n| self.door_slots.get(&n).copied()) else { continue };
             self.objects.insert(id, position);
             self.names.entry(id).or_insert_with(|| ("Door".to_string(), false));
+        }
+    }
+
+    /// The server's word on a door (`DoorStatusUpdateIIR_t`'s apply, FUN_100a015a: open calls `DoorOpened`, closed
+    /// `DoorClosed`): open stays open until the server says closed; closed ends what the server opened, not the few seconds
+    /// a use of our own opened it for.
+    fn door_status(&mut self, id: u32, open: bool) {
+        let Some(n) = self.door_number(id) else { return };
+        if open {
+            self.doors_open.insert(n, Instant::now() + SERVER_OPEN);
+        } else if self.doors_open.get(&n).is_some_and(|until| *until > Instant::now() + DOOR_OPEN) {
+            self.doors_open.remove(&n);
         }
     }
 
@@ -1216,8 +1237,16 @@ impl World {
             self.loot = None;
             self.loot_changed = true;
         }
+        if m.kind == DOOR_STATUS && std::env::var("MAO_TRACE").is_ok_and(|v| v == "1") {
+            eprintln!("door status {:x}:{:x}: {}", m.identity.0, m.identity.1, m.data.iter().map(|b| format!("{b:02x}")).collect::<String>());
+        }
         if m.kind == DOOR_STATUS && m.identity.0 == DOOR_TYPE && self.door_ids.insert(m.identity.1) {
             self.register_doors();
+        }
+        if m.kind == DOOR_STATUS && m.identity.0 == DOOR_TYPE
+            && let Some(open) = door_open(&m.data)
+        {
+            self.door_status(m.identity.1, open);
         }
         if m.kind == mao_net::destinations::DESTINATION_LIST {
             self.destinations = mao_net::destinations::parse(&m.data);
@@ -6531,6 +6560,20 @@ mod door_tests {
         assert!(world.doors_open.get(&2).is_some_and(|until| *until > Instant::now()));
         world.door_used(0x10c1a5a8);
         assert_eq!(world.doors_open.len(), 1);
+        // the server's word: the live bytes of a closed door, and the same with the open flag set
+        let closed = [0x00, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x03, 0xf1];
+        let mut open = closed;
+        open[6] = 1;
+        assert_eq!(door_open(&closed), Some(false));
+        assert_eq!(door_open(&open), Some(true));
+        assert_eq!(door_open(&[0; 16]), None);
+        // a closed word leaves our own use's few seconds; an open word holds until a closed one
+        world.door_status(0x10c1a5a7, false);
+        assert!(world.doors_open.contains_key(&2));
+        world.door_status(0x10c1a5a9, true);
+        assert!(world.doors_open.get(&4).is_some_and(|until| *until > Instant::now() + Duration::from_secs(3600)));
+        world.door_status(0x10c1a5a9, false);
+        assert!(!world.doors_open.contains_key(&4));
     }
 }
 
