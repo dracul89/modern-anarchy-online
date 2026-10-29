@@ -46,7 +46,7 @@ four tabs are too cramped (the wear column is narrow, so their names are cut); t
 
 | Commit | What | Test |
 |---|---|---|
-| (next) | **/camp logs out as the original**: sits down, "Timed logout started. This will take 30 seconds.", a "Logout" timer bar in the middle of the screen; X or moving stands up and aborts it; refused in a fight; window positions saved when the game closes | /camp and wait; /camp then press X; /camp while a monster hits you |
+| 0cd8a0e | **/camp logs out as the original**: sits down, "Timed logout started. This will take 30 seconds.", a "Logout" timer bar in the middle of the screen; X or moving stands up and aborts it; refused in a fight; window positions saved when the game closes | /camp and wait; /camp then press X; /camp while a monster hits you |
 | bd86cca | **Corpses named as the server names them**: "Remains of Leet" in the target bar, over the body and on the loot window | kill something and select the body |
 | 3e1a3c5 | **Dead monsters stay dead**: a killed creature keeps lying where it fell (and can be looted) until its corpse rots, instead of standing up when the server swaps the body for the corpse; despawned characters no longer linger | kill something and wait half a minute; press E on it |
 | 315aa7b | **Creatures walk between server updates**: the server's `FollowTarget` paths (wandering at 1.5 m/s, faster ones learnt from their paths) and `SetPos` are now followed, so monsters move smoothly instead of jumping, and Tab distances, /follow and corpse matching use where they really are; an empty corpse opens and closes after a second as the original's | watch monsters wander; fight one that runs at you |
