@@ -52,6 +52,8 @@ pub enum Signal {
     Edited,
     /// A scroll view scrolled (the tree is laid out again; not passed on).
     Scrolled,
+    /// A drop-down's entry was chosen (`SelectionChanged`): its index.
+    Selected(i64),
 }
 
 /// The keys a text view acts on (`TextRenderer_c::KeyDown`'s cases: 0x18 Enter, 0x19 Backspace, 0x1b Delete, 0x1c Home,
@@ -350,6 +352,17 @@ pub fn show(ui: &mut egui::Ui, tree: &mut Tree, root: Id, skin: Option<&crate::s
             enabled: enabled(tree, v),
         };
         tree.get(v).control.paint(&p);
+    }
+    // (what is drawn over everything: an open drop-down's list)
+    let ctx = ui.ctx().clone();
+    let mut overlay_views = Vec::new();
+    order(tree, root, &mut overlay_views);
+    for v in overlay_views {
+        let r = screen_rect(tree, v, origin);
+        let id = response.id.with(("overlay", v));
+        if let Some(s) = tree.get_mut(v).control.overlay(&ctx, &env, r, id) {
+            push(tree, v, s);
+        }
     }
     response
 }

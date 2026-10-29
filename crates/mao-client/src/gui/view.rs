@@ -102,6 +102,11 @@ pub trait Control: Any {
     fn copy(&self) -> Option<String> {
         None
     }
+    /// Drawn after the window, over everything (a drop-down's open list): the view's rect on screen and an id of its own;
+    /// a signal for the window.
+    fn overlay(&mut self, _ctx: &egui::Context, _env: &super::host::Env, _rect: egui::Rect, _id: egui::Id) -> Option<Signal> {
+        None
+    }
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
 }

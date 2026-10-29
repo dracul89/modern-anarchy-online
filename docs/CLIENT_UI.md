@@ -1402,3 +1402,14 @@ minimum and at most its maximum and moved by the scroll (`LayoutChilds` 0x10143d
 (`GetDefaultWidth`) a pixel right of the client, drawn and handled as `chrome::scroll` does (arrows 5, page 20, knob
 drag), the wheel 10 a notch (`WheelMoved`, step `_DAT_101a98ec`). What lies outside a scroll child is neither drawn nor
 clicked (the host clips by every clipping ancestor). Not done: a horizontal bar's pictures, wheel snapping.
+
+**Drop-down lists and the pop-up menu** (`gui/dropdown.rs`, `gui/popup.rs`). The skins' `DropdownMenu` elements (looking
+for team, the Notum Wars signup terminal) are GUI.dll's `DropdownMenu_c`: a three-piece box (`GFX_GUI_DROPDOWNMENU_LEFT`,
+`_MIDDLE`, `_RIGHT`, in colour code 0x1000000) with the chosen entry's text 6 in from the sides and 3 from top and bottom,
+as wide as the widest entry (70 with none), and the arrow beside it (`_CLOSED`, `_OPEN` while the list is open); a press
+opens the list 5 right of the box's left edge and a pixel under it, choosing an entry selects it (`SelectByIndex`, the
+window hears `Signal::Selected`); the first entry added is selected. The list is `PopupMenu_c` (`Go` 0x1013c13a): the
+inset frame over `GFX_GUI_WINDOW_BACKGROUND`, the entries 3 apart and 3 in, white (0xa0a0a0 disabled), the one under the
+pointer on a 0x2020c0 band, a click outside or Escape closing it, Up/Down/Enter choosing from the keys, kept inside the
+screen and at most its height less 100. Views draw such things over everything through a new `overlay` step of the
+host. `MAO_DROPDOWN_ITEMS=a;b;c` fills a preview's drop-downs.
