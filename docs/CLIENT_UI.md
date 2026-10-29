@@ -1304,3 +1304,19 @@ send one every 0.4 s in motion (`MAO_OLD_REPORTS=1` brings that back). **The ser
 run) between sessions and checks the reports against its speed: after a walk-mode test it pulled a running character back
 to where it had logged in. The client now tells the server its mode (0x19 run, or 0x18) on entering every playfield. Tried
 live: a 30 m run with turns, reports at 5 s and 10 s, every place accepted.
+
+**Collision from the original's surfaces** (`mao_formats::surface`). Each zone of a playfield has a collision surface,
+database type 0xf424d with the zone's id as the instance (the playfield in the high half), which N3.dll's
+`n3Zone_t::LoadSurface` (0x1001a947) reads as an `n3SurfaceResource_t` (`ReadBlob` 0x10016179). Every one in the game is
+version 5 (`ReadVersion5` 0x10015fc1): behind the 12-byte head a range-coded KD tree (FUN_1002f1b0, the static library
+city.dll and Collision.dll also link, ported from the city.dll drop-in's `read_v5` and `ao_kdtree::coder`): precision
+0.01, the volume and node counts, the quantized box, each volume's mesh, the marker 0x5a, the nodes, then an optional
+teleportal. The client keeps only the volumes' triangles (y up, turned to the viewer's z up) and builds the walls and
+floors from them in place of the props' visible meshes, which stay the fallback for a playfield without surfaces (a
+generated dungeon) or with `MAO_VISUAL_COLLISION=1`. All 237,877 surfaces decode (42 million triangles; `mao-db <game>
+surfaces all`, or a playfield's number in hex). They give closed wall rings where the visible meshes had gaps, and leave
+out foliage and decoration without the opacity guess. A blocked step now also slides along the walls in the way (the
+step less its part into them, `Collision::wall_normal`) before a single axis is tried; the original's own response is in
+N3's position callbacks, not yet read. `MAO_COLLISION_PNG=out.png mao-client net <game> area <playfield>` draws the
+blocked places from above (`MAO_COMPARE_COLLISION=1` logs both sources' sizes). Tried live (Sadlee, playfield 952):
+walked into a wall and around a rock, every report echoed back by the server unchanged.

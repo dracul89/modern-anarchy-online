@@ -2705,7 +2705,7 @@ fn show_world(game: &str, playfield: u32, world: &World, image: Option<&str>) ->
     if let Ok(t) = crate::load_terrain_data(&db, playfield) {
         let started = Instant::now();
         let ground_parts = crate::load_terrain(&db, playfield).map(|m| m.parts.len()).unwrap_or(0);
-        let collision = build_collision(&scene, ground_parts, &crate::Textures::new(db.clone()), &passable_parts(&db, &part_mesh));
+        let collision = surface_collision(&db, playfield).unwrap_or_else(|| build_collision(&scene, ground_parts, &crate::Textures::new(db.clone()), &passable_parts(&db, &part_mesh)));
         eprintln!("collision: {} triangles in {:?}", collision.len(), started.elapsed());
         for (id, (p, _)) in world.entities.iter().take(6) {
             eprintln!("entity {id}: server y {:.2}, ground model {:.2}", p[1], t.height_at(p[0], p[2], t.height_scale));
@@ -2726,6 +2726,32 @@ fn show_world(game: &str, playfield: u32, world: &World, image: Option<&str>) ->
         Some(out) => crate::viewer::headless(&scene, &textures, out),
         None => crate::viewer::window(scene, textures, None),
     }
+}
+
+/// What blocks a walking character as the original has it: the playfield's zones' collision surfaces (database type
+/// 0xf424d, the zone's id the instance, which `n3Zone_t::LoadSurface` 0x1001a947 loads into each cell). None when the
+/// playfield has none (a generated dungeon) or `MAO_VISUAL_COLLISION=1` asks for the props' meshes instead.
+fn surface_collision(db: &ResourceDatabase, playfield: u32) -> Option<mao_formats::collision::Collision> {
+    if std::env::var("MAO_VISUAL_COLLISION").is_ok_and(|v| v == "1") {
+        return None;
+    }
+    let mut collision = mao_formats::collision::Collision::default();
+    let (mut zones, mut failed) = (0, 0);
+    for id in db.ids().ok()?.flatten().filter(|i| i.kind == mao_formats::surface::KIND && i.instance >> 16 == playfield) {
+        let Some(surface) = db.get(id).ok().flatten().and_then(|o| mao_formats::surface::parse(&o)) else {
+            failed += 1;
+            continue;
+        };
+        zones += 1;
+        // (the game's y up; the viewer's z)
+        for t in surface.triangles {
+            collision.add(t.map(|v| [v[0], v[2], v[1]]));
+        }
+    }
+    if failed > 0 {
+        eprintln!("playfield {playfield}: {failed} collision surfaces could not be read");
+    }
+    (zones > 0).then_some(collision)
 }
 
 /// What blocks a walking character: the props' opaque triangles (a part
@@ -2847,7 +2873,16 @@ pub(crate) fn load_area_with(game: &str, db: &Arc<ResourceDatabase>, playfield: 
             &own_textures
         }
     };
-    let collision = build_collision(&scene, ground_parts, textures, &passable);
+    let collision = match surface_collision(db, playfield) {
+        Some(c) => {
+            if std::env::var("MAO_COMPARE_COLLISION").is_ok() {
+                let visual = build_collision(&scene, ground_parts, textures, &passable);
+                eprintln!("collision: surfaces {} triangles {:?}; visual meshes {} triangles {:?}", c.len(), c.bounds(), visual.len(), visual.bounds());
+            }
+            c
+        }
+        None => build_collision(&scene, ground_parts, textures, &passable),
+    };
     profile!("[profile] area {playfield}: collision {:?} (after {before_collision:?})", started.elapsed());
     eprintln!("playfield {playfield}: collision {} triangles", collision.len());
     let mut booths = crate::whompah_booths(game, db, playfield);
@@ -4224,7 +4259,16 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             }
             let speed = (vx * vx + vz * vz).sqrt() * if walk < 0 { -1.0 } else { 1.0 };
             let (dx, dz) = (vx * dt, vz * dt);
-            for (tx, tz) in [(dx, dz), (dx, 0.0), (0.0, dz)] {
+            // (a blocked step slides along the walls in the way, the part of it into them taken off, before an axis alone is tried)
+            let slide = if keys.noclip || !collision.blocked(position[0] + dx, position[2] + dz, base + rise, 0.4, 1.8, 0.5) {
+                (0.0, 0.0)
+            } else {
+                collision.wall_normal(position[0] + dx, position[2] + dz, base + rise, 0.4, 1.8, 0.5).map_or((0.0, 0.0), |n| {
+                    let into = dx * n[0] + dz * n[1];
+                    if into < 0.0 { (dx - into * n[0], dz - into * n[1]) } else { (0.0, 0.0) }
+                })
+            };
+            for (tx, tz) in [(dx, dz), slide, (dx, 0.0), (0.0, dz)] {
                 if tx == 0.0 && tz == 0.0 {
                     continue;
                 }
@@ -5270,6 +5314,25 @@ pub fn run(args: &[String]) -> Result<(), String> {
             let textures = crate::Textures::new(db.clone());
             let area = load_area_with(game, &db, pf.parse().map_err(|_| "bad playfield")?, Some(&textures))?;
             eprintln!("loaded in {:.1}s: {} parts, {} booths", start.elapsed().as_secs_f32(), area.scene.parts.len(), area.booths.len());
+            // MAO_COLLISION_PNG=out.png: the collision from above, two pixels a metre: red where a character standing on the
+            // ground would be blocked, the ground's height in grey.
+            if let Ok(out) = std::env::var("MAO_COLLISION_PNG")
+                && let Some((lo, hi)) = area.collision.bounds()
+            {
+                let (w, h) = (((hi[0] - lo[0]) * 2.0) as u32 + 1, ((hi[1] - lo[1]) * 2.0) as u32 + 1);
+                let mut image = image::RgbImage::new(w, h);
+                for py in 0..h {
+                    for px in 0..w {
+                        let (x, z) = (lo[0] + px as f32 * 0.5, lo[1] + py as f32 * 0.5);
+                        let ground = area.terrain.as_deref().map_or(lo[2], |t| t.height_at(x, z, t.height_scale));
+                        let shade = (ground.rem_euclid(50.0) * 3.0) as u8 + 40;
+                        let colour = if area.collision.blocked(x, z, ground, 0.25, 1.8, 0.5) { [230, 30, 30] } else { [shade; 3] };
+                        image.put_pixel(px, h - 1 - py, image::Rgb(colour));
+                    }
+                }
+                image.save(&out).map_err(|e| e.to_string())?;
+                eprintln!("collision picture {out}: {w} by {h}, x {:.0}..{:.0}, z {:.0}..{:.0} (north up)", lo[0], hi[0], lo[1], hi[1]);
+            }
             for b in &area.booths {
                 eprintln!("booth at ({:.1}, {:.1}, {:.1})", b[0], b[1], b[2]);
             }

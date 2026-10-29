@@ -2,6 +2,7 @@
 //! objects in it.
 
 pub mod collision;
+pub mod surface;
 pub mod ctree;
 pub mod instances;
 pub mod resource;

@@ -57,10 +57,8 @@ is a guess that looks right.
   `XTHA` an RGB PNG (tile layers?) and `HSTA` per-type scales. What each means
   for the ground isn't worked out; they look like indoor/dungeon maps (DHGA is
   room-shaped). `mao-db tilemap-new <playfield> <dir>` dumps the images.
-- Playfield contents (types 0xf424d with the playfield in the instance's top
-  half, 0xf4254, 0xf4248, ...) are not decoded: 0xf424d records are packed
-  bytes behind a small head (not zlib); the format lives in code the drop-ins
-  never ported (the statel/dynel loaders in N3/Gamecode).
+- Playfield contents: 0xf424d (the zones' collision surfaces, range-coded KD
+  trees) are decoded (`surface.rs`); 0xf4254, 0xf4248, ... are not.
 
 ## Milestone 4 (partly done): props on the ground
 A playfield's static objects ("statels") are in `cd_image/data/statels/<n>.pf`,

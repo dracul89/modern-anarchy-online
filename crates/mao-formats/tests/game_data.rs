@@ -595,3 +595,16 @@ fn the_lightning_s_splash() {
     assert_eq!((s.life, s.delay, s.end), (0.75, 0.025, 1.0));
     assert!((s.swell.0 - 0.4).abs() < 1e-6 && (s.rise - 0.04).abs() < 1e-6);
 }
+
+#[test]
+fn a_playfield_s_collision_surfaces() {
+    // (playfield 952's zones: every one a version 5 KD tree that ends on its marker; y up)
+    let Some(db) = database() else { return };
+    let surfaces: Vec<_> = db.ids().unwrap().flatten().filter(|i| i.kind == mao_formats::surface::KIND && i.instance >> 16 == 952).collect();
+    let mut triangles = 0;
+    for id in &surfaces {
+        let s = mao_formats::surface::parse(&db.get(*id).unwrap().unwrap()).expect("a readable surface");
+        triangles += s.triangles.len();
+    }
+    assert_eq!(triangles, 12538);
+}

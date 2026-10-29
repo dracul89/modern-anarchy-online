@@ -142,6 +142,44 @@ fn run(args: &[String]) -> Result<(), String> {
                 None => return Err("no such object".into()),
             }
         }
+        ("surfaces", [playfield]) => {
+            // the collision surfaces of a playfield's zones: triangles and their box, or why one failed
+            // (`all`: every playfield's)
+            let pf = if *playfield == "all" { u32::MAX } else { number(playfield).ok_or("bad playfield")? };
+            let (mut ok, mut bad, mut tris) = (0, 0, 0);
+            let mut facing = [0usize; 3];
+            let (mut lo, mut hi) = ([f32::MAX; 3], [f32::MIN; 3]);
+            for id in db.ids().map_err(|e| e.to_string())?.flatten().filter(|i| i.kind == mao_formats::surface::KIND && (pf == u32::MAX || i.instance >> 16 == pf)) {
+                let Some(data) = db.get(id).ok().flatten() else { continue };
+                match mao_formats::surface::parse(&data) {
+                    Some(s) => {
+                        ok += 1;
+                        tris += s.triangles.len();
+                        for t in &s.triangles {
+                            let (e1, e2) = ([0, 1, 2].map(|c| t[1][c] - t[0][c]), [0, 1, 2].map(|c| t[2][c] - t[0][c]));
+                            let n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
+                            let axis = (0..3).max_by(|&a, &b| n[a].abs().total_cmp(&n[b].abs())).unwrap_or(0);
+                            facing[axis] += 1;
+                        }
+                        for v in s.triangles.iter().flatten() {
+                            for c in 0..3 {
+                                lo[c] = lo[c].min(v[c]);
+                                hi[c] = hi[c].max(v[c]);
+                            }
+                        }
+                        if std::env::var("MAO_VERBOSE").is_ok() {
+                            println!("{:#x}: {} triangles", id.instance, s.triangles.len());
+                        }
+                    }
+                    None => {
+                        bad += 1;
+                        println!("{:#x}: failed ({} bytes)", id.instance, data.len());
+                    }
+                }
+            }
+            println!("{ok} surfaces read, {bad} failed, {tris} triangles, box {lo:?} to {hi:?}");
+            println!("triangles facing mostly along x, y, z: {facing:?}");
+        }
         ("item", [id]) => {
             // An item template's name, description and stats; "scan" tries every item and counts the ones that don't parse.
             if id == "scan" {
