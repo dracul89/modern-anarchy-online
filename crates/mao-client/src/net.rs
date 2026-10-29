@@ -3694,6 +3694,18 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             // A nano program to cast, at the target (not a usable object) or at oneself.
             if keys.cast.0 != cast_seen {
                 cast_seen = keys.cast.0;
+                'cast: {
+                // (the client's own check first: FUN_1004fbe4)
+                let stat = |s: u32| state.stats.get(&s).copied();
+                let caster = crate::combat::Caster { dead: state.own_dead, swimming: false, falling: airborne, moving: keys.forward || keys.back || keys.strafe != 0 || goto.is_some(), nano: stat(214).unwrap_or(0) };
+                let modifier = crate::combat::nano_cost_modifier(stat(318).unwrap_or(100), stat(4).unwrap_or(0), true);
+                if let Some((name, number)) = crate::combat::cast_refusal(caster, nano_stat(keys.cast.1, 407).unwrap_or(0), modifier) {
+                    if !name.is_empty() {
+                        let line = number.map_or_else(|| crate::feedback::plain(name), |n| crate::feedback::with_number(name, n));
+                        state.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
+                    }
+                    break 'cast;
+                }
                 state.asked_casts.insert(keys.cast.1, Instant::now());
                 let plays = state.nano_casts.gather(own, keys.cast.1, &|n, s| nano_stat(n, s));
                 state.cast_sounds.extend(plays.into_iter().map(|(id, delay, volume)| (own, id, delay, volume)));
@@ -3702,6 +3714,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 let name = thread_db.get(mao_formats::resource::Id { kind: 0xfde85, instance: keys.cast.1 }).ok().flatten().and_then(|d| mao_formats::item::Item::parse(&d)).map_or_else(|| format!("nano #{}", keys.cast.1), |t| t.name);
                 // (N3Msg_CastNanoSpell, 0x1001b5d4: feedback 0x47 with the nano's name)
                 state.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, crate::feedback::executing(&name)));
+                }
             }
             // A hotbar item: use the inventory slot it sits in.
             if keys.fire.0 != fired {

@@ -263,6 +263,11 @@ pub fn plain(name: &str) -> String {
     line(name, &[])
 }
 
+/// A feedback line with one number (`%d`), as FUN_10012c3e feeds it.
+pub fn with_number(name: &str, n: i64) -> String {
+    line(name, &[Arg::Int(n)])
+}
+
 /// The client starting a nano program (N3Msg_CastNanoSpell, 0x1001b5d4: feedback 0x47 with the nano's name).
 pub fn executing(nano: &str) -> String {
     line("Feedback_ExecutingNanoProgram", &[Arg::Text(nano)])

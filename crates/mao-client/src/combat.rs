@@ -99,8 +99,63 @@ pub fn default_attack(fighting: bool, swimming: bool, pending: bool, target: Opt
     }
 }
 
+/// FUN_1004e925: the nano cost modifier in percent: stat 318, for a player at least its breed's (Solitus and Opifex 50,
+/// Nanomage 45, Atrox 55).
+pub fn nano_cost_modifier(stat_318: i64, breed: i64, player: bool) -> i64 {
+    let floor = match breed {
+        1 | 2 => 50,
+        3 => 45,
+        4 => 55,
+        _ => 0,
+    };
+    if player { stat_318.max(floor) } else { stat_318 }
+}
+
+/// What casting depends on: how the character moves and its nano.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Caster {
+    pub dead: bool,
+    pub swimming: bool,
+    pub falling: bool,
+    pub moving: bool,
+    /// The current nano (stat 214).
+    pub nano: i64,
+}
+
+/// FUN_1004fbe4 (`N3Msg_CastNanoSpell`'s check): why a nano program can't be cast, with the feedback line (and its number):
+/// swimming, falling, moving (the program's cast needs standing still), or less nano than its cost (stat 407 times the
+/// modifier, in percent). Dead casts nothing, silently (the movement states 8, 9, 11 and 12).
+pub fn cast_refusal(caster: Caster, cost: i64, modifier: i64) -> Option<(&'static str, Option<i64>)> {
+    if caster.dead {
+        return Some(("", None));
+    }
+    if caster.swimming {
+        return Some(("Feedback_YouCantExecuteNanoprogramsWhileSwimming", None));
+    }
+    if caster.falling {
+        return Some(("Feedback_YouCantExecuteNanoprogramsWhileFalling", None));
+    }
+    if caster.moving {
+        return Some(("Feedback_UnableToExecuteProgramsMustStandStill", None));
+    }
+    let needed = (cost as f64 * modifier as f64 / 100.0) as i64;
+    (caster.nano < needed).then_some(("Feedback_YouNeedAtLeastRemainingNano", Some(needed)))
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn casting_needs_standing_and_nano() {
+        let still = Caster { nano: 100, ..Default::default() };
+        assert_eq!(cast_refusal(still, 80, 100), None);
+        assert_eq!(cast_refusal(Caster { moving: true, ..still }, 80, 100), Some(("Feedback_UnableToExecuteProgramsMustStandStill", None)));
+        assert_eq!(cast_refusal(Caster { falling: true, ..still }, 80, 100), Some(("Feedback_YouCantExecuteNanoprogramsWhileFalling", None)));
+        assert_eq!(cast_refusal(still, 300, 50), Some(("Feedback_YouNeedAtLeastRemainingNano", Some(150))));
+        assert_eq!(nano_cost_modifier(30, 3, true), 45);
+        assert_eq!(nano_cost_modifier(100, 3, true), 100);
+        assert_eq!(nano_cost_modifier(30, 3, false), 30);
+    }
+
     use super::*;
 
     fn at(id: u32, x: f32, side: u8) -> Candidate {
