@@ -22,7 +22,9 @@ fn progress(value: Option<i64>, from: i64, to: Option<i64>) -> (Option<i64>, Opt
 fn compass(ctx: &egui::Context, skin: &Skin, yaw: f32) {
     let (Some(strip), Some(frame)) = (skin.get("GFX_GUI_COMPASS_SCALE"), skin.get("GFX_GUI_COMPASS_FRAME")) else { return };
     let (strip, frame) = (strip.size, frame.size);
-    egui::Area::new(egui::Id::new("cc-compass")).anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 6.0)).interactable(false).show(ctx, |ui| {
+    // (GUI.dll's `compass_window`: a window of its own, dragged anywhere; it starts at the top's middle)
+    let start = egui::pos2(ctx.content_rect().center().x - frame.x * 0.5, 6.0);
+    egui::Area::new(egui::Id::unique("compass")).default_pos(crate::layout::pos("compass", start)).movable(true).show(ctx, |ui| {
         let (rect, _) = ui.allocate_exact_size(frame, egui::Sense::hover());
         // the bearing, clockwise from north (the map's +z), of the way the camera looks
         let bearing = (-yaw.cos()).atan2(-yaw.sin());
@@ -146,6 +148,50 @@ fn sub_menu(ctx: &egui::Context, accent: egui::Color32, open: &dyn Fn(&str) -> b
         next = None;
     }
     set_menu_state(ctx, next);
+}
+
+/// A `CharBarWindow_c` holding a `CharacterBar_c` (GUI.dll FUN_1006b8d1, FUN_100673ba): the health, nano, experience or
+/// alien experience bar as a window of its own the player drags anywhere (its place kept under the original's config
+/// name, `CCHealthBarConfig` ...), drawn from the skin's horizontal bar pictures (`GFX_GUI_HOR_BAR_EMPTY` with the
+/// coloured `GFX_GUI_HOR_BAR_<colour>` over it as far as the value goes) with `value / max` on it (FUN_10066f7a's
+/// `%d&nbsp;/&nbsp;%d`, on the bar's coloured upper part). They start in a column under the target's frame. (Which pictures the original's bar loads was not
+/// traced: its constructor only subscribes to the stats.)
+fn char_bar(ctx: &egui::Context, skin: &Skin, index: usize, name: &str, colour: &str, value: Option<i64>, max: Option<i64>, label: &str) -> Option<egui::Response> {
+    let fill_name = format!("GFX_GUI_HOR_BAR_{colour}");
+    let size = skin.get("GFX_GUI_HOR_BAR_EMPTY").or_else(|| skin.get(&fill_name)).map_or(egui::vec2(150.0, 12.0), |s| s.size);
+    let start = egui::pos2(ctx.content_rect().center().x - size.x * 0.5, 80.0 + index as f32 * (size.y + 3.0));
+    let mut out = None;
+    egui::Area::new(egui::Id::unique(name)).default_pos(crate::layout::pos(name, start)).movable(true).show(ctx, |ui| {
+        let (rect, response) = ui.allocate_exact_size(size, egui::Sense::hover());
+        let painter = ui.painter();
+        if skin.draw(painter, "GFX_GUI_HOR_BAR_EMPTY", rect.min, 1.0, egui::Color32::WHITE).is_none() {
+            painter.rect_filled(rect, 0.0, egui::Color32::from_black_alpha(160));
+        }
+        let fraction = match (value, max) {
+            (Some(v), Some(m)) if m > 0 => (v as f32 / m as f32).clamp(0.0, 1.0),
+            _ => 0.0,
+        };
+        if fraction > 0.0 {
+            let shown = egui::Rect::from_min_size(rect.min, egui::vec2(rect.width() * fraction, rect.height()));
+            skin.draw(&painter.with_clip_rect(shown), &fill_name, rect.min, 1.0, egui::Color32::WHITE);
+        }
+        let text = match (value, max) {
+            (Some(v), Some(m)) => format!("{v} / {m}"),
+            (Some(v), None) => v.to_string(),
+            _ => String::new(),
+        };
+        match crate::font::tooltip(ctx) {
+            Some(f) => {
+                let w = f.width(&text);
+                f.paint(painter, egui::pos2(rect.center().x - w * 0.5, rect.top() + size.y * 0.3 - f.line_height * 0.5), &text, egui::Color32::WHITE);
+            }
+            None => {
+                painter.text(egui::pos2(rect.center().x, rect.top() + size.y * 0.3), egui::Align2::CENTER_CENTER, &text, egui::FontId::proportional((size.y - 2.0).clamp(8.0, 12.0)), egui::Color32::WHITE);
+            }
+        }
+        out = Some(response.on_hover_text(format!("{label}: {text}")));
+    });
+    out
 }
 
 /// One bar of the original's wings: a vertical groove (`BG`, 12 x 152) with the coloured bar (`FG`) rising in it.
@@ -303,31 +349,27 @@ pub fn show_docked(ctx: &egui::Context, yaw: f32, stats: &BTreeMap<u32, i64>, pa
     // the wings with their bars (standing in the wing's tall side, on its floor)
     for (rect, left) in [(d.left_wing, true), (d.right_wing, false)] {
         let Some(rect) = rect.filter(|_| !d.rolled) else { continue };
-        egui::Area::new(egui::Id::new(if left { "cc-left" } else { "cc-right" })).fixed_pos(rect.min).show(ctx, |ui| {
+        egui::Area::new(egui::Id::new(if left { "cc-left" } else { "cc-right" })).fixed_pos(rect.min).interactable(false).show(ctx, |ui| {
             ui.allocate_exact_size(rect.size(), egui::Sense::hover());
-            let painter = ui.painter().clone();
-            skin.draw(&painter, if left { "GFX_GUI_CONTROLCENTER_WING_LEFT" } else { "GFX_GUI_CONTROLCENTER_WING_RIGHT" }, rect.min, 1.0, egui::Color32::WHITE);
-            let top = rect.bottom() - 152.0 - 4.0;
-            if left {
-                if d.health {
-                    let health = wing_bar(ui, &skin, &painter, egui::pos2(rect.left() + 8.0, top), "HEALTH_BAR", egui::Color32::WHITE, get(stat::HEALTH), get(stat::MAX_HEALTH), "Health");
-                    crate::stats::hover(health, "Max health", parts.get(&stat::MAX_HEALTH), accent);
-                }
-                if d.nano {
-                    let nano = wing_bar(ui, &skin, &painter, egui::pos2(rect.left() + 24.0, top), "NANO_BAR", egui::Color32::WHITE, get(stat::CURRENT_NANO), get(stat::MAX_NANO), "Nano");
-                    crate::stats::hover(nano, "Max nano energy", parts.get(&stat::MAX_NANO), accent);
-                }
-            } else {
-                if d.xp {
-                    let (value, span) = progress(get(stat::XP), get(stat::LAST_XP).unwrap_or(0), get(stat::NEXT_XP));
-                    wing_bar(ui, &skin, &painter, egui::pos2(rect.right() - 20.0, top), "XP_BAR", egui::Color32::WHITE, value, span, "Experience");
-                }
-                if d.alien_xp && get(stat::ALIEN_LEVEL).is_some_and(|l| l > 0) {
-                    let (value, span) = progress(get(stat::ALIEN_XP), 0, get(stat::ALIEN_NEXT_XP));
-                    wing_bar(ui, &skin, &painter, egui::pos2(rect.right() - 36.0, top), "XP_BAR", egui::Color32::from_rgb(190, 110, 255), value, span, "Alien experience");
-                }
-            }
+            skin.draw(ui.painter(), if left { "GFX_GUI_CONTROLCENTER_WING_LEFT" } else { "GFX_GUI_CONTROLCENTER_WING_RIGHT" }, rect.min, 1.0, egui::Color32::WHITE);
         });
+    }
+    // the bars: windows of their own
+    let (xp, xp_span) = progress(get(stat::XP), get(stat::LAST_XP).unwrap_or(0), get(stat::NEXT_XP));
+    let (alien, alien_span) = progress(get(stat::ALIEN_XP), 0, get(stat::ALIEN_NEXT_XP));
+    let bars = [
+        (d.health, "CCHealthBarConfig", "RED", get(stat::HEALTH), get(stat::MAX_HEALTH), "Health", Some((stat::MAX_HEALTH, "Max health"))),
+        (d.nano, "CCNanoBarConfig", "BLUE", get(stat::CURRENT_NANO), get(stat::MAX_NANO), "Nano", Some((stat::MAX_NANO, "Max nano energy"))),
+        (d.xp, "CCXPBarConfig", "YELLOW", xp, xp_span, "Experience", None),
+        (d.alien_xp && get(stat::ALIEN_LEVEL).is_some_and(|l| l > 0), "CCAlienXPBarConfig", "PURPLE", alien, alien_span, "Alien experience", None),
+    ];
+    for (i, (shown, name, art, value, max, label, breakdown)) in bars.into_iter().enumerate() {
+        if shown {
+            let response = char_bar(ctx, &skin, i, name, art, value, max, label);
+            if let (Some(r), Some((stat, title))) = (response, breakdown) {
+                crate::stats::hover(r, title, parts.get(&stat), accent);
+            }
+        }
     }
     // the rollup button: folds the wings away
     if let Some(dock) = d.rollup {

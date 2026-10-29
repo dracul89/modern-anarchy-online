@@ -183,9 +183,14 @@ whose menus open above them, entries shown by their criteria, with their actions
 open flag: Inventory, Skills, Stats, Nano, NCU, Missions, Friends, Map, Actions,
 Mail and Options open the client's windows. The docks GUI.dll fills itself
 (FUN_1006f911) take the size of their pictures and are laid out with the rest;
-`vitals::show_docked` draws the wings (with the health, nano and experience bars
-by `cc_health_bar`, `cc_nano_bar`, `cc_xp_bar`, `cc_alienxp_bar`), the strips, the
-target buttons and the rollup there, the compass by `cc_compass`. The rollup's dock
+`vitals::show_docked` draws the wings, the strips, the target buttons and the rollup
+there. The health, nano, experience and alien experience bars are windows of their
+own, as GUI.dll's `CharBarWindow_c`s are (FUN_1006b8d1): dragged anywhere, their
+places kept in `layout.ini` under the original's names (`CCHealthBarConfig`,
+`CCNanoBarConfig`, `CCXPBarConfig`, `CCAlienXPBarConfig`), shown by `cc_health_bar`,
+`cc_nano_bar`, `cc_xp_bar`, `cc_alienxp_bar`, drawn from the skin's `GFX_GUI_HOR_BAR_*`
+pictures with `value / max`. The compass (`compass_window`, by `cc_compass`) can be
+dragged too and keeps its place. The rollup's dock
 grows (it holds the `RollupArea` windows dock into), which puts the right wing at
 the screen's bottom; the rollup folds the wings by `cc_left_wing`/`cc_right_wing`.
 Each skin puts them where its XML says (the AOU skins' left strip is at the top

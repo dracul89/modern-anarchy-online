@@ -7,7 +7,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 /// The windows whose positions are kept: the ids their `egui::Window` / `Area` use.
-pub const NAMES: &[&str] = &["Actions", "Help", "Chat", "Friends", "Inventory", "loot", "Mail", "Message", "Missions", "Nano programs", "NCU", "Perks", "Shop", "Skills", "Stats", "vitals"];
+pub const NAMES: &[&str] = &["Actions", "Help", "Chat", "Friends", "Inventory", "loot", "Mail", "Message", "Missions", "Nano programs", "NCU", "Perks", "Shop", "Skills", "Stats", "vitals", "compass", "CCHealthBarConfig", "CCNanoBarConfig", "CCXPBarConfig", "CCAlienXPBarConfig"];
 
 struct Layout {
     spots: BTreeMap<String, [f32; 2]>,
