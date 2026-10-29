@@ -365,7 +365,8 @@ pub fn show(ui: &mut egui::Ui, tree: &mut Tree, root: Id, skin: Option<&crate::s
     }
     // (the radio button groups' part in the signals)
     super::radio::take_signals(tree);
-    // (what is drawn over everything: an open drop-down's list)
+    // (what is drawn over everything: an open drop-down's list; the combo boxes' lists placed first)
+    super::combobox::prepare(tree, origin);
     let ctx = ui.ctx().clone();
     let mut overlay_views = Vec::new();
     order(tree, root, &mut overlay_views);
@@ -376,5 +377,6 @@ pub fn show(ui: &mut egui::Ui, tree: &mut Tree, root: Id, skin: Option<&crate::s
             push(tree, v, s);
         }
     }
+    super::combobox::take_signals(tree);
     response
 }

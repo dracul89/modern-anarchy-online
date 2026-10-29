@@ -48,6 +48,7 @@ programs window's Info, `itemid://53019/<id>`; weapons' damage per second; to co
 | `DragObject_c` | drag and drop of items, nanos, actions onto bars, windows, other characters | inventory and hotbar drag | part |
 | `DialogBox_c`, `DialogBoxForm_c`, `DialogBoxView_c`, `DialogButtons_c`, `ProgressWindow_c`, `/messagebox` | message boxes, yes/no questions, progress | the client's own | part |
 | `PowerBar_t`, `PowerbarView_c`, `/raid` bars | the health/nano/XP bars and their docks (`CC*BarConfig`) | `vitals.rs` | done for the control center |
+| `ComboBox_c` | a text field with a list to pick from (login user names) | `gui/combobox.rs` (the arrow in the field's border, the list under the editor, the chosen text) | yes |
 | `TextButton_c` | a button that is only its text (character selection names) | `gui/textbutton.rs` (raised/hover/pressed texts and colours, the disabled colour) | yes |
 | `ScrollingTextView_c` | a one-line text that slides to show all of itself (the trade partner's name) | `gui/scrolling.rs` (the delays, the 0.4 step, the turns, flashing) | yes |
 | `ViewSelector_c`, `HotSpot_t`, `NewGuiSpot_t`, `ClearRect_t`, `RenderInfoView_t` | view switching, hot spots, debugging | `gui/selector.rs` (`ViewSelector_c`: one view at a time, `use_max_size`, `GetValue`/`SetValue`) | part (`ViewSelector_c` done; no list view link; the others no) |

@@ -11,6 +11,7 @@
 
 pub mod controlcenter;
 pub mod controls;
+pub mod combobox;
 pub mod criteria;
 pub mod dvalue;
 pub mod expression;
@@ -107,6 +108,7 @@ pub fn create(tree: &mut Tree, e: &Element) -> Option<Id> {
         "ItemSlotView" => itemslot::create(tree, e, true),
         "ScrollingTextView" => scrolling::create(tree, e),
         "TextButton" => textbutton::create(tree, e),
+        "ComboBox" => combobox::create(tree, e),
         "ItemIconView" => itemslot::create(tree, e, false),
         "BitmapView" => tree.add(Node::from_element(e, 4, Box::new(controls::BitmapView { bitmap: e.text("bitmap_id", "") }))),
         "CCMenu" => controlcenter::CCMenuView::create(tree, e),

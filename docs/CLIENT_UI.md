@@ -1462,3 +1462,11 @@ made from the same element (its `font`, e.g. `HUGE`). It shows `raised_text` in 
 and `color`; no colour means white). Disabled, the colour's channels are two thirds (`ButtonBase_c::GetDisabledColor`
 0x10129421). Its preferred size is its text's. The launcher's character screen still draws its own list; the XML item
 now shows the button as the original does.
+
+**Combo boxes** (`gui/combobox.rs`). `ComboBox` (the login window's user names) is GUI.dll's `ComboBox_c`
+(0x10002454, `Initialize` 0x10002216): a `TextInputView` whose inset border becomes a row of the editor and an arrow
+(`GFX_GUI_COMBOBOX_CLOSED`, `_OPEN` while the list is open, 5 from the border's right). A press on the arrow opens a
+`PopupMenu` of the items at the editor's left, 3 under its bottom (`SlotMenuOpening`, `SlotMenuOpened`); a second press
+closes it. Choosing an item puts its label in the field, and a changed text is the editor's `Edited` signal
+(`SlotMenuItemSelected` 0x100020f2). Items are a label and an id (`combobox::append_item`, `clear`). The preview's
+`MAO_DROPDOWN_ITEMS` fills combo boxes too. The launcher's login dialog still draws its own list.

@@ -880,13 +880,16 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
                 if preview_view.is_none() {
                     let file = std::env::var("MAO_VIEW").unwrap_or_else(|_| "TipView.xml".into());
                     preview_view = crate::gui::window::XmlWindow::load(&ctx, "view", &file, &file);
-                    // MAO_DROPDOWN_ITEMS=a;b;c: the entries of every drop-down in the view
+                    // MAO_DROPDOWN_ITEMS=a;b;c: the entries of every drop-down and combo box in the view
                     if let (Some(w), Ok(items)) = (preview_view.as_mut(), std::env::var("MAO_DROPDOWN_ITEMS")) {
                         for node in w.tree.nodes.iter_mut() {
                             if let Some(d) = node.control.as_any_mut().downcast_mut::<crate::gui::dropdown::DropdownMenu>() {
                                 for item in items.split(';') {
                                     d.append(item);
                                 }
+                            }
+                            if let Some(c) = node.control.as_any_mut().downcast_mut::<crate::gui::combobox::ComboBox>() {
+                                c.items.extend(items.split(';').enumerate().map(|(k, s)| (s.to_string(), k as i32)));
                             }
                         }
                         w.tree.relayout = true;
