@@ -46,7 +46,7 @@ four tabs are too cramped (the wear column is narrow, so their names are cut); t
 
 | Commit | What | Test |
 |---|---|---|
-| (next) | **New Character, finished off**: the preview shows the chosen head, build and height; Create goes straight into the game with the new character, with the original's "Welcome to Rubi-Ka" loading picture (two times in three) | make a character and watch it enter the game |
+| b1412ba | **New Character, finished off**: the preview shows the chosen head, build and height; Create goes straight into the game with the new character, with the original's "Welcome to Rubi-Ka" loading picture (two times in three) | make a character and watch it enter the game |
 | 83b1792 | **New Character**: the character screen's New Character button: breed, profession, appearance (head, height, build), name with Suggest Name, Create; the original's texts; made with the original's message (tried live from the command line: Maotestone) | make a character, try a taken name, try Suggest Name |
 | df8aaf2 | **Loading screen**: the original's (the AO logo on black, "..Anarchy Online is loading.."), tinted blue; fades in while entering the game and out over 7 s once the world is drawn; also covers zoning | log in; zone |
 | d97f57a | **No shuffle when you stop**: walking and running play only their loop and switch straight to standing on a stop, as the original; the character no longer walks in place for a moment or slides on and steps back | walk and run, then stop, from several speeds |
