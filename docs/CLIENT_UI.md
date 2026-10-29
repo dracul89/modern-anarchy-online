@@ -1267,3 +1267,10 @@ Create). Create checks the name as the original does, logs in on a connection of
 refusal's text (category 600); once made, the list is fetched again with the new character selected (the original logs it
 straight in). Not ported: the original's 3D creation scenes and camera, the head shown on the preview, the intro.
 Preview: `MAO_LAUNCHER_DEMO=1 MAO_LAUNCHER_CREATE=<0-3> MAO_LAUNCHER_SHOT=out.png mao-client <game> play`.
+
+**Step 3: after Create.** As the original (`Client_t::ProcessMessage` 0x11 → `LoginCharacter`), a character just made is
+played at once: the list is fetched again and the game starts with it. Its loading screen is GUI.dll's
+`welcome_to_rubika.jpg` two times in three (`SetLoadingScreen(rand() % 3)` at the creation, types 1 and 2; the game is
+told with `MAO_NEW_CHARACTER=1`), tinted blue like the other. The preview wears the chosen head (the look's gear at
+attachment 0), the build's body (`<breed>_<sex>_thin.cir` / `_fat.cir`, as `CCCharacter_t::ChangeMesh` names them) and
+the height. Tried live: Maotestone's first login reached playfield 6553 (the new players' area) and stayed connected.

@@ -144,6 +144,11 @@ struct Launcher {
     chosen: Option<String>,
     /// Quit was pressed.
     quit: bool,
+    /// A character just made: once the list comes back with it, it is played (the original logs a new character straight in,
+    /// `Client_t::ProcessMessage`'s 0x11).
+    play_new: Option<String>,
+    /// The character played is a new one (the loading screen's `welcome_to_rubika.jpg`).
+    new_character: bool,
     /// The character picked in the list (shown in the window; Play starts it).
     selected: Option<String>,
     /// `MAO_LAUNCHER_SHOT=out.png`: save a picture of the character screen and quit (with `MAO_LAUNCHER_DEMO=1`, three sample characters).
@@ -331,6 +336,12 @@ impl Launcher {
                     }
                     Ok(list) => {
                         self.selected = ordered(&list, &self.last).into_iter().find(|c| c.created && !c.banned).map(|c| c.name.clone());
+                        if let Some(name) = self.play_new.take().filter(|n| list.iter().any(|c| &c.name == n)) {
+                            let _ = std::fs::write(account_path(), render_account(self.user.trim(), &name, &self.accounts));
+                            self.selected = Some(name.clone());
+                            self.chosen = Some(name);
+                            self.new_character = true;
+                        }
                         self.stage = Stage::Characters(list);
                     }
                     Err(e) => {
@@ -371,7 +382,7 @@ impl Launcher {
             }
         }
         if let Some(name) = made {
-            self.selected = Some(name);
+            self.play_new = Some(name);
             self.log_in();
         }
         if !matches!(self.stage, Stage::Characters(_) | Stage::Create(..)) {
@@ -620,7 +631,7 @@ pub fn run(game: &str) -> Result<(), String> {
     crate::font::set_enabled(settings.original_font);
     let palette = crate::theme::load(&settings.theme, &settings.aou_mod);
     let (user, last, accounts) = parse_account(&std::fs::read_to_string(account_path()).unwrap_or_default());
-    let mut launcher = Launcher { game: game.to_string(), settings, gfx: None, stage: Stage::Form, user, last, accounts, palette, quit: false, password: String::new(), server: std::env::var("MAO_SERVER").unwrap_or_else(|_| session::RUBI_KA.to_string()), message: String::new(), answer: None, chosen: None, selected: None, shot: std::env::var("MAO_LAUNCHER_SHOT").ok(), looks: crate::look::load() };
+    let mut launcher = Launcher { game: game.to_string(), settings, gfx: None, stage: Stage::Form, user, last, accounts, palette, quit: false, password: String::new(), server: std::env::var("MAO_SERVER").unwrap_or_else(|_| session::RUBI_KA.to_string()), message: String::new(), answer: None, chosen: None, play_new: None, new_character: false, selected: None, shot: std::env::var("MAO_LAUNCHER_SHOT").ok(), looks: crate::look::load() };
     // MAO_LAUNCHER_DEMO=1: three sample characters instead of a login (for pictures of the character screen).
     if std::env::var_os("MAO_LAUNCHER_DEMO").is_some_and(|v| v != "form") {
         // (the characters of a capture's list, as the server sent them: name, breed, sex, profession, level)
@@ -665,6 +676,7 @@ pub fn run(game: &str) -> Result<(), String> {
         .env("MAO_USER", launcher.user.trim())
         .env("MAO_PASSWORD", &launcher.password)
         .env("MAO_SERVER", launcher.server.trim())
+        .env("MAO_NEW_CHARACTER", if launcher.new_character { "1" } else { "" })
         .status()
         .map_err(|e| e.to_string())?;
     if status.code() == Some(LOGGED_OUT) {

@@ -67,7 +67,10 @@ fn alphas(l: &Load, now: Instant) -> Option<(f32, f32)> {
 fn picture(ctx: &egui::Context) -> Option<egui::TextureHandle> {
     let mut slot = PICTURE.lock().unwrap_or_else(|e| e.into_inner());
     if slot.is_none() {
-        let path = crate::theme::game_dir()?.join("cd_image/gui/Default/gfx/ai_loading_login.png");
+        // (a new character: `SetLoadingScreen(rand() % 3)` at its creation, types 1 and 2 the welcome picture)
+        let welcome = std::env::var("MAO_NEW_CHARACTER").is_ok_and(|v| v == "1") && std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.subsec_nanos()) % 3 != 0;
+        let file = if welcome { "welcome_to_rubika.jpg" } else { "ai_loading_login.png" };
+        let path = crate::theme::game_dir()?.join("cd_image/gui/Default/gfx").join(file);
         let image = image::open(path).ok()?.to_rgba8();
         let (w, h) = image.dimensions();
         let mut rgba = image.into_raw();
