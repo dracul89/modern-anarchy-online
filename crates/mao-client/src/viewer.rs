@@ -36,6 +36,8 @@ pub struct Input {
     pub commands: [u8; 7],
     /// `/camp` (steps once a use).
     pub camp: u8,
+    /// The walk/run toggle (steps once a press).
+    pub walk_toggle: u8,
     /// The heading the character should face (the camera's, while the right mouse button steers).
     pub face: Option<f32>,
     /// A hotbar item to use: a counter that steps with each, and the inventory slot.
@@ -902,6 +904,9 @@ impl ApplicationHandler for App {
                     match action {
                         Action::AutoRun if !event.repeat => {
                             self.autorun = !self.autorun;
+                        }
+                        Action::ToggleWalk if !event.repeat => {
+                            self.keys.walk_toggle = self.keys.walk_toggle.wrapping_add(1);
                         }
                         Action::Forward | Action::Back | Action::TurnLeft | Action::TurnRight | Action::StrafeLeft | Action::StrafeRight | Action::Jump => {
                             // (walking by hand ends the auto-run)

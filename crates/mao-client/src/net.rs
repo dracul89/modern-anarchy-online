@@ -255,6 +255,8 @@ struct World {
     paths: BTreeMap<u32, Route>,
     /// Whether one's own character is walking, running or sidestepping this moment (its animation follows it exactly).
     own_moving: bool,
+    /// One's own movement mode is walking (the walk/run toggle; the original's mode 2, else 3).
+    own_walking: bool,
     /// Each walked creature's last path (when it came, its start, its end) and its speed as the paths show it.
     path_seen: BTreeMap<u32, (Instant, [f32; 3], [f32; 3])>,
     path_speeds: BTreeMap<u32, f32>,
@@ -1740,6 +1742,40 @@ fn movement_rate(calibration: f32, scale: f32, speed: f32, reference: f32) -> f3
     }
 }
 
+/// Walking's speed (`CharVehicle_t` in mode 2, FUN_1006f9eb: `_DAT_1015e7ac`).
+const WALK_SPEED: f32 = 1.5;
+
+/// One step of the character's vehicle (`Vehicle_t::Run`'s FUN_1000e3d3 with `CharVehicle_t`'s steering FUN_10071537): the
+/// horizontal velocity after `dt` seconds pushed along the facing (`walk` 1 forwards, −1 back) with the force
+/// `2 × mass × top`, kept within `top`; none pushed, or the push turned round since the last step (`pushed`), halts it.
+fn vehicle_step(velocity: [f32; 2], heading: f32, walk: i8, pushed: i8, top: f32, dt: f32) -> [f32; 2] {
+    if walk == 0 || walk != pushed {
+        // (`Vehicle_t::Halt`, or `SetDirection` turning round; a start from rest pushes from nothing)
+        if walk == 0 {
+            return [0.0; 2];
+        }
+        return vehicle_step([0.0; 2], heading, walk, walk, top, dt);
+    }
+    let accel = 2.0 * top * walk as f32;
+    let mut v = [velocity[0] + heading.sin() * accel * dt, velocity[1] + heading.cos() * accel * dt];
+    let speed = (v[0] * v[0] + v[1] * v[1]).sqrt();
+    if speed > top {
+        v = [v[0] * top / speed, v[1] * top / speed];
+    }
+    v
+}
+
+/// How fast the character turns by key (radians a second), as FUN_1006ca4f sets `CharVehicle_t`'s +0x368: `TurnSpeed`
+/// (stat 267) / 11000, halved while moving; without the stat 3.5 standing and 1.5 moving.
+fn turn_rate(stats: &BTreeMap<u32, i64>, moving: bool) -> f32 {
+    match stats.get(&267).copied().unwrap_or(0) {
+        0 if moving => 1.5,
+        0 => 3.5,
+        s if moving => s as f32 / 11000.0 * 0.5,
+        s => s as f32 / 11000.0,
+    }
+}
+
 /// The speeds a character moves at, in units a second, as `CharVehicle_t` sets them (FUN_1006f9eb, FUN_1006f2fc): running
 /// forward `RunSpeed / 275 + 5` within 1.5 and 13, running backwards `RunSpeed / 392.86 + 3` within 1.05 and 9.1, where
 /// `RunSpeed` (stat 156) falls off below 15% health (`ratio * (RunSpeed + 1000) - 1000`); walking is 1.5.
@@ -2599,7 +2635,8 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
             // The original's choice (FUN_1006c370): a sidestep plays walk-left/right, moving against the facing the back
             // animations; walking is 1.5 units a second and running from 3 (backwards) or 5, so 2.2 tells them apart.
             use mao_formats::appearance::Action;
-            let running = speed > 2.2;
+            // (one's own character runs or walks by its mode, as the original's FUN_1006c370 does; the others by their speed)
+            let running = if id == world.own { !world.own_walking } else { speed > 2.2 };
             let action = match world.strafing.get(&id).copied().unwrap_or(0) {
                 _ if !moving => None,
                 -1 => Some(Action::StrafeLeft),
@@ -3083,7 +3120,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     }
     std::thread::spawn(move || {
         use mao_net::n3::movement;
-        const TURN: f32 = 2.0; // radians per second
+        // (the character as the original's steered vehicle: its velocity, the direction it was pushed in, the walk toggle seen)
+        let mut velocity = [0.0f32; 2];
+        let mut pushed = 0i8;
+        let mut walk_toggle_seen = 0u8;
         // The server's heights sit a little off the ground model's; walk at
         // the ground's height plus the offset seen at the start.
         let ground = |terrain: &Option<Arc<mao_formats::terrain::Terrain>>, p: [f32; 3]| terrain.as_ref().map_or(0.0, |t| t.height_at(p[0], p[2], t.height_scale));
@@ -3172,7 +3212,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         });
         let (mut seen, mut target): ([u8; 7], Option<u32>) = ([0; 7], None);
         // `MAO_AUTOPLAY=5:tab,6:follow,9:attack,...`: the keys pressed by themselves that many seconds in (for testing
-        // the fight live without a keyboard): tab, attack, use, follow (the target), stop (following), loot (all of the open container), camp, x (sit or stand).
+        // the fight live without a keyboard): tab, attack, use, follow (the target), stop (following), loot (all of the open container), camp, x (sit or stand), walk (the walk/run toggle).
         let mut autoplay: Vec<(f32, String)> = std::env::var("MAO_AUTOPLAY").ok().map_or_else(Vec::new, |v| v.split(',').filter_map(|s| s.split_once(':').and_then(|(t, c)| Some((t.trim().parse().ok()?, c.trim().to_string())))).collect());
         let autoplay_clock = Instant::now();
         let (mut sitting, mut uses, mut fired) = (false, 0u32, 0u8);
@@ -3559,6 +3599,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     "use" => seen[6] = seen[6].wrapping_sub(1),
                     "camp" => camp_seen = camp_seen.wrapping_sub(1),
                     "x" => seen[5] = seen[5].wrapping_sub(1),
+                    "walk" => walk_toggle_seen = walk_toggle_seen.wrapping_sub(1),
                     "loot" => {
                         if let Some(l) = state.loot.as_ref() {
                             for e in &l.entries {
@@ -3596,7 +3637,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         let distance = ((p[0] - position[0]).powi(2) + (p[2] - position[2]).powi(2)).sqrt();
                         // (the one fought is followed into reach: 3.5 m is past a fist's, where the server only says "too far")
                         let near = if state.fighting.get(&own) == Some(&id) { 2.0 } else { 3.5 };
-                        if distance > near {
+                        // (stopped, it starts again only a metre past that: else it would start and stop every step at the edge,
+                        // the character now taking half a second to reach its speed)
+                        if distance > near + if goto.is_some() { 0.0 } else { 1.0 } {
                             // (the progress watch only restarts when a walk starts: the target keeps moving)
                             if goto.is_none() {
                                 (goto_best, goto_progress, detour, detours) = (f32::MAX, Instant::now(), None, 0);
@@ -4131,8 +4174,14 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             if let Some(face) = keys.face {
                 heading = face;
             }
-            heading += keys.turn as f32 * TURN * dt;
             let walk = keys.forward as i8 - keys.back as i8;
+            // The walk/run toggle (`MOVEMENT_TOGGLEWALK`): the mode changes and the server hears the switch (0x18, 0x19).
+            if keys.walk_toggle != walk_toggle_seen {
+                walk_toggle_seen = keys.walk_toggle;
+                state.own_walking = !state.own_walking;
+                send(&mut connection, if state.own_walking { movement::WALK_MODE } else { movement::RUN_MODE }, heading, position, &mut sent);
+            }
+            heading += keys.turn as f32 * turn_rate(&state.stats, walk != 0 || keys.strafe != 0) * dt;
             // (fighting, the character turns to its target while it stands: `Facing`; any steering counts as moving)
             if let Some(target_at) = state.fighting.get(&own).and_then(|&t| state.position_of(t)) {
                 let steering = walk != 0 || keys.turn != 0 || keys.strafe != 0 || keys.face.is_some() || airborne;
@@ -4145,17 +4194,22 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             state.backing.insert(own, walk < 0);
             // (the speeds the original moves at, from the character's RunSpeed and health)
             #[allow(non_snake_case)]
-            let (SPEED, BACK_SPEED) = movement_speeds(&state.stats);
-            let speed = if walk > 0 { SPEED } else { BACK_SPEED } * walk as f32;
+            let (SPEED, BACK_SPEED) = if state.own_walking { (WALK_SPEED, WALK_SPEED) } else { movement_speeds(&state.stats) };
+            // (`CharVehicle_t`'s steering, FUN_10071537: pushed along the facing, forwards or back, with the maximum force, which
+            // FUN_1006f9eb makes `2 × mass × the maximum speed`, so full speed comes in half a second; a stop or a change of
+            // direction halts it at once, `Vehicle_t::Halt` from the stop transition FUN_1006f0ac and `SetDirection`)
+            let top = if walk > 0 { SPEED } else { BACK_SPEED };
+            velocity = vehicle_step(velocity, heading, walk, pushed, top, dt);
+            pushed = walk;
             // Walls stop the step (sliding along them where one axis is free).
             // Strafing adds a step to the right of the heading; diagonals aren't faster.
             let sideways = keys.strafe as f32 * SPEED;
-            let (mut vx, mut vz) = (heading.sin() * speed + heading.cos() * sideways, heading.cos() * speed - heading.sin() * sideways);
+            let (mut vx, mut vz) = (velocity[0] + heading.cos() * sideways, velocity[1] - heading.sin() * sideways);
             let total = (vx * vx + vz * vz).sqrt();
             if total > SPEED {
                 (vx, vz) = (vx * SPEED / total, vz * SPEED / total);
             }
-            let speed = if walk == 0 && keys.strafe != 0 { SPEED } else { speed };
+            let speed = (vx * vx + vz * vz).sqrt() * if walk < 0 { -1.0 } else { 1.0 };
             let (dx, dz) = (vx * dt, vz * dt);
             for (tx, tz) in [(dx, dz), (dx, 0.0), (0.0, dz)] {
                 if tx == 0.0 && tz == 0.0 {
@@ -6193,6 +6247,33 @@ mod movement_tests {
         assert!((movement_rate(1.15, 100.0, 6.0, 5.0) - 1.3).abs() < 0.001);
         assert!((movement_rate(0.9, 100.0, 1.5, 1.5) - 0.9).abs() < 0.001);
         assert!((movement_rate(1.0, 200.0, 5.0, 5.0) - 0.5).abs() < 0.001);
+    }
+
+    #[test]
+    fn the_character_moves_as_a_steered_vehicle() {
+        // from rest to full speed (6) in half a second, by 1/60 s steps
+        let mut v = [0.0; 2];
+        let mut pushed = 0;
+        for _ in 0..15 {
+            v = vehicle_step(v, 0.0, 1, pushed, 6.0, 1.0 / 60.0);
+            pushed = 1;
+        }
+        assert!((v[1] - 3.0).abs() < 1e-3, "{v:?}");
+        for _ in 0..30 {
+            v = vehicle_step(v, 0.0, 1, 1, 6.0, 1.0 / 60.0);
+        }
+        assert!((v[1] - 6.0).abs() < 1e-3);
+        // turning a quarter while running: the velocity swings round, not at once
+        let turned = vehicle_step(v, std::f32::consts::FRAC_PI_2, 1, 1, 6.0, 1.0 / 60.0);
+        assert!(turned[1] > 5.0 && turned[0] > 0.0 && turned[0] < 1.0, "{turned:?}");
+        // a stop halts at once; a turn round starts from rest the other way
+        assert_eq!(vehicle_step(v, 0.0, 0, 1, 6.0, 1.0 / 60.0), [0.0, 0.0]);
+        assert!((vehicle_step(v, 0.0, -1, 1, 3.5, 1.0 / 60.0)[1] + 3.5 * 2.0 / 60.0).abs() < 1e-4);
+        // the turn rates: 3.5 standing and 1.5 moving, or TurnSpeed / 11000 (halved while moving)
+        let mut stats = BTreeMap::new();
+        assert_eq!((turn_rate(&stats, false), turn_rate(&stats, true)), (3.5, 1.5));
+        stats.insert(267, 22000);
+        assert_eq!((turn_rate(&stats, false), turn_rate(&stats, true)), (2.0, 1.0));
     }
 
     #[test]

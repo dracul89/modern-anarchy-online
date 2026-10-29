@@ -118,6 +118,8 @@ pub enum Action {
     ProgramsWindow,
     /// Keeps walking forward until a forward or back key is pressed.
     AutoRun,
+    /// Walk or run (the original's `MOVEMENT_TOGGLEWALK`).
+    ToggleWalk,
     /// The help window: keys, mouse and commands.
     HelpWindow,
     /// Make the interface larger / smaller (by a tenth).
@@ -224,6 +226,7 @@ pub const ACTIONS: &[(Action, &str, &str)] = &[
     (Action::Screenshot, "screenshot", "F12"),
     (Action::Coordinates, "coordinates", "F9"),
     (Action::AutoRun, "auto_run", "Numpad0"),
+    (Action::ToggleWalk, "toggle_walk", "NumpadDivide"),
     // The shortcut bar: the keys 1 to 0 use the slots of the shown bar, Alt+1 to Alt+6 show another bar.
     (Action::HotbarSlot(0), "hotbar_slot_1", "1"),
     (Action::HotbarSlot(1), "hotbar_slot_2", "2"),

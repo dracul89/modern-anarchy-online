@@ -1274,3 +1274,25 @@ played at once: the list is fetched again and the game starts with it. Its loadi
 told with `MAO_NEW_CHARACTER=1`), tinted blue like the other. The preview wears the chosen head (the look's gear at
 attachment 0), the build's body (`<breed>_<sex>_thin.cir` / `_fat.cir`, as `CCCharacter_t::ChangeMesh` names them) and
 the height. Tried live: Maotestone's first login reached playfield 6553 (the new players' area) and stayed connected.
+
+## Moving as the original's vehicle (2026-10-29)
+
+The character is the original's steered vehicle now (Gamecode `CharVehicle_t`, Vehicle.dll `Vehicle_t::Run`):
+
+- **Speeding up and stopping.** The steering (FUN_10071537, on the vehicle at 0x10161c48) pushes along the facing with the
+  maximum force, forwards or (times −1) back; FUN_1006f9eb sets that force to `2 × mass × the top speed` (mass 10), so the
+  character reaches full speed in half a second; the step adds `force / mass × dt` to the velocity and keeps it under the top
+  speed. The stop transition (FUN_1006f0ac) and a change of direction (`SetDirection`) call `Vehicle_t::Halt`: the stop is
+  immediate. Turning while running bends the path: the velocity swings round to the new facing at that rate
+  (`vehicle_step`). Sidestepping is still added as before.
+- **Turning by key** (FUN_1006ca4f setting the vehicle's +0x368, the rotation steering FUN_10071795): `TurnSpeed` (stat 267)
+  / 11000 radians a second, halved while moving; with the stat at 0, 3.5 standing and 1.5 moving (`turn_rate`; the client
+  turned at an invented 2.0).
+- **Walk and run** (`MOVEMENT_TOGGLEWALK`, default key here Numpad /, rebindable as `toggle_walk`): walking is 1.5 a second
+  both ways (mode 2); the switch is sent as the movement codes 0x18 (walk) and 0x19 (run); one's own character plays the
+  walk or the run by the mode, as FUN_1006c370.
+- `/follow` now starts again only a metre past its distance (it started and stopped every step at the edge once starting
+  took half a second).
+
+Tried live (Sadlee): walking measured 1.47 a second, no corrections from the server. Still the client's own: the report
+timing (every 0.4 s while moving), the jump's numbers, collision, swimming.
