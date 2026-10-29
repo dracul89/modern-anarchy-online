@@ -4552,6 +4552,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         let fighting = state.fighting.get(&own).copied();
                         let own_level = state.stats.get(&54).copied().unwrap_or(1);
                         let range = state.stats.get(&275).copied();
+                        let targets_target = crate::prefs::get("Targetstarget").is_some_and(|v| v != 0.0);
                         let bar = |t: u32, hostile: bool, title: &str| -> Option<crate::ui::TargetBar> {
                             let name = state.names.get(&t).map(|n| n.0.clone()).filter(|n| !n.is_empty()).or_else(|| state.infos.get(&t).map(|i| i.name.clone()))?;
                             let p = if t == own { position } else { state.position_of(t)? };
@@ -4561,7 +4562,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             let level = if t == own { Some(own_level) } else { state.levels.get(&t).map(|&l| l as i64) };
                             let fill = if character { crate::nametag::consider_colour(crate::nametag::consider(own_level, range, level.unwrap_or(0))) } else { 0xff_ffff };
                             let kind = if hostile { crate::automap::DotKind::Hostile } else { crate::automap::DotKind::Friendly };
-                            Some(crate::ui::TargetBar { hostile, title: title.to_string(), name_colour: if hostile { 0xff_4444 } else { 0xff_ffff }, fill, name, level, hp, distance, kind })
+                            let target_of = state.fighting.get(&t).filter(|_| targets_target).and_then(|f| state.names.get(f).map(|n| n.0.clone()).or_else(|| state.infos.get(f).map(|i| i.name.clone())));
+                            Some(crate::ui::TargetBar { hostile, title: title.to_string(), name_colour: if hostile { 0xff_4444 } else { 0xff_ffff }, fill, target_of, name, level, hp, distance, kind })
                         };
                         let mut bars = Vec::new();
                         if let Some(s) = target.filter(|s| Some(*s) != fighting) {

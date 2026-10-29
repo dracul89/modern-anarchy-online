@@ -147,6 +147,8 @@ pub struct TargetBar {
     /// The name's colour (the one fought 0xff4444, else white) and the health bar's (`N3Msg_Consider`'s for a character).
     pub name_colour: u32,
     pub fill: u32,
+    /// Whom it fights (`N3Msg_GetTargetTarget`), with the option `Targetstarget` (FUN_100741d8).
+    pub target_of: Option<String>,
     pub name: String,
     pub level: Option<i64>,
     /// Health and its maximum (0 when the maximum is not known).
@@ -1288,6 +1290,18 @@ fn target_frame(ctx: &egui::Context, skin: &crate::skin::Skin, bar: &TargetBar, 
             let filled = egui::Rect::from_min_max(groove.min, egui::pos2(groove.left() + groove.width() * fraction, groove.bottom()));
             if !skin.draw_in(&painter.with_clip_rect(filled), "GFX_GUI_TARGET_HB_SLIDER", groove, fill) {
                 painter.rect_filled(filled, 0.0, fill);
+            }
+        }
+        // (the target's target under the bar)
+        if let Some(of) = &bar.target_of {
+            let line = egui::Rect::from_min_size(rect.left_bottom() + egui::vec2(0.0, 1.0), egui::vec2(width, 12.0));
+            match crate::font::tooltip(ctx) {
+                Some(font) => {
+                    font.paint(painter, egui::pos2(line.center().x - font.width(of) * 0.5, line.top()), of, egui::Color32::WHITE);
+                }
+                None => {
+                    painter.text(line.center_top(), egui::Align2::CENTER_TOP, of, egui::FontId::proportional(10.0), egui::Color32::WHITE);
+                }
             }
         }
         let caption = match bar.hp {
