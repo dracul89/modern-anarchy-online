@@ -215,6 +215,8 @@ pub struct ShopWindow {
     pub sold: Vec<Row>,
     pub selected: Option<usize>,
     pub status: String,
+    /// A stock item's page for the Info window (right-clicked: `itemref://low/high/ql`), until taken.
+    pub info_url: Option<String>,
     window: Option<crate::gui::window::XmlWindow>,
 }
 
@@ -286,7 +288,7 @@ impl ShopWindow {
         let min = crate::gui::host::preferred_pixels(&w.tree, w.root, false);
         let root = w.root;
         let tree = &mut w.tree;
-        let (stock, bought, sold, selected) = (&self.stock, &self.bought, &self.sold, &mut self.selected);
+        let (stock, bought, sold, selected, info_url) = (&self.stock, &self.bought, &self.sold, &mut self.selected, &mut self.info_url);
         let name = if self.name.is_empty() { format!("Booth {:x}", self.shop.1 & 0xffff) } else { self.name.clone() };
         let dragged = crate::gear::DRAGGED.load(std::sync::atomic::Ordering::Relaxed);
         let mut is_open = self.open;
@@ -308,13 +310,14 @@ impl ShopWindow {
                     ui.painter().text(r.right_center() - egui::vec2(4.0, 0.0), egui::Align2::RIGHT_CENTER, rows.iter().map(|r| r.price).sum::<i64>().to_string(), font.clone(), green);
                 }
             }
-            // the three lists: Icon, Name, Count, Price, Quality; returns the row clicked and the row double-clicked
-            let mut list = |ui: &mut egui::Ui, dock: &str, rows: Vec<(Option<&Arc<Icon>>, &str, u32, i64, u32)>, chosen: Option<usize>| -> (Option<usize>, Option<usize>, Option<egui::Rect>) {
-                let Some(area) = rect_of(dock) else { return (None, None, None) };
-                let (mut clicked, mut double) = (None, None);
+            // the three lists: Icon, Name, Count, Price, Quality (a row's description as its tooltip); returns the rows clicked,
+            // double-clicked and right-clicked
+            let mut list = |ui: &mut egui::Ui, dock: &str, rows: Vec<(Option<&Arc<Icon>>, &str, u32, i64, u32, &str)>, chosen: Option<usize>| -> (Option<usize>, Option<usize>, Option<usize>, Option<egui::Rect>) {
+                let Some(area) = rect_of(dock) else { return (None, None, None, None) };
+                let (mut clicked, mut double, mut info) = (None, None, None);
                 let mut child = ui.new_child(egui::UiBuilder::new().max_rect(area.shrink(2.0)).id_salt(dock));
                 crate::chrome::scroll(&mut child, palette, egui::ScrollArea::vertical().max_height(area.height() - 4.0).auto_shrink([false, false]), |ui| {
-                    for (i, (icon, name, count, price, quality)) in rows.into_iter().enumerate() {
+                    for (i, (icon, name, count, price, quality, tip)) in rows.into_iter().enumerate() {
                         let (r, resp) = ui.allocate_exact_size(egui::vec2(area.width() - 16.0, ROW), egui::Sense::click());
                         if chosen == Some(i) {
                             ui.painter().rect_filled(r, 0.0, accent.gamma_multiply(0.25));
@@ -337,25 +340,34 @@ impl ShopWindow {
                         if resp.double_clicked() {
                             double = Some(i);
                         }
+                        if resp.secondary_clicked() {
+                            info = Some(i);
+                        }
+                        if !tip.is_empty() {
+                            resp.on_hover_text(tip.replace("\r\n", "\n"));
+                        }
                     }
                 });
-                (clicked, double, Some(area))
+                (clicked, double, info, Some(area))
             };
-            fn rows(rs: &[Row]) -> Vec<(Option<&Arc<Icon>>, &str, u32, i64, u32)> {
-                rs.iter().map(|r| (r.icon.as_ref(), r.name.as_str(), r.count, r.price, r.quality)).collect()
+            fn rows(rs: &[Row]) -> Vec<(Option<&Arc<Icon>>, &str, u32, i64, u32, &str)> {
+                rs.iter().map(|r| (r.icon.as_ref(), r.name.as_str(), r.count, r.price, r.quality, "")).collect()
             }
-            // (a stock item double-clicked goes in; one in either list double-clicked comes out)
-            let (c, d, _) = list(ui, "ShopInventoryDock", stock.iter().map(|s| (s.icon.as_ref(), s.name.as_str(), 1, s.price, s.quality)).collect(), *selected);
+            // (a stock item double-clicked goes in, right-clicked shows its page; one in either list double-clicked comes out)
+            let (c, d, i, _) = list(ui, "ShopInventoryDock", stock.iter().map(|s| (s.icon.as_ref(), s.name.as_str(), 1, s.price, s.quality, s.description.as_str())).collect(), *selected);
             if c.is_some() {
                 *selected = c;
             }
             if let Some(i) = d {
                 command = Some(ShopCommand::Buy(i));
             }
-            if let (_, Some(i), _) = list(ui, "PartnerInventoryDock", rows(bought), None) {
+            if let Some(s) = i.and_then(|i| stock.get(i)) {
+                *info_url = Some(format!("itemref://{}/{}/{}", s.low, s.high, s.quality));
+            }
+            if let (_, Some(i), _, _) = list(ui, "PartnerInventoryDock", rows(bought), None) {
                 command = Some(ShopCommand::Remove(bought[i].item));
             }
-            let (_, d, area) = list(ui, "OurInventoryDock", rows(sold), None);
+            let (_, d, _, area) = list(ui, "OurInventoryDock", rows(sold), None);
             if let Some(i) = d {
                 command = Some(ShopCommand::Remove(sold[i].item));
             }

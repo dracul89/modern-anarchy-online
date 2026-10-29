@@ -166,6 +166,10 @@ pub struct Requests {
     pub mail: Option<crate::mailbox::MailCommand>,
     /// A shop command (buy, close).
     pub shop: Option<crate::shop::ShopCommand>,
+    /// "Deposit to Market"'s Send.
+    pub market_send: Option<crate::marketsend::Deposit>,
+    /// Feedback lines to show (text.mdb names).
+    pub feedback: Vec<&'static str>,
     /// Lines the chat window sends.
     pub chat: Vec<crate::chatwindow::Out>,
     /// Something taken from the open container.
@@ -232,6 +236,10 @@ pub struct Ui {
     pub help: crate::help::HelpWindow,
     /// The info view (GUI.dll's `InfoView_c`): item pages and help texts.
     pub info: crate::gui::infoview::InfoView,
+    /// The in-game web page's window (the market's).
+    pub browser: crate::browser::Browser,
+    /// "Deposit to Market".
+    pub market_send: crate::marketsend::MarketSendWindow,
     /// The skin's control center (`Views/ControlCenter.xml` and its menus), once the skin has loaded.
     pub control_center: Option<crate::gui::controlcenter::ControlCenter>,
     /// The skin's option panel (`OptionPanel/Root.xml`).
@@ -295,7 +303,7 @@ impl Ui {
         crate::skin::configure(&ctx, crate::skin::dirs(&settings.gui_dir, &settings.theme, &settings.aou_mod));
         let state = egui_winit::State::new(ctx.clone(), egui::ViewportId::ROOT, window, Some(window.scale_factor() as f32), window.theme(), None);
         let renderer = egui_wgpu::Renderer::new(&gpu.device, format, egui_wgpu::RendererOptions::default());
-        let mut ui = Ui { ctx, state, renderer, open_seen: Vec::new(), options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), shop: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), ncu: Default::default(), friends: Default::default(), programs: Default::default(), perks: Default::default(), help: Default::default(), info: Default::default(), control_center: None, option_panel: Default::default(), loot: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0 };
+        let mut ui = Ui { ctx, state, renderer, open_seen: Vec::new(), options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), shop: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), ncu: Default::default(), friends: Default::default(), programs: Default::default(), perks: Default::default(), help: Default::default(), info: Default::default(), browser: Default::default(), market_send: Default::default(), control_center: None, option_panel: Default::default(), loot: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0 };
         // (the windows the player left open come back open)
         for name in crate::layout::load_open() {
             ui.set_window(&name, true);
@@ -335,6 +343,13 @@ impl Ui {
         self.state.on_window_event(window, event).consumed
     }
 
+    /// Where the web page goes, in the window's physical pixels (x, y, width, height), while its window is open.
+    pub fn browser_bounds(&self) -> Option<(i32, i32, u32, u32)> {
+        let r = self.browser.area?;
+        let k = self.ctx.pixels_per_point();
+        Some(((r.min.x * k).round() as i32, (r.min.y * k).round() as i32, (r.width() * k).round() as u32, (r.height() * k).round() as u32))
+    }
+
     /// What is under the pointer (for the mouse log): the interface's layer there and the widget it is dragging.
     pub fn under_pointer(&self) -> String {
         let at = self.ctx.pointer_latest_pos();
@@ -359,6 +374,8 @@ impl Ui {
         shut("Perks", &mut self.perks.open);
         shut("Whom-Pah", &mut self.whompah_open);
         shut("Mail", &mut self.mail.open);
+        shut("Browser", &mut self.browser.open);
+        shut("Deposit to Market", &mut self.market_send.open);
         shut("Missions", &mut self.mission.open);
         shut("Help", &mut self.help.open);
         if !self.options_open {
@@ -471,6 +488,8 @@ impl Ui {
         let (mission, mail, shop, actions, automap, stats_window, skills_window, ncu_window, chat_window) = (&mut self.mission, &mut self.mail, &mut self.shop, &mut self.actions, &mut self.automap, &mut self.stats, &mut self.skills, &mut self.ncu, &mut self.chat);
         let (friends_window, programs_window, perks_window, loot_window, help_window) = (&mut self.friends, &mut self.programs, &mut self.perks, &mut self.loot, &mut self.help);
         let info_view = &mut self.info;
+        let browser = &mut self.browser;
+        let market_send = &mut self.market_send;
         let control_center = &mut self.control_center;
         let option_panel = &mut self.option_panel;
         let mut cc_windows: Vec<(&'static str, bool)> = Vec::new();
@@ -583,6 +602,9 @@ impl Ui {
                 if let Some(command) = shop.show(&ctx, gear, &hud.gear, palette) {
                     requests.shop = Some(command);
                 }
+                if let Some(url) = shop.info_url.take() {
+                    info_view.show_url(&url);
+                }
             }
             if mail.open || mail.compose_open {
                 if let Some(command) = mail.show(&ctx, gear, &hud.gear, palette) {
@@ -596,6 +618,15 @@ impl Ui {
                 requests.item_deletes.extend(events.deletes);
                 for url in events.infos {
                     info_view.show_url(&url);
+                }
+            }
+            browser.show(&ctx, palette);
+            if market_send.open {
+                let cash = hud.stats.get(&61).copied().unwrap_or(0);
+                let (deposit, feedback) = market_send.show(&ctx, gear, &hud.gear, cash, palette);
+                requests.market_send = deposit;
+                if let Some(name) = feedback {
+                    requests.feedback.push(name);
                 }
             }
             if *options_open {
@@ -704,6 +735,14 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
     // MAO_UI_PREVIEW=optionpanel: the skin's option panel (MAO_OPTION_PAGE=<n> picks a page).
     let mut preview_panel = crate::gui::options::OptionPanel::default();
     preview_panel.open = std::env::var("MAO_UI_PREVIEW").as_deref() == Ok("optionpanel");
+    // (MAO_UI_PREVIEW=marketsend: "Deposit to Market", the first two backpack items in it)
+    let mut preview_deposit = crate::marketsend::MarketSendWindow::default();
+    if std::env::var("MAO_UI_PREVIEW").as_deref() == Ok("marketsend") {
+        preview_deposit.show_window();
+        for (place, item) in preview_deposit.slots.iter_mut().zip(hud.gear.iter().filter(|i| i.slot >= 64)) {
+            *place = Some(item.slot);
+        }
+    }
     if let Some(n) = std::env::var("MAO_OPTION_PAGE").ok().and_then(|v| v.parse().ok()) {
         preview_panel.select(n);
     }
@@ -806,6 +845,9 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
             }
             if let Some(window) = preview_shop.as_mut() {
                 window.show(&ctx, &mut gear, &hud.gear, &palette);
+            }
+            if preview_deposit.open {
+                let _ = preview_deposit.show(&ctx, &mut gear, &hud.gear, 1000, &palette);
             }
             if let Some(window) = preview_mail.as_mut() {
                 window.show(&ctx, &mut gear, &hud.gear, &palette);

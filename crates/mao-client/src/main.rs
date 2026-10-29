@@ -45,6 +45,8 @@ mod layout;
 mod loot;
 mod nanoprograms;
 mod perks;
+mod browser;
+mod marketsend;
 mod prefs;
 mod ncu;
 mod skills;
@@ -385,6 +387,19 @@ pub(crate) fn table_dynels(db: &ResourceDatabase, playfield: u32) -> Vec<(u32, u
         .collect()
 }
 
+/// The client window an item template's use opens: its use event's (0) spell 0xcf7b ("open a client window", Gamecode
+/// FUN_100a9cf4: spell stat 39 the window, stat 117 1 to open it) as GUI.dll FUN_1002e2fe takes it: 0 the market's web page,
+/// 3 the signup terminal, 4 and 5 the laser and air strike targets, 7 the mech choice, 8 the mail window.
+pub(crate) fn client_window(db: &ResourceDatabase, template: u32) -> Option<i32> {
+    let data = db.get(Id { kind: mao_formats::item::TEMPLATE, instance: template }).ok().flatten()?;
+    mao_formats::spell::lists(&data)
+        .into_iter()
+        .filter(|(event, _)| *event == 0)
+        .flat_map(|(_, spells)| spells)
+        .find(|s| s.kind == 0xcf7b && s.stat(117) == 1)
+        .map(|s| s.stat(39))
+}
+
 /// The playfield's built-in doors, terminals and the like (its dynel table) as instances of their models, for the offline views
 /// (the live client draws them with the other machines).
 pub(crate) fn add_static_props(db: &ResourceDatabase, playfield: u32, model: &mut Model) {
@@ -686,6 +701,13 @@ fn run(args: &[String]) -> Result<(), String> {
                 println!("{turn} quarter turns: {n} things, {a} on floor as placed, {b} on floor turned the other way");
             }
             return Ok(());
+        }
+    }
+    // `<game> web store|market`: the in-game web page alone in a window (`browser::test_window`).
+    #[cfg(windows)]
+    if let [_, word, which] = args {
+        if word == "web" {
+            return browser::test_window(if which == "market" { browser::Mode::Market } else { browser::Mode::ItemStore });
         }
     }
     // `dynels <game> <playfield> <kind hex>`: the built-in things of one identity type in a playfield.
@@ -1646,5 +1668,17 @@ mod table_tests {
         let it = mao_formats::item::Item::parse(&data).unwrap();
         // (the booths' prices: 105 % to buy, 4 % to sell, no type of their own)
         assert_eq!(crate::shop::Rates::of(&it), crate::shop::Rates { buy: 105, sell: 4, kind: 0x3d });
+    }
+}
+
+#[cfg(test)]
+mod market_tests {
+    /// `MAO_GAME`: the market terminal (0x3eea9) opens window 0, the market; the mail terminal has no such spell.
+    #[test]
+    fn the_market_terminal_opens_the_market() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let db = mao_formats::resource::ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap();
+        assert_eq!(super::client_window(&db, 0x3eea9), Some(0));
+        assert_eq!(super::client_window(&db, 0x913c), None);
     }
 }

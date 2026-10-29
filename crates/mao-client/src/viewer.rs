@@ -51,6 +51,8 @@ pub struct Input {
     /// Something clicked in the world: a counter that steps with each click, its kind and id, and whether to use it (a
     /// right or double click).
     pub pick: (u8, u32, u32, bool),
+    /// "Deposit to Market"'s Send: a counter that steps with each, and what to deposit.
+    pub market: (u8, crate::marketsend::Deposit),
     /// A nano program to cast: a counter that steps with each, and the program's id.
     pub cast: (u8, u32),
     /// An item to move: a counter that steps with each, the place it is in and the place it goes to.
@@ -142,6 +144,8 @@ pub struct Update {
     pub info_urls: Vec<String>,
     /// The shop trade's changes (the server's echoes).
     pub shop_changes: Vec<crate::shop::Change>,
+    /// A web page to open (the market terminal used).
+    pub browser: Option<crate::browser::Request>,
     /// Windows to open (a mail terminal or mission booth used).
     pub open_windows: Vec<&'static str>,
     /// Messages for the log.
@@ -437,6 +441,9 @@ struct View {
     camera: Camera,
     /// The interface (heads-up display, options): in a live window.
     ui: Option<Ui>,
+    /// The web page over the window (the market's), while its window is open.
+    #[cfg(windows)]
+    page: Option<crate::browser::Page>,
 }
 
 struct App {
@@ -727,7 +734,18 @@ impl ApplicationHandler for App {
         window.request_redraw();
         self.home = Some(camera);
         let ui = self.live.as_ref().map(|_| Ui::new(&window, &gpu, config.format, &self.settings));
-        self.state = Some(View { window, surface, config, gpu, renderer, scene, camera, ui });
+        self.state = Some(View {
+            window,
+            surface,
+            config,
+            gpu,
+            renderer,
+            scene,
+            camera,
+            ui,
+            #[cfg(windows)]
+            page: None,
+        });
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
@@ -1158,6 +1176,9 @@ impl ApplicationHandler for App {
                             }
                             for name in std::mem::take(&mut u.open_windows) {
                                 ui.set_window(name, true);
+                            }
+                            if let Some(request) = u.browser.take() {
+                                ui.browser.show_page(request);
                             }
                             if let Some(state) = u.shop.take() {
                                 ui.shop.set(state);
@@ -1717,6 +1738,48 @@ impl ApplicationHandler for App {
                     let project = |p: mao_render::glam::Vec3| camera.project(p, aspect, radius);
                     self.hud.camera_yaw = w.camera.yaw;
                     let (frame, mut requests) = ui.run(&w.window, &mut self.settings, &self.hud, &project);
+                    // (the web page follows its window: opened when it opens, moved with it, gone when it closes)
+                    #[cfg(windows)]
+                    match ui.browser_bounds() {
+                        Some(bounds) => {
+                            if ui.browser.fresh {
+                                ui.browser.fresh = false;
+                                w.page = None;
+                            }
+                            if w.page.is_none() {
+                                if let Some(request) = ui.browser.request.clone() {
+                                    let data = crate::settings::Settings::path().parent().map_or_else(|| std::path::PathBuf::from("Browser"), |d| d.join("Browser"));
+                                    match crate::browser::Page::open(&w.window, &request, bounds, data, ui.browser.event_sink()) {
+                                        Ok(page) => w.page = Some(page),
+                                        Err(e) => {
+                                            ui.browser.open = false;
+                                            self.hud.say(format!("The web page could not be opened: {e}"));
+                                        }
+                                    }
+                                }
+                            }
+                            if let Some(page) = w.page.as_mut() {
+                                page.place(bounds);
+                                for what in std::mem::take(&mut ui.browser.navigate) {
+                                    page.navigate(what);
+                                }
+                                ui.browser.status = page.url();
+                            }
+                        }
+                        None => w.page = None,
+                    }
+                    for event in ui.browser.take_events() {
+                        match event {
+                            // (SlotOpenMarketSendWindow: only with the Alien Invasion expansion, stat 389's bit 8)
+                            crate::browser::Event::OpenMarketSendWindow => {
+                                if self.hud.stats.get(&389).copied().unwrap_or(0) & 8 != 0 {
+                                    ui.market_send.show_window();
+                                } else {
+                                    self.hud.say(crate::feedback::plain("Feedback_YouMustHaveAlienInvasion"));
+                                }
+                            }
+                        }
+                    }
                     ui.pointer(event_loop, &w.window, frame.cursor);
                     for out in requests.chat.drain(..) {
                         match out {
@@ -1753,6 +1816,12 @@ impl ApplicationHandler for App {
                             crate::chatwindow::Out::Social { id } => self.keys.social = (self.keys.social.0.wrapping_add(1), id),
                             other => crate::net::send_chat(other),
                         }
+                    }
+                    if let Some(deposit) = requests.market_send.take() {
+                        self.keys.market = (self.keys.market.0.wrapping_add(1), deposit);
+                    }
+                    for name in std::mem::take(&mut requests.feedback) {
+                        self.hud.say(crate::feedback::plain(name));
                     }
                     if let Some(command) = requests.shop.take() {
                         if let Some(live) = &self.live {

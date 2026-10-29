@@ -55,7 +55,7 @@ programs window's Info, `itemid://53019/<id>`; weapons' damage per second; to co
 | `TipSystem_t`, `TipViewConfig`, `/tipoftheday` | tips of the day | | no |
 | `TimerSystemModule_t` | timers (countdown bars) | | no |
 | `SoundOptionsMonitor_c` | applies the sound options | `audio.rs` | ours |
-| `BrowserModule_c`, `BrowserView_c`, `BrowserWindow_c`, `LoginBrowserWindow_c` (Awesomium) | the in-game web pages (news, item shop) | | no (out of scope: an embedded browser) |
+| `BrowserModule_c`, `BrowserView_c`, `BrowserWindow_c`, `LoginBrowserWindow_c` (Awesomium) | the in-game web pages (market, item store, customer service, daily rewards) | `browser.rs` (WebView2 through wry; the site's requests passed on with the game's `X-Anarchy-*` headers) | part: the market and item store modes; no customer service, daily rewards or login pages; no URL bar |
 
 ## 2. The windows
 
@@ -88,7 +88,7 @@ programs window's Info, `itemid://53019/<id>`; weapons' damage per second; to co
 | Pets (`PetWindowModule_c`, `pet_window`, `PetMenu.xml`, `/petduel`) | | none | no |
 | Organization (`OrganizationGUIModule_c`, `OrgNameView`, upkeep views) | | none | no |
 | City terminal (`CityTerminalGUIModule_c`, `CityTerminalWindowConfig`, `CityTerminalBuyDlgConfig`, `CityMapView`) | `CityTerminal.xml` | none | no |
-| Market (`MarketWindowConfig`, `OpenMarketSendWindow`) | `MarketSendWindow.xml` | none | no |
+| Market (`MarketWindowConfig`, `OpenMarketSendWindow`, `MarketSendWindow_c`) | `MarketSendWindow.xml` | `browser.rs`, `marketsend.rs` (the deposit window, `MarketSend`) | part: not seen live |
 | Knowledge (`knowledge_window`, `KnowledgeViewConfig`) | | none | no |
 | Factions (`faction_window`, `zFFactionWindowConfig`) | | none | no |
 | Research (`research_window`, `ResearchConfig`) | `Research*.xml` | none | no |
@@ -131,4 +131,4 @@ Developer and GM commands (not for players; leave out): `/anim` `/center` `/clea
 - Windows that need messages we have not captured: team, raid, LFT, player trade, tradeskill, bank, backpacks, pets,
   organization, city terminal, market, research, petitions, reclaim, daily rewards, the Notum Wars windows, target NCU.
   Each needs a capture of the original doing it (`tools/capture_proxy.py`).
-- Out of scope: the embedded web browser (Awesomium) and the item shop pages.
+- The embedded web pages are WebView2 (`browser.rs`), not Awesomium; the item shop's page is reachable but not opened by anything yet.

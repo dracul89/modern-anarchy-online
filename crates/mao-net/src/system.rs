@@ -320,12 +320,25 @@ pub struct Ticket {
     /// Eight bytes the server made for this login; the client hands them
     /// back to the game server.
     pub key: [u8; 8],
-    /// What follows the key (a zero word and a four-byte value of unknown
-    /// meaning; the original doesn't send them on).
+    /// What follows the key: the event server type and the account's
+    /// player id (Interfaces.dll's ticket reader, 0x10002d11, keeps them as
+    /// `Client_t::s_nEventServerType` and `s_nPlayerID`).
     pub rest: Vec<u8>,
 }
 
 impl Ticket {
+    /// The two cookies of the key (`Client_t::s_nCookie1`, `s_nCookie2`).
+    pub fn cookies(&self) -> (u32, u32) {
+        let k = self.key;
+        (u32::from_be_bytes([k[0], k[1], k[2], k[3]]), u32::from_be_bytes([k[4], k[5], k[6], k[7]]))
+    }
+
+    /// The event server type and the account's player id, when the ticket has them.
+    pub fn account(&self) -> Option<(u32, u32)> {
+        let r = self.rest.get(..8)?;
+        Some((u32::from_be_bytes([r[0], r[1], r[2], r[3]]), u32::from_be_bytes([r[4], r[5], r[6], r[7]])))
+    }
+
     pub fn host(&self) -> String {
         let a = self.address;
         format!("{}.{}.{}.{}:{}", a[0], a[1], a[2], a[3], self.port)

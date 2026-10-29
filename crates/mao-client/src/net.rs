@@ -291,6 +291,10 @@ struct World {
     info_urls: Vec<String>,
     /// Windows to open (by `Ui::set_window` name), until taken.
     open_windows: Vec<&'static str>,
+    /// The game server's id: the source of its messages (`Client_t`'s +0xac, the `X-Anarchy-ServerID` of the web pages).
+    server_id: u32,
+    /// A web page to open (the market terminal's), until taken.
+    browser: Option<crate::browser::Request>,
     /// The template (`StaticInstance`, stat 23) of each vending machine the server announced: its prices' stats.
     vendor_templates: BTreeMap<u32, u32>,
 }
@@ -591,6 +595,22 @@ impl World {
         self.register_doors();
     }
 
+    /// What a use of `(kind, id)` opens on the client's side (`client_window`), for the playfield's own terminals: the market's
+    /// page, the mail window.
+    fn opened_by_use(&mut self, db: &ResourceDatabase, kind: u32, id: u32) {
+        let Some(template) = self.table.iter().find(|d| d.0 == kind && d.1 == id).map(|d| d.3) else { return };
+        match crate::client_window(db, template) {
+            Some(0) => {
+                let ticket = mao_net::session::last_ticket();
+                let stats = &self.stats;
+                let headers = crate::browser::headers(self.own, ticket.as_ref(), self.server_id, &|s| stats.get(&s).copied().unwrap_or(0));
+                self.browser = Some(crate::browser::Request { mode: crate::browser::Mode::Market, headers });
+            }
+            Some(8) => self.open_windows.push("mail"),
+            _ => {}
+        }
+    }
+
     /// Where an entity or usable object is.
     fn position_of(&self, id: u32) -> Option<[f32; 3]> {
         self.entities.get(&id).map(|e| e.0).or_else(|| self.objects.get(&id).copied())
@@ -612,6 +632,9 @@ impl World {
     }
 
     fn add(&mut self, frame: &frame::Frame) {
+        if frame.kind == frame::N3 {
+            self.server_id = frame.source;
+        }
         let Some(m) = Message::parse(frame) else { return };
         if let Some(arrival) = m.arrival() {
             eprintln!("playfield message: identity ({:x},{:x}) -> playfield {} at {:?}", m.identity.0, m.identity.1, arrival.0, arrival.1);
@@ -2873,6 +2896,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let (mut sitting, mut uses, mut fired) = (false, 0u32, 0u8);
         let (mut special_seen, mut social_seen, mut pick_seen) = (0u8, 0u8, 0u8);
         let mut aggdef_seen = 0u8;
+        let mut market_seen = 0u8;
         let mut mission_booth: Option<u32> = None;
         let mut friends_seen = u64::MAX;
         let mut cast_seen = 0u8;
@@ -3299,6 +3323,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             let kind = state.types.get(&t).copied().unwrap_or(n3::CHARACTER);
                             let _ = connection.send(&n3::use_object(own, uses, (kind, t)));
                             state.door_used(t);
+                            state.opened_by_use(&gear_db, kind, t);
                             pending_messages.push(format!("Using {}", state.names.get(&t).map_or("the target", |n| n.0.as_str())));
                         }
                         None => pending_messages.push("Nothing targeted to use (Tab selects)".into()),
@@ -3527,6 +3552,14 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 aggdef_seen = keys.aggdef.0;
                 let _ = connection.send(&n3::set_stat(own, 51, keys.aggdef.1.clamp(-100, 100)));
             }
+            // "Deposit to Market"'s Send (`N3Msg_SendMarketItem`): the items from the backpack and the credits.
+            if keys.market.0 != market_seen {
+                market_seen = keys.market.0;
+                let d = keys.market.1;
+                let items: Vec<(u32, u32)> = d.slots[..d.count as usize].iter().map(|&s| (0x68, s)).collect();
+                let _ = connection.send(&n3::market_send(own, d.credits, &items));
+                pending_messages.push(format!("Sent {} items and {} credits to the market.", items.len(), d.credits));
+            }
             // A click on something in the world selects it; a double click uses it.
             if keys.pick.0 != pick_seen {
                 pick_seen = keys.pick.0;
@@ -3558,6 +3591,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         mission_booth = Some(id);
                         state.open_windows.push("missions");
                     }
+                    state.opened_by_use(&gear_db, kind, id);
                     pending_messages.push(format!("Using {}", state.names.get(&id).map_or("the target", |n| n.0.as_str())));
                 }
             }
@@ -4439,6 +4473,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     }),
                     info_urls: std::mem::take(&mut state.info_urls),
                     open_windows: std::mem::take(&mut state.open_windows),
+                    browser: state.browser.take(),
                     messages: {
                         for line in &chat_lines_now {
                             pending_messages.push(line.text.clone());

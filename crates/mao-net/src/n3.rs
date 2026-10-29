@@ -499,8 +499,36 @@ pub fn position_update(character: u32, movement: u8, heading: f32, position: [f3
     Message { kind: POSITION_UPDATE, identity: (CHARACTER, character), data: d }.frame(character)
 }
 
+/// `MarketSend` (`470b2e14`, Gamecode's `MarketSendIIR_c` from `N3Msg_SendMarketItem`): the market deposit window's Send,
+/// the character, the credits and up to eight inventory items `(0x68, slot)`, counted the protocol's way (`(n + 1) * 0x3f1`).
+pub fn market_send(character: u32, credits: i32, items: &[(u32, u32)]) -> Frame {
+    let mut data = vec![0u8];
+    data.extend_from_slice(&CHARACTER.to_be_bytes());
+    data.extend_from_slice(&character.to_be_bytes());
+    data.extend_from_slice(&credits.to_be_bytes());
+    let items = &items[..items.len().min(8)];
+    data.extend_from_slice(&((items.len() as u32 + 1) * 0x3f1).to_be_bytes());
+    for (kind, id) in items {
+        data.extend_from_slice(&kind.to_be_bytes());
+        data.extend_from_slice(&id.to_be_bytes());
+    }
+    Message { kind: 0x470b2e14, identity: (CHARACTER, character), data }.frame(character)
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn market_send_reads_back_as_the_schemas() {
+        let m = Message::parse(&market_send(0x4bc80, 1500, &[(0x68, 0x40), (0x68, 0x41)])).unwrap();
+        let p = crate::schema::Schema::global().parse_n3(m.kind, &m.data).unwrap();
+        assert_eq!(p.value.get("Credits").and_then(crate::schema::Value::as_int), Some(1500));
+        assert_eq!(p.value.get("Sender").and_then(|s| s.get("Instance")).and_then(crate::schema::Value::as_int), Some(0x4bc80));
+        match p.value.get("Items") {
+            Some(crate::schema::Value::List(items)) => assert_eq!(items.len(), 2),
+            other => panic!("{other:?}"),
+        }
+    }
+
     #[test]
     fn game_text_is_read_from_the_captured_messages() {
         let hex = |s: &str| -> Vec<u8> { (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect() };

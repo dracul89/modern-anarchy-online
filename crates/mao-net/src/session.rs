@@ -123,10 +123,23 @@ pub fn login(connection: &mut Connection, user: &str, password: &str, version: &
     }
 }
 
+/// The ticket of the last character logged in: its cookies and the account's ids are what the in-game web pages are
+/// sent (`Client_t`'s `s_nCookie1`, `s_nCookie2`, `s_nEventServerType`, `s_nPlayerID`).
+static LAST_TICKET: std::sync::Mutex<Option<system::Ticket>> = std::sync::Mutex::new(None);
+
 /// Log a character in on the chat server: the game server to go to.
 pub fn login_character(connection: &mut Connection, id: u32) -> Result<system::Ticket, Error> {
     connection.send(&system::login_character(id))?;
-    Ok(system::ticket(&connection.receive()?)?)
+    let ticket = system::ticket(&connection.receive()?)?;
+    if let Ok(mut last) = LAST_TICKET.lock() {
+        *last = Some(ticket.clone());
+    }
+    Ok(ticket)
+}
+
+/// The ticket the last [`login_character`] got.
+pub fn last_ticket() -> Option<system::Ticket> {
+    LAST_TICKET.lock().ok().and_then(|t| t.clone())
 }
 
 /// Enter the world on the game server named in the ticket. The connection

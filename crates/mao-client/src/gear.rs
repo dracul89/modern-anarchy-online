@@ -29,6 +29,8 @@ pub struct GearItem {
     pub count: u16,
     pub quality: u32,
     pub bag: bool,
+    /// The template's flags (stat 0: NoDrop and the like).
+    pub flags: u32,
     pub name: String,
     pub description: String,
     pub icon: Option<Arc<Icon>>,
@@ -137,6 +139,7 @@ pub fn from_entries(db: &ResourceDatabase, textures: &crate::Textures, entries: 
                 count: e.count,
                 quality: e.quality,
                 bag: e.is_bag(),
+                flags: template.as_ref().and_then(|t| t.stat(0)).unwrap_or(0),
                 name: template.as_ref().map_or_else(|| format!("Item #{:x}", e.low_id), |t| t.name.clone()),
                 description: template.map(|t| t.description).unwrap_or_default(),
                 icon,
@@ -441,7 +444,7 @@ mod tests {
 
     #[test]
     fn the_pack_counts_only_its_own_places() {
-        let item = |slot| GearItem { slot, item_id: 1, high_id: 1, count: 1, quality: 1, bag: false, name: String::new(), description: String::new(), icon: None, effects: Vec::new(), actions: Vec::new() };
+        let item = |slot| GearItem { slot, item_id: 1, high_id: 1, count: 1, quality: 1, bag: false, flags: 0, name: String::new(), description: String::new(), icon: None, effects: Vec::new(), actions: Vec::new() };
         let items = vec![item(0x10), item(inventory::BACKPACK_FIRST), item(inventory::BACKPACK_FIRST + 5), item(inventory::BACKPACK_FIRST + PACK_SLOTS)];
         assert_eq!(pack_used(&items), 2);
     }

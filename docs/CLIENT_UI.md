@@ -236,6 +236,33 @@ lists (FUN_100ce55d: Icon, Name, Count, Price, Quality) in `ShopInventoryDock`, 
   (0x184f1) sell at 105 % and buy at 4 %.
 * Preview: `MAO_UI_PREVIEW=shop MAO_CAPTURE=capture-221539.log` (two stock items in Bought Items).
 
+## 4j2. The market (web page) and Deposit to Market
+
+**Opening it:** using the market terminal (template 0x3eea9) runs its use event's spell 0xcf7b "open a client window" with
+window 0 (Gamecode FUN_100a9cf4 → GUI.dll FUN_1002e2fe; `main::client_window` reads it from the template; window 8 is the
+mail window). That opens GUI.dll's `BrowserWindow_c` in its market mode: an Awesomium page of
+`http://aomarket.funcom.com/market/`. Here (`browser.rs`) it is a WebView2 page (wry) laid over the game window where the
+"Market" window's frame leaves room, with Home, back and forward.
+
+**Headers:** the original sends its site's every request the game's headers (`BrowserWindow_c::Initialize` 0x1010fdb8:
+`X-Anarchy-CharacterID`, `-PlayerID`, `-DimensionType`, `-Cookie`, `-ServerID`, `-Appearance`, `X-Platform`). They come
+from the login ticket (Interfaces.dll's reader 0x10002d11: the key is `s_nCookie1 s_nCookie2`, then `s_nEventServerType`
+and `s_nPlayerID`; `mao_net::session::last_ticket`), the game server's frames' source, and stats 59, 4, 47, 64. The site
+answers every request without them with nginx's 400. WebView2's own request hook is a COM call (and the workspace forbids
+`unsafe`), so the page is served through a wry custom protocol instead: `http://aomarket.localhost/...` is passed on to the
+site by `ureq` with the headers, and the site's addresses in its pages, redirects and cookies are made the proxy's (links
+to the site's full address are sent through too). The page also gets the original's script object `AnarchyOnline`
+(`AcceptLanguage`, `IsInGame`, `OpenMarketSendWindow`).
+
+**Deposit to Market** (`marketsend.rs`, `MarketSendWindow_c`, `Views/MarketSendWindow.xml`): opened by the page's
+`OpenMarketSendWindow` with the Alien Invasion expansion (stat 389 bit 8; else its feedback line). Eight item places take
+backpack items dragged from the inventory (not equipped ones, NoDrop items or containers: the original's feedback lines)
+and the credits field (held to the credits you have; negative refused); Send sends `MarketSend` (`470b2e14`: the character,
+the credits, the items `(0x68, slot)`) and closes the window.
+
+**Test without the game:** `mao-client <game> web store` (the item store page, through the same proxy) and `web market`
+(the market's page with zero headers: the site's 400). `MAO_UI_PREVIEW=marketsend` draws the deposit window.
+
 ## 4k. Chat server and the chat window
 
 A second connection to `chat.d1.funcom.com:7105` (`mao_net::chat`, decoded from the captures, login tested live): salt, login with the same challenge response, then names, channel lists, notices, tells and channel messages. Packet 30 is a **tell** (`u32 sender, str16 text, str16 blob`; the server's own "Players Online" notice arrives the same way, with a sender that has no name), 20 and 21 are names (21 is the answer to a lookup), 60 a channel, 65 a channel message. The client packets are the public AO chat protocol's, which agree with every number seen: 21 looks a name up, 30 sends a tell, 65 sends to a channel. **A tell to oneself came back as the same text from one's own id** (`net <game> chat-tell <from> <to> <text>`), which proves the lookup, the send and the receive layouts live. `MAO_NO_CHAT=1` disables the connection, `net <game> chat [seconds]` prints what arrives.
