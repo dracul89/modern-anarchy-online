@@ -32,6 +32,7 @@ pub mod selector;
 pub mod tooltip;
 pub mod radio;
 pub mod popup;
+pub mod powerbar;
 pub mod dropdown;
 pub mod scroll;
 pub mod scrolling;
@@ -110,6 +111,7 @@ pub fn create(tree: &mut Tree, e: &Element) -> Option<Id> {
         "TextButton" => textbutton::create(tree, e),
         "ComboBox" => combobox::create(tree, e),
         "Slider" => controls::Slider::create(tree, e),
+        "PowerBar" => powerbar::create(tree, e),
         "ItemIconView" => itemslot::create(tree, e, false),
         "BitmapView" => tree.add(Node::from_element(e, 4, Box::new(controls::BitmapView { bitmap: e.text("bitmap_id", "") }))),
         "CCMenu" => controlcenter::CCMenuView::create(tree, e),

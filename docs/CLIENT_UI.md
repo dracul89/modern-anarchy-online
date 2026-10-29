@@ -1479,3 +1479,11 @@ the knob is grabbed: a press on the track does nothing, dragging the knob sets t
 letting go is the change. It is as tall as the knob and any width. It used to be drawn with option-slider pictures the
 skins don't have, and a press anywhere on it moved the value. `gfxid_slider`/`gfxid_background` (picture numbers) are
 not read; no skin gives them.
+
+**Power bars** (`gui/powerbar.rs`). The XML `PowerBar` (the limbo countdown, progress dialogs, the raid window's health
+and nano) is GUI.dll's `PowerbarView_c` (0x1013f846, `Initialize` 0x1013edfc). The `bg_gfx` background is stretched over
+the bar, between optional `left_gfx`/`right_gfx` end caps. On it the `full_gfx` picture is drawn at its own size, centred
+in the background's size and cut from the bar's start to the value: the far edge is floor(size × value), in the
+`direction` `right` (default), `left`, `up` or `down` (`Recalculate` 0x1013e946). The value starts at 1 and is held to
+0–1 (`powerbar::set_value`, `SetValue` 0x1013f283). `gfx="small_blue"` picks the small blue pair. The labels are not
+drawn; no skin gives them.
