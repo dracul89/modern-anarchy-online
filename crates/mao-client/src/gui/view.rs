@@ -76,6 +76,24 @@ pub trait Control: Any {
     fn wheel(&mut self, _dy: f32, _height: f32) -> bool {
         false
     }
+    /// Whether a click gives the view the keyboard (`View::MakeFocus`: a text view that takes typing).
+    fn focusable(&self) -> bool {
+        false
+    }
+    /// The keyboard came or went (`View::FocusChanged`).
+    fn focus(&mut self, _on: bool) {}
+    /// A key went down while the view has the keyboard (`KeyDown`), with Shift, Ctrl and Alt; a signal for the window.
+    fn key(&mut self, _key: super::host::Key, _mods: super::host::Mods) -> Option<Signal> {
+        None
+    }
+    /// Typed text (`TextInput`), or text pasted (`PasteFromClipboard`); a signal for the window.
+    fn text(&mut self, _text: &str) -> Option<Signal> {
+        None
+    }
+    /// What a copy takes (`SlotCopy`): the selected text.
+    fn copy(&self) -> Option<String> {
+        None
+    }
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
 }
@@ -231,6 +249,9 @@ pub struct Tree {
     /// The view under the pointer, and the one a button is held on (`Window`'s mouse capture).
     pub hover: Option<Id>,
     pub pressed: Option<Id>,
+    /// The view with the keyboard (`Window`'s focus view), and whether it was given it this frame.
+    pub focus: Option<Id>,
+    pub focus_new: bool,
     /// Set while a group's members are sized (their own sizes, without their groups); and the sizes worked out in one
     /// call (cleared at its start): the original keeps each view's preferred size and recomputes it when told it changed.
     no_groups: std::cell::Cell<bool>,

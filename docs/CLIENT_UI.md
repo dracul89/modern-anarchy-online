@@ -1376,3 +1376,20 @@ them (bit 0x4000 of the cell word before). Simulated in the shop 1180: on the fl
 up a ramp to 12.01. Not ported: the room surface's own transforms (the shop's surfaces are already in world places),
 `VetoPosition`'s room transitions, room playfields without surfaces (missions keep the client's old steps), the
 vehicle's turn (orientation, FUN_1000c616).
+
+**Text fields** (`gui/textinput.rs`, `gui/edit.rs`). The skins' `TextInputView` elements (mail, trade, market deposit,
+looking for team) are GUI.dll's `TextInputView_c` now: the XML constructor (0x1014928a) reads `label` and
+`label_position` (left, right, above, below, inside; above otherwise) and `Initialize` (0x10148aff) puts an inset border
+(`BorderView_c(rect, "", 0, 4)`: the `GFX_GUI_INSET_*` pieces) round an editor made from the same element (`_editor`, its
+feature flags plus 0xd: typing, mouse, selection) 3 in from the sides and 1 from top and bottom, with the label beside it 5
+away, over or under it in a row with a spacer, or drawn inside at 0.7 opacity while the field is empty and unfocused
+(`UpdateLabelView`). Editing follows `TextRenderer_c::KeyDown` (0x10164224) and `TextInput` (0x10163496): Enter is the
+field's Enter (a new line with Shift or `TVF_ALT_ENTER_MODE` in a multi-line field), Backspace (Ctrl: back to the word's
+start), Delete, Home/End (Ctrl: the text's ends), Left/Right (Shift selects, Ctrl by words), Up/Down a line in a
+multi-line field, paste (Ctrl+V) and copy (Ctrl+C, not from a password); `TVF_NUMERIC` keeps only digits; the cursor is a
+pixel-wide line blinking every half second (`_EnableCursor`, `_ExtrendCursorFlash`); a click places it and a drag selects;
+a single line scrolls to keep it in view. The view tree has keyboard focus: a click on a field takes it, Tab moves to the
+next field, Escape or a click elsewhere drops it, and while a field has it the game's keys go to the field
+(`gui::host::keyboard_taken`). The field's text is plain characters (the original escapes `<>&` in what is typed, which
+amounts to the same). Home/End go to the ends of the line between new lines, not of the wrapped line; the selection
+colour is the client's. `MAO_TYPE=<text>` types into the preview after `MAO_CLICK`'s clicks.

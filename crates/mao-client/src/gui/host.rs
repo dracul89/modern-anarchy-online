@@ -46,6 +46,72 @@ pub enum Signal {
     Toggled(bool),
     /// A link in a text view was clicked: its target (`text://...`, `itemref://...`, `chatcmd://...`).
     Link(String),
+    /// Enter in a text field (`TextView_c::SlotEnterPressed`, a `TextInputView_c`'s `SlotEnterPressed`).
+    Enter,
+    /// A text field's text changed (`SlotEdited`).
+    Edited,
+}
+
+/// The keys a text view acts on (`TextRenderer_c::KeyDown`'s cases: 0x18 Enter, 0x19 Backspace, 0x1b Delete, 0x1c Home,
+/// 0x1d End, 0x20 Left, 0x21 Right, 0x22 Up, 0x23 Down; 0x1a Insert and 0x67 V paste with Shift or Ctrl).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Key {
+    Enter,
+    Backspace,
+    Delete,
+    Home,
+    End,
+    Left,
+    Right,
+    Up,
+    Down,
+    Insert,
+    V,
+    A,
+}
+
+/// The modifiers of a key (the original's bits 3 Shift, 0xc Ctrl, 0x30 Alt).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Mods {
+    pub shift: bool,
+    pub ctrl: bool,
+    pub alt: bool,
+}
+
+/// Whether a view tree has the keyboard this frame (the game's keys then go to the interface, as for a text field).
+static KEYBOARD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn keyboard_taken() -> bool {
+    KEYBOARD.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// A new frame: no tree has the keyboard until one says so.
+pub fn begin_frame() {
+    KEYBOARD.store(false, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Gives a view the keyboard (`View::MakeFocus`), or takes it away.
+pub fn set_focus(tree: &mut Tree, id: Option<Id>) {
+    if tree.focus == id {
+        return;
+    }
+    if let Some(old) = tree.focus {
+        tree.get_mut(old).control.focus(false);
+    }
+    tree.focus = id;
+    tree.focus_new = id.is_some();
+    if let Some(new) = id {
+        tree.get_mut(new).control.focus(true);
+    }
+}
+
+/// The next view that takes the keyboard after `from`, in the tree's order, wrapping round (Tab, `SlotTabPressed`).
+fn next_focus(tree: &Tree, root: Id, from: Id) -> Option<Id> {
+    let mut views = Vec::new();
+    order(tree, root, &mut views);
+    let ring: Vec<Id> = views.into_iter().filter(|&v| tree.get(v).control.focusable() && enabled(tree, v)).collect();
+    let at = ring.iter().position(|&v| v == from)?;
+    ring.get((at + 1) % ring.len()).copied()
 }
 
 /// A view's rect on screen, the window's content starting at `origin`.
@@ -121,6 +187,9 @@ pub fn show(ui: &mut egui::Ui, tree: &mut Tree, root: Id, skin: Option<&crate::s
     let (down, up) = ui.input(|i| (i.pointer.primary_pressed(), i.pointer.primary_released()));
     if down && response.hovered() {
         tree.pressed = under;
+        // (a click on a view that types takes the keyboard; elsewhere in the window it lets it go)
+        let focus = under.filter(|&v| tree.get(v).control.focusable());
+        set_focus(tree, focus);
         if let Some(v) = under {
             let p = at(tree, v);
             if let Some(s) = tree.get_mut(v).control.mouse(super::host::Mouse::Down, p) {
@@ -143,6 +212,77 @@ pub fn show(ui: &mut egui::Ui, tree: &mut Tree, root: Id, skin: Option<&crate::s
         }
     }
     tree.hover = under;
+
+    // the keyboard: the focused view's, while egui's focus stays on the tree (a click elsewhere takes it away)
+    if let Some(f) = tree.focus.filter(|&f| !tree.is_visible(f) || !enabled(tree, f)) {
+        let _ = f;
+        set_focus(tree, None);
+    }
+    if tree.focus.is_some() {
+        if tree.focus_new {
+            tree.focus_new = false;
+            response.request_focus();
+        } else if !response.has_focus() {
+            set_focus(tree, None);
+        }
+    }
+    if let Some(f) = tree.focus {
+        ui.memory_mut(|m| m.set_focus_lock_filter(response.id, egui::EventFilter { tab: true, horizontal_arrows: true, vertical_arrows: true, escape: true }));
+        KEYBOARD.store(true, std::sync::atomic::Ordering::Relaxed);
+        let events = ui.input(|i| i.events.clone());
+        let mut focus = Some(f);
+        for event in events {
+            let Some(v) = focus else { break };
+            let signal = match event {
+                egui::Event::Text(t) => tree.get_mut(v).control.text(&t),
+                egui::Event::Paste(t) => tree.get_mut(v).control.text(&t),
+                egui::Event::Copy => {
+                    if let Some(t) = tree.get(v).control.copy() {
+                        ui.ctx().copy_text(t);
+                    }
+                    None
+                }
+                egui::Event::Key { key, pressed: true, modifiers, .. } => {
+                    let mods = Mods { shift: modifiers.shift, ctrl: modifiers.ctrl || modifiers.command, alt: modifiers.alt };
+                    let k = match key {
+                        egui::Key::Tab => {
+                            focus = next_focus(tree, root, v).or(Some(v));
+                            None
+                        }
+                        egui::Key::Escape => {
+                            focus = None;
+                            None
+                        }
+                        egui::Key::Enter => Some(Key::Enter),
+                        egui::Key::Backspace => Some(Key::Backspace),
+                        egui::Key::Delete => Some(Key::Delete),
+                        egui::Key::Home => Some(Key::Home),
+                        egui::Key::End => Some(Key::End),
+                        egui::Key::ArrowLeft => Some(Key::Left),
+                        egui::Key::ArrowRight => Some(Key::Right),
+                        egui::Key::ArrowUp => Some(Key::Up),
+                        egui::Key::ArrowDown => Some(Key::Down),
+                        egui::Key::Insert => Some(Key::Insert),
+                        egui::Key::A => Some(Key::A),
+                        _ => None,
+                    };
+                    k.and_then(|k| tree.get_mut(v).control.key(k, mods))
+                }
+                _ => None,
+            };
+            if let Some(s) = signal {
+                tree.signals.push((v, s));
+            }
+        }
+        if focus != tree.focus {
+            set_focus(tree, focus);
+            tree.focus_new = false;
+            if focus.is_none() {
+                response.surrender_focus();
+            }
+        }
+        ui.ctx().request_repaint_after(std::time::Duration::from_millis(500));
+    }
     // (the wheel: the topmost view under the pointer that uses it)
     let wheel = ui.input(|i| i.smooth_scroll_delta.y);
     if wheel != 0.0 {

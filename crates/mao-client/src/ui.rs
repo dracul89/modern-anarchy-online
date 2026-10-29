@@ -382,7 +382,7 @@ impl Ui {
     pub fn event(&mut self, window: &Window, event: &WindowEvent) -> bool {
         // (a key is the interface's only while a text field is typed in: egui takes the keyboard whenever any widget has
         // the focus, and its Tab moves the focus to the first button, after which every game key went to the interface)
-        if matches!(event, WindowEvent::KeyboardInput { .. }) && !self.ctx.text_edit_focused() {
+        if matches!(event, WindowEvent::KeyboardInput { .. }) && !self.ctx.text_edit_focused() && !crate::gui::host::keyboard_taken() {
             if let Some(id) = self.ctx.memory(|m| m.focused()) {
                 self.ctx.memory_mut(|m| m.surrender_focus(id));
             }
@@ -565,6 +565,7 @@ impl Ui {
         if (self.ctx.zoom_factor() - settings.ui_scale).abs() > 1e-3 {
             self.ctx.set_zoom_factor(settings.ui_scale);
         }
+        crate::gui::host::begin_frame();
         let output = self.ctx.run_ui(raw, |ui| {
             let ctx = ui.ctx().clone();
             hud_layer(&ctx, hud, project, fps, settings.mode, palette);
@@ -722,6 +723,7 @@ impl Ui {
     /// Lays out a custom interface (the launcher's form) for one frame: `build` draws into the context.
     pub fn run_custom(&mut self, window: &Window, build: &mut dyn FnMut(&egui::Context)) -> Frame {
         let raw = self.state.take_egui_input(window);
+        crate::gui::host::begin_frame();
         let output = self.ctx.run_ui(raw, |ui| {
             let ctx = ui.ctx().clone();
             build(&ctx);
@@ -829,6 +831,19 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
                     let pressed = (frame - 4) % 5 == 0;
                     events.push(egui::Event::PointerMoved(pos));
                     events.push(egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() });
+                }
+            }
+        }
+        // MAO_TYPE=text types it after the clicks (into the field a click gave the keyboard); a `|` presses Left once.
+        if let Ok(v) = std::env::var("MAO_TYPE")
+            && frame == 4 + 5 * clicks + 1
+        {
+            for (k, part) in v.split('|').enumerate() {
+                if k > 0 {
+                    events.push(egui::Event::Key { key: egui::Key::ArrowLeft, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() });
+                }
+                if !part.is_empty() {
+                    events.push(egui::Event::Text(part.to_string()));
                 }
             }
         }

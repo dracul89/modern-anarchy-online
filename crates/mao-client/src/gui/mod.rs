@@ -25,6 +25,8 @@ pub mod options;
 pub mod spells;
 pub mod stat_names;
 pub mod text;
+pub mod textinput;
+pub mod edit;
 pub mod variant;
 pub mod view;
 pub mod window;
@@ -87,6 +89,7 @@ pub fn create(tree: &mut Tree, e: &Element) -> Option<Id> {
         "Button" => controls::Button::create(tree, e),
         "CheckBox" => controls::CheckBox::create(tree, e),
         "TextView" => controls::TextView::create(tree, e),
+        "TextInputView" => textinput::create(tree, e),
         "BitmapView" => tree.add(Node::from_element(e, 4, Box::new(controls::BitmapView { bitmap: e.text("bitmap_id", "") }))),
         "CCMenu" => controlcenter::CCMenuView::create(tree, e),
         "RadioButton" => controls::RadioButton::create(tree, e),

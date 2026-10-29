@@ -481,6 +481,19 @@ pub struct TextView {
     pressed_link: Option<String>,
     /// Where each drawn link is (relative to the view's top left), for the mouse.
     links: std::cell::RefCell<Vec<(egui::Rect, String)>>,
+    /// Editing (`TVF_ACCEPT_TXT_INPUT`): the cursor and selection, whether the view has the keyboard, when the cursor's
+    /// blink last restarted (`_ExtrendCursorFlash`: shown for 0.5 s, hidden for 0.5 s), a drag selecting, the width the
+    /// text was last laid out to and how far a single line is scrolled left to keep the cursor in view.
+    pub caret: super::edit::Caret,
+    focused: bool,
+    blink: std::time::Instant,
+    dragging: bool,
+    laid_width: std::cell::Cell<f32>,
+    hscroll: std::cell::Cell<f32>,
+    /// The measure the text was last drawn with (for the keys and the mouse).
+    measure: std::cell::RefCell<Measure>,
+    /// Told at each drawing whether the text is empty and without the keyboard (a field's inside label).
+    pub empty_hint: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
 
 impl TextView {
@@ -496,7 +509,57 @@ impl TextView {
             content: std::cell::Cell::new(0.0),
             pressed_link: None,
             links: Default::default(),
+            caret: Default::default(),
+            focused: false,
+            blink: std::time::Instant::now(),
+            dragging: false,
+            laid_width: std::cell::Cell::new(0.0),
+            hscroll: std::cell::Cell::new(0.0),
+            measure: Default::default(),
+            empty_hint: None,
         }
+    }
+
+    /// Whether the text is typed in (`TVF_ACCEPT_TXT_INPUT`): then it is plain characters, not markup.
+    pub fn editable(&self) -> bool {
+        self.feature & super::text::flags::ACCEPT_TXT_INPUT != 0
+    }
+
+    /// The words of `text` as this view lays them out (plain when editable).
+    fn words_of(&self, text: &str, m: &Measure, named: &dyn Fn(&str) -> Option<u32>) -> Vec<super::text::Word> {
+        let items = if self.editable() { vec![super::text::Item::Text(text.to_string(), super::text::Style::default())] } else { super::text::parse(text, named) };
+        super::text::words(&items, m, self.font, self.feature, &|_| None)
+    }
+
+    /// Where the text up to `at` ends when laid out `width` wide: its x, the top of its line and the line's height
+    /// (`TextToViewPosition`, before any scrolling).
+    pub fn place_of(&self, m: &Measure, width: f32, at: usize) -> (f32, f32, f32) {
+        let words = self.words_of(&self.text[..at.min(self.text.len())], m, &|_| None);
+        let (lines, _) = super::text::wrap(&words, self.feature, width, m.height(self.font));
+        lines.last().map_or((0.0, 0.0, m.height(self.font)), |l| (l.width, l.y, l.height))
+    }
+
+    /// The place in the text nearest a point in the view (`GetBufferLocation`): on the line under it, the nearest
+    /// character boundary.
+    pub fn index_at(&self, m: &Measure, width: f32, at: Point) -> usize {
+        let mut best = (f32::MAX, 0usize);
+        let mut bounds: Vec<usize> = self.text.char_indices().map(|(k, _)| k).collect();
+        bounds.push(self.text.len());
+        let y = at.y + self.scroll;
+        let x = at.x + self.hscroll.get();
+        for k in bounds {
+            let (px, top, h) = self.place_of(m, width, k);
+            let dy = if y < top { top - y } else if y > top + h { y - top - h } else { 0.0 };
+            let d = dy * 1000.0 + (px - x).abs();
+            if d < best.0 {
+                best = (d, k);
+            }
+        }
+        best.1
+    }
+
+    fn restart_blink(&mut self) {
+        self.blink = std::time::Instant::now();
     }
 
     pub fn create(tree: &mut Tree, e: &Element) -> Id {
@@ -514,12 +577,12 @@ impl TextView {
         if self.text != text {
             self.text = text.to_string();
             self.scroll = 0.0;
+            self.caret = super::edit::Caret { cursor: self.text.len(), anchor: None };
         }
     }
 
     fn words(&self, m: &Measure, named: &dyn Fn(&str) -> Option<u32>) -> Vec<super::text::Word> {
-        let items = super::text::parse(&self.text, named);
-        super::text::words(&items, m, self.font, self.feature, &|_| None)
+        self.words_of(&self.text, m, named)
     }
 
     /// How tall the text is when wrapped to `width`.
@@ -583,6 +646,45 @@ impl Control for TextView {
         let sub = Paint { painter: &clip, env: p.env, rect: p.rect, hovered: p.hovered, pressed: p.pressed, enabled: p.enabled };
         let mut links = self.links.borrow_mut();
         links.clear();
+        self.laid_width.set(width);
+        *self.measure.borrow_mut() = m.clone();
+        if let Some(hint) = &self.empty_hint {
+            hint.store(self.text.is_empty() && !self.focused, std::sync::atomic::Ordering::Relaxed);
+        }
+        // (editing: the selection behind the text, a single line scrolled to keep the cursor in view: `MakeCursorVisible`)
+        let shift = if self.editable() && self.feature & super::text::flags::MULTILINE == 0 {
+            let (cx, _, _) = self.place_of(m, width, self.caret.cursor);
+            let mut h = self.hscroll.get();
+            if cx - h > width - 2.0 {
+                h = cx - width + 2.0;
+            } else if cx < h {
+                h = cx;
+            }
+            h = h.max(0.0);
+            self.hscroll.set(h);
+            h
+        } else {
+            0.0
+        };
+        if self.editable()
+            && let Some((a, b)) = self.caret.selection()
+        {
+            let (ax, ay, ah) = self.place_of(m, width, a);
+            let (bx, by, bh) = self.place_of(m, width, b);
+            let left = p.rect.left() - shift;
+            let top = p.rect.top() - self.scroll;
+            let band = |x0: f32, x1: f32, y: f32, h: f32| egui::Rect::from_min_max(egui::pos2(left + x0, top + y), egui::pos2(left + x1, top + y + h));
+            let shade = egui::Color32::from_rgba_unmultiplied(0x40, 0x70, 0xc0, 0xa0);
+            if ay == by {
+                clip.rect_filled(band(ax, bx, ay, ah), 0.0, shade);
+            } else {
+                clip.rect_filled(band(ax, width, ay, ah), 0.0, shade);
+                if by > ay + ah {
+                    clip.rect_filled(band(0.0, width, ay + ah, by - ay - ah), 0.0, shade);
+                }
+                clip.rect_filled(band(0.0, bx, by, bh), 0.0, shade);
+            }
+        }
         for line in &lines {
             let top = p.rect.top() + line.y - self.scroll;
             if top + line.height < p.rect.top() || top > p.rect.bottom() {
@@ -590,7 +692,7 @@ impl Control for TextView {
             }
             // (the alignment of the line's first text, `_RenderLine`)
             let align = words[line.first..line.end].iter().flat_map(|w| w.pieces.first()).next().map_or(0, |pc| pc.style.align);
-            let mut x = p.rect.left() + line.indent;
+            let mut x = p.rect.left() + line.indent - shift;
             match align {
                 1 => x += (width - 1.0) - line.width + 1.0,
                 4 => x += ((width - line.width) * 0.5).floor(),
@@ -631,11 +733,88 @@ impl Control for TextView {
                 }
             }
         }
+        // (the cursor: a line a pixel wide, as tall as the line less one, blinking every half second; `_EnableCursor`)
+        if self.editable() && self.focused && (self.blink.elapsed().as_millis() / 500) % 2 == 0 {
+            let (cx, cy, ch) = self.place_of(m, width, self.caret.cursor);
+            let x = p.rect.left() + cx - shift;
+            let y = p.rect.top() + cy - self.scroll;
+            clip.rect_filled(egui::Rect::from_min_max(egui::pos2(x, y), egui::pos2(x + 1.0, y + ch - 1.0)), 0.0, view_colour);
+        }
     }
     fn takes_mouse(&self) -> bool {
         self.feature & super::text::flags::ACCEPT_MOUSE_INPUT != 0
     }
+    fn focusable(&self) -> bool {
+        self.editable()
+    }
+    fn focus(&mut self, on: bool) {
+        self.focused = on;
+        self.dragging = false;
+        self.restart_blink();
+    }
+    fn key(&mut self, key: super::host::Key, mods: super::host::Mods) -> Option<Signal> {
+        if !self.editable() {
+            return None;
+        }
+        let m = self.measure.borrow().clone();
+        let width = self.laid_width.get();
+        let mut caret = self.caret;
+        let mut text = self.text.clone();
+        let edit = {
+            let this = &*self;
+            let vertical = |at: usize, dir: i32| {
+                let (x, y, h) = this.place_of(&m, width, at);
+                let target = Point::new(x - this.hscroll.get(), y + if dir < 0 { -h * 0.5 } else { h * 1.5 } - this.scroll);
+                (target.y + this.scroll >= 0.0).then(|| this.index_at(&m, width, target)).filter(|&k| k != at)
+            };
+            super::edit::key(&mut text, &mut caret, key, mods, self.feature, &vertical)
+        };
+        self.text = text;
+        self.caret = caret;
+        self.restart_blink();
+        match edit {
+            super::edit::Edit::Changed => Some(Signal::Edited),
+            super::edit::Edit::Enter => Some(Signal::Enter),
+            _ => None,
+        }
+    }
+    fn text(&mut self, typed: &str) -> Option<Signal> {
+        if !self.editable() {
+            return None;
+        }
+        self.restart_blink();
+        (super::edit::insert(&mut self.text, &mut self.caret, typed, self.feature) == super::edit::Edit::Changed).then_some(Signal::Edited)
+    }
+    fn copy(&self) -> Option<String> {
+        // (`SlotCopy`: the selection; nothing from a password)
+        let (a, b) = self.caret.selection()?;
+        (self.feature & super::text::flags::PASSWORD == 0).then(|| self.text[a..b].to_string())
+    }
     fn mouse(&mut self, m: Mouse, at: Point) -> Option<Signal> {
+        if self.editable() {
+            // (`MouseDown`: the cursor to the place clicked, a selection begun; `MouseMove` while held grows it)
+            let measure = self.measure.borrow().clone();
+            let width = self.laid_width.get();
+            match m {
+                Mouse::Down => {
+                    let k = self.index_at(&measure, width, at);
+                    self.caret = super::edit::Caret { cursor: k, anchor: Some(k) };
+                    self.dragging = true;
+                    self.restart_blink();
+                }
+                Mouse::Move if self.dragging => {
+                    self.caret.cursor = self.index_at(&measure, width, at);
+                }
+                Mouse::Up { .. } => {
+                    self.dragging = false;
+                    if self.caret.selection().is_none() {
+                        self.caret.anchor = None;
+                    }
+                }
+                _ => {}
+            }
+            return None;
+        }
         let link_at = |links: &Vec<(egui::Rect, String)>| links.iter().find(|(r, _)| r.contains(egui::pos2(at.x, at.y))).map(|(_, l)| l.clone());
         match m {
             Mouse::Down => {
