@@ -147,8 +147,9 @@ pub struct Node {
     pub height_group: String,
     pub height_group_owner: String,
     pub fade_group: String,
-    /// `activate_criteria` (the views that show only when it holds).
+    /// `activate_criteria` (the views that show only when it holds), and whether it last failed (holding one hide).
     pub criteria: String,
+    pub criteria_off: bool,
     pub tooltip: String,
 }
 
@@ -170,6 +171,7 @@ impl Node {
             v_align: Align::Center,
             flags: 4,
             hidden: 0,
+            criteria_off: false,
             enabled: true,
             layout: Layout::None,
             resize_mask: 0,
@@ -267,6 +269,32 @@ impl Tree {
             }
         }
         None
+    }
+
+    /// Forgets the preferred sizes (a control's own size changed).
+    pub fn clear_cache(&self) {
+        self.cache.borrow_mut().clear();
+    }
+
+    /// GUI.dll FUN_1006f697: each view's `activate_criteria` evaluated (a `CriteriaMonitor_c`) and the view shown or
+    /// hidden by it (`View::Show`); true when one changed.
+    pub fn apply_criteria(&mut self, holds: &dyn Fn(&str) -> bool) -> bool {
+        let mut changed = false;
+        for n in &mut self.nodes {
+            if n.criteria.trim().is_empty() {
+                continue;
+            }
+            let off = !holds(&n.criteria);
+            if off != n.criteria_off {
+                n.criteria_off = off;
+                n.hidden = if off { n.hidden + 1 } else { n.hidden.saturating_sub(1) };
+                changed = true;
+            }
+        }
+        if changed {
+            self.cache.borrow_mut().clear();
+        }
+        changed
     }
 
     /// `IsVisible(false)`: neither it nor a parent hidden (the hide count `_Attached` passes down).

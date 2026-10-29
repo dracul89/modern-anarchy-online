@@ -1,0 +1,10 @@
+<?xml version="1.0" ?>
+<Root>
+    <!-- AOU Translucent Theme - Dark warm tones with silver/gold accents -->
+    <Color name="Default"      color="0x003c2e1e" />
+    <Color name="Selected"     color="0x00b4a05a" />
+    <Color name="Hover"        color="0x008c9196" />
+    <Color name="Text"         color="0x00f0e6d3" />
+    <Color name="TextSelected" color="0x00b4a05a" />
+    <Color name="TextHover"    color="0x00ffffff" />
+</Root>

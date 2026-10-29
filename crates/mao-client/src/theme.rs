@@ -131,6 +131,14 @@ pub fn text_colors(xml: &str) -> Vec<(String, Rgb)> {
     out
 }
 
+/// The skins bundled with the client (`assets/gui`: the AOU skins, each a `Gui/<skin>` folder of the original's): next to
+/// the program or in the folder it runs from, else the source tree's.
+pub fn bundled_gui_dir() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok().and_then(|e| e.parent().map(|p| p.join("assets/gui")));
+    let candidates = [exe, Some(PathBuf::from("assets/gui")), Some(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/gui"))];
+    candidates.into_iter().flatten().find(|d| d.is_dir())
+}
+
 /// The folder a `theme =` setting names, if it can be found.
 pub fn theme_dir(theme: &str, aou_mod: &str) -> Option<PathBuf> {
     let theme = theme.trim();
@@ -139,6 +147,10 @@ pub fn theme_dir(theme: &str, aou_mod: &str) -> Option<PathBuf> {
         "original" => GAME.get().map(|g| g.join("cd_image/gui/Default")),
         other => match AOU_THEMES.iter().find(|(name, _)| *name == other) {
             Some((_, folder)) => {
+                // (the skins bundled with the client first, then the AOU mod's own folder)
+                if let Some(dir) = bundled_gui_dir().map(|d| d.join(folder)).filter(|d| d.join("GUIColors.xml").exists()) {
+                    return Some(dir);
+                }
                 let root = if aou_mod.trim().is_empty() { std::env::var("MAO_AOU_MOD").unwrap_or_default() } else { aou_mod.to_string() };
                 (!root.trim().is_empty()).then(|| Path::new(root.trim()).join("Gui").join(folder))
             }
@@ -234,7 +246,9 @@ mod tests {
     #[test]
     fn settings_name_the_folders() {
         assert_eq!(theme_dir("built-in", ""), None);
-        assert_eq!(theme_dir("aou_cyt", "C:/mods/aou"), Some(PathBuf::from("C:/mods/aou/Gui/AOU_CYT")));
+        // (the bundled skins before the AOU mod's folder)
+        let aou = bundled_gui_dir().map_or(PathBuf::from("C:/mods/aou/Gui/AOU_CYT"), |d| d.join("AOU_CYT"));
+        assert_eq!(theme_dir("aou_cyt", "C:/mods/aou"), Some(aou));
         assert_eq!(theme_dir("D:/my theme", ""), Some(PathBuf::from("D:/my theme")));
         assert_eq!(load("built-in", ""), Palette::built_in());
         // An unreadable folder falls back to the built-in look.

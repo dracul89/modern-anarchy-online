@@ -282,8 +282,9 @@ mod tests {
     fn the_folders_come_from_the_settings_in_order() {
         let d = dirs("D:/skins/Blue", "aou_cyt", "C:/mods/aou");
         assert_eq!(d[0], PathBuf::from("D:/skins/Blue"));
-        assert_eq!(d[1], PathBuf::from("C:/mods/aou/Gui/AOU_CYT"));
+        assert_eq!(d[1], crate::theme::bundled_gui_dir().map_or(PathBuf::from("C:/mods/aou/Gui/AOU_CYT"), |b| b.join("AOU_CYT")));
         // the same folder named twice is listed once
-        assert_eq!(dirs("C:/mods/aou/Gui/AOU_CYT", "aou_cyt", "C:/mods/aou").len(), dirs("", "aou_cyt", "C:/mods/aou").len());
+        let theme = d[1].to_string_lossy().into_owned();
+        assert_eq!(dirs(&theme, "aou_cyt", "C:/mods/aou").len(), dirs("", "aou_cyt", "C:/mods/aou").len());
     }
 }

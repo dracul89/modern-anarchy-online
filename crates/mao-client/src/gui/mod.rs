@@ -9,16 +9,22 @@
 //! `ScrollingTextView`; FUN_100c306d: `OptionCheckBox`, `OptionRadioButtonGroup`). A class not ported yet is made as a
 //! plain view that keeps its class name ([`Unported`]), so a file still lays out.
 
+pub mod controlcenter;
 pub mod controls;
 pub mod criteria;
+pub mod dvalue;
+pub mod expression;
 pub mod font;
 pub mod geom;
 pub mod host;
 pub mod infoview;
 pub mod iteminfo;
 pub mod layout;
+pub mod menu;
 pub mod spells;
+pub mod stat_names;
 pub mod text;
+pub mod variant;
 pub mod view;
 pub mod window;
 pub mod xml;
@@ -81,6 +87,7 @@ pub fn create(tree: &mut Tree, e: &Element) -> Option<Id> {
         "CheckBox" => controls::CheckBox::create(tree, e),
         "TextView" => controls::TextView::create(tree, e),
         "BitmapView" => tree.add(Node::from_element(e, 4, Box::new(controls::BitmapView { bitmap: e.text("bitmap_id", "") }))),
+        "CCMenu" => controlcenter::CCMenuView::create(tree, e),
         other => {
             let id = tree.add(Node::from_element(e, 4, Box::new(Unported(other))));
             load_child_views(tree, id, e);

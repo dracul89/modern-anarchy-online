@@ -161,15 +161,30 @@ otherwise): original `Default 0x80e9f3` light cyan, `Selected 0xffffcc` cream,
 navy, `Selected/Text 0x30d2ff` neon cyan, `Hover 0x40e6ff`.
 
 **Integrated:** `theme.rs` reads any `GUIColors.xml` folder: `theme = original`
-(the game's own), `aou_translucent | aou_cyt | aou_slim_cni | aou_slim_cnt`
-(under `aou_mod = <the mod's folder>` or `MAO_AOU_MOD`), or any folder. It is
-switchable in the options window. The mod is GPL and this client is MIT/Apache,
-so nothing of the mod is bundled: the client reads the player's own copy.
-**Not integrated:** the skin images (`Graphics.UVGA`) and the XML views. The
-interface is `egui` (matches the renderer's `wgpu 30` / `winit 0.30` exactly),
-not the original GUI engine; reproducing AO's own windows from the XML + skin
-archive is a separate, large job. The AOU menus (`ActionMenu/*.xml`) are the
-natural first target for a menu bar.
+(the game's own), `aou_translucent | aou_cyt | aou_slim_cni | aou_slim_cnt`, or any
+folder. It is switchable in the options window. The four AOU skins are bundled in
+`assets/gui/` (copied from the user's install, `70dad3e6/Anarchy Online/Gui`, on
+request, 2026-10-28) and are used before an `aou_mod = <folder>` copy. Note: the
+AOU mod is GPL while this client is MIT/Apache; bundling it was the user's call.
+
+**The skin's control center** (`gui/controlcenter.rs`): the skin's
+`Views/ControlCenter.xml` is laid out over the screen as GUI.dll does
+(FUN_1006f911), its views shown by their `activate_criteria`. The criteria are
+Utils' expression language (`gui/expression.rs`, vendored from the drop-ins'
+`ao-utils`: the scanner and parser run from Utils.dll's tables, over
+`gui/variant.rs`) against the distributed values (`gui/dvalue.rs`: the game's
+`Gui/Default/{Variables,MainPrefs,LoginPrefs,CharPrefs}.xml`, then the skin's) and
+the player's stats (`stat:level`, named by Gamecode's `N3Msg_StringToStat` map,
+`gui/stat_names.rs`). Its `CCMenu` views are the skin's menu scripts
+(`ActionMenu/*.xml`, `gui/menu.rs`): a row of buttons (the AOU skins' View, Team,
+Maps, Options, Skills, AOU; the Default skin's icon menus at the wings' ends),
+whose menus open above them, entries shown by their criteria, with their actions
+(`SetValue`, `CloseMenu`, `RunChatScript`). A menu entry's value is a window's
+open flag: Inventory, Skills, Stats, Nano, NCU, Missions, Friends, Map, Actions,
+Mail and Options open the client's windows. The docks (wings, bars, rollup) are
+still drawn by `vitals.rs`, which leaves its own icon menus out when the skin's
+control center is up. Preview: `MAO_THEME=aou_cyt MAO_UI_PREVIEW=chat ... --image
+x.png`, with `MAO_CLICK=x,y;x,y` to click (e.g. `25,707` opens View at 960x720).
 
 ## 6. Whompah labels (done for the mechanism; destinations learned)
 The booth meshes (`whompa_entrance_default`) get a floating label. Which

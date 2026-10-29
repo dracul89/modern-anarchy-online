@@ -228,6 +228,8 @@ pub struct Ui {
     pub help: crate::help::HelpWindow,
     /// The info view (GUI.dll's `InfoView_c`): item pages and help texts.
     pub info: crate::gui::infoview::InfoView,
+    /// The skin's control center (`Views/ControlCenter.xml` and its menus), once the skin has loaded.
+    pub control_center: Option<crate::gui::controlcenter::ControlCenter>,
     pub loot: crate::loot::LootWindow,
     pub chat: crate::chatwindow::ChatWindow,
     gear: crate::gear::GearWindow,
@@ -287,7 +289,7 @@ impl Ui {
         crate::skin::configure(&ctx, crate::skin::dirs(&settings.gui_dir, &settings.theme, &settings.aou_mod));
         let state = egui_winit::State::new(ctx.clone(), egui::ViewportId::ROOT, window, Some(window.scale_factor() as f32), window.theme(), None);
         let renderer = egui_wgpu::Renderer::new(&gpu.device, format, egui_wgpu::RendererOptions::default());
-        let mut ui = Ui { ctx, state, renderer, open_seen: Vec::new(), options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), shop: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), ncu: Default::default(), friends: Default::default(), programs: Default::default(), perks: Default::default(), help: Default::default(), info: Default::default(), loot: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0 };
+        let mut ui = Ui { ctx, state, renderer, open_seen: Vec::new(), options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), shop: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), ncu: Default::default(), friends: Default::default(), programs: Default::default(), perks: Default::default(), help: Default::default(), info: Default::default(), control_center: None, loot: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0 };
         // (the windows the player left open come back open)
         for name in crate::layout::load_open() {
             ui.set_window(&name, true);
@@ -433,6 +435,7 @@ impl Ui {
             self.open_seen = names;
         }
         let states: Vec<&str> = ["inventory", "stats", "ncu", "programs", "actions", "missions", "friends", "map"].into_iter().filter(|n| self.window_open(n)).collect();
+        let cc_open: Vec<(&str, bool)> = crate::gui::controlcenter::WINDOWS.iter().map(|(_, n)| (*n, if *n == "options" { self.options_open } else { self.window_open(n) })).collect();
         let mut menu_click: Option<&'static str> = None;
         let raw = self.state.take_egui_input(window);
         let mut requests = Requests::default();
@@ -441,6 +444,8 @@ impl Ui {
         let (mission, mail, shop, actions, automap, stats_window, skills_window, ncu_window, chat_window) = (&mut self.mission, &mut self.mail, &mut self.shop, &mut self.actions, &mut self.automap, &mut self.stats, &mut self.skills, &mut self.ncu, &mut self.chat);
         let (friends_window, programs_window, perks_window, loot_window, help_window) = (&mut self.friends, &mut self.programs, &mut self.perks, &mut self.loot, &mut self.help);
         let info_view = &mut self.info;
+        let control_center = &mut self.control_center;
+        let mut cc_windows: Vec<(&'static str, bool)> = Vec::new();
         let (hotbars, clock_now) = (&mut self.hotbars, self.clock.elapsed().as_secs_f64());
         crate::layout::remember(&self.ctx);
         // (the options' slider: `zoom_factor` multiplies the window's own scale)
@@ -452,8 +457,20 @@ impl Ui {
             hud_layer(&ctx, hud, project, fps, settings.mode, palette);
             let booths: Vec<[f32; 2]> = hud.labels.iter().map(|l| [l.world.x, l.world.y]).collect();
             automap.show(&ctx, hud.position.map(|p| ([p[0], p[2]], hud.heading)), hud.camera_yaw, &hud.map_dots, &booths, &hud.location);
-            if let Some(w) = crate::vitals::show(&ctx, hud.camera_yaw, &hud.stats, &hud.stat_parts, palette, &|n| states.contains(&n)) {
+            if let Some(w) = crate::vitals::show(&ctx, hud.camera_yaw, &hud.stats, &hud.stat_parts, palette, &|n| states.contains(&n), control_center.is_none()) {
                 menu_click = Some(w);
+            }
+            if control_center.is_none() && crate::skin::skin(&ctx).is_some() {
+                *control_center = crate::gui::controlcenter::ControlCenter::load(&ctx);
+            }
+            if let Some(cc) = control_center.as_mut() {
+                let out = cc.show(&ctx, palette, &hud.stats, &|n| cc_open.iter().any(|(m, on)| *m == n && *on));
+                cc_windows = out.windows;
+                for command in out.commands {
+                    if let Some(line) = chat_window.run(&command) {
+                        requests.chat.push(line);
+                    }
+                }
             }
             hotbar_layer(&ctx, hotbars, gear, &hud.gear, &*actions, clock_now, palette, &mut requests);
             if stats_window.open {
@@ -545,6 +562,13 @@ impl Ui {
         });
         if !self.ctx.input(|i| i.pointer.any_down()) {
             crate::gear::DRAGGED.store(u32::MAX, std::sync::atomic::Ordering::Relaxed);
+        }
+        for (w, on) in cc_windows {
+            if w == "options" {
+                self.options_open = on;
+            } else {
+                self.set_window(w, on);
+            }
         }
         if let Some(n) = menu_click.and_then(|n| ["target_self", "target_next", "camera_1st", "camera_3rd", "camera_lock", "camera_rubber", "camera_trail"].iter().position(|t| *t == n)) {
             requests.target = Some(n as u8);
@@ -638,12 +662,27 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
     let mut preview_loot = hud.loot_preview.lock().ok().and_then(|mut m| m.take());
     // MAO_UI_PREVIEW=view MAO_VIEW=<file in the skin's Views>: that file's window, made by the GUI.dll view system (`gui/`).
     let mut preview_view: Option<crate::gui::window::XmlWindow> = None;
+    let mut preview_cc: Option<crate::gui::controlcenter::ControlCenter> = None;
     let mut last = None;
     // Several frames: the first lays out and uploads the fonts, and the windows
     // fade in over the next ones; the last is what is drawn.
-    for frame in 0..12 {
+    // (MAO_CLICK's clicks take five frames each)
+    let clicks = std::env::var("MAO_CLICK").map_or(0, |v| v.split(';').count());
+    for frame in 0..(12usize).max(4 + 5 * clicks + 4) {
         // MAO_HOVER=x,y puts the pointer there (pixels) so a tooltip shows in the picture.
-        let events: Vec<egui::Event> = std::env::var("MAO_HOVER").ok().and_then(|v| { let (x, y) = v.split_once(',')?; Some(egui::Event::PointerMoved(egui::pos2(x.trim().parse().ok()?, y.trim().parse().ok()?))) }).into_iter().collect();
+        let mut events: Vec<egui::Event> = std::env::var("MAO_HOVER").ok().and_then(|v| { let (x, y) = v.split_once(',')?; Some(egui::Event::PointerMoved(egui::pos2(x.trim().parse().ok()?, y.trim().parse().ok()?))) }).into_iter().collect();
+        // MAO_CLICK=x,y[;x,y...] clicks there (pixels), one click every fifth frame from the fourth (frames between for what
+        // it opened to appear and take the mouse), to open menus for a picture.
+        if let Ok(v) = std::env::var("MAO_CLICK") {
+            let clicks: Vec<egui::Pos2> = v.split(';').filter_map(|c| { let (x, y) = c.split_once(',')?; Some(egui::pos2(x.trim().parse().ok()?, y.trim().parse().ok()?)) }).collect();
+            if frame >= 4 && (frame - 4) % 5 < 2 {
+                if let Some(&pos) = clicks.get((frame - 4) / 5) {
+                    let pressed = (frame - 4) % 5 == 0;
+                    events.push(egui::Event::PointerMoved(pos));
+                    events.push(egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() });
+                }
+            }
+        }
         let raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(size.0 as f32, size.1 as f32))), time: Some(frame as f64 * 0.1), events, ..Default::default() };
         if std::env::var_os("MAO_HOVER").is_some() {
             ctx.global_style_mut(|style| { style.interaction.tooltip_delay = 0.0; style.interaction.show_tooltips_only_when_still = false; });
@@ -651,7 +690,13 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
         let output = ctx.run_ui(raw, |ui| {
             let ctx = ui.ctx().clone();
             hud_layer(&ctx, hud, project, 60.0, settings.mode, &palette);
-            crate::vitals::show(&ctx, hud.camera_yaw, &hud.stats, &hud.stat_parts, &palette, &|_| false);
+            crate::vitals::show(&ctx, hud.camera_yaw, &hud.stats, &hud.stat_parts, &palette, &|_| false, preview_cc.is_none());
+            if preview_cc.is_none() && crate::skin::skin(&ctx).is_some() {
+                preview_cc = crate::gui::controlcenter::ControlCenter::load(&ctx);
+            }
+            if let Some(cc) = preview_cc.as_mut() {
+                cc.show(&ctx, &palette, &hud.stats, &|_| false);
+            }
             hotbar_layer(&ctx, &mut hotbars, &mut gear, &hud.gear, &crate::actions::ActionsWindow::default(), 1.5, &palette, &mut requests);
             if hud.whompah_open {
                 whompah_window(&ctx, &mut true, hud, &palette, &mut requests);

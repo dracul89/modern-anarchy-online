@@ -173,12 +173,14 @@ fn wing_bar(ui: &mut egui::Ui, skin: &Skin, painter: &egui::Painter, at: egui::P
 
 /// The original's control center drawn from its own pictures: the left wing (health and nano) and the right wing (experience), with
 /// the menu strips under them. False when the pictures are not there.
-fn show_skinned(ctx: &egui::Context, yaw: f32, stats: &BTreeMap<u32, i64>, parts: &BTreeMap<u32, crate::derived::Breakdown>, palette: &Palette, open: &dyn Fn(&str) -> bool, clicked: &mut Option<&'static str>) -> bool {
+fn show_skinned(ctx: &egui::Context, yaw: f32, stats: &BTreeMap<u32, i64>, parts: &BTreeMap<u32, crate::derived::Breakdown>, palette: &Palette, open: &dyn Fn(&str) -> bool, menus: bool, clicked: &mut Option<&'static str>) -> bool {
     let Some(skin) = crate::skin::skin(ctx) else { return false };
     let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
     let get = |s: u32| stats.get(&s).copied();
     compass(ctx, &skin, yaw);
-    sub_menu(ctx, accent, open, clicked);
+    if menus {
+        sub_menu(ctx, accent, open, clicked);
+    }
     // The rollup (the original's `cc_rollup_panel` button): folds the wings and their bars away, leaving the menu strips.
     let rolled_id = egui::Id::new("cc-rolled");
     let mut rolled = ctx.data(|d| d.get_temp::<bool>(rolled_id)).unwrap_or(false);
@@ -229,7 +231,7 @@ fn show_skinned(ctx: &egui::Context, yaw: f32, stats: &BTreeMap<u32, i64>, parts
             // the menu's icons lie along the strip
             let entries = if left { LEFT_MENU } else { RIGHT_MENU };
             let icons: &[&str] = if left { &["ACTIONS", "SKILLS", "NANO", "INVENTORY"] } else { &["NCU", "MAP", "MISSIONS", "FRIENDS"] };
-            for (i, (&(_, window, tip), icon)) in entries.iter().zip(icons).enumerate() {
+            for (i, (&(_, window, tip), icon)) in entries.iter().zip(icons).enumerate().filter(|_| menus) {
                 let name = format!("GFX_GUI_CC_ICONS_{icon}");
                 let Some(size) = skin.get(&name).map(|s| s.size) else { continue };
                 let at = egui::pos2(rect.left() + 10.0 + i as f32 * (size.x + 1.0), rect.top() + wing_h + (strip_size.y - size.y) * 0.5);
@@ -255,10 +257,11 @@ pub const LEFT_MENU: &[(&str, &str, &str)] = &[("Actions", "actions", "Special a
 pub const RIGHT_MENU: &[(&str, &str, &str)] = &[("NCU", "ncu", "Nano control units"), ("Map", "map", "The map"), ("Mission", "missions", "Missions"), ("Friends", "friends", "Friends list")];
 
 /// The original's bottom control center: the left menu, the bars (health, nano, experience, alien experience) and the right menu in one
-/// strip at the bottom of the screen. `open` says which windows are shown; returns the menu entry clicked, to toggle.
-pub fn show(ctx: &egui::Context, yaw: f32, stats: &BTreeMap<u32, i64>, parts: &BTreeMap<u32, crate::derived::Breakdown>, palette: &Palette, open: &dyn Fn(&str) -> bool) -> Option<&'static str> {
+/// strip at the bottom of the screen. `open` says which windows are shown; returns the menu entry clicked, to toggle. With
+/// `menus` false the skin's own control center (`gui::controlcenter`) has the menus, and only the wings and bars are drawn.
+pub fn show(ctx: &egui::Context, yaw: f32, stats: &BTreeMap<u32, i64>, parts: &BTreeMap<u32, crate::derived::Breakdown>, palette: &Palette, open: &dyn Fn(&str) -> bool, menus: bool) -> Option<&'static str> {
     let mut clicked = None;
-    if show_skinned(ctx, yaw, stats, parts, palette, open, &mut clicked) {
+    if show_skinned(ctx, yaw, stats, parts, palette, open, menus, &mut clicked) {
         return clicked;
     }
     show_inner(ctx, stats, parts, palette, open, &mut clicked);
