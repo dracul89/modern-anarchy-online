@@ -73,6 +73,46 @@ fn button_size(m: &Measure, skin: Option<&crate::skin::Skin>, e: &Entry) -> egui
 /// The gap between a row's icon buttons.
 const ICON_GAP: f32 = 1.0;
 
+/// `MiniToolbar_c` (the XML `CCMiniToolbar`, FUN_10072ced): toggle buttons (`ToolbarButton_c`, FUN_1007316d) for these
+/// windows' values, with their tips and pictures (off; on, also under the pointer: `SetGfx` 0, 1 and 2), side by side
+/// from the left (FUN_10072b22: as wide as all of them, as tall as the tallest). A button shows its value
+/// (FUN_10072aaf) and a click flips it (FUN_10072a63).
+pub const MINI_TOOLBAR: [(&str, &str, &str, &str); 10] = [
+    ("wear_window", "Wear", "GFX_GUI_SB_WEAR_OFF", "GFX_GUI_SB_WEAR"),
+    ("specialaction_window", "Controls", "GFX_GUI_SB_ACTION_OFF", "GFX_GUI_SB_ACTION"),
+    ("knowledge_window", "Knowledge", "GFX_GUI_SB_REF_OFF", "GFX_GUI_SB_REF"),
+    ("mission_window", "Mission", "GFX_GUI_SB_MISSION_OFF", "GFX_GUI_SB_MISSION"),
+    ("team_view", "Team", "GFX_GUI_SB_TEAM_OFF", "GFX_GUI_SB_TEAM"),
+    ("map_window", "Map", "GFX_GUI_SB_MAP_OFF", "GFX_GUI_SB_MAP"),
+    ("friends_window", "Friends", "GFX_GUI_SB_FRIENDS_OFF", "GFX_GUI_SB_FRIENDS"),
+    ("nano_window", "Programs", "GFX_GUI_SB_NANO_OFF", "GFX_GUI_SB_NANO"),
+    ("stat_window", "Stats", "GFX_GUI_SB_STAT_OFF", "GFX_GUI_SB_STAT"),
+    ("ncu_window", "NCU", "GFX_GUI_SB_NCU_OFF", "GFX_GUI_SB_NCU"),
+];
+
+/// The `CCMiniToolbar` view: its buttons' sizes (from the skin, once loaded).
+#[derive(Default)]
+pub struct MiniToolbar {
+    pub sizes: Vec<egui::Vec2>,
+}
+
+impl Control for MiniToolbar {
+    fn class(&self) -> &'static str {
+        "CCMiniToolbar"
+    }
+    fn preferred(&self, _m: &Measure, _max: bool) -> Option<super::geom::Point> {
+        let w: f32 = self.sizes.iter().map(|s| s.x).sum();
+        let h = self.sizes.iter().map(|s| s.y - 1.0).fold(-1.0, f32::max);
+        Some(super::geom::Point::new(w - 1.0, h))
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+}
+
 impl CCMenuView {
     pub fn create(tree: &mut Tree, e: &Element) -> Id {
         let criteria = e.attribute("criteria").unwrap_or("").to_string();
@@ -177,6 +217,18 @@ impl ControlCenter {
         let own = dirs.first().filter(|d| Some(*d) != game_default.as_ref()).cloned();
         let mut store = Store::load(game_default.as_deref(), own.as_deref());
         store.load_user(&prefs_path());
+        // (MAO_DVALUES=name=value;...: values set for a test, e.g. `cc_mini_toolbar=true`)
+        if let Ok(list) = std::env::var("MAO_DVALUES") {
+            for (name, value) in list.split(';').filter_map(|kv| kv.split_once('=')) {
+                let v = match value.trim() {
+                    "true" => Variant::from(true),
+                    "false" => Variant::from(false),
+                    t => t.parse::<f64>().map_or_else(|_| Variant::String(t.as_bytes().to_vec()), Variant::from),
+                };
+                store.set(name.trim(), v);
+            }
+            store.take_changed();
+        }
         for (name, v) in store.numbers() {
             crate::prefs::set(&name, v);
         }
@@ -198,6 +250,11 @@ impl ControlCenter {
             }
         }
         for n in &mut tree.nodes {
+            if n.control.class() == "CCMiniToolbar" {
+                let sizes = MINI_TOOLBAR.iter().map(|(_, _, off, _)| skin.get(off).map_or(egui::vec2(20.0, 20.0), |s| s.size)).collect();
+                n.control = Box::new(MiniToolbar { sizes });
+                continue;
+            }
             if let Some(m) = n.control.as_any_mut().downcast_mut::<CCMenuView>() {
                 m.entries = super::menu::load_script(&dirs, &m.script);
                 m.sizes = m.entries.iter().map(|e| button_size(&measure, Some(&skin), e)).collect();
@@ -302,6 +359,36 @@ impl ControlCenter {
                     x += size.x + if e.icon.is_empty() { 0.0 } else { ICON_GAP };
                 }
             });
+        }
+
+        // the mini toolbars
+        let toolbars: Vec<Id> = (0..self.tree.nodes.len()).filter(|&i| self.tree.get(i).control.as_any().is::<MiniToolbar>() && self.tree.is_visible(i)).collect();
+        let mut flipped = Vec::new();
+        for id in toolbars {
+            let rect = super::host::screen_rect(&self.tree, id, screen.min);
+            let Some(bar) = self.tree.get(id).control.as_any().downcast_ref::<MiniToolbar>() else { continue };
+            let sizes = bar.sizes.clone();
+            egui::Area::new(egui::Id::unique(("cc-mini-toolbar", id))).fixed_pos(rect.min).order(egui::Order::Foreground).show(ctx, |ui| {
+                let mut x = rect.left();
+                for ((dv, tip_text, off, on), size) in MINI_TOOLBAR.iter().zip(&sizes) {
+                    let r = egui::Rect::from_min_size(egui::pos2(x, rect.top()), *size);
+                    x += size.x;
+                    let response = ui.interact(r, ui.scope_id().with(("mini", *dv)), egui::Sense::click());
+                    let value = self.store.get_bool(dv);
+                    let picture = if value || response.hovered() || response.is_pointer_button_down_on() { on } else { off };
+                    if let Some(skin) = env.skin {
+                        let colour = if value { Colour::SELECTED } else { Colour::DEFAULT };
+                        skin.draw_in(ui.painter(), picture, r, colour.rgb(palette));
+                    }
+                    super::tooltip::hover(ui.ctx(), &env, response.id.with("tip"), response.hovered().then_some(response.id), tip_text, "");
+                    if response.clicked() {
+                        flipped.push((*dv, !value));
+                    }
+                }
+            });
+        }
+        for (dv, v) in flipped {
+            self.store.set(dv, Variant::from(v));
         }
 
         // the open menus

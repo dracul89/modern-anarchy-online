@@ -1487,3 +1487,11 @@ in the background's size and cut from the bar's start to the value: the far edge
 `direction` `right` (default), `left`, `up` or `down` (`Recalculate` 0x1013e946). The value starts at 1 and is held to
 0–1 (`powerbar::set_value`, `SetValue` 0x1013f283). `gfx="small_blue"` picks the small blue pair. The labels are not
 drawn; no skin gives them.
+
+**The mini toolbar** (`gui/controlcenter.rs` `MiniToolbar`). The control center's `CCMiniToolbar` is GUI.dll's
+`MiniToolbar_c` (FUN_10072ced). It holds ten toggle buttons (`ToolbarButton_c`, FUN_1007316d) side by side for
+`wear_window`, `specialaction_window`, `knowledge_window`, `mission_window`, `team_view`, `map_window`,
+`friends_window`, `nano_window`, `stat_window` and `ncu_window`. Each has its tip (Wear, Controls, Knowledge, ...) and its
+`GFX_GUI_SB_*_OFF` picture, lit (`GFX_GUI_SB_*`) while its value is on or under the pointer. A click flips the value,
+which for the client's windows opens or closes them. It shows when `cc_mini_toolbar`, `cc_rollup_panel` and
+`cc_section1` are all on (`cc_mini_toolbar` is off by default). `MAO_DVALUES=name=value;...` sets values for a test.
