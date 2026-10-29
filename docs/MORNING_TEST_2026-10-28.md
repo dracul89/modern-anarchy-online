@@ -74,7 +74,7 @@ Added after the overnight run, on request: audio through rodio, ported from the 
 
 | Commit | What | What to try |
 |---|---|---|
-| (next) | **Option panel settings act**: Effects switches (buffs, nano effects, tracers, environment, others), Shadows, Mouse look inverted | Options > Video > Effects: untick Show Buffs (nano visuals vanish), Ground-shadows; Controls > Mouse: invert |
+| 65f40e1 | **Option panel settings act**: Effects switches (buffs, nano effects, tracers, environment, others), Shadows, Mouse look inverted | Options > Video > Effects: untick Show Buffs (nano visuals vanish), Ground-shadows; Controls > Mouse: invert |
 | 783b3c0 | **Right click uses** what is under the pointer (GUI.dll's `ActionViewMouseHandler_c`); a held right button still steers | right-click a door, a terminal, an NPC |
 | a18a7c3 | **F10 opens the skin's option panel** (AOU skins), with a Client settings link; Escape closes it | press F10 |
 | d324f49 | **The skin's option panel**: Options in the control center opens `OptionPanel/Root.xml`'s pages (Audio, Video, GUI, Controls ...) with check boxes, sliders and radio groups; changes are saved to `prefs.xml`; the sound volumes and switches work | AOU theme, Options > Audio Settings: move Master/Music volume, switch music off; restart: the values stay |
