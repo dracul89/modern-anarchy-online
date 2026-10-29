@@ -54,6 +54,8 @@ pub enum Signal {
     Scrolled,
     /// A drop-down's entry was chosen (`SelectionChanged`): its index.
     Selected(i64),
+    /// A radio button group's choice changed (`ValueChanged`): the chosen button's value.
+    Value(String),
 }
 
 /// The keys a text view acts on (`TextRenderer_c::KeyDown`'s cases: 0x18 Enter, 0x19 Backspace, 0x1b Delete, 0x1c Home,
@@ -353,6 +355,8 @@ pub fn show(ui: &mut egui::Ui, tree: &mut Tree, root: Id, skin: Option<&crate::s
         };
         tree.get(v).control.paint(&p);
     }
+    // (the radio button groups' part in the signals)
+    super::radio::take_signals(tree);
     // (what is drawn over everything: an open drop-down's list)
     let ctx = ui.ctx().clone();
     let mut overlay_views = Vec::new();

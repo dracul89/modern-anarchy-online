@@ -47,6 +47,7 @@ four tabs are too cramped (the wear column is narrow, so their names are cut); t
 | Commit | What | Test |
 |---|---|---|
 | c962627 | **Position reports as the original** (every 5 s running straight, on a turn of the view; not every 0.4 s); the walk/run mode told to the server on entering (it remembered walk from a test and pulled the character back) | run far in a straight line and with the mouse; no rubber-banding |
+| (next) | **Radio button groups** (`RadioButtonGroup_c`) in the XML windows | the mail window's delivery mode: one of Standard and Express at a time |
 | a80fb17 | **Drop-down lists** (`DropdownMenu_c`) and the pop-up list (`PopupMenu_c`) in the XML windows | open the looking-for-team window: each drop-down opens its list, hover highlights, a click chooses, a click outside closes |
 | e490c0b | **Scroll views in the XML windows** (`ScrollView_c`/`ScrollViewChild_c`: bar, wheel, clipping) | a long list in an XML window (research, character selection) scrolls by wheel, arrows and knob |
 | 889349c | **Text fields** as GUI.dll's `TextInputView_c` (focus, typing, selection, numeric fields, labels) | open the mail or market deposit window: click a field, type, Tab between fields, Escape; game keys must not move the character while typing |

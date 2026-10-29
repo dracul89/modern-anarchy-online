@@ -1413,3 +1413,9 @@ inset frame over `GFX_GUI_WINDOW_BACKGROUND`, the entries 3 apart and 3 in, whit
 pointer on a 0x2020c0 band, a click outside or Escape closing it, Up/Down/Enter choosing from the keys, kept inside the
 screen and at most its height less 100. Views draw such things over everything through a new `overlay` step of the
 host. `MAO_DROPDOWN_ITEMS=a;b;c` fills a preview's drop-downs.
+
+**Radio button groups** (`gui/radio.rs`). The skins' `RadioButtonGroup` elements (the mail's delivery mode, research)
+are GUI.dll's `RadioButtonGroup_c`: a radio button turned on turns the group's others off (its buttons at any depth,
+`_ClearButtons`) and the window hears the button's value (`RadioButtonActivated` 0x10140453, `ValueChanged`:
+`Signal::Value`); the group's value is the first button on (`GetValue` 0x101402f5) and setting it turns on the buttons of
+that value (`SetValue` 0x101405cb); a button on stays on when clicked again.
