@@ -87,6 +87,8 @@ pub fn preferred(tree: &Tree, id: Id, max: bool) -> Point {
     let kids = children(tree, id);
     match tree.get(id).layout {
         Layout::None | Layout::Stacked => Point::new(-1.0, -1.0),
+        Layout::Scroll => super::scroll::preferred_view(tree, id, max),
+        Layout::ScrollChild => super::scroll::preferred_child(tree, id, max),
         Layout::Base => {
             // (the largest minimum, the smallest maximum, the maximum at least the minimum)
             let (mut lo, mut hi) = (Point::new(-1.0, -1.0), Point::new(16000.0, 16000.0));
@@ -133,6 +135,8 @@ pub fn layout(tree: &mut Tree, id: Id) {
     let all = node.children.len();
     match node.layout {
         Layout::None => {}
+        Layout::Scroll => super::scroll::layout_view(tree, id),
+        Layout::ScrollChild => super::scroll::layout_child(tree, id),
         Layout::Stacked => {
             for c in node.children.clone() {
                 tree.get_mut(c).frame = bounds;

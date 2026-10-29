@@ -1393,3 +1393,12 @@ next field, Escape or a click elsewhere drops it, and while a field has it the g
 (`gui::host::keyboard_taken`). The field's text is plain characters (the original escapes `<>&` in what is typed, which
 amounts to the same). Home/End go to the ends of the line between new lines, not of the wrapped line; the selection
 colour is the client's. `MAO_TYPE=<text>` types into the preview after `MAO_CLICK`'s clicks.
+
+**Scroll views in the XML views** (`gui/scroll.rs`). `ScrollView` and `ScrollViewChild` elements (the research
+windows, the skills window's lists, the character selection) are GUI.dll's `ScrollView_c` and `ScrollViewChild_c` now:
+the bar modes (`never`, `always`, `auto`, `auto_reserve`), `scroll_client`, the client sized to at least its frame and its
+minimum and at most its maximum and moved by the scroll (`LayoutChilds` 0x10143dd4), its minimum without the scrolled axes
+(0x10143ca5), the scroll view's preferred size with the bar's room (0x10142a4b), the bar as wide as the skin's arrows
+(`GetDefaultWidth`) a pixel right of the client, drawn and handled as `chrome::scroll` does (arrows 5, page 20, knob
+drag), the wheel 10 a notch (`WheelMoved`, step `_DAT_101a98ec`). What lies outside a scroll child is neither drawn nor
+clicked (the host clips by every clipping ancestor). Not done: a horizontal bar's pictures, wheel snapping.

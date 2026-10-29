@@ -50,6 +50,8 @@ pub enum Signal {
     Enter,
     /// A text field's text changed (`SlotEdited`).
     Edited,
+    /// A scroll view scrolled (the tree is laid out again; not passed on).
+    Scrolled,
 }
 
 /// The keys a text view acts on (`TextRenderer_c::KeyDown`'s cases: 0x18 Enter, 0x19 Backspace, 0x1b Delete, 0x1c Home,
@@ -132,6 +134,28 @@ fn enabled(tree: &Tree, mut id: Id) -> bool {
     }
 }
 
+/// A view's signal: a scroll lays the tree out again, the others go to the window's code.
+fn push(tree: &mut Tree, v: Id, s: Signal) {
+    if s == Signal::Scrolled {
+        tree.relayout = true;
+    } else {
+        tree.signals.push((v, s));
+    }
+}
+
+/// Where a view may draw and take the mouse: the window's rect within every clipping ancestor's (a scroll child's).
+fn clip(tree: &Tree, v: Id, origin: egui::Pos2, window: egui::Rect) -> egui::Rect {
+    let mut r = window;
+    let mut at = tree.get(v).parent;
+    while let Some(a) = at {
+        if tree.get(a).control.clips() {
+            r = r.intersect(screen_rect(tree, a, origin));
+        }
+        at = tree.get(a).parent;
+    }
+    r
+}
+
 /// The views in drawing order (bottom to top), visible ones only.
 fn order(tree: &Tree, id: Id, out: &mut Vec<Id>) {
     if tree.get(id).hidden > 0 {
@@ -166,6 +190,17 @@ pub fn show(ui: &mut egui::Ui, tree: &mut Tree, root: Id, skin: Option<&crate::s
         tree.fitted_probe = probe;
         tree.relayout = true;
     }
+    // (the scroll bars as wide as the skin's arrows: `ScrollBar_c::GetDefaultWidth`)
+    if let Some(w) = skin.and_then(|s| s.get(super::scroll::UP)).map(|s| s.size.x) {
+        for n in tree.nodes.iter_mut() {
+            if let Some(v) = n.control.as_any_mut().downcast_mut::<super::scroll::ScrollView>()
+                && v.bar_width.get() != w
+            {
+                v.bar_width.set(w);
+                tree.relayout = true;
+            }
+        }
+    }
     let min = preferred_pixels(tree, root, false);
     let size = ui.available_size().max(min);
     let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click_and_drag());
@@ -176,8 +211,9 @@ pub fn show(ui: &mut egui::Ui, tree: &mut Tree, root: Id, skin: Option<&crate::s
 
     // the mouse
     let pointer = ui.input(|i| i.pointer.interact_pos());
+    let clip_of = |tree: &Tree, v: Id| clip(tree, v, origin, rect);
     let under = pointer.filter(|p| rect.contains(*p)).and_then(|p| {
-        views.iter().rev().copied().find(|&v| tree.get(v).control.takes_mouse() && enabled(tree, v) && screen_rect(tree, v, origin).contains(p))
+        views.iter().rev().copied().find(|&v| tree.get(v).control.takes_mouse() && enabled(tree, v) && screen_rect(tree, v, origin).contains(p) && clip_of(tree, v).contains(p))
     });
     let at = |tree: &Tree, v: Id| {
         let p = pointer.unwrap_or_default();
@@ -193,20 +229,22 @@ pub fn show(ui: &mut egui::Ui, tree: &mut Tree, root: Id, skin: Option<&crate::s
         if let Some(v) = under {
             let p = at(tree, v);
             if let Some(s) = tree.get_mut(v).control.mouse(super::host::Mouse::Down, p) {
-                tree.signals.push((v, s));
+                push(tree, v, s);
             }
         }
     }
     if let Some(v) = tree.pressed {
         if ui.input(|i| i.pointer.is_moving()) {
             let p = at(tree, v);
-            tree.get_mut(v).control.mouse(Mouse::Move, p);
+            if let Some(s) = tree.get_mut(v).control.mouse(Mouse::Move, p) {
+                push(tree, v, s);
+            }
         }
         if up {
             let p = at(tree, v);
             let inside = under == Some(v);
             if let Some(s) = tree.get_mut(v).control.mouse(Mouse::Up { inside }, p) {
-                tree.signals.push((v, s));
+                push(tree, v, s);
             }
             tree.pressed = None;
         }
@@ -289,7 +327,8 @@ pub fn show(ui: &mut egui::Ui, tree: &mut Tree, root: Id, skin: Option<&crate::s
         if let Some(p) = pointer.filter(|p| rect.contains(*p)) {
             for &v in views.iter().rev() {
                 let r = screen_rect(tree, v, origin);
-                if r.contains(p) && tree.get_mut(v).control.wheel(wheel, r.height()) {
+                if r.contains(p) && clip_of(tree, v).contains(p) && tree.get_mut(v).control.wheel(wheel, r.height()) {
+                    tree.relayout = true;
                     break;
                 }
             }
@@ -301,8 +340,9 @@ pub fn show(ui: &mut egui::Ui, tree: &mut Tree, root: Id, skin: Option<&crate::s
     let env = Env { skin, palette, measure: &measure };
     let painter = ui.painter_at(rect);
     for v in views {
+        let clipped = painter.with_clip_rect(clip(tree, v, origin, rect));
         let p = Paint {
-            painter: &painter,
+            painter: &clipped,
             env: &env,
             rect: screen_rect(tree, v, origin),
             hovered: tree.hover == Some(v) && (tree.pressed.is_none() || tree.pressed == Some(v)),

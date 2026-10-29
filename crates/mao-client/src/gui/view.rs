@@ -48,6 +48,10 @@ pub enum Layout {
     Vertical,
     /// "stacked": no layout node; the children are given the view's bounds and follow its size (resize mask 0xf).
     Stacked,
+    /// A `ScrollView_c`: its client less the bars' room (`gui::scroll`).
+    Scroll,
+    /// A `ScrollViewChild_c`: its inner view sized to its content and moved by the scroll.
+    ScrollChild,
 }
 
 /// A view that is hidden is still laid out unless it has this flag (`GetFlags() & 0x100`).
@@ -74,6 +78,10 @@ pub trait Control: Any {
     /// The mouse wheel over the view (`View::WheelMoved`): `dy` points down, the view `height` pixels tall; whether it
     /// used it.
     fn wheel(&mut self, _dy: f32, _height: f32) -> bool {
+        false
+    }
+    /// Whether what is below the view is drawn only inside it (a scroll child's).
+    fn clips(&self) -> bool {
         false
     }
     /// Whether a click gives the view the keyboard (`View::MakeFocus`: a text view that takes typing).
