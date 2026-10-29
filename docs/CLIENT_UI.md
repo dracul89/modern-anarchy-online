@@ -1167,7 +1167,7 @@ the fallback when no name is found.
 ## Logging out (`/camp`)
 
 As the original (GUI.dll `FlowControlModule_t::StartQuitToLoginMessage` → Gamecode `N3Msg_StartCamping` 0x1001c9c6, then
-`CampStartedMessage` 0x1002a86c): `/camp` (or X) is refused while anyone is fighting the character ("You can't log out
+`CampStartedMessage` 0x1002a86c): `/camp` is refused while anyone is fighting the character ("You can't log out
 while in a fight."); one's own attack stops; the character sits (`SwitchToSit`, movement 30: without it the server ignores
 the logout) and sends the logout action (CharacterAction 0x78); the chat says "Timed logout started. This will take 30
 seconds." (text 200 `LogoutStartedXseconds` fed 30) and the original's timer bar, labelled "Logout", runs out over 40 s in
@@ -1178,3 +1178,8 @@ are not read). Standing up (X, or any movement) sends `LeaveSit` (37) and `N3Msg
 in `open.ini` as they change) and the launcher shows the character screen. Sitting characters, ours and others', are drawn
 in the sitting-down animation held (action 0xd5 `ground-start`; the `idle-ground` loop is not played). Tried live with
 Sadlee: logged out after the countdown; cancelled by X with the server's 0x7a.
+
+**X and `/sit` only sit.** X (and `/sit`, a command of this client's own: the original's list has none) sits the character
+on the ground (`SwitchToSit`; a fight of one's own stops first) or stands it up (`LeaveSit`); it no longer logs out. Standing
+up still gives up a `/camp` under way, and `/camp` while seated logs out without sitting again (the original sits only a
+character not sitting). Tried live: seated 50 s and still in the game.

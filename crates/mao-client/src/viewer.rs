@@ -1802,6 +1802,7 @@ impl ApplicationHandler for App {
                         match out {
                             // (these two are for the client itself)
                             crate::chatwindow::Out::Camp => self.keys.camp = self.keys.camp.wrapping_add(1),
+                            crate::chatwindow::Out::Sit => self.keys.commands[5] = self.keys.commands[5].wrapping_add(1),
                             crate::chatwindow::Out::Quit => event_loop.exit(),
                             crate::chatwindow::Out::Window { name, open } => match ui.set_window(&name, open) {
                                 true => {}

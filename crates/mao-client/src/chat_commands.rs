@@ -38,6 +38,7 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
     ("befriend <name>", "put a character on your friends list (L shows it)"),
     ("ignore [name]", "hide a character's tells and channel lines (again: show them; alone: the list)"),
     ("camp", "sit down to log out (stand up or move to cancel)"),
+    ("sit", "sit down, or stand up (the X key)"),
     ("follow", "walk after the target (again, or any movement key: stop)"),
     ("inspect", "level, profession and health of the target"),
     ("open <window>", "show a window (inventory, stats, skills, ncu, friends, programs, perks, help, map, ...); /items is /open inventory"),
@@ -83,6 +84,8 @@ pub enum Parsed {
     SetOption { name: String, value: String },
     /// `/camp`: sit down to log out.
     Camp,
+    /// `/sit`: sit down or stand up, as the X key.
+    Sit,
     /// `/emote <name>` or `/<name>`: an emote (a social action, its `AbstractAnimID`; GUI.dll FUN_100b30bf).
     Social { id: u32 },
     /// `/emote` with a name that is none (FUN_100b30bf: "Error: No emote named '<name>'").
@@ -119,8 +122,11 @@ pub fn suggest(input: &str) -> Vec<&'static str> {
 }
 
 /// The command with this name (any case), as the original writes it.
+/// Commands of this client's own, beyond the original's list: `/sit` (the X key's sit and stand).
+pub const EXTRA: &[&str] = &["sit"];
+
 fn known(word: &str) -> Option<&'static str> {
-    COMMANDS.iter().copied().find(|c| c.eq_ignore_ascii_case(word))
+    COMMANDS.iter().chain(EXTRA).copied().find(|c| c.eq_ignore_ascii_case(word))
 }
 
 pub fn parse(line: &str) -> Parsed {
@@ -159,6 +165,7 @@ pub fn parse(line: &str) -> Parsed {
         }
         "ignore" => Parsed::Ignore { name: text.split_whitespace().next().unwrap_or("").to_string() },
         "camp" => Parsed::Camp,
+        "sit" => Parsed::Sit,
         "voice" => match text.split_whitespace().next() {
             Some(line) => Parsed::Voice { line: line.to_string() },
             None => Parsed::Usage("/voice <sound name>"),
@@ -244,6 +251,7 @@ mod tests {
         assert_eq!(parse("/ignore Abc"), Parsed::Ignore { name: "Abc".into() });
         assert_eq!(parse("/ignore"), Parsed::Ignore { name: String::new() });
         assert_eq!(parse("/camp"), Parsed::Camp);
+        assert_eq!(parse("/sit"), Parsed::Sit);
         assert_eq!(parse("/follow"), Parsed::Follow);
         assert_eq!(parse("/inspect"), Parsed::Inspect);
         assert_eq!(parse("/open skills"), Parsed::Window { name: "skills".into(), open: true });

@@ -3019,7 +3019,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                         chat.send(&mao_net::chat::lookup_packet(&name))?;
                                     }
                                 },
-                                Out::Camp | Out::Quit | Out::Follow | Out::Inspect | Out::Window { .. } | Out::Waypoint { .. } | Out::SelectSelf | Out::SetOption { .. } | Out::ViewDist(_) | Out::CharDist(_) => {}
+                                Out::Camp | Out::Sit | Out::Quit | Out::Follow | Out::Inspect | Out::Window { .. } | Out::Waypoint { .. } | Out::SelectSelf | Out::SetOption { .. } | Out::ViewDist(_) | Out::CharDist(_) => {}
                                 Out::Befriend { name } => match ids.get(&name.to_lowercase()) {
                                     Some(&id) => {
                                         chat.send(&mao_net::chat::buddy_add_packet(id))?;
@@ -3615,13 +3615,16 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 camp_seen = keys.camp;
                 if state.fighting.iter().any(|(&who, &whom)| whom == own && who != own) {
                     pending_messages.push(crate::feedback::plain("Feedback_CantLogOutInAFight"));
-                } else if !sitting {
+                } else if crate::ui::CAMP.lock().unwrap_or_else(|e| e.into_inner()).is_none() {
                     if state.fighting.contains_key(&own) {
                         let _ = connection.send(&n3::stop_fight(own));
                     }
-                    sitting = true;
-                    send(&mut connection, n3::movement::SIT, heading, position, &mut sent);
-                    state.seated.insert(own);
+                    // (one already seated stays so: the original sits only a character not sitting)
+                    if !sitting {
+                        sitting = true;
+                        send(&mut connection, n3::movement::SIT, heading, position, &mut sent);
+                        state.seated.insert(own);
+                    }
                     let _ = connection.send(&n3::action(own, n3::LOGOUT));
                     *crate::ui::CAMP.lock().unwrap_or_else(|e| e.into_inner()) = Some(Instant::now());
                     pending_messages.push(crate::feedback::gui("LogoutStartedXseconds", &[mao_formats::ldb::Arg::Int(30)]));
@@ -3654,7 +3657,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     continue;
                 }
                 if slot == 5 {
-                    // X: sit down (as `/camp`: sitting is what the server logs out from), or stand up, which cancels it.
+                    // X (`/sit`): sit down on the ground (`SwitchToSit`; a fight of one's own stops first), or stand up
+                    // (`LeaveSit`), which also gives up a `/camp` under way.
                     if sitting {
                         sitting = false;
                         send(&mut connection, n3::movement::LEAVE_SIT, heading, position, &mut sent);
@@ -3664,7 +3668,12 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             pending_messages.push(crate::feedback::gui("TimedLogoutAborted", &[]));
                         }
                     } else {
-                        camp_seen = camp_seen.wrapping_sub(1);
+                        if state.fighting.contains_key(&own) {
+                            let _ = connection.send(&n3::stop_fight(own));
+                        }
+                        sitting = true;
+                        send(&mut connection, n3::movement::SIT, heading, position, &mut sent);
+                        state.seated.insert(own);
                     }
                     continue;
                 }

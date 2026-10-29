@@ -46,6 +46,7 @@ four tabs are too cramped (the wear column is narrow, so their names are cut); t
 
 | Commit | What | Test |
 |---|---|---|
+| (next) | **X just sits** (and `/sit`): sit down or stand up, no logout; /camp is the only way to log out | press X, wait a minute, press X |
 | 0cd8a0e | **/camp logs out as the original**: sits down, "Timed logout started. This will take 30 seconds.", a "Logout" timer bar in the middle of the screen; X or moving stands up and aborts it; refused in a fight; window positions saved when the game closes | /camp and wait; /camp then press X; /camp while a monster hits you |
 | bd86cca | **Corpses named as the server names them**: "Remains of Leet" in the target bar, over the body and on the loot window | kill something and select the body |
 | 3e1a3c5 | **Dead monsters stay dead**: a killed creature keeps lying where it fell (and can be looted) until its corpse rots, instead of standing up when the server swaps the body for the corpse; despawned characters no longer linger | kill something and wait half a minute; press E on it |

@@ -58,6 +58,8 @@ pub enum Out {
     Unfriend { id: u32 },
     /// Sit down to log out / leave the client (handled by the window, not sent to the chat server).
     Camp,
+    /// Sit down or stand up (`/sit`, as X).
+    Sit,
     Follow,
     Inspect,
     Quit,
@@ -214,10 +216,8 @@ impl ChatWindow {
                 }
             },
             Parsed::Voice { line } => Some(Out::Voice { line }),
-            Parsed::Camp => {
-                self.push(Line::new(Kind::System, "Sitting down to log out (stand up or move to cancel)."));
-                Some(Out::Camp)
-            }
+            Parsed::Camp => Some(Out::Camp),
+            Parsed::Sit => Some(Out::Sit),
             Parsed::Quit => Some(Out::Quit),
             Parsed::Follow => Some(Out::Follow),
             Parsed::Window { name, open } => Some(Out::Window { name, open }),
@@ -493,6 +493,7 @@ mod tests {
         w.push(Line { kind: Kind::Tell, text: "Zed tells you: back".into(), from: Some("Zed".into()), markup: None });
         assert!(w.lines.last().unwrap().text.contains("back"));
         assert_eq!(w.run("/camp"), Some(Out::Camp));
+        assert_eq!(w.run("/sit"), Some(Out::Sit));
         assert_eq!(w.run("/quit"), Some(Out::Quit));
     }
 
