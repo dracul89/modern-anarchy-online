@@ -654,6 +654,9 @@ pub fn run(game: &str) -> Result<(), String> {
         if let Some(step) = std::env::var("MAO_LAUNCHER_CREATE").ok().and_then(|v| v.parse().ok()) {
             let mut creating = crate::charcreate::Creating::default();
             (creating.step, creating.breed, creating.profession, creating.name) = (step, 5, 1, "Zibblet".into());
+            // (MAO_LAUNCHER_BREED / _PROFESSION: other choices than the Nanomage female Meta-Physicist)
+            creating.breed = std::env::var("MAO_LAUNCHER_BREED").ok().and_then(|v| v.parse().ok()).unwrap_or(creating.breed);
+            creating.profession = std::env::var("MAO_LAUNCHER_PROFESSION").ok().and_then(|v| v.parse().ok()).unwrap_or(creating.profession);
             creating.head = std::env::var("MAO_LAUNCHER_HEAD").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
             creating.build = std::env::var("MAO_LAUNCHER_BUILD").ok().and_then(|v| v.parse().ok()).unwrap_or(1);
             creating.height = std::env::var("MAO_LAUNCHER_HEIGHT").ok().and_then(|v| v.parse().ok()).unwrap_or(1);
