@@ -1369,5 +1369,10 @@ climbed, 1.0 not), ramps (30° walked, 70° not), a jump; `mao-client net <game>
 it offline (Old Athens: up the hill, over a low bevelled object, held by the wall; into the lake swimming at 32.09 under
 32.10, out at the shore), `net <game> ground <pf> <x> <z> [y]` shows the ground queries. Live (Sadlee, 3132): walking at
 the server's heights, a jump (15 then 16 0.7 s later), sliding along the building's front; every report echoed unchanged.
-Not ported: the room surface (`n3RoomSurface_t`) of indoor playfields without a tile-map (the zones alone answer there),
-`VetoPosition`'s other surfaces, the vehicle's turn (orientation, FUN_1000c616).
+**Interiors** (`n3RoomSurface_t`): a room playfield's surfaces hold its walls and furniture but not its floors, which
+`CalculateClosestPoint` (0x10013ee6) takes from the rooms' tile-map heights; the vehicle now gets the rooms' floors as
+triangles from the same four samples a cell's floor is drawn on (`rooms::floor_triangles`), split as the original splits
+them (bit 0x4000 of the cell word before). Simulated in the shop 1180: on the floor at 6.01, held by a wall, along it and
+up a ramp to 12.01. Not ported: the room surface's own transforms (the shop's surfaces are already in world places),
+`VetoPosition`'s room transitions, room playfields without surfaces (missions keep the client's old steps), the
+vehicle's turn (orientation, FUN_1000c616).

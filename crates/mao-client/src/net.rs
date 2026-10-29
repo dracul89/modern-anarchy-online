@@ -2797,6 +2797,12 @@ fn zone_surfaces(db: &ResourceDatabase, playfield: u32) -> (Option<mao_formats::
     if failed > 0 {
         eprintln!("playfield {playfield}: {failed} collision surfaces could not be read");
     }
+    // (an interior's floors are its rooms' tile-map heights, not in the surfaces: `n3RoomSurface_t`)
+    if zones > 0
+        && let Some(floors) = crate::room_floors(db, playfield)
+    {
+        records.add(&floors);
+    }
     ((zones > 0).then_some(collision), teleportals, (zones > 0).then(|| Arc::new(records)))
 }
 
@@ -5487,7 +5493,8 @@ pub fn run(args: &[String]) -> Result<(), String> {
             let area = load_area(game, &db, pf.parse().map_err(|_| "bad playfield")?)?;
             let ground = crate::vehicle::Ground { zones: area.zones.clone().unwrap_or_default(), terrain: area.terrain.clone().map(|t| { let s = t.height_scale; (t, s) }), offset: 0.0 };
             let (x, z, heading, seconds): (f32, f32, f32, f32) = (x.parse().map_err(|_| "bad x")?, z.parse().map_err(|_| "bad z")?, heading.parse().map_err(|_| "bad heading")?, seconds.parse().map_err(|_| "bad seconds")?);
-            let (start, _, _) = ground.closest([x, 1000.0, z]);
+            // (`MAO_SIM_Y`: the height to look down from, the highest face under it the start; 1000 by default)
+            let (start, _, _) = ground.closest([x, std::env::var("MAO_SIM_Y").ok().and_then(|v| v.parse().ok()).unwrap_or(1000.0), z]);
             let mut pos = [x, start[1] + 0.01, z];
             let mut body = crate::vehicle::Body::default();
             let velocity = [heading.sin() * 5.0, heading.cos() * 5.0];

@@ -482,6 +482,50 @@ pub fn room_parts(grid: &Grid, room: &Room, material: &Material, pieces: &HashMa
     groups.into_values().flatten().collect()
 }
 
+/// The rooms' floors as the vehicle stands on them (`n3RoomSurface_t::CalculateClosestPoint` 0x10013ee6), in the game's
+/// Y-up world: each cell's four height samples (as [`room_parts`] lays them) as two planes, split from the near corner to the
+/// far one unless bit 0x4000 of the cell word before it (the turn's low bit) splits them the other way; wound to face up.
+pub fn floor_triangles(grid: &Grid, rooms: &RoomPlayfield) -> Vec<[[f32; 3]; 3]> {
+    let surface = grid.surface();
+    let mut out = Vec::new();
+    for room in &rooms.rooms {
+        let [x0, y0, x1, y1] = room.rect.map(|v| v as i64);
+        let (w, h) = (x1 - x0, y1 - y0);
+        let cell = grid.scale;
+        let floor = room.position[1] + FLOOR_BASE;
+        let world = |dx: f32, y: f32, dz: f32| {
+            let (dx, dz) = room.turn_xz(dx, dz);
+            [room.position[0] + dx, y, room.position[2] + dz]
+        };
+        for cy in y0..y1 {
+            for cx in x0..x1 {
+                let Some((place, _)) = grid.at(cx, cy) else { continue };
+                if place == 0 {
+                    continue;
+                }
+                let (mx, mz) = (((cx - x0) as f32 - odd(w) as f32 / 2.0) * cell, ((cy - y0) as f32 - odd(h) as f32 / 2.0) * cell);
+                let half = cell / 2.0;
+                let p = [
+                    world(mx - half, floor + surface.floor(cx - 1, cy - 1), mz - half),
+                    world(mx + half, floor + surface.floor(cx, cy - 1), mz - half),
+                    world(mx + half, floor + surface.floor(cx, cy), mz + half),
+                    world(mx - half, floor + surface.floor(cx - 1, cy), mz + half),
+                ];
+                let (wx, wy) = ((cx - 1).max(0) as usize, (cy - 1).max(0) as usize);
+                let other = grid.words.words.get(wy * grid.words.width + wx).is_some_and(|w| w & 0x4000 != 0);
+                let pair = if other { [[p[0], p[1], p[3]], [p[1], p[2], p[3]]] } else { [[p[0], p[1], p[2]], [p[0], p[2], p[3]]] };
+                for t in pair {
+                    // (the KD records' normal is (p0 − p2) × (p1 − p0): up)
+                    let (a, b) = ([t[0][0] - t[2][0], t[0][1] - t[2][1], t[0][2] - t[2][2]], [t[1][0] - t[0][0], t[1][1] - t[0][1], t[1][2] - t[0][2]]);
+                    let ny = a[2] * b[0] - a[0] * b[2];
+                    out.push(if ny >= 0.0 { t } else { [t[0], t[2], t[1]] });
+                }
+            }
+        }
+    }
+    out
+}
+
 /// Whether the world point `(x, z)` is over one of the room's existing cells. `reversed` turns the room the other way (the check
 /// that told the two senses apart: the machines and terminals built into a playfield stand on floor cells).
 pub fn covers(grid: &Grid, room: &Room, x: f32, z: f32, reversed: bool) -> bool {
