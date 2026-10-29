@@ -1259,7 +1259,7 @@ impl World {
             println!("  {kind:#010x} x{n}");
         }
         for (id, i) in &self.infos {
-            println!("  info {id:>10} {:<18} flags {:#010x} flags2 {:#010x} breed {} sex {} a0 {:?} template {:?} textures {} clothes {:?}", i.name, i.flags, i.flags2, i.breed, i.sex, i.unknown_a0, i.template.map(|t| format!("{t:#x}")), i.textures.len(), i.clothes);
+            println!("  info {id:>10} {:<18} side {} flags {:#010x} flags2 {:#010x} breed {} sex {} a0 {:?} template {:?} textures {} clothes {:?}", i.name, i.side, i.flags, i.flags2, i.breed, i.sex, i.unknown_a0, i.template.map(|t| format!("{t:#x}")), i.textures.len(), i.clothes);
         }
         println!("{} usable objects:", self.objects.len());
         for (id, p) in &self.objects {
@@ -2897,6 +2897,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let (mut special_seen, mut social_seen, mut pick_seen) = (0u8, 0u8, 0u8);
         let mut aggdef_seen = 0u8;
         let mut market_seen = 0u8;
+        // (an attack sent and not yet answered: FUN_1006817d's +0x79)
+        let mut attack_sent: Option<Instant> = None;
         let mut headers_made = Instant::now() - Duration::from_secs(60);
         let mut mission_booth: Option<u32> = None;
         let mut friends_seen = u64::MAX;
@@ -3332,43 +3334,46 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     continue;
                 }
                 if slot == 5 {
-                    // X: sit down, or stand up.
+                    // X: sit down, or stand up (`N3Msg_SitToggle`: a fight is stopped first).
+                    if !sitting && state.fighting.contains_key(&own) {
+                        let _ = connection.send(&n3::stop_fight(own));
+                    }
                     sitting = !sitting;
                     let _ = connection.send(&n3::action(own, if sitting { n3::LOGOUT } else { n3::STAND }));
                     pending_messages.push(if sitting { "Sitting: the server logs you out in about 30 s. Press X or move to stand up and stay.".into() } else { "Standing up: logout cancelled.".to_string() });
                     continue;
                 }
                 if slot == 4 {
-                    match target {
-                        Some(t) => {
-                            let _ = connection.send(&n3::attack(own, t));
-                            pending_messages.push(format!("Attacking {}", state.names.get(&t).map_or("the target", |n| n.0.as_str())));
+                    // The attack key (`N3Msg_DefaultAttack(selection, false)`): stop a fight, else attack the selection.
+                    let kind = match target {
+                        None => crate::combat::Target::Nothing,
+                        Some(t) if t == own => crate::combat::Target::Yourself,
+                        Some(t) if state.infos.contains_key(&t) => crate::combat::Target::Character { dead: state.dead.contains_key(&t) },
+                        Some(_) => crate::combat::Target::Other,
+                    };
+                    let pending = attack_sent.is_some_and(|t| t.elapsed() < Duration::from_secs(3));
+                    match crate::combat::default_attack(state.fighting.contains_key(&own), false, pending, target, kind) {
+                        crate::combat::Attack::Stop => {
+                            let _ = connection.send(&n3::stop_fight(own));
                         }
-                        None => pending_messages.push("No target (Tab selects one)".into()),
+                        crate::combat::Attack::Start(t) => {
+                            let _ = connection.send(&n3::attack(own, t));
+                            attack_sent = Some(Instant::now());
+                        }
+                        crate::combat::Attack::Refuse(name) => pending_messages.push(crate::feedback::plain(name)),
                     }
                     continue;
                 }
-                let friendly_name = |name: &str| ["Vanguard", "Watcher", "Commander", "Guard", "Merchant", "Trader", "Recruiter", "Helper"].iter().any(|w| name.contains(w));
-                let wants_friendly = slot >= 2;
-                let near = |p: [f32; 3]| ((p[0] - position[0]).powi(2) + (p[2] - position[2]).powi(2)).sqrt();
-                let mut candidates: Vec<(f32, u32)> = state.infos.iter().filter(|(id, i)| **id != own && ((i.is_player() && **id < DYNAMIC_NPC) || friendly_name(&i.name)) == wants_friendly).filter_map(|(id, _)| Some((near(state.entities.get(id)?.0), *id))).filter(|(d, _)| *d < 80.0).collect();
-                if wants_friendly {
-                    candidates.extend(state.objects.iter().map(|(id, p)| (near(*p), *id)).filter(|(d, _)| *d < 80.0));
-                }
-                candidates.sort_by(|a, b| a.0.total_cmp(&b.0));
-                if candidates.is_empty() {
-                    pending_messages.push("Nothing to target nearby".into());
-                    continue;
-                }
-                let index = target.and_then(|t| candidates.iter().position(|c| c.1 == t));
-                let forward = slot % 2 == 0;
-                let next = match (index, forward) {
-                    (Some(i), true) => (i + 1) % candidates.len(),
-                    (Some(i), false) => (i + candidates.len() - 1) % candidates.len(),
-                    (None, true) => 0,
-                    (None, false) => candidates.len() - 1,
-                };
-                let id = candidates[next].1;
+                // Tab and friends (`N3Msg_GetCloseTarget`): the next character of the kind, by distance past the target's
+                // (the living ones; a side the same as one's own is a friend's)
+                let list: Vec<crate::combat::Candidate> = state
+                    .infos
+                    .iter()
+                    .filter(|(id, _)| **id != own && !state.dead.contains_key(id))
+                    .filter_map(|(id, i)| Some(crate::combat::Candidate { id: *id, position: state.entities.get(id)?.0, side: i.side }))
+                    .collect();
+                let own_side = state.stats.get(&33).copied().unwrap_or(0) as u8;
+                let Some(id) = crate::combat::close_target(position, own_side, target, &list, slot % 2 == 0, slot >= 2) else { continue };
                 target = Some(id);
                 // Objects are targeted here only: the server's select names characters and creatures.
                 if !state.objects.contains_key(&id) {
@@ -3567,6 +3572,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 let items: Vec<(u32, u32)> = d.slots[..d.count as usize].iter().map(|&s| (0x68, s)).collect();
                 let _ = connection.send(&n3::market_send(own, d.credits, &items));
                 pending_messages.push(format!("Sent {} items and {} credits to the market.", items.len(), d.credits));
+            }
+            if state.fighting.contains_key(&own) {
+                attack_sent = None;
             }
             // A click on something in the world selects it; a double click uses it.
             if keys.pick.0 != pick_seen {
@@ -4274,7 +4282,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         (state.names.get(&own).map(|n| n.0.clone()).unwrap_or_default(), crate::derived::totals(&parts), parts)
                     }),
                     map_dots: {
-                        let friendly_name = |name: &str| ["Vanguard", "Watcher", "Commander", "Guard", "Merchant", "Trader", "Recruiter", "Helper"].iter().any(|w| name.contains(w));
+                        let own_side = state.stats.get(&33).copied().unwrap_or(0) as u8;
                         state
                             .entities
                             .iter()
@@ -4285,7 +4293,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                     crate::automap::DotKind::Target
                                 } else if info.is_player() && *id < DYNAMIC_NPC {
                                     crate::automap::DotKind::Player
-                                } else if friendly_name(&info.name) {
+                                } else if crate::combat::friendly(own_side, info.side) {
                                     crate::automap::DotKind::Friendly
                                 } else {
                                     crate::automap::DotKind::Hostile
@@ -4417,7 +4425,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         })
                         .collect(),
                     nameplates: {
-                        let friendly_name = |name: &str| ["Vanguard", "Watcher", "Commander", "Guard", "Merchant", "Trader", "Recruiter", "Helper"].iter().any(|w| name.contains(w));
+                        let own_side = state.stats.get(&33).copied().unwrap_or(0) as u8;
                         let mut plates: Vec<(f32, crate::automap::DotKind, [f32; 3], String)> = state
                             .entities
                             .iter()
@@ -4433,7 +4441,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                     crate::automap::DotKind::Target
                                 } else if info.is_player() && *id < DYNAMIC_NPC {
                                     crate::automap::DotKind::Player
-                                } else if friendly_name(&info.name) {
+                                } else if crate::combat::friendly(own_side, info.side) {
                                     crate::automap::DotKind::Friendly
                                 } else {
                                     crate::automap::DotKind::Hostile

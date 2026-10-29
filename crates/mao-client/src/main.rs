@@ -53,6 +53,7 @@ mod skills;
 mod stats;
 mod trickle_data;
 mod chrome;
+mod combat;
 mod font;
 mod gui;
 mod pointer;

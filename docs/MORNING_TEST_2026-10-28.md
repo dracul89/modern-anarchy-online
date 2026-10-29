@@ -46,6 +46,7 @@ four tabs are too cramped (the wear column is narrow, so their names are cut); t
 
 | Commit | What | Test |
 |---|---|---|
+| (next) | **The attack key and Tab as the original**: Q while fighting stops the fight (`StopFight`), else attacks the selection, with the original's refusals ("You can't attack yourself", "Target is already dead", "Unable to attack target", "Please wait until previous action..."); X (sit) stops a fight first; Tab/Shift+Tab step through the hostile characters within 100 m by distance past the current target and wrap, Ctrl+Tab the friendly ones; hostile/friendly is the side (the full update's packed word: monsters 3, Clan 1, Omni 2, neutral 0), also for the map's dots | press Q at a monster, again to stop; Tab through a crowd and watch it step outward; Ctrl+Tab in town picks guards of your side |
 | 6256efa | **Attack swings**: `AttackInfo` and misses make the attacker swing its weapon (pistol shot, rifle shot, blade slash/stab, two-handed cuts, martial-arts punches and kicks), at the original's speed scaling | fight something, watch yourself and others |
 | 178f42c | **Special attacks** swing their own class (Burst, Full Auto, Aimed Shot, Fling Shot, Fast Attack, Sneak Attack) | use specials from the hotbar |
 | bb4cb96, b356f25 | **Weapon stance in a fight**: a fighting character with a weapon stands in the weapon's idle (`idle-smallarms`, `idle-blade`, `idle-rifle` ...). Fights tracked from `Attack`/`StopFight` | start and stop a fight, standing still |

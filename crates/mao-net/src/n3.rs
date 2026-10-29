@@ -485,6 +485,14 @@ pub fn attack(character: u32, target: u32) -> Frame {
     Message { kind: 0x28494070, identity: (CHARACTER, character), data }.frame(character)
 }
 
+/// `StopFight` (`4a41203e`): the character stops fighting (`N3Msg_StopAttack` → `StopFightIIR_t` FUN_1007a321 with 1, the
+/// value the server's own `StopFight`s carry).
+pub fn stop_fight(character: u32) -> Frame {
+    let mut data = vec![0u8];
+    data.extend_from_slice(&1u32.to_be_bytes());
+    Message { kind: 0x4a41203e, identity: (CHARACTER, character), data }.frame(character)
+}
+
 /// The client's position update: `movement` type, the heading (radians
 /// about Y; 0 faces +z), the position, and the milliseconds since the last
 /// update.
@@ -517,6 +525,15 @@ pub fn market_send(character: u32, credits: i32, items: &[(u32, u32)]) -> Frame 
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn stop_fight_is_the_servers_shape() {
+        let m = Message::parse(&stop_fight(0x4bc80)).unwrap();
+        assert_eq!(m.identity, (CHARACTER, 0x4bc80));
+        let p = crate::schema::Schema::global().parse_n3(m.kind, &m.data).unwrap();
+        assert_eq!(crate::schema::Schema::global().n3_name(m.kind), Some("StopFight"));
+        assert_eq!(p.value.get("Unk").and_then(crate::schema::Value::as_int), Some(1));
+    }
+
     #[test]
     fn market_send_reads_back_as_the_schemas() {
         let m = Message::parse(&market_send(0x4bc80, 1500, &[(0x68, 0x40), (0x68, 0x41)])).unwrap();
@@ -676,6 +693,9 @@ pub struct EntityInfo {
     pub rotation: Option<[f32; 4]>,
     pub breed: u8,
     pub sex: u8,
+    /// The side (the packed word's low three bits, Gamecode FUN_1007916d's +0x8b: 0 neutral, 1 clan, 2 omni, more for
+    /// monsters), what the Tab keys tell friend from foe by (`N3Msg_GetCloseTarget`, stat 33).
+    pub side: u8,
     pub name: String,
     pub flags2: u32,
     /// A number after the flags that varies widely per character (365 to
@@ -870,6 +890,7 @@ impl Message {
         let packed = u32_at(&mut at)?;
         // The breed is the three bits at 5 (a Nanomage female packs 0x768, a Solitus female 0x729); the sex the two at 8.
         let (breed, sex) = (((packed >> 5) & 7) as u8, ((packed >> 8) & 3) as u8);
+        let side = (packed & 7) as u8;
         let length = take(&mut at, 1)?[0] as usize;
         let text = take(&mut at, length)?;
         let name = String::from_utf8_lossy(text).trim_end_matches('\0').to_string();
@@ -880,7 +901,7 @@ impl Message {
         let textures = if flags & 0x10 != 0 { texture_overrides(tail) } else { Vec::new() };
         let clothes = cloth_list(tail);
         let template = if flags & 1 != 0 { d.get(at - 8..).and_then(npc_template) } else { None };
-        Some(EntityInfo { version, flags, playfield, fighting, position, rotation, breed, sex, name, flags2, unknown_a0: model, textures, clothes, template })
+        Some(EntityInfo { version, flags, playfield, fighting, position, rotation, breed, sex, side, name, flags2, unknown_a0: model, textures, clothes, template })
     }
 }
 
