@@ -34,6 +34,8 @@ pub struct Input {
     /// Counters that step each time the key is pressed (the live loop acts on a change):
     /// next/previous hostile, next/previous friendly target, attack.
     pub commands: [u8; 7],
+    /// `/camp` (steps once a use).
+    pub camp: u8,
     /// The heading the character should face (the camera's, while the right mouse button steers).
     pub face: Option<f32>,
     /// A hotbar item to use: a counter that steps with each, and the inventory slot.
@@ -568,6 +570,9 @@ pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<()
     crate::font::set_enabled(settings.original_font);
     let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), flares: Vec::new(), sky: Default::default(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), fxs_frame: None, script_meshes: Default::default(), named_sheets: Default::default(), trails: Default::default(), motions: Default::default(), shake: (0.0, 0), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, casters: Vec::new(), follow_shift: [0.0; 3], environment: Default::default(), quake: Default::default(), quake_offset: [0.0; 3], wind: Default::default(), wind_at: std::time::Instant::now(), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
     event_loop.run_app(&mut app).map_err(|e| e.to_string())?;
+    // (the game closing, `FlowControlModule_t::ActivateGameClosing`: `ControlCenterModule_c::SaveUserConfig`, where the windows
+    // are written down at once)
+    crate::layout::flush();
     if app.logged_out {
         // (the launcher that started the game sees this code and shows the character screen again)
         std::process::exit(crate::launcher::LOGGED_OUT);
@@ -1796,7 +1801,7 @@ impl ApplicationHandler for App {
                     for out in requests.chat.drain(..) {
                         match out {
                             // (these two are for the client itself)
-                            crate::chatwindow::Out::Camp => self.keys.commands[5] = self.keys.commands[5].wrapping_add(1),
+                            crate::chatwindow::Out::Camp => self.keys.camp = self.keys.camp.wrapping_add(1),
                             crate::chatwindow::Out::Quit => event_loop.exit(),
                             crate::chatwindow::Out::Window { name, open } => match ui.set_window(&name, open) {
                                 true => {}

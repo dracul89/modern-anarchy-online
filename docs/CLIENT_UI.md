@@ -1163,3 +1163,18 @@ despawned character leaves the world (it used to stay drawn where it was last se
 bytes ending in a zero, after the corpse's stats; `corpse_name`, tested on a live corpse). The corpse and the body it stands
 for are shown by that name (target bar, tags, the loot window's title, "Using ..."); "Remains of " and the creature's name is
 the fallback when no name is found.
+
+## Logging out (`/camp`)
+
+As the original (GUI.dll `FlowControlModule_t::StartQuitToLoginMessage` → Gamecode `N3Msg_StartCamping` 0x1001c9c6, then
+`CampStartedMessage` 0x1002a86c): `/camp` (or X) is refused while anyone is fighting the character ("You can't log out
+while in a fight."); one's own attack stops; the character sits (`SwitchToSit`, movement 30: without it the server ignores
+the logout) and sends the logout action (CharacterAction 0x78); the chat says "Timed logout started. This will take 30
+seconds." (text 200 `LogoutStartedXseconds` fed 30) and the original's timer bar, labelled "Logout", runs out over 40 s in
+the middle of the screen (`TimerBar_c`: a 128 by 16 bar in white; drawn plainly, the original's bar pictures 0x1a8/0x1a9
+are not read). Standing up (X, or any movement) sends `LeaveSit` (37) and `N3Msg_StopCamping`'s 0x79; the server answers
+0x7a and the chat says "Timed logout aborted." (`CancelCampMessage`). When the server closes the session the game closes as
+`ActivateGameClosing` does: the window positions are written at once (`layout::flush`; the open windows are already kept
+in `open.ini` as they change) and the launcher shows the character screen. Sitting characters, ours and others', are drawn
+in the sitting-down animation held (action 0xd5 `ground-start`; the `idle-ground` loop is not played). Tried live with
+Sadlee: logged out after the countdown; cancelled by X with the server's 0x7a.

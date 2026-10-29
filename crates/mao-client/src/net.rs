@@ -238,6 +238,9 @@ struct World {
     last_hp: BTreeMap<u32, i64>,
     /// The social action each character is doing: its name and when it began (from `SocialActionCmd`).
     socials: BTreeMap<u32, (&'static str, Instant)>,
+    /// The characters sitting on the ground (their `SwitchToSit` movement, until a `LeaveSit` or another movement): drawn
+    /// in the sitting-down animation (action 0xd5, `ground-start`), held.
+    seated: std::collections::BTreeSet<u32>,
     /// The characters that died (`CharacterAction` 99, `Death`, from the one dying): the death's action (its `Parameter2`: 500
     /// `die-knees`, 503 `die-shot` ...) and when. Cleared by its `Despawn` or a new full update.
     dead: BTreeMap<u32, (u32, Instant)>,
@@ -1231,7 +1234,7 @@ impl World {
                     2 => info.and_then(|i| i.get("Target")).and_then(|t| t.get("Instance")).and_then(mao_net::schema::Value::as_int).map(|t| Route::Chase(t as u32)),
                     _ => None,
                 };
-                if std::env::var_os("MAO_COMBAT_LOG").is_some() {
+                if std::env::var_os("MAO_PATH_LOG").is_some() {
                     eprintln!("combat: [{:.2}] {:#x} {} follows {path:?}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64() % 1000.0), m.identity.1, self.names.get(&m.identity.1).map_or("?", |n| n.0.as_str()));
                 }
                 match path {
@@ -1403,6 +1406,15 @@ impl World {
         }
         if let Some((kind, q, _)) = m.movement() {
             self.rotations.insert(m.identity.1, q);
+            match kind {
+                mao_net::n3::movement::SIT => {
+                    self.seated.insert(m.identity.1);
+                }
+                mao_net::n3::movement::FULL | mao_net::n3::movement::HEADING => {}
+                _ => {
+                    self.seated.remove(&m.identity.1);
+                }
+            }
             if kind == mao_net::n3::movement::JUMP {
                 self.jumped.insert(m.identity.1, Instant::now());
             }
@@ -1481,6 +1493,11 @@ impl World {
                 self.rotations.insert(id, [0.0, (heading * 0.5).sin(), 0.0, (heading * 0.5).cos()]);
             }
         }
+    }
+
+    /// The action a character's body holds: its death's, else sitting down's (0xd5) while seated.
+    fn held_action(&self, id: u32) -> Option<u32> {
+        self.dead.get(&id).map(|d| d.0).or_else(|| self.seated.contains(&id).then_some(0xd5))
     }
 
     /// What using `(kind, id)` uses: a dead body's corpse, else itself.
@@ -2518,7 +2535,7 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
             let action = if moving { mao_formats::appearance::Action::Walk } else { mao_formats::appearance::Action::Idle };
             // (an attack swings the weapon the server said the creature holds in the place it names)
             let swing = world.swings.get(&id).and_then(|&(slot, began, pick, class)| Some((*world.weapons.get(&(id, slot as u8))?, slot, began, pick, class)));
-            if let Some(parts) = chars.creature_parts(id, info.template.unwrap(), action, (id % 997) as f32 * 3.0, 1.0, &info.textures, &info.clothes, deform, world.dead.get(&id).map(|d| d.0), swing) {
+            if let Some(parts) = chars.creature_parts(id, info.template.unwrap(), action, (id % 997) as f32 * 3.0, 1.0, &info.textures, &info.clothes, deform, world.held_action(id), swing) {
                 push_character(&mut model, &mut casters, parts, place, id == world.own, chars.frames.get(&id));
                 continue;
             }
@@ -2536,7 +2553,7 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
                 _ if speed > 2.2 => Action::Run,
                 _ => Action::Walk,
             };
-            if let Some(parts) = chars.creature_parts(id, creature, action, (id % 997) as f32 * 3.0, MORPH_ANIM_RATE, &[], &[], deform, world.dead.get(&id).map(|d| d.0), None) {
+            if let Some(parts) = chars.creature_parts(id, creature, action, (id % 997) as f32 * 3.0, MORPH_ANIM_RATE, &[], &[], deform, world.held_action(id), None) {
                 push_character(&mut model, &mut casters, parts, place, id == world.own, chars.frames.get(&id));
                 continue;
             }
@@ -2575,7 +2592,7 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
             // (A phase per entity keeps a crowd from moving in step.)
             // (a character running a vehicle program rides its board or bike)
             let vehicle = world.riding.get(&id).and_then(|&nano| chars.vehicle(nano, info.breed, info.sex));
-            if let Some(parts) = chars.parts(id, info.breed, info.sex, action, jumped, (id % 997) as f32 * 3.0, speed, scale, &info.textures, &info.clothes, world.equipment.get(&id).map_or(&[][..], |v| v.as_slice()), social, swing, weapon, fighting, world.dead.get(&id).map(|d| d.0), deform, vehicle) {
+            if let Some(parts) = chars.parts(id, info.breed, info.sex, action, jumped, (id % 997) as f32 * 3.0, speed, scale, &info.textures, &info.clothes, world.equipment.get(&id).map_or(&[][..], |v| v.as_slice()), social, swing, weapon, fighting, world.held_action(id), deform, vehicle) {
                 push_character(&mut model, &mut casters, parts, place, id == world.own, chars.frames.get(&id));
                 continue;
             }
@@ -3135,10 +3152,11 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         });
         let (mut seen, mut target): ([u8; 7], Option<u32>) = ([0; 7], None);
         // `MAO_AUTOPLAY=5:tab,6:follow,9:attack,...`: the keys pressed by themselves that many seconds in (for testing
-        // the fight live without a keyboard): tab, attack, use, follow (the target), stop (following).
+        // the fight live without a keyboard): tab, attack, use, follow (the target), stop (following), loot (all of the open container), camp, x (sit or stand).
         let mut autoplay: Vec<(f32, String)> = std::env::var("MAO_AUTOPLAY").ok().map_or_else(Vec::new, |v| v.split(',').filter_map(|s| s.split_once(':').and_then(|(t, c)| Some((t.trim().parse().ok()?, c.trim().to_string())))).collect());
         let autoplay_clock = Instant::now();
         let (mut sitting, mut uses, mut fired) = (false, 0u32, 0u8);
+        let mut camp_seen = 0u8;
         let (mut special_seen, mut social_seen, mut pick_seen) = (0u8, 0u8, 0u8);
         let mut aggdef_seen = 0u8;
         let mut market_seen = 0u8;
@@ -3496,6 +3514,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     "tab" => seen[0] = seen[0].wrapping_sub(1),
                     "attack" => seen[4] = seen[4].wrapping_sub(1),
                     "use" => seen[6] = seen[6].wrapping_sub(1),
+                    "camp" => camp_seen = camp_seen.wrapping_sub(1),
+                    "x" => seen[5] = seen[5].wrapping_sub(1),
                     "loot" => {
                         if let Some(l) = state.loot.as_ref() {
                             for e in &l.entries {
@@ -3588,6 +3608,25 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     keys.forward = true;
                 }
             }
+            // `/camp` (`FlowControlModule_t::StartQuitToLoginMessage` → `N3Msg_StartCamping`, Gamecode 0x1001c9c6): not while
+            // anyone fights the character ("Feedback_CantLogOutInAFight"); an attack of one's own stops; the character sits and
+            // the server is told to log it out (CharacterAction 0x78), and the logout bar starts (`CampStartedMessage`).
+            if keys.camp != camp_seen {
+                camp_seen = keys.camp;
+                if state.fighting.iter().any(|(&who, &whom)| whom == own && who != own) {
+                    pending_messages.push(crate::feedback::plain("Feedback_CantLogOutInAFight"));
+                } else if !sitting {
+                    if state.fighting.contains_key(&own) {
+                        let _ = connection.send(&n3::stop_fight(own));
+                    }
+                    sitting = true;
+                    send(&mut connection, n3::movement::SIT, heading, position, &mut sent);
+                    state.seated.insert(own);
+                    let _ = connection.send(&n3::action(own, n3::LOGOUT));
+                    *crate::ui::CAMP.lock().unwrap_or_else(|e| e.into_inner()) = Some(Instant::now());
+                    pending_messages.push(crate::feedback::gui("LogoutStartedXseconds", &[mao_formats::ldb::Arg::Int(30)]));
+                }
+            }
             // Targeting: Tab and friends step through the nearby ones, nearest first; F attacks.
             for (slot, count) in keys.commands.iter().enumerate() {
                 let presses = count.wrapping_sub(seen[slot]);
@@ -3615,13 +3654,18 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     continue;
                 }
                 if slot == 5 {
-                    // X: sit down, or stand up (`N3Msg_SitToggle`: a fight is stopped first).
-                    if !sitting && state.fighting.contains_key(&own) {
-                        let _ = connection.send(&n3::stop_fight(own));
+                    // X: sit down (as `/camp`: sitting is what the server logs out from), or stand up, which cancels it.
+                    if sitting {
+                        sitting = false;
+                        send(&mut connection, n3::movement::LEAVE_SIT, heading, position, &mut sent);
+                        state.seated.remove(&own);
+                        if crate::ui::CAMP.lock().unwrap_or_else(|e| e.into_inner()).take().is_some() {
+                            let _ = connection.send(&n3::action(own, n3::STOP_LOGOUT));
+                            pending_messages.push(crate::feedback::gui("TimedLogoutAborted", &[]));
+                        }
+                    } else {
+                        camp_seen = camp_seen.wrapping_sub(1);
                     }
-                    sitting = !sitting;
-                    let _ = connection.send(&n3::action(own, if sitting { n3::LOGOUT } else { n3::STAND }));
-                    pending_messages.push(if sitting { "Sitting: the server logs you out in about 30 s. Press X or move to stand up and stay.".into() } else { "Standing up: logout cancelled.".to_string() });
                     continue;
                 }
                 if slot == 4 {
@@ -4019,10 +4063,15 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 target = None;
             }
             // Moving stands a seated character up first.
+            // (`CancelCampMessage`: the bar goes and "Timed logout aborted.")
             if sitting && (keys.forward || keys.back || keys.strafe != 0 || keys.turn != 0 || keys.jump) {
                 sitting = false;
-                let _ = connection.send(&n3::action(own, n3::STAND));
-                pending_messages.push("Standing up: logout cancelled.".into());
+                send(&mut connection, n3::movement::LEAVE_SIT, heading, position, &mut sent);
+                state.seated.remove(&own);
+                if crate::ui::CAMP.lock().unwrap_or_else(|e| e.into_inner()).take().is_some() {
+                    let _ = connection.send(&n3::action(own, n3::STOP_LOGOUT));
+                    pending_messages.push(crate::feedback::gui("TimedLogoutAborted", &[]));
+                }
             }
             // Walk: integrate the position and tell the server.
             let dt = last_tick.elapsed().as_secs_f32();
@@ -6055,6 +6104,18 @@ mod movement_tests {
         assert!((movement_rate(1.15, 100.0, 6.0, 5.0) - 1.3).abs() < 0.001);
         assert!((movement_rate(0.9, 100.0, 1.5, 1.5) - 0.9).abs() < 0.001);
         assert!((movement_rate(1.0, 200.0, 5.0, 5.0) - 0.5).abs() < 0.001);
+    }
+
+    #[test]
+    fn sitting_is_held_until_getting_up() {
+        let mut w = World { own: 1, ..World::default() };
+        w.add(&n3::position_update(7, n3::movement::SIT, 0.0, [1.0, 2.0, 3.0], 0));
+        assert_eq!(w.held_action(7), Some(0xd5));
+        // (the periodic report keeps it seated; getting up or walking does not)
+        w.add(&n3::position_update(7, n3::movement::FULL, 0.0, [1.0, 2.0, 3.0], 0));
+        assert_eq!(w.held_action(7), Some(0xd5));
+        w.add(&n3::position_update(7, n3::movement::LEAVE_SIT, 0.0, [1.0, 2.0, 3.0], 0));
+        assert_eq!(w.held_action(7), None);
     }
 
     #[test]

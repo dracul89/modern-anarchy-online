@@ -268,6 +268,37 @@ pub struct Ui {
     fps: f32,
 }
 
+/// When the timed logout began (`FlowControlModule_t::m_pcCampTimer`): set by the live loop, drawn as the "Logout" bar.
+pub static CAMP: std::sync::Mutex<Option<Instant>> = std::sync::Mutex::new(None);
+/// How long the logout bar runs (`CampStartedMessage`'s `CreateTimer(40000, ..., "Logout", 0xffffff)`).
+pub const CAMP_MS: u64 = 40_000;
+
+/// The logout timer (`TimerBar_c`, FUN_100519d6: a 128 by 16 `PowerBar_t` in white with its label over it), in the middle
+/// of the screen (`CampStartedMessage`: at half the display less half the bar), running out over [`CAMP_MS`].
+fn camp_bar(ctx: &egui::Context, screen: egui::Rect, palette: &Palette) {
+    let Some(began) = *CAMP.lock().unwrap_or_else(|e| e.into_inner()) else { return };
+    let left = 1.0 - (began.elapsed().as_millis() as f32 / CAMP_MS as f32).clamp(0.0, 1.0);
+    let size = egui::vec2(128.0, 16.0);
+    let at = screen.center() - size * 0.5;
+    egui::Area::new(egui::Id::unique("camp-timer")).fixed_pos(at - egui::vec2(0.0, 14.0)).interactable(false).order(egui::Order::Foreground).show(ctx, |ui| {
+        let (title, _) = ui.allocate_exact_size(egui::vec2(size.x, 14.0), egui::Sense::hover());
+        let text = egui::Color32::WHITE;
+        match crate::font::tooltip(ctx) {
+            Some(font) => {
+                font.paint(ui.painter(), egui::pos2(title.center().x - font.width("Logout") * 0.5, title.top()), "Logout", text);
+            }
+            None => {
+                ui.painter().text(title.center_top(), egui::Align2::CENTER_TOP, "Logout", egui::FontId::proportional(11.0), text);
+            }
+        }
+        let (bar, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+        ui.painter().rect_filled(bar, 2.0, egui::Color32::from_black_alpha(170));
+        ui.painter().rect_filled(egui::Rect::from_min_size(bar.min + egui::vec2(2.0, 2.0), egui::vec2((size.x - 4.0) * left, size.y - 4.0)), 1.0, text);
+        ui.painter().rect_stroke(bar, 2.0, egui::Stroke::new(1.0, rgb(palette.accent)), egui::StrokeKind::Inside);
+    });
+    ctx.request_repaint_after(std::time::Duration::from_millis(100));
+}
+
 fn rgb(c: [u8; 3]) -> egui::Color32 {
     egui::Color32::from_rgb(c[0], c[1], c[2])
 }
@@ -1181,6 +1212,7 @@ fn hud_layer(ctx: &egui::Context, hud: &Hud, project: &dyn Fn(Vec3) -> Option<[f
     }
     // The tags over the characters (`Indicator_t`): the selected one's, the fought one's, and with `ShowAllNames` everyone's.
     crate::nametag::draw(ctx, &painter, screen, &hud.nameplates, project, palette);
+    camp_bar(ctx, screen, palette);
     let frame = || egui::Frame::new().fill(egui::Color32::from_black_alpha(130)).corner_radius(4).inner_margin(6);
     // (the location, the coordinates and the frame rate are for developers: the original shows none of them)
     if debug_overlay() {

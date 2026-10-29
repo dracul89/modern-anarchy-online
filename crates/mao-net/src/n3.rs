@@ -40,6 +40,10 @@ pub mod movement {
     pub const RUN_MODE: u8 = 0x19;
     /// A new heading while standing.
     pub const HEADING: u8 = 14;
+    /// Sitting down on the ground and getting up (`SwitchToSitGroundModeTransitionAction_t`, `LeaveSitModeTransitionAction_t`:
+    /// `N3Msg_StartCamping` sends the first, `N3Msg_MovementChanged(0x1e)`).
+    pub const SIT: u8 = 30;
+    pub const LEAVE_SIT: u8 = 37;
 }
 
 /// The server's announcement of the playfield the character is in (at login
@@ -128,6 +132,8 @@ pub const STAND: u8 = 0x57;
 /// answers with a `0x7a` (StopLogout) broadcast. This is what the original sends at the end of a
 /// session: players sit to log out.
 pub const LOGOUT: u8 = 0x78;
+/// `N3Msg_StopCamping` (Gamecode 0x1001cb63): the timed logout given up (CharacterAction 0x79).
+pub const STOP_LOGOUT: u8 = 0x79;
 
 /// A `5e477770` action message (the action byte after four zero bytes, 27
 /// bytes of data).

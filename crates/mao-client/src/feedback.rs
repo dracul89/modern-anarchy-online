@@ -25,6 +25,7 @@ fn line(name: &str, args: &[Arg]) -> String {
 fn english(name: &str) -> &'static str {
     match name {
         "Feedback_FallDamage" => "You took %u points of fall damage.",
+        "Feedback_CantLogOutInAFight" => "You can't log out while in a fight.",
         "Feedback_AttackedByForPointsOfDamage" => "You were attacked with %s for %u points of %s damage.",
         "Feedback_YouWereAttackedByNanobotsFrom" => "You were attacked with nanobots from %s for %u points of %s damage.",
         "Feedback_AttackedByNanobotsForPointsOfDamage" => "You were attacked with nanobots for %u points of %s damage.",
@@ -256,6 +257,16 @@ pub fn own_stat(stat: u32, change: i64) -> Option<String> {
         573 => line("Feedback_GainedSK", &[n]),
         _ => return None,
     })
+}
+
+/// A text of the interface's category (200, GUI.dll's `LDBface::GetText(200, name)`), filled in order.
+pub fn gui(name: &str, args: &[Arg]) -> String {
+    let fallback = match name {
+        "LogoutStartedXseconds" => "Timed logout started. This will take %d seconds.",
+        "TimedLogoutAborted" => "Timed logout aborted.",
+        _ => name,
+    };
+    ldb::format(texts().and_then(|t| t.named(200, name)).unwrap_or(fallback), args)
 }
 
 /// A feedback text with nothing to fill (FUN_10059047: a name hashed and told as it is).

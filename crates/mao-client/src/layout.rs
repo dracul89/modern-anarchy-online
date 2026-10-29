@@ -77,6 +77,19 @@ pub fn remember(ctx: &egui::Context) {
     }
 }
 
+/// Writes the windows' places now if any moved since the last write (the game closing: a logout, `/quit`, the window shut).
+pub fn flush() {
+    if disabled() {
+        return;
+    }
+    let mut layout = LAYOUT.lock().unwrap();
+    if layout.dirty {
+        layout.dirty = false;
+        layout.written = Some(Instant::now());
+        let _ = std::fs::write(path(), render(&layout.spots));
+    }
+}
+
 /// The windows that were open when the client last ran (`open.ini` beside `layout.ini`, one name per line).
 pub fn load_open() -> Vec<String> {
     if disabled() {
