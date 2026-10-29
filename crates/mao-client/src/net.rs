@@ -1424,6 +1424,9 @@ impl World {
             }
         }
         let position = m.position().or_else(|| m.movement().map(|(_, _, p)| p));
+        if m.identity.1 == self.own && position.is_some() && std::env::var("MAO_TRACE").is_ok_and(|v| v == "1") {
+            eprintln!("own place from the server: {:#x} {:?} (movement {:?})", m.kind, position, m.movement().map(|x| x.0));
+        }
         if let Some(p) = position {
             let e = self.entities.entry(m.identity.1).or_insert((p, 0));
             let moved = ((e.0[0] - p[0]).powi(2) + (e.0[2] - p[2]).powi(2)).sqrt();
@@ -3124,6 +3127,12 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut velocity = [0.0f32; 2];
         let mut pushed = 0i8;
         let mut walk_toggle_seen = 0u8;
+        // (the movement mode told the server on entering a playfield: it keeps the last one it heard, even from another session,
+        // and checks the reports against that mode's speed)
+        let mut mode_told = false;
+        // (the heading the last movement message carried: `CheckMotionUpdate` reports a turn of more than 0.17 rad since)
+        let mut sent_heading = 0.0f32;
+        let old_reports = std::env::var_os("MAO_OLD_REPORTS").is_some();
         // The server's heights sit a little off the ground model's; walk at
         // the ground's height plus the offset seen at the start.
         let ground = |terrain: &Option<Arc<mao_formats::terrain::Terrain>>, p: [f32; 3]| terrain.as_ref().map_or(0.0, |t| t.height_at(p[0], p[2], t.height_scale));
@@ -3522,6 +3531,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     airborne = false;
                     rise = 0.0;
                     state.entities.insert(own, (position, 0));
+                    mode_told = false;
                     // Ready again, as the original does after loading.
                     if connection.send(&n3::ready(own)).is_err() {
                         break;
@@ -4176,9 +4186,12 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             }
             let walk = keys.forward as i8 - keys.back as i8;
             // The walk/run toggle (`MOVEMENT_TOGGLEWALK`): the mode changes and the server hears the switch (0x18, 0x19).
-            if keys.walk_toggle != walk_toggle_seen {
+            if keys.walk_toggle != walk_toggle_seen || !mode_told {
+                if keys.walk_toggle != walk_toggle_seen {
+                    state.own_walking = !state.own_walking;
+                }
                 walk_toggle_seen = keys.walk_toggle;
-                state.own_walking = !state.own_walking;
+                mode_told = true;
                 send(&mut connection, if state.own_walking { movement::WALK_MODE } else { movement::RUN_MODE }, heading, position, &mut sent);
             }
             heading += keys.turn as f32 * turn_rate(&state.stats, walk != 0 || keys.strafe != 0) * dt;
@@ -4260,12 +4273,24 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 eprintln!("[{:7.2}] walking at ({:.1}, {:.1}, {:.1}) heading {:.2} in playfield {current}", clock.elapsed().as_secs_f32(), position[0], position[1], position[2], heading);
             }
             let mut ok = true;
-            let due = last_send.elapsed() >= Duration::from_millis(400);
+            // (`CheckMotionUpdate`, Gamecode 0x10018f20: a full report after 5 s in motion without another movement message, or
+            // after 0.25 s when the facing turned more than 0.17 rad since the last one other than by the turn keys, which send
+            // their own; `MAO_OLD_REPORTS=1` sends one every 0.4 s in motion as the client did)
+            let since = last_send.elapsed();
+            let turned = keys.turn == 0 && (heading - sent_heading + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI > 0.17 || keys.turn == 0 && (heading - sent_heading + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI < -0.17;
+            let due = if old_reports {
+                since >= Duration::from_millis(400) && (walk != 0 || keys.turn != 0 || keys.strafe != 0 || keys.face.is_some() || airborne)
+            } else {
+                (since > Duration::from_secs(5) && (walk != 0 || keys.strafe != 0 || airborne)) || (since > Duration::from_millis(250) && turned)
+            };
+            let sent_this_pass = std::cell::Cell::new(false);
             let mut send_kind = |kind: u8, connection: &mut Connection| {
+                sent_this_pass.set(true);
                 if tracing {
                     eprintln!("[{:7.2}] sent move {kind} at ({:.2}, {:.2}, {:.2}) heading {heading:.2}", clock.elapsed().as_secs_f32(), position[0], position[1], position[2]);
                 }
                 last_send = Instant::now();
+                sent_heading = heading;
                 ok &= send(connection, kind, heading, position, &mut sent);
             };
             // Touching a door starts a teleport try, as the original's collision with a `Door_t` does (`StartTeleportTry`): one full
@@ -4453,7 +4478,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     1 => send_kind(movement::TURN_RIGHT_START, &mut connection),
                     _ => send_kind(movement::TURN_STOP, &mut connection),
                 }
-            } else if ((walk != 0 || keys.turn != 0 || keys.strafe != 0 || keys.face.is_some() || airborne) && due) || landed {
+            } else if (due && !sent_this_pass.get()) || landed {
+                // (a movement message just sent this pass counts as the last one: no report on its heels)
                 // (the periodic report is the original's full one, 0x16; 15 is what the captures show as the character lands)
                 send_kind(if landed { movement::JUMP_STOP } else { movement::FULL }, &mut connection);
             }

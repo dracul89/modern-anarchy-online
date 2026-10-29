@@ -46,6 +46,7 @@ four tabs are too cramped (the wear column is narrow, so their names are cut); t
 
 | Commit | What | Test |
 |---|---|---|
+| (next) | **Position reports as the original** (every 5 s running straight, on a turn of the view; not every 0.4 s); the walk/run mode told to the server on entering (it remembered walk from a test and pulled the character back) | run far in a straight line and with the mouse; no rubber-banding |
 | 837a448 | **Movement as the original's vehicle**: half a second to reach full speed, instant stops, a slight curve when turning on the run; the original's turn rates (3.5 standing, 1.5 moving, or from TurnSpeed); walk/run toggle on Numpad / (walk 1.5 m/s, the walk animation) | run, stop, turn while running; toggle walk with Numpad / |
 | b1412ba | **New Character, finished off**: the preview shows the chosen head, build and height; Create goes straight into the game with the new character, with the original's "Welcome to Rubi-Ka" loading picture (two times in three) | make a character and watch it enter the game |
 | 83b1792 | **New Character**: the character screen's New Character button: breed, profession, appearance (head, height, build), name with Suggest Name, Create; the original's texts; made with the original's message (tried live from the command line: Maotestone) | make a character, try a taken name, try Suggest Name |

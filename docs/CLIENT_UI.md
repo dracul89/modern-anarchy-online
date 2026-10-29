@@ -1296,3 +1296,11 @@ The character is the original's steered vehicle now (Gamecode `CharVehicle_t`, V
 
 Tried live (Sadlee): walking measured 1.47 a second, no corrections from the server. Still the client's own: the report
 timing (every 0.4 s while moving), the jump's numbers, collision, swimming.
+
+**Reports as the original** (`CheckMotionUpdate`, Gamecode 0x10018f20): a full report (0x16) after 5 s in motion without
+another movement message, or after 0.25 s when the facing turned more than 0.17 rad since the last message other than by the
+turn keys (mouse steering, a walk to a place); not on the heels of a start or stop sent the same moment. The client used to
+send one every 0.4 s in motion (`MAO_OLD_REPORTS=1` brings that back). **The server remembers the movement mode** (walk or
+run) between sessions and checks the reports against its speed: after a walk-mode test it pulled a running character back
+to where it had logged in. The client now tells the server its mode (0x19 run, or 0x18) on entering every playfield. Tried
+live: a 30 m run with turns, reports at 5 s and 10 s, every place accepted.
