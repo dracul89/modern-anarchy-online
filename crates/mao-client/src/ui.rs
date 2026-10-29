@@ -399,6 +399,9 @@ impl Ui {
             "friends" => self.friends.open,
             "map" => self.automap.overlay,
             "optionpanel" => self.option_panel.open,
+            "itemshop" => self.browser.showing(crate::browser::Mode::ItemStore),
+            "petition" => self.browser.showing(crate::browser::Mode::Petition),
+            "dailyrewards" => self.browser.showing(crate::browser::Mode::DailyRewards),
             _ => false,
         }
     }
@@ -424,6 +427,21 @@ impl Ui {
             self.mail.open = false;
             self.automap.overlay = false;
             self.loot.open = false;
+            return true;
+        }
+        // (BrowserModule_c's windows: the web pages)
+        let web = match name.as_str() {
+            "itemshop" | "item shop" => Some(crate::browser::Mode::ItemStore),
+            "petition" => Some(crate::browser::Mode::Petition),
+            "dailyrewards" | "daily rewards" => Some(crate::browser::Mode::DailyRewards),
+            _ => None,
+        };
+        if let Some(mode) = web {
+            if open && !self.browser.showing(mode) {
+                self.browser.show_page(crate::browser::request(mode));
+            } else if !open && self.browser.showing(mode) {
+                self.browser.open = false;
+            }
             return true;
         }
         let flag: &mut bool = match name.as_str() {

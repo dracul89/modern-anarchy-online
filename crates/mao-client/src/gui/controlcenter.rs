@@ -43,6 +43,9 @@ pub const WINDOWS: &[(&str, &str)] = &[
     ("specialaction_window", "actions"),
     ("mail_window", "mail"),
     ("optionpanel_window", "optionpanel"),
+    ("itemshop_window", "itemshop"),
+    ("petition_window", "petition"),
+    ("dailylogin_window", "dailyrewards"),
 ];
 
 /// A `CCMenu` view in the tree: its script's entries (loaded once the skin's folders are known) and where each was last

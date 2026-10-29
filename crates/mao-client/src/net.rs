@@ -2897,6 +2897,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let (mut special_seen, mut social_seen, mut pick_seen) = (0u8, 0u8, 0u8);
         let mut aggdef_seen = 0u8;
         let mut market_seen = 0u8;
+        let mut headers_made = Instant::now() - Duration::from_secs(60);
         let mut mission_booth: Option<u32> = None;
         let mut friends_seen = u64::MAX;
         let mut cast_seen = 0u8;
@@ -3551,6 +3552,13 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             if keys.aggdef.0 != aggdef_seen {
                 aggdef_seen = keys.aggdef.0;
                 let _ = connection.send(&n3::set_stat(own, 51, keys.aggdef.1.clamp(-100, 100)));
+            }
+            // (the web pages' headers, for the pages the menus open: kept up to date every few seconds)
+            if headers_made.elapsed() > Duration::from_secs(3) {
+                headers_made = Instant::now();
+                let ticket = mao_net::session::last_ticket();
+                let stats = &state.stats;
+                crate::browser::set_game_headers(crate::browser::headers(own, ticket.as_ref(), state.server_id, &|s| stats.get(&s).copied().unwrap_or(0)));
             }
             // "Deposit to Market"'s Send (`N3Msg_SendMarketItem`): the items from the backpack and the credits.
             if keys.market.0 != market_seen {

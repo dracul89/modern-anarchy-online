@@ -25,10 +25,14 @@ use crate::theme::Palette;
 /// Which pages a window shows (`BrowserMode_e`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
-    /// 1: the item store.
+    /// 1: the item store (`itemshop_window`).
     ItemStore,
     /// 2: the market.
     Market,
+    /// 3: customer service (`petition_window`).
+    Petition,
+    /// 4: the daily rewards (`dailylogin_window`).
+    DailyRewards,
 }
 
 impl Mode {
@@ -37,6 +41,8 @@ impl Mode {
         match self {
             Mode::ItemStore => "Item Store",
             Mode::Market => "Market",
+            Mode::Petition => "Customer Service",
+            Mode::DailyRewards => "Daily Login Rewards",
         }
     }
 
@@ -45,6 +51,8 @@ impl Mode {
         match self {
             Mode::ItemStore => "http://aoshop.funcom.com/shop/",
             Mode::Market => "http://aomarket.funcom.com/market/",
+            Mode::Petition => "http://aopetition.funcom.com/",
+            Mode::DailyRewards => "http://dailyrewards.anarchy-online.com/",
         }
     }
 
@@ -53,6 +61,8 @@ impl Mode {
         match self {
             Mode::ItemStore => "http://aoshop.funcom.com/",
             Mode::Market => "http://aomarket.funcom.com/",
+            Mode::Petition => "http://aopetition.funcom.com/",
+            Mode::DailyRewards => "http://dailyrewards.anarchy-online.com/",
         }
     }
 }
@@ -78,6 +88,21 @@ pub fn headers(character: u32, ticket: Option<&mao_net::system::Ticket>, server:
         ("X-Anarchy-Appearance".into(), format!("{} {} {} {}", u(stat(59)), u(stat(4)), u(stat(47)), u(stat(64)))),
         ("X-Platform".into(), "Native".into()),
     ]
+}
+
+/// The game's headers as the network thread last made them (for the pages the menus open).
+static GAME_HEADERS: std::sync::Mutex<Vec<(String, String)>> = std::sync::Mutex::new(Vec::new());
+
+pub fn set_game_headers(headers: Vec<(String, String)>) {
+    if let Ok(mut h) = GAME_HEADERS.lock() {
+        *h = headers;
+    }
+}
+
+/// A page of a mode with the game's headers (`BrowserModule_c`'s windows: `itemshop_window`, `petition_window`,
+/// `dailylogin_window`).
+pub fn request(mode: Mode) -> Request {
+    Request { mode, headers: GAME_HEADERS.lock().map(|h| h.clone()).unwrap_or_default() }
 }
 
 /// What a page script asks for (the `AnarchyOnline` object's callbacks).
@@ -111,6 +136,11 @@ pub struct Browser {
 }
 
 impl Browser {
+    /// Whether a mode's page is open.
+    pub fn showing(&self, mode: Mode) -> bool {
+        self.open && self.request.as_ref().is_some_and(|r| r.mode == mode)
+    }
+
     /// Opens the window on a mode's home page.
     pub fn show_page(&mut self, request: Request) {
         self.request = Some(request);

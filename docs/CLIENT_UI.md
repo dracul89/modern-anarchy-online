@@ -260,6 +260,11 @@ backpack items dragged from the inventory (not equipped ones, NoDrop items or co
 and the credits field (held to the credits you have; negative refused); Send sends `MarketSend` (`470b2e14`: the character,
 the credits, the items `(0x68, slot)`) and closes the window.
 
+**The menus' pages:** the skins' "Item Shop" and "Daily Rewards" entries (`itemshop_window`, `dailylogin_window`; and
+`petition_window`) open the same window in the original's other modes (1 the item store `http://aoshop.funcom.com/shop/`,
+4 the daily rewards, 3 customer service), with the same headers (kept by the network thread, `browser::set_game_headers`).
+At the time of writing the shop answers "temporarily unavailable" and the daily rewards site 502.
+
 **Test without the game:** `mao-client <game> web store` (the item store page, through the same proxy) and `web market`
 (the market's page with zero headers: the site's 400). `MAO_UI_PREVIEW=marketsend` draws the deposit window.
 
