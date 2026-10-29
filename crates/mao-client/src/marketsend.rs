@@ -58,21 +58,17 @@ impl MarketSendWindow {
         self.open = true;
         self.slots = [None; 8];
         self.cash = "0".into();
+        if let Some(w) = self.window.as_mut() {
+            if let Some(id) = w.tree.find(w.root, "Cash") {
+                crate::gui::textinput::set_text(&mut w.tree, id, "0");
+            }
+        }
     }
 
     fn load(&mut self, ctx: &egui::Context) {
         let dirs: Vec<std::path::PathBuf> = crate::skin::skin(ctx).map(|s| s.dirs().into_iter().map(|d| d.to_path_buf()).collect()).unwrap_or_default();
         let Some((mut tree, root)) = crate::gui::load_view(&dirs, "MarketSendWindow.xml", "") else { return };
         tree.measure = crate::gui::font::Measure { ctx: Some(ctx.clone()) };
-        for i in 0..8 {
-            if let Some(id) = tree.find(root, &format!("ItemView_{i}")) {
-                tree.get_mut(id).min_size = crate::gui::geom::Point::new(40.0, 40.0);
-            }
-        }
-        if let Some(id) = tree.find(root, "Cash") {
-            let node = tree.get_mut(id);
-            node.min_size = crate::gui::geom::Point::new(node.min_size.x.max(128.0), 18.0);
-        }
         self.window = Some(crate::gui::window::XmlWindow { name: "Deposit to Market".into(), title: "Deposit to Market".into(), tree, root, open: true, default_size: egui::vec2(300.0, 0.0) });
     }
 
@@ -87,50 +83,50 @@ impl MarketSendWindow {
         let Some(w) = self.window.as_mut() else { return (None, None) };
         let (mut deposit, mut feedback) = (None, None);
         let skin = crate::skin::skin(ctx);
-        let min = crate::gui::host::preferred_pixels(&w.tree, w.root, false);
         let root = w.root;
+        let places: Vec<Option<crate::gui::view::Id>> = (0..8).map(|i| w.tree.find(root, &format!("ItemView_{i}"))).collect();
+        // (the items in the slots)
+        for (place, id) in self.slots.iter().zip(&places) {
+            let Some(id) = *id else { continue };
+            let item = place.and_then(|s| items.iter().find(|it| it.slot == s));
+            let shown = item.and_then(|it| it.icon.as_ref().map(|icon| crate::gui::itemslot::SlotItem { texture: gear.texture(ctx, icon), name: it.name.clone() }));
+            crate::gui::itemslot::set_item(&mut w.tree, id, shown);
+        }
+        let min = crate::gui::host::preferred_pixels(&w.tree, root, false);
         let tree = &mut w.tree;
-        let (slots, field) = (&mut self.slots, &mut self.cash);
+        let slots = &mut self.slots;
         let dragged = crate::gear::DRAGGED.load(std::sync::atomic::Ordering::Relaxed);
         let mut open = self.open;
         crate::chrome::window(ctx, palette, "Deposit to Market", "Deposit to Market", &mut open, |w| w.default_size(min).resizable(false), |ui| {
             let response = crate::gui::host::show(ui, tree, root, skin.as_deref(), palette);
-            let origin = response.rect.min;
-            let tree: &crate::gui::view::Tree = tree;
-            let rect_of = |name: &str| tree.find(root, name).map(|id| crate::gui::host::screen_rect(tree, id, origin));
-            for (i, place) in slots.iter_mut().enumerate() {
-                let Some(r) = rect_of(&format!("ItemView_{i}")) else { continue };
-                ui.painter().rect_filled(r, 2.0, egui::Color32::from_black_alpha(110));
-                ui.painter().rect_stroke(r, 2.0, egui::Stroke::new(1.0, egui::Color32::from_white_alpha(45)), egui::StrokeKind::Inside);
-                let item = place.and_then(|s| items.iter().find(|it| it.slot == s));
-                if let Some(icon) = item.and_then(|it| it.icon.as_ref()) {
-                    ui.painter().image(gear.texture(ctx, icon), r.shrink(3.0), egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
+            // (an item from the backpack let go over a slot: FUN_100097e4)
+            if dragged == u32::MAX || !ui.input(|inp| inp.pointer.any_released()) {
+                return;
+            }
+            let Some(at) = ui.input(|inp| inp.pointer.interact_pos()) else { return };
+            for (place, id) in slots.iter_mut().zip(&places) {
+                let Some(id) = *id else { continue };
+                if !crate::gui::host::screen_rect(tree, id, response.rect.min).contains(at) {
+                    continue;
                 }
-                let resp = ui.interact(r, ui.scope_id().with(("market-slot", i)), egui::Sense::click());
-                if let Some(it) = item {
-                    resp.clone().on_hover_text(&it.name);
-                }
-                // (an item dragged off its place leaves it: here a click takes it out)
-                if resp.clicked() {
-                    *place = None;
-                }
-                if dragged != u32::MAX && ui.input(|inp| inp.pointer.any_released() && inp.pointer.interact_pos().is_some_and(|p| r.contains(p))) {
-                    if let Some(it) = items.iter().find(|it| it.slot == dragged) {
-                        match refusal(it) {
-                            Some(why) => feedback = Some(why),
-                            None => *place = Some(dragged),
-                        }
+                if let Some(it) = items.iter().find(|it| it.slot == dragged) {
+                    match refusal(it) {
+                        Some(why) => feedback = Some(why),
+                        None => *place = Some(dragged),
                     }
                 }
             }
-            if let Some(r) = rect_of("Cash") {
-                let mut child = ui.new_child(egui::UiBuilder::new().max_rect(r));
-                child.add_sized(r.size(), egui::TextEdit::singleline(field).char_limit(10));
-                field.retain(|c| c.is_ascii_digit() || c == '-');
-            }
         });
+        if let Some(id) = w.tree.find(root, "Cash") {
+            self.cash = crate::gui::textinput::text(&w.tree, id).unwrap_or("").to_string();
+        }
         for (id, signal) in std::mem::take(&mut w.tree.signals) {
             if !matches!(signal, crate::gui::host::Signal::Clicked) {
+                continue;
+            }
+            // (an item dragged off its place leaves it: here a click takes it out)
+            if let Some(k) = places.iter().position(|p| *p == Some(id)) {
+                self.slots[k] = None;
                 continue;
             }
             match w.tree.get(id).name.as_str() {

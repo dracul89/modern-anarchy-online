@@ -1437,3 +1437,12 @@ its views shown at a time over its whole bounds (`SetValue` 0x10150236, `FrameSi
 (`InsertView` 0x1015050e), its preferred size the largest of its views' with `use_max_size` (on by default), else the
 shown one's (`CalculatePreferredSize` 0x10150074). They used to draw every page at once (the skills window's intro over its
 skill page). `selector::set_value` / `show_named` switch the page.
+
+**Item slots** (`gui/itemslot.rs`). `ItemSlotView` (the market deposit, mail, trade, the tradeskill kit) is GUI.dll's
+`ItemSlotView_c`: `Initialize` (FUN_10042af9, from the XML constructor FUN_10042d63 with `iconview_flags`) draws
+`GFX_GUI_MULTILISTVIEW_SLOT_48_CLOSED` (0x11d) over the view, the slot as big as that picture, and centres an
+`ItemIconView_c` (FUN_1003f67b, 48 by 48) in it, the left and top halves of the room rounded down. An `ItemIconView`
+element alone is the icon without the slot. The window sets what a slot shows (`itemslot::set_item`: an icon texture,
+and the item's name as the slot's tip); a click on a slot is its `Clicked` signal. The market deposit window now uses these
+slots and the XML's real `Cash` field (`TextInputView`, `TVF_NUMERIC`) instead of drawing its own boxes and an egui text
+edit over them. Not ported: the icon flags' meaning, the open slot picture (0x11e) and dragging from a slot.

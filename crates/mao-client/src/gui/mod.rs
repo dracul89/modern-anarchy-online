@@ -18,6 +18,7 @@ pub mod font;
 pub mod geom;
 pub mod host;
 pub mod infoview;
+pub mod itemslot;
 pub mod iteminfo;
 pub mod layout;
 pub mod menu;
@@ -101,6 +102,8 @@ pub fn create(tree: &mut Tree, e: &Element) -> Option<Id> {
         "RadioButtonGroup" => radio::create(tree, e),
         "ViewSelector" => selector::create(tree, e),
         "ScrollViewChild" => scroll::create_child(tree, e),
+        "ItemSlotView" => itemslot::create(tree, e, true),
+        "ItemIconView" => itemslot::create(tree, e, false),
         "BitmapView" => tree.add(Node::from_element(e, 4, Box::new(controls::BitmapView { bitmap: e.text("bitmap_id", "") }))),
         "CCMenu" => controlcenter::CCMenuView::create(tree, e),
         "RadioButton" => controls::RadioButton::create(tree, e),
