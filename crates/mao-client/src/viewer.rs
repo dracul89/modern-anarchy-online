@@ -1343,9 +1343,9 @@ impl ApplicationHandler for App {
                             w.scene.fog = fog_for(self.settings.view_distance);
                         }
                         let own_started = std::time::Instant::now();
-                        let own_scene = w.renderer.upload(&w.gpu, &update.own_model, &mut |k, i| self.textures.get_for_upload(k, i));
+                        // (into the last update's buffers where the parts kept their sizes: `Renderer::reupload`)
+                        w.renderer.reupload_follow(&w.gpu, &mut w.scene, &update.own_model, &mut |k, i| self.textures.get_for_upload(k, i));
                         crate::prof::add("upload-own", own_started.elapsed());
-                        w.scene.set_follow(own_scene);
                         self.casters = std::mem::take(&mut update.casters);
                         if let Some(p) = update.own {
                             self.own_base = p;
@@ -1353,8 +1353,7 @@ impl ApplicationHandler for App {
                             self.own_at = std::time::Instant::now();
                         }
                         let uploading = std::time::Instant::now();
-                        let overlay = w.renderer.upload(&w.gpu, &update.model, &mut |k, i| self.textures.get_for_upload(k, i));
-                        w.scene.set_overlay(overlay);
+                        w.renderer.reupload_overlay(&w.gpu, &mut w.scene, &update.model, &mut |k, i| self.textures.get_for_upload(k, i));
                         crate::prof::add("upload-overlay", uploading.elapsed());
                         if std::env::var_os("MAO_PROFILE").is_some() && uploading.elapsed() > std::time::Duration::from_millis(2) {
                             eprintln!("[profile] overlay upload {:?}", uploading.elapsed());

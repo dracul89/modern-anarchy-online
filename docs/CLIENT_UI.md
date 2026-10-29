@@ -1203,3 +1203,7 @@ shadow drawn afresh and from a map kept 5 m back are the same picture.
 The network thread handled one message per pass of its loop (a pass is about 13 ms: the wait for the next message and the
 frame's own work), so at most about 75 messages a second; messages that have already come are now handled in a row (up to
 200) before the frame's work, unless a zoning is due (`Connection::try_receive`).
+
+The characters (every network update uploads them again, about 24 times a second) now go into the last update's GPU buffers
+and bind groups where a part has the same sizes and texture (`Renderer::reupload_overlay` / `reupload_follow`): the
+overlay's upload went from 3.6 to 1.7 ms and the player's from 1.2 to 0.4 ms, the worst frame from 7 to 4.5 ms.

@@ -106,8 +106,9 @@ struct GpuPart {
     uniform: PartUniform,
     /// How far the part is moved from where it was uploaded.
     shift: Vec3,
-    /// The model part this draw came from.
+    /// The model part this draw came from, and its texture (what a reused part must match: see `Renderer::reupload`).
     source: usize,
+    texture: Option<(u32, u32)>,
     /// A low-detail part: drawn only when the mesh it stands in for is far (`Lod::low`), never on its own.
     low_only: bool,
     /// On the first part of a watched mesh's instance: the mesh's sphere and what the decision covers.
@@ -859,6 +860,93 @@ impl Renderer {
         self.sprites.contains_key(&id)
     }
 
+    /// Uploads the characters again ([`Scene::set_overlay`]'s parts): see [`Renderer::reupload`].
+    pub fn reupload_overlay(&self, gpu: &Gpu, scene: &mut Scene, model: &Model, texture: &mut dyn FnMut(u32, u32) -> Option<Texture>) {
+        let old = std::mem::take(&mut scene.overlay);
+        scene.overlay = self.reupload(gpu, model, texture, old);
+    }
+
+    /// Uploads the player's character again ([`Scene::set_follow`]'s parts, unmoved): see [`Renderer::reupload`].
+    pub fn reupload_follow(&self, gpu: &Gpu, scene: &mut Scene, model: &Model, texture: &mut dyn FnMut(u32, u32) -> Option<Texture>) {
+        let old = std::mem::take(&mut scene.follow);
+        scene.follow = self.reupload(gpu, model, texture, old);
+    }
+
+    /// `model`'s draws as parts, taking the buffers and bind group of an old part where one has the same sizes and texture
+    /// and writing the new vertices, indices and uniform into them: the characters are uploaded again with every network
+    /// update (a few dozen times a second), and making and freeing their hundreds of buffers each time cost milliseconds.
+    /// (A model with watched meshes or water is uploaded afresh.)
+    fn reupload(&self, gpu: &Gpu, model: &Model, texture: &mut dyn FnMut(u32, u32) -> Option<Texture>, old: Vec<GpuPart>) -> Vec<GpuPart> {
+        if !model.lod_groups.is_empty() || model.water.is_some() {
+            return self.upload(gpu, model, texture).parts;
+        }
+        type Key = (u64, u64, Option<(u32, u32)>);
+        let mut pool: HashMap<Key, Vec<GpuPart>> = HashMap::new();
+        for part in old {
+            pool.entry((part.vertices.size(), part.indices.size(), part.texture)).or_default().push(part);
+        }
+        let mut cache = self.textures.borrow_mut();
+        let mut parts = Vec::new();
+        for (index, world) in draws(model) {
+            let part = &model.parts[index];
+            if part.indices.is_empty() || part.vertices.is_empty() {
+                continue;
+            }
+            let vertices: Vec<GpuVertex> = part.vertices.iter().map(|v: &Vertex| GpuVertex { position: v.position, normal: v.normal, uv: v.uv }).collect();
+            let mut indices = part.indices.clone();
+            if indices.len() % 2 == 1 {
+                indices.push(0);
+            }
+            let key = part.material.textures.first().copied();
+            let view = key.and_then(|(kind, instance)| cache.entry((kind, instance)).or_insert_with(|| texture(kind, instance).map(|t| upload_texture(gpu, &t))).clone());
+            let (mut lo, mut hi, mut height) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN), 0.0f32);
+            for v in &part.vertices {
+                lo = lo.min(Vec3::from(v.position));
+                hi = hi.max(Vec3::from(v.position));
+                height = height.max(v.position[1]);
+            }
+            let m = Mat4::from_cols_array(&world);
+            let (mut wlo, mut whi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+            for corner in 0..8 {
+                let c = Vec3::new(if corner & 1 == 0 { lo.x } else { hi.x }, if corner & 2 == 0 { lo.y } else { hi.y }, if corner & 4 == 0 { lo.z } else { hi.z });
+                let p = m.transform_point3(c);
+                wlo = wlo.min(p);
+                whi = whi.max(p);
+            }
+            let (center, radius) = ((wlo + whi) * 0.5, (whi - wlo).length() * 0.5);
+            let d = part.material.diffuse;
+            let material = &part.material;
+            let uniform = PartUniform { model: world, colour: [d[0], d[1], d[2], 1.0], flags: [view.is_some() as u32 as f32, (material.ignore_alpha as u32 + material.alpha_lights as u32) as f32, material.foliage as u32 as f32, height] };
+            let (vertex_bytes, index_bytes): (&[u8], &[u8]) = (bytemuck::cast_slice(&vertices), bytemuck::cast_slice(&indices));
+            let reused = pool.get_mut(&(vertex_bytes.len() as u64, index_bytes.len() as u64, key)).and_then(Vec::pop);
+            let (vb, ib, ub, bind) = match reused {
+                Some(old) => {
+                    gpu.queue.write_buffer(&old.vertices, 0, vertex_bytes);
+                    gpu.queue.write_buffer(&old.indices, 0, index_bytes);
+                    gpu.queue.write_buffer(&old.uniform_buffer, 0, bytemuck::bytes_of(&uniform));
+                    (old.vertices, old.indices, old.uniform_buffer, old.bind)
+                }
+                None => {
+                    let vb = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: vertex_bytes, usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST });
+                    let ib = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: index_bytes, usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST });
+                    let ub = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: bytemuck::bytes_of(&uniform), usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST });
+                    let bind = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: None,
+                        layout: &self.part_layout,
+                        entries: &[
+                            wgpu::BindGroupEntry { binding: 0, resource: ub.as_entire_binding() },
+                            wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(view.as_ref().unwrap_or(&self.white)) },
+                            wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(&self.sampler) },
+                        ],
+                    });
+                    (vb, ib, ub, bind)
+                }
+            };
+            parts.push(GpuPart { vertices: vb, indices: ib, index_count: part.indices.len() as u32, bind, center, radius, uniform_buffer: ub, uniform, shift: Vec3::ZERO, source: index, texture: key, low_only: false, lod: None });
+        }
+        parts
+    }
+
     pub fn upload(&self, gpu: &Gpu, model: &Model, texture: &mut dyn FnMut(u32, u32) -> Option<Texture>) -> Scene {
         let mut draw_list = draws(model);
         let (center, radius) = world_matrix_bounds(model, &draw_list);
@@ -918,12 +1006,12 @@ impl Renderer {
                     return None;
                 }
                 let vertices: Vec<GpuVertex> = part.vertices.iter().map(|v: &Vertex| GpuVertex { position: v.position, normal: v.normal, uv: v.uv }).collect();
-                let vb = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: bytemuck::cast_slice(&vertices), usage: wgpu::BufferUsages::VERTEX });
+                let vb = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: bytemuck::cast_slice(&vertices), usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST });
                 let mut indices = part.indices.clone();
                 if indices.len() % 2 == 1 {
                     indices.push(0);
                 }
-                let ib = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: bytemuck::cast_slice(&indices), usage: wgpu::BufferUsages::INDEX });
+                let ib = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: bytemuck::cast_slice(&indices), usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST });
                 let view = part.material.textures.first().and_then(|&(kind, instance)| cache.entry((kind, instance)).or_insert_with(|| { let t0 = std::time::Instant::now(); let r = texture(kind, instance).map(|t| upload_texture(gpu, &t)); tex_time += t0.elapsed(); tex_count += 1; r }).clone());
                 // A plant's height (in its own Y-up space) sets how it bends.
                 let height = part.vertices.iter().map(|v| v.position[1]).fold(0.0f32, f32::max);
@@ -968,7 +1056,7 @@ impl Renderer {
                             wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(sampler) },
                         ],
                     });
-                    Some(GpuPart { vertices: vb.clone(), indices: ib.clone(), index_count: *count, bind, center, radius, uniform_buffer: ub, uniform, shift: Vec3::ZERO, source: index, low_only: low_parts.contains(&index), lod: None })
+                    Some(GpuPart { vertices: vb.clone(), indices: ib.clone(), index_count: *count, bind, center, radius, uniform_buffer: ub, uniform, shift: Vec3::ZERO, source: index, texture: model.parts[index].material.textures.first().copied(), low_only: low_parts.contains(&index), lod: None })
                 })
                 .collect()
         };
