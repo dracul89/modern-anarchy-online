@@ -1580,3 +1580,33 @@ machine every shop shares ("Specialist Commerce", whose stats the prices are rea
 the shop window's partner name (GUI.dll FUN_100e121e) is that name (or its parent's). The client names the machine's
 target and its shop window the same way. `cargo run -p mao-formats --example itemnamed -- <game> <text>` lists the
 item templates whose name or description has the text (`"vending machine"` lists the shops).
+
+## The market window's page (2026-10-30)
+
+Closing a web window (the market, the item shop) puts its WebView2 page away rather than dropping it (`browser::Page::hide`):
+the keyboard focus goes back to the game window first (`focus_parent`: a page that kept the focus while it went away left
+every key press to a window that rang the error bell), and the page stays alive, so WebView2's browser and the site's session
+cookie with it. Dropping the last page ended both, and the market then refused the game's ticket a second time ("403 Invalid
+session"). Opening the window again for the same request shows the kept page at its home page; another request replaces it,
+the old page let go only once the new one is up.
+
+## Moving meshes: doors, Whom-Pahs, machines (2026-10-30)
+
+A mesh's frames can carry `FAFAnim_t` keyframe animations (`mao_formats::model::Keys`, after randy31's `keyanim.rs`:
+translation keys x y z t, rotation keys x y z w t, visibility keys, texture keys u-scale v-scale u-offset v-offset t blend);
+`model::build_*_animated` gives each part its `Animated` (the frames from the root with their keys), whose `world_at(t)` is the
+original's `SetAnimationTime` + `UpdateWorldMatrix` (`anim * TRS * parent`) and `texture_at(t)` the texture matrix
+(`u * a + c`, `v * b + d`) visual.rs's `rasterize` sets from the part's own frame.
+
+* **Doors.** As `Door_t` (FUN_1008563d / FUN_10085684 play the mesh's animation forward from 0 or back from its end,
+  FUN_10088970 steps it each frame), a door with an animation swings open over it and back when it closes, instead of
+  vanishing; its shut pose is the animation's start (the pose it is drawn in). The original opens a door on a character's touch
+  (FUN_1007fccc, unless FUN_1007fad8 keeps them out: a lock, an owned building); here the Whom-Pahs' doors (template "Dummy
+  Whom-Pah") open as the character comes within 4 m and close 5 s after, the other doors on a use as before.
+* **Outer textures.** A dynel's `OverrideTexture` (stat 336) is put on its mesh's materials whose names have neither "face" nor
+  "under" (`n3VisualDynel_t::SetOverrideTexture` → `VisualMesh_t::ChangeOuterTexture`, FUN_10070f1f): from the playfield's
+  dynel records (a Whom-Pah door's destination sign) and from the vending machines' announcement, else their `NameTemplate`
+  item's (the ICC shops' signs).
+* **Statels.** Their parts whose animation moves anything (not the plants, which sway in the shader) are kept out of the static
+  scene and drawn each frame within 250 m at the clock's time: the Whom-Pah towers' scrolling glow (`whompa_fx`), propellers,
+  holograms.

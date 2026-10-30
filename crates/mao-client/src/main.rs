@@ -255,6 +255,20 @@ pub(crate) fn load_model(db: &ResourceDatabase, id: Id) -> Result<Model, String>
     model::build_placed(&mesh).map_err(|e| e.to_string())
 }
 
+/// [`load_model`] with each part's animation.
+pub(crate) fn load_model_animated(db: &ResourceDatabase, id: Id) -> Result<(Model, Vec<Option<mao_formats::model::Animated>>), String> {
+    let object = db.get(id).map_err(|e| e.to_string())?.ok_or("no such object")?;
+    let mesh = mesh::parse(&object).map_err(|e| e.to_string())?;
+    model::build_placed_animated(&mesh).map_err(|e| e.to_string())
+}
+
+/// [`load_model_dynel`] with each part's animation.
+pub(crate) fn load_model_dynel_animated(db: &ResourceDatabase, id: Id) -> Result<(Model, Vec<Option<mao_formats::model::Animated>>), String> {
+    let object = db.get(id).map_err(|e| e.to_string())?.ok_or("no such object")?;
+    let mesh = mesh::parse(&object).map_err(|e| e.to_string())?;
+    model::build_dynel_animated(&mesh).map_err(|e| e.to_string())
+}
+
 /// A mesh of a dynel (a door, a vending machine, a terminal): without any of its root frame's transform (see `model::build_dynel`).
 pub(crate) fn load_model_dynel(db: &ResourceDatabase, id: Id) -> Result<Model, String> {
     let object = db.get(id).map_err(|e| e.to_string())?.ok_or("no such object")?;
@@ -374,6 +388,31 @@ pub(crate) fn static_props(db: &ResourceDatabase, playfield: u32) -> Vec<(u32, (
         .collect()
 }
 
+/// The outer textures (`OverrideTexture`, stat 336) the playfield's built-in props carry in their own records (a Whom-Pah
+/// door's destination sign), by [`static_props`]' key.
+pub(crate) fn static_prop_textures(db: &ResourceDatabase, playfield: u32) -> Vec<(u32, u32)> {
+    let Some(object) = db.get(Id { kind: mao_formats::dynels::KIND, instance: playfield }).ok().flatten() else { return Vec::new() };
+    mao_formats::dynels::parse(&object).into_iter().enumerate().filter_map(|(i, d)| Some((0xfe00_0000 | i as u32, d.stat(336).filter(|&t| t > 0)?))).collect()
+}
+
+/// The doors of the playfield that open as a character comes up to them: the Whom-Pahs' (template "Dummy Whom-Pah"). In
+/// the original every door's touch (`Door_t`'s FUN_1007fccc) opens it unless FUN_1007fad8 keeps the character out (a lock,
+/// an owned building); only the Whom-Pahs' are opened here, the other doors on a use as before.
+pub(crate) fn approach_doors(db: &ResourceDatabase, playfield: u32) -> std::collections::HashSet<u8> {
+    let Some(object) = db.get(Id { kind: mao_formats::dynels::KIND, instance: playfield }).ok().flatten() else { return Default::default() };
+    let mut names: std::collections::HashMap<u32, bool> = std::collections::HashMap::new();
+    mao_formats::dynels::parse(&object)
+        .into_iter()
+        .filter(|d| d.kind == 0xc748)
+        .filter(|d| {
+            *names.entry(d.template).or_insert_with(|| {
+                db.get(Id { kind: mao_formats::item::TEMPLATE, instance: d.template }).ok().flatten().and_then(|x| mao_formats::item::Item::parse(&x)).is_some_and(|i| i.name.contains("Whom-Pah"))
+            })
+        })
+        .map(|d| (d.instance >> 16) as u8)
+        .collect()
+}
+
 /// The playfield's built-in terminals, booths and signs (its dynel table, the doors left out: the server announces
 /// those), for the mouse to pick: `(kind, instance, position, template, name)`, the name its item template's.
 pub(crate) fn table_dynels(db: &ResourceDatabase, playfield: u32) -> Vec<(u32, u32, [f32; 3], u32, String)> {
@@ -490,6 +529,18 @@ pub(crate) fn load_room_shell(db: &ResourceDatabase, playfield: u32) -> Option<M
 /// goes to (x, z, y).
 /// Returns, for each prop part added, the instance of the mesh it came from.
 pub(crate) fn add_props(game: &str, db: &ResourceDatabase, playfield: u32, model: &mut Model) -> std::collections::HashMap<usize, u32> {
+    add_props_with(game, db, playfield, model, None)
+}
+
+/// A statel's part that moves (its mesh's animation turns it, hides it or scrolls its texture: a Whom-Pah's glowing
+/// tower): drawn each frame at the time, [`net`]'s overlay, at the statel's place.
+pub(crate) struct AnimatedPart {
+    pub(crate) part: std::sync::Arc<(mao_formats::model::Part, mao_formats::model::Animated)>,
+    pub(crate) place: mao_formats::model::Matrix,
+}
+
+/// [`add_props`], the parts that move left out of the model and given to `animated` instead (when there is one).
+pub(crate) fn add_props_with(game: &str, db: &ResourceDatabase, playfield: u32, model: &mut Model, mut animated: Option<&mut Vec<AnimatedPart>>) -> std::collections::HashMap<usize, u32> {
     let mut part_mesh = std::collections::HashMap::new();
     let path = Path::new(game).join(format!("cd_image/data/statels/{playfield}.pf"));
     let Ok(file) = std::fs::read(&path) else { return part_mesh };
@@ -522,6 +573,9 @@ pub(crate) fn add_props(game: &str, db: &ResourceDatabase, playfield: u32, model
     // Each mesh's parts go in once; a statel is an instance of each.
     // (A statel may carry texture overrides for some of its mesh's materials: those get their own copy of the parts.)
     let mut meshes: std::collections::HashMap<(u32, Vec<(u32, u32)>), Option<std::ops::Range<usize>>> = std::collections::HashMap::new();
+    // (and each mesh's moving parts, when they are drawn apart)
+    let mut moving: std::collections::HashMap<(u32, Vec<(u32, u32)>), Vec<std::sync::Arc<(mao_formats::model::Part, mao_formats::model::Animated)>>> = std::collections::HashMap::new();
+    let split = animated.is_some();
     let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     // The ground itself is one instance of each of its parts.
     let ground = model.parts.len();
@@ -583,11 +637,24 @@ pub(crate) fn add_props(game: &str, db: &ResourceDatabase, playfield: u32, model
         let range = meshes
             .entry((s.mesh, overrides.clone()))
             .or_insert_with(|| {
-                let mut m = load_model(db, Id { kind: 0xf6951, instance: s.mesh }).ok()?;
+                let (mut m, anims) = if split { load_model_animated(db, Id { kind: 0xf6951, instance: s.mesh }).ok()? } else { (load_model(db, Id { kind: 0xf6951, instance: s.mesh }).ok()?, Vec::new()) };
                 for (material, texture) in &overrides {
                     if let Some(part) = m.parts.get_mut(*material as usize) {
                         part.material.textures = vec![(0xf6954, *texture)];
                     }
+                }
+                // (the parts that move go apart, drawn each frame; not the plants' leaves and grass, which sway in the shader)
+                if !plant_meshes.contains(&s.mesh) && anims.iter().flatten().any(|a| a.moves()) {
+                    let mut kept = Vec::new();
+                    let mut apart = Vec::new();
+                    for (part, anim) in m.parts.into_iter().zip(anims) {
+                        match anim.filter(|a| a.moves()) {
+                            Some(a) => apart.push(std::sync::Arc::new((part, a))),
+                            None => kept.push(part),
+                        }
+                    }
+                    m.parts = kept;
+                    moving.insert((s.mesh, overrides.clone()), apart);
                 }
                 if plant_meshes.contains(&s.mesh) {
                     plants += 1;
@@ -618,6 +685,9 @@ pub(crate) fn add_props(game: &str, db: &ResourceDatabase, playfield: u32, model
         let Some(range) = range else { continue };
         let place = model::multiply(&model::trs_matrix(s.position, s.rotation, s.scale_xyz), &swap);
         model.instances.extend(range.map(|i| (i, place)));
+        if let (Some(list), Some(parts)) = (animated.as_deref_mut(), moving.get(&(s.mesh, overrides))) {
+            list.extend(parts.iter().map(|p| AnimatedPart { part: p.clone(), place }));
+        }
         placed += 1;
     }
     eprintln!("{placed} of {} statels placed ({} meshes, {plants} of them plants)", statels.len(), meshes.keys().map(|k| k.0).collect::<std::collections::HashSet<_>>().len());
@@ -1758,5 +1828,32 @@ mod market_tests {
         let db = mao_formats::resource::ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap();
         assert_eq!(super::client_window(&db, 0x3eea9), Some(0));
         assert_eq!(super::client_window(&db, 0x913c), None);
+    }
+}
+
+
+
+#[cfg(test)]
+mod animation_tests {
+    /// `MAO_GAME`: Old Athens' Whom-Pah (540): its doors (`whompa_entrance_default_door0`, 297462) open on approach and
+    /// swing open over their animation from the shut pose they are drawn in; the booth's tower glows (its `whompa_fx`
+    /// cylinders scroll their texture), so it is drawn apart; the doors carry their destination signs.
+    #[test]
+    fn the_whompah_doors_swing_and_its_tower_glows() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let db = mao_formats::resource::ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap();
+        let (m, anims) = super::load_model_dynel_animated(&db, mao_formats::resource::Id { kind: 0xf6951, instance: 297462 }).unwrap();
+        let a = anims[0].as_ref().unwrap();
+        assert!(a.moves());
+        let gap = |t: f32| a.world_at(t).0.iter().zip(&m.parts[0].world).map(|(x, y)| (x - y).abs()).fold(0.0f32, f32::max);
+        assert!(gap(0.0) < 1e-4 && gap(a.length()) > 0.5);
+        let doors = super::approach_doors(&db, 540);
+        assert!(!doors.is_empty());
+        let textures = super::static_prop_textures(&db, 540);
+        assert!(textures.iter().any(|&(_, t)| t == 300598));
+        let mut moving = Vec::new();
+        let mut scene = mao_formats::model::Model::default();
+        super::add_props_with(&game.to_string_lossy(), &db, 540, &mut scene, Some(&mut moving));
+        assert!(moving.iter().any(|p| p.part.1.texture_at(1.0).is_some()));
     }
 }

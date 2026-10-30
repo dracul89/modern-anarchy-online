@@ -361,6 +361,14 @@ struct World {
     vendor_templates: BTreeMap<u32, u32>,
     /// Each vending machine's name (its `NameTemplate` item's, stat 446).
     vendor_names: BTreeMap<u32, String>,
+    /// A machine's outer texture (`OverrideTexture`, stat 336), put on its mesh's outer materials.
+    prop_textures: BTreeMap<u32, u32>,
+    /// The statels' moving parts (`crate::AnimatedPart`), drawn each frame.
+    animated_statels: Arc<Vec<crate::AnimatedPart>>,
+    /// The doors that open as the character comes up to them (by number).
+    approach_doors: std::collections::HashSet<u8>,
+    /// Each door's last change: opening (true) or closing, and when (its animation runs from then).
+    door_motion: BTreeMap<u8, (bool, Instant)>,
 }
 
 /// A fighting character turning to face its target, as its state machine does: `CharFight_t` (FUN_1007bd5f, its step
@@ -459,6 +467,8 @@ const DOOR_STATUS: u32 = 0x4c7d403b;
 const DOOR_TYPE: u32 = 0xc748;
 /// How long a door that was used stays open.
 const DOOR_OPEN: Duration = Duration::from_secs(5);
+/// How close the character comes to a door that opens on approach before it opens (its leaves' reach).
+const APPROACH_REACH: f32 = 4.0;
 /// A door the server opened, until it says closed.
 const SERVER_OPEN: Duration = Duration::from_secs(24 * 3600);
 
@@ -658,6 +668,42 @@ impl World {
         }
     }
 
+    /// A frame's doors: those that open on approach opened while the character is at them (FUN_1007fccc on its touch: the
+    /// door's state machine opens it, FUN_10080477 → FUN_10080319, and it closes again a while after), and each door's
+    /// change from shut to open or back noted for its animation (FUN_1008563d plays the mesh's animation forward from 0,
+    /// FUN_10085684 back from its end; FUN_10088970 steps it each frame).
+    fn tick_doors(&mut self, own: [f32; 3]) {
+        let now = Instant::now();
+        for (&n, &(_, at)) in &self.door_slots {
+            if self.approach_doors.contains(&n) && (at[0] - own[0]).hypot(at[2] - own[2]) < APPROACH_REACH && (at[1] - own[1]).abs() < 3.0 {
+                let until = now + DOOR_OPEN;
+                let open = self.doors_open.entry(n).or_insert(until);
+                if *open < until {
+                    *open = until;
+                }
+            }
+        }
+        for &n in self.door_slots.keys() {
+            let open = self.doors_open.get(&n).is_some_and(|until| *until > now);
+            match self.door_motion.get(&n) {
+                Some(&(was, _)) if was == open => {}
+                None if !open => {}
+                _ => {
+                    self.door_motion.insert(n, (open, now));
+                }
+            }
+        }
+    }
+
+    /// A door's animation time: from 0 shut to its length open, run on from its last change.
+    fn door_time(&self, n: u8, length: f32) -> f32 {
+        match self.door_motion.get(&n) {
+            Some(&(true, since)) => since.elapsed().as_secs_f32().min(length),
+            Some(&(false, since)) => (length - since.elapsed().as_secs_f32()).max(0.0),
+            None => 0.0,
+        }
+    }
+
     /// Opens the door that was used, if the id is one.
     fn door_used(&mut self, id: u32) {
         if self.types.get(&id) == Some(&DOOR_TYPE) {
@@ -671,6 +717,8 @@ impl World {
     fn set_static_props(&mut self, props: Vec<(u32, (u32, [f32; 3], [f32; 4]), Option<u8>)>) {
         self.door_slots.clear();
         self.doors_open.clear();
+        self.door_motion.clear();
+        self.prop_textures.retain(|k, _| *k < 0xfe00_0000);
         for (key, prop, door) in props {
             if let Some(n) = door {
                 self.door_slots.insert(n, (key, prop.1));
@@ -774,12 +822,23 @@ impl World {
                     self.objects.insert(m.identity.1, [f("X"), f("Y"), f("Z")]);
                     // (its name: SimpleItem_t's FUN_100809a0 takes the `NameTemplate` stat's (446) item template's name, the
                     // `StaticInstance` being the machine all the shops share, "Specialist Commerce")
-                    let name = match p.value.get("Stats") {
-                        Some(mao_net::schema::Value::List(stats)) => stats.iter().find(|s| s.get("Item1").and_then(mao_net::schema::Value::as_int) == Some(446)).and_then(|s| s.get("Item2")?.as_int()),
+                    let stat = |key: i64| match p.value.get("Stats") {
+                        Some(mao_net::schema::Value::List(stats)) => stats.iter().find(|s| s.get("Item1").and_then(mao_net::schema::Value::as_int) == Some(key)).and_then(|s| s.get("Item2")?.as_int()),
                         _ => None,
+                    };
+                    let name_template = stat(446).filter(|&t| t > 0 && t != 1_234_567_890).map(|t| t as u32);
+                    let name = name_template.and_then(template_name);
+                    // (its skin: FUN_1008746a gives the visual `OverrideTexture` (336) after the mesh, `SetOverrideTexture`;
+                    // the stat as the dynel has it, else its name template's: the ICC shops' sign is in that texture)
+                    let skin = stat(336).filter(|&t| t > 0).map(|t| t as u32).or_else(|| name_template.and_then(|t| template_stat(t, 336)).filter(|&t| t > 0).map(|t| t as u32));
+                    match skin {
+                        Some(t) => {
+                            self.prop_textures.insert(m.identity.1, t);
+                        }
+                        None => {
+                            self.prop_textures.remove(&m.identity.1);
+                        }
                     }
-                    .filter(|&t| t > 0 && t != 1_234_567_890)
-                    .and_then(|t| template_name(t as u32));
                     match name {
                         Some(name) => {
                             self.vendor_names.insert(m.identity.1, name.clone());
@@ -1683,8 +1742,8 @@ struct Characters {
     /// The weapon each character held when last drawn, in or out of a fight, to play the wield and the unwield.
     wielded: std::collections::HashMap<u32, Option<(u32, u32)>>,
     started: Instant,
-    /// Machine models by mesh instance.
-    props: std::collections::HashMap<u32, Option<Vec<Part>>>,
+    /// Machine models by mesh instance, with each part's animation.
+    props: std::collections::HashMap<u32, Option<(Vec<Part>, Vec<Option<mao_formats::model::Animated>>)>>,
     /// Worn static meshes (hair, helmets, weapons, shoulder pads) by instance.
     statics: std::collections::HashMap<u32, Option<Model>>,
     /// The player head meshes (`head_solitusmale12.abiff` and so on): an appearance update that names one at position 0 replaces
@@ -1884,9 +1943,18 @@ impl Characters {
     }
 
     /// The parts of a machine's model (Y-up local space), loaded once.
-    fn prop_parts(&mut self, mesh: u32) -> Option<&Vec<Part>> {
+    fn prop_parts(&mut self, mesh: u32) -> Option<&(Vec<Part>, Vec<Option<mao_formats::model::Animated>>)> {
         let db = self.db.clone();
-        self.props.entry(mesh).or_insert_with(|| crate::load_model_dynel(&db, mao_formats::resource::Id { kind: 0xf6951, instance: mesh }).ok().map(|m| m.parts)).as_ref()
+        self.props
+            .entry(mesh)
+            .or_insert_with(|| {
+                crate::load_model_dynel_animated(&db, mao_formats::resource::Id { kind: 0xf6951, instance: mesh }).ok().map(|(m, a)| {
+                    // (only the animations that move anything are kept)
+                    let a = a.into_iter().map(|a| a.filter(|a| a.moves())).collect();
+                    (m.parts, a)
+                })
+            })
+            .as_ref()
     }
 
     /// The parts of a creature or NPC from its template (the CAT mesh and
@@ -2656,7 +2724,7 @@ fn is_grid(areas: &[mao_formats::areas::Area]) -> bool {
 
 /// The entities' markers alone (own character red, the others blue): two
 /// parts and an instance per entity, placed Z-up.
-fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>, characters: &mut Option<Characters>, include: &dyn Fn(u32) -> bool) -> (Model, Vec<crate::blobshadow::Caster>) {
+fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>, characters: &mut Option<Characters>, include: &dyn Fn(u32) -> bool, statels: bool) -> (Model, Vec<crate::blobshadow::Caster>) {
     let mut model = Model { parts: vec![marker([0.9, 0.1, 0.1]), marker([0.2, 0.4, 0.95]), nose(), marker([0.2, 0.8, 0.3])], instances: Vec::new(), water: None, lod_groups: Vec::new() };
     // (the characters' meshes throw the original's blob shadows: each is noted as a caster)
     let mut casters = Vec::new();
@@ -2758,19 +2826,56 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
     }
     // The machines (shop booths): one copy of each model's parts, an instance of each per machine.
     if let Some(chars) = characters.as_mut() {
-        let mut copies: std::collections::HashMap<u32, Option<std::ops::Range<usize>>> = std::collections::HashMap::new();
-        // (the doors that were used and have not closed again are not drawn)
+        let mut copies: std::collections::HashMap<(u32, Option<u32>), Option<std::ops::Range<usize>>> = std::collections::HashMap::new();
+        // (the doors that were used and have not closed again: a door with an animation swings, one without is not drawn)
         let open: std::collections::HashSet<u32> = world.doors_open.iter().filter(|(_, until)| **until > Instant::now()).filter_map(|(n, _)| world.door_slots.get(n).map(|s| s.0)).collect();
+        let door_of: BTreeMap<u32, u8> = world.door_slots.iter().map(|(&n, s)| (s.0, n)).collect();
         for (&id, &(mesh, position, q)) in props {
-            if !include(id) || open.contains(&id) {
+            if !include(id) {
+                continue;
+            }
+            let skin = world.prop_textures.get(&id).copied();
+            let animated = chars.prop_parts(mesh).is_some_and(|(_, a)| a.iter().any(Option::is_some));
+            if open.contains(&id) && !animated {
+                continue;
+            }
+            if animated {
+                // (a moving machine or door: its own copy of the parts at its time, the door's from its state, the others
+                // the clock's)
+                let Some((parts, anims)) = chars.prop_parts(mesh) else { continue };
+                let length = anims.iter().flatten().map(|a| a.length()).fold(0.0, f32::max);
+                let time = match door_of.get(&id) {
+                    Some(&n) => world.door_time(n, length),
+                    None => animation_clock(),
+                };
+                let place = model::multiply(&model::trs_matrix(position, q, [1.0; 3]), &swap);
+                for (p, a) in parts.iter().zip(anims) {
+                    let mut p = p.clone();
+                    if let Some(a) = a {
+                        let (w, visible) = a.world_at(time);
+                        if !visible {
+                            continue;
+                        }
+                        p.world = w;
+                        if let Some(t) = a.texture_at(time) {
+                            shift_uv(&mut p, t);
+                        }
+                    }
+                    outer_texture(&mut p, skin);
+                    model.parts.push(p);
+                    model.instances.push((model.parts.len() - 1, place));
+                }
                 continue;
             }
             let range = copies
-                .entry(mesh)
+                .entry((mesh, skin))
                 .or_insert_with(|| {
-                    let parts = chars.prop_parts(mesh)?;
+                    let (parts, _) = chars.prop_parts(mesh)?;
                     let start = model.parts.len();
-                    model.parts.extend(parts.iter().cloned());
+                    model.parts.extend(parts.iter().cloned().map(|mut p| {
+                        outer_texture(&mut p, skin);
+                        p
+                    }));
                     Some(start..model.parts.len())
                 })
                 .clone();
@@ -2779,7 +2884,60 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
             model.instances.extend(range.map(|i| (i, place)));
         }
     }
+    // The statels' moving parts near the character, at the clock's time.
+    if statels {
+        let time = animation_clock();
+        let own = world.position_of(world.own);
+        for a in world.animated_statels.iter() {
+            let (part, anim) = &*a.part;
+            // (Z-up place: x, z, y)
+            if let Some(o) = own {
+                let (dx, dz) = (a.place[12] - o[0], a.place[13] - o[2]);
+                if dx * dx + dz * dz > STATEL_ANIMATION_RANGE * STATEL_ANIMATION_RANGE {
+                    continue;
+                }
+            }
+            let (w, visible) = anim.world_at(time);
+            if !visible {
+                continue;
+            }
+            let mut p = part.clone();
+            p.world = w;
+            if let Some(t) = anim.texture_at(time) {
+                shift_uv(&mut p, t);
+            }
+            model.parts.push(p);
+            model.instances.push((model.parts.len() - 1, a.place));
+        }
+    }
     (model, casters)
+}
+
+/// How far from the character the statels' moving parts are drawn.
+const STATEL_ANIMATION_RANGE: f32 = 250.0;
+
+/// The seconds the looping animations (the statels', the machines') are at.
+fn animation_clock() -> f32 {
+    static START: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+    START.get_or_init(Instant::now).elapsed().as_secs_f32()
+}
+
+/// A part's texture coordinates through its animation's texture transform (randy31's `rasterize`: the texture matrix
+/// `u * a + c`, `v * b + d` on stages 0 and 1).
+fn shift_uv(p: &mut Part, [a, b, c, d]: [f32; 4]) {
+    for v in &mut p.vertices {
+        v.uv = [v.uv[0] * a + c, v.uv[1] * b + d];
+    }
+}
+
+/// `ChangeOuterTexture`: DisplaySystem's FUN_10071064 puts the outer request's texture on each material whose name has
+/// neither "face" nor "under" in it (FUN_10070f1f).
+fn outer_texture(p: &mut Part, skin: Option<u32>) {
+    if let Some(t) = skin.filter(|_| !p.material.name.contains("face") && !p.material.name.contains("under")) {
+        for tex in &mut p.material.textures {
+            *tex = (0xf6954, t);
+        }
+    }
 }
 
 /// The playfield with a marker at each entity (the character in red, the
@@ -2812,7 +2970,7 @@ fn show_world(game: &str, playfield: u32, world: &World, image: Option<&str>) ->
     let mut world_props = world.props.clone();
     world_props.extend(crate::static_props(&db, playfield).into_iter().map(|(k, p, _)| (k, p)));
     eprintln!("{} machines with a model", world_props.len());
-    let (overlay, _) = overlay_model(world, &world_props, &mut characters, &|_| true);
+    let (overlay, _) = overlay_model(world, &world_props, &mut characters, &|_| true, true);
     let offset = scene.parts.len();
     scene.parts.extend(overlay.parts);
     scene.instances.extend(overlay.instances.into_iter().map(|(i, m)| (i + offset, m)));
@@ -2940,6 +3098,8 @@ pub(crate) struct Area {
     pub(crate) teleportals: Vec<mao_formats::surface::Teleportal>,
     /// The zones' surfaces for the vehicle (none without any).
     pub(crate) zones: Option<Arc<mao_formats::zones::Zones>>,
+    /// The statels' moving parts, drawn each frame.
+    pub(crate) animated: Vec<crate::AnimatedPart>,
 }
 
 pub(crate) fn load_area(game: &str, db: &Arc<ResourceDatabase>, playfield: u32) -> Result<Area, String> {
@@ -2955,8 +3115,9 @@ pub(crate) fn load_area_with(game: &str, db: &Arc<ResourceDatabase>, playfield: 
     let terrain = crate::load_terrain_data(db, playfield).ok().map(Arc::new);
     let ground_parts = scene.parts.len();
     profile!("[profile] area {playfield}: terrain {:?}", started.elapsed());
-    let part_mesh = crate::add_props(game, db, playfield, &mut scene);
-    profile!("[profile] area {playfield}: props {:?} ({} parts)", started.elapsed(), scene.parts.len());
+    let mut animated = Vec::new();
+    let part_mesh = crate::add_props_with(game, db, playfield, &mut scene, Some(&mut animated));
+    profile!("[profile] area {playfield}: props {:?} ({} parts, {} moving)", started.elapsed(), scene.parts.len(), animated.len());
     if scene.instances.is_empty() {
         scene.instances.extend((0..ground_parts).map(|i| (i, model::IDENTITY)));
     }
@@ -3020,7 +3181,7 @@ pub(crate) fn load_area_with(game: &str, db: &Arc<ResourceDatabase>, playfield: 
     if let Some(e) = &base_environment {
         eprintln!("playfield {playfield}: environment weather {:?} ambient {:?} fog {:?} density {}", &e[..8], &e[19..22], &e[22..25], e[25]);
     }
-    Ok(Area { scene, terrain, collision, booths, areas, base_environment, teleportals, zones })
+    Ok(Area { scene, terrain, collision, booths, areas, base_environment, teleportals, zones, animated })
 }
 
 /// The label over each whompah booth: where it leads, when that is known.
@@ -3053,7 +3214,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     let db = Arc::new(ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?);
     crate::effects::load_calibration(game);
     let textures = crate::Textures::new(db.clone());
-    let Area { scene, terrain, collision, booths, areas, base_environment, teleportals, zones } = load_area_with(game, &db, playfield, Some(&textures))?;
+    let Area { scene, terrain, collision, booths, areas, base_environment, teleportals, zones, animated } = load_area_with(game, &db, playfield, Some(&textures))?;
+    state.animated_statels = Arc::new(animated);
     let mut teleportals = teleportals;
     let mut zones = zones;
     let mut areas = areas;
@@ -3062,6 +3224,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     let thread_textures = textures.clone_handle();
     let started_props = Instant::now();
     state.set_static_props(crate::static_props(&db, playfield));
+    state.prop_textures.extend(crate::static_prop_textures(&db, playfield));
+    state.approach_doors = crate::approach_doors(&db, playfield);
     state.table = crate::table_dynels(&db, playfield);
     profile!("[profile] static_props {:?}", started_props.elapsed());
     let (mut terrain, mut collision) = (terrain, collision);
@@ -3712,6 +3876,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         Ok(area) => {
                             (terrain, collision, teleportals, zones) = (area.terrain, area.collision, area.teleportals, area.zones);
                             state.set_static_props(crate::static_props(&thread_db, playfield));
+                            state.prop_textures.extend(crate::static_prop_textures(&thread_db, playfield));
+                            state.approach_doors = crate::approach_doors(&thread_db, playfield);
+                            state.animated_statels = Arc::new(area.animated);
                             state.table = crate::table_dynels(&thread_db, playfield);
                             let mut scene = area.scene;
                             if terrain.is_none() && crate::load_rooms(&thread_db, playfield).is_none() {
@@ -4917,6 +5084,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             if last_overlay.elapsed() >= Duration::from_millis(33) {
                 last_overlay = Instant::now();
                 let built = Instant::now();
+                state.tick_doors(position);
                 // (characters farther than the setting are not drawn; 0 draws all)
                 let reach = keys.char_distance;
                 let near = |id: u32| reach <= 0.0 || state.entities.get(&id).is_none_or(|e| ((e.0[0] - position[0]).powi(2) + (e.0[2] - position[2]).powi(2)).sqrt() <= reach);
@@ -4949,8 +5117,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 state.morphs.retain(|who, _| *who == own || state.morphed_until.contains_key(who));
                 // (the deformer hits run their course: the control ends at its duration)
                 state.deforms.retain(|_, (d, at)| d.duration <= 0.0 || at.elapsed().as_secs_f32() < d.duration);
-                let (model, mut casters) = overlay_model(&state, &state.props, &mut characters, &|id| id != own && near(id));
-                let (own_model, own_casters) = overlay_model(&state, &state.props, &mut characters, &|id| id == own);
+                let (model, mut casters) = overlay_model(&state, &state.props, &mut characters, &|id| id != own && near(id), true);
+                let (own_model, own_casters) = overlay_model(&state, &state.props, &mut characters, &|id| id == own, false);
                 // The notes the animations went past play their sounds at the characters (FUN_100452d3), on the material
                 // under each one; and the deaths theirs.
                 if let Some(c) = &mut characters {

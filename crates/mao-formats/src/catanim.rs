@@ -350,7 +350,7 @@ fn around(times: impl Fn(usize) -> f32, count: usize, time: f32) -> (usize, usiz
     (lo, hi, f)
 }
 
-fn slerp(a: [f32; 4], b: [f32; 4], t: f32) -> [f32; 4] {
+pub(crate) fn slerp(a: [f32; 4], b: [f32; 4], t: f32) -> [f32; 4] {
     let mut d = a.iter().zip(&b).map(|(x, y)| x * y).sum::<f32>();
     let flip = d < 0.0;
     if flip {

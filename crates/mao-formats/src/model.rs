@@ -366,7 +366,7 @@ fn simple_mesh(a: &Archive, s: &Stream, name: &str, world: Matrix, out: &mut Vec
     Ok(())
 }
 
-fn walk(a: &Archive, index: i32, parent: &Matrix, depth: usize, root: Root, out: &mut Vec<Part>) -> Result<(), Error> {
+fn walk(a: &Archive, index: i32, parent: &Matrix, depth: usize, root: Root, out: &mut Vec<Part>, chain: &mut Vec<Step>, anims: &mut Vec<Option<Animated>>) -> Result<(), Error> {
     if depth > 64 {
         return Err(Error::Shape("a frame tree deeper than 64"));
     }
@@ -391,20 +391,233 @@ fn walk(a: &Archive, index: i32, parent: &Matrix, depth: usize, root: Root, out:
         Root::None if depth == 0 => *parent,
         _ => multiply(&local_matrix(a, frame), parent),
     };
+    chain.push(match root {
+        Root::None if depth == 0 => Step { trs: IDENTITY, saved: None, keys: None, zero_translation: false },
+        _ => Step { trs: trs_of(frame), saved: saved_anim_matrix(frame), keys: keys(a, frame).map(std::sync::Arc::new), zero_translation: root == Root::Rotation && depth == 0 },
+    });
     if a.class(index as usize) == Some("RTriMesh_t") {
         if let Some(data) = frame.int("0", "data").and_then(|d| a.objects.get(d as usize)) {
             let name = string(data, "name");
             for m in refs(data, "mesh") {
                 if let Some(s) = a.objects.get(m as usize) {
+                    let before = out.len();
                     simple_mesh(a, s, &name, world, out)?;
+                    if out.len() > before {
+                        anims.push(chain.iter().any(|s| s.keys.is_some()).then(|| Animated { chain: chain.clone() }));
+                    }
                 }
             }
         }
     }
     for child in refs(frame, "chld") {
-        walk(a, child, &world, depth + 1, root, out)?;
+        walk(a, child, &world, depth + 1, root, out, chain, anims)?;
     }
+    chain.pop();
     Ok(())
+}
+
+/// A frame's animation (`FAFAnim_t`, the original's randy31 `RKeyFrameAnimation_t`: `AnarchyReimagined`
+/// `dropin/randy31/src/keyanim.rs`): keys at times for the translation (`trans_keys`, 16 bytes: x y z, the time), the
+/// rotation (`rot_keys`, 20: a quaternion x y z w, the time), the visibility (`vis_keys`, 8: the time, a flag byte) and the
+/// texture transform (`uv_keys`, 24: the u and v scales, the u and v offsets, the time, whether the offsets are blended); its
+/// length (`tot_time`) and whether it loops (`loop`).
+#[derive(Clone, Debug, Default)]
+pub struct Keys {
+    pub length: f32,
+    pub looped: bool,
+    pub translations: Vec<([f32; 3], f32)>,
+    pub rotations: Vec<([f32; 4], f32)>,
+    pub visibility: Vec<(f32, bool)>,
+    pub textures: Vec<([f32; 4], f32, bool)>,
+}
+
+impl Keys {
+    /// FUN_10028fde: the animation's matrix (the rotation and the translation; the rest the identity's) and visibility at
+    /// `time` (past the length: its remainder when looping, else the length; each track no later than its last key), the
+    /// translation blended and the rotation slerped between the keys about it.
+    pub fn evaluate(&self, time: f32) -> (Matrix, bool) {
+        let mut t = time;
+        if self.length < t {
+            t = if self.looped && self.length > 0.0 { t % self.length } else { self.length };
+        }
+        // (the key at or before `t` and the share of the way to the next)
+        fn around(times: &[f32], t: f32) -> (usize, Option<(usize, f32)>) {
+            let last = times.len() - 1;
+            let t = t.min(times[last]);
+            let k = times.iter().rposition(|&k| k <= t).unwrap_or(0);
+            if times[k] == t || k == last {
+                (k, None)
+            } else {
+                (k, Some((k + 1, (t - times[k]) / (times[k + 1] - times[k]))))
+            }
+        }
+        let mut p = [0.0; 3];
+        if !self.translations.is_empty() {
+            let times: Vec<f32> = self.translations.iter().map(|k| k.1).collect();
+            p = match around(&times, t) {
+                (k, None) => self.translations[k].0,
+                (k, Some((n, f))) => {
+                    let (a, b) = (self.translations[k].0, self.translations[n].0);
+                    [0, 1, 2].map(|i| a[i] * (1.0 - f) + b[i] * f)
+                }
+            };
+        }
+        let mut q = [0.0, 0.0, 0.0, 1.0];
+        if !self.rotations.is_empty() {
+            let times: Vec<f32> = self.rotations.iter().map(|k| k.1).collect();
+            q = match around(&times, t) {
+                (k, None) => self.rotations[k].0,
+                (k, Some((n, f))) => crate::catanim::slerp(self.rotations[k].0, self.rotations[n].0, f),
+            };
+        }
+        let visible = if self.visibility.is_empty() {
+            true
+        } else {
+            let times: Vec<f32> = self.visibility.iter().map(|k| k.0).collect();
+            self.visibility[around(&times, t).0].1
+        };
+        (trs_matrix(p, q, [1.0; 3]), visible)
+    }
+
+    /// The texture transform at `time` (u scale, v scale, u offset, v offset), when there are two keys or more: the
+    /// scales blended between the keys about it, the offsets too when the key says so, else the key's (FUN_10028fde's tail).
+    pub fn texture(&self, time: f32) -> Option<[f32; 4]> {
+        if self.textures.len() < 2 {
+            return None;
+        }
+        let mut t = time;
+        if self.length < t {
+            t = if self.looped && self.length > 0.0 { t % self.length } else { self.length };
+        }
+        let last = self.textures.len() - 1;
+        let t = t.min(self.textures[last].1);
+        let k = self.textures.iter().rposition(|k| k.1 <= t).unwrap_or(0);
+        let (v0, t0, blend) = self.textures[k];
+        if t0 == t || k == last {
+            return Some(v0);
+        }
+        let (v1, t1, _) = self.textures[k + 1];
+        let f = (t - t0) / (t1 - t0);
+        let mix = |i: usize| v1[i] * f + v0[i] * (1.0 - f);
+        Some(if blend { [mix(0), mix(1), mix(2), mix(3)] } else { [mix(0), mix(1), v0[2], v0[3]] })
+    }
+}
+
+/// One frame on the way from a mesh's root to a part: its own transform, the `anim_matrix` it was saved with and its
+/// animation.
+#[derive(Clone, Debug)]
+pub struct Step {
+    trs: Matrix,
+    saved: Option<Matrix>,
+    keys: Option<std::sync::Arc<Keys>>,
+    /// The root of a placed mesh: its position left out (see `walk`).
+    zero_translation: bool,
+}
+
+/// A part whose frames (its own or one above it) are animated: its world matrix at a time, as the original's
+/// `RRefFrame_t::SetAnimationTime` (each animated frame's matrix evaluated at the time wrapped into its length, its length
+/// itself for a whole multiple) and `UpdateWorldMatrix` (`anim * TRS * parent`) make it.
+#[derive(Clone, Debug)]
+pub struct Animated {
+    chain: Vec<Step>,
+}
+
+impl Animated {
+    /// The part's world matrix at `time` (seconds) and whether its frames are all visible.
+    pub fn world_at(&self, time: f32) -> (Matrix, bool) {
+        let mut world = IDENTITY;
+        let mut visible = true;
+        for s in &self.chain {
+            let anim = match &s.keys {
+                Some(k) => {
+                    let mut t = if k.length > 0.0 { time % k.length } else { 0.0 };
+                    if t == 0.0 && time > 0.0 {
+                        t = k.length;
+                    }
+                    let (m, v) = k.evaluate(t);
+                    visible &= v;
+                    Some(m)
+                }
+                None => s.saved,
+            };
+            let mut m = anim.map_or(s.trs, |a| multiply(&a, &s.trs));
+            if s.zero_translation {
+                m[12] = 0.0;
+                m[13] = 0.0;
+                m[14] = 0.0;
+            }
+            world = multiply(&m, &world);
+        }
+        (world, visible)
+    }
+
+    /// The texture transform of the part's own frame's animation at `time` (visual.rs `rasterize`: stage 0's texture matrix,
+    /// `u * a + c`, `v * b + d`).
+    pub fn texture_at(&self, time: f32) -> Option<[f32; 4]> {
+        let k = self.chain.last()?.keys.as_ref()?;
+        let mut t = if k.length > 0.0 { time % k.length } else { 0.0 };
+        if t == 0.0 && time > 0.0 {
+            t = k.length;
+        }
+        k.texture(t)
+    }
+
+    /// Whether anything about the part changes with time (its place, its visibility or its texture), sampled across its
+    /// length.
+    pub fn moves(&self) -> bool {
+        let length = self.length();
+        if length <= 0.0 {
+            return false;
+        }
+        let (w0, v0) = self.world_at(0.0);
+        let u0 = self.texture_at(0.0);
+        (1..=16).any(|k| {
+            let t = length * k as f32 / 16.0;
+            let (w, v) = self.world_at(t);
+            v != v0 || w.iter().zip(&w0).any(|(a, b)| (a - b).abs() > 1e-4) || self.texture_at(t) != u0
+        })
+    }
+
+    /// The longest of its animations (the "animation tree's total time", `GetAnimationTreeTotalTime`).
+    pub fn length(&self) -> f32 {
+        self.chain.iter().filter_map(|s| s.keys.as_ref().map(|k| k.length)).fold(0.0, f32::max)
+    }
+}
+
+/// A frame's own transform: its rotation, scale and position.
+fn trs_of(frame: &Stream) -> Matrix {
+    let scale = float_field(frame, "scale").and_then(|v| v.first().copied()).unwrap_or(1.0);
+    let q = float_field(frame, "local_rot").filter(|q| q.len() == 4).unwrap_or(vec![0.0, 0.0, 0.0, 1.0]);
+    let p = float_field(frame, "local_pos").filter(|p| p.len() == 3).unwrap_or(vec![0.0; 3]);
+    trs_matrix([p[0], p[1], p[2]], [q[0], q[1], q[2], q[3]], [scale; 3])
+}
+
+fn saved_anim_matrix(frame: &Stream) -> Option<Matrix> {
+    float_field(frame, "anim_matrix").filter(|a| a.len() == 16).map(|a| a.try_into().unwrap())
+}
+
+/// A frame's animation's keys, when it has an animation.
+fn keys(a: &Archive, frame: &Stream) -> Option<Keys> {
+    let anim = a.objects.get(usize::try_from(frame.int("0", "anim")?).ok()?)?;
+    let data = |name: &str| anim.field("", name).and_then(|f| f.values.first()).map(|v| floats(v)).unwrap_or_default();
+    let translations: Vec<([f32; 3], f32)> = data("trans_keys").chunks_exact(4).map(|k| ([k[0], k[1], k[2]], k[3])).collect();
+    let rotations: Vec<([f32; 4], f32)> = data("rot_keys").chunks_exact(5).map(|k| ([k[0], k[1], k[2], k[3]], k[4])).collect();
+    let visibility: Vec<(f32, bool)> = anim
+        .field("", "vis_keys")
+        .and_then(|f| f.values.first())
+        .map(|v| v.chunks_exact(8).map(|k| (f32::from_le_bytes(k[..4].try_into().unwrap()), k[4] != 0)).collect())
+        .unwrap_or_default();
+    let textures: Vec<([f32; 4], f32, bool)> = anim
+        .field("", "uv_keys")
+        .and_then(|f| f.values.first())
+        .map(|v| v.chunks_exact(24).map(|k| { let f = floats(k); ([f[0], f[1], f[2], f[3]], f[4], u32::from_le_bytes(k[20..24].try_into().unwrap()) != 0) }).collect())
+        .unwrap_or_default();
+    if translations.is_empty() && rotations.is_empty() && visibility.is_empty() && textures.is_empty() {
+        return None;
+    }
+    let length = float_field(anim, "tot_time").and_then(|v| v.first().copied()).unwrap_or(0.0);
+    let looped = anim.field("", "loop").and_then(|f| f.values.first()).and_then(|v| v.first()).is_some_and(|&b| b != 0);
+    Some(Keys { length, looped, translations, rotations, visibility, textures })
 }
 
 /// The drawable parts of a mesh object, as an attached mesh (a head, worn gear): the whole root transform applies.
@@ -437,10 +650,27 @@ enum Root {
 
 fn build_with(mesh: &MeshObject, root: Root) -> Result<Model, Error> {
     let a = &mesh.archive;
-    let mut parts = Vec::new();
+    let _ = a;
+    Ok(build_animated(mesh, root)?.0)
+}
+
+/// The parts and, for each, its animation (when a frame on its way from the root has one).
+fn build_animated(mesh: &MeshObject, root: Root) -> Result<(Model, Vec<Option<Animated>>), Error> {
+    let a = &mesh.archive;
+    let (mut parts, mut anims, mut chain) = (Vec::new(), Vec::new(), Vec::new());
     for root_frame in refs(&a.root, "obj") {
-        walk(a, root_frame, &IDENTITY, 0, root, &mut parts)?;
+        walk(a, root_frame, &IDENTITY, 0, root, &mut parts, &mut chain, &mut anims)?;
     }
     let _ = kind::OBJECT;
-    Ok(Model { parts, instances: Vec::new(), water: None, lod_groups: Vec::new() })
+    Ok((Model { parts, instances: Vec::new(), water: None, lod_groups: Vec::new() }, anims))
+}
+
+/// [`build_dynel`]'s parts with their animations (a door's leaves, a Whom-Pah's creature), one per part.
+pub fn build_dynel_animated(mesh: &MeshObject) -> Result<(Model, Vec<Option<Animated>>), Error> {
+    build_animated(mesh, Root::None)
+}
+
+/// [`build_placed`]'s parts with their animations, one per part.
+pub fn build_placed_animated(mesh: &MeshObject) -> Result<(Model, Vec<Option<Animated>>), Error> {
+    build_animated(mesh, Root::Rotation)
 }
