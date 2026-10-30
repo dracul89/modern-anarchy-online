@@ -1605,8 +1605,9 @@ original's `SetAnimationTime` + `UpdateWorldMatrix` (`anim * TRS * parent`) and 
   Whom-Pah") open as the character comes within 4 m and close 5 s after, the other doors on a use as before.
 * **Outer textures.** A dynel's `OverrideTexture` (stat 336) is put on its mesh's materials whose names have neither "face" nor
   "under" (`n3VisualDynel_t::SetOverrideTexture` → `VisualMesh_t::ChangeOuterTexture`, FUN_10070f1f): from the playfield's
-  dynel records (a Whom-Pah door's destination sign) and from the vending machines' announcement, else their `NameTemplate`
-  item's (the ICC shops' signs).
+  dynel records (a Whom-Pah door's destination sign; a record without its own takes its item template's, as with the mesh:
+  the ICC shops' machines are table records of their shop's template, "ICC Tech Supplies", on the shared "Specialist
+  Commerce" mesh) and from the vending machines' announcement, else their `NameTemplate` item's.
 * **Statels.** Their parts whose animation moves anything (not the plants, which sway in the shader) are kept out of the static
   scene and drawn each frame within 250 m at the clock's time: the Whom-Pah towers' scrolling glow (`whompa_fx`), propellers,
   holograms.

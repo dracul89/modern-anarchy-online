@@ -388,11 +388,26 @@ pub(crate) fn static_props(db: &ResourceDatabase, playfield: u32) -> Vec<(u32, (
         .collect()
 }
 
-/// The outer textures (`OverrideTexture`, stat 336) the playfield's built-in props carry in their own records (a Whom-Pah
-/// door's destination sign), by [`static_props`]' key.
+/// The outer textures (`OverrideTexture`, stat 336) of the playfield's built-in props, by [`static_props`]' key: the
+/// record's own (a Whom-Pah door's destination sign), else its item template's, as with the mesh (an ICC shop's vending
+/// machine, "ICC Tech Supplies", has no stats of its own: its sign is its template's 336 on the shared machine mesh).
 pub(crate) fn static_prop_textures(db: &ResourceDatabase, playfield: u32) -> Vec<(u32, u32)> {
     let Some(object) = db.get(Id { kind: mao_formats::dynels::KIND, instance: playfield }).ok().flatten() else { return Vec::new() };
-    mao_formats::dynels::parse(&object).into_iter().enumerate().filter_map(|(i, d)| Some((0xfe00_0000 | i as u32, d.stat(336).filter(|&t| t > 0)?))).collect()
+    let mut templates: std::collections::HashMap<u32, Option<u32>> = std::collections::HashMap::new();
+    mao_formats::dynels::parse(&object)
+        .into_iter()
+        .enumerate()
+        .filter_map(|(i, d)| {
+            let own = d.stat(336).filter(|&t| t > 0);
+            let texture = own.or_else(|| {
+                *templates.entry(d.template).or_insert_with(|| {
+                    let data = db.get(Id { kind: mao_formats::item::TEMPLATE, instance: d.template }).ok().flatten()?;
+                    mao_formats::item::Item::parse(&data)?.stat(336).filter(|&t| t > 0)
+                })
+            })?;
+            Some((0xfe00_0000 | i as u32, texture))
+        })
+        .collect()
 }
 
 /// The doors of the playfield that open as a character comes up to them: the Whom-Pahs' (template "Dummy Whom-Pah"). In
@@ -1851,6 +1866,8 @@ mod animation_tests {
         assert!(!doors.is_empty());
         let textures = super::static_prop_textures(&db, 540);
         assert!(textures.iter().any(|&(_, t)| t == 300598));
+        // (an ICC shop's machine, "ICC Tech Supplies" in 1186, wears its template's sign)
+        assert!(super::static_prop_textures(&db, 1186).iter().any(|&(_, t)| t == 297314));
         let mut moving = Vec::new();
         let mut scene = mao_formats::model::Model::default();
         super::add_props_with(&game.to_string_lossy(), &db, 540, &mut scene, Some(&mut moving));
