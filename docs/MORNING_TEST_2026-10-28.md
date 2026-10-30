@@ -164,6 +164,15 @@ Added after the overnight run, on request: audio through rodio, ported from the 
 | 9d338fc | **Steps, swims, landings and swishes** from the animations' notes; NPCs with animation sets play their own (idles, attack starts) | walk and run past others, jump, punch; listen to monsters |
 | 1893cf0 | **The sound system**: the source files, the engine (13 channels, priorities), distance volume, variants and children, the frame's play list; the listener follows your character | `mao-client "<game>" sound SM_Sandy_Gui_Mission_Complete` should be heard; `MAO_NO_SOUND=1` silences the client |
 
+## 5. Fixes (2026-10-29)
+
+| Commit | Fix | How to check |
+|---|---|---|
+| 982b656 | **Interior floors**: a room's floor is at its lowest cell's height (`CalculateRoomHeights`), not a unit higher; a step out of every room is refused | enter an ICC shop and the Condemned Subway; walk around, and into the walls at the edges |
+| c602c8d | **Selling**: an inventory item dropped on any of the shop's three lists goes in; Ctrl+double-click an inventory item to put it in | open a shop, drag an item from the inventory onto the shop window, Accept |
+| 24c9c6d | **Tabs** open on click (chat, inventory, actions) | click the chat and inventory tabs |
+| 5a057c8 | **Loading screen** closes after login; no white flash | log in |
+
 ## How to run
 
 The release client was rebuilt and restarted after every commit:
