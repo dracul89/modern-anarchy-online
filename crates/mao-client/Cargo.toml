@@ -15,6 +15,8 @@ mao-formats.workspace = true
 mao-net.workspace = true
 mao-render.workspace = true
 pollster = "1.0.1"
+# (the screenshots' local time)
+time = { version = "0.3.55", default-features = false, features = ["std", "local-offset"] }
 rodio = { version = "0.23", default-features = false, features = ["playback", "vorbis", "mp3"] }
 winit = "0.30.13"
 
@@ -24,6 +26,8 @@ winit = "0.30.13"
 [target.'cfg(windows)'.dependencies]
 ureq = { version = "=2.12.1", default-features = false }
 wry = { version = "=0.53.5", default-features = false, features = ["protocol"] }
+# The screenshot key's picture: the game window as it shows on the screen, its open windows and web page too.
+xcap = { version = "=0.7.1", default-features = false }
 
 [lints]
 workspace = true

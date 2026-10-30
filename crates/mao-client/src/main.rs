@@ -25,6 +25,7 @@ macro_rules! profile {
 mod actions;
 mod charcreate;
 mod loading;
+mod screenshot;
 mod prof;
 mod vehicle;
 mod chat_commands;

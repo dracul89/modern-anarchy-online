@@ -1765,18 +1765,30 @@ impl ApplicationHandler for App {
                     w.scene.blobs = blobs;
                 }
                 if std::mem::take(&mut self.screenshot) {
-                    let (width, height) = size;
-                    let (aspect, radius, shot_camera) = (width as f32 / height.max(1) as f32, w.scene.radius, camera);
-                    let format = w.config.format;
-                    let pixels = w.renderer.render_to_image_with(&w.gpu, &w.scene, &camera, width, height, &mut |image| {
-                        let project = |p: mao_render::glam::Vec3| shot_camera.project(p, aspect, radius);
-                        let mut settings = Settings::load();
-                        crate::ui::paint_headless(&w.gpu, image, format, (width, height), &mut settings, &self.hud, &project, false);
+                    // (the window as it shows, with its open windows and the web page: `screenshot.rs`; else the scene and
+                    // the HUD rendered offscreen)
+                    #[cfg(windows)]
+                    let shown = crate::screenshot::capture(&w.window);
+                    #[cfg(not(windows))]
+                    let shown = None;
+                    let (width, height, pixels) = shown.unwrap_or_else(|| {
+                        let (width, height) = size;
+                        let (aspect, radius, shot_camera) = (width as f32 / height.max(1) as f32, w.scene.radius, camera);
+                        let format = w.config.format;
+                        let pixels = w.renderer.render_to_image_with(&w.gpu, &w.scene, &camera, width, height, &mut |image| {
+                            let project = |p: mao_render::glam::Vec3| shot_camera.project(p, aspect, radius);
+                            let mut settings = Settings::load();
+                            crate::ui::paint_headless(&w.gpu, image, format, (width, height), &mut settings, &self.hud, &project, false);
+                        });
+                        (width, height, pixels)
                     });
-                    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
-                    let (day, time) = crate::chatlog::stamp(now);
+                    let name = crate::screenshot::local_stamp().unwrap_or_else(|| {
+                        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+                        let (day, time) = crate::chatlog::stamp(now);
+                        format!("{}-{}", day.trim_end_matches(".txt"), time.replace(':', ""))
+                    });
                     let dir = Settings::path().with_file_name("screenshots");
-                    let path = dir.join(format!("{}-{}.png", day.trim_end_matches(".txt"), time.replace(':', "")));
+                    let path = dir.join(format!("{name}.png"));
                     let saved = std::fs::create_dir_all(&dir).is_ok() && image::save_buffer(&path, &pixels, width, height, image::ColorType::Rgba8).is_ok();
                     self.hud.say(if saved { format!("Screenshot saved: {}", path.display()) } else { "The screenshot could not be saved".to_string() });
                 }
