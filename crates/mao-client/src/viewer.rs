@@ -1365,8 +1365,23 @@ impl ApplicationHandler for App {
                             self.hud.labels = labels.into_iter().map(|(p, text)| Label { world: mao_render::glam::Vec3::from(p), text }).collect();
                         }
                     }
+                    // (a scene, an environment or a daylight comes once, in one update: one that came before the last must
+                    // not be lost with it, or a zoning's new playfield is never drawn and the loading screen stays)
+                    let (mut scene, mut environment, mut daylight) = (None, None, None);
+                    for u in updates.iter_mut().filter(|u| !u.messages_only) {
+                        if let Some(s) = u.scene.take() {
+                            scene = Some(s);
+                        }
+                        if let Some(e) = u.environment.take() {
+                            environment = Some(e);
+                        }
+                        if let Some(d) = u.daylight.take() {
+                            daylight = Some(d);
+                        }
+                    }
                     let latest = updates.into_iter().filter(|u| !u.messages_only).last();
                     if let Some(mut update) = latest {
+                        (update.scene, update.environment, update.daylight) = (scene, environment, daylight);
                         // (the first world update after logging in: the world is in and the loading screen goes,
                         // `StartClosingLoadscreenMessage`; the login's playfield was drawn before the window opened, so no
                         // scene comes with it)
