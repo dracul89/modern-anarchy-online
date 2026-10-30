@@ -301,6 +301,12 @@ pub struct Page {
     _context: wry::WebContext,
     bounds: (i32, i32, u32, u32),
     mode: Mode,
+    /// What the page was opened with: a request for the same is shown again rather than opened anew.
+    pub request: Request,
+    /// Put away while its window is closed: the page is kept, not dropped, so the site's session lives on (dropping the
+    /// last page ends WebView2's browser and its session cookies with it, and the site then refuses the game's ticket a
+    /// second time: "403 Invalid session").
+    hidden: bool,
     /// Pages of the site the page went to directly (a link with its full address), to load through the proxy instead.
     redirected: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
 }
@@ -343,11 +349,32 @@ impl Page {
             .with_url(home)
             .build_as_child(window)
             .map_err(|e| e.to_string())?;
-        Ok(Page { view, _context: context, bounds, mode: request.mode, redirected })
+        Ok(Page { view, _context: context, bounds, mode: request.mode, request: request.clone(), hidden: false, redirected })
+    }
+
+    /// The window closed: the page hidden and the keyboard given back to the game window (a dropped or hidden page that
+    /// kept the focus leaves every key press to a window that rings the error bell).
+    pub fn hide(&mut self) {
+        if !self.hidden {
+            self.hidden = true;
+            let _ = self.view.focus_parent();
+            let _ = self.view.set_visible(false);
+        }
+    }
+
+    /// The window opened again for the same request: the page shown at its home page.
+    pub fn reopen(&mut self) {
+        self.hidden = false;
+        let _ = self.view.set_visible(true);
+        self.navigate(Navigate::Home);
     }
 
     /// Moves the page to `bounds` when it is elsewhere, and loads what was sent to the site directly through the proxy.
     pub fn place(&mut self, bounds: (i32, i32, u32, u32)) {
+        if self.hidden {
+            self.hidden = false;
+            let _ = self.view.set_visible(true);
+        }
         if self.bounds != bounds {
             self.bounds = bounds;
             let _ = self.view.set_bounds(rect(bounds));

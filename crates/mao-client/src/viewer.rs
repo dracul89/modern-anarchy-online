@@ -1860,9 +1860,15 @@ impl ApplicationHandler for App {
                     #[cfg(windows)]
                     match ui.browser_bounds() {
                         Some(bounds) => {
+                            // (a page for another request replaces it, the old one let go only once the new one is up so that
+                            // WebView2's browser, and the site's session, stay)
+                            let mut retired = None;
                             if ui.browser.fresh {
                                 ui.browser.fresh = false;
-                                w.page = None;
+                                match w.page.as_mut() {
+                                    Some(page) if ui.browser.request.as_ref() == Some(&page.request) => page.reopen(),
+                                    _ => retired = w.page.take(),
+                                }
                             }
                             if w.page.is_none() {
                                 if let Some(request) = ui.browser.request.clone() {
@@ -1883,8 +1889,13 @@ impl ApplicationHandler for App {
                                 }
                                 ui.browser.status = page.url();
                             }
+                            drop(retired);
                         }
-                        None => w.page = None,
+                        None => {
+                            if let Some(page) = w.page.as_mut() {
+                                page.hide();
+                            }
+                        }
                     }
                     for event in ui.browser.take_events() {
                         match event {
