@@ -134,6 +134,8 @@ pub struct Update {
     pub special_cooldowns: Vec<(u32, f32)>,
     /// The ground (and how far the server's heights sit above it), to keep the camera above it.
     pub ground: Option<(std::sync::Arc<mao_formats::terrain::Terrain>, f32)>,
+    /// The zones' surfaces (server coordinates), for the camera's lines of sight.
+    pub zones: Option<std::sync::Arc<mao_formats::zones::Zones>>,
     pub own: Option<[f32; 3]>,
     /// The area's environment where the character stands (light and fog), and the day's intensity.
     pub environment: Option<crate::environment::Environment>,
@@ -502,6 +504,7 @@ struct App {
     own_velocity: [f32; 3],
     own_at: std::time::Instant,
     ground: Option<(std::sync::Arc<mao_formats::terrain::Terrain>, f32)>,
+    zones: Option<std::sync::Arc<mao_formats::zones::Zones>>,
     /// The characters' meshes from the last update, and how far the own one has been moved on since.
     casters: Vec<crate::blobshadow::Caster>,
     follow_shift: [f32; 3],
@@ -572,7 +575,7 @@ pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<()
     let settings = Settings::load();
     crate::ui::set_debug_overlay(settings.debug_overlay);
     crate::font::set_enabled(settings.original_font);
-    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, world_in: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), flares: Vec::new(), sky: Default::default(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), fxs_frame: None, script_meshes: Default::default(), named_sheets: Default::default(), trails: Default::default(), motions: Default::default(), shake: (0.0, 0), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, casters: Vec::new(), follow_shift: [0.0; 3], environment: Default::default(), quake: Default::default(), quake_offset: [0.0; 3], wind: Default::default(), wind_at: std::time::Instant::now(), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
+    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, world_in: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), flares: Vec::new(), sky: Default::default(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), fxs_frame: None, script_meshes: Default::default(), named_sheets: Default::default(), trails: Default::default(), motions: Default::default(), shake: (0.0, 0), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, zones: None, casters: Vec::new(), follow_shift: [0.0; 3], environment: Default::default(), quake: Default::default(), quake_offset: [0.0; 3], wind: Default::default(), wind_at: std::time::Instant::now(), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
     // (entering the game: the loading screen, `ServerLogin3DModule_t::InitialiseMessage`)
     if app.live.is_some() {
         crate::loading::begin(crate::loading::FADE_IN, crate::loading::FADE_OUT);
@@ -1353,6 +1356,7 @@ impl ApplicationHandler for App {
                             }
                         }
                         self.ground = update.ground.take();
+                        self.zones = update.zones.take();
                         if let Some(e) = update.environment.take() {
                             self.environment = e;
                         }
@@ -1415,7 +1419,13 @@ impl ApplicationHandler for App {
                         };
                         self.mouse_look = (0.0, 0.0);
                         let ground = self.ground.clone();
+                        let zones = self.zones.clone();
                         let mut los = |a: [f32; 3], b: [f32; 3]| -> bool {
+                            // (the playfield's surfaces block the view too, the walls and floors indoors: the camera vehicle's
+                            // `GetLineIntersection` against the whole surface)
+                            if zones.as_ref().is_some_and(|z| z.line(a, b).is_some()) {
+                                return false;
+                            }
                             let Some((terrain, offset)) = &ground else { return true };
                             let steps = ((a[0] - b[0]).hypot(a[2] - b[2]) / 0.5).ceil().clamp(1.0, 64.0) as usize;
                             (0..=steps).all(|i| {

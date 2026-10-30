@@ -388,7 +388,8 @@ impl Grid {
 }
 
 /// Where a statel of the room's zone stands in the world (and which way it faces): its position is relative to the room's
-/// centre (the height is the world's) and the room's turn turns both.
+/// centre, its height too (`n3Room_t::CalcGlobalFromTemplatePos` adds the room's whole position, +0x50), and the room's
+/// turn turns both.
 pub fn place_statel(room: &Room, position: [f32; 3], rotation: [f32; 4]) -> ([f32; 3], [f32; 4]) {
     let (dx, dz) = room.turn_xz(position[0], position[2]);
     let half = room.turn() as f32 * std::f32::consts::FRAC_PI_4;
@@ -401,7 +402,7 @@ pub fn place_statel(room: &Room, position: [f32; 3], rotation: [f32; 4]) -> ([f3
         a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3],
         a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2],
     ];
-    ([room.position[0] + dx, position[1], room.position[2] + dz], q)
+    ([room.position[0] + dx, room.position[1] + position[1], room.position[2] + dz], q)
 }
 
 /// The room's water triangles in the viewer's Z-up world, placed like its statels, with each one's liquid kind.

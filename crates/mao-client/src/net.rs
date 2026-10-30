@@ -5196,6 +5196,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         tags
                     },
                     ground: terrain.clone().map(|t| (t, offset)),
+                    zones: zones.clone(),
                     own: Some(position),
                     environment: Some(crate::environment::compute(&areas, base_environment.as_ref(), position, state.game_clock.day(), state.game_clock.seconds(), state.game_clock.day_intensity())),
                     daylight: Some(state.game_clock.day_intensity()),

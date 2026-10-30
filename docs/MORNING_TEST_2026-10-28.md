@@ -168,6 +168,7 @@ Added after the overnight run, on request: audio through rodio, ported from the 
 
 | Commit | Fix | How to check |
 |---|---|---|
+| (next) | **Shop interiors**: the props stand in the rooms (a room's statels' heights are the room's too, `CalcGlobalFromTemplatePos`), not under the floor; the camera stays inside, its view blocked by the walls and floors (the zones' surfaces) | enter a shop: counters, racks and lamps in place; turn the camera against a wall |
 | 982b656 | **Interior floors**: a room's floor is at its lowest cell's height (`CalculateRoomHeights`), not a unit higher; a step out of every room is refused | enter an ICC shop and the Condemned Subway; walk around, and into the walls at the edges |
 | c602c8d | **Selling**: an inventory item dropped on any of the shop's three lists goes in; Ctrl+double-click an inventory item to put it in | open a shop, drag an item from the inventory onto the shop window, Accept |
 | 24c9c6d | **Tabs** open on click (chat, inventory, actions) | click the chat and inventory tabs |
