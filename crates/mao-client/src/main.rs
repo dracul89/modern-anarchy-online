@@ -1501,6 +1501,10 @@ fn run(args: &[String]) -> Result<(), String> {
                         window.apply(Event::Text(npc, 0, "Every one is cut for the climate of Omni-1.".into()));
                         window.apply(Event::Text(npc, 4, "smiles proudly.".into()));
                         window.apply(Event::Answers(npc, vec!["What does a trenchcoat cost?".into(), "Do you have anything for a Fixer?".into(), "Goodbye.".into()]));
+                        // (MAO_NPC_TRADE=1: the NPC's trade bar open, three slots)
+                        if std::env::var_os("MAO_NPC_TRADE").is_some() {
+                            window.apply(Event::StartTrade(npc, 3, "Bring me three Old Bones and I will reward you.".into()));
+                        }
                         *hud.npc_chat_preview.lock().unwrap() = Some(window);
                     }
                     if preview.as_deref() == Some("shop") {

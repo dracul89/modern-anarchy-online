@@ -379,6 +379,22 @@ pub fn npc_chat_close(character: u32, npc: (u32, u32)) -> Frame {
     knubot(character, 0x270a4c62, npc, &[0, 0])
 }
 
+/// `KnubotStartTrade` (`7864401d`): Give, asking the NPC for its trade (`N3Msg_NPCChatStartTrade`: no slots, an empty text).
+pub fn npc_trade_start(character: u32, npc: (u32, u32)) -> Frame {
+    knubot(character, 0x7864401d, npc, &[0, 0])
+}
+
+/// `KnubotTrade` (`3a1b2c0c`): an inventory item put into the NPC trade (action 0, `N3Msg_NPCChatAddTradeItem`) or taken
+/// out (1, `N3Msg_NPCChatRemoveTradeItem`): the action, an empty identity, the item `(0x68, slot)`.
+pub fn npc_trade_item(character: u32, npc: (u32, u32), action: u32, slot: u32) -> Frame {
+    knubot(character, 0x3a1b2c0c, npc, &[action, 0, 0, 0x68, slot])
+}
+
+/// `KnubotFinishTrade` (`55682b24`): the trade's end (`N3Msg_NPCChatEndTrade`): whether it is declined, and the credits given.
+pub fn npc_trade_finish(character: u32, npc: (u32, u32), credits: u32, accept: bool) -> Frame {
+    knubot(character, 0x55682b24, npc, &[if accept { 0 } else { 1 }, credits])
+}
+
 /// `KnubotNPCDescription` (`000a0c5a`): asks for the NPC's description (`N3Msg_NPCChatRequestDescription`).
 pub fn npc_chat_describe(character: u32, npc: (u32, u32)) -> Frame {
     knubot(character, 0x000a0c5a, npc, &[])

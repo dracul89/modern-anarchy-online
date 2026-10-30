@@ -1505,7 +1505,12 @@ else). The server's `Knubot` messages fill GUI.dll's `NPCChatWindow_c` (`npcchat
 `CCNPCOOCText`, `CCNPCChatQuestion`, `CCNPCChatSystem`, `CCNPCChatEmote`, `CCNPCChatDescription`), the separator
 (`GFX_GUI_NPCCHAT_SEPERATOR`), the answers (FUN_100595ae: a bullet and a link to the answer's number) and the button bar
 (FUN_10059eee): Desc (`KnubotNPCDescription`), Info (the NPC's `charid://` page), Give and Shop (greyed: the NPC trade
-is not done). A clicked answer is `KnubotAnswer` with its number from 0; closing the window `KnubotCloseChatWindow`.
+is greyed: the server's shop for an NPC is not known). A clicked answer is `KnubotAnswer` with its number from 0; closing
+the window `KnubotCloseChatWindow`. Give (`N3Msg_NPCChatStartTrade`: `KnubotStartTrade` with no slots) asks the NPC for
+its trade; the server's `KnubotStartTrade` (slots, text) opens the trade bar (`NPCChatTradeBar_c`, FUN_10057d8b) over the
+conversation: the text, "GIVE ITEM(S)" slots an inventory item is dragged onto (`KnubotTrade` action 0 with `(0x68,
+slot)`; a click takes it out, action 1), "GIVE CREDITS", V and X (`KnubotFinishTrade`: declined or not, the credits).
+`KnubotRejectedItems` is told in the conversation. Preview: `MAO_UI_PREVIEW=npcchat MAO_NPC_TRADE=1`.
 All are sent from the character with an `i16` 2 and the NPC, as aosharp sends them. Preview: `MAO_UI_PREVIEW=npcchat`;
 `net <game> talk <char> [npc name]` opens a chat headless and prints the server's answers. Not tried live (no NPC was
 near the test character).

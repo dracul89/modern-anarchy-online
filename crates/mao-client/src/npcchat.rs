@@ -15,6 +15,13 @@
 //! 3 system (`CCNPCChatSystem`), 4 an emote (`CCNPCChatEmote`, the NPC's name first), 5 a description
 //! (`CCNPCChatDescription`); `\n` in the text is a line break. The answers are FUN_100595ae's: a bullet
 //! (`GFX_GUI_NPCCHAT_BULLET`) and the escaped answer as a link to its number, in `CCNPCChatQuestion`.
+//!
+//! Giving (`NPCChatTradeBar_c`, FUN_10057d8b, docked as a "Trade" tab by FUN_10059236): Give asks the NPC
+//! (`KnubotStartTrade`); its answer (`KnubotStartTrade` with the slots and a text, in `CCNPCChatTrade`) opens the bar:
+//! "GIVE ITEM" / "GIVE ITEMS" over that many slots an inventory item is dropped on (`KnubotTrade` action 0, taken out
+//! again with 1), "GIVE CREDITS", and the V (`GFX_GUI_BUTTON_V_*`) and X (`GFX_GUI_BUTTON_X_*`) buttons: the trade
+//! finished (`KnubotFinishTrade` with the credits, accepted or declined: FUN_10058bf2). Items the NPC does not want come
+//! back (`KnubotRejectedItems`).
 
 use crate::gui::host::Signal;
 use crate::gui::view::{Id, Tree};
@@ -27,6 +34,10 @@ pub enum Event {
     Text((u32, u32), u32, String),
     Answers((u32, u32), Vec<String>),
     Close((u32, u32)),
+    /// The NPC's trade: its slots and text.
+    StartTrade((u32, u32), u32, String),
+    /// Items the NPC gave back: how many.
+    Rejected((u32, u32), usize),
 }
 
 /// What the window asks the network thread to send.
@@ -35,6 +46,22 @@ pub enum Command {
     Answer((u32, u32), u32),
     Describe((u32, u32)),
     Close((u32, u32)),
+    /// Give: ask for the NPC's trade.
+    StartTrade((u32, u32)),
+    /// An inventory place put in (true) or taken out.
+    TradeItem((u32, u32), u32, bool),
+    /// The trade ended: the credits, accepted or declined.
+    FinishTrade((u32, u32), u32, bool),
+}
+
+/// The NPC's trade bar while it is open.
+#[derive(Default)]
+pub struct Trade {
+    pub slots: u32,
+    pub message: String,
+    /// The inventory places put in.
+    pub items: Vec<u32>,
+    pub credits: String,
 }
 
 /// The view (FUN_100596c2's layout) as the skins' views are written.
@@ -72,6 +99,7 @@ pub struct NpcChatWindow {
     pub answers: Vec<String>,
     /// The info page asked for (`charid://`), until taken.
     pub info_url: Option<String>,
+    pub trade: Option<Trade>,
     tree: Option<(Tree, Id)>,
     /// Scroll the conversation to its end at the next drawing (and the one after).
     to_end: bool,
@@ -158,6 +186,21 @@ impl NpcChatWindow {
             Event::Close(npc) => {
                 if npc == self.npc {
                     self.open = false;
+                    self.trade = None;
+                }
+            }
+            Event::StartTrade(npc, slots, message) => {
+                if !self.open || self.npc != npc {
+                    self.apply(Event::Open(npc, String::new()));
+                }
+                self.trade = Some(Trade { slots: slots.max(1), message, items: Vec::new(), credits: String::new() });
+            }
+            Event::Rejected(_, n) => {
+                if n > 0 {
+                    let l = line(3, &format!("{n} item(s) given back."), &self.name, &self.own_name, self.last_kind, self.text.is_empty());
+                    self.text.push_str(&l);
+                    self.last_kind = Some(3);
+                    self.to_end = true;
                 }
             }
         }
@@ -175,17 +218,15 @@ impl NpcChatWindow {
                 b.pictures = Some([normal.to_string(), pressed.to_string()]);
             }
         }
-        // (Give and Shop start the NPC trade, which is not done yet)
-        for name in ["Give", "Shop"] {
-            if let Some(id) = tree.find(root, name) {
-                tree.get_mut(id).enabled = false;
-            }
+        // (Shop: the NPC's shop, which the server opens as a shop trade when there is one; not known here)
+        if let Some(id) = tree.find(root, "Shop") {
+            tree.get_mut(id).enabled = false;
         }
         self.tree = Some((tree, root));
     }
 
-    /// Draws the window; the commands to send.
-    pub fn show(&mut self, ctx: &egui::Context, palette: &crate::theme::Palette) -> Vec<Command> {
+    /// Draws the window (and the trade bar, `items` the inventory's); the commands to send.
+    pub fn show(&mut self, ctx: &egui::Context, palette: &crate::theme::Palette, items: &[crate::gear::GearItem], gear: &mut crate::gear::GearWindow) -> Vec<Command> {
         let mut commands = Vec::new();
         if !self.open {
             return commands;
@@ -211,9 +252,19 @@ impl NpcChatWindow {
         let skin = crate::skin::skin(ctx);
         let min = crate::gui::host::preferred_pixels(tree, root, false);
         let mut open = self.open;
+        let (trade, npc) = (&mut self.trade, self.npc);
+        let skin_ref = skin.clone();
         crate::chrome::window(ctx, palette, "NPCChat", &self.name, &mut open, |w| w.default_size(min.max(egui::vec2(340.0, 320.0))).resizable(true), |ui| {
+            // (the trade bar first: the views below take the rest of the window)
+            if let Some(t) = trade.as_mut() {
+                trade_bar(ui, palette, skin_ref.as_deref(), t, npc, items, gear, &mut commands);
+                ui.separator();
+            }
             crate::gui::host::show(ui, tree, root, skin.as_deref(), palette);
         });
+        if trade.as_ref().is_some_and(|t| t.slots == 0) {
+            *trade = None;
+        }
         // (the conversation follows its newest line, once it has been laid out at the view's width)
         if std::mem::take(&mut self.to_end)
             && let Some(id) = tree.find(root, "Text")
@@ -247,15 +298,78 @@ impl NpcChatWindow {
                 }
                 ("Desc", Signal::Clicked) => commands.push(Command::Describe(self.npc)),
                 ("Info", Signal::Clicked) => self.info_url = Some(format!("charid://{}/{}", self.npc.0, self.npc.1)),
+                ("Give", Signal::Clicked) if self.trade.is_none() => commands.push(Command::StartTrade(self.npc)),
                 _ => {}
             }
         }
         if !open {
             self.open = false;
+            if self.trade.take().is_some() {
+                commands.push(Command::FinishTrade(self.npc, 0, false));
+            }
             commands.push(Command::Close(self.npc));
         }
         commands
     }
+}
+
+/// `NPCChatTradeBar_c`: the NPC's text, the item slots (an inventory item dragged onto one goes in, a click takes it
+/// out), the credits and V / X. A finished trade sets `slots` to 0 (the bar closes).
+#[allow(clippy::too_many_arguments)]
+fn trade_bar(ui: &mut egui::Ui, palette: &crate::theme::Palette, skin: Option<&crate::skin::Skin>, t: &mut Trade, npc: (u32, u32), items: &[crate::gear::GearItem], gear: &mut crate::gear::GearWindow, commands: &mut Vec<Command>) {
+    let text = egui::Color32::from_rgb(palette.text[0], palette.text[1], palette.text[2]);
+    if !t.message.is_empty() {
+        ui.label(egui::RichText::new(&t.message).color(egui::Color32::from_rgb(0xda, 0xdf, 0xba)));
+    }
+    ui.label(egui::RichText::new(if t.slots == 1 { "GIVE ITEM" } else { "GIVE ITEMS" }).small().color(text));
+    let dragged = crate::gear::DRAGGED.load(std::sync::atomic::Ordering::Relaxed);
+    ui.horizontal_wrapped(|ui| {
+        for k in 0..t.slots as usize {
+            let (rect, response) = ui.allocate_exact_size(egui::vec2(40.0, 40.0), egui::Sense::click());
+            if !skin.is_some_and(|s| s.draw_in(ui.painter(), crate::gui::itemslot::SLOT, rect, egui::Color32::WHITE)) {
+                ui.painter().rect_filled(rect, 2.0, egui::Color32::from_black_alpha(110));
+            }
+            if let Some(&slot) = t.items.get(k) {
+                let item = items.iter().find(|i| i.slot == slot);
+                if let Some(icon) = item.and_then(|i| i.icon.as_ref()) {
+                    ui.painter().image(gear.texture(ui.ctx(), icon), rect.shrink(4.0), egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
+                }
+                if response.clicked() {
+                    t.items.remove(k);
+                    commands.push(Command::TradeItem(npc, slot, false));
+                    break;
+                }
+                if let Some(i) = item {
+                    response.on_hover_text(&i.name);
+                }
+            } else if dragged != u32::MAX && !t.items.contains(&dragged) && ui.input(|i| i.pointer.any_released() && i.pointer.interact_pos().is_some_and(|p| rect.contains(p))) {
+                t.items.push(dragged);
+                commands.push(Command::TradeItem(npc, dragged, true));
+            }
+        }
+    });
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new("GIVE CREDITS").small().color(text));
+        ui.add(egui::TextEdit::singleline(&mut t.credits).desired_width(90.0));
+        t.credits.retain(|c| c.is_ascii_digit());
+        let mut button = |normal: &str, pressed: &str, tip: &str| -> bool {
+            let size = skin.and_then(|s| s.get(normal)).map_or(egui::vec2(22.0, 22.0), |s| s.size);
+            let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+            let name = if response.is_pointer_button_down_on() { pressed } else { normal };
+            if !skin.is_some_and(|s| s.draw_in(ui.painter(), name, rect, egui::Color32::WHITE)) {
+                ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, tip, egui::FontId::proportional(12.0), text);
+            }
+            response.on_hover_text(tip).clicked()
+        };
+        if button("GFX_GUI_BUTTON_V_NORMAL", "GFX_GUI_BUTTON_V_PRESSED", "Give") {
+            commands.push(Command::FinishTrade(npc, t.credits.parse().unwrap_or(0), true));
+            t.slots = 0;
+        }
+        if button("GFX_GUI_BUTTON_X_NORMAL", "GFX_GUI_BUTTON_X_PRESSED", "Cancel") {
+            commands.push(Command::FinishTrade(npc, 0, false));
+            t.slots = 0;
+        }
+    });
 }
 
 /// The server's `Knubot` messages to the window (`kind`, `data` past the identity): none for others.
@@ -278,6 +392,15 @@ pub fn event(kind: u32, data: &[u8]) -> Option<Event> {
             _ => Some(Event::Answers(npc, Vec::new())),
         },
         0x270a4c62 => Some(Event::Close(npc)),
+        0x7864401d => Some(Event::StartTrade(npc, int(v, "NumberOfItemSlotsInTradeWindow") as u32, match v.get("Message") {
+            Some(mao_net::schema::Value::Str(s)) => s.clone(),
+            Some(mao_net::schema::Value::Bytes(b)) => String::from_utf8_lossy(b).into_owned(),
+            _ => String::new(),
+        })),
+        0x2d212407 => Some(Event::Rejected(npc, match v.get("Items") {
+            Some(mao_net::schema::Value::List(l)) => l.len(),
+            _ => 0,
+        })),
         _ => None,
     }
 }

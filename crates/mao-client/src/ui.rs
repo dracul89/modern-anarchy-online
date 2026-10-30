@@ -716,7 +716,7 @@ impl Ui {
             requests.lines.extend(shown.lines);
             planet.show(&ctx, palette, hud.playfield, hud.position, hud.heading, requests.waypoint.or(hud.waypoint));
             if npc_chat.open {
-                requests.npc_chat.extend(npc_chat.show(&ctx, palette));
+                requests.npc_chat.extend(npc_chat.show(&ctx, palette, &hud.gear, gear));
                 if let Some(url) = npc_chat.info_url.take() {
                     info_view.show_url(&url);
                 }
@@ -1023,7 +1023,7 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
                 std::thread::sleep(std::time::Duration::from_millis(150));
             }
             if let Some(window) = preview_npc_chat.as_mut() {
-                for command in window.show(&ctx, &palette) {
+                for command in window.show(&ctx, &palette, &hud.gear, &mut gear) {
                     eprintln!("npc chat command: {command:?}");
                 }
             }

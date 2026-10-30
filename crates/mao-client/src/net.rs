@@ -3531,7 +3531,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     // The NPC chat (`npcchat.rs`): the window opened with the NPC's name, its lines and answers.
                     if let Some(event) = Message::parse(&frame).and_then(|m| crate::npcchat::event(m.kind, &m.data)) {
                         let npc = match &event {
-                            crate::npcchat::Event::Open(n, _) | crate::npcchat::Event::Text(n, ..) | crate::npcchat::Event::Answers(n, _) | crate::npcchat::Event::Close(n) => *n,
+                            crate::npcchat::Event::Open(n, _) | crate::npcchat::Event::Text(n, ..) | crate::npcchat::Event::Answers(n, _) | crate::npcchat::Event::Close(n) | crate::npcchat::Event::StartTrade(n, ..) | crate::npcchat::Event::Rejected(n, _) => *n,
                         };
                         let name = state.names.get(&npc.1).map(|n| n.0.clone()).or_else(|| state.infos.get(&npc.1).map(|i| i.name.clone())).unwrap_or_default();
                         match event {
@@ -4071,6 +4071,15 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     }
                     crate::npcchat::Command::Describe(npc) => {
                         let _ = connection.send(&n3::npc_chat_describe(own, npc));
+                    }
+                    crate::npcchat::Command::StartTrade(npc) => {
+                        let _ = connection.send(&n3::npc_trade_start(own, npc));
+                    }
+                    crate::npcchat::Command::TradeItem(npc, slot, add) => {
+                        let _ = connection.send(&n3::npc_trade_item(own, npc, if add { 0 } else { 1 }, slot));
+                    }
+                    crate::npcchat::Command::FinishTrade(npc, credits, accept) => {
+                        let _ = connection.send(&n3::npc_trade_finish(own, npc, credits, accept));
                     }
                     crate::npcchat::Command::Close(npc) => {
                         let _ = connection.send(&n3::npc_chat_close(own, npc));
