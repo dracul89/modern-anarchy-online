@@ -1570,3 +1570,13 @@ shop. The original deletes the whole FXS instance when a playfield shuts down (G
 `FXS_t::DeleteInstance`, `VisualEnvFX_t::DeleteInstance`) before the new one loads its tweaks; the client now does the
 same (`fxs::reset` on a playfield change; test `a_new_playfield_starts_from_its_own_tweaks` with the game's scripts:
 Old Athens then a shop).
+
+## Shop names (2026-10-30)
+
+A vending machine's `VendingMachineFullUpdate` (`7f544905`) carries two templates: `StaticInstance` (stat 23), the
+machine every shop shares ("Specialist Commerce", whose stats the prices are read from), and `NameTemplate` (stat
+446), the item whose name is the shop's ("Basic ICC Armor", "Miiir Headwear"). The original's SimpleItem_t name
+(FUN_100809a0, vtable +0x34) is the dynel's own name if it has one, else the `NameTemplate` item's, else "NameMissing";
+the shop window's partner name (GUI.dll FUN_100e121e) is that name (or its parent's). The client names the machine's
+target and its shop window the same way. `cargo run -p mao-formats --example itemnamed -- <game> <text>` lists the
+item templates whose name or description has the text (`"vending machine"` lists the shops).

@@ -359,6 +359,8 @@ struct World {
     browser: Option<crate::browser::Request>,
     /// The template (`StaticInstance`, stat 23) of each vending machine the server announced: its prices' stats.
     vendor_templates: BTreeMap<u32, u32>,
+    /// Each vending machine's name (its `NameTemplate` item's, stat 446).
+    vendor_names: BTreeMap<u32, String>,
 }
 
 /// A fighting character turning to face its target, as its state machine does: `CharFight_t` (FUN_1007bd5f, its step
@@ -770,7 +772,23 @@ impl World {
                     }
                     // Shops can be targeted (Ctrl+Tab) and used (E) like the other objects.
                     self.objects.insert(m.identity.1, [f("X"), f("Y"), f("Z")]);
-                    self.names.entry(m.identity.1).or_insert_with(|| (format!("Booth {:x}", m.identity.1 & 0xffff), false));
+                    // (its name: SimpleItem_t's FUN_100809a0 takes the `NameTemplate` stat's (446) item template's name, the
+                    // `StaticInstance` being the machine all the shops share, "Specialist Commerce")
+                    let name = match p.value.get("Stats") {
+                        Some(mao_net::schema::Value::List(stats)) => stats.iter().find(|s| s.get("Item1").and_then(mao_net::schema::Value::as_int) == Some(446)).and_then(|s| s.get("Item2")?.as_int()),
+                        _ => None,
+                    }
+                    .filter(|&t| t > 0 && t != 1_234_567_890)
+                    .and_then(|t| template_name(t as u32));
+                    match name {
+                        Some(name) => {
+                            self.vendor_names.insert(m.identity.1, name.clone());
+                            self.names.insert(m.identity.1, (name, false));
+                        }
+                        None => {
+                            self.names.entry(m.identity.1).or_insert_with(|| (format!("Booth {:x}", m.identity.1 & 0xffff), false));
+                        }
+                    }
                 }
             }
         }
@@ -3568,7 +3586,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                 let icon = |id: u32| gear_textures.get(mao_formats::item::ICON_TYPE, id).map(|x| std::sync::Arc::new(crate::gear::Icon { id, width: x.width as usize, height: x.height as usize, rgba: x.rgba }));
                                 let stock: Vec<crate::shop::Slot> = list.iter().map(|s| crate::shop::slot(&gear_db, &icon, (int(s, "ItemLowId"), int(s, "ItemHighId"), int(s, "Quality")), shop_rates, literacy)).collect();
                                 shop_rows = stock.iter().map(|s| crate::shop::Row { item: [0; 4], name: s.name.clone(), icon: s.icon.clone(), count: 1, quality: s.quality, price: s.price }).collect();
-                                let name = table.map(|d| d.4.clone()).filter(|n| !n.is_empty()).or_else(|| item.map(|i| i.name)).unwrap_or_default();
+                                let name = table.map(|d| d.4.clone()).filter(|n| !n.is_empty()).or_else(|| state.vendor_names.get(&m.identity.1).cloned()).or_else(|| item.map(|i| i.name)).unwrap_or_default();
                                 shop_booth = Some(m.identity);
                                 pending_shop = Some(crate::shop::ShopState { shop: m.identity, name, stock });
                             }
