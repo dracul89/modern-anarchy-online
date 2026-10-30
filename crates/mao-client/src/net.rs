@@ -464,6 +464,8 @@ fn inventory_from_schema_items(list: Option<&mao_net::schema::Value>) -> Vec<inv
 
 /// `DoorStatusUpdate` and the identity type of doors.
 const DOOR_STATUS: u32 = 0x4c7d403b;
+/// `Bank` (`BankMessage`): the bank's items.
+const BANK_MESSAGE: u32 = 0x343c287f;
 const DOOR_TYPE: u32 = 0xc748;
 /// How long a door that was used stays open.
 const DOOR_OPEN: Duration = Duration::from_secs(5);
@@ -1277,12 +1279,24 @@ impl World {
                 }
             }
         }
+        // The bank (`BankIIR_t`, the server's `Bank` message after a bank terminal's use): its items, shown as GUI.dll shows the
+        // container `0xdead` (`InventoryView_c`'s `bank_window`, FUN_100ccefe).
+        if m.kind == BANK_MESSAGE {
+            if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
+                let entries = inventory_from_schema(p.value.get("BankSlots"));
+                if std::env::var_os("MAO_COMBAT_LOG").is_some() {
+                    eprintln!("bank: {} items {:?}", entries.len(), entries.iter().take(4).map(|e| (e.slot, e.container, e.low_id)).collect::<Vec<_>>());
+                }
+                self.loot = Some(Loot { identity: (crate::loot::BANK, 0), handle: 0, entries });
+                self.loot_changed = true;
+            }
+        }
         if m.kind == CONTAINER_ADD_ITEM && m.identity.1 == self.own {
             if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
                 let source = (p.value.get("Source").and_then(|v| v.get("Type")).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32, p.value.get("Source").and_then(|v| v.get("Instance")).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32);
                 let target = (p.value.get("Target").and_then(|v| v.get("Type")).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32, p.value.get("Target").and_then(|v| v.get("Instance")).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32);
-                // `(0x68, place)` into the open container: an item went in from the backpack
-                if source.0 == 0x68 && self.loot.as_ref().is_some_and(|l| l.identity == target) {
+                // `(0x68, place)` into the open container: an item went in from the backpack (the bank by its type alone)
+                if source.0 == 0x68 && self.loot.as_ref().is_some_and(|l| l.identity == target || (l.identity.0 == crate::loot::BANK && target.0 == crate::loot::BANK)) {
                     if let Some(at) = self.worn.iter().position(|e| e.slot == source.1) {
                         let mut entry = self.worn.remove(at);
                         if let Some(loot) = self.loot.as_mut() {
@@ -1293,9 +1307,11 @@ impl World {
                         self.loot_changed = true;
                     }
                 }
-                // `(0x6b, handle << 16 | place)`: an item came out of the open container into the backpack
-                if source.0 == 0x6b {
-                    let place = source.1 & 0xffff;
+                // `(0x6b, handle << 16 | place)`: an item came out of the open container into the backpack (out of the bank: the
+                // item's identity as the bank named it)
+                let bank_item = self.loot.as_ref().filter(|l| l.identity.0 == crate::loot::BANK).and_then(|l| l.entries.iter().find(|e| e.container == source || (source.0 == 0x69 && e.slot == source.1)).map(|e| e.slot));
+                if source.0 == 0x6b || bank_item.is_some() {
+                    let place = bank_item.unwrap_or(source.1 & 0xffff);
                     if let Some(loot) = self.loot.as_mut() {
                         if let Some(at) = loot.entries.iter().position(|e| e.slot == place) {
                             let mut entry = loot.entries.remove(at);
@@ -4514,6 +4530,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             if keys.put.0 != put_seen {
                 put_seen = keys.put.0;
                 let (_, kind, id, from) = keys.put;
+                // (into the bank: `N3Msg_ContainerAddItem` on the bank's container, named with the character's instance)
+                let id = if kind == crate::loot::BANK { own } else { id };
                 let _ = connection.send(&n3::container_add_item(own, (kind, id), (0x68, from)));
             }
             // An item taken from the open container (or all of them).
@@ -4521,8 +4539,18 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 take_seen = keys.take.0;
                 let (_, handle, place) = keys.take;
                 let places: Vec<u32> = if place == u32::MAX { state.loot.iter().flat_map(|l| l.entries.iter().map(|e| e.slot)).collect() } else { vec![place] };
+                let bank = state.loot.as_ref().filter(|l| l.identity.0 == crate::loot::BANK).map(|l| l.entries.clone());
                 for place in places {
-                    let _ = connection.send(&n3::take_from_container(own, handle, place));
+                    match &bank {
+                        // (`N3Msg_MoveItemToInventory` with the item's identity as the bank named it, else its place in the bank)
+                        Some(entries) => {
+                            let item = entries.iter().find(|e| e.slot == place).map(|e| e.container).filter(|c| c.0 != 0).unwrap_or((0x69, place));
+                            let _ = connection.send(&n3::move_to_inventory(own, item, 0x6f));
+                        }
+                        None => {
+                            let _ = connection.send(&n3::take_from_container(own, handle, place));
+                        }
+                    }
                 }
             }
             // An item dragged to another place: ask the server, and show the change at once (the server's answer to a move is not

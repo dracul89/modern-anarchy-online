@@ -1611,3 +1611,12 @@ original's `SetAnimationTime` + `UpdateWorldMatrix` (`anim * TRS * parent`) and 
 * **Statels.** Their parts whose animation moves anything (not the plants, which sway in the shader) are kept out of the static
   scene and drawn each frame within 250 m at the clock's time: the Whom-Pah towers' scrolling glow (`whompa_fx`), propellers,
   holograms.
+
+## The bank (2026-10-30)
+
+A bank terminal's use is answered by the server's `Bank` message (`343c287f`, `BankSlots`): Gamecode's `BankIIR_t` makes the
+container `0xdead` (`BankEntry_t`, FUN_10125b1b) and GUI.dll shows it as an `InventoryView_c` named `bank_window`
+(FUN_100ccefe). The client shows it in the container window (`loot.rs`, titled "Bank", eight to a row, no "Take all", not
+closed when empty). Taking an item (a double click or its menu) is `N3Msg_MoveItemToInventory`: `ClientMoveItemToInventory`
+with the item's identity as the bank named it (else `(0x69, place)`, `BankByRef`) to `0x6f`, any free place; an inventory
+item dropped on the window is `N3Msg_ContainerAddItem` into `(0xdead, character)`. Not tried live yet.

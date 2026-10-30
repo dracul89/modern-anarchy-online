@@ -307,6 +307,16 @@ pub fn move_item(character: u32, from: u32, to: u32) -> Frame {
     Message { kind: 0x5469373f, identity: (CHARACTER, character), data }.frame(character)
 }
 
+/// `ClientMoveItemToInventory` (`5469373f`) for an item named by its identity (`N3Msg_MoveItemToInventory`: the bank's items, as
+/// the server's `Bank` message names them) into place `to` of the inventory (`0x6f`: any free place).
+pub fn move_to_inventory(character: u32, item: (u32, u32), to: u32) -> Frame {
+    let mut data = vec![0u8];
+    for word in [item.0, item.1, to] {
+        data.extend_from_slice(&word.to_be_bytes());
+    }
+    Message { kind: 0x5469373f, identity: (CHARACTER, character), data }.frame(character)
+}
+
 /// `ClientMoveItemToInventory` for an item in a container the character used (a corpse, a bag): the source is `(0x6b, handle << 16
 /// | place)`, the container's handle from its `InventoryUpdate` and the item's place in it, and the destination `0x6f` (any free
 /// place). Checked against the captured loot of a corpse (handle `0x70`, places 1, 0, 3, 2).

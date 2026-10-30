@@ -22,6 +22,8 @@ pub struct LootView {
 
 /// The identity type of a corpse.
 const CORPSE: u32 = 0xc76a;
+/// The identity type of the bank (`BankIIR_t`'s `BankEntry_t`, FUN_10125b1b).
+pub const BANK: u32 = 0xdead;
 
 /// What the window asks for.
 #[derive(Debug, PartialEq, Eq)]
@@ -43,13 +45,14 @@ pub struct LootWindow {
 /// An icon's square, and the icons in a row (`InventoryView_c`'s position map: place % 3, place / 3).
 const CELL: f32 = 42.0;
 const COLUMNS: usize = 3;
+const BANK_COLUMNS: usize = 8;
 
 impl LootWindow {
     pub fn show(&mut self, ctx: &egui::Context, view: &LootView, palette: &Palette) -> Option<Take> {
         let mut take = None;
         let mut open = self.open;
-        // (FUN_100ccefe: an empty corpse or chest closes after a second)
-        if view.items.is_empty() {
+        // (FUN_100ccefe: an empty corpse or chest closes after a second; the bank stays)
+        if view.items.is_empty() && view.identity.0 != BANK {
             if self.empty_since.is_none_or(|e| (e.0, e.1) != (view.identity, view.handle)) {
                 self.empty_since = Some((view.identity, view.handle, std::time::Instant::now()));
             }
@@ -62,15 +65,17 @@ impl LootWindow {
             self.empty_since = None;
         }
         let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
-        let rows = view.items.len().div_ceil(COLUMNS).max(1);
+        // (the bank's window is wider: its items run to a hundred and more)
+        let columns = if view.identity.0 == BANK { BANK_COLUMNS } else { COLUMNS };
+        let rows = view.items.len().div_ceil(columns).max(1);
         // (the title and the close button fit over the icons)
-        let title_width = (view.title.chars().count() as f32 * 7.5 + 40.0).max(COLUMNS as f32 * (CELL + 2.0));
+        let title_width = (view.title.chars().count() as f32 * 7.5 + 40.0).max(columns as f32 * (CELL + 2.0));
         let shown = crate::chrome::window(ctx, palette, "loot", &view.title, &mut open, |w| w.id(egui::Id::unique("loot")).default_pos(crate::layout::pos("loot", egui::pos2(380.0, 140.0))).resizable(false).min_width(title_width), |ui| {
             ui.spacing_mut().item_spacing = egui::vec2(2.0, 2.0);
             egui::Grid::new("loot-grid").spacing(egui::vec2(2.0, 2.0)).show(ui, |ui| {
                 for row in 0..rows {
-                    for column in 0..COLUMNS {
-                        let item = view.items.get(row * COLUMNS + column);
+                    for column in 0..columns {
+                        let item = view.items.get(row * columns + column);
                         let (rect, response) = ui.allocate_exact_size(egui::vec2(CELL, CELL), egui::Sense::click());
                         let painter = ui.painter();
                         painter.rect_filled(rect, 3.0, egui::Color32::from_black_alpha(110));
@@ -115,7 +120,7 @@ QL {}", item.quality));
                     ui.end_row();
                 }
             });
-            if !view.items.is_empty() {
+            if !view.items.is_empty() && view.identity.0 != BANK {
                 if crate::chrome::button(ui, palette, "Take all", true).clicked() {
                     take = Some(Take::All { handle: view.handle });
                 }
@@ -138,6 +143,7 @@ pub fn title(kind: u32) -> &'static str {
     match kind {
         CORPSE => "Corpse",
         0xc749 => "Bag",
+        BANK => "Bank",
         _ => "Container",
     }
 }
