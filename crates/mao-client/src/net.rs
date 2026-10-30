@@ -337,6 +337,9 @@ struct World {
     types: BTreeMap<u32, u32>,
     /// The vending machines (booths: shops, and the mission booths' companions) with their positions.
     vendors: BTreeMap<u32, [f32; 3]>,
+    /// The terminals the server announces (`SimpleItemFullUpdate` on a `0xc73d` with a place): in an instance (ICC's shops) the
+    /// playfield's own terminals go by these ids, not by their dynel table's.
+    terminals: BTreeMap<u32, [f32; 3]>,
     /// The doors of the playfield by number: the key of the door's model in `props` and its position (from the dynel table).
     door_slots: BTreeMap<u8, (u32, [f32; 3])>,
     /// The server's ids of the doors (from their status messages) and until when each door (by number) stays open.
@@ -720,6 +723,7 @@ impl World {
 
     /// Takes the playfield's built-in props: the doors are also remembered by number.
     fn set_static_props(&mut self, props: Vec<(u32, (u32, [f32; 3], [f32; 4]), Option<u8>)>) {
+        self.terminals.clear();
         self.door_slots.clear();
         self.doors_open.clear();
         self.door_motion.clear();
@@ -794,6 +798,30 @@ impl World {
             eprintln!("game time: {hour:02}:{minute:02} (period {period}, day {day}, server time {server_time})");
         }
         *self.kinds.entry(m.kind).or_default() += 1;
+        // A terminal announced (`SimpleItemFullUpdate`, identity type `0xc73d`): usable by its id, named by its template
+        // (`StaticInstance`, stat 23).
+        if m.kind == 0x3b11256f && m.identity.0 == 0xc73d {
+            if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
+                let f = |n: &str| match p.value.get("Position").and_then(|pos| pos.get(n)) {
+                    Some(mao_net::schema::Value::Float(x)) => Some(*x as f32),
+                    _ => None,
+                };
+                if let (Some(x), Some(y), Some(z)) = (f("X"), f("Y"), f("Z")) {
+                    let template = match p.value.get("Stats") {
+                        Some(mao_net::schema::Value::List(stats)) => stats.iter().find(|s| s.get("Item1").and_then(mao_net::schema::Value::as_int) == Some(23)).and_then(|s| s.get("Item2")?.as_int()),
+                        _ => None,
+                    };
+                    if std::env::var_os("MAO_COMBAT_LOG").is_some() {
+                        eprintln!("terminal ({:#x}, {:#x}) at {:?} template {template:?}", m.identity.0, m.identity.1, [x, y, z]);
+                    }
+                    self.terminals.insert(m.identity.1, [x, y, z]);
+                    self.types.insert(m.identity.1, 0xc73d);
+                    if let Some(name) = template.and_then(|t| template_name(t as u32)) {
+                        self.names.insert(m.identity.1, (name, false));
+                    }
+                }
+            }
+        }
         if m.kind == 0x7f544905 && m.identity.0 == 0xc75b {
             if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
                 if let Some(pos) = p.value.get("Position") {
@@ -1654,10 +1682,19 @@ impl World {
 
     /// What using `(kind, id)` uses: a dead body's corpse, else itself.
     fn used(&self, kind: u32, id: u32) -> (u32, u32) {
-        match self.corpses.get(&id) {
-            Some(&corpse) if self.objects.contains_key(&corpse) => (OBJECT_TYPE, corpse),
-            _ => (kind, id),
+        if let Some(&corpse) = self.corpses.get(&id).filter(|c| self.objects.contains_key(c)) {
+            return (OBJECT_TYPE, corpse);
         }
+        // (a table terminal the server announced under another id, as in an instance: the announced one at its place)
+        if kind == 0xc73d && !self.terminals.contains_key(&id) {
+            if let Some(at) = self.table.iter().find(|d| d.0 == kind && d.1 == id).map(|d| d.2) {
+                let near = |p: &[f32; 3]| (p[0] - at[0]).powi(2) + (p[1] - at[1]).powi(2) + (p[2] - at[2]).powi(2);
+                if let Some((&announced, _)) = self.terminals.iter().filter(|(_, p)| near(p) < 2.0 * 2.0).min_by(|a, b| near(a.1).total_cmp(&near(b.1))) {
+                    return (kind, announced);
+                }
+            }
+        }
+        (kind, id)
     }
 
     fn print(&self) {
@@ -4043,6 +4080,21 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         }
                     }
                     "follow" => following = target.filter(|t| state.entities.contains_key(t)),
+                    // `usenear=<name>`: target the nearest table dynel with the name (as a click on it) and use it
+                    w if w.starts_with("usenear=") => {
+                        let name = w["usenear=".len()..].to_ascii_lowercase();
+                        let near = |p: &[f32; 3]| ((p[0] - position[0]).powi(2) + (p[1] - position[1]).powi(2) + (p[2] - position[2]).powi(2)).sqrt();
+                        match state.table.iter().filter(|d| d.4.to_ascii_lowercase().contains(&name)).min_by(|a, b| near(&a.2).total_cmp(&near(&b.2))).map(|d| (d.0, d.1, d.2, d.4.clone())) {
+                            Some((kind, id, at, label)) => {
+                                eprintln!("autoplay: {label:?} ({kind:#x}, {id:#x}) at {at:?}, {:.2} m from us at {position:?}", near(&at));
+                                state.types.insert(id, kind);
+                                state.names.insert(id, (label, false));
+                                target = Some(id);
+                                seen[6] = seen[6].wrapping_sub(1);
+                            }
+                            None => eprintln!("autoplay: no {name:?} in the table"),
+                        }
+                    }
                     _ => {
                         following = None;
                         goto = None;

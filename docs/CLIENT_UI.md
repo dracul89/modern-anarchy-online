@@ -1629,6 +1629,15 @@ ledge, through a rail) by sending back the last place it took as a full report (
 refused reports too; the client now goes back there (`own_report`: a report more than 5 m from us that is none of the places
 we told it in the last 4 s). Taking and depositing are still untried (the test bank is empty).
 
+**Instances.** In an instanced playfield (ICC's shops, 1180..1187) the server gives the built-in objects its own running ids
+(the captured shop's doors `0x10c0e1e5..`, its vending machines `0x13243954..`), not the dynel table's `0xc0NNpppp`: a use of
+the table's id gets no answer at all (Humility at ICC Fair Trade's bank: "Using ..." and nothing). The server announces
+terminals with `SimpleItemFullUpdate` (`0xc73d`, a place, the template as stat 23: seen outdoors in the captures); the client
+keeps them (`terminals`) and a use of a table terminal goes to the announced one within 2 m of its place. Not yet seen
+inside an instance.
+
+The live client's `MAO_AUTOPLAY` takes `usenear=<name>`: target the nearest table dynel with the name and use it.
+
 `net <game> walk <who> <x> <z> [secs]` takes `MAO_WALK_USE=<name>` (use the nearest table dynel of that name on arrival and
 print the server's answers) and `MAO_WALK_ZONES=1` (heights from the zone surfaces, as the live client's); `net <game> ground
 <pf> <x> <z> <y>` with `MAO_GRID=<x1>,<z1>,<step>` prints a height grid to plan a route by.
