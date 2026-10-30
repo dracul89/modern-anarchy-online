@@ -47,6 +47,10 @@ pub struct LootWindow {
 const CELL: f32 = 42.0;
 const COLUMNS: usize = 3;
 const BANK_COLUMNS: usize = 8;
+/// The bank's places (0 to 103, as aosharp's clientless `Bank` counts them: `INVENTORY_CAPACITY`), all shown, the items each
+/// at its own place (`Placement`); rows past these show while the window scrolls.
+const BANK_PLACES: usize = 104;
+const BANK_ROWS_SHOWN: f32 = 8.0;
 
 impl LootWindow {
     pub fn show(&mut self, ctx: &egui::Context, view: &LootView, palette: &Palette) -> Option<Take> {
@@ -67,16 +71,20 @@ impl LootWindow {
         }
         let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
         // (the bank's window is wider: its items run to a hundred and more)
-        let columns = if view.identity.0 == BANK { BANK_COLUMNS } else { COLUMNS };
-        let rows = view.items.len().div_ceil(columns).max(1);
+        let bank = view.identity.0 == BANK;
+        let columns = if bank { BANK_COLUMNS } else { COLUMNS };
+        let places = if bank { view.items.iter().map(|i| i.slot as usize + 1).max().unwrap_or(0).max(BANK_PLACES) } else { view.items.len() };
+        let rows = places.div_ceil(columns).max(1);
         // (the title and the close button fit over the icons)
         let title_width = (view.title.chars().count() as f32 * 7.5 + 40.0).max(columns as f32 * (CELL + 2.0));
         let shown = crate::chrome::window(ctx, palette, "loot", &view.title, &mut open, |w| w.id(egui::Id::unique("loot")).default_pos(crate::layout::pos("loot", egui::pos2(380.0, 140.0))).resizable(false).min_width(title_width), |ui| {
             ui.spacing_mut().item_spacing = egui::vec2(2.0, 2.0);
+            egui::ScrollArea::vertical().max_height(if bank { BANK_ROWS_SHOWN * (CELL + 2.0) } else { f32::INFINITY }).show(ui, |ui| {
             egui::Grid::new("loot-grid").spacing(egui::vec2(2.0, 2.0)).show(ui, |ui| {
                 for row in 0..rows {
                     for column in 0..columns {
-                        let item = view.items.get(row * columns + column);
+                        let at = row * columns + column;
+                        let item = if bank { view.items.iter().find(|i| i.slot as usize == at) } else { view.items.get(at) };
                         let (rect, response) = ui.allocate_exact_size(egui::vec2(CELL, CELL), egui::Sense::click());
                         let painter = ui.painter();
                         painter.rect_filled(rect, 3.0, egui::Color32::from_black_alpha(110));
@@ -120,6 +128,7 @@ QL {}", item.quality));
                     }
                     ui.end_row();
                 }
+            });
             });
             if !view.items.is_empty() && view.identity.0 != BANK {
                 if crate::chrome::button(ui, palette, "Take all", true).clicked() {

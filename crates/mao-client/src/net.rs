@@ -1345,7 +1345,12 @@ impl World {
                     if let Some(at) = self.worn.iter().position(|e| e.slot == source.1) {
                         let mut entry = self.worn.remove(at);
                         if let Some(loot) = self.loot.as_mut() {
-                            entry.slot = loot.entries.iter().map(|e| e.slot + 1).max().unwrap_or(0);
+                            // (into the bank: its first free place, as aosharp's `Bank` takes the next available slot)
+                            entry.slot = if loot.identity.0 == crate::loot::BANK {
+                                (0..).find(|p| !loot.entries.iter().any(|e| e.slot == *p)).unwrap_or(0)
+                            } else {
+                                loot.entries.iter().map(|e| e.slot + 1).max().unwrap_or(0)
+                            };
                             loot.entries.push(entry);
                         }
                         self.inventory = Some(self.worn.clone());
