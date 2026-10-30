@@ -185,6 +185,7 @@ Added after the overnight run, on request: audio through rodio, ported from the 
 | c602c8d | **Selling**: an inventory item dropped on any of the shop's three lists goes in; Ctrl+double-click an inventory item to put it in | open a shop, drag an item from the inventory onto the shop window, Accept |
 | 24c9c6d | **Tabs** open on click (chat, inventory, actions) | click the chat and inventory tabs |
 | 5a057c8 | **Loading screen** closes after login; no white flash | log in |
+| 394b939 | **Zoning no longer sticks on the loading screen**: when several updates waited at once (a hop to another server, as into ICC), the one carrying the new area was dropped | zone into ICC and through a few doors |
 
 ## How to run
 
