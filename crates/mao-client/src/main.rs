@@ -25,6 +25,7 @@ macro_rules! profile {
 mod actions;
 mod charcreate;
 mod loading;
+mod npcchat;
 mod screenshot;
 mod prof;
 mod vehicle;
@@ -1484,6 +1485,20 @@ fn run(args: &[String]) -> Result<(), String> {
                         window.open = true;
                         window.load_icons(&textures.clone_handle());
                         *hud.actions_preview.lock().unwrap() = Some(window);
+                    }
+                    if preview.as_deref() == Some("npcchat") {
+                        // A conversation as the server's messages would give it.
+                        use npcchat::Event;
+                        let mut window = npcchat::NpcChatWindow::default();
+                        window.own_name = "Sadlee".into();
+                        let npc = (0xc350, 0x1234);
+                        window.apply(Event::Open(npc, "Miir Specialist".into()));
+                        window.apply(Event::Text(npc, 0, "Welcome, friend. The Omni-Tek tailors have the finest coats on Rubi-Ka.\nWhat can I do for you?".into()));
+                        window.apply(Event::Text(npc, 2, "Tell me about the coats.".into()));
+                        window.apply(Event::Text(npc, 0, "Every one is cut for the climate of Omni-1.".into()));
+                        window.apply(Event::Text(npc, 4, "smiles proudly.".into()));
+                        window.apply(Event::Answers(npc, vec!["What does a trenchcoat cost?".into(), "Do you have anything for a Fixer?".into(), "Goodbye.".into()]));
+                        *hud.npc_chat_preview.lock().unwrap() = Some(window);
                     }
                     if preview.as_deref() == Some("shop") {
                         // The captured stock (MAO_CAPTURE=<capture.log>) in the window.

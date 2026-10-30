@@ -352,6 +352,38 @@ pub fn trade(character: u32, action: u8, params: [u32; 4]) -> Frame {
     Message { kind: 0x36284f6e, identity: (CHARACTER, character), data }.frame(character)
 }
 
+/// The NPC chat (`Knubot`) messages: the header byte, an `i16` 2 (as aosharp sends them to the live servers), the NPC, then
+/// the message's own fields; from the character (Gamecode's `N3Msg_NPCChat*` pass the character and the NPC).
+fn knubot(character: u32, kind: u32, npc: (u32, u32), tail: &[u32]) -> Frame {
+    let mut data = vec![0u8];
+    data.extend_from_slice(&2i16.to_be_bytes());
+    for word in [npc.0, npc.1].iter().chain(tail) {
+        data.extend_from_slice(&word.to_be_bytes());
+    }
+    Message { kind, identity: (CHARACTER, character), data }.frame(character)
+}
+
+/// `KnubotOpenChatWindow` (`3b132d64`): starts talking to an NPC (two zero words).
+pub fn npc_chat_open(character: u32, npc: (u32, u32)) -> Frame {
+    knubot(character, 0x3b132d64, npc, &[0, 0])
+}
+
+/// `KnubotAnswer` (`2103247d`): the answer chosen, counted from 0 in the last `KnubotAnswerList`
+/// (`N3Msg_SendNPCChatAnswer`).
+pub fn npc_chat_answer(character: u32, npc: (u32, u32), answer: u32) -> Frame {
+    knubot(character, 0x2103247d, npc, &[answer])
+}
+
+/// `KnubotCloseChatWindow` (`270a4c62`): the window closed (`N3Msg_NPCChatCloseWindow`: a zero and an empty string).
+pub fn npc_chat_close(character: u32, npc: (u32, u32)) -> Frame {
+    knubot(character, 0x270a4c62, npc, &[0, 0])
+}
+
+/// `KnubotNPCDescription` (`000a0c5a`): asks for the NPC's description (`N3Msg_NPCChatRequestDescription`).
+pub fn npc_chat_describe(character: u32, npc: (u32, u32)) -> Frame {
+    knubot(character, 0x000a0c5a, npc, &[])
+}
+
 /// Closes a shop (or declines a trade): action 2 with parameters `0, 1`, as the original sends it.
 pub fn trade_decline(character: u32) -> Frame {
     trade(character, 2, [0, 1, 0, 0])

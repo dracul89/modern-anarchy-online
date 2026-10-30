@@ -608,6 +608,11 @@ impl TextView {
         tree.add(Node::from_element(e, 4, Box::new(t)))
     }
 
+    /// Scrolled so its last line shows in a view `height` high (by the text's height when last drawn).
+    pub fn scroll_to_end(&mut self, height: f32) {
+        self.scroll = (self.content.get() - height).max(0.0);
+    }
+
     /// `TextView_c::SetText`.
     pub fn set_text(&mut self, text: &str) {
         if self.text != text {

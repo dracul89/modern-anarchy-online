@@ -115,6 +115,8 @@ pub struct Hud {
     pub mail_preview: std::sync::Mutex<Option<crate::mailbox::MailWindow>>,
     /// A shop window a headless preview shows.
     pub shop_preview: std::sync::Mutex<Option<crate::shop::ShopWindow>>,
+    /// An NPC chat window a headless preview shows.
+    pub npc_chat_preview: std::sync::Mutex<Option<crate::npcchat::NpcChatWindow>>,
     /// An Action window a headless preview shows.
     pub actions_preview: std::sync::Mutex<Option<crate::actions::ActionsWindow>>,
     /// A map a headless preview shows.
@@ -175,6 +177,8 @@ pub struct Requests {
     pub mail: Option<crate::mailbox::MailCommand>,
     /// A shop command (buy, close).
     pub shop: Option<crate::shop::ShopCommand>,
+    /// What the NPC chat window sends (an answer, a description asked for, the window closed).
+    pub npc_chat: Vec<crate::npcchat::Command>,
     /// "Deposit to Market"'s Send.
     pub market_send: Option<crate::marketsend::Deposit>,
     /// Feedback lines to show (text.mdb names).
@@ -234,6 +238,7 @@ pub struct Ui {
     pub mission: crate::mission::MissionWindow,
     pub mail: crate::mailbox::MailWindow,
     pub shop: crate::shop::ShopWindow,
+    pub npc_chat: crate::npcchat::NpcChatWindow,
     pub actions: crate::actions::ActionsWindow,
     pub automap: crate::automap::AutoMap,
     pub stats: crate::stats::StatsWindow,
@@ -343,7 +348,7 @@ impl Ui {
         crate::skin::configure(&ctx, crate::skin::dirs(&settings.gui_dir, &settings.theme, &settings.aou_mod));
         let state = egui_winit::State::new(ctx.clone(), egui::ViewportId::ROOT, window, Some(window.scale_factor() as f32), window.theme(), None);
         let renderer = egui_wgpu::Renderer::new(&gpu.device, format, egui_wgpu::RendererOptions::default());
-        let mut ui = Ui { ctx, state, renderer, open_seen: Vec::new(), options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), shop: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), ncu: Default::default(), friends: Default::default(), programs: Default::default(), perks: Default::default(), help: Default::default(), info: Default::default(), browser: Default::default(), market_send: Default::default(), control_center: None, option_panel: Default::default(), loot: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0 };
+        let mut ui = Ui { ctx, state, renderer, open_seen: Vec::new(), options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), shop: Default::default(), npc_chat: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), ncu: Default::default(), friends: Default::default(), programs: Default::default(), perks: Default::default(), help: Default::default(), info: Default::default(), browser: Default::default(), market_send: Default::default(), control_center: None, option_panel: Default::default(), loot: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0 };
         // (the windows the player left open come back open)
         for name in crate::layout::load_open() {
             ui.set_window(&name, true);
@@ -554,6 +559,7 @@ impl Ui {
         let (mission, mail, shop, actions, automap, stats_window, skills_window, ncu_window, chat_window) = (&mut self.mission, &mut self.mail, &mut self.shop, &mut self.actions, &mut self.automap, &mut self.stats, &mut self.skills, &mut self.ncu, &mut self.chat);
         let (friends_window, programs_window, perks_window, loot_window, help_window) = (&mut self.friends, &mut self.programs, &mut self.perks, &mut self.loot, &mut self.help);
         let info_view = &mut self.info;
+        let npc_chat = &mut self.npc_chat;
         let browser = &mut self.browser;
         let market_send = &mut self.market_send;
         let control_center = &mut self.control_center;
@@ -670,6 +676,12 @@ impl Ui {
                     requests.shop = Some(command);
                 }
                 if let Some(url) = shop.info_url.take() {
+                    info_view.show_url(&url);
+                }
+            }
+            if npc_chat.open {
+                requests.npc_chat.extend(npc_chat.show(&ctx, palette));
+                if let Some(url) = npc_chat.info_url.take() {
                     info_view.show_url(&url);
                 }
             }
@@ -792,6 +804,7 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
     let mut preview_mission = hud.mission_preview.lock().ok().and_then(|mut m| m.take());
     let mut preview_mail = hud.mail_preview.lock().ok().and_then(|mut m| m.take());
     let mut preview_shop = hud.shop_preview.lock().ok().and_then(|mut m| m.take());
+    let mut preview_npc_chat = hud.npc_chat_preview.lock().ok().and_then(|mut m| m.take());
     let mut preview_actions = hud.actions_preview.lock().ok().and_then(|mut m| m.take());
     let mut preview_map = hud.map_preview.lock().ok().and_then(|mut m| m.take());
     let mut preview_stats = hud.stats_preview.lock().ok().and_then(|mut m| m.take());
@@ -956,6 +969,11 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
             }
             if let Some(window) = preview_actions.as_mut() {
                 window.show(&ctx, &mut gear, &palette);
+            }
+            if let Some(window) = preview_npc_chat.as_mut() {
+                for command in window.show(&ctx, &palette) {
+                    eprintln!("npc chat command: {command:?}");
+                }
             }
             if let Some(window) = preview_shop.as_mut()
                 && let Some(command) = window.show(&ctx, &mut gear, &hud.gear, &palette)

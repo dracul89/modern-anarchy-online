@@ -150,6 +150,8 @@ pub struct Update {
     pub info_urls: Vec<String>,
     /// The shop trade's changes (the server's echoes).
     pub shop_changes: Vec<crate::shop::Change>,
+    /// What the server said in NPC chats (`npcchat.rs`).
+    pub npc_chat: Vec<crate::npcchat::Event>,
     /// A web page to open (the market terminal used).
     pub browser: Option<crate::browser::Request>,
     /// Windows to open (a mail terminal or mission booth used).
@@ -204,6 +206,8 @@ pub struct Live {
     pub mail: std::sync::mpsc::Sender<crate::mailbox::MailCommand>,
     /// Shop commands (buy, close).
     pub shop: std::sync::mpsc::Sender<crate::shop::ShopCommand>,
+    /// NPC chat commands (answer, describe, close).
+    pub npc_chat: std::sync::mpsc::Sender<crate::npcchat::Command>,
     /// The view point (Z-up), if known.
     pub focus: Option<[f32; 3]>,
     /// The starting distance from it.
@@ -1227,6 +1231,12 @@ impl ApplicationHandler for App {
                             for change in std::mem::take(&mut u.shop_changes) {
                                 ui.shop.apply(change);
                             }
+                            if !u.npc_chat.is_empty() {
+                                ui.npc_chat.own_name = self.hud.character_name.clone();
+                                for event in std::mem::take(&mut u.npc_chat) {
+                                    ui.npc_chat.apply(event);
+                                }
+                            }
                             if let Some((id, flags)) = u.mail_flags.take() {
                                 ui.mail.set_flags(id, flags);
                             }
@@ -1904,6 +1914,11 @@ impl ApplicationHandler for App {
                     }
                     for name in std::mem::take(&mut requests.feedback) {
                         self.hud.say(crate::feedback::plain(name));
+                    }
+                    for command in std::mem::take(&mut requests.npc_chat) {
+                        if let Some(live) = &self.live {
+                            let _ = live.npc_chat.send(command);
+                        }
                     }
                     if let Some(command) = requests.shop.take() {
                         if let Some(live) = &self.live {

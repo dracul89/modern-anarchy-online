@@ -49,7 +49,7 @@ pub fn run(db: Arc<ResourceDatabase>, mesh_kind: u32, mesh: u32, anim: u32, imag
             std::thread::sleep(Duration::from_millis(33));
         }
     });
-    viewer::window(Model::default(), textures, Some(viewer::Live { overlays: rx, input: input_tx, mail: std::sync::mpsc::channel().0, shop: std::sync::mpsc::channel().0, focus: Some([0.0, 0.0, 0.9]), distance: 3.0 }))
+    viewer::window(Model::default(), textures, Some(viewer::Live { overlays: rx, input: input_tx, mail: std::sync::mpsc::channel().0, shop: std::sync::mpsc::channel().0, npc_chat: std::sync::mpsc::channel().0, focus: Some([0.0, 0.0, 0.9]), distance: 3.0 }))
 }
 
 /// A player of a breed and sex: the body, posed by `anim`, with its head
@@ -101,5 +101,5 @@ pub fn player(db: Arc<ResourceDatabase>, breed: u8, sex: u8, anim: u32, image: O
             std::thread::sleep(Duration::from_millis(33));
         }
     });
-    viewer::window(Model::default(), textures, Some(viewer::Live { overlays: rx, input: input_tx, mail: std::sync::mpsc::channel().0, shop: std::sync::mpsc::channel().0, focus: Some([0.0, 0.0, 0.9]), distance: 3.0 }))
+    viewer::window(Model::default(), textures, Some(viewer::Live { overlays: rx, input: input_tx, mail: std::sync::mpsc::channel().0, shop: std::sync::mpsc::channel().0, npc_chat: std::sync::mpsc::channel().0, focus: Some([0.0, 0.0, 0.9]), distance: 3.0 }))
 }

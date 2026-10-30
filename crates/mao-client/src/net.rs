@@ -3067,6 +3067,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     let (input_tx, input_rx) = std::sync::mpsc::channel::<crate::viewer::Input>();
     let (mail_tx, mail_rx) = std::sync::mpsc::channel::<crate::mailbox::MailCommand>();
     let (shop_tx, shop_rx) = std::sync::mpsc::channel::<crate::shop::ShopCommand>();
+    let (npc_chat_tx, npc_chat_rx) = std::sync::mpsc::channel::<crate::npcchat::Command>();
     let own = state.own;
     let start = state.entities.get(&own).map(|e| e.0).unwrap_or([0.0; 3]);
     if std::env::var_os("MAO_COMBAT_LOG").is_some() {
@@ -3330,6 +3331,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let (mut pending_mail_count, mut pending_mail_status): (Option<usize>, Option<String>) = (None, None);
         // Shops: the stock to show, a note, the open booth and the trade's bag (from the server's Trade open).
         let (mut pending_shop, mut pending_shop_status): (Option<crate::shop::ShopState>, Option<String>) = (None, None);
+        // (the NPC chat: what the server said for the window, and the NPC talked to)
+        let (mut pending_npc_chat, mut chat_npc): (Vec<crate::npcchat::Event>, Option<(u32, u32)>) = (Vec::new(), None);
         let mut shop_booth: Option<(u32, u32)> = None;
         let (mut shop_rates, mut shop_rows, mut pending_shop_changes) = (crate::shop::Rates { buy: 0, sell: 0, kind: 0 }, Vec::<crate::shop::Row>::new(), Vec::<crate::shop::Change>::new());
         // After a trade completes the server wants the booth used again (as the original does) for the next one.
@@ -3505,6 +3508,32 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                 mail_sent = None;
                                 let code = m.data.get(21..25).map_or(0, |b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]));
                                 pending_mail_status = Some(format!("The server declined the mail (message code {code})."));
+                            }
+                        }
+                    }
+                    // The NPC chat (`npcchat.rs`): the window opened with the NPC's name, its lines and answers.
+                    if let Some(event) = Message::parse(&frame).and_then(|m| crate::npcchat::event(m.kind, &m.data)) {
+                        let npc = match &event {
+                            crate::npcchat::Event::Open(n, _) | crate::npcchat::Event::Text(n, ..) | crate::npcchat::Event::Answers(n, _) | crate::npcchat::Event::Close(n) => *n,
+                        };
+                        let name = state.names.get(&npc.1).map(|n| n.0.clone()).or_else(|| state.infos.get(&npc.1).map(|i| i.name.clone())).unwrap_or_default();
+                        match event {
+                            crate::npcchat::Event::Open(..) => {
+                                chat_npc = Some(npc);
+                                pending_npc_chat.push(crate::npcchat::Event::Open(npc, name));
+                            }
+                            crate::npcchat::Event::Close(_) => {
+                                if chat_npc == Some(npc) {
+                                    chat_npc = None;
+                                }
+                                pending_npc_chat.push(event);
+                            }
+                            event => {
+                                if chat_npc != Some(npc) {
+                                    chat_npc = Some(npc);
+                                    pending_npc_chat.push(crate::npcchat::Event::Open(npc, name));
+                                }
+                                pending_npc_chat.push(event);
                             }
                         }
                     }
@@ -3883,7 +3912,12 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                 let there = state.objects.get(&t).copied().or_else(|| state.entities.get(&t).map(|e| e.0));
                                 eprintln!("combat: use ({kind:#x}, {t:#x}) at {there:?}, {:?} m away", there.map(|p| ((p[0] - position[0]).powi(2) + (p[1] - position[1]).powi(2) + (p[2] - position[2]).powi(2)).sqrt()));
                             }
-                            let _ = connection.send(&n3::use_object(own, uses, (kind, t)));
+                            // (an NPC is talked to: `KnubotOpenChatWindow`, as aosharp opens a conversation)
+                            if kind == n3::CHARACTER && t != own && state.infos.get(&t).is_some_and(|i| !i.is_player()) {
+                                let _ = connection.send(&n3::npc_chat_open(own, (kind, t)));
+                            } else {
+                                let _ = connection.send(&n3::use_object(own, uses, (kind, t)));
+                            }
                             state.door_used(t);
                             state.opened_by_use(&gear_db, kind, t);
                             pending_messages.push(format!("Using {}", state.names.get(&t).map_or("the target", |n| n.0.as_str())));
@@ -3990,6 +4024,22 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     crate::mailbox::MailCommand::Send { recipient, subject, body, item, credits, express } => {
                         let _ = connection.send(&n3::mail_send(own, &recipient, &subject, &body, item, credits, express));
                         mail_sent = Some(Instant::now());
+                    }
+                }
+            }
+            while let Ok(command) = npc_chat_rx.try_recv() {
+                match command {
+                    crate::npcchat::Command::Answer(npc, k) => {
+                        let _ = connection.send(&n3::npc_chat_answer(own, npc, k));
+                    }
+                    crate::npcchat::Command::Describe(npc) => {
+                        let _ = connection.send(&n3::npc_chat_describe(own, npc));
+                    }
+                    crate::npcchat::Command::Close(npc) => {
+                        let _ = connection.send(&n3::npc_chat_close(own, npc));
+                        if chat_npc == Some(npc) {
+                            chat_npc = None;
+                        }
                     }
                 }
             }
@@ -4178,7 +4228,11 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 if double {
                     uses += 1;
                     let (kind, id) = state.used(state.types.get(&id).copied().unwrap_or(n3::CHARACTER), id);
-                    let _ = connection.send(&n3::use_object(own, uses, (kind, id)));
+                    if kind == n3::CHARACTER && id != own && state.infos.get(&id).is_some_and(|i| !i.is_player()) {
+                        let _ = connection.send(&n3::npc_chat_open(own, (kind, id)));
+                    } else {
+                        let _ = connection.send(&n3::use_object(own, uses, (kind, id)));
+                    }
                     state.door_used(id);
                     // (a mail terminal opens the mail window on the inbox, as its own button does; a mission booth the
                     // mission window, which is the client's own: the server only echoes the use)
@@ -5253,6 +5307,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     shop: pending_shop.take(),
                     shop_status: pending_shop_status.take(),
                     shop_changes: std::mem::take(&mut pending_shop_changes),
+                    npc_chat: std::mem::take(&mut pending_npc_chat),
                     mail_flags: pending_mail_flags.take(),
                     mail_status: pending_mail_status.take(),
                     destinations: pending_destinations.take(),
@@ -5296,7 +5351,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             }
         }
     });
-    crate::viewer::window(scene, textures, Some(crate::viewer::Live { overlays: rx, input: input_tx, mail: mail_tx, shop: shop_tx, focus, distance: 6.0 }))
+    crate::viewer::window(scene, textures, Some(crate::viewer::Live { overlays: rx, input: input_tx, mail: mail_tx, shop: shop_tx, npc_chat: npc_chat_tx, focus, distance: 6.0 }))
 }
 
 pub fn run(args: &[String]) -> Result<(), String> {
@@ -5371,6 +5426,90 @@ pub fn run(args: &[String]) -> Result<(), String> {
                 }
             }
             state.print();
+            Ok(())
+        }
+        // `net <game dir> talk <name> [npc name part]`: log in, open a chat with the nearest NPC (named so, if given), print
+        // the server's NPC chat messages, answer the first answer once, then close the chat; a plain use instead when the
+        // open draws no answer.
+        [game, word, who, rest @ ..] if word == "talk" => {
+            let wanted = rest.first().map(|s| s.to_ascii_lowercase());
+            let (mut chat, list) = login(game)?;
+            let character = list.iter().find(|c| c.name.eq_ignore_ascii_case(who)).ok_or("no such character")?;
+            let ticket = session::login_character(&mut chat, character.id).map_err(|e| e.to_string())?;
+            let mut world = session::enter_world(&ticket).map_err(|e| e.to_string())?;
+            world.set_timeout(Duration::from_millis(50)).map_err(|e| e.to_string())?;
+            let own = character.id;
+            let mut state = World { own, ..World::default() };
+            let clock = Instant::now();
+            let (mut phase, mut at, mut npc, mut answered) = (0, Instant::now(), None::<(u32, u32)>, false);
+            loop {
+                let t = clock.elapsed().as_secs_f32();
+                if phase == 0 && t > 3.0 {
+                    world.send(&n3::ready(own)).map_err(|e| e.to_string())?;
+                    world.send(&n3::action(own, n3::STAND)).map_err(|e| e.to_string())?;
+                    phase = 1;
+                } else if phase == 1 && t > 6.0 {
+                    let me = state.entities.get(&own).map(|e| e.0).unwrap_or([0.0; 3]);
+                    let d = |p: [f32; 3]| (p[0] - me[0]).powi(2) + (p[2] - me[2]).powi(2);
+                    let found = state
+                        .infos
+                        .iter()
+                        .filter(|(id, i)| **id != own && !i.is_player() && wanted.as_ref().is_none_or(|w| i.name.to_ascii_lowercase().contains(w)))
+                        .filter_map(|(id, i)| Some((*id, i.name.clone(), d(state.entities.get(id)?.0))))
+                        .min_by(|a, b| a.2.total_cmp(&b.2));
+                    let Some((id, name, d2)) = found else { return Err("no NPC near".into()) };
+                    eprintln!("[{t:5.1}] OPEN chat with {name} ({id:#x}), {:.1} m away", d2.sqrt());
+                    npc = Some((n3::CHARACTER, id));
+                    world.send(&n3::npc_chat_open(own, (n3::CHARACTER, id))).map_err(|e| e.to_string())?;
+                    at = Instant::now();
+                    phase = 2;
+                } else if phase == 2 && at.elapsed() > Duration::from_secs(4) {
+                    eprintln!("[{t:5.1}] no answer to the open: USE instead");
+                    world.send(&n3::use_object(own, 1, npc.unwrap())).map_err(|e| e.to_string())?;
+                    at = Instant::now();
+                    phase = 3;
+                } else if (phase == 3 || phase == 4) && at.elapsed() > Duration::from_secs(6) {
+                    world.send(&n3::npc_chat_close(own, npc.unwrap())).map_err(|e| e.to_string())?;
+                    eprintln!("[{t:5.1}] CLOSE sent");
+                    at = Instant::now();
+                    phase = 5;
+                } else if phase == 5 && at.elapsed() > Duration::from_secs(2) {
+                    break;
+                }
+                match world.receive() {
+                    Ok(frame) => {
+                        if let Some(reply) = frame::ping_reply(&frame, own, 70_000_000 + clock.elapsed().as_millis() as u32) {
+                            let _ = world.send(&reply);
+                        }
+                        if let Some(m) = Message::parse(&frame) {
+                            if let Some(e) = crate::npcchat::event(m.kind, &m.data) {
+                                eprintln!("[{t:5.1}] <- {:08x} from ({:x},{:x}): {e:?} raw {}", m.kind, m.identity.0, m.identity.1, m.data.iter().take(48).map(|b| format!("{b:02x}")).collect::<String>());
+                                if phase == 2 {
+                                    phase = 4;
+                                    at = Instant::now();
+                                }
+                                if let crate::npcchat::Event::Answers(n, list) = &e
+                                    && !answered
+                                    && !list.is_empty()
+                                {
+                                    answered = true;
+                                    eprintln!("[{t:5.1}] ANSWER 0 ({:?})", list[0]);
+                                    world.send(&n3::npc_chat_answer(own, *n, 0)).map_err(|e| e.to_string())?;
+                                    at = Instant::now();
+                                }
+                            } else if phase >= 2 && [0x52526858, 0x0a0c5a, 0x5e477770].contains(&m.kind) {
+                                eprintln!("[{t:5.1}] <- {:08x} from ({:x},{:x}) {}", m.kind, m.identity.0, m.identity.1, m.data.iter().take(40).map(|b| format!("{b:02x}")).collect::<String>());
+                            }
+                        }
+                        state.add(&frame);
+                    }
+                    Err(session::Error::Io(e)) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => {}
+                    Err(e) => {
+                        eprintln!("[{t:5.1}] connection ended: {e}");
+                        break;
+                    }
+                }
+            }
             Ok(())
         }
         // `net <game dir> relogin <name> [chat]`: log in, enter the world, leave and log in again (what a zoning needs), to see what the server refuses.
