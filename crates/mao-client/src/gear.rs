@@ -62,6 +62,9 @@ pub struct GearEvents {
     pub deletes: Vec<u32>,
     /// Info pages asked for (`itemref://` URLs for the info view).
     pub infos: Vec<String>,
+    /// Items Ctrl+double-clicked: put into the open trade, as the original's inventory list does with a trade open
+    /// (FUN_100cae1b on the list's double-click, the qualifiers' Ctrl bits 0xc: `N3Msg_TradeAddItem`).
+    pub trade_adds: Vec<u32>,
 }
 
 /// How many places the backpack has.
@@ -207,6 +210,7 @@ pub struct GearWindow {
     deletes: Vec<u32>,
     /// Info pages asked for since the last frame.
     infos: Vec<String>,
+    trade_adds: Vec<u32>,
     /// The place an item awaits a second click to be destroyed.
     confirm: Option<u32>,
     /// Items whose name does not contain this are dimmed (any case).
@@ -232,7 +236,7 @@ impl GearWindow {
 
     /// One square: the item's icon (and stack size), or an empty frame.
     fn cell(&mut self, ui: &mut egui::Ui, item: Option<&GearItem>, place: Option<u32>, label: &str, accent: egui::Color32, stats: &std::collections::BTreeMap<u32, i64>) {
-        let (rect, response) = ui.allocate_exact_size(egui::vec2(CELL, CELL), egui::Sense::drag());
+        let (rect, response) = ui.allocate_exact_size(egui::vec2(CELL, CELL), egui::Sense::click_and_drag());
         // An item dropped here moves to this place.
         if let (Some(place), Some(from)) = (place, self.dragging) {
             if from != place && response.contains_pointer() && ui.input(|i| i.pointer.any_released()) {
@@ -262,6 +266,9 @@ impl GearWindow {
         if item.count > 1 {
             let text = if item.count >= 10000 { format!("{}k", item.count / 1000) } else { item.count.to_string() };
             ui.painter().text(rect.right_bottom() - egui::vec2(3.0, 2.0), egui::Align2::RIGHT_BOTTOM, text, egui::FontId::proportional(11.0), egui::Color32::WHITE);
+        }
+        if response.double_clicked() && ui.input(|i| i.modifiers.ctrl) {
+            self.trade_adds.push(item.slot);
         }
         // Drag an item onto a hotbar slot to add it to that slot's list.
         if response.drag_started() {
@@ -434,7 +441,7 @@ impl GearWindow {
         if ctx.input(|i| i.pointer.any_released()) {
             self.dragging = None;
         }
-        GearEvents { moves: std::mem::take(&mut self.moves), uses: std::mem::take(&mut self.uses), deletes: std::mem::take(&mut self.deletes), infos: std::mem::take(&mut self.infos) }
+        GearEvents { moves: std::mem::take(&mut self.moves), uses: std::mem::take(&mut self.uses), deletes: std::mem::take(&mut self.deletes), infos: std::mem::take(&mut self.infos), trade_adds: std::mem::take(&mut self.trade_adds) }
     }
 }
 

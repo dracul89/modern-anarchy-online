@@ -1505,6 +1505,11 @@ fn run(args: &[String]) -> Result<(), String> {
                                     window.selected = Some(0);
                                 }
                                 *hud.shop_preview.lock().unwrap() = Some(window);
+                                // (MAO_SHOP_GEAR=1: the capture's inventory open beside it, to drag from)
+                                if std::env::var_os("MAO_SHOP_GEAR").is_some() {
+                                    hud.gear = net::capture_entries(&log.to_string_lossy()).map(|e| gear::from_entries(&db, &textures, &e, 220)).unwrap_or_default();
+                                    hud.gear_open = true;
+                                }
                             }
                         }
                     }

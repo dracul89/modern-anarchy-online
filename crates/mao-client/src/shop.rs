@@ -357,7 +357,7 @@ impl ShopWindow {
                 rs.iter().map(|r| (r.icon.as_ref(), r.name.as_str(), r.count, r.price, r.quality, "")).collect()
             }
             // (a stock item double-clicked goes in, right-clicked shows its page; one in either list double-clicked comes out)
-            let (c, d, i, _) = list(ui, "ShopInventoryDock", stock.iter().map(|s| (s.icon.as_ref(), s.name.as_str(), 1, s.price, s.quality, s.description.as_str())).collect(), *selected);
+            let (c, d, i, stock_area) = list(ui, "ShopInventoryDock", stock.iter().map(|s| (s.icon.as_ref(), s.name.as_str(), 1, s.price, s.quality, s.description.as_str())).collect(), *selected);
             if c.is_some() {
                 *selected = c;
             }
@@ -367,18 +367,19 @@ impl ShopWindow {
             if let Some(s) = i.and_then(|i| stock.get(i)) {
                 *info_url = Some(format!("itemref://{}/{}/{}", s.low, s.high, s.quality));
             }
-            if let (_, Some(i), _, _) = list(ui, "PartnerInventoryDock", rows(bought), None) {
+            let (_, d, _, bought_area) = list(ui, "PartnerInventoryDock", rows(bought), None);
+            if let Some(i) = d {
                 command = Some(ShopCommand::Remove(bought[i].item));
             }
-            let (_, d, _, area) = list(ui, "OurInventoryDock", rows(sold), None);
+            let (_, d, _, sold_area) = list(ui, "OurInventoryDock", rows(sold), None);
             if let Some(i) = d {
                 command = Some(ShopCommand::Remove(sold[i].item));
             }
-            // (an inventory item dropped on "Sold items" goes in)
-            if let Some(area) = area {
-                if dragged != u32::MAX && ui.input(|i| i.pointer.any_released() && i.pointer.interact_pos().is_some_and(|p| area.contains(p))) {
-                    command = Some(ShopCommand::Sell(dragged));
-                }
+            // (an inventory item dropped on any of the three lists goes in: in shop mode FUN_100e121e gives each list's
+            // drop signal, +0x2dc, FUN_100e015f, which adds an "inventory/item" drag to the trade)
+            let dropped = |area: &Option<egui::Rect>| area.is_some_and(|a| ui.input(|i| i.pointer.any_released() && i.pointer.interact_pos().is_some_and(|p| a.contains(p))));
+            if dragged != u32::MAX && [&stock_area, &bought_area, &sold_area].into_iter().any(dropped) {
+                command = Some(ShopCommand::Sell(dragged));
             }
         });
         for (id, signal) in std::mem::take(&mut w.tree.signals) {

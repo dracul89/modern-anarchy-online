@@ -686,6 +686,11 @@ impl Ui {
                 for url in events.infos {
                     info_view.show_url(&url);
                 }
+                if shop.open
+                    && let Some(&slot) = events.trade_adds.last()
+                {
+                    requests.shop = Some(crate::shop::ShopCommand::Sell(slot));
+                }
             }
             browser.show(&ctx, palette);
             if market_send.open {
@@ -819,7 +824,11 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
     // fade in over the next ones; the last is what is drawn.
     // (MAO_CLICK's clicks take five frames each)
     let clicks = std::env::var("MAO_CLICK").map_or(0, |v| v.split(';').count());
-    for frame in 0..(12usize).max(4 + 5 * clicks + 4) {
+    // (MAO_DRAG=x1,y1,x2,y2 drags from the one point to the other after the clicks: pressed, moved over four frames,
+    // released)
+    let drag: Option<[f32; 4]> = std::env::var("MAO_DRAG").ok().and_then(|v| v.split(',').map(|n| n.trim().parse().ok()).collect::<Option<Vec<f32>>>()).and_then(|v| v.try_into().ok());
+    let drag_start = 4 + 5 * clicks;
+    for frame in 0..(12usize).max(4 + 5 * clicks + 4).max(if drag.is_some() { drag_start + 10 } else { 0 }) {
         // MAO_HOVER=x,y puts the pointer there (pixels) so a tooltip shows in the picture.
         let mut events: Vec<egui::Event> = std::env::var("MAO_HOVER").ok().and_then(|v| { let (x, y) = v.split_once(',')?; Some(egui::Event::PointerMoved(egui::pos2(x.trim().parse().ok()?, y.trim().parse().ok()?))) }).into_iter().collect();
         // MAO_CLICK=x,y[;x,y...] clicks there (pixels), one click every fifth frame from the fourth (frames between for what
@@ -832,6 +841,16 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
                     events.push(egui::Event::PointerMoved(pos));
                     events.push(egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() });
                 }
+            }
+        }
+        if let Some([x1, y1, x2, y2]) = drag
+            && (drag_start..=drag_start + 5).contains(&frame)
+        {
+            let k = (frame - drag_start) as f32 / 5.0;
+            let pos = egui::pos2(x1 + (x2 - x1) * k, y1 + (y2 - y1) * k);
+            events.push(egui::Event::PointerMoved(pos));
+            if frame == drag_start || frame == drag_start + 5 {
+                events.push(egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: frame == drag_start, modifiers: Default::default() });
             }
         }
         // MAO_TYPE=text types it after the clicks (into the field a click gave the keyboard); a `|` presses Left once.
@@ -938,8 +957,10 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
             if let Some(window) = preview_actions.as_mut() {
                 window.show(&ctx, &mut gear, &palette);
             }
-            if let Some(window) = preview_shop.as_mut() {
-                window.show(&ctx, &mut gear, &hud.gear, &palette);
+            if let Some(window) = preview_shop.as_mut()
+                && let Some(command) = window.show(&ctx, &mut gear, &hud.gear, &palette)
+            {
+                eprintln!("shop command: {command:?}");
             }
             if preview_deposit.open {
                 let _ = preview_deposit.show(&ctx, &mut gear, &hud.gear, 1000, &palette);
