@@ -134,6 +134,10 @@ fn trace(frame: &frame::Frame, clock: Instant) {
     const BULK: [u32; 12] = [0x54111123, 0x2b333d6e, 0x271b3a6b, 0x3b1d2268, 0x36510078, 0x4c7d403b, 0x3b11256f, 0x46002f16, 0x465a5d73, 0x260f3671, 0x195e496e, 0x1d3c0f1c];
     let t = clock.elapsed().as_secs_f32();
     if let Some(m) = Message::parse(frame) {
+        // (MAO_TRACE_ALL=1: the bulk messages' kinds and identities too)
+        if BULK.contains(&m.kind) && std::env::var_os("MAO_TRACE_ALL").is_some() {
+            eprintln!("[{t:7.2}] server bulk {:08x} from {:x}:{:x} ({} bytes)", m.kind, m.identity.0, m.identity.1, m.data.len());
+        }
         if !BULK.contains(&m.kind) {
             let head: String = m.data.iter().take(if m.kind == 0x52526858 { 64 } else { 28 }).map(|b| format!("{b:02x}")).collect();
             eprintln!("[{t:7.2}] server n3 {:08x} from {:x}:{:x} ({} bytes) {head}", m.kind, m.identity.0, m.identity.1, m.data.len());
@@ -340,6 +344,9 @@ struct World {
     /// The terminals the server announces (`SimpleItemFullUpdate` on a `0xc73d` with a place): in an instance (ICC's shops) the
     /// playfield's own terminals go by these ids, not by their dynel table's.
     terminals: BTreeMap<u32, [f32; 3]>,
+    /// An instanced playfield's runs of ids for its built-in objects (kind, first table index, count, first id: the playfield
+    /// message's [`Message::instance_runs`]); empty where the table's ids are the server's.
+    instance_runs: Vec<(u32, u32, u32, u32)>,
     /// The doors of the playfield by number: the key of the door's model in `props` and its position (from the dynel table).
     door_slots: BTreeMap<u8, (u32, [f32; 3])>,
     /// The server's ids of the doors (from their status messages) and until when each door (by number) stays open.
@@ -787,7 +794,14 @@ impl World {
         }
         if let Some(arrival) = m.arrival() {
             eprintln!("playfield message: identity ({:x},{:x}) -> playfield {} at {:?}", m.identity.0, m.identity.1, arrival.0, arrival.1);
+            if std::env::var_os("MAO_TRACE_ALL").is_some() {
+                eprintln!("  playfield message data {}", m.data.iter().map(|b| format!("{b:02x}")).collect::<String>());
+            }
             self.arrival = Some(arrival);
+            self.instance_runs = m.instance_runs();
+            if std::env::var_os("MAO_COMBAT_LOG").is_some() && !self.instance_runs.is_empty() {
+                eprintln!("instance runs: {:x?}", self.instance_runs);
+            }
             self.own_dead = false;
         }
         if let Some((seconds, period, day, server_time)) = m.game_time() {
@@ -1316,7 +1330,7 @@ impl World {
             if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
                 let entries = inventory_from_schema(p.value.get("BankSlots"));
                 if std::env::var_os("MAO_COMBAT_LOG").is_some() {
-                    eprintln!("bank: {} items {:?}", entries.len(), entries.iter().take(4).map(|e| (e.slot, e.container, e.low_id)).collect::<Vec<_>>());
+                    eprintln!("bank: {} items ({} bytes) {:?}", entries.len(), m.data.len(), entries.iter().take(4).map(|e| (e.slot, e.container, e.low_id)).collect::<Vec<_>>());
                 }
                 self.loot = Some(Loot { identity: (crate::loot::BANK, 0), handle: 0, entries });
                 self.loot_changed = true;
@@ -1685,13 +1699,11 @@ impl World {
         if let Some(&corpse) = self.corpses.get(&id).filter(|c| self.objects.contains_key(c)) {
             return (OBJECT_TYPE, corpse);
         }
-        // (a table terminal the server announced under another id, as in an instance: the announced one at its place)
-        if kind == 0xc73d && !self.terminals.contains_key(&id) {
-            if let Some(at) = self.table.iter().find(|d| d.0 == kind && d.1 == id).map(|d| d.2) {
-                let near = |p: &[f32; 3]| (p[0] - at[0]).powi(2) + (p[1] - at[1]).powi(2) + (p[2] - at[2]).powi(2);
-                if let Some((&announced, _)) = self.terminals.iter().filter(|(_, p)| near(p) < 2.0 * 2.0).min_by(|a, b| near(a.1).total_cmp(&near(b.1))) {
-                    return (kind, announced);
-                }
+        // (a table object in an instance goes by the instance's id: its number among the table's records of its kind, `0xc0NNpppp`,
+        // counted through the playfield message's runs of that kind)
+        if id >> 24 == 0xc0 && self.table.iter().any(|d| d.0 == kind && d.1 == id) {
+            if let Some(instance) = instance_id(&self.instance_runs, kind, (id >> 16) & 0xff) {
+                return (kind, instance);
             }
         }
         (kind, id)
@@ -1717,6 +1729,31 @@ impl World {
     }
 }
 
+
+#[cfg(test)]
+mod instance_tests {
+    /// ICC's terminals (1186): the clinic and the bank (terminals 0 and 1) in the first run, the second clinic in the next.
+    #[test]
+    fn icc_terminals_get_the_instance_ids() {
+        let runs = [(0xc75b, 0, 15, 0x1324f4e2), (0xc73d, 0x36, 2, 0x58c197d5), (0xc748, 0x38, 3, 0x10c1c17c), (0xc73d, 0x3b, 1, 0x58c197d7)];
+        assert_eq!(super::instance_id(&runs, 0xc73d, 1), Some(0x58c197d6));
+        assert_eq!(super::instance_id(&runs, 0xc73d, 2), Some(0x58c197d7));
+        assert_eq!(super::instance_id(&runs, 0xc73d, 3), None);
+        assert_eq!(super::instance_id(&runs, 0xc75b, 14), Some(0x1324f4f0));
+    }
+}
+
+/// The instance's id of the `number`th table record of a kind: the runs of that kind cover its records in order.
+fn instance_id(runs: &[(u32, u32, u32, u32)], kind: u32, number: u32) -> Option<u32> {
+    let mut before = 0;
+    for &(k, _, count, first) in runs.iter().filter(|r| r.0 == kind) {
+        if number < before + count {
+            return Some(first + (number - before));
+        }
+        before += count;
+    }
+    None
+}
 
 /// A flat floor under an interior whose own floor this client can't read (its ground is of the unread tile-map
 /// layout): a square of 200 units around (`x`, `z`) at `height`, drawn from both sides.

@@ -693,6 +693,20 @@ mod tests {
         assert_eq!(hex(mail_send(0x4c2e2, "Muggles", "hi", "", (0x68, 0x44), 0, true)), "00000600074d7567676c657300026869000000000068000000440000000001");
     }
 
+    /// The playfield message into ICC (1186, instance 0x20d9be), live: its runs of instance ids.
+    #[test]
+    fn instance_runs_match_icc() {
+        let hex = "00000000044326800040a051ec43038000610000c79e000004a200000001c021028f00009c500020d9be0000c77d000000010000000100000001000000090000c75b00000001000000000000000f1324f4e20000c748000000010000000f0000000310c1c1780000c75b0000000100000012000000141324f4f10000c74800000001000000260000000110c1c17b0000c75b00000001000000270000000f1324f5050000c73d00000001000000360000000258c197d50000c74800000001000000380000000310c1c17c0000c73d000000010000003b0000000158c197d70000c75b000000010000003c0000000d1324f514ffffffffffffffff";
+        let data: Vec<u8> = (0..hex.len() / 2).map(|i| u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).unwrap()).collect();
+        let m = Message { kind: PLAYFIELD, identity: (0x9c50, 0x20d9be), data };
+        let runs = m.instance_runs();
+        assert_eq!(runs.len(), 9);
+        assert_eq!(runs[0], (0xc75b, 0, 15, 0x1324f4e2));
+        assert_eq!(runs[5], (0xc73d, 0x36, 2, 0x58c197d5));
+        assert_eq!(runs[7], (0xc73d, 0x3b, 1, 0x58c197d7));
+        assert_eq!(m.arrival().map(|a| a.0), Some(0x4a2));
+    }
+
     #[test]
     fn use_matches_the_capture() {
         // The client's first use in the capture: character 0x4c2de, target (0xc76a, 0x0101e30a).
@@ -907,6 +921,29 @@ impl Message {
         let f = |at: usize| f32::from_be_bytes(self.data[at..at + 4].try_into().unwrap());
         let template = (self.data.len() >= 26 && self.data[17] == b'a').then(|| u32::from_be_bytes(self.data[22..26].try_into().unwrap())).filter(|&t| t != 0);
         Some((template.unwrap_or(self.identity.1), [f(5), f(9), f(13)]))
+    }
+
+    /// An instanced playfield's ids for its built-in objects (a [`PLAYFIELD`] message into ICC's shops): after the proxy, a
+    /// `0xc77d` word and three more, the number of runs, then each run as five words: the kind (`0xc73d` terminal, `0xc748`
+    /// door, `0xc75b` vending machine), 1, the first record's index in the playfield's dynel table, how many records, and the
+    /// first record's id (the others counting on from it). Empty for a playfield whose objects keep their table ids.
+    /// From live bytes (ICC 1186: terminal runs `(0xc73d, 54, 2, 0x58c197d5)` and `(0xc73d, 59, 1, 0x58c197d7)`, the bank
+    /// being record 55).
+    pub fn instance_runs(&self) -> Vec<(u32, u32, u32, u32)> {
+        if self.kind != PLAYFIELD {
+            return Vec::new();
+        }
+        let w = |at: usize| self.data.get(at..at + 4).map(|b| u32::from_be_bytes(b.try_into().unwrap()));
+        let Some(start) = (17..self.data.len().saturating_sub(3)).find(|&at| w(at) == Some(0xc77d)) else { return Vec::new() };
+        let Some(count) = w(start + 16) else { return Vec::new() };
+        (0..count.min(256) as usize)
+            .map_while(|k| {
+                let at = start + 20 + k * 20;
+                Some((w(at)?, w(at + 4)?, w(at + 8)?, w(at + 12)?, w(at + 16)?))
+            })
+            .filter(|r| r.1 == 1)
+            .map(|(kind, _, first, n, id)| (kind, first, n, id))
+            .collect()
     }
 
     /// A [`GAME_TIME`] message: the seconds into the day, the day period, the day count and the server's time.

@@ -1629,12 +1629,16 @@ ledge, through a rail) by sending back the last place it took as a full report (
 refused reports too; the client now goes back there (`own_report`: a report more than 5 m from us that is none of the places
 we told it in the last 4 s). Taking and depositing are still untried (the test bank is empty).
 
-**Instances.** In an instanced playfield (ICC's shops, 1180..1187) the server gives the built-in objects its own running ids
-(the captured shop's doors `0x10c0e1e5..`, its vending machines `0x13243954..`), not the dynel table's `0xc0NNpppp`: a use of
-the table's id gets no answer at all (Humility at ICC Fair Trade's bank: "Using ..." and nothing). The server announces
-terminals with `SimpleItemFullUpdate` (`0xc73d`, a place, the template as stat 23: seen outdoors in the captures); the client
-keeps them (`terminals`) and a use of a table terminal goes to the announced one within 2 m of its place. Not yet seen
-inside an instance.
+**Instances.** In an instanced playfield (ICC's shops, 1180..1187) the server gives the built-in objects its own ids, not the
+dynel table's `0xc0NNpppp`: a use of the table's id is echoed with a 2 and nothing else (Humility at ICC's bank: "Using ..."
+and no window). The playfield message (`5f4b1a39`) carries them, after the proxy: a `0xc77d` word and three more, the number
+of runs, then runs of five words (kind, 1, the first record's index in the dynel table, how many, the first id; the others
+count on). ICC 1186: terminals `(0xc73d, 54, 2, 0x58c197d5)` and `(0xc73d, 59, 1, 0x58c197d7)`, vending machines from
+`0x1324f4e2`, doors from `0x10c1c178` (the ids the server announces them by). `Message::instance_runs` reads them; a use of
+a table object goes to its instance id, the table id's `NN` (its number among the records of its kind) counted through the
+runs of that kind (`instance_id`). **Tried live**: Humility's use of ICC's bank went to `0x58c197d6` and the `Bank` message
+came (an empty bank). Terminals the server announces itself (`SimpleItemFullUpdate` on a `0xc73d` with a place) are kept
+with their names (`terminals`).
 
 The live client's `MAO_AUTOPLAY` takes `usenear=<name>`: target the nearest table dynel with the name and use it.
 
