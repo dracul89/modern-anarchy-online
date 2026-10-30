@@ -1846,6 +1846,14 @@ impl ApplicationHandler for App {
                     let aspect = size.0 as f32 / size.1.max(1) as f32;
                     let project = |p: mao_render::glam::Vec3| camera.project(p, aspect, radius);
                     self.hud.camera_yaw = w.camera.yaw;
+                    // (a name behind a wall is hidden, as the original's tag sprite in the world is)
+                    if let Some(z) = self.zones.as_ref() {
+                        let e = w.camera.eye();
+                        let eye = [e.x, e.z, e.y];
+                        for t in &mut self.hud.nameplates {
+                            t.hidden = z.line(eye, [t.at[0], t.at[2], t.at[1]]).is_some();
+                        }
+                    }
                     let (frame, mut requests) = ui.run(&w.window, &mut self.settings, &self.hud, &project);
                     prof_t = crate::prof::lap("ui", prof_t);
                     // (the web page follows its window: opened when it opens, moved with it, gone when it closes)

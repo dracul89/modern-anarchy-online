@@ -1554,3 +1554,10 @@ Grid, 4107) the characters' stat getter (FUN_10059399) sets `Features` (224) bit
 character from FUN_10058088's NPC template 0x1863e (99902) instead of its own: a blue triangle
 (`mao-client <game> creature 1863e out.png`). Here every character and NPC in such a playfield is drawn with that
 template, as a polymorph is (`net.rs`, `World::grid`). Not yet seen live.
+
+## Names behind walls (2026-10-29)
+
+The original's name tags (`TargetingModule_t::HandleNametags`, GUI.dll 0x100268ee) are `VisualSprite_t`s placed in the
+world at the indicator's position (FUN_100258b3, while `N3Msg_IsVisible`), so a wall between the camera and a tag
+hides it as it hides anything. Here the tags are drawn over the picture, so each frame a tag whose line from the eye
+crosses the playfield's surfaces (the zones' collision surfaces) is left out (`nametag::Tag::hidden`).

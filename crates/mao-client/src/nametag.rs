@@ -26,6 +26,9 @@ pub struct Tag {
     pub health: Option<(i64, i64)>,
     /// `N3Msg_Consider`'s ratio.
     pub consider: f32,
+    /// Behind a wall from the camera: the original's tag is a sprite in the world (`VisualSprite_t`, FUN_100258b3), which
+    /// what stands in front of it hides; here the playfield's surfaces between the eye and the tag (set each frame).
+    pub hidden: bool,
 }
 
 /// The height a tag stands over the feet (FUN_10025603: the mesh's height, 1.9 without one, plus 0.4).
@@ -72,7 +75,7 @@ pub fn draw(ctx: &egui::Context, painter: &egui::Painter, screen: egui::Rect, ta
     let skin = crate::skin::skin(ctx);
     let font = crate::font::shell(ctx);
     let to_screen = |p: [f32; 2]| egui::pos2(screen.left() + p[0] * screen.width(), screen.top() + p[1] * screen.height());
-    for tag in tags {
+    for tag in tags.iter().filter(|t| !t.hidden) {
         let centre = mao_render::glam::Vec3::from(tag.at);
         let (Some(c), Some(low)) = (project(centre), project(centre - mao_render::glam::Vec3::new(0.0, 0.0, 0.3))) else { continue };
         let (c, low) = (to_screen(c), to_screen(low));

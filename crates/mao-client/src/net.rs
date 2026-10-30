@@ -5285,6 +5285,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                 brackets,
                                 health: state.health.get(&id).copied(),
                                 consider: crate::nametag::consider(own_level, range, level),
+                                hidden: false,
                             })
                         };
                         let mut tags = Vec::new();

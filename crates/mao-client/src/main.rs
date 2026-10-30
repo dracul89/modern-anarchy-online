@@ -1326,7 +1326,7 @@ fn run(args: &[String]) -> Result<(), String> {
                             (Some(true), 2.0, -7.0, "Rollerrat", None, Some((600, 2400)), 0.8),
                             (None, -6.0, 4.0, "Mothra", Some(("Rubi-Ka Defenders".to_string(), 1u8)), None, 0.0),
                         ] {
-                            hud.nameplates.push(nametag::Tag { at: [449.0 + dx, 313.0 + dz, 10.3], name: name.to_string(), org, brackets, health, consider });
+                            hud.nameplates.push(nametag::Tag { at: [449.0 + dx, 313.0 + dz, 10.3], name: name.to_string(), org, brackets, health, consider, hidden: false });
                         }
                     }
                     hud.labels = net::booth_labels(number, &whompah_booths(game, &db, number), &destinations, &names).into_iter().map(|(p, text)| ui::Label { world: mao_render::glam::Vec3::from(p), text }).collect();
