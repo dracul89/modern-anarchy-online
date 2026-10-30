@@ -2548,8 +2548,8 @@ pub fn objects() -> (usize, usize) {
     with(|e| (e.unnamed.len(), e.named.len()))
 }
 
-/// Everything forgotten (for the tests).
-#[cfg(test)]
+/// Everything forgotten: the playfield's shutdown (Gamecode FUN_100b2972) deletes the FXS instance (`FXS_t::DeleteInstance`)
+/// with all its objects, so the next playfield starts from its own tweaks alone (and the tests start clean).
 pub fn reset() {
     with(|e| {
         e.named.clear();
@@ -2625,6 +2625,37 @@ mod tests {
 #[cfg(test)]
 mod game_data {
     use super::*;
+
+    /// The automatic objects the tweaks of a playfield start (their names), after the ones before.
+    fn automatic(playfield: u32, environment: u32) -> std::collections::BTreeSet<u32> {
+        with(|e| e.started.clear());
+        load_playfield(playfield, environment);
+        start_automatic();
+        with(|e| e.started.iter().map(|(_, o)| o.name).collect())
+    }
+
+    /// Zoning from Old Athens into a shop: the outdoor sky's objects must not start again indoors (the original deletes
+    /// the FXS instance when a playfield shuts down, FUN_100b2972).
+    #[test]
+    fn a_new_playfield_starts_from_its_own_tweaks() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let data = Path::new(&game).join("cd_image");
+        reset();
+        set_data_path(&data);
+        let indoor_alone = automatic(4704, 1);
+        reset();
+        set_data_path(&data);
+        let outdoor = automatic(540, 0);
+        let outdoor_only: Vec<u32> = outdoor.difference(&indoor_alone).copied().collect();
+        assert!(!outdoor_only.is_empty(), "the outdoor tweaks start objects of their own");
+        // (without the reset the outdoor objects start again)
+        let kept = automatic(4704, 1);
+        assert!(outdoor_only.iter().all(|n| kept.contains(n)));
+        reset();
+        set_data_path(&data);
+        let after = automatic(4704, 1);
+        assert_eq!(after, indoor_alone);
+    }
 
     /// The game's own scripts (set `MAO_GAME`): the outdoor playfield's tweaks read whole, and an alien flyby event run
     /// as a `ScriptIIR_t` runs one, its crafts spawned by its heartbeat.

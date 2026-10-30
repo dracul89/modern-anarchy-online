@@ -4645,6 +4645,11 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             // interface's variables: the day time is the clock's seconds over its pace, the server's clock, the character's
             // place as the eye's; no storm, precipitation or wind) and the sounds it played.
             if fxs_playfield != Some(current) {
+                // (the old playfield's objects die with it: FUN_100b2972's `FXS_t::DeleteInstance`)
+                if fxs_playfield.is_some() {
+                    crate::fxs::reset();
+                    fxs_expansion = false;
+                }
                 fxs_playfield = Some(current);
                 fxs_visuals.clear();
                 crate::fxs::set_data_path(&Path::new(&game_dir).join("cd_image"));

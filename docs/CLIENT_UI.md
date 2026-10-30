@@ -1561,3 +1561,12 @@ The original's name tags (`TargetingModule_t::HandleNametags`, GUI.dll 0x100268e
 world at the indicator's position (FUN_100258b3, while `N3Msg_IsVisible`), so a wall between the camera and a tag
 hides it as it hides anything. Here the tags are drawn over the picture, so each frame a tag whose line from the eye
 crosses the playfield's surfaces (the zones' collision surfaces) is left out (`nametag::Tag::hidden`).
+
+## The sky stays outside (2026-10-29)
+
+Zoning from outdoors into a shop or other interior kept the outdoor playfield's effect objects (the sky's domes and
+clouds) alive, and the next playfield's `start_automatic` started them again, so the outdoor sky was drawn round the
+shop. The original deletes the whole FXS instance when a playfield shuts down (Gamecode FUN_100b2972:
+`FXS_t::DeleteInstance`, `VisualEnvFX_t::DeleteInstance`) before the new one loads its tweaks; the client now does the
+same (`fxs::reset` on a playfield change; test `a_new_playfield_starts_from_its_own_tweaks` with the game's scripts:
+Old Athens then a shop).
