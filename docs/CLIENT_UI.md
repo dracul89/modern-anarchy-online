@@ -1618,5 +1618,17 @@ A bank terminal's use is answered by the server's `Bank` message (`343c287f`, `B
 container `0xdead` (`BankEntry_t`, FUN_10125b1b) and GUI.dll shows it as an `InventoryView_c` named `bank_window`
 (FUN_100ccefe). The client shows it in the container window (`loot.rs`, titled "Bank", eight to a row, no "Take all", not
 closed when empty). Taking an item (a double click or its menu) is `N3Msg_MoveItemToInventory`: `ClientMoveItemToInventory`
-with the item's identity as the bank named it (else `(0x69, place)`, `BankByRef`) to `0x6f`, any free place; an inventory
-item dropped on the window is `N3Msg_ContainerAddItem` into `(0xdead, character)`. Not tried live yet.
+with the item's place, `(0x69, place)` (`BankByRef`, as aosharp's clientless `Bank` names them), to `0x6f`, any free place;
+an inventory item dropped on the window is `N3Msg_ContainerAddItem` into `(0xdead, character)`.
+
+**Tried live** (Sadlee in Unicorn Outpost, 4364, at its terminal `(0xc73d, 0xc006110c)`, 1.25 m off): the use is echoed with
+a 1 in its second word and the `Bank` message follows (`01 000003f1`: an empty bank). When the server does not have the
+character where the client does, the use is echoed with a 2 and the `Feedback` "You are too far away; please move closer!"
+(category 110) comes instead, and no bank: that was the failure. The server refuses a move it does not accept (a walk off a
+ledge, through a rail) by sending back the last place it took as a full report (`0x16`), every 3.4 s, while it echoes the
+refused reports too; the client now goes back there (`own_report`: a report more than 5 m from us that is none of the places
+we told it in the last 4 s). Taking and depositing are still untried (the test bank is empty).
+
+`net <game> walk <who> <x> <z> [secs]` takes `MAO_WALK_USE=<name>` (use the nearest table dynel of that name on arrival and
+print the server's answers) and `MAO_WALK_ZONES=1` (heights from the zone surfaces, as the live client's); `net <game> ground
+<pf> <x> <z> <y>` with `MAO_GRID=<x1>,<z1>,<step>` prints a height grid to plan a route by.

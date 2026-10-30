@@ -326,6 +326,9 @@ struct World {
     /// The container (corpse, bag) the character opened, and whether that changed.
     loot: Option<Loot>,
     loot_changed: bool,
+    /// The last full position report (`0x16`) the server sent of one's own character (its echo of ours, or its own when it
+    /// refuses a move: then it repeats the last place it took, every few seconds).
+    own_report: Option<[f32; 3]>,
     /// A corpse whose contents just arrived and have not been auto-looted yet: its handle and the places to take.
     fresh_corpse: Option<(u32, Vec<u32>)>,
     worn: Vec<inventory::Entry>,
@@ -1563,6 +1566,9 @@ impl World {
             }
         }
         let position = m.position().or_else(|| m.movement().map(|(_, _, p)| p));
+        if let Some((mao_net::n3::movement::FULL, _, p)) = m.movement().filter(|_| m.identity.1 == self.own) {
+            self.own_report = Some(p);
+        }
         if m.identity.1 == self.own && position.is_some() && std::env::var("MAO_TRACE").is_ok_and(|v| v == "1") {
             eprintln!("own place from the server: {:#x} {:?} (movement {:?})", m.kind, position, m.movement().map(|x| x.0));
         }
@@ -3621,6 +3627,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let profile = std::env::var_os("MAO_PROFILE").is_some();
         let mut fake_done = false;
         let mut last_own = (start, Instant::now());
+        // (where we told the server we were, the last few seconds: a report of ours echoed back is one of these)
+        let mut told: std::collections::VecDeque<([f32; 3], Instant)> = std::collections::VecDeque::new();
         let send = |connection: &mut Connection, kind: u8, heading: f32, position: [f32; 3], since: &mut Instant| {
             let ms = since.elapsed().as_millis().min(u32::MAX as u128) as u32;
             *since = Instant::now();
@@ -3858,6 +3866,23 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             }
             crate::prof::add("net-burst", Duration::from_micros(burst as u64));
             burst = 0;
+            // The server refusing a move: it sends back the last place it took (a full report far from us that is none of
+            // ours), and keeps to it: uses there are "too far away", so the character goes back to it.
+            while told.front().is_some_and(|t| t.1.elapsed() > Duration::from_secs(4)) {
+                told.pop_front();
+            }
+            if let Some(p) = state.own_report.take() {
+                let far = |a: [f32; 3], b: [f32; 3]| ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt();
+                if far(p, position) > 5.0 && !told.iter().any(|t| far(t.0, p) < 1.0) {
+                    eprintln!("the server put us back at {p:?} (we were at {position:?})");
+                    position = p;
+                    base = p[1];
+                    airborne = false;
+                    rise = 0.0;
+                    jumping = false;
+                    body_reset = true;
+                }
+            }
             // Zoning: the server announces the new playfield and where we arrive.
             if let Some((playfield, arrival)) = state.arrival.take() {
                 if playfield != current {
@@ -4542,9 +4567,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 let bank = state.loot.as_ref().filter(|l| l.identity.0 == crate::loot::BANK).map(|l| l.entries.clone());
                 for place in places {
                     match &bank {
-                        // (`N3Msg_MoveItemToInventory` with the item's identity as the bank named it, else its place in the bank)
+                        // (`N3Msg_MoveItemToInventory` with the item's place in the bank, `BankByRef` (0x69), as aosharp's
+                        // clientless `Bank` names its items)
                         Some(entries) => {
-                            let item = entries.iter().find(|e| e.slot == place).map(|e| e.container).filter(|c| c.0 != 0).unwrap_or((0x69, place));
+                            let item = entries.iter().find(|e| e.slot == place).map_or((0x69, place), |e| (0x69, e.slot));
                             let _ = connection.send(&n3::move_to_inventory(own, item, 0x6f));
                         }
                         None => {
@@ -4840,6 +4866,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 }
                 last_send = Instant::now();
                 sent_heading = heading;
+                told.push_back((position, Instant::now()));
                 ok &= send(connection, kind, heading, position, &mut sent);
             };
             // Touching a door starts a teleport try, as the original's collision with a `Door_t` does (`StartTeleportTry`): one full
@@ -5923,6 +5950,23 @@ pub fn run(args: &[String]) -> Result<(), String> {
             eprintln!("bilinear ground: {:?}", area.terrain.as_ref().map(|t| t.height_at(x, z, t.height_scale)));
             eprintln!("closest from {y}: {:?}", ground.closest([x, y, z]));
             eprintln!("ray down from {y}: {:?}", ground.line([x, y, z], [x, 0.0, z]));
+            // MAO_GRID=<x1>,<z1>,<step>: the heights from (x, z) to (x1, z1), a row per z, from y down
+            if let Some([x1, z1, step]) = std::env::var("MAO_GRID").ok().and_then(|v| <[f32; 3]>::try_from(v.split(',').filter_map(|p| p.parse().ok()).collect::<Vec<f32>>()).ok()) {
+                let mut zz = z;
+                while zz <= z1 {
+                    let mut row = format!("z {zz:6.1}:");
+                    let mut xx = x;
+                    while xx <= x1 {
+                        row += &match ground.line([xx, y, zz], [xx, 0.0, zz]) {
+                            Some((h, _)) => format!(" {:5.1}", h[1]),
+                            None => "     -".into(),
+                        };
+                        xx += step;
+                    }
+                    println!("{row}");
+                    zz += step;
+                }
+            }
             Ok(())
         }
         // `net <game dir> simwalk <playfield> <x> <z> <heading> <seconds>`: the vehicle run offline at 5 a second from the
@@ -6307,6 +6351,8 @@ fn walk(game: &str, who: &str, target_x: f32, target_z: f32, seconds: u64) -> Re
     // Heights follow the ground model, offset as the live window does.
     let db = Arc::new(ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?);
     let area = load_area(game, &db, playfield)?;
+    // (MAO_WALK_ZONES=1: the height from the zone surfaces, a line down from just above the feet, as the live client's vehicle)
+    let zones = std::env::var_os("MAO_WALK_ZONES").map(|_| crate::vehicle::Ground { zones: area.zones.clone().unwrap_or_default(), terrain: area.terrain.clone().map(|t| { let s = t.height_scale; (t, s) }), offset: 0.0 });
     let (terrain, collision) = (area.terrain, area.collision);
     let mut base = position[1];
     let ground = |p: [f32; 3]| terrain.as_ref().map_or(0.0, |t| t.height_at(p[0], p[2], t.height_scale));
@@ -6327,6 +6373,11 @@ fn walk(game: &str, who: &str, target_x: f32, target_z: f32, seconds: u64) -> Re
     send(&mut connection, movement::FORWARD_START, position, &mut since)?;
     let (mut last_tick, mut last_send, mut walking) = (Instant::now(), Instant::now(), true);
     let mut last_report = Instant::now();
+    // MAO_WALK_USE=<text>: at the end of the walk, use the nearest table dynel whose name has the text (a bank terminal)
+    // and print what the server answers.
+    let use_wanted = std::env::var("MAO_WALK_USE").ok().map(|w| w.to_ascii_lowercase());
+    let table = crate::table_dynels(&db, playfield);
+    let mut used_at: Option<Instant> = None;
     let end = Instant::now() + Duration::from_secs(seconds);
     while Instant::now() < end {
         match connection.receive() {
@@ -6354,6 +6405,15 @@ fn walk(game: &str, who: &str, target_x: f32, target_z: f32, seconds: u64) -> Re
                     return Ok(());
                 }
                 trace(&frame, clock);
+                if let (Some(m), Some(_)) = (Message::parse(&frame), used_at) {
+                    if m.kind != n3::POSITION_UPDATE && m.kind != 0x5e477770 || m.identity.1 == own {
+                        eprintln!("[{:6.1}] <- {:08x} ({:x},{:x}) {} bytes {}", clock.elapsed().as_secs_f32(), m.kind, m.identity.0, m.identity.1, m.data.len(), m.data.iter().take(48).map(|b| format!("{b:02x}")).collect::<String>());
+                    }
+                    if m.kind == BANK_MESSAGE {
+                        let entries = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data).map(|p| inventory_from_schema(p.value.get("BankSlots"))).unwrap_or_default();
+                        eprintln!("  BANK: {} items, first {:?}", entries.len(), entries.iter().take(3).map(|e| (e.slot, e.container, e.low_id)).collect::<Vec<_>>());
+                    }
+                }
                 if let Some(m) = Message::parse(&frame).filter(|m| m.kind == n3::POSITION_UPDATE && m.identity.1 == own) {
                     eprintln!("[{:6.1}] server says WE are at {:?}", clock.elapsed().as_secs_f32(), m.movement().map(|x| (x.0, x.2)));
                     if std::env::var("MAO_TRACE").is_ok() {
@@ -6372,6 +6432,20 @@ fn walk(game: &str, who: &str, target_x: f32, target_z: f32, seconds: u64) -> Re
         }
         let dt = last_tick.elapsed().as_secs_f32();
         last_tick = Instant::now();
+        if let (false, None, Some(w)) = (walking, used_at, use_wanted.as_ref()) {
+            let near = |p: &[f32; 3]| ((p[0] - position[0]).powi(2) + (p[1] - position[1]).powi(2) + (p[2] - position[2]).powi(2)).sqrt();
+            match table.iter().filter(|d| d.4.to_ascii_lowercase().contains(w)).min_by(|a, b| near(&a.2).total_cmp(&near(&b.2))) {
+                Some(d) => {
+                    eprintln!("[{:6.1}] USE {:?} ({:#x}, {:#x}) at {:?}, {:.2} m from us at {:?}", clock.elapsed().as_secs_f32(), d.4, d.0, d.1, d.2, near(&d.2), position);
+                    connection.send(&n3::use_object(own, 1, (d.0, d.1))).map_err(|e| e.to_string())?;
+                }
+                None => eprintln!("no {w:?} in playfield {playfield}'s table"),
+            }
+            used_at = Some(Instant::now());
+        }
+        if used_at.is_some_and(|t| t.elapsed() > Duration::from_secs(8)) {
+            break;
+        }
         if walking {
             let (rx, rz) = (target_x - position[0], target_z - position[2]);
             let left = (rx * rx + rz * rz).sqrt();
@@ -6402,6 +6476,11 @@ fn walk(game: &str, who: &str, target_x: f32, target_z: f32, seconds: u64) -> Re
                 position[2] += rz / left * step;
                 let floor = collision.floor(position[0], position[2], base, 0.6, 0.6).unwrap_or(f32::MIN);
                 base = (ground(position) + offset).max(floor);
+                if let Some(z) = zones.as_ref() {
+                    if let Some((hit, _)) = z.line([position[0], position[1] + 1.5, position[2]], [position[0], position[1] - 8.0, position[2]]) {
+                        base = hit[1];
+                    }
+                }
                 position[1] = base;
                 // MAO_WALK_RAMP="x0,y0,x1,y1": the height follows a ramp along x (as at a gate).
                 if let Some([x0, y0, x1, y1]) = std::env::var("MAO_WALK_RAMP").ok().and_then(|v| { let n: Vec<f32> = v.split(',').filter_map(|p| p.parse().ok()).collect(); <[f32; 4]>::try_from(n).ok() }) {
