@@ -1541,3 +1541,11 @@ Rubi-Ka map when it has a place there, else on the Shadowlands one. The corner m
 biggest level of 2048 pixels a side at most. `mao_formats::planetmap::discover` finds the maps; the `planetmaps`
 example lists them (`cargo run -p mao-formats --example planetmaps -- <folders> [--image <index> <level> <out.png>]`).
 Preview: `MAO_UI_PREVIEW=planetmap MAO_WAYPOINT=566,444,340`.
+
+## Everyone is a blue triangle in the Grid (2026-10-29)
+
+In a playfield whose first area is named "Grid" (`PlayfieldAnarchy_t::IsGrid` 0x101222d7: the Grid, 152, and the Fixer
+Grid, 4107) the characters' stat getter (FUN_10059399) sets `Features` (224) bit 0x800, and FUN_100524b2 then draws the
+character from FUN_10058088's NPC template 0x1863e (99902) instead of its own: a blue triangle
+(`mao-client <game> creature 1863e out.png`). Here every character and NPC in such a playfield is drawn with that
+template, as a polymorph is (`net.rs`, `World::grid`). Not yet seen live.

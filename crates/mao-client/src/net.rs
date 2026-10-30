@@ -217,6 +217,9 @@ struct World {
     equipment: BTreeMap<u32, Vec<(u8, u32, u32)>>,
     /// The creature (NPC template) a character is polymorphed into by a running nano program.
     morphs: BTreeMap<u32, u32>,
+    /// The playfield is the Grid (`PlayfieldAnarchy_t::IsGrid`: its first area is named "Grid"): everyone is drawn as
+    /// [`GRID_TEMPLATE`].
+    grid: bool,
     /// Which way a character is sidestepping (-1 left, 1 right) while it is: only the player's own is known.
     strafing: BTreeMap<u32, i8>,
     /// Whether a character is moving backwards (its own: the back key; the others: the move against their facing).
@@ -2625,6 +2628,14 @@ pub(crate) fn ride_preview(db: Arc<ResourceDatabase>, breed: u8, sex: u8, nano: 
     crate::viewer::headless_on(&model, &crate::Textures::new(db), out, None, &attractors, breed == mao_formats::appearance::ATROX)
 }
 
+/// The NPC template everyone is drawn with in the Grid (FUN_10058088's 0x1863e: a blue triangle, `Features` bit 0x800).
+const GRID_TEMPLATE: u32 = 0x1863e;
+
+/// `PlayfieldAnarchy_t::IsGrid` (0x101222d7): the playfield's first area is named "Grid".
+fn is_grid(areas: &[mao_formats::areas::Area]) -> bool {
+    areas.first().is_some_and(|a| a.name.eq_ignore_ascii_case("Grid"))
+}
+
 /// The entities' markers alone (own character red, the others blue): two
 /// parts and an instance per entity, placed Z-up.
 fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>, characters: &mut Option<Characters>, include: &dyn Fn(u32) -> bool) -> (Model, Vec<crate::blobshadow::Caster>) {
@@ -2651,7 +2662,7 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
         let q = world.rotations.get(&id).copied().unwrap_or([0.0, 0.0, 0.0, 1.0]);
         let place = model::multiply(&model::trs_matrix(position, q, [1.0; 3]), &swap);
         let deform = world.deforms.get(&id).map(|(d, at)| (d, at.elapsed().as_secs_f32()));
-        if let (Some(info), Some(chars)) = (world.infos.get(&id).filter(|i| i.template.is_some()), characters.as_mut()) {
+        if let (Some(info), Some(chars)) = (world.infos.get(&id).filter(|i| i.template.is_some() && !world.grid), characters.as_mut()) {
             let moving = world.last_move.get(&id).is_some_and(|t| t.elapsed() < Duration::from_millis(900));
             let action = if moving { mao_formats::appearance::Action::Walk } else { mao_formats::appearance::Action::Idle };
             // (an attack swings the weapon the server said the creature holds in the place it names)
@@ -2661,8 +2672,10 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
                 continue;
             }
         }
-        // (a polymorphed character is drawn as the creature it became)
-        if let (Some(&creature), Some(chars)) = (world.morphs.get(&id), characters.as_mut()) {
+        // (a polymorphed character is drawn as the creature it became; in the Grid everyone is its triangle: the stat getter
+        // FUN_10059399 sets `Features` bit 0x800 there and FUN_100524b2 then takes FUN_10058088's template)
+        let creature = if world.grid { Some(GRID_TEMPLATE) } else { world.morphs.get(&id).copied() };
+        if let (Some(creature), Some(chars)) = (creature, characters.as_mut()) {
             let moving = if id == world.own { world.own_moving } else { world.last_move.get(&id).is_some_and(|t| t.elapsed() < Duration::from_millis(700)) };
             let speed = world.speeds.get(&id).copied().unwrap_or(0.0);
             use mao_formats::appearance::Action;
@@ -3026,6 +3039,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     let mut teleportals = teleportals;
     let mut zones = zones;
     let mut areas = areas;
+    state.grid = is_grid(&areas);
     let mut base_environment = base_environment;
     let thread_textures = textures.clone_handle();
     let started_props = Instant::now();
@@ -3690,6 +3704,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             pending_scene = Some(scene);
                             booths = area.booths;
                             areas = area.areas;
+                            state.grid = is_grid(&areas);
                             base_environment = area.base_environment;
                             booth_playfield = playfield;
                             pending_labels = Some(booth_labels(playfield, &booths, &destinations, &names));
