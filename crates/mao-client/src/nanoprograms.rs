@@ -64,7 +64,7 @@ pub fn matching<'a>(programs: &'a [Program], filter: &str) -> Vec<&'a Program> {
 pub struct ProgramsWindow {
     pub open: bool,
     filter: String,
-    textures: HashMap<u32, egui::TextureId>,
+    textures: HashMap<u32, egui::TextureHandle>,
     /// The info view pages its programs' "Info" asked for.
     pub infos: Vec<String>,
 }
@@ -98,7 +98,7 @@ impl ProgramsWindow {
                     let icon_rect = egui::Rect::from_min_size(rect.min + egui::vec2(2.0, 2.0), egui::vec2(ICON, ICON));
                     match &program.icon {
                         Some(icon) => {
-                            let id = *self.textures.entry(icon.id).or_insert_with(|| ctx.load_texture(format!("program-icon-{}", icon.id), egui::ColorImage::from_rgba_unmultiplied([icon.width, icon.height], &icon.rgba), egui::TextureOptions::LINEAR).id());
+                            let id = self.textures.entry(icon.id).or_insert_with(|| ctx.load_texture(format!("program-icon-{}", icon.id), egui::ColorImage::from_rgba_unmultiplied([icon.width, icon.height], &icon.rgba), egui::TextureOptions::LINEAR)).id();
                             painter.image(id, icon_rect, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
                         }
                         None => {

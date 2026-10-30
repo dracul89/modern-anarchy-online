@@ -357,6 +357,9 @@ fn pretty(name: &str) -> String {
 impl Ui {
     pub fn new(window: &Window, gpu: &Gpu, format: wgpu::TextureFormat, settings: &Settings) -> Ui {
         let ctx = egui::Context::default();
+        // (a double click as Windows counts one, its default 500 ms: the original takes them from `WM_LBUTTONDBLCLK`; egui's
+        // own 300 ms missed ordinary double clicks)
+        ctx.options_mut(|o| o.input_options.max_double_click_delay = 0.5);
         let palette = theme::load(&settings.theme, &settings.aou_mod);
         theme(&ctx, &palette);
         crate::skin::configure(&ctx, crate::skin::dirs(&settings.gui_dir, &settings.theme, &settings.aou_mod));

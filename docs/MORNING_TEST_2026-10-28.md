@@ -188,6 +188,7 @@ Added after the overnight run, on request: audio through rodio, ported from the 
 | 394b939 | **Zoning no longer sticks on the loading screen**: when several updates waited at once (a hop to another server, as into ICC), the one carrying the new area was dropped | zone into ICC and through a few doors |
 | 7b63fc6 | **Bank in ICC**: (superseded by the next row) terminals the server announces are kept | use the bank terminal at ICC Fair Trade |
 | df69578 | **Bank in ICC, really**: in an instance the client uses the server's ids for the playfield's terminals (from the playfield message); tried live with Humility at ICC's bank | use ICC Fair Trade's bank; take an item out and put one in |
+| (next) | **Icons in the bank, loot, nano program, NCU and perk windows** (their textures were freed as soon as made); **double-click** counts within 500 ms as in Windows (was 300 ms), so a double-click takes from the bank | open the bank, a corpse, the NCU and perk windows; double-click a bank item |
 
 ## How to run
 

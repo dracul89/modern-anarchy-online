@@ -83,7 +83,7 @@ pub fn clock(ms: u32) -> String {
 #[derive(Default)]
 pub struct NcuWindow {
     pub open: bool,
-    textures: HashMap<u32, egui::TextureId>,
+    textures: HashMap<u32, egui::TextureHandle>,
 }
 
 const ICON: f32 = 32.0;
@@ -112,7 +112,7 @@ impl NcuWindow {
                     let row = ui.horizontal(|ui| {
                         match &nano.icon {
                             Some(icon) => {
-                                let id = *self.textures.entry(icon.id).or_insert_with(|| ctx.load_texture(format!("nano-icon-{}", icon.id), egui::ColorImage::from_rgba_unmultiplied([icon.width, icon.height], &icon.rgba), egui::TextureOptions::LINEAR).id());
+                                let id = self.textures.entry(icon.id).or_insert_with(|| ctx.load_texture(format!("nano-icon-{}", icon.id), egui::ColorImage::from_rgba_unmultiplied([icon.width, icon.height], &icon.rgba), egui::TextureOptions::LINEAR)).id();
                                 ui.image(egui::load::SizedTexture::new(id, egui::vec2(ICON, ICON)));
                             }
                             None => {

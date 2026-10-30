@@ -37,7 +37,8 @@ pub enum Take {
 #[derive(Default)]
 pub struct LootWindow {
     pub open: bool,
-    textures: HashMap<u32, egui::TextureId>,
+    /// The icons' textures (the handles kept: a dropped handle frees its texture, and the icon draws as nothing).
+    textures: HashMap<u32, egui::TextureHandle>,
     /// Which container (identity, handle) has been empty since when (it closes a second later).
     empty_since: Option<((u32, u32), u32, std::time::Instant)>,
 }
@@ -83,7 +84,7 @@ impl LootWindow {
                         let Some(item) = item else { continue };
                         match &item.icon {
                             Some(icon) => {
-                                let id = *self.textures.entry(icon.id).or_insert_with(|| ctx.load_texture(format!("loot-icon-{}", icon.id), egui::ColorImage::from_rgba_unmultiplied([icon.width, icon.height], &icon.rgba), egui::TextureOptions::LINEAR).id());
+                                let id = self.textures.entry(icon.id).or_insert_with(|| ctx.load_texture(format!("loot-icon-{}", icon.id), egui::ColorImage::from_rgba_unmultiplied([icon.width, icon.height], &icon.rgba), egui::TextureOptions::LINEAR)).id();
                                 painter.image(id, rect.shrink(3.0), egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
                             }
                             None => {

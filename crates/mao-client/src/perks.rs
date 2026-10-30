@@ -77,7 +77,7 @@ pub fn matching<'a>(perks: &'a [PerkInfo], filter: &str) -> Vec<&'a PerkInfo> {
 pub struct PerksWindow {
     pub open: bool,
     filter: String,
-    textures: HashMap<u32, egui::TextureId>,
+    textures: HashMap<u32, egui::TextureHandle>,
 }
 
 const ICON: f32 = 28.0;
@@ -106,7 +106,7 @@ impl PerksWindow {
                     let icon_rect = egui::Rect::from_min_size(rect.min + egui::vec2(2.0, 2.0), egui::vec2(ICON, ICON));
                     match &perk.icon {
                         Some(icon) => {
-                            let id = *self.textures.entry(icon.id).or_insert_with(|| ctx.load_texture(format!("perk-icon-{}", icon.id), egui::ColorImage::from_rgba_unmultiplied([icon.width, icon.height], &icon.rgba), egui::TextureOptions::LINEAR).id());
+                            let id = self.textures.entry(icon.id).or_insert_with(|| ctx.load_texture(format!("perk-icon-{}", icon.id), egui::ColorImage::from_rgba_unmultiplied([icon.width, icon.height], &icon.rgba), egui::TextureOptions::LINEAR)).id();
                             painter.image(id, icon_rect, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
                         }
                         None => {
