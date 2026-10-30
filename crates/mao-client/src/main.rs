@@ -440,12 +440,12 @@ pub(crate) fn add_static_props(db: &ResourceDatabase, playfield: u32, model: &mu
 }
 
 /// The floors of an interior's rooms for the vehicle (game coordinates, Y-up), when the playfield is made of rooms.
-pub(crate) fn room_floors(db: &ResourceDatabase, playfield: u32) -> Option<Vec<[[f32; 3]; 3]>> {
+pub(crate) fn room_floors(db: &ResourceDatabase, playfield: u32) -> Option<(Vec<[[f32; 3]; 3]>, Vec<[f32; 4]>)> {
     let rooms = load_rooms(db, playfield)?;
     let object = db.get(Id { kind: 0xf4249, instance: rooms.tilemap }).ok().flatten()?;
     let map = mao_formats::tilemap::parse_new(&object).ok()?;
     let grid = mao_formats::rooms::Grid::new(&map)?;
-    Some(mao_formats::rooms::floor_triangles(&grid, &rooms))
+    Some((mao_formats::rooms::floor_triangles(&grid, &rooms), mao_formats::rooms::floor_cells(&grid, &rooms)))
 }
 
 /// The shell of an interior: its rooms' floors and walls as a model (Z-up), when the playfield is made of rooms.

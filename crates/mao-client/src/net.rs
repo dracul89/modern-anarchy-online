@@ -2828,9 +2828,10 @@ fn zone_surfaces(db: &ResourceDatabase, playfield: u32) -> (Option<mao_formats::
     }
     // (an interior's floors are its rooms' tile-map heights, not in the surfaces: `n3RoomSurface_t`)
     if zones > 0
-        && let Some(floors) = crate::room_floors(db, playfield)
+        && let Some((floors, cells)) = crate::room_floors(db, playfield)
     {
         records.add(&floors);
+        records.add_rooms(&cells);
     }
     ((zones > 0).then_some(collision), teleportals, (zones > 0).then(|| Arc::new(records)))
 }

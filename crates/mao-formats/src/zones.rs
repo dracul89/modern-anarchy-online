@@ -95,6 +95,8 @@ impl Record {
 pub struct Zones {
     records: Vec<Record>,
     grid: HashMap<(i32, i32), Vec<u32>>,
+    /// An interior's room cells on the ground plane (min x, min z, max x, max z), by the grid's cells: none outdoors.
+    rooms: Option<HashMap<(i32, i32), Vec<[f32; 4]>>>,
 }
 
 const CELL: f32 = 4.0;
@@ -120,6 +122,24 @@ impl Zones {
 
     pub fn len(&self) -> usize {
         self.records.len()
+    }
+
+    /// Adds an interior's room cells ([`crate::rooms::floor_cells`]).
+    pub fn add_rooms(&mut self, cells: &[[f32; 4]]) {
+        let rooms = self.rooms.get_or_insert_with(HashMap::new);
+        for c in cells {
+            for cx in cell(c[0])..=cell(c[2]) {
+                for cz in cell(c[1])..=cell(c[3]) {
+                    rooms.entry((cx, cz)).or_default().push(*c);
+                }
+            }
+        }
+    }
+
+    /// Whether (`x`, `z`) is over one of the interior's room cells (none outdoors).
+    pub fn in_room(&self, x: f32, z: f32) -> Option<bool> {
+        let rooms = self.rooms.as_ref()?;
+        Some(rooms.get(&(cell(x), cell(z))).is_some_and(|cells| cells.iter().any(|c| x >= c[0] && x <= c[2] && z >= c[1] && z <= c[3])))
     }
 
     pub fn is_empty(&self) -> bool {

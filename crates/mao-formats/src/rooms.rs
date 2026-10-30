@@ -55,7 +55,8 @@ impl std::error::Error for Error {}
 /// The database type of a playfield's definition.
 pub const KIND: u32 = 0xf4241;
 
-/// How far the floor sits above a room's position: `-n3Room_t::+0x38`.
+/// How far the floor sits above a room's position when the room has no cells: `-n3Room_t::+0x38` as the constructor
+/// sets it (0x100100d8: -1).
 pub const FLOOR_BASE: f32 = 1.0;
 
 #[derive(Clone, Debug)]
@@ -353,6 +354,24 @@ impl Grid {
         self.tiles.get(at..at + self.layers).unwrap_or(&[])
     }
 
+    /// How far the room's floor sits above its position: `-n3Room_t::+0x38`, which `RDBPlayfield_t::CalculateRoomHeights`
+    /// (0x1001bd82) sets to the lowest height of the room's cells that are there (so the lowest floor is at the room's
+    /// height); [`FLOOR_BASE`] for a room without any.
+    pub fn floor_base(&self, room: &Room) -> f32 {
+        let [x0, y0, x1, y1] = room.rect.map(|v| v as i64);
+        let mut lowest = f32::MAX;
+        for y in y0..y1 {
+            for x in x0..x1 {
+                if let Some((place, height)) = self.at(x, y)
+                    && place != 0
+                {
+                    lowest = lowest.min(height as f32 * self.step);
+                }
+            }
+        }
+        if lowest == f32::MAX { FLOOR_BASE } else { -lowest }
+    }
+
     fn surface(&self) -> Surface<'_> {
         Surface { width: self.width, height: self.height, heights: &self.heights, codes: &self.codes, scale: self.scale, step: self.step }
     }
@@ -414,7 +433,8 @@ pub fn room_parts(grid: &Grid, room: &Room, material: &Material, pieces: &HashMa
     // The centre of a cell in the room's own frame (before its turn).
     let centre = |cx: i64, cy: i64| (((cx - x0) as f32 - odd(w) as f32 / 2.0) * cell, ((cy - y0) as f32 - odd(h) as f32 / 2.0) * cell);
     let (cx0, cz0) = (room.position[0], room.position[2]);
-    let floor = room.position[1] + FLOOR_BASE;
+    let base = grid.floor_base(room);
+    let floor = room.position[1] + base;
     // One part per texture (a new one when the 16-bit indices run out).
     let mut groups: BTreeMap<Option<u32>, Vec<Part>> = BTreeMap::new();
     let mut push = |texture: Option<u32>, vertices: &[Vertex], indices: &[u16]| {
@@ -465,7 +485,7 @@ pub fn room_parts(grid: &Grid, room: &Room, material: &Material, pieces: &HashMa
                         continue;
                     }
                     let Some(texture) = tile.get(k).and_then(|&v| grid.texture(v)) else { continue };
-                    let laid = dungeon::lay(&surface, cx as usize, cy as usize, tile_mesh, turn, [mx, FLOOR_BASE, mz]);
+                    let laid = dungeon::lay(&surface, cx as usize, cy as usize, tile_mesh, turn, [mx, base, mz]);
                     let vertices: Vec<Vertex> = laid
                         .iter()
                         .map(|v| {
@@ -492,7 +512,7 @@ pub fn floor_triangles(grid: &Grid, rooms: &RoomPlayfield) -> Vec<[[f32; 3]; 3]>
         let [x0, y0, x1, y1] = room.rect.map(|v| v as i64);
         let (w, h) = (x1 - x0, y1 - y0);
         let cell = grid.scale;
-        let floor = room.position[1] + FLOOR_BASE;
+        let floor = room.position[1] + grid.floor_base(room);
         let world = |dx: f32, y: f32, dz: f32| {
             let (dx, dz) = room.turn_xz(dx, dz);
             [room.position[0] + dx, y, room.position[2] + dz]
@@ -520,6 +540,31 @@ pub fn floor_triangles(grid: &Grid, rooms: &RoomPlayfield) -> Vec<[[f32; 3]; 3]>
                     let ny = a[2] * b[0] - a[0] * b[2];
                     out.push(if ny >= 0.0 { t } else { [t[0], t[2], t[1]] });
                 }
+            }
+        }
+    }
+    out
+}
+
+/// The ground plane's squares (min x, min z, max x, max z) of the rooms' existing cells: where a character may be
+/// (`n3RoomSurface_t::VetoRoomTransition` refuses a place in no room).
+pub fn floor_cells(grid: &Grid, rooms: &RoomPlayfield) -> Vec<[f32; 4]> {
+    let mut out = Vec::new();
+    for room in &rooms.rooms {
+        let [x0, y0, x1, y1] = room.rect.map(|v| v as i64);
+        let (w, h) = (x1 - x0, y1 - y0);
+        let cell = grid.scale;
+        for cy in y0..y1 {
+            for cx in x0..x1 {
+                if !grid.at(cx, cy).is_some_and(|(place, _)| place != 0) {
+                    continue;
+                }
+                let (mx, mz) = (((cx - x0) as f32 - odd(w) as f32 / 2.0) * cell, ((cy - y0) as f32 - odd(h) as f32 / 2.0) * cell);
+                let half = cell / 2.0;
+                let (ax, az) = room.turn_xz(mx - half, mz - half);
+                let (bx, bz) = room.turn_xz(mx + half, mz + half);
+                let (ax, az, bx, bz) = (room.position[0] + ax, room.position[2] + az, room.position[0] + bx, room.position[2] + bz);
+                out.push([ax.min(bx), az.min(bz), ax.max(bx), az.max(bz)]);
             }
         }
     }
@@ -632,6 +677,14 @@ mod tests {
         assert_eq!(placed[0].1, 2);
     }
 
+    impl Grid {
+        fn clone_heights(&self, h: u8) -> Grid {
+            let mut g = grid(self.width, self.height, vec![h; self.width * self.height]);
+            g.step = self.step;
+            g
+        }
+    }
+
     fn grid(width: usize, height: usize, heights: Vec<u8>) -> Grid {
         let cells = vec![1u8; width * height];
         let tables = Tables::new(&[0, 1], &[], HashMap::new());
@@ -641,7 +694,7 @@ mod tests {
     }
 
     #[test]
-    fn a_flat_room_is_a_floor_a_unit_up() {
+    fn a_flat_room_is_a_floor_at_its_height() {
         let grid = grid(4, 4, vec![0; 16]);
         let room = Room { flags: 0, rect: [0, 0, 2, 2], position: [10.0, 5.0, 20.0], links: Vec::new(), name: String::new(), water: Vec::new() };
         let part = room_parts(&grid, &room, &Material::default(), &HashMap::new()).remove(0);
@@ -650,7 +703,12 @@ mod tests {
         let xs: Vec<f32> = part.vertices.iter().map(|v| v.position[0]).collect();
         // two cells wide: odd width 1, so the cells are centred at -1 and +1 (relative), spanning -2 .. 2
         assert!(xs.iter().all(|x| (8.0..=12.0).contains(x)), "{xs:?}");
-        assert!(part.vertices.iter().all(|v| v.position[2] == 6.0));
+        // (the room's lowest cell is at its height: `CalculateRoomHeights`)
+        assert!(part.vertices.iter().all(|v| v.position[2] == 5.0));
+        let mut raised = grid.clone_heights(3);
+        assert_eq!(raised.floor_base(&room), -0.6);
+        raised.heights[0] = 0;
+        assert_eq!(raised.floor_base(&room), 0.0);
     }
 
     #[test]
@@ -664,7 +722,7 @@ mod tests {
         let raised: Vec<&Vertex> = part.vertices.iter().filter(|v| v.position[2] > 1.5).collect();
         // the corner is shared by four cells
         assert_eq!(raised.len(), 4, "{raised:?}");
-        assert!(raised.iter().all(|v| (v.position[2] - 3.0).abs() < 1e-5));
+        assert!(raised.iter().all(|v| (v.position[2] - 2.0).abs() < 1e-5));
         // cells 0..4 centred at (k - 1.5) * 2 (odd width 3): the corner between cells 1 and 2 is at 0
         assert!(raised.iter().all(|v| v.position[0].abs() < 1e-5 && v.position[1].abs() < 1e-5), "{raised:?}");
     }

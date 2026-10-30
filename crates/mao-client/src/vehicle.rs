@@ -170,7 +170,9 @@ impl Ground {
                     _ => ([pos[0], h, pos[2]], n),
                 }
             }
-            None if self.terrain.is_none() => match self.zones.floor_below(pos, 2000.0) {
+            // (indoors `n3RoomSurface_t::CalculateClosestPoint` 0x10013ee6 takes the room's floor under (x, z) whatever the
+            // height: feet a little under it, as a server's position can be, stand on it rather than fall to 0)
+            None if self.terrain.is_none() => match self.zones.floor_below(pos, 2000.0).or_else(|| self.zones.floor_below([pos[0], pos[1] + 1.0, pos[2]], 2001.0)) {
                 Some((hit, n)) => (hit, n),
                 None => ([pos[0], 0.0, pos[2]], [0.0, 1.0, 0.0]),
             },
@@ -318,8 +320,11 @@ impl Body {
         let tenth = scale(sub(*pos, previous), 0.1);
         let mut at = *pos;
         let mut k = 9;
+        // (indoors a place in no room is refused too, `n3RoomSurface_t::VetoPosition` 0x10015587 and its
+        // `VetoRoomTransition` 0x1001462f, unless the body is in none already: the step back then finds nowhere better)
+        let from_room = ground.zones.in_room(previous[0], previous[2]) == Some(true);
         loop {
-            if !ground.veto(&mut at, None) {
+            if !ground.veto(&mut at, None) && !(from_room && ground.zones.in_room(at[0], at[2]) == Some(false)) {
                 break;
             }
             at = add(previous, scale(tenth, k as f32));
@@ -327,6 +332,10 @@ impl Body {
             if k <= 0 {
                 break;
             }
+        }
+        // (still out of the rooms: along the edge on either axis, else not at all)
+        if from_room && ground.zones.in_room(at[0], at[2]) == Some(false) {
+            at = [[at[0], at[1], previous[2]], [previous[0], at[1], at[2]]].into_iter().find(|p| ground.zones.in_room(p[0], p[2]) == Some(true)).unwrap_or(previous);
         }
         let mut moved = sub(at, previous);
         let mut centre = add(previous, up);
