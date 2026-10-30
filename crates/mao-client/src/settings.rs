@@ -100,8 +100,10 @@ pub enum Action {
     Use,
     /// The Whom-Pah window: the booths here, with a button that walks to one.
     WhompahWindow,
-    /// The mission booth's window (asks the nearest booth).
+    /// The mission journal (`mission_window`): the character's missions.
     MissionWindow,
+    /// The planet map (`map_window`, `#WindowPlanetMap`).
+    PlanetMapWindow,
     /// The mail windows.
     MailWindow,
     /// The Action window: special actions, perks, social actions and dances.
@@ -210,7 +212,8 @@ pub const ACTIONS: &[(Action, &str, &str)] = &[
     (Action::SkillsWindow, "skills_window", "U"),
     (Action::ActionsWindow, "actions_window", "Ctrl+2"),
     (Action::MissionWindow, "mission_window", "Ctrl+4"),
-    (Action::MapOverlay, "map_overlay", "Ctrl+6"),
+    (Action::PlanetMapWindow, "planet_map", "P, Ctrl+6"),
+    (Action::MapOverlay, "map_overlay", "O"),
     (Action::FriendsWindow, "friends_window", "Ctrl+7"),
     (Action::ProgramsWindow, "programs_window", "Ctrl+8"),
     (Action::StatsWindow, "stats_window", "Ctrl+9"),
@@ -500,12 +503,20 @@ pub struct Settings {
     pub original_font: bool,
     /// How the third-person camera follows a turning character: `lock` (stays behind), `rubber` (swings round) or `trail` (slowly).
     pub camera_mode: String,
+    /// The planet maps (the original's `PlanetMapIndexFile` and `ShadowlandMapIndexFile`): an index file's path from a
+    /// maps' folder (`crate::planetmaps`).
+    pub planet_map: String,
+    pub shadowlands_map: String,
     pub keymap: Keymap,
 }
 
+/// The planet maps used unless another is chosen: Saavick's Map of Rubi-Ka and SLmap.
+pub const DEFAULT_PLANET_MAP: &str = "SaavicksMap/saavicksmap.txt";
+pub const DEFAULT_SHADOWLANDS_MAP: &str = "SLmap/SLmap.txt";
+
 impl Default for Settings {
     fn default() -> Self {
-        Settings { mode: WindowMode::Windowed, width: 1280, height: 800, vsync: false, render_scale: 1.0, sharpness: 0.2, ui_scale: 1.0, view_distance: 1800.0, char_distance: 0.0, auto_loot: false, theme: "original".into(), aou_mod: String::new(), gui_dir: String::new(), debug_overlay: false, original_font: true, camera_mode: "rubber".into(), keymap: Keymap::default() }
+        Settings { mode: WindowMode::Windowed, width: 1280, height: 800, vsync: false, render_scale: 1.0, sharpness: 0.2, ui_scale: 1.0, view_distance: 1800.0, char_distance: 0.0, auto_loot: false, theme: "original".into(), aou_mod: String::new(), gui_dir: String::new(), debug_overlay: false, original_font: true, camera_mode: "rubber".into(), planet_map: DEFAULT_PLANET_MAP.into(), shadowlands_map: DEFAULT_SHADOWLANDS_MAP.into(), keymap: Keymap::default() }
     }
 }
 
@@ -558,7 +569,7 @@ impl Settings {
     pub fn to_text(&self) -> String {
         let mut out = String::from("; Modern Anarchy Online settings\n[window]\n; windowed | borderless | fullscreen (F11 / Alt+Enter change it while playing)\n");
         out += &format!("mode = {}\nwidth = {}\nheight = {}\nvsync = {}\nrender_scale = {}\nsharpness = {}\nui_scale = {}\nview_distance = {}\nchar_distance = {}\nauto_loot = {}\n\n", self.mode.name(), self.width, self.height, if self.vsync { "on" } else { "off" }, self.render_scale, self.sharpness, self.ui_scale, self.view_distance, self.char_distance, if self.auto_loot { "on" } else { "off" });
-        out += &format!("[interface]\n; built-in | original | aou_translucent | aou_cyt | aou_slim_cni | aou_slim_cnt | a folder with GUIColors.xml\ntheme = {}\n; the AOU mod's folder (the one with Gui in it), for its themes\naou_mod = {}\n; a skin folder (Graphics.uvga and Graphics.uvgi, as the original's Gui/<skin> folders), used before the theme's and the game's own pictures\ngui_dir = {}\n; show the location and coordinates, the frame rate and key hints over the game (for developers)\ndebug_overlay = {}\n; the chat lines in the original's own bitmap font\noriginal_font = {}\n; the third-person camera: lock (stays behind the character), rubber (swings round behind it), trail (slowly)\ncamera_mode = {}\n\n", self.theme, self.aou_mod, self.gui_dir, if self.debug_overlay { "on" } else { "off" }, if self.original_font { "on" } else { "off" }, self.camera_mode);
+        out += &format!("[interface]\n; built-in | original | aou_translucent | aou_cyt | aou_slim_cni | aou_slim_cnt | a folder with GUIColors.xml\ntheme = {}\n; the AOU mod's folder (the one with Gui in it), for its themes\naou_mod = {}\n; a skin folder (Graphics.uvga and Graphics.uvgi, as the original's Gui/<skin> folders), used before the theme's and the game's own pictures\ngui_dir = {}\n; show the location and coordinates, the frame rate and key hints over the game (for developers)\ndebug_overlay = {}\n; the chat lines in the original's own bitmap font\noriginal_font = {}\n; the third-person camera: lock (stays behind the character), rubber (swings round behind it), trail (slowly)\ncamera_mode = {}\n; the planet maps: an index file under a maps' folder (the client's PlanetMap folder, then the game's textures/PlanetMap)\nplanet_map = {}\nshadowlands_map = {}\n\n", self.theme, self.aou_mod, self.gui_dir, if self.debug_overlay { "on" } else { "off" }, if self.original_font { "on" } else { "off" }, self.camera_mode, self.planet_map, self.shadowlands_map);
         out += "[keys]\n; one or more keys per action, separated by commas; Shift+, Ctrl+ and Alt+ combine\n";
         out += &format!("version = {KEYMAP_VERSION}\n");
         for &(action, name, _) in ACTIONS {
@@ -604,6 +615,8 @@ impl Settings {
                 ("window", "height") => settings.height = value.parse().unwrap_or(settings.height).clamp(240, 16384),
                 ("interface", "theme") => settings.theme = value.to_string(),
                 ("interface", "aou_mod") => settings.aou_mod = value.to_string(),
+                ("interface", "planet_map") => settings.planet_map = value.to_string(),
+                ("interface", "shadowlands_map") => settings.shadowlands_map = value.to_string(),
                 ("interface", "gui_dir") => settings.gui_dir = value.to_string(),
                 ("interface", "camera_mode") if ["lock", "rubber", "trail"].contains(&value.to_ascii_lowercase().as_str()) => settings.camera_mode = value.to_ascii_lowercase(),
                 ("interface", "original_font") => settings.original_font = matches!(value.to_ascii_lowercase().as_str(), "on" | "true" | "1" | "yes"),
@@ -620,6 +633,10 @@ impl Settings {
                         let bad: Vec<&str> = value.split(',').map(str::trim).filter(|k| !k.is_empty() && parse_binding(k).is_none()).collect();
                         if !bad.is_empty() {
                             eprintln!("settings line {}: unknown keys {bad:?}", n + 1);
+                        }
+                        // (the overlay had Ctrl+6, the planet map's key in the original, before the planet map window)
+                        if action == Action::MapOverlay && value.trim().eq_ignore_ascii_case("Ctrl+6") {
+                            continue;
                         }
                         settings.keymap.set(action, &value);
                     }

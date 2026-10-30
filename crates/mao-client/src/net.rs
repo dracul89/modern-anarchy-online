@@ -3068,6 +3068,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     let (mail_tx, mail_rx) = std::sync::mpsc::channel::<crate::mailbox::MailCommand>();
     let (shop_tx, shop_rx) = std::sync::mpsc::channel::<crate::shop::ShopCommand>();
     let (npc_chat_tx, npc_chat_rx) = std::sync::mpsc::channel::<crate::npcchat::Command>();
+    let (mission_log_tx, mission_log_rx) = std::sync::mpsc::channel::<crate::missionlog::Command>();
     let own = state.own;
     let start = state.entities.get(&own).map(|e| e.0).unwrap_or([0.0; 3]);
     if std::env::var_os("MAO_COMBAT_LOG").is_some() {
@@ -3333,6 +3334,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let (mut pending_shop, mut pending_shop_status): (Option<crate::shop::ShopState>, Option<String>) = (None, None);
         // (the NPC chat: what the server said for the window, and the NPC talked to)
         let (mut pending_npc_chat, mut chat_npc): (Vec<crate::npcchat::Event>, Option<(u32, u32)>) = (Vec::new(), None);
+        // (the mission journal: the server's whole list when it sends one, and the missions it dropped)
+        let (mut pending_mission_log, mut pending_missions_removed): (Option<Vec<crate::missionlog::Mission>>, Vec<(u32, u32)>) = (None, Vec::new());
         let mut shop_booth: Option<(u32, u32)> = None;
         let (mut shop_rates, mut shop_rows, mut pending_shop_changes) = (crate::shop::Rates { buy: 0, sell: 0, kind: 0 }, Vec::<crate::shop::Row>::new(), Vec::<crate::shop::Change>::new());
         // After a trade completes the server wants the booth used again (as the original does) for the next one.
@@ -3581,6 +3584,18 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                 shop_reuse = Some(Instant::now() + Duration::from_millis(300));
                             }
                             _ => {}
+                        }
+                    }
+                    // The mission journal (`missionlog.rs`): `QuestFullUpdate` is the whole list, `Quest` action 1 a deletion.
+                    if let Some(m) = Message::parse(&frame).filter(|m| m.kind == 0x465a4061 || m.kind == 0x212c487a) {
+                        if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
+                            if m.kind == 0x465a4061 {
+                                let icon = |id: u32| gear_textures.get(mao_formats::item::ICON_TYPE, id).map(|t| std::sync::Arc::new(crate::gear::Icon { id, width: t.width as usize, height: t.height as usize, rgba: t.rgba }));
+                                pending_mission_log = Some(crate::missionlog::missions_from(&p.value, &icon));
+                            } else if p.value.get("Action").and_then(mao_net::schema::Value::as_int) == Some(1) {
+                                let id = p.value.get("Mission").map(|i| (i.get("Type").and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32, i.get("Instance").and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32));
+                                pending_missions_removed.extend(id);
+                            }
                         }
                     }
                     if let Some(m) = Message::parse(&frame).filter(|m| m.kind == 0x5c436609) {
@@ -4027,6 +4042,13 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     }
                 }
             }
+            while let Ok(command) = mission_log_rx.try_recv() {
+                match command {
+                    crate::missionlog::Command::Delete(id) => {
+                        let _ = connection.send(&n3::quest_delete(own, id));
+                    }
+                }
+            }
             while let Ok(command) = npc_chat_rx.try_recv() {
                 match command {
                     crate::npcchat::Command::Answer(npc, k) => {
@@ -4242,7 +4264,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     }
                     if kind == 0xdac1 {
                         mission_booth = Some(id);
-                        state.open_windows.push("missions");
+                        state.open_windows.push("missionselection");
                     }
                     state.opened_by_use(&gear_db, kind, id);
                     pending_messages.push(format!("Using {}", state.names.get(&id).map_or("the target", |n| n.0.as_str())));
@@ -5308,6 +5330,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     shop_status: pending_shop_status.take(),
                     shop_changes: std::mem::take(&mut pending_shop_changes),
                     npc_chat: std::mem::take(&mut pending_npc_chat),
+                    mission_log: pending_mission_log.take(),
+                    missions_removed: std::mem::take(&mut pending_missions_removed),
                     mail_flags: pending_mail_flags.take(),
                     mail_status: pending_mail_status.take(),
                     destinations: pending_destinations.take(),
@@ -5351,7 +5375,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             }
         }
     });
-    crate::viewer::window(scene, textures, Some(crate::viewer::Live { overlays: rx, input: input_tx, mail: mail_tx, shop: shop_tx, npc_chat: npc_chat_tx, focus, distance: 6.0 }))
+    crate::viewer::window(scene, textures, Some(crate::viewer::Live { overlays: rx, input: input_tx, mail: mail_tx, shop: shop_tx, npc_chat: npc_chat_tx, mission_log: mission_log_tx, focus, distance: 6.0 }))
 }
 
 pub fn run(args: &[String]) -> Result<(), String> {

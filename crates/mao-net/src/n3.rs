@@ -441,6 +441,16 @@ pub fn quest_alternative(character: u32, sliders: [u8; 7], scope: u8, terminal: 
     Message { kind: 0x5c436609, identity: (CHARACTER, character), data }.frame(character)
 }
 
+/// `Quest` (`212c487a`) action 1, Delete: drops one of the character's missions (laid out as the server's own Delete:
+/// the header byte, the action, a zero, the mission, two zeros).
+pub fn quest_delete(character: u32, mission: (u32, u32)) -> Frame {
+    let mut data = vec![0u8];
+    for word in [1, 0, mission.0, mission.1, 0, 0] {
+        data.extend_from_slice(&word.to_be_bytes());
+    }
+    Message { kind: 0x212c487a, identity: (CHARACTER, character), data }.frame(character)
+}
+
 /// `CreateQuest` (`291f361b`): takes one of the offered missions (its identity from the offer).
 pub fn create_quest(character: u32, mission: (u32, u32)) -> Frame {
     let mut data = vec![1u8];

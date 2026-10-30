@@ -25,7 +25,10 @@ macro_rules! profile {
 mod actions;
 mod charcreate;
 mod loading;
+mod missionlog;
 mod npcchat;
+mod planetmaps;
+mod planetwindow;
 mod screenshot;
 mod prof;
 mod vehicle;
@@ -1548,6 +1551,30 @@ fn run(args: &[String]) -> Result<(), String> {
                             window.opened = Some(mailbox::Opened { mail, item });
                         }
                         *hud.mail_preview.lock().unwrap() = Some(window);
+                    }
+                    if preview.as_deref() == Some("missionlog") {
+                        // The captured mission log (MAO_CAPTURE=<capture.log>, its first `QuestFullUpdate`) in the journal.
+                        if let Some(log) = std::env::var_os("MAO_CAPTURE")
+                            && let Some(value) = net::capture_message(&log.to_string_lossy(), 0x465a4061)
+                        {
+                            let textures2 = textures.clone_handle();
+                            let icon = |id: u32| textures2.get(mao_formats::item::ICON_TYPE, id).map(|x| std::sync::Arc::new(gear::Icon { id, width: x.width as usize, height: x.height as usize, rgba: x.rgba }));
+                            let mut window = missionlog::MissionLog::default();
+                            window.open = true;
+                            window.set(missionlog::missions_from(&value, &icon));
+                            *hud.mission_log_preview.lock().unwrap() = Some(window);
+                        }
+                    }
+                    if preview.as_deref() == Some("planetmap") {
+                        // The planet map over the playfield shown (MAO_WAYPOINT=pf,x,z for a waypoint).
+                        let mut window = planetwindow::PlanetWindow::default();
+                        window.toggle();
+                        hud.playfield = number;
+                        hud.waypoint = std::env::var("MAO_WAYPOINT").ok().and_then(|v| {
+                            let p: Vec<f32> = v.split(',').filter_map(|n| n.trim().parse().ok()).collect();
+                            (p.len() == 3).then(|| (p[0] as u32, [p[1], 0.0, p[2]]))
+                        });
+                        *hud.planet_preview.lock().unwrap() = Some(window);
                     }
                     if preview.as_deref() == Some("mission") {
                         // The captured offers (MAO_CAPTURE=<capture.log>) in the window.

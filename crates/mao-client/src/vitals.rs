@@ -17,6 +17,10 @@ fn progress(value: Option<i64>, from: i64, to: Option<i64>) -> (Option<i64>, Opt
     }
 }
 
+/// The bearing (clockwise from north) of the mission's waypoint when it is in this playfield: the compass's yellow indicator
+/// ("MissionShownAsDot"), set each frame by the interface.
+pub static WAYPOINT_BEARING: std::sync::Mutex<Option<f32>> = std::sync::Mutex::new(None);
+
 /// The compass: the strip (north, east, south, west and north again across 256 pixels) slides behind the frame so the bearing the
 /// camera looks along is under the frame's pointers. `yaw` is the camera's (the camera sits at (cos yaw, sin yaw) from the character).
 fn compass(ctx: &egui::Context, skin: &Skin, yaw: f32) {
@@ -34,6 +38,16 @@ fn compass(ctx: &egui::Context, skin: &Skin, yaw: f32) {
         let top = inside.center().y - strip.y * 0.5;
         for copy in [-1.0f32, 0.0, 1.0] {
             skin.draw(&painter, "GFX_GUI_COMPASS_SCALE", egui::pos2(inside.center().x - fraction * strip.x + copy * strip.x, top), 1.0, egui::Color32::WHITE);
+        }
+        // (the waypoint: a yellow mark at its bearing on the strip)
+        if let Some(b) = WAYPOINT_BEARING.lock().ok().and_then(|w| *w) {
+            let mut off = (b.rem_euclid(std::f32::consts::TAU) / std::f32::consts::TAU - fraction) * strip.x;
+            off = (off + strip.x * 0.5).rem_euclid(strip.x) - strip.x * 0.5;
+            let x = inside.center().x + off;
+            let (y0, y1) = (inside.top(), inside.bottom());
+            let yellow = egui::Color32::from_rgb(255, 220, 40);
+            painter.add(egui::Shape::convex_polygon(vec![egui::pos2(x - 5.0, y0), egui::pos2(x + 5.0, y0), egui::pos2(x, y0 + 7.0)], yellow, egui::Stroke::new(1.0, egui::Color32::BLACK)));
+            painter.add(egui::Shape::convex_polygon(vec![egui::pos2(x - 5.0, y1), egui::pos2(x, y1 - 7.0), egui::pos2(x + 5.0, y1)], yellow, egui::Stroke::new(1.0, egui::Color32::BLACK)));
         }
         skin.draw(ui.painter(), "GFX_GUI_COMPASS_FRAME", rect.min, 1.0, egui::Color32::WHITE);
     });

@@ -149,7 +149,8 @@ pub struct AutoMap {
     /// The original's planet map (its biggest level as a texture), drawn in place of the grid for a playfield that is
     /// on it; tried once.
     planet: Option<Planet>,
-    planet_tried: bool,
+    /// The playfield the planet map was picked for (`planetmaps::for_playfield`: the chosen Rubi-Ka or Shadowlands map).
+    planet_tried: Option<u32>,
     playfield: u32,
     /// The planet map's own scales (it has about 21 world units to a pixel): pixels a unit on the overlay, and world
     /// units across the corner map.
@@ -169,7 +170,7 @@ struct Planet {
 
 impl Default for AutoMap {
     fn default() -> Self {
-        AutoMap { grid: None, texture: None, dirty: false, last_upload: std::time::Instant::now(), overlay: false, mini_span: 150.0, zoom: 3.0, pan: [0.0; 2], mini_at: load_position(), planet: None, planet_tried: false, playfield: 0, planet_zoom: PLANET_NATIVE * 2.0, planet_span: 2500.0 }
+        AutoMap { grid: None, texture: None, dirty: false, last_upload: std::time::Instant::now(), overlay: false, mini_span: 150.0, zoom: 3.0, pan: [0.0; 2], mini_at: load_position(), planet: None, planet_tried: None, playfield: 0, planet_zoom: PLANET_NATIVE * 2.0, planet_span: 2500.0 }
     }
 }
 
@@ -240,16 +241,19 @@ impl AutoMap {
 
     /// Brings the texture up to date (a few times a second at most).
     pub fn refresh(&mut self, ctx: &egui::Context) {
-        if !self.planet_tried {
-            self.planet_tried = true;
-            if let Some(game) = crate::theme::game_dir() {
-                if let Some(map) = mao_formats::planetmap::PlanetMap::load(game) {
-                    let level = map.levels.len().saturating_sub(1);
-                    if let Some(image) = map.image(game, level) {
-                        let (w, h) = image.dimensions();
-                        let texture = ctx.load_texture("planet-map", egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], image.as_raw()), egui::TextureOptions::LINEAR);
-                        self.planet = Some(Planet { map, level, texture, size: [w as f32, h as f32] });
-                    }
+        if self.planet_tried != Some(self.playfield) {
+            self.planet_tried = Some(self.playfield);
+            let chosen = crate::planetmaps::for_playfield(self.playfield);
+            let same = |p: &Planet| chosen.as_ref().is_some_and(|c| c.root == p.map.root && c.name == p.map.name);
+            if !self.planet.as_ref().is_some_and(same)
+                && let (Some(map), Some(game)) = (chosen, crate::theme::game_dir())
+            {
+                // (one picture: the biggest level that fits a texture of 2048 a side)
+                let level = (0..map.levels.len()).rev().find(|&l| map.levels[l].size.0 <= 2048 && map.levels[l].size.1 <= 2048).unwrap_or(0);
+                if let Some(image) = map.image(game, level) {
+                    let (w, h) = image.dimensions();
+                    let texture = ctx.load_texture("planet-map", egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], image.as_raw()), egui::TextureOptions::LINEAR);
+                    self.planet = Some(Planet { map: (*map).clone(), level, texture, size: [w as f32, h as f32] });
                 }
             }
         }

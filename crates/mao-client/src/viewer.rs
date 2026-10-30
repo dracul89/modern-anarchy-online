@@ -152,6 +152,9 @@ pub struct Update {
     pub shop_changes: Vec<crate::shop::Change>,
     /// What the server said in NPC chats (`npcchat.rs`).
     pub npc_chat: Vec<crate::npcchat::Event>,
+    /// The mission journal's whole list, when the server sent it, and the missions it dropped.
+    pub mission_log: Option<Vec<crate::missionlog::Mission>>,
+    pub missions_removed: Vec<(u32, u32)>,
     /// A web page to open (the market terminal used).
     pub browser: Option<crate::browser::Request>,
     /// Windows to open (a mail terminal or mission booth used).
@@ -208,6 +211,8 @@ pub struct Live {
     pub shop: std::sync::mpsc::Sender<crate::shop::ShopCommand>,
     /// NPC chat commands (answer, describe, close).
     pub npc_chat: std::sync::mpsc::Sender<crate::npcchat::Command>,
+    /// Mission journal commands (delete).
+    pub mission_log: std::sync::mpsc::Sender<crate::missionlog::Command>,
     /// The view point (Z-up), if known.
     pub focus: Option<[f32; 3]>,
     /// The starting distance from it.
@@ -1055,7 +1060,12 @@ impl ApplicationHandler for App {
                         }
                         Action::MissionWindow if !event.repeat => {
                             if let Some(ui) = w.ui.as_mut() {
-                                ui.mission.open = !ui.mission.open;
+                                ui.mission_log.open = !ui.mission_log.open;
+                            }
+                        }
+                        Action::PlanetMapWindow if !event.repeat => {
+                            if let Some(ui) = w.ui.as_mut() {
+                                ui.planet.toggle();
                             }
                         }
                         Action::WhompahWindow if !event.repeat => {
@@ -1231,6 +1241,12 @@ impl ApplicationHandler for App {
                             for change in std::mem::take(&mut u.shop_changes) {
                                 ui.shop.apply(change);
                             }
+                            if let Some(list) = u.mission_log.take() {
+                                ui.mission_log.set(list);
+                            }
+                            for id in std::mem::take(&mut u.missions_removed) {
+                                ui.mission_log.remove(id);
+                            }
                             if !u.npc_chat.is_empty() {
                                 ui.npc_chat.own_name = self.hud.character_name.clone();
                                 for event in std::mem::take(&mut u.npc_chat) {
@@ -1254,6 +1270,9 @@ impl ApplicationHandler for App {
                             self.hud.stat_parts = parts;
                         }
                         if let (Some(patch), Some(ui)) = (u.map.take(), w.ui.as_mut()) {
+                            if let Some(pf) = patch.playfield {
+                                self.hud.playfield = pf;
+                            }
                             ui.automap.apply(patch);
                         }
                         if let Some(ui) = w.ui.as_mut() {
@@ -1911,6 +1930,17 @@ impl ApplicationHandler for App {
                     }
                     if let Some(deposit) = requests.market_send.take() {
                         self.keys.market = (self.keys.market.0.wrapping_add(1), deposit);
+                    }
+                    for command in std::mem::take(&mut requests.mission_log) {
+                        if let Some(live) = &self.live {
+                            let _ = live.mission_log.send(command);
+                        }
+                    }
+                    if let Some(waypoint) = requests.waypoint.take() {
+                        self.hud.waypoint = Some(waypoint);
+                    }
+                    for line in std::mem::take(&mut requests.lines) {
+                        self.hud.say(line);
                     }
                     for name in std::mem::take(&mut requests.feedback) {
                         self.hud.say(crate::feedback::plain(name));

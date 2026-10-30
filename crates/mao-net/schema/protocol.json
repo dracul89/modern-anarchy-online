@@ -3854,10 +3854,6 @@
      "name": "FactionInfos",
      "size": "x3f1",
      "type": "Identity[]"
-    },
-    {
-     "name": "Unknown28",
-     "type": "byte"
     }
    ]
   },
@@ -3997,6 +3993,10 @@
      "name": "Quests",
      "size": "x3f1",
      "type": "Quest[]"
+    },
+    {
+     "name": "Unknown28",
+     "type": "byte"
     }
    ]
   },

@@ -60,6 +60,10 @@ pub struct Hud {
     pub location: String,
     /// Where the character stands (x, height, z), the way it faces, and the camera's yaw (for the map).
     pub position: Option<[f32; 3]>,
+    /// The playfield the character is in (for the planet map).
+    pub playfield: u32,
+    /// The waypoint uploaded from a mission (`missionlog.rs`): its playfield and place, server coordinates.
+    pub waypoint: Option<(u32, [f32; 3])>,
     pub heading: f32,
     pub camera_yaw: f32,
     /// The character's name and stats (by stat number), for the Stats window.
@@ -115,6 +119,9 @@ pub struct Hud {
     pub mail_preview: std::sync::Mutex<Option<crate::mailbox::MailWindow>>,
     /// A shop window a headless preview shows.
     pub shop_preview: std::sync::Mutex<Option<crate::shop::ShopWindow>>,
+    /// The mission journal and the planet map a headless preview shows.
+    pub mission_log_preview: std::sync::Mutex<Option<crate::missionlog::MissionLog>>,
+    pub planet_preview: std::sync::Mutex<Option<crate::planetwindow::PlanetWindow>>,
     /// An NPC chat window a headless preview shows.
     pub npc_chat_preview: std::sync::Mutex<Option<crate::npcchat::NpcChatWindow>>,
     /// An Action window a headless preview shows.
@@ -183,6 +190,10 @@ pub struct Requests {
     pub market_send: Option<crate::marketsend::Deposit>,
     /// Feedback lines to show (text.mdb names).
     pub feedback: Vec<&'static str>,
+    /// What the mission journal sends (a deletion), the waypoint it uploaded and the lines it tells.
+    pub mission_log: Vec<crate::missionlog::Command>,
+    pub waypoint: Option<(u32, [f32; 3])>,
+    pub lines: Vec<String>,
     /// Lines the chat window sends.
     pub chat: Vec<crate::chatwindow::Out>,
     /// Something taken from the open container.
@@ -239,6 +250,9 @@ pub struct Ui {
     pub mail: crate::mailbox::MailWindow,
     pub shop: crate::shop::ShopWindow,
     pub npc_chat: crate::npcchat::NpcChatWindow,
+    /// The mission journal (`mission_window`) and the planet map.
+    pub mission_log: crate::missionlog::MissionLog,
+    pub planet: crate::planetwindow::PlanetWindow,
     pub actions: crate::actions::ActionsWindow,
     pub automap: crate::automap::AutoMap,
     pub stats: crate::stats::StatsWindow,
@@ -348,7 +362,7 @@ impl Ui {
         crate::skin::configure(&ctx, crate::skin::dirs(&settings.gui_dir, &settings.theme, &settings.aou_mod));
         let state = egui_winit::State::new(ctx.clone(), egui::ViewportId::ROOT, window, Some(window.scale_factor() as f32), window.theme(), None);
         let renderer = egui_wgpu::Renderer::new(&gpu.device, format, egui_wgpu::RendererOptions::default());
-        let mut ui = Ui { ctx, state, renderer, open_seen: Vec::new(), options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), shop: Default::default(), npc_chat: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), ncu: Default::default(), friends: Default::default(), programs: Default::default(), perks: Default::default(), help: Default::default(), info: Default::default(), browser: Default::default(), market_send: Default::default(), control_center: None, option_panel: Default::default(), loot: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0 };
+        let mut ui = Ui { ctx, state, renderer, open_seen: Vec::new(), options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), shop: Default::default(), npc_chat: Default::default(), mission_log: Default::default(), planet: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), ncu: Default::default(), friends: Default::default(), programs: Default::default(), perks: Default::default(), help: Default::default(), info: Default::default(), browser: Default::default(), market_send: Default::default(), control_center: None, option_panel: Default::default(), loot: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0 };
         // (the windows the player left open come back open)
         for name in crate::layout::load_open() {
             ui.set_window(&name, true);
@@ -448,9 +462,11 @@ impl Ui {
             "ncu" => self.ncu.open,
             "programs" => self.programs.open,
             "actions" => self.actions.open,
-            "missions" => self.mission.open,
+            "missions" | "mission" => self.mission_log.open,
+            "missionselection" => self.mission.open,
             "friends" => self.friends.open,
-            "map" => self.automap.overlay,
+            "map" | "planetmap" => self.planet.open,
+            "automap" | "overlay" => self.automap.overlay,
             "optionpanel" => self.option_panel.open,
             "itemshop" => self.browser.showing(crate::browser::Mode::ItemStore),
             "petition" => self.browser.showing(crate::browser::Mode::Petition),
@@ -477,6 +493,8 @@ impl Ui {
             self.help.open = false;
             self.actions.open = false;
             self.mission.open = false;
+            self.mission_log.open = false;
+            self.planet.open = false;
             self.mail.open = false;
             self.automap.overlay = false;
             self.loot.open = false;
@@ -507,9 +525,11 @@ impl Ui {
             "perks" => &mut self.perks.open,
             "help" => &mut self.help.open,
             "actions" => &mut self.actions.open,
-            "missions" | "mission" => &mut self.mission.open,
+            "missions" | "mission" => &mut self.mission_log.open,
+            "missionselection" | "mission selection" => &mut self.mission.open,
             "mail" => &mut self.mail.open,
-            "map" => &mut self.automap.overlay,
+            "map" | "planetmap" | "planet map" => &mut self.planet.open,
+            "automap" | "overlay" => &mut self.automap.overlay,
             "chat" => &mut self.chat.open,
             "whompah" | "whom-pah" | "travel" => &mut self.whompah_open,
             "loot" | "container" => &mut self.loot.open,
@@ -560,6 +580,7 @@ impl Ui {
         let (friends_window, programs_window, perks_window, loot_window, help_window) = (&mut self.friends, &mut self.programs, &mut self.perks, &mut self.loot, &mut self.help);
         let info_view = &mut self.info;
         let npc_chat = &mut self.npc_chat;
+        let (mission_log, planet) = (&mut self.mission_log, &mut self.planet);
         let browser = &mut self.browser;
         let market_send = &mut self.market_send;
         let control_center = &mut self.control_center;
@@ -679,6 +700,21 @@ impl Ui {
                     info_view.show_url(&url);
                 }
             }
+            // (the compass's yellow indicator: the waypoint's bearing when it is in this playfield)
+            let waypoint = requests.waypoint.or(hud.waypoint);
+            if let Ok(mut b) = crate::vitals::WAYPOINT_BEARING.lock() {
+                *b = match (waypoint, hud.position) {
+                    (Some((pf, w)), Some(p)) if pf == hud.playfield => Some((w[0] - p[0]).atan2(w[2] - p[2])),
+                    _ => None,
+                };
+            }
+            let shown = mission_log.show(&ctx, palette, hud.playfield);
+            requests.mission_log.extend(shown.commands);
+            if shown.waypoint.is_some() {
+                requests.waypoint = shown.waypoint;
+            }
+            requests.lines.extend(shown.lines);
+            planet.show(&ctx, palette, hud.playfield, hud.position, hud.heading, requests.waypoint.or(hud.waypoint));
             if npc_chat.open {
                 requests.npc_chat.extend(npc_chat.show(&ctx, palette));
                 if let Some(url) = npc_chat.info_url.take() {
@@ -805,6 +841,8 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
     let mut preview_mail = hud.mail_preview.lock().ok().and_then(|mut m| m.take());
     let mut preview_shop = hud.shop_preview.lock().ok().and_then(|mut m| m.take());
     let mut preview_npc_chat = hud.npc_chat_preview.lock().ok().and_then(|mut m| m.take());
+    let mut preview_mission_log = hud.mission_log_preview.lock().ok().and_then(|mut m| m.take());
+    let mut preview_planet = hud.planet_preview.lock().ok().and_then(|mut m| m.take());
     let mut preview_actions = hud.actions_preview.lock().ok().and_then(|mut m| m.take());
     let mut preview_map = hud.map_preview.lock().ok().and_then(|mut m| m.take());
     let mut preview_stats = hud.stats_preview.lock().ok().and_then(|mut m| m.take());
@@ -969,6 +1007,20 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
             }
             if let Some(window) = preview_actions.as_mut() {
                 window.show(&ctx, &mut gear, &palette);
+            }
+            if let Some(window) = preview_mission_log.as_mut() {
+                let shown = window.show(&ctx, &palette, hud.playfield);
+                for line in shown.lines {
+                    eprintln!("mission log: {line}");
+                }
+                if let Some(w) = shown.waypoint {
+                    eprintln!("mission log: waypoint {w:?}");
+                }
+            }
+            if let Some(window) = preview_planet.as_mut() {
+                window.show(&ctx, &palette, hud.playfield, hud.position, hud.heading, hud.waypoint);
+                // (the tiles come from a thread: give it time between the frames)
+                std::thread::sleep(std::time::Duration::from_millis(150));
             }
             if let Some(window) = preview_npc_chat.as_mut() {
                 for command in window.show(&ctx, &palette) {

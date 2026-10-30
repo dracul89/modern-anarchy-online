@@ -1495,3 +1495,49 @@ drawn; no skin gives them.
 `GFX_GUI_SB_*_OFF` picture, lit (`GFX_GUI_SB_*`) while its value is on or under the pointer. A click flips the value,
 which for the client's windows opens or closes them. It shows when `cc_mini_toolbar`, `cc_rollup_panel` and
 `cc_section1` are all on (`cc_mini_toolbar` is off by default). `MAO_DVALUES=name=value;...` sets values for a test.
+
+## Talking to NPCs (2026-10-29)
+
+Using an NPC (E, or a double-click) sends `KnubotOpenChatWindow` (`3b132d64`) to it, as aosharp opens a conversation
+against the live servers (the original has no `N3Msg` for it; the plain use message is still sent for everything
+else). The server's `Knubot` messages fill GUI.dll's `NPCChatWindow_c` (`npcchat.rs`, FUN_100596c2): the conversation
+(a text view of the original's HTML, each line coloured by its kind as FUN_10058ee7 does: `CCNPCChatText`,
+`CCNPCOOCText`, `CCNPCChatQuestion`, `CCNPCChatSystem`, `CCNPCChatEmote`, `CCNPCChatDescription`), the separator
+(`GFX_GUI_NPCCHAT_SEPERATOR`), the answers (FUN_100595ae: a bullet and a link to the answer's number) and the button bar
+(FUN_10059eee): Desc (`KnubotNPCDescription`), Info (the NPC's `charid://` page), Give and Shop (greyed: the NPC trade
+is not done). A clicked answer is `KnubotAnswer` with its number from 0; closing the window `KnubotCloseChatWindow`.
+All are sent from the character with an `i16` 2 and the NPC, as aosharp sends them. Preview: `MAO_UI_PREVIEW=npcchat`;
+`net <game> talk <char> [npc name]` opens a chat headless and prints the server's answers. Not tried live (no NPC was
+near the test character).
+
+## The mission journal (Ctrl+4) (2026-10-29)
+
+Ctrl+4 (`mission_window`) is the journal, GUI.dll's `MissionView_c` (`missionlog.rs`), not the booth's window
+(`MissionSelectionView_c`, which a booth's use opens as `missionselection`). The server's `QuestFullUpdate`
+(`465a4061`) is the whole list (its last byte belongs to the message, not to each `Quest`: the schema had it inside
+`Quest`, which shifted every mission after the first by a byte), and `Quest` action 1 drops one. The list shows each
+mission's icon and title; picking one shows its text; its menu (FUN_100d3123) is Look at Mission, Upload to map,
+Update Team Members (greyed) and Delete Mission (asked first, then `Quest` action 1). Uploading (FUN_10067d5f) takes the
+first action's playfield and place as the waypoint and says "Waypoint uploaded to map and compass." and either "The
+waypoint is shown as a white dot..." or "Mission is not in this area..." (the texts are text.mdb's category 10000);
+the waypoint is a white dot on the planet map and a yellow mark on the compass in its playfield. Preview:
+`MAO_UI_PREVIEW=missionlog MAO_CAPTURE=capture-225436.log`.
+
+## The planet map (P, Ctrl+6) (2026-10-29)
+
+GUI.dll's `PlanetMapView_c` (`planetwindow.rs`): the map's levels drawn tile by tile (the 128 px PNG tiles are decoded
+on a thread and kept as textures while used, `planetmaps::Tiles`), `-`/`+` and the wheel step through the index's
+levels keeping the point under the pointer, a drag moves the map, Me and Mission centre on the character or the
+waypoint; the character is an arrow along its heading (placed as FUN_1004bedd places it), the waypoint a white dot,
+and the pointer's place is shown in the playfield's coordinates. The overlay of the walked map moved to O.
+
+**The maps.** As the original's `PlanetMapIndexFile` and `ShadowlandMapIndexFile` (FUN_1004cb15 lists the index files
+by their `Type`), the options `planet_map` and `shadowlands_map` in `mao.ini` name an index file under a maps' folder:
+the client's own `PlanetMap` folder beside `mao.ini` first, then the game's `cd_image/textures/PlanetMap`. The defaults
+are the aftermarket **Saavick's Map of Rubi-Ka 3.3** (`SaavicksMap/saavicksmap.txt`) and **SLmap 2.22**
+(`SLmap/SLmap.txt`), copied into the client's folder; every map found (the game's default, Dovves, Shadowlands, and
+Saavick's 2x and SLmap Wide) is offered in the map window's drop-down for its planet. A playfield is shown on the
+Rubi-Ka map when it has a place there, else on the Shadowlands one. The corner map uses the chosen map too, at its
+biggest level of 2048 pixels a side at most. `mao_formats::planetmap::discover` finds the maps; the `planetmaps`
+example lists them (`cargo run -p mao-formats --example planetmaps -- <folders> [--image <index> <level> <out.png>]`).
+Preview: `MAO_UI_PREVIEW=planetmap MAO_WAYPOINT=566,444,340`.
