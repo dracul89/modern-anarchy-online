@@ -63,9 +63,9 @@ moves, set-stat) this client already sends.
 
 ## To do, in order
 
-1. Zoning by `0x1b` with the kept key at the `0x3c` address (no new login).
+1. ~~Zoning by `0x1b` with the kept key~~: the live client already did (`hop_direct`, a new login only as the fallback); the headless `walk` now does too.
 2. Instance doors from `DoorFullUpdate` (places and rotations; open/close by `DoorStatusUpdate`).
-3. Item messages: `AddTemplate` / `TemplateAction` into the inventory (mission rewards, loot appearing without a relog).
+3. ~~Item messages~~: done (`add_to_backpack`; test `items_come_into_the_backpack` on the captured bytes).
 4. Skill raising (`Skill`, both ways) in the skills window.
 5. Nano effects running (`4d450114`) for the buff display.
 6. The unknown ones, against the screenshots at their times.

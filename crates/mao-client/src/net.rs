@@ -347,6 +347,9 @@ struct World {
     /// An instanced playfield's runs of ids for its built-in objects (kind, first table index, count, first id: the playfield
     /// message's [`Message::instance_runs`]); empty where the table's ids are the server's.
     instance_runs: Vec<(u32, u32, u32, u32)>,
+    /// The item a `TemplateAction` into the overflow window (`0x6e`) named: it comes into the inventory with the
+    /// `ContainerAddItem` from `(0x6e, 0)` that follows (a quest item, a reward; aosharp's `RegisterLastItem`).
+    overflow_item: Option<inventory::Entry>,
     /// The doors of the playfield by number: the key of the door's model in `props` and its position (from the dynel table).
     door_slots: BTreeMap<u8, (u32, [f32; 3])>,
     /// The server's ids of the doors (from their status messages) and until when each door (by number) stays open.
@@ -469,6 +472,10 @@ const OBJECT_ANNOUNCE: u32 = 0x4f474e05;
 /// `InventoryUpdate` (a container's contents), `ContainerAddItem` (an item moved) and the despawn of an object.
 const INVENTORY_UPDATE: u32 = 0x4e536976;
 const CONTAINER_ADD_ITEM: u32 = 0x47537a24;
+/// `AddTemplate`: an item added to the inventory.
+const ADD_TEMPLATE: u32 = 0x052e2f0c;
+/// `TemplateAction`: an item template named to a place (into the overflow window: the next item to come in).
+const TEMPLATE_ACTION: u32 = 0x35505644;
 
 /// The items of a parsed `InventoryUpdate`'s `Items` list.
 fn inventory_from_schema_items(list: Option<&mao_net::schema::Value>) -> Vec<inventory::Entry> {
@@ -1336,10 +1343,33 @@ impl World {
                 self.loot_changed = true;
             }
         }
+        // Items that come to the inventory: `AddTemplate` (`052e2f0c`: bought in a shop, a reward) at once, and a
+        // `TemplateAction` (`35505644`) into the overflow window, kept until its `ContainerAddItem` (aosharp's
+        // `OnAddTemplateMessage` / `OnTemplateMessage`; the Arete Landing capture).
+        if m.identity.1 == self.own && (m.kind == ADD_TEMPLATE || m.kind == TEMPLATE_ACTION) {
+            if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
+                let int = |f: &str| p.value.get(f).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
+                if m.kind == ADD_TEMPLATE {
+                    let entry = inventory::Entry { slot: 0, flags: 0, count: int("Count").max(1) as u16, container: (0, 0), low_id: int("LowId"), high_id: int("HighId"), quality: int("Quality"), extra: 0 };
+                    self.add_to_backpack(entry);
+                } else {
+                    let placement = p.value.get("Placement").and_then(|v| v.get("Type")).and_then(mao_net::schema::Value::as_int).unwrap_or(0);
+                    if placement == 0x6e {
+                        self.overflow_item = Some(inventory::Entry { slot: 0, flags: 0, count: 1, container: (0, 0), low_id: int("ItemLowId"), high_id: int("ItemHighId"), quality: int("Quality"), extra: 0 });
+                    }
+                }
+            }
+        }
         if m.kind == CONTAINER_ADD_ITEM && m.identity.1 == self.own {
             if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
                 let source = (p.value.get("Source").and_then(|v| v.get("Type")).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32, p.value.get("Source").and_then(|v| v.get("Instance")).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32);
                 let target = (p.value.get("Target").and_then(|v| v.get("Type")).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32, p.value.get("Target").and_then(|v| v.get("Instance")).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32);
+                // `(0x6e, 0)` to `(0x6e, own)`: the overflow window's item comes into the inventory
+                if source == (0x6e, 0) && target == (0x6e, self.own) {
+                    if let Some(entry) = self.overflow_item.take() {
+                        self.add_to_backpack(entry);
+                    }
+                }
                 // `(0x68, place)` into the open container: an item went in from the backpack (the bank by its type alone)
                 if source.0 == 0x68 && self.loot.as_ref().is_some_and(|l| l.identity == target || (l.identity.0 == crate::loot::BANK && target.0 == crate::loot::BANK)) {
                     if let Some(at) = self.worn.iter().position(|e| e.slot == source.1) {
@@ -1700,6 +1730,17 @@ impl World {
     }
 
     /// What using `(kind, id)` uses: a dead body's corpse, else itself.
+    /// An item into the first free place of the backpack (aosharp's `AddToNextAvailableSlot`).
+    fn add_to_backpack(&mut self, mut entry: inventory::Entry) {
+        let Some(free) = (inventory::BACKPACK_FIRST..inventory::BACKPACK_FIRST + crate::gear::PACK_SLOTS).find(|s| !self.worn.iter().any(|e| e.slot == *s)) else { return };
+        if std::env::var_os("MAO_COMBAT_LOG").is_some() {
+            eprintln!("item {} (QL {}) into the backpack at {free:#x}", entry.low_id, entry.quality);
+        }
+        entry.slot = free;
+        self.worn.push(entry);
+        self.inventory = Some(self.worn.clone());
+    }
+
     fn used(&self, kind: u32, id: u32) -> (u32, u32) {
         if let Some(&corpse) = self.corpses.get(&id).filter(|c| self.objects.contains_key(c)) {
             return (OBJECT_TYPE, corpse);
@@ -6481,7 +6522,8 @@ fn walk(game: &str, who: &str, target_x: f32, target_z: f32, seconds: u64) -> Re
                 }
                 if let Some(target) = system::redirect(&frame) {
                     eprintln!("[{:6.1}] the server redirects us to {target}", clock.elapsed().as_secs_f32());
-                    let mut next = hop(game, &target, own, &|t| eprintln!("{t}"))?;
+                    // (as the original: straight to the new server with the same key; a new login only if that fails)
+                    let mut next = hop_direct(&target, own, ticket.key).or_else(|_| hop(game, &target, own, &|t| eprintln!("{t}")))?;
                     next.set_timeout(Duration::from_millis(50)).map_err(|e| e.to_string())?;
                     let mut inside = World { own, ..World::default() };
                     let until = Instant::now() + Duration::from_secs(5);
@@ -7020,6 +7062,23 @@ mod door_tests {
         // casting it again sets its time
         w.nano_duration(10, 9000);
         assert_eq!(w.nano_times, vec![(10, 9000)]);
+    }
+
+    /// The Arete Landing capture: a quest item named into the overflow window comes in with its `ContainerAddItem`, and a
+    /// bought one with `AddTemplate`; each takes the backpack's first free place.
+    #[test]
+    fn items_come_into_the_backpack() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let own = 0x7b1a0021;
+        let mut w = World { own, ..World::default() };
+        w.worn.push(inventory::Entry { slot: inventory::BACKPACK_FIRST, flags: 0, count: 1, container: (0, 0), low_id: 1, high_id: 1, quality: 1, extra: 0 });
+        w.add(&Message { kind: TEMPLATE_ACTION, identity: (0xc350, own), data: hex("0000048854000488540000000100000001000000570000006e000000000000000000000000") }.frame(1));
+        assert!(w.worn.len() == 1, "nothing comes in before its ContainerAddItem");
+        w.add(&Message { kind: CONTAINER_ADD_ITEM, identity: (0xc350, own), data: hex("000000006e000000000000006e7b1a00210000006f") }.frame(1));
+        assert_eq!(w.worn.last().map(|e| (e.slot, e.low_id)), Some((inventory::BACKPACK_FIRST + 1, 0x48854)));
+        w.add(&Message { kind: ADD_TEMPLATE, identity: (0xc350, own), data: hex("000001fe3f0001fe3f0000000100000001") }.frame(1));
+        assert_eq!(w.worn.last().map(|e| (e.slot, e.low_id, e.count)), Some((inventory::BACKPACK_FIRST + 2, 0x1fe3f, 1)));
+        assert!(w.inventory.is_some());
     }
 
     #[test]
