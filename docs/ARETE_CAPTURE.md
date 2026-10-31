@@ -104,3 +104,19 @@ Every zoning is the server's `43197d22` (the place, the rotation and the playfie
   its spells on event 14. Ported: an item dragged out of the inventory or a bag and let go over the world is used on what is
   under the pointer.
 - The other zonings were plain uses (`52526858` action 3 on a `0xc73d` portal or door).
+
+# The trade, perks, pets and tradeskill capture (2026-10-31 15:05)
+
+`captures/arete-20261031-1505/` (41 minutes, character `0x4bc82`, 14 zonings).
+
+- **Perks**: `CharacterAction` 0xbb trains a rank and 0xbc untrains one, the rank's id second (`0x7d`), echoed; the perk
+  actions an untraining takes away come as 0xb6 (the same fields as 0xb4). Ported (b192f41).
+- **Tradeskill**: `CharacterAction` 0x51 (`UseItemOnItem`) with two backpack items (`(0x68, 0x56)` on `(0x68, 0x43)`, pattern
+  pieces); the server sends the result (`TemplateAction`, `ContainerAddItem`) and deletes the pieces (0x70). Ported (c5f9d17).
+- **Pets**: `PetCommand` (`6b333303`) 7 (attack) to all pets; `AddPet` names them after each zoning. Ported as `/pet` (1160fdd).
+- **Player trade** with `0x57d8`: Open naming the partner, AddItem `(0x68, 0x54)`, credits 100000 then 1000000, Confirm, the
+  partner's Accept, ours, Complete for both. Ported (ad6dbbe). The partner put nothing in, so their items' messages are unknown.
+- **Team**: two invitations accepted (`TeamRequestReply` 0x1c, already handled); sending an invitation and kicking are not in it.
+- Also seen, not yet used: `SetStat` 264 stepped 0 to 100 (a slider), `N3Teleport` before each zoning, `DoorFullUpdate`,
+  `PlayfieldAllTowers` / `AllCities`, `ResearchUpdate`, `OrgServer`.
+
