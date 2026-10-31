@@ -263,6 +263,8 @@ pub struct Ui {
     pub programs: crate::nanoprograms::ProgramsWindow,
     pub perks: crate::perks::PerksWindow,
     pub help: crate::help::HelpWindow,
+    /// Tips (`tips.rs`).
+    pub tips: crate::tips::Tips,
     /// The info view (GUI.dll's `InfoView_c`): item pages and help texts.
     pub info: crate::gui::infoview::InfoView,
     /// The in-game web page's window (the market's).
@@ -366,7 +368,7 @@ impl Ui {
         crate::skin::configure(&ctx, crate::skin::dirs(&settings.gui_dir, &settings.theme, &settings.aou_mod));
         let state = egui_winit::State::new(ctx.clone(), egui::ViewportId::ROOT, window, Some(window.scale_factor() as f32), window.theme(), None);
         let renderer = egui_wgpu::Renderer::new(&gpu.device, format, egui_wgpu::RendererOptions::default());
-        let mut ui = Ui { ctx, state, renderer, open_seen: Vec::new(), options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), shop: Default::default(), npc_chat: Default::default(), mission_log: Default::default(), planet: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), team: Default::default(), ncu: Default::default(), friends: Default::default(), programs: Default::default(), perks: Default::default(), help: Default::default(), info: Default::default(), browser: Default::default(), market_send: Default::default(), control_center: None, option_panel: Default::default(), loot: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0 };
+        let mut ui = Ui { ctx, state, renderer, open_seen: Vec::new(), options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), shop: Default::default(), npc_chat: Default::default(), mission_log: Default::default(), planet: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), team: Default::default(), ncu: Default::default(), friends: Default::default(), programs: Default::default(), perks: Default::default(), help: Default::default(), tips: Default::default(), info: Default::default(), browser: Default::default(), market_send: Default::default(), control_center: None, option_panel: Default::default(), loot: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0 };
         // (the windows the player left open come back open)
         for name in crate::layout::load_open() {
             ui.set_window(&name, true);
@@ -585,6 +587,7 @@ impl Ui {
         let team_window = &mut self.team;
         let (friends_window, programs_window, perks_window, loot_window, help_window) = (&mut self.friends, &mut self.programs, &mut self.perks, &mut self.loot, &mut self.help);
         let info_view = &mut self.info;
+        let tips = &mut self.tips;
         let npc_chat = &mut self.npc_chat;
         let (mission_log, planet) = (&mut self.mission_log, &mut self.planet);
         let browser = &mut self.browser;
@@ -650,6 +653,10 @@ impl Ui {
             }
             if help_window.open {
                 help_window.show(&ctx, &settings.keymap, palette);
+            }
+            tips.watch(&hud.location, *gear_open, skills_window.open, shop.open, hud.stats.get(&60).copied().unwrap_or(0) as i64);
+            for url in tips.show(&ctx, palette, dt) {
+                info_view.show_url(&url);
             }
             info_view.show(&ctx, palette);
             for command in info_view.take_commands() {
@@ -867,6 +874,8 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
     let mut preview_panel = crate::gui::options::OptionPanel::default();
     preview_panel.open = std::env::var("MAO_UI_PREVIEW").as_deref() == Ok("optionpanel");
     // (MAO_UI_PREVIEW=marketsend: "Deposit to Market", the first two backpack items in it)
+    // (MAO_UI_PREVIEW=tip: the tip window on the tips triggered)
+    let mut preview_tips = (std::env::var("MAO_UI_PREVIEW").as_deref() == Ok("tip")).then(crate::tips::Tips::default);
     let mut preview_deposit = crate::marketsend::MarketSendWindow::default();
     if std::env::var("MAO_UI_PREVIEW").as_deref() == Ok("marketsend") {
         preview_deposit.show_window();
@@ -986,6 +995,9 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
             }
             if let Some(window) = preview_stats.as_mut() {
                 window.show(&ctx, &hud.character_name, &hud.stats, &hud.stat_parts, &palette);
+            }
+            if let Some(tips) = preview_tips.as_mut() {
+                tips.show(&ctx, &palette, 0.0);
             }
             if let (Some(window), Some(view)) = (preview_loot.as_mut(), hud.loot.as_ref()) {
                 window.show(&ctx, view, &palette);

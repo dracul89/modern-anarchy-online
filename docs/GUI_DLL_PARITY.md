@@ -58,7 +58,7 @@ programs window's Info, `itemid://53019/<id>`; weapons' damage per second; to co
 | `InputConfig_t`, `hotkey_config`, the `KeyBindings` archive | keys and their actions | `settings::ACTIONS` | done (the default keymap); the per-character `Prefs.xml` not read |
 | `DistributedValue` prefs (`CharPrefs.xml`, `Prefs.xml`, `*WindowConfig` archives) | every option and window place | `layout.ini`, `settings.ini` | ours (by choice) |
 | Escape closing (`esc_*` options: backpacks, chests, corpses, dialogs, info view, inventory, LFT, mission selection, nano, NPC chat, option panel, perk window, planet map, raid, research, shops, tips, tower build menu, trades, tradeskill, vehicle, wear) and `AutoCloseWindows` | which windows Escape closes | `Ui::close_with_escape` (all unpinned) | part (not per window) |
-| `TipSystem_t`, `TipViewConfig`, `/tipoftheday` | tips of the day | | no |
+| `TipSystem_t`, `TipViewConfig`, `/tipoftheday` | tips of the day | `tips.rs` (`TipHeader.xml`, the events and their data patterns, the switched-off tips and `IsTipEnabled` in `tips.ini`) | part: the events the client knows (selecting, tells, team invites, attacking, playfields, item pages, the skills/inventory/shop windows, skill changes, minutes played); no `/tipoftheday`, no reset |
 | `TimerSystemModule_t` | timers (countdown bars) | | no |
 | `SoundOptionsMonitor_c` | applies the sound options | `audio.rs` | ours |
 | `BrowserModule_c`, `BrowserView_c`, `BrowserWindow_c`, `LoginBrowserWindow_c` (Awesomium) | the in-game web pages (market, item store, customer service, daily rewards) | `browser.rs` (WebView2 through wry; the site's requests passed on with the game's `X-Anarchy-*` headers) | part: the market and item store modes; no customer service, daily rewards or login pages; no URL bar |
@@ -104,7 +104,7 @@ programs window's Info, `itemid://53019/<id>`; weapons' damage per second; to co
 | Petitions (`petition_window`, `PetitionWindowConfig`, `/petition`) | | none | no |
 | Reclaim (`reclaim_window`, `/reclaim`) | | none | no |
 | Daily login / check rewards (`dailylogin_window`, `checkrewards_window`) | | none | no |
-| Tips (`tip_window`) | `TipView.xml` | none | no |
+| Tips (`tip_window`) | `TipView.xml` | `tips.rs` (`TipView_c`: sections, next section, previous/next tip, the two check boxes; `TipButtonWindow_c`'s `GFX_GUI_NEW_TIP` button) | yes |
 | Options (`OptionPanelModule_c`, `optionpanel_window`) | `OptionPanel/*` | `gui/options.rs` (the skin's `Root.xml` pages and option controls, settings saved in `prefs.xml`, sound applied); the client's own options window for the display and keys | part (`HotKeys.xml` not used; most settings kept but not yet acted on) |
 | Help (`help` / info about this window) | | `help.rs` | ours |
 | Notum Wars: tower build menu, laser target, airstrike, battlestation, signup terminal, mech select, teleport target | `LaserTarget.xml`, `SignupTerminal.xml`, `MechSelect.xml`, `TeleportTarget.xml` | none | no |

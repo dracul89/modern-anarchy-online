@@ -79,6 +79,7 @@ mod derived;
 mod gear;
 mod mailbox;
 mod mailmessage;
+mod tips;
 mod team;
 mod shop;
 mod mission;
@@ -1669,6 +1670,11 @@ fn run(args: &[String]) -> Result<(), String> {
                                 }
                             }
                         }
+                    }
+                    if preview.as_deref() == Some("tip") {
+                        // Two tips (the second shown, with Previous Tip).
+                        tips::trigger("OnStartingAttack", "");
+                        tips::trigger("OnInvitedToTeam", "");
                     }
                     if preview.as_deref() == Some("mail") {
                         // The recipient's inbox and the opened mail from the capture (the bytes are in mao_net::mail's tests).

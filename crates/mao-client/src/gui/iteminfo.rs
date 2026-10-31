@@ -552,6 +552,8 @@ pub fn item_page(db: &ResourceDatabase, low: u32, high: u32, ql: u32, player: &B
     let template = |id: u32| db.get(Id { kind: item::TEMPLATE, instance: id }).ok().flatten();
     let data = template(low).or_else(|| template(high))?;
     let it = Item::parse(&data)?;
+    // (`OnLookatItem`'s tips, by the item's name)
+    crate::tips::trigger("OnLookatItem", &it.name);
     let entry = mao_net::inventory::Entry { slot: 0, flags: 0, count: 1, container: (0, 0), low_id: low, high_id: high, quality: ql, extra: 0 };
     let actions = crate::derived::actions(db, &entry);
     let c = Ctx { db, it, data, actions, low, ql, level, nano: false, player };

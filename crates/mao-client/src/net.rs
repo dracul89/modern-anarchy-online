@@ -1366,6 +1366,7 @@ impl World {
                 let name = self.names.get(&who).map_or_else(|| format!("Character {who:#x}"), |n| n.0.clone());
                 self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, format!("{name} invites you to join a team.")));
                 crate::team::with(|t| t.invite = Some((who, name)));
+                crate::tips::trigger("OnInvitedToTeam", "");
             } else if action == 0x20 {
                 crate::team::with(|t| if who == self.own { t.members.clear() } else { t.members.retain(|m| m.id != who) });
             }
@@ -3598,7 +3599,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                 let raw = text;
                                 let text = mao_net::chat::plain(&raw);
                                 match names.get(&sender) {
-                                    Some(who) => Some(Line { kind: Kind::Tell, text: format!("{who} tells you: {text}"), from: Some(who.clone()), markup: None }.with_markup(&format!("{who} tells you: "), &raw)),
+                                    Some(who) => {
+                                        crate::tips::trigger("OnReceiveTellMessage", "");
+                                        Some(Line { kind: Kind::Tell, text: format!("{who} tells you: {text}"), from: Some(who.clone()), markup: None }.with_markup(&format!("{who} tells you: "), &raw))
+                                    }
                                     // the server's own notices (the players online) come the same way
                                     None => Some(Line::new(Kind::System, text).with_markup("", &raw)),
                                 }
@@ -4473,6 +4477,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             let _ = connection.send(&n3::stop_fight(own));
                         }
                         crate::combat::Attack::Start(t) => {
+                            crate::tips::trigger("OnStartingAttack", "");
                             let _ = connection.send(&n3::attack(own, t));
                             attack_sent = Some(Instant::now());
                         }
@@ -4746,6 +4751,15 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     let _ = connection.send(&n3::select_target(own, id));
                     let _ = connection.send(&n3::set_target(own, id));
                     let _ = connection.send(&n3::info_request(own, id));
+                }
+                // (the tips of selecting: a player, a creature or NPC by its name, anything else by its name)
+                if id != own {
+                    let name = state.names.get(&id).map(|n| n.0.clone()).unwrap_or_default();
+                    match kind {
+                        n3::CHARACTER if state.infos.get(&id).is_some_and(|i| i.is_player()) => crate::tips::trigger("OnSelectingPlayer", &name),
+                        n3::CHARACTER => crate::tips::trigger("OnSelectingNPC", &name),
+                        _ => crate::tips::trigger("OnSelecting", &name),
+                    }
                 }
                 if double {
                     uses += 1;

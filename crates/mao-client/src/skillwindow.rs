@@ -282,6 +282,7 @@ impl SkillWindow {
                 let raises: Vec<(u32, u32)> = self.pending.iter().map(|(&stat, &p)| (stat, (stored(stat) + p).max(0) as u32)).collect();
                 if !raises.is_empty() {
                     crate::skills::push_raises(raises);
+                    crate::tips::trigger("OnAcceptingSkillChanges", "");
                     self.status = "Changes sent.".into();
                 }
                 self.pending.clear();
