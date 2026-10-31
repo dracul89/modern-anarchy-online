@@ -43,6 +43,9 @@ pub struct PerkRecord {
     pub flags: u32,
     /// The professions, a bit each (none: a general perk).
     pub professions: u32,
+    /// The research amount of a research rank (byte 32, the perk manager's entry +0x18: what `N3Msg_GetPerkProgress`
+    /// divides by).
+    pub total: u32,
     pub name: String,
     pub description: String,
     /// The criteria of the template's wear action (what `N3Msg_MeetsPerkCriteria` checks).
@@ -63,7 +66,7 @@ impl Catalog {
         self.by_id.get(&id).map(|&k| &self.records[k])
     }
 
-    fn from_records(records: Vec<PerkRecord>) -> Catalog {
+    pub fn from_records(records: Vec<PerkRecord>) -> Catalog {
         let by_id = records.iter().enumerate().map(|(k, r)| (r.id, k)).collect();
         Catalog { records, by_id }
     }
@@ -82,6 +85,7 @@ pub fn catalog(db: &ResourceDatabase) -> Arc<Catalog> {
                 .filter_map(|id| {
                     let r = db.get(id).ok().flatten()?;
                     let (id, template, prev, flags, professions) = (word(&r, 4)?, word(&r, 12)?, word(&r, 16)?, word(&r, 20)?, word(&r, 24)?);
+                    let total = word(&r, 32).unwrap_or(0);
                     let data = db.get(Id { kind: item::TEMPLATE, instance: template }).ok().flatten();
                     let parsed = data.as_deref().and_then(Item::parse);
                     let actions = data.as_deref().map(item::actions).unwrap_or_default();
@@ -92,6 +96,7 @@ pub fn catalog(db: &ResourceDatabase) -> Arc<Catalog> {
                         prev,
                         flags,
                         professions,
+                        total,
                         name: parsed.as_ref().map(|p| p.name.clone()).unwrap_or_default(),
                         description: parsed.map(|p| p.description).unwrap_or_default(),
                         criteria,
@@ -688,7 +693,7 @@ mod tests {
     use super::*;
 
     fn record(id: u32, prev: u32, flags: u32, professions: u32, name: &str, criteria: Vec<(u32, i32, u32)>) -> PerkRecord {
-        PerkRecord { id, prev, flags, professions, name: name.into(), description: String::new(), criteria, use_by: None, modifiers: String::new() }
+        PerkRecord { id, prev, flags, professions, total: 0, name: name.into(), description: String::new(), criteria, use_by: None, modifiers: String::new() }
     }
 
     fn sample() -> Catalog {
