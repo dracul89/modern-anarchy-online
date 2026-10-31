@@ -390,6 +390,17 @@ pub fn use_object(character: u32, sequence: u32, target: (u32, u32)) -> Frame {
     Message { kind: 0x52526858, identity: (CHARACTER, character), data }.frame(character)
 }
 
+/// `52526858` action 5: use an item on something (`N3Msg_UseItemOnItem`, Gamecode 0x1002695c): a zero flag, the item's identity
+/// (`(0x68, place)` in the backpack, `(0x6b, handle << 16 | place)` in an open container) and the target's. The original entering
+/// the Garden of Lord Galahad (2026-10-31): the key, `(0x6b, 0x00700006)`, used on the statue `(0xc73d, 0x58f37539)`.
+pub fn use_item_on(character: u32, sequence: u32, item: (u32, u32), target: (u32, u32)) -> Frame {
+    let mut data = vec![1u8];
+    for word in [0, sequence, 5, 0, CHARACTER, character, item.0, item.1, target.0, target.1] {
+        data.extend_from_slice(&word.to_be_bytes());
+    }
+    Message { kind: 0x52526858, identity: (CHARACTER, character), data }.frame(character)
+}
+
 /// `Mail` (`333b2867`) asking a mail terminal for the inbox: action 1 and eight zero bytes (as the
 /// original sends it, after using the terminal). The answer is a `Mail` with action 0 and a list
 /// (empty in the capture: `00 00 00 | 00 00 03 f1`).
@@ -662,6 +673,13 @@ pub fn market_send(character: u32, credits: i32, items: &[(u32, u32)]) -> Frame 
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn use_item_on_is_the_captured_shape() {
+        let m = Message::parse(&use_item_on(0x4bc80, 6, (0x6b, 0x0070_0006), (0xc73d, 0x58f3_7539))).unwrap();
+        let hex: String = m.data.iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(hex, "01000000000000000600000005000000000000c3500004bc800000006b007000060000c73d58f37539");
+    }
+
     #[test]
     fn a_climb_is_sent_as_the_original_sends_it() {
         // (the original client climbing on a Phasefront Banshee, 2026-10-31: heading 0.1815, about 27 degrees up)

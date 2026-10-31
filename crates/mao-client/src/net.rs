@@ -3834,7 +3834,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let autoplay_clock = Instant::now();
         let (mut sitting, mut uses, mut fired) = (false, 0u32, 0u8);
         let mut camp_seen = 0u8;
-        let (mut special_seen, mut social_seen, mut pick_seen) = (0u8, 0u8, 0u8);
+        let (mut special_seen, mut social_seen, mut pick_seen, mut use_on_seen) = (0u8, 0u8, 0u8, 0u8);
         let mut aggdef_seen = 0u8;
         let mut market_seen = 0u8;
         // (an attack sent and not yet answered: FUN_1006817d's +0x79)
@@ -4684,6 +4684,12 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         let _ = connection.send(&n3::mail_request(own));
                     }
                 }
+            }
+            // An item used on something in the world (`N3Msg_UseItemOnItem`: action 5 of the use message).
+            if keys.use_on.0 != use_on_seen {
+                use_on_seen = keys.use_on.0;
+                uses += 1;
+                let _ = connection.send(&n3::use_item_on(own, uses, keys.use_on.1, keys.use_on.2));
             }
             // The Action window and the hotbar: special actions and social actions.
             if keys.special.0 != special_seen {

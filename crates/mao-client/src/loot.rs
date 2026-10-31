@@ -48,6 +48,8 @@ pub struct LootWindow {
     shown: Vec<(u32, u16, Option<u32>)>,
     /// The place of the item being dragged out of the grid.
     dragging: Option<u32>,
+    /// The place of an item let go over the world (not over a window): to be used on what is there.
+    pub dropped_out: Option<u32>,
 }
 
 /// The most items a container's grid shows slots for (`ItemContainerView_c` FUN_100ce55d: `SetMaxItemCount` 102 for the bank,
@@ -188,6 +190,9 @@ impl LootWindow {
             }
             if ctx.input(|i| i.pointer.any_released()) {
                 self.dragging = None;
+                if !ctx.is_pointer_over_egui() {
+                    self.dropped_out = Some(place);
+                }
                 let inventory = ctx.memory(|m| m.area_rect(egui::Id::unique("Inventory")));
                 if let (Some(at), Some(r)) = (pointer, inventory)
                     && r.contains(at)

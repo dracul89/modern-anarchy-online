@@ -40,6 +40,8 @@ pub struct Input {
     pub walk_toggle: u8,
     /// The heading the character should face (the camera's, while the right mouse button steers).
     pub face: Option<f32>,
+    /// An item used on something in the world: a counter that steps with each, the item's identity and the target's.
+    pub use_on: (u8, (u32, u32), (u32, u32)),
     /// Flying: the vehicle's elevation (radians, nose up positive), set by the right button's vertical mouse movement.
     pub pitch: f32,
     /// A hotbar item to use: a counter that steps with each, and the inventory slot.
@@ -640,6 +642,18 @@ fn press_slot(ui: &mut Ui, slot: usize, keys: &mut Input, hud: &mut Hud) {
 
 /// How far a flying vehicle pitches up or down (the camera's own limit, `PITCH_LIMIT`).
 const FLY_PITCH_LIMIT: f32 = 1.4;
+
+/// What is under a point of the window (physical pixels): the first pickable the line from the eye through it meets, as a
+/// click picks.
+fn pick(hud: &Hud, camera: mao_render::Camera, radius: f32, size: (u32, u32), at: (f32, f32)) -> Option<(u32, u32)> {
+    let aspect = size.0 as f32 / size.1.max(1) as f32;
+    let (from, dir) = camera.ray(at.0 / size.0.max(1) as f32, at.1 / size.1.max(1) as f32, aspect, radius);
+    hud.pickables
+        .iter()
+        .filter_map(|&(kind, id, feet, r, h, last)| ray_cylinder(from, dir, feet, r, h).map(|t| ((last, t), (kind, id))))
+        .min_by(|a, b| a.0 .0.cmp(&b.0 .0).then(a.0 .1.total_cmp(&b.0 .1)))
+        .map(|(_, k)| k)
+}
 
 fn heading_from_yaw(yaw: f32) -> f32 {
     (-yaw.cos()).atan2(-yaw.sin())
@@ -2090,6 +2104,16 @@ impl ApplicationHandler for App {
                     for url in ui.info.take_requests() {
                         if let Some(page) = crate::gui::iteminfo::page(self.textures.db(), &url, &self.hud.stats) {
                             ui.info.show_page(&url, &page);
+                        }
+                    }
+                    // (an item let go over something in the world is used on it: `N3Msg_UseItemOnItem`)
+                    if let Some((item, at)) = requests.use_on.take() {
+                        let size = w.window.inner_size();
+                        if let Some((kind, id)) = pick(&self.hud, camera, radius, (size.width, size.height), at) {
+                            self.keys.use_on = (self.keys.use_on.0.wrapping_add(1), item, (kind, id));
+                            if let Some(live) = &self.live {
+                                let _ = live.input.send(self.keys);
+                            }
                         }
                     }
                     for place in requests.item_uses.drain(..) {

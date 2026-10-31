@@ -83,3 +83,24 @@ moves, set-stat) this client already sends.
 
 Done since: SetWantedDirection turns the character (`rotations`, forward `(sin h, cos h)`), StopMovingCmd ends its walked
 path, ItemReplaced updates the worn item (test in `items_come_into_the_backpack`).
+
+# The Shadowlands capture (2026-10-31)
+
+The original client again (`tools/capture_session.ps1`), 18 minutes with a level-220 character (`0x4bc80`): files in
+`captures/arete-20261031-0842/` (`dump.txt` from `mao-client net msg-dump net.log all 1000000`).
+
+Route (playfield messages): Andromeda's ICC HQ (655) → an instance and back → another instance → Old Athens (540) → the
+Wailing Wastes (551) → the Garden of Lord Galahad (4692) → Inferno (4605) → Caina (4328) → Dante's Sanctuary (4696).
+Every zoning is the server's `43197d22` (the place, the rotation and the playfield to go to) then the usual redirect.
+
+- **Flying** (Andromeda, 1.4–5.7 min, a Phasefront Banshee): no fly-mode (0x1d) or mouse-steer (0x2b) message; the full
+  reports carry the pitched rotation and the height follows it (21 to 185). Every Phasefront vehicle program has spell
+  0xcf4c with 73 = 2 (`mao_formats::item::grants_flight`). Ported (commit 2f817f7).
+- **Perk actions** (the Inferno fights): `CharacterAction` 0xb4 lists each perk action at entry (item template, number,
+  four-letter code); the client's 0xb3 uses one; the server's 0x50 queues it (the attack time), 0xcf locks a group (the
+  template's lock-skill spell 0xcfc3: Quick Bash group 201 for 25 s) and 0xce frees it. Ported (commit 448d6b5).
+- **Using an item on something** (into the Garden and on to Caina): a key in an open bag, `(0x6b, 0x00700006)`, used on a
+  statue `(0xc73d, ...)` with `52526858` action 5 (`N3Msg_UseItemOnItem`); "The Key to the Garden of Lord Galahad" fires
+  its spells on event 14. Ported: an item dragged out of the inventory or a bag and let go over the world is used on what is
+  under the pointer.
+- The other zonings were plain uses (`52526858` action 3 on a `0xc73d` portal or door).

@@ -174,6 +174,8 @@ pub struct TargetBar {
 
 #[derive(Default)]
 pub struct Requests {
+    /// An item let go over the world (not over a window): its identity and where (physical pixels), to be used on what is there.
+    pub use_on: Option<((u32, u32), (f32, f32))>,
     /// A theme picked in the options window.
     pub theme: Option<String>,
     /// A skin folder typed in the options window.
@@ -708,6 +710,10 @@ impl Ui {
                 if let Some(take) = loot_window.show(&ctx, view, palette) {
                     requests.loot_take = Some(take);
                 }
+                if let (Some(place), Some(at)) = (loot_window.dropped_out.take(), ctx.input(|i| i.pointer.interact_pos())) {
+                    let k = ctx.pixels_per_point();
+                    requests.use_on = Some(((0x6b, view.handle << 16 | (place & 0xffff)), (at.x * k, at.y * k)));
+                }
             }
             if help_window.open {
                 help_window.show(&ctx, &settings.keymap, palette);
@@ -835,6 +841,16 @@ impl Ui {
                 options_window(&ctx, options_open, rebinding, settings, &mut requests, palette, themes);
             }
         });
+        // (an inventory item let go over the world, not over a window, is used on what is there)
+        let dragged = crate::gear::DRAGGED.load(std::sync::atomic::Ordering::Relaxed);
+        if dragged != u32::MAX
+            && self.ctx.input(|i| i.pointer.any_released())
+            && !self.ctx.is_pointer_over_egui()
+            && let Some(at) = self.ctx.input(|i| i.pointer.interact_pos())
+        {
+            let k = self.ctx.pixels_per_point();
+            requests.use_on = Some(((0x68, dragged), (at.x * k, at.y * k)));
+        }
         if !self.ctx.input(|i| i.pointer.any_down()) {
             crate::gear::DRAGGED.store(u32::MAX, std::sync::atomic::Ordering::Relaxed);
         }
