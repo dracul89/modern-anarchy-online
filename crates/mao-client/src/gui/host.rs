@@ -64,6 +64,8 @@ pub enum Signal {
     ColumnFit(i32),
     /// A list's row was clicked: its id and the click count (`MultiListView_c`'s item-clicked signal).
     ItemClicked(i64, u32),
+    /// A list's item was dragged off (pressed and moved): its id.
+    ItemDragged(i64),
 }
 
 /// The keys a text view acts on (`TextRenderer_c::KeyDown`'s cases: 0x18 Enter, 0x19 Backspace, 0x1b Delete, 0x1c Home,

@@ -55,12 +55,15 @@ pub enum CellView {
     Picture(String),
 }
 
-/// A row (`MultiListViewItem_c`): its id (`GetID`), its cells by column id and what it sorts by in each.
-#[derive(Clone, Debug, PartialEq)]
+/// A row (`MultiListViewItem_c`): its id (`GetID`), its cells by column id and what it sorts by in each; in a grid, its
+/// icon and stack count (`InventoryListViewItem_c`'s `ItemIconView_c`).
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Item {
     pub id: i64,
     pub cells: Vec<(i32, CellView)>,
     pub keys: Vec<(i32, String)>,
+    pub icon: Option<egui::TextureId>,
+    pub count: u32,
 }
 
 impl Item {
@@ -87,25 +90,119 @@ fn places(columns: &[Column]) -> (Vec<(i32, f32, f32)>, f32) {
     (out, x - 1.0 - SPACE.x)
 }
 
+/// The grid mode's cells (`LayoutMode_e` 0, the `IconSize_e` 1 of the item windows): 47 by 47 (`+0x180`), 10 apart
+/// (`+0x188`, kept as it is with feature flag 0x10), 6 in from the edges (`+0x170`), so one every 58 (`+0x198`: the cell, the
+/// spacing and 1). With feature flag 4 (auto arrange) the items fill the cells in their order, as many columns as the width
+/// holds (`RecalcCellCount` 0x10134ad2: `width / 58`, at least 1). Each cell up to the most the container holds
+/// (`SetMaxItemCount`: the inventory 30, a backpack 21, the bank 102) shows its slot picture (`UpdateBackgroundSurfaces`
+/// 0x101340ff: `GFX_GUI_MULTILISTVIEW_SLOT_48_CLOSED`, centred on the cell), and an item its icon over the cell, its stack
+/// count in yellow small text at the top right when above 1 (`ItemIconView_c` FUN_10040574: `<font color=yellow>%u</font>`,
+/// font 7) and, selected, `GFX_GUI_SELECTED_ICON` over it (FUN_10040d0b).
+pub mod grid {
+    pub const CELL: f32 = 47.0;
+    pub const SPACING: f32 = 10.0;
+    pub const BORDER: f32 = 6.0;
+    pub const STEP: f32 = CELL + SPACING + 1.0;
+    pub const SLOT: &str = "GFX_GUI_MULTILISTVIEW_SLOT_48_CLOSED";
+    pub const SELECTED: &str = "GFX_GUI_SELECTED_ICON";
+
+    /// The columns a width holds.
+    pub fn columns(width: f32) -> usize {
+        ((width / STEP).floor() as usize).max(1)
+    }
+
+    /// A cell's top left (`GridPosToViewPos` 0x101330b7, auto arranged).
+    pub fn place(k: usize, columns: usize) -> (f32, f32) {
+        (BORDER + (k % columns) as f32 * STEP, BORDER + (k / columns) as f32 * STEP)
+    }
+
+    /// The size of `cells` cells in `columns` columns (`CellCountToPreferredSize` 0x101332b8).
+    pub fn size(cells: usize, columns: usize) -> (f32, f32) {
+        let rows = cells.max(1).div_ceil(columns);
+        (2.0 * BORDER + columns as f32 * STEP - 1.0 - SPACING, 2.0 * BORDER + rows as f32 * STEP - 1.0 - SPACING)
+    }
+}
+
+/// Grid mode: the width the cells are laid out in (the scroll view's, set by [`update`]) and the most items it holds
+/// (`+0x234`, -1 for no limit).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GridMode {
+    pub width: f32,
+    pub max_items: i32,
+}
+
 /// The rows (the scroll view's client): the items, their order and the selection.
 pub struct Rows {
     pub columns: Vec<Column>,
     pub items: Vec<Item>,
     pub selected: Option<i64>,
+    /// Grid mode instead of the list.
+    pub grid: Option<GridMode>,
     last_click: Option<(i64, Instant)>,
-    pressed: Option<usize>,
+    pressed: Option<(usize, Point)>,
+    dragged: bool,
 }
 
 impl Rows {
+    fn new(grid: Option<GridMode>) -> Rows {
+        Rows { columns: Vec::new(), items: Vec::new(), selected: None, grid, last_click: None, pressed: None, dragged: false }
+    }
     fn step() -> f32 {
         ROW_HEIGHT + 1.0 + SPACE.y
     }
+    /// The cells a grid shows (a slot each).
+    fn cells(&self, g: &GridMode) -> usize {
+        if g.max_items >= 0 { (g.max_items as usize).max(self.items.len()) } else { self.items.len() }
+    }
     fn at(&self, p: Point) -> Option<usize> {
+        if let Some(g) = &self.grid {
+            // (`ViewPosToGridPos` 0x10133567: the cell under the point, not the spacing beside it)
+            let cols = grid::columns(g.width);
+            let (cx, cy) = (((p.x - grid::BORDER) / grid::STEP).floor(), ((p.y - grid::BORDER) / grid::STEP).floor());
+            if cx < 0.0 || cy < 0.0 || cx as usize >= cols {
+                return None;
+            }
+            let k = cy as usize * cols + cx as usize;
+            let (x, y) = grid::place(k, cols);
+            return (k < self.items.len() && p.x - x < grid::CELL && p.y - y < grid::CELL).then_some(k);
+        }
         if p.y < 0.0 {
             return None;
         }
         let k = (p.y / Self::step()) as usize;
         (k < self.items.len() && p.y - k as f32 * Self::step() < ROW_HEIGHT).then_some(k)
+    }
+
+    fn paint_grid(&self, p: &Paint, g: &GridMode) {
+        let cols = grid::columns(g.width);
+        let clip = p.painter.clip_rect();
+        let uv = egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0));
+        let skin = p.env.skin;
+        for k in 0..self.cells(g) {
+            let (x, y) = grid::place(k, cols);
+            let cell = egui::Rect::from_min_size(p.rect.min + egui::vec2(x, y), egui::vec2(grid::CELL, grid::CELL));
+            if !cell.intersects(clip) {
+                continue;
+            }
+            if let Some(slot) = skin.and_then(|s| s.get(grid::SLOT)) {
+                p.painter.image(slot.texture.id(), egui::Rect::from_center_size(cell.center(), slot.size), uv, egui::Color32::WHITE);
+            }
+            let Some(item) = self.items.get(k) else { continue };
+            if let Some(icon) = item.icon {
+                p.painter.image(icon, cell, uv, egui::Color32::WHITE);
+            }
+            if item.count > 1 {
+                let font = FontId(7);
+                let text = item.count.to_string();
+                let w = p.env.measure.width(font, &text);
+                super::controls::text(p, font, egui::pos2(cell.right() - w, cell.top()), &text, egui::Color32::YELLOW);
+            }
+            if self.selected == Some(item.id)
+                && let Some(s) = skin.and_then(|s| s.get(grid::SELECTED))
+            {
+                p.painter.image(s.texture.id(), cell, uv, egui::Color32::WHITE);
+            }
+        }
     }
 }
 
@@ -117,10 +214,18 @@ impl Control for Rows {
         if max {
             return Some(Point::new(16000.0, 16000.0));
         }
+        if let Some(g) = &self.grid {
+            let (w, h) = grid::size(self.cells(g), grid::columns(g.width));
+            return Some(Point::new(w, h));
+        }
         let height = if self.items.is_empty() { 0.0 } else { self.items.len() as f32 * Self::step() - 1.0 - SPACE.y };
         Some(Point::new(places(&self.columns).1.max(0.0), height))
     }
     fn paint(&self, p: &Paint) {
+        if let Some(g) = &self.grid {
+            self.paint_grid(p, g);
+            return;
+        }
         let (places, width) = places(&self.columns);
         let colour = super::controls::Colour::DEFAULT.rgb(p.env.palette);
         let font = FontId::NORMAL;
@@ -159,12 +264,13 @@ impl Control for Rows {
     fn mouse(&mut self, m: Mouse, at: Point) -> Option<Signal> {
         match m {
             Mouse::Down => {
-                self.pressed = self.at(at);
+                self.pressed = self.at(at).map(|k| (k, at));
+                self.dragged = false;
                 None
             }
             Mouse::Up { inside } => {
-                let pressed = self.pressed.take()?;
-                if !inside || self.at(at) != Some(pressed) {
+                let (pressed, _) = self.pressed.take()?;
+                if !inside || self.dragged || self.at(at) != Some(pressed) {
                     return None;
                 }
                 let id = self.items[pressed].id;
@@ -177,7 +283,14 @@ impl Control for Rows {
                 self.last_click = (clicks == 1).then_some((id, now));
                 Some(Signal::ItemClicked(id, clicks))
             }
-            Mouse::Move => None,
+            // (a press moved more than 3 away drags the item: `MultiListView_c`'s drag signal)
+            Mouse::Move => match self.pressed {
+                Some((k, from)) if !self.dragged && ((at.x - from.x).abs() > 3.0 || (at.y - from.y).abs() > 3.0) => {
+                    self.dragged = true;
+                    Some(Signal::ItemDragged(self.items.get(k)?.id))
+                }
+                _ => None,
+            },
         }
     }
     fn as_any(&self) -> &dyn std::any::Any {
@@ -344,7 +457,7 @@ pub fn create(tree: &mut Tree, name: &str) -> Id {
     let child = tree.add(Node::new("", Box::new(ScrollChild)));
     tree.get_mut(child).layout = Layout::ScrollChild;
     tree.get_mut(child).resize_mask = 0xf;
-    let rows = tree.add(Node::new("", Box::new(Rows { columns: Vec::new(), items: Vec::new(), selected: None, last_click: None, pressed: None })));
+    let rows = tree.add(Node::new("", Box::new(Rows::new(None))));
     tree.add_child(child, rows);
     tree.add_child(scroll, child);
     let id = tree.add(Node::new(name, Box::new(MultiList { sort_column: -1, sort_order: 0, header, scroll, rows })));
@@ -355,6 +468,46 @@ pub fn create(tree: &mut Tree, name: &str) -> Id {
     tree.get_mut(header).weight = 0.0;
     tree.get_mut(scroll).weight = 1.0;
     id
+}
+
+/// A grid-mode `MultiListView_c` (`SetLayoutMode(0)`, feature flags 0x15) holding at most `max_items` (-1: no limit): no
+/// header, the cells in a scroll view, `columns` of them until it is laid out.
+pub fn create_grid(tree: &mut Tree, name: &str, max_items: i32, columns: usize) -> Id {
+    let id = create(tree, name);
+    let (header, _, rows) = parts(tree, id).expect("a list");
+    tree.get_mut(header).flags |= super::view::FLAG_COLLAPSE;
+    tree.get_mut(header).hidden = 1;
+    if let Some(r) = tree.control_mut::<Rows>(rows) {
+        r.grid = Some(GridMode { width: columns as f32 * grid::STEP + 2.0 * grid::BORDER, max_items });
+    }
+    id
+}
+
+/// `SetMaxItemCount`.
+pub fn set_max_items(tree: &mut Tree, id: Id, max_items: i32) {
+    let Some((_, _, rows)) = parts(tree, id) else { return };
+    if let Some(g) = tree.control_mut::<Rows>(rows).and_then(|r| r.grid.as_mut())
+        && g.max_items != max_items
+    {
+        g.max_items = max_items;
+        tree.relayout = true;
+    }
+}
+
+/// Before showing: a grid lays its cells out in the width its scroll view gives it (`FrameSized` 0x101363c5 ->
+/// `RecalcCellCount`).
+pub fn update(tree: &mut Tree, id: Id) {
+    let Some((_, scroll, rows)) = parts(tree, id) else { return };
+    let width = tree.control::<ScrollView>(scroll).map_or(0.0, |v| v.visible.get().x);
+    if width <= 0.0 {
+        return;
+    }
+    if let Some(g) = tree.control_mut::<Rows>(rows).and_then(|r| r.grid.as_mut())
+        && grid::columns(g.width) != grid::columns(width)
+    {
+        g.width = width;
+        tree.relayout = true;
+    }
 }
 
 fn parts(tree: &Tree, id: Id) -> Option<(Id, Id, Id)> {
@@ -458,6 +611,18 @@ pub fn set_items(tree: &mut Tree, id: Id, items: Vec<Item>) {
     tree.relayout = true;
 }
 
+/// The item under a point on screen (the window's content at `origin`), for its tip.
+pub fn item_at(tree: &Tree, id: Id, origin: egui::Pos2, at: egui::Pos2) -> Option<i64> {
+    let (_, scroll, rows) = parts(tree, id)?;
+    // (only where the scroll view shows the rows)
+    if !super::host::screen_rect(tree, scroll, origin).contains(at) {
+        return None;
+    }
+    let r = super::host::screen_rect(tree, rows, origin);
+    let rows = tree.control::<Rows>(rows)?;
+    rows.at(Point::new(at.x - r.min.x, at.y - r.min.y)).map(|k| rows.items[k].id)
+}
+
 pub fn items(tree: &Tree, id: Id) -> &[Item] {
     parts(tree, id).and_then(|(_, _, rows)| tree.control::<Rows>(rows)).map_or(&[], |r| r.items.as_slice())
 }
@@ -474,8 +639,20 @@ pub fn select(tree: &mut Tree, id: Id, item: Option<i64>) {
     }
 }
 
+/// What the rows told: a click (with its count) or a drag of an item.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ItemEvent {
+    Clicked(i64, u32),
+    Dragged(i64),
+}
+
 /// Acts on the header's signals (sorting, resizing) and leaves the rows' clicks, as `(list, item id, clicks)`.
 pub fn take_signals(tree: &mut Tree) -> Vec<(Id, i64, u32)> {
+    take_events(tree).into_iter().filter_map(|(l, e)| if let ItemEvent::Clicked(i, n) = e { Some((l, i, n)) } else { None }).collect()
+}
+
+/// [`take_signals`] with the drags.
+pub fn take_events(tree: &mut Tree) -> Vec<(Id, ItemEvent)> {
     let signals = std::mem::take(&mut tree.signals);
     let mut clicks = Vec::new();
     let mut rest = Vec::new();
@@ -502,7 +679,8 @@ pub fn take_signals(tree: &mut Tree) -> Vec<(Id, i64, u32)> {
             }
             Signal::ColumnResized(c, w) => set_column_width(tree, list, c, w),
             Signal::ColumnFit(c) => fit_column(tree, list, c),
-            Signal::ItemClicked(item, n) => clicks.push((list, item, n)),
+            Signal::ItemClicked(item, n) => clicks.push((list, ItemEvent::Clicked(item, n))),
+            Signal::ItemDragged(item) => clicks.push((list, ItemEvent::Dragged(item))),
             other => rest.push((v, other)),
         }
     }
@@ -514,8 +692,25 @@ pub fn take_signals(tree: &mut Tree) -> Vec<(Id, i64, u32)> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn grid_cells() {
+        // (a 360-wide view holds six 58-apart columns; the bank's 102 slots are 17 rows)
+        assert_eq!(grid::columns(360.0), 6);
+        assert_eq!(grid::columns(10.0), 1);
+        assert_eq!(grid::place(7, 6), (6.0 + 58.0, 6.0 + 58.0));
+        assert_eq!(grid::size(102, 6), (12.0 + 6.0 * 58.0 - 11.0, 12.0 + 17.0 * 58.0 - 11.0));
+        let mut r = Rows::new(Some(GridMode { width: 360.0, max_items: 102 }));
+        r.items = vec![item(1, "a"), item(2, "b")];
+        assert_eq!(r.at(Point::new(6.0 + 58.0 + 3.0, 10.0)), Some(1));
+        assert_eq!(r.at(Point::new(6.0 + 50.0, 10.0)), None);
+        assert_eq!(r.at(Point::new(6.0 + 2.0 * 58.0, 10.0)), None);
+        r.mouse(Mouse::Down, Point::new(10.0, 10.0));
+        assert_eq!(r.mouse(Mouse::Move, Point::new(20.0, 10.0)), Some(Signal::ItemDragged(1)));
+        assert_eq!(r.mouse(Mouse::Up { inside: true }, Point::new(20.0, 10.0)), None);
+    }
+
     fn item(id: i64, from: &str) -> Item {
-        Item { id, cells: vec![(1, CellView::Text(from.into()))], keys: vec![(1, from.into())] }
+        Item { id, cells: vec![(1, CellView::Text(from.into()))], keys: vec![(1, from.into())], ..Default::default() }
     }
 
     #[test]
@@ -545,7 +740,8 @@ mod tests {
 
     #[test]
     fn rows_are_nineteen_apart() {
-        let mut r = Rows { columns: Vec::new(), items: vec![item(1, "a"), item(2, "b")], selected: None, last_click: None, pressed: None };
+        let mut r = Rows::new(None);
+        r.items = vec![item(1, "a"), item(2, "b")];
         assert_eq!(r.at(Point::new(5.0, 3.0)), Some(0));
         assert_eq!(r.at(Point::new(5.0, 16.0)), None);
         assert_eq!(r.at(Point::new(5.0, 20.0)), Some(1));

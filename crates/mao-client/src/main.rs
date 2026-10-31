@@ -1542,6 +1542,8 @@ fn run(args: &[String]) -> Result<(), String> {
                         let log = std::env::var("MAO_CAPTURE").unwrap_or_default();
                         let nth = std::env::var("MAO_LOOT").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
                         if let Ok((kind, handle, entries)) = net::capture_loot(&log, nth) {
+                            // (MAO_LOOT_BANK=1: shown as the bank)
+                            let kind = if std::env::var_os("MAO_LOOT_BANK").is_some() { loot::BANK } else { kind };
                             hud.loot = Some(loot::LootView { title: loot::title(kind).to_string(), handle, identity: (kind, 0), items: gear::from_entries(&db, &textures, &entries, 220) });
                             let mut window = loot::LootWindow::default();
                             window.open = true;

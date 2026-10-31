@@ -7,6 +7,7 @@
 use std::collections::HashMap;
 
 use crate::gear::GearItem;
+use crate::gui::view::{Id, Layout, Node, Tree};
 use crate::theme::Palette;
 
 /// A container's contents, ready to show.
@@ -41,18 +42,41 @@ pub struct LootWindow {
     textures: HashMap<u32, egui::TextureHandle>,
     /// Which container (identity, handle) has been empty since when (it closes a second later).
     empty_since: Option<((u32, u32), u32, std::time::Instant)>,
+    /// The window's views (the `ItemContainerView_c`'s grid), for the container they were built for.
+    views: Option<(Tree, Id, Id, (u32, u32))>,
+    /// The items last put in the grid (their places, counts and icons).
+    shown: Vec<(u32, u16, Option<u32>)>,
 }
 
-/// An icon's square, and the icons in a row (`InventoryView_c`'s position map: place % 3, place / 3).
-const CELL: f32 = 42.0;
-const COLUMNS: usize = 3;
-const BANK_COLUMNS: usize = 8;
-/// The bank's places (0 to 103, as aosharp's clientless `Bank` counts them: `INVENTORY_CAPACITY`), all shown, the items each
-/// at its own place (`Placement`); rows past these show while the window scrolls.
-const BANK_PLACES: usize = 104;
-const BANK_ROWS_SHOWN: f32 = 8.0;
+/// The most items a container's grid shows slots for (`ItemContainerView_c` FUN_100ce55d: `SetMaxItemCount` 102 for the bank,
+/// 21 for one's own backpack, none for a corpse or chest).
+pub fn max_items(kind: u32) -> i32 {
+    match kind {
+        BANK => 0x66,
+        _ => -1,
+    }
+}
+
+/// The columns the window opens with: the bank's eight, three for the rest (`InventoryView_c`'s position map: three to a
+/// row).
+fn columns(kind: u32) -> usize {
+    if kind == BANK { 8 } else { 3 }
+}
 
 impl LootWindow {
+    /// `InventoryView_c` (FUN_100ccefe) for a container: its `ItemContainerView_c` (FUN_100ce55d) of a grid-mode
+    /// `MultiListView_c` (`gui::multilist`, feature flags 0x15) over the whole window.
+    fn build(&mut self, ctx: &egui::Context, view: &LootView) {
+        let mut tree = Tree::default();
+        tree.measure = crate::gui::font::Measure { ctx: Some(ctx.clone()) };
+        let root = tree.add(Node::new("", Box::new(crate::gui::view::Plain)));
+        tree.get_mut(root).layout = Layout::Base;
+        let list = crate::gui::multilist::create_grid(&mut tree, "ItemContainerView", max_items(view.identity.0), columns(view.identity.0));
+        tree.add_child(root, list);
+        self.views = Some((tree, root, list, view.identity));
+        self.shown.clear();
+    }
+
     pub fn show(&mut self, ctx: &egui::Context, view: &LootView, palette: &Palette) -> Option<Take> {
         let mut take = None;
         let mut open = self.open;
@@ -69,73 +93,75 @@ impl LootWindow {
         } else {
             self.empty_since = None;
         }
-        let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
-        // (the bank's window is wider: its items run to a hundred and more)
-        let bank = view.identity.0 == BANK;
-        let columns = if bank { BANK_COLUMNS } else { COLUMNS };
-        let places = if bank { view.items.iter().map(|i| i.slot as usize + 1).max().unwrap_or(0).max(BANK_PLACES) } else { view.items.len() };
-        let rows = places.div_ceil(columns).max(1);
-        // (the title and the close button fit over the icons)
-        let title_width = (view.title.chars().count() as f32 * 7.5 + 40.0).max(columns as f32 * (CELL + 2.0));
-        let shown = crate::chrome::window(ctx, palette, "loot", &view.title, &mut open, |w| w.id(egui::Id::unique("loot")).default_pos(crate::layout::pos("loot", egui::pos2(380.0, 140.0))).resizable(false).min_width(title_width), |ui| {
-            ui.spacing_mut().item_spacing = egui::vec2(2.0, 2.0);
-            egui::ScrollArea::vertical().max_height(if bank { BANK_ROWS_SHOWN * (CELL + 2.0) } else { f32::INFINITY }).show(ui, |ui| {
-            egui::Grid::new("loot-grid").spacing(egui::vec2(2.0, 2.0)).show(ui, |ui| {
-                for row in 0..rows {
-                    for column in 0..columns {
-                        let at = row * columns + column;
-                        let item = if bank { view.items.iter().find(|i| i.slot as usize == at) } else { view.items.get(at) };
-                        let (rect, response) = ui.allocate_exact_size(egui::vec2(CELL, CELL), egui::Sense::click());
-                        let painter = ui.painter();
-                        painter.rect_filled(rect, 3.0, egui::Color32::from_black_alpha(110));
-                        painter.rect_stroke(rect, 3.0, egui::Stroke::new(1.0, if item.is_some() { accent } else { egui::Color32::from_white_alpha(30) }), egui::StrokeKind::Inside);
-                        let Some(item) = item else { continue };
-                        match &item.icon {
-                            Some(icon) => {
-                                let id = self.textures.entry(icon.id).or_insert_with(|| ctx.load_texture(format!("loot-icon-{}", icon.id), egui::ColorImage::from_rgba_unmultiplied([icon.width, icon.height], &icon.rgba), egui::TextureOptions::LINEAR)).id();
-                                painter.image(id, rect.shrink(3.0), egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
-                            }
-                            None => {
-                                painter.text(rect.center(), egui::Align2::CENTER_CENTER, item.name.chars().next().unwrap_or('?'), egui::FontId::proportional(18.0), accent);
-                            }
-                        }
-                        if item.count > 1 {
-                            painter.text(rect.right_bottom() - egui::vec2(3.0, 2.0), egui::Align2::RIGHT_BOTTOM, item.count.to_string(), egui::FontId::proportional(11.0), egui::Color32::WHITE);
-                        }
-                        let mut tip = item.name.clone();
-                        if item.quality > 1 {
-                            tip.push_str(&format!("
-QL {}", item.quality));
-                        }
-                        if !item.description.is_empty() {
-                            tip.push_str("
-
-");
-                            tip.push_str(&item.description.chars().take(300).collect::<String>().replace("
-", "
-"));
-                        }
-                        let response = response.on_hover_text(tip);
-                        if response.double_clicked() {
-                            take = Some(Take::One { handle: view.handle, place: item.slot });
-                        }
-                        response.context_menu(|ui| {
-                            if ui.button("Take").clicked() {
-                                take = Some(Take::One { handle: view.handle, place: item.slot });
-                                ui.close();
-                            }
-                        });
-                    }
-                    ui.end_row();
-                }
-            });
-            });
-            if !view.items.is_empty() && view.identity.0 != BANK {
-                if crate::chrome::button(ui, palette, "Take all", true).clicked() {
+        if self.views.as_ref().is_none_or(|v| v.3 != view.identity) {
+            self.build(ctx, view);
+        }
+        // (the items in the grid in their places' order, as `AddItem` puts them; auto arranged)
+        let mut items: Vec<&GearItem> = view.items.iter().collect();
+        items.sort_by_key(|i| i.slot);
+        let now: Vec<(u32, u16, Option<u32>)> = items.iter().map(|i| (i.slot, i.count, i.icon.as_ref().map(|c| c.id))).collect();
+        let textures = &mut self.textures;
+        let (tree, root, list, _) = self.views.as_mut()?;
+        let (root, list) = (*root, *list);
+        if self.shown != now {
+            let rows: Vec<crate::gui::multilist::Item> = items
+                .iter()
+                .map(|i| crate::gui::multilist::Item {
+                    id: i.slot as i64,
+                    icon: i.icon.as_ref().map(|icon| textures.entry(icon.id).or_insert_with(|| ctx.load_texture(format!("loot-icon-{}", icon.id), egui::ColorImage::from_rgba_unmultiplied([icon.width, icon.height], &icon.rgba), egui::TextureOptions::LINEAR)).id()),
+                    count: i.count as u32,
+                    cells: vec![(1, crate::gui::multilist::CellView::Text(i.name.clone()))],
+                    keys: vec![(1, i.name.clone())],
+                })
+                .collect();
+            crate::gui::multilist::set_items(tree, list, rows);
+            self.shown = now;
+        }
+        crate::gui::multilist::update(tree, list);
+        let skin = crate::skin::skin(ctx);
+        let cols = columns(view.identity.0);
+        // (room for the columns and the scroll bar, and up to six rows: the bank's, or as many as the items fill)
+        let rows_shown = if view.identity.0 == BANK { 6 } else { view.items.len().div_ceil(cols).clamp(1, 6) };
+        let size = egui::vec2(cols as f32 * crate::gui::multilist::grid::STEP + 2.0 * crate::gui::multilist::grid::BORDER + 32.0, crate::gui::multilist::grid::size(rows_shown * cols, cols).1 + if view.identity.0 == BANK { 0.0 } else { 26.0 });
+        let tip = |item: &GearItem| {
+            // (an item's tip: its name, quality and description)
+            let mut tip = item.name.clone();
+            if item.quality > 1 {
+                tip.push_str(&format!("\nQL {}", item.quality));
+            }
+            if !item.description.is_empty() {
+                tip.push_str("\n\n");
+                tip.push_str(&item.description.chars().take(300).collect::<String>());
+            }
+            tip
+        };
+        let shown = crate::chrome::window(ctx, palette, "loot", &view.title, &mut open, |w| w.id(egui::Id::unique("loot")).default_pos(crate::layout::pos("loot", egui::pos2(380.0, 140.0))).default_size(size).resizable(true), |ui| {
+            // (the views over the window less the room of the "Take all" row under them)
+            // (laid out from the bottom: the button first, the views over what is left, so the window does not grow)
+            ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
+                if !view.items.is_empty() && view.identity.0 != BANK && crate::chrome::button(ui, palette, "Take all", true).clicked() {
                     take = Some(Take::All { handle: view.handle });
                 }
-            }
+                let response = crate::gui::host::show(ui, tree, root, skin.as_deref(), palette);
+                let hovered = ui.input(|i| i.pointer.hover_pos()).and_then(|at| crate::gui::multilist::item_at(tree, list, response.rect.min, at));
+                if let Some(item) = hovered.and_then(|slot| view.items.iter().find(|i| i.slot as i64 == slot)) {
+                    response.on_hover_text(tip(item));
+                }
+            });
         });
+        // (a click selects; a double click takes the item)
+        for (_, event) in crate::gui::multilist::take_events(tree) {
+            match event {
+                crate::gui::multilist::ItemEvent::Clicked(slot, clicks) => {
+                    crate::gui::multilist::select(tree, list, Some(slot));
+                    if clicks > 1 {
+                        take = Some(Take::One { handle: view.handle, place: slot as u32 });
+                    }
+                }
+                crate::gui::multilist::ItemEvent::Dragged(_) => {}
+            }
+        }
+        tree.signals.clear();
         // An inventory item dropped on the window goes in (not into a corpse).
         if let Some(shown) = shown {
             let dragged = crate::gear::DRAGGED.load(std::sync::atomic::Ordering::Relaxed);

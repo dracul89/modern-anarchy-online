@@ -174,6 +174,7 @@ impl MailWindow {
                         (4, CellView::Text(expires.clone())),
                     ],
                     keys: vec![(0, if read { "1" } else { "0" }.into()), (1, e.sender.clone()), (2, e.subject.clone()), (3, sent), (4, expires)],
+                    ..Default::default()
                 }
             })
             .collect()
@@ -208,10 +209,13 @@ impl MailWindow {
             let (tree, status) = (&mut w.tree, &self.status);
             let mut is_open = true;
             crate::chrome::window(ctx, palette, "Mail", "Mail", &mut is_open, |win| win.default_size(min.max(egui::vec2(550.0, 300.0))).resizable(true).default_pos(crate::layout::pos("Mail", egui::pos2(520.0, 90.0))), |ui| {
-                crate::gui::host::show(ui, tree, root, skin.as_deref(), palette);
-                if !status.is_empty() {
-                    ui.label(egui::RichText::new(status).small());
-                }
+                // (the views over the window less the room of the status line under them)
+                ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
+                    if !status.is_empty() {
+                        ui.label(egui::RichText::new(status).small());
+                    }
+                    crate::gui::host::show(ui, tree, root, skin.as_deref(), palette);
+                });
             });
             // (a row clicked: selected; twice, opened in the message window: FUN_10109548)
             for (_, id, clicks) in crate::gui::multilist::take_signals(&mut w.tree) {
