@@ -193,7 +193,7 @@ Added after the overnight run, on request: audio through rodio, ported from the 
 | 3c0ced9 | **Items appear in the inventory** when bought in a shop (`AddTemplate`) or given by a quest/mission (`TemplateAction` into the overflow window, then `ContainerAddItem`), without relogging | buy something from a shop; finish a quest that gives an item |
 | 0be4b8c | **Raising skills with IP**: the Skills window shows the IP left and +/- on the abilities and skills; Accept sends the raise (`Skill`) and the server's answer updates the values and IP. The client cannot price a raise yet (the cost tables are not in its data): the server decides | raise a skill by a point or two and Accept; check the IP went down |
 | 39025ab | **Teams**: an invitation opens the Team window (Join / Decline); the members show with health and nano bars; Leave team | get a team invitation (Arete's NPC companion, or a player); join, watch the bars, leave |
-| (next) | **NPCs turn to face** (SetWantedDirection) and **stop sliding** when the server stops them (StopMovingCmd); **worn armour's quality** follows the server (ItemReplaced: Arete's starter armour levels with you) | talk to an NPC from the side; level up in Arete Landing and check the armour's QL |
+| 859839e | **NPCs turn to face** (SetWantedDirection) and **stop sliding** when the server stops them (StopMovingCmd); **worn armour's quality** follows the server (ItemReplaced: Arete's starter armour levels with you) | talk to an NPC from the side; level up in Arete Landing and check the armour's QL |
 
 ## How to run
 
