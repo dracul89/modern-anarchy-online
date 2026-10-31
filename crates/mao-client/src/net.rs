@@ -343,6 +343,8 @@ struct World {
     queued_specials: BTreeMap<u32, u32>,
     /// The delay (hundredths) of the last perk action the server queued (`QueuePerk`, 0x50), shown as the "Special" timer bar.
     queued_perk: Option<u32>,
+    /// The characters the server put in the sneak mode (`CharacterAction` 0xa2: movement 0x1c), until another movement mode.
+    sneaking: std::collections::BTreeSet<u32>,
     /// The specials the server timed (skill stat, seconds; 0 = ready again), not yet given to the hotbars.
     special_events: Vec<(u32, f32)>,
     /// Damage and healing events not yet shown as floating numbers: (target id, amount, stat).
@@ -1314,6 +1316,19 @@ impl World {
                 0x57 if m.identity.1 != self.own => {
                     self.seated.remove(&m.identity.1);
                 }
+                // - 0xa2 (case 55, 0x1005e54d, after the client's `/sneak` 0xa3): FUN_10044ff9 gives the movement controller the
+                //   sneak mode (0x1c, `SwitchToSneakMode`): the character is sneaking
+                0xa2 => {
+                    self.sneaking.insert(m.identity.1);
+                }
+                // - 0x9b (case 51, 0x1005e361): one for each creature that has seen the sneaking character (the target): when the
+                //   client has it, the feedback line "Feedback_YouHaveBeenDetected" fed its name (FUN_10012b6e, type 0xc)
+                0x9b if m.identity.1 == self.own => {
+                    if let Some(name) = self.names.get(&word(13)).map(|n| n.0.clone()) {
+                        let line = crate::feedback::detected(&name);
+                        self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, line));
+                    }
+                }
                 // - 0x83 (case 41, 0x1005dcfe): FUN_1006b2dd equips the weapon named in the target (`(c74a, id)`) in the place in
                 //   parameter 2 (6), out of a vehicle only, and draws it in the hand (FUN_1006ac49 under place 0x30)
                 0x83 if m.data.len() >= 25 && word(9) == 0xc74a => {
@@ -1950,6 +1965,12 @@ impl World {
                 _ => {
                     self.seated.remove(&m.identity.1);
                 }
+            }
+            // (another movement mode, 0x17..0x1d, or leaving the sneak mode, 0x24, ends the sneaking)
+            if matches!(kind, 0x17..=0x1d | 0x24) && kind != 0x1c {
+                self.sneaking.remove(&m.identity.1);
+            } else if kind == 0x1c {
+                self.sneaking.insert(m.identity.1);
             }
             if m.identity.1 != self.own {
                 match kind {
@@ -7787,6 +7808,22 @@ mod door_tests {
         assert!(timers.iter().any(|t| t.kind == 2 && t.ms == 2000), "{timers:?}");
         w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("000000005000000000000000000000000000000000000000000000") }.frame(1));
         assert!(!crate::ui::TIMERS.lock().unwrap().iter().any(|t| t.kind == 2));
+    }
+
+    /// The 16:55 capture's `/sneak` at Arete Landing: the server names each creature that sees the character (0x9b), then puts
+    /// it in the sneak mode (0xa2).
+    #[test]
+    fn sneaking_tells_who_detected_the_character() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let own = 0x7b1a0021;
+        let mut w = World { own, ..World::default() };
+        w.names.insert(0x7b08289d, ("Patrolling Guard".into(), false));
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("000000009b000000000000c3507b08289d00000000000000000000") }.frame(1));
+        // (one the client does not know says nothing)
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("000000009b000000000000c3507b08293800000000000000000000") }.frame(1));
+        assert_eq!(w.game_lines.iter().map(|l| l.text.as_str()).collect::<Vec<_>>(), vec!["You have been detected by Patrolling Guard!"]);
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("00000000a200000000000000000000000000000000000000000000") }.frame(1));
+        assert!(w.sneaking.contains(&own));
     }
 
     #[test]
