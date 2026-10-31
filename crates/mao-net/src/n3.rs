@@ -320,6 +320,30 @@ pub fn pet_command(character: u32, command: u32) -> Frame {
     Message { kind: 0x6b333303, identity: (CHARACTER, character), data }.frame(character)
 }
 
+/// `PetCommand` to one pet, as the pet window's buttons send it: `N3Msg_SendPetCommand` (Gamecode 0x1001b2ea) puts the pet in the
+/// list and `PetCommandIIR_c`'s writer (FUN_100766ec reads it back) gives the first word (the caller's 0 here, where `/pet`
+/// passes 1), the command, 0, the pets counted `(n + 1) * 0x3f1`, whether the pet is a tower (0) and an empty text.
+/// Not captured: the 2026-10-31 capture's commands were all `/pet` ones.
+pub fn pet_command_to(character: u32, command: u32, pet: (u32, u32)) -> Frame {
+    let mut data = vec![0u8];
+    for word in [0, command, 0, 2 * 0x3f1, pet.0, pet.1, 0, 0] {
+        data.extend_from_slice(&word.to_be_bytes());
+    }
+    Message { kind: 0x6b333303, identity: (CHARACTER, character), data }.frame(character)
+}
+
+/// `AddPet` (`194e4f76`) and `RemovePet` (`58742a0f`), to the character: the pet's identity after a header byte (the 2026-10-31
+/// capture: `01 0000c350 7b1e6d64`). `Some((true, pet))` for an added pet, `Some((false, pet))` for a removed one.
+pub fn pet_change(m: &Message) -> Option<(bool, (u32, u32))> {
+    let added = match m.kind {
+        0x194e4f76 => true,
+        0x58742a0f => false,
+        _ => return None,
+    };
+    let word = |at: usize| m.data.get(at..at + 4).map(|b| u32::from_be_bytes(b.try_into().unwrap()));
+    Some((added, (word(1)?, word(5)?)))
+}
+
 /// `CharacterAction` `0x51` (`UseItemOnItem`): one item used on another, a tradeskill combine: the two items' identities (the
 /// 2026-10-31 capture: backpack places `0x56` and `0x43`, two pattern pieces joined).
 pub fn use_item_on_item(character: u32, item: (u32, u32), target: (u32, u32)) -> Frame {
@@ -331,6 +355,38 @@ pub fn use_item_on_item(character: u32, item: (u32, u32), target: (u32, u32)) ->
     }
     data.extend_from_slice(&[0; 2]);
     Message { kind: 0x5e477770, identity: (CHARACTER, character), data }.frame(character)
+}
+
+/// The tradeskill window's `CharacterAction`s (Gamecode builds them with FUN_10072a88 as for [`use_item_on_item`]: the action,
+/// 0, a first identity, a second one as the two parameters): `N3Msg_InsertSourceAnalyzerItem` (0x10029a53) is `0xdc`
+/// (`TradeskillSourceChanged`) with nobody first and the item second (none: taken out), `N3Msg_InsertTargetAnalyzerItem`
+/// (0x10029af4) `0xdd` the same, and `N3Msg_BuildAnalyzerItem(ql)` (0x10029b95) `0xde` with `(0, ql)` first and nobody
+/// second; the 2026-10-30 capture's: `dc` with `(0x68, 0x5a)`, `dc` with nothing, `de` with `(0, 1)`.
+pub fn tradeskill(character: u32, action: u8, first: (u32, u32), second: (u32, u32)) -> Frame {
+    let mut data = vec![0u8; 5];
+    data[4] = action;
+    data.extend_from_slice(&[0; 4]);
+    for word in [first.0, first.1, second.0, second.1] {
+        data.extend_from_slice(&word.to_be_bytes());
+    }
+    data.extend_from_slice(&[0; 2]);
+    Message { kind: 0x5e477770, identity: (CHARACTER, character), data }.frame(character)
+}
+
+/// The server's tradeskill answers, `CharacterAction` `0xdf` to `0xe4` to the character: `(action, first identity, the two
+/// parameters)`. Gamecode's handler (FUN_1005d61f, cases 0x1005f1a1..0x1005f212) passes them on to the window as: `0xdf`
+/// (`TradeskillSource`) and `0xe0` (`TradeskillTarget`) the second parameter (how many processes the item is used in),
+/// `0xe1` (`TradeskillNotValid`) nothing, `0xe2` (`TradeskillOutOfRange`) the second parameter (the level the source must
+/// have), `0xe3` (`TradeskillRequirement`) the parameters (a skill and the value needed), `0xe4` (`TradeskillResult`) the
+/// first parameter, the first identity's type, the second parameter and its instance (the result's lowest and highest
+/// quality and its low and high templates). The 2026-10-30 capture's: `df` 0x154, `e0` 1, `e1`, `e3` (0xa5, 60) and
+/// (0xa0, 25), `e4` with `(1, 0x26ad0)` and `(1, 0x26ad0)`.
+pub fn tradeskill_reply(m: &Message) -> Option<(u8, (u32, u32), (u32, u32))> {
+    if m.kind != 0x5e477770 || m.data.len() < 25 || !(0xdf..=0xe4).contains(&m.data[4]) || m.data[..4] != [0; 4] {
+        return None;
+    }
+    let word = |at: usize| u32::from_be_bytes(m.data[at..at + 4].try_into().unwrap());
+    Some((m.data[4], (word(9), word(13)), (word(17), word(21))))
 }
 
 /// `CharacterAction` `0xbb` (`N3Msg_TrainPerk`, Gamecode FUN_10053422) or `0xbc` (`N3Msg_UntrainPerk`, FUN_100534d2): train a perk
@@ -719,6 +775,28 @@ mod tests {
     }
 
     #[test]
+    fn pets_added_and_removed() {
+        let m = Message { kind: 0x194e4f76, identity: (CHARACTER, 0x4bc82), data: vec![1, 0, 0, 0xc3, 0x50, 0x7b, 0x1e, 0x6d, 0x64] };
+        assert_eq!(pet_change(&m), Some((true, (CHARACTER, 0x7b1e6d64))));
+        let m = Message { kind: 0x58742a0f, ..m };
+        assert_eq!(pet_change(&m), Some((false, (CHARACTER, 0x7b1e6d64))));
+        let data = Message::parse(&pet_command_to(0x4bc82, 4, (CHARACTER, 0x7b1e6d64))).unwrap().data;
+        assert_eq!(data.iter().map(|b| format!("{b:02x}")).collect::<String>(), "00000000000000000400000000000007e20000c3507b1e6d640000000000000000");
+    }
+
+    #[test]
+    fn tradeskill_actions_are_the_captured_shape() {
+        let hex = |f: Frame| Message::parse(&f).unwrap().data.iter().map(|b| format!("{b:02x}")).collect::<String>();
+        assert_eq!(hex(tradeskill(0x7b1a0021, 0xdc, (0, 0), (0x68, 0x5a))), "00000000dc000000000000000000000000000000680000005a0000");
+        assert_eq!(hex(tradeskill(0x7b1a0021, 0xde, (0, 1), (0, 0))), "00000000de00000000000000000000000100000000000000000000");
+        let reply = |h: &str| Message { kind: 0x5e477770, identity: (CHARACTER, 0x7b1a0021), data: (0..h.len() / 2).map(|i| u8::from_str_radix(&h[2 * i..2 * i + 2], 16).unwrap()).collect() };
+        assert_eq!(tradeskill_reply(&reply("00000000df00000000000000000000000000000000000001540000")), Some((0xdf, (0, 0), (0, 0x154))));
+        assert_eq!(tradeskill_reply(&reply("00000000e3000000000000000000000000000000a50000003c0000")), Some((0xe3, (0, 0), (0xa5, 60))));
+        assert_eq!(tradeskill_reply(&reply("00000000e4000000000000000100026ad00000000100026ad00000")), Some((0xe4, (1, 0x26ad0), (1, 0x26ad0))));
+        assert_eq!(tradeskill_reply(&reply("00000000dc000000000000000000000000000000680000005a0000")), None);
+    }
+
+    #[test]
     fn a_combine_is_the_captured_shape() {
         let data = Message::parse(&use_item_on_item(0x4bc82, (0x68, 0x56), (0x68, 0x43))).unwrap().data;
         assert_eq!(data.iter().map(|b| format!("{b:02x}")).collect::<String>(), "000000005100000000000000680000005600000068000000430000");
@@ -978,6 +1056,15 @@ pub struct EntityInfo {
     /// The NPC template (an object of type 0xfde97) of a creature or NPC:
     /// its record names the CAT mesh (entry 12) and the animations.
     pub template: Option<u32>,
+    /// A creature's health and its maximum (flag bit 0): Gamecode's reader (FUN_1007916d) takes, after the second flags word
+    /// and an `i32`, the family, line-of-sight height and one more value (each a byte with flag bits 17, 19 and 25, else an
+    /// `i16`), an `i16` and a byte when that is above zero, the level (a byte, an `i16` with bit 12), the maximum (`+0x98`: an
+    /// `i16` with bit 11, else an `i32`) and the health (`+0x9c`: with bit 14 a byte of damage taken from the maximum, else as
+    /// wide as the maximum). The 2026-10-31 capture's pets agree with their info packets (23203 of 23203, 69609 of 69609).
+    pub health: Option<(u32, u32)>,
+    /// A creature's family (its first field after the second flags word and the `i32`, `+0xb2`), what the pet window asks as
+    /// stat 455 `NPCFamily` (FUN_1007d29c: 0x60 is a healing pet; the capture's attack pets are 0x5f).
+    pub family: Option<u16>,
 }
 
 /// Where the template id sits after the flags: a few bytes after the second
@@ -987,6 +1074,28 @@ fn npc_template(post: &[u8]) -> Option<u32> {
     (8..post.len().saturating_sub(7).min(72)).find_map(|p| {
         (post[p + 4] == 0 && post[p + 6] == 0 && post[p + 7] == 0x1f).then(|| u32::from_be_bytes(post[p..p + 4].try_into().unwrap()))
     })
+}
+
+/// A creature's family, and its health and maximum, from its entity message, `at` just past the second flags word and the
+/// `i32` after it (see [`EntityInfo::health`], Gamecode FUN_1007916d's creature branch).
+fn creature_fields(d: &[u8], mut at: usize, flags: u32) -> Option<(u16, (u32, u32))> {
+    let mut take = |n: usize| -> Option<u32> {
+        let b = d.get(at..at + n)?;
+        at += n;
+        Some(b.iter().fold(0u32, |v, &x| v << 8 | x as u32))
+    };
+    let mut first = None;
+    for bit in [17, 19, 25] {
+        let v = take(if flags >> bit & 1 != 0 { 1 } else { 2 })?;
+        first.get_or_insert(v as u16);
+    }
+    if take(2)? as i16 > 0 {
+        take(1)?;
+    }
+    take(if flags & 0x1000 != 0 { 2 } else { 1 })?;
+    let max = take(if flags & 0x800 != 0 { 2 } else { 4 })?;
+    let health = if flags & 0x4000 != 0 { max.saturating_sub(take(1)?) } else { take(if flags & 0x800 != 0 { 2 } else { 4 })? };
+    Some((first?, (health, max)))
 }
 
 impl EntityInfo {
@@ -1221,7 +1330,11 @@ impl Message {
         let textures = if flags & 0x10 != 0 { texture_overrides(tail) } else { Vec::new() };
         let clothes = cloth_list(tail);
         let template = if flags & 1 != 0 { d.get(at - 8..).and_then(npc_template) } else { None };
-        Some(EntityInfo { version, flags, playfield, fighting, position, rotation, breed, sex, side, name, flags2, unknown_a0: model, textures, clothes, template })
+        let (family, health) = match creature_fields(d, at, flags) {
+            Some((family, health)) if flags & 1 != 0 => (Some(family), Some(health)),
+            _ => (None, None),
+        };
+        Some(EntityInfo { version, flags, playfield, fighting, position, rotation, breed, sex, side, name, flags2, unknown_a0: model, textures, clothes, template, health, family })
     }
 }
 
@@ -1259,6 +1372,24 @@ mod entity_tests {
         assert_eq!((info.breed, info.sex), (2, 3));
         assert!(info.is_player());
         assert_eq!(info.unknown_a0, Some(0xf7e));
+    }
+
+    /// The 2026-10-31 15:05 capture's pets (#290 and the drone): their health and maximum, as their info packets give them.
+    #[test]
+    fn pet_health_from_capture() {
+        let data = bytes(
+            "00 3a 0a 2a 6a 53 00 00 02 1c 43 d3 52 8a 41 70 28 f6 43 cc 56 e3 80 00 00 00 00 00 00 00 80 00 00 00 3f 80 00 00 00 00 05 e8 \
+             0e 52 61 76 65 6e 69 6e 67 20 4d 2d 36 30 00 10 08 52 01 00 00 00 00 5f 00 0c 00 00 dc 5a a3 00 00 03 56 47 00 82 00 1f",
+        );
+        let info = Message { kind: ENTITY_INFO, identity: (CHARACTER, 0x7b1e6d64), data }.entity_info().unwrap();
+        assert_eq!((info.name.as_str(), info.health, info.family), ("Ravening M-60", Some((0x5aa3, 0x5aa3)), Some(0x5f)));
+        let data = bytes(
+            "00 3a 0a 2a 62 43 00 00 02 1c 43 d3 52 8a 41 70 28 f6 43 cc 56 e3 00 00 00 00 00 00 00 00 00 00 00 00 3f 80 00 00 00 00 05 e8 \
+             18 57 69 64 6f 77 6d 61 6b 65 72 20 42 61 74 74 6c 65 20 44 72 6f 6e 65 00 10 08 12 01 00 00 00 00 5f 00 0a 00 00 dc 00 01 0f e9 \
+             00 00 03 57 30 00 82 00 1f",
+        );
+        let info = Message { kind: ENTITY_INFO, identity: (CHARACTER, 0x7b1e6d65), data }.entity_info().unwrap();
+        assert_eq!(info.health, Some((0x10fe9, 0x10fe9)));
     }
 
     /// The character from the capture (a player: sex 2).

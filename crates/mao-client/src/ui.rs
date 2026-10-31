@@ -270,6 +270,8 @@ pub struct Ui {
     pub stats: crate::stats::StatsWindow,
     pub skills: crate::skills::SkillsWindow,
     pub team: crate::team::TeamWindow,
+    pub pets: crate::pets::PetWindow,
+    pub tradeskill: crate::tradeskill::TradeskillWindow,
     /// The faction standings (`faction_window`).
     pub faction: crate::factions::FactionWindow,
     pub ncu: crate::ncu::NcuWindow,
@@ -387,7 +389,7 @@ impl Ui {
         crate::skin::configure(&ctx, crate::skin::dirs(&settings.gui_dir, &settings.theme, &settings.aou_mod));
         let state = egui_winit::State::new(ctx.clone(), egui::ViewportId::ROOT, window, Some(window.scale_factor() as f32), window.theme(), None);
         let renderer = egui_wgpu::Renderer::new(&gpu.device, format, egui_wgpu::RendererOptions::default());
-        let mut ui = Ui { ctx, state, renderer, open_seen: Vec::new(), options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), shop: Default::default(), npc_chat: Default::default(), mission_log: Default::default(), planet: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), team: Default::default(), faction: Default::default(), ncu: Default::default(), friends: Default::default(), programs: Default::default(), perks: Default::default(), help: Default::default(), tips: Default::default(), info: Default::default(), browser: Default::default(), market_send: Default::default(), control_center: None, option_panel: Default::default(), loot: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0 };
+        let mut ui = Ui { ctx, state, renderer, open_seen: Vec::new(), options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), shop: Default::default(), npc_chat: Default::default(), mission_log: Default::default(), planet: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), team: Default::default(), pets: Default::default(), tradeskill: Default::default(), faction: Default::default(), ncu: Default::default(), friends: Default::default(), programs: Default::default(), perks: Default::default(), help: Default::default(), tips: Default::default(), info: Default::default(), browser: Default::default(), market_send: Default::default(), control_center: None, option_panel: Default::default(), loot: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0 };
         // (the windows the player left open come back open)
         for name in crate::layout::load_open() {
             ui.set_window(&name, true);
@@ -534,6 +536,8 @@ impl Ui {
             "missionselection" => self.mission.open,
             "friends" => self.friends.open,
             "factions" | "faction" => self.faction.open,
+            "pets" | "pet" => self.pets.open,
+            "tradeskill" => self.tradeskill.open,
             "map" | "planetmap" => self.planet.open,
             "automap" | "overlay" => self.automap.overlay,
             "optionpanel" => self.option_panel.open,
@@ -589,6 +593,8 @@ impl Ui {
             "stats" => &mut self.stats.open,
             "skills" => &mut self.skills.open,
             "team" => &mut self.team.open,
+            "pets" | "pet" => &mut self.pets.open,
+            "tradeskill" => &mut self.tradeskill.open,
             "factions" | "faction" => &mut self.faction.open,
             "ncu" | "nanos" => &mut self.ncu.open,
             "friends" => &mut self.friends.open,
@@ -649,6 +655,8 @@ impl Ui {
         let (gear_open, gear, whompah_open) = (&mut self.gear_open, &mut self.gear, &mut self.whompah_open);
         let (mission, mail, shop, actions, automap, stats_window, skills_window, ncu_window, chat_window) = (&mut self.mission, &mut self.mail, &mut self.shop, &mut self.actions, &mut self.automap, &mut self.stats, &mut self.skills, &mut self.ncu, &mut self.chat);
         let team_window = &mut self.team;
+        let pet_window = &mut self.pets;
+        let tradeskill_window = &mut self.tradeskill;
         let faction_window = &mut self.faction;
         let (friends_window, programs_window, perks_window, loot_window, help_window) = (&mut self.friends, &mut self.programs, &mut self.perks, &mut self.loot, &mut self.help);
         let info_view = &mut self.info;
@@ -765,6 +773,7 @@ impl Ui {
                 skills_window.show(&ctx, &hud.character_name, &hud.stats, &hud.stat_parts, palette);
             }
             team_window.show(&ctx, palette);
+            pet_window.show(&ctx, &crate::pets::get(), palette);
             faction_window.show(&ctx, &hud.stats, palette);
             if actions.open {
                 actions.show(&ctx, gear, &hud.perk_actions, palette);
@@ -844,6 +853,9 @@ impl Ui {
                 if let Some(name) = feedback {
                     requests.feedback.push(name);
                 }
+            }
+            if let Some(url) = tradeskill_window.show(&ctx, gear, &hud.gear, &hud.stats, palette) {
+                info_view.show_url(&url);
             }
             if *options_open {
                 options_window(&ctx, options_open, rebinding, settings, &mut requests, palette, themes);
@@ -968,6 +980,13 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
     // (MAO_UI_PREVIEW=marketsend: "Deposit to Market", the first two backpack items in it)
     // (MAO_UI_PREVIEW=team: the team window on a sample team)
     let mut preview_team = (std::env::var("MAO_UI_PREVIEW").as_deref() == Ok("team")).then(|| { let mut w = crate::team::TeamWindow::default(); w.open = true; w });
+    // (MAO_UI_PREVIEW=pets: the pet window on the 2026-10-31 capture's two pets, one selected, and a healer away)
+    let mut preview_pets = (std::env::var("MAO_UI_PREVIEW").as_deref() == Ok("pets")).then(|| { let mut w = crate::pets::PetWindow::default(); w.open = true; w });
+    let pet_sample = [
+        crate::pets::Pet { id: (0xc350, 0x7b1e6d64), name: "Ravening M-60".into(), health: (17402, 23203), in_play: true, selected: true, family: Some(0x5f) },
+        crate::pets::Pet { id: (0xc350, 0x7b1e6d65), name: "Widowmaker Battle Drone".into(), health: (69609, 69609), in_play: true, selected: false, family: Some(0x5f) },
+        crate::pets::Pet { id: (0xc350, 0x7b1e6d66), name: "Healing pet".into(), health: (0, 0), in_play: false, selected: false, family: Some(0x60) },
+    ];
     // (MAO_UI_PREVIEW=tip: the tip window on the tips triggered)
     let mut preview_tips = (std::env::var("MAO_UI_PREVIEW").as_deref() == Ok("tip")).then(crate::tips::Tips::default);
     // (MAO_UI_PREVIEW=factions: the faction window on sample standings)
@@ -975,6 +994,8 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
     let faction_sample: std::collections::BTreeMap<u32, i64> = [(566, 1200), (567, 40000), (568, -12000), (569, -45000), (570, 0), (571, 7500), (572, -300)].into_iter().collect();
     // (MAO_UI_PREVIEW=inspect: the inspect window)
     let mut preview_inspect = (std::env::var("MAO_UI_PREVIEW").as_deref() == Ok("inspect")).then(crate::gear::GearWindow::default);
+    // (MAO_UI_PREVIEW=tradeskill: the tradeskill window after the 2026-10-30 capture's combine)
+    let mut preview_tradeskill = (std::env::var("MAO_UI_PREVIEW").as_deref() == Ok("tradeskill")).then(crate::tradeskill::preview);
     let mut preview_deposit = crate::marketsend::MarketSendWindow::default();
     if std::env::var("MAO_UI_PREVIEW").as_deref() == Ok("marketsend") {
         preview_deposit.show_window();
@@ -1098,6 +1119,9 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
             if let Some(team) = preview_team.as_mut() {
                 team.show(&ctx, &palette);
             }
+            if let Some(window) = preview_pets.as_mut() {
+                window.show(&ctx, &pet_sample, &palette);
+            }
             if let Some(window) = preview_factions.as_mut() {
                 window.show(&ctx, &faction_sample, &palette);
             }
@@ -1158,6 +1182,9 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
                 && let Some(command) = window.show(&ctx, &mut gear, &hud.gear, &palette)
             {
                 eprintln!("shop command: {command:?}");
+            }
+            if let Some((window, items)) = preview_tradeskill.as_mut() {
+                let _ = window.show(&ctx, &mut gear, items, &hud.stats, &palette);
             }
             if preview_deposit.open {
                 let _ = preview_deposit.show(&ctx, &mut gear, &hud.gear, 1000, &palette);
