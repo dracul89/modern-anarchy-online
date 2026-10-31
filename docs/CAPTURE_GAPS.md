@@ -24,12 +24,12 @@ parameter 2, a short (offsets 0, 1, 5, 9/13, 17, 21, 25). Message bodies start w
 | 7 | `CharacterAction` 0xcc UploadNano | a nano crystal used: the nano is learnt | 5 / 0 / 0 | target own; parameter 1 `cf1b`, parameter 2 the nano | case 86 (0x1005ed2d): FUN_10050100 on the nano holder (+0x1c0), signal 6 | **ported**: the nano joins the Nano Programs list |
 | 8 | `CharacterAction` 0x89, 0x92 | sent on every move start: cancel the nano being cast (0x89) and the item being used (0x92) | 36 / 40 / 299, 36 / 45 / 300 | no parameters (0x92 can name the item used: `(0x6b, handle << 16 \| place)`) | case 43 (0x1005d78f): FUN_1004f7b8 empties the casting list (+0x1c0), each cast's timer and its `cf1b` signal; case 48 (0x1005e33a): FUN_1004949c ends the use timer (+0x198) and signals the item's container changed (a refresh) | **ported**: 0x89 ends the character's cast (its sounds and casting animation); 0x92 refreshes the container it names (it does not close it). Left: no equip-delay timer in the client for 0x92 to end |
 | 9 | `55220726` PlayfieldAllTowers, `59210126` PlayfieldAllCities | the Notum Wars towers of the playfield, and its organization cities | 21 / 10 / 14 each | Towers: byte, `x3f1` count, then per tower: (`c354`, field id), (`c350`, the tower's id), position (3 floats), low and high template, an int, a scale float, a side int (Andromeda: 0x1a1ca/0x3f1 - 1 = 105 towers). Cities: byte, a short length (0 in the captures), raw house data | `PlayfieldAllTowersIIR_t` read FUN_1012aeab, apply FUN_1012ae74; `PlayfieldAllCitiesIIR_t` read FUN_101304f8, apply FUN_101304d5 (`UpdateNewHouses`) | tower markers on the planet map (`planetwindow.rs`) and the land control info; cities: nothing to do until a capture has one |
-| 10 | Other characters' animations: `CharacterAction` 0x6b, 0x57, 0xa7, 0x83; `51492120` CharSecSpecAttack from the server | casting ends, standing up, a stance flag, a weapon equipped, a special attack performed (by others) | 0x6b 19 / 38 / 35; 0x57 168 / 27 / 1; 0xa7 6 / 12 / 10; 0x83 6 / 0 / 0; 112 / 26 / 13 | 0x6b: parameters `(1, nano)`; 0xa7: parameter 2 0 or 1; 0x83: target the weapon `(c74a, id)`, parameter 2 6; CharSecSpecAttack: byte, target identity, the special's stat (0x94, 0x96) | case 29 (0x1005de04, FUN_1004f542); case 22 (0x1005dc76: stance stat 0x1ae picks animation 0x29/0x2a/0x25); case 57 (0x1005e919: flag 0x800 on the stats at +0xe8); case 41 (0x1005dcfe) | stop the "spell" animation on 0x6b instead of by time, play the stand-up, play the special attack's animation on its attacker |
-| 11 | `CharacterAction` 0x50 QueuePerk | a perk action queued | 0 / 44 / 0 | parameter 1 2, parameter 2 the delay (0x64, 0xc8: hundredths) | case 19 (0x1005f12e) | show the queued perk on its Action window button |
-| 12 | `CharacterAction` 0x9b, 0xa2 | sneaking: one 0x9b per creature that sees the character, then 0xa2 "started sneaking" | 17 / 0 / 0, 2 / 0 / 0 | 0x9b: target the creature | cases 51 (0x1005e361), 55 (0x1005e54d) | the sneak state (the original's sneak bar/stance) after `/sneak` (0xa3, sent today) |
-| 13 | `2a293d0f` Fov | a creature's field of view (a generated mission's guards) | 59 / 0 / 0 | byte; 2 floats (0.384, pi: the cone); byte; 5 floats; int (0x14) | `FovIIR_c` read FUN_10073ba2, apply FUN_10073c32 (sets the creature's view, FUN_100524f4, and stat 533 NPCFovStatus = 1) | only matters for sneaking past guards; draw nothing until sneaking is ported |
-| 14 | `3129233b` AreaFormula | an area effect landing on a list of characters | 4 / 9 / 0 | byte; `x3f1` list of character identities; the formula (an int: 0x3e380, 0x18762); the source identity | `AreaFormulaIIR_t` read FUN_100721dc, apply FUN_1007212d → FUN_100a9a99 (FUN_10051c98 on each character) | play the formula's effect on each listed character (as `CastNanoSpell`'s landing glow) |
-| 15 | `485e7202` InventoryUpdated | the server says a container changed | 2 / 0 / 0 | byte; an int (5) | `InventoryUpdatedIIR_t` read FUN_1007535f, apply FUN_10075392 (on the own character: signal 5, FUN_1001143e) | refresh the inventory windows (they already follow the item messages) |
+| 10 | Other characters' animations: `CharacterAction` 0x6b, 0x57, 0xa7, 0x83; `51492120` CharSecSpecAttack from the server | casting ends, standing up, a stance flag, a weapon equipped, a special attack performed (by others) | 0x6b 19 / 38 / 35; 0x57 168 / 27 / 1; 0xa7 6 / 12 / 10; 0x83 6 / 0 / 0; 112 / 26 / 13 | 0x6b: parameters `(1, nano)`; 0xa7: parameter 2 0 or 1; 0x83: target the weapon `(c74a, id)`, parameter 2 6; CharSecSpecAttack: byte, target identity, the special's stat (0x94, 0x96) | case 29 (0x1005de04, FUN_1004f542); case 22 (0x1005dc76: stance stat 0x1ae picks animation 0x29/0x2a/0x25); case 57 (0x1005e919: flag 0x800 on the stats at +0xe8); case 41 (0x1005dcfe) | **partly ported**: 0x56/0x57 sit and stand others, 0x83 puts the weapon in the hand, `CharSecSpecAttack` queues the attacker's special so its `SpecialAttackInfo` swings the special's class. Left: 0x6b (no visible effect found), 0xa7's flag 0x800, `WaitState` lounge/sleep. See section 10 |
+| 11 | `CharacterAction` 0x50 QueuePerk | a perk action queued | 0 / 44 / 0 | parameter 1 2, parameter 2 the delay (0x64, 0xc8: hundredths) | case 19 (0x1005f12e) | **ported**: the original's "Special" timer bar (`StartTimerBar` kind 2) runs for the delay; the game timer bars are drawn (`ui::TIMERS`) |
+| 12 | `CharacterAction` 0x9b, 0xa2 | sneaking: one 0x9b per creature that sees the character, then 0xa2 "started sneaking" | 17 / 0 / 0, 2 / 0 / 0 | 0x9b: target the creature | cases 51 (0x1005e361), 55 (0x1005e54d) | **partly ported**: 0x9b tells "You have been detected by X!", 0xa2 (and movement 0x1c) mark the character sneaking. Left: the sneak animations and speed |
+| 13 | `2a293d0f` Fov | a creature's field of view (a generated mission's guards) | 59 / 0 / 0 | byte; 2 floats (0.384, pi: the cone); byte; 5 floats; int (0x14) | `FovIIR_c` read FUN_10073ba2, apply FUN_10073c32 (sets the creature's view, FUN_100524f4, and stat 533 NPCFovStatus = 1) | **not ported**: the original draws nothing from it (no reader of the view at the creature's +0x24 traced; `NPCToggleFov` has no user) |
+| 14 | `3129233b` AreaFormula | an area effect landing on a list of characters | 4 / 9 / 0 | byte; `x3f1` list of character identities; the formula (an int: 0x3e380, 0x18762); the source identity | `AreaFormulaIIR_t` read FUN_100721dc, apply FUN_1007212d → FUN_100a9a99 (FUN_10051c98 on each character) | **ported**: the formula is a nano (`0xcf1b`, read from 0xfde85 records): its landing glow on each listed character the client has |
+| 15 | `485e7202` InventoryUpdated | the server says a container changed | 2 / 0 / 0 | byte; an int (5) | `InventoryUpdatedIIR_t` read FUN_1007535f, apply FUN_10075392 (on the own character: signal 5, FUN_1001143e) | **ported**: on one's own character the inventory windows are drawn again |
 | 16 | `CharacterAction` 0x64, 0x6e, 0x2f, 0x61, 0x54, 0x15, 0xab, 0xd0, 0x84, 0x81/0x8a/0x8c, 0x93, 0x56, 0x1b, 0x23, 0x7a | small or unknown: see below | small | see below | see below | see below |
 
 Handled and so not in the table (checked in `net.rs`): `SetWantedDirection` (`60201d0e`, turns the character),
@@ -159,20 +159,51 @@ Sent at every playfield entry. Towers only on Notum Wars playfields (Andromeda 6
 each with its field, id, place, template, scale and side; the planet map's land-control view would show them. Cities were
 always empty (length 0).
 
-### 10. Others' animations
+### 10. Others' animations — partly ported
 
 `CharacterAction` 0x6b (FinishNanoCasting, `(1, nano)`), 0x57 (StandUp, sent for others and echoed for oneself), 0xa7
 (a stance flag, 0x800, on or off), 0x83 (a weapon equipped, its identity), and the server's `CharSecSpecAttack` (the
 attacker, the target and the special's stat) drive what other characters are seen doing. The client times the casting
 animation itself and does not play stand-ups or special attacks of others.
 
+**Ported** (`World::add`, test `others_stand_up_wield_and_swing_their_specials`):
+
+- 0x56 (case 21, 0x1005dc6a) and 0x57 (case 22, 0x1005dc76) hand the character's movement controller (+0x50 then +0x178,
+  vtable +0x18) a movement: 0x56 sitting (0x1e), 0x57 standing up (0x25 `LeaveSit`, or 0x29 / 0x2a when `WaitState`, stat
+  430, is 0xf / 0x10: lounging and sleeping, not kept by this client). Others sit and stand by them; one's own sitting stays
+  the play loop's (the server echoes the client's own 0x57).
+- 0x83 (case 41, 0x1005dcfe, FUN_1006b2dd): the weapon named in the target is equipped in the place in parameter 2 and drawn
+  in the hand (FUN_1006ac49 under place 0x30); out of a vehicle only.
+- `CharSecSpecAttack` (`CharSecSpecAttackIIR_t`: read FUN_10072cbc, apply FUN_10072d11, then the attack part's FUN_10068cd9):
+  with no special queued (+0x9c) and the special not in the list at +0x1bc, its stat is pushed on the queue at +0x8c, whose
+  front (FUN_10068aa3) gives the next `SpecialAttackInfo` its class. Every captured one comes just before its attacker's
+  `SpecialAttackInfo` with the same stat.
+
+Left: 0x6b (case 29, FUN_1004f542 on the nano holder +0x1c0) clears the "still casting" byte (+0x1c) of the cast of that
+nano and keeps parameter 1 at +0x20; it arrives in the same frame as the `CastNanoSpell` that starts this client's casting
+animation, so it cannot end it, and no reader of the byte was traced. 0xa7 (case 57, 0x1005e919) sets (parameter 2 not zero,
+through the stats' vtable +0x18) or clears flag 0x800 at +0x138; every captured one clears it, just before a 0x83; its
+meaning is unknown.
+
 ### 11-15
 
-- 0x50 QueuePerk (08:42): parameter 2 the delay; the perk is queued behind the attack.
-- 0x9b / 0xa2: the sneak check (creatures that see the character, then "started sneaking").
-- Fov: guards' sight cones in a generated mission (stat 533); for sneaking.
-- AreaFormula: an area effect: the listed characters get the formula's effect from the source (FUN_10051c98).
-- InventoryUpdated: on oneself and on a shop (`c75b`) after a sale, value 5: the inventory windows refresh.
+- 0x50 QueuePerk (08:42), **ported**: answers the client's perk use (0xb3). Case 19 (0x1005f12e): parameters `(2, delay)`
+  add an entry of kind 2 for the delay (hundredths) to the character's timer list (+0x1e8: FUN_1003d9e0, FUN_1003d8c3, which
+  signals the interface for one's own character); `(0, 0)` removes the kind-2 entries (FUN_1003d496). GUI.dll's
+  `StartTimerBar` (0x1005214f) shows kind 2 as the "Special" bar (text `Timer_Special`, 0xaaffff). The client draws the game
+  timer bars (`ui::TIMERS`, `TimerBar_c`'s 128 by 16 bars from (40, 40), 20 apart); only kind 2 is started so far (the other
+  timers' sources, FUN_1003bbf8/0x1003bc84 and the item use FUN_100482c7, are not ported).
+- 0x9b / 0xa2, **partly ported**: 0x9b (case 51, 0x1005e361), for a creature the client has, tells
+  `Feedback_YouHaveBeenDetected` ("You have been detected by %s!") with its name; 0xa2 (case 55, FUN_10044ff9) gives the
+  movement controller the sneak mode (0x1c). The client keeps who sneaks (`World::sneaking`, also from movement 0x1c, until
+  another mode or 0x24); the sneak animations and speed are not drawn.
+- Fov, **not ported**: `FovIIR_c`'s apply keeps the view (a mode byte 0..2, angles; FUN_100524f4 at the creature's +0x24) and
+  sets stat 533; nothing that draws it was found (the string `NPCToggleFov` has no reference).
+- AreaFormula, **ported**: the formula is a nano id: FUN_100a9a99 runs FUN_10051c98 on each listed character's nano holder
+  (+0x1c0) with the source, the nano looked up as a `0xcf1b` record (FUN_100a4b10), as a cast landing (FUN_1005141d). The
+  client shows the landing glow on each.
+- InventoryUpdated, **ported**: FUN_10075392 acts only on one's own character, raising the interface signal of the value
+  (FUN_1001143e: 5 is +0xd8): the inventory windows are drawn again.
 
 ### 16. The small and unknown `CharacterAction` codes
 
@@ -182,16 +213,16 @@ animation itself and does not play stand-ups or special attacks of others.
 | 0x6e | 151 / 5 / 27 | right after the hazards `Action` (`2049527c`) on a corpse or chest that was used, and after the client's 0x8e | 32 (0x1005ddf4: FUN_10046e7a → FUN_1003f61c on the +0x1b8 part) | the end of an action's progress (the client's 0x8e starts one: `N3Msg_GetActionProgress` checks 0x8e) |
 | 0x2f | 5 / 0 / 0 | target a terminal, weapon or item, parameter 2 0x71 or 1 | 12 (0x1005da2c) | unknown |
 | 0x61 | 4 / 0 / 0 | parameter 2 6, before `ContainerAddItem` | 23 (0x1005dcd7) | unknown |
-| 0x54 | 10 / 0 / 0 | after the client's 0x51 (an item used on an item), parameters 2, 2, then `Feedback` | 20 (0x1005dc56) | a combine refused |
+| 0x54 | 10 / 0 / 0 | after the client's 0x51 (an item used on an item), parameters 2, 2, then `Feedback` | 20 (0x1005dc56) | a combine refused: FUN_10042451 (on +0x1d0) tells a requirement line by the target's type bits (2..0x400; 0x20 and 0x80 a skill, category 2002, named by the parameter); the captured type is 0, which tells nothing of its own: the `Feedback` that follows carries the text (handled) |
 | 0x15 | 0 / 0 / 1 | parameter 2 0x18, after an `InfoPacket` | 3 (0x1005d7cb → FUN_10065c04: signals for values 0x11..0x14, 0x18) | unknown |
 | 0xab | 8 / 2 / 0 | at zoning: parameters `(0xf4254, 0x48396)` | 61 (0x1005e965) | unknown |
 | 0xd0 | 0 / 3 / 0 | after a perk lock (0xcf): `(0x2f6, own)`, `(0x1b, 0xcfce)` | 90 (0x1005edfc) | a perk's effect (unknown) |
 | 0x84 | 1 / 1 / 0 | SpecialUnavailable | 42 | a special unavailable |
 | 0x81, 0x8a, 0x8c | 1, 1, 3 | target own or the pet, parameter 2 0x1e or 0xc8, after `HealthDamage` | 39, 44, 46 | unknown (healing?) |
 | 0x93 | 1 | parameter 2 2 | 49 | unknown |
-| 0x56 | 1 | on an NPC, no parameters | 21 | unknown |
-| 0x1b, 0x23 | 1, 1 | team: 0x23 TeamRequestResponse (who, `dea9` team) | 6, 9 | the team's answer (the client handles 0x1a/0x20) |
-| 0x7a | 0 / 0 / 1 | StopLogout | 37 | the logout was cancelled: the logout bar should go |
+| 0x56 | 1 | on an NPC, no parameters | 21 | **ported**: the character sits (movement 0x1e) |
+| 0x1b, 0x23 | 1, 1 | team: 0x23 TeamRequestResponse (who, `dea9` team) | 6, 9 | not ported. 0x1b (0x1005d7fc): for one's own character, interface message 0x10 with the target; 0x23 (0x1005d8cb): the target's team part (+0x1e0) takes the team identity (FUN_10065c8b, and stat 6 set to it), one's own team part takes the target (FUN_10065c5e: +0x14, +0x10 "it is oneself"), then message 0x17. Messages 0x10..0x18 raise the team signals (+300, +0x130: the team window redrawn). The captured 0x23 names oneself just after joining: perhaps the leader, not established |
+| 0x7a | 0 / 0 / 1 | StopLogout | 37 | **ported**: interface message 0x2a, GUI.dll AFCM 0x20 `CancelCampMessage`: the logout bar goes and "Timed logout aborted." is told (when the client had not already done so) |
 
 ### Client messages the original sends that this client does not
 

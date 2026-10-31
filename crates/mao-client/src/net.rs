@@ -338,6 +338,13 @@ struct World {
     /// Each character's last attack (`AttackInfo`, `MissedAttackInfo`, `SpecialAttackInfo`): the weapon's place, when, a count
     /// picking the swing, and the animation class (0xb, or a special's).
     swings: BTreeMap<u32, (u32, Instant, u32, u32)>,
+    /// The special each character has queued (`CharSecSpecAttack` from the server: FUN_10068cd9 pushes the special's stat on
+    /// the attack part's queue at +0x8c, whose front FUN_10068aa3 gives the next `SpecialAttackInfo` its animation class).
+    queued_specials: BTreeMap<u32, u32>,
+    /// The delay (hundredths) of the last perk action the server queued (`QueuePerk`, 0x50), shown as the "Special" timer bar.
+    queued_perk: Option<u32>,
+    /// The characters the server put in the sneak mode (`CharacterAction` 0xa2: movement 0x1c), until another movement mode.
+    sneaking: std::collections::BTreeSet<u32>,
     /// The specials the server timed (skill stat, seconds; 0 = ready again), not yet given to the hotbars.
     special_events: Vec<(u32, f32)>,
     /// Damage and healing events not yet shown as floating numbers: (target id, amount, stat).
@@ -1125,13 +1132,23 @@ impl World {
             if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
                 let slot = p.value.get("EquipSlot").and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
                 let stat = p.value.get("Stat").and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
-                let class = match mao_formats::item::special_class(stat) {
-                    Some((class, false)) if m.identity.1 == self.own => class,
+                // (the queued special's class: one's own queues its own, the others' come from the server's `CharSecSpecAttack`)
+                let queued = self.queued_specials.remove(&m.identity.1).or((m.identity.1 == self.own).then_some(stat));
+                let class = match queued.and_then(mao_formats::item::special_class) {
+                    Some((class, false)) => class,
                     _ => 0xb,
                 };
                 let n = self.swings.get(&m.identity.1).map_or(0, |s| s.2.wrapping_add(1));
                 self.swings.insert(m.identity.1, (slot, Instant::now(), n, class));
             }
+        }
+        // `CharSecSpecAttack` (`51492120`) from the server, always just before the attacker's `SpecialAttackInfo`: a byte, the
+        // target, the special's stat (0x94, 0x96). `CharSecSpecAttackIIR_t` (read FUN_10072cbc, apply FUN_10072d11) hands it to
+        // the character's attack part (+0x1d4), FUN_10068cd9: with nothing queued (+0x9c) and the special not in the list at
+        // +0x1bc it is queued (FUN_1006bacb on the queue at +0x8c), so the attack that follows swings the special's own class.
+        if m.kind == 0x51492120 && m.data.len() >= 13 {
+            let stat = u32::from_be_bytes(m.data[9..13].try_into().unwrap());
+            self.queued_specials.entry(m.identity.1).or_insert(stat);
         }
         // A weapon a character holds: its owner, its place and its template.
         if m.kind == 0x3b1d2268 {
@@ -1242,6 +1259,24 @@ impl World {
                 }
             }
         }
+        // `AreaFormula` (`3129233b`): an area nano landing on the characters listed. `AreaFormulaIIR_t` reads (FUN_100721dc) a
+        // byte, the characters (an `x3f1` list of identities), the nano (`0xcf1b` id: 0x3e380, 0x18762) and its source; the
+        // apply (FUN_1007212d → FUN_100a9a99) runs the nano on each listed character the client has (its nano holder +0x1c0,
+        // FUN_10051c98, as a cast landing: FUN_1005141d).
+        if m.kind == 0x3129233b && m.data.len() >= 5 {
+            let word = |at: usize| u32::from_be_bytes(m.data[at..at + 4].try_into().unwrap());
+            let count = (word(1) / 0x3f1).saturating_sub(1) as usize;
+            let end = 5 + count * 8;
+            if m.data.len() >= end + 12 {
+                let nano = word(end);
+                for i in 0..count {
+                    let target = word(5 + i * 8 + 4);
+                    if target == self.own || self.entities.contains_key(&target) || self.names.contains_key(&target) {
+                        self.landed.push((target, nano));
+                    }
+                }
+            }
+        }
         // A nano cast: told when it is the character's own or is cast on it.
         if m.kind == 0x25314d6d {
             if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
@@ -1287,6 +1322,36 @@ impl World {
                     self.nano_casts.casts.remove(&id);
                     if self.socials.get(&id).is_some_and(|s| s.0.starts_with("spell-")) {
                         self.socials.remove(&id);
+                    }
+                }
+                // - 0x56 (case 21, 0x1005dc6a) and 0x57 (case 22, 0x1005dc76) give the character's movement controller (+0x50,
+                //   FUN_1006f2e1: its +0x178, vtable +0x18) a movement: 0x56 sitting down (0x1e), 0x57 standing up (0x25
+                //   `LeaveSit`; 0x29 or 0x2a when its `WaitState`, stat 430, is 0xf or 0x10, which this client does not keep).
+                //   The play loop keeps one's own sitting itself (the server echoes the client's own 0x57).
+                0x56 if m.identity.1 != self.own => {
+                    self.seated.insert(m.identity.1);
+                }
+                0x57 if m.identity.1 != self.own => {
+                    self.seated.remove(&m.identity.1);
+                }
+                // - 0xa2 (case 55, 0x1005e54d, after the client's `/sneak` 0xa3): FUN_10044ff9 gives the movement controller the
+                //   sneak mode (0x1c, `SwitchToSneakMode`): the character is sneaking
+                0xa2 => {
+                    self.sneaking.insert(m.identity.1);
+                }
+                // - 0x9b (case 51, 0x1005e361): one for each creature that has seen the sneaking character (the target): when the
+                //   client has it, the feedback line "Feedback_YouHaveBeenDetected" fed its name (FUN_10012b6e, type 0xc)
+                0x9b if m.identity.1 == self.own => {
+                    if let Some(name) = self.names.get(&word(13)).map(|n| n.0.clone()) {
+                        let line = crate::feedback::detected(&name);
+                        self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, line));
+                    }
+                }
+                // - 0x83 (case 41, 0x1005dcfe): FUN_1006b2dd equips the weapon named in the target (`(c74a, id)`) in the place in
+                //   parameter 2 (6), out of a vehicle only, and draws it in the hand (FUN_1006ac49 under place 0x30)
+                0x83 if m.data.len() >= 25 && word(9) == 0xc74a => {
+                    if let Some(&template) = self.weapon_templates.get(&word(13)) {
+                        self.weapons.insert((m.identity.1, word(21) as u8), template);
                     }
                 }
                 0x92 if m.identity.1 == self.own => {
@@ -1337,6 +1402,26 @@ impl World {
                 0xcf => {
                     self.perk_locks.insert(word(13), (Instant::now() + Duration::from_secs(word(17) as u64), word(17) as f32));
                     self.perk_actions_changed = true;
+                }
+                // `QueuePerk` (0x50, case 19, 0x1005f12e: just after the client's perk use 0xb3): parameters `(2, delay)`, the delay in
+                // hundredths (0x64, 0xc8). The character's timer list (+0x1e8, FUN_10058b83) gets an entry of kind 2 for that long
+                // (FUN_1003d9e0 → FUN_1003d8c3), which the interface shows as the "Special" timer bar (GUI.dll `StartTimerBar`);
+                // parameters `(0, 0)` take the kind-2 entries away (FUN_1003d496)
+                0x50 => match (word(17), word(21)) {
+                    (0, 0) => crate::ui::end_timers(2),
+                    (_, delay) => {
+                        self.queued_perk = Some(delay);
+                        crate::ui::start_timer(2, delay as u64 * 10);
+                    }
+                },
+                // `StopLogout` (0x7a, case 37, 0x1005e02f: the server's answer when the timed logout is given up): Gamecode raises
+                // interface message 0x2a (FUN_10012b1c), which GUI.dll takes as AFCM 0x20, `FlowControlModule_t::CancelCampMessage`
+                // (0x1002a75a): the logout timer bar is deleted and "Timed logout aborted." told. (The client's own standing up
+                // already did both when it was the one to give up.)
+                0x7a => {
+                    if crate::ui::CAMP.lock().unwrap_or_else(|e| e.into_inner()).take().is_some() {
+                        self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, crate::feedback::gui("TimedLogoutAborted", &[])));
+                    }
                 }
                 0xce => {
                     self.perk_locks.remove(&word(17));
@@ -1610,6 +1695,12 @@ impl World {
                     }
                 }
             }
+        }
+        // `InventoryUpdated` (`485e7202`: a byte and a value, 5 in the captures; sent to the character and to the shop after a
+        // sale): `InventoryUpdatedIIR_t`'s apply (FUN_10075392) acts only on the client's own character, raising the
+        // interface signal of that value (FUN_1001143e: 5 is the inventory's, +0xd8): the inventory windows are drawn again.
+        if m.kind == 0x485e7202 && m.identity.1 == self.own && m.data.len() >= 5 {
+            self.inventory = Some(self.worn.clone());
         }
         if m.kind == 0x36510078 && self.loot.as_ref().is_some_and(|l| l.identity == m.identity) {
             self.loot = None;
@@ -1907,6 +1998,12 @@ impl World {
                 _ => {
                     self.seated.remove(&m.identity.1);
                 }
+            }
+            // (another movement mode, 0x17..0x1d, or leaving the sneak mode, 0x24, ends the sneaking)
+            if matches!(kind, 0x17..=0x1d | 0x24) && kind != 0x1c {
+                self.sneaking.remove(&m.identity.1);
+            } else if kind == 0x1c {
+                self.sneaking.insert(m.identity.1);
             }
             if m.identity.1 != self.own {
                 match kind {
@@ -7709,6 +7806,99 @@ mod door_tests {
         // (leaving: the server's 0x20 naming oneself)
         w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("0000000020000000000000c3507b1a002102a3b8ffffffffff0000") }.frame(1));
         assert!(crate::team::with(|t| t.members.is_empty()));
+    }
+
+    /// The 16:55 capture's other players: Nihiltech (0x7b1a0022) sits and the server's 0x57 stands him up; he equips a weapon
+    /// (0x83 naming it, place 6); his Fling Shot (`CharSecSpecAttack` 0x96, then `SpecialAttackInfo`) swings the special's class.
+    #[test]
+    fn others_stand_up_wield_and_swing_their_specials() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let (own, other) = (0x7b1a0021, 0x7b1a0022);
+        let mut w = World { own, ..World::default() };
+        w.add(&Message { kind: n3::POSITION_UPDATE, identity: (0xc350, other), data: hex("001e000000003f32e84e000000003f371b5b4561914842510f5b44447cb3000000000000000000000000") }.frame(1));
+        assert_eq!(w.held_action(other), Some(0xd5));
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, other), data: hex("000000005700000000000000000000000000000000000000000000") }.frame(1));
+        assert_eq!(w.held_action(other), None);
+        w.weapon_templates.insert(0x25f1e6f5, 0x1dae3);
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, other), data: hex("0000000083000000000000c74a25f1e6f500000000000000060000") }.frame(1));
+        assert_eq!(w.weapons.get(&(other, 6)), Some(&0x1dae3));
+        w.add(&Message { kind: 0x51492120, identity: (0xc350, other), data: hex("000000c3507b1a670a00000096") }.frame(1));
+        w.add(&Message { kind: 0x754f1115, identity: (0xc350, other), data: hex("000000000600000004ffffffff0000c3507b1a670a0000009600000000") }.frame(1));
+        assert_eq!(w.swings[&other].3, mao_formats::item::special_class(0x96).unwrap().0);
+        assert!(w.queued_specials.is_empty(), "the special is used by its attack");
+    }
+
+    /// The 08:42 capture's perk actions: each use is answered by `QueuePerk` with its delay (1 s, then 2 s), which runs the
+    /// "Special" timer bar for that long.
+    #[test]
+    fn a_queued_perk_runs_the_special_timer() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let own = 0x4bc80;
+        let mut w = World { own, ..World::default() };
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("000000005000000000000000000000000000000002000000c80000") }.frame(1));
+        assert_eq!(w.queued_perk, Some(200));
+        let timers = crate::ui::TIMERS.lock().unwrap().clone();
+        assert!(timers.iter().any(|t| t.kind == 2 && t.ms == 2000), "{timers:?}");
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("000000005000000000000000000000000000000000000000000000") }.frame(1));
+        assert!(!crate::ui::TIMERS.lock().unwrap().iter().any(|t| t.kind == 2));
+    }
+
+    /// The 16:55 capture's `/sneak` at Arete Landing: the server names each creature that sees the character (0x9b), then puts
+    /// it in the sneak mode (0xa2).
+    #[test]
+    fn sneaking_tells_who_detected_the_character() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let own = 0x7b1a0021;
+        let mut w = World { own, ..World::default() };
+        w.names.insert(0x7b08289d, ("Patrolling Guard".into(), false));
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("000000009b000000000000c3507b08289d00000000000000000000") }.frame(1));
+        // (one the client does not know says nothing)
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("000000009b000000000000c3507b08293800000000000000000000") }.frame(1));
+        assert_eq!(w.game_lines.iter().map(|l| l.text.as_str()).collect::<Vec<_>>(), vec!["You have been detected by Patrolling Guard!"]);
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("00000000a200000000000000000000000000000000000000000000") }.frame(1));
+        assert!(w.sneaking.contains(&own));
+    }
+
+    /// The 16:55 capture's area nanos: one landing on the character (from 0x7b1b1847), one on two others.
+    #[test]
+    fn an_area_formula_lands_on_each_listed_character() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let own = 0x7b1a0021;
+        let mut w = World { own, ..World::default() };
+        w.add(&Message { kind: 0x3129233b, identity: (0xc350, own), data: hex("00000007e20000c3507b1a00210003e3800000c3507b1b1847") }.frame(1));
+        assert_eq!(w.landed, vec![(own, 0x3e380)]);
+        w.landed.clear();
+        w.names.insert(0x7b1ab833, ("A".into(), false));
+        w.names.insert(0x7b1abca9, ("B".into(), false));
+        w.add(&Message { kind: 0x3129233b, identity: (0xc350, 0x7b1a00b3), data: hex("0000000bd30000c3507b1ab8330000c3507b1abca9000187620000c3507b1a00b3") }.frame(1));
+        assert_eq!(w.landed, vec![(0x7b1ab833, 0x18762), (0x7b1abca9, 0x18762)]);
+    }
+
+    /// The 16:55 capture's sale: `InventoryUpdated` to the shop and to the character; only the character's refreshes the inventory.
+    #[test]
+    fn inventory_updated_refreshes_ones_own_inventory() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let own = 0x7b1a0021;
+        let mut w = World { own, ..World::default() };
+        w.add(&Message { kind: 0x485e7202, identity: (0xc75b, 0x1324d835), data: hex("0000000005") }.frame(1));
+        assert!(w.inventory.is_none());
+        w.add(&Message { kind: 0x485e7202, identity: (0xc350, own), data: hex("0000000005") }.frame(1));
+        assert!(w.inventory.is_some());
+    }
+
+    /// The 15:05 capture's cancelled logout: the server's `StopLogout` (0x7a) takes the logout bar away and says so.
+    #[test]
+    fn stop_logout_ends_the_logout_bar() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let own = 0x4bc82;
+        let mut w = World { own, ..World::default() };
+        *crate::ui::CAMP.lock().unwrap() = Some(Instant::now());
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("000000007a00000000000000000000000000000000000000000000") }.frame(1));
+        assert!(crate::ui::CAMP.lock().unwrap().is_none());
+        assert_eq!(w.game_lines.len(), 1);
+        // (again, with no bar: nothing more to say)
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("000000007a00000000000000000000000000000000000000000000") }.frame(1));
+        assert_eq!(w.game_lines.len(), 1);
     }
 
     #[test]

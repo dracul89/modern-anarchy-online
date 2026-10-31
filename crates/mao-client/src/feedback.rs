@@ -73,6 +73,7 @@ fn english(name: &str) -> &'static str {
         "Feedback_ATrapWasSprung" => "A trap was sprung! You failed disarming the trap!.",
         "Feedback_YouSuccededDisarmingMine" => "You succeeded disarming the mine!",
         "Feedback_YouSuccededDisarmingTrap" => "You succeded disarming the trap!.",
+        "Feedback_YouHaveBeenDetected" => "You have been detected by %s!",
         _ => "",
     }
 }
@@ -277,6 +278,11 @@ pub fn plain(name: &str) -> String {
 /// A feedback line with one number (`%d`), as FUN_10012c3e feeds it.
 pub fn with_number(name: &str, n: i64) -> String {
     line(name, &[Arg::Int(n)])
+}
+
+/// A creature saw the sneaking character (the server's `CharacterAction` 0x9b, case 51 0x1005e361: the creature's name fed).
+pub fn detected(who: &str) -> String {
+    line("Feedback_YouHaveBeenDetected", &[Arg::Text(who)])
 }
 
 /// The client starting a nano program (N3Msg_CastNanoSpell, 0x1001b5d4: feedback 0x47 with the nano's name).
