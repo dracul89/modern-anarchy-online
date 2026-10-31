@@ -17,6 +17,11 @@ pub const CREATE_CHARACTER: u32 = 0x0f;
 pub const CREATE_REFUSED: u32 = 0x10;
 pub const CREATED: u32 = 0x11;
 pub const SUGGEST_NAME: u32 = 0x55;
+/// Deleting a character: system message 0x14 with its id, answered by 0x15 with the same id (aosharp's
+/// `DeleteCharacterMessage` / `CharacterDeletedMessage`; the Arete Landing capture's `00000014 7afc16a7` and
+/// `00000015 7afc16a7`).
+pub const DELETE_CHARACTER: u32 = 0x14;
+pub const CHARACTER_DELETED: u32 = 0x15;
 pub const SUGGESTED_NAME: u32 = 0x56;
 
 /// A character to make.
@@ -71,6 +76,11 @@ pub fn create_character(c: &NewCharacter) -> Frame {
     system(CREATE_CHARACTER, &p)
 }
 
+/// System message 0x14: delete the character with this id.
+pub fn delete_character(id: u32) -> Frame {
+    system(DELETE_CHARACTER, &id.to_be_bytes())
+}
+
 /// System message 0x55: a name for a character of this breed, sex and profession, please.
 pub fn suggest_name(breed: i32, sex: i32, profession: i32) -> Frame {
     let mut p = Vec::new();
@@ -89,6 +99,8 @@ pub enum Reply {
     Created(u32),
     /// 0x56: a suggested name.
     Name(String),
+    /// 0x15: the character with this id was deleted.
+    Deleted(u32),
 }
 
 /// The reply in a system message, if it is one of these.
@@ -98,6 +110,7 @@ pub fn reply(frame: &Frame) -> Result<Option<Reply>, Error> {
     Ok(match kind {
         CREATE_REFUSED => Some(Reply::Refused(s.i32("the code")?)),
         CREATED => Some(Reply::Created(s.i32("the id")? as u32)),
+        CHARACTER_DELETED => Some(Reply::Deleted(s.i32("the id")? as u32)),
         SUGGESTED_NAME => {
             let n = u16::from_be_bytes([s.u8("the name's length")?, s.u8("the name's length")?]) as usize;
             // (`FUN_10005dc1`: a length of 0x8000 or more is no name)
@@ -140,6 +153,16 @@ mod tests {
         let hex: String = payload.iter().map(|b| format!("{b:02x}")).collect();
         assert_eq!(kind, 0x0f);
         assert_eq!(hex, "000000040000000061000000000000000000000000000000000000000000000000000000000000000500000000000000000000000b5768657265736d796e6375000000040000000100000004000000000000000c6172656120756e6b6e6f776e000000000000000000036aca000000640000000000000000");
+    }
+
+    /// The Arete Landing capture's deletion: `00000014 7afc16a7` out, `00000015 7afc16a7` back.
+    #[test]
+    fn deleting_matches_the_capture() {
+        let frame = delete_character(0x7afc16a7);
+        let (kind, payload) = crate::system::split(&frame).unwrap();
+        assert_eq!((kind, payload), (0x14, &[0x7a, 0xfc, 0x16, 0xa7][..]));
+        let back = system(CHARACTER_DELETED, &0x7afc16a7u32.to_be_bytes());
+        assert_eq!(reply(&back).unwrap(), Some(Reply::Deleted(0x7afc16a7)));
     }
 
     #[test]

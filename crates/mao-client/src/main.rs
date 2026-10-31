@@ -49,6 +49,7 @@ mod friends;
 mod fxs;
 mod help;
 mod launcher;
+mod loginviews;
 mod look;
 mod layout;
 mod loot;

@@ -197,6 +197,7 @@ Added after the overnight run, on request: audio through rodio, ported from the 
 | 3b4bf7c | **Mission dungeons are built**: a generated building (the Arete alien ship, any mission) is laid out from the server's room list over its template playfield's rooms, with their props and collision | enter a mission dungeon (or Arete's ship); walk through its rooms and doors |
 | 61a5546 | **Skills window from the skin's Skills.xml** (GUI.dll's `SkillWindow`): group buttons open each group's list; the right page shows the group in two columns; a row click shows the skill's details and description; +/- and Save Changes raise skills | open Skills (U?), click a group, a skill, raise it, Save Changes |
 | 6cdfe7c | **Mail message window from the skin's MailMessageWindow.xml**: New opens it to write (drop a backpack item on the item place); clicking a mail opens it read-only with Take All, Reply (a new mail to the sender, "Re: subject") and Delete | at a mail terminal: open a mail, Reply, write and Send; open one with an item and Take All |
+| (next) | **Login and character select from the skin's views** (LoginWindow.xml, CharacterSelectionWindow.xml with one CharacterSelectionItem.xml per character): the selected character shows its details, the others a summary line; **Delete** asks for the name (CharacterDeleteWindow.xml) and deletes the character on the server | start the client: log in, click through the characters; delete a throwaway character (type its name) |
 
 ## How to run
 
