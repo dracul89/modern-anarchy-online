@@ -75,6 +75,8 @@ pub struct Input {
     pub select_self: u8,
     /// A running nano to cancel: a counter that steps with each and the nano's id.
     pub cancel: (u8, u32),
+    /// A perk rank to train or untrain: a counter that steps with each, the rank and whether to train it.
+    pub train_perk: (u8, u32, bool),
     /// How far characters are drawn (0: all), from the settings.
     pub char_distance: f32,
     /// Take everything from a corpse when it opens (a setting).
@@ -2097,6 +2099,9 @@ impl ApplicationHandler for App {
                                 }
                             }
                         }
+                    }
+                    if let Some((rank, train)) = requests.train_perk.take() {
+                        self.keys.train_perk = (self.keys.train_perk.0.wrapping_add(1), rank, train);
                     }
                     if let Some(nano) = requests.cancel_nano.take() {
                         self.keys.cancel = (self.keys.cancel.0.wrapping_add(1), nano);

@@ -210,6 +210,8 @@ pub struct Requests {
     pub item_moves: Vec<(u32, u32)>,
     /// A running nano the player cancelled in the NCU window.
     pub cancel_nano: Option<u32>,
+    /// A perk rank to train (true) or untrain.
+    pub train_perk: Option<(u32, bool)>,
     /// Items chosen to use or to destroy in the inventory window's menu (by place).
     pub item_uses: Vec<u32>,
     pub item_deletes: Vec<u32>,
@@ -729,7 +731,9 @@ impl Ui {
                 }
             }
             if perks_window.open {
-                perks_window.show(&ctx, &hud.perk_list, palette);
+                if let Some(asked) = perks_window.show(&ctx, &hud.perk_list, palette) {
+                    requests.train_perk = Some(asked);
+                }
             }
             if programs_window.open {
                 if let Some(action) = programs_window.show(&ctx, &hud.programs, palette) {

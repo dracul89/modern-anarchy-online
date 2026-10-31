@@ -21,6 +21,25 @@ pub struct PerkInfo {
     pub icon: Option<Arc<Icon>>,
     /// What the highest owned rank changes (stat, amount).
     pub effects: Vec<(u32, i64)>,
+    /// The highest owned rank's id (what untraining takes away), and the next rank's (what training gives), if any.
+    pub top: u32,
+    pub next: Option<u32>,
+}
+
+/// The perk records' ranks by the rank before them (a record: its id at byte 4, its template at 12, the rank before at 16).
+fn next_ranks(db: &ResourceDatabase) -> &'static HashMap<u32, u32> {
+    static NEXT: std::sync::OnceLock<HashMap<u32, u32>> = std::sync::OnceLock::new();
+    NEXT.get_or_init(|| {
+        let word = |d: &[u8], at: usize| d.get(at..at + 4).map(|b| u32::from_le_bytes(b.try_into().unwrap()));
+        let ids: Vec<Id> = db.ids().map(|it| it.filter_map(Result::ok).filter(|i| i.kind == PERK_RECORD).collect()).unwrap_or_default();
+        ids.into_iter()
+            .filter_map(|id| {
+                let record = db.get(id).ok().flatten()?;
+                let before = word(&record, 16)?;
+                (before != 0).then_some((before, id.instance))
+            })
+            .collect()
+    })
 }
 
 /// The template of a perk (its name, icon, effects) from the perk's id.
@@ -36,22 +55,24 @@ pub fn describe(db: &ResourceDatabase, textures: &crate::Textures, ids: &[u32], 
     let mut sorted = ids.to_vec();
     sorted.sort_unstable();
     sorted.dedup();
-    // name -> (ranks, the highest rank's template data)
-    let mut by_name: Vec<(String, u32, Vec<u8>)> = Vec::new();
+    // name -> (ranks, the highest rank's template data, the highest rank)
+    let mut by_name: Vec<(String, u32, Vec<u8>, u32)> = Vec::new();
     for id in sorted {
         let Some(data) = template(db, id) else { continue };
         let Some(parsed) = Item::parse(&data) else { continue };
-        match by_name.iter_mut().find(|(name, _, _)| *name == parsed.name) {
+        match by_name.iter_mut().find(|(name, ..)| *name == parsed.name) {
             Some(entry) => {
                 entry.1 += 1;
                 entry.2 = data;
+                entry.3 = id;
             }
-            None => by_name.push((parsed.name.clone(), 1, data)),
+            None => by_name.push((parsed.name.clone(), 1, data, id)),
         }
     }
+    let next = next_ranks(db);
     let mut list: Vec<PerkInfo> = by_name
         .into_iter()
-        .filter_map(|(name, rank, data)| {
+        .filter_map(|(name, rank, data, top)| {
             let parsed = Item::parse(&data)?;
             let icon = parsed.icon().and_then(|icon_id| {
                 icons
@@ -60,7 +81,7 @@ pub fn describe(db: &ResourceDatabase, textures: &crate::Textures, ids: &[u32], 
                     .clone()
             });
             let effects = item::modifiers_at(&data, level).into_iter().map(|(s, a)| (s, a as i64)).collect();
-            Some(PerkInfo { name, rank, description: parsed.description.clone(), icon, effects })
+            Some(PerkInfo { name, rank, description: parsed.description.clone(), icon, effects, top, next: next.get(&top).copied() })
         })
         .collect();
     list.sort_by_key(|p| p.name.to_lowercase());
@@ -83,7 +104,10 @@ pub struct PerksWindow {
 const ICON: f32 = 28.0;
 
 impl PerksWindow {
-    pub fn show(&mut self, ctx: &egui::Context, perks: &[PerkInfo], palette: &Palette) {
+    /// The window; a rank to train (true) or untrain, when one of the row's buttons was pressed (`N3Msg_TrainPerk`,
+    /// `N3Msg_UntrainPerk`: the next rank, or the highest owned).
+    pub fn show(&mut self, ctx: &egui::Context, perks: &[PerkInfo], palette: &Palette) -> Option<(u32, bool)> {
+        let mut asked = None;
         let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
         let mut open = self.open;
         crate::chrome::window(ctx, palette, "Perks", "Perks", &mut open, |w| w.default_pos(crate::layout::pos("Perks", egui::pos2(260.0, 100.0))).default_size([320.0, 420.0]), |ui| {
@@ -99,6 +123,16 @@ impl PerksWindow {
             crate::chrome::scroll(ui, palette, egui::ScrollArea::vertical().max_height(360.0), |ui| {
                 for perk in matching(perks, &self.filter) {
                     let (rect, response) = ui.allocate_exact_size(egui::vec2(ui.available_width(), ICON + 4.0), egui::Sense::hover());
+                    // (the row's Train and Untrain buttons at its right end)
+                    let button = |k: f32| egui::Rect::from_min_size(egui::pos2(rect.right() - 22.0 * k, rect.top() + 6.0), egui::vec2(20.0, 20.0));
+                    if let Some(next) = perk.next
+                        && ui.put(button(2.0), egui::Button::new("+")).on_hover_text("Train the next rank").clicked()
+                    {
+                        asked = Some((next, true));
+                    }
+                    if ui.put(button(1.0), egui::Button::new("-")).on_hover_text("Untrain the highest rank").clicked() {
+                        asked = Some((perk.top, false));
+                    }
                     let painter = ui.painter();
                     if response.hovered() {
                         painter.rect_filled(rect, 3.0, egui::Color32::from_white_alpha(25));
@@ -115,7 +149,7 @@ impl PerksWindow {
                     }
                     painter.text(egui::pos2(icon_rect.right() + 8.0, rect.center().y), egui::Align2::LEFT_CENTER, &perk.name, egui::FontId::proportional(14.0), egui::Color32::WHITE);
                     if perk.rank > 1 {
-                        painter.text(egui::pos2(rect.right() - 6.0, rect.center().y), egui::Align2::RIGHT_CENTER, format!("rank {}", perk.rank), egui::FontId::proportional(12.0), egui::Color32::from_rgb(120, 200, 170));
+                        painter.text(egui::pos2(rect.right() - 52.0, rect.center().y), egui::Align2::RIGHT_CENTER, format!("rank {}", perk.rank), egui::FontId::proportional(12.0), egui::Color32::from_rgb(120, 200, 170));
                     }
                     response.on_hover_ui(|ui| {
                         ui.set_max_width(320.0);
@@ -142,6 +176,7 @@ impl PerksWindow {
             });
         });
         self.open = open;
+        asked
     }
 }
 
@@ -150,7 +185,17 @@ mod tests {
     use super::*;
 
     fn perk(name: &str, rank: u32) -> PerkInfo {
-        PerkInfo { name: name.into(), rank, description: String::new(), icon: None, effects: Vec::new() }
+        PerkInfo { name: name.into(), rank, description: String::new(), icon: None, effects: Vec::new(), top: 0, next: None }
+    }
+
+    /// `MAO_GAME`: the rank the 2026-10-31 capture trains, `0x7d`, follows `0x7c` (its record's rank before) and is its line's last.
+    #[test]
+    fn the_next_rank_follows_the_records() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let db = ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap();
+        let next = next_ranks(&db);
+        assert_eq!(next.get(&0x7c), Some(&0x7d));
+        assert_eq!(next.get(&0x7d), None);
     }
 
     #[test]

@@ -219,6 +219,7 @@ Added after the overnight run, on request: audio through rodio, ported from the 
 | bc1cec8 | **Use an item on something in the world**: drag an item out of the inventory or an open bag and let go over a statue, door or character: it is used on it (how the original enters the Garden of Lord Galahad with its key, from the 2026-10-31 capture) | drag the Garden key onto the garden statue in the Wailing Wastes |
 | ad86551 | **Shadowlands portal statues**: the statues the server places (the gardens' "Passage to ...", the Wailing Wastes' Shining Ancient Statue) are drawn with their models and can be clicked, used, and have items (the Garden key) dropped on them | in a garden, look for the three passage statues and use one; in the Wailing Wastes drag the Garden key onto the statue |
 | 1f632a8 | **The flying vehicle tilts**: your own vehicle is drawn nose up or down as you pitch it (others' already followed the server's rotation) | fly a Phasefront vehicle and pitch up and down |
+| (next) | **Train and untrain perks**: each perk line in the Perks window has + (train the next rank) and - (untrain the highest); the server's answer updates the ranks, the stats and the perk actions (removed ones leave the Action window) | train a rank with free perk points, untrain it again; watch the Action window |
 
 ## How to run
 

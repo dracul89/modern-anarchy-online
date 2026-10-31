@@ -1266,6 +1266,21 @@ impl World {
                     self.perk_locks.remove(&word(17));
                     self.perk_actions_changed = true;
                 }
+                // a perk action gone (0xb6, after an untraining: its item template, number and code)
+                0xb6 => {
+                    self.perk_actions.retain(|p| p.1 != word(17));
+                    self.perk_actions_changed = true;
+                }
+                // `TrainPerk` / `UntrainPerk` echoed: the rank is now owned, or no longer
+                0xbb | 0xbc => {
+                    let rank = word(21);
+                    self.perks.retain(|&p| p != rank);
+                    if m.data[4] == 0xbb {
+                        self.perks.push(rank);
+                    }
+                    self.perks_changed = true;
+                    self.mods_dirty = true;
+                }
                 _ => {}
             }
         }
@@ -3872,6 +3887,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut vehicle_cache: std::collections::HashMap<u32, bool> = std::collections::HashMap::new();
         let mut delete_seen = 0u8;
         let mut cancel_seen = 0u8;
+        let mut train_perk_seen = 0u8;
         let mut inspect_seen = 0u8;
         let mut self_seen = 0u8;
         let (mut following, mut follow_seen): (Option<u32>, u8) = (None, 0);
@@ -4844,6 +4860,11 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 }
             }
             // A running nano cancelled: asked of the server and taken off the NCU window at once.
+            // (the perks window's Train and Untrain: the server's echo changes the owned ranks)
+            if keys.train_perk.0 != train_perk_seen {
+                train_perk_seen = keys.train_perk.0;
+                let _ = connection.send(&n3::train_perk(own, keys.train_perk.1, keys.train_perk.2));
+            }
             if keys.cancel.0 != cancel_seen {
                 cancel_seen = keys.cancel.0;
                 let nano = keys.cancel.1;

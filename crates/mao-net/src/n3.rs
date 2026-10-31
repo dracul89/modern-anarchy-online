@@ -310,6 +310,15 @@ pub fn use_perk(character: u32, perk: u32, hash: [u8; 4]) -> Frame {
     Message { kind: 0x5e477770, identity: (CHARACTER, character), data }.frame(character)
 }
 
+/// `CharacterAction` `0xbb` (`N3Msg_TrainPerk`, Gamecode FUN_10053422) or `0xbc` (`N3Msg_UntrainPerk`, FUN_100534d2): train a perk
+/// rank, or untrain one, by its id in the second parameter (the 2026-10-31 capture: rank `0x7d` both ways). The server echoes it.
+pub fn train_perk(character: u32, perk: u32, train: bool) -> Frame {
+    let mut data = vec![0u8; 27];
+    data[4] = if train { 0xbb } else { 0xbc };
+    data[21..25].copy_from_slice(&perk.to_be_bytes());
+    Message { kind: 0x5e477770, identity: (CHARACTER, character), data }.frame(character)
+}
+
 /// `CharSecSpecAttack` (`51492120`): a weapon special attack at a target: a zero byte, the target identity and the skill's stat (the
 /// captured ones: 142 Brawl, 144 Dimach, 147 Fast Attack, 148 Burst, 150 Fling Shot).
 pub fn special_attack(character: u32, target: u32, stat: u32) -> Frame {
@@ -679,6 +688,13 @@ pub fn market_send(character: u32, credits: i32, items: &[(u32, u32)]) -> Frame 
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn perk_training_is_the_captured_shape() {
+        let hex = |f: Frame| Message::parse(&f).unwrap().data.iter().map(|b| format!("{b:02x}")).collect::<String>();
+        assert_eq!(hex(train_perk(0x4bc82, 0x7d, true)), "00000000bb000000000000000000000000000000000000007d0000");
+        assert_eq!(hex(train_perk(0x4bc82, 0x7d, false)), "00000000bc000000000000000000000000000000000000007d0000");
+    }
+
     #[test]
     fn use_item_on_is_the_captured_shape() {
         let m = Message::parse(&use_item_on(0x4bc80, 6, (0x6b, 0x0070_0006), (0xc73d, 0x58f3_7539))).unwrap();
