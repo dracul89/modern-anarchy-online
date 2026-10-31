@@ -341,6 +341,8 @@ struct World {
     /// The special each character has queued (`CharSecSpecAttack` from the server: FUN_10068cd9 pushes the special's stat on
     /// the attack part's queue at +0x8c, whose front FUN_10068aa3 gives the next `SpecialAttackInfo` its animation class).
     queued_specials: BTreeMap<u32, u32>,
+    /// The delay (hundredths) of the last perk action the server queued (`QueuePerk`, 0x50), shown as the "Special" timer bar.
+    queued_perk: Option<u32>,
     /// The specials the server timed (skill stat, seconds; 0 = ready again), not yet given to the hotbars.
     special_events: Vec<(u32, f32)>,
     /// Damage and healing events not yet shown as floating numbers: (target id, amount, stat).
@@ -1368,6 +1370,17 @@ impl World {
                     self.perk_locks.insert(word(13), (Instant::now() + Duration::from_secs(word(17) as u64), word(17) as f32));
                     self.perk_actions_changed = true;
                 }
+                // `QueuePerk` (0x50, case 19, 0x1005f12e: just after the client's perk use 0xb3): parameters `(2, delay)`, the delay in
+                // hundredths (0x64, 0xc8). The character's timer list (+0x1e8, FUN_10058b83) gets an entry of kind 2 for that long
+                // (FUN_1003d9e0 → FUN_1003d8c3), which the interface shows as the "Special" timer bar (GUI.dll `StartTimerBar`);
+                // parameters `(0, 0)` take the kind-2 entries away (FUN_1003d496)
+                0x50 => match (word(17), word(21)) {
+                    (0, 0) => crate::ui::end_timers(2),
+                    (_, delay) => {
+                        self.queued_perk = Some(delay);
+                        crate::ui::start_timer(2, delay as u64 * 10);
+                    }
+                },
                 0xce => {
                     self.perk_locks.remove(&word(17));
                     self.perk_actions_changed = true;
@@ -7759,6 +7772,21 @@ mod door_tests {
         w.add(&Message { kind: 0x754f1115, identity: (0xc350, other), data: hex("000000000600000004ffffffff0000c3507b1a670a0000009600000000") }.frame(1));
         assert_eq!(w.swings[&other].3, mao_formats::item::special_class(0x96).unwrap().0);
         assert!(w.queued_specials.is_empty(), "the special is used by its attack");
+    }
+
+    /// The 08:42 capture's perk actions: each use is answered by `QueuePerk` with its delay (1 s, then 2 s), which runs the
+    /// "Special" timer bar for that long.
+    #[test]
+    fn a_queued_perk_runs_the_special_timer() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let own = 0x4bc80;
+        let mut w = World { own, ..World::default() };
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("000000005000000000000000000000000000000002000000c80000") }.frame(1));
+        assert_eq!(w.queued_perk, Some(200));
+        let timers = crate::ui::TIMERS.lock().unwrap().clone();
+        assert!(timers.iter().any(|t| t.kind == 2 && t.ms == 2000), "{timers:?}");
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("000000005000000000000000000000000000000000000000000000") }.frame(1));
+        assert!(!crate::ui::TIMERS.lock().unwrap().iter().any(|t| t.kind == 2));
     }
 
     #[test]
