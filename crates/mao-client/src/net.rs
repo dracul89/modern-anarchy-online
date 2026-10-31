@@ -1525,6 +1525,31 @@ impl World {
                 e.0 = [f(0), f(4), f(8)];
             }
         }
+        // `SetWantedDirection` (`60201d0e`, aosharp's name): a character turned to face a direction (a byte, then x y z: the
+        // Arete Landing capture's NPCs, `bf800000 0 0` and the like), facing along `(sin h, cos h)` as the rotations do.
+        if m.kind == 0x60201d0e && m.data.len() >= 13 && m.identity.1 != self.own {
+            let f = |at: usize| f32::from_be_bytes(m.data[at..at + 4].try_into().unwrap());
+            let (x, z) = (f(1), f(9));
+            if x != 0.0 || z != 0.0 {
+                let h = x.atan2(z);
+                self.rotations.insert(m.identity.1, [0.0, (h / 2.0).sin(), 0.0, (h / 2.0).cos()]);
+            }
+        }
+        // `ItemReplaced` (`3a223b50`): the item at a place of one's own becomes another (a byte, the place, then the item before
+        // and after: low id, high id, quality and a word each). In the Arete Landing capture the worn starter armour (places
+        // 0x11..0x1e) goes up a quality at each level.
+        if m.kind == 0x3a223b50 && m.identity.1 == self.own && m.data.len() >= 37 {
+            let word = |at: usize| u32::from_be_bytes(m.data[at..at + 4].try_into().unwrap());
+            let place = word(1);
+            if let Some(e) = self.worn.iter_mut().find(|e| e.slot == place) {
+                (e.low_id, e.high_id, e.quality) = (word(21), word(25), word(29));
+                self.inventory = Some(self.worn.clone());
+            }
+        }
+        // `StopMovingCmd` (`742e2314`): a character stops where it is, so the path it was walked along ends.
+        if m.kind == 0x742e2314 && m.identity.1 != self.own {
+            self.paths.remove(&m.identity.1);
+        }
         if m.kind == OBJECT_ANNOUNCE && m.identity.0 == OBJECT_TYPE && m.data.len() >= 29 {
             // The position follows 17 bytes of header (the capture's objects stand where a
             // terminal or door of that playfield does).
@@ -7136,6 +7161,10 @@ mod door_tests {
         w.add(&Message { kind: ADD_TEMPLATE, identity: (0xc350, own), data: hex("000001fe3f0001fe3f0000000100000001") }.frame(1));
         assert_eq!(w.worn.last().map(|e| (e.slot, e.low_id, e.count)), Some((inventory::BACKPACK_FIRST + 2, 0x1fe3f, 1)));
         assert!(w.inventory.is_some());
+        // (a worn armour piece at place 0x11 goes from quality 2 to 3 at a level, as the capture's ItemReplaced says)
+        w.worn.push(inventory::Entry { slot: 0x11, flags: 0, count: 1, container: (0, 0), low_id: 0x4a09b, high_id: 0x4a09c, quality: 2, extra: 0 });
+        w.add(&Message { kind: 0x3a223b50, identity: (0xc350, own), data: hex("00000000110004a09b0004a09c00000003000000000004a09b0004a09c0000000300000000") }.frame(1));
+        assert_eq!(w.worn.iter().find(|e| e.slot == 0x11).map(|e| e.quality), Some(3));
     }
 
     /// The Arete Landing capture's team: the invitation from Nihiltech (0x7b1a0022), both members, a health update, then

@@ -39,23 +39,23 @@ answered by `0x11` (`7b1a0021 f21d5200`: the new character's id), then the usual
 |---|---|---|---|
 | `4d450114` | 3858 | SpellList (?) | `7e2`, a nano identity (`cf3b`, `0x48329`), counts, the caster and target: a nano effect running on a character, repeated as it ticks |
 | `35505644` | 235 | TemplateAction | an item's low/high id, quality, then `0x57`, `0x6e`: something done with an item template (picked up, made) |
-| `60201d0e` | 202 | ? | on characters: a byte and floats (`bf80000…`): a facing/turn? |
-| `435f7023` | 156 | ? | `01`, `0x988` twice, a short id: on one's own character |
+| `60201d0e` | 202 | SetWantedDirection (aosharp) | on characters: a byte and floats (`bf80000…`): a facing/turn? |
+| `435f7023` | 156 | PerkUpdate (aosharp) | `01`, `0x988` twice, a short id: on one's own character |
 | `365a5071` | 108 | DoorFullUpdate | an instance's doors with their places and rotations (identity `c748:10c32dc1..`): the doors of an instance announced |
-| `2a293d0f` | 59 | ? | floats (`3ec49809 40490fdb`: pi): an arc or a cone on a character |
-| `742e2314` | 53 | ? | `01` and an identity's type: on characters |
-| `3a223b50` | 36 | ? | pairs of template ids (`0x4a09b`/`0x4a09c`), count 2: a reward or mission item list |
+| `2a293d0f` | 59 | Fov (aosharp): a creature's sight cone | floats (`3ec49809 40490fdb`: pi): an arc or a cone on a character |
+| `742e2314` | 53 | StopMovingCmd (aosharp) | `01` and an identity's type: on characters |
+| `3a223b50` | 36 | ItemReplaced (aosharp): place, item before, item after; Arete's worn starter armour goes up a quality per level | pairs of template ids (`0x4a09b`/`0x4a09c`), count 2: a reward or mission item list |
 | `052e2f0c` | 23 | AddTemplate | an item (low, high, quality, count) added: loot or a mission reward into the inventory |
 | `3e205660` | 18 | Skill | the skills' values after a raise (both ways: the client sends its raises, see below) |
 | `28784248` / `46312d2e` | 8 / 2 | TeamMemberInfo / TeamMember | a team |
-| `3129233b`, `485e7202` | 4 / 2 | ? | |
+| `3129233b`, `485e7202` | 4 / 2 | AreaFormula / InventoryUpdated (aosharp) | |
 
 ## Client messages this client never sends
 
 | kind | count | name | |
 |---|---|---|---|
 | `3e205660` | 18 | Skill | raising skills with IP (pairs of skill number, points) |
-| `77230927` | 3 | ? | `00 5628c914` |
+| `77230927` | 3 | GiveQuestToMembers (aosharp) | `00 5628c914` |
 | `3115534d` | 2 | ? | `00` |
 
 Everything else the original sent (moves, look-at, use, attack, special attacks, NPC chat and trade, trades, container
@@ -72,3 +72,6 @@ moves, set-stat) this client already sends.
 7. ~~Character creation~~: our request matches the original's byte for byte (test `the_request_matches_the_original`).
 8. ~~Teams~~: done (`team.rs`): invitation `CharacterAction` 0x1a, answer 0x1c with 1/0 (declining is 0x1c with 0, not aosharp's 0x23), `TeamMember` (team, level, profession, name), `TeamMemberInfo` (health, max health, max nano, nano), leave 0x18, left 0x20.
 9. Generated mission dungeons (proxy type `0xc79f`): the playfield message carries an `ACGBuildingGeneratorData_t`-shaped block (version 2, 24 x 24, ambient `c8c8c8`, then 8 six-byte room records); the client reads a wrong playfield number from it and draws nothing. Needs Gamecode's ACG reader (FUN_100c773e / FUN_100c793f / FUN_100c8059) and the dungeon builder; the doors come as `DoorFullUpdate` (a `SimpleItemFullUpdate` layout: place, rotation, then stats with template 253517 and a tail linking two room numbers).
+
+Done since: SetWantedDirection turns the character (`rotations`, forward `(sin h, cos h)`), StopMovingCmd ends its walked
+path, ItemReplaced updates the worn item (test in `items_come_into_the_backpack`).
