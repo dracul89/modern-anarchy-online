@@ -146,12 +146,18 @@ impl LootWindow {
                 }
                 let response = crate::gui::host::show(ui, tree, root, skin.as_deref(), palette);
                 let hovered = ui.input(|i| i.pointer.hover_pos()).and_then(|at| crate::gui::multilist::item_at(tree, list, response.rect.min, at));
+                // (a right click takes the item: the list's use signal, FUN_1004141b's button 2)
+                if let Some(slot) = hovered
+                    && ui.input(|i| i.pointer.secondary_clicked())
+                {
+                    take = Some(Take::One { handle: view.handle, place: slot as u32 });
+                }
                 if let Some(item) = hovered.and_then(|slot| view.items.iter().find(|i| i.slot as i64 == slot)) {
                     response.on_hover_text(tip(item));
                 }
             });
         });
-        // (a click selects; a double click takes the item)
+        // (a click selects; a double click also takes the item)
         for (_, event) in crate::gui::multilist::take_events(tree) {
             match event {
                 crate::gui::multilist::ItemEvent::Clicked(slot, clicks) => {

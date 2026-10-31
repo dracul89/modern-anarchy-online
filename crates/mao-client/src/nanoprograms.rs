@@ -72,8 +72,9 @@ const SCHOOLS: [(usize, &str); 6] = [(5, "#10000:344211"), (0, "#10000:175102436
 /// The nano programs window, GUI.dll's `NanoView_c` (FUN_100d5328): the `SchoolSelector_c` (a toggle button per school, in
 /// rows as wide as the window: FUN_100d6051) over a tab of item grids, one per school, in the smallest square icon size
 /// (`SetGridIconSize(0)`: 31 by 31 on `SLOT_32_CLOSED`), sorted by name; the school shown at first is Misc (5:
-/// `selected_school`'s default). A double click casts the program at the target (FUN_100d44cd: `N3Msg_CastNanoSpell`), a
-/// right click shows its page (FUN_100d42ab: `itemid://53019/<id>`); a program dragged out goes onto a hotbar.
+/// `selected_school`'s default). A click casts the program at the target (FUN_100d44cd: `N3Msg_CastNanoSpell`; with
+/// `UseNewMouseFunc` on, a left click on a list that does not select is the use signal); a right click (the original's menu,
+/// FUN_100d49a0) shows its page here; a program dragged out goes onto a hotbar.
 #[derive(Default)]
 pub struct ProgramsWindow {
     pub open: bool,
@@ -113,7 +114,7 @@ impl ProgramsWindow {
         (tree, root, list, buttons)
     }
 
-    /// Shows the window; returns the program to cast (a double click).
+    /// Shows the window; returns the program to cast (a click).
     pub fn show(&mut self, ctx: &egui::Context, programs: &[Program], palette: &Palette) -> Option<hotbar::Action> {
         let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
         let mut cast = None;
@@ -160,10 +161,9 @@ impl ProgramsWindow {
         for (_, event) in crate::gui::multilist::take_events(tree) {
             match event {
                 crate::gui::multilist::ItemEvent::Clicked(id, clicks) => {
-                    crate::gui::multilist::select(tree, list, Some(id));
-                    if clicks > 1
-                        && let Some(p) = program(id)
-                    {
+                    // (a click casts: the list is not selectable, so FUN_1004141b's left click is the use signal -> FUN_100d44cd)
+                    let _ = clicks;
+                    if let Some(p) = program(id) {
                         cast = Some(action(p));
                     }
                 }

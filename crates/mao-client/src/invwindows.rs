@@ -11,9 +11,10 @@
 //!   by FUN_101a5910, FUN_101a5514, FUN_101a5734 and FUN_101a5b30; the labels text.mdb 505's 300+ for weapons, 100+ for
 //!   clothes and social, 200+ for implants).
 //!
-//! A double click uses an item (Ctrl puts it into an open trade: FUN_100cae1b); an item dragged onto a wear cell is worn
-//! there, onto the inventory is put back in the backpack; dragged onto a hotbar slot it is added to it. A right click opens
-//! the client's own menu (Info, Use, Delete).
+//! A right click uses an item (`ItemListViewBase_c` FUN_1004141b: button 2 is the use signal), as does a double click; Ctrl+
+//! double click puts it into an open trade (FUN_100cae1b). An item dragged onto a wear cell is worn there, onto the inventory
+//! is put back in the backpack; dragged onto a hotbar slot it is added to it. Shift+right click opens the client's own menu
+//! (Info, Use, Delete).
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -235,12 +236,17 @@ impl ItemWindows {
             }
         }
 
-        // (a right click on an item opens its menu where it was clicked)
+        // (a right click uses the item, as the original's list does with its default mouse handling (`ItemListViewBase_c`'s
+        // FUN_1004141b: button 2 -> the use signal); Shift+right click opens the client's own menu where it was clicked)
         if let (Some((slot, _)), Some(at)) = (&hovered_item, pointer)
             && ctx.input(|i| i.pointer.secondary_clicked())
         {
-            self.menu = Some((*slot, at));
-            self.confirm = None;
+            if ctx.input(|i| i.modifiers.shift) {
+                self.menu = Some((*slot, at));
+                self.confirm = None;
+            } else {
+                events.uses.push(*slot);
+            }
         }
         // (the item under the pointer: its tip)
         if let Some((slot, label)) = hovered_item
