@@ -350,6 +350,12 @@ struct World {
     /// The last full position report (`0x16`) the server sent of one's own character (its echo of ours, or its own when it
     /// refuses a move: then it repeats the last place it took, every few seconds).
     own_report: Option<[f32; 3]>,
+    /// An `N3Teleport` within the playfield of one's own character (a generated mission's move): the destination and rotation,
+    /// for the play loop to put the character at at once.
+    own_teleport: Option<([f32; 3], [f32; 4])>,
+    /// The playfield stopped by an `N3Teleport` of one's own character to another place (`n3EngineClient_t::StartTeleport`,
+    /// N3.dll 0x100076ad: `StopPlayfield` kills its dynels and the character stands still) until the playfield message: since when.
+    playfield_stopped: Option<Instant>,
     /// A corpse whose contents just arrived and have not been auto-looted yet: its handle and the places to take.
     fresh_corpse: Option<(u32, Vec<u32>)>,
     worn: Vec<inventory::Entry>,
@@ -1257,6 +1263,34 @@ impl World {
                 }
             }
         }
+        // The cancels the server sends when a move starts (FUN_1005d61f, from the character it names):
+        // - 0x89 (case 43, 0x1005d78f): FUN_1004f7b8 empties the character's casts under way (the list at +0x1c0): each cast's
+        //   timer stopped and its end signalled (FUN_1004ebd0: `(cf1b, nano)` and the cast signal with 3), and with the list empty
+        //   the character leaves its casting stance (FUN_1007c8af picks animation state 5 only while the list has a cast). So the
+        //   cast's sounds stop and its casting animation ends.
+        // - 0x92 (case 48, 0x1005e33a): FUN_1004949c ends the item use timer (+0x198, the item's stat 211 that FUN_100482c7 starts
+        //   on a use: this client keeps none) and signals the container that holds the item named in the target as changed
+        //   (`(0x6b, handle << 16 | place)`: the open container of that handle, FUN_1004892d; other types, FUN_100493eb): a
+        //   refresh, not a close (the same signal follows `N3Msg_DropItem` and `N3Msg_ContainerAddItem`).
+        if m.kind == 0x5e477770 && m.data.len() >= 17 {
+            let word = |at: usize| u32::from_be_bytes(m.data[at..at + 4].try_into().unwrap());
+            match word(1) {
+                0x89 => {
+                    let id = m.identity.1;
+                    self.nano_casts.casts.remove(&id);
+                    if self.socials.get(&id).is_some_and(|s| s.0.starts_with("spell-")) {
+                        self.socials.remove(&id);
+                    }
+                }
+                0x92 if m.identity.1 == self.own => {
+                    let (kind, instance) = (word(9), word(13));
+                    if kind == 0x6b && self.loot.as_ref().is_some_and(|l| l.handle == instance >> 16) {
+                        self.loot_changed = true;
+                    }
+                }
+                _ => {}
+            }
+        }
         // A character's social action (a dance, a bow): the last word of the message is the action's number.
         if m.kind == 0x3b290771 && m.data.len() >= 13 {
             let action = u32::from_be_bytes(m.data[m.data.len() - 4..].try_into().unwrap());
@@ -1643,6 +1677,29 @@ impl World {
                         self.paths.remove(&m.identity.1);
                     }
                 }
+            }
+        }
+        // `N3Teleport` (`43197d22`, N3.dll's `n3TeleportIIR_t::Activate` 0x10029f87): within the playfield (the proxy's instance
+        // zero: a generated mission's move, `c7a0`) any dynel is put at the destination with the rotation at once; one going
+        // elsewhere is left alone (its `Despawn` follows), except one's own character, whose playfield stops for the zoning
+        // (`StartTeleport` → `n3Playfield_t::StopPlayfield` 0x1000ccbd: every dynel in it dies; the redirect and the playfield
+        // message follow). Nothing is sent back: `ToClientDynelAlive` (Gamecode 0x10015c4a) only tells the client's own modules.
+        if let Some(t) = mao_net::n3::teleport(&m) {
+            let id = m.identity.1;
+            // (`PollStatus` 0x10029e60: only a dynel the client has)
+            if t.within_playfield() && (self.entities.contains_key(&id) || id == self.own) {
+                self.paths.remove(&id);
+                self.rotations.insert(id, t.rotation);
+                self.entities.entry(id).or_insert((t.position, 0)).0 = t.position;
+                if id == self.own {
+                    self.own_teleport = Some((t.position, t.rotation));
+                }
+            } else if !t.within_playfield() && id == self.own {
+                self.playfield_stopped = Some(Instant::now());
+                let own = self.own;
+                self.entities.retain(|&e, _| e == own);
+                self.paths.clear();
+                self.fighting.retain(|&e, _| e == own);
             }
         }
         if m.kind == 0x195e496e && m.data.len() >= 12 && m.identity.1 != self.own {
@@ -4282,8 +4339,32 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     body_reset = true;
                 }
             }
+            // The server moved us within the playfield (`N3Teleport`, a generated mission's move): at the destination with its
+            // rotation at once, as `n3TeleportIIR_t::Activate` does (`SetRelPosRot`; the camera put back behind the character,
+            // FUN_10022b2d), nothing sent back.
+            if let Some((p, q)) = state.own_teleport.take() {
+                eprintln!("[{:6.1}] the server moved us to {p:?}", clock.elapsed().as_secs_f32());
+                position = p;
+                heading = 2.0 * q[1].atan2(q[3]);
+                offset = ground_offset(&terrain, p);
+                base = p[1];
+                airborne = false;
+                rise = 0.0;
+                jumping = false;
+                body_reset = true;
+            }
             // Zoning: the server announces the new playfield and where we arrive.
             if let Some((playfield, arrival)) = state.arrival.take() {
+                // (a playfield an `N3Teleport` stopped starts again: in the same playfield too, at the arrival point)
+                if state.playfield_stopped.take().is_some() && playfield == current {
+                    position = arrival;
+                    base = arrival[1];
+                    airborne = false;
+                    rise = 0.0;
+                    jumping = false;
+                    body_reset = true;
+                    state.entities.insert(own, (position, 0));
+                }
                 if playfield != current {
                     // (a zoning: the loading screen until the new playfield is drawn; an arrival in the same playfield, as
                     // the playfield message at login, draws no new one, so it must not raise the screen)
@@ -4378,7 +4459,13 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 state.own_dead = false;
                 state.dead.remove(&own);
             }
-            if state.own_dead {
+            // (the playfield stopped for a zoning: the character stands still until the playfield message; after 30 s, the
+            // `TeleportTrier_t`'s time, it is let go, a safety of this client's: the original stays stopped)
+            if state.playfield_stopped.is_some_and(|t| t.elapsed() > Duration::from_secs(30)) {
+                eprintln!("no playfield message 30 s after the server's teleport: moving again");
+                state.playfield_stopped = None;
+            }
+            if state.own_dead || state.playfield_stopped.is_some() {
                 (keys.forward, keys.back, keys.jump, keys.turn, keys.strafe, keys.face) = (false, false, false, 0, 0, None);
                 goto = None;
             }
@@ -7823,5 +7910,57 @@ mod movement_tests {
             w.walk_paths(1.0, [0.0, 0.0, 20.0]);
         }
         assert!((w.entities[&7].0[2] - 18.5).abs() < 1e-3);
+    }
+
+    #[test]
+    fn the_server_teleports_dynels() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        // (the 16:55 capture's move in a generated mission, c7a0: own character 0x7b1a0021 put at (121.4, 148.4, 87.8) facing 0)
+        let mission = hex("0042f2dd0843146a3d42af80c40000000000000000000000003f800000610000c7a000000000000000000000000000000000000000000000000000000000000186a7000000000000001042f2dd084314752042af80c400000000");
+        let mut w = World { own: 0x7b1a0021, ..World::default() };
+        w.entities.insert(0x7b1a0021, ([10.0, 0.0, 10.0], 0));
+        w.entities.insert(0x7b000001, ([20.0, 0.0, 20.0], 0));
+        w.add(&Message { kind: 0x43197d22, identity: (0xc350, 0x7b1a0021), data: mission.clone() }.frame(1));
+        let (p, q) = w.own_teleport.take().unwrap();
+        assert!((p[0] - 121.43).abs() < 0.01 && (p[2] - 87.75).abs() < 0.01);
+        assert_eq!(q, [0.0, 0.0, 0.0, 1.0]);
+        assert_eq!(w.entities[&0x7b1a0021].0, p);
+        assert!(w.playfield_stopped.is_none() && w.entities.contains_key(&0x7b000001));
+        // (another character moved the same way is put there at once, its path dropped; one the client does not have is not made)
+        w.paths.insert(0x7b000001, Route::Waypoints(vec![[30.0, 0.0, 30.0]]));
+        w.add(&Message { kind: 0x43197d22, identity: (0xc350, 0x7b000001), data: mission.clone() }.frame(1));
+        assert_eq!(w.entities[&0x7b000001].0, p);
+        assert!(!w.paths.contains_key(&0x7b000001) && w.own_teleport.is_none());
+        w.add(&Message { kind: 0x43197d22, identity: (0xc350, 0x7b000002), data: mission }.frame(1));
+        assert!(!w.entities.contains_key(&0x7b000002));
+        // (a zoning to playfield 0x1bbd: another character's is left to its Despawn; one's own stops the playfield, its dynels gone)
+        let zoning = hex("004560b583424efae1444484de00000000bf0d22f0800000003f559487610000c79c00001bbd000000000000000000009c5000001bbd0000000000000000000186a100011bbd000000083f00000000000000");
+        w.add(&Message { kind: 0x43197d22, identity: (0xc350, 0x7b000001), data: zoning.clone() }.frame(1));
+        assert_eq!(w.entities[&0x7b000001].0, p);
+        assert!(w.playfield_stopped.is_none());
+        w.add(&Message { kind: 0x43197d22, identity: (0xc350, 0x7b1a0021), data: zoning }.frame(1));
+        assert!(w.playfield_stopped.is_some() && w.own_teleport.is_none());
+        assert_eq!(w.entities.keys().copied().collect::<Vec<_>>(), vec![0x7b1a0021]);
+    }
+
+    #[test]
+    fn a_move_start_cancels_the_cast_and_the_use() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let mut w = World { own: 0x4bc82, ..World::default() };
+        w.nano_casts.gather(0x4bc82, 0x1234, &|_, _| None);
+        w.socials.insert(0x4bc82, ("spell-dir", Instant::now()));
+        w.socials.insert(9, ("spell-self", Instant::now()));
+        // (the 15:05 capture's 0x89 then 0x92, as the server sends them on every move start)
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, 0x4bc82), data: hex("000000008900000000000000000000000000000000000000000000") }.frame(1));
+        assert!(w.nano_casts.casts.is_empty() && !w.socials.contains_key(&0x4bc82) && w.socials.contains_key(&9));
+        w.socials.insert(0x4bc82, ("wave", Instant::now()));
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, 0x4bc82), data: hex("000000008900000000000000000000000000000000000000000000") }.frame(1));
+        assert!(w.socials.contains_key(&0x4bc82));
+        // (the 08:42 capture's 0x92 naming the item used out of the open container of handle 0x70: that container refreshed)
+        w.loot = Some(Loot { identity: (0xc76a, 5), handle: 0x70, entries: Vec::new() });
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, 0x4bc82), data: hex("000000009200000000000000000000000000000000000000000000") }.frame(1));
+        assert!(!w.loot_changed);
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, 0x4bc82), data: hex("0000000092000000000000006b0070000100000000000000000000") }.frame(1));
+        assert!(w.loot_changed && w.loot.is_some());
     }
 }

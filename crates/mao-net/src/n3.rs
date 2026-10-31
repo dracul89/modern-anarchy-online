@@ -344,6 +344,53 @@ pub fn pet_change(m: &Message) -> Option<(bool, (u32, u32))> {
     Some((added, (word(1)?, word(5)?)))
 }
 
+/// `N3Teleport` (`43197d22`): the server moves a dynel. N3.dll's `n3TeleportIIR_t::ReadSubClass` (0x10029e7f) reads, after
+/// the header byte: the destination (3 floats, +0x18), the rotation (a quaternion x y z w, +0x24), a `PlayfieldProxy_t`
+/// (FUN_10038402, +0x34: the version byte `'a'`, the playfield identity, the server id, the group id and an identity: `9c50`
+/// with the playfield's id, or all zero), two more identities (+0x4c, +0x54) and a byte string (an int length, then the bytes,
+/// kept when under 0x3e9: `3f000000 0` before a zoning, the arrival point in a move within the server, the destination again
+/// in a generated mission). `WriteSubClass` (0x10029f1b) writes the same.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Teleport {
+    pub position: [f32; 3],
+    pub rotation: [f32; 4],
+    /// The playfield identity: `c79c` plain, `c79e` instanced, `c79f` generated, `c7a0` the same playfield (all zero ids).
+    pub playfield: (u32, u32),
+    pub server: u32,
+    pub group: u32,
+    /// The proxy's last identity (+0x44): its instance zero means a move inside the playfield (`Activate` tests +0x48).
+    pub proxy: (u32, u32),
+    /// The identities at +0x4c and +0x54 (not understood: the second is `186a1` before most zonings, `186a7` in a mission).
+    pub unknown: [(u32, u32); 2],
+    pub tail: Vec<u8>,
+}
+
+impl Teleport {
+    /// `n3TeleportIIR_t::Activate` (0x10029f87): with the proxy's instance zero the dynel is put at the destination with the
+    /// rotation at once (`UpdateLastAllowedPosition`, `SetRelPosRot`); otherwise, for the client's own character only, the
+    /// playfield is stopped for the zoning that follows (`n3EngineClient_t::StartTeleport`).
+    pub fn within_playfield(&self) -> bool {
+        self.proxy.1 == 0
+    }
+}
+
+/// Reads an `N3Teleport` (`None` for another kind, or for a proxy whose version is not `'a'`, which the original throws on).
+pub fn teleport(m: &Message) -> Option<Teleport> {
+    if m.kind != 0x43197d22 {
+        return None;
+    }
+    let word = |at: usize| m.data.get(at..at + 4).map(|b| u32::from_be_bytes(b.try_into().unwrap()));
+    let f = |at: usize| word(at).map(f32::from_bits);
+    let position = [f(1)?, f(5)?, f(9)?];
+    let rotation = [f(13)?, f(17)?, f(21)?, f(25)?];
+    if *m.data.get(29)? != b'a' {
+        return None;
+    }
+    let length = word(70)? as usize;
+    let tail = if length < 0x3e9 { m.data.get(74..74 + length)?.to_vec() } else { Vec::new() };
+    Some(Teleport { position, rotation, playfield: (word(30)?, word(34)?), server: word(38)?, group: word(42)?, proxy: (word(46)?, word(50)?), unknown: [(word(54)?, word(58)?), (word(62)?, word(66)?)], tail })
+}
+
 /// `CharacterAction` `0x51` (`UseItemOnItem`): one item used on another, a tradeskill combine: the two items' identities (the
 /// 2026-10-31 capture: backpack places `0x56` and `0x43`, two pattern pieces joined).
 pub fn use_item_on_item(character: u32, item: (u32, u32), target: (u32, u32)) -> Frame {
@@ -767,6 +814,21 @@ pub fn market_send(character: u32, credits: i32, items: &[(u32, u32)]) -> Frame 
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn teleports_read_as_the_captures_have_them() {
+        let m = |h: &str| Message { kind: 0x43197d22, identity: (CHARACTER, 0x7b1a0021), data: (0..h.len() / 2).map(|i| u8::from_str_radix(&h[2 * i..2 * i + 2], 16).unwrap()).collect() };
+        // (the 16:55 capture: a move in a generated mission, then a zoning to playfield 0x1bbd)
+        let t = teleport(&m("0042f2dd0843146a3d42af80c40000000000000000000000003f800000610000c7a000000000000000000000000000000000000000000000000000000000000186a7000000000000001042f2dd084314752042af80c400000000")).unwrap();
+        assert_eq!((t.playfield, t.proxy, t.unknown[1], t.tail.len()), ((0xc7a0, 0), (0, 0), (0x186a7, 0), 16));
+        assert!(t.within_playfield());
+        assert!((t.position[0] - 121.43).abs() < 0.01 && (t.position[1] - 148.41).abs() < 0.01 && (t.position[2] - 87.75).abs() < 0.01);
+        assert_eq!(t.rotation, [0.0, 0.0, 0.0, 1.0]);
+        let t = teleport(&m("004560b583424efae1444484de00000000bf0d22f0800000003f559487610000c79c00001bbd000000000000000000009c5000001bbd0000000000000000000186a100011bbd000000083f00000000000000")).unwrap();
+        assert_eq!((t.playfield, t.proxy, t.unknown[1], t.tail.clone()), ((0xc79c, 0x1bbd), (0x9c50, 0x1bbd), (0x186a1, 0x11bbd), vec![0x3f, 0, 0, 0, 0, 0, 0, 0]));
+        assert!(!t.within_playfield());
+        assert!(teleport(&Message { kind: 0x5e477770, ..m("00") }).is_none());
+    }
+
     #[test]
     fn a_pet_command_is_the_captured_shape() {
         let m = Message::parse(&pet_command(0x4bc82, 7)).unwrap();
