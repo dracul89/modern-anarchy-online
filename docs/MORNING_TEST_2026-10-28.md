@@ -222,6 +222,7 @@ Added after the overnight run, on request: audio through rodio, ported from the 
 | b192f41 | **Train and untrain perks**: each perk line in the Perks window has + (train the next rank) and - (untrain the highest); the server's answer updates the ranks, the stats and the perk actions (removed ones leave the Action window) | train a rank with free perk points, untrain it again; watch the Action window |
 | c5f9d17 | **Tradeskill combines**: drag one backpack item onto another to use it on it (pattern pieces, gems into jewellery...); the result arrives and the used-up pieces leave the inventory | combine two pattern pieces, or any tradeskill pair |
 | 1160fdd | **Pet commands**: `/pet attack`, `/pet follow`, `behind`, `wait`, `guard`, `heal`, `report`, `terminate` (all of Gamecode's words) and the control center's Pets menu, which runs them; they go to all your pets, attack at your target | summon pets, target a mob, /pet attack, then /pet follow |
+| (next) | **Trading with players**: right-click/double-click another player (not in a fight) opens a trade (the original's default action on a player); the trade window is the skin's PlayerTrade view: drag items into it, type your credits, Accept confirms, and once the partner has too, "Are you sure you want to complete this trade?" finishes it; the partner's credits and status show. The partner's items are not named yet (the capture's partner put none in) | trade between your two characters: items one way, credits the other |
 
 ## How to run
 

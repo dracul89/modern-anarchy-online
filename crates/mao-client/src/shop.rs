@@ -60,6 +60,14 @@ pub enum Change {
     Removed([u32; 4]),
     /// The trade went through.
     Complete,
+    /// A trade with another player opened (`Trade` action 0 naming them): `TradeView_c` in its player mode.
+    PlayerOpen { partner: u32, name: String },
+    /// The partner's credits (action 7 naming them).
+    PartnerCredits(i64),
+    /// Your side confirmed (action 3 naming you), or the partner's confirmed or accepted (3 or 1 naming them).
+    Confirmed { ours: bool },
+    /// The trade was declined (action 2).
+    Declined,
 }
 
 /// What the window asks the network thread to do.
@@ -75,6 +83,10 @@ pub enum ShopCommand {
     Accept,
     /// Close the shop (`N3Msg_TradeAbort`: a trade decline).
     Close,
+    /// `N3Msg_TradeSetCash`: the credits you put in (a player trade).
+    Credits(i64),
+    /// `N3Msg_TradeConfirm`: a player trade's Accept button (the final accept follows the "Are you sure" dialog).
+    Confirm,
 }
 
 /// A shop's pricing stats: 427 (what it sells at, in percent of the value), 426 (what it buys at) and 156 (its type).
@@ -218,6 +230,17 @@ pub struct ShopWindow {
     /// A stock item's page for the Info window (right-clicked: `itemref://low/high/ql`), until taken.
     pub info_url: Option<String>,
     window: Option<crate::gui::window::XmlWindow>,
+    /// A trade with another player (`TradeView_c`'s mode 0, the skin's `PlayerTrade` view): the partner, the credits they put
+    /// in, whether each side has confirmed, and whether "Are you sure you want to complete this trade?" is up.
+    pub partner: Option<u32>,
+    pub partner_credits: i64,
+    pub confirmed: (bool, bool),
+    asking: bool,
+    /// The view the window was built from (`ShopTrade` or `PlayerTrade`).
+    view: &'static str,
+    /// The credits last sent, and a confirm waiting for the frame after them.
+    credits_sent: i64,
+    pending_confirm: bool,
 }
 
 /// The docks' heights (the item lists GUI.dll puts in them size them; here they are fixed).
@@ -227,6 +250,7 @@ const ROW: f32 = 26.0;
 
 impl ShopWindow {
     pub fn set(&mut self, state: ShopState) {
+        self.partner = None;
         self.shop = state.shop;
         self.name = state.name;
         self.stock = state.stock;
@@ -250,14 +274,41 @@ impl ShopWindow {
                 self.bought.clear();
                 self.sold.clear();
                 self.status = "Trade complete.".into();
+                // (a player trade's window closes when it goes through)
+                if self.partner.take().is_some() {
+                    self.open = false;
+                    self.asking = false;
+                }
+            }
+            Change::PlayerOpen { partner, name } => {
+                *self = ShopWindow { partner: Some(partner), name, open: true, window: self.window.take(), view: self.view, ..Default::default() };
+            }
+            Change::PartnerCredits(credits) => self.partner_credits = credits,
+            Change::Confirmed { ours } => {
+                if ours {
+                    self.confirmed.0 = true;
+                } else {
+                    self.confirmed.1 = true;
+                }
+                // (both sides done: FUN_100e0f5b's "TradeDoubleConfirmDlg")
+                self.asking = self.confirmed.0 && self.confirmed.1;
+            }
+            Change::Declined => {
+                if self.partner.take().is_some() {
+                    self.open = false;
+                    self.asking = false;
+                }
             }
         }
     }
 
-    /// FUN_100e1074 and the docks: `ShopTrade` of the skin's `TradeGUI.xml`, the docks and the fields given room.
+    /// FUN_100e1074 and the docks: `ShopTrade` (or, trading with a player, `PlayerTrade`) of the skin's `TradeGUI.xml`, the
+    /// docks and the fields given room.
     fn load(&mut self, ctx: &egui::Context) {
+        let view = if self.partner.is_some() { "PlayerTrade" } else { "ShopTrade" };
+        self.view = view;
         let dirs: Vec<std::path::PathBuf> = crate::skin::skin(ctx).map(|s| s.dirs().into_iter().map(|d| d.to_path_buf()).collect()).unwrap_or_default();
-        let Some((mut tree, root)) = crate::gui::load_view(&dirs, "TradeGUI.xml", "ShopTrade") else { return };
+        let Some((mut tree, root)) = crate::gui::load_view(&dirs, "TradeGUI.xml", view) else { return };
         // (the text measured from the start, so the first layout gives the labels their width)
         tree.measure = crate::gui::font::Measure { ctx: Some(ctx.clone()) };
         for (dock, height) in DOCKS {
@@ -271,13 +322,46 @@ impl ShopWindow {
                 node.min_size = crate::gui::geom::Point::new(node.min_size.x.max(90.0), 16.0);
             }
         }
+        // (the partner's status beside the buttons: GUI.dll fills the dock with a view of its own)
+        if let Some(id) = tree.find(root, "PartnerStatusDock") {
+            tree.get_mut(id).min_size = crate::gui::geom::Point::new(110.0, 16.0);
+        }
         self.window = Some(crate::gui::window::XmlWindow { name: "Shop".into(), title: "Shop".into(), tree, root, open: true, default_size: egui::vec2(360.0, 0.0) });
     }
 
     /// Draws the window; returns what to send, if anything.
     pub fn show(&mut self, ctx: &egui::Context, gear: &mut GearWindow, _items: &[GearItem], palette: &Palette) -> Option<ShopCommand> {
-        if self.window.is_none() {
+        let wanted = if self.partner.is_some() { "PlayerTrade" } else { "ShopTrade" };
+        if self.window.is_none() || self.view != wanted {
             self.load(ctx);
+        }
+        let player = self.partner.is_some();
+        // ("Are you sure you want to complete this trade?": yes accepts, no aborts, FUN_100e0132)
+        let mut answer = None;
+        if self.asking {
+            let mut dialog = true;
+            crate::chrome::window(ctx, palette, "TradeDoubleConfirmDlg", "Trade", &mut dialog, |w| w.resizable(false).anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO), |ui| {
+                ui.label("Are you sure you want to complete this trade?");
+                ui.horizontal(|ui| {
+                    if crate::chrome::button(ui, palette, "Yes", true).clicked() {
+                        answer = Some(true);
+                    }
+                    if crate::chrome::button(ui, palette, "No", true).clicked() {
+                        answer = Some(false);
+                    }
+                });
+            });
+            if !dialog {
+                answer = Some(false);
+            }
+        }
+        if let Some(yes) = answer {
+            self.asking = false;
+            if !yes {
+                self.partner = None;
+                self.open = false;
+            }
+            return Some(if yes { ShopCommand::Accept } else { ShopCommand::Close });
         }
         let mut command = None;
         let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
@@ -290,6 +374,14 @@ impl ShopWindow {
         let tree = &mut w.tree;
         let (stock, bought, sold, selected, info_url) = (&self.stock, &self.bought, &self.sold, &mut self.selected, &mut self.info_url);
         let name = if self.name.is_empty() { format!("Booth {:x}", self.shop.1 & 0xffff) } else { self.name.clone() };
+        let (partner_credits, confirmed) = (self.partner_credits, self.confirmed);
+        // (the partner's credits in their field, `PartnerCashView`, which the player does not type in)
+        if self.partner.is_some()
+            && let Some(id) = tree.find(root, "PartnerCashView")
+            && crate::gui::textinput::text(tree, id) != Some(partner_credits.to_string().as_str())
+        {
+            crate::gui::textinput::set_text(tree, id, &partner_credits.to_string());
+        }
         // (the partner's name in its `ScrollingTextView`, started over only when it changes)
         if let Some(id) = tree.find(root, "PartnerName") {
             if tree.control::<crate::gui::scrolling::ScrollingText>(id).is_some_and(|v| v.text.text != name) {
@@ -306,8 +398,18 @@ impl ShopWindow {
             let tree: &crate::gui::view::Tree = tree;
             let rect_of = |name: &str| tree.find(root, name).map(|id| crate::gui::host::screen_rect(tree, id, origin));
             let font = egui::FontId::proportional(12.0);
-            // (each side's cost in the green GUI.dll gives the cash fields, 0x44dd44)
+            // (each side's cost in the green GUI.dll gives the cash fields, 0x44dd44; with a player, the partner's credits,
+            // and our own field is typed in)
+            if player {
+                if let Some(r) = rect_of("PartnerStatusDock") {
+                    let status = if confirmed.1 { "Partner accepted" } else { "Partner trading" };
+                    ui.painter().text(r.left_center() + egui::vec2(4.0, 0.0), egui::Align2::LEFT_CENTER, status, font.clone(), if confirmed.1 { green } else { text });
+                }
+            }
             for (field, rows) in [("PartnerCashView", bought), ("OurCashView", sold)] {
+                if player {
+                    break;
+                }
                 if let Some(r) = rect_of(field) {
                     ui.painter().rect_stroke(r, 2.0, egui::Stroke::new(1.0, egui::Color32::from_white_alpha(40)), egui::StrokeKind::Inside);
                     ui.painter().text(r.right_center() - egui::vec2(4.0, 0.0), egui::Align2::RIGHT_CENTER, rows.iter().map(|r| r.price).sum::<i64>().to_string(), font.clone(), green);
@@ -382,17 +484,39 @@ impl ShopWindow {
                 command = Some(ShopCommand::Sell(dragged));
             }
         });
+        // (a player trade: the credits typed in, `OurCashView`'s text as a number)
+        let typed = w.tree.find(w.root, "OurCashView").and_then(|id| crate::gui::textinput::text(&w.tree, id)).map(|t| t.chars().filter(char::is_ascii_digit).collect::<String>().parse::<i64>().unwrap_or(0));
         for (id, signal) in std::mem::take(&mut w.tree.signals) {
-            if matches!(signal, crate::gui::host::Signal::Clicked) {
-                match w.tree.get(id).name.as_str() {
-                    "AcceptButton" => command = Some(ShopCommand::Accept),
-                    "DeclineButton" => is_open = false,
-                    _ => {}
+            let name = w.tree.get(id).name.clone();
+            match (signal, name.as_str()) {
+                // (FUN_100e0622: the cash sent, then a player trade confirmed, a shop's accepted)
+                (crate::gui::host::Signal::Clicked, "AcceptButton") if player => {
+                    if let Some(credits) = typed.filter(|&c| c != self.credits_sent) {
+                        self.credits_sent = credits;
+                        command = Some(ShopCommand::Credits(credits));
+                        self.pending_confirm = true;
+                    } else {
+                        command = Some(ShopCommand::Confirm);
+                    }
                 }
+                (crate::gui::host::Signal::Clicked, "AcceptButton") => command = Some(ShopCommand::Accept),
+                (crate::gui::host::Signal::Clicked, "DeclineButton") => is_open = false,
+                (crate::gui::host::Signal::Enter, "OurCashView") if player => {
+                    if let Some(credits) = typed.filter(|&c| c != self.credits_sent) {
+                        self.credits_sent = credits;
+                        command = Some(ShopCommand::Credits(credits));
+                    }
+                }
+                _ => {}
             }
+        }
+        // (the Accept after the credits went: the confirm the next frame)
+        if command.is_none() && std::mem::take(&mut self.pending_confirm) {
+            command = Some(ShopCommand::Confirm);
         }
         if !is_open && self.open {
             self.open = false;
+            self.partner = None;
             command = Some(ShopCommand::Close);
         }
         command
@@ -402,6 +526,22 @@ impl ShopWindow {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The 2026-10-31 15:05 capture's trade with a player: opened, our side confirmed, the partner accepted (the "Are you sure"
+    /// dialog), complete (the window closes).
+    #[test]
+    fn a_player_trade_runs_as_captured() {
+        let mut w = ShopWindow::default();
+        w.apply(Change::PlayerOpen { partner: 0x57d8, name: "Partner".into() });
+        assert!(w.open && w.partner == Some(0x57d8));
+        w.apply(Change::PartnerCredits(500));
+        w.apply(Change::Confirmed { ours: true });
+        assert!(!w.asking);
+        w.apply(Change::Confirmed { ours: false });
+        assert!(w.asking && w.partner_credits == 500);
+        w.apply(Change::Complete);
+        assert!(!w.open && w.partner.is_none() && !w.asking);
+    }
 
     #[test]
     fn prices_follow_the_vending_machine() {

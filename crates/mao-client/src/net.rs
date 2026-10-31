@@ -3845,6 +3845,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         // (the mission journal: the server's whole list when it sends one, and the missions it dropped)
         let (mut pending_mission_log, mut pending_missions_removed): (Option<Vec<crate::missionlog::Mission>>, Vec<(u32, u32)>) = (None, Vec::new());
         let mut shop_booth: Option<(u32, u32)> = None;
+        // (the player a trade is open with)
+        let mut player_trade: Option<u32> = None;
         let (mut shop_rates, mut shop_rows, mut pending_shop_changes) = (crate::shop::Rates { buy: 0, sell: 0, kind: 0 }, Vec::<crate::shop::Row>::new(), Vec::<crate::shop::Change>::new());
         // After a trade completes the server wants the booth used again (as the original does) for the next one.
         let mut shop_reuse: Option<Instant> = None;
@@ -4078,10 +4080,30 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     }
                     // The trade's echoes (to us): an item put in (5) shows in its list, one taken out (6) leaves it, and
                     // action 4 (captured after both a purchase and a sale) is the trade completed.
-                    if let Some(m) = Message::parse(&frame).filter(|m| m.kind == 0x36284f6e && m.identity == (0xc350, own) && m.data.len() >= 22) {
+                    // (a trade with a player: the partner's own echoes come under their identity, as the 2026-10-31 15:05
+                    // capture's last Complete)
+                    if let Some(m) = Message::parse(&frame).filter(|m| m.kind == 0x36284f6e && (m.identity == (0xc350, own) || Some(m.identity.1) == player_trade) && m.data.len() >= 22) {
                         let word = |i: usize| u32::from_be_bytes(m.data[6 + 4 * i..10 + 4 * i].try_into().unwrap());
                         let item = [word(0), word(1), word(2), word(3)];
+                        let naming = |who: u32| item[0] == n3::CHARACTER && item[1] == who;
                         match m.data[5] {
+                            // (Open naming another character: a trade with a player, `N3Msg_TradeStart` or theirs)
+                            0 if item[0] == n3::CHARACTER && item[1] != own && shop_booth.is_none() => {
+                                player_trade = Some(item[1]);
+                                let name = state.names.get(&item[1]).map_or_else(|| format!("Character {:x}", item[1]), |n| n.0.clone());
+                                pending_shop_changes.push(crate::shop::Change::PlayerOpen { partner: item[1], name });
+                            }
+                            7 if player_trade.is_some() && m.identity.1 != own => pending_shop_changes.push(crate::shop::Change::PartnerCredits(word(1) as i64)),
+                            3 if player_trade.is_some() && naming(own) => pending_shop_changes.push(crate::shop::Change::Confirmed { ours: true }),
+                            1 | 3 if player_trade.is_some_and(|p| naming(p)) => pending_shop_changes.push(crate::shop::Change::Confirmed { ours: false }),
+                            2 if player_trade.is_some() => {
+                                player_trade = None;
+                                pending_shop_changes.push(crate::shop::Change::Declined);
+                            }
+                            4 if player_trade.is_some() => {
+                                player_trade = None;
+                                pending_shop_changes.push(crate::shop::Change::Complete);
+                            }
                             5 if item[0] == 0xc75b && item[2] == 0x6f => {
                                 if let Some(row) = shop_rows.get(item[3] as usize) {
                                     pending_shop_changes.push(crate::shop::Change::Bought(crate::shop::Row { item, ..row.clone() }));
@@ -4649,6 +4671,14 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     crate::shop::ShopCommand::Close => {
                         let _ = connection.send(&n3::trade_decline(own));
                         shop_booth = None;
+                        player_trade = None;
+                    }
+                    // (a player trade: `N3Msg_TradeSetCash`, action 7 with the credits second; `N3Msg_TradeConfirm`, action 3)
+                    crate::shop::ShopCommand::Credits(credits) => {
+                        let _ = connection.send(&n3::trade(own, 7, [0, credits.clamp(0, u32::MAX as i64) as u32, 0, 0]));
+                    }
+                    crate::shop::ShopCommand::Confirm => {
+                        let _ = connection.send(&n3::trade(own, 3, [0, 0, 0, 0]));
                     }
                     // As captured: a stock item put in (action 5: the booth, 0x6f, the stock index); the echo lists it.
                     crate::shop::ShopCommand::Buy(index) => match shop_booth {
@@ -4658,7 +4688,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         None => pending_shop_status = Some("No open trade to buy in.".into()),
                     },
                     // As captured: one of your own items put in (action 5: yourself, the inventory page 0x68, the slot).
-                    crate::shop::ShopCommand::Sell(slot) => match shop_booth {
+                    crate::shop::ShopCommand::Sell(slot) => match shop_booth.or(player_trade.map(|p| (n3::CHARACTER, p))) {
                         Some(_) => {
                             let _ = connection.send(&n3::trade(own, 5, [0xc350, own, 0x68, slot]));
                         }
@@ -4851,6 +4881,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     let (kind, id) = state.used(state.types.get(&id).copied().unwrap_or(n3::CHARACTER), id);
                     if kind == n3::CHARACTER && id != own && state.infos.get(&id).is_some_and(|i| !i.is_player()) {
                         let _ = connection.send(&n3::npc_chat_open(own, (kind, id)));
+                    } else if kind == n3::CHARACTER && id != own && state.infos.get(&id).is_some_and(|i| i.is_player()) && !state.fighting.contains_key(&own) {
+                        // (another player: the default action on them is a trade, `N3Msg_DefaultActionOnDynel` ->
+                        // `N3Msg_TradeStart`, an Open naming them; the server echoes it)
+                        let _ = connection.send(&n3::trade(own, 0, [n3::CHARACTER, id, 0, 0]));
                     } else {
                         let _ = connection.send(&n3::use_object(own, uses, (kind, id)));
                     }
@@ -4869,7 +4903,6 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     pending_messages.push(format!("Using {}", state.names.get(&id).map_or("the target", |n| n.0.as_str())));
                 }
             }
-            // A running nano cancelled: asked of the server and taken off the NCU window at once.
             // (`/pet`: a command to all the pets)
             if keys.pet.0 != pet_seen {
                 pet_seen = keys.pet.0;
@@ -4880,6 +4913,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 train_perk_seen = keys.train_perk.0;
                 let _ = connection.send(&n3::train_perk(own, keys.train_perk.1, keys.train_perk.2));
             }
+            // A running nano cancelled: asked of the server and taken off the NCU window at once.
             if keys.cancel.0 != cancel_seen {
                 cancel_seen = keys.cancel.0;
                 let nano = keys.cancel.1;
@@ -4890,12 +4924,12 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 state.mods_dirty = true;
                 pending_messages.push("Nano cancelled".into());
             }
-            // An item destroyed: asked of the server and taken out of the inventory window at once.
             // (a tradeskill combine: the server answers with the result and deletes what it used up)
             if keys.combine.0 != combine_seen {
                 combine_seen = keys.combine.0;
                 let _ = connection.send(&n3::use_item_on_item(own, (0x68, keys.combine.1), (0x68, keys.combine.2)));
             }
+            // An item destroyed: asked of the server and taken out of the inventory window at once.
             if keys.delete.0 != delete_seen {
                 delete_seen = keys.delete.0;
                 let place = keys.delete.1;

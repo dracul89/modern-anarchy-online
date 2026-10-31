@@ -1647,6 +1647,14 @@ fn run(args: &[String]) -> Result<(), String> {
                         }
                         *hud.npc_chat_preview.lock().unwrap() = Some(window);
                     }
+                    // (MAO_UI_PREVIEW=trade: a trade with a player, the partner's credits in and accepted)
+                    if preview.as_deref() == Some("trade") {
+                        let mut window = shop::ShopWindow::default();
+                        window.apply(shop::Change::PlayerOpen { partner: 0x57d8, name: "Humility".into() });
+                        window.apply(shop::Change::PartnerCredits(250_000));
+                        window.apply(shop::Change::Confirmed { ours: false });
+                        *hud.shop_preview.lock().unwrap() = Some(window);
+                    }
                     if preview.as_deref() == Some("shop") {
                         // The captured stock (MAO_CAPTURE=<capture.log>) in the window.
                         if let Some(log) = std::env::var_os("MAO_CAPTURE") {
