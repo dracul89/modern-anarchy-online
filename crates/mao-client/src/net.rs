@@ -1414,6 +1414,15 @@ impl World {
                         crate::ui::start_timer(2, delay as u64 * 10);
                     }
                 },
+                // `StopLogout` (0x7a, case 37, 0x1005e02f: the server's answer when the timed logout is given up): Gamecode raises
+                // interface message 0x2a (FUN_10012b1c), which GUI.dll takes as AFCM 0x20, `FlowControlModule_t::CancelCampMessage`
+                // (0x1002a75a): the logout timer bar is deleted and "Timed logout aborted." told. (The client's own standing up
+                // already did both when it was the one to give up.)
+                0x7a => {
+                    if crate::ui::CAMP.lock().unwrap_or_else(|e| e.into_inner()).take().is_some() {
+                        self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, crate::feedback::gui("TimedLogoutAborted", &[])));
+                    }
+                }
                 0xce => {
                     self.perk_locks.remove(&word(17));
                     self.perk_actions_changed = true;
@@ -7875,6 +7884,21 @@ mod door_tests {
         assert!(w.inventory.is_none());
         w.add(&Message { kind: 0x485e7202, identity: (0xc350, own), data: hex("0000000005") }.frame(1));
         assert!(w.inventory.is_some());
+    }
+
+    /// The 15:05 capture's cancelled logout: the server's `StopLogout` (0x7a) takes the logout bar away and says so.
+    #[test]
+    fn stop_logout_ends_the_logout_bar() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let own = 0x4bc82;
+        let mut w = World { own, ..World::default() };
+        *crate::ui::CAMP.lock().unwrap() = Some(Instant::now());
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("000000007a00000000000000000000000000000000000000000000") }.frame(1));
+        assert!(crate::ui::CAMP.lock().unwrap().is_none());
+        assert_eq!(w.game_lines.len(), 1);
+        // (again, with no bar: nothing more to say)
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("000000007a00000000000000000000000000000000000000000000") }.frame(1));
+        assert_eq!(w.game_lines.len(), 1);
     }
 
     #[test]

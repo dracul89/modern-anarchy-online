@@ -236,6 +236,7 @@ Added after the overnight run, on request: audio through rodio, ported from the 
 | (next) | **Queued perk timer**: using a perk action shows the original's cyan "Special" timer bar at the top left (40, 40) running out over the delay the server queued it for (1 or 2 s) | use a perk action (e.g. from the Perks window or a hotbar) and watch the top-left corner |
 | (next) | **Sneak detection**: after `/sneak` (or the Sneak action) the chat says "You have been detected by X!" for each creature that saw you, as the original does | stand near mobs and use the Sneak action; read the chat |
 | (next) | **Area nanos land**: an area-effect nano (a mob's area attack, an area buff) shows its landing glow on every character it reaches, you included | stand in a group near a mob that casts area nanos, or near a player casting an area buff |
+| (next) | **Server-cancelled logout**: when the server gives up a `/camp` (its StopLogout), the "Logout" bar goes and the chat says "Timed logout aborted." | `/camp`, then stand up (X) or get attacked before the 30 s are up |
 
 ## How to run
 
