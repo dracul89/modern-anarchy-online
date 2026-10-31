@@ -223,6 +223,8 @@ Added after the overnight run, on request: audio through rodio, ported from the 
 | c5f9d17 | **Tradeskill combines**: drag one backpack item onto another to use it on it (pattern pieces, gems into jewellery...); the result arrives and the used-up pieces leave the inventory | combine two pattern pieces, or any tradeskill pair |
 | 1160fdd | **Pet commands**: `/pet attack`, `/pet follow`, `behind`, `wait`, `guard`, `heal`, `report`, `terminate` (all of Gamecode's words) and the control center's Pets menu, which runs them; they go to all your pets, attack at your target | summon pets, target a mob, /pet attack, then /pet follow |
 | ad6dbbe | **Trading with players**: right-click/double-click another player (not in a fight) opens a trade (the original's default action on a player); the trade window is the skin's PlayerTrade view: drag items into it, type your credits, Accept confirms, and once the partner has too, "Are you sure you want to complete this trade?" finishes it; the partner's credits and status show. The partner's items are not named yet (the capture's partner put none in) | trade between your two characters: items one way, credits the other |
+| fc6153d | **Generated mission doors**: a mission's doors (announced by DoorFullUpdate) can be targeted (Ctrl+Tab) and used (E) | take a mission, enter it, Ctrl+Tab to a door and use it |
+| 2c1e20f | **Learning a nano from a crystal**: using a nano crystal puts the nano into the Nano Programs window at once (no relog) | buy a nano crystal you can use, use it, open Nano Programs |
 
 ## How to run
 

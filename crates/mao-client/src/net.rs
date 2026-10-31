@@ -499,6 +499,8 @@ const DOOR_STATUS: u32 = 0x4c7d403b;
 /// `Bank` (`BankMessage`): the bank's items.
 const BANK_MESSAGE: u32 = 0x343c287f;
 const DOOR_TYPE: u32 = 0xc748;
+/// `DoorFullUpdate`: a door announced with its place.
+const DOOR_FULL_UPDATE: u32 = 0x365a5071;
 /// How long a door that was used stays open.
 const DOOR_OPEN: Duration = Duration::from_secs(5);
 /// How close the character comes to a door that opens on approach before it opens (its leaves' reach).
@@ -1246,6 +1248,15 @@ impl World {
                 // `SetNanoDuration`: the nano `(0xcf1b, id)` is on the character (the first parameter) for that long (ms)
                 0x62 if word(9) == 0xcf1b && word(17) == self.own => self.nano_duration(word(13), word(21)),
                 0xa4 => self.special_events.push((word(21), 0.0)),
+                // `UploadNano` (0xcc, after a nano crystal was used): the nano `(0xcf1b, id)` in the parameters is now one of the
+                // character's programs (FUN_1005d61f's case 0x56: FUN_10050100 adds it to the nano holder at +0x1c0, then signal 6
+                // refreshes the lists); the crystal itself goes with the `DeleteItem` (0x70) that follows
+                0xcc if word(1) == 0xcc && word(17) == 0xcf1b => {
+                    if !self.program_ids.contains(&word(21)) {
+                        self.program_ids.push(word(21));
+                        self.programs_changed = true;
+                    }
+                }
                 // `PerkActionInfo` (0xb4): one of the character's perk actions (its item template, number and code)
                 0xb4 => {
                     let code: [u8; 4] = m.data[21..25].try_into().unwrap();
@@ -1539,6 +1550,16 @@ impl World {
             && let Some(open) = door_open(&m.data)
         {
             self.door_status(m.identity.1, open);
+        }
+        // `DoorFullUpdate` (`365a5071`): a door the playfield's table does not have (a generated mission's), announced with its
+        // place. Its `DoorFullUpdateIIR_t` (read by FUN_1009ff81 after the `SimpleItemFullUpdateIIR_t` part, made a dynel by
+        // FUN_1009fff9) starts as a simple item's does: a byte, the version (0x0b), the owner (none: type and instance 0), then
+        // the position and the rotation. The door becomes a usable object there, named as the others are.
+        if m.kind == DOOR_FULL_UPDATE && m.identity.0 == DOOR_TYPE && m.data.len() >= 41 && m.data[1..13] == [0, 0, 0, 0x0b, 0, 0, 0, 0, 0, 0, 0, 0] {
+            let f = |at: usize| f32::from_be_bytes(m.data[at..at + 4].try_into().unwrap());
+            self.objects.insert(m.identity.1, [f(13), f(17), f(21)]);
+            self.names.entry(m.identity.1).or_insert_with(|| ("Door".to_string(), false));
+            self.door_ids.insert(m.identity.1);
         }
         if m.kind == mao_net::destinations::DESTINATION_LIST {
             self.destinations = mao_net::destinations::parse(&m.data);
@@ -7395,6 +7416,37 @@ mod door_tests {
         w.worn.push(inventory::Entry { slot: 0x11, flags: 0, count: 1, container: (0, 0), low_id: 0x4a09b, high_id: 0x4a09c, quality: 2, extra: 0 });
         w.add(&Message { kind: 0x3a223b50, identity: (0xc350, own), data: hex("00000000110004a09b0004a09c00000003000000000004a09b0004a09c0000000300000000") }.frame(1));
         assert_eq!(w.worn.iter().find(|e| e.slot == 0x11).map(|e| e.quality), Some(3));
+    }
+
+    /// The Arete Landing capture's nano crystals: each use is answered by `CharacterAction` 0xcc naming the nano, which joins
+    /// the programs once.
+    #[test]
+    fn an_uploaded_nano_joins_the_programs() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let own = 0x7b1a0021;
+        let mut w = World { own, program_ids: vec![0x461f6], ..World::default() };
+        let upload = Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("00000000cc000000000000c3507b1a00210000cf1b0000a96a0000") }.frame(1);
+        w.add(&upload);
+        assert_eq!(w.program_ids, vec![0x461f6, 0xa96a]);
+        assert!(w.programs_changed);
+        w.programs_changed = false;
+        w.add(&upload);
+        assert_eq!(w.program_ids.len(), 2, "an uploaded nano is listed once");
+        assert!(!w.programs_changed);
+    }
+
+    /// The Arete Landing capture's generated ship (playfield 0x20da1b): its second door's `DoorFullUpdate` puts a usable door at
+    /// (30, 21.4, 205), where the test `the_ship_rooms_meet_at_the_servers_doors` has it.
+    #[test]
+    fn a_generated_missions_doors_are_usable() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let mut w = World { own: 0x7b1a0021, ..World::default() };
+        let door = 0x10c32dc2;
+        w.add(&Message { kind: DOOR_FULL_UPDATE, identity: (DOOR_TYPE, door), data: hex("000000000b000000000000000041f0020d41ab31c4434d0000000000003f3504f1000000003f3504f50020da1b000f424f00000001006f00002f4c00000000c0081403000000170003de4d000002bd00000000000002be00000000000002bf000000000000019c00000001000000fc00000000000000c000000000000000c100000000000000c3000000000000010300000000000000000000000200000032000003f10000000200010000") }.frame(1));
+        let at = w.objects.get(&door).copied().expect("the door is a usable object");
+        assert!((at[0] - 30.0).abs() < 0.01 && (at[1] - 21.4).abs() < 0.01 && (at[2] - 205.0).abs() < 0.01, "{at:?}");
+        assert_eq!(w.names.get(&door).map(|n| n.0.as_str()), Some("Door"));
+        assert_eq!(w.types.get(&door), Some(&DOOR_TYPE));
     }
 
     /// The Arete Landing capture's team: the invitation from Nihiltech (0x7b1a0022), both members, a health update, then
