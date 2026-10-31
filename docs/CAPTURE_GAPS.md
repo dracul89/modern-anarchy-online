@@ -15,7 +15,7 @@ parameter 2, a short (offsets 0, 1, 5, 9/13, 17, 21, 25). Message bodies start w
 
 | # | kind / name | what it is | count | layout | Gamecode | proposed port |
 |---|---|---|---|---|---|---|
-| 1 | `4d450114` SpellList | a spell list run on a character: NPC AI event loops, duel buffs, environment effects ("Effect of Inferno Environment"), item effects | 3858 / 171 / 99 | byte; list (`x3f1`) of (type, id) spell lists (`cf3b` AI loop, `cf82`, `cf0a`, `cf26`, `cf4a`, `cf70`); caster identity; target identity; byte; string (the list's name); byte flag (then an identity); byte; int | `SpellListIIR_t`: read FUN_100aabcb, apply FUN_100aae0e (the `Beholder_t`'s +0x30 runs the list) | run the client-side spells of each list (animations, effects, sounds) through the FXS/effect code; the database type of each list id is its identity type |
+| 1 | `4d450114` SpellList | a spell list run on a character: NPC AI event loops, duel buffs, environment effects ("Effect of Inferno Environment"), item effects | 3858 / 171 / 99 | byte; list (`x3f1`) of whole spells (`SpellData_t`, big-endian: type, instance, version, criteria, values); caster identity; target identity; byte (ending); short-length string (the list's name); byte flag (then the source nano/item identity, `cf1b`); byte; int | `SpellListIIR_t`: read FUN_100aabcb (spells FUN_100a71ae), apply FUN_100aae0e → `Beholder_t` +0x30 FUN_100026d0 → FUN_100a5f4b per spell | **ported** (`spelllist.rs`): effects of 0xcf26/0xcfd4 spells drawn on the character with their sounds. Most lists (0xcf3b "Cast nano") are empty on the client. Still to do: see section 1 |
 | 2 | `43197d22` N3Teleport | the server moves a character: before every zoning, and in a generated mission (identity type `0xc7a0`) a move inside the playfield with no playfield message | 111 / 16 / 16 (own: 24 / 9 / 14) | byte; destination (3 floats); rotation (4 floats); byte (`0x61`); playfield identity (type `c79c` plain, `c79e` instanced, `c79f` generated, `c7a0` the same playfield); server id; group id; `9c50` identity; 2 ints; a second playfield identity; a tail length byte-int (8, 0x0c or 0x10) and that many bytes (`3f000000 0`, or the destination again) | N3.dll `n3TeleportIIR_t::Activate` (vtable 0x1003e68c) | own, `c7a0`: put the character at the destination with the rotation at once (today only the "server put us back" check catches it, without the heading); own, another playfield: start the loading fade then; others: drop the path, they vanish (a `Despawn` follows) |
 | 3 | `CharacterAction` 0xdf / 0xe0 / 0xe1 / 0xe3 / 0xe4 (with the client's 0xdc / 0xdd / 0xde) | the tradeskill window: source and target accepted, "not a valid combination", the skill requirements, the result's template | 6 / 12 / 2 / 6 / 4 (16:55) | 0xdf, 0xe0: parameter 2 a slot or count; 0xe3: parameter 1 the skill, parameter 2 the value needed (`a0`/`a5`: 0x19, 0x3c); 0xe4: target `(1, template)`, parameter 1/2 `(1, template)` | FUN_1005d61f cases 92..97 (0x1005f1a1, 0x1005f1b8, 0x1005f1cf, 0x1005f1f7, 0x1005f212) | a Tradeskill window (`TradeskillView`): the client sends 0xdc/0xdd with the dragged items and 0xde to build; show the requirement lines from 0xe3 and the result from 0xe4. Today items are only combined by dropping one on the other (0x51) |
 | 4 | `194e4f76` AddPet, `58742a0f` RemovePet, `0d381f02` PetToMaster | the character's pets: which creatures are one's own, and their reports | 0 / 3 / 28, 0 / 1 / 2, 0 / 0 / 4 | AddPet / RemovePet: byte, the pet's identity. PetToMaster: byte, the pet's identity, a command (1: with a value, 2: without), the value (`0x0a`), an identity | `AddPetIIR_c` read FUN_10071972, apply FUN_100719a7 (FUN_1005299c adds the pet); `RemovePetIIR_c` FUN_10076dc0 / FUN_10076df5; `PetToMasterIIR_c` FUN_10076917 / FUN_1007699d (signal FUN_10011fa1) | a pet list in `World` (add/remove by these); the Pets window and friendly colouring of one's pets; `/pet` already sends commands |
@@ -44,20 +44,34 @@ client already shows characters by their full updates).
 
 ## The gaps
 
-### 1. SpellList (`4d450114`)
+### 1. SpellList (`4d450114`) — ported
 
-The most frequent unhandled message. Its `SpellListIIR_t` reads (FUN_100aabcb): a spell-list holder (FUN_100a71ae: an
-`x3f1`-counted list of identities: `0x7e2` is one, `0xbd3` two, `0xfc4` three), the caster identity (+0x1c), the target
-identity (+0x28), a flag (+0x24), the list's name (+0x30, a length-prefixed string), a flag and, when set, an identity
-(+0x54), a flag (+0x4d), an int (+0x50). The apply (FUN_100aae0e) finds the `Beholder_t` of the identity and calls its
-+0x30 with all of it: the client runs the spells of the list. The 16:55 capture's lists: "Event Loop Cedric Harding"
-(1612, an NPC's ambient loop, `cf3b` 0x48329), "Duel Win Buff" / "Duel Loss Buff" (721 / 715, `cf82`), "Arete Landing"
-(123), the AI lists of the Inferno and mission mobs ("Tome_AI-spawnWait for attack", "...During Fight"), "Effect of Inferno
-Environment" on oneself (101), "EMP Rocket Detonation". A player would miss the NPCs' scripted animations, the
-environment's effects and some item and buff effects.
+Read by `SpellListIIR_t` (FUN_100aabcb): a byte; the spells (FUN_100a71ae: an `x3f1` count, then each a whole `SpellData_t`
+as `GameData::operator>>` reads it, the database's spell format in big-endian order: `mao_formats::spell::read_network`);
+the caster (+0x1c, zero for the effect lists); the target (+0x28); a byte, the list is ending (+0x24, each run's bit 0); the
+list's name (a short length, +0x30); a flag and the source nano or item (`cf1b`, +0x54); a flag (+0x4d); an int (+0x50, 0 in
+all captures). The apply (FUN_100aae0e) calls the character's `Beholder_t` +0x30, FUN_100026d0, which runs each spell with one
+hit and no delay at once through FUN_100a5f4b (the spell types' jump table at 0x100a6cb6) on the character (target stat 0x20
+other than 3, 0xe, 0x17).
 
-Port: decode with the layout above (`mao-net`), look up each list id in the database by its type and run its client-side
-spells (the `fxs` and effect code already plays nano effects for `CastNanoSpell`).
+All 4128 captured messages read whole. By spell type: 0xcf3b "Cast nano" 2059 (the NPC event loops, "Arete Landing",
+"Effect of Inferno Environment", the AI lists), 0xcf82 + 0xcf56 1436 (the duel buffs), 0xcf26 573, 0xcf0a 81, 0xcf22 36,
+others under 12. What the client does with them (FUN_100a5f4b):
+
+- **0xcf3b**: FUN_100a7814 is empty: the commonest lists show nothing on the client (the server casts the nano itself).
+- **0xcf26** (FUN_100a55d9): the effect of stat 39 made on the character (`CreateEffect2`), for stat 49 hundredths when set.
+  Ported: the 16:55 capture's Malfunctioning Cleaning Robots at Arete Landing get 0xa8e3 (a flare, the fire seen burning on
+  them in the screenshots) and 0xa871 (a star burst at the pelvis); also 0xa9a1 and 0xa8e0 once each. A flare burns where the
+  character stood (it does not follow it); other effects run on the character with its programs' effects (`BuffsFX`).
+- **0xcfd4** (FUN_100a9159): the same effect, ported without its colours, scale and repetitions; the only captured ones
+  (Shadowland Anvian smoke and sparks) carry criteria, which are not evaluated (FUN_100065d8), so they are left out.
+- **0xcf0a, 0xcf56, 0xcf4a, 0xcf70, 0xcf1b, 0xd003**: nothing on the client.
+
+Still to do: an ending list (+0x24 set) deletes the effect whose handle the spell keeps in stat 0x42, which a spell fresh
+from the message never has (none ends an effect in the captures); the queued runs (several hits or a delay, FUN_10002595);
+the criteria; 0xcf82 "Stun" (FUN_100a879c: state flags 6 / 0x400, the duel buffs' begin and end), 0xcf22 (FUN_100a4f8a: a
+stat set, 689 on pets, 359 `MonsterData` on two NPCs), 0xcf92 (FUN_100a8107: a vehicle's animations), 0xcf4c, 0xcf44,
+0xcf7d (feedback lines), 0xcf35.
 
 ### 2. N3Teleport (`43197d22`)
 
