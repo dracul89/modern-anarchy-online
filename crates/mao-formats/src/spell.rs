@@ -81,7 +81,17 @@ const COMMON: [i32; 4] = [3, 4, 0x20, 0x23];
 
 /// A spell at `at` (`SpellFormats_c::ReadBinary`), and where it ends.
 pub fn read(data: &[u8], at: usize) -> Option<(Spell, usize)> {
-    let word = |o: usize| data.get(o..o + 4).map(|b| u32::from_le_bytes(b.try_into().unwrap()));
+    read_order(data, at, false)
+}
+
+/// A spell as the server sends it in a message (`GameData::operator>>` on a `SpellData_t`, as `SpellListIIR_t`'s FUN_100a71ae
+/// reads each): the same values in the stream's big-endian order.
+pub fn read_network(data: &[u8], at: usize) -> Option<(Spell, usize)> {
+    read_order(data, at, true)
+}
+
+fn read_order(data: &[u8], at: usize, big_endian: bool) -> Option<(Spell, usize)> {
+    let word = |o: usize| data.get(o..o + 4).map(|b| if big_endian { u32::from_be_bytes(b.try_into().unwrap()) } else { u32::from_le_bytes(b.try_into().unwrap()) });
     let (kind, instance, version, count) = (word(at)?, word(at + 4)?, word(at + 8)?, word(at + 12)? as usize);
     let texture = kind == 0xcf2f;
     let args = if texture { &[][..] } else { format(kind)? };

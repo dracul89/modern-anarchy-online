@@ -44,6 +44,7 @@ mod ambience;
 mod music;
 mod sounds;
 mod hazards;
+mod spelllist;
 mod lightning;
 mod liquid;
 mod voices;

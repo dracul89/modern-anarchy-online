@@ -322,6 +322,12 @@ struct World {
     hazard_sounds: Vec<(u32, [f32; 3])>,
     /// Effects to make at a place (`CreateEffect2` at a dynel): (template, where), for the viewer.
     placed_effects: Vec<(i32, [f32; 3])>,
+    /// The effects the server's spell lists made on characters (`SpellListIIR_t`, `spelllist`), not yet started: (character,
+    /// effect template, seconds when the spell sets them).
+    spell_effects_made: Vec<(u32, i32, Option<f32>)>,
+    /// The spell lists' effects running on each character, drawn as its running programs' are: effect template → (when it began,
+    /// its seconds). One without seconds runs until the character goes, as the original's stays until the list ends it.
+    spell_effects: BTreeMap<u32, BTreeMap<i32, (Instant, Option<f32>)>>,
     /// The lightning's strikes heard (where, seed) and the eye's jolts, for the viewer.
     strikes: Vec<([f32; 3], u32)>,
     jolts: Vec<f32>,
@@ -1001,6 +1007,7 @@ impl World {
                     self.entities.remove(&body);
                 }
             } else if !self.dead.contains_key(&id) {
+                self.spell_effects.remove(&id);
                 self.entities.remove(&id);
                 self.paths.remove(&id);
                 self.fighting.remove(&id);
@@ -1016,6 +1023,16 @@ impl World {
             crate::sounds::SCRIPT_IIR => {
                 if let Some(iir) = crate::sounds::ScriptIir::parse(&m.data) {
                     self.script_events.push(iir);
+                }
+            }
+            // (a spell list run on the character: FUN_100aabcb reads it, FUN_100aae0e → FUN_100026d0 runs its spells)
+            crate::spelllist::SPELL_LIST => {
+                if let Some(list) = crate::spelllist::SpellList::parse(&m.data) {
+                    for outcome in crate::spelllist::run(&list) {
+                        match outcome {
+                            crate::spelllist::Outcome::Effect { effect, seconds } => self.spell_effects_made.push((m.identity.1, effect, seconds)),
+                        }
+                    }
                 }
             }
             crate::hazards::ACTION => {
@@ -5681,6 +5698,25 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 state.morphs.retain(|who, _| *who == own || state.morphed_until.contains_key(who));
                 // (the deformer hits run their course: the control ends at its duration)
                 state.deforms.retain(|_, (d, at)| d.duration <= 0.0 || at.elapsed().as_secs_f32() < d.duration);
+                // The spell lists' effects (`spelllist`): each made on its character with its sound controls; a flare (kind 1005,
+                // `_GfxControlFlare_t`) burns where the character stood, as the mines' blasts do, any other runs on the character
+                // with its running programs. The same effect made again starts again.
+                for (who, effect, seconds) in std::mem::take(&mut state.spell_effects_made) {
+                    let Some(g) = gfx.as_ref() else { continue };
+                    let Some(p) = (if who == own { Some(position) } else { state.position_of(who) }) else { continue };
+                    for s in crate::sounds::effect_sounds(g, effect) {
+                        crate::audio::with(|m| m.play_sound_command(s.id, p, s.velocity, s.volume, s.range, s.delay, s.defer, s.pitch));
+                    }
+                    if g.get(effect).and_then(mao_formats::gfx::Flare::read).is_some() {
+                        state.placed_effects.push((effect, p));
+                    } else if g.visual(effect).is_some() {
+                        state.spell_effects.entry(who).or_default().insert(effect, (Instant::now(), seconds));
+                    }
+                }
+                state.spell_effects.retain(|_, effects| {
+                    effects.retain(|_, (began, seconds)| seconds.is_none_or(|s| began.elapsed().as_secs_f32() < s));
+                    !effects.is_empty()
+                });
                 let (model, mut casters) = overlay_model(&state, &state.props, &mut characters, &|id| id != own && near(id), true);
                 let (own_model, own_casters) = overlay_model(&state, &state.props, &mut characters, &|id| id == own, false);
                 // The notes the animations went past play their sounds at the characters (FUN_100452d3), on the material
@@ -5920,8 +5956,14 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             let fatness = if id == own { state.stats.get(&47).copied().unwrap_or(1) as i32 } else { 1 };
                             Some((info.breed as i32, info.sex as i32, fatness))
                         };
+                        // (the spell lists' effects on each character, keyed apart from the programs by the top bit)
+                        let spell_visuals = |id: u32| -> Vec<(u32, mao_formats::gfx::Visual)> {
+                            let Some(effects) = state.spell_effects.get(&id) else { return Vec::new() };
+                            effects.keys().filter_map(|&e| Some((0x8000_0000 | e as u32, gfx.as_ref()?.visual(e)?))).collect()
+                        };
                         let mut add = |id: u32, own_character: bool, at: [f32; 3], nanos: Vec<u32>| {
-                            let auras: Vec<(u32, mao_formats::gfx::Visual)> = nanos.into_iter().filter_map(|n| aura_of(n).map(|v| (n, v))).take(6).collect();
+                            let mut auras: Vec<(u32, mao_formats::gfx::Visual)> = nanos.into_iter().filter_map(|n| aura_of(n).map(|v| (n, v))).take(6).collect();
+                            auras.extend(spell_visuals(id));
                             if !auras.is_empty() {
                                 let facing = state.rotations.get(&id).map(|q| 2.0 * q[1].atan2(q[3])).unwrap_or(0.0);
                                 list.push((id, own_character, [at[0], at[2], at[1]], facing, body(id), auras));
@@ -5931,6 +5973,11 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         for (id, nanos) in &state.active_buffs {
                             if let Some((p, _)) = state.entities.get(id).filter(|_| *id != own) {
                                 add(*id, false, *p, nanos.keys().copied().collect());
+                            }
+                        }
+                        for id in state.spell_effects.keys().filter(|id| **id != own && !state.active_buffs.contains_key(id)) {
+                            if let Some((p, _)) = state.entities.get(id) {
+                                add(*id, false, *p, Vec::new());
                             }
                         }
                         list
@@ -7510,6 +7557,19 @@ mod door_tests {
         assert!((at[0] - 30.0).abs() < 0.01 && (at[1] - 21.4).abs() < 0.01 && (at[2] - 205.0).abs() < 0.01, "{at:?}");
         assert_eq!(w.names.get(&door).map(|n| n.0.as_str()), Some("Door"));
         assert_eq!(w.types.get(&door), Some(&DOOR_TYPE));
+    }
+
+    /// The 16:55 capture's Malfunctioning Cleaning Robot: its two `SpellList`s make their effects on it; Cedric Harding's
+    /// event loop (a nano cast) makes none.
+    #[test]
+    fn a_spell_list_makes_its_effects() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let mut w = World { own: 0x7b1a0021, ..World::default() };
+        w.add(&Message { kind: crate::spelllist::SPELL_LIST, identity: (0xc350, 0x7b1a6433), data: hex("00000007e20000cf3b00048329000000040000000000000001000000000000000200000009000483290000c3507b1a64330000c3507b1a64330000194576656e74204c6f6f70204365647269632048617264696e67010000cf1b000483290000000000") }.frame(1));
+        assert!(w.spell_effects_made.is_empty());
+        w.add(&Message { kind: crate::spelllist::SPELL_LIST, identity: (0xc350, 0x7b1a6629), data: hex("00000007e20000cf2644fb183e0000000400000000000000010000000000000000000000000000a8e300000000000000000000000000000000000000000000000000000000000000000000c3507b1a6629000000000000000000") }.frame(1));
+        w.add(&Message { kind: crate::spelllist::SPELL_LIST, identity: (0xc350, 0x7b1a6629), data: hex("00000007e20000cf2644fb183f0000000400000000000000010000000000000000000000000000a87100000000000000000000000000000000000000000000000000000000000000000000c3507b1a6629000000000000000000") }.frame(1));
+        assert_eq!(w.spell_effects_made, vec![(0x7b1a6629, 0xa8e3, None), (0x7b1a6629, 0xa871, None)]);
     }
 
     /// The Arete Landing capture's team: the invitation from Nihiltech (0x7b1a0022), both members, a health update, then
