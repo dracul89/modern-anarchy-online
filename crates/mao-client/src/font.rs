@@ -222,6 +222,9 @@ pub fn text(ctx: &egui::Context, painter: &egui::Painter, pos: egui::Pos2, text:
 /// The original's TrueType interface font at `size` points: `FontSystem_t`'s fonts 4 to 11 are Verdana at 12 to 24 points (the
 /// table at GUI.dll 0x10272df0; font 5, Verdana 13, is the tabs'), read from the system's fonts folder the first time it is
 /// asked for. egui's proportional font until it is in (the frame after) or when the system has none.
+///
+/// Off Windows Verdana is where macOS keeps it or where Linux's Microsoft core fonts package puts it (its file name's case
+/// differs between distributions).
 pub fn verdana(ctx: &egui::Context, size: f32) -> egui::FontId {
     static TRIED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
     let family = egui::FontFamily::Name("verdana".into());
@@ -229,13 +232,26 @@ pub fn verdana(ctx: &egui::Context, size: f32) -> egui::FontId {
         return egui::FontId::new(size, family);
     }
     if !TRIED.swap(true, std::sync::atomic::Ordering::Relaxed) {
-        let dir = std::env::var("WINDIR").map(|w| std::path::PathBuf::from(w).join("Fonts")).unwrap_or_else(|_| std::path::PathBuf::from("C:/Windows/Fonts"));
-        if let Ok(bytes) = std::fs::read(dir.join("verdana.ttf")) {
+        if let Some(bytes) = verdana_files().into_iter().find_map(|p| std::fs::read(p).ok()) {
             let insert = egui::epaint::text::InsertFontFamily { family, priority: egui::epaint::text::FontPriority::Highest };
             ctx.add_font(egui::epaint::text::FontInsert::new("verdana", egui::FontData::from_owned(bytes), vec![insert]));
         }
     }
     egui::FontId::proportional(size)
+}
+
+/// Where the system's Verdana may be, the likeliest first.
+fn verdana_files() -> Vec<std::path::PathBuf> {
+    use std::path::PathBuf;
+    if cfg!(windows) {
+        let dir = std::env::var("WINDIR").map(|w| PathBuf::from(w).join("Fonts")).unwrap_or_else(|_| PathBuf::from("C:/Windows/Fonts"));
+        return vec![dir.join("verdana.ttf")];
+    }
+    let mut dirs: Vec<PathBuf> = ["/System/Library/Fonts/Supplemental", "/Library/Fonts", "/usr/share/fonts/truetype/msttcorefonts", "/usr/share/fonts/msttcore", "/usr/share/fonts/msttcorefonts", "/usr/share/fonts/TTF", "/usr/share/fonts/truetype", "/usr/local/share/fonts"].iter().map(PathBuf::from).collect();
+    if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
+        dirs.extend([home.join("Library/Fonts"), home.join(".local/share/fonts"), home.join(".fonts")]);
+    }
+    dirs.iter().flat_map(|d| [d.join("Verdana.ttf"), d.join("verdana.ttf")]).collect()
 }
 
 pub fn drop_cache(d: &mut egui::util::IdTypeMap) {

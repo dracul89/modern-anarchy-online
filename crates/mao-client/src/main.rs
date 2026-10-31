@@ -57,6 +57,8 @@ mod layout;
 mod loot;
 mod nanoprograms;
 mod perks;
+// (the web page itself is WebView2, Windows only: elsewhere the window says so and the page's helpers go unused)
+#[cfg_attr(not(windows), allow(dead_code))]
 mod browser;
 mod marketsend;
 mod prefs;

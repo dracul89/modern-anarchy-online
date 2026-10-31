@@ -182,6 +182,12 @@ impl Browser {
             let size = ui.available_size().max(egui::vec2(200.0, 150.0));
             let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
             area = Some(rect);
+            // (the page is WebView2's, which only Windows has: elsewhere the room says so, with the address to open by hand,
+            // though a browser outside the game won't send the site the game's headers)
+            #[cfg(not(windows))]
+            ui.put(rect, egui::Label::new(format!("The in-game web pages need the Windows web view (WebView2), which this system doesn't have.
+
+The page was {}", mode.home())).wrap());
         });
         self.open = open;
         self.area = area.filter(|_| open);
