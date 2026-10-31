@@ -66,7 +66,7 @@ moves, set-stat) this client already sends.
 1. ~~Zoning by `0x1b` with the kept key~~: the live client already did (`hop_direct`, a new login only as the fallback); the headless `walk` now does too.
 2. Instance doors from `DoorFullUpdate` (places and rotations; open/close by `DoorStatusUpdate`).
 3. ~~Item messages~~: done (`add_to_backpack`; test `items_come_into_the_backpack` on the captured bytes).
-4. Skill raising (`Skill`, both ways) in the skills window.
+4. ~~Skill raising~~: done (Skills window +/-, Accept; `n3::raise_skills`, test on the captured bytes). The values sent are the new trained values (Strength 15 -> 18 sent as 18); the reply adds stat 53, IP left. The IP cost tables (`N3Msg_GetSkillCost`, FUN_10062521: breed table `0xd6e2` x value for abilities, profession table `0xd6df` x value / a constant for skills) are not in the resource database, so the window does not price a raise.
 5. Nano effects running (`4d450114`) for the buff display.
 6. The unknown ones, against the screenshots at their times.
 7. Check character creation against `0x0f`.

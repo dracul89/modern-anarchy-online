@@ -328,6 +328,19 @@ pub fn take_from_container(character: u32, handle: u32, place: u32) -> Frame {
     Message { kind: 0x5469373f, identity: (CHARACTER, character), data }.frame(character)
 }
 
+/// `Skill` (`3e205660`): raise skills with IP, each skill with its new trained value (the Arete Landing capture: the six
+/// abilities from 15, 6, 10, 3, 3, 3 to 18, 9, 13, 6, 6, 6 as `00 | 00000006 | 00000010 00000012 | ...`). The server answers
+/// with the same pairs and the IP left (stat 53).
+pub fn raise_skills(character: u32, raises: &[(u32, u32)]) -> Frame {
+    let mut data = vec![0u8];
+    data.extend_from_slice(&(raises.len() as u32).to_be_bytes());
+    for &(stat, value) in raises {
+        data.extend_from_slice(&stat.to_be_bytes());
+        data.extend_from_slice(&value.to_be_bytes());
+    }
+    Message { kind: 0x3e205660, identity: (CHARACTER, character), data }.frame(character)
+}
+
 /// `52526858`: use something (a door, a terminal, an item; talk to an NPC): action 3 on the
 /// target's identity. `sequence` counts the character's uses from 1 (as the original's capture
 /// shows); the server echoes the message back with the first byte 0.
@@ -705,6 +718,13 @@ mod tests {
         assert_eq!(runs[5], (0xc73d, 0x36, 2, 0x58c197d5));
         assert_eq!(runs[7], (0xc73d, 0x3b, 1, 0x58c197d7));
         assert_eq!(m.arrival().map(|a| a.0), Some(0x4a2));
+    }
+
+    #[test]
+    fn skill_raise_matches_the_capture() {
+        let frame = raise_skills(0x7b1a0021, &[(16, 18), (17, 9), (18, 13), (19, 6), (20, 6), (21, 6)]);
+        let hex: String = Message::parse(&frame).unwrap().data.iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(hex, "000000000600000010000000120000001100000009000000120000000d000000130000000600000014000000060000001500000006");
     }
 
     #[test]

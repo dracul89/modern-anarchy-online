@@ -472,6 +472,8 @@ const OBJECT_ANNOUNCE: u32 = 0x4f474e05;
 /// `InventoryUpdate` (a container's contents), `ContainerAddItem` (an item moved) and the despawn of an object.
 const INVENTORY_UPDATE: u32 = 0x4e536976;
 const CONTAINER_ADD_ITEM: u32 = 0x47537a24;
+/// `Skill`: skills raised with IP (both ways).
+const SKILL: u32 = 0x3e205660;
 /// `AddTemplate`: an item added to the inventory.
 const ADD_TEMPLATE: u32 = 0x052e2f0c;
 /// `TemplateAction`: an item template named to a place (into the overflow window: the next item to come in).
@@ -1346,6 +1348,13 @@ impl World {
         // Items that come to the inventory: `AddTemplate` (`052e2f0c`: bought in a shop, a reward) at once, and a
         // `TemplateAction` (`35505644`) into the overflow window, kept until its `ContainerAddItem` (aosharp's
         // `OnAddTemplateMessage` / `OnTemplateMessage`; the Arete Landing capture).
+        // `Skill` (`3e205660`) from the server: the raised skills' new values and the IP left.
+        if m.kind == SKILL && m.identity.1 == self.own {
+            if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
+                self.read_stats(p.value.get("Skills"));
+                self.stats_changed = true;
+            }
+        }
         if m.identity.1 == self.own && (m.kind == ADD_TEMPLATE || m.kind == TEMPLATE_ACTION) {
             if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
                 let int = |f: &str| p.value.get(f).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
@@ -4104,6 +4113,12 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 goto = None;
             }
             // Vicinity speech: a text message to the server, at the current target (a character's; none for an object or nobody).
+            // Skills raised in the Skills window.
+            for raises in crate::skills::take_raises() {
+                if !raises.is_empty() {
+                    let _ = connection.send(&n3::raise_skills(own, &raises));
+                }
+            }
             for (kind, text, record) in std::mem::take(&mut *SPEECH.lock().unwrap_or_else(|e| e.into_inner())) {
                 let object = match kind {
                     1 => 2,
