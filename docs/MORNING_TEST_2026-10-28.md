@@ -207,6 +207,7 @@ Added after the overnight run, on request: audio through rodio, ported from the 
 | 222600e | **NCU window as the original's**: titled "NCU (used/max)", the running nanos as small 39x23 icons on the slot pictures, shortest time left first, each icon greying from the right as its time runs out; click one for its info page, right click to cancel it | press N with buffs running; watch an icon fade; click one |
 | 7c81cca | **Nano window as the original's**: school buttons Misc / Combat / Medical / Prot / Psi / Space over a grid of 31-pixel nano icons for that school. A click casts (as before), right click opens the nano's info page, drag onto a hotbar still works | open the nano window, switch schools, click a buff to cast it |
 | df0b071 | **Actions window as the original's**: one grid of special-action icons (no tabs); click performs, drag onto a hotbar. Social actions and dances are in the control center's Social menu, as in the original | open Actions; click Use/Sneak; drag one to a hotbar; use a dance from the Social menu |
+| (next) | **Drag from the bank or a corpse into the inventory**: an item dragged out of a container's grid follows the pointer and, let go over the inventory window, is taken (as a right click) | open the bank; drag an item onto the inventory window |
 
 ## How to run
 

@@ -46,6 +46,8 @@ pub struct LootWindow {
     views: Option<(Tree, Id, Id, (u32, u32))>,
     /// The items last put in the grid (their places, counts and icons).
     shown: Vec<(u32, u16, Option<u32>)>,
+    /// The place of the item being dragged out of the grid.
+    dragging: Option<u32>,
 }
 
 /// The most items a container's grid shows slots for (`ItemContainerView_c` FUN_100ce55d: `SetMaxItemCount` 102 for the bank,
@@ -166,10 +168,27 @@ impl LootWindow {
                         take = Some(Take::One { handle: view.handle, place: slot as u32 });
                     }
                 }
-                crate::gui::multilist::ItemEvent::Dragged(_) => {}
+                // (dragged out: let go over the inventory, it is taken)
+                crate::gui::multilist::ItemEvent::Dragged(slot) => self.dragging = Some(slot as u32),
             }
         }
         tree.signals.clear();
+        // (the item being dragged follows the pointer; let go over the inventory window, it is taken into the backpack)
+        if let Some(place) = self.dragging {
+            let pointer = ctx.input(|i| i.pointer.hover_pos());
+            if let (Some(at), Some(icon)) = (pointer, view.items.iter().find(|i| i.slot == place).and_then(|i| i.icon.as_ref()).and_then(|icon| self.textures.get(&icon.id))) {
+                ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::unique("dragged-loot"))).image(icon.id(), egui::Rect::from_center_size(at, egui::vec2(40.0, 40.0)), egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)), egui::Color32::from_white_alpha(200));
+            }
+            if ctx.input(|i| i.pointer.any_released()) {
+                self.dragging = None;
+                let inventory = ctx.memory(|m| m.area_rect(egui::Id::unique("Inventory")));
+                if let (Some(at), Some(r)) = (pointer, inventory)
+                    && r.contains(at)
+                {
+                    take = Some(Take::One { handle: view.handle, place });
+                }
+            }
+        }
         // An inventory item dropped on the window goes in (not into a corpse).
         if let Some(shown) = shown {
             let dragged = crate::gear::DRAGGED.load(std::sync::atomic::Ordering::Relaxed);
