@@ -1259,6 +1259,24 @@ impl World {
                 }
             }
         }
+        // `AreaFormula` (`3129233b`): an area nano landing on the characters listed. `AreaFormulaIIR_t` reads (FUN_100721dc) a
+        // byte, the characters (an `x3f1` list of identities), the nano (`0xcf1b` id: 0x3e380, 0x18762) and its source; the
+        // apply (FUN_1007212d → FUN_100a9a99) runs the nano on each listed character the client has (its nano holder +0x1c0,
+        // FUN_10051c98, as a cast landing: FUN_1005141d).
+        if m.kind == 0x3129233b && m.data.len() >= 5 {
+            let word = |at: usize| u32::from_be_bytes(m.data[at..at + 4].try_into().unwrap());
+            let count = (word(1) / 0x3f1).saturating_sub(1) as usize;
+            let end = 5 + count * 8;
+            if m.data.len() >= end + 12 {
+                let nano = word(end);
+                for i in 0..count {
+                    let target = word(5 + i * 8 + 4);
+                    if target == self.own || self.entities.contains_key(&target) || self.names.contains_key(&target) {
+                        self.landed.push((target, nano));
+                    }
+                }
+            }
+        }
         // A nano cast: told when it is the character's own or is cast on it.
         if m.kind == 0x25314d6d {
             if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
@@ -7824,6 +7842,21 @@ mod door_tests {
         assert_eq!(w.game_lines.iter().map(|l| l.text.as_str()).collect::<Vec<_>>(), vec!["You have been detected by Patrolling Guard!"]);
         w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("00000000a200000000000000000000000000000000000000000000") }.frame(1));
         assert!(w.sneaking.contains(&own));
+    }
+
+    /// The 16:55 capture's area nanos: one landing on the character (from 0x7b1b1847), one on two others.
+    #[test]
+    fn an_area_formula_lands_on_each_listed_character() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let own = 0x7b1a0021;
+        let mut w = World { own, ..World::default() };
+        w.add(&Message { kind: 0x3129233b, identity: (0xc350, own), data: hex("00000007e20000c3507b1a00210003e3800000c3507b1b1847") }.frame(1));
+        assert_eq!(w.landed, vec![(own, 0x3e380)]);
+        w.landed.clear();
+        w.names.insert(0x7b1ab833, ("A".into(), false));
+        w.names.insert(0x7b1abca9, ("B".into(), false));
+        w.add(&Message { kind: 0x3129233b, identity: (0xc350, 0x7b1a00b3), data: hex("0000000bd30000c3507b1ab8330000c3507b1abca9000187620000c3507b1a00b3") }.frame(1));
+        assert_eq!(w.landed, vec![(0x7b1ab833, 0x18762), (0x7b1abca9, 0x18762)]);
     }
 
     #[test]

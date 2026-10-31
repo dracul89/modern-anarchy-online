@@ -235,6 +235,7 @@ Added after the overnight run, on request: audio through rodio, ported from the 
 | (next) | **Others stand up, wield and use specials**: another player who sits and is stood up by the server gets up; a weapon they equip shows in their hand; their special attacks (Fling Shot, Aimed Shot...) swing the special's own animation, not the plain attack | with a second character (or near players): /sit then stand, equip a weapon, use a special on a mob |
 | (next) | **Queued perk timer**: using a perk action shows the original's cyan "Special" timer bar at the top left (40, 40) running out over the delay the server queued it for (1 or 2 s) | use a perk action (e.g. from the Perks window or a hotbar) and watch the top-left corner |
 | (next) | **Sneak detection**: after `/sneak` (or the Sneak action) the chat says "You have been detected by X!" for each creature that saw you, as the original does | stand near mobs and use the Sneak action; read the chat |
+| (next) | **Area nanos land**: an area-effect nano (a mob's area attack, an area buff) shows its landing glow on every character it reaches, you included | stand in a group near a mob that casts area nanos, or near a player casting an area buff |
 
 ## How to run
 
