@@ -221,7 +221,7 @@ Added after the overnight run, on request: audio through rodio, ported from the 
 | 1f632a8 | **The flying vehicle tilts**: your own vehicle is drawn nose up or down as you pitch it (others' already followed the server's rotation) | fly a Phasefront vehicle and pitch up and down |
 | b192f41 | **Train and untrain perks**: each perk line in the Perks window has + (train the next rank) and - (untrain the highest); the server's answer updates the ranks, the stats and the perk actions (removed ones leave the Action window) | train a rank with free perk points, untrain it again; watch the Action window |
 | c5f9d17 | **Tradeskill combines**: drag one backpack item onto another to use it on it (pattern pieces, gems into jewellery...); the result arrives and the used-up pieces leave the inventory | combine two pattern pieces, or any tradeskill pair |
-| (next) | **Pet commands**: `/pet attack`, `/pet follow`, `behind`, `wait`, `guard`, `heal`, `report`, `terminate` (all of Gamecode's words) and the control center's Pets menu, which runs them; they go to all your pets, attack at your target | summon pets, target a mob, /pet attack, then /pet follow |
+| 1160fdd | **Pet commands**: `/pet attack`, `/pet follow`, `behind`, `wait`, `guard`, `heal`, `report`, `terminate` (all of Gamecode's words) and the control center's Pets menu, which runs them; they go to all your pets, attack at your target | summon pets, target a mob, /pet attack, then /pet follow |
 
 ## How to run
 
