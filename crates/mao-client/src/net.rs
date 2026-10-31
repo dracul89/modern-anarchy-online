@@ -5440,7 +5440,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             moving = walk;
             turning = keys.turn;
             strafing = keys.strafe;
-            state.rotations.insert(own, [0.0, (heading * 0.5).sin(), 0.0, (heading * 0.5).cos()]);
+            // (flying, the vehicle is drawn nose up or down as it is reported)
+            state.rotations.insert(own, n3::pitched_rotation(heading, elevation));
             // (the creatures the server walks: along their paths, after their targets)
             state.walk_paths(dt, position);
             // (and the others fighting turn the same way, between the server's rotations)

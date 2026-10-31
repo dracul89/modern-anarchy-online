@@ -640,14 +640,20 @@ pub fn position_update(character: u32, movement: u8, heading: f32, position: [f3
     position_update_pitched(character, movement, heading, 0.0, position, elapsed_ms)
 }
 
+/// The rotation of a heading about Y then an elevation (nose up positive) about the character's own X: `(x, y, z, w)`.
+pub fn pitched_rotation(heading: f32, elevation: f32) -> [f32; 4] {
+    let (s, c) = (heading * 0.5).sin_cos();
+    let (ps, pc) = (-elevation * 0.5).sin_cos();
+    [c * ps, s * pc, -s * ps, c * pc]
+}
+
 /// [`position_update`] for a flying character: the rotation the heading about Y then `elevation` (radians, nose up
 /// positive) about the character's own X, which turns its +z up for a negative angle (the original climbing at 27 degrees
 /// sends `x = -0.232`).
 pub fn position_update_pitched(character: u32, movement: u8, heading: f32, elevation: f32, position: [f32; 3], elapsed_ms: u32) -> Frame {
-    let (s, c) = (heading * 0.5).sin_cos();
-    let (ps, pc) = (-elevation * 0.5).sin_cos();
+    let [x, y, z, w] = pitched_rotation(heading, elevation);
     let mut d = vec![1, movement];
-    for v in [c * ps, s * pc, -s * ps, c * pc, position[0], position[1], position[2]] {
+    for v in [x, y, z, w, position[0], position[1], position[2]] {
         d.extend_from_slice(&f32::to_be_bytes(v));
     }
     d.extend_from_slice(&elapsed_ms.to_be_bytes());
