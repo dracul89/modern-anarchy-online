@@ -130,6 +130,18 @@ mod tests {
         assert_eq!(payload.len(), 4 + 4 + 1 + 24 + 4 + 12 + 4 + 7 + 16 + 4 + 12 + 4 + 4 + 12 + 4);
     }
 
+    /// The original client's request in the Arete Landing capture (2026-10-30): "Wheresmyncu", breed 4, sex 1, profession 4,
+    /// head 0x36aca, height 100, width 0, byte for byte.
+    #[test]
+    fn the_request_matches_the_original() {
+        let c = NewCharacter { name: "Wheresmyncu".into(), breed: 4, sex: 1, profession: 4, head: 0x36aca, height: 100, width: 0 };
+        let frame = create_character(&c);
+        let (kind, payload) = crate::system::split(&frame).unwrap();
+        let hex: String = payload.iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(kind, 0x0f);
+        assert_eq!(hex, "000000040000000061000000000000000000000000000000000000000000000000000000000000000500000000000000000000000b5768657265736d796e6375000000040000000100000004000000000000000c6172656120756e6b6e6f776e000000000000000000036aca000000640000000000000000");
+    }
+
     #[test]
     fn replies() {
         let msg = |kind: u32, data: &[u8]| Frame { kind: crate::frame::SYSTEM, source: 1, destination: 0, body: [kind.to_be_bytes().to_vec(), data.to_vec()].concat() };
