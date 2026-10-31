@@ -195,6 +195,7 @@ Added after the overnight run, on request: audio through rodio, ported from the 
 | 39025ab | **Teams**: an invitation opens the Team window (Join / Decline); the members show with health and nano bars; Leave team | get a team invitation (Arete's NPC companion, or a player); join, watch the bars, leave |
 | 859839e | **NPCs turn to face** (SetWantedDirection) and **stop sliding** when the server stops them (StopMovingCmd); **worn armour's quality** follows the server (ItemReplaced: Arete's starter armour levels with you) | talk to an NPC from the side; level up in Arete Landing and check the armour's QL |
 | 3b4bf7c | **Mission dungeons are built**: a generated building (the Arete alien ship, any mission) is laid out from the server's room list over its template playfield's rooms, with their props and collision | enter a mission dungeon (or Arete's ship); walk through its rooms and doors |
+| (next) | **Skills window from the skin's Skills.xml** (GUI.dll's `SkillWindow`): group buttons open each group's list; the right page shows the group in two columns; a row click shows the skill's details and description; +/- and Save Changes raise skills | open Skills (U?), click a group, a skill, raise it, Save Changes |
 
 ## How to run
 

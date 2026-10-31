@@ -18,8 +18,6 @@ pub fn trainable(stat: u32) -> bool {
     (16..=21).contains(&stat) || (100..=168).contains(&stat)
 }
 
-/// The IP stat (`IP`, 53): the points left to raise with.
-const IP: u32 = 53;
 
 use crate::derived::Breakdown;
 use crate::theme::Palette;
@@ -196,91 +194,22 @@ pub(crate) fn breakdown_text(ui: &mut egui::Ui, skill: &str, b: &Breakdown, acce
     });
 }
 
+/// The Skills window: GUI.dll's `SkillWindow` on the skin's `Skills.xml` (`skillwindow.rs`).
 #[derive(Default)]
 pub struct SkillsWindow {
     pub open: bool,
-    search: String,
-    /// The points added to each skill, not yet accepted.
-    pending: BTreeMap<u32, i64>,
+    view: crate::skillwindow::SkillWindow,
 }
 
 impl SkillsWindow {
-    pub fn show(&mut self, ctx: &egui::Context, name: &str, stats: &BTreeMap<u32, i64>, parts: &BTreeMap<u32, Breakdown>, palette: &Palette) {
-        let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
-        let mut open = self.open;
-        let ip = parts.get(&IP).map_or_else(|| stats.get(&IP).copied().unwrap_or(0), |b| b.stored);
-        crate::chrome::window(ctx, palette, "Skills", "Skills", &mut open, |w| w.default_pos(crate::layout::pos("Skills", egui::pos2(300.0, 90.0))).default_size([260.0, 420.0]), |ui| {
-            ui.horizontal(|ui| {
-                ui.label("Name:");
-                ui.label(egui::RichText::new(if name.is_empty() { "-" } else { name }).color(accent));
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(egui::RichText::new(stats.get(&0x36).map_or("-".to_string(), |l| l.to_string())).color(accent));
-                    ui.label("Level:");
-                });
-            });
-            ui.horizontal(|ui| {
-                ui.label("Find:");
-                crate::chrome::text_edit(ui, palette, egui::TextEdit::singleline(&mut self.search));
-            });
-            // The IP left, and the raises to accept (the server checks them: it answers with the values it took and the IP
-            // left; the client has no IP cost tables of its own yet, they come from records it does not have).
-            ui.horizontal(|ui| {
-                ui.label("IP:");
-                ui.label(egui::RichText::new(ip.to_string()).color(accent));
-                if !self.pending.is_empty() {
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if crate::chrome::button(ui, palette, "Reset", true).clicked() {
-                            self.pending.clear();
-                        }
-                        if crate::chrome::button(ui, palette, "Accept", true).clicked() {
-                            let raises: Vec<(u32, u32)> = self.pending.iter().map(|(&stat, &p)| (stat, (parts.get(&stat).map_or(0, |b| b.stored) + p).max(0) as u32)).collect();
-                            RAISES.lock().unwrap_or_else(|e| e.into_inner()).push(raises);
-                            self.pending.clear();
-                        }
-                    });
-                }
-            });
-            ui.separator();
-            crate::chrome::scroll(ui, palette, egui::ScrollArea::vertical(), |ui| {
-                for (title, group) in GROUPS {
-                    let shown = rows(group, stats, &self.search);
-                    if shown.is_empty() {
-                        continue;
-                    }
-                    egui::CollapsingHeader::new(egui::RichText::new(*title).color(accent)).default_open(true).show(ui, |ui| {
-                        for (stat, skill, value) in shown {
-                            let pending = self.pending.get(&stat).copied().unwrap_or(0);
-                            let row = ui.horizontal(|ui| {
-                                ui.label(skill);
-                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                    // (raising: the IP to spend, as the arrows of the original's skill view)
-                                    if trainable(stat) && ip > 0 {
-                                        if ui.small_button("+").on_hover_text("Raise by one").clicked() {
-                                            *self.pending.entry(stat).or_insert(0) += 1;
-                                        }
-                                        if ui.add_enabled(pending > 0, egui::Button::new("-").small()).clicked() {
-                                            *self.pending.entry(stat).or_insert(0) -= 1;
-                                            self.pending.retain(|_, p| *p > 0);
-                                        }
-                                    }
-                                    let text = match (value, pending) {
-                                        (Some(v), 0) => v.to_string(),
-                                        (Some(v), p) => format!("{} (+{p})", v + p),
-                                        (None, _) => "-".to_string(),
-                                    };
-                                    ui.label(if pending > 0 { egui::RichText::new(text).color(accent) } else { egui::RichText::new(text) });
-                                });
-                            });
-                            if let Some(b) = parts.get(&stat) {
-                                row.response.interact(egui::Sense::hover()).on_hover_ui(|ui| breakdown_text(ui, skill, b, accent));
-                            }
-                        }
-                    });
-                }
-            });
-        });
-        self.open = open;
+    pub fn show(&mut self, ctx: &egui::Context, _name: &str, stats: &BTreeMap<u32, i64>, parts: &BTreeMap<u32, Breakdown>, palette: &Palette) {
+        self.view.show(ctx, &mut self.open, stats, parts, palette);
     }
+}
+
+/// Raises accepted in the window, for the connection to send.
+pub fn push_raises(raises: Vec<(u32, u32)>) {
+    RAISES.lock().unwrap_or_else(|e| e.into_inner()).push(raises);
 }
 
 #[cfg(test)]

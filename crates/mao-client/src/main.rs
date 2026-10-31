@@ -59,6 +59,7 @@ mod marketsend;
 mod prefs;
 mod ncu;
 mod skills;
+mod skillwindow;
 mod stats;
 mod trickle_data;
 mod chrome;
