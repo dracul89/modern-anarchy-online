@@ -1248,6 +1248,15 @@ impl World {
                 // `SetNanoDuration`: the nano `(0xcf1b, id)` is on the character (the first parameter) for that long (ms)
                 0x62 if word(9) == 0xcf1b && word(17) == self.own => self.nano_duration(word(13), word(21)),
                 0xa4 => self.special_events.push((word(21), 0.0)),
+                // `UploadNano` (0xcc, after a nano crystal was used): the nano `(0xcf1b, id)` in the parameters is now one of the
+                // character's programs (FUN_1005d61f's case 0x56: FUN_10050100 adds it to the nano holder at +0x1c0, then signal 6
+                // refreshes the lists); the crystal itself goes with the `DeleteItem` (0x70) that follows
+                0xcc if word(1) == 0xcc && word(17) == 0xcf1b => {
+                    if !self.program_ids.contains(&word(21)) {
+                        self.program_ids.push(word(21));
+                        self.programs_changed = true;
+                    }
+                }
                 // `PerkActionInfo` (0xb4): one of the character's perk actions (its item template, number and code)
                 0xb4 => {
                     let code: [u8; 4] = m.data[21..25].try_into().unwrap();
@@ -7407,6 +7416,23 @@ mod door_tests {
         w.worn.push(inventory::Entry { slot: 0x11, flags: 0, count: 1, container: (0, 0), low_id: 0x4a09b, high_id: 0x4a09c, quality: 2, extra: 0 });
         w.add(&Message { kind: 0x3a223b50, identity: (0xc350, own), data: hex("00000000110004a09b0004a09c00000003000000000004a09b0004a09c0000000300000000") }.frame(1));
         assert_eq!(w.worn.iter().find(|e| e.slot == 0x11).map(|e| e.quality), Some(3));
+    }
+
+    /// The Arete Landing capture's nano crystals: each use is answered by `CharacterAction` 0xcc naming the nano, which joins
+    /// the programs once.
+    #[test]
+    fn an_uploaded_nano_joins_the_programs() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let own = 0x7b1a0021;
+        let mut w = World { own, program_ids: vec![0x461f6], ..World::default() };
+        let upload = Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("00000000cc000000000000c3507b1a00210000cf1b0000a96a0000") }.frame(1);
+        w.add(&upload);
+        assert_eq!(w.program_ids, vec![0x461f6, 0xa96a]);
+        assert!(w.programs_changed);
+        w.programs_changed = false;
+        w.add(&upload);
+        assert_eq!(w.program_ids.len(), 2, "an uploaded nano is listed once");
+        assert!(!w.programs_changed);
     }
 
     /// The Arete Landing capture's generated ship (playfield 0x20da1b): its second door's `DoorFullUpdate` puts a usable door at
