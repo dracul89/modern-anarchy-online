@@ -171,7 +171,8 @@ impl MissionLog {
         let skin = crate::skin::skin(ctx);
         let mut open = self.open;
         let mut hovered = None;
-        crate::chrome::window(ctx, palette, "Missions", "Missions", &mut open, |w| w.default_size(egui::vec2(4.0 * crate::gui::multilist::grid::STEP + 32.0, 2.0 * crate::gui::multilist::grid::STEP + 12.0)).resizable(true), |ui| {
+        // (named apart from the mission selection window, which Escape closes; the journal keeps its own place)
+        crate::chrome::window(ctx, palette, "MissionView", "Missions", &mut open, |w| w.default_size(egui::vec2(4.0 * crate::gui::multilist::grid::STEP + 32.0, 2.0 * crate::gui::multilist::grid::STEP + 12.0)).resizable(true), |ui| {
             let response = crate::gui::host::show(ui, tree, root, skin.as_deref(), palette);
             if let Some(at) = ui.input(|i| i.pointer.hover_pos()) {
                 hovered = crate::gui::multilist::item_at(tree, list, response.rect.min, at).map(|k| (k as usize, at));

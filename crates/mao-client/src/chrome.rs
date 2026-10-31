@@ -5,7 +5,8 @@
 //! dragging anywhere on the window moves it (egui's own fallback without a title bar). Without the pictures it is the plain
 //! egui window it was.
 //!
-//! A pinned window (the pin button, as in the original) is left open by Escape; `pinned` tells `Ui::close_with_escape`.
+//! A pinned window (the pin button, as in the original) is left open by Escape; `pinned` tells `Ui::close_with_escape`. Each
+//! window starts where the player left it (`layout.rs`), and closes the next time it is shown after Escape asked ([`close_soon`]).
 
 use std::sync::Mutex;
 
@@ -26,6 +27,26 @@ fn set_pinned(name: &str, on: bool) {
     }
 }
 
+/// The windows Escape asked to close (`Ui::close_with_escape`): each closes the next time it is shown, as its close button would
+/// close it (so a shop or an NPC chat tells the server); what is left at the end of the frame was not open and is dropped.
+static CLOSING: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+pub fn close_soon(name: &str) {
+    CLOSING.lock().unwrap().push(name.to_string());
+}
+
+/// The end of a frame: Escape's requests not taken (the windows not shown) are dropped.
+pub fn end_frame() {
+    CLOSING.lock().unwrap().clear();
+}
+
+fn take_closing(name: &str) -> bool {
+    let mut list = CLOSING.lock().unwrap();
+    let before = list.len();
+    list.retain(|n| n != name);
+    list.len() != before
+}
+
 pub fn rgb(c: [u8; 3]) -> egui::Color32 {
     egui::Color32::from_rgb(c[0], c[1], c[2])
 }
@@ -39,6 +60,19 @@ const BOTTOM: i8 = 10;
 /// A window named `name` (its egui id and its `layout.ini` entry) titled `title`, shown while `*open`; `build` sets the egui window's
 /// size and place (`|w| w.resizable(false).default_pos(..)`), `add` fills it. Returns what `egui::Window::show` returns.
 pub fn window<R>(ctx: &egui::Context, palette: &Palette, name: &str, title: &str, open: &mut bool, build: impl FnOnce(egui::Window<'static>) -> egui::Window<'static>, add: impl FnOnce(&mut egui::Ui) -> R) -> Option<egui::InnerResponse<Option<R>>> {
+    if *open && take_closing(name) {
+        *open = false;
+    }
+    // (the place the player left it last time, `layout.ini`: over the caller's starting place)
+    crate::layout::track(name);
+    let saved = crate::layout::kept(name).then(|| crate::layout::saved(name)).flatten();
+    let build = move |w: egui::Window<'static>| {
+        let w = build(w);
+        match saved {
+            Some(at) => w.default_pos(at),
+            None => w,
+        }
+    };
     let accent = rgb(palette.accent);
     let id = egui::Id::unique(name);
     let skin = crate::skin::skin(ctx).filter(|s| s.has("GFX_GUI_WINDOW3_BORDER_TL"));

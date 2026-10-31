@@ -167,6 +167,8 @@ impl InspectWindow {
         }
         if self.grids.is_empty() {
             self.grids = wear_grids(ctx);
+            // (`InspectViewConfig`'s `selected_tab`, kept apart from the wear window's)
+            self.tab = crate::layout::tab("InspectViewConfig").unwrap_or(self.tab);
         }
         let by_slot: HashMap<u32, &GearItem> = items.iter().map(|i| (i.slot, i)).collect();
         for (k, tab) in WEAR_TABS.iter().enumerate() {
@@ -197,7 +199,10 @@ impl InspectWindow {
                 }
             });
         });
-        self.tab = tab;
+        if self.tab != tab {
+            self.tab = tab;
+            crate::layout::set_tab("InspectViewConfig", tab);
+        }
         for view in self.grids.iter_mut() {
             for (_, event) in multilist::take_events(&mut view.tree) {
                 if let multilist::ItemEvent::Clicked(slot, _) = event {
@@ -221,18 +226,13 @@ impl InspectWindow {
 }
 
 impl ItemWindows {
-    /// Closes the wear window (the inventory stays); whether it was shown.
-    pub fn close_wear(&mut self, inventory_open: bool) -> bool {
-        let shown = inventory_open && !self.wear_closed;
-        self.wear_closed = true;
-        shown
-    }
-
     fn build(&mut self, ctx: &egui::Context) {
         let mut inventory = GridView::new(ctx, PACK_PLACES as i32, 5);
         multilist::set_max_items(&mut inventory.tree, inventory.list, PACK_PLACES as i32);
         self.inventory = Some(inventory);
         self.wear = wear_grids(ctx);
+        // (the tab shown when the window last went, `WearViewConfig`'s `selected_tab`: FUN_100e1ce0 saves it, FUN_100e24b8 reads it)
+        self.tab = crate::layout::tab("WearViewConfig").unwrap_or(self.tab);
     }
 
     /// The two windows; what was done with the items.
@@ -326,7 +326,10 @@ impl ItemWindows {
                     }
                 });
             });
-            self.tab = tab;
+            if self.tab != tab {
+                self.tab = tab;
+                crate::layout::set_tab("WearViewConfig", tab);
+            }
             if let (Some(from), Some(to)) = (dragged, drop_on)
                 && from != to
             {
