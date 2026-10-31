@@ -219,6 +219,13 @@ impl InspectWindow {
 }
 
 impl ItemWindows {
+    /// Closes the wear window (the inventory stays); whether it was shown.
+    pub fn close_wear(&mut self, inventory_open: bool) -> bool {
+        let shown = inventory_open && !self.wear_closed;
+        self.wear_closed = true;
+        shown
+    }
+
     fn build(&mut self, ctx: &egui::Context) {
         let mut inventory = GridView::new(ctx, PACK_PLACES as i32, 5);
         multilist::set_max_items(&mut inventory.tree, inventory.list, PACK_PLACES as i32);

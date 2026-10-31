@@ -292,6 +292,11 @@ pub struct Ui {
     fps: f32,
 }
 
+/// An `esc_*` option's value in the game's LoginPrefs.xml (for when the skin's values are not loaded).
+fn esc_default(name: &str) -> bool {
+    !matches!(name, "esc_inventory" | "esc_npcchat" | "esc_nano" | "esc_never")
+}
+
 /// When the timed logout began (`FlowControlModule_t::m_pcCampTimer`): set by the live loop, drawn as the "Logout" bar.
 pub static CAMP: std::sync::Mutex<Option<Instant>> = std::sync::Mutex::new(None);
 /// How long the logout bar runs (`CampStartedMessage`'s `CreateTimer(40000, ..., "Logout", 0xffffff)`).
@@ -433,26 +438,52 @@ impl Ui {
 
     /// What Escape does in the original: closes the windows that are set to close with it (dialogs, containers, shops, the options and
     /// the perk window; the inventory, the nano and the character windows stay). True when a window was closed.
+    /// Escape: the original's windows that ask for it (each reads its `esc_*` option when it is made: LoginPrefs.xml's
+    /// defaults leave the inventory, NPC chat and nano windows open; mail, the mission journal, the bank and the other
+    /// windows without an option are never closed by it), and the client's own windows.
     pub fn close_with_escape(&mut self) -> bool {
+        let store = self.control_center.as_ref().map(|cc| &cc.store);
+        let esc = |name: &str| match store.and_then(|s| s.get(name)) {
+            Some(_) => store.is_some_and(|s| s.get_bool(name)),
+            None => esc_default(name),
+        };
         // (a window whose pin is down stays, as in the original)
         let mut closed = false;
-        let mut shut = |name: &str, flag: &mut bool| {
-            if *flag && !crate::chrome::pinned(name) {
+        let mut shut = |name: &str, option: Option<&str>, flag: &mut bool| {
+            if *flag && option.is_none_or(&esc) && !crate::chrome::pinned(name) {
                 *flag = false;
                 closed = true;
             }
         };
-        shut("Options", &mut self.options_open);
-        shut("Option panel", &mut self.option_panel.open);
-        shut("loot", &mut self.loot.open);
-        shut("Shop", &mut self.shop.open);
-        shut("Perks", &mut self.perks.open);
-        shut("Whom-Pah", &mut self.whompah_open);
-        shut("Mail", &mut self.mail.open);
-        shut("Browser", &mut self.browser.open);
-        shut("Deposit to Market", &mut self.market_send.open);
-        shut("Missions", &mut self.mission.open);
-        shut("Help", &mut self.help.open);
+        // (the client's own windows)
+        shut("Options", None, &mut self.options_open);
+        shut("Whom-Pah", None, &mut self.whompah_open);
+        shut("Browser", None, &mut self.browser.open);
+        shut("Help", None, &mut self.help.open);
+        // (the original's)
+        shut("Option panel", Some("esc_optionpanel"), &mut self.option_panel.open);
+        // (InventoryView_c FUN_100ccefe: a corpse, a container (an own backpack: the option of chests is for one in the
+        // world, which the client does not tell apart), not the bank)
+        let loot_option = match self.loot.kind() {
+            Some(crate::loot::CORPSE) => Some("esc_corpses"),
+            Some(0xc749) => Some("esc_backpacks"),
+            _ => Some("esc_never"),
+        };
+        shut("loot", loot_option, &mut self.loot.open);
+        shut("Shop", Some("esc_shops"), &mut self.shop.open);
+        shut("Perks", Some("esc_perkwindow"), &mut self.perks.open);
+        shut("Missions", Some("esc_missionselection"), &mut self.mission.open);
+        shut("PlanetMap", Some("esc_planetmap"), &mut self.planet.open);
+        shut("Info", Some("esc_infoview"), &mut self.info.open);
+        shut("NPCChat", Some("esc_npcchat"), &mut self.npc_chat.open);
+        shut("Nano programs", Some("esc_nano"), &mut self.programs.open);
+        shut("Inventory", Some("esc_inventory"), &mut self.gear_open);
+        if esc("esc_wear") && !crate::chrome::pinned("Wear") && self.gear.close_wear(self.gear_open) {
+            closed = true;
+        }
+        if esc("esc_tips") && self.tips.close() {
+            closed = true;
+        }
         if !self.options_open {
             self.rebinding = None;
         }

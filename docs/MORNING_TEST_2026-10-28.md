@@ -211,6 +211,7 @@ Added after the overnight run, on request: audio through rodio, ported from the 
 | ffd6df7 | **Team window as the original's**: "Team level: N", Leave, each member's name (leader in green) with the team health and nano bars between splitters; an invitation asks "Want to join X's team?" with Yes / No | get invited to a team; accept; watch the bars; Leave |
 | 83532b6 | **Missions window as the original's**: the missions as icons in a grid; a click shows the mission's text in the info view; right click for Look at Mission / Upload to map / Delete Mission. (Not rendered with real missions: no capture has a mission list) | take a mission; open Missions (Ctrl+4); click it, right click -> Upload to map |
 | 8cf68e0 | **Inspect window**: `/inspect` (or inspecting a player) opens an "Inspect: Name" window with the Weapon / Cloth / Implant / Social tabs of what they wear, instead of the chat lines; point at an item for its tip, right click for its page. Preview: `MAO_UI_PREVIEW=inspect MAO_CAPTURE=capture-221539.log` | target a player, `/inspect`; check the tabs and the tips |
+| (next) | **Escape closes windows as the original's options say**: the info view, planet map, tips, wear window, corpses and your own bags now close on Escape; the inventory, NPC chat, nano window, bank, mail and mission journal no longer do (LoginPrefs.xml's `esc_*` defaults; changing them in the option panel applies) | open several windows, press Escape |
 
 ## How to run
 

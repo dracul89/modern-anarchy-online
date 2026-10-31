@@ -169,6 +169,17 @@ fn game() -> Option<std::path::PathBuf> {
 }
 
 impl Tips {
+    /// Closes the tip window as its close button does (Escape); whether it was shown.
+    pub fn close(&mut self) -> bool {
+        match self.window.as_mut() {
+            Some(w) if w.open => {
+                w.open = false;
+                true
+            }
+            _ => false,
+        }
+    }
+
     fn load(&mut self) {
         self.loaded = true;
         self.enabled = true;

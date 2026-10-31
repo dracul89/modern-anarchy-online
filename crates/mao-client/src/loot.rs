@@ -22,7 +22,7 @@ pub struct LootView {
 }
 
 /// The identity type of a corpse.
-const CORPSE: u32 = 0xc76a;
+pub const CORPSE: u32 = 0xc76a;
 /// The identity type of the bank (`BankIIR_t`'s `BankEntry_t`, FUN_10125b1b).
 pub const BANK: u32 = 0xdead;
 
@@ -52,6 +52,13 @@ pub struct LootWindow {
 
 /// The most items a container's grid shows slots for (`ItemContainerView_c` FUN_100ce55d: `SetMaxItemCount` 102 for the bank,
 /// 21 for one's own backpack, none for a corpse or chest).
+impl LootWindow {
+    /// The identity type of the container shown.
+    pub fn kind(&self) -> Option<u32> {
+        self.views.as_ref().map(|v| v.3.0)
+    }
+}
+
 pub fn max_items(kind: u32) -> i32 {
     match kind {
         BANK => 0x66,
