@@ -38,6 +38,7 @@ pub mod dropdown;
 pub mod scroll;
 pub mod scrolling;
 pub mod textinput;
+pub mod treelist;
 pub mod edit;
 pub mod variant;
 pub mod view;
