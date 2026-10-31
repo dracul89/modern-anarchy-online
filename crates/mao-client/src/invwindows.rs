@@ -116,26 +116,114 @@ fn fill(view: &mut GridView, items: &[(&GearItem, Option<(usize, usize)>)], text
     }
 }
 
+/// The wear window's four grids.
+fn wear_grids(ctx: &egui::Context) -> Vec<GridView> {
+    WEAR_TABS
+        .iter()
+        .map(|tab| {
+            let mut g = GridView::new(ctx, -1, 3);
+            let labels: Vec<((usize, usize), String)> = tab.cells.iter().enumerate().map(|(k, &(_, x, y))| ((x, y), crate::gui::xml::ldb_text(&format!("#505:{}", tab.label_base + k as i32)))).collect();
+            multilist::set_grid(&mut g.tree, g.list, |m| {
+                m.spacing = (11.0, 9.0);
+                m.columns = Some(3);
+                m.auto_arrange = false;
+                m.labels = labels;
+                m.background = Some(tab.picture.to_string());
+            });
+            g
+        })
+        .collect()
+}
+
+/// A wear cell's label as plain text.
+fn cell_label(tab: &WearTab, slot: u32) -> String {
+    tab.cells.iter().position(|c| tab.base + c.0 == slot).map(|k| crate::gui::xml::ldb_text(&format!("#505:{}", tab.label_base + k as i32))).unwrap_or_default().replace("<center>", "").replace("</center>", "").replace("<br>", " ")
+}
+
+/// The inspect window: the original's `WearView_c` (FUN_100e24b8) built with the inspected identity: the title "Inspect",
+/// `inspect_window` and `InspectViewConfig` in place of the wear window's, the same four tabs of cells. The items are only
+/// looked at: a tip under the pointer, a right click (the use button) shows the item's page; nothing is dragged.
+#[derive(Default)]
+pub struct InspectWindow {
+    grids: Vec<GridView>,
+    open: bool,
+    tab: usize,
+    /// The inspection shown (its count).
+    seen: u32,
+}
+
+impl InspectWindow {
+    pub fn show(&mut self, ctx: &egui::Context, inspected: &(u32, String, Vec<GearItem>), stats: &BTreeMap<u32, i64>, palette: &Palette, textures: &mut HashMap<u32, egui::TextureHandle>) -> Vec<String> {
+        let mut infos = Vec::new();
+        let (count, name, items) = inspected;
+        if *count != self.seen {
+            self.seen = *count;
+            self.open = true;
+        }
+        if !self.open {
+            return infos;
+        }
+        if self.grids.is_empty() {
+            self.grids = wear_grids(ctx);
+        }
+        let by_slot: HashMap<u32, &GearItem> = items.iter().map(|i| (i.slot, i)).collect();
+        for (k, tab) in WEAR_TABS.iter().enumerate() {
+            let rows: Vec<(&GearItem, Option<(usize, usize)>)> = tab.cells.iter().filter_map(|&(slot, x, y)| by_slot.get(&(tab.base + slot)).map(|i| (*i, Some((x, y))))).collect();
+            fill(&mut self.grids[k], &rows, textures, ctx);
+        }
+        let skin = crate::skin::skin(ctx);
+        let accent = crate::chrome::rgb(palette.accent);
+        let pointer = ctx.input(|i| i.pointer.hover_pos());
+        let names: Vec<String> = WEAR_TABS.iter().map(|t| crate::gui::xml::ldb_text(t.name)).collect();
+        let name_refs: Vec<&str> = names.iter().map(|s| s.as_str()).collect();
+        let mut tab = self.tab.min(WEAR_TABS.len() - 1);
+        let mut hovered: Option<(u32, String)> = None;
+        let grids = &mut self.grids;
+        // (the title names the character too: several inspections look the same otherwise)
+        let title = if name.is_empty() { "Inspect".to_string() } else { format!("Inspect: {name}") };
+        crate::chrome::window(ctx, palette, "Inspect", &title, &mut self.open, |w| w.default_pos(crate::layout::pos("Inspect", egui::pos2(420.0, 90.0))).resizable(false), |ui| {
+            crate::chrome::tab_view(ui, palette, &name_refs, &mut tab, |ui, t| {
+                let view = &mut grids[t];
+                let (tree, root, list) = (&mut view.tree, view.root, view.list);
+                let min = crate::gui::host::preferred_pixels(tree, root, false);
+                ui.set_min_size(min);
+                let response = crate::gui::host::show(ui, tree, root, skin.as_deref(), palette);
+                if let Some(at) = pointer
+                    && let Some(slot) = multilist::item_at(tree, list, response.rect.min, at)
+                {
+                    hovered = Some((slot as u32, cell_label(&WEAR_TABS[t], slot as u32)));
+                }
+            });
+        });
+        self.tab = tab;
+        for view in self.grids.iter_mut() {
+            for (_, event) in multilist::take_events(&mut view.tree) {
+                if let multilist::ItemEvent::Clicked(slot, _) = event {
+                    multilist::select(&mut view.tree, view.list, Some(slot));
+                }
+            }
+            view.tree.signals.clear();
+        }
+        if let Some((slot, label)) = hovered
+            && let Some(item) = by_slot.get(&slot)
+        {
+            if ctx.input(|i| i.pointer.secondary_clicked()) {
+                infos.push(format!("itemref://{}/{}/{}", item.item_id, item.high_id, item.quality));
+            }
+            egui::Area::new(egui::Id::unique("inspect-tip")).order(egui::Order::Tooltip).fixed_pos(pointer.unwrap_or_default() + egui::vec2(16.0, 16.0)).interactable(false).show(ctx, |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| crate::gear::tooltip(ui, item, &label, stats, accent));
+            });
+        }
+        infos
+    }
+}
+
 impl ItemWindows {
     fn build(&mut self, ctx: &egui::Context) {
         let mut inventory = GridView::new(ctx, PACK_PLACES as i32, 5);
         multilist::set_max_items(&mut inventory.tree, inventory.list, PACK_PLACES as i32);
         self.inventory = Some(inventory);
-        self.wear = WEAR_TABS
-            .iter()
-            .map(|tab| {
-                let mut g = GridView::new(ctx, -1, 3);
-                let labels: Vec<((usize, usize), String)> = tab.cells.iter().enumerate().map(|(k, &(_, x, y))| ((x, y), crate::gui::xml::ldb_text(&format!("#505:{}", tab.label_base + k as i32)))).collect();
-                multilist::set_grid(&mut g.tree, g.list, |m| {
-                    m.spacing = (11.0, 9.0);
-                    m.columns = Some(3);
-                    m.auto_arrange = false;
-                    m.labels = labels;
-                    m.background = Some(tab.picture.to_string());
-                });
-                g
-            })
-            .collect();
+        self.wear = wear_grids(ctx);
     }
 
     /// The two windows; what was done with the items.
@@ -210,9 +298,7 @@ impl ItemWindows {
                     let response = crate::gui::host::show(ui, tree, root, skin.as_deref(), palette);
                     if let Some(at) = pointer {
                         if let Some(slot) = multilist::item_at(tree, list, response.rect.min, at) {
-                            let tab = &WEAR_TABS[t];
-                            let label = tab.cells.iter().position(|c| tab.base + c.0 == slot as u32).map(|k| crate::gui::xml::ldb_text(&format!("#505:{}", tab.label_base + k as i32))).unwrap_or_default();
-                            hovered_item = Some((slot as u32, label.replace("<center>", "").replace("</center>", "").replace("<br>", " ")));
+                            hovered_item = Some((slot as u32, cell_label(&WEAR_TABS[t], slot as u32)));
                         }
                         // (an item let go over a wear cell is worn there)
                         if dragged.is_some() && released && let Some(cell) = multilist::cell_at(tree, list, response.rect.min, at) {

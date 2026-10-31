@@ -102,6 +102,8 @@ pub struct Hud {
     pub target_bars: Vec<TargetBar>,
     /// The character's items (the inventory window), and whether a headless preview shows it.
     pub gear: Vec<crate::gear::GearItem>,
+    /// The last inspection (counted, so each opens the window): the character's name and worn items.
+    pub inspected: (u32, String, Vec<crate::gear::GearItem>),
     /// The running nano programs.
     pub nanos: Vec<crate::ncu::NanoInfo>,
     pub ncu_preview: std::sync::Mutex<Option<crate::ncu::NcuWindow>>,
@@ -746,6 +748,9 @@ impl Ui {
                     requests.mail = Some(command);
                 }
             }
+            for url in gear.show_inspect(&ctx, &hud.inspected, &hud.stats, palette) {
+                info_view.show_url(&url);
+            }
             if *gear_open {
                 let events = gear.show(&ctx, gear_open, &hud.gear, &hud.stats, palette);
                 requests.item_moves.extend(events.moves);
@@ -884,6 +889,8 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
     let mut preview_team = (std::env::var("MAO_UI_PREVIEW").as_deref() == Ok("team")).then(|| { let mut w = crate::team::TeamWindow::default(); w.open = true; w });
     // (MAO_UI_PREVIEW=tip: the tip window on the tips triggered)
     let mut preview_tips = (std::env::var("MAO_UI_PREVIEW").as_deref() == Ok("tip")).then(crate::tips::Tips::default);
+    // (MAO_UI_PREVIEW=inspect: the inspect window)
+    let mut preview_inspect = (std::env::var("MAO_UI_PREVIEW").as_deref() == Ok("inspect")).then(crate::gear::GearWindow::default);
     let mut preview_deposit = crate::marketsend::MarketSendWindow::default();
     if std::env::var("MAO_UI_PREVIEW").as_deref() == Ok("marketsend") {
         preview_deposit.show_window();
@@ -1006,6 +1013,9 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
             }
             if let Some(team) = preview_team.as_mut() {
                 team.show(&ctx, &palette);
+            }
+            if let Some(window) = preview_inspect.as_mut() {
+                window.show_inspect(&ctx, &hud.inspected, &hud.stats, &palette);
             }
             if let Some(tips) = preview_tips.as_mut() {
                 tips.show(&ctx, &palette, 0.0);

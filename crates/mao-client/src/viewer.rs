@@ -167,6 +167,8 @@ pub struct Update {
     pub target_bars: Option<Vec<crate::ui::TargetBar>>,
     /// The character's items, when they arrive.
     pub gear: Option<Vec<crate::gear::GearItem>>,
+    /// An inspected character's name and worn items.
+    pub inspected: Option<(String, Vec<crate::gear::GearItem>)>,
     /// New lines for the chat window.
     pub chat_lines: Vec<crate::chatwindow::Line>,
     /// The friends list, when it changes.
@@ -1298,6 +1300,9 @@ impl ApplicationHandler for App {
                         }
                         if let Some(items) = u.gear.take() {
                             self.hud.gear = items;
+                        }
+                        if let Some((name, items)) = u.inspected.take() {
+                            self.hud.inspected = (self.hud.inspected.0 + 1, name, items);
                         }
                         if let Some(nanos) = u.nanos.take() {
                             self.hud.nanos = nanos;

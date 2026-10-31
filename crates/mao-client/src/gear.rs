@@ -258,6 +258,7 @@ pub fn requirement_lines(criteria: &[(u32, i32, u32)], stats: &std::collections:
 pub struct GearWindow {
     textures: HashMap<u32, egui::TextureHandle>,
     windows: crate::invwindows::ItemWindows,
+    inspect: crate::invwindows::InspectWindow,
 }
 
 impl GearWindow {
@@ -279,6 +280,11 @@ impl GearWindow {
     pub fn show(&mut self, ctx: &egui::Context, open: &mut bool, items: &[GearItem], stats: &std::collections::BTreeMap<u32, i64>, palette: &Palette) -> GearEvents {
         let e = self.windows.show(ctx, open, items, stats, palette, &mut self.textures);
         GearEvents { moves: e.moves, uses: e.uses, deletes: e.deletes, infos: e.infos, trade_adds: e.trade_adds }
+    }
+
+    /// The inspect window (opened by each new inspection); the info pages asked for.
+    pub fn show_inspect(&mut self, ctx: &egui::Context, inspected: &(u32, String, Vec<GearItem>), stats: &std::collections::BTreeMap<u32, i64>, palette: &Palette) -> Vec<String> {
+        self.inspect.show(ctx, inspected, stats, palette, &mut self.textures)
     }
 }
 

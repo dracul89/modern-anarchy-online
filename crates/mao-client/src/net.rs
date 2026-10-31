@@ -5594,16 +5594,12 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 state.prune_nanos();
                 state.tick_lines();
                 state.refresh_mods(&gear_db);
-                if let Some((who, items)) = state.inspected.take() {
-                    let name = state.names.get(&who).map_or_else(|| "The target".to_string(), |n| n.0.clone());
-                    state.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, format!("{name} wears {} items:", items.len())));
-                    for it in items {
-                        let template = [it.low_id, it.high_id].into_iter().find_map(|id| gear_db.get(mao_formats::resource::Id { kind: mao_formats::item::TEMPLATE, instance: id }).ok().flatten().and_then(|d| mao_formats::item::Item::parse(&d)));
-                        let item = template.map_or_else(|| format!("item #{}", it.low_id), |t| t.name);
-                        let slot = crate::gear::slot_name(it.slot).unwrap_or_else(|| format!("slot {}", it.slot));
-                        state.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, format!("  {slot}: {item} (QL {})", it.ql)));
-                    }
-                }
+                // (an inspection: the items for the inspect window, the original's `WearView_c` with the identity)
+                let inspected_now = state.inspected.take().map(|(who, items)| {
+                    let name = state.names.get(&who).map_or_else(String::new, |n| n.0.clone());
+                    let entries: Vec<mao_net::inventory::Entry> = items.iter().map(|it| mao_net::inventory::Entry { slot: it.slot, flags: 1, count: 1, container: (0, 0), low_id: it.low_id, high_id: it.high_id, quality: it.ql, extra: 0 }).collect();
+                    (name, crate::gear::from_entries(&gear_db, &gear_textures, &entries, state.stats.get(&0x36).copied().unwrap_or(1)))
+                });
                 // What the character looks like is written down for the character screen.
                 if let (Some(info), Some(name)) = (state.infos.get(&own), state.names.get(&own).map(|n| n.0.clone()).filter(|n| !n.is_empty())) {
                     let look = crate::look::Look { name, breed: info.breed, sex: info.sex, clothes: info.clothes.clone(), textures: info.textures.clone(), gear: state.equipment.get(&own).cloned().unwrap_or_default() };
@@ -5855,6 +5851,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     perk_list: std::mem::take(&mut state.perks_changed).then(|| crate::perks::describe(&gear_db, &gear_textures, &state.perks, state.stats.get(&0x36).copied().unwrap_or(1))),
                     programs: std::mem::take(&mut state.programs_changed).then(|| crate::nanoprograms::describe(&gear_db, &gear_textures, &state.program_ids, state.stats.get(&0x36).copied().unwrap_or(1))),
                     gear: pending_gear.take(),
+                    inspected: inspected_now,
                     nanos: std::mem::take(&mut state.nano_list_changed).then(|| crate::ncu::describe(&gear_db, &gear_textures, &state.nano_times, state.stats.get(&0x36).copied().unwrap_or(1), state.nano_times_at.unwrap_or_else(Instant::now))),
                     missions: pending_missions.take(),
                     mission_status: pending_mission_status.take(),

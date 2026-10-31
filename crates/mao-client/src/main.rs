@@ -1674,6 +1674,13 @@ fn run(args: &[String]) -> Result<(), String> {
                             }
                         }
                     }
+                    // MAO_UI_PREVIEW=inspect + MAO_CAPTURE=<capture.log>: the inspect window on that session's worn items.
+                    if preview.as_deref() == Some("inspect")
+                        && let Some(log) = std::env::var_os("MAO_CAPTURE")
+                    {
+                        let worn: Vec<mao_net::inventory::Entry> = net::capture_entries(&log.to_string_lossy()).map(|e| e.into_iter().filter(|e| e.worn()).collect()).unwrap_or_default();
+                        hud.inspected = (1, "Sadlee".into(), gear::from_entries(&db, &textures, &worn, 220));
+                    }
                     if preview.as_deref() == Some("team") {
                         team::with(|t| {
                             for (k, (name, hp, np)) in [("Nihiltech", 0.9, 0.5), ("Sadlee", 0.4, 0.8), ("Humility", 1.0, 1.0)].into_iter().enumerate() {
