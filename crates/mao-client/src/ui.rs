@@ -215,6 +215,8 @@ pub struct Requests {
     /// Items chosen to use or to destroy in the inventory window's menu (by place).
     pub item_uses: Vec<u32>,
     pub item_deletes: Vec<u32>,
+    /// Backpack items used on others (tradeskill combines): (the item, the one it went on).
+    pub item_combines: Vec<(u32, u32)>,
     /// An action clicked in the Action window.
     pub action: Option<hotbar::Action>,
     /// A control center target button: 0 yourself, 1 the next hostile.
@@ -823,6 +825,7 @@ impl Ui {
                 requests.item_moves.extend(events.moves);
                 requests.item_uses.extend(events.uses);
                 requests.item_deletes.extend(events.deletes);
+                requests.item_combines.extend(events.combines);
                 for url in events.infos {
                     info_view.show_url(&url);
                 }

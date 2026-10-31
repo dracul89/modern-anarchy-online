@@ -1266,6 +1266,14 @@ impl World {
                     self.perk_locks.remove(&word(17));
                     self.perk_actions_changed = true;
                 }
+                // `DeleteItem` from the server (0x70): an item used up (a combine's pieces): `(0x68, place)` leaves the backpack
+                0x70 if word(9) == 0x68 => {
+                    let place = word(13);
+                    if self.worn.iter().any(|e| e.slot == place) {
+                        self.worn.retain(|e| e.slot != place);
+                        self.inventory = Some(self.worn.clone());
+                    }
+                }
                 // a perk action gone (0xb6, after an untraining: its item template, number and code)
                 0xb6 => {
                     self.perk_actions.retain(|p| p.1 != word(17));
@@ -3886,6 +3894,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut polymorph_cache: std::collections::HashMap<u32, Option<u32>> = std::collections::HashMap::new();
         let mut vehicle_cache: std::collections::HashMap<u32, bool> = std::collections::HashMap::new();
         let mut delete_seen = 0u8;
+        let mut combine_seen = 0u8;
         let mut cancel_seen = 0u8;
         let mut train_perk_seen = 0u8;
         let mut inspect_seen = 0u8;
@@ -4876,6 +4885,11 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 pending_messages.push("Nano cancelled".into());
             }
             // An item destroyed: asked of the server and taken out of the inventory window at once.
+            // (a tradeskill combine: the server answers with the result and deletes what it used up)
+            if keys.combine.0 != combine_seen {
+                combine_seen = keys.combine.0;
+                let _ = connection.send(&n3::use_item_on_item(own, (0x68, keys.combine.1), (0x68, keys.combine.2)));
+            }
             if keys.delete.0 != delete_seen {
                 delete_seen = keys.delete.0;
                 let place = keys.delete.1;

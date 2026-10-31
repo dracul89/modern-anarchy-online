@@ -310,6 +310,19 @@ pub fn use_perk(character: u32, perk: u32, hash: [u8; 4]) -> Frame {
     Message { kind: 0x5e477770, identity: (CHARACTER, character), data }.frame(character)
 }
 
+/// `CharacterAction` `0x51` (`UseItemOnItem`): one item used on another, a tradeskill combine: the two items' identities (the
+/// 2026-10-31 capture: backpack places `0x56` and `0x43`, two pattern pieces joined).
+pub fn use_item_on_item(character: u32, item: (u32, u32), target: (u32, u32)) -> Frame {
+    let mut data = vec![0u8; 5];
+    data[4] = 0x51;
+    data.extend_from_slice(&[0; 4]);
+    for word in [item.0, item.1, target.0, target.1] {
+        data.extend_from_slice(&word.to_be_bytes());
+    }
+    data.extend_from_slice(&[0; 2]);
+    Message { kind: 0x5e477770, identity: (CHARACTER, character), data }.frame(character)
+}
+
 /// `CharacterAction` `0xbb` (`N3Msg_TrainPerk`, Gamecode FUN_10053422) or `0xbc` (`N3Msg_UntrainPerk`, FUN_100534d2): train a perk
 /// rank, or untrain one, by its id in the second parameter (the 2026-10-31 capture: rank `0x7d` both ways). The server echoes it.
 pub fn train_perk(character: u32, perk: u32, train: bool) -> Frame {
@@ -688,6 +701,12 @@ pub fn market_send(character: u32, credits: i32, items: &[(u32, u32)]) -> Frame 
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_combine_is_the_captured_shape() {
+        let data = Message::parse(&use_item_on_item(0x4bc82, (0x68, 0x56), (0x68, 0x43))).unwrap().data;
+        assert_eq!(data.iter().map(|b| format!("{b:02x}")).collect::<String>(), "000000005100000000000000680000005600000068000000430000");
+    }
+
     #[test]
     fn perk_training_is_the_captured_shape() {
         let hex = |f: Frame| Message::parse(&f).unwrap().data.iter().map(|b| format!("{b:02x}")).collect::<String>();

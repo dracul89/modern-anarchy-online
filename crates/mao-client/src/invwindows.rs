@@ -77,6 +77,8 @@ pub struct Events {
     pub deletes: Vec<u32>,
     pub infos: Vec<String>,
     pub trade_adds: Vec<u32>,
+    /// An item let go on another in the backpack: used on it (a tradeskill combine), `(the item, the one it went on)`.
+    pub combines: Vec<(u32, u32)>,
 }
 
 #[derive(Default)]
@@ -267,6 +269,15 @@ impl ItemWindows {
                 }
                 response
             });
+            // (a backpack item let go on another backpack item is used on it: a tradeskill combine, `UseItemOnItem`)
+            if let (Some(from), Some((onto, _))) = (dragged, &hovered_item)
+                && released
+                && from >= BACKPACK_FIRST
+                && *onto >= BACKPACK_FIRST
+                && *onto != from
+            {
+                events.combines.push((from, *onto));
+            }
             // (an item from the wear window let go over the inventory goes back into the backpack: the first free place)
             if let (Some(from), Some(shown)) = (dragged, &shown)
                 && released
