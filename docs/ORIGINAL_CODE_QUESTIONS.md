@@ -100,3 +100,14 @@ reordered band would name the wrong title.
 
 The port uses the code's table, as the original. Probably nothing to change; noted.
 
+## 10. The Research window is named "Vehicle" and has no title
+
+`ResearchWindow_c`'s construction (FUN_100f750e) makes its window with the name "Vehicle" and an empty title (the first two
+strings it builds before `FUN_100395fd`); its config is `ResearchConfig` and its help page "The Research window.html", so
+the name looks copied from the vehicle window's code. A window's name is what its saved place and the `esc_*`/window lists
+key on, so the Research window may share or overwrite the vehicle window's saved place; the empty title leaves its title bar
+blank.
+
+The port keeps the empty title (its internal name is the client's own "Research"). Decide: keep the blank title bar, or
+title it "Research" (text.mdb has the control center's "Research" label).
+
