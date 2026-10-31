@@ -511,7 +511,7 @@ impl Ctx<'_> {
 }
 
 /// A nano program's (else an item's) name, for the spells that upload or cast one.
-fn nano_name(db: &ResourceDatabase, id: u32) -> Option<String> {
+pub(crate) fn nano_name(db: &ResourceDatabase, id: u32) -> Option<String> {
     let d = db.get(Id { kind: item::NANO_TEMPLATE, instance: id }).ok().flatten().or_else(|| db.get(Id { kind: item::TEMPLATE, instance: id }).ok().flatten())?;
     Item::parse(&d).map(|i| i.name)
 }

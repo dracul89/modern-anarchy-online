@@ -85,8 +85,8 @@ pub struct Hud {
     pub programs: Vec<crate::nanoprograms::Program>,
     /// The character's perk actions (the server's list), for the Action window.
     pub perk_actions: Vec<crate::actions::PerkAction>,
-    /// The character's perks.
-    pub perk_list: Vec<crate::perks::PerkInfo>,
+    /// The perk records and the ranks the character owns (the perk window's lists).
+    pub perk_state: crate::perks::PerkState,
     /// The open container (corpse, bag).
     pub loot: Option<crate::loot::LootView>,
     pub loot_preview: std::sync::Mutex<Option<crate::loot::LootWindow>>,
@@ -733,7 +733,7 @@ impl Ui {
                 }
             }
             if perks_window.open {
-                if let Some(asked) = perks_window.show(&ctx, &hud.perk_list, palette) {
+                if let Some(asked) = perks_window.show(&ctx, &hud.perk_state, &hud.stats, palette) {
                     requests.train_perk = Some(asked);
                 }
             }
@@ -1110,7 +1110,7 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
                 window.show(&ctx, view, &palette);
             }
             if let Some(window) = preview_perks.as_mut() {
-                window.show(&ctx, &hud.perk_list, &palette);
+                window.show(&ctx, &hud.perk_state, &hud.stats, &palette);
             }
             if let Some(window) = preview_programs.as_mut() {
                 window.show(&ctx, &hud.programs, &palette);

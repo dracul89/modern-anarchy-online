@@ -1539,7 +1539,8 @@ fn run(args: &[String]) -> Result<(), String> {
                     // MAO_UI_PREVIEW=chat (MAO_CHAT_INPUT=/te): the chat window with sample lines and, with an input, the command list.
                     // MAO_UI_PREVIEW=friends MAO_FRIENDS=<name:1,name:0,...> (1 = online): the friends list.
                     // MAO_UI_PREVIEW=nanos MAO_PROGRAMS=<id,id,...>: the nano programs window.
-                    // MAO_UI_PREVIEW=perks MAO_PERKS=<id,id,...> (perk ids): the perks window.
+                    // MAO_UI_PREVIEW=perks MAO_PERKS=<id,id,...> (owned perk ids) MAO_PERK_STATS=<stat:value,...> (over a level-150
+                    // solitus soldier with every expansion and alien level 12; MAO_PERK_TAB=<0..2>): the perk window.
                     // MAO_UI_PREVIEW=loot MAO_CAPTURE=<log> MAO_LOOT=<n>: the n-th container a capture opened.
                     if preview.as_deref() == Some("loot") {
                         let log = std::env::var("MAO_CAPTURE").unwrap_or_default();
@@ -1559,9 +1560,16 @@ fn run(args: &[String]) -> Result<(), String> {
                     }
                     if preview.as_deref() == Some("perks") {
                         let ids: Vec<u32> = std::env::var("MAO_PERKS").unwrap_or_default().split(',').filter_map(|t| t.trim().parse().ok()).collect();
-                        hud.perk_list = perks::describe(&db, &textures, &ids, 220);
+                        hud.perk_state = perks::PerkState { catalog: perks::catalog(&db), owned: ids, server_offset: 0 };
+                        for (stat, value) in [(54, 150), (60, 1), (4, 1), (389, 0x1e), (169, 12)] {
+                            hud.stats.entry(stat).or_insert(value);
+                        }
+                        for (stat, value) in std::env::var("MAO_PERK_STATS").unwrap_or_default().split(',').filter_map(|t| t.split_once(':')).filter_map(|(s, v)| Some((s.trim().parse::<u32>().ok()?, v.trim().parse::<i64>().ok()?))) {
+                            hud.stats.insert(stat, value);
+                        }
                         let mut window = perks::PerksWindow::default();
                         window.open = true;
+                        window.select_tab(std::env::var("MAO_PERK_TAB").ok().and_then(|t| t.parse().ok()).unwrap_or(0));
                         *hud.perks_preview.lock().unwrap() = Some(window);
                     }
                     if preview.as_deref() == Some("nanos") {
