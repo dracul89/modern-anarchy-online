@@ -6694,7 +6694,7 @@ fn msg_dump(log: &str, kind: &str, count: usize) -> Result<(), String> {
                 shown += 1;
                 let dir = if server { "S>C" } else { "C>S" };
                 match Message::parse(&m) {
-                    Some(x) if m.kind == frame::N3 => println!("#{ordinal} {dir} {connection} kind {:08x} identity ({:x},{:x}) {} bytes: {}", x.kind, x.identity.0, x.identity.1, x.data.len(), hex(&x.data)),
+                    Some(x) if m.kind == frame::N3 => println!("#{ordinal} {} {dir} {connection} kind {:08x} identity ({:x},{:x}) {} bytes: {}", f[0], x.kind, x.identity.0, x.identity.1, x.data.len(), hex(&x.data)),
                     _ => println!("{dir} {connection} frame kind {} src {:x} dst {:x} {} bytes: {}", m.kind, m.source, m.destination, m.body.len(), hex(&m.body)),
                 }
             }

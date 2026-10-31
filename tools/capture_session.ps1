@@ -18,7 +18,7 @@
 #>
 param(
     [string]$Name = 'session',
-    [string]$Game = 'C:\Users\danny\Workspace\rea_ao\Anarchy Online',
+    [string]$Game = 'C:\Program Files (x86)\Steam\steamapps\common\Anarchy Online',
     [int]$Port = 7505,
     [double]$ShotSeconds = 2
 )
