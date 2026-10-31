@@ -23,6 +23,7 @@ pub mod itemslot;
 pub mod iteminfo;
 pub mod layout;
 pub mod menu;
+pub mod multilist;
 pub mod options;
 pub mod spells;
 pub mod stat_names;

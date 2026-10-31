@@ -56,6 +56,14 @@ pub enum Signal {
     Selected(i64),
     /// A radio button group's choice changed (`ValueChanged`): the chosen button's value.
     Value(String),
+    /// A list's column label was clicked (`ColumnHeaderView_c`'s `SignalColumnSelected`): its id.
+    ColumnSelected(i32),
+    /// A list's column was dragged to a width (`SignalColumnResized`).
+    ColumnResized(i32, f32),
+    /// A double click on a list column's edge (`ResizeColumnToFit`).
+    ColumnFit(i32),
+    /// A list's row was clicked: its id and the click count (`MultiListView_c`'s item-clicked signal).
+    ItemClicked(i64, u32),
 }
 
 /// The keys a text view acts on (`TextRenderer_c::KeyDown`'s cases: 0x18 Enter, 0x19 Backspace, 0x1b Delete, 0x1c Home,

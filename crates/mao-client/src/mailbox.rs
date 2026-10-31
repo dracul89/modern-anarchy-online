@@ -43,6 +43,16 @@ pub fn nearest_terminal(db: &mao_formats::resource::ResourceDatabase, playfield:
     nearest_in(&terminals(db, playfield), x, z)
 }
 
+/// A unix time as boost's `posix_time::to_simple_string` writes it (`2026-Oct-30 21:05:09`, UTC), as the mail list shows it.
+pub fn simple_time(unix: u32) -> String {
+    const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    let t = mail::time_text(unix);
+    let (date, clock) = t.split_once(' ').unwrap_or((&t, ""));
+    let mut d = date.split('-');
+    let (y, m, day) = (d.next().unwrap_or(""), d.next().and_then(|m| m.parse::<usize>().ok()).unwrap_or(1), d.next().unwrap_or(""));
+    format!("{y}-{}-{day} {clock}:{:02}", MONTHS[(m - 1).min(11)], unix % 60)
+}
+
 /// What the windows ask the network thread to do.
 #[derive(Clone, Debug, PartialEq)]
 pub enum MailCommand {
@@ -73,11 +83,16 @@ pub struct MailWindow {
     pub status: String,
     /// The message window (a new mail, or the one opened): `mailmessage.rs`.
     pub message: crate::mailmessage::MessageWindow,
+    /// The inbox on the skin's view, its list, what it last showed, and a mail waiting for "delete?".
+    window: Option<crate::gui::window::XmlWindow>,
+    list: Option<crate::gui::view::Id>,
+    shown: Option<(Vec<Entry>, Option<usize>)>,
+    deleting: Option<u32>,
 }
 
 impl Default for MailWindow {
     fn default() -> MailWindow {
-        MailWindow { open: false, count: None, entries: Vec::new(), selected: None, opened: None, status: String::new(), message: Default::default() }
+        MailWindow { open: false, count: None, entries: Vec::new(), selected: None, opened: None, status: String::new(), message: Default::default(), window: None, list: None, shown: None, deleting: None }
     }
 }
 
@@ -110,72 +125,138 @@ impl MailWindow {
         }
     }
 
+    /// `MailWindow_c` (FUN_10109a11) on `Views/MailWindow.xml`: the list in `InboxBorder` (a list-mode `MultiListView_c` of
+    /// Icon 16 (sortable), From, Subject, Sent and Expires 96/164/96/96 (resizable, movable, sortable), 5 in from the
+    /// border), `InboxSize` "n/30" (FUN_10109489) with text.mdb's "Inbox size" tip, New, Delete and Close; the inbox is
+    /// asked for as it opens (`N3Msg_RequestMailMessage(0)`).
+    fn load(&mut self, ctx: &egui::Context) -> bool {
+        let Some(mut w) = crate::gui::window::XmlWindow::load(ctx, "Mail", "Mail", "MailWindow.xml") else { return false };
+        w.tree.measure = crate::gui::font::Measure { ctx: Some(ctx.clone()) };
+        w.default_size = egui::vec2(550.0, 300.0);
+        let root = w.root;
+        if let Some(border) = w.tree.find(root, "InboxBorder") {
+            use crate::gui::multilist::{self, MOVABLE, RESIZABLE, SORTABLE};
+            let list = multilist::create(&mut w.tree, "Inbox");
+            for (id, label, width, flags) in [(0, "Icon", 16.0, SORTABLE), (1, "From", 96.0, RESIZABLE | MOVABLE | SORTABLE), (2, "Subject", 164.0, RESIZABLE | MOVABLE | SORTABLE), (3, "Sent", 96.0, RESIZABLE | MOVABLE | SORTABLE), (4, "Expires", 96.0, RESIZABLE | MOVABLE | SORTABLE)] {
+                multilist::add_column(&mut w.tree, list, id, label, width, flags);
+            }
+            w.tree.get_mut(list).borders = crate::gui::geom::Rect::new(5.0, 5.0, 5.0, 5.0);
+            // (the border's `LayoutNode`: the list over all of it)
+            w.tree.get_mut(border).layout = crate::gui::view::Layout::Base;
+            w.tree.add_child(border, list);
+            self.list = Some(list);
+        }
+        if let Some(id) = w.tree.find(root, "InboxSize") {
+            w.tree.get_mut(id).tooltip = crate::gui::xml::ldb_text("#Inbox size");
+        }
+        self.window = Some(w);
+        self.shown = None;
+        true
+    }
+
+    /// The rows for the inbox (`MailListItem_c` FUN_10104395): the read or unread picture (0x1d7 + read), the sender, the
+    /// subject, and the times as boost's `to_simple_string` writes them; the icon column sorts unread first
+    /// (FUN_1010422b), the others by their text.
+    fn rows(entries: &[Entry]) -> Vec<crate::gui::multilist::Item> {
+        use crate::gui::multilist::{CellView, Item};
+        entries
+            .iter()
+            .map(|e| {
+                let read = e.flags & mail::READ != 0;
+                let (sent, expires) = (simple_time(e.sent), simple_time(e.expires));
+                Item {
+                    id: e.id as i64,
+                    cells: vec![
+                        (0, CellView::Picture(if read { "GFX_GUI_MAIL_READ" } else { "GFX_GUI_MAIL_UNREAD" }.into())),
+                        (1, CellView::Text(e.sender.clone())),
+                        (2, CellView::Text(e.subject.clone())),
+                        (3, CellView::Text(sent.clone())),
+                        (4, CellView::Text(expires.clone())),
+                    ],
+                    keys: vec![(0, if read { "1" } else { "0" }.into()), (1, e.sender.clone()), (2, e.subject.clone()), (3, sent), (4, expires)],
+                }
+            })
+            .collect()
+    }
+
     /// Draws the windows; returns what to send, if anything.
     pub fn show(&mut self, ctx: &egui::Context, gear: &mut GearWindow, items: &[GearItem], palette: &Palette) -> Option<MailCommand> {
         let mut command = None;
-        // The inbox.
-        if self.open {
+        if !self.open {
+            self.window = None;
+        } else if self.window.is_none() && self.load(ctx) {
+            command = Some(MailCommand::Inbox);
+        }
+        if let (Some(w), Some(list)) = (self.window.as_mut(), self.list) {
+            let root = w.root;
+            // (the rows follow the inbox; the size "n/30")
+            let shown = (self.entries.clone(), self.count);
+            if self.shown.as_ref() != Some(&shown) {
+                let rows = Self::rows(&self.entries);
+                crate::gui::multilist::set_items(&mut w.tree, list, rows);
+                crate::gui::multilist::select(&mut w.tree, list, self.selected.map(i64::from));
+                if let Some(id) = w.tree.find(root, "InboxSize")
+                    && let Some(t) = w.tree.control_mut::<crate::gui::controls::TextView>(id)
+                {
+                    t.set_text(&format!("{}/30", self.count.unwrap_or(self.entries.len())));
+                }
+                w.tree.relayout = true;
+                self.shown = Some(shown);
+            }
+            let skin = crate::skin::skin(ctx);
+            let min = crate::gui::host::preferred_pixels(&w.tree, root, false);
+            let (tree, status) = (&mut w.tree, &self.status);
             let mut is_open = true;
-            let mut close = false;
-            crate::chrome::window(ctx, palette, "Mail", "Mail", &mut is_open, |w| w.resizable(false).default_pos(crate::layout::pos("Mail", egui::pos2(520.0, 90.0))), |ui| {
-                ui.set_width(360.0);
-                ui.horizontal(|ui| {
-                    ui.label("Messages");
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(format!("Size: {}/30", self.count.unwrap_or(0)));
-                    });
-                });
-                egui::Frame::new().fill(egui::Color32::from_black_alpha(110)).stroke(egui::Stroke::new(1.0, egui::Color32::from_white_alpha(40))).inner_margin(4).show(ui, |ui| {
-                    ui.set_min_height(120.0);
-                    ui.horizontal(|ui| {
-                        ui.add_sized([230.0, 16.0], egui::Label::new(egui::RichText::new("Subject").weak()));
-                        ui.label(egui::RichText::new("Sent").weak());
-                    });
-                    ui.separator();
-                    if self.entries.is_empty() {
-                        ui.label(egui::RichText::new(if self.count.is_none() { "Press Check mail at a mail terminal." } else { "No messages." }).weak());
-                    }
-                    crate::chrome::scroll(ui, palette, egui::ScrollArea::vertical().max_height(150.0), |ui| {
-                        for e in &self.entries {
-                            let unread = e.flags & mail::READ == 0;
-                            let mut label = egui::RichText::new(&e.subject);
-                            if unread {
-                                label = label.strong();
-                            }
-                            let mark = format!("{}{}", if e.flags & mail::HAS_ITEM != 0 && e.flags & mail::TAKEN == 0 { " [item]" } else { "" }, if e.flags & mail::HAS_CREDITS != 0 && e.flags & mail::TAKEN == 0 { " [credits]" } else { "" });
-                            ui.horizontal(|ui| {
-                                if ui.selectable_label(self.selected == Some(e.id), label).clicked() {
-                                    self.selected = Some(e.id);
-                                    self.message.read(e.id);
-                                    command = Some(MailCommand::Open(e.id));
-                                }
-                                ui.label(egui::RichText::new(mail::time_text(e.sent)).small().weak());
-                            });
-                            if !mark.is_empty() {
-                                ui.label(egui::RichText::new(format!("   from {}{}", e.sender, mark)).small().weak());
-                            }
-                        }
-                    });
-                });
-                ui.horizontal(|ui| {
-                    if crate::chrome::button(ui, palette, "Check mail", true).on_hover_text("Uses the nearest known mail terminal and asks for the inbox").clicked() {
-                        command = Some(MailCommand::Inbox);
-                        self.status = "Asking the mail terminal ...".into();
-                    }
-                    if crate::chrome::button(ui, palette, "New", true).clicked() {
-                        self.message.compose("", "");
-                    }
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if crate::chrome::button(ui, palette, "Close", true).clicked() {
-                            close = true;
-                        }
-                    });
-                });
-                if !self.status.is_empty() {
-                    ui.label(egui::RichText::new(&self.status).small());
+            crate::chrome::window(ctx, palette, "Mail", "Mail", &mut is_open, |win| win.default_size(min.max(egui::vec2(550.0, 300.0))).resizable(true).default_pos(crate::layout::pos("Mail", egui::pos2(520.0, 90.0))), |ui| {
+                crate::gui::host::show(ui, tree, root, skin.as_deref(), palette);
+                if !status.is_empty() {
+                    ui.label(egui::RichText::new(status).small());
                 }
             });
-            self.open = is_open && !close;
+            // (a row clicked: selected; twice, opened in the message window: FUN_10109548)
+            for (_, id, clicks) in crate::gui::multilist::take_signals(&mut w.tree) {
+                crate::gui::multilist::select(&mut w.tree, list, Some(id));
+                self.selected = Some(id as u32);
+                if clicks > 1 {
+                    self.message.read(id as u32);
+                    command = Some(MailCommand::Open(id as u32));
+                }
+            }
+            for (id, signal) in std::mem::take(&mut w.tree.signals) {
+                if signal != crate::gui::host::Signal::Clicked {
+                    continue;
+                }
+                match w.tree.get(id).name.as_str() {
+                    "NewButton" => self.message.compose("", ""),
+                    // (FUN_101098a0: "Are you sure you want to delete this message?")
+                    "DeleteButton" => self.deleting = crate::gui::multilist::selected(&w.tree, list).map(|m| m as u32),
+                    "CloseButton" => is_open = false,
+                    _ => {}
+                }
+            }
+            self.open = is_open;
+        }
+        if let Some(m) = self.deleting {
+            let mut open = true;
+            let mut answer = None;
+            let question = crate::gui::xml::ldb_text("#1000:208922380");
+            crate::chrome::window(ctx, palette, "delete-mail", &crate::gui::xml::ldb_text("#10000:120699445"), &mut open, |w| w.resizable(false).anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO), |ui| {
+                ui.label(egui::RichText::new(&question).color(crate::chrome::rgb(palette.text)));
+                ui.horizontal(|ui| {
+                    if crate::chrome::button(ui, palette, "Yes", true).clicked() {
+                        answer = Some(true);
+                    }
+                    if crate::chrome::button(ui, palette, "No", true).clicked() {
+                        answer = Some(false);
+                    }
+                });
+            });
+            if answer == Some(true) {
+                command = Some(MailCommand::Delete(m));
+            }
+            if answer.is_some() || !open {
+                self.deleting = None;
+            }
         }
         // The message window (a new mail, or the one opened).
         if let Some(c) = self.message.show(ctx, gear, items, self.opened.as_ref(), palette) {
@@ -198,5 +279,11 @@ mod tests {
         assert_eq!(nearest_in(&old_athen, 446.0, 455.0), Some(0xc003_021c));
         assert_eq!(nearest_in(&old_athen, 410.0, 405.0), Some(0xc002_021c));
         assert_eq!(nearest_in(&old_athen, 300.0, 300.0), None);
+    }
+
+    #[test]
+    fn boost_simple_time() {
+        assert_eq!(simple_time(0), "1970-Jan-01 00:00:00");
+        assert_eq!(simple_time(1_793_394_309), "2026-Oct-30 21:05:09");
     }
 }
