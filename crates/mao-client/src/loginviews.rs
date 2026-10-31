@@ -150,6 +150,74 @@ impl LoginWindow {
     }
 }
 
+/// The game's network time-outs in seconds (`MainPrefs.xml`'s `GeneralNetworkTimeout`, 90, while logging in;
+/// `DimensionNetworkTimeout`, 30, while a character is entered).
+pub fn network_timeout(name: &str, default: f32) -> f32 {
+    let text = crate::theme::game_dir().and_then(|g| std::fs::read_to_string(g.join("cd_image/gui/Default/MainPrefs.xml")).ok()).unwrap_or_default();
+    let quoted = format!("name=\"{name}\"");
+    text.lines()
+        .find(|l| l.contains(&quoted))
+        .and_then(|l| l.split("value=\"").nth(1))
+        .and_then(|v| v.split('"').next())
+        .and_then(|v| v.trim().parse().ok())
+        .unwrap_or(default)
+}
+
+/// `ProgressWindow_c` (0x1001672b) on `Views/ProgressDialog.xml`, as `LoginModule_c::Show` opens it while logging in (state
+/// 1): "Please wait...", Cancel, and the bar filling over the time-out (`SlotFrameProcess` 0x10016620: the time passed
+/// over the time-out, at most 1). Cancel (`SlotCancelPressed`) and the time running out both end it, and the login goes
+/// back to its form (`SlotLoginTimeout`: `Show(0)`).
+#[derive(Default)]
+pub struct ProgressWindow {
+    window: Option<XmlWindow>,
+    timeout: f32,
+    started: Option<std::time::Instant>,
+}
+
+impl ProgressWindow {
+    pub fn start(&mut self, timeout: f32) {
+        self.window = None;
+        self.timeout = timeout.max(1.0);
+        self.started = Some(std::time::Instant::now());
+    }
+
+    pub fn stop(&mut self) {
+        self.started = None;
+        self.window = None;
+    }
+
+    /// Shows the window; true when it was cancelled or the time ran out.
+    pub fn show(&mut self, ctx: &egui::Context, palette: &Palette) -> bool {
+        let Some(started) = self.started else { return false };
+        if self.window.is_none() {
+            let Some((mut tree, root)) = crate::gui::load_view(&dirs(ctx), "ProgressDialog.xml", "") else { return false };
+            tree.measure = crate::gui::font::Measure { ctx: Some(ctx.clone()) };
+            self.window = Some(XmlWindow { name: "Progress".into(), title: "Progress".into(), tree, root, open: true, default_size: egui::vec2(220.0, 0.0) });
+        }
+        let Some(w) = self.window.as_mut() else { return false };
+        let root = w.root;
+        let done = started.elapsed().as_secs_f32() / self.timeout;
+        if let Some(id) = w.tree.find(root, "progress_bar") {
+            crate::gui::powerbar::set_value(&mut w.tree, id, done.min(1.0));
+        }
+        let skin = crate::skin::skin(ctx);
+        let min = crate::gui::host::preferred_pixels(&w.tree, root, false);
+        let tree = &mut w.tree;
+        let mut open = true;
+        crate::chrome::window(ctx, palette, "Progress", "Progress", &mut open, |w| w.resizable(false).anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0)).default_size(min.max(egui::vec2(220.0, 0.0))), |ui| {
+            crate::gui::host::show(ui, tree, root, skin.as_deref(), palette);
+        });
+        ctx.request_repaint();
+        let cancelled = std::mem::take(&mut w.tree.signals).into_iter().any(|(id, s)| s == crate::gui::host::Signal::Clicked && w.tree.get(id).name == "cancel_btn");
+        if cancelled || !open || done >= 1.0 {
+            self.started = None;
+            self.window = None;
+            return true;
+        }
+        false
+    }
+}
+
 /// The confirmation (`CharDeleteWindow_c`).
 struct DeleteWindow {
     window: XmlWindow,

@@ -158,6 +158,8 @@ struct Launcher {
     /// The screens on the skin's views (`loginviews.rs`).
     login_view: crate::loginviews::LoginWindow,
     char_view: crate::loginviews::CharSelectScreen,
+    /// The progress window while logging in.
+    progress: crate::loginviews::ProgressWindow,
     /// A deletion waiting on the login server.
     deleting: Option<Receiver<Result<u32, String>>>,
 }
@@ -177,6 +179,7 @@ impl Launcher {
         let (tx, rx) = channel();
         self.answer = Some(rx);
         self.stage = Stage::Busy;
+        self.progress.start(crate::loginviews::network_timeout("GeneralNetworkTimeout", 90.0));
         self.message.clear();
         std::thread::spawn(move || {
             let result = (|| -> Result<Vec<Character>, String> {
@@ -217,6 +220,7 @@ impl Launcher {
         if let Some(rx) = &self.answer {
             if let Ok(result) = rx.try_recv() {
                 self.answer = None;
+                self.progress.stop();
                 match result {
                     Ok(list) if list.is_empty() => {
                         self.stage = Stage::Form;
@@ -296,7 +300,16 @@ impl Launcher {
             self.play_new = Some(name);
             self.log_in();
         }
-        if !matches!(self.stage, Stage::Characters(_) | Stage::Create(..)) {
+        // While logging in, the progress window in the login window's place (`LoginModule_c::Show(1)`); cancelled or
+        // timed out, back to the form (the answer, if it still comes, is not waited for).
+        if matches!(self.stage, Stage::Busy) && self.answer.is_some() {
+            let palette = self.palette.clone();
+            if self.progress.show(ctx, &palette) {
+                self.answer = None;
+                self.play_new = None;
+                self.stage = Stage::Form;
+            }
+        } else if !matches!(self.stage, Stage::Characters(_) | Stage::Create(..)) {
             // The login dialog (`Views/LoginWindow.xml`, `loginviews.rs`).
             let palette = self.palette.clone();
             let busy = matches!(self.stage, Stage::Busy);
@@ -488,9 +501,16 @@ pub fn run(game: &str) -> Result<(), String> {
     crate::font::set_enabled(settings.original_font);
     let palette = crate::theme::load(&settings.theme, &settings.aou_mod);
     let (user, last, accounts) = parse_account(&std::fs::read_to_string(account_path()).unwrap_or_default());
-    let mut launcher = Launcher { game: game.to_string(), settings, gfx: None, stage: Stage::Form, user, last, accounts, palette, quit: false, password: String::new(), server: std::env::var("MAO_SERVER").unwrap_or_else(|_| session::RUBI_KA.to_string()), message: String::new(), answer: None, chosen: None, play_new: None, new_character: false, selected: None, shot: std::env::var("MAO_LAUNCHER_SHOT").ok(), looks: crate::look::load(), login_view: Default::default(), char_view: Default::default(), deleting: None };
+    let mut launcher = Launcher { game: game.to_string(), settings, gfx: None, stage: Stage::Form, user, last, accounts, palette, quit: false, password: String::new(), server: std::env::var("MAO_SERVER").unwrap_or_else(|_| session::RUBI_KA.to_string()), message: String::new(), answer: None, chosen: None, play_new: None, new_character: false, selected: None, shot: std::env::var("MAO_LAUNCHER_SHOT").ok(), looks: crate::look::load(), login_view: Default::default(), char_view: Default::default(), progress: Default::default(), deleting: None };
     // MAO_LAUNCHER_DEMO=1: three sample characters instead of a login (for pictures of the character screen).
-    if std::env::var_os("MAO_LAUNCHER_DEMO").is_some_and(|v| v != "form") {
+    // MAO_LAUNCHER_DEMO=progress: logging in, an answer that never comes (the progress window).
+    if std::env::var_os("MAO_LAUNCHER_DEMO").is_some_and(|v| v == "progress") {
+        let (tx, rx) = channel();
+        std::mem::forget(tx);
+        launcher.answer = Some(rx);
+        launcher.stage = Stage::Busy;
+        launcher.progress.start(20.0);
+    } else if std::env::var_os("MAO_LAUNCHER_DEMO").is_some_and(|v| v != "form") {
         // (the characters of a capture's list, as the server sent them: name, breed, sex, profession, level)
         let sample = |name: &str, breed, sex, profession, level| Character { name: name.into(), breed, sex, profession, level, created: true, area: "area unknown".into(), ..Default::default() };
         let list = vec![sample("Brasscasings", 1, 2, 1, 25), sample("Arctangent", 1, 3, 6, 40), sample("Beetlez", 2, 2, 2, 8), sample("Pregnantmule", 4, 1, 5, 160), sample("Diabete5", 3, 3, 10, 60), sample("Fallacy", 2, 3, 15, 220)];
