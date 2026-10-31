@@ -246,6 +246,10 @@ struct World {
     riding_until: BTreeMap<u32, (u32, Instant)>,
     /// Health and maximum from the info packets (the server answers an info request with them).
     health: BTreeMap<u32, (i64, i64)>,
+    /// The character's pets by their place in the pet window (`PetWindowModule_c`'s map: `AddPet` 0x1007f0f9 puts a new pet
+    /// in the first free place from 1, `GetFreePetSlot` 0x1007ee0d), from the server's `AddPet` and `RemovePet`; a new
+    /// playfield starts the list again, as the original's new client character does (its pets come again after it).
+    pets: BTreeMap<u32, (u32, u32)>,
     /// The health each character was last known to have (from the damage events: the target's health after the hit).
     last_hp: BTreeMap<u32, i64>,
     /// The social action each character is doing: its name and when it began (from `SocialActionCmd`).
@@ -824,6 +828,7 @@ impl World {
                 eprintln!("  playfield message data {}", m.data.iter().map(|b| format!("{b:02x}")).collect::<String>());
             }
             self.arrival = Some(arrival);
+            self.pets.clear();
             self.instance_runs = m.instance_runs();
             if std::env::var_os("MAO_COMBAT_LOG").is_some() && !self.instance_runs.is_empty() {
                 eprintln!("instance runs: {:x?}", self.instance_runs);
@@ -1436,6 +1441,16 @@ impl World {
                 crate::team::with(|t| if who == self.own { t.members.clear() } else { t.members.retain(|m| m.id != who) });
             }
         }
+        // The pets (`pets.rs`): `AddPet` names one, into the first free place (`GetFreePetSlot`, a pet already listed stays
+        // where it is); `RemovePet` takes one away.
+        if let Some((added, pet)) = mao_net::n3::pet_change(&m) {
+            if !added {
+                self.pets.retain(|_, p| *p != pet);
+            } else if !self.pets.values().any(|p| *p == pet) {
+                let slot = (1..).find(|k| !self.pets.contains_key(k)).unwrap_or(1);
+                self.pets.insert(slot, pet);
+            }
+        }
         if m.kind == TEAM_MEMBER || m.kind == TEAM_MEMBER_INFO {
             if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
                 let int = |f: &str| p.value.get(f).and_then(mao_net::schema::Value::as_int).unwrap_or(0);
@@ -1752,6 +1767,10 @@ impl World {
                 None => {
                     self.fighting.remove(&m.identity.1);
                 }
+            }
+            // (a creature's health and maximum, as Gamecode's reader FUN_1007916d takes them: the pet window's bars)
+            if let Some((health, max)) = info.health {
+                self.health.insert(m.identity.1, (health as i64, max as i64));
             }
             let player = info.is_player();
             self.names.insert(m.identity.1, (info.name.clone(), player));
@@ -4306,6 +4325,18 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 goto = None;
             }
             // Vicinity speech: a text message to the server, at the current target (a character's; none for an object or nobody).
+            // The pet window: the pets as they are now, and its buttons' commands to one pet (`N3Msg_SendPetCommand`).
+            crate::pets::set(state.pets.values().map(|&pet| crate::pets::Pet {
+                id: pet,
+                name: state.names.get(&pet.1).map(|n| n.0.clone()).unwrap_or_default(),
+                health: state.health.get(&pet.1).copied().unwrap_or((0, 0)),
+                in_play: state.entities.contains_key(&pet.1),
+                selected: target == Some(pet.1),
+                family: state.infos.get(&pet.1).and_then(|i| i.family),
+            }).collect());
+            for (pet, command) in crate::pets::take_commands() {
+                let _ = connection.send(&n3::pet_command_to(own, command, pet));
+            }
             // The team window's answers.
             for command in crate::team::take_commands() {
                 let _ = match command {

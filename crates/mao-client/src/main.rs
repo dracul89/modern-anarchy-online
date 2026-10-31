@@ -84,6 +84,7 @@ mod mailbox;
 mod mailmessage;
 mod tips;
 mod team;
+mod pets;
 mod shop;
 mod mission;
 mod hotbar;
