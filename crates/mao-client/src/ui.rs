@@ -309,7 +309,63 @@ pub struct Ui {
 
 /// An `esc_*` option's value in the game's LoginPrefs.xml (for when the skin's values are not loaded).
 fn esc_default(name: &str) -> bool {
-    !matches!(name, "esc_inventory" | "esc_npcchat" | "esc_nano" | "esc_never")
+    !matches!(name, "esc_inventory" | "esc_npcchat" | "esc_nano")
+}
+
+/// The windows Escape may close, by their `chrome::window` names.
+pub const ESCAPABLE: &[&str] = &[
+    "Options", "Whom-Pah", "Browser", "Help", "Option panel", "loot", "Shop", "TradeDoubleConfirmDlg", "perk-dialog", "team-invite", "remove-friend", "delete-mail", "disable-tips", "Perks", "Research",
+    "Missions", "PlanetMap", "Info", "NPCChat", "Nano programs", "Inventory", "Wear", "Inspect", "Tradeskill",
+];
+
+/// The `esc_*` option that lets Escape close a window (by its `chrome::window` name), which the original's window reads when
+/// it is made and, when set, registers the window's close for Escape (`FUN_1005a90d` / `FUN_1004a443`): `Some(None)` for the
+/// client's own windows, which it always closes, `None` for a window it never closes (the team, pet, faction, friends, mail,
+/// stats, skills, NCU, actions, chat windows and the mission journal read none). `loot_kind` is the open container's kind,
+/// `trading` whether the shop window is a trade with a player.
+pub fn escape_option(name: &str, loot_kind: Option<u32>, trading: bool) -> Option<Option<&'static str>> {
+    Some(Some(match name {
+        "Options" | "Whom-Pah" | "Browser" | "Help" => return Some(None),
+        "Option panel" => "esc_optionpanel",
+        // (InventoryView_c FUN_100ccefe: a corpse, a container (an own backpack: the option of chests is for one in the world,
+        // which the client does not tell apart); the bank reads none)
+        "loot" => match loot_kind {
+            Some(crate::loot::CORPSE) => "esc_corpses",
+            Some(0xc749) => "esc_backpacks",
+            _ => return None,
+        },
+        // (TradeView_c FUN_100e121e: `esc_trades` for a trade with a player, `esc_shops` for a shop)
+        "Shop" => {
+            if trading {
+                "esc_trades"
+            } else {
+                "esc_shops"
+            }
+        }
+        // (`DialogBox_c::Go`, 0x1012a871: a dialog's Escape is `SlotSelected(-1)`, its close)
+        "TradeDoubleConfirmDlg" | "perk-dialog" | "team-invite" | "remove-friend" | "delete-mail" | "disable-tips" => "esc_dialogs",
+        "Perks" => "esc_perkwindow",
+        "Research" => "esc_research",
+        "Missions" => "esc_missionselection",
+        "PlanetMap" => "esc_planetmap",
+        "Info" => "esc_infoview",
+        "NPCChat" => "esc_npcchat",
+        "Nano programs" => "esc_nano",
+        "Inventory" => "esc_inventory",
+        // (WearView_c FUN_100e24b8 reads `esc_wear` for the wear window and for an inspection alike)
+        "Wear" | "Inspect" => "esc_wear",
+        "Tradeskill" => "esc_tradeskill",
+        _ => return None,
+    }))
+}
+
+/// The windows of [`ESCAPABLE`] Escape closes: those whose option (`esc`) is set, or that need none, and whose pin is not down.
+pub fn escape_closes(loot_kind: Option<u32>, trading: bool, esc: &dyn Fn(&str) -> bool, pinned: impl Fn(&str) -> bool) -> Vec<&'static str> {
+    ESCAPABLE
+        .iter()
+        .copied()
+        .filter(|name| escape_option(name, loot_kind, trading).is_some_and(|option| option.is_none_or(esc)) && !pinned(name))
+        .collect()
 }
 
 /// When the timed logout began (`FlowControlModule_t::m_pcCampTimer`): set by the live loop, drawn as the "Logout" bar.
@@ -468,59 +524,20 @@ impl Ui {
         format!("layer {:?}, dragging {:?}", at.and_then(|p| self.ctx.layer_id_at(p)), self.ctx.dragged_id())
     }
 
-    /// What Escape does in the original: closes the windows that are set to close with it (dialogs, containers, shops, the options and
-    /// the perk window; the inventory, the nano and the character windows stay). True when a window was closed.
-    /// Escape: the original's windows that ask for it (each reads its `esc_*` option when it is made: LoginPrefs.xml's
-    /// defaults leave the inventory, NPC chat and nano windows open; mail, the mission journal, the bank and the other
-    /// windows without an option are never closed by it), and the client's own windows.
-    pub fn close_with_escape(&mut self) -> bool {
+    /// Escape: closes the windows that ask for it ([`escape_closes`]), each as its close button would the next time it is drawn
+    /// (`chrome::close_soon`), and the tip window. A window whose pin is down stays, as in the original.
+    pub fn close_with_escape(&mut self) {
         let store = self.control_center.as_ref().map(|cc| &cc.store);
         let esc = |name: &str| match store.and_then(|s| s.get(name)) {
             Some(_) => store.is_some_and(|s| s.get_bool(name)),
             None => esc_default(name),
         };
-        // (a window whose pin is down stays, as in the original)
-        let mut closed = false;
-        let mut shut = |name: &str, option: Option<&str>, flag: &mut bool| {
-            if *flag && option.is_none_or(&esc) && !crate::chrome::pinned(name) {
-                *flag = false;
-                closed = true;
-            }
-        };
-        // (the client's own windows)
-        shut("Options", None, &mut self.options_open);
-        shut("Whom-Pah", None, &mut self.whompah_open);
-        shut("Browser", None, &mut self.browser.open);
-        shut("Help", None, &mut self.help.open);
-        // (the original's)
-        shut("Option panel", Some("esc_optionpanel"), &mut self.option_panel.open);
-        // (InventoryView_c FUN_100ccefe: a corpse, a container (an own backpack: the option of chests is for one in the
-        // world, which the client does not tell apart), not the bank)
-        let loot_option = match self.loot.kind() {
-            Some(crate::loot::CORPSE) => Some("esc_corpses"),
-            Some(0xc749) => Some("esc_backpacks"),
-            _ => Some("esc_never"),
-        };
-        shut("loot", loot_option, &mut self.loot.open);
-        shut("Shop", Some("esc_shops"), &mut self.shop.open);
-        shut("Perks", Some("esc_perkwindow"), &mut self.perks.open);
-        shut("Research", Some("esc_research"), &mut self.research.open);
-        shut("Missions", Some("esc_missionselection"), &mut self.mission.open);
-        shut("PlanetMap", Some("esc_planetmap"), &mut self.planet.open);
-        shut("Info", Some("esc_infoview"), &mut self.info.open);
-        shut("NPCChat", Some("esc_npcchat"), &mut self.npc_chat.open);
-        shut("Nano programs", Some("esc_nano"), &mut self.programs.open);
-        shut("Inventory", Some("esc_inventory"), &mut self.gear_open);
-        if esc("esc_wear") && !crate::chrome::pinned("Wear") && self.gear.close_wear(self.gear_open) {
-            closed = true;
+        for name in escape_closes(self.loot.kind(), self.shop.partner.is_some(), &esc, crate::chrome::pinned) {
+            crate::chrome::close_soon(name);
         }
-        if esc("esc_tips") && self.tips.close() {
-            closed = true;
+        if esc("esc_tips") {
+            self.tips.close();
         }
-        if !self.options_open {
-            self.rebinding = None;
-        }
-        closed
     }
 
     /// Whether the window of that name is shown (the names of [`Ui::set_window`]).
@@ -865,8 +882,12 @@ impl Ui {
             }
             if *options_open {
                 options_window(&ctx, options_open, rebinding, settings, &mut requests, palette, themes);
+                if !*options_open {
+                    *rebinding = None;
+                }
             }
         });
+        crate::chrome::end_frame();
         // (an inventory item let go over the world, not over a window, is used on what is there)
         let dragged = crate::gear::DRAGGED.load(std::sync::atomic::Ordering::Relaxed);
         if dragged != u32::MAX
@@ -1770,5 +1791,40 @@ mod glow_tests {
     fn a_glow_takes_its_own_colour_or_one_by_school() {
         assert_eq!(glow_color(Some(10), Some(300), Some(5), 0), [10, 255, 5]);
         assert_eq!(glow_color(None, Some(1), None, 7), glow_color(None, None, None, 1));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// LoginPrefs.xml's defaults: Escape closes the windows that read an option set true, never the inventory, nano or NPC chat
+    /// windows, nor the windows that read none.
+    #[test]
+    fn escape_closes_by_the_original_options() {
+        let closes = escape_closes(None, false, &esc_default, |_| false);
+        for name in ["Options", "Help", "Option panel", "Shop", "perk-dialog", "team-invite", "Perks", "Research", "Missions", "PlanetMap", "Info", "Wear", "Inspect", "Tradeskill"] {
+            assert!(closes.contains(&name), "{name}");
+        }
+        for name in ["Inventory", "Nano programs", "NPCChat", "loot", "Team", "PetWindow", "Faction", "Friends", "Mail", "MissionView", "Stats", "NCU", "Chat"] {
+            assert!(!closes.contains(&name), "{name}");
+        }
+        // (the containers: a corpse and a backpack by their options, the bank never)
+        assert_eq!(escape_option("loot", Some(crate::loot::CORPSE), false), Some(Some("esc_corpses")));
+        assert_eq!(escape_option("loot", Some(0xc749), false), Some(Some("esc_backpacks")));
+        assert_eq!(escape_option("loot", None, false), None);
+        // (a trade with a player by `esc_trades`, a shop by `esc_shops`)
+        assert_eq!(escape_option("Shop", None, true), Some(Some("esc_trades")));
+        assert_eq!(escape_option("Shop", None, false), Some(Some("esc_shops")));
+        let no_trades = |name: &str| name != "esc_trades";
+        assert!(!escape_closes(None, true, &no_trades, |_| false).contains(&"Shop"));
+        assert!(escape_closes(None, false, &no_trades, |_| false).contains(&"Shop"));
+        // (an option turned on in the options closes that window too; a pinned window stays)
+        assert!(escape_closes(None, false, &|_| true, |_| false).contains(&"Inventory"));
+        assert!(!escape_closes(None, false, &|_| true, |n| n == "Research").contains(&"Research"));
+        // (every window Escape may close names an option of LoginPrefs.xml, or is the client's own)
+        for name in ESCAPABLE {
+            assert!(escape_option(name, Some(crate::loot::CORPSE), false).is_some(), "{name}");
+        }
     }
 }

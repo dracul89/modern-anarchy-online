@@ -1,29 +1,49 @@
 //! Where the player left the windows: each movable window's position is saved in `layout.ini` beside `mao.ini` (one line per
 //! window, `name x y`) and used as the window's starting place the next time. `MAO_NO_LAYOUT=1` ignores it; the offline previews
 //! (`MAO_UI_PREVIEW`) ignore it too so their pictures do not depend on the player's layout.
+//!
+//! Every window shown through `chrome::window` is kept (as the original keeps each window's place in its `*Config` value,
+//! `Window::SaveWndConfig`), except the fixed dialogs ([`FIXED`]); the HUD areas are listed in [`NAMES`]. The tabs the
+//! original keeps in a window's config are in `tabs.ini` beside it (`name tab`, by the config's name): the perk window's
+//! `PerkWindowConfig` `SelectedTab` (FUN_10064a67), the wear and inspect windows' `WearViewConfig` / `InspectViewConfig`
+//! `selected_tab` (FUN_100e1ce0). The research window keeps only its place (`ResearchConfig`, FUN_100f5461).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-/// The windows whose positions are kept: the ids their `egui::Window` / `Area` use.
-pub const NAMES: &[&str] = &["Actions", "Help", "Chat", "Friends", "Inventory", "loot", "Mail", "Message", "Missions", "Nano programs", "NCU", "Perks", "Shop", "Skills", "Stats", "vitals", "compass", "CCHealthBarConfig", "CCNanoBarConfig", "CCXPBarConfig", "CCAlienXPBarConfig"];
+/// The HUD areas whose positions are kept (the ids their `egui::Area` uses); the windows are added as they are shown ([`track`]).
+pub const NAMES: &[&str] = &["vitals", "compass", "CCHealthBarConfig", "CCNanoBarConfig", "CCXPBarConfig", "CCAlienXPBarConfig"];
+
+/// The windows whose place is not kept: the dialogs held in the middle of the screen (`DialogBox_c`, which has no config) and
+/// the windows anchored where they are (the login screens', the client's options and Whom-Pah list).
+pub const FIXED: &[&str] = &["Login", "Progress", "NewCharacter", "Delete Character", "Options", "Whom-Pah", "remove-friend", "delete-mail", "perk-dialog", "TradeDoubleConfirmDlg", "team-invite", "disable-tips"];
+
+/// Whether a window's place is kept.
+pub fn kept(name: &str) -> bool {
+    !FIXED.contains(&name)
+}
 
 struct Layout {
     spots: BTreeMap<String, [f32; 2]>,
+    /// The windows shown since the client started (their places are noted each frame).
+    shown: BTreeSet<String>,
     loaded: bool,
     dirty: bool,
     written: Option<Instant>,
+    /// `tabs.ini`, once read.
+    tabs: Option<BTreeMap<String, usize>>,
 }
 
-static LAYOUT: Mutex<Layout> = Mutex::new(Layout { spots: BTreeMap::new(), loaded: false, dirty: false, written: None });
+static LAYOUT: Mutex<Layout> = Mutex::new(Layout { spots: BTreeMap::new(), shown: BTreeSet::new(), loaded: false, dirty: false, written: None, tabs: None });
 
 fn path() -> std::path::PathBuf {
     crate::settings::Settings::path().with_file_name("layout.ini")
 }
 
+/// (the tests never read or write the player's files)
 fn disabled() -> bool {
-    std::env::var_os("MAO_NO_LAYOUT").is_some() || std::env::var_os("MAO_UI_PREVIEW").is_some()
+    cfg!(test) || std::env::var_os("MAO_NO_LAYOUT").is_some() || std::env::var_os("MAO_UI_PREVIEW").is_some()
 }
 
 /// The lines of a layout file: `name x y` (the name may hold spaces; the last two words are the position).
@@ -44,15 +64,74 @@ pub fn render(spots: &BTreeMap<String, [f32; 2]>) -> String {
 
 /// Where a window starts: its saved place, else `default`.
 pub fn pos(name: &str, default: egui::Pos2) -> egui::Pos2 {
+    saved(name).unwrap_or(default)
+}
+
+/// A window's saved place.
+pub fn saved(name: &str) -> Option<egui::Pos2> {
     if disabled() {
-        return default;
+        return None;
     }
     let mut layout = LAYOUT.lock().unwrap();
     if !layout.loaded {
         layout.loaded = true;
         layout.spots = std::fs::read_to_string(path()).map(|t| parse(&t)).unwrap_or_default();
     }
-    layout.spots.get(name).map_or(default, |p| egui::pos2(p[0], p[1]))
+    layout.spots.get(name).map(|p| egui::pos2(p[0], p[1]))
+}
+
+/// A window shown (by `chrome::window`): its place is noted from now on, unless it is one of the [`FIXED`] ones.
+pub fn track(name: &str) {
+    if disabled() || !kept(name) {
+        return;
+    }
+    let mut layout = LAYOUT.lock().unwrap();
+    if !layout.shown.contains(name) {
+        layout.shown.insert(name.to_string());
+    }
+}
+
+/// The lines of `tabs.ini`: `name tab` (the config's name, then the tab's number).
+pub fn parse_tabs(text: &str) -> BTreeMap<String, usize> {
+    text.lines()
+        .filter_map(|line| {
+            let mut words = line.split_whitespace();
+            let name = words.next()?;
+            let tab = words.next()?.parse().ok()?;
+            words.next().is_none().then(|| (name.to_string(), tab))
+        })
+        .collect()
+}
+
+pub fn render_tabs(tabs: &BTreeMap<String, usize>) -> String {
+    tabs.iter().map(|(name, tab)| format!("{name} {tab}\n")).collect()
+}
+
+fn with_tabs<R>(f: impl FnOnce(&mut BTreeMap<String, usize>) -> R) -> R {
+    let mut layout = LAYOUT.lock().unwrap();
+    let tabs = layout.tabs.get_or_insert_with(|| std::fs::read_to_string(path().with_file_name("tabs.ini")).map(|t| parse_tabs(&t)).unwrap_or_default());
+    f(tabs)
+}
+
+/// The tab a window's config kept (`PerkWindowConfig`, `WearViewConfig`, `InspectViewConfig`).
+pub fn tab(config: &str) -> Option<usize> {
+    if disabled() {
+        return None;
+    }
+    with_tabs(|tabs| tabs.get(config).copied())
+}
+
+/// Keeps a window's selected tab (written when it changes; the original writes the config when the window goes).
+pub fn set_tab(config: &str, tab: usize) {
+    if disabled() {
+        return;
+    }
+    with_tabs(|tabs| {
+        if tabs.get(config) != Some(&tab) {
+            tabs.insert(config.to_string(), tab);
+            let _ = std::fs::write(path().with_file_name("tabs.ini"), render_tabs(tabs));
+        }
+    });
 }
 
 /// Notes where the windows are now (call once a frame); the file is written when something moved, at most every two seconds.
@@ -60,12 +139,15 @@ pub fn remember(ctx: &egui::Context) {
     if disabled() {
         return;
     }
+    // (the saved places first, so the file written keeps the windows not shown this time)
+    let _ = saved("");
     let mut layout = LAYOUT.lock().unwrap();
-    for &name in NAMES {
-        if let Some(rect) = ctx.memory(|m| m.area_rect(egui::Id::unique(name))) {
+    let names: Vec<String> = NAMES.iter().map(|n| n.to_string()).chain(layout.shown.iter().cloned()).collect();
+    for name in names {
+        if let Some(rect) = ctx.memory(|m| m.area_rect(egui::Id::unique(name.as_str()))) {
             let now = [rect.min.x, rect.min.y];
-            if layout.spots.get(name).is_none_or(|old| (old[0] - now[0]).abs() > 1.0 || (old[1] - now[1]).abs() > 1.0) {
-                layout.spots.insert(name.to_string(), now);
+            if layout.spots.get(&name).is_none_or(|old| (old[0] - now[0]).abs() > 1.0 || (old[1] - now[1]).abs() > 1.0) {
+                layout.spots.insert(name, now);
                 layout.dirty = true;
             }
         }
@@ -120,5 +202,23 @@ mod tests {
         assert_eq!(back.get("Nano programs"), Some(&[220.0, 90.0]));
         assert_eq!(back.get("Chat"), Some(&[8.0, 451.0]));
         assert!(parse("junk\n 5 6\nname x y\n").is_empty());
+    }
+
+    #[test]
+    fn the_tabs_file_round_trips() {
+        let mut tabs = BTreeMap::new();
+        tabs.insert("PerkWindowConfig".to_string(), 2);
+        tabs.insert("WearViewConfig".to_string(), 0);
+        let text = render_tabs(&tabs);
+        assert_eq!(text, "PerkWindowConfig 2\nWearViewConfig 0\n");
+        assert_eq!(parse_tabs(&text), tabs);
+        // (a name with no number, a negative number, or more words is left out)
+        assert!(parse_tabs("PerkWindowConfig\nWearViewConfig -1\nInspect View 3\n").is_empty());
+    }
+
+    #[test]
+    fn dialogs_keep_no_place() {
+        assert!(kept("Tradeskill") && kept("PetWindow") && kept("Inspect") && kept("Research") && kept("Faction"));
+        assert!(!kept("perk-dialog") && !kept("Login") && !kept("TradeDoubleConfirmDlg"));
     }
 }

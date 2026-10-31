@@ -284,11 +284,6 @@ impl GearWindow {
         GearEvents { moves: e.moves, uses: e.uses, deletes: e.deletes, infos: e.infos, trade_adds: e.trade_adds, combines: e.combines }
     }
 
-    /// Closes the wear window (Escape); whether it was shown.
-    pub fn close_wear(&mut self, inventory_open: bool) -> bool {
-        self.windows.close_wear(inventory_open)
-    }
-
     /// The inspect window (opened by each new inspection); the info pages asked for.
     pub fn show_inspect(&mut self, ctx: &egui::Context, inspected: &(u32, String, Vec<GearItem>), stats: &std::collections::BTreeMap<u32, i64>, palette: &Palette) -> Vec<String> {
         self.inspect.show(ctx, inspected, stats, palette, &mut self.textures)

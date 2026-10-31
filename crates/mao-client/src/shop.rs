@@ -351,8 +351,9 @@ impl ShopWindow {
                     }
                 });
             });
-            if !dialog {
-                answer = Some(false);
+            // (closed, or Escape: `SlotSelected(-1)`, which FUN_100e0132 ignores; the trade stays open)
+            if !dialog && answer.is_none() {
+                self.asking = false;
             }
         }
         if let Some(yes) = answer {

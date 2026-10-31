@@ -392,7 +392,7 @@ pub struct PerksWindow {
 
 impl Default for PerksWindow {
     fn default() -> Self {
-        PerksWindow { open: false, tab: 0, chosen: [None; 3], dialog: None, waiting: false, wait_shown: true, wait: ("--:--:--".into(), 1.0), next_tick: None, last_points: None, blink: (0, 0), blink_on: true, next_blink: None }
+        PerksWindow { open: false, tab: crate::layout::tab("PerkWindowConfig").unwrap_or(0).min(2), chosen: [None; 3], dialog: None, waiting: false, wait_shown: true, wait: ("--:--:--".into(), 1.0), next_tick: None, last_points: None, blink: (0, 0), blink_on: true, next_blink: None }
     }
 }
 
@@ -550,7 +550,11 @@ impl PerksWindow {
                     });
                 });
             });
-            self.tab = tab;
+            // (`PerkWindowConfig`'s `SelectedTab`: FUN_10064a67 saves it when the window goes, FUN_10063ff8 selects it)
+            if self.tab != tab {
+                self.tab = tab;
+                crate::layout::set_tab("PerkWindowConfig", tab);
+            }
         });
         self.open = open;
         if let Some(a) = answer {
