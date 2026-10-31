@@ -64,6 +64,8 @@ pub struct Item {
     pub keys: Vec<(i32, String)>,
     pub icon: Option<egui::TextureId>,
     pub count: u32,
+    /// In a grid that is not auto arranged, the item's cell (column, row): `AddItem`'s grid position.
+    pub pos: Option<(usize, usize)>,
 }
 
 impl Item {
@@ -104,6 +106,8 @@ pub mod grid {
     pub const BORDER: f32 = 6.0;
     pub const STEP: f32 = CELL + SPACING + 1.0;
     pub const SLOT: &str = "GFX_GUI_MULTILISTVIEW_SLOT_48_CLOSED";
+    /// A labelled cell's slot (`UpdateBackgroundSurfaces` with grid labels: 0x11e).
+    pub const SLOT_OPEN: &str = "GFX_GUI_MULTILISTVIEW_SLOT_48_OPEN";
     pub const SELECTED: &str = "GFX_GUI_SELECTED_ICON";
 
     /// The columns a width holds.
@@ -123,12 +127,50 @@ pub mod grid {
     }
 }
 
-/// Grid mode: the width the cells are laid out in (the scroll view's, set by [`update`]) and the most items it holds
-/// (`+0x234`, -1 for no limit).
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// Grid mode: the width the cells are laid out in (the scroll view's, set by [`update`]), the most items it holds (`+0x234`,
+/// -1 for no limit), and what the wear view sets: the spacing (`SetGridIconSpacing`, 10 by 10 by default), a fixed number
+/// of columns (`SetViewCellCounts`), the cells' labels (`SetGridLabel` 0x101361d9: font-5 text centred on the cell, white
+/// over the icons while `labels_on_top`, else 0xc0c0c0 under them), whether items fill the cells in order (feature flag 4)
+/// or sit at their own cells, and a picture under the cells (`SetBackgroundBitmap` 0x1013313a, at the top left).
+#[derive(Clone, Debug, PartialEq)]
 pub struct GridMode {
     pub width: f32,
     pub max_items: i32,
+    pub spacing: (f32, f32),
+    pub columns: Option<usize>,
+    pub labels: Vec<((usize, usize), String)>,
+    pub labels_on_top: bool,
+    pub auto_arrange: bool,
+    pub background: Option<String>,
+}
+
+impl GridMode {
+    pub fn new(max_items: i32, columns: usize) -> GridMode {
+        GridMode { width: columns as f32 * grid::STEP + 2.0 * grid::BORDER, max_items, spacing: (grid::SPACING, grid::SPACING), columns: None, labels: Vec::new(), labels_on_top: true, auto_arrange: true, background: None }
+    }
+    /// One cell to the next (`+0x198`: the cell, the spacing and 1).
+    fn step(&self) -> (f32, f32) {
+        (grid::CELL + self.spacing.0 + 1.0, grid::CELL + self.spacing.1 + 1.0)
+    }
+    fn cols(&self) -> usize {
+        self.columns.unwrap_or_else(|| ((self.width / self.step().0).floor() as usize).max(1))
+    }
+    /// A cell's top left.
+    fn place(&self, (x, y): (usize, usize)) -> (f32, f32) {
+        let (sx, sy) = self.step();
+        (grid::BORDER + x as f32 * sx, grid::BORDER + y as f32 * sy)
+    }
+    /// The cell under a point (`ViewPosToGridPos`): not the spacing beside it.
+    fn cell_at(&self, p: Point) -> Option<(usize, usize)> {
+        let (sx, sy) = self.step();
+        let (cx, cy) = (((p.x - grid::BORDER) / sx).floor(), ((p.y - grid::BORDER) / sy).floor());
+        if cx < 0.0 || cy < 0.0 || cx as usize >= self.cols() {
+            return None;
+        }
+        let cell = (cx as usize, cy as usize);
+        let (x, y) = self.place(cell);
+        (p.x - x < grid::CELL && p.y - y < grid::CELL).then_some(cell)
+    }
 }
 
 /// The rows (the scroll view's client): the items, their order and the selection.
@@ -141,11 +183,13 @@ pub struct Rows {
     last_click: Option<(i64, Instant)>,
     pressed: Option<(usize, Point)>,
     dragged: bool,
+    /// The grid's picture's size, once drawn.
+    picture: Shared<Option<egui::Vec2>>,
 }
 
 impl Rows {
     fn new(grid: Option<GridMode>) -> Rows {
-        Rows { columns: Vec::new(), items: Vec::new(), selected: None, grid, last_click: None, pressed: None, dragged: false }
+        Rows { columns: Vec::new(), items: Vec::new(), selected: None, grid, last_click: None, pressed: None, dragged: false, picture: Shared::new(None) }
     }
     fn step() -> f32 {
         ROW_HEIGHT + 1.0 + SPACE.y
@@ -154,17 +198,33 @@ impl Rows {
     fn cells(&self, g: &GridMode) -> usize {
         if g.max_items >= 0 { (g.max_items as usize).max(self.items.len()) } else { self.items.len() }
     }
+    /// An item's cell.
+    fn item_cell(&self, g: &GridMode, k: usize) -> (usize, usize) {
+        let cols = g.cols();
+        match self.items[k].pos {
+            Some(pos) if !g.auto_arrange => pos,
+            _ => (k % cols, k / cols),
+        }
+    }
+    /// The grid's size: its cells' (the rows its items, labels or slots reach) and its picture's.
+    fn grid_size(&self, g: &GridMode, picture: Option<egui::Vec2>) -> Point {
+        let cols = g.cols();
+        let mut rows = self.cells(g).div_ceil(cols);
+        for k in 0..self.items.len() {
+            rows = rows.max(self.item_cell(g, k).1 + 1);
+        }
+        for ((_, y), _) in &g.labels {
+            rows = rows.max(y + 1);
+        }
+        let (sx, sy) = g.step();
+        let (w, h) = (2.0 * grid::BORDER + cols as f32 * sx - 1.0 - g.spacing.0, 2.0 * grid::BORDER + rows.max(1) as f32 * sy - 1.0 - g.spacing.1);
+        let pic = picture.unwrap_or(egui::Vec2::ZERO);
+        Point::new(w.max(pic.x), h.max(pic.y))
+    }
     fn at(&self, p: Point) -> Option<usize> {
         if let Some(g) = &self.grid {
-            // (`ViewPosToGridPos` 0x10133567: the cell under the point, not the spacing beside it)
-            let cols = grid::columns(g.width);
-            let (cx, cy) = (((p.x - grid::BORDER) / grid::STEP).floor(), ((p.y - grid::BORDER) / grid::STEP).floor());
-            if cx < 0.0 || cy < 0.0 || cx as usize >= cols {
-                return None;
-            }
-            let k = cy as usize * cols + cx as usize;
-            let (x, y) = grid::place(k, cols);
-            return (k < self.items.len() && p.x - x < grid::CELL && p.y - y < grid::CELL).then_some(k);
+            let cell = g.cell_at(p)?;
+            return (0..self.items.len()).find(|&k| self.item_cell(g, k) == cell);
         }
         if p.y < 0.0 {
             return None;
@@ -174,20 +234,59 @@ impl Rows {
     }
 
     fn paint_grid(&self, p: &Paint, g: &GridMode) {
-        let cols = grid::columns(g.width);
+        let cols = g.cols();
         let clip = p.painter.clip_rect();
         let uv = egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0));
         let skin = p.env.skin;
-        for k in 0..self.cells(g) {
-            let (x, y) = grid::place(k, cols);
-            let cell = egui::Rect::from_min_size(p.rect.min + egui::vec2(x, y), egui::vec2(grid::CELL, grid::CELL));
+        let rect_of = |cell: (usize, usize)| {
+            let (x, y) = g.place(cell);
+            egui::Rect::from_min_size(p.rect.min + egui::vec2(x, y), egui::vec2(grid::CELL, grid::CELL))
+        };
+        let slot = |name: &str, cell: egui::Rect| {
+            if let Some(slot) = skin.and_then(|s| s.get(name)) {
+                p.painter.image(slot.texture.id(), egui::Rect::from_center_size(cell.center(), slot.size), uv, egui::Color32::WHITE);
+            }
+        };
+        // (the picture under the cells, at its own size)
+        if let Some(bg) = g.background.as_deref().and_then(|n| skin.and_then(|s| s.get(n))) {
+            self.picture.set(Some(bg.size));
+            p.painter.image(bg.texture.id(), egui::Rect::from_min_size(p.rect.min, bg.size), uv, egui::Color32::WHITE);
+        }
+        // (labelled cells show the open slot; else every cell up to the most the container holds the closed one)
+        if g.labels.is_empty() {
+            for k in 0..self.cells(g) {
+                let cell = rect_of((k % cols, k / cols));
+                if cell.intersects(clip) {
+                    slot(grid::SLOT, cell);
+                }
+            }
+        } else {
+            for (at, _) in &g.labels {
+                slot(grid::SLOT_OPEN, rect_of(*at));
+            }
+        }
+        let labels = |colour: egui::Color32| {
+            for (at, text) in &g.labels {
+                let cell = rect_of(*at);
+                // (the label's markup: `<center>Right<br>Hand</center>`, a line each, centred)
+                let plain = text.replace("<center>", "").replace("</center>", "").replace("<br>", "\n");
+                let lines: Vec<&str> = plain.split('\n').collect();
+                let h = p.env.measure.height(FontId::NORMAL);
+                let top = cell.center().y - h * lines.len() as f32 / 2.0;
+                for (i, line) in lines.iter().enumerate() {
+                    let w = p.env.measure.width(FontId::NORMAL, line);
+                    super::controls::text(p, FontId::NORMAL, egui::pos2(cell.center().x - w / 2.0, top + i as f32 * h), line, colour);
+                }
+            }
+        };
+        if !g.labels_on_top {
+            labels(egui::Color32::from_rgb(0xc0, 0xc0, 0xc0));
+        }
+        for (k, item) in self.items.iter().enumerate() {
+            let cell = rect_of(self.item_cell(g, k));
             if !cell.intersects(clip) {
                 continue;
             }
-            if let Some(slot) = skin.and_then(|s| s.get(grid::SLOT)) {
-                p.painter.image(slot.texture.id(), egui::Rect::from_center_size(cell.center(), slot.size), uv, egui::Color32::WHITE);
-            }
-            let Some(item) = self.items.get(k) else { continue };
             if let Some(icon) = item.icon {
                 p.painter.image(icon, cell, uv, egui::Color32::WHITE);
             }
@@ -203,6 +302,9 @@ impl Rows {
                 p.painter.image(s.texture.id(), cell, uv, egui::Color32::WHITE);
             }
         }
+        if g.labels_on_top {
+            labels(egui::Color32::WHITE);
+        }
     }
 }
 
@@ -215,8 +317,7 @@ impl Control for Rows {
             return Some(Point::new(16000.0, 16000.0));
         }
         if let Some(g) = &self.grid {
-            let (w, h) = grid::size(self.cells(g), grid::columns(g.width));
-            return Some(Point::new(w, h));
+            return Some(self.grid_size(g, self.picture.get()));
         }
         let height = if self.items.is_empty() { 0.0 } else { self.items.len() as f32 * Self::step() - 1.0 - SPACE.y };
         Some(Point::new(places(&self.columns).1.max(0.0), height))
@@ -478,9 +579,28 @@ pub fn create_grid(tree: &mut Tree, name: &str, max_items: i32, columns: usize) 
     tree.get_mut(header).flags |= super::view::FLAG_COLLAPSE;
     tree.get_mut(header).hidden = 1;
     if let Some(r) = tree.control_mut::<Rows>(rows) {
-        r.grid = Some(GridMode { width: columns as f32 * grid::STEP + 2.0 * grid::BORDER, max_items });
+        r.grid = Some(GridMode::new(max_items, columns));
     }
     id
+}
+
+/// Changes a grid's settings (the wear view's spacing, cells, labels and picture).
+pub fn set_grid(tree: &mut Tree, id: Id, f: impl FnOnce(&mut GridMode)) {
+    let Some((_, _, rows)) = parts(tree, id) else { return };
+    if let Some(g) = tree.control_mut::<Rows>(rows).and_then(|r| r.grid.as_mut()) {
+        f(g);
+        tree.relayout = true;
+    }
+}
+
+/// The grid cell under a point on screen (the window's content at `origin`), item or not: where a drop lands.
+pub fn cell_at(tree: &Tree, id: Id, origin: egui::Pos2, at: egui::Pos2) -> Option<(usize, usize)> {
+    let (_, scroll, rows) = parts(tree, id)?;
+    if !super::host::screen_rect(tree, scroll, origin).contains(at) {
+        return None;
+    }
+    let r = super::host::screen_rect(tree, rows, origin);
+    tree.control::<Rows>(rows)?.grid.as_ref()?.cell_at(Point::new(at.x - r.min.x, at.y - r.min.y))
 }
 
 /// `SetMaxItemCount`.
@@ -503,7 +623,8 @@ pub fn update(tree: &mut Tree, id: Id) {
         return;
     }
     if let Some(g) = tree.control_mut::<Rows>(rows).and_then(|r| r.grid.as_mut())
-        && grid::columns(g.width) != grid::columns(width)
+        && g.columns.is_none()
+        && g.width != width
     {
         g.width = width;
         tree.relayout = true;
@@ -699,7 +820,9 @@ mod tests {
         assert_eq!(grid::columns(10.0), 1);
         assert_eq!(grid::place(7, 6), (6.0 + 58.0, 6.0 + 58.0));
         assert_eq!(grid::size(102, 6), (12.0 + 6.0 * 58.0 - 11.0, 12.0 + 17.0 * 58.0 - 11.0));
-        let mut r = Rows::new(Some(GridMode { width: 360.0, max_items: 102 }));
+        let mut g = GridMode::new(102, 6);
+        g.width = 360.0;
+        let mut r = Rows::new(Some(g));
         r.items = vec![item(1, "a"), item(2, "b")];
         assert_eq!(r.at(Point::new(6.0 + 58.0 + 3.0, 10.0)), Some(1));
         assert_eq!(r.at(Point::new(6.0 + 50.0, 10.0)), None);

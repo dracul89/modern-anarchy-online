@@ -112,6 +112,7 @@ impl LootWindow {
                     count: i.count as u32,
                     cells: vec![(1, crate::gui::multilist::CellView::Text(i.name.clone()))],
                     keys: vec![(1, i.name.clone())],
+                    pos: None,
                 })
                 .collect();
             crate::gui::multilist::set_items(tree, list, rows);

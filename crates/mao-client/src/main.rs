@@ -77,6 +77,7 @@ mod actions_data;
 mod anim;
 mod derived;
 mod gear;
+mod invwindows;
 mod mailbox;
 mod mailmessage;
 mod tips;
