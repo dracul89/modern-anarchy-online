@@ -422,7 +422,23 @@ impl Ui {
             }
             return false;
         }
-        self.state.on_window_event(window, event).consumed
+        // (a press on a window's edge starts egui's resize, but its grab reaches a few points outside the window, where egui
+        // does not count the pointer as over it: without this the press went to the world, which locked the cursor for
+        // mouse look and moved the camera instead)
+        let on_edge = matches!(event, WindowEvent::MouseInput { state: winit::event::ElementState::Pressed, .. }) && self.ctx.input(|i| i.pointer.latest_pos()).is_some_and(|at| self.on_window_edge(at));
+        self.state.on_window_event(window, event).consumed || on_edge
+    }
+
+    /// Whether `at` is within a shown window's resize grab, outside its area.
+    fn on_window_edge(&self, at: egui::Pos2) -> bool {
+        let style = self.ctx.global_style();
+        let (side, corner) = (style.interaction.resize_grab_radius_side, style.interaction.resize_grab_radius_corner);
+        // (the sides' grab, and the corners' wider one)
+        let grabs = |r: egui::Rect| r.expand(side).contains(at) || [r.left_top(), r.right_top(), r.left_bottom(), r.right_bottom()].iter().any(|c| c.distance(at) <= corner);
+        self.ctx.memory(|m| {
+            let shown = m.areas().visible_layer_ids();
+            shown.iter().filter(|l| l.order == egui::Order::Middle).filter_map(|l| m.area_rect(l.id)).any(|r| !r.contains(at) && grabs(r))
+        })
     }
 
     /// Where the web page goes, in the window's physical pixels (x, y, width, height), while its window is open.
