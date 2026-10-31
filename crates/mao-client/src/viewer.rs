@@ -40,6 +40,8 @@ pub struct Input {
     pub walk_toggle: u8,
     /// The heading the character should face (the camera's, while the right mouse button steers).
     pub face: Option<f32>,
+    /// Flying: the vehicle's elevation (radians, nose up positive), set by the right button's vertical mouse movement.
+    pub pitch: f32,
     /// A hotbar item to use: a counter that steps with each, and the inventory slot.
     pub fire: (u8, u32),
     /// A special action of the Action window to do (a counter that steps with each, and its id), and a social
@@ -167,6 +169,8 @@ pub struct Update {
     pub target_bars: Option<Vec<crate::ui::TargetBar>>,
     /// The character's items, when they arrive.
     pub gear: Option<Vec<crate::gear::GearItem>>,
+    /// Whether one's own character flies (a flying vehicle program runs), when it changes.
+    pub flying: Option<bool>,
     /// An inspected character's name and worn items.
     pub inspected: Option<(String, Vec<crate::gear::GearItem>)>,
     /// New lines for the chat window.
@@ -632,6 +636,9 @@ fn press_slot(ui: &mut Ui, slot: usize, keys: &mut Input, hud: &mut Hud) {
     }
 }
 
+/// How far a flying vehicle pitches up or down (the camera's own limit, `PITCH_LIMIT`).
+const FLY_PITCH_LIMIT: f32 = 1.4;
+
 fn heading_from_yaw(yaw: f32) -> f32 {
     (-yaw.cos()).atan2(-yaw.sin())
 }
@@ -706,7 +713,13 @@ impl ApplicationHandler for App {
         self.mouse_look.0 += dx as f32 * 0.005;
         // (`MouseLookInverted`: the option panel's Mouse page, Gamecode's `StaticMouseLookInvertCallback`)
         let invert = if crate::prefs::on("MouseLookInverted") { -1.0 } else { 1.0 };
-        self.mouse_look.1 -= invert * dy as f32 * 0.005;
+        // (flying, `N3Msg_MouseMovement` in fly mode: the right button's vertical movement pitches the vehicle, not the
+        // camera, `MouseCameraControl(0, 0)`, and goes to the vehicle with the across movement, 0x2b)
+        if self.hud.flying && self.buttons[1] && !(self.modifiers.shift_key() || self.modifiers.control_key()) {
+            self.keys.pitch = (self.keys.pitch - invert * dy as f32 * 0.005).clamp(-FLY_PITCH_LIMIT, FLY_PITCH_LIMIT);
+        } else {
+            self.mouse_look.1 -= invert * dy as f32 * 0.005;
+        }
         // (the right button turns the character, `N3Msg_MouseMovement`; with Shift or Ctrl only the camera, as the left does)
         if self.buttons[1] && !(self.modifiers.shift_key() || self.modifiers.control_key()) {
             self.keys.face = Some(heading_from_yaw(w.camera.yaw));
@@ -1300,6 +1313,12 @@ impl ApplicationHandler for App {
                         }
                         if let Some(items) = u.gear.take() {
                             self.hud.gear = items;
+                        }
+                        if let Some(flying) = u.flying.take() {
+                            self.hud.flying = flying;
+                            if !flying {
+                                self.keys.pitch = 0.0;
+                            }
                         }
                         if let Some((name, items)) = u.inspected.take() {
                             self.hud.inspected = (self.hud.inspected.0 + 1, name, items);

@@ -626,9 +626,17 @@ pub fn stop_fight(character: u32) -> Frame {
 /// about Y; 0 faces +z), the position, and the milliseconds since the last
 /// update.
 pub fn position_update(character: u32, movement: u8, heading: f32, position: [f32; 3], elapsed_ms: u32) -> Frame {
+    position_update_pitched(character, movement, heading, 0.0, position, elapsed_ms)
+}
+
+/// [`position_update`] for a flying character: the rotation the heading about Y then `elevation` (radians, nose up
+/// positive) about the character's own X, which turns its +z up for a negative angle (the original climbing at 27 degrees
+/// sends `x = -0.232`).
+pub fn position_update_pitched(character: u32, movement: u8, heading: f32, elevation: f32, position: [f32; 3], elapsed_ms: u32) -> Frame {
     let (s, c) = (heading * 0.5).sin_cos();
+    let (ps, pc) = (-elevation * 0.5).sin_cos();
     let mut d = vec![1, movement];
-    for v in [0.0, s, 0.0, c, position[0], position[1], position[2]] {
+    for v in [c * ps, s * pc, -s * ps, c * pc, position[0], position[1], position[2]] {
         d.extend_from_slice(&f32::to_be_bytes(v));
     }
     d.extend_from_slice(&elapsed_ms.to_be_bytes());
@@ -654,6 +662,16 @@ pub fn market_send(character: u32, credits: i32, items: &[(u32, u32)]) -> Frame 
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_climb_is_sent_as_the_original_sends_it() {
+        // (the original client climbing on a Phasefront Banshee, 2026-10-31: heading 0.1815, about 27 degrees up)
+        let m = Message::parse(&position_update_pitched(0x4bc80, movement::FULL, 0.1815, 0.4705, [0.0; 3], 0)).unwrap();
+        let (_, q, _) = m.movement().unwrap();
+        for (got, want) in q.iter().zip([-0.2321f32, 0.0881, 0.0211, 0.9685]) {
+            assert!((got - want).abs() < 0.001, "{q:?}");
+        }
+    }
+
     #[test]
     fn stop_fight_is_the_servers_shape() {
         let m = Message::parse(&stop_fight(0x4bc80)).unwrap();

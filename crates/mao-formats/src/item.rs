@@ -190,6 +190,13 @@ pub fn is_vehicle_program(template: &[u8]) -> bool {
     change_mesh_spells(template).iter().any(|(criteria, _)| criteria.iter().any(|c| matches!(c.0, 4 | 12 | 59) && c.2 == 0))
 }
 
+/// Whether a program lets its target fly: one of its spells is 0xcf4c (Gamecode's FUN_100a7c79: the movement flags of
+/// stat 224, spell stat 73) with flag 2. Every Phasefront vehicle program (the flying boards and bikes) has it; the
+/// original flies in its fly mode (7, FUN_1006e4f8: falling off, `Vehicle_t`'s orientation mode 4) while one runs.
+pub fn grants_flight(template: &[u8]) -> bool {
+    crate::spell::lists(template).iter().any(|(_, spells)| spells.iter().any(|s| s.kind == 0xcf4c && s.stat(73) & 2 != 0))
+}
+
 /// What an item's action needs: the item's trailing tables hold, after each event's spells, the marker `22, 36, 2018`, the action
 /// (3 = use, 6 = wear, 8 = wield) and a criteria list: `(n + 1) * 0x3f1`, then `n` criteria `(stat, value, operator)` in reverse
 /// Polish order (a comparison pushes its result, operator 4 is AND and 3 is OR of the two before it). Operators: 0 equal, 1 less than,

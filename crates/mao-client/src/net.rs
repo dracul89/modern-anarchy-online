@@ -267,6 +267,8 @@ struct World {
     own_moving: bool,
     /// One's own movement mode is walking (the walk/run toggle; the original's mode 2, else 3).
     own_walking: bool,
+    /// One's own character flies: a running program lets it (`mao_formats::item::grants_flight`).
+    own_flying: bool,
     /// Each walked creature's last path (when it came, its start, its end) and its speed as the paths show it.
     path_seen: BTreeMap<u32, (Instant, [f32; 3], [f32; 3])>,
     path_speeds: BTreeMap<u32, f32>,
@@ -656,6 +658,7 @@ impl World {
                 Some(nano) => self.riding.insert(self.own, nano),
                 None => self.riding.remove(&self.own),
             };
+            self.own_flying = self.nanos.iter().any(|&n| db.get(id(0xfde85, n)).ok().flatten().is_some_and(|d| mao_formats::item::grants_flight(&d)));
         }
     }
 
@@ -2104,6 +2107,9 @@ const DOOR_REACH: f32 = 0.5;
 const SWIM_ABOVE: f32 = 0.1;
 const SWIM_DEPTH: f32 = 1.19;
 const SWIM_SINK: f32 = 0.01;
+
+/// How far a flying vehicle's body is lifted as flight starts (FUN_1006e4f8's `SetRelPos` by `_DAT_1015e0e4`).
+const FLY_LIFT: f32 = 0.5;
 
 /// Walking's speed (`CharVehicle_t` in mode 2, FUN_1006f9eb: `_DAT_1015e7ac`).
 const WALK_SPEED: f32 = 1.5;
@@ -3851,11 +3857,14 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut last_own = (start, Instant::now());
         // (where we told the server we were, the last few seconds: a report of ours echoed back is one of these)
         let mut told: std::collections::VecDeque<([f32; 3], Instant)> = std::collections::VecDeque::new();
+        // (flying, the vehicle's elevation goes into the reports' rotation)
+        let own_pitch = std::cell::Cell::new(0.0f32);
         let send = |connection: &mut Connection, kind: u8, heading: f32, position: [f32; 3], since: &mut Instant| {
             let ms = since.elapsed().as_millis().min(u32::MAX as u128) as u32;
             *since = Instant::now();
-            connection.send(&n3::position_update(own, kind, heading, position, ms)).is_ok()
+            connection.send(&n3::position_update_pitched(own, kind, heading, own_pitch.get(), position, ms)).is_ok()
         };
+        let (mut was_flying, mut sent_pitch, mut flying_told) = (false, 0.0f32, false);
         let mut sent = Instant::now();
         let mut prof_iter = Instant::now();
         // (a message that came while one was handled waits here: up to `BURST` are handled in a row before the frame's
@@ -4973,7 +4982,21 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 (vx, vz) = (vx * SPEED / total, vz * SPEED / total);
             }
             let speed = (vx * vx + vz * vz).sqrt() * if walk < 0 { -1.0 } else { 1.0 };
-            let start_jump = (keys.jump || std::mem::take(&mut autoplay_jump)) && !was_jumping && !airborne && !state.swimming.contains(&own);
+            // Flying (fly mode 7, FUN_1006e4f8): falling off and the body lifted half a metre as it starts (`SetRelPos` by
+            // 0x1015e0e4); the vehicle faces its motion (`Vehicle_t`'s orientation mode 4, FUN_1000c616), so going forward
+            // follows the elevation the right button gave it.
+            let flying = state.own_flying;
+            if flying != was_flying {
+                was_flying = flying;
+                if flying {
+                    position[1] += FLY_LIFT;
+                }
+                (airborne, vy) = (false, 0.0);
+                body_reset = true;
+            }
+            let elevation = if flying { keys.pitch } else { 0.0 };
+            own_pitch.set(elevation);
+            let start_jump = (keys.jump || std::mem::take(&mut autoplay_jump)) && !was_jumping && !airborne && !state.swimming.contains(&own) && !flying;
             was_jumping = keys.jump;
             let mut landed = false;
             // The original's vehicle where the playfield has its collision surfaces (`vehicle.rs`: `Vehicle_t::Run` and
@@ -4983,7 +5006,21 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 let s = t.height_scale;
                 (t, s)
             }), offset: 0.0 });
-            if let Some(surface) = surface.as_ref() {
+            if flying {
+                // (forward and back along the pitched facing, the sidestep level; no gravity; walls stop it and the ground
+                // holds it up)
+                let (rise_share, level_share) = elevation.sin_cos();
+                let forward = velocity[0].hypot(velocity[1]) * if walk < 0 { -1.0 } else { 1.0 };
+                let (dx, dz) = ((velocity[0] * level_share + heading.cos() * sideways) * dt, (velocity[1] * level_share - heading.sin() * sideways) * dt);
+                if keys.noclip || !collision.blocked(position[0] + dx, position[2] + dz, position[1], 0.4, 1.8, 0.5) {
+                    (position[0], position[2]) = (position[0] + dx, position[2] + dz);
+                }
+                position[1] += forward * rise_share * dt;
+                let floor = if keys.noclip { f32::MIN } else { collision.floor(position[0], position[2], position[1], 0.6, 0.6).unwrap_or(f32::MIN) };
+                position[1] = position[1].max(ground(&terrain, position).max(floor));
+                (base, rise, offset) = (position[1], 0.0, 0.0);
+                airborne = false;
+            } else if let Some(surface) = surface.as_ref() {
                 let mut events = Vec::new();
                 if start_jump {
                     // (the jump's height, FUN_10058994: (Strength + Agility) / 200 + 1, at least 0.5, the sum held to 800
@@ -5120,7 +5157,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             let due = if old_reports {
                 since >= Duration::from_millis(400) && (walk != 0 || keys.turn != 0 || keys.strafe != 0 || keys.face.is_some() || airborne)
             } else {
-                (since > Duration::from_secs(5) && (walk != 0 || keys.strafe != 0 || airborne)) || (since > Duration::from_millis(250) && turned)
+                (since > Duration::from_secs(5) && (walk != 0 || keys.strafe != 0 || airborne)) || (since > Duration::from_millis(250) && (turned || (elevation - sent_pitch).abs() > 0.17))
             };
             let sent_this_pass = std::cell::Cell::new(false);
             let mut send_kind = |kind: u8, connection: &mut Connection| {
@@ -5130,6 +5167,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 }
                 last_send = Instant::now();
                 sent_heading = heading;
+                sent_pitch = elevation;
                 told.push_back((position, Instant::now()));
                 ok &= send(connection, kind, heading, position, &mut sent);
             };
@@ -5851,6 +5889,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     perk_list: std::mem::take(&mut state.perks_changed).then(|| crate::perks::describe(&gear_db, &gear_textures, &state.perks, state.stats.get(&0x36).copied().unwrap_or(1))),
                     programs: std::mem::take(&mut state.programs_changed).then(|| crate::nanoprograms::describe(&gear_db, &gear_textures, &state.program_ids, state.stats.get(&0x36).copied().unwrap_or(1))),
                     gear: pending_gear.take(),
+                    flying: (state.own_flying != flying_told).then(|| {
+                        flying_told = state.own_flying;
+                        flying_told
+                    }),
                     inspected: inspected_now,
                     nanos: std::mem::take(&mut state.nano_list_changed).then(|| crate::ncu::describe(&gear_db, &gear_textures, &state.nano_times, state.stats.get(&0x36).copied().unwrap_or(1), state.nano_times_at.unwrap_or_else(Instant::now))),
                     missions: pending_missions.take(),

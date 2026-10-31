@@ -102,6 +102,8 @@ pub struct Hud {
     pub target_bars: Vec<TargetBar>,
     /// The character's items (the inventory window), and whether a headless preview shows it.
     pub gear: Vec<crate::gear::GearItem>,
+    /// One's own character flies (a flying vehicle program runs).
+    pub flying: bool,
     /// The last inspection (counted, so each opens the window): the character's name and worn items.
     pub inspected: (u32, String, Vec<crate::gear::GearItem>),
     /// The running nano programs.
