@@ -63,6 +63,40 @@ fn perk_icon(name: &str) -> &'static str {
     }
 }
 
+/// A perk action of the character's (the server's 0xb4 list): its item template (the special action's id), name, icon, what
+/// it does, and when its lock (the template's lock-skill spell 0xcfc3: the group in its stat 0) is free again.
+#[derive(Clone)]
+pub struct PerkAction {
+    pub template: u32,
+    pub name: String,
+    pub description: String,
+    pub icon: Option<Arc<Icon>>,
+    pub lock: Option<u32>,
+    /// When the lock is free again, and how long it runs in all (seconds).
+    pub free_at: Option<(std::time::Instant, f32)>,
+}
+
+/// The perk actions described from their templates, with the locks running.
+pub fn describe_perks(db: &mao_formats::resource::ResourceDatabase, textures: &crate::Textures, list: &[(u32, u32, [u8; 4])], locks: &std::collections::BTreeMap<u32, (std::time::Instant, f32)>) -> Vec<PerkAction> {
+    use mao_formats::item::{self, Item};
+    list.iter()
+        .map(|&(template, number, code)| {
+            let data = db.get(mao_formats::resource::Id { kind: item::TEMPLATE, instance: template }).ok().flatten();
+            let parsed = data.as_deref().and_then(Item::parse);
+            let icon = parsed.as_ref().and_then(|t| t.icon()).and_then(|id| textures.get(item::ICON_TYPE, id).map(|t| Arc::new(Icon { id, width: t.width as usize, height: t.height as usize, rgba: t.rgba })));
+            let lock = data.as_deref().and_then(|d| mao_formats::spell::lists(d).into_iter().flat_map(|(_, s)| s).find(|s| s.kind == 0xcfc3).map(|s| s.stat(0) as u32));
+            PerkAction {
+                template,
+                name: parsed.as_ref().map_or_else(|| format!("{} ({number:#x})", String::from_utf8_lossy(&code)), |t| t.name.clone()),
+                description: parsed.map(|t| t.description).unwrap_or_default(),
+                icon,
+                lock,
+                free_at: lock.and_then(|l| locks.get(&l).copied()),
+            }
+        })
+        .collect()
+}
+
 pub struct ActionsWindow {
     pub open: bool,
     /// Icons by name, once loaded.
@@ -106,7 +140,7 @@ impl ActionsWindow {
     /// performs the action (FUN_100dc033: `N3Msg_PerformSpecialAction`; the list does not select, so a left click is the use
     /// signal); one dragged out goes onto a hotbar. The social actions are the control center's Social menu
     /// (`ActionMenu/SocialMenu.xml`), as in the original.
-    pub fn show(&mut self, ctx: &egui::Context, gear: &mut GearWindow, palette: &Palette) {
+    pub fn show(&mut self, ctx: &egui::Context, gear: &mut GearWindow, perks: &[PerkAction], palette: &Palette) {
         let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
         if self.views.is_none() {
             use crate::gui::view::{Layout, Node, Tree};
@@ -119,21 +153,34 @@ impl ActionsWindow {
             tree.add_child(root, list);
             self.views = Some((tree, root, list));
         }
-        let actions: Vec<(hotbar::Action, &'static str, Option<&'static str>, &'static str)> = ACTIONS
+        // (the weapon and character actions from the catalogue; the perk actions the server listed for this character, or the
+        // catalogue's until it has: `N3Msg_GetSpecialActionList`)
+        let now = std::time::Instant::now();
+        let mut actions: Vec<(hotbar::Action, String, Option<Arc<Icon>>, String, Option<(f32, f32)>)> = ACTIONS
             .iter()
+            .filter(|a| a.1 != Kind::Perk || perks.is_empty())
             .map(|&(id, kind, name, _, _)| {
-                let icon = icon_name(kind, name);
-                (hotbar::Action::Special { id, name: name.to_string(), icon: self.icons.get(icon).map(|i| i.id) }, name, Some(icon), if kind == Kind::Weapon { "Weapon attack" } else if kind == Kind::Perk { "Perk action" } else { "Character action" })
+                let icon = self.icons.get(icon_name(kind, name)).cloned();
+                (hotbar::Action::Special { id, name: name.to_string(), icon: icon.as_ref().map(|i| i.id) }, name.to_string(), icon, (if kind == Kind::Weapon { "Weapon attack" } else if kind == Kind::Perk { "Perk action" } else { "Character action" }).to_string(), None)
             })
             .collect();
+        for p in perks {
+            let left = p.free_at.map(|(t, total)| (t.saturating_duration_since(now).as_secs_f32(), total)).filter(|&(s, _)| s > 0.0);
+            actions.push((hotbar::Action::Special { id: p.template, name: p.name.clone(), icon: None }, p.name.clone(), p.icon.clone(), if p.description.is_empty() { "Perk action".to_string() } else { p.description.clone() }, left));
+        }
+        if actions.iter().any(|a| a.4.is_some()) {
+            ctx.request_repaint_after(std::time::Duration::from_millis(250));
+        }
         let rows: Vec<crate::gui::multilist::Item> = actions
             .iter()
             .enumerate()
-            .map(|(k, (_, name, icon, _))| crate::gui::multilist::Item {
+            .map(|(k, (_, name, icon, _, left))| crate::gui::multilist::Item {
                 id: k as i64,
-                icon: icon.and_then(|n| self.icons.get(n)).map(|i| gear.texture(ctx, i)),
-                cells: vec![(1, crate::gui::multilist::CellView::Text(name.to_string()))],
-                keys: vec![(1, name.to_string())],
+                icon: icon.as_ref().map(|i| gear.texture(ctx, i)),
+                cells: vec![(1, crate::gui::multilist::CellView::Text(name.clone()))],
+                keys: vec![(1, name.clone())],
+                // (a locked perk fades out until its lock is free, as the NCU's running nanos do)
+                left: left.map(|(s, total)| 1.0 - s / total.max(1.0)),
                 ..Default::default()
             })
             .collect();
@@ -155,7 +202,8 @@ impl ActionsWindow {
         for (_, event) in crate::gui::multilist::take_events(tree) {
             match event {
                 crate::gui::multilist::ItemEvent::Clicked(k, _) => {
-                    if let Some((a, ..)) = actions.get(k as usize) {
+                    // (a locked perk: "Feedback_ActionIsNotAvailable" in the original; nothing is sent)
+                    if let Some((a, _, _, _, None)) = actions.get(k as usize) {
                         self.clicked = Some(a.clone());
                     }
                 }
@@ -168,15 +216,39 @@ impl ActionsWindow {
         }
         tree.signals.clear();
         if let Some((k, at)) = hovered
-            && let Some((_, name, _, what)) = actions.get(k)
+            && let Some((_, name, _, what, left)) = actions.get(k)
         {
             egui::Area::new(egui::Id::unique("action-tip")).order(egui::Order::Tooltip).fixed_pos(at + egui::vec2(16.0, 16.0)).interactable(false).show(ctx, |ui| {
                 egui::Frame::popup(ui.style()).show(ui, |ui| {
-                    ui.label(egui::RichText::new(*name).strong().color(accent));
-                    ui.label(egui::RichText::new(*what).small().weak());
+                    ui.set_max_width(320.0);
+                    ui.label(egui::RichText::new(name.as_str()).strong().color(accent));
+                    if let Some(s) = left {
+                        ui.label(egui::RichText::new(format!("Available in {:.0} s", s.0.ceil())).small());
+                    }
+                    ui.label(egui::RichText::new(what.as_str()).small().weak());
                 });
             });
         }
         self.open = open;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `MAO_GAME`: the perk action the 2026-10-31 capture lists as `0x374d7`, number `0x2850`, code `QUBS`, is Quick Bash, whose
+    /// lock (the capture's `PerkUnavailable` after using it: lock 0xc9 for 25 s) is group 201.
+    #[test]
+    fn a_listed_perk_action_is_described_from_its_template() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let db = Arc::new(mao_formats::resource::ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap());
+        let textures = crate::Textures::new(db.clone());
+        let now = std::time::Instant::now();
+        let locks = [(201, (now + std::time::Duration::from_secs(25), 25.0))].into_iter().collect();
+        let perks = describe_perks(&db, &textures, &[(0x374d7, 0x2850, *b"QUBS")], &locks);
+        assert_eq!(perks[0].name, "Quick Bash");
+        assert_eq!(perks[0].lock, Some(201));
+        assert!(perks[0].free_at.is_some());
     }
 }

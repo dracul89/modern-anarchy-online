@@ -179,6 +179,8 @@ pub struct Update {
     pub friends: Option<Vec<crate::friends::Friend>>,
     /// The character's nano programs, when they arrive.
     pub programs: Option<Vec<crate::nanoprograms::Program>>,
+    /// The character's perk actions, when they or their locks change.
+    pub perk_actions: Option<Vec<crate::actions::PerkAction>>,
     /// The character's perks, when they arrive.
     pub perk_list: Option<Vec<crate::perks::PerkInfo>>,
     /// The container (corpse, bag) the character opened: `Some(None)` when it closed.
@@ -1307,6 +1309,9 @@ impl ApplicationHandler for App {
                         }
                         if let Some(programs) = u.programs.take() {
                             self.hud.programs = programs;
+                        }
+                        if let Some(perks) = u.perk_actions.take() {
+                            self.hud.perk_actions = perks;
                         }
                         if let Some(friends) = u.friends.take() {
                             self.hud.friends = friends;

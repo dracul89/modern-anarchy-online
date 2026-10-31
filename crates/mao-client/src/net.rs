@@ -193,6 +193,11 @@ struct World {
     /// The nano programs the character has (from the world-entry message), and whether the list is new.
     program_ids: Vec<u32>,
     programs_changed: bool,
+    /// The character's perk actions as the server lists them (`CharacterAction` 0xb4 at entry: the action's item template, its
+    /// number and its four-letter code), and the perk locks running (0xcf: a lock and its seconds; 0xce: the lock is free).
+    perk_actions: Vec<(u32, u32, [u8; 4])>,
+    perk_locks: BTreeMap<u32, (Instant, f32)>,
+    perk_actions_changed: bool,
     perks_changed: bool,
     /// The character an `/inspect` waits on: its info packet is told in the chat window when it comes.
     inspecting: Option<u32>,
@@ -1227,6 +1232,26 @@ impl World {
                 // `SetNanoDuration`: the nano `(0xcf1b, id)` is on the character (the first parameter) for that long (ms)
                 0x62 if word(9) == 0xcf1b && word(17) == self.own => self.nano_duration(word(13), word(21)),
                 0xa4 => self.special_events.push((word(21), 0.0)),
+                // `PerkActionInfo` (0xb4): one of the character's perk actions (its item template, number and code)
+                0xb4 => {
+                    let code: [u8; 4] = m.data[21..25].try_into().unwrap();
+                    let entry = (word(13), word(17), code);
+                    match self.perk_actions.iter_mut().find(|p| p.1 == entry.1) {
+                        Some(p) => *p = entry,
+                        None => self.perk_actions.push(entry),
+                    }
+                    self.perk_actions_changed = true;
+                }
+                // `PerkUnavailable` (0xcf): a perk lock (the lock-skill spell's group) runs for that many seconds; `PerkAvailable`
+                // (0xce): it is over
+                0xcf => {
+                    self.perk_locks.insert(word(13), (Instant::now() + Duration::from_secs(word(17) as u64), word(17) as f32));
+                    self.perk_actions_changed = true;
+                }
+                0xce => {
+                    self.perk_locks.remove(&word(17));
+                    self.perk_actions_changed = true;
+                }
                 _ => {}
             }
         }
@@ -4700,6 +4725,11 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         }
                         None => pending_messages.push("No target (Tab selects one)".into()),
                     },
+                    // (a perk action the server listed: `N3Msg_PerformSpecialAction`'s 0xc78e case, FUN_100427d6, a `UsePerk`)
+                    _ if state.perk_actions.iter().any(|p| p.0 == id) => {
+                        let &(_, number, code) = state.perk_actions.iter().find(|p| p.0 == id).unwrap();
+                        let _ = connection.send(&n3::use_perk(own, number, code));
+                    }
                     other => match crate::actions_data::ACTIONS.iter().find(|a| a.0 == id && a.1 == crate::actions::Kind::Perk && a.3.len() == 4) {
                         // A perk: its id and its four-letter hash name it (the server uses the current target).
                         Some(&(_, _, perk_name, hash, perk_id)) => {
@@ -5888,6 +5918,11 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     }),
                     perk_list: std::mem::take(&mut state.perks_changed).then(|| crate::perks::describe(&gear_db, &gear_textures, &state.perks, state.stats.get(&0x36).copied().unwrap_or(1))),
                     programs: std::mem::take(&mut state.programs_changed).then(|| crate::nanoprograms::describe(&gear_db, &gear_textures, &state.program_ids, state.stats.get(&0x36).copied().unwrap_or(1))),
+                    perk_actions: std::mem::take(&mut state.perk_actions_changed).then(|| {
+                        let now = Instant::now();
+                        let locks: BTreeMap<u32, (Instant, f32)> = state.perk_locks.iter().filter(|l| l.1.0 > now).map(|(&k, &v)| (k, v)).collect();
+                        crate::actions::describe_perks(&gear_db, &gear_textures, &state.perk_actions, &locks)
+                    }),
                     gear: pending_gear.take(),
                     flying: (state.own_flying != flying_told).then(|| {
                         flying_told = state.own_flying;

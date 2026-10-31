@@ -83,6 +83,8 @@ pub struct Hud {
     pub friends: Vec<crate::friends::Friend>,
     /// The character's nano programs.
     pub programs: Vec<crate::nanoprograms::Program>,
+    /// The character's perk actions (the server's list), for the Action window.
+    pub perk_actions: Vec<crate::actions::PerkAction>,
     /// The character's perks.
     pub perk_list: Vec<crate::perks::PerkInfo>,
     /// The open container (corpse, bag).
@@ -752,7 +754,7 @@ impl Ui {
             team_window.show(&ctx, palette);
             faction_window.show(&ctx, &hud.stats, palette);
             if actions.open {
-                actions.show(&ctx, gear, palette);
+                actions.show(&ctx, gear, &hud.perk_actions, palette);
                 if let Some(a) = actions.clicked.take() {
                     requests.action = Some(a);
                 }
@@ -1107,7 +1109,7 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
                 map.show(&ctx, Some(([at[0], at[2]], hud.heading)), hud.camera_yaw, &hud.map_dots, &[], &hud.location);
             }
             if let Some(window) = preview_actions.as_mut() {
-                window.show(&ctx, &mut gear, &palette);
+                window.show(&ctx, &mut gear, &hud.perk_actions, &palette);
             }
             if let Some(window) = preview_mission_log.as_mut() {
                 let shown = window.show(&ctx, &palette, hud.playfield);
