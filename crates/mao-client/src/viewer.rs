@@ -189,8 +189,8 @@ pub struct Update {
     pub programs: Option<Vec<crate::nanoprograms::Program>>,
     /// The character's perk actions, when they or their locks change.
     pub perk_actions: Option<Vec<crate::actions::PerkAction>>,
-    /// The character's perks, when they arrive.
-    pub perk_list: Option<Vec<crate::perks::PerkInfo>>,
+    /// The perk records and the owned ranks, when the ranks change.
+    pub perk_list: Option<crate::perks::PerkState>,
     /// The container (corpse, bag) the character opened: `Some(None)` when it closed.
     pub loot: Option<Option<crate::loot::LootView>>,
     /// The running nano programs, when the list changes (the NCU window).
@@ -1326,7 +1326,7 @@ impl ApplicationHandler for App {
                             self.hud.loot = loot;
                         }
                         if let Some(perks) = u.perk_list.take() {
-                            self.hud.perk_list = perks;
+                            self.hud.perk_state = perks;
                         }
                         if let Some(programs) = u.programs.take() {
                             self.hud.programs = programs;

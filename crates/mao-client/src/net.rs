@@ -836,6 +836,8 @@ impl World {
             self.game_clock.set(seconds);
             self.game_clock.set_day(day);
             self.game_clock.set_server_time(server_time as i32);
+            // (the perk window's untraining timer counts in the server's time)
+            self.perks_changed = true;
             let (hour, minute) = self.game_clock.time();
             eprintln!("game time: {hour:02}:{minute:02} (period {period}, day {day}, server time {server_time})");
         }
@@ -6033,7 +6035,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     loot: std::mem::take(&mut state.loot_changed).then(|| {
                         state.loot.as_ref().map(|l| crate::loot::LootView { title: state.names.get(&l.identity.1).map(|n| n.0.clone()).filter(|n| !n.starts_with("Object ")).unwrap_or_else(|| crate::loot::title(l.identity.0).to_string()), identity: l.identity, handle: l.handle, items: crate::gear::from_entries(&gear_db, &gear_textures, &l.entries, state.stats.get(&0x36).copied().unwrap_or(1)) })
                     }),
-                    perk_list: std::mem::take(&mut state.perks_changed).then(|| crate::perks::describe(&gear_db, &gear_textures, &state.perks, state.stats.get(&0x36).copied().unwrap_or(1))),
+                    perk_list: std::mem::take(&mut state.perks_changed).then(|| {
+                        let unix = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64);
+                        crate::perks::PerkState { catalog: crate::perks::catalog(&gear_db), owned: state.perks.clone(), server_offset: state.game_clock.server_time() as i64 - unix }
+                    }),
                     programs: std::mem::take(&mut state.programs_changed).then(|| crate::nanoprograms::describe(&gear_db, &gear_textures, &state.program_ids, state.stats.get(&0x36).copied().unwrap_or(1))),
                     perk_actions: std::mem::take(&mut state.perk_actions_changed).then(|| {
                         let now = Instant::now();

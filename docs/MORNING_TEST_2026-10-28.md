@@ -225,6 +225,7 @@ Added after the overnight run, on request: audio through rodio, ported from the 
 | ad6dbbe | **Trading with players**: right-click/double-click another player (not in a fight) opens a trade (the original's default action on a player); the trade window is the skin's PlayerTrade view: drag items into it, type your credits, Accept confirms, and once the partner has too, "Are you sure you want to complete this trade?" finishes it; the partner's credits and status show. The partner's items are not named yet (the capture's partner put none in) | trade between your two characters: items one way, credits the other |
 | fc6153d | **Generated mission doors**: a mission's doors (announced by DoorFullUpdate) can be targeted (Ctrl+Tab) and used (E) | take a mission, enter it, Ctrl+Tab to a door and use it |
 | 2c1e20f | **Learning a nano from a crystal**: using a nano crystal puts the nano into the Nano Programs window at once (no relog) | buy a nano crystal you can use, use it, open Nano Programs |
+| 6157208 | **Perk window as the original**: P opens "Perk Window" with Profession / Group / General tabs, every perk line you can get (green dot owned, grey trainable, red not yet), the chosen line's ranks in two columns, used/available perk points and alien points; clicking a rank asks "Are you sure you want to train..." (or says why not), Remove Perk untrains the line's top rank, then a 2-hour countdown | open P, pick a line, train the next rank (Yes), check points drop; Remove Perk on it; hover a rank for its tip |
 
 ## How to run
 
