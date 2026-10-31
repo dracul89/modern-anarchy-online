@@ -190,7 +190,7 @@ impl Engine {
         if !self.allocated {
             return None;
         }
-        let pcm = Pcm::decode(&std::fs::read(path).ok()?)?;
+        let pcm = Pcm::decode(&mao_formats::files::read(path).ok()?)?;
         let sound = Sound { pcm: Arc::new(pcm), handle: None, priority, rate: 44100 };
         let key = match self.sounds.iter().position(Option::is_none) {
             Some(k) => {

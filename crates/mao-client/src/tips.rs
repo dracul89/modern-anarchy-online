@@ -184,7 +184,7 @@ impl Tips {
         self.loaded = true;
         self.enabled = true;
         if let Some(dir) = game() {
-            self.header = std::fs::read_to_string(dir.join("TipHeader.xml")).map(|t| parse_header(&t)).unwrap_or_default();
+            self.header = mao_formats::files::read_to_string(dir.join("TipHeader.xml")).map(|t| parse_header(&t)).unwrap_or_default();
         }
         for line in std::fs::read_to_string(path()).unwrap_or_default().lines() {
             match line.split_once('=') {
@@ -235,7 +235,7 @@ impl Tips {
     fn fill(&mut self) {
         let Some(w) = self.window.as_mut() else { return };
         let Some(shown) = self.list.get(self.current) else { return };
-        let text = game().and_then(|d| std::fs::read(d.join(&shown.file)).ok()).map(|b| String::from_utf8_lossy(&b).into_owned());
+        let text = game().and_then(|d| mao_formats::files::read(d.join(&shown.file)).ok()).map(|b| String::from_utf8_lossy(&b).into_owned());
         let body = match &text {
             Some(text) => {
                 let (title, sections) = parse_file(text);

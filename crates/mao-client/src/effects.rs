@@ -2495,7 +2495,7 @@ pub fn parse_calibration(text: &str) -> std::collections::HashMap<(u32, u32), f3
 
 /// Loads the calibration of the game in `game` (once).
 pub fn load_calibration(game: &str) {
-    let _ = CALIBRATION.set(std::fs::read_to_string(std::path::Path::new(game).join("Setupf").join("animcalibration.txt")).map(|t| parse_calibration(&t)).unwrap_or_default());
+    let _ = CALIBRATION.set(mao_formats::files::read_to_string(std::path::Path::new(game).join("Setupf").join("animcalibration.txt")).map(|t| parse_calibration(&t)).unwrap_or_default());
 }
 
 /// The playback factor of a creature's animation (1 when the file does not list it).

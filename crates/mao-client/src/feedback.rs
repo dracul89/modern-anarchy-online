@@ -11,7 +11,7 @@ pub fn texts() -> Option<&'static ldb::Texts> {
     if let Some(t) = TEXTS.get() {
         return Some(t);
     }
-    let parsed = ldb::Texts::parse(&std::fs::read(crate::theme::game_dir()?.join("cd_image/text/text.mdb")).ok()?)?;
+    let parsed = ldb::Texts::parse(&mao_formats::files::read(crate::theme::game_dir()?.join("cd_image/text/text.mdb")).ok()?)?;
     Some(TEXTS.get_or_init(|| parsed))
 }
 

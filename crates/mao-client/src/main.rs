@@ -57,6 +57,8 @@ mod layout;
 mod loot;
 mod nanoprograms;
 mod perks;
+// (the web page itself is WebView2, Windows only: elsewhere the window says so and the page's helpers go unused)
+#[cfg_attr(not(windows), allow(dead_code))]
 mod browser;
 mod marketsend;
 mod prefs;
@@ -591,7 +593,7 @@ pub(crate) struct AnimatedPart {
 pub(crate) fn add_props_with(game: &str, db: &ResourceDatabase, playfield: u32, model: &mut Model, mut animated: Option<&mut Vec<AnimatedPart>>) -> std::collections::HashMap<usize, u32> {
     let mut part_mesh = std::collections::HashMap::new();
     let path = Path::new(game).join(format!("cd_image/data/statels/{playfield}.pf"));
-    let Ok(file) = std::fs::read(&path) else { return part_mesh };
+    let Ok(file) = mao_formats::files::read(&path) else { return part_mesh };
     let Ok((mut statels, zone_lists)) = mao_formats::statels::parse_zoned(&file) else { return part_mesh };
     let (zones, failed) = (zone_lists.len(), zone_lists.iter().filter(|z| z.is_none()).count());
     if failed > 0 {
@@ -768,7 +770,7 @@ pub(crate) fn whompah_booths(game: &str, db: &ResourceDatabase, playfield: u32) 
         .map(|index| index.iter().filter(|&(kind, name, _)| kind == 0xf6951 && name == "whompa_entrance_default.abiff").map(|(_, _, instance)| instance).collect())
         .unwrap_or_default();
     let path = Path::new(game).join(format!("cd_image/data/statels/{playfield}.pf"));
-    let Ok(file) = std::fs::read(&path) else { return Vec::new() };
+    let Ok(file) = mao_formats::files::read(&path) else { return Vec::new() };
     let Ok(statels) = mao_formats::statels::parse(&file) else { return Vec::new() };
     statels.iter().filter(|s| booth_meshes.contains(&s.mesh)).map(|s| s.position).collect()
 }
@@ -782,7 +784,7 @@ pub(crate) fn door_markers(game: &str, db: &ResourceDatabase, playfield: u32) ->
         .and_then(|o| mao_formats::instances::Instances::parse(&o).ok())
         .map(|index| index.iter().filter(|&(kind, name, _)| kind == 0xf6951 && name == "door_blocker.abiff").map(|(_, _, instance)| instance).collect())
         .unwrap_or_default();
-    let Ok(file) = std::fs::read(Path::new(game).join(format!("cd_image/data/statels/{playfield}.pf"))) else { return Vec::new() };
+    let Ok(file) = mao_formats::files::read(Path::new(game).join(format!("cd_image/data/statels/{playfield}.pf"))) else { return Vec::new() };
     let Ok(statels) = mao_formats::statels::parse(&file) else { return Vec::new() };
     statels.iter().filter(|s| meshes.contains(&s.mesh)).map(|s| s.position).collect()
 }

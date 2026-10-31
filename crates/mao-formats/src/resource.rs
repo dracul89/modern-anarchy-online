@@ -23,7 +23,7 @@ pub struct Id {
 impl ResourceDatabase {
     /// Opens the database of the game installed at `game`.
     pub fn open_game(game: &Path) -> Result<ResourceDatabase> {
-        ResourceDatabase::open(&game.join("cd_image/data/db/ResourceDatabase"))
+        ResourceDatabase::open(&crate::files::find(&game.join("cd_image/data/db")).join("ResourceDatabase"))
     }
 
     /// Opens `<base>.dat` and `<base>.idx`.

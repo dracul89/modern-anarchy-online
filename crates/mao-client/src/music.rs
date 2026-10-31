@@ -187,7 +187,7 @@ impl Player {
         let pcm = match self.cache.get(&path) {
             Some(p) => p.clone(),
             None => {
-                let pcm = Arc::new(Pcm::decode(&std::fs::read(&path).ok()?)?);
+                let pcm = Arc::new(Pcm::decode(&mao_formats::files::read(&path).ok()?)?);
                 if self.cache.len() > 64 {
                     self.cache.clear();
                 }

@@ -251,7 +251,7 @@ struct Page {
 
 /// Whether a skin's folders hold an option panel (an `OptionPanel/Root.xml` with something in it).
 pub fn skin_has_panel(dirs: &[std::path::PathBuf]) -> bool {
-    dirs.iter().any(|d| std::fs::read_to_string(d.join("OptionPanel/Root.xml")).is_ok_and(|t| t.contains("label")))
+    dirs.iter().any(|d| mao_formats::files::read_to_string(d.join("OptionPanel/Root.xml")).is_ok_and(|t| t.contains("label")))
 }
 
 #[derive(Default)]
@@ -269,7 +269,7 @@ impl OptionPanel {
     fn load(&mut self, dirs: &[std::path::PathBuf]) {
         self.loaded = true;
         for d in dirs {
-            let Ok(text) = std::fs::read_to_string(d.join("OptionPanel/Root.xml")) else { continue };
+            let Ok(text) = mao_formats::files::read_to_string(d.join("OptionPanel/Root.xml")) else { continue };
             let doc = super::xml::parse(&text);
             let Some(root) = doc.first() else { continue };
             for e in &root.children {

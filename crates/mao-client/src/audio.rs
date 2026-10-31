@@ -397,7 +397,7 @@ impl Sandy {
     /// `ParseSourceFile(path)`: the records read into sources (FUN_100111b0 for each), the changed ones that had their
     /// sample read again and played again if they were playing (from a fade of 0.1). False when it can't be read.
     pub fn parse_source_file(&mut self, path: &Path) -> bool {
-        let Ok(data) = std::fs::read(path) else { return false };
+        let Ok(data) = mao_formats::files::read(path) else { return false };
         let records = parse_bank(&data).unwrap_or_default();
         for r in &records {
             let variants: [Option<usize>; 46] = std::array::from_fn(|j| (r.variants[j] != 0).then(|| self.obtain(r.variants[j]).0));
@@ -474,7 +474,7 @@ impl Sandy {
         }
         if self.sources[s].has_file {
             let path = self.root.join(&self.sources[s].file);
-            let Ok(meta) = std::fs::metadata(&path) else { return };
+            let Ok(meta) = std::fs::metadata(mao_formats::files::find(&path)) else { return };
             let size = meta.len() as u32;
             self.sources[s].file_size = size;
             self.memory = self.memory.wrapping_add(size);
@@ -990,7 +990,7 @@ impl Sandy {
     fn load_sim_project(&mut self) {
         if self.player.is_none() {
             let dir = self.root.join("music/env");
-            if let Some(project) = std::fs::read(dir.join("anarchy.sws")).ok().and_then(|d| mao_formats::music::Project::parse(&d)) {
+            if let Some(project) = mao_formats::files::read(dir.join("anarchy.sws")).ok().and_then(|d| mao_formats::music::Project::parse(&d)) {
                 let mut p = crate::music::Player::new(std::sync::Arc::new(project), &dir, self.engine.streams());
                 p.set_volume(self.master_music);
                 self.player = Some(crate::music::Running::start(p));
@@ -1628,7 +1628,7 @@ pub fn start(game: &Path) {
 /// `SlotPrefMasterVolumeChanged` → `SetMasterVolume`, `SoundFXOn` → `SetMasterFXMute`, `FXVolume`, `MusicOn` →
 /// `SetMasterMusicMute`, `MusicVolume`, `BattlemusicMode`, `VoiceSndFxOn` → `SetMasterPlayerFXMute`, `VoiceSndFxVolume`).
 fn apply_preferences(m: &mut Module, path: &Path) {
-    let Ok(text) = std::fs::read_to_string(path) else { return };
+    let Ok(text) = mao_formats::files::read_to_string(path) else { return };
     let value = |name: &str| -> Option<String> {
         let at = text.find(&format!("name=\"{name}\""))?;
         let line = &text[text[..at].rfind('<')?..at + text[at..].find('>')?];
