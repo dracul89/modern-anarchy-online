@@ -209,6 +209,7 @@ Added after the overnight run, on request: audio through rodio, ported from the 
 | df0b071 | **Actions window as the original's**: one grid of special-action icons (no tabs); click performs, drag onto a hotbar. Social actions and dances are in the control center's Social menu, as in the original | open Actions; click Use/Sneak; drag one to a hotbar; use a dance from the Social menu |
 | bf1d2ac | **Drag from the bank or a corpse into the inventory**: an item dragged out of a container's grid follows the pointer and, let go over the inventory window, is taken (as a right click) | open the bank; drag an item onto the inventory window |
 | ffd6df7 | **Team window as the original's**: "Team level: N", Leave, each member's name (leader in green) with the team health and nano bars between splitters; an invitation asks "Want to join X's team?" with Yes / No | get invited to a team; accept; watch the bars; Leave |
+| (next) | **Missions window as the original's**: the missions as icons in a grid; a click shows the mission's text in the info view; right click for Look at Mission / Upload to map / Delete Mission. (Not rendered with real missions: no capture has a mission list) | take a mission; open Missions (Ctrl+4); click it, right click -> Upload to map |
 
 ## How to run
 

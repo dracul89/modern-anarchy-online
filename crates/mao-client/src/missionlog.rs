@@ -65,27 +65,6 @@ pub fn missions_from(v: &Value, icon: &dyn Fn(u32) -> Option<Arc<Icon>>) -> Vec<
         .collect()
 }
 
-/// The server's markup as plain lines (`<BR>` a break, other tags left out).
-pub fn plain(markup: &str) -> String {
-    let mut out = String::new();
-    let mut rest = markup;
-    while let Some(start) = rest.find('<') {
-        out.push_str(&rest[..start]);
-        let Some(end) = rest[start..].find('>') else {
-            out.push_str(&rest[start..]);
-            rest = "";
-            break;
-        };
-        let tag = rest[start + 1..start + end].trim().to_ascii_lowercase();
-        if tag == "br" || tag == "br/" {
-            out.push('\n');
-        }
-        rest = &rest[start + end + 1..];
-    }
-    out.push_str(rest);
-    out
-}
-
 /// A GUI text (text.mdb category 10000, the names GUI.dll asks for).
 fn text(name: &str) -> String {
     let english = match name {
@@ -111,6 +90,9 @@ pub struct MissionLog {
     /// The mission whose deletion awaits an answer.
     confirm: Option<(u32, u32)>,
     textures: std::collections::HashMap<u32, egui::TextureHandle>,
+    views: Option<(crate::gui::view::Tree, crate::gui::view::Id, crate::gui::view::Id)>,
+    /// The mission whose menu is open, and where.
+    menu: Option<(usize, egui::Pos2)>,
 }
 
 /// What a frame of the window did.
@@ -120,6 +102,8 @@ pub struct Shown {
     /// A waypoint uploaded, and the lines to tell.
     pub waypoint: Option<(u32, [f32; 3])>,
     pub lines: Vec<String>,
+    /// A mission's page for the info view (its markup).
+    pub info: Option<String>,
 }
 
 impl MissionLog {
@@ -148,74 +132,105 @@ impl MissionLog {
         }
     }
 
+    /// The window: the `MissionListView_c` grid of the missions' icons (the item windows' 47-pixel cells), a click shows
+    /// the mission in the info view (FUN_100d2cfa: its page), a right click opens its menu (FUN_100d3123).
     pub fn show(&mut self, ctx: &egui::Context, palette: &Palette, playfield: u32) -> Shown {
         let mut shown = Shown::default();
         if !self.open {
             return shown;
         }
-        let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
+        if self.views.is_none() {
+            use crate::gui::view::{Layout, Node, Tree};
+            let mut tree = Tree::default();
+            tree.measure = crate::gui::font::Measure { ctx: Some(ctx.clone()) };
+            let root = tree.add(Node::new("", Box::new(crate::gui::view::Plain)));
+            tree.get_mut(root).layout = Layout::Base;
+            let list = crate::gui::multilist::create_grid(&mut tree, "MissionListView", -1, 4);
+            tree.add_child(root, list);
+            self.views = Some((tree, root, list));
+        }
+        let textures = &mut self.textures;
+        let rows: Vec<crate::gui::multilist::Item> = self
+            .missions
+            .iter()
+            .enumerate()
+            .map(|(k, m)| crate::gui::multilist::Item {
+                id: k as i64,
+                icon: m.icon.as_ref().map(|icon| textures.entry(icon.id).or_insert_with(|| ctx.load_texture(format!("mission-icon-{}", icon.id), egui::ColorImage::from_rgba_unmultiplied([icon.width, icon.height], &icon.rgba), egui::TextureOptions::LINEAR)).id()),
+                cells: vec![(1, crate::gui::multilist::CellView::Text(m.title.clone()))],
+                keys: vec![(1, m.title.clone())],
+                ..Default::default()
+            })
+            .collect();
+        let Some((tree, root, list)) = self.views.as_mut() else { return shown };
+        let (root, list) = (*root, *list);
+        if crate::gui::multilist::items(tree, list) != rows.as_slice() {
+            crate::gui::multilist::set_items(tree, list, rows);
+        }
+        crate::gui::multilist::update(tree, list);
+        let skin = crate::skin::skin(ctx);
         let mut open = self.open;
-        let (missions, selected, confirm, textures) = (&self.missions, &mut self.selected, &mut self.confirm, &mut self.textures);
-        crate::chrome::window(ctx, palette, "Missions", "Missions", &mut open, |w| w.default_size(egui::vec2(380.0, 420.0)).resizable(true), |ui| {
-            if missions.is_empty() {
-                ui.label(egui::RichText::new("You have no missions.").weak());
-                return;
-            }
-            let list_height = (ui.available_height() * 0.45).max(90.0);
-            crate::chrome::scroll(ui, palette, egui::ScrollArea::vertical().id_salt("missions-list").max_height(list_height).auto_shrink([false, true]), |ui| {
-                for m in missions {
-                    let (rect, response) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 34.0), egui::Sense::click());
-                    if *selected == Some(m.id) {
-                        ui.painter().rect_filled(rect, 2.0, accent.gamma_multiply(0.25));
-                    } else if response.hovered() {
-                        ui.painter().rect_filled(rect, 2.0, egui::Color32::from_white_alpha(12));
-                    }
-                    let icon_rect = egui::Rect::from_min_size(rect.min + egui::vec2(2.0, 1.0), egui::vec2(32.0, 32.0));
-                    if let Some(icon) = &m.icon {
-                        let t = textures.entry(icon.id).or_insert_with(|| ctx.load_texture(format!("mission-icon-{}", icon.id), egui::ColorImage::from_rgba_unmultiplied([icon.width, icon.height], &icon.rgba), egui::TextureOptions::LINEAR));
-                        ui.painter().image(t.id(), icon_rect, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
-                    }
-                    let colour = egui::Color32::from_rgb(palette.text[0], palette.text[1], palette.text[2]);
-                    ui.painter().text(egui::pos2(icon_rect.right() + 6.0, rect.center().y), egui::Align2::LEFT_CENTER, &m.title, egui::FontId::proportional(13.0), colour);
-                    if response.clicked() {
-                        *selected = Some(m.id);
-                    }
-                    if response.double_clicked() {
-                        MissionLog::upload(m, playfield, &mut shown);
-                    }
-                    response.context_menu(|ui| {
-                        if ui.button(text("Look@Mission")).clicked() {
-                            *selected = Some(m.id);
-                            ui.close();
-                        }
-                        if m.place.is_some() && ui.button(text("Upload2Map")).clicked() {
-                            MissionLog::upload(m, playfield, &mut shown);
-                            ui.close();
-                        }
-                        // (team missions are not known to the client yet: `N3Msg_IsTeamMission`)
-                        ui.add_enabled(false, egui::Button::new(text("UpdateTeamMembers")));
-                        if ui.button(text("DeleteMission")).clicked() {
-                            *confirm = Some(m.id);
-                            ui.close();
-                        }
-                    });
-                }
-            });
-            ui.separator();
-            if let Some(m) = selected.and_then(|s| missions.iter().find(|m| m.id == s)) {
-                ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new(&m.title).strong());
-                    if m.place.is_some() && crate::chrome::button(ui, palette, &text("Upload2Map"), true).clicked() {
-                        MissionLog::upload(m, playfield, &mut shown);
-                    }
-                });
-                crate::chrome::scroll(ui, palette, egui::ScrollArea::vertical().id_salt("mission-text").auto_shrink([false, false]), |ui| {
-                    ui.label(plain(&m.description));
-                });
-            } else {
-                ui.label(egui::RichText::new("Pick a mission to read it; right-click it for more.").weak());
+        let mut hovered = None;
+        crate::chrome::window(ctx, palette, "Missions", "Missions", &mut open, |w| w.default_size(egui::vec2(4.0 * crate::gui::multilist::grid::STEP + 32.0, 2.0 * crate::gui::multilist::grid::STEP + 12.0)).resizable(true), |ui| {
+            let response = crate::gui::host::show(ui, tree, root, skin.as_deref(), palette);
+            if let Some(at) = ui.input(|i| i.pointer.hover_pos()) {
+                hovered = crate::gui::multilist::item_at(tree, list, response.rect.min, at).map(|k| (k as usize, at));
             }
         });
+        let missions = &self.missions;
+        for (_, event) in crate::gui::multilist::take_events(tree) {
+            if let crate::gui::multilist::ItemEvent::Clicked(k, _) = event
+                && let Some(m) = missions.get(k as usize)
+            {
+                crate::gui::multilist::select(tree, list, Some(k));
+                self.selected = Some(m.id);
+                shown.info = Some(format!("<font color=CCInfoHeadline>{}</font><br><br>{}", m.title, m.description));
+            }
+        }
+        tree.signals.clear();
+        if let Some((k, at)) = hovered {
+            if ctx.input(|i| i.pointer.secondary_clicked()) {
+                self.menu = Some((k, at));
+            } else if let Some(m) = missions.get(k)
+                && self.menu.is_none()
+            {
+                egui::Area::new(egui::Id::unique("mission-tip")).order(egui::Order::Tooltip).fixed_pos(at + egui::vec2(16.0, 16.0)).interactable(false).show(ctx, |ui| {
+                    egui::Frame::popup(ui.style()).show(ui, |ui| {
+                        ui.label(&m.title);
+                    });
+                });
+            }
+        }
+        // (FUN_100d3123's menu)
+        if let Some((k, at)) = self.menu
+            && let Some(m) = missions.get(k)
+        {
+            let mut keep = true;
+            let area = egui::Area::new(egui::Id::unique("mission-menu")).order(egui::Order::Foreground).fixed_pos(at).show(ctx, |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    if ui.button(text("Look@Mission")).clicked() {
+                        shown.info = Some(format!("<font color=CCInfoHeadline>{}</font><br><br>{}", m.title, m.description));
+                        keep = false;
+                    }
+                    if m.place.is_some() && ui.button(text("Upload2Map")).clicked() {
+                        MissionLog::upload(m, playfield, &mut shown);
+                        keep = false;
+                    }
+                    // (team missions are not known to the client yet: `N3Msg_IsTeamMission`)
+                    ui.add_enabled(false, egui::Button::new(text("UpdateTeamMembers")));
+                    if ui.button(text("DeleteMission")).clicked() {
+                        self.confirm = Some(m.id);
+                        keep = false;
+                    }
+                });
+            });
+            let elsewhere = ctx.input(|i| i.pointer.any_pressed()) && ctx.input(|i| i.pointer.interact_pos()).is_some_and(|p| !area.response.rect.contains(p));
+            if !keep || elsewhere {
+                self.menu = None;
+            }
+        } else {
+            self.menu = None;
+        }
         // ("ReallyWant2DeleteMission")
         if let Some(id) = self.confirm {
             let mut keep = true;
@@ -240,12 +255,3 @@ impl MissionLog {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_text_is_plain() {
-        assert_eq!(plain("Place the Bomb<BR><BR>Use the <b>kit</b>."), "Place the Bomb\n\nUse the kit.");
-    }
-}
