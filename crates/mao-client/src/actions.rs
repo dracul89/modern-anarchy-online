@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::actions_data::{ACTIONS, SOCIAL};
+use crate::actions_data::ACTIONS;
 use crate::gear::{GearWindow, Icon};
 use crate::hotbar;
 use crate::theme::Palette;
@@ -63,27 +63,19 @@ fn perk_icon(name: &str) -> &'static str {
     }
 }
 
-/// The window's tabs.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Tab {
-    Combat,
-    Perks,
-    Social,
-}
-
 pub struct ActionsWindow {
     pub open: bool,
-    tab: Tab,
     /// Icons by name, once loaded.
     icons: HashMap<&'static str, Arc<Icon>>,
     loaded: bool,
     /// What a click asked for: sent to the network thread by the viewer.
     pub clicked: Option<hotbar::Action>,
+    views: Option<(crate::gui::view::Tree, crate::gui::view::Id, crate::gui::view::Id)>,
 }
 
 impl Default for ActionsWindow {
     fn default() -> Self {
-        ActionsWindow { open: false, tab: Tab::Combat, icons: HashMap::new(), loaded: false, clicked: None }
+        ActionsWindow { open: false, icons: HashMap::new(), loaded: false, clicked: None, views: None }
     }
 }
 
@@ -109,71 +101,82 @@ impl ActionsWindow {
         self.icons.values().find(|i| i.id == instance)
     }
 
+    /// The window, GUI.dll's `SpecialActionView_c` (FUN_100dc9b1): "Actions", a grid of the special actions in the
+    /// smallest square icon size (`SetGridIconSize(0)`: 31 by 31 on `SLOT_32`), in the order the list holds them. A click
+    /// performs the action (FUN_100dc033: `N3Msg_PerformSpecialAction`; the list does not select, so a left click is the use
+    /// signal); one dragged out goes onto a hotbar. The social actions are the control center's Social menu
+    /// (`ActionMenu/SocialMenu.xml`), as in the original.
     pub fn show(&mut self, ctx: &egui::Context, gear: &mut GearWindow, palette: &Palette) {
         let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
+        if self.views.is_none() {
+            use crate::gui::view::{Layout, Node, Tree};
+            let mut tree = Tree::default();
+            tree.measure = crate::gui::font::Measure { ctx: Some(ctx.clone()) };
+            let root = tree.add(Node::new("", Box::new(crate::gui::view::Plain)));
+            tree.get_mut(root).layout = Layout::Base;
+            let list = crate::gui::multilist::create_grid(&mut tree, "SpecialActionView", -1, 5);
+            crate::gui::multilist::set_grid(&mut tree, list, |g| g.set_icon_size(0));
+            tree.add_child(root, list);
+            self.views = Some((tree, root, list));
+        }
+        let actions: Vec<(hotbar::Action, &'static str, Option<&'static str>, &'static str)> = ACTIONS
+            .iter()
+            .map(|&(id, kind, name, _, _)| {
+                let icon = icon_name(kind, name);
+                (hotbar::Action::Special { id, name: name.to_string(), icon: self.icons.get(icon).map(|i| i.id) }, name, Some(icon), if kind == Kind::Weapon { "Weapon attack" } else if kind == Kind::Perk { "Perk action" } else { "Character action" })
+            })
+            .collect();
+        let rows: Vec<crate::gui::multilist::Item> = actions
+            .iter()
+            .enumerate()
+            .map(|(k, (_, name, icon, _))| crate::gui::multilist::Item {
+                id: k as i64,
+                icon: icon.and_then(|n| self.icons.get(n)).map(|i| gear.texture(ctx, i)),
+                cells: vec![(1, crate::gui::multilist::CellView::Text(name.to_string()))],
+                keys: vec![(1, name.to_string())],
+                ..Default::default()
+            })
+            .collect();
+        let Some((tree, root, list)) = self.views.as_mut() else { return };
+        let (root, list) = (*root, *list);
+        if crate::gui::multilist::items(tree, list) != rows.as_slice() {
+            crate::gui::multilist::set_items(tree, list, rows);
+        }
+        crate::gui::multilist::update(tree, list);
+        let skin = crate::skin::skin(ctx);
         let mut open = self.open;
-        crate::chrome::window(ctx, palette, "Actions", "Actions", &mut open, |w| w.resizable(false).default_pos(crate::layout::pos("Actions", egui::pos2(520.0, 70.0))), |ui| {
-            const TABS: [Tab; 3] = [Tab::Combat, Tab::Perks, Tab::Social];
-            let mut tab = TABS.iter().position(|t| *t == self.tab).unwrap_or(0);
-            crate::chrome::tab_view(ui, palette, &["Combat", "Perks", "Social"], &mut tab, |ui, tab| {
-            self.tab = TABS[tab.min(2)];
-            ui.label(egui::RichText::new("Click to do it, drag onto a hotbar slot").small().weak());
-            ui.separator();
-            crate::chrome::scroll(ui, palette, egui::ScrollArea::vertical().max_height(420.0), |ui| {
-                let mut tiles: Vec<(String, Option<&'static str>, hotbar::Action, Option<String>)> = Vec::new();
-                match self.tab {
-                    Tab::Combat => {
-                        for &(id, kind, name, _, _) in ACTIONS.iter().filter(|a| a.1 != Kind::Perk) {
-                            let icon = icon_name(kind, name);
-                            tiles.push((name.to_string(), Some(icon), hotbar::Action::Special { id, name: name.to_string(), icon: self.icons.get(icon).map(|i| i.id) }, Some(format!("{}", if kind == Kind::Weapon { "Weapon attack" } else { "Character action" }))));
-                        }
-                    }
-                    Tab::Perks => {
-                        for &(id, kind, name, hash, _) in ACTIONS.iter().filter(|a| a.1 == Kind::Perk) {
-                            let icon = icon_name(kind, name);
-                            tiles.push((name.to_string(), Some(icon), hotbar::Action::Special { id, name: name.to_string(), icon: self.icons.get(icon).map(|i| i.id) }, Some(format!("Perk {hash}"))));
-                        }
-                    }
-                    Tab::Social => {
-                        for &(id, name, dance) in SOCIAL {
-                            tiles.push((name.to_string(), None, hotbar::Action::Social { id, name: name.to_string() }, Some(if dance { "Dance".to_string() } else { "Social action".to_string() })));
-                        }
+        let mut hovered = None;
+        crate::chrome::window(ctx, palette, "Actions", "Actions", &mut open, |w| w.default_pos(crate::layout::pos("Actions", egui::pos2(520.0, 70.0))).default_size(egui::vec2(5.0 * 42.0 + 30.0, 4.0 * 42.0 + 12.0)).resizable(true), |ui| {
+            let response = crate::gui::host::show(ui, tree, root, skin.as_deref(), palette);
+            if let Some(at) = ui.input(|i| i.pointer.hover_pos()) {
+                hovered = crate::gui::multilist::item_at(tree, list, response.rect.min, at).map(|k| (k as usize, at));
+            }
+        });
+        for (_, event) in crate::gui::multilist::take_events(tree) {
+            match event {
+                crate::gui::multilist::ItemEvent::Clicked(k, _) => {
+                    if let Some((a, ..)) = actions.get(k as usize) {
+                        self.clicked = Some(a.clone());
                     }
                 }
-                ui.horizontal_wrapped(|ui| {
-                    ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
-                    // Four tiles across, as the original's.
-                    ui.set_max_width(4.0 * 46.0 + 3.0 * 4.0);
-                    for (name, icon, action, subtitle) in tiles {
-                        let (rect, response) = ui.allocate_exact_size(egui::vec2(46.0, 46.0), egui::Sense::click_and_drag());
-                        let painter = ui.painter();
-                        painter.rect_filled(rect, 3.0, egui::Color32::from_black_alpha(140));
-                        let border = if response.hovered() { accent } else { egui::Color32::from_white_alpha(50) };
-                        match icon.and_then(|n| self.icons.get(n)) {
-                            Some(i) => {
-                                let id = gear.texture(ctx, i);
-                                ui.painter().image(id, rect.shrink(3.0), egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
-                            }
-                            None => {
-                                ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, name.chars().take(2).collect::<String>().to_uppercase(), egui::FontId::proportional(14.0), accent);
-                            }
-                        }
-                        ui.painter().rect_stroke(rect, 3.0, egui::Stroke::new(if response.hovered() { 2.0 } else { 1.0 }, border), egui::StrokeKind::Inside);
-                        response.dnd_set_drag_payload(action.clone());
-                        if response.clicked() {
-                            self.clicked = Some(action);
-                        }
-                        response.on_hover_ui(|ui| {
-                            ui.label(egui::RichText::new(&name).strong());
-                            if let Some(s) = subtitle {
-                                ui.label(egui::RichText::new(s).small().weak());
-                            }
-                        });
+                crate::gui::multilist::ItemEvent::Dragged(k) => {
+                    if let Some((a, ..)) = actions.get(k as usize) {
+                        egui::DragAndDrop::set_payload(ctx, a.clone());
                     }
+                }
+            }
+        }
+        tree.signals.clear();
+        if let Some((k, at)) = hovered
+            && let Some((_, name, _, what)) = actions.get(k)
+        {
+            egui::Area::new(egui::Id::unique("action-tip")).order(egui::Order::Tooltip).fixed_pos(at + egui::vec2(16.0, 16.0)).interactable(false).show(ctx, |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    ui.label(egui::RichText::new(*name).strong().color(accent));
+                    ui.label(egui::RichText::new(*what).small().weak());
                 });
             });
-            });
-        });
+        }
         self.open = open;
     }
 }
