@@ -155,9 +155,22 @@ Left: the client has no use timer for 0x92 to end.
 
 ### 9. PlayfieldAllTowers / PlayfieldAllCities
 
-Sent at every playfield entry. Towers only on Notum Wars playfields (Andromeda 655: 105 towers, the Wailing Wastes 551),
-each with its field, id, place, template, scale and side; the planet map's land-control view would show them. Cities were
-always empty (length 0).
+Sent at every playfield entry with the identity `(0x9c50, playfield)`. Towers only on Notum Wars playfields (Andromeda 655:
+105 towers, the Wailing Wastes 551: 34). Decoded (`mao_net::landcontrol`, from Gamecode.dll's `LandControl_t`): a header byte,
+the towers counted `(n + 1) * 0x3f1` (FUN_1012b192), each (FUN_1012bb14) the site `(0xc354, ..)`, the tower `(0xc350, ..)`, x,
+height, z, the model, the side (0 neutral, 1 Clan, 2 Omni), the destroyed model, the scale and the kind (1 control tower,
+2 turret, 4 conductor); the list replaces the one before. `PlayfieldTowerUpdateClient` (`5b1e052c`, FUN_1012b38a: site, kind
+1 destroyed / 2 planted plus a tower) changes it; none captured. Cities (FUN_101304f8) are an `i16` length and a blob for
+`PlayfieldCityHolderClient_c::UpdateNewHouses`, always empty (length 0) in the captures, kept and not drawn.
+
+Drawn as GUI.dll's `PFMapRenderer_c` (the PF Map window, FUN_100ea243) draws them, on the corner map and the overlay
+(`automap.rs`): a 16-pixel `GFX_GUI_MAP_CONTROLLER/GUARDTOWER/BUFFTOWER_RED/BLUE/GREY` icon per tower (Clan red, Omni blue,
+the rest grey), and with the land-control button on (`RenderLandControlData`, the expansion stat 389 bit 0 needed) an
+80-pixel `GFX_GUI_MAP_CIRCLE` over each, `0xffff04` for control towers and turrets, `0x00dcff` for the rest. The planet
+map window (`PlanetMapView_c`) does not draw towers in the original. Not done: the land-control bitmap
+(`N3Msg_GetLandControlBitmap`, the playfield's `LandControlMap_t` database record, MapData_c `+0x34`) and the district's
+name and level range under the button (`N3Msg_GetLCDistrictInfo`, "%s<br>Lvl Rng: %d - %d"). Unknown: the circle quad's
+colour has alpha 0 in the original's call (FUN_100467e8); the client draws it opaque over the texture's alpha.
 
 ### 10. Others' animations
 

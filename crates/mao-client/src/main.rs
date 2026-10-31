@@ -1624,6 +1624,19 @@ fn run(args: &[String]) -> Result<(), String> {
                     }
                     if preview.as_deref() == Some("map") {
                         // MAO_UI_PREVIEW=map: walk a path through the playfield, revealing the map as the game would.
+                        // MAO_TOWERS=<capture dump.txt>: the playfield's captured tower list (`PlayfieldAllTowers`), the
+                        // character at its first tower; MAO_LAND_CONTROL as well: the land-control circles on.
+                        if let Some(dump) = std::env::var_os("MAO_TOWERS") {
+                            let text = std::fs::read_to_string(dump).unwrap_or_default();
+                            let identity = format!("identity (9c50,{number:x}) ");
+                            let hex = |h: &str| (0..h.len() / 2).filter_map(|i| u8::from_str_radix(h.get(2 * i..2 * i + 2)?, 16).ok()).collect::<Vec<u8>>();
+                            if let Some(towers) = text.lines().filter(|l| l.contains(" kind 55220726 ") && l.contains(&identity)).find_map(|l| mao_net::landcontrol::all_towers(&hex(l.split("bytes: ").nth(1)?)))
+                                && let Some(first) = towers.first()
+                            {
+                                hud.position = Some(first.position);
+                                hud.towers = towers;
+                            }
+                        }
                         let area = net::load_area(game, &db, number)?;
                         let (cx, cz) = (hud.position.map_or(449.0, |p| p[0]), hud.position.map_or(313.0, |p| p[2]));
                         let mut builder = automap::MapBuilder::new(area.terrain.as_deref(), [cx, 8.0, cz], number);
@@ -1639,6 +1652,7 @@ fn run(args: &[String]) -> Result<(), String> {
                             map.apply(patch);
                         }
                         map.overlay = std::env::var_os("MAO_MAP_OVERLAY").is_some();
+                        map.land_control = std::env::var_os("MAO_LAND_CONTROL").is_some();
                         hud.heading = 0.6;
                         hud.camera_yaw = 4.0;
                         hud.map_dots = vec![([cx + 20.0, cz + 10.0], automap::DotKind::Player), ([cx - 15.0, cz + 25.0], automap::DotKind::Hostile), ([cx + 5.0, cz - 30.0], automap::DotKind::Friendly)];
