@@ -1674,6 +1674,17 @@ fn run(args: &[String]) -> Result<(), String> {
                             }
                         }
                     }
+                    if preview.as_deref() == Some("team") {
+                        team::with(|t| {
+                            for (k, (name, hp, np)) in [("Nihiltech", 0.9, 0.5), ("Sadlee", 0.4, 0.8), ("Humility", 1.0, 1.0)].into_iter().enumerate() {
+                                let m = t.member(k as u32 + 1);
+                                m.name = name.into();
+                                m.level = 12;
+                                m.health = ((1000.0 * hp) as i64, 1000);
+                                m.nano = ((1000.0 * np) as i64, 1000);
+                            }
+                        });
+                    }
                     if preview.as_deref() == Some("tip") {
                         // Two tips (the second shown, with Previous Tip).
                         tips::trigger("OnStartingAttack", "");

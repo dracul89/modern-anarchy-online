@@ -877,6 +877,8 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
     let mut preview_panel = crate::gui::options::OptionPanel::default();
     preview_panel.open = std::env::var("MAO_UI_PREVIEW").as_deref() == Ok("optionpanel");
     // (MAO_UI_PREVIEW=marketsend: "Deposit to Market", the first two backpack items in it)
+    // (MAO_UI_PREVIEW=team: the team window on a sample team)
+    let mut preview_team = (std::env::var("MAO_UI_PREVIEW").as_deref() == Ok("team")).then(|| { let mut w = crate::team::TeamWindow::default(); w.open = true; w });
     // (MAO_UI_PREVIEW=tip: the tip window on the tips triggered)
     let mut preview_tips = (std::env::var("MAO_UI_PREVIEW").as_deref() == Ok("tip")).then(crate::tips::Tips::default);
     let mut preview_deposit = crate::marketsend::MarketSendWindow::default();
@@ -998,6 +1000,9 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
             }
             if let Some(window) = preview_stats.as_mut() {
                 window.show(&ctx, &hud.character_name, &hud.stats, &hud.stat_parts, &palette);
+            }
+            if let Some(team) = preview_team.as_mut() {
+                team.show(&ctx, &palette);
             }
             if let Some(tips) = preview_tips.as_mut() {
                 tips.show(&ctx, &palette, 0.0);

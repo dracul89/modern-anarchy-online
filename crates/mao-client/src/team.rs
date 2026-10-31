@@ -62,70 +62,156 @@ fn send(c: Command) {
     COMMANDS.lock().unwrap_or_else(|e| e.into_inner()).push(c);
 }
 
+/// The team window, GUI.dll's `TeamView_c` (FUN_10078c14, `team_view`, 1000 by 1000 at most): a header line (text.mdb
+/// 10000's "Team level: %u  Team side: %s", or "No team"), a row of buttons (in a team: Leave, text.mdb's "Leave"; the
+/// leader's invite button is left out: its join request was not captured) and six member views (FUN_1007981b): above
+/// the first and under each a `GFX_GUI_FRIENDLIST_SPLITTER`, then the member's name in the middle (the leader's in
+/// 0x11eeaa, others white, FUN_10077b3d) and its health and nano bars (`PowerbarView_c` of `GFX_GUI_BAR_HEALTH_TEAM` /
+/// `_NANO_TEAM` over their `_BG`s). Places without a member are hidden (FUN_1007a154). An invitation asks "Want to join
+/// %s's team?" (text.mdb 10000).
 #[derive(Default)]
 pub struct TeamWindow {
     pub open: bool,
+    views: Option<(crate::gui::view::Tree, crate::gui::view::Id)>,
 }
 
-/// A bar of `now` out of `max`.
-fn bar(ui: &mut egui::Ui, now: i64, max: i64, colour: egui::Color32) {
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(120.0, 6.0), egui::Sense::hover());
-    let painter = ui.painter();
-    painter.rect_filled(rect, 1.0, egui::Color32::from_black_alpha(140));
-    if max > 0 {
-        let share = (now as f32 / max as f32).clamp(0.0, 1.0);
-        painter.rect_filled(egui::Rect::from_min_size(rect.min, egui::vec2(rect.width() * share, rect.height())), 1.0, colour);
+/// An XML attribute's text.
+fn attr(s: &str) -> String {
+    s.replace('&', "&amp;").replace('"', "&quot;").replace('<', "&lt;").replace('>', "&gt;")
+}
+
+/// The window's views as the original builds them.
+fn view_xml() -> String {
+    let splitter = "<BitmapView bitmap_id=\"GFX_GUI_FRIENDLIST_SPLITTER\" max_size=\"Point(16000,-1)\"/>";
+    let mut mates = String::new();
+    for k in 0..6 {
+        let top = if k == 0 { splitter } else { "" };
+        mates += &format!(
+            "<View name=\"mate{k}\" view_layout=\"vertical\">{top}\
+               <View view_layout=\"horizontal\">\
+                 <TextView name=\"lead{k}\" value=\"\" layout_borders=\"Rect(3,2,0,2)\"/>\
+                 <HLayoutSpacer/>\
+                 <TextView name=\"name{k}\" value=\"\" layout_borders=\"Rect(5,2,5,2)\"/>\
+                 <HLayoutSpacer/>\
+                 <View view_layout=\"vertical\" layout_borders=\"Rect(2,2,2,2)\">\
+                   <PowerBar name=\"hp{k}\" bg_gfx=\"GFX_GUI_BAR_HEALTH_TEAM_BG\" full_gfx=\"GFX_GUI_BAR_HEALTH_TEAM\"/>\
+                   <PowerBar name=\"np{k}\" bg_gfx=\"GFX_GUI_BAR_NANO_TEAM_BG\" full_gfx=\"GFX_GUI_BAR_NANO_TEAM\"/>\
+                 </View>\
+               </View>{splitter}\
+             </View>"
+        );
+    }
+    let leave = attr(&crate::gui::xml::ldb_text("#10000:5421253"));
+    format!(
+        "<View view_layout=\"vertical\">\
+           <BorderView layout_borders=\"Rect(4,2,4,2)\"><TextView name=\"header\" value=\"\" layout_borders=\"Rect(4,2,4,2)\"/></BorderView>\
+           <View name=\"buttons\" view_layout=\"horizontal\" layout_borders=\"Rect(0,5,0,5)\">\
+             <HLayoutSpacer/><Button name=\"leave\" label=\"{leave}\" layout_borders=\"Rect(5,0,5,0)\"/>\
+           </View>{mates}\
+         </View>"
+    )
+}
+
+fn set_text(tree: &mut crate::gui::view::Tree, root: crate::gui::view::Id, name: &str, text: &str) {
+    if let Some(id) = tree.find(root, name)
+        && let Some(t) = tree.control_mut::<crate::gui::controls::TextView>(id)
+        && t.text != text
+    {
+        t.set_text(text);
+        tree.relayout = true;
+    }
+}
+
+fn show_view(tree: &mut crate::gui::view::Tree, root: crate::gui::view::Id, name: &str, on: bool) {
+    if let Some(v) = tree.find(root, name) {
+        let want = u32::from(!on);
+        if tree.get(v).hidden.min(1) != want {
+            tree.get_mut(v).flags |= crate::gui::view::FLAG_COLLAPSE;
+            tree.get_mut(v).hidden = want;
+            tree.relayout = true;
+        }
     }
 }
 
 impl TeamWindow {
     pub fn show(&mut self, ctx: &egui::Context, palette: &Palette) {
         let team = with(|t| t.clone());
-        // (an invitation opens the window)
-        if team.invite.is_some() {
-            self.open = true;
+        // (an invitation: the original's question)
+        if let Some((id, name)) = &team.invite {
+            let question = crate::gui::xml::ldb_text("#10000:110085117").replace("%s", name);
+            let mut answer = None;
+            let mut dialog = true;
+            crate::chrome::window(ctx, palette, "team-invite", &crate::gui::xml::ldb_text("#10000:3860335"), &mut dialog, |w| w.resizable(false).anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO), |ui| {
+                ui.label(egui::RichText::new(&question).color(crate::chrome::rgb(palette.text)));
+                ui.horizontal(|ui| {
+                    if crate::chrome::button(ui, palette, "Yes", true).clicked() {
+                        answer = Some(true);
+                    }
+                    if crate::chrome::button(ui, palette, "No", true).clicked() {
+                        answer = Some(false);
+                    }
+                });
+            });
+            if !dialog {
+                answer = Some(false);
+            }
+            if let Some(join) = answer {
+                send(Command::Reply(*id, join));
+                with(|t| t.invite = None);
+                if join {
+                    self.open = true;
+                }
+            }
         }
         if !self.open {
             return;
         }
-        let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
+        if self.views.is_none() {
+            let doc = crate::gui::xml::parse(&view_xml());
+            let mut tree = crate::gui::view::Tree::default();
+            tree.measure = crate::gui::font::Measure { ctx: Some(ctx.clone()) };
+            if let Some(root) = doc.first().and_then(|e| crate::gui::create(&mut tree, e)) {
+                self.views = Some((tree, root));
+            }
+        }
+        let Some((tree, root)) = self.views.as_mut() else { return };
+        let root = *root;
+        // (the header, the buttons in a team, a member in each of the first places)
+        let header = if team.members.is_empty() {
+            crate::gui::xml::ldb_text("#10000:89435005")
+        } else {
+            let level = team.members.iter().map(|m| m.level).max().unwrap_or(0);
+            crate::gui::xml::ldb_text("#10000:56702133").replacen("%u", &level.to_string(), 1).replacen("%s", "", 1)
+        };
+        set_text(tree, root, "header", &header);
+        show_view(tree, root, "buttons", !team.members.is_empty());
+        for k in 0..6 {
+            let mate = team.members.get(k);
+            show_view(tree, root, &format!("mate{k}"), mate.is_some());
+            let Some(m) = mate else { continue };
+            // (the first member is the leader: the server lists the team from its leader)
+            let colour = if k == 0 { "#11eeaa" } else { "#ffffff" };
+            set_text(tree, root, &format!("name{k}"), &format!("<font color={colour}>{}</font>", m.name));
+            let share = |(now, max): (i64, i64)| if max > 0 { now as f32 / max as f32 } else { 0.0 };
+            if let Some(id) = tree.find(root, &format!("hp{k}")) {
+                crate::gui::powerbar::set_value(tree, id, share(m.health));
+            }
+            if let Some(id) = tree.find(root, &format!("np{k}")) {
+                crate::gui::powerbar::set_value(tree, id, share(m.nano));
+            }
+        }
+        let skin = crate::skin::skin(ctx);
+        let min = crate::gui::host::preferred_pixels(tree, root, false);
         let mut open = self.open;
-        crate::chrome::window(ctx, palette, "Team", "Team", &mut open, |w| w.default_pos(crate::layout::pos("Team", egui::pos2(20.0, 300.0))).default_width(220.0), |ui| {
-            if let Some((id, name)) = &team.invite {
-                ui.label(format!("{name} asks you to join a team."));
-                ui.horizontal(|ui| {
-                    if crate::chrome::button(ui, palette, "Join", true).clicked() {
-                        send(Command::Reply(*id, true));
-                        with(|t| t.invite = None);
-                    }
-                    if crate::chrome::button(ui, palette, "Decline", true).clicked() {
-                        send(Command::Reply(*id, false));
-                        with(|t| t.invite = None);
-                    }
-                });
-                ui.separator();
-            }
-            if team.members.is_empty() {
-                ui.label(egui::RichText::new("Not in a team.").weak());
-                return;
-            }
-            for m in &team.members {
-                ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new(&m.name).color(accent));
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(egui::RichText::new(format!("{}", m.level)).small());
-                    });
-                });
-                if m.health.1 > 0 {
-                    bar(ui, m.health.0, m.health.1, egui::Color32::from_rgb(200, 50, 40));
-                    bar(ui, m.nano.0, m.nano.1, egui::Color32::from_rgb(50, 110, 220));
-                }
-            }
-            ui.separator();
-            if crate::chrome::button(ui, palette, "Leave team", true).clicked() {
+        let title = crate::gui::xml::ldb_text("#10000:371581");
+        crate::chrome::window(ctx, palette, "Team", &title, &mut open, |w| w.default_pos(crate::layout::pos("Team", egui::pos2(20.0, 300.0))).default_size(min.max(egui::vec2(200.0, 0.0))).resizable(false), |ui| {
+            crate::gui::host::show(ui, tree, root, skin.as_deref(), palette);
+        });
+        for (id, signal) in std::mem::take(&mut tree.signals) {
+            if signal == crate::gui::host::Signal::Clicked && tree.get(id).name == "leave" {
                 send(Command::Leave);
             }
-        });
+        }
         self.open = open;
     }
 }

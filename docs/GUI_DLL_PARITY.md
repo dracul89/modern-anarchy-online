@@ -88,7 +88,7 @@ programs window's Info, `itemid://53019/<id>`; weapons' damage per second; to co
 | Shops, NPC trade (`TradeView_c` FUN_100e121e modes 1/2, `ShopViewConfig`, `itemshop_window`, `ItemShopWindowConfig`) | `TradeGUI.xml` `ShopTrade` | `shop.rs` (the view from the skin; the docks' `ItemContainerView_c` lists drawn by it; Gamecode's prices) | part: `ShopBuy` mode and the list configs (`shop_listview_config`) not read; the item shop is a web page |
 | Player trade (`TradeViewConfig`) | `TradeGUI.xml` | none | no |
 | Tradeskill (`tradeskill_window`, `TradeSkillViewConfig`) | `TradeskillPanel.xml` | none | no |
-| Team (`TeamViewModule_c`, `TeamViewConfig`, `/team`, `/invite`, `/kick`, `/leave`) | | none | no |
+| Team (`TeamViewModule_c`, `TeamView_c` FUN_10078c14, `TeamViewConfig`, `/team`, `/invite`, `/kick`, `/leave`) | | `team.rs`: the header ("Team level: %u  Team side: %s" / "No team"), Leave, six member views with the splitters, names (leader 0x11eeaa) and `GFX_GUI_BAR_HEALTH_TEAM`/`NANO_TEAM` bars; the invitation's "Want to join %s's team?" | part: no invite or kick (the join request was not captured), team side not known, `/team` commands not carried out |
 | Raid (`RaidViewModule_c`, `raid_window`, `RaidConfig`, `RaidBarConfig`) | `Raid.xml`, `RaidBar.xml` | none | no |
 | Looking for team (`lft_window`, `LFTWindowConfig`) | `LFTView.xml` | none | no |
 | Pets (`PetWindowModule_c`, `pet_window`, `PetMenu.xml`, `/petduel`) | | none | no |
