@@ -68,7 +68,7 @@ programs window's Info, `itemid://53019/<id>`; weapons' damage per second; to co
 | Window (`*_window` / config) | GUI.dll module or view | Here | Status |
 |---|---|---|---|
 | Login, character select, activate, delete, limbo (`LoginModule_c`, `LoginWindow_c`, `CharSelectWindow_c`, `CharSelectItem_c`, `CharActivateWindow_c`, `CharDeleteWindow_c`, `LimboWindow_c`, `LoginWorld_c`) | Views `LoginWindow`, `CharacterSelection*`, `CharacterActivate/DeleteWindow`, `LimboWindow` | `loginviews.rs` on `LoginWindow.xml`, `CharacterSelectionWindow.xml`/`CharacterSelectionItem.xml` and `CharacterDeleteWindow.xml`; `launcher.rs` runs them (delete: system 0x14/0x15) | part: no activate, no limbo, no 3D hall |
-| Character creation (`CharCreateModule_t`, `BreedScene_t`, `ProfessionScene_t`, `AppearanceScene_t`, `NameScene_t`, `SceneBase_t`) | | none | no |
+| Character creation (`CharCreateModule_t`, `BreedScene_t`, `ProfessionScene_t`, `AppearanceScene_t`, `NameScene_t`, `SceneBase_t`) | | `charcreate.rs` (the scenes' rules: breeds, professions, heads, height and build, name rules, the server's refusals; the creation message is `mao_net::create`) | part: the screens are the client's own |
 | Control center (`ControlCenterModule_c`, `control_center_window`) | `ControlCenter.xml`, `ActionMenu/*` | `gui/controlcenter.rs` (the XML, its criteria and `CCMenu`s: `ControlMenu_c`, `CCMenuEntry_c`, the actions, `gui/menu.rs`); `vitals.rs` for the docks | part (the docks laid out from the XML and drawn by `vitals::show_docked`, the strips' NCU/credits and AGG/DEF slider; no mini toolbar, docking into the rollup area, drag of entries) |
 | `DistributedValue_c`, `ExpressionParser_c`, `CriteriaMonitor_c` (Utils.dll) and the program's criteria context (anarchyonline.exe FUN_00408268) | the values and `activate_criteria`/`criteria` | `gui/dvalue.rs`, `gui/expression.rs`, `gui/variant.rs`, `gui/stat_names.rs` | done (values from the prefs files; the user's `Prefs.xml` not read; `id:` and `module:` contexts not ported) |
 | Targeting (`TargetingModule_t`, `TargetView`, friendly/hostile health bars) | | `ui.rs::target_frame` | part |
@@ -109,9 +109,9 @@ programs window's Info, `itemid://53019/<id>`; weapons' damage per second; to co
 | Help (`help` / info about this window) | | `help.rs` | ours |
 | Notum Wars: tower build menu, laser target, airstrike, battlestation, signup terminal, mech select, teleport target | `LaserTarget.xml`, `SignupTerminal.xml`, `MechSelect.xml`, `TeleportTarget.xml` | none | no |
 | Whom-pah (in GUI.dll's NPC/terminal handling) | | `whompah.rs` | ours |
-| NPC chat (`NPCChatWindowConfig`) | | NPC dialogue in `ui.rs` | part (no markup) |
+| NPC chat (`NPCChatWindowConfig`, `NPCChatWindow_c`, `NPCChatView_c` FUN_100596c2, `NPCChatTradeBar_c`) | | `npcchat.rs`: the conversation and answers as text views with the original's markup and colours, the button bar (Desc, Info, Give, Shop), the give bar | part: the Shop button's trade with the NPC not carried out |
 | Character viewer (`CharacterViewerModule_c`, `CharacterViewer_c`) | | the inventory's figure | part |
-| Progress dialog (`ProgressDialog.xml`) | | | no |
+| Progress dialog (`ProgressDialog.xml`, `ProgressWindow_c`) | | `loginviews.rs` (while logging in) | part: not shown while a character is entered |
 
 ## 3. The slash commands GUI.dll registers
 
