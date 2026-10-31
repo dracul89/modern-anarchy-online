@@ -37,3 +37,42 @@ FUN_10109489 writes `InboxSize` as `"%d/%d"` with the number of rows in the list
 the count the server reports. Rows the list has not been given yet (or a server whose limit is not 30) show wrong. Minor.
 
 The port shows the server's count when it has one.
+
+## 4. Saved list columns count their widths twice
+
+`MultiListView_c::LoadColumnInfo` (0x10136a6d) restores the columns' hidden flag and width from `listview_config`. It
+resets the rows' total width (`+0x260`) to `-(spacing + 1)`, then, for each saved column it finds, adds `width + 1 +
+spacing` when the column is shown. After that loop it walks **all** the columns again and adds `width + 1 + spacing`
+for every shown one. A shown column that was in the saved config is therefore counted twice, so after loading a
+saved layout the list's content is wider than its columns (a horizontal scroll range past the last column, rows drawn
+wider than the header). `AddColumn` and `SetColumnWidth` keep the total right; only the load doubles it.
+
+The port has no saved column layouts yet (nothing to decide until it does). When it does: count each column once?
+
+## 5. Removing a friend recolours only some folders
+
+`FriendListView_c` FUN_100a86f6 (a friend removed) walks the Online, Offline and Recent folders to delete the friend
+and to recolour each folder's label red (0xff6666) when a friend in it has unread messages. But it uses the removed
+friend's id as its loop's "still looking" flag: once the friend is found and deleted the id is set to 0, and the
+`do`-loop's first test `if (id == 0) return;` ends the function before the folders after it are looked at. Also a
+folder's colour is decided by `id == 0 && unread_found`, so a folder that did not hold the removed friend is turned
+white even when friends in it have unread messages. The folder colours then stay wrong until the next message.
+
+The port does not colour folders by unread messages yet (it keeps no messages per friend), so nothing to decide now;
+noted for when it does.
+
+## 6. The grid's first free place assumes at least three columns
+
+`MultiListView_c::GetFirstFreePos` (0x10133940), for a grid that is not auto-arranged, looks for the first free cell
+counting `max(columns, 3)` cells to a row. In a window narrow enough to show only one or two columns, an item dropped
+or added "at the first free place" can be put in a third column that is not visible (and, with fewer columns, not
+reachable). Probably harmless with the default window sizes; looks like a guard against tiny windows that hides items
+instead.
+
+The port's grids are auto-arranged (the item windows), or place items by their own cells (the wear window), so this
+does not come up.
+
+## 7. Not a bug (checked): the tip window's "Next Section... (%u/%u)"
+
+The decompile of FUN_10056acd shows `FormatAppend` with one value for two `%u`. The assembly (0x10056dae) pushes both
+(the sections shown and the total), so the text is right. Listed so it is not raised again.
