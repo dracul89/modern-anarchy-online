@@ -66,6 +66,9 @@ pub struct Item {
     pub count: u32,
     /// In a grid that is not auto arranged, the item's cell (column, row): `AddItem`'s grid position.
     pub pos: Option<(usize, usize)>,
+    /// A running nano's time left as a share of its whole: the icon's part past it is faded (`ItemIconView_c`
+    /// FUN_1003f9ea, `+0x174`).
+    pub left: Option<f32>,
 }
 
 impl Item {
@@ -142,15 +145,31 @@ pub struct GridMode {
     pub labels_on_top: bool,
     pub auto_arrange: bool,
     pub background: Option<String>,
+    /// The cells' size and slot picture (`SetGridIconSize`: 0 31x31 `SLOT_32`, 1 47x47 `SLOT_48`, 2 39x23 `SLOT_40X24`,
+    /// 3 19x11 `SLOT_20X12`).
+    pub cell: (f32, f32),
+    pub slot: String,
 }
 
 impl GridMode {
     pub fn new(max_items: i32, columns: usize) -> GridMode {
-        GridMode { width: columns as f32 * grid::STEP + 2.0 * grid::BORDER, max_items, spacing: (grid::SPACING, grid::SPACING), columns: None, labels: Vec::new(), labels_on_top: true, auto_arrange: true, background: None }
+        GridMode { width: columns as f32 * grid::STEP + 2.0 * grid::BORDER, max_items, spacing: (grid::SPACING, grid::SPACING), columns: None, labels: Vec::new(), labels_on_top: true, auto_arrange: true, background: None, cell: (grid::CELL, grid::CELL), slot: grid::SLOT.to_string() }
+    }
+
+    /// `SetGridIconSize`.
+    pub fn set_icon_size(&mut self, size: u8) {
+        let (cell, slot) = match size {
+            0 => ((31.0, 31.0), "GFX_GUI_MULTILISTVIEW_SLOT_32_CLOSED"),
+            2 => ((39.0, 23.0), "GFX_GUI_MULTILISTVIEW_SLOT_40X24"),
+            3 => ((19.0, 11.0), "GFX_GUI_MULTILISTVIEW_SLOT_20X12"),
+            _ => ((grid::CELL, grid::CELL), grid::SLOT),
+        };
+        self.cell = cell;
+        self.slot = slot.to_string();
     }
     /// One cell to the next (`+0x198`: the cell, the spacing and 1).
     fn step(&self) -> (f32, f32) {
-        (grid::CELL + self.spacing.0 + 1.0, grid::CELL + self.spacing.1 + 1.0)
+        (self.cell.0 + self.spacing.0 + 1.0, self.cell.1 + self.spacing.1 + 1.0)
     }
     fn cols(&self) -> usize {
         self.columns.unwrap_or_else(|| ((self.width / self.step().0).floor() as usize).max(1))
@@ -169,7 +188,7 @@ impl GridMode {
         }
         let cell = (cx as usize, cy as usize);
         let (x, y) = self.place(cell);
-        (p.x - x < grid::CELL && p.y - y < grid::CELL).then_some(cell)
+        (p.x - x < self.cell.0 && p.y - y < self.cell.1).then_some(cell)
     }
 }
 
@@ -240,7 +259,7 @@ impl Rows {
         let skin = p.env.skin;
         let rect_of = |cell: (usize, usize)| {
             let (x, y) = g.place(cell);
-            egui::Rect::from_min_size(p.rect.min + egui::vec2(x, y), egui::vec2(grid::CELL, grid::CELL))
+            egui::Rect::from_min_size(p.rect.min + egui::vec2(x, y), egui::vec2(g.cell.0, g.cell.1))
         };
         let slot = |name: &str, cell: egui::Rect| {
             if let Some(slot) = skin.and_then(|s| s.get(name)) {
@@ -257,7 +276,7 @@ impl Rows {
             for k in 0..self.cells(g) {
                 let cell = rect_of((k % cols, k / cols));
                 if cell.intersects(clip) {
-                    slot(grid::SLOT, cell);
+                    slot(&g.slot, cell);
                 }
             }
         } else {
@@ -288,7 +307,18 @@ impl Rows {
                 continue;
             }
             if let Some(icon) = item.icon {
-                p.painter.image(icon, cell, uv, egui::Color32::WHITE);
+                match item.left {
+                    // (the part of the time gone faded)
+                    Some(left) => {
+                        let left = left.clamp(0.0, 1.0);
+                        let split = cell.left() + cell.width() * left;
+                        p.painter.image(icon, egui::Rect::from_min_max(cell.min, egui::pos2(split, cell.bottom())), egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(left, 1.0)), egui::Color32::WHITE);
+                        p.painter.image(icon, egui::Rect::from_min_max(egui::pos2(split, cell.top()), cell.max), egui::Rect::from_min_max(egui::pos2(left, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::from_gray(70));
+                    }
+                    None => {
+                        p.painter.image(icon, cell, uv, egui::Color32::WHITE);
+                    }
+                }
             }
             if item.count > 1 {
                 let font = FontId(7);

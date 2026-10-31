@@ -113,6 +113,7 @@ impl LootWindow {
                     cells: vec![(1, crate::gui::multilist::CellView::Text(i.name.clone()))],
                     keys: vec![(1, i.name.clone())],
                     pos: None,
+                    left: None,
                 })
                 .collect();
             crate::gui::multilist::set_items(tree, list, rows);

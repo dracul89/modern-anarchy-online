@@ -101,6 +101,7 @@ fn entry(item: &GearItem, textures: &mut HashMap<u32, egui::TextureHandle>, ctx:
         cells: vec![(1, multilist::CellView::Text(item.name.clone()))],
         keys: vec![(1, item.name.clone())],
         pos,
+        left: None,
     }
 }
 

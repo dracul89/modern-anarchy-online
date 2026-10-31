@@ -80,96 +80,140 @@ pub fn clock(ms: u32) -> String {
     }
 }
 
-#[derive(Default)]
+/// The NCU window, GUI.dll's `NCUView_c` (FUN_100d774b): an `NCUListView_c` (FUN_10045d42) grid of the running nanos
+/// (`N3Msg_GetNanoTemplateInfoList`) in the small icon size (`SetGridIconSize(2)`: 39 by 23 on `SLOT_40X24`), packed in the
+/// order of their time left (`FUN_10041258(0xc)`: the grid sorted by column 12, auto arranged), no horizontal scroll bar,
+/// 160 by 160 to start; each icon fades from the right as its time runs out (`ItemIconView_c` FUN_1003f9ea). The title is
+/// text.mdb 10000's "NCU (%u/%u)" with NCU in use and the most (stats 180 and 181: FUN_100d7689). A click shows the nano's
+/// page (FUN_10045259: `itemid://53019/<id>`); the client's own right-click menu cancels it.
 pub struct NcuWindow {
     pub open: bool,
     textures: HashMap<u32, egui::TextureHandle>,
+    views: Option<(crate::gui::view::Tree, crate::gui::view::Id, crate::gui::view::Id)>,
+    /// The info page asked for (for the info view).
+    pub info_url: Option<String>,
+    menu: Option<(u32, egui::Pos2)>,
 }
 
-const ICON: f32 = 32.0;
+impl Default for NcuWindow {
+    fn default() -> NcuWindow {
+        NcuWindow { open: false, textures: HashMap::new(), views: None, info_url: None, menu: None }
+    }
+}
 
 impl NcuWindow {
-    /// Shows the window; returns the program the player chose to cancel (the row's right-click menu).
+    fn build(ctx: &egui::Context) -> (crate::gui::view::Tree, crate::gui::view::Id, crate::gui::view::Id) {
+        use crate::gui::view::{Layout, Node, Tree};
+        let mut tree = Tree::default();
+        tree.measure = crate::gui::font::Measure { ctx: Some(ctx.clone()) };
+        let root = tree.add(Node::new("", Box::new(crate::gui::view::Plain)));
+        tree.get_mut(root).layout = Layout::Base;
+        let list = crate::gui::multilist::create_grid(&mut tree, "NCUListView", -1, 3);
+        crate::gui::multilist::set_grid(&mut tree, list, |g| g.set_icon_size(2));
+        tree.add_child(root, list);
+        (tree, root, list)
+    }
+
+    /// Shows the window; returns the program the player chose to cancel (the client's right-click menu).
     pub fn show(&mut self, ctx: &egui::Context, nanos: &[NanoInfo], stats: &std::collections::BTreeMap<u32, i64>, palette: &Palette) -> Option<u32> {
         let mut cancel = None;
         let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
         let now = Instant::now();
+        if self.views.is_none() {
+            self.views = Some(Self::build(ctx));
+        }
+        let textures = &mut self.textures;
+        let (tree, root, list) = self.views.as_mut()?;
+        let (root, list) = (*root, *list);
+        // (the nanos by their time left, each icon faded past its share of time left; drawn again as the time runs)
+        let mut order: Vec<&NanoInfo> = nanos.iter().collect();
+        order.sort_by_key(|n| n.left(now));
+        let rows: Vec<crate::gui::multilist::Item> = order
+            .iter()
+            .map(|n| crate::gui::multilist::Item {
+                id: n.id as i64,
+                icon: n.icon.as_ref().map(|icon| textures.entry(icon.id).or_insert_with(|| ctx.load_texture(format!("nano-icon-{}", icon.id), egui::ColorImage::from_rgba_unmultiplied([icon.width, icon.height], &icon.rgba), egui::TextureOptions::LINEAR)).id()),
+                left: (n.total_ms > 0).then(|| n.left(now) as f32 / n.total_ms as f32),
+                cells: vec![(1, crate::gui::multilist::CellView::Text(n.name.clone()))],
+                keys: vec![(1, n.name.clone())],
+                ..Default::default()
+            })
+            .collect();
+        if crate::gui::multilist::items(tree, list) != rows.as_slice() {
+            crate::gui::multilist::set_items(tree, list, rows);
+        }
+        crate::gui::multilist::update(tree, list);
+        let used = stats.get(&180).copied().unwrap_or_else(|| nanos.iter().map(|n| n.cost as i64).sum());
+        let max = stats.get(&181).copied().unwrap_or(0);
+        let title = crate::gui::xml::ldb_text("#10000:89261993").replacen("%u", &used.to_string(), 1).replacen("%u", &max.to_string(), 1);
+        let skin = crate::skin::skin(ctx);
         let mut open = self.open;
-        crate::chrome::window(ctx, palette, "NCU", "NCU", &mut open, |w| w.default_pos(crate::layout::pos("NCU", egui::pos2(560.0, 90.0))).default_width(300.0), |ui| {
-            // the memory in use against the maximum (current and maximum NCU)
-            // the server does not send the memory in use: the sum of what the running nanos take
-            let (used, max) = (stats.get(&180).copied().or_else(|| Some(nanos.iter().map(|n| n.cost as i64).sum())), stats.get(&181).copied());
-            crate::stats::bar(ui, egui::Color32::from_rgb(60, 140, 120), used, max);
-            ui.label(egui::RichText::new("NCU memory in use").small().weak());
-            ui.separator();
-            if nanos.is_empty() {
-                ui.label("No nano programs are running.");
-                return;
+        let mut hovered = None;
+        crate::chrome::window(ctx, palette, "NCU", &title, &mut open, |w| w.default_pos(crate::layout::pos("NCU", egui::pos2(560.0, 90.0))).default_size(egui::vec2(160.0, 160.0)).resizable(true), |ui| {
+            let response = crate::gui::host::show(ui, tree, root, skin.as_deref(), palette);
+            if let Some(at) = ui.input(|i| i.pointer.hover_pos()) {
+                hovered = crate::gui::multilist::item_at(tree, list, response.rect.min, at).map(|id| (id as u32, at));
             }
-            crate::chrome::scroll(ui, palette, egui::ScrollArea::vertical().max_height(420.0), |ui| {
-                for nano in nanos {
-                    let left = nano.left(now);
-                    let row = ui.horizontal(|ui| {
-                        match &nano.icon {
-                            Some(icon) => {
-                                let id = self.textures.entry(icon.id).or_insert_with(|| ctx.load_texture(format!("nano-icon-{}", icon.id), egui::ColorImage::from_rgba_unmultiplied([icon.width, icon.height], &icon.rgba), egui::TextureOptions::LINEAR)).id();
-                                ui.image(egui::load::SizedTexture::new(id, egui::vec2(ICON, ICON)));
-                            }
-                            None => {
-                                ui.allocate_exact_size(egui::vec2(ICON, ICON), egui::Sense::hover());
-                            }
-                        }
-                        ui.vertical(|ui| {
-                            ui.horizontal(|ui| {
-                                ui.label(egui::RichText::new(&nano.name).color(accent));
-                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                    ui.label(clock(left));
-                                });
-                            });
-                            let fraction = if nano.total_ms > 0 { (left as f32 / nano.total_ms as f32).clamp(0.0, 1.0) } else { 0.0 };
-                            let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 6.0), egui::Sense::hover());
-                            ui.painter().rect_filled(rect, 2.0, egui::Color32::from_black_alpha(150));
-                            ui.painter().rect_filled(egui::Rect::from_min_size(rect.min, egui::vec2(rect.width() * fraction, rect.height())), 2.0, egui::Color32::from_rgb(70, 150, 200));
-                        });
-                    });
-                    let response = row.response.interact(egui::Sense::click());
-                    response.context_menu(|ui| {
-                        ui.label(egui::RichText::new(&nano.name).strong());
-                        if crate::chrome::button(ui, palette, "Cancel this nano", true).clicked() {
-                            cancel = Some(nano.id);
-                            ui.close();
-                        }
-                    });
-                    response.on_hover_ui(|ui| {
-                        ui.set_max_width(320.0);
-                        ui.label(egui::RichText::new(&nano.name).strong().color(accent));
-                        if nano.total_ms > 0 {
-                            ui.label(egui::RichText::new(format!("{} of {} left", clock(left), clock(nano.total_ms))).small());
-                        }
-                        if !nano.description.is_empty() {
-                            ui.label(nano.description.chars().take(420).collect::<String>().replace("\r\n", "\n"));
-                        }
-                        let effects: Vec<_> = nano.effects.iter().filter(|e| e.1 != 0).collect();
-                        if !effects.is_empty() {
-                            ui.separator();
-                            for &&(stat, amount) in effects.iter().take(10) {
-                                ui.horizontal(|ui| {
-                                    ui.label(crate::skills::stat_name(stat));
-                                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                        let color = if amount > 0 { egui::Color32::from_rgb(120, 220, 120) } else { egui::Color32::from_rgb(230, 110, 110) };
-                                        ui.label(egui::RichText::new(format!("{amount:+}")).color(color));
-                                    });
-                                });
-                            }
-                            if effects.len() > 10 {
-                                ui.label(egui::RichText::new(format!("... and {} more", effects.len() - 10)).small().weak());
-                            }
-                        }
-                    });
-                    ui.add_space(2.0);
-                }
-            });
         });
+        if !nanos.is_empty() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(500));
+        }
+        for (_, event) in crate::gui::multilist::take_events(tree) {
+            if let crate::gui::multilist::ItemEvent::Clicked(id, _) = event {
+                self.info_url = Some(format!("itemid://{}/{}", crate::gui::iteminfo::NANO_IDENTITY, id));
+            }
+        }
+        tree.signals.clear();
+        if let Some((id, at)) = hovered
+            && ctx.input(|i| i.pointer.secondary_clicked())
+        {
+            self.menu = Some((id, at));
+        }
+        // (a nano's tip: its name, time left, description and what it changes)
+        if let Some((id, at)) = hovered.filter(|_| self.menu.is_none())
+            && let Some(nano) = nanos.iter().find(|n| n.id == id)
+        {
+            let left = nano.left(now);
+            egui::Area::new(egui::Id::unique("nano-tip")).order(egui::Order::Tooltip).fixed_pos(at + egui::vec2(16.0, 16.0)).interactable(false).show(ctx, |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    ui.set_max_width(320.0);
+                    ui.label(egui::RichText::new(&nano.name).strong().color(accent));
+                    if nano.total_ms > 0 {
+                        ui.label(egui::RichText::new(format!("{} of {} left", clock(left), clock(nano.total_ms))).small());
+                    }
+                    if !nano.description.is_empty() {
+                        ui.label(nano.description.chars().take(420).collect::<String>().replace("\r\n", "\n"));
+                    }
+                    for &(stat, amount) in nano.effects.iter().filter(|e| e.1 != 0).take(10) {
+                        ui.horizontal(|ui| {
+                            ui.label(crate::skills::stat_name(stat));
+                            let color = if amount > 0 { egui::Color32::from_rgb(120, 220, 120) } else { egui::Color32::from_rgb(230, 110, 110) };
+                            ui.label(egui::RichText::new(format!("{amount:+}")).color(color));
+                        });
+                    }
+                });
+            });
+        }
+        if let Some((id, at)) = self.menu
+            && let Some(nano) = nanos.iter().find(|n| n.id == id)
+        {
+            let mut keep = true;
+            let shown = egui::Area::new(egui::Id::unique("nano-menu")).order(egui::Order::Foreground).fixed_pos(at).show(ctx, |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    ui.label(egui::RichText::new(&nano.name).strong());
+                    if crate::chrome::button(ui, palette, "Cancel this nano", true).clicked() {
+                        cancel = Some(nano.id);
+                        keep = false;
+                    }
+                });
+            });
+            let elsewhere = ctx.input(|i| i.pointer.any_pressed()) && ctx.input(|i| i.pointer.interact_pos()).is_some_and(|p| !shown.response.rect.contains(p));
+            if !keep || elsewhere {
+                self.menu = None;
+            }
+        } else {
+            self.menu = None;
+        }
         self.open = open;
         cancel
     }

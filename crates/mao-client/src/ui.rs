@@ -686,6 +686,9 @@ impl Ui {
                 if let Some(nano) = ncu_window.show(&ctx, &hud.nanos, &hud.stats, palette) {
                     requests.cancel_nano = Some(nano);
                 }
+                if let Some(url) = ncu_window.info_url.take() {
+                    info_view.show_url(&url);
+                }
             }
             if skills_window.open {
                 skills_window.show(&ctx, &hud.character_name, &hud.stats, &hud.stat_parts, palette);
