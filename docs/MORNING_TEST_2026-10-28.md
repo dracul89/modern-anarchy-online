@@ -191,7 +191,7 @@ Added after the overnight run, on request: audio through rodio, ported from the 
 | c402dc2 | **Icons in the bank, loot, nano program, NCU and perk windows** (their textures were freed as soon as made); **double-click** counts within 500 ms as in Windows (was 300 ms), so a double-click takes from the bank | open the bank, a corpse, the NCU and perk windows; double-click a bank item |
 | a7d379e | **Bank shows all 104 places**, each item at its own place, scrolling past 8 rows; a deposit goes to the first free place | open the bank; deposit an item |
 | 3c0ced9 | **Items appear in the inventory** when bought in a shop (`AddTemplate`) or given by a quest/mission (`TemplateAction` into the overflow window, then `ContainerAddItem`), without relogging | buy something from a shop; finish a quest that gives an item |
-| (next) | **Raising skills with IP**: the Skills window shows the IP left and +/- on the abilities and skills; Accept sends the raise (`Skill`) and the server's answer updates the values and IP. The client cannot price a raise yet (the cost tables are not in its data): the server decides | raise a skill by a point or two and Accept; check the IP went down |
+| 0be4b8c | **Raising skills with IP**: the Skills window shows the IP left and +/- on the abilities and skills; Accept sends the raise (`Skill`) and the server's answer updates the values and IP. The client cannot price a raise yet (the cost tables are not in its data): the server decides | raise a skill by a point or two and Accept; check the IP went down |
 
 ## How to run
 
