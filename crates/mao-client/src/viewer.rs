@@ -605,6 +605,7 @@ pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<()
     crate::layout::flush();
     if app.logged_out {
         // (the launcher that started the game sees this code and shows the character screen again)
+        crate::crash::end("game", None);
         std::process::exit(crate::launcher::LOGGED_OUT);
     }
     Ok(())

@@ -23,6 +23,7 @@ macro_rules! profile {
 }
 
 mod actions;
+mod crash;
 mod factions;
 mod charcreate;
 mod loading;
@@ -1887,10 +1888,29 @@ fn main() -> ExitCode {
             args.push(arg);
         }
     }
+    // (the two runs a player makes, the launcher and the game it starts, leave a crash log: `crash.rs`)
+    let part = if args.get(1).map(String::as_str) == Some("play") {
+        Some("launcher")
+    } else if args.first().map(String::as_str) == Some("net") && args.get(2).map(String::as_str) == Some("enter") {
+        Some("game")
+    } else {
+        None
+    };
+    if let Some(part) = part {
+        crash::start(part, &args);
+    }
     match run(&args) {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(()) => {
+            if let Some(part) = part {
+                crash::end(part, None);
+            }
+            ExitCode::SUCCESS
+        }
         Err(e) => {
             eprintln!("mao-client: {e}");
+            if let Some(part) = part {
+                crash::end(part, Some(&e));
+            }
             ExitCode::FAILURE
         }
     }
