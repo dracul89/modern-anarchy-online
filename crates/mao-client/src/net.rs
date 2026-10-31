@@ -556,6 +556,13 @@ fn perk_ids(list: Option<&mao_net::schema::Value>) -> Vec<u32> {
         .collect()
 }
 
+/// Every entry of a parsed world-entry message's `Perks` list with its last field: for a research rank, what is left of it
+/// (0 once finished), the research window's personal research.
+fn perk_entries(list: Option<&mao_net::schema::Value>) -> Vec<(u32, i64)> {
+    let Some(mao_net::schema::Value::List(items)) = list else { return Vec::new() };
+    items.iter().filter_map(|i| Some((i.get("SkillId")?.as_int()? as u32, i.get("Unknown3").and_then(mao_net::schema::Value::as_int).unwrap_or(0) as i64))).collect()
+}
+
 /// The chat connection is opened once per run; the lines it receives wait here for the world loop, and what the chat window sends goes
 /// out through the sender set when it opens.
 static CHAT_STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -1687,6 +1694,22 @@ impl World {
         if m.identity.0 != 0 {
             self.types.entry(m.identity.1).or_insert(m.identity.0);
         }
+        // The research window's data (`research.rs`): the global research lines (`ResearchUpdate`) and the personal research
+        // progress (`435f7023`, FUN_10063e88: what is left, and the goal as stat 265).
+        if m.kind == 0x253d0240
+            && let Some(lines) = crate::research::parse_update(&m.data)
+        {
+            crate::research::set_global(lines);
+        }
+        if m.kind == 0x435f7023
+            && m.identity.1 == self.own
+            && let Some((id, goal, left)) = crate::research::parse_progress(&m.data)
+        {
+            if self.stats.insert(265, goal as i64) != Some(goal as i64) {
+                self.stats_changed = true;
+            }
+            crate::research::set_personal(id, left);
+        }
         if m.kind == 0x253d0240 && std::env::var_os("MAO_STATS").is_some() {
             if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
                 if let Some(mao_net::schema::Value::List(lines)) = p.value.get("ResearchLine") {
@@ -1735,6 +1758,7 @@ impl World {
                     self.read_stats(p.value.get(list));
                 }
                 self.perks = perk_ids(p.value.get("Perks"));
+                crate::research::entered(perk_entries(p.value.get("Perks")));
                 self.perks_changed = true;
                 if let Some(mao_net::schema::Value::List(ids)) = p.value.get("UploadedNanoIds") {
                     self.program_ids = ids.iter().filter_map(mao_net::schema::Value::as_int).map(|v| v as u32).collect();
@@ -4376,6 +4400,13 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 family: state.infos.get(&pet.1).and_then(|i| i.family),
             }).collect());
             // The tradeskill window's source, target and Build (`CharacterAction` 0xdc, 0xdd, 0xde).
+            // The research window's request (`3115534d`) and its sliders' and goals' `SetStat`s (263 to 266).
+            for command in crate::research::take_commands() {
+                let _ = match command {
+                    crate::research::Command::Request => connection.send(&n3::research_request(own)),
+                    crate::research::Command::SetStat(stat, value) => connection.send(&n3::set_stat(own, stat, value)),
+                };
+            }
             for command in crate::tradeskill::take_commands() {
                 let item = |place: Option<u32>| place.map_or((0, 0), |p| (0x68, p));
                 let _ = match command {

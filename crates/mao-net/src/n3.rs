@@ -695,6 +695,13 @@ pub fn set_stat(character: u32, stat: u32, value: i32) -> Frame {
     Message { kind: 0x6e5f566e, identity: (CHARACTER, character), data }.frame(character)
 }
 
+/// `3115534d`, the research request: the research window's `N3Msg_UpdateGlobalResearch` (Gamecode FUN_1002bf3b sends an
+/// info item to the server) asks for the global research lines, which come back as `ResearchUpdate` (`253d0240`). One
+/// byte, 0, as the 2026-10-30 and 2026-10-31 captures send it when the window opens.
+pub fn research_request(character: u32) -> Frame {
+    Message { kind: 0x3115534d, identity: (CHARACTER, character), data: vec![0] }.frame(character)
+}
+
 pub fn set_target(character: u32, target: u32) -> Frame {
     let mut data = vec![0u8; 13];
     if target != 0 {
@@ -865,6 +872,13 @@ mod tests {
         // capture-225436: C>S 6e5f566e of (c350, 4bc80): 01 00000064 00000107
         let m = Message::parse(&set_stat(0x4bc80, 0x107, 100)).unwrap();
         assert_eq!((m.kind, m.data.clone()), (0x6e5f566e, vec![1, 0, 0, 0, 0x64, 0, 0, 1, 7]));
+    }
+
+    #[test]
+    fn the_research_request_matches_the_capture() {
+        // (arete-20261031-1505 #1771: C>S 3115534d of (c350, own), 1 byte: 00)
+        let m = Message::parse(&research_request(0x4bc82)).unwrap();
+        assert_eq!((m.kind, m.identity, m.data.clone()), (0x3115534d, (CHARACTER, 0x4bc82), vec![0]));
     }
 
     #[test]

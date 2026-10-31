@@ -88,6 +88,7 @@ mod tips;
 mod team;
 mod pets;
 mod tradeskill;
+mod research;
 mod shop;
 mod mission;
 mod hotbar;
@@ -1575,6 +1576,13 @@ fn run(args: &[String]) -> Result<(), String> {
                         window.open = true;
                         window.select_tab(std::env::var("MAO_PERK_TAB").ok().and_then(|t| t.parse().ok()).unwrap_or(0));
                         *hud.perks_preview.lock().unwrap() = Some(window);
+                    }
+                    if preview.as_deref() == Some("research") {
+                        let (stats, perks, global) = research::preview_data();
+                        hud.perk_state = perks::PerkState { catalog: perks::catalog(&db), owned: Vec::new(), server_offset: 0 };
+                        hud.stats.extend(stats);
+                        research::entered(perks);
+                        research::set_global(global);
                     }
                     if preview.as_deref() == Some("nanos") {
                         let ids: Vec<u32> = std::env::var("MAO_PROGRAMS").unwrap_or_default().split(',').filter_map(|t| t.trim().parse().ok()).collect();

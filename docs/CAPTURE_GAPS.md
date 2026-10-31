@@ -91,14 +91,19 @@ result.
 `RemovePet` when one goes; `PetToMaster` reports (command 1 with 0x0a, command 2). The client has `/pet` but no list of
 its pets: the Pets window (GUI.dll) and colouring them as friends need it. Port: a `pets: Vec<u32>` in `World`.
 
-### 5. Research
+### 5. Research — ported
 
 The research window's traffic: the client sends `3115534d` (one byte, 0) when the window opens, and the server answers with
 `ResearchUpdate` (the 54 global research lines, all zero for these characters); the sliders are `SetStat` of stat 263 and
 264 (0..100, the schema names them `PersonalResearchLevel` / `GlobalResearchLevel`) and the chosen goal stat 265
 (`PersonalResearchGoal`: 0x988, 0x989, 0x992). aosharp's "PerkUpdate" (`435f7023`) is the personal research progress:
 `PerkUpdateIIR`'s apply (FUN_10063e88) sets stat 0x109 (265) and the progress, and sets the "got_tech" value when it is
-complete. Port: a Research window (`docs/GUI_DLL_PARITY.md`); the stats are already kept.
+complete. Its 13 bytes are the leading 1, the rank, the goal and what is left of the rank; `ResearchUpdate`'s lines are a
+global rank and what is left of it for side 0, 1 and 2 (FUN_1003a88c writes them so); the world entry's `Perks` carry
+what is left of each personal rank in their last field. The global goal is stat 266 (`SetStat` from the window's global
+radio buttons, FUN_100f5382; not seen in the captures). Ported: `research.rs` (`docs/GUI_DLL_PARITY.md`). Not captured:
+whether the server echoes `SetStat` 265/266, and a `ResearchUpdate` with global research still running (every captured
+line is 0, all finished).
 
 ### 6. DoorFullUpdate (`365a5071`) — ported
 
