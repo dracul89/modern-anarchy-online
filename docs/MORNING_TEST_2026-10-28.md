@@ -192,7 +192,7 @@ Added after the overnight run, on request: audio through rodio, ported from the 
 | a7d379e | **Bank shows all 104 places**, each item at its own place, scrolling past 8 rows; a deposit goes to the first free place | open the bank; deposit an item |
 | 3c0ced9 | **Items appear in the inventory** when bought in a shop (`AddTemplate`) or given by a quest/mission (`TemplateAction` into the overflow window, then `ContainerAddItem`), without relogging | buy something from a shop; finish a quest that gives an item |
 | 0be4b8c | **Raising skills with IP**: the Skills window shows the IP left and +/- on the abilities and skills; Accept sends the raise (`Skill`) and the server's answer updates the values and IP. The client cannot price a raise yet (the cost tables are not in its data): the server decides | raise a skill by a point or two and Accept; check the IP went down |
-| (next) | **Teams**: an invitation opens the Team window (Join / Decline); the members show with health and nano bars; Leave team | get a team invitation (Arete's NPC companion, or a player); join, watch the bars, leave |
+| 39025ab | **Teams**: an invitation opens the Team window (Join / Decline); the members show with health and nano bars; Leave team | get a team invitation (Arete's NPC companion, or a player); join, watch the bars, leave |
 
 ## How to run
 
