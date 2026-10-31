@@ -69,4 +69,6 @@ moves, set-stat) this client already sends.
 4. ~~Skill raising~~: done (Skills window +/-, Accept; `n3::raise_skills`, test on the captured bytes). The values sent are the new trained values (Strength 15 -> 18 sent as 18); the reply adds stat 53, IP left. The IP cost tables (`N3Msg_GetSkillCost`, FUN_10062521: breed table `0xd6e2` x value for abilities, profession table `0xd6df` x value / a constant for skills) are not in the resource database, so the window does not price a raise.
 5. Nano effects running (`4d450114`) for the buff display.
 6. The unknown ones, against the screenshots at their times.
-7. Check character creation against `0x0f`.
+7. ~~Character creation~~: our request matches the original's byte for byte (test `the_request_matches_the_original`).
+8. ~~Teams~~: done (`team.rs`): invitation `CharacterAction` 0x1a, answer 0x1c with 1/0 (declining is 0x1c with 0, not aosharp's 0x23), `TeamMember` (team, level, profession, name), `TeamMemberInfo` (health, max health, max nano, nano), leave 0x18, left 0x20.
+9. Generated mission dungeons (proxy type `0xc79f`): the playfield message carries an `ACGBuildingGeneratorData_t`-shaped block (version 2, 24 x 24, ambient `c8c8c8`, then 8 six-byte room records); the client reads a wrong playfield number from it and draws nothing. Needs Gamecode's ACG reader (FUN_100c773e / FUN_100c793f / FUN_100c8059) and the dungeon builder; the doors come as `DoorFullUpdate` (a `SimpleItemFullUpdate` layout: place, rotation, then stats with template 253517 and a tail linking two room numbers).

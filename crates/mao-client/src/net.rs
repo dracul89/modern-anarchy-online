@@ -472,6 +472,9 @@ const OBJECT_ANNOUNCE: u32 = 0x4f474e05;
 /// `InventoryUpdate` (a container's contents), `ContainerAddItem` (an item moved) and the despawn of an object.
 const INVENTORY_UPDATE: u32 = 0x4e536976;
 const CONTAINER_ADD_ITEM: u32 = 0x47537a24;
+/// `TeamMember` and `TeamMemberInfo`: a team member and their health and nano.
+const TEAM_MEMBER: u32 = 0x46312d2e;
+const TEAM_MEMBER_INFO: u32 = 0x28784248;
 /// `Skill`: skills raised with IP (both ways).
 const SKILL: u32 = 0x3e205660;
 /// `AddTemplate`: an item added to the inventory.
@@ -1348,6 +1351,38 @@ impl World {
         // Items that come to the inventory: `AddTemplate` (`052e2f0c`: bought in a shop, a reward) at once, and a
         // `TemplateAction` (`35505644`) into the overflow window, kept until its `ContainerAddItem` (aosharp's
         // `OnAddTemplateMessage` / `OnTemplateMessage`; the Arete Landing capture).
+        // The team (`team.rs`): an invitation (action 0x1a naming who asks), who left (0x20; oneself: the team is gone), the
+        // members (`TeamMember`) and their health and nano (`TeamMemberInfo`).
+        if m.kind == 0x5e477770 && m.identity.1 == self.own && m.data.len() >= 17 {
+            let word = |at: usize| u32::from_be_bytes(m.data[at..at + 4].try_into().unwrap());
+            let (action, who) = (word(1), word(13));
+            if action == 0x1a {
+                let name = self.names.get(&who).map_or_else(|| format!("Character {who:#x}"), |n| n.0.clone());
+                self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, format!("{name} invites you to join a team.")));
+                crate::team::with(|t| t.invite = Some((who, name)));
+            } else if action == 0x20 {
+                crate::team::with(|t| if who == self.own { t.members.clear() } else { t.members.retain(|m| m.id != who) });
+            }
+        }
+        if m.kind == TEAM_MEMBER || m.kind == TEAM_MEMBER_INFO {
+            if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
+                let int = |f: &str| p.value.get(f).and_then(mao_net::schema::Value::as_int).unwrap_or(0);
+                let who = p.value.get("Character").and_then(|v| v.get("Instance")).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
+                crate::team::with(|t| {
+                    let mate = t.member(who);
+                    if m.kind == TEAM_MEMBER {
+                        if let Some(mao_net::schema::Value::Str(name)) = p.value.get("Name") {
+                            mate.name = name.clone();
+                        }
+                        (mate.level, mate.profession) = (int("Unknown2"), int("Unknown3"));
+                    } else {
+                        // (health, max health, max nano, nano: the capture's last one is a member at full, 227/227 and 248/248)
+                        mate.health = (int("Unknown2"), int("Unknown4"));
+                        mate.nano = (int("Unknown8"), int("Unknown6"));
+                    }
+                });
+            }
+        }
         // `Skill` (`3e205660`) from the server: the raised skills' new values and the IP left.
         if m.kind == SKILL && m.identity.1 == self.own {
             if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
@@ -4113,6 +4148,13 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 goto = None;
             }
             // Vicinity speech: a text message to the server, at the current target (a character's; none for an object or nobody).
+            // The team window's answers.
+            for command in crate::team::take_commands() {
+                let _ = match command {
+                    crate::team::Command::Reply(who, join) => connection.send(&n3::team_reply(own, who, join)),
+                    crate::team::Command::Leave => connection.send(&n3::action(own, n3::LEAVE_TEAM)),
+                };
+            }
             // Skills raised in the Skills window.
             for raises in crate::skills::take_raises() {
                 if !raises.is_empty() {
@@ -7094,6 +7136,27 @@ mod door_tests {
         w.add(&Message { kind: ADD_TEMPLATE, identity: (0xc350, own), data: hex("000001fe3f0001fe3f0000000100000001") }.frame(1));
         assert_eq!(w.worn.last().map(|e| (e.slot, e.low_id, e.count)), Some((inventory::BACKPACK_FIRST + 2, 0x1fe3f, 1)));
         assert!(w.inventory.is_some());
+    }
+
+    /// The Arete Landing capture's team: the invitation from Nihiltech (0x7b1a0022), both members, a health update, then
+    /// leaving.
+    #[test]
+    fn the_team_follows_the_server() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let own = 0x7b1a0021;
+        let mut w = World { own, ..World::default() };
+        w.names.insert(0x7b1a0022, ("Nihiltech".into(), false));
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("000000001a000000000000c3507b1a002200000000000000000000") }.frame(1));
+        assert_eq!(crate::team::with(|t| t.invite.clone()), Some((0x7b1a0022, "Nihiltech".to_string())));
+        w.add(&Message { kind: TEAM_MEMBER, identity: (0xc350, own), data: hex("000000c3507b1a00210000dea902a3b8ffffffffff0000000500040000000b5768657265736d796e6375") }.frame(1));
+        w.add(&Message { kind: TEAM_MEMBER, identity: (0xc350, own), data: hex("000000c3507b1a00220000dea902a3b8ffffffffff000000070003000000094e6968696c74656368") }.frame(1));
+        w.add(&Message { kind: TEAM_MEMBER_INFO, identity: (0xc350, own), data: hex("000000c3507b1a0022000000c4000000d1000000e4000000d7") }.frame(1));
+        let team = crate::team::with(|t| t.clone());
+        assert_eq!(team.members.iter().map(|m| (m.name.as_str(), m.level)).collect::<Vec<_>>(), vec![("Wheresmyncu", 5), ("Nihiltech", 7)]);
+        assert_eq!((team.members[1].health, team.members[1].nano), ((196, 209), (215, 228)));
+        // (leaving: the server's 0x20 naming oneself)
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("0000000020000000000000c3507b1a002102a3b8ffffffffff0000") }.frame(1));
+        assert!(crate::team::with(|t| t.members.is_empty()));
     }
 
     #[test]

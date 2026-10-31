@@ -76,6 +76,7 @@ mod anim;
 mod derived;
 mod gear;
 mod mailbox;
+mod team;
 mod shop;
 mod mission;
 mod hotbar;

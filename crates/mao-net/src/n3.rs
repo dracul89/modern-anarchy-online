@@ -328,6 +328,20 @@ pub fn take_from_container(character: u32, handle: u32, place: u32) -> Frame {
     Message { kind: 0x5469373f, identity: (CHARACTER, character), data }.frame(character)
 }
 
+/// `5e477770` action `0x1c`: the answer to a team invitation from `inviter`, 1 to join, 0 not to (the Arete Landing capture:
+/// `00 | 0000001c | 0 | c350 inviter | 0 | 00000001 | 0000`).
+pub fn team_reply(character: u32, inviter: u32, join: bool) -> Frame {
+    let mut data = vec![0u8; 27];
+    data[4] = 0x1c;
+    data[9..13].copy_from_slice(&CHARACTER.to_be_bytes());
+    data[13..17].copy_from_slice(&inviter.to_be_bytes());
+    data[21..25].copy_from_slice(&(join as u32).to_be_bytes());
+    Message { kind: 0x5e477770, identity: (CHARACTER, character), data }.frame(character)
+}
+
+/// `5e477770` action `0x18`: leave the team (no target).
+pub const LEAVE_TEAM: u8 = 0x18;
+
 /// `Skill` (`3e205660`): raise skills with IP, each skill with its new trained value (the Arete Landing capture: the six
 /// abilities from 15, 6, 10, 3, 3, 3 to 18, 9, 13, 6, 6, 6 as `00 | 00000006 | 00000010 00000012 | ...`). The server answers
 /// with the same pairs and the IP left (stat 53).
@@ -718,6 +732,14 @@ mod tests {
         assert_eq!(runs[5], (0xc73d, 0x36, 2, 0x58c197d5));
         assert_eq!(runs[7], (0xc73d, 0x3b, 1, 0x58c197d7));
         assert_eq!(m.arrival().map(|a| a.0), Some(0x4a2));
+    }
+
+    #[test]
+    fn team_reply_matches_the_capture() {
+        let hex = |f: Frame| -> String { Message::parse(&f).unwrap().data.iter().map(|b| format!("{b:02x}")).collect() };
+        assert_eq!(hex(team_reply(0x7b1a0021, 0x7b1a0022, true)), "000000001c000000000000c3507b1a002200000000000000010000");
+        assert_eq!(hex(team_reply(0x7b1a0021, 0x7b1a0022, false)), "000000001c000000000000c3507b1a002200000000000000000000");
+        assert_eq!(hex(action(0x7b1a0021, LEAVE_TEAM)), "000000001800000000000000000000000000000000000000000000");
     }
 
     #[test]
