@@ -88,6 +88,8 @@ pub enum Parsed {
     Camp,
     /// `/sit`: sit down or stand up, as the X key.
     Sit,
+    /// `/pet <command>`: a command to the pets (its `PetCommand` number).
+    Pet { command: u32 },
     /// `/emote <name>` or `/<name>`: an emote (a social action, its `AbstractAnimID`; GUI.dll FUN_100b30bf).
     Social { id: u32 },
     /// `/emote` with a name that is none (FUN_100b30bf: "Error: No emote named '<name>'").
@@ -125,7 +127,14 @@ pub fn suggest(input: &str) -> Vec<&'static str> {
 
 /// The command with this name (any case), as the original writes it.
 /// Commands of this client's own, beyond the original's list: `/sit` (the X key's sit and stand).
-pub const EXTRA: &[&str] = &["sit"];
+/// `/pet` is Gamecode's own (FUN_100542ad), not in the input line's list, but the control center's Pets menu runs it.
+pub const EXTRA: &[&str] = &["sit", "pet"];
+
+/// `/pet <command>`'s words and the `PetCommand` numbers they send (Gamecode FUN_100542ad's table).
+pub const PET_COMMANDS: &[(&str, u32)] = &[
+    ("follow", 1), ("behind", 2), ("survive", 3), ("wait", 4), ("cycle", 5), ("guard", 6), ("attack", 7), ("social", 9), ("terminate", 10),
+    ("free", 11), ("heal", 12), ("report", 14), ("rename", 15), ("chat", 16), ("script", 17),
+];
 
 fn known(word: &str) -> Option<&'static str> {
     COMMANDS.iter().chain(EXTRA).copied().find(|c| c.eq_ignore_ascii_case(word))
@@ -168,6 +177,10 @@ pub fn parse(line: &str) -> Parsed {
         "ignore" => Parsed::Ignore { name: text.split_whitespace().next().unwrap_or("").to_string() },
         "camp" => Parsed::Camp,
         "sit" => Parsed::Sit,
+        "pet" => match text.split_whitespace().next().and_then(|w| PET_COMMANDS.iter().find(|c| c.0.eq_ignore_ascii_case(w))) {
+            Some(&(_, command)) => Parsed::Pet { command },
+            None => Parsed::Usage("/pet follow|behind|wait|guard|attack|heal|report|terminate|..."),
+        },
         "voice" => match text.split_whitespace().next() {
             Some(line) => Parsed::Voice { line: line.to_string() },
             None => Parsed::Usage("/voice <sound name>"),
@@ -253,6 +266,8 @@ mod tests {
         assert_eq!(parse("/ignore Abc"), Parsed::Ignore { name: "Abc".into() });
         assert_eq!(parse("/ignore"), Parsed::Ignore { name: String::new() });
         assert_eq!(parse("/camp"), Parsed::Camp);
+        assert_eq!(parse("/pet attack"), Parsed::Pet { command: 7 });
+        assert_eq!(parse("/pet Terminate"), Parsed::Pet { command: 10 });
         assert_eq!(parse("/sit"), Parsed::Sit);
         assert_eq!(parse("/follow"), Parsed::Follow);
         assert_eq!(parse("/inspect"), Parsed::Inspect);

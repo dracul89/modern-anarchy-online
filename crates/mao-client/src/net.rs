@@ -3714,7 +3714,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                         chat.send(&mao_net::chat::lookup_packet(&name))?;
                                     }
                                 },
-                                Out::Camp | Out::Sit | Out::Quit | Out::Follow | Out::Inspect | Out::Window { .. } | Out::Waypoint { .. } | Out::SelectSelf | Out::SetOption { .. } | Out::ViewDist(_) | Out::CharDist(_) => {}
+                                Out::Camp | Out::Sit | Out::Pet(_) | Out::Quit | Out::Follow | Out::Inspect | Out::Window { .. } | Out::Waypoint { .. } | Out::SelectSelf | Out::SetOption { .. } | Out::ViewDist(_) | Out::CharDist(_) => {}
                                 Out::Befriend { name } => match ids.get(&name.to_lowercase()) {
                                     Some(&id) => {
                                         chat.send(&mao_net::chat::buddy_add_packet(id))?;
@@ -3897,6 +3897,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut combine_seen = 0u8;
         let mut cancel_seen = 0u8;
         let mut train_perk_seen = 0u8;
+        let mut pet_seen = 0u8;
         let mut inspect_seen = 0u8;
         let mut self_seen = 0u8;
         let (mut following, mut follow_seen): (Option<u32>, u8) = (None, 0);
@@ -4869,6 +4870,11 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 }
             }
             // A running nano cancelled: asked of the server and taken off the NCU window at once.
+            // (`/pet`: a command to all the pets)
+            if keys.pet.0 != pet_seen {
+                pet_seen = keys.pet.0;
+                let _ = connection.send(&n3::pet_command(own, keys.pet.1));
+            }
             // (the perks window's Train and Untrain: the server's echo changes the owned ranks)
             if keys.train_perk.0 != train_perk_seen {
                 train_perk_seen = keys.train_perk.0;

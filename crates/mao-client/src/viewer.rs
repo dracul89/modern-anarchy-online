@@ -79,6 +79,8 @@ pub struct Input {
     pub cancel: (u8, u32),
     /// A perk rank to train or untrain: a counter that steps with each, the rank and whether to train it.
     pub train_perk: (u8, u32, bool),
+    /// A command to the pets (`/pet`): a counter that steps with each, and the `PetCommand` number.
+    pub pet: (u8, u32),
     /// How far characters are drawn (0: all), from the settings.
     pub char_distance: f32,
     /// Take everything from a corpse when it opens (a setting).
@@ -1978,6 +1980,7 @@ impl ApplicationHandler for App {
                             // (these two are for the client itself)
                             crate::chatwindow::Out::Camp => self.keys.camp = self.keys.camp.wrapping_add(1),
                             crate::chatwindow::Out::Sit => self.keys.commands[5] = self.keys.commands[5].wrapping_add(1),
+                            crate::chatwindow::Out::Pet(command) => self.keys.pet = (self.keys.pet.0.wrapping_add(1), command),
                             crate::chatwindow::Out::Quit => event_loop.exit(),
                             crate::chatwindow::Out::Window { name, open } => match ui.set_window(&name, open) {
                                 true => {}

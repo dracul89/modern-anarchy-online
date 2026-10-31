@@ -310,6 +310,16 @@ pub fn use_perk(character: u32, perk: u32, hash: [u8; 4]) -> Frame {
     Message { kind: 0x5e477770, identity: (CHARACTER, character), data }.frame(character)
 }
 
+/// `PetCommand` (`6b333303`, `PetCommandIIR_c`): a command to the character's pets: a zero byte, 1, the command, 0, the pets (an
+/// empty list: all of them; the server takes the target it knows) and two zeros, as the 2026-10-31 capture's `/pet attack`.
+pub fn pet_command(character: u32, command: u32) -> Frame {
+    let mut data = vec![0u8];
+    for word in [1, command, 0, 0x3f1, 0, 0] {
+        data.extend_from_slice(&word.to_be_bytes());
+    }
+    Message { kind: 0x6b333303, identity: (CHARACTER, character), data }.frame(character)
+}
+
 /// `CharacterAction` `0x51` (`UseItemOnItem`): one item used on another, a tradeskill combine: the two items' identities (the
 /// 2026-10-31 capture: backpack places `0x56` and `0x43`, two pattern pieces joined).
 pub fn use_item_on_item(character: u32, item: (u32, u32), target: (u32, u32)) -> Frame {
@@ -701,6 +711,13 @@ pub fn market_send(character: u32, credits: i32, items: &[(u32, u32)]) -> Frame 
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_pet_command_is_the_captured_shape() {
+        let m = Message::parse(&pet_command(0x4bc82, 7)).unwrap();
+        assert_eq!(m.kind, 0x6b333303);
+        assert_eq!(m.data.iter().map(|b| format!("{b:02x}")).collect::<String>(), "00000000010000000700000000000003f10000000000000000");
+    }
+
     #[test]
     fn a_combine_is_the_captured_shape() {
         let data = Message::parse(&use_item_on_item(0x4bc82, (0x68, 0x56), (0x68, 0x43))).unwrap().data;

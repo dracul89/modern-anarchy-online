@@ -60,6 +60,8 @@ pub enum Out {
     Camp,
     /// Sit down or stand up (`/sit`, as X).
     Sit,
+    /// A command to the pets (`/pet`): its `PetCommand` number.
+    Pet(u32),
     Follow,
     Inspect,
     Quit,
@@ -218,6 +220,7 @@ impl ChatWindow {
             Parsed::Voice { line } => Some(Out::Voice { line }),
             Parsed::Camp => Some(Out::Camp),
             Parsed::Sit => Some(Out::Sit),
+            Parsed::Pet { command } => Some(Out::Pet(command)),
             Parsed::Quit => Some(Out::Quit),
             Parsed::Follow => Some(Out::Follow),
             Parsed::Window { name, open } => Some(Out::Window { name, open }),
