@@ -130,7 +130,7 @@ pub fn entries(children: &[Element]) -> Vec<Entry> {
 
 /// A script (`ActionMenu/<file>` of the first skin folder that has it): its root `<Menu>`'s entries.
 pub fn load_script(dirs: &[std::path::PathBuf], file: &str) -> Vec<Entry> {
-    let Some(text) = dirs.iter().find_map(|d| std::fs::read(d.join("ActionMenu").join(file)).ok()) else { return Vec::new() };
+    let Some(text) = dirs.iter().find_map(|d| mao_formats::files::read(d.join("ActionMenu").join(file)).ok()) else { return Vec::new() };
     let doc = super::xml::parse(&String::from_utf8_lossy(&text));
     doc.iter().find(|e| e.name.eq_ignore_ascii_case("menu")).map(|m| entries(&m.children)).unwrap_or_default()
 }

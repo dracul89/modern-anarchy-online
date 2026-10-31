@@ -175,7 +175,7 @@ impl Launcher {
             self.accounts.push(user.clone());
         }
         let _ = std::fs::write(account_path(), render_account(&user, &self.last, &self.accounts));
-        let version = std::fs::read_to_string(std::path::Path::new(&self.game).join("version.id")).map(|t| t.lines().next().unwrap_or("").trim().to_string());
+        let version = mao_formats::files::read_to_string(std::path::Path::new(&self.game).join("version.id")).map(|t| t.lines().next().unwrap_or("").trim().to_string());
         let (tx, rx) = channel();
         self.answer = Some(rx);
         self.stage = Stage::Busy;
@@ -198,7 +198,7 @@ impl Launcher {
     /// server says so.
     fn delete(&mut self, id: u32) {
         let (user, password, server) = (self.user.trim().to_string(), self.password.clone(), self.server.trim().to_string());
-        let version = std::fs::read_to_string(std::path::Path::new(&self.game).join("version.id")).map(|t| t.lines().next().unwrap_or("").trim().to_string()).unwrap_or_default();
+        let version = mao_formats::files::read_to_string(std::path::Path::new(&self.game).join("version.id")).map(|t| t.lines().next().unwrap_or("").trim().to_string()).unwrap_or_default();
         let (tx, rx) = channel();
         self.deleting = Some(rx);
         std::thread::spawn(move || {
@@ -284,7 +284,7 @@ impl Launcher {
             user: self.user.trim().to_string(),
             password: self.password.clone(),
             server: self.server.trim().to_string(),
-            version: std::fs::read_to_string(std::path::Path::new(&self.game).join("version.id")).map(|t| t.lines().next().unwrap_or("").trim().to_string()).unwrap_or_default(),
+            version: mao_formats::files::read_to_string(std::path::Path::new(&self.game).join("version.id")).map(|t| t.lines().next().unwrap_or("").trim().to_string()).unwrap_or_default(),
         };
         let palette_now = self.palette.clone();
         let game = self.game.clone();

@@ -95,7 +95,7 @@ impl Store {
         let mut s = Store::default();
         for dir in [game_default, skin].into_iter().flatten() {
             for file in ["Variables.xml", "MainPrefs.xml", "LoginPrefs.xml", "CharPrefs.xml"] {
-                if let Ok(text) = std::fs::read(dir.join(file)) {
+                if let Ok(text) = mao_formats::files::read(dir.join(file)) {
                     s.load_config(&String::from_utf8_lossy(&text));
                 }
             }

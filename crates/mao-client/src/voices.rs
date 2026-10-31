@@ -93,11 +93,11 @@ pub fn command(line: &str) -> Result<(String, Vec<u8>), String> {
     let dir = crate::theme::game_dir().ok_or("You do not have that voice effect installed.")?.join("cd_image/sound/sfx/player");
     let names: Vec<String> = candidates(&name, &voice).into_iter().map(|n| n.replace("..", "")).collect();
     // (FUN_1008cbc2: installed when a name has both its sound and its text)
-    if !names.iter().any(|n| dir.join(format!("{n}.wav")).exists() && dir.join(format!("{n}.txt")).exists()) {
+    if !names.iter().any(|n| mao_formats::files::exists(dir.join(format!("{n}.wav"))) && mao_formats::files::exists(dir.join(format!("{n}.txt")))) {
         return Err("You do not have that voice effect installed.".into());
     }
     // (FUN_1008cfe3: the first line of the first text that opens, up to 1023 characters)
-    let text = names.iter().find_map(|n| std::fs::read(dir.join(format!("{n}.txt"))).ok()).map(|b| {
+    let text = names.iter().find_map(|n| mao_formats::files::read(dir.join(format!("{n}.txt"))).ok()).map(|b| {
         let s = String::from_utf8_lossy(&b).into_owned();
         let first: String = s.split_inclusive('\n').next().unwrap_or("").chars().take(1023).collect();
         first.trim_end_matches(['\r', '\n']).to_string()
@@ -188,7 +188,7 @@ impl Limiter {
 
 /// A value of one of the GUI's preference files (`<Value name=... value=...>`).
 fn setting(file: &str, name: &str) -> Option<String> {
-    let text = std::fs::read_to_string(crate::theme::game_dir()?.join(file)).ok()?;
+    let text = mao_formats::files::read_to_string(crate::theme::game_dir()?.join(file)).ok()?;
     let at = text.find(&format!("name=\"{name}\""))?;
     let tag = &text[text[..at].rfind('<')?..at + text[at..].find('>')?];
     let v = tag.find("value=\"")? + 7;
@@ -237,7 +237,7 @@ fn play(limiter: &mut Limiter, sender: &str, voice: Option<Voice>) {
     let Some(game) = crate::theme::game_dir() else { return };
     for name in candidates(sender, &voice) {
         let name = name.replace("..", "");
-        if game.join("cd_image/sound/sfx/player").join(format!("{name}.wav")).exists() {
+        if mao_formats::files::exists(game.join("cd_image/sound/sfx/player").join(format!("{name}.wav"))) {
             crate::audio::with(|m| m.play_player_fx(&format!("{name}.wav"), 1.0));
             break;
         }

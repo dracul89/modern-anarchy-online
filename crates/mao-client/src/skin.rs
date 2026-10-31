@@ -33,7 +33,7 @@ pub fn parse_index(text: &str) -> Vec<(String, usize, usize)> {
 
 /// A file of the folder by either spelling of its name (`Graphics.uvga` in the game, `Graphics.UVGA` in the skins).
 fn read_either(dir: &Path, lower: &str, upper: &str) -> Option<Vec<u8>> {
-    std::fs::read(dir.join(lower)).or_else(|_| std::fs::read(dir.join(upper))).ok()
+    mao_formats::files::read(dir.join(lower)).or_else(|_| mao_formats::files::read(dir.join(upper))).ok()
 }
 
 impl Layer {

@@ -50,7 +50,7 @@ impl BitmapFont {
             "tooltip" => ("FontTooltip9.fnt", "GFX_FONT_TOOLTIP9"),
             _ => ("FontChat9.fnt", "GFX_FONT_CHAT9"),
         };
-        let glyphs = parse_fnt(&std::fs::read(crate::theme::game_dir()?.join("cd_image/textures/fonts").join(file)).ok()?)?;
+        let glyphs = parse_fnt(&mao_formats::files::read(crate::theme::game_dir()?.join("cd_image/textures/fonts").join(file)).ok()?)?;
         let (mut rgba, size) = crate::skin::decode(skin.bytes(sprite)?)?;
         // white glyphs: their brightness becomes the alpha, so the tint colours them
         for px in rgba.chunks_mut(4) {

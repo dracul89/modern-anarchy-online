@@ -250,22 +250,22 @@ impl Parser {
         self.lines.push(Line { text, file: file.into(), number });
     }
 
-    /// The data path's `twk\name`.
+    /// The data path's `twk\name`, as it is on the disk.
     fn script_path(&self, name: &str) -> PathBuf {
-        self.data_path.join("twk").join(name.replace('\\', "/"))
+        mao_formats::files::find(&self.data_path.join("twk").join(name.replace('\\', "/")))
     }
 
     /// FUN_1000de1f: a script file's lines added, with its commands carried out: `!include { name }` (the line before it
     /// kept, then the data path's `twk\name` loaded) and `!parameters` (the parameters read as the next line). A
     /// command's error stops the file.
     fn load(&mut self, path: &Path, params: Option<&[u8]>) {
-        let Ok(bytes) = std::fs::read(path) else {
+        let Ok(bytes) = mao_formats::files::read(path) else {
             self.errors.push(format!("FXS_ScriptParser.cpp:201: error: Failed to open {}", path.display()));
             return;
         };
         let name = path.to_string_lossy().into_owned();
         let data_path = self.data_path.clone();
-        self.load_bytes(&bytes, &name, params, &mut |include| std::fs::read(data_path.join("twk").join(include)).ok().map(|b| (b, data_path.join("twk").join(include))));
+        self.load_bytes(&bytes, &name, params, &mut |include| mao_formats::files::read(data_path.join("twk").join(include)).ok().map(|b| (b, data_path.join("twk").join(include))));
     }
 
     fn load_bytes(&mut self, bytes: &[u8], name: &str, params: Option<&[u8]>, include: &mut dyn FnMut(&str) -> Option<(Vec<u8>, PathBuf)>) {

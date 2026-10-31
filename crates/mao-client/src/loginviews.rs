@@ -153,7 +153,7 @@ impl LoginWindow {
 /// The game's network time-outs in seconds (`MainPrefs.xml`'s `GeneralNetworkTimeout`, 90, while logging in;
 /// `DimensionNetworkTimeout`, 30, while a character is entered).
 pub fn network_timeout(name: &str, default: f32) -> f32 {
-    let text = crate::theme::game_dir().and_then(|g| std::fs::read_to_string(g.join("cd_image/gui/Default/MainPrefs.xml")).ok()).unwrap_or_default();
+    let text = crate::theme::game_dir().and_then(|g| mao_formats::files::read_to_string(g.join("cd_image/gui/Default/MainPrefs.xml")).ok()).unwrap_or_default();
     let quoted = format!("name=\"{name}\"");
     text.lines()
         .find(|l| l.contains(&quoted))
@@ -297,7 +297,7 @@ impl CharSelectScreen {
         }
         self.load(ctx);
         let Some((tree, root)) = self.view.as_mut() else { return };
-        let Some(text) = dirs(ctx).iter().find_map(|d| std::fs::read(d.join("Views").join("CharacterSelectionItem.xml")).ok()) else { return };
+        let Some(text) = dirs(ctx).iter().find_map(|d| mao_formats::files::read(d.join("Views").join("CharacterSelectionItem.xml")).ok()) else { return };
         let doc = crate::gui::xml::parse(&String::from_utf8_lossy(&text));
         let Some(element) = crate::gui::xml::view_element(&doc, "") else { return };
         let Some(holder) = tree.find(*root, "characters_view") else { return };

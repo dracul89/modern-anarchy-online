@@ -104,9 +104,9 @@ impl Palette {
     }
 
     pub fn from_dir(name: &str, dir: &Path) -> Option<Palette> {
-        let mut palette = Palette::from_gui_colors(name, &std::fs::read_to_string(dir.join("GUIColors.xml")).ok()?)?;
+        let mut palette = Palette::from_gui_colors(name, &mao_formats::files::read_to_string(dir.join("GUIColors.xml")).ok()?)?;
         // (a skin without its own text colours takes the game's)
-        let text = std::fs::read_to_string(dir.join("TextColors.xml")).ok().or_else(|| std::fs::read_to_string(GAME.get()?.join("cd_image/gui/Default/TextColors.xml")).ok());
+        let text = mao_formats::files::read_to_string(dir.join("TextColors.xml")).ok().or_else(|| mao_formats::files::read_to_string(GAME.get()?.join("cd_image/gui/Default/TextColors.xml")).ok());
         palette.text_colors = text.map(|xml| text_colors(&xml)).unwrap_or_default();
         Some(palette)
     }
@@ -148,11 +148,11 @@ pub fn theme_dir(theme: &str, aou_mod: &str) -> Option<PathBuf> {
         other => match AOU_THEMES.iter().find(|(name, _)| *name == other) {
             Some((_, folder)) => {
                 // (the skins bundled with the client first, then the AOU mod's own folder)
-                if let Some(dir) = bundled_gui_dir().map(|d| d.join(folder)).filter(|d| d.join("GUIColors.xml").exists()) {
+                if let Some(dir) = bundled_gui_dir().map(|d| d.join(folder)).filter(|d| mao_formats::files::exists(d.join("GUIColors.xml"))) {
                     return Some(dir);
                 }
                 let root = if aou_mod.trim().is_empty() { std::env::var("MAO_AOU_MOD").unwrap_or_default() } else { aou_mod.to_string() };
-                (!root.trim().is_empty()).then(|| Path::new(root.trim()).join("Gui").join(folder))
+                (!root.trim().is_empty()).then(|| mao_formats::files::find(&Path::new(root.trim()).join("Gui").join(folder)))
             }
             None => Some(PathBuf::from(theme)),
         },
@@ -178,7 +178,7 @@ pub fn load(theme: &str, aou_mod: &str) -> Palette {
 pub fn available(aou_mod: &str) -> Vec<String> {
     let mut out = vec!["built-in".to_string()];
     for name in std::iter::once("original").chain(AOU_THEMES.iter().map(|(n, _)| *n)) {
-        if theme_dir(name, aou_mod).is_some_and(|d| d.join("GUIColors.xml").exists()) {
+        if theme_dir(name, aou_mod).is_some_and(|d| mao_formats::files::exists(d.join("GUIColors.xml"))) {
             out.push(name.to_string());
         }
     }

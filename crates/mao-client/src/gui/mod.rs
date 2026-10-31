@@ -164,7 +164,7 @@ pub fn load(text: &str, name: &str) -> Option<(Tree, Id)> {
 /// A views file of the skin: `Views/<file>` from the first of the skin folders that has it (`skin::dirs`: the user's skin,
 /// the theme's, the game's Default).
 pub fn load_view(dirs: &[std::path::PathBuf], file: &str, name: &str) -> Option<(Tree, Id)> {
-    let text = dirs.iter().find_map(|d| std::fs::read(d.join("Views").join(file)).ok())?;
+    let text = dirs.iter().find_map(|d| mao_formats::files::read(d.join("Views").join(file)).ok())?;
     load(&String::from_utf8_lossy(&text), name)
 }
 

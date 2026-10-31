@@ -7,6 +7,7 @@ pub mod zones;
 pub mod ctree;
 pub mod instances;
 pub mod resource;
+pub mod files;
 pub mod texture;
 pub mod appearance;
 pub mod npc;

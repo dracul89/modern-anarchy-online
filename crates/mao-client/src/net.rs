@@ -26,7 +26,7 @@ fn show(list: &[Character]) {
 
 /// The game's version: the first line of `version.id`.
 fn version(game: &str) -> Result<String, String> {
-    let text = std::fs::read_to_string(Path::new(game).join("version.id")).map_err(|e| format!("version.id: {e}"))?;
+    let text = mao_formats::files::read_to_string(Path::new(game).join("version.id")).map_err(|e| format!("version.id: {e}"))?;
     Ok(text.lines().next().unwrap_or("").trim().to_string())
 }
 
@@ -3890,7 +3890,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut burst_cache: std::collections::HashMap<u32, Option<mao_formats::gfx::Cast>> = std::collections::HashMap::new();
         let mut aura_cache: std::collections::HashMap<u32, Option<mao_formats::gfx::Visual>> = std::collections::HashMap::new();
         // (the effect templates: what a running nano program looks like)
-        let gfx = std::fs::read(Path::new(&game_dir).join("Setupf").join("gfxtweak.bin")).ok().and_then(|d| mao_formats::gfx::Gfx::parse(&d).ok());
+        let gfx = mao_formats::files::read(Path::new(&game_dir).join("Setupf").join("gfxtweak.bin")).ok().and_then(|d| mao_formats::gfx::Gfx::parse(&d).ok());
         // (the lightning's splash, gfx 0x859b)
         crate::lightning::set_splash(gfx.as_ref().and_then(|g| mao_formats::gfx::Splash::read(g.get(0x859b)?)));
         let mut polymorph_cache: std::collections::HashMap<u32, Option<u32>> = std::collections::HashMap::new();

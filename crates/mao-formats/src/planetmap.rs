@@ -99,11 +99,11 @@ impl PlanetMap {
     /// The map of an index (its path from the maps' folder `root`) with its coordinates (`CoordsFile`, else a
     /// `MapCoordinates.xml` beside the index).
     pub fn open(root: &Path, index: &str) -> Option<PlanetMap> {
-        let bytes = std::fs::read(root.join(index)).ok()?;
+        let bytes = crate::files::read(root.join(index)).ok()?;
         let mut map = PlanetMap::parse_index(&String::from_utf8_lossy(&bytes));
         map.root = root.to_path_buf();
         let coords = if map.coords_file.is_empty() { Path::new(index).with_file_name("MapCoordinates.xml") } else { std::path::PathBuf::from(&map.coords_file) };
-        let coords = std::fs::read(root.join(coords)).ok()?;
+        let coords = crate::files::read(root.join(coords)).ok()?;
         map.places = parse_coordinates(&String::from_utf8_lossy(&coords));
         Some(map)
     }
@@ -115,7 +115,7 @@ impl PlanetMap {
         let at = *l.positions.get(index)?;
         // (a tile runs to the next one's start, or to the file's end)
         let end = l.positions.iter().copied().filter(|&p| p > at).min();
-        let mut f = std::fs::File::open(self.root.join(&l.file)).ok()?;
+        let mut f = crate::files::open(self.root.join(&l.file)).ok()?;
         f.seek(std::io::SeekFrom::Start(at)).ok()?;
         let mut bytes = Vec::new();
         match end {
@@ -205,7 +205,7 @@ impl PlanetMap {
     pub fn image(&self, game: &Path, level: usize) -> Option<image::RgbaImage> {
         let l = self.levels.get(level)?;
         let root = if self.root.as_os_str().is_empty() { game.join("cd_image").join("textures").join("PlanetMap") } else { self.root.clone() };
-        let data = std::fs::read(root.join(l.file.replace('/', std::path::MAIN_SEPARATOR_STR))).ok()?;
+        let data = crate::files::read(root.join(l.file.replace('/', std::path::MAIN_SEPARATOR_STR))).ok()?;
         let mut out = image::RgbaImage::new(l.size.0.max(1), l.size.1.max(1));
         // (the tiles go down each column in turn)
         for (i, &at) in l.positions.iter().enumerate() {

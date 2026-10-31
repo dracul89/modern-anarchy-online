@@ -67,8 +67,8 @@ impl InfoView {
             let path = url[7..].split('?').next().unwrap_or("").to_string();
             let text = std::fs::read(&path)
                 .ok()
-                .or_else(|| crate::theme::game_dir().and_then(|g| std::fs::read(g.join("cd_image/text/help").join(&path)).ok()))
-                .or_else(|| crate::theme::game_dir().and_then(|g| std::fs::read(g.join("cd_image/text").join(&path)).ok()));
+                .or_else(|| crate::theme::game_dir().and_then(|g| mao_formats::files::read(g.join("cd_image/text/help").join(&path)).ok()))
+                .or_else(|| crate::theme::game_dir().and_then(|g| mao_formats::files::read(g.join("cd_image/text").join(&path)).ok()));
             match text {
                 Some(t) => self.show_page(url, &String::from_utf8_lossy(&t)),
                 None => self.show_page(url, &format!("Infoview failed to load and show file: <{path}>")),

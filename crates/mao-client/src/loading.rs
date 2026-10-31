@@ -71,7 +71,7 @@ fn picture(ctx: &egui::Context) -> Option<egui::TextureHandle> {
         let welcome = std::env::var("MAO_NEW_CHARACTER").is_ok_and(|v| v == "1") && std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.subsec_nanos()) % 3 != 0;
         let file = if welcome { "welcome_to_rubika.jpg" } else { "ai_loading_login.png" };
         let path = crate::theme::game_dir()?.join("cd_image/gui/Default/gfx").join(file);
-        let image = image::open(path).ok()?.to_rgba8();
+        let image = image::open(mao_formats::files::find(&path)).ok()?.to_rgba8();
         let (w, h) = image.dimensions();
         let mut rgba = image.into_raw();
         tint(&mut rgba, TINT);
