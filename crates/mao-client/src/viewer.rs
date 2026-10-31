@@ -116,6 +116,8 @@ pub struct Update {
     /// The character's name and stats, when they change.
     pub stats: Option<(String, std::collections::BTreeMap<u32, i64>, std::collections::BTreeMap<u32, crate::derived::Breakdown>)>,
     pub map_dots: Vec<([f32; 2], crate::automap::DotKind)>,
+    /// The playfield's Notum Wars tower sites, when the list changes (zoning in, a tower destroyed or planted).
+    pub towers: Option<Vec<mao_net::landcontrol::Tower>>,
     /// The names to float over the characters and creatures near (Z-up position over the head).
     pub nameplates: Vec<crate::nametag::Tag>,
     /// Numbers to float over the fight: Z-up position, text and kind (see `ui::Floater`).
@@ -1441,6 +1443,9 @@ impl ApplicationHandler for App {
                         self.hud.position = update.own;
                         self.hud.heading = self.heading;
                         self.hud.map_dots = std::mem::take(&mut update.map_dots);
+                        if let Some(towers) = update.towers.take() {
+                            self.hud.towers = towers;
+                        }
                         self.hud.nameplates = std::mem::take(&mut update.nameplates);
                         if let Some(h) = update.heading {
                             self.heading = h;

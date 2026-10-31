@@ -371,6 +371,13 @@ struct World {
     types: BTreeMap<u32, u32>,
     /// The vending machines (booths: shops, and the mission booths' companions) with their positions.
     vendors: BTreeMap<u32, [f32; 3]>,
+    /// The Notum Wars tower sites of each playfield heard of (`PlayfieldAllTowers`, then `PlayfieldTowerUpdateClient`;
+    /// `mao_net::landcontrol`), the playfield the last list was for, and whether the map should be told.
+    towers: BTreeMap<u32, Vec<mao_net::landcontrol::Tower>>,
+    tower_playfield: u32,
+    towers_changed: bool,
+    /// The player cities' houses blob of each playfield (`PlayfieldAllCities`), not drawn (no city code is ported).
+    cities: BTreeMap<u32, Vec<u8>>,
     /// The terminals the server announces (`SimpleItemFullUpdate` on a `0xc73d` with a place): in an instance (ICC's shops) the
     /// playfield's own terminals go by these ids, not by their dynel table's.
     terminals: BTreeMap<u32, [f32; 3]>,
@@ -972,6 +979,26 @@ impl World {
                     }
                 }
             }
+        }
+        // The playfield's tower sites (`LandControl_t`: FUN_1012a1f4 replaces the list), a tower destroyed or planted
+        // (FUN_1012b350), its houses (FUN_101304d5).
+        if m.kind == mao_net::landcontrol::ALL_TOWERS {
+            if let Some(list) = mao_net::landcontrol::all_towers(&m.data) {
+                self.tower_playfield = m.identity.1;
+                self.towers.insert(m.identity.1, list);
+                self.towers_changed = true;
+            }
+        }
+        if m.kind == mao_net::landcontrol::TOWER_UPDATE
+            && let Some((site, planted)) = mao_net::landcontrol::tower_update(&m.data)
+        {
+            mao_net::landcontrol::apply_update(self.towers.entry(self.tower_playfield).or_default(), site, planted);
+            self.towers_changed = true;
+        }
+        if m.kind == mao_net::landcontrol::ALL_CITIES
+            && let Some(blob) = mao_net::landcontrol::all_cities(&m.data)
+        {
+            self.cities.insert(m.identity.1, blob);
         }
         // A missed attack at or by the character.
         if m.kind == 0x5c654b28 {
@@ -6125,6 +6152,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         let parts = crate::derived::breakdown(&state.stats, &state.mods_by_source[0], &state.mods_by_source[1], &state.mods_by_source[2], &state.mods_by_source[3]);
                         (state.names.get(&own).map(|n| n.0.clone()).unwrap_or_default(), crate::derived::totals(&parts), parts)
                     }),
+                    towers: std::mem::take(&mut state.towers_changed).then(|| state.towers.get(&state.tower_playfield).cloned().unwrap_or_default()),
                     map_dots: {
                         let own_side = state.stats.get(&33).copied().unwrap_or(0) as u8;
                         state

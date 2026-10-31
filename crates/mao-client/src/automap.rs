@@ -9,6 +9,7 @@
 //! keeps its own copy of the grid ([`AutoMap`]), paints it into a texture and draws the corner map and the overlay.
 
 use mao_formats::collision::Collision;
+use mao_net::landcontrol::Tower;
 use mao_formats::terrain::Terrain;
 
 /// Known, wall, and a height in 0..=255 across the playfield's range, in a `u16`.
@@ -156,6 +157,8 @@ pub struct AutoMap {
     /// units across the corner map.
     planet_zoom: f32,
     planet_span: f32,
+    /// The map control's land-control button (`RenderLandControlData`, off until switched on).
+    pub land_control: bool,
 }
 
 /// The planet map's pixels to a world unit, on its biggest level.
@@ -170,7 +173,7 @@ struct Planet {
 
 impl Default for AutoMap {
     fn default() -> Self {
-        AutoMap { grid: None, texture: None, dirty: false, last_upload: std::time::Instant::now(), overlay: false, mini_span: 150.0, zoom: 3.0, pan: [0.0; 2], mini_at: load_position(), planet: None, planet_tried: None, playfield: 0, planet_zoom: PLANET_NATIVE * 2.0, planet_span: 2500.0 }
+        AutoMap { grid: None, texture: None, dirty: false, last_upload: std::time::Instant::now(), overlay: false, mini_span: 150.0, zoom: 3.0, pan: [0.0; 2], mini_at: load_position(), planet: None, planet_tried: None, playfield: 0, planet_zoom: PLANET_NATIVE * 2.0, planet_span: 2500.0, land_control: false }
     }
 }
 
@@ -366,9 +369,30 @@ impl AutoMap {
         painter.add(egui::Shape::convex_polygon(vec![c + tip * 9.0, c - tip * 5.0 + side * 5.5, c - tip * 2.0, c - tip * 5.0 - side * 5.5], egui::Color32::from_rgb(255, 205, 70), egui::Stroke::new(1.0, egui::Color32::BLACK)));
     }
 
-    /// The corner map and, when switched on, the overlay.
+    /// The Notum Wars tower sites as GUI.dll's `PFMapRenderer_c` draws them (FUN_100ea243): first each tower's 16 x 16 icon
+    /// at its place, then, with the land-control button on (`+0x47a`, FUN_100ebac9), an 80-pixel circle over each. Both keep
+    /// their size whatever the zoom (FUN_100467e8 sizes the quad in screen pixels).
     #[allow(clippy::too_many_arguments)]
-    pub fn show(&mut self, ctx: &egui::Context, me: Option<([f32; 2], f32)>, yaw: f32, dots: &[([f32; 2], DotKind)], booths: &[[f32; 2]], place: &str) {
+    fn towers(&self, painter: &egui::Painter, rect: egui::Rect, center: [f32; 2], px_per_unit: f32, yaw: Option<f32>, towers: &[Tower], circle: bool) {
+        let Some(skin) = crate::skin::skin(painter.ctx()) else { return };
+        let inside = |p: egui::Pos2| if circle { (p - rect.center()).length() < rect.width().min(rect.height()) / 2.0 - 5.0 } else { rect.shrink(4.0).contains(p) };
+        let places: Vec<(egui::Pos2, &Tower)> = towers.iter().map(|t| (Self::to_screen(rect, center, px_per_unit, yaw, [t.position[0], t.position[2]]), t)).filter(|(p, _)| inside(*p)).collect();
+        for (p, t) in &places {
+            skin.draw_in(painter, tower_sprite(t.side, t.class), egui::Rect::from_center_size(*p, egui::vec2(16.0, 16.0)), egui::Color32::WHITE);
+        }
+        if self.land_control {
+            // (the 128 x 128 texture holds the 80 x 80 `GFX_GUI_MAP_CIRCLE` at its corner; 82 x 82 of it is drawn centred)
+            let painter = painter.with_clip_rect(rect);
+            for (p, t) in &places {
+                skin.draw_in(&painter, "GFX_GUI_MAP_CIRCLE", egui::Rect::from_min_size(*p - egui::vec2(41.0, 41.0), egui::vec2(80.0, 80.0)), circle_tint(t.class));
+            }
+        }
+    }
+
+    /// The corner map and, when switched on, the overlay. `notum_wars`: the account has the expansion (stat 389, bit 0), which
+    /// the land-control button needs (MapControlView_c, FUN_100ecdf7, disables it otherwise).
+    #[allow(clippy::too_many_arguments)]
+    pub fn show(&mut self, ctx: &egui::Context, me: Option<([f32; 2], f32)>, yaw: f32, dots: &[([f32; 2], DotKind)], booths: &[[f32; 2]], towers: &[Tower], notum_wars: bool, place: &str) {
         self.refresh(ctx);
         let Some((pos, heading)) = me else { return };
         let screen = ctx.content_rect();
@@ -394,9 +418,21 @@ impl AutoMap {
                 ui.painter().rect_filled(rect, 0.0, egui::Color32::from_black_alpha(110));
                 let center = [pos[0] + self.pan[0], pos[1] + self.pan[1]];
                 self.paint(ui.painter(), rect, center, zoom, None, false);
+                self.towers(ui.painter(), rect, center, zoom, None, towers, false);
                 self.dots(ui.painter(), rect, center, zoom, None, (pos, heading), dots, booths, false);
                 ui.painter().text(rect.left_top() + egui::vec2(16.0, 14.0), egui::Align2::LEFT_TOP, place, egui::FontId::proportional(18.0), egui::Color32::from_rgb(255, 205, 70));
                 ui.painter().text(rect.left_top() + egui::vec2(16.0, 38.0), egui::Align2::LEFT_TOP, "Drag to pan, wheel to zoom, O to close, Space re-centres", egui::FontId::proportional(12.0), egui::Color32::from_white_alpha(150));
+                // The land-control toggle (the map control's button, `RenderLandControlData`), on Notum Wars playfields.
+                if !towers.is_empty() {
+                    let button = egui::Rect::from_min_size(rect.left_top() + egui::vec2(16.0, 58.0), egui::vec2(150.0, 20.0));
+                    let label = format!("Land control: {}", if self.land_control { "on" } else { "off" });
+                    let colour = if notum_wars { egui::Color32::from_rgb(255, 205, 70) } else { egui::Color32::from_white_alpha(70) };
+                    let clicked = ui.interact(button, egui::Id::unique("automap-land-control"), egui::Sense::click()).on_hover_text("Show the towers' land-control circles").clicked();
+                    ui.painter().text(button.left_center(), egui::Align2::LEFT_CENTER, label, egui::FontId::proportional(13.0), colour);
+                    if clicked && notum_wars {
+                        self.land_control = !self.land_control;
+                    }
+                }
             });
             if ctx.input(|i| i.key_pressed(egui::Key::Space)) {
                 self.pan = [0.0; 2];
@@ -412,6 +448,7 @@ impl AutoMap {
                 ui.painter().circle_filled(c, r, egui::Color32::from_black_alpha(130));
                 let px = size / if planet { self.planet_span } else { self.mini_span };
                 self.paint(ui.painter(), rect, pos, px, Some(yaw), true);
+                self.towers(ui.painter(), rect, pos, px, Some(yaw), towers, true);
                 self.dots(ui.painter(), rect, pos, px, Some(yaw), (pos, heading), dots, booths, true);
                 ui.painter().circle_stroke(c, r, egui::Stroke::new(2.5, egui::Color32::from_rgb(120, 170, 210)));
                 ui.painter().circle_stroke(c, r + 1.5, egui::Stroke::new(1.0, egui::Color32::from_black_alpha(160)));
@@ -438,5 +475,63 @@ impl AutoMap {
                 }
             }
         }
+    }
+}
+
+/// A tower's map icon (FUN_100ea243). The 64 x 64 atlas FUN_100ea4b9 builds holds twelve GUI textures in 16-pixel cells,
+/// `0x10a 0x10b 0x10c 0x111 0x113 0x112 0x114 0x116 0x115 0x10d 0x10f 0x10e`; a tower takes cell `[4, 7, 10, 3, 6, 9, 5, 8,
+/// 11][side * 3 + kind]`, its side Clan (1) 0, Omni (2) 1, else 2, its kind a control tower (1, and any unknown) 0, a turret
+/// (2, 5, 6) 1, a conductor (3, 4) 2. The ids read as the skin's thirteen `GFX_GUI_MAP_*` sprites in name order (0x10a
+/// `ARROW` ... 0x10d `BUFFTOWER_BLUE`, 0x110 `CIRCLE`, the 128-pixel texture's, 0x111 `CONTROLLER_BLUE` ... 0x116
+/// `GUARDTOWER_RED`), which makes Clan red, Omni blue and the unclaimed grey.
+pub fn tower_sprite(side: i32, class: i32) -> &'static str {
+    let colour = match side {
+        1 => 0,
+        2 => 1,
+        _ => 2,
+    };
+    let kind = match class {
+        2 | 5 | 6 => 1,
+        3 | 4 => 2,
+        _ => 0,
+    };
+    [
+        ["GFX_GUI_MAP_CONTROLLER_RED", "GFX_GUI_MAP_GUARDTOWER_RED", "GFX_GUI_MAP_BUFFTOWER_RED"],
+        ["GFX_GUI_MAP_CONTROLLER_BLUE", "GFX_GUI_MAP_GUARDTOWER_BLUE", "GFX_GUI_MAP_BUFFTOWER_BLUE"],
+        ["GFX_GUI_MAP_CONTROLLER_GREY", "GFX_GUI_MAP_GUARDTOWER_GREY", "GFX_GUI_MAP_BUFFTOWER_GREY"],
+    ][colour][kind]
+}
+
+/// The land-control circle's colour (FUN_100ea243, its second loop, on the tower's kind): a control tower or a turret (1, 2)
+/// `0xffff04`, anything else `0x00dcff`.
+pub fn circle_tint(class: i32) -> egui::Color32 {
+    if matches!(class, 1 | 2) { egui::Color32::from_rgb(0xff, 0xff, 0x04) } else { egui::Color32::from_rgb(0x00, 0xdc, 0xff) }
+}
+
+#[cfg(test)]
+mod tower_tests {
+    use super::*;
+
+    #[test]
+    fn tower_icons_follow_the_atlas_cells() {
+        assert_eq!(tower_sprite(1, 1), "GFX_GUI_MAP_CONTROLLER_RED");
+        assert_eq!(tower_sprite(2, 2), "GFX_GUI_MAP_GUARDTOWER_BLUE");
+        assert_eq!(tower_sprite(0, 4), "GFX_GUI_MAP_BUFFTOWER_GREY");
+        assert_eq!(tower_sprite(7, 9), "GFX_GUI_MAP_CONTROLLER_GREY");
+        assert_eq!(circle_tint(4), egui::Color32::from_rgb(0, 0xdc, 0xff));
+    }
+
+    #[test]
+    fn the_skin_has_the_tower_sprites() {
+        // (the game's Default skin; skipped without MAO_GAME)
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let layer = crate::skin::Layer::open(&std::path::Path::new(&game).join("cd_image/gui/Default")).unwrap();
+        for side in 0..3 {
+            for class in [1, 2, 4] {
+                let (_, size) = crate::skin::decode(layer.bytes(tower_sprite(side, class)).unwrap()).unwrap();
+                assert_eq!(size, [16, 16]);
+            }
+        }
+        assert_eq!(crate::skin::decode(layer.bytes("GFX_GUI_MAP_CIRCLE").unwrap()).unwrap().1, [80, 80]);
     }
 }
