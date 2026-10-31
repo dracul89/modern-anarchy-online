@@ -4086,13 +4086,17 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             burst = 0;
             // The server refusing a move: it sends back the last place it took (a full report far from us that is none of
             // ours), and keeps to it: uses there are "too far away", so the character goes back to it.
-            while told.front().is_some_and(|t| t.1.elapsed() > Duration::from_secs(4)) {
+            // (kept a minute, for the log when the server puts us back; only the last 4 s count as our own reports' echoes)
+            while told.front().is_some_and(|t| t.1.elapsed() > Duration::from_secs(60)) {
                 told.pop_front();
             }
             if let Some(p) = state.own_report.take() {
                 let far = |a: [f32; 3], b: [f32; 3]| ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt();
-                if far(p, position) > 5.0 && !told.iter().any(|t| far(t.0, p) < 1.0) {
-                    eprintln!("the server put us back at {p:?} (we were at {position:?})");
+                if far(p, position) > 5.0 && !told.iter().any(|t| t.1.elapsed() < Duration::from_secs(4) && far(t.0, p) < 1.0) {
+                    eprintln!("the server put us back at {p:?} (we were at {position:?}); our reports of the last minute:");
+                    for (at, when) in &told {
+                        eprintln!("  {:5.1}s ago ({:.2}, {:.2}, {:.2}){}", when.elapsed().as_secs_f32(), at[0], at[1], at[2], if far(*at, p) < 1.0 { "  <- where it put us" } else { "" });
+                    }
                     position = p;
                     base = p[1];
                     airborne = false;
@@ -6196,6 +6200,17 @@ pub fn run(args: &[String]) -> Result<(), String> {
             eprintln!("bilinear ground: {:?}", area.terrain.as_ref().map(|t| t.height_at(x, z, t.height_scale)));
             eprintln!("closest from {y}: {:?}", ground.closest([x, y, z]));
             eprintln!("ray down from {y}: {:?}", ground.line([x, y, z], [x, 0.0, z]));
+            // MAO_POINTS=<file of "x y z" lines> (a capture's reported places): each one with the ground under it, a line down
+            // from 3 above, and the height map's own
+            if let Ok(path) = std::env::var("MAO_POINTS") {
+                for line in std::fs::read_to_string(&path).map_err(|e| e.to_string())?.lines() {
+                    let v: Vec<f32> = line.split_whitespace().filter_map(|n| n.parse().ok()).collect();
+                    let [px, py, pz, ..] = v[..] else { continue };
+                    let line_hit = ground.line([px, py + 3.0, pz], [px, py - 30.0, pz]).map_or(f32::NAN, |(h, _)| h[1]);
+                    let map = area.terrain.as_ref().map_or(f32::NAN, |t| t.height_at(px, pz, t.height_scale));
+                    println!("{px:.2} {py:.2} {pz:.2} {line_hit:.2} {map:.2}");
+                }
+            }
             // MAO_GRID=<x1>,<z1>,<step>: the heights from (x, z) to (x1, z1), a row per z, from y down
             if let Some([x1, z1, step]) = std::env::var("MAO_GRID").ok().and_then(|v| <[f32; 3]>::try_from(v.split(',').filter_map(|p| p.parse().ok()).collect::<Vec<f32>>()).ok()) {
                 let mut zz = z;
