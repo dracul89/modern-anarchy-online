@@ -78,7 +78,7 @@ programs window's Info, `itemid://53019/<id>`; weapons' damage per second; to co
 | Skills (`skill_window`, `SkillConfig`; `SkillWindow` FUN_100fcbac, `StatRow` FUN_100fef4c) | `Skills.xml` | `skillwindow.rs`: the skin's view, FUN_100fbfb4's groups and rows in each list and page, the details (FUN_100fa1c4), +/- and Save Changes (the `Skill` message) | part: no name colours by cost, no progress bars, costs and maximums shown as `-`, no suggested distribution or resets (the IP cost tables are not in the data) |
 | Stats (`stat_window`, `zFStatViewConfig`) | | `stats.rs` | ours |
 | NCU (`ncu_window`, `zFNCUWindowConfig`), target NCU (`target_ncu_window`, `FightTargetNCUWindowConfig`, `NanoTargetNCUWindowConfig`) | | `ncu.rs`: `NCUView_c` (FUN_100d774b) / `NCUListView_c`: the grid in icon size 2 (39x23, `SLOT_40X24`), sorted by time left, icons fading as the time runs out, the title "NCU (used/max)", a click shows the nano's page | part: own NCU only; no list mode; the right-click cancel menu is the client's own |
-| Nano programs (`nano_window`, `NanoViewConfig`) | | `nanoprograms.rs` | ours |
+| Nano programs (`nano_window`, `NanoViewConfig`, `NanoView_c` FUN_100d5328) | | `nanoprograms.rs`: the `SchoolSelector_c` buttons (Misc, Combat, Medical, Prot, Psi, Space) over each school's grid (icon size 0: 31x31 on `SLOT_32`), by name, schools from stat 405; double click casts, right click shows the page, drag to a hotbar | part: no list mode, no `item_position_map` (positions not kept), no find field |
 | Perks (`PerkWindowModule_c`, `perk_window`, `DPerkWindow`) | | `perks.rs` | ours |
 | Special actions (`specialaction_window`) | | `actions.rs` | ours |
 | Shortcut bars (`shortcutbar_window`) | | `hotbar.rs` | ours |
