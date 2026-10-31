@@ -1999,3 +1999,32 @@ mod generated_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod warp_stone_tests {
+    /// `MAO_GAME`: Inferno's warp stone (`(0xc73d, 0xc00011fd)`, used in the 2026-10-31 capture) is in its dynel table.
+    #[test]
+    fn infernos_warp_stone_is_in_the_table() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let db = mao_formats::resource::ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap();
+        let table = crate::table_dynels(&db, 4605);
+        let stone = table.iter().find(|d| d.1 == 0xc00011fd);
+        eprintln!("{} table dynels; the stone: {stone:?}", table.len());
+        for d in table.iter().filter(|d| d.0 == 0xc73d).take(40) {
+            eprintln!("  {:#x} {:#x} {:?} {} {}", d.0, d.1, d.2, d.3, d.4);
+        }
+        assert!(stone.is_some());
+    }
+
+    /// `MAO_GAME`: the Shadowlands' portal statues (the garden's "Passage to ..." items, the Wailing Wastes' Shining Ancient
+    /// Statue) have models that load, by their templates' `Mesh` stat.
+    #[test]
+    fn the_portal_statues_have_models() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let db = mao_formats::resource::ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap();
+        for mesh in [244627, 223489] {
+            let model = crate::load_model_dynel(&db, mao_formats::resource::Id { kind: 0xf6951, instance: mesh });
+            assert!(model.as_ref().is_ok_and(|m| !m.parts.is_empty()), "mesh {mesh}");
+        }
+    }
+}

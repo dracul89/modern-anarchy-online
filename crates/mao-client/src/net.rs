@@ -859,6 +859,20 @@ impl World {
                     if let Some(name) = template.and_then(|t| template_name(t as u32)) {
                         self.names.insert(m.identity.1, (name, false));
                     }
+                    // (one that is not the playfield's own, the Shadowlands' portal statues and the like, is drawn by its
+                    // template's model, the `Mesh` stat 12, turned by the message's rotation, and can be picked and used)
+                    if m.identity.1 >> 24 != 0xc0
+                        && let Some(mesh) = template.and_then(|t| template_stat(t as u32, 12)).filter(|&mesh| mesh > 0)
+                    {
+                        let r = |n: &str| match p.value.get("Rotation").and_then(|q| q.get(n)) {
+                            Some(mao_net::schema::Value::Float(v)) => *v as f32,
+                            _ => 0.0,
+                        };
+                        let rotation = [r("X"), r("Y"), r("Z"), r("W")];
+                        let rotation = if rotation == [0.0; 4] { [0.0, 0.0, 0.0, 1.0] } else { rotation };
+                        self.props.insert(m.identity.1, (mesh as u32, [x, y, z], rotation));
+                        self.objects.insert(m.identity.1, [x, y, z]);
+                    }
                 }
             }
         }
@@ -6491,6 +6505,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
         [game, word, log, pf, out] if word == "props-preview" => {
             let pf: u32 = pf.parse().map_err(|_| "bad playfield")?;
             let text = std::fs::read_to_string(log).map_err(|e| e.to_string())?;
+            let _ = ITEM_DB.set(Arc::new(ResourceDatabase::open_game(std::path::Path::new(game)).map_err(|e| e.to_string())?));
             let mut readers: BTreeMap<String, Reader> = BTreeMap::new();
             let mut world = World::default();
             for line in text.lines() {
@@ -6508,7 +6523,8 @@ pub fn run(args: &[String]) -> Result<(), String> {
                     continue;
                 }
                 while let Ok(Some(m)) = reader.next() {
-                    let Some(msg) = Message::parse(&m).filter(|x| m.kind == frame::N3 && x.kind == 0x7f544905) else { continue };
+                    // (the machines, and the items the server announces with a place: the Shadowlands' portal statues)
+                    let Some(msg) = Message::parse(&m).filter(|x| m.kind == frame::N3 && (x.kind == 0x7f544905 || (x.kind == 0x3b11256f && x.identity.0 == 0xc73d))) else { continue };
                     let here = mao_net::schema::Schema::global().parse_n3(msg.kind, &msg.data).ok().and_then(|p| p.value.get("PlayfieldId").and_then(mao_net::schema::Value::as_int));
                     if here == Some(std::env::var("MAO_INSTANCE").ok().and_then(|v| v.parse().ok()).unwrap_or(pf as i64)) {
                         world.add(&m);
