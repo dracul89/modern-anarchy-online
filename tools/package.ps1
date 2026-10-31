@@ -8,6 +8,9 @@
   launcher. The client keeps its settings, hotbars, crash.log and the like in %APPDATA%\ModernAnarchyOnline (or
   mao.ini's folder when one sits where it runs). Nothing from the game is copied: the player needs Anarchy Online installed.
 
+  On Linux and macOS, tools/package.sh does the same (mao-client, assets/ and a play.sh that looks in the Steam, Proton,
+  Wine and CrossOver places); see docs/PLATFORMS.md.
+
 .EXAMPLE
   .\tools\package.ps1
 #>

@@ -1,2 +1,5 @@
 # The bundled skins stay byte for byte as the game reads them
 assets/gui/** -text
+
+# Shell scripts run on Linux and macOS: keep their lines LF even in a Windows checkout
+*.sh text eol=lf
