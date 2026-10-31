@@ -62,6 +62,30 @@ pub const GAME_TIME: u32 = 0x5f52412e;
 /// The first thing the client sends after entering.
 pub const READY: u32 = 0x570c2039;
 
+/// A generated building's layout ([`Message::generated`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Generated {
+    /// The building's size in 10-unit blocks.
+    pub width: u16,
+    pub height: u16,
+    /// How far up each floor is.
+    pub floor_step: u16,
+    /// The playfield whose rooms are copied.
+    pub template: u32,
+    pub ambient: [u8; 3],
+    pub rooms: Vec<GeneratedRoom>,
+}
+
+/// One room of a [`Generated`] building: the template room, its floor, its block on the grid and its quarter turns.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GeneratedRoom {
+    pub room: u16,
+    pub floor: i8,
+    pub x: u8,
+    pub y: u8,
+    pub turn: u8,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Message {
     pub kind: u32,
@@ -734,6 +758,20 @@ mod tests {
         assert_eq!(m.arrival().map(|a| a.0), Some(0x4a2));
     }
 
+    /// The Arete Landing capture's alien ship (instance 0x20da1b): its playfield message's generator data.
+    #[test]
+    fn a_generated_building_reads() {
+        let hex = "00000000043fe6874041ab7ae1434d0290610000c79f00e0c856000000000000000000009c500020da1b0000c79f00e0c8560000000200030018001800800000017ec8c8c800000008000200000203000000030101000800060500000700070100000700040000000700040602000700090301000401090700ffffffffffffffff";
+        let data: Vec<u8> = (0..hex.len() / 2).map(|i| u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).unwrap()).collect();
+        let m = Message { kind: PLAYFIELD, identity: (0x9c50, 0x20da1b), data };
+        let g = m.generated().unwrap();
+        assert_eq!((g.width, g.height, g.floor_step, g.template, g.ambient), (24, 24, 128, 382, [0xc8; 3]));
+        assert_eq!(g.rooms.len(), 8);
+        assert_eq!(g.rooms[0], GeneratedRoom { room: 2, floor: 0, x: 0, y: 2, turn: 3 });
+        assert_eq!(g.rooms[7], GeneratedRoom { room: 4, floor: 1, x: 9, y: 7, turn: 0 });
+        assert_eq!(m.arrival().map(|a| a.0), Some(382));
+    }
+
     #[test]
     fn team_reply_matches_the_capture() {
         let hex = |f: Frame| -> String { Message::parse(&f).unwrap().data.iter().map(|b| format!("{b:02x}")).collect() };
@@ -961,8 +999,39 @@ impl Message {
             return None;
         }
         let f = |at: usize| f32::from_be_bytes(self.data[at..at + 4].try_into().unwrap());
-        let template = (self.data.len() >= 26 && self.data[17] == b'a').then(|| u32::from_be_bytes(self.data[22..26].try_into().unwrap())).filter(|&t| t != 0);
+        // (a generated building's playfield is drawn from its template playfield, which the generator data names)
+        let template = match self.generated() {
+            Some(g) => Some(g.template),
+            None => (self.data.len() >= 26 && self.data[17] == b'a').then(|| u32::from_be_bytes(self.data[22..26].try_into().unwrap())).filter(|&t| t != 0),
+        };
         Some((template.unwrap_or(self.identity.1), [f(5), f(9), f(13)]))
+    }
+
+    /// A generated building's layout (a mission dungeon: the proxy type `0xc79f` or `0xc7a1`), from the [`PLAYFIELD`] message's
+    /// object after the proxy: `ACGBuildingGeneratorData_t` as Gamecode's FUN_100c773e reads it (the object's identity and a
+    /// word, version 3, the width, the height and the floor step as shorts, the template playfield, the ambient colour's three
+    /// bytes, then a count of `BuildingRoomInfo_t`: room, floor, x, y, turn; FUN_100cad28). The Arete Landing capture's ship:
+    /// 24 x 24 blocks, step 128, template 382, ambient `c8c8c8`, 8 rooms.
+    pub fn generated(&self) -> Option<Generated> {
+        let d = &self.data;
+        if self.kind != PLAYFIELD || d.len() < 73 || d[17] != b'a' {
+            return None;
+        }
+        let w = |at: usize| u32::from_be_bytes(d[at..at + 4].try_into().unwrap());
+        let s = |at: usize| u16::from_be_bytes(d[at..at + 2].try_into().unwrap());
+        let proxy = w(18);
+        if !matches!(proxy, 0xc79f | 0xc7a1) || w(42) != proxy || s(54) != 3 {
+            return None;
+        }
+        let count = w(69) as usize;
+        let rooms = (0..count.min(2500))
+            .map_while(|k| {
+                let at = 73 + k * 6;
+                let r = d.get(at..at + 6)?;
+                Some(GeneratedRoom { room: u16::from_be_bytes([r[0], r[1]]), floor: r[2] as i8, x: r[3], y: r[4], turn: r[5] })
+            })
+            .collect::<Vec<_>>();
+        (rooms.len() == count).then(|| Generated { width: s(56), height: s(58), floor_step: s(60), template: w(62), ambient: [d[66], d[67], d[68]], rooms })
     }
 
     /// An instanced playfield's ids for its built-in objects (a [`PLAYFIELD`] message into ICC's shops): after the proxy, a

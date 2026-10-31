@@ -194,6 +194,7 @@ Added after the overnight run, on request: audio through rodio, ported from the 
 | 0be4b8c | **Raising skills with IP**: the Skills window shows the IP left and +/- on the abilities and skills; Accept sends the raise (`Skill`) and the server's answer updates the values and IP. The client cannot price a raise yet (the cost tables are not in its data): the server decides | raise a skill by a point or two and Accept; check the IP went down |
 | 39025ab | **Teams**: an invitation opens the Team window (Join / Decline); the members show with health and nano bars; Leave team | get a team invitation (Arete's NPC companion, or a player); join, watch the bars, leave |
 | 859839e | **NPCs turn to face** (SetWantedDirection) and **stop sliding** when the server stops them (StopMovingCmd); **worn armour's quality** follows the server (ItemReplaced: Arete's starter armour levels with you) | talk to an NPC from the side; level up in Arete Landing and check the armour's QL |
+| (next) | **Mission dungeons are built**: a generated building (the Arete alien ship, any mission) is laid out from the server's room list over its template playfield's rooms, with their props and collision | enter a mission dungeon (or Arete's ship); walk through its rooms and doors |
 
 ## How to run
 

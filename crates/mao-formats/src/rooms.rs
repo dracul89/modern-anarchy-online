@@ -96,6 +96,72 @@ pub struct RoomPlayfield {
     pub rooms: Vec<Room>,
 }
 
+/// One room of a generated building (a mission dungeon: the server's `BuildingRoomInfo_t`, read by Gamecode's FUN_100cad28):
+/// the template room to copy, its floor (-16..16), its place on the building's grid of 10-unit blocks and its turn in
+/// quarter turns.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BuildingRoom {
+    pub room: u16,
+    pub floor: i8,
+    pub x: u8,
+    pub y: u8,
+    pub turn: u8,
+}
+
+/// A generated building's rooms (Gamecode's FUN_100ca6f8, `ACGBuildingGeneratorData_t`'s playfield): each record's template
+/// room copied, turned and placed. From the block's corner `(x × 10, 0, height × 10 − y × 10 − ⌊scale⌋ × size)` (`size` the
+/// room's tiles across the world's z once turned, FUN_100cacbc), its centre is the room's half `(oddW / 2, 0, oddH / 2)` (`n3Room_t`
+/// +0x68, FUN_10012803) times the tile-map's scale plus `(1, 0, 1)`, turned with the room, then moved back into the block by the
+/// turn (90°: z + tilesX × scale; 180°: x + tilesX × scale, z + tilesZ × scale; 270°: x + tilesZ × scale). The height is the
+/// template room's, raised `floor_step` per floor above the lowest. Returns the rooms and, for each, the template room it
+/// came from (whose zone's statels it takes). `None` for a record naming no template room.
+pub fn generate(template: &RoomPlayfield, scale: f32, height: u32, floor_step: f32, records: &[BuildingRoom]) -> Option<(RoomPlayfield, Vec<usize>)> {
+    let lowest = records.iter().map(|r| r.floor).min().unwrap_or(0);
+    let mut rooms = Vec::new();
+    let mut sources = Vec::new();
+    for r in records {
+        let source = template.rooms.get(r.room as usize)?;
+        let tiles_x = source.rect[2].saturating_sub(source.rect[0]) as f32;
+        let tiles_z = source.rect[3].saturating_sub(source.rect[1]) as f32;
+        let odd = |n: u16| ((n.saturating_sub(1)) & !1) + 1;
+        let half = (odd(source.rect[2].saturating_sub(source.rect[0])) as f32 * 0.5, odd(source.rect[3].saturating_sub(source.rect[1])) as f32 * 0.5);
+        let turn = r.turn & 3;
+        let (mut dx, mut dz) = (half.0 * scale + 1.0, half.1 * scale + 1.0);
+        for _ in 0..turn {
+            (dx, dz) = (dz, -dx);
+        }
+        match turn {
+            1 => dz += tiles_x * scale,
+            2 => {
+                dx += tiles_x * scale;
+                dz += tiles_z * scale;
+            }
+            3 => dx += tiles_z * scale,
+            _ => {}
+        }
+        let size = if turn & 1 == 1 { tiles_x } else { tiles_z };
+        let corner = (r.x as f32 * 10.0, height as f32 - r.y as f32 * 10.0 - (scale as i32) as f32 * size);
+        let mut room = source.clone();
+        room.flags = (source.flags & !3) | turn;
+        room.position = [corner.0 + dx, source.position[1] + (r.floor - lowest) as f32 * floor_step, corner.1 + dz];
+        rooms.push(room);
+        sources.push(r.room as usize);
+    }
+    Some((RoomPlayfield { rooms, ..template.clone() }, sources))
+}
+
+/// A point of the room `from` as it stands in its template, moved with the room to where `to` (a generated copy of it)
+/// stands: taken into the room's own frame (its turn undone about its centre), turned the copy's way and put at the copy's
+/// centre (the height moved by the copy's).
+pub fn move_between(from: &Room, to: &Room, p: [f32; 3]) -> [f32; 3] {
+    let (mut dx, mut dz) = (p[0] - from.position[0], p[2] - from.position[2]);
+    for _ in 0..from.turn() {
+        (dx, dz) = (-dz, dx);
+    }
+    let (dx, dz) = to.turn_xz(dx, dz);
+    [to.position[0] + dx, p[1] - from.position[1] + to.position[1], to.position[2] + dz]
+}
+
 struct Reader<'a> {
     data: &'a [u8],
     at: usize,

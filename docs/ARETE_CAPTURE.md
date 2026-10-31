@@ -71,7 +71,15 @@ moves, set-stat) this client already sends.
 6. The unknown ones, against the screenshots at their times.
 7. ~~Character creation~~: our request matches the original's byte for byte (test `the_request_matches_the_original`).
 8. ~~Teams~~: done (`team.rs`): invitation `CharacterAction` 0x1a, answer 0x1c with 1/0 (declining is 0x1c with 0, not aosharp's 0x23), `TeamMember` (team, level, profession, name), `TeamMemberInfo` (health, max health, max nano, nano), leave 0x18, left 0x20.
-9. Generated mission dungeons (proxy type `0xc79f`): the playfield message carries an `ACGBuildingGeneratorData_t`-shaped block (version 2, 24 x 24, ambient `c8c8c8`, then 8 six-byte room records); the client reads a wrong playfield number from it and draws nothing. Needs Gamecode's ACG reader (FUN_100c773e / FUN_100c793f / FUN_100c8059) and the dungeon builder; the doors come as `DoorFullUpdate` (a `SimpleItemFullUpdate` layout: place, rotation, then stats with template 253517 and a tail linking two room numbers).
+9. ~~Generated mission dungeons~~ (proxy type `0xc79f`/`0xc7a1`): done. The playfield message's object is
+   `ACGBuildingGeneratorData_t` (Gamecode FUN_100c773e: identity, a word, version 3, width, height and floor step as shorts,
+   the template playfield, the ambient colour, then `BuildingRoomInfo_t` records: room, floor, x, y, turn, FUN_100cad28); the
+   playfield factory (FUN_100c9a60) loads the template's definition and tile-map and FUN_100ca6f8 places a copy of each
+   record's template room: centre = block corner `(x*10, h*10 - y*10 - scale*size)` + the room's half `(oddW/2, 0, oddH/2)` x
+   scale + `(1, 0, 1)` turned, plus the turn's shift; height + floor step per floor. `Message::generated`,
+   `rooms::generate` (+ `move_between` for the zones' collision surfaces), `generated_rooms` standing in for `load_rooms`.
+   Checked: the ship's six doors (`DoorFullUpdate`) each fall on a generated room's edge (test
+   `the_ship_rooms_meet_at_the_servers_doors`); `MAO_GENERATED=<message hex> mao-client <game> map 382 --image out.png` draws it.
 
 Done since: SetWantedDirection turns the character (`rotations`, forward `(sin h, cos h)`), StopMovingCmd ends its walked
 path, ItemReplaced updates the worn item (test in `items_come_into_the_backpack`).

@@ -349,8 +349,33 @@ pub(crate) fn load_terrain(db: &ResourceDatabase, playfield: u32) -> Result<Mode
 
 /// The rooms of an instanced interior (its playfield definition lists them), when it has any.
 pub(crate) fn load_rooms(db: &ResourceDatabase, playfield: u32) -> Option<mao_formats::rooms::RoomPlayfield> {
+    generated_rooms(db, playfield).map(|(rooms, _)| rooms).or_else(|| template_rooms(db, playfield))
+}
+
+/// The rooms of a playfield's definition as stored (a generated building's template).
+pub(crate) fn template_rooms(db: &ResourceDatabase, playfield: u32) -> Option<mao_formats::rooms::RoomPlayfield> {
     let object = db.get(Id { kind: mao_formats::rooms::KIND, instance: playfield }).ok().flatten()?;
     mao_formats::rooms::parse(&object).ok().flatten()
+}
+
+/// The generated building the character is in (a mission dungeon: the playfield message's generator data), whose rooms stand in
+/// for its template playfield's own while it lasts.
+static GENERATED: std::sync::Mutex<Option<mao_net::n3::Generated>> = std::sync::Mutex::new(None);
+
+/// The building of the playfield just entered (none for an ordinary one).
+pub(crate) fn set_generated(building: Option<mao_net::n3::Generated>) {
+    *GENERATED.lock().unwrap_or_else(|e| e.into_inner()) = building;
+}
+
+/// The generated building's rooms, with the template room each was copied from, when the character is in one made from
+/// `playfield` (Gamecode's FUN_100c9a60 / FUN_100ca6f8: the template's tile-map's scale, the height in blocks of 10).
+pub(crate) fn generated_rooms(db: &ResourceDatabase, playfield: u32) -> Option<(mao_formats::rooms::RoomPlayfield, Vec<usize>)> {
+    let building = GENERATED.lock().unwrap_or_else(|e| e.into_inner()).clone().filter(|g| g.template == playfield)?;
+    let template = template_rooms(db, playfield)?;
+    let object = db.get(Id { kind: 0xf4249, instance: template.tilemap }).ok().flatten()?;
+    let grid = mao_formats::rooms::Grid::new(&mao_formats::tilemap::parse_new(&object).ok()?)?;
+    let records: Vec<mao_formats::rooms::BuildingRoom> = building.rooms.iter().map(|r| mao_formats::rooms::BuildingRoom { room: r.room, floor: r.floor, x: r.x, y: r.y, turn: r.turn }).collect();
+    mao_formats::rooms::generate(&template, grid.scale, building.height as u32 * 10, building.floor_step as f32, &records)
 }
 
 /// The doors, terminals and other machines a playfield has built in (its dynel table), with the mesh of each one's item template:
@@ -565,8 +590,23 @@ pub(crate) fn add_props_with(game: &str, db: &ResourceDatabase, playfield: u32, 
     if failed > 0 {
         eprintln!("{failed} of {zones} statel zones could not be read (their props are missing)");
     }
-    // An instanced interior: each zone is a room, and its statels sit relative to the room's centre.
+    // An instanced interior: each zone is a room, and its statels sit relative to the room's centre. (A generated building: each
+    // room takes its template room's zone; the playfield's own statels belong to the template's layout, which is not there.)
     let rooms = load_rooms(db, playfield);
+    let zone_lists = match generated_rooms(db, playfield) {
+        Some((generated, sources)) => {
+            statels.clear();
+            for (room, &source) in generated.rooms.iter().zip(&sources) {
+                for s in zone_lists.get(source).cloned().flatten().unwrap_or_default() {
+                    let mut s = s;
+                    (s.position, s.rotation) = mao_formats::rooms::place_statel(room, s.position, s.rotation);
+                    statels.push(s);
+                }
+            }
+            Vec::new()
+        }
+        None => zone_lists,
+    };
     for (k, zone) in zone_lists.into_iter().enumerate() {
         for mut s in zone.into_iter().flatten() {
             if let Some(rooms) = &rooms {
@@ -1363,6 +1403,11 @@ fn run(args: &[String]) -> Result<(), String> {
         if word == "map" {
             let db = Arc::new(ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?);
             let number = find_playfield(&db, playfield)?;
+            // MAO_GENERATED=<a playfield message's data in hex>: the generated building it describes, drawn from its template.
+            if let Ok(hex) = std::env::var("MAO_GENERATED") {
+                let data: Vec<u8> = (0..hex.len() / 2).filter_map(|i| u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).ok()).collect();
+                set_generated(mao_net::n3::Message { kind: mao_net::n3::PLAYFIELD, identity: (0x9c50, 0), data }.generated());
+            }
             let mut model = load_terrain(&db, number).unwrap_or_default();
             if std::env::var_os("MAO_NO_PROPS").is_none() {
                 add_props(game, &db, number, &mut model);
@@ -1873,5 +1918,47 @@ mod animation_tests {
         let mut scene = mao_formats::model::Model::default();
         super::add_props_with(&game.to_string_lossy(), &db, 540, &mut scene, Some(&mut moving));
         assert!(moving.iter().any(|p| p.part.1.texture_at(1.0).is_some()));
+    }
+}
+
+#[cfg(test)]
+mod generated_tests {
+    /// `MAO_GAME`: the Arete Landing capture's alien ship (instance 0x20da1b, template playfield 382): its eight rooms laid out
+    /// from the playfield message, and the six doors the server placed there (`DoorFullUpdate`) each on a room's edge.
+    #[test]
+    fn the_ship_rooms_meet_at_the_servers_doors() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let db = mao_formats::resource::ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap();
+        let hex = "00000000043fe6874041ab7ae1434d0290610000c79f00e0c856000000000000000000009c500020da1b0000c79f00e0c8560000000200030018001800800000017ec8c8c800000008000200000203000000030101000800060500000700070100000700040000000700040602000700090301000401090700ffffffffffffffff";
+        let data: Vec<u8> = (0..hex.len() / 2).map(|i| u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).unwrap()).collect();
+        let m = mao_net::n3::Message { kind: mao_net::n3::PLAYFIELD, identity: (0x9c50, 0x20da1b), data };
+        super::set_generated(m.generated());
+        let (rooms, sources) = super::generated_rooms(&db, 382).expect("the generated rooms");
+        super::set_generated(None);
+        let template = super::template_rooms(&db, 382).unwrap();
+        let object = db.get(mao_formats::resource::Id { kind: 0xf4249, instance: template.tilemap }).unwrap().unwrap();
+        let grid = mao_formats::rooms::Grid::new(&mao_formats::tilemap::parse_new(&object).unwrap()).unwrap();
+        // each room's extent in the world: its rectangle times the scale, turned
+        let extents: Vec<([f32; 2], [f32; 2])> = rooms
+            .rooms
+            .iter()
+            .map(|r| {
+                let (w, h) = ((r.rect[2] - r.rect[0]) as f32 * grid.scale / 2.0, (r.rect[3] - r.rect[1]) as f32 * grid.scale / 2.0);
+                let (w, h) = if r.turn() & 1 == 1 { (h, w) } else { (w, h) };
+                ([r.position[0] - w, r.position[2] - h], [r.position[0] + w, r.position[2] + h])
+            })
+            .collect();
+        for (k, (r, e)) in rooms.rooms.iter().zip(&extents).enumerate() {
+            eprintln!("room {k} (template {}, turn {}): centre ({:.1}, {:.1}, {:.1}) x {:.1}..{:.1} z {:.1}..{:.1}", sources[k], r.turn(), r.position[0], r.position[1], r.position[2], e.0[0], e.1[0], e.0[1], e.1[1]);
+        }
+        let doors = [[0.0, 205.0], [30.0, 205.0], [75.0, 190.0], [75.0, 220.0], [45.0, 230.0], [45.0, 180.0]];
+        for d in doors {
+            let on_edge = extents.iter().any(|(lo, hi)| {
+                let inside = d[0] >= lo[0] - 1.5 && d[0] <= hi[0] + 1.5 && d[1] >= lo[1] - 1.5 && d[1] <= hi[1] + 1.5;
+                let edge = (d[0] - lo[0]).abs() < 1.5 || (d[0] - hi[0]).abs() < 1.5 || (d[1] - lo[1]).abs() < 1.5 || (d[1] - hi[1]).abs() < 1.5;
+                inside && edge
+            });
+            assert!(on_edge, "door at {d:?} is on no room's edge");
+        }
     }
 }

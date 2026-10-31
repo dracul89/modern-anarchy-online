@@ -806,6 +806,12 @@ impl World {
         }
         if let Some(arrival) = m.arrival() {
             eprintln!("playfield message: identity ({:x},{:x}) -> playfield {} at {:?}", m.identity.0, m.identity.1, arrival.0, arrival.1);
+            // (a generated building, a mission dungeon: its rooms stand in for the template playfield's)
+            let building = m.generated();
+            if let Some(b) = &building {
+                eprintln!("  a generated building: {} x {} blocks, template {}, {} rooms", b.width, b.height, b.template, b.rooms.len());
+            }
+            crate::set_generated(building);
             if std::env::var_os("MAO_TRACE_ALL").is_some() {
                 eprintln!("  playfield message data {}", m.data.iter().map(|b| format!("{b:02x}")).collect::<String>());
             }
@@ -3210,11 +3216,34 @@ fn zone_surfaces(db: &ResourceDatabase, playfield: u32) -> (Option<mao_formats::
     let mut records = mao_formats::zones::Zones::default();
     let (mut zones, mut failed) = (0, 0);
     let Ok(ids) = db.ids() else { return (None, teleportals, None) };
-    for id in ids.flatten().filter(|i| i.kind == mao_formats::surface::KIND && i.instance >> 16 == playfield) {
-        let Some(surface) = db.get(id).ok().flatten().and_then(|o| mao_formats::surface::parse(&o)) else {
+    // (a generated building: each room's surfaces are its template room's zone's, moved from the template's layout to the room)
+    let generated = crate::generated_rooms(db, playfield).zip(crate::template_rooms(db, playfield));
+    let ids: Vec<mao_formats::resource::Id> = ids.flatten().filter(|i| i.kind == mao_formats::surface::KIND && i.instance >> 16 == playfield).collect();
+    let copies: Vec<(mao_formats::resource::Id, Option<(mao_formats::rooms::Room, mao_formats::rooms::Room)>)> = match &generated {
+        Some(((rooms, sources), template)) => rooms
+            .rooms
+            .iter()
+            .zip(sources)
+            .filter_map(|(room, &source)| {
+                let id = *ids.iter().find(|i| (i.instance & 0xffff) as usize == source)?;
+                Some((id, Some((template.rooms.get(source)?.clone(), room.clone()))))
+            })
+            .collect(),
+        None => ids.into_iter().map(|i| (i, None)).collect(),
+    };
+    for (id, moved) in copies {
+        let Some(mut surface) = db.get(id).ok().flatten().and_then(|o| mao_formats::surface::parse(&o)) else {
             failed += 1;
             continue;
         };
+        if let Some((from, to)) = &moved {
+            for t in &mut surface.triangles {
+                for v in t.iter_mut() {
+                    *v = mao_formats::rooms::move_between(from, to, *v);
+                }
+            }
+            surface.teleportal = None;
+        }
         zones += 1;
         teleportals.extend(surface.teleportal);
         // (as they are for the vehicle; the game's y up, the viewer's z, for the old tests)
