@@ -728,7 +728,7 @@ impl Ui {
                     info_view.show_url(&url);
                 }
             }
-            if mail.open || mail.compose_open {
+            if mail.open || mail.message.open {
                 if let Some(command) = mail.show(&ctx, gear, &hud.gear, palette) {
                     requests.mail = Some(command);
                 }

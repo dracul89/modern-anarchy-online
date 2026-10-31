@@ -1867,7 +1867,7 @@ mod instance_tests {
 /// The instance's id of the `number`th table record of a kind: the runs of that kind cover its records in order.
 fn instance_id(runs: &[(u32, u32, u32, u32)], kind: u32, number: u32) -> Option<u32> {
     let mut before = 0;
-    for &(k, _, count, first) in runs.iter().filter(|r| r.0 == kind) {
+    for &(_, _, count, first) in runs.iter().filter(|r| r.0 == kind) {
         if number < before + count {
             return Some(first + (number - before));
         }

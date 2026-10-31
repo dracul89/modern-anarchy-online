@@ -83,7 +83,7 @@ programs window's Info, `itemid://53019/<id>`; weapons' damage per second; to co
 | Special actions (`specialaction_window`) | | `actions.rs` | ours |
 | Shortcut bars (`shortcutbar_window`) | | `hotbar.rs` | ours |
 | Friends (`friends_window`) | | `friends.rs` | ours |
-| Mail (`mail_window`, `MailIconWindowConfig`) | `MailWindow.xml`, `MailMessageWindow.xml` | `mailbox.rs` | ours |
+| Mail (`mail_window`, `MailIconWindowConfig`; the message window FUN_10107fc8, the inbox FUN_10109a11) | `MailWindow.xml`, `MailMessageWindow.xml` | `mailmessage.rs`: the message window on its XML (new mail and received, the selectors, read-only fields, Take All, Reply, Delete, Send, the item dropped in); `mailbox.rs`: the inbox | part: the inbox is still egui (its list is a `ListViewBase_c`, not yet ported); Return To Sender and C.O.D. not sent |
 | Missions, mission selection (`mission_window`, `missionselection_window`, `BMissionSelectionViewConfig`) | | `mission.rs` | part |
 | Shops, NPC trade (`TradeView_c` FUN_100e121e modes 1/2, `ShopViewConfig`, `itemshop_window`, `ItemShopWindowConfig`) | `TradeGUI.xml` `ShopTrade` | `shop.rs` (the view from the skin; the docks' `ItemContainerView_c` lists drawn by it; Gamecode's prices) | part: `ShopBuy` mode and the list configs (`shop_listview_config`) not read; the item shop is a web page |
 | Player trade (`TradeViewConfig`) | `TradeGUI.xml` | none | no |

@@ -65,33 +65,28 @@ pub struct Opened {
 pub struct MailWindow {
     /// The inbox window.
     pub open: bool,
-    pub compose_open: bool,
     /// Messages in the inbox, as the server last reported (None before it answered).
     pub count: Option<usize>,
     pub entries: Vec<Entry>,
     pub selected: Option<u32>,
     pub opened: Option<Opened>,
     pub status: String,
-    to: String,
-    subject: String,
-    body: String,
-    credits: u32,
-    cod: u32,
-    /// The attached item: the backpack slot.
-    item: Option<u32>,
-    express: bool,
+    /// The message window (a new mail, or the one opened): `mailmessage.rs`.
+    pub message: crate::mailmessage::MessageWindow,
 }
 
 impl Default for MailWindow {
     fn default() -> MailWindow {
-        MailWindow { open: false, compose_open: false, count: None, entries: Vec::new(), selected: None, opened: None, status: String::new(), to: String::new(), subject: String::new(), body: String::new(), credits: 0, cod: 0, item: None, express: false }
+        MailWindow { open: false, count: None, entries: Vec::new(), selected: None, opened: None, status: String::new(), message: Default::default() }
     }
 }
 
 impl MailWindow {
     /// A sample for a headless preview.
     pub fn sample() -> MailWindow {
-        MailWindow { open: true, compose_open: true, count: Some(0), to: "muggles".into(), subject: "hi".into(), express: true, ..Default::default() }
+        let mut w = MailWindow { open: true, count: Some(0), ..Default::default() };
+        w.message.compose("muggles", "hi");
+        w
     }
 
     /// A new inbox from the server.
@@ -117,7 +112,6 @@ impl MailWindow {
 
     /// Draws the windows; returns what to send, if anything.
     pub fn show(&mut self, ctx: &egui::Context, gear: &mut GearWindow, items: &[GearItem], palette: &Palette) -> Option<MailCommand> {
-        let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
         let mut command = None;
         // The inbox.
         if self.open {
@@ -152,6 +146,7 @@ impl MailWindow {
                             ui.horizontal(|ui| {
                                 if ui.selectable_label(self.selected == Some(e.id), label).clicked() {
                                     self.selected = Some(e.id);
+                                    self.message.read(e.id);
                                     command = Some(MailCommand::Open(e.id));
                                 }
                                 ui.label(egui::RichText::new(mail::time_text(e.sent)).small().weak());
@@ -162,44 +157,13 @@ impl MailWindow {
                         }
                     });
                 });
-                if let Some(o) = self.opened.as_ref().filter(|o| Some(o.mail.id) == self.selected) {
-                    let m = &o.mail;
-                    ui.separator();
-                    ui.label(egui::RichText::new(&m.subject).strong().color(accent));
-                    ui.label(egui::RichText::new(format!("From {} on {}", m.sender, mail::time_text(m.sent))).small().weak());
-                    if !m.body.is_empty() {
-                        ui.label(&m.body);
-                    }
-                    let taken = m.flags & mail::TAKEN != 0;
-                    if m.credits > 0 {
-                        ui.label(format!("Credits: {}{}", m.credits, if taken { " (taken)" } else { "" }));
-                    }
-                    if let (Some((low, _, quality)), Some((name, icon))) = (m.item, o.item.as_ref()) {
-                        ui.horizontal(|ui| {
-                            if let Some(icon) = icon {
-                                let id = gear.texture(ctx, icon);
-                                ui.add(egui::Image::new((id, egui::vec2(32.0, 32.0))));
-                            }
-                            ui.label(format!("{name} (QL {quality}, #{low:x}){}", if taken { " (taken)" } else { "" }));
-                        });
-                    }
-                    ui.horizontal(|ui| {
-                        let can_take = !taken && (m.credits > 0 || m.item.is_some());
-                        if crate::chrome::button(ui, palette, "Take", can_take).on_hover_text("Takes the item and the credits").clicked() {
-                            command = Some(MailCommand::Take(m.id));
-                        }
-                        if crate::chrome::button(ui, palette, "Delete", true).clicked() {
-                            command = Some(MailCommand::Delete(m.id));
-                        }
-                    });
-                }
                 ui.horizontal(|ui| {
                     if crate::chrome::button(ui, palette, "Check mail", true).on_hover_text("Uses the nearest known mail terminal and asks for the inbox").clicked() {
                         command = Some(MailCommand::Inbox);
                         self.status = "Asking the mail terminal ...".into();
                     }
                     if crate::chrome::button(ui, palette, "New", true).clicked() {
-                        self.compose_open = true;
+                        self.message.compose("", "");
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if crate::chrome::button(ui, palette, "Close", true).clicked() {
@@ -213,77 +177,12 @@ impl MailWindow {
             });
             self.open = is_open && !close;
         }
-        // The compose window.
-        if self.compose_open {
-            let mut is_open = true;
-            let mut close = false;
-            crate::chrome::window(ctx, palette, "Message", "Message", &mut is_open, |w| w.resizable(false).default_pos(crate::layout::pos("Message", egui::pos2(60.0, 90.0))), |ui| {
-                ui.set_width(380.0);
-                egui::Grid::new("compose").num_columns(2).spacing(egui::vec2(8.0, 4.0)).show(ui, |ui| {
-                    ui.label("To");
-                    crate::chrome::text_edit(ui, palette, egui::TextEdit::singleline(&mut self.to).desired_width(300.0));
-                    ui.end_row();
-                    ui.label("Subject");
-                    crate::chrome::text_edit(ui, palette, egui::TextEdit::singleline(&mut self.subject).desired_width(300.0));
-                    ui.end_row();
-                });
-                crate::chrome::text_edit(ui, palette, egui::TextEdit::multiline(&mut self.body).desired_rows(8).desired_width(f32::INFINITY));
-                egui::Grid::new("compose-extras").num_columns(2).spacing(egui::vec2(8.0, 4.0)).show(ui, |ui| {
-                    ui.label("Credits");
-                    ui.add(egui::DragValue::new(&mut self.credits).range(0..=u32::MAX).speed(100.0));
-                    ui.end_row();
-                    ui.label("C.O.D.");
-                    ui.add(egui::DragValue::new(&mut self.cod).range(0..=u32::MAX).speed(100.0)).on_hover_text("Collect on delivery: not sent yet (the message in the capture has no field for it)");
-                    ui.end_row();
-                    ui.label("Item");
-                    let selected = self.item.and_then(|s| items.iter().find(|i| i.slot == s));
-                    ui.horizontal(|ui| {
-                        let (rect, _) = ui.allocate_exact_size(egui::vec2(42.0, 42.0), egui::Sense::hover());
-                        ui.painter().rect_stroke(rect, 3.0, egui::Stroke::new(1.0, egui::Color32::from_white_alpha(50)), egui::StrokeKind::Inside);
-                        if let Some(icon) = selected.and_then(|i| i.icon.as_ref()) {
-                            let id = gear.texture(ctx, icon);
-                            ui.painter().image(id, rect.shrink(3.0), egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
-                        }
-                        egui::ComboBox::from_id_salt("mail-item").width(240.0).selected_text(selected.map_or("(none)".to_string(), |i| i.name.clone())).show_ui(ui, |ui| {
-                            if ui.selectable_label(self.item.is_none(), "(none)").clicked() {
-                                self.item = None;
-                            }
-                            for i in items.iter().filter(|i| i.slot >= mao_net::inventory::BACKPACK_FIRST) {
-                                if ui.selectable_label(self.item == Some(i.slot), &i.name).clicked() {
-                                    self.item = Some(i.slot);
-                                }
-                            }
-                        });
-                    });
-                    ui.end_row();
-                    ui.label("Delivery mode");
-                    ui.horizontal(|ui| {
-                        ui.radio_value(&mut self.express, false, "Standard");
-                        ui.radio_value(&mut self.express, true, "Express");
-                    });
-                    ui.end_row();
-                    ui.label("Total cost");
-                    ui.label(egui::RichText::new("(worked out by the server)").weak());
-                    ui.end_row();
-                });
-                ui.horizontal(|ui| {
-                    let can = !self.to.trim().is_empty() && !self.subject.trim().is_empty();
-                    if crate::chrome::button(ui, palette, "Send", can).clicked() {
-                        let item = self.item.map_or((0, 0), |s| (0x68, s));
-                        command = Some(MailCommand::Send { recipient: self.to.trim().to_string(), subject: self.subject.trim().to_string(), body: self.body.clone(), item, credits: self.credits, express: self.express });
-                        self.status = "Sending ...".into();
-                    }
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if crate::chrome::button(ui, palette, "Close", true).clicked() {
-                            close = true;
-                        }
-                    });
-                });
-                if !self.status.is_empty() {
-                    ui.label(egui::RichText::new(&self.status).small());
-                }
-            });
-            self.compose_open = is_open && !close;
+        // The message window (a new mail, or the one opened).
+        if let Some(c) = self.message.show(ctx, gear, items, self.opened.as_ref(), palette) {
+            if matches!(c, MailCommand::Send { .. }) {
+                self.status = "Sending ...".into();
+            }
+            command = Some(c);
         }
         command
     }

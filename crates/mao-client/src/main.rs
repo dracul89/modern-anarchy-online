@@ -77,6 +77,7 @@ mod anim;
 mod derived;
 mod gear;
 mod mailbox;
+mod mailmessage;
 mod team;
 mod shop;
 mod mission;
@@ -1672,13 +1673,19 @@ fn run(args: &[String]) -> Result<(), String> {
                         // The recipient's inbox and the opened mail from the capture (the bytes are in mao_net::mail's tests).
                         let hex = |s: &str| -> Vec<u8> { (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect() };
                         let mut window = mailbox::MailWindow::sample();
-                        window.compose_open = false;
+                        window.message.open = false;
                         if let (Some(entries), Some(mail)) = (
                             mao_net::mail::parse_list(&hex("000000000007e200000000015600060004bc80000a436f6e6a656374757265000b68656c6c6f2074686572656adadeb66aed53b60000002801")),
                             mao_net::mail::parse_mail(&hex("00000200000000015600060004bc80000a436f6e6a656374757265000b68656c6c6f2074686572656adadeb66aed53b6000000280000009c4000035501000355010000006400000000000000010000")),
                         ) {
                             window.set_entries(entries);
                             window.selected = Some(mail.id);
+                            // (the mail opened in the message window; MAO_MAIL_COMPOSE=1: a new one instead)
+                            if std::env::var_os("MAO_MAIL_COMPOSE").is_some() {
+                                window.message.compose("muggles", "hi");
+                            } else {
+                                window.message.read(mail.id);
+                            }
                             let tex = textures.clone_handle();
                             let item = db.get(mao_formats::resource::Id { kind: mao_formats::item::TEMPLATE, instance: 0x35501 }).ok().flatten().and_then(|d| mao_formats::item::Item::parse(&d)).map(|t| {
                                 let icon = t.icon().and_then(|id| tex.get(mao_formats::item::ICON_TYPE, id).map(|x| std::sync::Arc::new(gear::Icon { id, width: x.width as usize, height: x.height as usize, rgba: x.rgba })));
