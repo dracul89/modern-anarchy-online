@@ -1687,6 +1687,12 @@ impl World {
                 }
             }
         }
+        // `InventoryUpdated` (`485e7202`: a byte and a value, 5 in the captures; sent to the character and to the shop after a
+        // sale): `InventoryUpdatedIIR_t`'s apply (FUN_10075392) acts only on the client's own character, raising the
+        // interface signal of that value (FUN_1001143e: 5 is the inventory's, +0xd8): the inventory windows are drawn again.
+        if m.kind == 0x485e7202 && m.identity.1 == self.own && m.data.len() >= 5 {
+            self.inventory = Some(self.worn.clone());
+        }
         if m.kind == 0x36510078 && self.loot.as_ref().is_some_and(|l| l.identity == m.identity) {
             self.loot = None;
             self.loot_changed = true;
@@ -7857,6 +7863,18 @@ mod door_tests {
         w.names.insert(0x7b1abca9, ("B".into(), false));
         w.add(&Message { kind: 0x3129233b, identity: (0xc350, 0x7b1a00b3), data: hex("0000000bd30000c3507b1ab8330000c3507b1abca9000187620000c3507b1a00b3") }.frame(1));
         assert_eq!(w.landed, vec![(0x7b1ab833, 0x18762), (0x7b1abca9, 0x18762)]);
+    }
+
+    /// The 16:55 capture's sale: `InventoryUpdated` to the shop and to the character; only the character's refreshes the inventory.
+    #[test]
+    fn inventory_updated_refreshes_ones_own_inventory() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let own = 0x7b1a0021;
+        let mut w = World { own, ..World::default() };
+        w.add(&Message { kind: 0x485e7202, identity: (0xc75b, 0x1324d835), data: hex("0000000005") }.frame(1));
+        assert!(w.inventory.is_none());
+        w.add(&Message { kind: 0x485e7202, identity: (0xc350, own), data: hex("0000000005") }.frame(1));
+        assert!(w.inventory.is_some());
     }
 
     #[test]
