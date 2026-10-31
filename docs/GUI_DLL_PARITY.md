@@ -96,7 +96,7 @@ programs window's Info, `itemid://53019/<id>`; weapons' damage per second; to co
 | City terminal (`CityTerminalGUIModule_c`, `CityTerminalWindowConfig`, `CityTerminalBuyDlgConfig`, `CityMapView`) | `CityTerminal.xml` | none | no |
 | Market (`MarketWindowConfig`, `OpenMarketSendWindow`, `MarketSendWindow_c`) | `MarketSendWindow.xml` | `browser.rs`, `marketsend.rs` (the deposit window, `MarketSend`) | part: not seen live |
 | Knowledge (`knowledge_window`, `KnowledgeViewConfig`) | | none | no |
-| Factions (`faction_window`, `zFFactionWindowConfig`) | | none | no |
+| Factions (`faction_window`, `zFFactionWindowConfig`) | | `factions.rs`: `FactionView_c` (FUN_1005e3f5): the seven Shadowlands factions' `FactionBar_c`s (stats 566-572: short name, standing or band title in 0xffff88, `GFX_GUI_HOR_BAR_GREEN/RED/YELLOW` filled within the standing's band from the database's 0xf4265 records), a left click switches standings and titles; opened by the control center's `faction_window` | part: `IsFactionTitleShown` is not kept between runs |
 | Research (`research_window`, `ResearchConfig`) | `Research*.xml` | none | no |
 | Planet map window (`planetmap_window`, `PlanetMapViewConfig`, `PFMapWindowConfig`, `map_window`) | | `automap.rs`: corner map and overlay | part |
 | Compass (`compass_window`) | | in the control center | done |

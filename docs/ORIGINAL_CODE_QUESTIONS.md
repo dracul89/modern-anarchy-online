@@ -76,3 +76,27 @@ does not come up.
 
 The decompile of FUN_10056acd shows `FormatAppend` with one value for two `%u`. The assembly (0x10056dae) pushes both
 (the sections shown and the total), so the text is right. Listed so it is not raised again.
+
+## 8. Guardian of Shadow's bar fills backwards below 0
+
+`FactionBar_c`'s update (FUN_1005de7f) fills a bar to the standing's share of its band (`N3Msg_GetFactionRange`), and for
+a standing below 0 uses one less that share, because a negative standing's bar is the red one drawn from the right
+(direction 2): the further below 0, the fuller the red bar. Guardian of Shadow (stat 566) is special-cased to the yellow
+bar drawn from the **left** (direction 1) whatever the standing, but the `1 - share` flip still applies. So a GOS
+standing of -45000 (Dreaded) shows a yellow bar three quarters full from the left, the same picture as a standing of
++1000..4999 three quarters through Liked; -30001 shows it empty. With the number hidden (the titles shown instead) the bar
+tells nothing about which side of 0 the standing is.
+
+The port (`factions.rs`) does what the original does. Decide: keep, or fill GOS by its plain share (or give it the red
+bar below 0 like the others).
+
+## 9. Faction titles come from two tables that disagree
+
+`GetFactionTitle` (Gamecode FUN_10062dcb) finds the standing's band by its place in the database's band list (0xf4265
+records, FUN_100c2427: counted from 1 in list order) and then looks that number up in a table built in code
+(FUN_10035eaf), not in the band record's own name. The two spell one differently ("Close friend" in code, "Close
+Friend" in the database) and the lookup only works while the database's records stay in their 1..12 order; an added or
+reordered band would name the wrong title.
+
+The port uses the code's table, as the original. Probably nothing to change; noted.
+

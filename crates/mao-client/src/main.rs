@@ -23,6 +23,7 @@ macro_rules! profile {
 }
 
 mod actions;
+mod factions;
 mod charcreate;
 mod loading;
 mod missionlog;

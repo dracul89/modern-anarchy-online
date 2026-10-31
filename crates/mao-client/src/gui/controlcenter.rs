@@ -38,6 +38,7 @@ pub const WINDOWS: &[(&str, &str)] = &[
     ("ncu_window", "ncu"),
     ("mission_window", "missions"),
     ("friends_window", "friends"),
+    ("faction_window", "factions"),
     ("map_window", "planetmap"),
     ("planetmap_window", "planetmap"),
     ("specialaction_window", "actions"),
