@@ -357,6 +357,38 @@ pub fn use_item_on_item(character: u32, item: (u32, u32), target: (u32, u32)) ->
     Message { kind: 0x5e477770, identity: (CHARACTER, character), data }.frame(character)
 }
 
+/// The tradeskill window's `CharacterAction`s (Gamecode builds them with FUN_10072a88 as for [`use_item_on_item`]: the action,
+/// 0, a first identity, a second one as the two parameters): `N3Msg_InsertSourceAnalyzerItem` (0x10029a53) is `0xdc`
+/// (`TradeskillSourceChanged`) with nobody first and the item second (none: taken out), `N3Msg_InsertTargetAnalyzerItem`
+/// (0x10029af4) `0xdd` the same, and `N3Msg_BuildAnalyzerItem(ql)` (0x10029b95) `0xde` with `(0, ql)` first and nobody
+/// second; the 2026-10-30 capture's: `dc` with `(0x68, 0x5a)`, `dc` with nothing, `de` with `(0, 1)`.
+pub fn tradeskill(character: u32, action: u8, first: (u32, u32), second: (u32, u32)) -> Frame {
+    let mut data = vec![0u8; 5];
+    data[4] = action;
+    data.extend_from_slice(&[0; 4]);
+    for word in [first.0, first.1, second.0, second.1] {
+        data.extend_from_slice(&word.to_be_bytes());
+    }
+    data.extend_from_slice(&[0; 2]);
+    Message { kind: 0x5e477770, identity: (CHARACTER, character), data }.frame(character)
+}
+
+/// The server's tradeskill answers, `CharacterAction` `0xdf` to `0xe4` to the character: `(action, first identity, the two
+/// parameters)`. Gamecode's handler (FUN_1005d61f, cases 0x1005f1a1..0x1005f212) passes them on to the window as: `0xdf`
+/// (`TradeskillSource`) and `0xe0` (`TradeskillTarget`) the second parameter (how many processes the item is used in),
+/// `0xe1` (`TradeskillNotValid`) nothing, `0xe2` (`TradeskillOutOfRange`) the second parameter (the level the source must
+/// have), `0xe3` (`TradeskillRequirement`) the parameters (a skill and the value needed), `0xe4` (`TradeskillResult`) the
+/// first parameter, the first identity's type, the second parameter and its instance (the result's lowest and highest
+/// quality and its low and high templates). The 2026-10-30 capture's: `df` 0x154, `e0` 1, `e1`, `e3` (0xa5, 60) and
+/// (0xa0, 25), `e4` with `(1, 0x26ad0)` and `(1, 0x26ad0)`.
+pub fn tradeskill_reply(m: &Message) -> Option<(u8, (u32, u32), (u32, u32))> {
+    if m.kind != 0x5e477770 || m.data.len() < 25 || !(0xdf..=0xe4).contains(&m.data[4]) || m.data[..4] != [0; 4] {
+        return None;
+    }
+    let word = |at: usize| u32::from_be_bytes(m.data[at..at + 4].try_into().unwrap());
+    Some((m.data[4], (word(9), word(13)), (word(17), word(21))))
+}
+
 /// `CharacterAction` `0xbb` (`N3Msg_TrainPerk`, Gamecode FUN_10053422) or `0xbc` (`N3Msg_UntrainPerk`, FUN_100534d2): train a perk
 /// rank, or untrain one, by its id in the second parameter (the 2026-10-31 capture: rank `0x7d` both ways). The server echoes it.
 pub fn train_perk(character: u32, perk: u32, train: bool) -> Frame {
@@ -750,6 +782,18 @@ mod tests {
         assert_eq!(pet_change(&m), Some((false, (CHARACTER, 0x7b1e6d64))));
         let data = Message::parse(&pet_command_to(0x4bc82, 4, (CHARACTER, 0x7b1e6d64))).unwrap().data;
         assert_eq!(data.iter().map(|b| format!("{b:02x}")).collect::<String>(), "00000000000000000400000000000007e20000c3507b1e6d640000000000000000");
+    }
+
+    #[test]
+    fn tradeskill_actions_are_the_captured_shape() {
+        let hex = |f: Frame| Message::parse(&f).unwrap().data.iter().map(|b| format!("{b:02x}")).collect::<String>();
+        assert_eq!(hex(tradeskill(0x7b1a0021, 0xdc, (0, 0), (0x68, 0x5a))), "00000000dc000000000000000000000000000000680000005a0000");
+        assert_eq!(hex(tradeskill(0x7b1a0021, 0xde, (0, 1), (0, 0))), "00000000de00000000000000000000000100000000000000000000");
+        let reply = |h: &str| Message { kind: 0x5e477770, identity: (CHARACTER, 0x7b1a0021), data: (0..h.len() / 2).map(|i| u8::from_str_radix(&h[2 * i..2 * i + 2], 16).unwrap()).collect() };
+        assert_eq!(tradeskill_reply(&reply("00000000df00000000000000000000000000000000000001540000")), Some((0xdf, (0, 0), (0, 0x154))));
+        assert_eq!(tradeskill_reply(&reply("00000000e3000000000000000000000000000000a50000003c0000")), Some((0xe3, (0, 0), (0xa5, 60))));
+        assert_eq!(tradeskill_reply(&reply("00000000e4000000000000000100026ad00000000100026ad00000")), Some((0xe4, (1, 0x26ad0), (1, 0x26ad0))));
+        assert_eq!(tradeskill_reply(&reply("00000000dc000000000000000000000000000000680000005a0000")), None);
     }
 
     #[test]

@@ -4077,6 +4077,24 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             }
                         }
                     }
+                    // The tradeskill window's answers (`tradeskill.rs`): the result's name and icon from its low template.
+                    if let Some((action, first, params)) = Message::parse(&frame).filter(|m| m.identity.1 == own).as_ref().and_then(n3::tradeskill_reply) {
+                        let event = match action {
+                            0xdf => crate::tradeskill::Event::Source(params.1 as i32),
+                            0xe0 => crate::tradeskill::Event::Target(params.1 as i32),
+                            0xe1 => crate::tradeskill::Event::NotValid,
+                            0xe2 => crate::tradeskill::Event::OutOfRange(params.1 as i32),
+                            0xe3 => crate::tradeskill::Event::Requirement(params.0, params.1 as i32),
+                            _ => {
+                                let (low, high) = (params.1, first.1);
+                                let template = [low, high].into_iter().find_map(|t| gear_db.get(mao_formats::resource::Id { kind: mao_formats::item::TEMPLATE, instance: t }).ok().flatten().and_then(|d| mao_formats::item::Item::parse(&d)));
+                                let icon = template.as_ref().and_then(|t| t.icon()).and_then(|id| gear_textures.get(mao_formats::item::ICON_TYPE, id).map(|x| std::sync::Arc::new(crate::gear::Icon { id, width: x.width as usize, height: x.height as usize, rgba: x.rgba })));
+                                let name = template.map_or_else(|| format!("Item #{low:x}"), |t| t.name);
+                                crate::tradeskill::Event::Result { min: params.0 as i32, max: first.0 as i32, low, high, name, icon }
+                            }
+                        };
+                        crate::tradeskill::push_event(event);
+                    }
                     if let Some(m) = Message::parse(&frame).filter(|m| m.kind == 0x58362220) {
                         if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
                             let int = |v: &mao_net::schema::Value, f: &str| v.get(f).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
@@ -4334,6 +4352,15 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 selected: target == Some(pet.1),
                 family: state.infos.get(&pet.1).and_then(|i| i.family),
             }).collect());
+            // The tradeskill window's source, target and Build (`CharacterAction` 0xdc, 0xdd, 0xde).
+            for command in crate::tradeskill::take_commands() {
+                let item = |place: Option<u32>| place.map_or((0, 0), |p| (0x68, p));
+                let _ = match command {
+                    crate::tradeskill::Command::Source(place) => connection.send(&n3::tradeskill(own, 0xdc, (0, 0), item(place))),
+                    crate::tradeskill::Command::Target(place) => connection.send(&n3::tradeskill(own, 0xdd, (0, 0), item(place))),
+                    crate::tradeskill::Command::Build(ql) => connection.send(&n3::tradeskill(own, 0xde, (0, ql.max(0) as u32), (0, 0))),
+                };
+            }
             for (pet, command) in crate::pets::take_commands() {
                 let _ = connection.send(&n3::pet_command_to(own, command, pet));
             }

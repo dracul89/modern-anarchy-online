@@ -40,6 +40,7 @@ pub const WINDOWS: &[(&str, &str)] = &[
     ("friends_window", "friends"),
     ("faction_window", "factions"),
     ("pet_window", "pets"),
+    ("tradeskill_window", "tradeskill"),
     ("map_window", "planetmap"),
     ("planetmap_window", "planetmap"),
     ("specialaction_window", "actions"),
