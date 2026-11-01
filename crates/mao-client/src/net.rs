@@ -3703,7 +3703,6 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
             let speed = world.speeds.get(&id).copied().unwrap_or(0.0);
             // The original's choice (FUN_1006c370): a sidestep plays walk-left/right, moving against the facing the back
             // animations; walking is 1.5 units a second and running from 3 (backwards) or 5, so 2.2 tells them apart.
-            use mao_formats::appearance::Action;
             // (one's own character runs or walks by its mode, as the original's FUN_1006c370 does; the others by their speed)
             let running = if id == world.own { !world.own_walking } else { speed > 2.2 };
             let mode = if world.swimming.contains(&id) {
