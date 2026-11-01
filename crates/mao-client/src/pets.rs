@@ -13,10 +13,14 @@
 //! window's `ShowButtons` (`PetWindowConfig`, on at first) and enabled only while the pet is in the playfield
 //! (FUN_1007d72b). The bar is the pet's health (stat 27) over its maximum (stat 1), empty while it is away (FUN_1007cf95).
 //!
+//! The name flashes red: `PetToMaster` (`0d381f02`, command 1 with a count, 0x0a in the captures, beside "Your pet is out of
+//! range") reaches the pet's view through global signal +0x40 (Gamecode FUN_10011fa1; the view's FUN_1007d273 sets its
+//! counter +0x140 to twice the count). The view's timer (500 ms, `EventTimer_c::Start` in FUN_1007d817) runs FUN_1007d72b,
+//! which takes one off the counter while it is not below zero; while the counter is odd (and not -1) the name is
+//! `#ff0000` (FUN_1007d67c) and the bar shows the other way (FUN_1007cf95: empty in the playfield, full away).
+//!
 //! Left out: the icon list under each pet (a `MultiListView_c` of its running nano programs with their time remaining,
-//! FUN_10045d42: the client does not know a pet's programs' times); the red flashing of the name (FUN_1007d273, a global
-//! signal with a count that was not traced to a message; `PetToMaster` 0d381f02 came with "Your pet is out of range" in the
-//! 2026-10-31 capture but its use was not followed); the icon menu's "Show buttons", "Fixed Pet Buttons" (pets by their
+//! FUN_10045d42: the client does not know a pet's programs' times); the icon menu's "Show buttons", "Fixed Pet Buttons" (pets by their
 //! `PetType`, stat 512, `PetTypeToLocation`) and "Remember Pet Names" (`/pet rename` on summoning).
 
 use std::sync::Mutex;
@@ -24,7 +28,7 @@ use std::sync::Mutex;
 use crate::theme::Palette;
 
 /// A pet as the connection last saw it.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Pet {
     pub id: (u32, u32),
     pub name: String,
@@ -36,6 +40,26 @@ pub struct Pet {
     pub selected: bool,
     /// `NPCFamily` (stat 455), from its entity message.
     pub family: Option<u16>,
+    /// The view's flash counter (+0x140, -1 when not flashing: `flash_value`).
+    pub flash: i32,
+}
+
+impl Default for Pet {
+    fn default() -> Pet {
+        Pet { id: (0, 0), name: String::new(), health: (0, 0), in_play: false, selected: false, family: None, flash: -1 }
+    }
+}
+
+/// The view's flash counter `elapsed` after a `PetToMaster` with `count`: twice the count, one less each 500 ms tick of the
+/// view's timer (FUN_1007d72b), down to -1.
+pub fn flash_value(count: u32, elapsed: std::time::Duration) -> i32 {
+    let ticks = (elapsed.as_millis() / 500).min(i32::MAX as u128) as i32;
+    (count.min(1 << 20) as i32 * 2 - ticks).max(-1)
+}
+
+/// Whether the name is red now (FUN_1007d67c: the counter odd and not -1).
+fn flashing(pet: &Pet) -> bool {
+    pet.flash & 1 != 0 && pet.flash != -1
 }
 
 /// The `PetCommand` numbers of the buttons (the schema's `PetCommand`).
@@ -82,6 +106,9 @@ fn first_button(pet: &Pet) -> (&'static str, &'static str, u32) {
 
 /// The name's colour (FUN_1007d67c).
 pub fn name_colour(pet: &Pet) -> &'static str {
+    if flashing(pet) {
+        return "#ff0000";
+    }
     match (pet.in_play, pet.selected) {
         (false, _) => "#808080",
         (true, true) => "#ffffff",
@@ -89,10 +116,16 @@ pub fn name_colour(pet: &Pet) -> &'static str {
     }
 }
 
-/// The bar's fill (FUN_1007cf95): health over its maximum in the playfield, else empty.
+/// The bar's fill (FUN_1007cf95): health over its maximum in the playfield, else empty; flashing, the other way round (empty
+/// in the playfield, full away).
 pub fn fill(pet: &Pet) -> f32 {
     let (now, max) = pet.health;
-    if pet.in_play && max > 0 { now as f32 / max as f32 } else { 0.0 }
+    match (pet.in_play, flashing(pet)) {
+        (true, true) | (false, false) => 0.0,
+        (false, true) => 1.0,
+        (true, false) if max > 0 => now as f32 / max as f32,
+        (true, false) => 0.0,
+    }
 }
 
 /// The pet list's views: a `PetView_c` for each pet.
@@ -217,13 +250,29 @@ mod tests {
 
     #[test]
     fn colours_buttons_and_fill_as_the_original() {
-        let mut pet = Pet { id: (0xc350, 0x7b1e6d64), name: "Ravening M-60".into(), health: (100, 400), in_play: true, selected: false, family: Some(0x5f) };
+        let mut pet = Pet { id: (0xc350, 0x7b1e6d64), name: "Ravening M-60".into(), health: (100, 400), in_play: true, selected: false, family: Some(0x5f), flash: -1 };
         assert_eq!((name_colour(&pet), fill(&pet), first_button(&pet).2), ("#bbbbbb", 0.25, ATTACK));
         pet.selected = true;
         assert_eq!(name_colour(&pet), "#ffffff");
         pet.family = Some(0x60);
         assert_eq!(first_button(&pet).2, HEAL);
         pet.in_play = false;
+        assert_eq!((name_colour(&pet), fill(&pet)), ("#808080", 0.0));
+    }
+
+    /// A count of 10 flashes the name ten times over ten seconds: red on each odd counter value.
+    #[test]
+    fn the_name_flashes_red_count_times() {
+        use std::time::Duration;
+        let ms = |n: u64| Duration::from_millis(n);
+        assert_eq!((flash_value(10, ms(0)), flash_value(10, ms(500)), flash_value(10, ms(9_999)), flash_value(10, ms(60_000))), (20, 19, 1, -1));
+        let reds = (0..25).filter(|k| flashing(&Pet { flash: flash_value(10, ms(k * 500)), ..Pet::default() })).count();
+        assert_eq!(reds, 10);
+        let mut pet = Pet { health: (100, 400), in_play: true, flash: 19, ..Pet::default() };
+        assert_eq!((name_colour(&pet), fill(&pet)), ("#ff0000", 0.0));
+        pet.in_play = false;
+        assert_eq!((name_colour(&pet), fill(&pet)), ("#ff0000", 1.0));
+        pet.flash = 18;
         assert_eq!((name_colour(&pet), fill(&pet)), ("#808080", 0.0));
     }
 }

@@ -250,6 +250,11 @@ struct World {
     /// in the first free place from 1, `GetFreePetSlot` 0x1007ee0d), from the server's `AddPet` and `RemovePet`; a new
     /// playfield starts the list again, as the original's new client character does (its pets come again after it).
     pets: BTreeMap<u32, (u32, u32)>,
+    /// The pets whose names flash red in the pet window, with how many times and since when: `PetToMaster` (`0d381f02`,
+    /// `PetToMasterIIR_c`: read FUN_10076917, apply FUN_1007699d) to one's own character, command 1 with its count (the
+    /// captures' 0x0a, with "Your pet is out of range") or command 2 with none, raises global signal +0x40 (FUN_10011fa1) with
+    /// the pet and the count, which `PetView_c` (FUN_1007d273) takes as its flash counter (`pets::flash_value`).
+    pet_flashes: BTreeMap<u32, (u32, Instant)>,
     /// The health each character was last known to have (from the damage events: the target's health after the hit).
     last_hp: BTreeMap<u32, i64>,
     /// The social action each character is doing: its name and when it began (from `SocialActionCmd`).
@@ -1674,6 +1679,18 @@ impl World {
         }
         // The pets (`pets.rs`): `AddPet` names one, into the first free place (`GetFreePetSlot`, a pet already listed stays
         // where it is); `RemovePet` takes one away.
+        if m.kind == 0x0d381f02 && m.identity.1 == self.own && m.data.len() >= 17 {
+            let word = |at: usize| u32::from_be_bytes(m.data[at..at + 4].try_into().unwrap());
+            match word(9) {
+                1 => {
+                    self.pet_flashes.insert(word(5), (word(13), Instant::now()));
+                }
+                2 => {
+                    self.pet_flashes.remove(&word(5));
+                }
+                _ => {}
+            }
+        }
         if let Some((added, pet)) = mao_net::n3::pet_change(&m) {
             if !added {
                 self.pets.retain(|_, p| *p != pet);
@@ -4718,6 +4735,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 in_play: state.entities.contains_key(&pet.1),
                 selected: target == Some(pet.1),
                 family: state.infos.get(&pet.1).and_then(|i| i.family),
+                flash: state.pet_flashes.get(&pet.1).map_or(-1, |&(count, since)| crate::pets::flash_value(count, since.elapsed())),
             }).collect());
             // The tradeskill window's source, target and Build (`CharacterAction` 0xdc, 0xdd, 0xde).
             // The research window's request (`3115534d`) and its sliders' and goals' `SetStat`s (263 to 266).
@@ -7978,6 +7996,22 @@ mod door_tests {
         assert!(w.weapon_flag.contains(&other));
         w.add(&equip);
         assert_eq!(w.weapons.get(&(other, 0)), Some(&0x1234));
+    }
+
+    /// The 15:05 capture's `PetToMaster`: command 1 with 0x0a for each pet (the names flash ten times), then command 2 for each
+    /// (the flashing stops). Only to one's own character.
+    #[test]
+    fn pet_to_master_flashes_the_pets_names() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let own = 0x4bc82;
+        let mut w = World { own, ..World::default() };
+        let tell = |w: &mut World, to: u32, h: &str| w.add(&Message { kind: 0x0d381f02, identity: (0xc350, to), data: hex(h) }.frame(1));
+        tell(&mut w, own, "010000c3507b1e6d64000000010000000a0000000000000000");
+        tell(&mut w, own, "010000c3507b1e6d65000000010000000a0000000000000000");
+        tell(&mut w, 0x4bc83, "010000c3507b1e6d66000000010000000a0000000000000000");
+        assert_eq!(w.pet_flashes.iter().map(|(&p, &(n, _))| (p, n)).collect::<Vec<_>>(), vec![(0x7b1e6d64, 10), (0x7b1e6d65, 10)]);
+        tell(&mut w, own, "010000c3507b1e6d6400000002000000000000000000000000");
+        assert_eq!(w.pet_flashes.keys().copied().collect::<Vec<_>>(), vec![0x7b1e6d65]);
     }
 
     /// Sleeping and lounging: a seated character's `SocialActionCmd` 0x44 lays it down (`WaitState` 0xf, `sleep-ground` held),
