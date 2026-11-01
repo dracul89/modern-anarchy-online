@@ -376,6 +376,12 @@ struct World {
     towers: BTreeMap<u32, Vec<mao_net::landcontrol::Tower>>,
     tower_playfield: u32,
     towers_changed: bool,
+    /// The playfield's land-control map (`LandControlMap_t`, 0xf4248, loaded with its districts) and the character's
+    /// district name and land control level range (`N3Msg_GetLCDistrictInfo`), with whether the map should be told.
+    land_map: Option<std::sync::Arc<mao_formats::landcontrolmap::LandControlMap>>,
+    land_map_changed: bool,
+    lc_district: Option<(String, i32, i32)>,
+    lc_district_changed: bool,
     /// The player cities' houses blob of each playfield (`PlayfieldAllCities`), not drawn (no city code is ported).
     cities: BTreeMap<u32, Vec<u8>>,
     /// The terminals the server announces (`SimpleItemFullUpdate` on a `0xc73d` with a place): in an instance (ICC's shops) the
@@ -5740,6 +5746,16 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         state.music_overrides.clear();
                     }
                     districts = Some((current, crate::sounds::DistrictMap::load(&gear_db, current)));
+                    // (FUN_1011f406: the land-control map is read with the area and district info)
+                    let object = gear_db.get(mao_formats::resource::Id { kind: mao_formats::landcontrolmap::KIND, instance: current }).ok().flatten();
+                    state.land_map = object.and_then(|o| mao_formats::landcontrolmap::parse(&o)).map(std::sync::Arc::new);
+                    state.land_map_changed = true;
+                }
+                // (the district info under the map's land-control view, which GUI.dll's FUN_100eb04b asks for twice a second)
+                let info = districts.as_ref().and_then(|d| d.1.as_ref()).and_then(|d| d.land_control_info(position));
+                if info != state.lc_district {
+                    state.lc_district = info;
+                    state.lc_district_changed = true;
                 }
                 ambient_weather = crate::environment::compute(&areas, base_environment.as_ref(), position, state.game_clock.day(), state.game_clock.seconds(), state.game_clock.day_intensity()).weather;
                 // (FUN_100b1f3c: the expansion flag, set once the character's stat 389 has bit 0)
@@ -6153,6 +6169,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         (state.names.get(&own).map(|n| n.0.clone()).unwrap_or_default(), crate::derived::totals(&parts), parts)
                     }),
                     towers: std::mem::take(&mut state.towers_changed).then(|| state.towers.get(&state.tower_playfield).cloned().unwrap_or_default()),
+                    land_map: std::mem::take(&mut state.land_map_changed).then(|| state.land_map.clone()),
+                    lc_district: std::mem::take(&mut state.lc_district_changed).then(|| state.lc_district.clone()),
                     map_dots: {
                         let own_side = state.stats.get(&33).copied().unwrap_or(0) as u8;
                         state

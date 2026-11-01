@@ -118,6 +118,10 @@ pub struct Update {
     pub map_dots: Vec<([f32; 2], crate::automap::DotKind)>,
     /// The playfield's Notum Wars tower sites, when the list changes (zoning in, a tower destroyed or planted).
     pub towers: Option<Vec<mao_net::landcontrol::Tower>>,
+    /// The playfield's land-control map, when it changes (zoning), and the character's district for the land-control
+    /// view (name and level range), when it changes.
+    pub land_map: Option<Option<std::sync::Arc<mao_formats::landcontrolmap::LandControlMap>>>,
+    pub lc_district: Option<Option<(String, i32, i32)>>,
     /// The names to float over the characters and creatures near (Z-up position over the head).
     pub nameplates: Vec<crate::nametag::Tag>,
     /// Numbers to float over the fight: Z-up position, text and kind (see `ui::Floater`).
@@ -1445,6 +1449,12 @@ impl ApplicationHandler for App {
                         self.hud.map_dots = std::mem::take(&mut update.map_dots);
                         if let Some(towers) = update.towers.take() {
                             self.hud.towers = towers;
+                        }
+                        if let Some(map) = update.land_map.take() {
+                            self.hud.land_map = map;
+                        }
+                        if let Some(info) = update.lc_district.take() {
+                            self.hud.lc_district = info;
                         }
                         self.hud.nameplates = std::mem::take(&mut update.nameplates);
                         if let Some(h) = update.heading {

@@ -157,8 +157,24 @@ pub struct AutoMap {
     /// units across the corner map.
     planet_zoom: f32,
     planet_span: f32,
-    /// The map control's land-control button (`RenderLandControlData`, off until switched on).
+    /// The map control's land-control button (`RenderLandControlData`, off until switched on; kept between sessions as
+    /// the original archives it, FUN_100ebfdc, and reads it back building the control, FUN_100ecdf7).
     pub land_control: bool,
+    /// The playfield's land-control map as the picture `PFMapRenderer_c` draws over the map (FUN_100ebc3f), with whether it
+    /// was coloured for a playfield with a map picture.
+    land_map: Option<LandMap>,
+    /// The character's district, its name and land control level range (`N3Msg_GetLCDistrictInfo`).
+    lc_district: Option<(String, i32, i32)>,
+    /// The map control's land-control button (MapControlView_c's `Info` toggle) as a GUI view tree: the tree, its root and
+    /// the button.
+    controls: Option<(crate::gui::view::Tree, crate::gui::view::Id, crate::gui::view::Id)>,
+    land_source: Option<std::sync::Arc<mao_formats::landcontrolmap::LandControlMap>>,
+}
+
+struct LandMap {
+    source: std::sync::Arc<mao_formats::landcontrolmap::LandControlMap>,
+    on_planet: bool,
+    texture: egui::TextureHandle,
 }
 
 /// The planet map's pixels to a world unit, on its biggest level.
@@ -173,7 +189,7 @@ struct Planet {
 
 impl Default for AutoMap {
     fn default() -> Self {
-        AutoMap { grid: None, texture: None, dirty: false, last_upload: std::time::Instant::now(), overlay: false, mini_span: 150.0, zoom: 3.0, pan: [0.0; 2], mini_at: load_position(), planet: None, planet_tried: None, playfield: 0, planet_zoom: PLANET_NATIVE * 2.0, planet_span: 2500.0, land_control: false }
+        AutoMap { grid: None, texture: None, dirty: false, last_upload: std::time::Instant::now(), overlay: false, mini_span: 150.0, zoom: 3.0, pan: [0.0; 2], mini_at: load_position(), planet: None, planet_tried: None, playfield: 0, planet_zoom: PLANET_NATIVE * 2.0, planet_span: 2500.0, land_control: load_land_control(), land_map: None, lc_district: None, controls: None, land_source: None }
     }
 }
 
@@ -183,17 +199,23 @@ fn position_path() -> std::path::PathBuf {
 
 fn load_position() -> Option<[f32; 2]> {
     let text = std::fs::read_to_string(position_path()).ok()?;
-    let v: Vec<f32> = text.split_whitespace().filter_map(|t| t.parse().ok()).collect();
+    let v: Vec<f32> = text.lines().next()?.split_whitespace().filter_map(|t| t.parse().ok()).collect();
     (v.len() >= 2).then(|| [v[0], v[1]])
 }
 
-fn save_position(at: [f32; 2]) {
+/// The land-control button as saved (`RenderLandControlData`, the second line of the map's file).
+fn load_land_control() -> bool {
+    std::fs::read_to_string(position_path()).is_ok_and(|t| t.lines().any(|l| l.trim() == "RenderLandControlData 1"))
+}
+
+/// The corner map's place and the land-control button, saved together.
+fn save_prefs(at: Option<[f32; 2]>, land_control: bool) {
     let path = position_path();
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    let _ = std::fs::write(path, format!("{:.0} {:.0}
-", at[0], at[1]));
+    let place = at.map(|at| format!("{:.0} {:.0}\n", at[0], at[1])).unwrap_or_default();
+    let _ = std::fs::write(path, format!("{place}RenderLandControlData {}\n", land_control as u8));
 }
 
 impl AutoMap {
@@ -283,21 +305,28 @@ impl AutoMap {
             (None, Some(g), Some(t)) => (t, Some(g)),
             _ => return,
         };
+        let uv = |world: [f32; 2]| match (planet, grid) {
+            (Some(p), _) => {
+                let (px, py) = p.map.pixel(p.level, self.playfield, world[0], world[1]).unwrap_or((0.0, 0.0));
+                egui::pos2(px / p.size[0], py / p.size[1])
+            }
+            (None, Some(grid)) => egui::pos2((world[0] - grid.origin[0]) / grid.cell / grid.w as f32, (world[1] - grid.origin[1]) / grid.cell / grid.h as f32),
+            _ => egui::pos2(0.0, 0.0),
+        };
+        painter.add(egui::Shape::mesh(Self::window_mesh(texture.id(), rect, center, px_per_unit, yaw, circle, uv)));
+    }
+
+    /// The map window's mesh, a texture laid over the world: a quad over `rect`, or a fan of triangles round its middle (the
+    /// map showing through a round window), each corner's texture place from its world place by `uv`.
+    #[allow(clippy::too_many_arguments)]
+    fn window_mesh(texture: egui::TextureId, rect: egui::Rect, center: [f32; 2], px_per_unit: f32, yaw: Option<f32>, circle: bool, uv: impl Fn([f32; 2]) -> egui::Pos2) -> egui::Mesh {
         let (fwd, right) = Self::basis(yaw);
         let corner = |u: f32, v: f32| -> ([f32; 2], egui::Pos2) {
             let world = [center[0] + (right[0] * u + fwd[0] * -v) / px_per_unit, center[1] + (right[1] * u + fwd[1] * -v) / px_per_unit];
-            let uv = match (planet, grid) {
-                (Some(p), _) => {
-                    let (px, py) = p.map.pixel(p.level, self.playfield, world[0], world[1]).unwrap_or((0.0, 0.0));
-                    egui::pos2(px / p.size[0], py / p.size[1])
-                }
-                (None, Some(grid)) => egui::pos2((world[0] - grid.origin[0]) / grid.cell / grid.w as f32, (world[1] - grid.origin[1]) / grid.cell / grid.h as f32),
-                _ => egui::pos2(0.0, 0.0),
-            };
-            ([world[0], world[1]], uv)
+            (world, uv(world))
         };
         let (hw, hh) = (rect.width() / 2.0, rect.height() / 2.0);
-        let mut mesh = egui::Mesh::with_texture(texture.id());
+        let mut mesh = egui::Mesh::with_texture(texture);
         if circle {
             // A fan of triangles round the middle: the map shows through a round window.
             let radius = hw.min(hh);
@@ -317,7 +346,63 @@ impl AutoMap {
             }
             mesh.indices.extend_from_slice(&[0, 1, 2, 0, 2, 3]);
         }
-        painter.add(egui::Shape::mesh(mesh));
+        mesh
+    }
+
+    /// The playfield's land-control map and the character's district for the land-control view; the picture is made again
+    /// for a new map.
+    pub fn set_land_control(&mut self, map: Option<&std::sync::Arc<mao_formats::landcontrolmap::LandControlMap>>, district: Option<&(String, i32, i32)>) {
+        let same = match (&self.land_source, map) {
+            (Some(a), Some(b)) => std::sync::Arc::ptr_eq(a, b),
+            (a, b) => a.is_none() && b.is_none(),
+        };
+        if !same {
+            self.land_source = map.cloned();
+            self.land_map = None;
+        }
+        self.lc_district = district.cloned();
+    }
+
+    /// FUN_100ebc3f's picture of the land-control map (A4R4G4B4): a tile a tower may stand on `0xf392`, green; any other
+    /// `0xf555`, grey, or on a playfield with a map picture (the map data's +0x80) `0x4000`, a faint black. The rows run
+    /// north from row 0 at z 0 (the original fills its 128 x 128 window bottom up); a clear texel round the edge keeps the
+    /// world outside the map uncovered.
+    fn land_image(map: &mao_formats::landcontrolmap::LandControlMap, on_planet: bool) -> egui::ColorImage {
+        let nibbles = |v: u16| egui::Color32::from_rgba_unmultiplied(((v >> 8) & 15) as u8 * 17, ((v >> 4) & 15) as u8 * 17, (v & 15) as u8 * 17, (v >> 12) as u8 * 17);
+        let (set, clear) = (nibbles(0xf392), nibbles(if on_planet { 0x4000 } else { 0xf555 }));
+        let (w, h) = (map.width as usize + 2, map.height as usize + 2);
+        let mut pixels = vec![egui::Color32::TRANSPARENT; w * h];
+        for z in 0..map.height as i32 {
+            for x in 0..map.width as i32 {
+                pixels[(z as usize + 1) * w + x as usize + 1] = if map.placeable(x, z) { set } else { clear };
+            }
+        }
+        egui::ColorImage { size: [w, h], source_size: egui::vec2(w as f32, h as f32), pixels }
+    }
+
+    /// The land-control map over the map (FUN_100ea88a with the land-control button on: the picture over the window, normal
+    /// alpha blending, the state block at +0x600), each tile 4 world units a side.
+    #[allow(clippy::too_many_arguments)]
+    fn land(&mut self, painter: &egui::Painter, rect: egui::Rect, center: [f32; 2], px_per_unit: f32, yaw: Option<f32>, circle: bool) {
+        if !self.land_control {
+            return;
+        }
+        let on_planet = self.planet.as_ref().is_some_and(|p| p.map.pixel(p.level, self.playfield, 0.0, 0.0).is_some());
+        if self.land_map.as_ref().is_some_and(|m| m.on_planet != on_planet) {
+            self.land_map = None;
+        }
+        if self.land_map.is_none()
+            && let Some(source) = self.land_source.clone()
+        {
+            // (no filtering is set for it: Direct3D's default, the nearest texel)
+            let texture = painter.ctx().load_texture("land-control-map", Self::land_image(&source, on_planet), egui::TextureOptions::NEAREST);
+            self.land_map = Some(LandMap { source, on_planet, texture });
+        }
+        let Some(map) = &self.land_map else { return };
+        let tile = mao_formats::landcontrolmap::TILE;
+        let (w, h) = (map.source.width as f32 + 2.0, map.source.height as f32 + 2.0);
+        let uv = |world: [f32; 2]| egui::pos2((world[0] / tile + 1.0) / w, (world[1] / tile + 1.0) / h);
+        painter.add(egui::Shape::mesh(Self::window_mesh(map.texture.id(), rect, center, px_per_unit, yaw, circle, uv)));
     }
 
     /// The map's up and right as world directions (x, z).
@@ -370,8 +455,12 @@ impl AutoMap {
     }
 
     /// The Notum Wars tower sites as GUI.dll's `PFMapRenderer_c` draws them (FUN_100ea243): first each tower's 16 x 16 icon
-    /// at its place, then, with the land-control button on (`+0x47a`, FUN_100ebac9), an 80-pixel circle over each. Both keep
-    /// their size whatever the zoom (FUN_100467e8 sizes the quad in screen pixels).
+    /// at its place, then, with the land-control button on (`+0x47a`, FUN_100ebac9) and the land-control map's picture made
+    /// (`+0x4b4`), an 80-pixel circle over each. Both keep their size whatever the zoom (FUN_100467e8 sizes the quad in
+    /// screen pixels). Their vertex colours carry alpha 0 (`0xffffff`, `0xffff04`), which the state block they are drawn
+    /// with (+0x57c, set up in the constructor FUN_100eb7d5) never reads: alpha is the texture's alone (stage 0 `ALPHAOP`
+    /// `SELECTARG1` of `TEXTURE`), colour the texture's times the vertex's, blended `ONE`, `INVSRCALPHA`. The skin's circle is
+    /// white on the green key, so it draws opaque in the tint, as here.
     #[allow(clippy::too_many_arguments)]
     fn towers(&self, painter: &egui::Painter, rect: egui::Rect, center: [f32; 2], px_per_unit: f32, yaw: Option<f32>, towers: &[Tower], circle: bool) {
         let Some(skin) = crate::skin::skin(painter.ctx()) else { return };
@@ -380,7 +469,7 @@ impl AutoMap {
         for (p, t) in &places {
             skin.draw_in(painter, tower_sprite(t.side, t.class), egui::Rect::from_center_size(*p, egui::vec2(16.0, 16.0)), egui::Color32::WHITE);
         }
-        if self.land_control {
+        if self.land_control && self.land_map.is_some() {
             // (the 128 x 128 texture holds the 80 x 80 `GFX_GUI_MAP_CIRCLE` at its corner; 82 x 82 of it is drawn centred)
             let painter = painter.with_clip_rect(rect);
             for (p, t) in &places {
@@ -389,10 +478,63 @@ impl AutoMap {
         }
     }
 
+    /// FUN_100eb04b's text in the land-control view (the TextView at 5, 5 of the map renderer, HTML): the district's name and
+    /// `Lvl Rng: <low> - <high>`, nothing unless both ends are 1 or more. Only with the button on (FUN_100ebac9 makes the
+    /// view and starts its half-second timer; switched off the view goes).
+    fn district_text(&self) -> Option<String> {
+        if !self.land_control {
+            return None;
+        }
+        let (name, low, high) = self.lc_district.as_ref()?;
+        (*low >= 1 && *high >= 1).then(|| format!("{name}\nLvl Rng: {low} - {high}"))
+    }
+
+    /// MapControlView_c's land-control button (FUN_100ecdf7): a toggle `Button_c` labelled with text.mdb's 10000 `Info`, its
+    /// tip `ShowLConMap` ("Show land control areas on the map"), set from the archived `RenderLandControlData`, disabled
+    /// without Notum Wars (stat 389 bit 0); toggling it switches the renderer's land control (FUN_100ec034 -> FUN_100ebac9).
+    /// The control's `Build` and `War` buttons (the land control build and war menus) are not ported. Returns the bar's
+    /// bottom.
+    fn control_bar(&mut self, ui: &mut egui::Ui, at: egui::Pos2, notum_wars: bool, palette: &crate::theme::Palette) -> f32 {
+        use crate::gui::view::{Layout, Node, Plain, Tree};
+        let (tree, root, button) = self.controls.get_or_insert_with(|| {
+            let text = |name: &str| crate::feedback::texts().and_then(|t| t.named(10000, name)).unwrap_or(name).to_string();
+            let mut tree = Tree::default();
+            let root = tree.add(Node::new("", Box::new(Plain)));
+            tree.get_mut(root).layout = Layout::Horizontal;
+            let mut b = crate::gui::controls::Button::new(&text("Info"));
+            b.toggle = true;
+            let mut node = Node::new("LandControl", Box::new(b));
+            node.tooltip = text("ShowLConMap");
+            let button = tree.add(node);
+            tree.add_child(root, button);
+            (tree, root, button)
+        });
+        let (root, button) = (*root, *button);
+        if let Some(b) = tree.control_mut::<crate::gui::controls::Button>(button) {
+            b.on = self.land_control;
+        }
+        tree.get_mut(button).enabled = notum_wars;
+        tree.measure = crate::gui::font::Measure { ctx: Some(ui.ctx().clone()) };
+        let size = crate::gui::host::preferred_pixels(tree, root, false);
+        let skin = crate::skin::skin(ui.ctx());
+        let bar = egui::Rect::from_min_size(at, size);
+        ui.scope_builder(egui::UiBuilder::new().max_rect(bar), |ui| crate::gui::host::show(ui, tree, root, skin.as_deref(), palette));
+        for (id, signal) in std::mem::take(&mut tree.signals) {
+            if id == button
+                && let crate::gui::host::Signal::Toggled(on) = signal
+                && on != self.land_control
+            {
+                self.land_control = on;
+                save_prefs(self.mini_at, on);
+            }
+        }
+        bar.bottom()
+    }
+
     /// The corner map and, when switched on, the overlay. `notum_wars`: the account has the expansion (stat 389, bit 0), which
     /// the land-control button needs (MapControlView_c, FUN_100ecdf7, disables it otherwise).
     #[allow(clippy::too_many_arguments)]
-    pub fn show(&mut self, ctx: &egui::Context, me: Option<([f32; 2], f32)>, yaw: f32, dots: &[([f32; 2], DotKind)], booths: &[[f32; 2]], towers: &[Tower], notum_wars: bool, place: &str) {
+    pub fn show(&mut self, ctx: &egui::Context, me: Option<([f32; 2], f32)>, yaw: f32, dots: &[([f32; 2], DotKind)], booths: &[[f32; 2]], towers: &[Tower], notum_wars: bool, place: &str, palette: &crate::theme::Palette) {
         self.refresh(ctx);
         let Some((pos, heading)) = me else { return };
         let screen = ctx.content_rect();
@@ -418,19 +560,18 @@ impl AutoMap {
                 ui.painter().rect_filled(rect, 0.0, egui::Color32::from_black_alpha(110));
                 let center = [pos[0] + self.pan[0], pos[1] + self.pan[1]];
                 self.paint(ui.painter(), rect, center, zoom, None, false);
+                self.land(ui.painter(), rect, center, zoom, None, false);
                 self.towers(ui.painter(), rect, center, zoom, None, towers, false);
                 self.dots(ui.painter(), rect, center, zoom, None, (pos, heading), dots, booths, false);
                 ui.painter().text(rect.left_top() + egui::vec2(16.0, 14.0), egui::Align2::LEFT_TOP, place, egui::FontId::proportional(18.0), egui::Color32::from_rgb(255, 205, 70));
                 ui.painter().text(rect.left_top() + egui::vec2(16.0, 38.0), egui::Align2::LEFT_TOP, "Drag to pan, wheel to zoom, O to close, Space re-centres", egui::FontId::proportional(12.0), egui::Color32::from_white_alpha(150));
-                // The land-control toggle (the map control's button, `RenderLandControlData`), on Notum Wars playfields.
-                if !towers.is_empty() {
-                    let button = egui::Rect::from_min_size(rect.left_top() + egui::vec2(16.0, 58.0), egui::vec2(150.0, 20.0));
-                    let label = format!("Land control: {}", if self.land_control { "on" } else { "off" });
-                    let colour = if notum_wars { egui::Color32::from_rgb(255, 205, 70) } else { egui::Color32::from_white_alpha(70) };
-                    let clicked = ui.interact(button, egui::Id::unique("automap-land-control"), egui::Sense::click()).on_hover_text("Show the towers' land-control circles").clicked();
-                    ui.painter().text(button.left_center(), egui::Align2::LEFT_CENTER, label, egui::FontId::proportional(13.0), colour);
-                    if clicked && notum_wars {
-                        self.land_control = !self.land_control;
+                // The land-control toggle (the map control's button, `RenderLandControlData`), on Notum Wars playfields,
+                // and under it the character's district.
+                if !towers.is_empty() || self.land_source.is_some() {
+                    let at = rect.left_top() + egui::vec2(16.0, 58.0);
+                    let bottom = self.control_bar(ui, at, notum_wars, palette);
+                    if let Some(text) = self.district_text() {
+                        ui.painter().text(egui::pos2(at.x, bottom + 6.0), egui::Align2::LEFT_TOP, text, egui::FontId::proportional(13.0), egui::Color32::WHITE);
                     }
                 }
             });
@@ -448,6 +589,7 @@ impl AutoMap {
                 ui.painter().circle_filled(c, r, egui::Color32::from_black_alpha(130));
                 let px = size / if planet { self.planet_span } else { self.mini_span };
                 self.paint(ui.painter(), rect, pos, px, Some(yaw), true);
+                self.land(ui.painter(), rect, pos, px, Some(yaw), true);
                 self.towers(ui.painter(), rect, pos, px, Some(yaw), towers, true);
                 self.dots(ui.painter(), rect, pos, px, Some(yaw), (pos, heading), dots, booths, true);
                 ui.painter().circle_stroke(c, r, egui::Stroke::new(2.5, egui::Color32::from_rgb(120, 170, 210)));
@@ -471,7 +613,7 @@ impl AutoMap {
                 let min = area.response.rect.min;
                 self.mini_at = Some([min.x, min.y]);
                 if area.response.drag_stopped() {
-                    save_position([min.x, min.y]);
+                    save_prefs(Some([min.x, min.y]), self.land_control);
                 }
             }
         }
@@ -481,9 +623,10 @@ impl AutoMap {
 /// A tower's map icon (FUN_100ea243). The 64 x 64 atlas FUN_100ea4b9 builds holds twelve GUI textures in 16-pixel cells,
 /// `0x10a 0x10b 0x10c 0x111 0x113 0x112 0x114 0x116 0x115 0x10d 0x10f 0x10e`; a tower takes cell `[4, 7, 10, 3, 6, 9, 5, 8,
 /// 11][side * 3 + kind]`, its side Clan (1) 0, Omni (2) 1, else 2, its kind a control tower (1, and any unknown) 0, a turret
-/// (2, 5, 6) 1, a conductor (3, 4) 2. The ids read as the skin's thirteen `GFX_GUI_MAP_*` sprites in name order (0x10a
-/// `ARROW` ... 0x10d `BUFFTOWER_BLUE`, 0x110 `CIRCLE`, the 128-pixel texture's, 0x111 `CONTROLLER_BLUE` ... 0x116
-/// `GUARDTOWER_RED`), which makes Clan red, Omni blue and the unclaimed grey.
+/// (2, 5, 6) 1, a conductor (3, 4) 2. A GUI texture id indexes AFCM.dll's table of GFX names (the pointers at RVA 0x16060,
+/// id 0x8a `GFX_GUI_CHECKBOX_CHECKED`): 0x10a `GFX_GUI_MAP_ARROW`, 0x10b `ARROW_SELECTED`, 0x10c `BIG_ARROW`, 0x10d-0x10f
+/// `BUFFTOWER_BLUE`, `_GREY`, `_RED`, 0x110 `CIRCLE` (the 128-pixel texture's), 0x111-0x113 `CONTROLLER_BLUE`, `_GREY`,
+/// `_RED`, 0x114-0x116 `GUARDTOWER_BLUE`, `_GREY`, `_RED`: Clan red, Omni blue and the unclaimed grey.
 pub fn tower_sprite(side: i32, class: i32) -> &'static str {
     let colour = match side {
         1 => 0,
@@ -533,5 +676,74 @@ mod tower_tests {
             }
         }
         assert_eq!(crate::skin::decode(layer.bytes("GFX_GUI_MAP_CIRCLE").unwrap()).unwrap().1, [80, 80]);
+    }
+
+    /// AFCM.dll's GFX names by GUI texture id: the table of name pointers at RVA 0x16060, id 0x8a at
+    /// `GFX_GUI_CHECKBOX_CHECKED`.
+    fn gfx_names(afcm: &[u8]) -> Vec<String> {
+        let u16_at = |o: usize| u16::from_le_bytes(afcm[o..o + 2].try_into().unwrap()) as usize;
+        let u32_at = |o: usize| u32::from_le_bytes(afcm[o..o + 4].try_into().unwrap()) as usize;
+        let pe = u32_at(0x3c);
+        let (sections, optional) = (u16_at(pe + 6), u16_at(pe + 20));
+        let base = u32_at(pe + 24 + 28);
+        let offset = |rva: usize| {
+            (0..sections).map(|i| pe + 24 + optional + i * 40).find_map(|h| {
+                let (va, size, raw) = (u32_at(h + 12), u32_at(h + 16), u32_at(h + 20));
+                (va..va + size).contains(&rva).then(|| rva - va + raw)
+            })
+        };
+        let mut names = Vec::new();
+        let mut at = offset(0x16060).unwrap();
+        while let Some(o) = u32_at(at).checked_sub(base).and_then(offset) {
+            let end = afcm[o..].iter().position(|&b| b == 0).unwrap();
+            match std::str::from_utf8(&afcm[o..o + end]) {
+                Ok(n) if n.starts_with("GFX_") => names.push(n.to_string()),
+                _ => break,
+            }
+            at += 4;
+        }
+        names
+    }
+
+    #[test]
+    fn the_atlas_ids_name_the_tower_sprites() {
+        // (the game's AFCM.dll; skipped without MAO_GAME)
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let names = gfx_names(&std::fs::read(std::path::Path::new(&game).join("AFCM.dll")).unwrap());
+        let first = names.iter().position(|n| n == "GFX_GUI_CHECKBOX_CHECKED").unwrap();
+        let id = |gui: usize| names[gui - 0x8a + first].as_str();
+        // (FUN_100ea4b9's twelve cells, and the cell each side and kind takes in FUN_100ea243)
+        let cells = [0x10a, 0x10b, 0x10c, 0x111, 0x113, 0x112, 0x114, 0x116, 0x115, 0x10d, 0x10f, 0x10e];
+        let pick = [4, 7, 10, 3, 6, 9, 5, 8, 11];
+        for (side, colour) in [(1, 0), (2, 1), (0, 2)] {
+            for (class, kind) in [(1, 0), (2, 1), (3, 2)] {
+                assert_eq!(id(cells[pick[colour * 3 + kind]]), tower_sprite(side, class));
+            }
+        }
+        assert_eq!(id(0x110), "GFX_GUI_MAP_CIRCLE");
+    }
+
+    #[test]
+    fn the_land_control_picture_has_the_originals_colours() {
+        let map = mao_formats::landcontrolmap::LandControlMap { width: 3, height: 2, bits: vec![0b001, 0b100] };
+        let on_planet = AutoMap::land_image(&map, true);
+        assert_eq!(on_planet.size, [5, 4]);
+        // (a clear edge; 0xf392 on the set tiles, 0x4000 elsewhere)
+        assert_eq!(on_planet.pixels[0], egui::Color32::TRANSPARENT);
+        assert_eq!(on_planet.pixels[5 + 1], egui::Color32::from_rgb(0x33, 0x99, 0x22));
+        assert_eq!(on_planet.pixels[5 + 2], egui::Color32::from_rgba_unmultiplied(0, 0, 0, 0x44));
+        assert_eq!(on_planet.pixels[2 * 5 + 3], egui::Color32::from_rgb(0x33, 0x99, 0x22));
+        assert_eq!(AutoMap::land_image(&map, false).pixels[5 + 2], egui::Color32::from_rgb(0x55, 0x55, 0x55));
+    }
+
+    #[test]
+    fn the_district_shows_with_a_level_range_only() {
+        let mut map = AutoMap { land_control: true, lc_district: Some(("jucha".into(), 60, 80)), ..AutoMap::default() };
+        assert_eq!(map.district_text().as_deref(), Some("jucha\nLvl Rng: 60 - 80"));
+        map.lc_district = Some(("Somewhere".into(), 0, 0));
+        assert_eq!(map.district_text(), None);
+        map.lc_district = Some(("jucha".into(), 60, 80));
+        map.land_control = false;
+        assert_eq!(map.district_text(), None);
     }
 }

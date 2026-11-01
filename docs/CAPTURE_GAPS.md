@@ -167,10 +167,27 @@ Drawn as GUI.dll's `PFMapRenderer_c` (the PF Map window, FUN_100ea243) draws the
 (`automap.rs`): a 16-pixel `GFX_GUI_MAP_CONTROLLER/GUARDTOWER/BUFFTOWER_RED/BLUE/GREY` icon per tower (Clan red, Omni blue,
 the rest grey), and with the land-control button on (`RenderLandControlData`, the expansion stat 389 bit 0 needed) an
 80-pixel `GFX_GUI_MAP_CIRCLE` over each, `0xffff04` for control towers and turrets, `0x00dcff` for the rest. The planet
-map window (`PlanetMapView_c`) does not draw towers in the original. Not done: the land-control bitmap
-(`N3Msg_GetLandControlBitmap`, the playfield's `LandControlMap_t` database record, MapData_c `+0x34`) and the district's
-name and level range under the button (`N3Msg_GetLCDistrictInfo`, "%s<br>Lvl Rng: %d - %d"). Unknown: the circle quad's
-colour has alpha 0 in the original's call (FUN_100467e8); the client draws it opaque over the texture's alpha.
+map window (`PlanetMapView_c`) does not draw towers in the original. The icon ids FUN_100ea4b9 packs (0x10a-0x116) are
+AFCM.dll's GFX names (the table at RVA 0x16060, id 0x8a `GFX_GUI_CHECKBOX_CHECKED`): `MAP_ARROW`, `ARROW_SELECTED`,
+`BIG_ARROW`, `BUFFTOWER_BLUE/GREY/RED`, `CIRCLE`, `CONTROLLER_BLUE/GREY/RED`, `GUARDTOWER_BLUE/GREY/RED`, as the client had
+inferred (tested against the dll). The circles' alpha 0 (FUN_100467e8's vertex colour) is never read: their state block
+(+0x57c, FUN_100eb7d5) takes alpha from the texture alone (`ALPHAOP SELECTARG1 TEXTURE`, blend `ONE`/`INVSRCALPHA`), and the
+skin's circle is white on the green key, so it draws opaque in its tint.
+
+The land-control view (the button on): the playfield's land-control map (`LandControlMap_t`, record `0xf4248`, loaded by
+Gamecode's FUN_1011f406 with the area and district info; GameData's `ReadBlob` 0x10008680: version 1, flags (bit 0 zlib),
+width and height in tiles of 4 world units, a bit per tile, `mao_formats::landcontrolmap`; all 39 records read, none
+compressed) comes to the GUI by `N3Msg_GetLandControlBitmap` (MapData_c +0x34, FUN_10042f00) and is drawn over the map
+(FUN_100ea88a, normal alpha blending) as FUN_100ebc3f colours it in A4R4G4B4: a tile a tower may stand on `0xf392` green, any
+other `0x4000` faint black on a playfield with a map picture (MapData_c +0x80) or `0xf555` opaque grey without one; the
+circles come only with that picture made (+0x4b4). The character's district (`N3Msg_GetLCDistrictInfo`, the zone's
+`DistrictData_t`: name +8, land control range +0x44/+0x48) shows as "%s<br>Lvl Rng: %d - %d" when both ends are 1 or more
+(FUN_100eb04b, every half second); the original puts that text at 5, 5 of the map, the client under the button. The
+button is MapControlView_c's toggle (FUN_100ecdf7): text.mdb 10000 `Info`, tip `ShowLConMap` ("Show land control areas on
+the map"), disabled without the expansion, its state archived as `RenderLandControlData` (FUN_100ebfdc) and kept by the
+client in `automap.ini`. Not ported: the control's `Build` and `War` buttons (the tower build and war menus) and the
+placement circle at the character (MapData_c +0x75, `0xdcdcdc`). Unknown: the bitmap's texture filter (none is set; the
+client takes Direct3D's default, the nearest texel).
 
 ### 10. Others' animations — partly ported
 
