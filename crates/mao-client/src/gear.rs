@@ -213,10 +213,27 @@ pub fn from_entries(db: &ResourceDatabase, textures: &crate::Textures, entries: 
 
 /// A criteria list as lines of text, each with whether the character meets it (`None` when that cannot be told): the list is a
 /// postfix expression, so it is evaluated with a stack; the top-level AND chain gives one line per condition, anything under an OR
-/// is shown as one line.
+/// is shown as one line. Whether a condition is met is the criteria evaluator's answer for it alone (`requirements`, FUN_100065d8
+/// on the client's own character: the below / above and the flag operators, and those that always pass or fail on the client);
+/// a condition on a perk, or after an "apply on" operator that moves it off the character (On Target, On User, On Caster ...),
+/// cannot be told here.
 pub fn requirement_lines(criteria: &[(u32, i32, u32)], stats: &std::collections::BTreeMap<u32, i64>) -> Vec<(String, Option<bool>)> {
+    // (the character's stats only: its perks are not given here)
+    struct Stats<'a>(&'a std::collections::BTreeMap<u32, i64>);
+    impl crate::requirements::Context for Stats<'_> {
+        fn stat(&self, holder: crate::requirements::Holder, stat: u32) -> Option<i64> {
+            (holder == ME).then(|| self.0.get(&stat).copied()).flatten()
+        }
+        fn is_own(&self, holder: crate::requirements::Holder) -> bool {
+            holder == ME
+        }
+    }
+    const ME: crate::requirements::Holder = (crate::requirements::CHARACTER, 0);
+    let ctx = Stats(stats);
     // each stack entry: its lines, and whether the whole holds
     let mut stack: Vec<(Vec<(String, Option<bool>)>, Option<bool>)> = Vec::new();
+    // (whether the conditions are about the character: the apply-on operators move them, "On Self" (19) back)
+    let mut on_self = true;
     for &(stat, value, op) in criteria {
         match op {
             4 | 3 => {
@@ -235,18 +252,20 @@ pub fn requirement_lines(criteria: &[(u32, i32, u32)], stats: &std::collections:
                     stack.push((vec![(format!("{} or {}", join(&a.0), join(&b.0)), holds)], holds));
                 }
             }
+            0x12 | 0x13 | 0x15 | 0x1a | 0x64 | 0x6e => on_self = op == 0x13,
             _ => {
-                let have = stats.get(&stat).copied();
                 let name = crate::skills::stat_name(stat);
-                let (text, met) = match op {
-                    0 => (format!("{name} = {value}"), have.map(|h| h == value as i64)),
-                    1 => (format!("{name} below {value}"), have.map(|h| h < value as i64)),
+                let met = if on_self { crate::requirements::evaluate(&[(stat, value, op)], ME, &ctx).ok() } else { None };
+                let text = match op {
+                    0 => format!("{name} = {value}"),
+                    1 => format!("{name} below {value}"),
                     // a "greater than" criterion is strict: "level above 214" is a requirement of level 215
-                    2 => (format!("{name} {}", value as i64 + 1), have.map(|h| h > value as i64)),
-                    24 => (format!("{name} not {value}"), have.map(|h| h != value as i64)),
-                    22 => (format!("{name} has flag {value}"), have.map(|h| h & value as i64 == value as i64)),
-                    93 => (format!("Perk {value}"), None),
-                    _ => (format!("condition {op} on {name} {value}"), None),
+                    2 => format!("{name} {}", value as i64 + 1),
+                    24 => format!("{name} not {value}"),
+                    22 => format!("{name} has flag {value}"),
+                    107 => format!("{name} has none of flags {value}"),
+                    93 => format!("Perk {value}"),
+                    _ => format!("condition {op} on {name} {value}"),
                 };
                 stack.push((vec![(text, met)], met));
             }
@@ -306,5 +325,11 @@ mod tests {
         let either = [(54, 10, 2), (16, 50, 2), (0, 0, 3)];
         let met: std::collections::BTreeMap<u32, i64> = [(54, 5), (16, 100)].into();
         assert_eq!(requirement_lines(&either, &met), vec![("Level 11 or Strength 51".to_string(), Some(true))]);
+        // a condition after "On Target" is about someone else; "On Self" brings them back; a perk cannot be told here
+        let target = [(0, 0, 18), (204, 30, 2), (0, 0, 19), (54, 10, 2), (0, 0, 4), (0, 100, 93), (0, 0, 4)];
+        let lines = requirement_lines(&target, &met);
+        assert_eq!(lines.iter().map(|l| l.1).collect::<Vec<_>>(), vec![None, Some(false), None]);
+        // (none of these flags)
+        assert_eq!(requirement_lines(&[(389, 2, 107)], &[(389, 4)].into()), vec![("Stat 389 has none of flags 2".to_string(), Some(true))]);
     }
 }
