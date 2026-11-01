@@ -113,28 +113,34 @@ fn initiative_bonus(skill: i64) -> f32 {
     if skill < 1201 { skill as f32 * 0.5 } else { (skill - 1200) as f32 / 6.0 + 600.0 }
 }
 
+/// Gamecode FUN_10067c74 (`recharge` false) and FUN_10067d92 (true): a character's attack or recharge time with a weapon in
+/// hundredths — the weapon's (stat 294, 210) plus 75, less a third of the initiative bonus (two thirds for the recharge) and
+/// the character's stat 51, no less than the weapon's minimum (523, 524) or 100. `item` is the weapon's stat (`None` for one it
+/// lacks), `player` the character's. (The character's +0x21c flag adds DAT_10156e58, which is 0.)
+pub fn swing_time(item: &dyn Fn(u32) -> Option<i32>, player: &dyn Fn(u32) -> i64, recharge: bool) -> f32 {
+    let init = item(440).unwrap_or(1234567890);
+    let (base, skill, least) = if recharge {
+        (item(210), if (0..=1200).contains(&init) { init } else { 118 }, item(524))
+    } else {
+        (item(294), init, item(523))
+    };
+    let bonus = initiative_bonus(player(skill as u32));
+    let bonus = if recharge { bonus + bonus } else { bonus };
+    let mut t = base.unwrap_or(1234567890) as f32 + 75.0 - bonus / 3.0 - player(51) as f32;
+    if let Some(least) = least {
+        t = t.max(least as f32);
+    }
+    if 100.0 < t { t } else { 100.0 }
+}
+
 impl Ctx<'_> {
     fn player(&self, k: u32) -> i64 {
         self.player.get(&k).copied().unwrap_or(0)
     }
 
-    /// Gamecode FUN_10067c74 (`recharge` false) and FUN_10067d92 (true): the reader's attack or recharge time with this
-    /// weapon in hundredths — the weapon's (stat 294, 210) plus 75, less a third of the initiative bonus (two thirds for
-    /// the recharge) and the reader's stat 51, no less than the weapon's minimum (523, 524) or 100.
+    /// Gamecode FUN_10067c74 (`recharge` false) and FUN_10067d92 (true) for the reader and this weapon ([`swing_time`]).
     fn swing_time(&self, recharge: bool) -> f32 {
-        let init = self.stat(440).unwrap_or(1234567890);
-        let (base, skill, least) = if recharge {
-            (self.stat(210), if (0..=1200).contains(&init) { init } else { 118 }, self.stat(524))
-        } else {
-            (self.stat(294), init, self.stat(523))
-        };
-        let bonus = initiative_bonus(self.player(skill as u32));
-        let bonus = if recharge { bonus + bonus } else { bonus };
-        let mut t = base.unwrap_or(1234567890) as f32 + 75.0 - bonus / 3.0 - self.player(51) as f32;
-        if let Some(least) = least {
-            t = t.max(least as f32);
-        }
-        if 100.0 < t { t } else { 100.0 }
+        swing_time(&|k| self.stat(k), &|k| self.player(k), recharge)
     }
 
     /// FUN_10033e0d, `N3Msg_GetDpsString`: damage over the reader's attack and recharge times.

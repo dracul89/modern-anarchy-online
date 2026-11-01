@@ -28,6 +28,8 @@
 //!   0xcf22 (FUN_100a4f8a: a stat set on the character, e.g. 689 on pets and 359 MonsterData), 0xcf92 (FUN_100a8107: a
 //!   vehicle's animations 0x1d / 0x27), 0xcf4c (FUN_100a7c79: state flag of stat 0x49), 0xcf44 (FUN_100a7aa2: stat 0x167),
 //!   0xcf7d (FUN_100a83d8: feedback lines), 0xcf35 (FUN_100a517a, an item's modify).
+//! * 0xcfff (FUN_100a9af8): its string 0 told in the notification window (`GlobalSignals_c` +0x298), see
+//!   [`crate::notifications`]. Ported: [`Outcome::Text`]. None of the captures has one.
 
 use mao_formats::spell::Spell;
 
@@ -87,6 +89,9 @@ impl SpellList {
 pub enum Outcome {
     /// An effect template (`gfxtweak.bin`) made on the character, for its duration in seconds when the spell sets one.
     Effect { effect: i32, seconds: Option<f32> },
+    /// A 0xcfff spell (FUN_100a9af8): a line for the notification window, told on the client's own character (range 0) or
+    /// within the range (stat 11, metres) of it ([`crate::notifications::spell_line`]).
+    Text { spell: Spell },
 }
 
 /// The spells of a list that run at once on the message's character, and what each shows (FUN_100026d0 → FUN_100a5f4b).
@@ -104,6 +109,7 @@ pub fn run(list: &SpellList) -> Vec<Outcome> {
                 let hundredths = spell.stat(49);
                 out.push(Outcome::Effect { effect: spell.stat(39), seconds: (hundredths != 0).then(|| hundredths as f32 / 100.0) });
             }
+            0xcfff if !list.ending => out.push(Outcome::Text { spell: spell.clone() }),
             _ => {}
         }
     }

@@ -102,6 +102,8 @@ mod effects;
 mod environment;
 mod wind;
 mod gametime;
+mod notifications;
+mod timers;
 mod ui;
 mod whompah;
 pub(crate) mod viewer;
@@ -1451,6 +1453,17 @@ fn run(args: &[String]) -> Result<(), String> {
                     let names: std::collections::HashMap<u32, String> = mao_formats::playfield::all(&db).into_iter().map(|p| (p.number, p.name.trim().to_string())).collect();
                     let destinations = whompah::Destinations::load();
                     let mut hud = ui::Hud { location: names.get(&number).cloned().unwrap_or_default(), position: Some([449.0, 8.0, 313.0]), ..Default::default() };
+                    // MAO_TIMER_BARS=<kind:fill,...>: the game's timer bars in their places (e.g. `1:1,1:0.3,3:0.6,5:0.8`).
+                    if let Ok(list) = std::env::var("MAO_TIMER_BARS") {
+                        let bars = list.split(',').filter_map(|kv| kv.split_once(':')).enumerate().filter_map(|(place, (k, f))| Some((place, k.trim().parse().ok()?, f.trim().parse().ok()?))).collect();
+                        *ui::TIMERS.lock().unwrap() = bars;
+                    }
+                    // MAO_NOTIFY=<line|line|...>: lines in the notification window.
+                    if let Ok(lines) = std::env::var("MAO_NOTIFY") {
+                        for line in lines.split('|') {
+                            notifications::add(line);
+                        }
+                    }
                     if std::env::var_os("MAO_PLATES").is_some() {
                         for (dx, dz, text, kind) in [(-3.0f32, -3.0f32, "1581", 0u8), (-5.0, 3.0, "49", 1), (4.0, 7.0, "120", 2)] {
                             hud.floaters.push(ui::Floater { world: mao_render::glam::Vec3::new(449.0 + dx, 313.0 + dz, 10.0), text: text.to_string(), kind, born: std::time::Instant::now() + std::time::Duration::from_secs(60) });
