@@ -560,6 +560,8 @@ pub fn run(game: &str) -> Result<(), String> {
         .status()
         .map_err(|e| e.to_string())?;
     if status.code() == Some(LOGGED_OUT) {
+        // (this run is over before the next starts, or the next would take it for one that never ended: `crash.rs`)
+        crate::crash::end("launcher", None);
         // (a new process: an event loop cannot be made twice in one)
         std::process::Command::new(&exe)
             .args([game, "play"])
