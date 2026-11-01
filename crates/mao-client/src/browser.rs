@@ -249,7 +249,8 @@ pub fn proxy_script(site: &str) -> String {
 fn forward(site: &str, game_headers: &[(String, String)], request: wry::http::Request<Vec<u8>>) -> wry::http::Response<Vec<u8>> {
     use std::io::Read;
     let url = site_url(site, &request.uri().to_string());
-    let agent = ureq::AgentBuilder::new().redirects(0).timeout(std::time::Duration::from_secs(30)).build();
+    // (a site that does not answer is said to be so in seconds, not after the system's own ~21 s connect time-out)
+    let agent = ureq::AgentBuilder::new().redirects(0).timeout_connect(std::time::Duration::from_secs(8)).timeout(std::time::Duration::from_secs(30)).build();
     let mut out = agent.request(request.method().as_str(), &url);
     // (what the page sends that the site needs: its cookies, what it posts, what it takes; the addresses made the site's)
     for (name, value) in request.headers() {
@@ -352,7 +353,8 @@ impl Page {
                     }
                 }
             })
-            .with_url(home)
+            // (a line to read while the site answers: WebView2 shows nothing until the first page arrives)
+            .with_html(loading_page(request.mode, &home))
             .build_as_child(window)
             .map_err(|e| e.to_string())?;
         Ok(Page { view, _context: context, bounds, mode: request.mode, request: request.clone(), hidden: false, redirected })
@@ -406,6 +408,14 @@ impl Page {
     }
 }
 
+/// The page shown at once: the window's title and "Loading...", then the site's home page in its place.
+pub fn loading_page(mode: Mode, home: &str) -> String {
+    format!(
+        "<html><body style='font-family:sans-serif;color:#888;background:#fff'><h3>{}</h3><p>Loading {home}...</p>         <script>location.replace({home:?});</script></body></html>",
+        mode.title()
+    )
+}
+
 #[cfg(windows)]
 fn rect((x, y, w, h): (i32, i32, u32, u32)) -> wry::Rect {
     wry::Rect { position: wry::dpi::PhysicalPosition::new(x, y).into(), size: wry::dpi::PhysicalSize::new(w.max(1), h.max(1)).into() }
@@ -435,6 +445,12 @@ mod tests {
         assert_eq!(get("X-Anarchy-Appearance"), Some("1 2 3 4"));
         assert_eq!(get("X-Platform"), Some("Native"));
         assert!(page_script("en").contains("OpenMarketSendWindow"));
+    }
+
+    #[test]
+    fn the_loading_page_goes_on_to_the_home_page() {
+        let page = loading_page(Mode::Market, "http://aomarket.localhost/market/");
+        assert!(page.contains("<h3>Market</h3>") && page.contains("location.replace(\"http://aomarket.localhost/market/\")"));
     }
 
     #[test]

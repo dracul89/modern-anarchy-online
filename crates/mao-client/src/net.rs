@@ -4499,6 +4499,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut attack_sent: Option<Instant> = None;
         let mut headers_made = Instant::now() - Duration::from_secs(60);
         let mut mission_booth: Option<u32> = None;
+        // (when missions were last asked for: the server's `Feedback` soon after, "too far away" and the like, is the answer)
+        let mut mission_asked: Option<Instant> = None;
         let mut friends_seen = u64::MAX;
         let mut cast_seen = 0u8;
         let mut move_seen = 0u8;
@@ -4773,7 +4775,16 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             }
                         }
                     }
+                    if let Some(m) = Message::parse(&frame).filter(|m| m.kind == 0x50544d19 && m.identity.1 == own && mission_asked.is_some_and(|t| t.elapsed() < Duration::from_secs(5))) {
+                        if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
+                            let int = |f: &str| p.value.get(f).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as i32;
+                            if let Some(text) = crate::feedback::texts().and_then(|t| t.get(int("CategoryId"), int("MessageId"))).filter(|t| !t.is_empty()) {
+                                pending_mission_status = Some(text.to_string());
+                            }
+                        }
+                    }
                     if let Some(m) = Message::parse(&frame).filter(|m| m.kind == 0x5c436609) {
+                        mission_asked = None;
                         if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
                             let item = |low: i64| {
                                 let template = gear_db.get(mao_formats::resource::Id { kind: mao_formats::item::TEMPLATE, instance: low as u32 }).ok().flatten().and_then(|d| mao_formats::item::Item::parse(&d))?;
@@ -5435,9 +5446,12 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     match nearest {
                         Some((_, serial)) => {
                             uses += 1;
-                            let _ = connection.send(&n3::use_object(own, uses, (0xdac1, serial)));
+                            let booth = state.used(0xdac1, serial);
+                            send(&mut connection, movement::HEADING, heading, position, &mut sent);
+                            let _ = connection.send(&n3::use_object(own, uses, booth));
                             let scope = std::env::var("MAO_MISSION_SCOPE").ok().and_then(|v| v.parse().ok()).unwrap_or(crate::mission::DEFAULT_SCOPE);
-                            let _ = connection.send(&n3::quest_alternative(own, cmd.sliders, scope, (0xdac1, serial)));
+                            let _ = connection.send(&n3::quest_alternative(own, cmd.sliders, scope, booth));
+                            mission_asked = Some(Instant::now());
                         }
                         None => pending_mission_status = Some("No mission booth in reach (walk up to one).".into()),
                     }
@@ -5587,6 +5601,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 }
                 if double {
                     uses += 1;
+                    // (the original reports where it stands with every use, a heading update: the server checks a
+                    // terminal's reach against it)
+                    send(&mut connection, movement::HEADING, heading, position, &mut sent);
+                    let table_id = id;
                     let (kind, id) = state.used(state.types.get(&id).copied().unwrap_or(n3::CHARACTER), id);
                     if kind == n3::CHARACTER && id != own && state.infos.get(&id).is_some_and(|i| !i.is_player()) {
                         let _ = connection.send(&n3::npc_chat_open(own, (kind, id)));
@@ -5605,7 +5623,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         state.open_windows.push("mail");
                     }
                     if kind == 0xdac1 {
-                        mission_booth = Some(id);
+                        // (by its table id, which the request finds it by)
+                        mission_booth = Some(table_id);
                         state.open_windows.push("missionselection");
                     }
                     state.opened_by_use(&gear_db, kind, id);
