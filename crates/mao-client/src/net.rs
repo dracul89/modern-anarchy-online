@@ -257,6 +257,12 @@ struct World {
     /// The characters sitting on the ground (their `SwitchToSit` movement, until a `LeaveSit` or another movement): drawn
     /// in the sitting-down animation (action 0xd5, `ground-start`), held.
     seated: std::collections::BTreeSet<u32>,
+    /// The seated characters sleeping or lounging: their `WaitState` (stat 430), 0xf sleeping and 0x10 lounging, as the
+    /// transitions `SwitchToSleepMode` (FUN_1006ec48) and `SwitchToLoungeMode` (FUN_1006edf2) set it. A `SocialActionCmd`
+    /// of 0x44 or 0x45 (FUN_1007aec0) hands the movement controller 0x21 or 0x22; `CharacterAction` 0x57 (case 22) then
+    /// asks `LeaveSleepMode` (0x29) or `LeaveLoungeMode` (0x2a) instead of `LeaveSit`, which go back to sitting on the
+    /// ground (mode 8: FUN_1006ece8 and FUN_1006ee92 play the lie-down backwards into `idle-ground`).
+    resting: BTreeMap<u32, u32>,
     /// The characters swimming (their `SwitchToSwimMode` movement, until a `LeaveSwimMode`; one's own also by the client's
     /// own test of the water's depth): drawn in the swim and idle-swim animations.
     swimming: std::collections::BTreeSet<u32>,
@@ -1358,8 +1364,10 @@ impl World {
                 0x56 if m.identity.1 != self.own => {
                     self.seated.insert(m.identity.1);
                 }
+                // - 0x57 when sleeping or lounging (`WaitState` 0xf or 0x10): back to sitting on the ground, one's own too
+                0x57 if self.resting.remove(&m.identity.1).is_some() => {}
                 0x57 if m.identity.1 != self.own => {
-                    self.seated.remove(&m.identity.1);
+                    self.stand_up(m.identity.1);
                 }
                 // - 0xa2 (case 55, 0x1005e54d, after the client's `/sneak` 0xa3): FUN_10044ff9 gives the movement controller the
                 //   sneak mode (0x1c, `SwitchToSneakMode`): the character is sneaking
@@ -1395,6 +1403,11 @@ impl World {
             let action = u32::from_be_bytes(m.data[m.data.len() - 4..].try_into().unwrap());
             if let Some(name) = crate::actions_data::SOCIAL.iter().find(|a| a.0 == action).map(|a| a.1) {
                 self.socials.insert(m.identity.1, (name, Instant::now()));
+            }
+            // (sleeping, 0x44, and lounging, 0x45: FUN_1007aec0 hands a command of type 1 (+0x18) to the movement controller as
+            // `SwitchToSleepMode` 0x21 and `SwitchToLoungeMode` 0x22, which set `WaitState` 0xf and 0x10)
+            if m.data[1..5] == [0, 0, 0, 1] && (action == 0x44 || action == 0x45) {
+                self.resting.insert(m.identity.1, if action == 0x44 { 0xf } else { 0x10 });
             }
         }
         // The server times the character's special attacks: `SpecialUsed` (the stat and the seconds) and `SpecialAvailable` (the stat).
@@ -2023,7 +2036,7 @@ impl World {
                 }
                 mao_net::n3::movement::FULL | mao_net::n3::movement::HEADING => {}
                 _ => {
-                    self.seated.remove(&m.identity.1);
+                    self.stand_up(m.identity.1);
                 }
             }
             // (another movement mode, 0x17..0x1d, or leaving the sneak mode, 0x24, ends the sneaking)
@@ -2129,9 +2142,21 @@ impl World {
         }
     }
 
-    /// The action a character's body holds: its death's, else sitting down's (0xd5) while seated.
+    /// The action a character's body holds: its death's, else lying down's while sleeping (0xed `sleep-ground`, FUN_1006ec48)
+    /// or lounging (0xef `lounging`, FUN_1006edf2), else sitting down's (0xd5) while seated.
     fn held_action(&self, id: u32) -> Option<u32> {
-        self.dead.get(&id).map(|d| d.0).or_else(|| self.seated.contains(&id).then_some(0xd5))
+        let resting = |w| match w {
+            0xf => Some(0xed),
+            0x10 => Some(0xef),
+            _ => None,
+        };
+        self.dead.get(&id).map(|d| d.0).or_else(|| self.resting.get(&id).copied().and_then(resting)).or_else(|| self.seated.contains(&id).then_some(0xd5))
+    }
+
+    /// A character stands up: no longer seated, nor sleeping or lounging.
+    fn stand_up(&mut self, id: u32) {
+        self.seated.remove(&id);
+        self.resting.remove(&id);
     }
 
     /// What using `(kind, id)` uses: a dead body's corpse, else itself.
@@ -4902,11 +4927,14 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 }
                 if slot == 5 {
                     // X (`/sit`): sit down on the ground (`SwitchToSit`; a fight of one's own stops first), or stand up
-                    // (`LeaveSit`), which also gives up a `/camp` under way.
-                    if sitting {
+                    // (`LeaveSit`), which also gives up a `/camp` under way. Sleeping or lounging (`WaitState` 0xf, 0x10),
+                    // `N3Msg_SitToggle` (0x10028fcb) sends `CharacterAction` 0x57 instead, which only sits the character up.
+                    if sitting && state.resting.remove(&own).is_some() {
+                        let _ = connection.send(&n3::action(own, n3::STAND));
+                    } else if sitting {
                         sitting = false;
                         send(&mut connection, n3::movement::LEAVE_SIT, heading, position, &mut sent);
-                        state.seated.remove(&own);
+                        state.stand_up(own);
                         if crate::ui::CAMP.lock().unwrap_or_else(|e| e.into_inner()).take().is_some() {
                             let _ = connection.send(&n3::action(own, n3::STOP_LOGOUT));
                             pending_messages.push(crate::feedback::gui("TimedLogoutAborted", &[]));
@@ -5417,7 +5445,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             if sitting && (keys.forward || keys.back || keys.strafe != 0 || keys.turn != 0 || keys.jump) {
                 sitting = false;
                 send(&mut connection, n3::movement::LEAVE_SIT, heading, position, &mut sent);
-                state.seated.remove(&own);
+                state.stand_up(own);
                 if crate::ui::CAMP.lock().unwrap_or_else(|e| e.into_inner()).take().is_some() {
                     let _ = connection.send(&n3::action(own, n3::STOP_LOGOUT));
                     pending_messages.push(crate::feedback::gui("TimedLogoutAborted", &[]));
@@ -7882,6 +7910,40 @@ mod door_tests {
         w.add(&Message { kind: 0x754f1115, identity: (0xc350, other), data: hex("000000000600000004ffffffff0000c3507b1a670a0000009600000000") }.frame(1));
         assert_eq!(w.swings[&other].3, mao_formats::item::special_class(0x96).unwrap().0);
         assert!(w.queued_specials.is_empty(), "the special is used by its attack");
+    }
+
+    /// Sleeping and lounging: a seated character's `SocialActionCmd` 0x44 lays it down (`WaitState` 0xf, `sleep-ground` held),
+    /// 0x45 lounges it (0x10, `lounging`); `CharacterAction` 0x57 then sits it up again (back to `ground-start`), and a second
+    /// 0x57 stands it. (The social message as the captures' `3b290771`: a byte, the type 1, a word, the action.)
+    #[test]
+    fn sleeping_and_lounging_end_sitting_again() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let (own, other) = (0x7b1a0021, 0x7b1a0022);
+        let mut w = World { own, ..World::default() };
+        let sit = hex("001e000000003f32e84e000000003f371b5b4561914842510f5b44447cb3000000000000000000000000");
+        let stand = || Message { kind: 0x5e477770, identity: (0xc350, other), data: hex("000000005700000000000000000000000000000000000000000000") }.frame(1);
+        w.add(&Message { kind: n3::POSITION_UPDATE, identity: (0xc350, other), data: sit.clone() }.frame(1));
+        w.add(&Message { kind: 0x3b290771, identity: (0xc350, other), data: hex("00000000010000000000000044") }.frame(1));
+        assert_eq!((w.resting.get(&other), w.held_action(other)), (Some(&0xf), Some(0xed)));
+        w.add(&stand());
+        assert_eq!(w.held_action(other), Some(0xd5));
+        w.add(&Message { kind: 0x3b290771, identity: (0xc350, other), data: hex("00000000010000000000000045") }.frame(1));
+        assert_eq!(w.held_action(other), Some(0xef));
+        w.add(&stand());
+        w.add(&stand());
+        assert_eq!(w.held_action(other), None);
+        // (getting up by moving ends lounging too)
+        w.add(&Message { kind: n3::POSITION_UPDATE, identity: (0xc350, other), data: sit }.frame(1));
+        w.add(&Message { kind: 0x3b290771, identity: (0xc350, other), data: hex("00000000010000000000000045") }.frame(1));
+        w.add(&Message { kind: n3::POSITION_UPDATE, identity: (0xc350, other), data: hex("0025000000003f32e84e000000003f371b5b4561914842510f5b44447cb3000000000000000000000000") }.frame(1));
+        assert!(w.resting.is_empty() && w.held_action(other).is_none());
+        // (`MAO_GAME`: the bodies have both)
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let db = std::sync::Arc::new(ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap());
+        let mut chars = Characters::new(db).unwrap();
+        for action in [0xed, 0xef] {
+            assert!(chars.ensure_action_file(1, mao_formats::appearance::FEMALE, action).is_some(), "{action:#x}");
+        }
     }
 
     /// The 08:42 capture's perk actions: each use is answered by `QueuePerk` with its delay (1 s, then 2 s), which runs the
