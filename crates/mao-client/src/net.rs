@@ -250,6 +250,11 @@ struct World {
     /// in the first free place from 1, `GetFreePetSlot` 0x1007ee0d), from the server's `AddPet` and `RemovePet`; a new
     /// playfield starts the list again, as the original's new client character does (its pets come again after it).
     pets: BTreeMap<u32, (u32, u32)>,
+    /// The pets whose names flash red in the pet window, with how many times and since when: `PetToMaster` (`0d381f02`,
+    /// `PetToMasterIIR_c`: read FUN_10076917, apply FUN_1007699d) to one's own character, command 1 with its count (the
+    /// captures' 0x0a, with "Your pet is out of range") or command 2 with none, raises global signal +0x40 (FUN_10011fa1) with
+    /// the pet and the count, which `PetView_c` (FUN_1007d273) takes as its flash counter (`pets::flash_value`).
+    pet_flashes: BTreeMap<u32, (u32, Instant)>,
     /// The health each character was last known to have (from the damage events: the target's health after the hit).
     last_hp: BTreeMap<u32, i64>,
     /// The social action each character is doing: its name and when it began (from `SocialActionCmd`).
@@ -257,6 +262,12 @@ struct World {
     /// The characters sitting on the ground (their `SwitchToSit` movement, until a `LeaveSit` or another movement): drawn
     /// in the sitting-down animation (action 0xd5, `ground-start`), held.
     seated: std::collections::BTreeSet<u32>,
+    /// The seated characters sleeping or lounging: their `WaitState` (stat 430), 0xf sleeping and 0x10 lounging, as the
+    /// transitions `SwitchToSleepMode` (FUN_1006ec48) and `SwitchToLoungeMode` (FUN_1006edf2) set it. A `SocialActionCmd`
+    /// of 0x44 or 0x45 (FUN_1007aec0) hands the movement controller 0x21 or 0x22; `CharacterAction` 0x57 (case 22) then
+    /// asks `LeaveSleepMode` (0x29) or `LeaveLoungeMode` (0x2a) instead of `LeaveSit`, which go back to sitting on the
+    /// ground (mode 8: FUN_1006ece8 and FUN_1006ee92 play the lie-down backwards into `idle-ground`).
+    resting: BTreeMap<u32, u32>,
     /// The characters swimming (their `SwitchToSwimMode` movement, until a `LeaveSwimMode`; one's own also by the client's
     /// own test of the water's depth): drawn in the swim and idle-swim animations.
     swimming: std::collections::BTreeSet<u32>,
@@ -293,6 +304,11 @@ struct World {
     /// The weapons the characters hold, by (owner, place): the item's template (`WeaponItemFullUpdate`: the owner, the place in
     /// `Unknown2`'s low byte, the template in stat 702, `ACGItemTemplateID`).
     weapons: BTreeMap<(u32, u8), u32>,
+    /// The characters with the dynel flag 0x800 (`SimpleChar_t` +0x138): set by a full update's flag bit 21 (FUN_1007835c) and
+    /// by `CharacterAction` 0xa7 with parameter 2 not zero, cleared by 0xa7 with 0 (case 57, 0x1005e919). Its readers are the
+    /// weapon holder's (+0x1d4): without it a weapon equipped in a place other than 0 empties the place 0 shown in the hand
+    /// (FUN_1006ac49 from 0x83's FUN_1006b2dd); with it the weapon list draws its place 100 there (FUN_1006ab10, FUN_1006b14c).
+    weapon_flag: std::collections::BTreeSet<u32>,
     /// Their Energy (stat 26: the rounds left), by (owner, place): `WeaponItemFullUpdate`'s, then each attack's `AmmoCount`
     /// (FUN_1006ae3c sets it when the weapon has the stat).
     weapon_energy: BTreeMap<(u32, u8), i64>,
@@ -1364,8 +1380,10 @@ impl World {
                 0x56 if m.identity.1 != self.own => {
                     self.seated.insert(m.identity.1);
                 }
+                // - 0x57 when sleeping or lounging (`WaitState` 0xf or 0x10): back to sitting on the ground, one's own too
+                0x57 if self.resting.remove(&m.identity.1).is_some() => {}
                 0x57 if m.identity.1 != self.own => {
-                    self.seated.remove(&m.identity.1);
+                    self.stand_up(m.identity.1);
                 }
                 // - 0xa2 (case 55, 0x1005e54d, after the client's `/sneak` 0xa3): FUN_10044ff9 gives the movement controller the
                 //   sneak mode (0x1c, `SwitchToSneakMode`): the character is sneaking
@@ -1382,9 +1400,23 @@ impl World {
                 }
                 // - 0x83 (case 41, 0x1005dcfe): FUN_1006b2dd equips the weapon named in the target (`(c74a, id)`) in the place in
                 //   parameter 2 (6), out of a vehicle only, and draws it in the hand (FUN_1006ac49 under place 0x30)
+                //   (FUN_1006ac49: then, a place other than 0 and the character without the flag 0x800, the place 0 is emptied)
                 0x83 if m.data.len() >= 25 && word(9) == 0xc74a => {
                     if let Some(&template) = self.weapon_templates.get(&word(13)) {
-                        self.weapons.insert((m.identity.1, word(21) as u8), template);
+                        let place = word(21);
+                        self.weapons.insert((m.identity.1, place as u8), template);
+                        if place != 0 && place < 0x30 && !self.weapon_flag.contains(&m.identity.1) {
+                            self.weapons.remove(&(m.identity.1, 0));
+                        }
+                    }
+                }
+                // - 0xa7 (case 57, 0x1005e919): parameter 2 not zero sets the flag 0x800 (through the stats' vtable +0x18, an OR
+                //   into +0x138), zero clears it
+                0xa7 if m.data.len() >= 25 => {
+                    if word(21) != 0 {
+                        self.weapon_flag.insert(m.identity.1);
+                    } else {
+                        self.weapon_flag.remove(&m.identity.1);
                     }
                 }
                 0x92 if m.identity.1 == self.own => {
@@ -1401,6 +1433,11 @@ impl World {
             let action = u32::from_be_bytes(m.data[m.data.len() - 4..].try_into().unwrap());
             if let Some(name) = crate::actions_data::SOCIAL.iter().find(|a| a.0 == action).map(|a| a.1) {
                 self.socials.insert(m.identity.1, (name, Instant::now()));
+            }
+            // (sleeping, 0x44, and lounging, 0x45: FUN_1007aec0 hands a command of type 1 (+0x18) to the movement controller as
+            // `SwitchToSleepMode` 0x21 and `SwitchToLoungeMode` 0x22, which set `WaitState` 0xf and 0x10)
+            if m.data[1..5] == [0, 0, 0, 1] && (action == 0x44 || action == 0x45) {
+                self.resting.insert(m.identity.1, if action == 0x44 { 0xf } else { 0x10 });
             }
         }
         // The server times the character's special attacks: `SpecialUsed` (the stat and the seconds) and `SpecialAvailable` (the stat).
@@ -1627,11 +1664,39 @@ impl World {
                 crate::team::with(|t| t.invite = Some((who, name)));
                 crate::tips::trigger("OnInvitedToTeam", "");
             } else if action == 0x20 {
-                crate::team::with(|t| if who == self.own { t.members.clear() } else { t.members.retain(|m| m.id != who) });
+                crate::team::with(|t| {
+                    if who == self.own {
+                        t.members.clear();
+                        t.leader = None;
+                    } else {
+                        t.members.retain(|m| m.id != who);
+                    }
+                });
+            } else if action == 0x1b {
+                // (case 6, 0x1005d7fc: interface message 0x10 with the target, whose instance is the team level)
+                if let Some(line) = crate::team::with(|t| crate::team::set_level(t, who as i64)) {
+                    self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, line));
+                }
+            } else if action == 0x23 {
+                // (case 9, 0x1005d8cb: one's own team part takes the target, FUN_10065c5e, and interface message 0x17 names
+                // it the leader: `SlotTeamEvent` keeps it at +0xe0 and `IsTeamLeader` is whether it is oneself)
+                crate::team::with(|t| t.leader = Some(who));
             }
         }
         // The pets (`pets.rs`): `AddPet` names one, into the first free place (`GetFreePetSlot`, a pet already listed stays
         // where it is); `RemovePet` takes one away.
+        if m.kind == 0x0d381f02 && m.identity.1 == self.own && m.data.len() >= 17 {
+            let word = |at: usize| u32::from_be_bytes(m.data[at..at + 4].try_into().unwrap());
+            match word(9) {
+                1 => {
+                    self.pet_flashes.insert(word(5), (word(13), Instant::now()));
+                }
+                2 => {
+                    self.pet_flashes.remove(&word(5));
+                }
+                _ => {}
+            }
+        }
         if let Some((added, pet)) = mao_net::n3::pet_change(&m) {
             if !added {
                 self.pets.retain(|_, p| *p != pet);
@@ -2004,6 +2069,10 @@ impl World {
             self.rotations.insert(m.identity.1, q);
         }
         if let Some(info) = m.entity_info() {
+            // (the full update's flag bit 21 sets the dynel flag 0x800, FUN_1007835c through vtable +0x18)
+            if info.flags & 0x20_0000 != 0 {
+                self.weapon_flag.insert(m.identity.1);
+            }
             self.dead.remove(&m.identity.1);
             match info.fighting {
                 Some((_, target)) => {
@@ -2029,7 +2098,7 @@ impl World {
                 }
                 mao_net::n3::movement::FULL | mao_net::n3::movement::HEADING => {}
                 _ => {
-                    self.seated.remove(&m.identity.1);
+                    self.stand_up(m.identity.1);
                 }
             }
             // (another movement mode, 0x17..0x1d, or leaving the sneak mode, 0x24, ends the sneaking)
@@ -2135,9 +2204,21 @@ impl World {
         }
     }
 
-    /// The action a character's body holds: its death's, else sitting down's (0xd5) while seated.
+    /// The action a character's body holds: its death's, else lying down's while sleeping (0xed `sleep-ground`, FUN_1006ec48)
+    /// or lounging (0xef `lounging`, FUN_1006edf2), else sitting down's (0xd5) while seated.
     fn held_action(&self, id: u32) -> Option<u32> {
-        self.dead.get(&id).map(|d| d.0).or_else(|| self.seated.contains(&id).then_some(0xd5))
+        let resting = |w| match w {
+            0xf => Some(0xed),
+            0x10 => Some(0xef),
+            _ => None,
+        };
+        self.dead.get(&id).map(|d| d.0).or_else(|| self.resting.get(&id).copied().and_then(resting)).or_else(|| self.seated.contains(&id).then_some(0xd5))
+    }
+
+    /// A character stands up: no longer seated, nor sleeping or lounging.
+    fn stand_up(&mut self, id: u32) {
+        self.seated.remove(&id);
+        self.resting.remove(&id);
     }
 
     /// What using `(kind, id)` uses: a dead body's corpse, else itself.
@@ -2443,8 +2524,35 @@ const SWIM_SINK: f32 = 0.01;
 /// How far a flying vehicle's body is lifted as flight starts (FUN_1006e4f8's `SetRelPos` by `_DAT_1015e0e4`).
 const FLY_LIFT: f32 = 0.5;
 
-/// Walking's speed (`CharVehicle_t` in mode 2, FUN_1006f9eb: `_DAT_1015e7ac`).
+/// Walking's speed (`CharVehicle_t` in mode 2, FUN_1006f9eb: `_DAT_1015e7ac`). Sneaking (mode 6) takes the same: FUN_1006f9eb has
+/// no case of its own for it and falls to walking's (`LAB_1006fd78`), forwards and backwards alike.
 const WALK_SPEED: f32 = 1.5;
+
+/// A character's movement mode as `CharVehicle_t` keeps it (FUN_10070a2f): walking (2), running (3), swimming (4), sneaking (6).
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Mode {
+    Walk,
+    Run,
+    Swim,
+    Sneak,
+}
+
+/// The movement animation of a character (FUN_1006c370), `None` standing in a plain mode: swimming plays `swim` or `idle-swim`;
+/// in the walking, running and sneaking modes a sidestep its `walk-left`/`walk-right` (0x86, 0x87); sneaking plays the sneak
+/// action (0x66) moving, backwards too (the original plays it reversed), and standing; else backing the back animations and
+/// moving the walk or the run.
+fn movement_action(mode: Mode, moving: bool, strafe: i8, backing: bool) -> Option<mao_formats::appearance::Action> {
+    use mao_formats::appearance::Action;
+    match strafe {
+        _ if mode == Mode::Swim => Some(if moving { Action::Swim } else { Action::IdleSwim }),
+        -1 if moving => Some(Action::StrafeLeft),
+        1 if moving => Some(Action::StrafeRight),
+        _ if mode == Mode::Sneak => Some(if moving { Action::Sneak } else { Action::SneakStand }),
+        _ if !moving => None,
+        _ if backing => Some(if mode == Mode::Run { Action::RunBack } else { Action::WalkBack }),
+        _ => Some(if mode == Mode::Run { Action::Run } else { Action::Walk }),
+    }
+}
 
 /// One step of the character's vehicle (`Vehicle_t::Run`'s FUN_1000e3d3 with `CharVehicle_t`'s steering FUN_10071537): the
 /// horizontal velocity after `dt` seconds pushed along the facing (`walk` 1 forwards, −1 back) with the force
@@ -3357,15 +3465,16 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
             use mao_formats::appearance::Action;
             // (one's own character runs or walks by its mode, as the original's FUN_1006c370 does; the others by their speed)
             let running = if id == world.own { !world.own_walking } else { speed > 2.2 };
-            let swimming = world.swimming.contains(&id);
-            let action = match world.strafing.get(&id).copied().unwrap_or(0) {
-                _ if swimming => Some(if moving { Action::Swim } else { Action::IdleSwim }),
-                _ if !moving => None,
-                -1 => Some(Action::StrafeLeft),
-                1 => Some(Action::StrafeRight),
-                _ if world.backing.get(&id).copied().unwrap_or(false) => Some(if running { Action::RunBack } else { Action::WalkBack }),
-                _ => Some(if running { Action::Run } else { Action::Walk }),
+            let mode = if world.swimming.contains(&id) {
+                Mode::Swim
+            } else if world.sneaking.contains(&id) {
+                Mode::Sneak
+            } else if running {
+                Mode::Run
+            } else {
+                Mode::Walk
             };
+            let action = movement_action(mode, moving, world.strafing.get(&id).copied().unwrap_or(0), world.backing.get(&id).copied().unwrap_or(false));
             let scale = if id == world.own { world.stats.get(&360).copied().filter(|&s| s > 0).unwrap_or(100) as f32 } else { 100.0 };
             let jumped = world.jumped.get(&id).map(|t| t.elapsed());
             // (A phase per entity keeps a crowd from moving in step.)
@@ -4632,6 +4741,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 in_play: state.entities.contains_key(&pet.1),
                 selected: target == Some(pet.1),
                 family: state.infos.get(&pet.1).and_then(|i| i.family),
+                flash: state.pet_flashes.get(&pet.1).map_or(-1, |&(count, since)| crate::pets::flash_value(count, since.elapsed())),
             }).collect());
             // The tradeskill window's source, target and Build (`CharacterAction` 0xdc, 0xdd, 0xde).
             // The research window's request (`3115534d`) and its sliders' and goals' `SetStat`s (263 to 266).
@@ -4880,11 +4990,14 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 }
                 if slot == 5 {
                     // X (`/sit`): sit down on the ground (`SwitchToSit`; a fight of one's own stops first), or stand up
-                    // (`LeaveSit`), which also gives up a `/camp` under way.
-                    if sitting {
+                    // (`LeaveSit`), which also gives up a `/camp` under way. Sleeping or lounging (`WaitState` 0xf, 0x10),
+                    // `N3Msg_SitToggle` (0x10028fcb) sends `CharacterAction` 0x57 instead, which only sits the character up.
+                    if sitting && state.resting.remove(&own).is_some() {
+                        let _ = connection.send(&n3::action(own, n3::STAND));
+                    } else if sitting {
                         sitting = false;
                         send(&mut connection, n3::movement::LEAVE_SIT, heading, position, &mut sent);
-                        state.seated.remove(&own);
+                        state.stand_up(own);
                         if crate::ui::CAMP.lock().unwrap_or_else(|e| e.into_inner()).take().is_some() {
                             let _ = connection.send(&n3::action(own, n3::STOP_LOGOUT));
                             pending_messages.push(crate::feedback::gui("TimedLogoutAborted", &[]));
@@ -5395,7 +5508,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             if sitting && (keys.forward || keys.back || keys.strafe != 0 || keys.turn != 0 || keys.jump) {
                 sitting = false;
                 send(&mut connection, n3::movement::LEAVE_SIT, heading, position, &mut sent);
-                state.seated.remove(&own);
+                state.stand_up(own);
                 if crate::ui::CAMP.lock().unwrap_or_else(|e| e.into_inner()).take().is_some() {
                     let _ = connection.send(&n3::action(own, n3::STOP_LOGOUT));
                     pending_messages.push(crate::feedback::gui("TimedLogoutAborted", &[]));
@@ -5433,7 +5546,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             let (SPEED, BACK_SPEED) = if state.swimming.contains(&own) {
                 let s = swim_speed(&state.stats);
                 (s, s)
-            } else if state.own_walking {
+            } else if state.own_walking || state.sneaking.contains(&own) {
                 (WALK_SPEED, WALK_SPEED)
             } else {
                 movement_speeds(&state.stats)
@@ -7849,9 +7962,17 @@ mod door_tests {
         let team = crate::team::with(|t| t.clone());
         assert_eq!(team.members.iter().map(|m| (m.name.as_str(), m.level)).collect::<Vec<_>>(), vec![("Wheresmyncu", 5), ("Nihiltech", 7)]);
         assert_eq!((team.members[1].health, team.members[1].nano), ((196, 209), (215, 228)));
+        // (0x23 names the leader, as the 15:05 capture's does after joining: the target and the team; the 16:55 capture's 0x1b
+        // gives the team level 2 in the target's instance, told in the chat)
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("0000000023000000000000c3507b1a00220000dea902a3b8b20000") }.frame(1));
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("000000001b00000000000000000000000200000000000000000000") }.frame(1));
+        let team = crate::team::with(|t| t.clone());
+        assert_eq!((team.leader, team.level), (Some(0x7b1a0022), Some(2)));
+        assert!(!crate::team::is_leader(&team, 0) && crate::team::is_leader(&team, 1));
+        assert!(w.game_lines.last().is_some_and(|l| l.text.contains('2')), "{:?}", w.game_lines.last().map(|l| &l.text));
         // (leaving: the server's 0x20 naming oneself)
         w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("0000000020000000000000c3507b1a002102a3b8ffffffffff0000") }.frame(1));
-        assert!(crate::team::with(|t| t.members.is_empty()));
+        assert!(crate::team::with(|t| t.members.is_empty() && t.leader.is_none()));
     }
 
     /// The 16:55 capture's other players: Nihiltech (0x7b1a0022) sits and the server's 0x57 stands him up; he equips a weapon
@@ -7872,6 +7993,77 @@ mod door_tests {
         w.add(&Message { kind: 0x754f1115, identity: (0xc350, other), data: hex("000000000600000004ffffffff0000c3507b1a670a0000009600000000") }.frame(1));
         assert_eq!(w.swings[&other].3, mao_formats::item::special_class(0x96).unwrap().0);
         assert!(w.queued_specials.is_empty(), "the special is used by its attack");
+    }
+
+    /// The dynel flag 0x800: the captures' `CharacterAction` 0xa7 (all with parameter 2 zero) clears it, and equipping a weapon
+    /// (0x83) in place 6 then empties place 0 (FUN_1006ac49); with the flag set (0xa7 with 1, or a full update's bit 21) place 0
+    /// is kept.
+    #[test]
+    fn the_flag_0x800_keeps_the_weapon_in_place_zero() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let (own, other) = (0x7b1a0021, 0x7b1a0022);
+        let mut w = World { own, ..World::default() };
+        w.weapon_templates.insert(0x25f1e6f5, 0x1dae3);
+        let equip = Message { kind: 0x5e477770, identity: (0xc350, other), data: hex("0000000083000000000000c74a25f1e6f500000000000000060000") }.frame(1);
+        w.weapons.insert((other, 0), 0x1234);
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, other), data: hex("00000000a700000000000000000000000000000000000000000000") }.frame(1));
+        w.add(&equip);
+        assert_eq!((w.weapons.get(&(other, 6)), w.weapons.get(&(other, 0))), (Some(&0x1dae3), None));
+        w.weapons.insert((other, 0), 0x1234);
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, other), data: hex("00000000a700000000000000000000000000000000000000010000") }.frame(1));
+        assert!(w.weapon_flag.contains(&other));
+        w.add(&equip);
+        assert_eq!(w.weapons.get(&(other, 0)), Some(&0x1234));
+    }
+
+    /// The 15:05 capture's `PetToMaster`: command 1 with 0x0a for each pet (the names flash ten times), then command 2 for each
+    /// (the flashing stops). Only to one's own character.
+    #[test]
+    fn pet_to_master_flashes_the_pets_names() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let own = 0x4bc82;
+        let mut w = World { own, ..World::default() };
+        let tell = |w: &mut World, to: u32, h: &str| w.add(&Message { kind: 0x0d381f02, identity: (0xc350, to), data: hex(h) }.frame(1));
+        tell(&mut w, own, "010000c3507b1e6d64000000010000000a0000000000000000");
+        tell(&mut w, own, "010000c3507b1e6d65000000010000000a0000000000000000");
+        tell(&mut w, 0x4bc83, "010000c3507b1e6d66000000010000000a0000000000000000");
+        assert_eq!(w.pet_flashes.iter().map(|(&p, &(n, _))| (p, n)).collect::<Vec<_>>(), vec![(0x7b1e6d64, 10), (0x7b1e6d65, 10)]);
+        tell(&mut w, own, "010000c3507b1e6d6400000002000000000000000000000000");
+        assert_eq!(w.pet_flashes.keys().copied().collect::<Vec<_>>(), vec![0x7b1e6d65]);
+    }
+
+    /// Sleeping and lounging: a seated character's `SocialActionCmd` 0x44 lays it down (`WaitState` 0xf, `sleep-ground` held),
+    /// 0x45 lounges it (0x10, `lounging`); `CharacterAction` 0x57 then sits it up again (back to `ground-start`), and a second
+    /// 0x57 stands it. (The social message as the captures' `3b290771`: a byte, the type 1, a word, the action.)
+    #[test]
+    fn sleeping_and_lounging_end_sitting_again() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let (own, other) = (0x7b1a0021, 0x7b1a0022);
+        let mut w = World { own, ..World::default() };
+        let sit = hex("001e000000003f32e84e000000003f371b5b4561914842510f5b44447cb3000000000000000000000000");
+        let stand = || Message { kind: 0x5e477770, identity: (0xc350, other), data: hex("000000005700000000000000000000000000000000000000000000") }.frame(1);
+        w.add(&Message { kind: n3::POSITION_UPDATE, identity: (0xc350, other), data: sit.clone() }.frame(1));
+        w.add(&Message { kind: 0x3b290771, identity: (0xc350, other), data: hex("00000000010000000000000044") }.frame(1));
+        assert_eq!((w.resting.get(&other), w.held_action(other)), (Some(&0xf), Some(0xed)));
+        w.add(&stand());
+        assert_eq!(w.held_action(other), Some(0xd5));
+        w.add(&Message { kind: 0x3b290771, identity: (0xc350, other), data: hex("00000000010000000000000045") }.frame(1));
+        assert_eq!(w.held_action(other), Some(0xef));
+        w.add(&stand());
+        w.add(&stand());
+        assert_eq!(w.held_action(other), None);
+        // (getting up by moving ends lounging too)
+        w.add(&Message { kind: n3::POSITION_UPDATE, identity: (0xc350, other), data: sit }.frame(1));
+        w.add(&Message { kind: 0x3b290771, identity: (0xc350, other), data: hex("00000000010000000000000045") }.frame(1));
+        w.add(&Message { kind: n3::POSITION_UPDATE, identity: (0xc350, other), data: hex("0025000000003f32e84e000000003f371b5b4561914842510f5b44447cb3000000000000000000000000") }.frame(1));
+        assert!(w.resting.is_empty() && w.held_action(other).is_none());
+        // (`MAO_GAME`: the bodies have both)
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let db = std::sync::Arc::new(ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap());
+        let mut chars = Characters::new(db).unwrap();
+        for action in [0xed, 0xef] {
+            assert!(chars.ensure_action_file(1, mao_formats::appearance::FEMALE, action).is_some(), "{action:#x}");
+        }
     }
 
     /// The 08:42 capture's perk actions: each use is answered by `QueuePerk` with its delay (1 s, then 2 s), which runs the
@@ -8105,6 +8297,28 @@ mod movement_tests {
         assert!((movement_rate(1.15, 100.0, 6.0, 5.0) - 1.3).abs() < 0.001);
         assert!((movement_rate(0.9, 100.0, 1.5, 1.5) - 0.9).abs() < 0.001);
         assert!((movement_rate(1.0, 200.0, 5.0, 5.0) - 0.5).abs() < 0.001);
+    }
+
+    /// Sneaking (FUN_1006c370 in mode 6): the sneak action moving and standing, a sidestep still the walk-left/right, and the
+    /// mode's speed walking's 1.5 (FUN_1006f9eb). `MAO_GAME`: every body has the `sneakcool` animation.
+    #[test]
+    fn sneaking_plays_the_sneak_action_at_walking_speed() {
+        use mao_formats::appearance::{Action, ATROX, FEMALE, MALE};
+        assert_eq!(movement_action(Mode::Sneak, true, 0, false), Some(Action::Sneak));
+        assert_eq!(movement_action(Mode::Sneak, true, 0, true), Some(Action::Sneak));
+        assert_eq!(movement_action(Mode::Sneak, false, 0, false), Some(Action::SneakStand));
+        assert_eq!(movement_action(Mode::Sneak, true, -1, false), Some(Action::StrafeLeft));
+        assert_eq!(movement_action(Mode::Run, true, 0, true), Some(Action::RunBack));
+        assert_eq!(movement_action(Mode::Walk, false, 0, false), None);
+        assert_eq!(movement_action(Mode::Swim, false, 1, false), Some(Action::IdleSwim));
+        assert_eq!((Action::Sneak.reference_speed(), Action::SneakStand.reference_speed()), (Some(WALK_SPEED), None));
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let db = std::sync::Arc::new(ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap());
+        let mut chars = Characters::new(db).unwrap();
+        for (breed, sex) in [(1, MALE), (1, FEMALE), (ATROX, MALE)] {
+            let name = mao_formats::appearance::animation_name(breed, sex, Action::Sneak);
+            assert!(chars.loop_points(breed, sex, Action::Sneak).is_some(), "{name}");
+        }
     }
 
     #[test]

@@ -25,6 +25,12 @@ pub struct Team {
     pub members: Vec<Mate>,
     /// Who asks us to join (their id and name).
     pub invite: Option<(u32, String)>,
+    /// The leader (`TeamViewModule_c` +0xe0, from interface message 0x17, the server's `CharacterAction` 0x23 naming it):
+    /// its name is drawn in 0x11eeaa (FUN_10078bc2 → FUN_10077b3d) and `IsTeamLeader` is whether it is oneself.
+    pub leader: Option<u32>,
+    /// The team's level (`GetTeamLevel`, +0xec, from interface message 0x10, the server's `CharacterAction` 0x1b with the
+    /// level in the target's instance), shown in the header.
+    pub level: Option<i64>,
 }
 
 impl Team {
@@ -46,7 +52,7 @@ pub enum Command {
     Leave,
 }
 
-static TEAM: Mutex<Team> = Mutex::new(Team { members: Vec::new(), invite: None });
+static TEAM: Mutex<Team> = Mutex::new(Team { members: Vec::new(), invite: None, leader: None, level: None });
 static COMMANDS: Mutex<Vec<Command>> = Mutex::new(Vec::new());
 
 /// The team as the connection last heard it.
@@ -60,6 +66,24 @@ pub fn take_commands() -> Vec<Command> {
 
 fn send(c: Command) {
     COMMANDS.lock().unwrap_or_else(|e| e.into_inner()).push(c);
+}
+
+/// `TeamViewModule_c::SlotTeamEvent` (0x1007ac17) on message 0x10 (`CharacterAction` 0x1b, case 6 0x1005d7fc, for one's own
+/// character): the team level is kept, and in a team the window is told (signal +0x14) and the chat line text.mdb 10000's
+/// "TeamLevel_isX" fed the level is shown (`LDBformat::Dump`, global signal +0x17c). The line, when there is one.
+pub fn set_level(team: &mut Team, level: i64) -> Option<String> {
+    team.level = Some(level);
+    let text = crate::feedback::texts().and_then(|t| t.named(10000, "TeamLevel_isX")).unwrap_or("Team level is %u.");
+    (!team.members.is_empty()).then(|| mao_formats::ldb::format(text, &[mao_formats::ldb::Arg::Int(level)]))
+}
+
+/// Whether a member's name is the leader's colour: the leader 0x17 named, else (none heard yet) the first member, as the
+/// server lists the team from its leader.
+pub fn is_leader(team: &Team, k: usize) -> bool {
+    match team.leader {
+        Some(leader) => team.members.get(k).is_some_and(|m| m.id == leader),
+        None => k == 0,
+    }
 }
 
 /// The team window, GUI.dll's `TeamView_c` (FUN_10078c14, `team_view`, 1000 by 1000 at most): a header line (text.mdb
@@ -180,7 +204,8 @@ impl TeamWindow {
         let header = if team.members.is_empty() {
             crate::gui::xml::ldb_text("#10000:89435005")
         } else {
-            let level = team.members.iter().map(|m| m.level).max().unwrap_or(0);
+            // (`GetTeamLevel`; before the server has told it, the highest member's)
+            let level = team.level.unwrap_or_else(|| team.members.iter().map(|m| m.level).max().unwrap_or(0));
             crate::gui::xml::ldb_text("#10000:56702133").replacen("%u", &level.to_string(), 1).replacen("%s", "", 1)
         };
         set_text(tree, root, "header", &header);
@@ -189,8 +214,7 @@ impl TeamWindow {
             let mate = team.members.get(k);
             show_view(tree, root, &format!("mate{k}"), mate.is_some());
             let Some(m) = mate else { continue };
-            // (the first member is the leader: the server lists the team from its leader)
-            let colour = if k == 0 { "#11eeaa" } else { "#ffffff" };
+            let colour = if is_leader(&team, k) { "#11eeaa" } else { "#ffffff" };
             set_text(tree, root, &format!("name{k}"), &format!("<font color={colour}>{}</font>", m.name));
             let share = |(now, max): (i64, i64)| if max > 0 { now as f32 / max as f32 } else { 0.0 };
             if let Some(id) = tree.find(root, &format!("hp{k}")) {
@@ -228,5 +252,19 @@ mod tests {
         t.member(6);
         assert_eq!(t.members.len(), 2);
         assert_eq!((t.members[0].name.as_str(), t.members[0].level), ("A", 7));
+    }
+
+    /// The level is kept, and told only in a team; the leader is the one 0x17 named, else the first member.
+    #[test]
+    fn level_and_leader() {
+        let mut t = Team::default();
+        assert_eq!(set_level(&mut t, 3), None);
+        t.member(5);
+        t.member(6);
+        assert!(set_level(&mut t, 4).is_some_and(|l| l.contains('4')));
+        assert_eq!(t.level, Some(4));
+        assert!(is_leader(&t, 0) && !is_leader(&t, 1));
+        t.leader = Some(6);
+        assert!(!is_leader(&t, 0) && is_leader(&t, 1));
     }
 }

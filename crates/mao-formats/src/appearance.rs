@@ -49,6 +49,11 @@ pub enum Action {
     /// Swimming and treading water (the original's actions 0x85 `swim` and 0xc3 `idle-swim`).
     Swim,
     IdleSwim,
+    /// Sneaking (`CharVehicle_t` mode 6): the character's sneak action (`SimpleChar_t`'s +0x1dc part +0x14, set to 0x66
+    /// `sneakcool` by the constructor FUN_1005d0b1 through FUN_1003c66c), moving (played at the speed over 1.5) or standing
+    /// (FUN_1006c370 picks it both ways: at rest the rate is left at 1, as FUN_1007009f sets none for a speed of 0).
+    Sneak,
+    SneakStand,
 }
 
 impl Action {
@@ -60,7 +65,8 @@ impl Action {
             Action::RunBack => Some(3.0),
             // (mode 4, swimming: `_DAT_1015e6dc`)
             Action::Swim => Some(3.0),
-            Action::Walk | Action::WalkBack | Action::StrafeLeft | Action::StrafeRight => Some(1.5),
+            // (mode 6, sneaking, falls to walking's speed in FUN_1006f9eb: `_DAT_1015e7ac`)
+            Action::Walk | Action::WalkBack | Action::StrafeLeft | Action::StrafeRight | Action::Sneak => Some(1.5),
             _ => None,
         }
     }
@@ -87,6 +93,7 @@ pub fn animation_name(breed: u8, sex: u8, action: Action) -> String {
         Action::StrafeRight => "walk-right",
         Action::Swim => "swim",
         Action::IdleSwim => "idle-swim",
+        Action::Sneak | Action::SneakStand => "sneakcool",
     };
     format!("{prefix}_{stem}_01_01.ani")
 }

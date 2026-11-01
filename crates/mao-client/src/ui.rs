@@ -1087,9 +1087,9 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
     // (MAO_UI_PREVIEW=pets: the pet window on the 2026-10-31 capture's two pets, one selected, and a healer away)
     let mut preview_pets = (std::env::var("MAO_UI_PREVIEW").as_deref() == Ok("pets")).then(|| { let mut w = crate::pets::PetWindow::default(); w.open = true; w });
     let pet_sample = [
-        crate::pets::Pet { id: (0xc350, 0x7b1e6d64), name: "Ravening M-60".into(), health: (17402, 23203), in_play: true, selected: true, family: Some(0x5f) },
-        crate::pets::Pet { id: (0xc350, 0x7b1e6d65), name: "Widowmaker Battle Drone".into(), health: (69609, 69609), in_play: true, selected: false, family: Some(0x5f) },
-        crate::pets::Pet { id: (0xc350, 0x7b1e6d66), name: "Healing pet".into(), health: (0, 0), in_play: false, selected: false, family: Some(0x60) },
+        crate::pets::Pet { id: (0xc350, 0x7b1e6d64), name: "Ravening M-60".into(), health: (17402, 23203), in_play: true, selected: true, family: Some(0x5f), flash: -1 },
+        crate::pets::Pet { id: (0xc350, 0x7b1e6d65), name: "Widowmaker Battle Drone".into(), health: (69609, 69609), in_play: true, selected: false, family: Some(0x5f), flash: -1 },
+        crate::pets::Pet { id: (0xc350, 0x7b1e6d66), name: "Healing pet".into(), health: (0, 0), in_play: false, selected: false, family: Some(0x60), flash: -1 },
     ];
     // (MAO_UI_PREVIEW=tip: the tip window on the tips triggered)
     let mut preview_tips = (std::env::var("MAO_UI_PREVIEW").as_deref() == Ok("tip")).then(crate::tips::Tips::default);
