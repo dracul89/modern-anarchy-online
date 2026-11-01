@@ -284,6 +284,10 @@ pub fn headless_on(model: &Model, textures: &Textures, out: &str, ui: Option<(&H
     if let Some(s) = std::env::var("MAO_RENDER_SCALE").ok().and_then(|v| v.parse().ok()) {
         renderer.render_scale = s;
     }
+    // `MAO_AA=off|msaa|taa`: the anti-aliasing (a still picture with TAA has no history: it is one jittered frame).
+    if let Some(a) = std::env::var("MAO_AA").ok().and_then(|v| mao_render::Antialiasing::from_name(&v)) {
+        renderer.antialiasing = a;
+    }
     let decoding = std::time::Instant::now();
     textures.prefetch(model);
     profile!("[profile] textures decoded in {:?}", decoding.elapsed());
@@ -1820,6 +1824,7 @@ impl ApplicationHandler for App {
                 }
                 w.renderer.render_scale = self.settings.render_scale;
                 w.renderer.sharpness = self.settings.sharpness;
+                w.renderer.antialiasing = self.settings.antialiasing;
                 // The camera stays above the ground (else the ground's back is culled and the sky shows through it).
                 let mut camera = w.camera;
                 // (a ground shake moves the eye by a random vector of its size each frame: `n3Camera_t` +0x1d4)

@@ -1766,6 +1766,13 @@ fn options_window(ctx: &egui::Context, open: &mut bool, rebinding: &mut Option<A
             ui.label(egui::RichText::new("(below 100% the scene is upscaled with AMD FSR 1)").weak());
         });
         ui.horizontal(|ui| {
+            ui.label("Anti-aliasing");
+            for (aa, label) in [(mao_render::Antialiasing::Off, "Off"), (mao_render::Antialiasing::Msaa, "MSAA 4x"), (mao_render::Antialiasing::Taa, "TAA")] {
+                ui.radio_value(&mut settings.antialiasing, aa, label);
+            }
+            ui.label(egui::RichText::new("(TAA: smoother edges and less shimmer on plants and fences; a little softer)").weak());
+        });
+        ui.horizontal(|ui| {
             ui.label("Sharpness");
             ui.add(egui::Slider::new(&mut settings.sharpness, 0.0..=2.0).text("stops down").step_by(0.05));
         });

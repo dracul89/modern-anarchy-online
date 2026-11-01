@@ -482,6 +482,8 @@ pub struct Settings {
     pub render_scale: f32,
     /// FSR's sharpening in stops (0 = most).
     pub sharpness: f32,
+    /// How the scene's edges are smoothed: off, 4x multisampling or temporal (jittered frames blended by their motion).
+    pub antialiasing: mao_render::Antialiasing,
     /// The interface's size (1.0 is as large as the window's scale makes it).
     pub ui_scale: f32,
     /// How far the world is seen: where the fog ends (the live view).
@@ -516,7 +518,7 @@ pub const DEFAULT_SHADOWLANDS_MAP: &str = "SLmap/SLmap.txt";
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { mode: WindowMode::Windowed, width: 1280, height: 800, vsync: false, render_scale: 1.0, sharpness: 0.2, ui_scale: 1.0, view_distance: 1800.0, char_distance: 0.0, auto_loot: false, theme: "original".into(), aou_mod: String::new(), gui_dir: String::new(), debug_overlay: false, original_font: true, camera_mode: "rubber".into(), planet_map: DEFAULT_PLANET_MAP.into(), shadowlands_map: DEFAULT_SHADOWLANDS_MAP.into(), keymap: Keymap::default() }
+        Settings { mode: WindowMode::Windowed, width: 1280, height: 800, vsync: false, render_scale: 1.0, sharpness: 0.2, antialiasing: mao_render::Antialiasing::default(), ui_scale: 1.0, view_distance: 1800.0, char_distance: 0.0, auto_loot: false, theme: "original".into(), aou_mod: String::new(), gui_dir: String::new(), debug_overlay: false, original_font: true, camera_mode: "rubber".into(), planet_map: DEFAULT_PLANET_MAP.into(), shadowlands_map: DEFAULT_SHADOWLANDS_MAP.into(), keymap: Keymap::default() }
     }
 }
 
@@ -532,14 +534,15 @@ impl Settings {
         let number = |v: &str, lo: f32, hi: f32| v.parse::<f32>().ok().map(|n| n.clamp(lo, hi));
         if name.is_empty() {
             return format!(
-                "vsync {}, render_scale {}, sharpness {}, ui_scale {}, view_distance {}, char_distance {}, auto_loot {}",
+                "vsync {}, render_scale {}, sharpness {}, ui_scale {}, view_distance {}, char_distance {}, auto_loot {}, antialiasing {}",
                 if self.vsync { "on" } else { "off" },
                 self.render_scale,
                 self.sharpness,
                 self.ui_scale,
                 self.view_distance,
                 self.char_distance,
-                if self.auto_loot { "on" } else { "off" }
+                if self.auto_loot { "on" } else { "off" },
+                self.antialiasing.name()
             );
         }
         let done = match name.to_lowercase().as_str() {
@@ -553,10 +556,11 @@ impl Settings {
             }
             "render_scale" => number(value, 0.4, 1.0).map(|n| self.render_scale = n).is_some(),
             "sharpness" => number(value, 0.0, 2.0).map(|n| self.sharpness = n).is_some(),
+            "antialiasing" | "aa" => mao_render::Antialiasing::from_name(value).map(|a| self.antialiasing = a).is_some(),
             "ui_scale" => number(value, 0.6, 2.0).map(|n| self.ui_scale = n).is_some(),
             "view_distance" | "viewdist" => number(value, 200.0, 4000.0).map(|n| self.view_distance = n).is_some(),
             "char_distance" | "chardist" => number(value, 0.0, 4000.0).map(|n| self.char_distance = n).is_some(),
-            _ => return format!("No setting called {name:?} (vsync, render_scale, sharpness, ui_scale, view_distance, char_distance, auto_loot)."),
+            _ => return format!("No setting called {name:?} (vsync, render_scale, sharpness, antialiasing, ui_scale, view_distance, char_distance, auto_loot)."),
         };
         if done {
             format!("{name} is now {value}.")
@@ -568,7 +572,7 @@ impl Settings {
     /// The settings text: the window options, then every action's keys.
     pub fn to_text(&self) -> String {
         let mut out = String::from("; Modern Anarchy Online settings\n[window]\n; windowed | borderless | fullscreen (F11 / Alt+Enter change it while playing)\n");
-        out += &format!("mode = {}\nwidth = {}\nheight = {}\nvsync = {}\nrender_scale = {}\nsharpness = {}\nui_scale = {}\nview_distance = {}\nchar_distance = {}\nauto_loot = {}\n\n", self.mode.name(), self.width, self.height, if self.vsync { "on" } else { "off" }, self.render_scale, self.sharpness, self.ui_scale, self.view_distance, self.char_distance, if self.auto_loot { "on" } else { "off" });
+        out += &format!("mode = {}\nwidth = {}\nheight = {}\nvsync = {}\nrender_scale = {}\nsharpness = {}\nantialiasing = {}\nui_scale = {}\nview_distance = {}\nchar_distance = {}\nauto_loot = {}\n\n", self.mode.name(), self.width, self.height, if self.vsync { "on" } else { "off" }, self.render_scale, self.sharpness, self.antialiasing.name(), self.ui_scale, self.view_distance, self.char_distance, if self.auto_loot { "on" } else { "off" });
         out += &format!("[interface]\n; built-in | original | aou_translucent | aou_cyt | aou_slim_cni | aou_slim_cnt | a folder with GUIColors.xml\ntheme = {}\n; the AOU mod's folder (the one with Gui in it), for its themes\naou_mod = {}\n; a skin folder (Graphics.uvga and Graphics.uvgi, as the original's Gui/<skin> folders), used before the theme's and the game's own pictures\ngui_dir = {}\n; show the location and coordinates, the frame rate and key hints over the game (for developers)\ndebug_overlay = {}\n; the chat lines in the original's own bitmap font\noriginal_font = {}\n; the third-person camera: lock (stays behind the character), rubber (swings round behind it), trail (slowly)\ncamera_mode = {}\n; the planet maps: an index file under a maps' folder (the client's PlanetMap folder, then the game's textures/PlanetMap)\nplanet_map = {}\nshadowlands_map = {}\n\n", self.theme, self.aou_mod, self.gui_dir, if self.debug_overlay { "on" } else { "off" }, if self.original_font { "on" } else { "off" }, self.camera_mode, self.planet_map, self.shadowlands_map);
         out += "[keys]\n; one or more keys per action, separated by commas; Shift+, Ctrl+ and Alt+ combine\n";
         out += &format!("version = {KEYMAP_VERSION}\n");
@@ -606,6 +610,7 @@ impl Settings {
                 },
                 ("window", "width") => settings.width = value.parse().unwrap_or(settings.width).clamp(320, 16384),
                 ("window", "render_scale") => settings.render_scale = value.parse().unwrap_or(settings.render_scale).clamp(0.4, 1.0),
+                ("window", "antialiasing") => settings.antialiasing = mao_render::Antialiasing::from_name(value).unwrap_or(settings.antialiasing),
                 ("window", "sharpness") => settings.sharpness = value.parse().unwrap_or(settings.sharpness).clamp(0.0, 4.0),
                 ("window", "auto_loot") => settings.auto_loot = value == "on" || value == "true",
                 ("window", "char_distance") => settings.char_distance = value.parse().unwrap_or(settings.char_distance).clamp(0.0, 4000.0),

@@ -211,3 +211,9 @@ fn fs_rcas(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     let pix = (lobe * b + lobe * d + lobe * h + lobe * f + e) * rcp_l;
     return vec4<f32>(pix * pix, 1.0);
 }
+
+// A plain copy, pixel for pixel (the anti-aliased frame onto the window when it is not upscaled).
+@fragment
+fn fs_copy(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
+    return textureLoad(source, vec2<i32>(floor(frag.xy)), 0);
+}
