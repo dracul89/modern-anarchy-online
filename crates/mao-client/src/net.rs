@@ -1653,7 +1653,23 @@ impl World {
                 crate::team::with(|t| t.invite = Some((who, name)));
                 crate::tips::trigger("OnInvitedToTeam", "");
             } else if action == 0x20 {
-                crate::team::with(|t| if who == self.own { t.members.clear() } else { t.members.retain(|m| m.id != who) });
+                crate::team::with(|t| {
+                    if who == self.own {
+                        t.members.clear();
+                        t.leader = None;
+                    } else {
+                        t.members.retain(|m| m.id != who);
+                    }
+                });
+            } else if action == 0x1b {
+                // (case 6, 0x1005d7fc: interface message 0x10 with the target, whose instance is the team level)
+                if let Some(line) = crate::team::with(|t| crate::team::set_level(t, who as i64)) {
+                    self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, line));
+                }
+            } else if action == 0x23 {
+                // (case 9, 0x1005d8cb: one's own team part takes the target, FUN_10065c5e, and interface message 0x17 names
+                // it the leader: `SlotTeamEvent` keeps it at +0xe0 and `IsTeamLeader` is whether it is oneself)
+                crate::team::with(|t| t.leader = Some(who));
             }
         }
         // The pets (`pets.rs`): `AddPet` names one, into the first free place (`GetFreePetSlot`, a pet already listed stays
@@ -7910,9 +7926,17 @@ mod door_tests {
         let team = crate::team::with(|t| t.clone());
         assert_eq!(team.members.iter().map(|m| (m.name.as_str(), m.level)).collect::<Vec<_>>(), vec![("Wheresmyncu", 5), ("Nihiltech", 7)]);
         assert_eq!((team.members[1].health, team.members[1].nano), ((196, 209), (215, 228)));
+        // (0x23 names the leader, as the 15:05 capture's does after joining: the target and the team; the 16:55 capture's 0x1b
+        // gives the team level 2 in the target's instance, told in the chat)
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("0000000023000000000000c3507b1a00220000dea902a3b8b20000") }.frame(1));
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("000000001b00000000000000000000000200000000000000000000") }.frame(1));
+        let team = crate::team::with(|t| t.clone());
+        assert_eq!((team.leader, team.level), (Some(0x7b1a0022), Some(2)));
+        assert!(!crate::team::is_leader(&team, 0) && crate::team::is_leader(&team, 1));
+        assert!(w.game_lines.last().is_some_and(|l| l.text.contains('2')), "{:?}", w.game_lines.last().map(|l| &l.text));
         // (leaving: the server's 0x20 naming oneself)
         w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("0000000020000000000000c3507b1a002102a3b8ffffffffff0000") }.frame(1));
-        assert!(crate::team::with(|t| t.members.is_empty()));
+        assert!(crate::team::with(|t| t.members.is_empty() && t.leader.is_none()));
     }
 
     /// The 16:55 capture's other players: Nihiltech (0x7b1a0022) sits and the server's 0x57 stands him up; he equips a weapon
