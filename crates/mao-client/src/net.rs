@@ -344,6 +344,13 @@ struct World {
     /// The spell lists' effects running on each character, drawn as its running programs' are: effect template → (when it began,
     /// its seconds). One without seconds runs until the character goes, as the original's stays until the list ends it.
     spell_effects: BTreeMap<u32, BTreeMap<i32, (Instant, Option<f32>)>>,
+    /// The spell lists' runs waiting on a delay or more hits (`spelllist::Queue`, each character's FUN_10002595 queue), and the
+    /// moment the spell runner's clock starts (its seconds stand in for `GameTime_t` +0x28).
+    spell_queue: crate::spelllist::Queue,
+    spell_epoch: Option<Instant>,
+    /// Each character's state flags (stat 224) as the spell lists' stuns change them (`spelllist::StateFlags`): one's own
+    /// cannot move while neither bit 2 nor 4 is set.
+    state_flags: BTreeMap<u32, crate::spelllist::StateFlags>,
     /// The lightning's strikes heard (where, seed) and the eye's jolts, for the viewer.
     strikes: Vec<([f32; 3], u32)>,
     jolts: Vec<f32>,
@@ -641,7 +648,84 @@ pub fn send_chat(out: crate::chatwindow::Out) {
     }
 }
 
+/// The spell runner's view of the world (`spelllist::Scene`): the client's own character's stats and perks, the characters in
+/// the playfield, whom they fight. Others' stats are not kept (their below / above criteria pass, as in the original).
+impl crate::requirements::Context for World {
+    fn stat(&self, holder: crate::requirements::Holder, stat: u32) -> Option<i64> {
+        (holder == (crate::requirements::CHARACTER, self.own)).then(|| self.stats.get(&stat).copied().unwrap_or(0))
+    }
+    fn is_own(&self, holder: crate::requirements::Holder) -> bool {
+        holder == (crate::requirements::CHARACTER, self.own)
+    }
+    fn has_perk(&self, character: crate::requirements::Holder, perk: u32) -> Option<bool> {
+        self.is_own(character).then(|| self.perks.contains(&perk))
+    }
+}
+
+impl crate::spelllist::Scene for World {
+    fn exists(&self, id: crate::requirements::Holder) -> bool {
+        id.1 != 0 && (id.1 == self.own || self.entities.contains_key(&id.1))
+    }
+    fn is_npc(&self, id: crate::requirements::Holder) -> Option<bool> {
+        if id.1 == self.own {
+            return Some(false);
+        }
+        self.names.get(&id.1).map(|n| !n.1)
+    }
+    fn fight_target(&self, id: crate::requirements::Holder) -> Option<crate::requirements::Holder> {
+        self.fighting.get(&id.1).filter(|&&t| t != 0).map(|&t| (crate::requirements::CHARACTER, t))
+    }
+    fn use_target(&self, _: crate::requirements::Holder) -> Option<crate::requirements::Holder> {
+        // (the +0x1e4 object's target: not kept here)
+        None
+    }
+}
+
 impl World {
+    /// The spell runner's clock: seconds since its first use.
+    fn spell_now(&mut self) -> f64 {
+        self.spell_epoch.get_or_insert_with(Instant::now).elapsed().as_secs_f64()
+    }
+
+    /// What the spell runs did (`spelllist::Outcome`): effects to start, stuns on the state flags, stats set on one's own
+    /// character (the client keeps no stats of others).
+    fn spell_outcomes(&mut self, out: Vec<(crate::requirements::Holder, crate::spelllist::Outcome)>) {
+        for (on, outcome) in out {
+            match outcome {
+                crate::spelllist::Outcome::Effect { effect, seconds } => self.spell_effects_made.push((on.1, effect, seconds)),
+                crate::spelllist::Outcome::Stun { begin, npc } => {
+                    // (FUN_1004496c starts the counts from stat 224; one's own taken as 6, free to move, when the server did not
+                    // send it — a safety of this client's)
+                    let start = if on.1 == self.own { self.stats.get(&224).map_or(6, |&v| v as u32) } else { 0 };
+                    self.state_flags.entry(on.1).or_insert_with(|| crate::spelllist::StateFlags::new(start)).stun(begin, npc);
+                }
+                crate::spelllist::Outcome::SetStat { stat, value } => {
+                    if on.1 == self.own {
+                        self.stats.insert(stat, value as i64);
+                        self.stats_changed = true;
+                    }
+                }
+            }
+        }
+    }
+
+    /// The waiting spell runs' turn (FUN_10002fc7), each frame.
+    fn tick_spells(&mut self) {
+        if self.spell_queue.runs.is_empty() {
+            return;
+        }
+        let now = self.spell_now();
+        let mut queue = std::mem::take(&mut self.spell_queue);
+        let out = queue.tick(&*self, now);
+        self.spell_queue = queue;
+        self.spell_outcomes(out);
+    }
+
+    /// One's own character cannot move: a stun took both of its state flags 2 and 4 (`N3Msg_MouseMovement`, FUN_1006bd94).
+    fn own_stunned(&self) -> bool {
+        self.state_flags.get(&self.own).is_some_and(|f| !f.can_move())
+    }
+
     /// The weapon template a character holds in a place: the server's `WeaponItemFullUpdate`, or the client's own inventory.
     fn weapon_of(&self, id: u32, slot: u32) -> Option<u32> {
         self.weapons.get(&(id, slot as u8)).copied().or_else(|| (id == self.own).then(|| self.inventory.as_ref()?.iter().find(|e| e.slot == slot).map(|e| e.low_id)).flatten())
@@ -1077,6 +1161,8 @@ impl World {
                 }
             } else if !self.dead.contains_key(&id) {
                 self.spell_effects.remove(&id);
+                self.spell_queue.forget((crate::requirements::CHARACTER, id));
+                self.state_flags.remove(&id);
                 self.entities.remove(&id);
                 self.paths.remove(&id);
                 self.fighting.remove(&id);
@@ -1097,11 +1183,14 @@ impl World {
             // (a spell list run on the character: FUN_100aabcb reads it, FUN_100aae0e → FUN_100026d0 runs its spells)
             crate::spelllist::SPELL_LIST => {
                 if let Some(list) = crate::spelllist::SpellList::parse(&m.data) {
-                    for outcome in crate::spelllist::run(&list) {
-                        match outcome {
-                            crate::spelllist::Outcome::Effect { effect, seconds } => self.spell_effects_made.push((m.identity.1, effect, seconds)),
-                        }
-                    }
+                    let now = self.spell_now();
+                    let mut queue = std::mem::take(&mut self.spell_queue);
+                    let mut out = crate::spelllist::run(&list, m.identity, &*self, &mut queue, now);
+                    // (the queue's turn in the same moment, as the character's frame follows the message in the original's: a
+                    // queued run's first hit can come at once)
+                    out.extend(queue.tick(&*self, now));
+                    self.spell_queue = queue;
+                    self.spell_outcomes(out);
                 }
             }
             crate::hazards::ACTION => {
@@ -4644,6 +4733,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     state.rotations.clear_all();
                     state.entities.clear();
                     state.props.clear();
+                    // (a new playfield makes the characters anew: their spell queues go and their state flags start again from
+                    // stat 224, FUN_1004496c)
+                    state.spell_queue = Default::default();
+                    state.state_flags.clear();
                     // Zoned from a booth: that booth leads here.
                     if let Some((pf, booth, when)) = near_booth.take() {
                         if when.elapsed() < Duration::from_secs(20) && pf != playfield {
@@ -4728,7 +4821,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 eprintln!("no playfield message 30 s after the server's teleport: moving again");
                 state.playfield_stopped = None;
             }
-            if state.own_dead || state.playfield_stopped.is_some() {
+            // (stunned by a spell list: no movement action is started and the mouse does not turn the character while neither
+            // state flag 2 nor 4 is set, FUN_1006bd94 and `N3Msg_MouseMovement`)
+            state.tick_spells();
+            if state.own_dead || state.playfield_stopped.is_some() || state.own_stunned() {
                 (keys.forward, keys.back, keys.jump, keys.turn, keys.strafe, keys.face) = (false, false, false, 0, 0, None);
                 goto = None;
             }
@@ -7944,6 +8040,25 @@ mod door_tests {
         w.add(&Message { kind: crate::spelllist::SPELL_LIST, identity: (0xc350, 0x7b1a6629), data: hex("00000007e20000cf2644fb183e0000000400000000000000010000000000000000000000000000a8e300000000000000000000000000000000000000000000000000000000000000000000c3507b1a6629000000000000000000") }.frame(1));
         w.add(&Message { kind: crate::spelllist::SPELL_LIST, identity: (0xc350, 0x7b1a6629), data: hex("00000007e20000cf2644fb183f0000000400000000000000010000000000000000000000000000a87100000000000000000000000000000000000000000000000000000000000000000000c3507b1a6629000000000000000000") }.frame(1));
         assert_eq!(w.spell_effects_made, vec![(0x7b1a6629, 0xa8e3, None), (0x7b1a6629, 0xa871, None)]);
+    }
+
+    /// A spell list's stun on one's own character holds it still until the list ends it (state flags 2 and 4 of stat 224); a
+    /// stat set lands in its stats.
+    #[test]
+    fn a_stun_holds_ones_own_character() {
+        let mut w = World { own: 0x7b1a0021, ..World::default() };
+        let me = (crate::requirements::CHARACTER, w.own);
+        w.stats.insert(224, 6);
+        assert!(!w.own_stunned());
+        w.spell_outcomes(vec![(me, crate::spelllist::Outcome::Stun { begin: true, npc: false })]);
+        assert!(w.own_stunned());
+        w.spell_outcomes(vec![(me, crate::spelllist::Outcome::Stun { begin: false, npc: false })]);
+        assert!(!w.own_stunned());
+        // (another character's stun does not hold one's own)
+        w.spell_outcomes(vec![((crate::requirements::CHARACTER, 5), crate::spelllist::Outcome::Stun { begin: true, npc: true })]);
+        assert!(!w.own_stunned());
+        w.spell_outcomes(vec![(me, crate::spelllist::Outcome::SetStat { stat: 689, value: 3 }), ((crate::requirements::CHARACTER, 5), crate::spelllist::Outcome::SetStat { stat: 690, value: 1 })]);
+        assert_eq!((w.stats.get(&689), w.stats.get(&690)), (Some(&3), None));
     }
 
     /// The Arete Landing capture's team: the invitation from Nihiltech (0x7b1a0022), both members, a health update, then

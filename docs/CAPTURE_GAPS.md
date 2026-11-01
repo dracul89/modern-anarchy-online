@@ -15,7 +15,7 @@ parameter 2, a short (offsets 0, 1, 5, 9/13, 17, 21, 25). Message bodies start w
 
 | # | kind / name | what it is | count | layout | Gamecode | proposed port |
 |---|---|---|---|---|---|---|
-| 1 | `4d450114` SpellList | a spell list run on a character: NPC AI event loops, duel buffs, environment effects ("Effect of Inferno Environment"), item effects | 3858 / 171 / 99 | byte; list (`x3f1`) of whole spells (`SpellData_t`, big-endian: type, instance, version, criteria, values); caster identity; target identity; byte (ending); short-length string (the list's name); byte flag (then the source nano/item identity, `cf1b`); byte; int | `SpellListIIR_t`: read FUN_100aabcb (spells FUN_100a71ae), apply FUN_100aae0e → `Beholder_t` +0x30 FUN_100026d0 → FUN_100a5f4b per spell | **ported** (`spelllist.rs`): effects of 0xcf26/0xcfd4 spells drawn on the character with their sounds. Most lists (0xcf3b "Cast nano") are empty on the client. Still to do: see section 1 |
+| 1 | `4d450114` SpellList | a spell list run on a character: NPC AI event loops, duel buffs, environment effects ("Effect of Inferno Environment"), item effects | 3858 / 171 / 99 | byte; list (`x3f1`) of whole spells (`SpellData_t`, big-endian: type, instance, version, criteria, values); caster identity; target identity; byte (ending); short-length string (the list's name); byte flag (then the source nano/item identity, `cf1b`); byte; int | `SpellListIIR_t`: read FUN_100aabcb (spells FUN_100a71ae), apply FUN_100aae0e → `Beholder_t` +0x30 FUN_100026d0 → FUN_100a5f4b per spell | **ported** (`spelllist.rs`): effects of 0xcf26/0xcfd4 spells drawn on the character with their sounds, criteria (`requirements.rs`), queued runs, targets, the stun (one's own character held still) and stat sets. Most lists (0xcf3b "Cast nano") are empty on the client. Still to do: see section 1 |
 | 2 | `43197d22` N3Teleport | the server moves a character: before every zoning, and in a generated mission (identity type `0xc7a0`) a move inside the playfield with no playfield message | 111 / 16 / 16 (own: 24 / 9 / 14) | byte; destination (3 floats); rotation (4 floats); byte (`0x61`); playfield identity (type `c79c` plain, `c79e` instanced, `c79f` generated, `c7a0` the same playfield); server id; group id; `9c50` identity; 2 ints; a second playfield identity; a tail length byte-int (8, 0x0c or 0x10) and that many bytes (`3f000000 0`, or the destination again) | N3.dll `n3TeleportIIR_t::Activate` (vtable 0x1003e68c) | **ported** (`mao_net::n3::teleport`, `World::add`): within the playfield (the proxy's instance zero) the dynel is put at the destination with the rotation at once; own zoning: the playfield stops (its dynels gone, the character still) until the playfield message. Left: the two identities at +0x4c/+0x54 |
 | 3 | `CharacterAction` 0xdf / 0xe0 / 0xe1 / 0xe3 / 0xe4 (with the client's 0xdc / 0xdd / 0xde) | the tradeskill window: source and target accepted, "not a valid combination", the skill requirements, the result's template | 6 / 12 / 2 / 6 / 4 (16:55) | 0xdf, 0xe0: parameter 2 a slot or count; 0xe3: parameter 1 the skill, parameter 2 the value needed (`a0`/`a5`: 0x19, 0x3c); 0xe4: target `(1, template)`, parameter 1/2 `(1, template)` | FUN_1005d61f cases 92..97 (0x1005f1a1, 0x1005f1b8, 0x1005f1cf, 0x1005f1f7, 0x1005f212) | a Tradeskill window (`TradeskillView`): the client sends 0xdc/0xdd with the dragged items and 0xde to build; show the requirement lines from 0xe3 and the result from 0xe4. Today items are only combined by dropping one on the other (0x51) |
 | 4 | `194e4f76` AddPet, `58742a0f` RemovePet, `0d381f02` PetToMaster | the character's pets: which creatures are one's own, and their reports | 0 / 3 / 28, 0 / 1 / 2, 0 / 0 / 4 | AddPet / RemovePet: byte, the pet's identity. PetToMaster: byte, the pet's identity, a command (1: with a value, 2: without), the value (`0x0a`), an identity | `AddPetIIR_c` read FUN_10071972, apply FUN_100719a7 (FUN_1005299c adds the pet); `RemovePetIIR_c` FUN_10076dc0 / FUN_10076df5; `PetToMasterIIR_c` FUN_10076917 / FUN_1007699d (signal FUN_10011fa1) | **ported** (`pets.rs`): the pet list in `World`, the Pet Window, and `PetToMaster`'s red flashing of the pet's name. Left: the window's icon menu, the pets' nano icons |
@@ -51,8 +51,8 @@ as `GameData::operator>>` reads it, the database's spell format in big-endian or
 the caster (+0x1c, zero for the effect lists); the target (+0x28); a byte, the list is ending (+0x24, each run's bit 0); the
 list's name (a short length, +0x30); a flag and the source nano or item (`cf1b`, +0x54); a flag (+0x4d); an int (+0x50, 0 in
 all captures). The apply (FUN_100aae0e) calls the character's `Beholder_t` +0x30, FUN_100026d0, which runs each spell with one
-hit and no delay at once through FUN_100a5f4b (the spell types' jump table at 0x100a6cb6) on the character (target stat 0x20
-other than 3, 0xe, 0x17).
+hit and no delay at once, and queues the others, through FUN_100a5f4b (the spell types' jump table at 0x100a6cb6) on the
+dynel its target stat (0x20) names (see below).
 
 All 4128 captured messages read whole. By spell type: 0xcf3b "Cast nano" 2059 (the NPC event loops, "Arete Landing",
 "Effect of Inferno Environment", the AI lists), 0xcf82 + 0xcf56 1436 (the duel buffs), 0xcf26 573, 0xcf0a 81, 0xcf22 36,
@@ -64,14 +64,30 @@ others under 12. What the client does with them (FUN_100a5f4b):
   them in the screenshots) and 0xa871 (a star burst at the pelvis); also 0xa9a1 and 0xa8e0 once each. A flare burns where the
   character stood (it does not follow it); other effects run on the character with its programs' effects (`BuffsFX`).
 - **0xcfd4** (FUN_100a9159): the same effect, ported without its colours, scale and repetitions; the only captured ones
-  (Shadowland Anvian smoke and sparks) carry criteria, which are not evaluated (FUN_100065d8), so they are left out.
+  (Shadowland Anvian smoke and sparks) carry criteria ("On Caster", stat 410 above 0), which now pass: the criteria
+  evaluator (FUN_100065d8, `requirements.rs`) checks below / above only on the client's own character.
+- **0xcf82 "Stun"** (FUN_100a879c, the duel buffs' begin and end): state flags of stat 224 (counted, FUN_10044aac /
+  FUN_10044c71, started from the stat by FUN_1004496c): 2 and 4 taken, 0x400 given (an NPC also 0x100, 0x4200); the
+  ending list gives them back. Ported: one's own character cannot move while neither 2 nor 4 is set (FUN_1006bd94,
+  `N3Msg_MouseMovement`).
+- **0xcf22** (FUN_100a4f8a): stat 0 set to stat 39 (689 on pets, 359 on two NPCs), except 0x3c, 0x25, 0x2f, 4, 0x3b, 0x16d,
+  0x1b, 0xd6. Ported for one's own character (the client keeps no stats of others).
 - **0xcf0a, 0xcf56, 0xcf4a, 0xcf70, 0xcf1b, 0xd003**: nothing on the client.
 
+The targets (FUN_100026d0, spell stat 0x20): 3 the list's caster (+0x1c; without it in the playfield the rest of the
+list stops), 0xe the character's fighting target (+0x1d4's +0x4c; an ending list: the caster), 0x17 its use target
+(+0x1e4's +0x14, not kept by the client: left out), anything else the character. Runs with several hits or a delay are
+queued (FUN_10002595) and run each frame (FUN_10002fc7 → FUN_100a5f4b: a fresh run is put back the delay's whole seconds,
+then hits every |delay| hundredths; failing criteria spend a hit). Every captured spell has one hit and no delay, so the
+queue is tested on made-up lists only. All 4128 captured lists run: 576 effects, 720 stuns and 716 ends, 36 stat sets.
+
 Still to do: an ending list (+0x24 set) deletes the effect whose handle the spell keeps in stat 0x42, which a spell fresh
-from the message never has (none ends an effect in the captures); the queued runs (several hits or a delay, FUN_10002595);
-the criteria; 0xcf82 "Stun" (FUN_100a879c: state flags 6 / 0x400, the duel buffs' begin and end), 0xcf22 (FUN_100a4f8a: a
-stat set, 689 on pets, 359 `MonsterData` on two NPCs), 0xcf92 (FUN_100a8107: a vehicle's animations), 0xcf4c, 0xcf44,
-0xcf7d (feedback lines), 0xcf35.
+from the message never has (none ends an effect in the captures); 0xcf16 runs (always queued, FUN_100a517a / FUN_1005c831);
+0xcf92 (FUN_100a8107: a vehicle's animations), 0xcf4c, 0xcf44, 0xcf7d (feedback lines), 0xcf35; the stun's call to the
+vehicle (FUN_1005a02c(1)) and what flags 0x400 / 0x100 / 0x4200 do; the criteria operators that read state the client does
+not keep (times 5/6, slots and items 7/8/0x1f-0x24, nanos 0x5b/0x5c/0x65/0x66, perk locks 0x5e/0x61, teams, organizations,
+playfields, positions, vehicles: they give "unknown", taken as failing), the stat-against-stat operators 0x82-0x85 and the
+"has perk" side-table for perks with entry flag bit 7 (FUN_1002be1a).
 
 ### 2. N3Teleport (`43197d22`)
 

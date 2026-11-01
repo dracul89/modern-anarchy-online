@@ -50,6 +50,8 @@ pub struct PerkRecord {
     pub description: String,
     /// The criteria of the template's wear action (what `N3Msg_MeetsPerkCriteria` checks).
     pub criteria: Vec<(u32, i32, u32)>,
+    /// The template's flags (stat 30), which `CanWear` reads.
+    pub item_flags: u32,
     /// `N3Msg_GetUseByString` and the modifiers (`N3Msg_GetModifierString` of lists 14 and 0), for the tip.
     pub use_by: Option<String>,
     pub modifiers: String,
@@ -91,6 +93,7 @@ pub fn catalog(db: &ResourceDatabase) -> Arc<Catalog> {
                     let actions = data.as_deref().map(item::actions).unwrap_or_default();
                     let criteria = actions.iter().find(|a| a.kind == 6).map(|a| a.criteria.clone()).unwrap_or_default();
                     let modifiers = data.as_deref().map(|d| modifiers(db, d, parsed.as_ref())).unwrap_or_default();
+                    let item_flags = parsed.as_ref().and_then(|p| p.stat(30)).unwrap_or(0);
                     Some(PerkRecord {
                         id,
                         prev,
@@ -100,6 +103,7 @@ pub fn catalog(db: &ResourceDatabase) -> Arc<Catalog> {
                         name: parsed.as_ref().map(|p| p.name.clone()).unwrap_or_default(),
                         description: parsed.map(|p| p.description).unwrap_or_default(),
                         criteria,
+                        item_flags,
                         use_by: crate::gui::criteria::use_by(&actions),
                         modifiers,
                     })
@@ -164,30 +168,23 @@ pub fn kind(professions: u32, profession: i64) -> Option<usize> {
     }
 }
 
-/// `N3Msg_MeetsPerkCriteria` (Gamecode FUN_10052e48: the perk template's requirement check gives 2): the template's wear
-/// criteria, a postfix list (operators 4 and, 3 or; comparisons 0 equal, 1 below, 2 above, 24 unequal, 22 all these bits;
-/// 93 owns the perk). Other operators (one record has 108 with an item template) are not known here and fail.
+/// The criteria half of `N3Msg_MeetsPerkCriteria` (Gamecode FUN_10052e48): the template's wear criteria through the criteria
+/// evaluator (`requirements`, FUN_100065d8) on the client's own character. An operator the client cannot tell fails, as before.
 pub fn meets(criteria: &[(u32, i32, u32)], stats: &BTreeMap<u32, i64>, owned: &HashSet<u32>) -> bool {
-    let mut stack: Vec<bool> = Vec::new();
-    for &(stat, value, op) in criteria {
-        let v = value as i64;
-        let have = stats.get(&stat).copied().unwrap_or(0);
-        let r = match op {
-            3 | 4 => {
-                let (Some(b), Some(a)) = (stack.pop(), stack.pop()) else { return false };
-                if op == 4 { a && b } else { a || b }
-            }
-            0 => have == v,
-            1 => have < v,
-            2 => have > v,
-            24 => have != v,
-            22 => have & v == v,
-            93 => owned.contains(&(value as u32)),
-            _ => false,
-        };
-        stack.push(r);
-    }
-    stack.into_iter().all(|b| b)
+    const ME: crate::requirements::Holder = (crate::requirements::CHARACTER, 0);
+    crate::requirements::evaluate(criteria, ME, &crate::requirements::Own { id: ME, stats, perks: owned }).unwrap_or(false)
+}
+
+/// `N3Msg_MeetsPerkCriteria` (FUN_10052e48): the perk's template (a `DummyItemBase_t`, FUN_1002bdf5) asked `CanWear` through
+/// its vtable +0x5c (0x10163a64 + 0x5c = FUN_10081d5f) with the character, no feedback and no flag, which must give 2:
+/// * the template's flags (stat 30) need bit 2 (4), else 0;
+/// * a character with +0x138 bit 1 (social armour, not tracked here: taken as clear) is refused unless the flags have
+///   0x10000000 or the equipment class (stat 76) is 3 or 5;
+/// * the wear action's criteria (action 6, FUN_1008a932) through FUN_1000960d → FUN_100065d8 ([`meets`]): none, or met;
+/// * then FUN_10080aff: with flag 0x100 the worn social items are compared (stat 702); no perk template has it (all 2062 have
+///   0x5, 0xa00005, 0x10000005, 0x10000007 or 0x1000000d, game-data test), so it gives 2.
+pub fn meets_perk(record: &PerkRecord, stats: &BTreeMap<u32, i64>, owned: &HashSet<u32>) -> bool {
+    record.item_flags & 4 != 0 && meets(&record.criteria, stats, owned)
 }
 
 /// A line of ranks (record indices, the first rank first).
@@ -217,7 +214,7 @@ impl<'a> Model<'a> {
 
     pub fn status(&self, k: usize) -> Status {
         let r = &self.catalog.records[k];
-        Status { meets: meets(&r.criteria, self.stats, &self.owned), owned: self.owned.contains(&r.id) }
+        Status { meets: meets_perk(r, self.stats, &self.owned), owned: self.owned.contains(&r.id) }
     }
 
     /// `LoadPerks`: the three lists' lines (profession, group, general), each sorted as FUN_100643db.
@@ -697,7 +694,7 @@ mod tests {
     use super::*;
 
     fn record(id: u32, prev: u32, flags: u32, professions: u32, name: &str, criteria: Vec<(u32, i32, u32)>) -> PerkRecord {
-        PerkRecord { id, prev, flags, professions, total: 0, name: name.into(), description: String::new(), criteria, use_by: None, modifiers: String::new() }
+        PerkRecord { id, prev, flags, professions, total: 0, name: name.into(), description: String::new(), criteria, item_flags: 0x10000005, use_by: None, modifiers: String::new() }
     }
 
     fn sample() -> Catalog {
@@ -803,5 +800,40 @@ mod tests {
         assert_eq!((r.prev, r.flags, r.professions, r.name.as_str()), (100, 0, 0x80, "Accumulator"));
         assert_eq!(c.get(1000).map(|r| r.flags), Some(2));
         assert!(!r.criteria.is_empty());
+    }
+
+    /// `MAO_GAME`: every perk's wear criteria go through the evaluator without an operator it cannot tell (they use 0, 2, 3, 4,
+    /// 22, 93 and, once, 108, which passes on the client), and every template has `CanWear`'s flag 4.
+    #[test]
+    fn every_perk_is_evaluated() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let db = ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap();
+        let c = catalog(&db);
+        const ME: crate::requirements::Holder = (crate::requirements::CHARACTER, 0);
+        let s = stats(220, 0x2c);
+        let owned: HashSet<u32> = c.records.iter().map(|r| r.id).collect();
+        let ctx = crate::requirements::Own { id: ME, stats: &s, perks: &owned };
+        for r in &c.records {
+            assert!(crate::requirements::evaluate(&r.criteria, ME, &ctx).is_ok(), "perk {} {:?}", r.id, r.criteria);
+            // (one record, 10001, has no template: FUN_1002bdf5 finds none and the check fails, as here)
+            assert!(r.item_flags & 4 != 0 || (r.id == 10001 && r.item_flags == 0), "perk {}", r.id);
+        }
+        // (Accumulator rank 2: profession 7, level above 19, rank 1 owned)
+        let r = c.get(101).unwrap();
+        let mut s = stats(20, 0x2c);
+        s.insert(60, 7);
+        assert!(meets_perk(r, &s, &[100].into_iter().collect()));
+        assert!(!meets_perk(r, &s, &HashSet::new()));
+        s.insert(54, 19);
+        assert!(!meets_perk(r, &s, &[100].into_iter().collect()));
+        // (the one record with operator 108 (item 256081): level above 149 and perk 1251; 108 passes)
+        let r = c.records.iter().find(|r| r.criteria.iter().any(|c| c.2 == 108)).unwrap();
+        let mut s = stats(150, 0x2c);
+        for &(stat, value, op) in &r.criteria {
+            if op == 0 && stat != 0 {
+                s.insert(stat, value as i64);
+            }
+        }
+        assert!(meets_perk(r, &s, &[1251].into_iter().collect()), "{:?}", r.criteria);
     }
 }

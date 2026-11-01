@@ -682,7 +682,7 @@ mod tests {
     use super::*;
 
     fn record(id: u32, prev: u32, flags: u32, total: u32, name: &str, criteria: Vec<(u32, i32, u32)>) -> PerkRecord {
-        PerkRecord { id, prev, flags, professions: 0, total, name: name.into(), description: String::new(), criteria, use_by: None, modifiers: String::new() }
+        PerkRecord { id, prev, flags, professions: 0, total, name: name.into(), description: String::new(), criteria, item_flags: 0x10000005, use_by: None, modifiers: String::new() }
     }
 
     /// Two personal lines (a fixer's and a soldier's) and a global line of two ranks.
