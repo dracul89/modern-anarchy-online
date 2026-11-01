@@ -201,6 +201,22 @@ impl DistrictMap {
         Some(DistrictMap { districts, grid })
     }
 
+    /// The district of the zone a position is in (outdoors the zone grid's; indoors zone 0: the client keeps no rooms'
+    /// zones), as `PlayfieldDistrictInfo_t::GetDistrictData(GetZoneInstanceID())` finds it for the character.
+    pub fn district_at(&self, position: [f32; 3]) -> Option<&mao_formats::districts::District> {
+        let zone = match self.grid {
+            Some((w, h, tile, size)) => mao_formats::districts::zone_at(position, tile, w, h, size),
+            None => 0,
+        };
+        self.districts.of_zone(zone)
+    }
+
+    /// Gamecode's `N3Msg_GetLCDistrictInfo` (0x1001cfe9) for the character at a position: its district's name and land
+    /// control level range (`DistrictData_t` +8, +0x44, +0x48); none outside a district.
+    pub fn land_control_info(&self, position: [f32; 3]) -> Option<(String, i32, i32)> {
+        self.district_at(position).map(|d| (d.name.clone(), d.control.0 as i32, d.control.1 as i32))
+    }
+
     /// FUN_100b72bf's district sound and music layer at a position and hour under the weather: the district of the
     /// character's zone (indoors zone 0: the client keeps no rooms' zones), its music of the slot [`music_slot`] picks, or
     /// the layer `over` finds for the district's name (the playfield's override, `GetDistrictMusicOverride` then
@@ -208,11 +224,7 @@ impl DistrictMap {
     /// setting it for good once the character's stat 389 has bit 0) in a district of land control (its range's low end,
     /// `DistrictData_t` +0x44, not 0) the land control layer -911 (`SetupENVSounds`' `Landcontrol_neutral`).
     pub fn music(&self, position: [f32; 3], hour: i32, weather: &[f32; 14], expansion: bool, over: impl FnOnce(&str) -> Option<i32>) -> Option<(u32, i32)> {
-        let zone = match self.grid {
-            Some((w, h, tile, size)) => mao_formats::districts::zone_at(position, tile, w, h, size),
-            None => 0,
-        };
-        let d = self.districts.of_zone(zone)?;
+        let d = self.district_at(position)?;
         let layer = over(&d.name).unwrap_or(d.music[music_slot(hour, weather)] as i32);
         let layer = if (0..=0xffff).contains(&layer) { layer } else { 0xffff };
         Some((d.music[0] as u32, if expansion && d.control.0 != 0 { -0x38f } else { layer }))

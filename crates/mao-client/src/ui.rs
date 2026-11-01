@@ -75,6 +75,10 @@ pub struct Hud {
     pub map_dots: Vec<([f32; 2], crate::automap::DotKind)>,
     /// The playfield's Notum Wars tower sites, for the map (`mao_net::landcontrol`).
     pub towers: Vec<mao_net::landcontrol::Tower>,
+    /// The playfield's land-control map (`N3Msg_GetLandControlBitmap`) and the character's district, its name and land
+    /// control level range (`N3Msg_GetLCDistrictInfo`), for the map's land-control view.
+    pub land_map: Option<std::sync::Arc<mao_formats::landcontrolmap::LandControlMap>>,
+    pub lc_district: Option<(String, i32, i32)>,
     /// Numbers rising over the fight.
     pub floaters: Vec<Floater>,
     pub glows: Vec<Glow>,
@@ -773,7 +777,8 @@ impl Ui {
             hud_layer(&ctx, hud, project, fps, settings.mode, palette);
             let booths: Vec<[f32; 2]> = hud.labels.iter().map(|l| [l.world.x, l.world.y]).collect();
             let notum_wars = hud.stats.get(&389).is_some_and(|e| e & 1 != 0);
-            automap.show(&ctx, hud.position.map(|p| ([p[0], p[2]], hud.heading)), hud.camera_yaw, &hud.map_dots, &booths, &hud.towers, notum_wars, &hud.location);
+            automap.set_land_control(hud.land_map.as_ref(), hud.lc_district.as_ref());
+            automap.show(&ctx, hud.position.map(|p| ([p[0], p[2]], hud.heading)), hud.camera_yaw, &hud.map_dots, &booths, &hud.towers, notum_wars, &hud.location, palette);
             if control_center.is_none() && crate::skin::skin(&ctx).is_some() {
                 *control_center = crate::gui::controlcenter::ControlCenter::load(&ctx);
             }
@@ -1255,7 +1260,8 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
             }
             if let Some(map) = preview_map.as_mut() {
                 let at = hud.position.unwrap_or([0.0; 3]);
-                map.show(&ctx, Some(([at[0], at[2]], hud.heading)), hud.camera_yaw, &hud.map_dots, &[], &hud.towers, true, &hud.location);
+                map.set_land_control(hud.land_map.as_ref(), hud.lc_district.as_ref());
+                map.show(&ctx, Some(([at[0], at[2]], hud.heading)), hud.camera_yaw, &hud.map_dots, &[], &hud.towers, true, &hud.location, &palette);
             }
             if let Some(window) = preview_actions.as_mut() {
                 window.show(&ctx, &mut gear, &hud.perk_actions, &palette);

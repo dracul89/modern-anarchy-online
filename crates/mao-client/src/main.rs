@@ -1625,7 +1625,8 @@ fn run(args: &[String]) -> Result<(), String> {
                     if preview.as_deref() == Some("map") {
                         // MAO_UI_PREVIEW=map: walk a path through the playfield, revealing the map as the game would.
                         // MAO_TOWERS=<capture dump.txt>: the playfield's captured tower list (`PlayfieldAllTowers`), the
-                        // character at its first tower; MAO_LAND_CONTROL as well: the land-control circles on.
+                        // character at its first tower; MAO_LAND_CONTROL as well: the land-control view on (the map's bitmap,
+                        // the circles, the district).
                         if let Some(dump) = std::env::var_os("MAO_TOWERS") {
                             let text = std::fs::read_to_string(dump).unwrap_or_default();
                             let identity = format!("identity (9c50,{number:x}) ");
@@ -1637,6 +1638,10 @@ fn run(args: &[String]) -> Result<(), String> {
                                 hud.towers = towers;
                             }
                         }
+                        // (the playfield's land-control map and the district at the character, as the network thread finds them)
+                        let object = db.get(mao_formats::resource::Id { kind: mao_formats::landcontrolmap::KIND, instance: number }).ok().flatten();
+                        hud.land_map = object.and_then(|o| mao_formats::landcontrolmap::parse(&o)).map(std::sync::Arc::new);
+                        hud.lc_district = sounds::DistrictMap::load(&db, number).and_then(|d| d.land_control_info(hud.position.unwrap_or_default()));
                         let area = net::load_area(game, &db, number)?;
                         let (cx, cz) = (hud.position.map_or(449.0, |p| p[0]), hud.position.map_or(313.0, |p| p[2]));
                         let mut builder = automap::MapBuilder::new(area.terrain.as_deref(), [cx, 8.0, cz], number);
