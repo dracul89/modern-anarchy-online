@@ -145,6 +145,8 @@ pub struct Hud {
     pub skills_preview: std::sync::Mutex<Option<crate::skills::SkillsWindow>>,
     /// What the last frame drew (parts), shown beside the frame rate.
     pub draw_info: String,
+    /// The renderer's figures for the performance overlay (`perf.rs`).
+    pub gpu: crate::perf::GpuInfo,
 }
 
 impl Hud {
@@ -311,6 +313,7 @@ pub struct Ui {
     themes: Vec<String>,
     last_frame: Instant,
     fps: f32,
+    perf: crate::perf::Perf,
 }
 
 /// An `esc_*` option's value in the game's LoginPrefs.xml (for when the skin's values are not loaded).
@@ -510,7 +513,7 @@ impl Ui {
         crate::skin::configure(&ctx, crate::skin::dirs(&settings.gui_dir, &settings.theme, &settings.aou_mod));
         let state = egui_winit::State::new(ctx.clone(), egui::ViewportId::ROOT, window, Some(window.scale_factor() as f32), window.theme(), None);
         let renderer = egui_wgpu::Renderer::new(&gpu.device, format, egui_wgpu::RendererOptions::default());
-        let mut ui = Ui { ctx, state, renderer, open_seen: Vec::new(), options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), shop: Default::default(), npc_chat: Default::default(), mission_log: Default::default(), planet: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), team: Default::default(), pets: Default::default(), tradeskill: Default::default(), research: Default::default(), faction: Default::default(), ncu: Default::default(), friends: Default::default(), programs: Default::default(), perks: Default::default(), help: Default::default(), tips: Default::default(), info: Default::default(), browser: Default::default(), market_send: Default::default(), control_center: None, option_panel: Default::default(), loot: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0 };
+        let mut ui = Ui { ctx, state, renderer, open_seen: Vec::new(), options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), shop: Default::default(), npc_chat: Default::default(), mission_log: Default::default(), planet: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), team: Default::default(), pets: Default::default(), tradeskill: Default::default(), research: Default::default(), faction: Default::default(), ncu: Default::default(), friends: Default::default(), programs: Default::default(), perks: Default::default(), help: Default::default(), tips: Default::default(), info: Default::default(), browser: Default::default(), market_send: Default::default(), control_center: None, option_panel: Default::default(), loot: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0, perf: Default::default() };
         // (the windows the player left open come back open)
         for name in crate::layout::load_open() {
             ui.set_window(&name, true);
@@ -726,6 +729,10 @@ impl Ui {
         let dt = now.duration_since(self.last_frame).as_secs_f32().max(1e-4);
         self.last_frame = now;
         self.fps += (1.0 / dt - self.fps) * 0.05;
+        if settings.perf_overlay {
+            self.perf.frame(dt, hud.gpu.gpu_ms);
+        }
+        let perf = &self.perf;
         let names = self.open_names();
         if names != self.open_seen {
             crate::layout::save_open(&names);
@@ -764,6 +771,9 @@ impl Ui {
         let output = self.ctx.run_ui(raw, |ui| {
             let ctx = ui.ctx().clone();
             hud_layer(&ctx, hud, project, fps, settings.mode, palette);
+            if settings.perf_overlay {
+                perf.show(&ctx, &hud.gpu, palette);
+            }
             notification_layer(&ctx, control_center.as_ref().map(|cc| &cc.store), palette);
             let booths: Vec<[f32; 2]> = hud.labels.iter().map(|l| [l.world.x, l.world.y]).collect();
             let notum_wars = hud.stats.get(&389).is_some_and(|e| e & 1 != 0);
@@ -1786,6 +1796,7 @@ fn options_window(ctx: &egui::Context, open: &mut bool, rebinding: &mut Option<A
             ui.label("Character distance");
             ui.add(egui::Slider::new(&mut settings.char_distance, 0.0..=400.0).step_by(5.0).custom_formatter(|v, _| if v < 1.0 { "all".to_string() } else { format!("{v:.0}") }));
         });
+        crate::chrome::checkbox(ui, palette, &mut settings.perf_overlay, "Show performance: frame rate, processor, memory and graphics card (/perf)");
         crate::chrome::checkbox(ui, palette, &mut settings.auto_loot, "Take everything from a corpse as soon as it opens");
         if crate::chrome::checkbox(ui, palette, &mut settings.original_font, "The original's chat font (its own 9 px bitmap font)").changed() {
             crate::font::set_enabled(settings.original_font);

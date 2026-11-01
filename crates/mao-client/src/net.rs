@@ -644,6 +644,14 @@ const ORG_CHANNEL_KIND: u8 = 3;
 /// Vicinity speech to send on the game connection: (kind: 0 say, 1 whisper, 2 shout; text; voice record).
 static SPEECH: std::sync::Mutex<Vec<(u8, String, Vec<u8>)>> = std::sync::Mutex::new(Vec::new());
 
+/// Commands for the server (`/stuck` and the like), sent by the game loop.
+static SERVER_COMMANDS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+/// A command for the server (`n3::server_command`), sent by the game loop.
+pub fn server_command(text: String) {
+    SERVER_COMMANDS.lock().unwrap_or_else(|e| e.into_inner()).push(text);
+}
+
 /// Vicinity speech (`/say`, `/shout`, `/whisper`, plain text, `/voice`), sent by the game loop.
 pub fn speak(kind: u8, text: String, record: Vec<u8>) {
     SPEECH.lock().unwrap_or_else(|e| e.into_inner()).push((kind, text, record));
@@ -1004,6 +1012,7 @@ impl World {
     fn door_used(&mut self, id: u32) {
         if self.types.get(&id) == Some(&DOOR_TYPE) {
             if let Some(n) = self.door_number(id) {
+                eprintln!("door {id:#x} ({n}) used");
                 self.doors_open.insert(n, Instant::now() + DOOR_OPEN);
             }
         }
@@ -2054,6 +2063,8 @@ impl World {
         if m.kind == DOOR_STATUS && m.identity.0 == DOOR_TYPE
             && let Some(open) = door_open(&m.data)
         {
+            // (logged: a door that keeps opening and closing is this message or our own uses; see `door_used`)
+            eprintln!("door {:#x} ({:?}) {} by the server", m.identity.1, self.door_number(m.identity.1), if open { "opened" } else { "closed" });
             self.door_status(m.identity.1, open);
         }
         // `DoorFullUpdate` (`365a5071`): a door the playfield's table does not have (a generated mission's), announced with its
@@ -4333,7 +4344,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                         chat.send(&mao_net::chat::lookup_packet(&name))?;
                                     }
                                 },
-                                Out::Camp | Out::Sit | Out::Pet(_) | Out::Quit | Out::Follow | Out::Inspect | Out::Window { .. } | Out::Waypoint { .. } | Out::SelectSelf | Out::SetOption { .. } | Out::ViewDist(_) | Out::CharDist(_) => {}
+                                Out::Camp | Out::Sit | Out::Perf | Out::Pet(_) | Out::Server(_) | Out::Quit | Out::Follow | Out::Inspect | Out::Window { .. } | Out::Waypoint { .. } | Out::SelectSelf | Out::SetOption { .. } | Out::ViewDist(_) | Out::CharDist(_) => {}
                                 Out::Befriend { name } => match ids.get(&name.to_lowercase()) {
                                     Some(&id) => {
                                         chat.send(&mao_net::chat::buddy_add_packet(id))?;
@@ -5032,6 +5043,11 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 if !raises.is_empty() {
                     let _ = connection.send(&n3::raise_skills(own, &raises));
                 }
+            }
+            for text in std::mem::take(&mut *SERVER_COMMANDS.lock().unwrap_or_else(|e| e.into_inner())) {
+                let at = target.map_or((0, 0), |t| (state.types.get(&t).copied().unwrap_or(n3::CHARACTER), t));
+                eprintln!("[{:6.1}] server command {text:?}", clock.elapsed().as_secs_f32());
+                let _ = connection.send(&n3::server_command(own, 0, at, &text));
             }
             for (kind, text, record) in std::mem::take(&mut *SPEECH.lock().unwrap_or_else(|e| e.into_inner())) {
                 let object = match kind {

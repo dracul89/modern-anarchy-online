@@ -36,7 +36,10 @@ impl Gpu {
             ..Default::default()
         }))
         .map_err(|e| e.to_string())?;
-        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).map_err(|e| e.to_string())?;
+        // (timestamps where the device has them: the frame's time on the card, for the performance overlay)
+        let timing = wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS;
+        let required_features = if adapter.features().contains(timing) { timing } else { wgpu::Features::empty() };
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor { required_features, ..Default::default() })).map_err(|e| e.to_string())?;
         Ok(Gpu { instance, adapter, device, queue })
     }
 
@@ -668,6 +671,61 @@ struct TaaTargets {
     scene: (usize, usize),
 }
 
+/// The frame's time on the graphics card: a timestamp at the start and the end of `Renderer::draw`'s commands, read back a few
+/// frames later through a ring of buffers (so the frame never waits for the card).
+struct GpuTimer {
+    queries: wgpu::QuerySet,
+    resolve: wgpu::Buffer,
+    /// Each read-back buffer and its state: 0 free, 1 being mapped, 2 mapped (ready to read).
+    readbacks: Vec<(wgpu::Buffer, std::sync::Arc<std::sync::atomic::AtomicU8>)>,
+    next: usize,
+    /// Nanoseconds per tick.
+    period: f32,
+}
+
+impl GpuTimer {
+    fn new(gpu: &Gpu) -> Option<GpuTimer> {
+        let needed = wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS;
+        if !gpu.device.features().contains(needed) {
+            return None;
+        }
+        let queries = gpu.device.create_query_set(&wgpu::QuerySetDescriptor { label: Some("frame time"), ty: wgpu::QueryType::Timestamp, count: 2 });
+        let resolve = gpu.device.create_buffer(&wgpu::BufferDescriptor { label: Some("frame time"), size: 16, usage: wgpu::BufferUsages::QUERY_RESOLVE | wgpu::BufferUsages::COPY_SRC, mapped_at_creation: false });
+        let readbacks = (0..4)
+            .map(|_| (gpu.device.create_buffer(&wgpu::BufferDescriptor { label: Some("frame time"), size: 16, usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ, mapped_at_creation: false }), Default::default()))
+            .collect();
+        Some(GpuTimer { queries, resolve, readbacks, next: 0, period: gpu.queue.get_timestamp_period(), })
+    }
+
+    /// The latest time read back (milliseconds), freeing the buffers that hold one.
+    fn collect(&mut self) -> Option<f32> {
+        use std::sync::atomic::Ordering;
+        let mut latest = None;
+        for _ in 0..self.readbacks.len() {
+            // (oldest first, from the slot after the one written last)
+            let k = self.next;
+            let (buffer, state) = &self.readbacks[k];
+            if state.load(Ordering::Acquire) == 2 {
+                if let Ok(view) = buffer.slice(..).get_mapped_range() {
+                    let t: &[u64] = bytemuck::cast_slice(&view[..16]);
+                    if t[1] > t[0] {
+                        latest = Some((t[1] - t[0]) as f32 * self.period / 1.0e6);
+                    }
+                }
+                buffer.unmap();
+                state.store(0, Ordering::Release);
+            }
+            self.next = (self.next + 1) % self.readbacks.len();
+        }
+        latest
+    }
+
+    /// The slot this frame writes into, if one is free.
+    fn slot(&self) -> Option<usize> {
+        (0..self.readbacks.len()).map(|i| (self.next + i) % self.readbacks.len()).find(|&k| self.readbacks[k].1.load(std::sync::atomic::Ordering::Acquire) == 0)
+    }
+}
+
 /// The `index`th number (from 1) of the Halton sequence in `base`: the jitter's points, spread evenly over a pixel.
 fn halton(mut index: u32, base: u32) -> f32 {
     let (mut f, mut r) = (1.0f32, 0.0f32);
@@ -693,6 +751,10 @@ pub struct Renderer {
     taa: Option<TaaTargets>,
     /// A copy of a frame onto the target (the anti-aliased frame at full size).
     copy_pipeline: wgpu::RenderPipeline,
+    /// The frame's time on the card (where the device can measure it).
+    timer: Option<GpuTimer>,
+    /// The last frame time the card reported (milliseconds; none until one is read back or where it can't be measured).
+    pub gpu_ms: Option<f32>,
     /// Frames drawn (the jitter's place in its sequence), and the last frame's unjittered view and projection and player.
     frame: u32,
     previous: Option<(Mat4, [f32; 4])>,
@@ -951,7 +1013,7 @@ impl Renderer {
             layout: &sprite_layout,
             entries: &[wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&white) }, wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&sampler) }],
         });
-        Renderer { shadow_cache: None, shadow_pipeline, pipeline_sets, shaders, antialiasing: Antialiasing::default(), taa_pipeline, taa_layout, taa_sampler, taa: None, copy_pipeline, frame: 0, previous: None, sprites: HashMap::new(), sprite_layout, white_sprite, shadow_view, shadow_bind, shadows: true, stats: Stats::default(), render_scale: 1.0, sharpness: 0.2, fsr_easu, fsr_rcas, fsr_layout, fsr_sampler, fsr: None, samples, msaa: None, started: std::time::Instant::now(), globals_layout, part_layout, sampler, white, format, depth: None, textures: Default::default() }
+        Renderer { shadow_cache: None, shadow_pipeline, pipeline_sets, shaders, antialiasing: Antialiasing::default(), taa_pipeline, taa_layout, taa_sampler, taa: None, copy_pipeline, timer: GpuTimer::new(gpu), gpu_ms: None, frame: 0, previous: None, sprites: HashMap::new(), sprite_layout, white_sprite, shadow_view, shadow_bind, shadows: true, stats: Stats::default(), render_scale: 1.0, sharpness: 0.2, fsr_easu, fsr_rcas, fsr_layout, fsr_sampler, fsr: None, samples, msaa: None, started: std::time::Instant::now(), globals_layout, part_layout, sampler, white, format, depth: None, textures: Default::default() }
     }
 
     /// Puts a model on the GPU. `texture` finds a texture by (type, instance).
@@ -1531,6 +1593,17 @@ impl Renderer {
         };
         lap(0, "render-setup");
         let mut encoder = gpu.device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        // (the card's time for this frame: what earlier frames measured read back, and this one's start marked)
+        let _ = gpu.device.poll(wgpu::PollType::Poll);
+        let timing = match self.timer.as_mut() {
+            Some(t) => {
+                if let Some(ms) = t.collect() {
+                    self.gpu_ms = Some(ms);
+                }
+                t.slot().inspect(|_| encoder.write_timestamp(&t.queries, 0))
+            }
+            None => None,
+        };
         if redraw_shadows {
             // The shadow map: what the sun sees (always cleared, so a frame with shadows off reads "lit").
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -1800,9 +1873,26 @@ impl Renderer {
             }
         }
         lap(3, "render-post");
+        if let (Some(slot), Some(t)) = (timing, self.timer.as_ref()) {
+            encoder.write_timestamp(&t.queries, 1);
+            encoder.resolve_query_set(&t.queries, 0..2, &t.resolve, 0);
+            encoder.copy_buffer_to_buffer(&t.resolve, 0, &t.readbacks[slot].0, 0, 16);
+        }
         gpu.queue.submit(Some(encoder.finish()));
+        if let (Some(slot), Some(t)) = (timing, self.timer.as_ref()) {
+            let state = t.readbacks[slot].1.clone();
+            state.store(1, std::sync::atomic::Ordering::Release);
+            t.readbacks[slot].0.slice(..).map_async(wgpu::MapMode::Read, move |result| {
+                state.store(if result.is_ok() { 2 } else { 0 }, std::sync::atomic::Ordering::Release);
+            });
+        }
         lap(4, "render-submit");
         self.stats.times = times;
+    }
+
+    /// The graphics memory this program's renderer holds (bytes), where the device reports it (Direct3D 12 and Vulkan).
+    pub fn gpu_memory(gpu: &Gpu) -> Option<u64> {
+        gpu.device.generate_allocator_report().map(|r| r.total_reserved_bytes)
     }
 
     /// Draws the scene to a `width` x `height` RGBA image (headless).

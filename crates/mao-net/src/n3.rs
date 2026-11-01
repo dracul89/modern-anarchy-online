@@ -664,6 +664,19 @@ pub fn quest_alternative(character: u32, sliders: [u8; 7], scope: u8, terminal: 
     Message { kind: 0x5c436609, identity: (CHARACTER, character), data }.frame(character)
 }
 
+/// `FanaticIIR_t` (`5c525a7b`, `n3InfoItemRemote_t::MapToKey("FanaticIIR_t")`): a command for the server, as Fanatic.dll's
+/// `ClientInterface_c::Command` sends it (its IIR's flag byte 0, then FUN_10001112's writes): the chat window it was typed in
+/// (GUI.dll's chat module +0x1ec, its "Window%d" number), the selected target (none: zeros) and the text without its slash
+/// (`/stuck` is "stuck"; GUI.dll FUN_100b36da).
+pub fn server_command(character: u32, window: u32, target: (u32, u32), text: &str) -> Frame {
+    let mut data = vec![0u8];
+    for word in [window, target.0, target.1, text.len() as u32] {
+        data.extend_from_slice(&word.to_be_bytes());
+    }
+    data.extend_from_slice(text.as_bytes());
+    Message { kind: 0x5c525a7b, identity: (CHARACTER, character), data }.frame(character)
+}
+
 /// `Quest` (`212c487a`) action 1, Delete: drops one of the character's missions (laid out as the server's own Delete:
 /// the header byte, the action, a zero, the mission, two zeros).
 pub fn quest_delete(character: u32, mission: (u32, u32)) -> Frame {

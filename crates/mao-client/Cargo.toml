@@ -19,6 +19,7 @@ pollster = "1.0.1"
 time = { version = "0.3.55", default-features = false, features = ["std", "local-offset"] }
 rodio = { version = "0.23", default-features = false, features = ["playback", "vorbis", "mp3"] }
 winit = "0.30.13"
+sysinfo = { version = "0.40.1", default-features = false, features = ["system"] }
 
 
 # The in-game web pages (the market terminal's: GUI.dll's BrowserWindow_c, Awesomium there): WebView2 through wry, its

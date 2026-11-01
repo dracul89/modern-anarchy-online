@@ -23,6 +23,7 @@ macro_rules! profile {
 }
 
 mod actions;
+mod perf;
 mod crash;
 mod factions;
 mod charcreate;
@@ -726,6 +727,11 @@ pub(crate) fn add_props_with(game: &str, db: &ResourceDatabase, playfield: u32, 
                         }
                     }
                     m.parts = kept;
+                    // MAO_ANIMATED=1: the statel meshes with moving parts (their animations' lengths and loop flags)
+                    if std::env::var_os("MAO_ANIMATED").is_some() {
+                        let info: Vec<String> = apart.iter().map(|a| format!("{}:{:.2}s{}", a.0.name, a.1.length(), if a.1.looped() { " loop" } else { "" })).collect();
+                        eprintln!("animated mesh {} at {:?}: {}", s.mesh, s.position, info.join(", "));
+                    }
                     moving.insert((s.mesh, overrides.clone()), apart);
                 }
                 if plant_meshes.contains(&s.mesh) {

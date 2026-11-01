@@ -60,8 +60,12 @@ pub enum Out {
     Camp,
     /// Sit down or stand up (`/sit`, as X).
     Sit,
+    /// Show or hide the performance overlay (`/perf`).
+    Perf,
     /// A command to the pets (`/pet`): its `PetCommand` number.
     Pet(u32),
+    /// A command the server carries out (`/stuck` and the like): its text.
+    Server(String),
     Follow,
     Inspect,
     Quit,
@@ -221,6 +225,8 @@ impl ChatWindow {
             Parsed::Camp => Some(Out::Camp),
             Parsed::Sit => Some(Out::Sit),
             Parsed::Pet { command } => Some(Out::Pet(command)),
+            Parsed::Perf => Some(Out::Perf),
+            Parsed::Server { text } => Some(Out::Server(text)),
             Parsed::Quit => Some(Out::Quit),
             Parsed::Follow => Some(Out::Follow),
             Parsed::Window { name, open } => Some(Out::Window { name, open }),

@@ -551,6 +551,8 @@ struct App {
     /// The wind (the environment weather object's, see `wind`), stepped every frame from the weather's wind.
     wind: crate::wind::Wind,
     wind_at: std::time::Instant,
+    /// When the performance overlay last asked the renderer how much graphics memory it holds.
+    perf_memory_at: std::time::Instant,
     daylight: f32,
     keys: Input,
     /// The keys as last sent to the network thread.
@@ -610,7 +612,7 @@ pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<()
     let settings = Settings::load();
     crate::ui::set_debug_overlay(settings.debug_overlay);
     crate::font::set_enabled(settings.original_font);
-    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, world_in: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), flares: Vec::new(), sky: Default::default(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), fxs_frame: None, script_meshes: Default::default(), named_sheets: Default::default(), trails: Default::default(), motions: Default::default(), shake: (0.0, 0), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, zones: None, casters: Vec::new(), follow_shift: [0.0; 3], environment: Default::default(), quake: Default::default(), quake_offset: [0.0; 3], wind: Default::default(), wind_at: std::time::Instant::now(), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
+    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, world_in: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), flares: Vec::new(), sky: Default::default(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), fxs_frame: None, script_meshes: Default::default(), named_sheets: Default::default(), trails: Default::default(), motions: Default::default(), shake: (0.0, 0), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, zones: None, casters: Vec::new(), follow_shift: [0.0; 3], environment: Default::default(), quake: Default::default(), quake_offset: [0.0; 3], wind: Default::default(), wind_at: std::time::Instant::now(), perf_memory_at: std::time::Instant::now() - std::time::Duration::from_secs(10), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
     // (entering the game: the loading screen, `ServerLogin3DModule_t::InitialiseMessage`)
     if app.live.is_some() {
         crate::loading::begin(crate::loading::FADE_IN, crate::loading::FADE_OUT);
@@ -1926,6 +1928,24 @@ impl ApplicationHandler for App {
                     }
                 }
                 self.hud.draw_info = format!("{} of {} parts, {} in shadow", stats.drawn, stats.parts, stats.shadow_drawn);
+                if self.settings.perf_overlay {
+                    let g = &mut self.hud.gpu;
+                    if g.adapter.is_empty() {
+                        let info = w.gpu.adapter.get_info();
+                        g.adapter = format!("{}, {:?}", info.name, info.backend);
+                    }
+                    g.gpu_ms = w.renderer.gpu_ms;
+                    // (the memory report walks every allocation: once in a while is enough)
+                    if self.perf_memory_at.elapsed() > std::time::Duration::from_secs(2) {
+                        self.perf_memory_at = std::time::Instant::now();
+                        g.gpu_memory = Renderer::gpu_memory(&w.gpu);
+                    }
+                    g.drawn = (stats.drawn, stats.parts, stats.shadow_drawn);
+                    let scale = w.renderer.render_scale.clamp(0.4, 1.0);
+                    g.window_size = size;
+                    g.render_size = if scale < 0.999 { ((size.0 as f32 * scale).round() as u32, (size.1 as f32 * scale).round() as u32) } else { size };
+                    g.antialiasing = w.renderer.antialiasing.name();
+                }
                 if let Some(ui) = w.ui.as_mut() {
                     let (camera, radius) = (w.camera, w.scene.radius);
                     let aspect = size.0 as f32 / size.1.max(1) as f32;
@@ -2001,6 +2021,11 @@ impl ApplicationHandler for App {
                             crate::chatwindow::Out::Camp => self.keys.camp = self.keys.camp.wrapping_add(1),
                             crate::chatwindow::Out::Sit => self.keys.commands[5] = self.keys.commands[5].wrapping_add(1),
                             crate::chatwindow::Out::Pet(command) => self.keys.pet = (self.keys.pet.0.wrapping_add(1), command),
+                            crate::chatwindow::Out::Server(text) => crate::net::server_command(text),
+                            crate::chatwindow::Out::Perf => {
+                                self.settings.perf_overlay = !self.settings.perf_overlay;
+                                self.settings.save();
+                            }
                             crate::chatwindow::Out::Quit => event_loop.exit(),
                             crate::chatwindow::Out::Window { name, open } => match ui.set_window(&name, open) {
                                 true => {}

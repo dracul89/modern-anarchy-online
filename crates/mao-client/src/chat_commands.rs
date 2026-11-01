@@ -88,8 +88,13 @@ pub enum Parsed {
     Camp,
     /// `/sit`: sit down or stand up, as the X key.
     Sit,
+    /// `/perf`: the performance overlay shown or hidden.
+    Perf,
     /// `/pet <command>`: a command to the pets (its `PetCommand` number).
     Pet { command: u32 },
+    /// `/stuck`, `/anon`, `/list` and `/shop`: commands the server carries out (GUI.dll's `CCFanatic_c` list, FUN_100b4001, each
+    /// sent as its text by FUN_100b36da: the line without its slash).
+    Server { text: String },
     /// `/emote <name>` or `/<name>`: an emote (a social action, its `AbstractAnimID`; GUI.dll FUN_100b30bf).
     Social { id: u32 },
     /// `/emote` with a name that is none (FUN_100b30bf: "Error: No emote named '<name>'").
@@ -128,7 +133,7 @@ pub fn suggest(input: &str) -> Vec<&'static str> {
 /// The command with this name (any case), as the original writes it.
 /// Commands of this client's own, beyond the original's list: `/sit` (the X key's sit and stand).
 /// `/pet` is Gamecode's own (FUN_100542ad), not in the input line's list, but the control center's Pets menu runs it.
-pub const EXTRA: &[&str] = &["sit", "pet"];
+pub const EXTRA: &[&str] = &["sit", "pet", "perf"];
 
 /// `/pet <command>`'s words and the `PetCommand` numbers they send (Gamecode FUN_100542ad's table).
 pub const PET_COMMANDS: &[(&str, u32)] = &[
@@ -176,7 +181,9 @@ pub fn parse(line: &str) -> Parsed {
         }
         "ignore" => Parsed::Ignore { name: text.split_whitespace().next().unwrap_or("").to_string() },
         "camp" => Parsed::Camp,
+        "stuck" | "anon" | "list" | "shop" => Parsed::Server { text: rest.to_string() },
         "sit" => Parsed::Sit,
+        "perf" => Parsed::Perf,
         "pet" => match text.split_whitespace().next().and_then(|w| PET_COMMANDS.iter().find(|c| c.0.eq_ignore_ascii_case(w))) {
             Some(&(_, command)) => Parsed::Pet { command },
             None => Parsed::Usage("/pet follow|behind|wait|guard|attack|heal|report|terminate|..."),
@@ -267,6 +274,8 @@ mod tests {
         assert_eq!(parse("/ignore"), Parsed::Ignore { name: String::new() });
         assert_eq!(parse("/camp"), Parsed::Camp);
         assert_eq!(parse("/pet attack"), Parsed::Pet { command: 7 });
+        assert_eq!(parse("/stuck"), Parsed::Server { text: "stuck".into() });
+        assert_eq!(parse("/list doctor"), Parsed::Server { text: "list doctor".into() });
         assert_eq!(parse("/pet Terminate"), Parsed::Pet { command: 10 });
         assert_eq!(parse("/sit"), Parsed::Sit);
         assert_eq!(parse("/follow"), Parsed::Follow);

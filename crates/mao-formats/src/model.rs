@@ -578,6 +578,11 @@ impl Animated {
         })
     }
 
+    /// Whether every animation in its chain loops (the keyframe animation's `loop` flag).
+    pub fn looped(&self) -> bool {
+        self.chain.iter().filter_map(|s| s.keys.as_ref()).all(|k| k.looped)
+    }
+
     /// The longest of its animations (the "animation tree's total time", `GetAnimationTreeTotalTime`).
     pub fn length(&self) -> f32 {
         self.chain.iter().filter_map(|s| s.keys.as_ref().map(|k| k.length)).fold(0.0, f32::max)
