@@ -34,6 +34,8 @@
 //! * Not ported (rare in the captures): 0xcf92 (FUN_100a8107: a vehicle's animations 0x1d / 0x27), 0xcf4c (FUN_100a7c79: state
 //!   flag of stat 0x49), 0xcf44 (FUN_100a7aa2: stat 0x167), 0xcf7d (FUN_100a83d8: feedback lines), 0xcf35 (FUN_100a517a, an
 //!   item's modify), and 0xcf16 runs (left out).
+//! * 0xcfff (FUN_100a9af8): its string 0 told in the notification window (`GlobalSignals_c` +0x298), see
+//!   [`crate::notifications`]. Ported: [`Outcome::Text`]. None of the captures has one.
 
 use mao_formats::spell::Spell;
 
@@ -98,6 +100,9 @@ pub enum Outcome {
     Stun { begin: bool, npc: bool },
     /// 0xcf22 (FUN_100a4f8a): the stat set to the value (vtable +0x40, or +0x44 for a stat the dynel does not have yet).
     SetStat { stat: u32, value: i32 },
+    /// A 0xcfff spell (FUN_100a9af8): a line for the notification window, told on the client's own character (range 0) or
+    /// within the range (stat 11, metres) of it ([`crate::notifications::spell_line`]).
+    Text { spell: Spell },
 }
 
 /// What the spell runner needs to know of the world besides the criteria's stats.
@@ -218,6 +223,8 @@ pub fn fire(run: &mut Run, scene: &dyn Scene, now: f64) -> Vec<Outcome> {
                 vec![Outcome::SetStat { stat: stat as u32, value }]
             }
         }
+        // (FUN_100a9af8: string 0 told in the notification window, by the range rule of `notifications::spell_line`)
+        0xcfff if !run.ending => vec![Outcome::Text { spell: spell.clone() }],
         _ => Vec::new(),
     }
 }
@@ -568,6 +575,7 @@ mod tests {
                             Outcome::Stun { begin: true, .. } => "stun",
                             Outcome::Stun { begin: false, .. } => "stun ends",
                             Outcome::SetStat { .. } => "stat",
+                            Outcome::Text { .. } => "text",
                         })
                         .or_default() += 1;
                 }

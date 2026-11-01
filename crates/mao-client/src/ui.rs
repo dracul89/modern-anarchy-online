@@ -405,30 +405,10 @@ fn camp_bar(ctx: &egui::Context, screen: egui::Rect, palette: &Palette) {
     ctx.request_repaint_after(std::time::Duration::from_millis(100));
 }
 
-/// A game timer bar (`TimerEntry_t` as `TimerSystemModule_t::StartTimerBar`, GUI.dll 0x1005214f, shows it): its kind (+0x14:
-/// 1 Attack, 2 Special, 3 Nano, 4 Item, 5 Reload), when it began and how long it runs.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Timer {
-    pub kind: u32,
-    pub began: Instant,
-    pub ms: u64,
-}
-
-/// The game's timer bars under way, in the order they began (Gamecode's timer list at the character's +0x1e8, FUN_1003d8c3,
-/// signals each new one to the interface).
-pub static TIMERS: std::sync::Mutex<Vec<Timer>> = std::sync::Mutex::new(Vec::new());
-
-/// Starts a timer bar of a kind, or starts it again (`StartTimerBar` keeps one bar per kind and identity, `GetTimer`).
-pub fn start_timer(kind: u32, ms: u64) {
-    let mut timers = TIMERS.lock().unwrap_or_else(|e| e.into_inner());
-    timers.retain(|t| t.kind != kind);
-    timers.push(Timer { kind, began: Instant::now(), ms });
-}
-
-/// Ends the timer bars of a kind (FUN_1003d496: the list's entries of that kind removed).
-pub fn end_timers(kind: u32) {
-    TIMERS.lock().unwrap_or_else(|e| e.into_inner()).retain(|t| t.kind != kind);
-}
+/// The game's timer bars to draw (`TimerSystemModule_t`'s `GameTimerBar_c`s, [`crate::timers::TimerBars::shown`]): each bar's
+/// place (0..20), its entry's kind (1 Attack, 2 Special, 3 Nano, 4 Item, 5 Reload, others a white bar with no label) and how
+/// full it is. Set by the network thread each frame.
+pub static TIMERS: std::sync::Mutex<Vec<(usize, u32, f32)>> = std::sync::Mutex::new(Vec::new());
 
 /// The label and colour of a timer kind, as `StartTimerBar` picks them (the texts of category 10000; 0xRRGGBB).
 fn timer_look(kind: u32) -> (String, u32) {
@@ -437,31 +417,31 @@ fn timer_look(kind: u32) -> (String, u32) {
         2 => ("Timer_Special", "Special", 0xaaffff),
         3 => ("Timer_Nano", "Nano", 0xffaaaa),
         4 => ("Timer_Item", "Item", 0xaaaaff),
-        _ => ("Timer_Reload", "Reload", 0xffffff),
+        5 => ("Timer_Reload", "Reload", 0xffffff),
+        // (any other kind: white and no label, `TimerBar_c` makes no text line for a null label)
+        _ => return (String::new(), 0xffffff),
     };
     (crate::feedback::texts().and_then(|t| t.named(10000, name)).unwrap_or(fallback).to_string(), colour)
 }
 
-/// The game's timer bars (`TimerBar_c`, FUN_100519d6: a 128 by 16 bar in its kind's colour with the label in black over it),
-/// one under another from (40, 40), 20 a place apart, running out over their time.
+/// The game's timer bars (`TimerBar_c`, FUN_100519d6: a 128 by 16 `PowerBar_t` in its kind's colour with the label in black
+/// over it) at (40, (place + 2) × 20).
 fn timer_bars(ctx: &egui::Context, screen: egui::Rect) {
-    let timers = {
-        let mut timers = TIMERS.lock().unwrap_or_else(|e| e.into_inner());
-        timers.retain(|t| (t.began.elapsed().as_millis() as u64) < t.ms);
-        timers.clone()
-    };
+    let timers = TIMERS.lock().unwrap_or_else(|e| e.into_inner()).clone();
     if timers.is_empty() {
         return;
     }
     let size = egui::vec2(128.0, 16.0);
     let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::unique("game-timers")));
-    for (place, t) in timers.iter().enumerate() {
-        let left = 1.0 - (t.began.elapsed().as_millis() as f32 / t.ms.max(1) as f32).clamp(0.0, 1.0);
-        let (label, colour) = timer_look(t.kind);
+    for (place, kind, fill) in timers {
+        let (label, colour) = timer_look(kind);
         let bar = egui::Rect::from_min_size(screen.min + egui::vec2(40.0, (place as f32 + 2.0) * 20.0), size);
         painter.rect_filled(bar, 2.0, egui::Color32::from_black_alpha(170));
-        let fill = egui::Color32::from_rgb((colour >> 16) as u8, (colour >> 8) as u8, colour as u8);
-        painter.rect_filled(egui::Rect::from_min_size(bar.min + egui::vec2(1.0, 1.0), egui::vec2((size.x - 2.0) * left, size.y - 2.0)), 1.0, fill);
+        let fill_colour = egui::Color32::from_rgb((colour >> 16) as u8, (colour >> 8) as u8, colour as u8);
+        painter.rect_filled(egui::Rect::from_min_size(bar.min + egui::vec2(1.0, 1.0), egui::vec2((size.x - 2.0) * fill, size.y - 2.0)), 1.0, fill_colour);
+        if label.is_empty() {
+            continue;
+        }
         match crate::font::tooltip(ctx) {
             Some(font) => {
                 font.paint(&painter, egui::pos2(bar.center().x - font.width(&label) * 0.5, bar.top() + 2.0), &label, egui::Color32::BLACK);
@@ -472,6 +452,15 @@ fn timer_bars(ctx: &egui::Context, screen: egui::Rect) {
         }
     }
     ctx.request_repaint_after(std::time::Duration::from_millis(100));
+}
+
+/// The notification window (`NotificationWindowModule_c`), while its module value `notification_window` is on (the game's
+/// default; on too before the values have loaded), drawn as `NotificationWindowVisibility` says.
+fn notification_layer(ctx: &egui::Context, store: Option<&crate::gui::dvalue::Store>, palette: &Palette) {
+    let on = store.is_none_or(|s| s.get("notification_window").is_none() || s.get_bool("notification_window"));
+    if on {
+        crate::notifications::draw(ctx, ctx.content_rect(), store.is_some_and(|s| s.get_bool("NotificationWindowVisibility")), palette);
+    }
 }
 
 fn rgb(c: [u8; 3]) -> egui::Color32 {
@@ -775,6 +764,7 @@ impl Ui {
         let output = self.ctx.run_ui(raw, |ui| {
             let ctx = ui.ctx().clone();
             hud_layer(&ctx, hud, project, fps, settings.mode, palette);
+            notification_layer(&ctx, control_center.as_ref().map(|cc| &cc.store), palette);
             let booths: Vec<[f32; 2]> = hud.labels.iter().map(|l| [l.world.x, l.world.y]).collect();
             let notum_wars = hud.stats.get(&389).is_some_and(|e| e & 1 != 0);
             automap.set_land_control(hud.land_map.as_ref(), hud.lc_district.as_ref());
@@ -1166,6 +1156,7 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
         let output = ctx.run_ui(raw, |ui| {
             let ctx = ui.ctx().clone();
             hud_layer(&ctx, hud, project, 60.0, settings.mode, &palette);
+            notification_layer(&ctx, preview_cc.as_ref().map(|cc| &cc.store), &palette);
             if preview_cc.is_none() && crate::skin::skin(&ctx).is_some() {
                 preview_cc = crate::gui::controlcenter::ControlCenter::load(&ctx);
             }

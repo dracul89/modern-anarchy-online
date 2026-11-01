@@ -366,6 +366,16 @@ struct World {
     queued_specials: BTreeMap<u32, u32>,
     /// The delay (hundredths) of the last perk action the server queued (`QueuePerk`, 0x50), shown as the "Special" timer bar.
     queued_perk: Option<u32>,
+    /// The character's timer list (Gamecode's +0x1e8: attacks, specials, nano casts, items, reloads) and its bars
+    /// (`TimerSystemModule_t`), moved on each frame by [`World::tick_timers`].
+    timers: crate::timers::TimerList,
+    timer_bars: crate::timers::TimerBars,
+    /// When the timers last moved on.
+    timers_moved: Option<Instant>,
+    /// The client's own nano cast under way (FUN_1005141d's cast, +0x18 its timer's place) and when it lands.
+    own_cast: Option<(usize, Instant)>,
+    /// The CRT's `rand()` for the attack timers' start (FUN_10068331).
+    timer_rand: crate::audio::Rand,
     /// The characters the server put in the sneak mode (`CharacterAction` 0xa2: movement 0x1c), until another movement mode.
     sneaking: std::collections::BTreeSet<u32>,
     /// The specials the server timed (skill stat, seconds; 0 = ready again), not yet given to the hotbars.
@@ -705,6 +715,12 @@ impl World {
                         self.stats_changed = true;
                     }
                 }
+                crate::spelllist::Outcome::Text { spell } => {
+                    let distance = self.position_of(on.1).zip(self.position_of(self.own)).map(|(a, b)| ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt());
+                    if let Some(line) = crate::notifications::spell_line(&spell, false, on.1 == self.own, distance) {
+                        crate::notifications::add(&line);
+                    }
+                }
             }
         }
     }
@@ -729,6 +745,106 @@ impl World {
     /// The weapon template a character holds in a place: the server's `WeaponItemFullUpdate`, or the client's own inventory.
     fn weapon_of(&self, id: u32, slot: u32) -> Option<u32> {
         self.weapons.get(&(id, slot as u8)).copied().or_else(|| (id == self.own).then(|| self.inventory.as_ref()?.iter().find(|e| e.slot == slot).map(|e| e.low_id)).flatten())
+    }
+
+    /// The weapons' attack timers when the character starts fighting (FUN_1006a1b1 → FUN_1006872e): for each of the 16 weapon
+    /// places with a weapon (FUN_100685bb), FUN_10068331 with the weapon's attack and recharge times (FUN_10067c74,
+    /// FUN_10067d92, truncated): started again (FUN_1003d8c3, its time left then moved by `50 − rand() × first × 0.5 / 32767`)
+    /// when forced — no attack entry is unheld (FUN_1003d0cb) — or when its entry is held, else only given the new times; then
+    /// flag 2. The attack part is fighting again (+0x44 = 2) and every attack bar is shown again (FUN_1003d29b).
+    fn start_attack_timers(&mut self) {
+        use crate::timers::{ATTACK, HELD, TAKES_TURNS};
+        let force = !self.timers.has_unheld(ATTACK);
+        for slot in 0..16u32 {
+            let Some(template) = self.weapon_of(self.own, slot) else { continue };
+            let stats = &self.stats;
+            let player = |k: u32| stats.get(&k).copied().unwrap_or(0);
+            let item = |k: u32| template_stat(template, k).map(|v| v as i32);
+            let first = crate::gui::iteminfo::swing_time(&item, &player, false) as i32;
+            let second = crate::gui::iteminfo::swing_time(&item, &player, true) as i32;
+            let (place, started) = match self.timers.find(ATTACK, slot) {
+                Some(p) if !force && self.timers.get(p).is_some_and(|e| e.flags & HELD == 0) => {
+                    let e = self.timers.entries[p].as_mut().unwrap();
+                    (e.first, e.second) = (first, second);
+                    (p, false)
+                }
+                Some(p) => {
+                    self.timers.restart(p, first, second);
+                    (self.timers.find(ATTACK, slot).unwrap(), true)
+                }
+                None => (self.timers.add(first, second, ATTACK, slot), true),
+            };
+            if started {
+                let r = self.timer_rand.next();
+                let jitter = 50 - (r as f64 * first as f64 * 0.5 / 32767.0) as i32;
+                self.timers.entries[place].as_mut().unwrap().left += jitter as f32;
+            }
+            self.timers.entries[place].as_mut().unwrap().flags |= TAKES_TURNS;
+        }
+        self.timers.attacks_stopped = false;
+        self.timers.signal_attacks();
+    }
+
+    /// The client's own nano cast (the server's `CastNanoSpell`: FUN_1007284f → FUN_10051c98 → FUN_1005141d): with no cast
+    /// under way, its cast time ([`crate::timers::cast_seconds`]) as a kind-3 entry over that many hundredths, its second
+    /// phase the nano's RechargeDelay (210), made the running entry, its bar shown (the one signal a nano entry gets). A cast
+    /// of no time lands at once and has none. The entry goes when the cast lands (FUN_1004ebd0).
+    fn start_cast_timer(&mut self, nano: u32) {
+        if self.own_cast.is_some() {
+            return;
+        }
+        let stats = &self.stats;
+        let seconds = crate::timers::cast_seconds(&|k| nano_stat(nano, k), &|k| stats.get(&k).copied().unwrap_or(0));
+        if seconds <= 0.0 {
+            return;
+        }
+        let recharge = nano_stat(nano, 210).unwrap_or(0) as i32;
+        let place = self.timers.add((seconds * 100.0) as i32, recharge, crate::timers::NANO, nano);
+        self.timers.run(place);
+        self.timers.events.push(crate::timers::Event::Start(place));
+        self.own_cast = Some((place, Instant::now() + Duration::from_secs_f32(seconds)));
+    }
+
+    /// The timer list moved on (FUN_1003d517 each frame) and the bars made to follow it (`TimerSystemModule_t`), for the
+    /// interface: the client's nano cast taken off when it lands (FUN_1004ebd0), an item's entry once its first phase is over
+    /// (FUN_1003badb).
+    fn tick_timers(&mut self) {
+        let now = Instant::now();
+        if self.own_cast.is_some_and(|(_, at)| now >= at) {
+            let (place, _) = self.own_cast.take().unwrap();
+            self.timers.remove(place);
+        }
+        let seconds = self.timers_moved.map_or(0.0, |t| now.duration_since(t).as_secs_f32());
+        self.timers_moved = Some(now);
+        // (Features, stat 224, bit 2: a character without the stat is taken to have it, as the captured player did)
+        let features = self.stats.get(&224).is_none_or(|f| f & 2 != 0);
+        self.timers.tick(seconds, features);
+        while let Some(place) = self.timers.entries.iter().position(|e| e.as_ref().is_some_and(|e| e.kind == crate::timers::ITEM && e.flags & crate::timers::HELD != 0)) {
+            self.timers.remove(place);
+        }
+        self.timer_bars.update(&mut self.timers);
+        *crate::ui::TIMERS.lock().unwrap_or_else(|e| e.into_inner()) = self.timer_bars.shown(&self.timers);
+    }
+
+    /// An item of the backpack used (`(0x68, place)`; action 3 a plain use, 5 on something): FUN_1007ccb3 → FUN_1003bcdc →
+    /// FUN_1003bb5a, unless an item timer runs: the item's ItemDelay (294) and RechargeDelay (210) as a kind-4 entry made the
+    /// running one (flag 2) — except a plain use of a bag or of an item whose two times are under 31 hundredths, which is used
+    /// at once (FUN_1003b8f3). (The original uses the item once the first phase is over; the client sends the use at once.)
+    fn start_item_timer(&mut self, place: u32, action: u32) {
+        use crate::timers::{ITEM, TAKES_TURNS};
+        if self.timers.has(ITEM) {
+            return;
+        }
+        let Some(e) = self.worn.iter().find(|e| e.slot == place) else { return };
+        let (template, bag) = (e.low_id, e.is_bag());
+        let recharge = template_stat(template, 210).unwrap_or(1234567890) as i32;
+        let delay = template_stat(template, 294).unwrap_or(1234567890) as i32;
+        if (delay.wrapping_add(recharge) < 31 || bag) && action == 3 {
+            return;
+        }
+        let at = self.timers.add(delay, recharge, ITEM, place);
+        self.timers.entries[at].as_mut().unwrap().flags |= TAKES_TURNS;
+        self.timers.run(at);
     }
 
     /// The lines due by now: the end of a reload.
@@ -1236,10 +1352,20 @@ impl World {
             if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
                 let target = p.value.get("Target").and_then(|t| t.get("Instance")).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
                 self.fighting.insert(m.identity.1, target);
+                // (the client's own fight starting: its weapons' attack timers, FUN_1006a1b1)
+                if m.identity.1 == self.own {
+                    self.start_attack_timers();
+                }
             }
         }
         if m.kind == 0x4a41203e {
             self.fighting.remove(&m.identity.1);
+            // (one's own: FUN_1007a2be → FUN_100690c8 signals the end of every attack bar, (1, -1), and stops the attack part,
+            // +0x44 = 1; the entries stay)
+            if m.identity.1 == self.own {
+                self.timers.events.push(crate::timers::Event::Stop(crate::timers::ATTACK, None));
+                self.timers.attacks_stopped = true;
+            }
         }
         // An attack (`AttackInfo`, from the attacker): it swings the weapon in the place the message names (FUN_1009f257 →
         // FUN_1006ae3c → FUN_1006a782, which `Characters::ensure_swing` follows).
@@ -1253,6 +1379,12 @@ impl World {
                 let target = p.value.get("Target").and_then(|t| t.get("Instance")).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
                 // (FUN_1006ae3c: the place's weapon given the damage and hit type, and its Energy the rounds left)
                 self.attacks.insert((m.identity.1, slot), (target, int("HitType") as i32, int("Amount")));
+                // (FUN_1006ae3c → FUN_1009b8ba: the weapon's attack entry is no longer held, so its recharge runs)
+                if m.identity.1 == self.own {
+                    if let Some(e) = self.timers.find(crate::timers::ATTACK, slot).and_then(|p| self.timers.entries[p].as_mut()) {
+                        e.flags &= !crate::timers::HELD;
+                    }
+                }
                 if let Some(e) = self.weapon_energy.get_mut(&(m.identity.1, slot as u8)) {
                     *e = int("AmmoCount");
                 }
@@ -1362,6 +1494,16 @@ impl World {
                 self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, crate::feedback::plain("Feedback_Reloading")));
                 let delay = self.weapon_templates.get(&weapon).and_then(|&t| template_stat(t, 210)).unwrap_or(0).max(0) as u64;
                 self.reload_done = Some(Instant::now() + Duration::from_millis(delay * 10));
+                // (FUN_10068fd2: a kind-5 entry over the stat, no second phase, flags 0x1a, made the running one)
+                let place = match self.timers.find(crate::timers::RELOAD, weapon) {
+                    Some(p) => {
+                        self.timers.restart(p, delay as i32, 0);
+                        self.timers.find(crate::timers::RELOAD, weapon).unwrap()
+                    }
+                    None => self.timers.add(delay as i32, 0, crate::timers::RELOAD, weapon),
+                };
+                self.timers.entries[place].as_mut().unwrap().flags |= 0x1a;
+                self.timers.run(place);
             }
         }
         // Damage a character's armour absorbed (`Absorb`, FUN_1009ef78: from the one absorbing).
@@ -1433,6 +1575,9 @@ impl World {
                     if caster == self.own || target == self.own {
                         self.casts.push((caster, target, nano));
                     }
+                    if caster == self.own {
+                        self.start_cast_timer(nano);
+                    }
                     let plays = self.nano_casts.cast(caster, target, nano, &|n, s| nano_stat(n, s));
                     self.cast_sounds.extend(plays.into_iter().map(|(id, delay, volume)| (caster, id, delay, volume)));
                     self.landed.push((target, nano));
@@ -1458,6 +1603,11 @@ impl World {
                 0x89 => {
                     let id = m.identity.1;
                     self.nano_casts.casts.remove(&id);
+                    if id == self.own {
+                        if let Some((place, _)) = self.own_cast.take() {
+                            self.timers.remove(place);
+                        }
+                    }
                     if self.socials.get(&id).is_some_and(|s| s.0.starts_with("spell-")) {
                         self.socials.remove(&id);
                     }
@@ -1567,10 +1717,12 @@ impl World {
                 // (FUN_1003d9e0 → FUN_1003d8c3), which the interface shows as the "Special" timer bar (GUI.dll `StartTimerBar`);
                 // parameters `(0, 0)` take the kind-2 entries away (FUN_1003d496)
                 0x50 => match (word(17), word(21)) {
-                    (0, 0) => crate::ui::end_timers(2),
+                    (0, 0) => self.timers.remove_kind(crate::timers::SPECIAL),
                     (_, delay) => {
+                        use crate::timers::{NEVER_HELD, ONCE, SPECIAL, TAKES_TURNS};
                         self.queued_perk = Some(delay);
-                        crate::ui::start_timer(2, delay as u64 * 10);
+                        let at = self.timers.add(delay as i32, 0, SPECIAL, 0);
+                        self.timers.entries[at].as_mut().unwrap().flags |= TAKES_TURNS | ONCE | NEVER_HELD;
                     }
                 },
                 // `StopLogout` (0x7a, case 37, 0x1005e02f: the server's answer when the timed logout is given up): Gamecode raises
@@ -5315,6 +5467,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 use_on_seen = keys.use_on.0;
                 uses += 1;
                 let _ = connection.send(&n3::use_item_on(own, uses, keys.use_on.1, keys.use_on.2));
+                if keys.use_on.1.0 == 0x68 {
+                    state.start_item_timer(keys.use_on.1.1, 5);
+                }
             }
             // The Action window and the hotbar: special actions and social actions.
             if keys.special.0 != special_seen {
@@ -5577,6 +5732,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 fired = keys.fire.0;
                 uses += 1;
                 let _ = connection.send(&n3::use_object(own, uses, (0x68, keys.fire.1)));
+                state.start_item_timer(keys.fire.1, 3);
             }
             // The mission request goes out a second after the walk ends (or 6 s into a session without one).
             if mission_request.is_some() && mission_wait.is_none() && goto.is_none() && clock.elapsed() > Duration::from_secs(6) {
@@ -6341,6 +6497,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 state.casts.clear();
                 state.prune_nanos();
                 state.tick_lines();
+                state.tick_timers();
                 state.refresh_mods(&gear_db);
                 // (an inspection: the items for the inspect window, the original's `WearView_c` with the identity)
                 let inspected_now = state.inspected.take().map(|(who, items)| {
@@ -8190,10 +8347,41 @@ mod door_tests {
         let mut w = World { own, ..World::default() };
         w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("000000005000000000000000000000000000000002000000c80000") }.frame(1));
         assert_eq!(w.queued_perk, Some(200));
-        let timers = crate::ui::TIMERS.lock().unwrap().clone();
-        assert!(timers.iter().any(|t| t.kind == 2 && t.ms == 2000), "{timers:?}");
+        let e = w.timers.get(0).unwrap().clone();
+        assert_eq!((e.kind, e.first, e.second, e.flags), (crate::timers::SPECIAL, 200, 0, 0x1b));
+        w.timers.tick(0.0, true);
+        w.timer_bars.update(&mut w.timers);
+        assert_eq!(w.timer_bars.shown(&w.timers), vec![(0, crate::timers::SPECIAL, 0.0)]);
         w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("000000005000000000000000000000000000000000000000000000") }.frame(1));
-        assert!(!crate::ui::TIMERS.lock().unwrap().iter().any(|t| t.kind == 2));
+        w.timer_bars.update(&mut w.timers);
+        assert!(!w.timers.has(crate::timers::SPECIAL) && w.timer_bars.bars.is_empty());
+    }
+
+    /// The 08:42 capture's fight with two weapons (places 6 and 8): the server's echo of one's own `Attack` starts an attack
+    /// timer per weapon (two bars, as the capture's screenshots show at the top left), each attack in a place (`AttackInfo`'s
+    /// `WeaponSlot`) lets that weapon's held timer recharge, and `StopFight` takes the attack bars away.
+    #[test]
+    fn a_fight_runs_an_attack_timer_per_weapon() {
+        use crate::timers::{ATTACK, HELD};
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let own = 0x4bc80;
+        let mut w = World { own, ..World::default() };
+        w.weapons.insert((own, 6), 1);
+        w.weapons.insert((own, 8), 2);
+        w.add(&Message { kind: 0x28494070, identity: (0xc350, own), data: hex("000000c3507b1d0e0000") }.frame(1));
+        let slots = |w: &World| w.timers.entries.iter().flatten().filter(|e| e.kind == ATTACK).map(|e| e.tag).collect::<Vec<_>>();
+        assert_eq!(slots(&w), vec![6, 8]);
+        w.timer_bars.update(&mut w.timers);
+        assert_eq!(w.timer_bars.bars.iter().map(|b| b.place).collect::<Vec<_>>(), vec![0, 1]);
+        // (held after its first phase, the weapon in place 8 recharges once its attack comes)
+        let p8 = w.timers.find(ATTACK, 8).unwrap();
+        w.timers.entries[p8].as_mut().unwrap().flags = (w.timers.entries[p8].as_ref().unwrap().flags | HELD) & !crate::timers::RUNNING;
+        w.add(&Message { kind: 0x46002f16, identity: (0xc350, own), data: hex("0000000738ffffffff000000080000c3507b1d0e00000000000000000300000000") }.frame(1));
+        assert_eq!(w.timers.get(p8).unwrap().flags & HELD, 0);
+        w.add(&Message { kind: 0x4a41203e, identity: (0xc350, own), data: hex("0000000001") }.frame(1));
+        w.timer_bars.update(&mut w.timers);
+        assert!(w.timer_bars.bars.is_empty() && w.timers.attacks_stopped);
+        assert_eq!(slots(&w).len(), 2, "the entries stay");
     }
 
     /// The 16:55 capture's `/sneak` at Arete Landing: the server names each creature that sees the character (0x9b), then puts
