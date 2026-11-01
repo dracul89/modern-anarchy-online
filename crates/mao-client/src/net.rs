@@ -2437,8 +2437,35 @@ const SWIM_SINK: f32 = 0.01;
 /// How far a flying vehicle's body is lifted as flight starts (FUN_1006e4f8's `SetRelPos` by `_DAT_1015e0e4`).
 const FLY_LIFT: f32 = 0.5;
 
-/// Walking's speed (`CharVehicle_t` in mode 2, FUN_1006f9eb: `_DAT_1015e7ac`).
+/// Walking's speed (`CharVehicle_t` in mode 2, FUN_1006f9eb: `_DAT_1015e7ac`). Sneaking (mode 6) takes the same: FUN_1006f9eb has
+/// no case of its own for it and falls to walking's (`LAB_1006fd78`), forwards and backwards alike.
 const WALK_SPEED: f32 = 1.5;
+
+/// A character's movement mode as `CharVehicle_t` keeps it (FUN_10070a2f): walking (2), running (3), swimming (4), sneaking (6).
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Mode {
+    Walk,
+    Run,
+    Swim,
+    Sneak,
+}
+
+/// The movement animation of a character (FUN_1006c370), `None` standing in a plain mode: swimming plays `swim` or `idle-swim`;
+/// in the walking, running and sneaking modes a sidestep its `walk-left`/`walk-right` (0x86, 0x87); sneaking plays the sneak
+/// action (0x66) moving, backwards too (the original plays it reversed), and standing; else backing the back animations and
+/// moving the walk or the run.
+fn movement_action(mode: Mode, moving: bool, strafe: i8, backing: bool) -> Option<mao_formats::appearance::Action> {
+    use mao_formats::appearance::Action;
+    match strafe {
+        _ if mode == Mode::Swim => Some(if moving { Action::Swim } else { Action::IdleSwim }),
+        -1 if moving => Some(Action::StrafeLeft),
+        1 if moving => Some(Action::StrafeRight),
+        _ if mode == Mode::Sneak => Some(if moving { Action::Sneak } else { Action::SneakStand }),
+        _ if !moving => None,
+        _ if backing => Some(if mode == Mode::Run { Action::RunBack } else { Action::WalkBack }),
+        _ => Some(if mode == Mode::Run { Action::Run } else { Action::Walk }),
+    }
+}
 
 /// One step of the character's vehicle (`Vehicle_t::Run`'s FUN_1000e3d3 with `CharVehicle_t`'s steering FUN_10071537): the
 /// horizontal velocity after `dt` seconds pushed along the facing (`walk` 1 forwards, −1 back) with the force
@@ -3351,15 +3378,16 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
             use mao_formats::appearance::Action;
             // (one's own character runs or walks by its mode, as the original's FUN_1006c370 does; the others by their speed)
             let running = if id == world.own { !world.own_walking } else { speed > 2.2 };
-            let swimming = world.swimming.contains(&id);
-            let action = match world.strafing.get(&id).copied().unwrap_or(0) {
-                _ if swimming => Some(if moving { Action::Swim } else { Action::IdleSwim }),
-                _ if !moving => None,
-                -1 => Some(Action::StrafeLeft),
-                1 => Some(Action::StrafeRight),
-                _ if world.backing.get(&id).copied().unwrap_or(false) => Some(if running { Action::RunBack } else { Action::WalkBack }),
-                _ => Some(if running { Action::Run } else { Action::Walk }),
+            let mode = if world.swimming.contains(&id) {
+                Mode::Swim
+            } else if world.sneaking.contains(&id) {
+                Mode::Sneak
+            } else if running {
+                Mode::Run
+            } else {
+                Mode::Walk
             };
+            let action = movement_action(mode, moving, world.strafing.get(&id).copied().unwrap_or(0), world.backing.get(&id).copied().unwrap_or(false));
             let scale = if id == world.own { world.stats.get(&360).copied().filter(|&s| s > 0).unwrap_or(100) as f32 } else { 100.0 };
             let jumped = world.jumped.get(&id).map(|t| t.elapsed());
             // (A phase per entity keeps a crowd from moving in step.)
@@ -5427,7 +5455,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             let (SPEED, BACK_SPEED) = if state.swimming.contains(&own) {
                 let s = swim_speed(&state.stats);
                 (s, s)
-            } else if state.own_walking {
+            } else if state.own_walking || state.sneaking.contains(&own) {
                 (WALK_SPEED, WALK_SPEED)
             } else {
                 movement_speeds(&state.stats)
@@ -8087,6 +8115,28 @@ mod movement_tests {
         assert!((movement_rate(1.15, 100.0, 6.0, 5.0) - 1.3).abs() < 0.001);
         assert!((movement_rate(0.9, 100.0, 1.5, 1.5) - 0.9).abs() < 0.001);
         assert!((movement_rate(1.0, 200.0, 5.0, 5.0) - 0.5).abs() < 0.001);
+    }
+
+    /// Sneaking (FUN_1006c370 in mode 6): the sneak action moving and standing, a sidestep still the walk-left/right, and the
+    /// mode's speed walking's 1.5 (FUN_1006f9eb). `MAO_GAME`: every body has the `sneakcool` animation.
+    #[test]
+    fn sneaking_plays_the_sneak_action_at_walking_speed() {
+        use mao_formats::appearance::{Action, ATROX, FEMALE, MALE};
+        assert_eq!(movement_action(Mode::Sneak, true, 0, false), Some(Action::Sneak));
+        assert_eq!(movement_action(Mode::Sneak, true, 0, true), Some(Action::Sneak));
+        assert_eq!(movement_action(Mode::Sneak, false, 0, false), Some(Action::SneakStand));
+        assert_eq!(movement_action(Mode::Sneak, true, -1, false), Some(Action::StrafeLeft));
+        assert_eq!(movement_action(Mode::Run, true, 0, true), Some(Action::RunBack));
+        assert_eq!(movement_action(Mode::Walk, false, 0, false), None);
+        assert_eq!(movement_action(Mode::Swim, false, 1, false), Some(Action::IdleSwim));
+        assert_eq!((Action::Sneak.reference_speed(), Action::SneakStand.reference_speed()), (Some(WALK_SPEED), None));
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let db = std::sync::Arc::new(ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap());
+        let mut chars = Characters::new(db).unwrap();
+        for (breed, sex) in [(1, MALE), (1, FEMALE), (ATROX, MALE)] {
+            let name = mao_formats::appearance::animation_name(breed, sex, Action::Sneak);
+            assert!(chars.loop_points(breed, sex, Action::Sneak).is_some(), "{name}");
+        }
     }
 
     #[test]

@@ -132,6 +132,9 @@ impl Template {
             Action::StrafeRight => find(135).or_else(|| find(100)),
             Action::WalkBack => find(136).or_else(|| find(100)),
             Action::RunBack => find(222).or_else(|| find(101)).or_else(|| find(100)),
+            // (sneaking is 0x66 `sneakcool`, falling to the walk, FUN_10010b3c)
+            Action::Sneak => find(102).or_else(|| find(100)),
+            Action::SneakStand => find(102).or_else(|| find(120)).or_else(|| find(127)),
             // (the standing animation is 120; a creature without it, such as a bird in flight, has 127, else the walk's first frame stands)
             _ => find(120).or_else(|| find(127)).or_else(|| find(100)),
         }
@@ -149,6 +152,8 @@ impl Template {
             Action::StrafeRight => &[135, 100, 101, 120],
             Action::WalkBack => &[136, 100, 101, 120],
             Action::RunBack => &[222, 101, 100, 120],
+            Action::Sneak => &[102, 100, 101, 120],
+            Action::SneakStand => &[102, 120, 127, 100],
             _ => &[120, 127, 100, 101],
         };
         order.iter().filter_map(|&k| find(k)).collect()
