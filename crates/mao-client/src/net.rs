@@ -299,6 +299,11 @@ struct World {
     /// The weapons the characters hold, by (owner, place): the item's template (`WeaponItemFullUpdate`: the owner, the place in
     /// `Unknown2`'s low byte, the template in stat 702, `ACGItemTemplateID`).
     weapons: BTreeMap<(u32, u8), u32>,
+    /// The characters with the dynel flag 0x800 (`SimpleChar_t` +0x138): set by a full update's flag bit 21 (FUN_1007835c) and
+    /// by `CharacterAction` 0xa7 with parameter 2 not zero, cleared by 0xa7 with 0 (case 57, 0x1005e919). Its readers are the
+    /// weapon holder's (+0x1d4): without it a weapon equipped in a place other than 0 empties the place 0 shown in the hand
+    /// (FUN_1006ac49 from 0x83's FUN_1006b2dd); with it the weapon list draws its place 100 there (FUN_1006ab10, FUN_1006b14c).
+    weapon_flag: std::collections::BTreeSet<u32>,
     /// Their Energy (stat 26: the rounds left), by (owner, place): `WeaponItemFullUpdate`'s, then each attack's `AmmoCount`
     /// (FUN_1006ae3c sets it when the weapon has the stat).
     weapon_energy: BTreeMap<(u32, u8), i64>,
@@ -1384,9 +1389,23 @@ impl World {
                 }
                 // - 0x83 (case 41, 0x1005dcfe): FUN_1006b2dd equips the weapon named in the target (`(c74a, id)`) in the place in
                 //   parameter 2 (6), out of a vehicle only, and draws it in the hand (FUN_1006ac49 under place 0x30)
+                //   (FUN_1006ac49: then, a place other than 0 and the character without the flag 0x800, the place 0 is emptied)
                 0x83 if m.data.len() >= 25 && word(9) == 0xc74a => {
                     if let Some(&template) = self.weapon_templates.get(&word(13)) {
-                        self.weapons.insert((m.identity.1, word(21) as u8), template);
+                        let place = word(21);
+                        self.weapons.insert((m.identity.1, place as u8), template);
+                        if place != 0 && place < 0x30 && !self.weapon_flag.contains(&m.identity.1) {
+                            self.weapons.remove(&(m.identity.1, 0));
+                        }
+                    }
+                }
+                // - 0xa7 (case 57, 0x1005e919): parameter 2 not zero sets the flag 0x800 (through the stats' vtable +0x18, an OR
+                //   into +0x138), zero clears it
+                0xa7 if m.data.len() >= 25 => {
+                    if word(21) != 0 {
+                        self.weapon_flag.insert(m.identity.1);
+                    } else {
+                        self.weapon_flag.remove(&m.identity.1);
                     }
                 }
                 0x92 if m.identity.1 == self.own => {
@@ -2011,6 +2030,10 @@ impl World {
             self.rotations.insert(m.identity.1, q);
         }
         if let Some(info) = m.entity_info() {
+            // (the full update's flag bit 21 sets the dynel flag 0x800, FUN_1007835c through vtable +0x18)
+            if info.flags & 0x20_0000 != 0 {
+                self.weapon_flag.insert(m.identity.1);
+            }
             self.dead.remove(&m.identity.1);
             match info.fighting {
                 Some((_, target)) => {
@@ -7910,6 +7933,27 @@ mod door_tests {
         w.add(&Message { kind: 0x754f1115, identity: (0xc350, other), data: hex("000000000600000004ffffffff0000c3507b1a670a0000009600000000") }.frame(1));
         assert_eq!(w.swings[&other].3, mao_formats::item::special_class(0x96).unwrap().0);
         assert!(w.queued_specials.is_empty(), "the special is used by its attack");
+    }
+
+    /// The dynel flag 0x800: the captures' `CharacterAction` 0xa7 (all with parameter 2 zero) clears it, and equipping a weapon
+    /// (0x83) in place 6 then empties place 0 (FUN_1006ac49); with the flag set (0xa7 with 1, or a full update's bit 21) place 0
+    /// is kept.
+    #[test]
+    fn the_flag_0x800_keeps_the_weapon_in_place_zero() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let (own, other) = (0x7b1a0021, 0x7b1a0022);
+        let mut w = World { own, ..World::default() };
+        w.weapon_templates.insert(0x25f1e6f5, 0x1dae3);
+        let equip = Message { kind: 0x5e477770, identity: (0xc350, other), data: hex("0000000083000000000000c74a25f1e6f500000000000000060000") }.frame(1);
+        w.weapons.insert((other, 0), 0x1234);
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, other), data: hex("00000000a700000000000000000000000000000000000000000000") }.frame(1));
+        w.add(&equip);
+        assert_eq!((w.weapons.get(&(other, 6)), w.weapons.get(&(other, 0))), (Some(&0x1dae3), None));
+        w.weapons.insert((other, 0), 0x1234);
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, other), data: hex("00000000a700000000000000000000000000000000000000010000") }.frame(1));
+        assert!(w.weapon_flag.contains(&other));
+        w.add(&equip);
+        assert_eq!(w.weapons.get(&(other, 0)), Some(&0x1234));
     }
 
     /// Sleeping and lounging: a seated character's `SocialActionCmd` 0x44 lays it down (`WaitState` 0xf, `sleep-ground` held),
