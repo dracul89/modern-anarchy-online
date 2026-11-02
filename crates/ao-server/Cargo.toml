@@ -1,0 +1,14 @@
+[package]
+name = "ao-server"
+description = "A robust Anarchy Online server: the login, chat-manager and game protocol of the original client, rebuilt from the captures in rea_ao."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+mao-net.workspace = true
+rusqlite = { version = "0.41.1", features = ["bundled"] }
+
+[lints]
+workspace = true

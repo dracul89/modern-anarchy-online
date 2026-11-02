@@ -19,6 +19,18 @@ use serde::Deserialize;
 
 const SCHEMA: &str = include_str!("../schema/protocol.json");
 
+/// Fields the generated schema has no size for, found from the captures (the length prefix of the string): (the message's class,
+/// the field, the size as `Field::size` names it).
+const SIZE_OVERRIDES: &[(&str, &str, &str)] = &[("SimpleCharFullUpdateMessage", "Name", "byte")];
+
+/// The field as read or written: with the size its class needs where the schema has none (see [`SIZE_OVERRIDES`]).
+fn sized(class: &str, f: &Field) -> Option<Field> {
+    let (_, _, size) = SIZE_OVERRIDES.iter().find(|(c, n, _)| *c == class && *n == f.name)?;
+    let mut f = f.clone();
+    f.size = Some(size.to_string());
+    Some(f)
+}
+
 #[derive(Deserialize)]
 struct Raw {
     classes: HashMap<String, Class>,
@@ -248,6 +260,7 @@ impl Schema {
         }
         for class in chain {
             for f in &class.fields {
+                let f = &sized(name, f).unwrap_or_else(|| f.clone());
                 let (ty, present) = if f.when.is_empty() {
                     (f.ty.as_str(), true)
                 } else {
@@ -393,6 +406,7 @@ impl Schema {
         let mut flags: HashMap<String, i64> = HashMap::new();
         for class in chain {
             for f in &class.fields {
+                let f = &sized(name, f).unwrap_or_else(|| f.clone());
                 // (the same choice of type the reader makes: a conditional field is present only when its flag selects it)
                 let ty = if f.when.is_empty() {
                     f.ty.as_str()
