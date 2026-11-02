@@ -28,6 +28,16 @@ CREATE TABLE IF NOT EXISTS characters (\n\
     flag INTEGER NOT NULL,\n\
     created INTEGER NOT NULL\n\
 );\n\
+CREATE TABLE IF NOT EXISTS missions (\n\
+    character INTEGER NOT NULL,\n\
+    mission_type INTEGER NOT NULL,\n\
+    instance INTEGER NOT NULL,\n\
+    title TEXT NOT NULL,\n\
+    description TEXT NOT NULL,\n\
+    credits INTEGER NOT NULL,\n\
+    xp INTEGER NOT NULL,\n\
+    PRIMARY KEY (character, mission_type, instance)\n\
+);\n\
 CREATE TABLE IF NOT EXISTS items (\n\
     character INTEGER NOT NULL,\n\
     placement INTEGER NOT NULL,\n\
@@ -136,6 +146,7 @@ impl Db {
     pub fn delete_character(&self, account: &str, id: i64) -> Result<(), rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
         conn.execute("DELETE FROM items WHERE character = ?1 AND character IN (SELECT id FROM characters WHERE account = ?2)", rusqlite::params![&id, account])?;
+        conn.execute("DELETE FROM missions WHERE character = ?1 AND character IN (SELECT id FROM characters WHERE account = ?2)", rusqlite::params![&id, account])?;
         conn.execute("DELETE FROM characters WHERE account = ?1 AND id = ?2", rusqlite::params![account, &id])?;
         Ok(())
     }
@@ -154,9 +165,23 @@ impl Db {
                     playfield: r.get::<_, i64>(4)? as u32,
                     position: [r.get::<_, f64>(5)? as f32, r.get::<_, f64>(6)? as f32, r.get::<_, f64>(7)? as f32],
                     items: Vec::new(),
+                    missions: Vec::new(),
                 })
             })
             .ok()?;
+        if let Ok(mut stmt) = conn.prepare("SELECT mission_type, instance, title, description, credits, xp FROM missions WHERE character = ?1 ORDER BY rowid") {
+            if let Ok(rows) = stmt.query_map([id as i64], |r| {
+                Ok(crate::missions::Taken {
+                    mission: (r.get::<_, i64>(0)? as u32, r.get::<_, i64>(1)? as u32),
+                    title: r.get(2)?,
+                    description: r.get(3)?,
+                    credits: r.get::<_, i64>(4)? as u32,
+                    xp: r.get::<_, i64>(5)? as u32,
+                })
+            }) {
+                hero.missions = rows.flatten().collect();
+            }
+        }
         if let Ok(mut stmt) = conn.prepare("SELECT placement, template, count, quality FROM items WHERE character = ?1 ORDER BY placement") {
             if let Ok(rows) = stmt.query_map([id as i64], |r| {
                 Ok(Item { placement: r.get::<_, i64>(0)? as u32, template: r.get::<_, i64>(1)? as u32, count: r.get::<_, i64>(2)? as u16, quality: r.get::<_, i64>(3)? as u32 })
@@ -175,6 +200,13 @@ impl Db {
             "UPDATE characters SET level = ?2, xp = ?3, health = ?4, credits = ?5, playfield = ?6, px = ?7, py = ?8, pz = ?9 WHERE id = ?1",
             rusqlite::params![hero.id as i64, hero.level as i64, hero.xp as i64, hero.health as i64, hero.credits as i64, hero.playfield as i64, hero.position[0] as f64, hero.position[1] as f64, hero.position[2] as f64],
         )?;
+        tx.execute("DELETE FROM missions WHERE character = ?1", [hero.id as i64])?;
+        for m in &hero.missions {
+            tx.execute(
+                "INSERT INTO missions (character, mission_type, instance, title, description, credits, xp) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                rusqlite::params![hero.id as i64, m.mission.0 as i64, m.mission.1 as i64, &m.title, &m.description, m.credits as i64, m.xp as i64],
+            )?;
+        }
         tx.execute("DELETE FROM items WHERE character = ?1", [hero.id as i64])?;
         for item in &hero.items {
             tx.execute(

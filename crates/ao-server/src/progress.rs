@@ -64,12 +64,14 @@ pub struct Hero {
     pub playfield: u32,
     pub position: [f32; 3],
     pub items: Vec<Item>,
+    /// The missions taken, in the order they were taken.
+    pub missions: Vec<crate::missions::Taken>,
 }
 
 impl Hero {
     /// A new character: first level, full health, nothing carried.
     pub fn new(id: u32) -> Hero {
-        Hero { id, level: 1, xp: 0, health: max_health_for(1), credits: 0, playfield: 0, position: [0.0; 3], items: Vec::new() }
+        Hero { id, level: 1, xp: 0, health: max_health_for(1), credits: 0, playfield: 0, position: [0.0; 3], items: Vec::new(), missions: Vec::new() }
     }
 
     pub fn max_health(&self) -> u32 {

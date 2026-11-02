@@ -35,6 +35,7 @@ still missing.
 | Experience and levels | `/gm xp <amount>` gives XP; levels follow the curve; a level-up fills health and says so in chat | `game.rs`; `progress.rs`; `tests/network.rs` |
 | Credits | `/gm credits <amount>` (stat 61) | `game.rs` |
 | Shops | Using the Old Athens vending machine sends its stock (`ShopUpdate`, the captured stock) and opens the trade; buying (trade action 5 naming the machine and the slot) takes credits and puts the item in the backpack | `game.rs` tests (open, buy, refuse without credits) |
+| Missions | A terminal's request (`QuestAlternative`) gets the server's three offers; taking one (`CreateQuest`) puts it in the log (`QuestFullUpdate`, built from the schema) and says so in chat; `/gm complete <n>` finishes it: the mission is removed (`Quest` Delete) and its XP and credits are given | `game.rs` tests (offers, accept, refuse a second, complete); `missions.rs` tests. The client's own reading of the offers and the log is not verified |
 | Zoning (the client's own zone line) | The server answers a teleport to another playfield with the world entry for it (changed this session) | not tested yet |
 
 The chat lines the server sends (for example "You are now level 2.") use the game's `ChatText` message.
@@ -54,9 +55,11 @@ The chat lines the server sends (for example "You are now level 2.") use the gam
 * **Combat.** The attack and damage messages (`Attack`, `AttackInfo`, `HealthDamage`, `StopFight`) have captured templates, but
   there is no visible target until NPCs can be spawned (see the blocked item above). The death and respawn of the character,
   and loot from kills, depend on that too.
-* **Missions.** Offers (`QuestAlternative`), accepting (`CreateQuest`), the mission log (`QuestFullUpdate`, which can be built
-  from a template's quest entry) and completion (a delete, `Quest` action 1). The log can be built, but the offers are not
-  verified against the client.
+* **Mission objectives.** The three offers are a stop-gap: the server does not yet run a mission (no kill or delivery goal). A
+  mission ends only with `/gm complete`. The offers' reward layout (the unknown chunks are zero) and the mission log's zeroed
+  fields are not checked against what the original sends.
+* **Missions from the original.** The captured mission log contains the game's own mission texts, so none of it is kept in the
+  repository: the server's titles and descriptions are its own.
 * **Zones and doors.** Entering a door sends the client's teleport; the server's side of a zone line to another playfield needs
   the destinations (the captures' `N3Teleport` messages have them) and the second game server's ticket.
 * **The login's password.** The client's encrypted response needs the server's private key, which is not known, so the login

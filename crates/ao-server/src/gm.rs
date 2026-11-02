@@ -8,6 +8,8 @@ pub enum Command {
     Item { template: u32, count: u16, quality: u32 },
     Xp(u64),
     Credits(u32),
+    /// Completes the mission at this place in the log (from 1): it is removed and its reward given.
+    Complete(usize),
     /// A `/gm` line that is not a command (with what was typed, for the usage line).
     Unknown(String),
 }
@@ -38,6 +40,7 @@ pub fn parse(line: &str) -> Option<Command> {
             }
         }
         ["xp", amount] => number(amount).map_or_else(|| Command::Unknown(line.trim().to_string()), Command::Xp),
+        ["complete", n] => number(n).and_then(|n| usize::try_from(n).ok()).filter(|n| *n > 0).map_or_else(|| Command::Unknown(line.trim().to_string()), Command::Complete),
         ["credits", amount] => number(amount).and_then(|a| u32::try_from(a).ok()).map_or_else(|| Command::Unknown(line.trim().to_string()), Command::Credits),
         _ => Command::Unknown(line.trim().to_string()),
     };
@@ -54,6 +57,8 @@ mod tests {
         assert_eq!(parse("/gm item 0x2611c"), Some(Command::Item { template: 0x2611c, count: 1, quality: 1 }));
         assert_eq!(parse("/gm xp 5000"), Some(Command::Xp(5000)));
         assert_eq!(parse("/gm credits 250"), Some(Command::Credits(250)));
+        assert_eq!(parse("/gm complete 2"), Some(Command::Complete(2)));
+        assert!(matches!(parse("/gm complete 0"), Some(Command::Unknown(_))));
     }
 
     #[test]

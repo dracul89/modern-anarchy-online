@@ -10,6 +10,7 @@ pub mod game;
 pub mod gm;
 pub mod inventory;
 pub mod login;
+pub mod missions;
 pub mod progress;
 pub mod server;
 pub mod shop;

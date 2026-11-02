@@ -38,6 +38,12 @@ pub const LOGOUT: u8 = 0x78;
 pub const STOP_LOGOUT: u8 = 0x7a;
 /// The source the server's frames carry (the zone's object the captures show).
 pub const SERVER: u32 = 0xdbc;
+/// `QuestAlternative` (`5c436609`): a mission terminal's request for the missions it offers.
+pub const QUEST_ALTERNATIVE: u32 = 0x5c436609;
+/// `CreateQuest` (`291f361b`): the character takes an offered mission.
+pub const CREATE_QUEST: u32 = 0x291f361b;
+/// The most missions a character can have taken at once.
+pub const MAX_MISSIONS: usize = 25;
 /// `GenericCmd`'s action `Use`.
 const USE: i64 = 3;
 
@@ -214,6 +220,8 @@ impl GameSession {
                 }
                 GENERIC_CMD if frame.source == self.character_id => self.generic_command(&m.data, &mut out),
                 TRADE if frame.source == self.character_id => self.trade(&m.data, &mut out),
+                QUEST_ALTERNATIVE if frame.source == self.character_id => self.offers(&m.data, &mut out),
+                CREATE_QUEST if frame.source == self.character_id => self.accept(&m.data, &mut out),
                 _ => {}
             }
         }
@@ -248,6 +256,23 @@ impl GameSession {
                 self.stats_changed(out);
                 self.save();
             }
+            Command::Complete(n) => match (n >= 1 && n <= self.hero.missions.len()).then_some(n - 1) {
+                Some(at) => {
+                    let done = self.hero.missions.remove(at);
+                    let up = self.hero.grant_xp(done.xp as u64);
+                    self.hero.credits = self.hero.credits.saturating_add(done.credits);
+                    if let Ok(m) = crate::missions::remove(self.character_id, done.mission) {
+                        out.push(to_client(self.character_id, m.kind, m.identity, m.data));
+                    }
+                    out.push(chat_line(self.character_id, &format!("You complete {} and receive {} xp and {} credits.", done.title, done.xp, done.credits)));
+                    if up {
+                        out.push(chat_line(self.character_id, &format!("You are now level {}.", self.hero.level)));
+                    }
+                    self.stats_changed(out);
+                    self.save();
+                }
+                None => out.push(chat_line(self.character_id, "You have no mission at that place in the log.")),
+            },
             Command::Unknown(line) => out.push(chat_line(self.character_id, &format!("Usage: /gm item <template> [count] [quality] | /gm xp <amount> | /gm credits <amount> (got {line})"))),
         }
     }
@@ -265,6 +290,39 @@ impl GameSession {
                 out.push(to_client(self.character_id, m.kind, m.identity, m.data));
             }
         }
+    }
+
+    /// `QuestAlternative` from the character: the terminal's offers, answered with the request's sliders, scope and terminal.
+    fn offers(&mut self, data: &[u8], out: &mut Vec<Frame>) {
+        let Ok(parsed) = Schema::global().parse_n3(QUEST_ALTERNATIVE, data) else { return };
+        if let Ok(m) = crate::missions::offers(self.character_id, &parsed.value) {
+            out.push(to_client(self.character_id, m.kind, m.identity, m.data));
+        }
+    }
+
+    /// `CreateQuest` from the character: takes the offered mission (it is added to the log, which is sent again).
+    fn accept(&mut self, data: &[u8], out: &mut Vec<Frame>) {
+        let Ok(parsed) = Schema::global().parse_n3(CREATE_QUEST, data) else { return };
+        let Some(v) = parsed.value.get("MissionId") else { return };
+        let mission = (field_int(v, "Type") as u32, field_int(v, "Instance") as u32);
+        let Some(offer) = crate::missions::offer_of(mission) else {
+            out.push(chat_line(self.character_id, "That mission is not on offer."));
+            return;
+        };
+        if self.hero.missions.iter().any(|m| m.mission == mission) {
+            out.push(chat_line(self.character_id, "You already have that mission."));
+            return;
+        }
+        if self.hero.missions.len() >= MAX_MISSIONS {
+            out.push(chat_line(self.character_id, "You have too many missions."));
+            return;
+        }
+        self.hero.missions.push(crate::missions::Taken::of(&offer));
+        if let Ok(m) = crate::missions::log(self.character_id, &self.hero) {
+            out.push(to_client(self.character_id, m.kind, m.identity, m.data));
+        }
+        out.push(chat_line(self.character_id, &format!("You accept {}.", offer.title)));
+        self.save();
     }
 
     /// `Trade`: a purchase from the machine (action `AddItem`, the machine named, the buy marker, the stock slot).
@@ -401,5 +459,34 @@ mod tests {
             data.extend_from_slice(&word.to_be_bytes());
         }
         n3::Message { kind: TRADE, identity: (n3::CHARACTER, 0x7b1a0021), data }.frame(0x7b1a0021)
+    }
+
+    #[test]
+    fn a_terminal_offers_missions_and_taking_one_logs_it() {
+        let mut s = session();
+        let request = n3::quest_alternative(0x7b1a0021, [2, 20, 161, 30, 184, 28, 0], 5, (0xdac1, 0xc000021c));
+        let (_, out) = s.handle(&request);
+        let kinds: Vec<u32> = out.iter().filter_map(|f| n3::Message::parse(f).map(|m| m.kind)).collect();
+        assert_eq!(kinds, vec![0x5c436609], "the offers");
+        let (_, out) = s.handle(&n3::create_quest(0x7b1a0021, (crate::missions::MISSION_TYPE, 2)));
+        assert_eq!(s.hero.missions.len(), 1);
+        assert_eq!(s.hero.missions[0].mission, (crate::missions::MISSION_TYPE, 2));
+        let kinds: Vec<u32> = out.iter().filter_map(|f| n3::Message::parse(f).map(|m| m.kind)).collect();
+        assert!(kinds.contains(&0x465a4061) && kinds.contains(&CHAT_TEXT), "{kinds:x?}");
+        // (taking it again is refused)
+        let (_, _) = s.handle(&n3::create_quest(0x7b1a0021, (crate::missions::MISSION_TYPE, 2)));
+        assert_eq!(s.hero.missions.len(), 1);
+    }
+
+    #[test]
+    fn completing_a_mission_pays_and_removes_it() {
+        let mut s = session();
+        s.hero.missions.push(crate::missions::Taken::of(&crate::missions::OFFERS[0]));
+        let (_, out) = s.handle(&typed_frame("/gm complete 1"));
+        assert!(s.hero.missions.is_empty());
+        assert_eq!(s.hero.credits, crate::missions::OFFERS[0].credits);
+        assert_eq!(s.hero.xp, crate::missions::OFFERS[0].xp as u64);
+        let kinds: Vec<u32> = out.iter().filter_map(|f| n3::Message::parse(f).map(|m| m.kind)).collect();
+        assert!(kinds.contains(&0x212c487a), "the mission is removed from the log: {kinds:x?}");
     }
 }
