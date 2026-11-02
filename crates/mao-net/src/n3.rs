@@ -1187,6 +1187,103 @@ fn creature_fields(d: &[u8], mut at: usize, flags: u32) -> Option<(u16, (u32, u3
     Some((first?, (health, max)))
 }
 
+/// Where a monster's entity message keeps what the server changes (see [`set_monster`]): the playfield, the position, the name
+/// (its length byte and its text), and the maximum and the health with their widths (`damage` when the health is the amount
+/// lost from the maximum, one byte).
+#[derive(Clone, Debug, PartialEq)]
+struct MonsterPlaces {
+    playfield: usize,
+    position: usize,
+    name_length: usize,
+    name: std::ops::Range<usize>,
+    max: (usize, usize),
+    health: (usize, usize, bool),
+}
+
+/// The places of a monster's entity message, read the way [`Message::entity_info`] and `creature_fields` read them. None for a
+/// character's message, or one without a playfield flag (the server does not add that flag).
+fn monster_places(d: &[u8]) -> Option<MonsterPlaces> {
+    let mut at = 1usize;
+    let version = *d.get(at)?;
+    at += 1;
+    if !matches!(version, 0x39 | 0x3a) {
+        return None;
+    }
+    let flags = u32::from_be_bytes(d.get(at..at + 4)?.try_into().ok()?);
+    at += 4;
+    // (flag bit 0 is a monster's: no model word follows, the creature's fields do)
+    if flags & 1 == 0 || flags & 0x40 == 0 {
+        return None;
+    }
+    let playfield = at;
+    at += 4;
+    if flags & 0x20 != 0 {
+        at += 8;
+    }
+    let position = at;
+    at += 12;
+    if flags & 0x200 != 0 {
+        at += 16;
+    }
+    at += 4;
+    let name_length = at;
+    let length = *d.get(at)? as usize;
+    at += 1;
+    let name = at..at + length;
+    at += length + 8;
+    // creature_fields, from here: `cur` walks the fields, each read as its width says
+    let mut cur = at;
+    let read = |cur: &mut usize, n: usize| -> Option<u32> {
+        let b = d.get(*cur..*cur + n)?;
+        *cur += n;
+        Some(b.iter().fold(0u32, |v, &x| v << 8 | x as u32))
+    };
+    for bit in [17, 19, 25] {
+        read(&mut cur, if flags >> bit & 1 != 0 { 1 } else { 2 })?;
+    }
+    if read(&mut cur, 2)? as i16 > 0 {
+        read(&mut cur, 1)?;
+    }
+    read(&mut cur, if flags & 0x1000 != 0 { 2 } else { 1 })?;
+    let max_width = if flags & 0x800 != 0 { 2 } else { 4 };
+    let max_at = cur;
+    read(&mut cur, max_width)?;
+    let (health_at, health_width, damage) = if flags & 0x4000 != 0 { (cur, 1, true) } else { (cur, if flags & 0x800 != 0 { 2 } else { 4 }, false) };
+    Some(MonsterPlaces { playfield, position, name_length, name, max: (max_at, max_width), health: (health_at, health_width, damage) })
+}
+
+/// A monster's entity message (`271b3a6b`) with the server's own playfield, position, name, maximum and health, the rest kept
+/// as captured: the decoder reads these fields, and the appearance (its template) is kept with the rest. Returns None where the
+/// message is not a monster's, or the name is longer than a length byte allows.
+pub fn set_monster(data: &[u8], name: &str, playfield: u32, position: [f32; 3], health: u32, max: u32) -> Option<Vec<u8>> {
+    let p = monster_places(data)?;
+    let name = name.as_bytes();
+    // (the length byte counts the name's NUL terminator)
+    if name.len() > 254 {
+        return None;
+    }
+    let mut out = Vec::with_capacity(data.len() + name.len());
+    out.extend_from_slice(&data[..p.playfield]);
+    out.extend_from_slice(&playfield.to_be_bytes());
+    out.extend_from_slice(&data[p.playfield + 4..p.position]);
+    for v in position {
+        out.extend_from_slice(&v.to_be_bytes());
+    }
+    out.extend_from_slice(&data[p.position + 12..p.name_length]);
+    out.push(name.len() as u8 + 1);
+    out.extend_from_slice(name);
+    out.push(0);
+    out.extend_from_slice(&data[p.name.end..p.max.0]);
+    let (max_at, max_width) = p.max;
+    out.extend_from_slice(&max.to_be_bytes()[4 - max_width..]);
+    let (health_at, health_width, damage) = p.health;
+    out.extend_from_slice(&data[max_at + max_width..health_at]);
+    let value = if damage { max.saturating_sub(health).min(255) } else { health };
+    out.extend_from_slice(&value.to_be_bytes()[4 - health_width..]);
+    out.extend_from_slice(&data[health_at + health_width..]);
+    Some(out)
+}
+
 impl EntityInfo {
     /// Whether it is dressed from the breed and sex tables: the characters
     /// (flag bit 0 clear) of a breed 1 to 4. Sex is the game's `Sex` stat:
@@ -1444,6 +1541,25 @@ mod entity_tests {
     fn bytes(hex: &str) -> Vec<u8> {
         let hex: String = hex.split_whitespace().collect();
         (0..hex.len() / 2).map(|i| u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).unwrap()).collect()
+    }
+
+    /// A monster's entity message rewritten keeps everything but what the server sets, and the decoder reads the new values back.
+    #[test]
+    fn a_monster_is_set_and_read_back() {
+        let data = bytes("003a0a0a4acb0020da15455d4df240c2b852443b140f00000000bf351336000000003f34f6af000006280a536861647920477579001088120100000000890000000014022f00000065da0063001f000000001c8000000000000000800000000301000100010001000100000002000000009ef345000003f1000017a6000000000000000000000000000000010003c89600000000000000020003c8b800000000000000030003c86800000000000000040003c8df0000000000000fc40000009ef3000000000401000076200000000002050004192500000000000000000000");
+        let original = Message { kind: ENTITY_INFO, identity: (CHARACTER, 0x7b08289e), data: data.clone() };
+        let info = original.entity_info().unwrap();
+        // (the same values give back the same bytes)
+        let same = set_monster(&data, &info.name, info.playfield.unwrap(), info.position, info.health.unwrap().0, info.health.unwrap().1).unwrap();
+        assert_eq!(same, data);
+        // (a new name, place and health)
+        let changed = set_monster(&data, "Test Monster", 0x21d, [10.0, 2.0, -3.5], 40, 90).unwrap();
+        let back = Message { kind: ENTITY_INFO, identity: (CHARACTER, 0x7b08289e), data: changed }.entity_info().unwrap();
+        assert_eq!(back.name, "Test Monster");
+        assert_eq!(back.playfield, Some(0x21d));
+        assert_eq!(back.position, [10.0, 2.0, -3.5]);
+        assert_eq!(back.health, Some((40, 90)));
+        assert_eq!(back.template, info.template, "the appearance is kept");
     }
 
     /// The start of a monster's entity message from a capture.

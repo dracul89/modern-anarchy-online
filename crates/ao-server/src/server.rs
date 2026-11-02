@@ -74,6 +74,8 @@ fn relay(listener: TcpListener, db: Arc<Db>, current: Arc<Mutex<u32>>, login: bo
 }
 
 fn handle(stream: TcpStream, db: Arc<Db>, current: Arc<Mutex<u32>>, login: bool, game: ([u8; 4], u16)) -> std::io::Result<()> {
+    // (the reads wait with a timeout, so the connection's clock runs: a stream must be non-blocking for that)
+    mao_net::socket::prepare(&stream)?;
     if login {
         return handle_login(stream, db, current, game);
     }
@@ -121,6 +123,9 @@ fn handle_login(mut stream: TcpStream, db: Arc<Db>, current: Arc<Mutex<u32>>, ga
     }
 }
 
+/// How often the game connection wakes without a frame, to let the world move on (a fight's swings).
+const TICK: Duration = Duration::from_millis(250);
+
 fn handle_game(mut stream: TcpStream, db: Arc<Db>, current: Arc<Mutex<u32>>) -> std::io::Result<()> {
     let id = *current.lock().unwrap();
     let hero = db.load_hero(id).unwrap_or_else(|| Hero::new(id));
@@ -128,8 +133,13 @@ fn handle_game(mut stream: TcpStream, db: Arc<Db>, current: Arc<Mutex<u32>>) -> 
     let mut reader = Reader::default();
     let mut sequence: u16 = 0;
     loop {
-        let Some(frame) = read_frame(&mut stream, &mut reader)? else { return Ok(()) };
-        let (_ready, replies) = game.handle(&frame);
+        let mut replies = match read_frame_within(&mut stream, &mut reader, TICK) {
+            Ok(Some(frame)) => game.handle(&frame).1,
+            Ok(None) => return Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::TimedOut => Vec::new(),
+            Err(e) => return Err(e),
+        };
+        replies.extend(game.tick(std::time::Instant::now()));
         for reply in replies {
             sequence = sequence.wrapping_add(1);
             if sequence == 0xffff {
@@ -155,13 +165,24 @@ fn created_id_of(reply: &Frame) -> Option<u32> {
     Some(u32::from_be_bytes(reply.body.get(4..8).map(|b| b.try_into().unwrap()).unwrap_or([0u8; 4])))
 }
 
+/// The next frame of a login connection, however long the wait (a client may sit at the login screen for a while).
 fn read_frame(stream: &mut TcpStream, reader: &mut Reader) -> std::io::Result<Option<Frame>> {
+    loop {
+        match read_frame_within(stream, reader, Duration::from_secs(30)) {
+            Err(e) if e.kind() == std::io::ErrorKind::TimedOut => continue,
+            other => return other,
+        }
+    }
+}
+
+/// The next frame, waiting up to `within` for one to come (a `TimedOut` error when none did; the reader keeps what it has).
+fn read_frame_within(stream: &mut TcpStream, reader: &mut Reader, within: Duration) -> std::io::Result<Option<Frame>> {
     let mut buffer = [0u8; 8192];
     loop {
         if let Some(frame) = reader.next().map_err(|e| std::io::Error::other(e.to_string()))? {
             return Ok(Some(frame));
         }
-        let n = socket::read(stream, &mut buffer, Duration::from_secs(30))?;
+        let n = socket::read(stream, &mut buffer, within)?;
         if n == 0 {
             return Ok(None);
         }

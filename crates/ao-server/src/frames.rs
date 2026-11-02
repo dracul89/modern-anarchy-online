@@ -124,12 +124,13 @@ pub fn n3(source: u32, destination: u32, kind: u32, identity: (u32, u32), data: 
 
 /// The playfield the character is in (0x5f4b1a39): the instance, the arrival position.
 pub fn playfield(source: u32, destination: u32, instance: u32, position: [f32; 3]) -> Frame {
-    let mut data = Vec::with_capacity(28);
-    data.extend_from_slice(&instance.to_be_bytes());
+    // (the client reads the arrival as the captures lay it out: four zero bytes, a byte of 4, then the position's three floats at
+    // 5; the playfield is the identity's instance, of the type 0x9c50 the captures show)
+    let mut data = vec![0, 0, 0, 0, 4];
     for v in position {
         data.extend_from_slice(&v.to_be_bytes());
     }
-    n3(source, destination, 0x5f4b1a39, (0xc79c, instance), &data)
+    n3(source, destination, 0x5f4b1a39, (0x9c50, instance), &data)
 }
 
 /// The server clock (0x5f52412e): seconds into the 27-hour day, the day period, the day count, the server time.

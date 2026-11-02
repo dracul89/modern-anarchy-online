@@ -116,12 +116,13 @@ fn the_game_answers_the_ready_with_the_playfield_and_the_clock() {
     let ready = frames::ready(0x9210c);
     let (sent, replies) = session.handle(&ready);
     assert!(sent);
-    assert_eq!(replies.len(), 5);
+    assert_eq!(replies.len(), 9);
     assert_eq!(n3::Message::parse(&replies[0]).unwrap().kind, ao_server::game::PLAYFIELD);
     assert_eq!(n3::Message::parse(&replies[1]).unwrap().kind, ao_server::game::GAME_TIME);
     assert_eq!(n3::Message::parse(&replies[2]).unwrap().kind, ao_server::game::POSITION_UPDATE);
     assert_eq!(n3::Message::parse(&replies[3]).unwrap().kind, 0x2b333d6e, "the stats");
     assert_eq!(n3::Message::parse(&replies[4]).unwrap().kind, 0x4e536976, "the items");
+    assert!(replies[5..].iter().all(|f| n3::Message::parse(f).unwrap().kind == 0x271b3a6b), "the monsters of Old Athens");
 }
 
 #[test]

@@ -15,10 +15,11 @@ still missing.
   (`mao-net/examples/capture_templates.rs` makes it). A server message is the template with the fields it changes set, encoded
   again. Anything the schema does not describe at the end of a message is kept as captured. The templates contain no text and no
   account names.
-* **Blocked: the NPC spawn message (`SimpleCharFullUpdate`, `271b3a6b`).** The schema's layout does not parse the captured
-  messages. The name's length prefix is one byte (found from the captures, now in `SIZE_OVERRIDES`), but the message then fails
-  at its active-nano list. Until that layout is worked out, the server cannot place NPCs or monsters on the client's screen, so
-  **combat against NPCs and NPC mission givers is not possible yet.**
+* **Monsters (`SimpleCharFullUpdate`, `271b3a6b`).** The schema still does not parse this message whole (it fails at its
+  active-nano list). The client's own decoder (`n3::entity_info`) does read the parts it needs: the playfield, the place, the
+  name, and for a monster its template (the appearance) and its health. So a monster is a captured monster's message with
+  those parts changed (`n3::set_monster`), the rest kept as captured. The stored template has the server's own name in it
+  (`Monster`), so no captured name is kept. NPC mission givers are not done yet; they can use the same route.
 * **Blocked: the mission offers' reply (`QuestAlternative` from the server).** No capture of it is in the repository (the
   client's mission window was built from an older capture that is no longer here). The offers have to be built from the
   schema's `MissionInfo` layout, with its unknown chunks left zero.
@@ -36,6 +37,8 @@ still missing.
 | Credits | `/gm credits <amount>` (stat 61) | `game.rs` |
 | Shops | Using the Old Athens vending machine sends its stock (`ShopUpdate`, the captured stock) and opens the trade; buying (trade action 5 naming the machine and the slot) takes credits and puts the item in the backpack | `game.rs` tests (open, buy, refuse without credits) |
 | Missions | A terminal's request (`QuestAlternative`) gets the server's three offers; taking one (`CreateQuest`) puts it in the log (`QuestFullUpdate`, built from the schema) and says so in chat; `/gm complete <n>` finishes it: the mission is removed (`Quest` Delete) and its XP and credits are given | `game.rs` tests (offers, accept, refuse a second, complete); `missions.rs` tests. The client's own reading of the offers and the log is not verified |
+| Combat (the training dummies) | Four monsters in Old Athens come with the world entry. Attacking one starts a fight: a swing every two seconds (`AttackInfo`, `HealthDamage`), the monster's health counts down in the client, and at zero it is taken away (`Despawn`), the fight stops (`StopFight`), the character gets 400 XP and an item from the stock (loot) | `game.rs` tests (fight to the kill, XP and loot, an attack on nothing); the real client's headless `net attack` run: swings every 2 s, 120 to 0, "You kill ...", "You receive item ..." |
+| Arrival | The playfield message is the captured shape (four zero bytes, a 4, the position at 5), the playfield is the identity's instance with type `0x9c50`. A new character starts in Old Athens at the captured spawn | `game.rs` test; the real client reads "playfield 540 at [490.45, 8.01, 447.38]" |
 | Zoning (the client's own zone line) | The server answers a teleport to another playfield with the world entry for it (changed this session) | not tested yet |
 
 The chat lines the server sends (for example "You are now level 2.") use the game's `ChatText` message.
@@ -45,6 +48,7 @@ The chat lines the server sends (for example "You are now level 2.") use the gam
 * **Experience curve.** `progress::xp_for_level` is the server's own (`500 · (L−1) · L`). The original's table is not in the
   captures.
 * **Health per level.** `100 + 10 · level`.
+* **Monster numbers.** The training dummies have 120 health, 400 XP and the stock item as loot.
 * **Shop price.** Every item costs 50 credits. The original prices by the item's value and the shop's rates (stats 426 and 427).
 * **Stock.** The captured machine's stock, not a table from the game files.
 * **Game-master commands** (`/gm`) are the test server's own. The original's client has no such command, so the headless
@@ -52,9 +56,11 @@ The chat lines the server sends (for example "You are now level 2.") use the gam
 
 ## Not done
 
-* **Combat.** The attack and damage messages (`Attack`, `AttackInfo`, `HealthDamage`, `StopFight`) have captured templates, but
-  there is no visible target until NPCs can be spawned (see the blocked item above). The death and respawn of the character,
-  and loot from kills, depend on that too.
+* **Combat is partial.** The monsters do not attack back, do not respawn, and are kept per session: another character does not
+  see a monster that one character killed. The character cannot die. The damage is 10 plus twice the level, not the original's
+  formula. The swing identities (`AttackInfo` about the attacker, `HealthDamage` about the monster) follow the captures, but
+  the client's reading of the fight as a whole is checked only with its headless attack tool.
+* **NPC mission givers** are not placed yet (monsters are, by the same route).
 * **Mission objectives.** The three offers are a stop-gap: the server does not yet run a mission (no kill or delivery goal). A
   mission ends only with `/gm complete`. The offers' reward layout (the unknown chunks are zero) and the mission log's zeroed
   fields are not checked against what the original sends.

@@ -3,14 +3,16 @@
 //! commands typed as chat, the vending machines (their stock, and buying from them). Progress is saved as it changes.
 
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use mao_net::frame::{Frame, N3, PING, TEXT};
 use mao_net::n3;
 use mao_net::schema::{Schema, Value};
 
 use crate::db::Db;
+use crate::monsters::{self, Monster};
 use crate::progress::{self, Hero};
+use crate::templates::{self, identity, int};
 
 /// The playfield the character is in (the default: the first place a new character is put).
 pub const PLAYFIELD: u32 = 0x5f4b1a39;
@@ -38,6 +40,12 @@ pub const LOGOUT: u8 = 0x78;
 pub const STOP_LOGOUT: u8 = 0x7a;
 /// The source the server's frames carry (the zone's object the captures show).
 pub const SERVER: u32 = 0xdbc;
+/// `Attack` (`28494070`): the character attacks the target it names.
+pub const ATTACK: u32 = 0x28494070;
+/// `StopFight` (`4a41203e`): the character stops fighting.
+pub const STOP_FIGHT: u32 = 0x4a41203e;
+/// The time between one swing and the next.
+const SWING: Duration = Duration::from_secs(2);
 /// `QuestAlternative` (`5c436609`): a mission terminal's request for the missions it offers.
 pub const QUEST_ALTERNATIVE: u32 = 0x5c436609;
 /// `CreateQuest` (`291f361b`): the character takes an offered mission.
@@ -61,6 +69,16 @@ pub struct GameSession {
     /// The character's progress (saved to `db` as it changes).
     pub hero: Hero,
     db: Option<Arc<Db>>,
+    /// The monsters of the playfield, as the character sees them (they come with the world entry).
+    monsters: Vec<Monster>,
+    /// The monster the character is fighting, and when its next swing is due.
+    fight: Option<Fight>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct Fight {
+    target: u32,
+    next: Instant,
 }
 
 /// A server message to the character: the zone is the source, the character the destination.
@@ -68,6 +86,22 @@ fn to_client(character: u32, kind: u32, identity: (u32, u32), data: Vec<u8>) -> 
     let mut frame = n3::Message { kind, identity, data }.frame(SERVER);
     frame.destination = character;
     frame
+}
+
+/// The swing of an attack on a target: the attack's record (`AttackInfo`), the character's, with the damage and a normal hit.
+fn attack_info(character: u32, target: (u32, u32), damage: u32) -> Option<Frame> {
+    let mut t = templates::of(0x46002f16)?;
+    t.set("Amount", int(damage as i64)).set("AmmoCount", int(-1)).set("WeaponSlot", int(0)).set("Target", identity(target)).set("Unk1", int(0)).set("HitType", int(3)).set("WeaponInstance", int(0));
+    let m = t.message(0x46002f16, (n3::CHARACTER, character)).ok()?;
+    Some(to_client(character, m.kind, m.identity, m.data))
+}
+
+/// The damage a target took and the health it has left (`HealthDamage`, about the damaged target).
+fn health_damage(character: u32, target: (u32, u32), health: u32, damage: u32) -> Option<Frame> {
+    let mut t = templates::of(0x3710256c)?;
+    t.set("TargetHp", int(health as i64)).set("Amount", int(damage as i64)).set("Target", identity(target)).set("Unk2", int(0));
+    let m = t.message(0x3710256c, target).ok()?;
+    Some(to_client(character, m.kind, m.identity, m.data))
 }
 
 /// The text a chat line carries (`ChatText`'s data): two zero bytes, the length, the text.
@@ -91,12 +125,19 @@ fn field_int(v: &Value, name: &str) -> i64 {
 }
 
 impl GameSession {
-    /// A session for a character with its progress (`db`, when given, is where the progress is saved).
-    pub fn new(character_id: u32, hero: Hero, db: Option<Arc<Db>>) -> Self {
+    /// A session for a character with its progress (`db`, when given, is where the progress is saved). A character that has
+    /// never been placed starts in Old Athens, at the spawn.
+    pub fn new(character_id: u32, mut hero: Hero, db: Option<Arc<Db>>) -> Self {
+        if hero.playfield == 0 {
+            hero.playfield = monsters::OLD_ATHENS;
+        }
+        if hero.position == [0.0; 3] {
+            hero.position = monsters::SPAWN;
+        }
         GameSession {
             character_id,
             ready_sent: false,
-            playfield: if hero.playfield == 0 { PLAYFIELD } else { hero.playfield },
+            playfield: hero.playfield,
             arrived: hero.position,
             clock: 0.0,
             started: Instant::now(),
@@ -104,6 +145,8 @@ impl GameSession {
             logging_out: false,
             hero,
             db,
+            monsters: Vec::new(),
+            fight: None,
         }
     }
 
@@ -124,7 +167,9 @@ impl GameSession {
     }
 
     /// The world entry: the place, the time, the position, the stats and the items.
-    fn world_entry(&self, out: &mut Vec<Frame>) {
+    fn world_entry(&mut self, out: &mut Vec<Frame>) {
+        self.monsters = monsters::spawns(self.playfield);
+        self.fight = None;
         out.push(crate::frames::playfield(self.character_id, 2, self.playfield, self.arrived));
         out.push(crate::frames::game_time(self.character_id, 2, self.clock, 27, 0, 0));
         out.push(crate::frames::position_update(self.character_id, 0, [0.0, 0.0, 0.0, 1.0], self.arrived, 0));
@@ -133,6 +178,11 @@ impl GameSession {
         }
         if let Ok(m) = crate::inventory::update(self.character_id, &self.hero.items) {
             out.push(to_client(self.character_id, m.kind, m.identity, m.data));
+        }
+        for m in &self.monsters {
+            if let Some(msg) = monsters::entity(m) {
+                out.push(to_client(self.character_id, msg.kind, msg.identity, msg.data));
+            }
         }
     }
 
@@ -218,6 +268,8 @@ impl GameSession {
                         }
                     }
                 }
+                ATTACK if frame.source == self.character_id => self.attack(&m.data),
+                STOP_FIGHT if frame.source == self.character_id => self.fight = None,
                 GENERIC_CMD if frame.source == self.character_id => self.generic_command(&m.data, &mut out),
                 TRADE if frame.source == self.character_id => self.trade(&m.data, &mut out),
                 QUEST_ALTERNATIVE if frame.source == self.character_id => self.offers(&m.data, &mut out),
@@ -290,6 +342,69 @@ impl GameSession {
                 out.push(to_client(self.character_id, m.kind, m.identity, m.data));
             }
         }
+    }
+
+    /// `Attack` from the character: a monster it names becomes the fight (its first swing is due at the next tick).
+    fn attack(&mut self, data: &[u8]) {
+        let Ok(parsed) = Schema::global().parse_n3(ATTACK, data) else { return };
+        let Some(t) = parsed.value.get("Target") else { return };
+        let target = (field_int(t, "Type") as u32, field_int(t, "Instance") as u32);
+        if target.0 != n3::CHARACTER || !self.monsters.iter().any(|m| m.id == target.1 && m.health > 0) {
+            return;
+        }
+        self.fight = Some(Fight { target: target.1, next: Instant::now() });
+    }
+
+    /// The time has come: the fight's next swing (and, when the monster is dead, its experience, its loot and its removal). `now` is
+    /// the server's clock. Returns the frames to send.
+    pub fn tick(&mut self, now: Instant) -> Vec<Frame> {
+        let mut out = Vec::new();
+        let Some(fight) = self.fight else { return out };
+        if now < fight.next {
+            return out;
+        }
+        let Some(index) = self.monsters.iter().position(|m| m.id == fight.target) else {
+            self.fight = None;
+            return out;
+        };
+        let damage = 10 + self.hero.level * 2;
+        let monster = &mut self.monsters[index];
+        monster.health = monster.health.saturating_sub(damage);
+        let (name, health, id, xp, loot) = (monster.name.clone(), monster.health, monster.id, monster.xp, monster.loot);
+        let character = self.character_id;
+        let target = (n3::CHARACTER, id);
+        if let Some(f) = attack_info(character, target, damage) {
+            out.push(f);
+        }
+        if let Some(f) = health_damage(character, target, health, damage) {
+            out.push(f);
+        }
+        out.push(chat_line(character, &format!("You hit {name} for {damage} damage.")));
+        if health > 0 {
+            self.fight = Some(Fight { next: now + SWING, ..fight });
+            return out;
+        }
+        // Dead: the fight ends, the monster is gone, and the character has its experience and the loot.
+        self.fight = None;
+        self.monsters.remove(index);
+        if let Ok(m) = templates::of(0x4a41203e).ok_or(()).and_then(|t| t.message(0x4a41203e, (n3::CHARACTER, character)).map_err(|_| ())) {
+            out.push(to_client(character, m.kind, m.identity, m.data));
+        }
+        if let Ok(m) = templates::of(0x36510078).ok_or(()).and_then(|t| t.message(0x36510078, target).map_err(|_| ())) {
+            out.push(to_client(character, m.kind, m.identity, m.data));
+        }
+        let up = self.hero.grant_xp(xp as u64);
+        out.push(chat_line(character, &format!("You kill {name}. You receive {xp} xp.")));
+        if up {
+            out.push(chat_line(character, &format!("You are now level {}.", self.hero.level)));
+        }
+        if self.hero.add_item(loot, 1, 5).is_some() {
+            out.push(chat_line(character, &format!("You receive item {loot:#x}.")));
+            self.items_changed(&mut out);
+        }
+        self.stats_changed(&mut out);
+        self.save();
+        out
     }
 
     /// `QuestAlternative` from the character: the terminal's offers, answered with the request's sliders, scope and terminal.
@@ -488,5 +603,49 @@ mod tests {
         assert_eq!(s.hero.xp, crate::missions::OFFERS[0].xp as u64);
         let kinds: Vec<u32> = out.iter().filter_map(|f| n3::Message::parse(f).map(|m| m.kind)).collect();
         assert!(kinds.contains(&0x212c487a), "the mission is removed from the log: {kinds:x?}");
+    }
+
+    #[test]
+    fn a_new_character_starts_in_old_athens_where_the_client_reads_its_arrival() {
+        let mut s = session();
+        let (_, out) = s.handle(&ready());
+        assert_eq!(s.playfield, monsters::OLD_ATHENS);
+        let first = n3::Message::parse(&out[0]).unwrap();
+        let (playfield, at) = first.arrival().unwrap();
+        assert_eq!(playfield, monsters::OLD_ATHENS);
+        assert_eq!(at, monsters::SPAWN);
+        let monsters_seen = out.iter().filter(|f| n3::Message::parse(f).is_some_and(|m| m.kind == 0x271b3a6b)).count();
+        assert_eq!(monsters_seen, 4);
+    }
+
+    #[test]
+    fn a_fight_is_swung_until_the_monster_dies_and_pays() {
+        let mut s = session();
+        s.handle(&ready());
+        let target = s.monsters[0].id;
+        s.handle(&n3::attack(0x7b1a0021, target));
+        let mut now = Instant::now();
+        let mut kinds = Vec::new();
+        for _ in 0..200 {
+            now += Duration::from_secs(3);
+            let out = s.tick(now);
+            kinds.extend(out.iter().filter_map(|f| n3::Message::parse(f).map(|m| m.kind)));
+            if !s.monsters.iter().any(|m| m.id == target) {
+                break;
+            }
+        }
+        assert!(!s.monsters.iter().any(|m| m.id == target), "the monster is dead");
+        assert!(kinds.contains(&0x46002f16) && kinds.contains(&0x3710256c), "the swings: {kinds:x?}");
+        assert!(kinds.contains(&0x36510078), "the monster is taken away");
+        assert!(s.hero.xp >= 400, "the experience: {}", s.hero.xp);
+        assert!(s.hero.items.iter().any(|i| i.template == monsters::LOOT), "the loot");
+    }
+
+    #[test]
+    fn an_attack_on_nothing_starts_no_fight() {
+        let mut s = session();
+        s.handle(&ready());
+        s.handle(&n3::attack(0x7b1a0021, 0x12345));
+        assert!(s.tick(Instant::now() + Duration::from_secs(10)).is_empty());
     }
 }
