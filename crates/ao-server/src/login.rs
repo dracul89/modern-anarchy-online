@@ -111,7 +111,8 @@ impl LoginSession {
             }
             LOGIN_CHARACTER => {
                 self.phase = Phase::CharacterSelected;
-                self.character_id = frame.source;
+                // (the character is in the message's body, after the kind: the frame's source is the client's own, zero here)
+                self.character_id = u32::from_be_bytes(frame.body.get(4..8).and_then(|b| b.try_into().ok()).unwrap_or([0; 4]));
                 // (the rest: the event server type, 0, and the player id, the captured ticket's last eight bytes)
                 let mut rest = 0u32.to_be_bytes().to_vec();
                 rest.extend_from_slice(&self.character_id.to_be_bytes());

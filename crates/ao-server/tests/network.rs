@@ -74,6 +74,8 @@ fn a_character_is_made_entered_and_commanded_over_the_network() {
     let id = list[0].id;
     let ticket = session::login_character(&mut connection, id).expect("the ticket");
     assert_eq!(ticket.port, game.port());
+    // (the ticket carries the character: the client enters the world as it)
+    assert_eq!(ticket.id, id);
     drop(connection);
 
     // Enter the world, say ready, and see the stats and the items.
