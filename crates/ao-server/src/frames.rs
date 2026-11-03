@@ -28,6 +28,12 @@ fn string(p: &mut Vec<u8>, s: &str) {
 
 /// system 0x0e: the character list, one `CharacterData_t` per character.
 pub fn character_list(source: u32, destination: u32, chars: &[Character]) -> Frame {
+    character_list_slots(source, destination, chars, 6, 1)
+}
+
+/// system 0x0e with the account's slots and expansion flags after the characters (the captures' trailer: the client reads the
+/// slots it shows as "x/y slots available" from it, and the flags as `ExpansionFlags`), then a zero.
+pub fn character_list_slots(source: u32, destination: u32, chars: &[Character], slots: i32, expansions: i32) -> Frame {
     let mut payload = Vec::new();
     int(&mut payload, chars.len() as i32);
     for c in chars {
@@ -53,8 +59,10 @@ pub fn character_list(source: u32, destination: u32, chars: &[Character]) -> Fra
         int(&mut payload, c.height);
         int(&mut payload, c.width);
         int(&mut payload, c.flag);
-        int(&mut payload, 8);
     }
+    int(&mut payload, slots);
+    int(&mut payload, expansions);
+    int(&mut payload, 0);
     system(source, destination, 0x0e, &payload)
 }
 

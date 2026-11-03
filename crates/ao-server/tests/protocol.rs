@@ -137,3 +137,15 @@ fn the_game_clock_and_position_are_read_back() {
     assert!(replies.is_empty());
     assert_eq!(session.arrived, [3.0, 4.0, 5.0]);
 }
+
+#[test]
+fn the_character_list_reads_back_with_its_slots() {
+    let chars: Vec<mao_net::system::Character> = (0..2)
+        .map(|i| mao_net::system::Character { id: 0x7b1a0021 + i, created: true, name: format!("Listed{i}"), breed: 1, sex: 3, profession: 12, level: 1, area: "area unknown".into(), banned: false, ban_reason: String::new(), head: 40629, height: 110, width: 0, flag: 1, proxy: [0; 6] })
+        .collect();
+    let frame = frames::character_list_slots(1, 0x7b1a0021, &chars, 6, 0xab);
+    let (back, rest) = system::character_list(&frame).expect("the list reads back");
+    assert_eq!(back.len(), 2);
+    assert_eq!(back[1].name, "Listed1");
+    assert_eq!(rest.len(), 12, "the slots, the flags and a zero follow");
+}

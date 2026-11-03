@@ -47,6 +47,9 @@ CREATE TABLE IF NOT EXISTS items (\n\
     PRIMARY KEY (character, placement)\n\
 );";
 
+/// The account columns: the character slots the account has, and its expansion flags (the list's trailer, as the captures show).
+const ACCOUNT_COLUMNS: &[&str] = &["ALTER TABLE accounts ADD COLUMN slots INTEGER NOT NULL DEFAULT 6", "ALTER TABLE accounts ADD COLUMN expansions INTEGER NOT NULL DEFAULT 1"];
+
 /// The columns added after the first version of the database (an older file gets them; a new one has them from the start).
 const PROGRESS_COLUMNS: &[&str] = &[
     "ALTER TABLE characters ADD COLUMN xp INTEGER NOT NULL DEFAULT 0",
@@ -68,11 +71,23 @@ impl Db {
     pub fn open(path: &str) -> Self {
         let conn = rusqlite::Connection::open(path).unwrap_or_else(|_| rusqlite::Connection::open(":memory:").expect("an in-memory database"));
         let _ = conn.execute_batch(SCHEMA);
-        for column in PROGRESS_COLUMNS {
+        for column in ACCOUNT_COLUMNS.iter().chain(PROGRESS_COLUMNS) {
             // (a column the file already has is an error to add again, and that is fine)
             let _ = conn.execute(column, []);
         }
         Db { conn: std::sync::Mutex::new(conn) }
+    }
+
+    /// An account's character slots and expansion flags (none when there is no such account).
+    pub fn account_settings(&self, name: &str) -> Option<(i64, i64)> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row("SELECT slots, expansions FROM accounts WHERE name = ?1", [name], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?))).ok()
+    }
+
+    /// Sets an account's character slots and expansion flags.
+    pub fn set_account_settings(&self, name: &str, slots: i64, expansions: i64) -> Result<(), rusqlite::Error> {
+        self.conn.lock().unwrap().execute("UPDATE accounts SET slots = ?2, expansions = ?3 WHERE name = ?1", rusqlite::params![name, slots, expansions])?;
+        Ok(())
     }
 
     /// Whether an account exists.

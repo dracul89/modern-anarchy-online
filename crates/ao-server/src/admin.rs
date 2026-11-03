@@ -135,32 +135,102 @@ fn login_page(message: &str) -> String {
     format!("<!doctype html><html><head><meta charset=utf-8><title>AO server admin</title><style>{STYLE}</style></head><body><h2>AO server admin</h2><p class=note>{}</p><form method=post action=/login><input type=password name=password placeholder=\"admin password\" autofocus> <button>Sign in</button></form></body></html>", escape(message))
 }
 
+/// A number typed in a form: decimal, or hexadecimal with `0x`.
+fn number(text: &str) -> Option<i64> {
+    match text.strip_prefix("0x") {
+        Some(hex) => i64::from_str_radix(hex, 16).ok(),
+        None => text.parse().ok(),
+    }
+}
+
+/// One character's row: what it is and what it has, with the forms that change it.
+fn character_row(db: &Db, account: &str, id: u32, name: &str) -> String {
+    let (level, xp, credits, items, missions, playfield) = match db.load_hero(id) {
+        Some(h) => (h.level, h.xp, h.credits, h.items.len(), h.missions.len(), h.playfield),
+        None => (1, 0, 0, 0, 0, 0),
+    };
+    format!(
+        "<tr><td>{name}<br><span class=note>id {id} ({id:#x})</span></td><td>{level}</td><td>{xp}</td><td>{credits}</td>\
+         <td>{items} items, {missions} missions<br><span class=note>playfield {playfield}</span></td>\
+         <td><form method=post action=/characters/xp><input type=hidden name=id value={id}><input name=amount size=8 placeholder=xp> <button>Give XP</button></form>\
+         <form method=post action=/characters/credits><input type=hidden name=id value={id}><input name=amount size=8 placeholder=credits> <button>Give credits</button></form>\
+         <form method=post action=/characters/item><input type=hidden name=id value={id}><input name=template size=10 placeholder=template> <input name=count size=3 value=1> <button>Give item</button></form>\
+         <form method=post action=/characters/delete onsubmit=\"return confirm('Delete this character?')\"><input type=hidden name=id value={id}><input type=hidden name=account value=\"{account}\"><button>Delete character</button></form></td></tr>",
+        name = escape(name),
+        account = escape(account),
+    )
+}
+
 fn dashboard(db: &Db, message: &str) -> String {
-    let mut rows = String::new();
-    for (name, count) in db.list_accounts() {
-        let chars: Vec<String> = db.character_names(&name).iter().map(|(id, n, level)| format!("{} (level {level}, id {id:#x})", escape(n))).collect();
-        rows.push_str(&format!(
-            "<tr><td>{}</td><td>{count}</td><td>{}</td><td><form method=post action=/accounts/delete onsubmit=\"return confirm('Delete this account and its characters?')\"><input type=hidden name=name value=\"{}\"><button>Delete</button></form></td></tr>",
-            escape(&name),
-            if chars.is_empty() { "-".to_string() } else { chars.join("<br>") },
-            escape(&name)
+    let mut blocks = String::new();
+    for (name, _) in db.list_accounts() {
+        let (slots, expansions) = db.account_settings(&name).unwrap_or((6, 1));
+        let mut rows = String::new();
+        for c in db.characters_of(&name) {
+            rows.push_str(&character_row(db, &name, c.id, &c.name));
+        }
+        if rows.is_empty() {
+            rows = "<tr><td colspan=6 class=note>No characters yet.</td></tr>".to_string();
+        }
+        blocks.push_str(&format!(
+            "<h3>{name}</h3>\
+             <form method=post action=/accounts/settings>Character slots <input name=slots size=3 value={slots}> Expansion flags <input name=expansions size=6 value={expansions}> <input type=hidden name=name value=\"{name}\"><button>Save</button></form>\
+             <form method=post action=/accounts/delete onsubmit=\"return confirm('Delete this account and its characters?')\"><input type=hidden name=name value=\"{name}\"><button>Delete account</button></form>\
+             <table><tr><th>Character</th><th>Level</th><th>XP</th><th>Credits</th><th>Carries</th><th>Actions</th></tr>{rows}</table>",
+            name = escape(&name)
         ));
     }
-    if rows.is_empty() {
-        rows = "<tr><td colspan=4>No accounts yet.</td></tr>".to_string();
+    if blocks.is_empty() {
+        blocks = "<p>No accounts yet.</p>".to_string();
     }
     let trace = escape(&crate::trace::tail(80));
     format!(
         "<!doctype html><html><head><meta charset=utf-8><title>AO server admin</title><style>{STYLE}</style></head><body>\
          <h2>AO server admin</h2><form method=post action=/logout style=\"float:right\"><button>Sign out</button></form>\
          <p class=note>{}</p>\
-         <h3>Accounts</h3><table><tr><th>Account</th><th>Characters</th><th>Characters (level, id)</th><th></th></tr>{rows}</table>\
+         {blocks}\
          <h3>New account</h3><form method=post action=/accounts>Name <input name=name maxlength=32 required> Password <input type=password name=password required> <button>Create</button></form>\
-         <p class=note>Names: letters, digits, _ and -. The login accepts the account you make here.</p>\
+         <p class=note>Names: letters, digits, _ and -. The login accepts the account you make here. Changes to a character take effect at its next login.</p>\
          <h3>Trace (last 80 lines, <a href=/trace>full text</a>)</h3><pre>{trace}</pre>\
          </body></html>",
         escape(message)
     )
+}
+
+/// Gives a character experience, credits or an item (the panel's forms). Returns the message to show.
+fn give(db: &Db, path: &str, id: &str, amount: &str, count: &str, template: &str) -> String {
+    let Some(id) = number(id).map(|n| n as u32) else { return "No character.".to_string() };
+    let Some(mut hero) = db.load_hero(id) else { return format!("There is no character {id}.") };
+    let what = match path {
+        "/characters/xp" => match number(amount).filter(|a| *a > 0) {
+            Some(a) => {
+                let up = hero.grant_xp(a as u64);
+                format!("{a} XP{}", if up { format!(" (now level {})", hero.level) } else { String::new() })
+            }
+            None => return "The amount must be a number above zero.".to_string(),
+        },
+        "/characters/credits" => match number(amount).filter(|a| *a > 0) {
+            Some(a) => {
+                hero.credits = hero.credits.saturating_add(a as u32);
+                format!("{a} credits")
+            }
+            None => return "The amount must be a number above zero.".to_string(),
+        },
+        _ => {
+            let count = number(count).unwrap_or(1).clamp(1, 1000) as u16;
+            match number(template).map(|t| t as u32).and_then(|t| hero.add_item(t, count, 1).map(|_| t)) {
+                Some(t) => format!("item {t:#x} x{count}"),
+                None => return "The item needs a template number, and the backpack must have room.".to_string(),
+            }
+        }
+    };
+    match db.save_hero(&hero) {
+        Ok(()) => {
+            crate::trace::note("admin", &format!("character {id}: given {what}"));
+            format!("Character {id} was given {what}.")
+        }
+        Err(e) => format!("Could not save: {e}"),
+    }
 }
 
 fn handle(mut stream: TcpStream, db: &Db, sessions: &Mutex<HashSet<String>>, password: &str) -> std::io::Result<()> {
@@ -208,6 +278,42 @@ fn handle(mut stream: TcpStream, db: &Db, sessions: &Mutex<HashSet<String>>, pas
                     }
                     Err(e) => format!("Could not save the account: {e}"),
                 }
+            };
+            respond(&mut stream, "200 OK", &[], &dashboard(db, &message))
+        }
+        ("POST", "/accounts/settings") if logged_in => {
+            let name = field("name");
+            let slots = number(&field("slots")).filter(|n| (1..=100).contains(n));
+            let expansions = number(&field("expansions")).filter(|n| (0..=u32::MAX as i64).contains(n));
+            let message = match (slots, expansions) {
+                (Some(slots), Some(expansions)) if db.account_exists(&name) => match db.set_account_settings(&name, slots, expansions) {
+                    Ok(()) => {
+                        crate::trace::note("admin", &format!("account {name}: {slots} slots, expansion flags {expansions:#x}"));
+                        format!("{name} now has {slots} character slots.")
+                    }
+                    Err(e) => format!("Could not save: {e}"),
+                },
+                (None, _) => "The slots are a number from 1 to 100.".to_string(),
+                (_, None) => "The expansion flags are a number.".to_string(),
+                _ => format!("There is no account {name}."),
+            };
+            respond(&mut stream, "200 OK", &[], &dashboard(db, &message))
+        }
+        ("POST", "/characters/xp") | ("POST", "/characters/credits") | ("POST", "/characters/item") if logged_in => {
+            let message = give(db, &request.path, &field("id"), &field("amount"), &field("count"), &field("template"));
+            respond(&mut stream, "200 OK", &[], &dashboard(db, &message))
+        }
+        ("POST", "/characters/delete") if logged_in => {
+            let (id, account) = (number(&field("id")), field("account"));
+            let message = match id {
+                Some(id) => match db.delete_character(&account, id) {
+                    Ok(()) => {
+                        crate::trace::note("admin", &format!("character {id} of {account} deleted"));
+                        format!("Character {id} deleted.")
+                    }
+                    Err(e) => format!("Could not delete: {e}"),
+                },
+                None => "No character.".to_string(),
             };
             respond(&mut stream, "200 OK", &[], &dashboard(db, &message))
         }

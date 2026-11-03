@@ -87,9 +87,19 @@ fn handle_login(mut stream: TcpStream, db: Arc<Db>, current: Arc<Mutex<u32>>, ga
         let (_phase, mut replies) = session.handle(&frame, &chars);
         let kind = system_kind(&frame);
         // (accounts are made in the admin panel: a login for one that is not there is refused)
-        if kind == crate::login::AUTH_CLIENT && !db.account_exists(&session.account) {
-            crate::trace::note("login", &format!("account {:?} is not known: refused", session.account));
-            replies = vec![crate::frames::refused(1, session.character_id(), 1)];
+        let (slots, expansions) = db.account_settings(&session.account).unwrap_or((0, 0));
+        if kind == crate::login::AUTH_CLIENT {
+            if db.account_exists(&session.account) {
+                replies = vec![crate::frames::character_list_slots(1, session.character_id(), &chars, slots as i32, expansions as i32)];
+            } else {
+                crate::trace::note("login", &format!("account {:?} is not known: refused", session.account));
+                replies = vec![crate::frames::refused(1, session.character_id(), 1)];
+            }
+        }
+        // (a creation past the account's slots is refused with code 8, "CantCreateMoreChars" in the client's table)
+        if kind == crate::login::CREATE_CHARACTER && chars.len() as i64 >= slots {
+            crate::trace::note("login", &format!("no slot left for {:?} ({} of {slots} used)", session.account, chars.len()));
+            replies = vec![crate::frames::refused(1, session.character_id(), 8)];
         }
         if kind != 0 && replies.is_empty() {
             crate::trace::note("login", &format!("UNANSWERED system kind {kind:#x}"));
@@ -106,7 +116,7 @@ fn handle_login(mut stream: TcpStream, db: Arc<Db>, current: Arc<Mutex<u32>>, ga
             let made = session.take_created();
             let id = replies.iter().find_map(created_id_of);
             if let (Some(c), Some(id)) = (made, id) {
-                if chars.len() < MAX_CHARACTERS {
+                if (chars.len() as i64) < slots {
                     let character = mao_net::system::Character { id, created: true, name: c.name.clone(), breed: c.breed, sex: c.sex, profession: c.profession, level: 1, area: "area unknown".to_string(), banned: false, ban_reason: String::new(), head: c.head, height: c.height, width: c.width, flag: 1, proxy: [0; 6] };
                     let _ = db.insert_character(&session.account, &character, id as i64);
                 }

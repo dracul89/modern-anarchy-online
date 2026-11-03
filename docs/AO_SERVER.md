@@ -109,3 +109,16 @@ The server's database is `ao-server-data.db` in the working folder, or `MAO_DB`.
 The passwords are stored as typed and are not checked yet (the login's encrypted answer needs the server's private key, which
 is not known). The admin panel listens on this machine only.
 
+## Slots and character administration (the admin panel)
+
+* **Character slots** are per account, set in the panel (default 6). The character list carries them after the characters, with
+  the account's expansion flags and a zero: the captures show this trailer (`frames::character_list_slots`), and the original
+  client shows "x/y slots available" from it. A creation past the slots is refused with code 8, `CantCreateMoreChars` in the
+  client's own table. An unknown account is refused with code 1, `PlayerNotFound`.
+* **Bug fixed:** the character list had an extra integer after every entry. The original's reader takes it as the next entry's
+  version, so a second character could not be read. One character alone hid it.
+* **Characters** can be given XP (levels follow), credits and items (by template number) and can be deleted, from the panel.
+  The change takes effect at the character's next login.
+* **Unverified:** the meaning of the trailer's first number (the slots are assumed; the captured lists show 8, 10, 11 and 18
+  with different accounts) and the expansion flags' values (the captures show 1 and 171).
+
