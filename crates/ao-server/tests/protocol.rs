@@ -111,17 +111,22 @@ fn the_login_answers_a_creation_with_the_new_character() {
 }
 
 #[test]
-fn the_game_answers_the_ready_with_the_playfield_and_the_clock() {
+fn the_game_answers_the_entry_with_the_chat_server_the_playfield_and_the_world() {
     let mut session = ao_server::game::GameSession::new(0x9210c, ao_server::progress::Hero::new(0x9210c), None);
-    let ready = frames::ready(0x9210c);
-    let (sent, replies) = session.handle(&ready);
+    let enter = mao_net::frame::Frame { kind: SYSTEM, source: 1, destination: 2, body: vec![0, 0, 0, 0x1b, 0, 0, 0, 1, 1, 2, 3, 4, 5, 6, 7, 8] };
+    let (sent, replies) = session.handle(&enter);
+    assert!(!sent, "the ready is the client's");
+    assert_eq!(replies.len(), 10);
+    assert_eq!(replies[0].kind, SYSTEM, "the chat server");
+    assert_eq!(n3::Message::parse(&replies[1]).unwrap().kind, ao_server::game::PLAYFIELD);
+    assert_eq!(n3::Message::parse(&replies[2]).unwrap().kind, ao_server::game::GAME_TIME);
+    assert_eq!(n3::Message::parse(&replies[3]).unwrap().kind, ao_server::game::POSITION_UPDATE);
+    assert_eq!(n3::Message::parse(&replies[4]).unwrap().kind, 0x2b333d6e, "the stats");
+    assert_eq!(n3::Message::parse(&replies[5]).unwrap().kind, 0x4e536976, "the items");
+    assert!(replies[6..].iter().all(|f| n3::Message::parse(f).unwrap().kind == 0x271b3a6b), "the monsters of Old Athens");
+    let (sent, replies) = session.handle(&frames::ready(0x9210c));
     assert!(sent);
-    assert_eq!(replies.len(), 8);
-    assert_eq!(n3::Message::parse(&replies[0]).unwrap().kind, ao_server::game::GAME_TIME);
-    assert_eq!(n3::Message::parse(&replies[1]).unwrap().kind, ao_server::game::POSITION_UPDATE);
-    assert_eq!(n3::Message::parse(&replies[2]).unwrap().kind, 0x2b333d6e, "the stats");
-    assert_eq!(n3::Message::parse(&replies[3]).unwrap().kind, 0x4e536976, "the items");
-    assert!(replies[4..].iter().all(|f| n3::Message::parse(f).unwrap().kind == 0x271b3a6b), "the monsters of Old Athens");
+    assert!(replies.is_empty(), "the ready answers nothing");
 }
 
 #[test]
@@ -155,7 +160,7 @@ fn entering_the_world_answers_with_the_chat_server_and_the_playfield() {
     let enter = mao_net::frame::Frame { kind: SYSTEM, source: 1, destination: 2, body: vec![0, 0, 0, 0x1b, 0, 0, 0, 1, 1, 2, 3, 4, 5, 6, 7, 8] };
     assert!(ao_server::game::is_enter(&enter));
     let (_, replies) = session.handle(&enter);
-    assert_eq!(replies.len(), 2);
+    assert_eq!(replies.len(), 10);
     assert_eq!(replies[0].kind, SYSTEM, "the chat server");
     let playfield = n3::Message::parse(&replies[1]).unwrap();
     assert_eq!(playfield.kind, ao_server::game::PLAYFIELD);

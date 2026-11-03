@@ -253,8 +253,11 @@ impl GameSession {
         }
         if is_enter(frame) {
             // The original answers the entry with the chat server (the client opens its chat connection there) and the playfield.
+            // (the original sends its first burst here, before the client's ready: the chat server, the playfield, the time, the
+            // position, the stats, the items and the monsters; the ready that follows is the client's own)
             out.push(crate::frames::chat_server_info(SERVER, self.character_id, crate::login::CHAT_SERVER));
             out.push(crate::frames::playfield(SERVER, self.character_id, self.playfield, self.arrived));
+            self.world_entry(&mut out);
             return (self.ready_sent, out);
         }
         if frame.kind == N3 {
@@ -262,7 +265,6 @@ impl GameSession {
             match m.kind {
                 READY if frame.source == self.character_id => {
                     self.ready_sent = true;
-                    self.world_entry(&mut out);
                 }
                 GAME_TIME => {
                     if let Some((seconds, _period, _days, _server_time)) = m.game_time() {
@@ -526,11 +528,15 @@ mod tests {
         n3::ready(0x7b1a0021)
     }
 
+    /// The client's entry into the world (the server answers with the world).
+    fn enter() -> Frame {
+        Frame { kind: SYSTEM, source: 1, destination: 2, body: vec![0, 0, 0, 0x1b, 0, 0, 0, 1, 1, 2, 3, 4, 5, 6, 7, 8] }
+    }
+
     #[test]
     fn the_world_entry_carries_the_stats_and_the_items() {
         let mut s = session();
-        let (ready, out) = s.handle(&ready());
-        assert!(ready);
+        let (_, out) = s.handle(&enter());
         let kinds: Vec<u32> = out.iter().filter_map(|f| n3::Message::parse(f).map(|m| m.kind)).collect();
         assert!(kinds.contains(&0x2b333d6e), "stats: {kinds:x?}");
         assert!(kinds.contains(&0x4e536976), "inventory: {kinds:x?}");
@@ -647,7 +653,7 @@ mod tests {
     #[test]
     fn a_new_character_starts_in_old_athens_where_the_client_reads_its_arrival() {
         let mut s = session();
-        let (_, out) = s.handle(&ready());
+        let (_, out) = s.handle(&enter());
         assert_eq!(s.playfield, monsters::OLD_ATHENS);
         let enter = Frame { kind: SYSTEM, source: 1, destination: 2, body: vec![0, 0, 0, 0x1b, 0, 0, 0, 1, 1, 2, 3, 4, 5, 6, 7, 8] };
         let (_, entered) = s.handle(&enter);
@@ -662,7 +668,7 @@ mod tests {
     #[test]
     fn a_fight_is_swung_until_the_monster_dies_and_pays() {
         let mut s = session();
-        s.handle(&ready());
+        s.handle(&enter());
         let target = s.monsters[0].id;
         s.handle(&n3::attack(0x7b1a0021, target));
         let mut now = Instant::now();
@@ -685,7 +691,7 @@ mod tests {
     #[test]
     fn an_attack_on_nothing_starts_no_fight() {
         let mut s = session();
-        s.handle(&ready());
+        s.handle(&enter());
         s.handle(&n3::attack(0x7b1a0021, 0x12345));
         assert!(s.tick(Instant::now() + Duration::from_secs(10)).is_empty());
     }
