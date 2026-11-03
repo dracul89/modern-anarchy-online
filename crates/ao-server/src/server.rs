@@ -68,14 +68,29 @@ fn relay(listener: TcpListener, db: Arc<Db>, current: Arc<Mutex<u32>>, login: bo
 }
 
 fn handle(stream: TcpStream, db: Arc<Db>, current: Arc<Mutex<u32>>, login: bool, game: ([u8; 4], u16)) -> std::io::Result<()> {
-    // (the reads wait with a timeout, so the connection's clock runs: a stream must be non-blocking for that)
-    mao_net::socket::prepare(&stream)?;
     let name = if login { "login" } else { "game" };
+    let peer = stream.peer_addr().map(|a| a.to_string()).unwrap_or_else(|_| "unknown".to_string());
+    crate::trace::begin(name, &peer);
+    // (the reads wait with a timeout, so the connection's clock runs: a stream must be non-blocking for that)
+    if let Err(e) = mao_net::socket::prepare(&stream) {
+        crate::trace::end(&format!("could not be prepared: {e}"));
+        return Err(e);
+    }
     let result = if login { handle_login(stream, db, current, game) } else { handle_game(stream, db, current) };
     // (the trace says how each connection ended: a client that left, or a link that broke)
     match &result {
-        Ok(()) => crate::trace::note(name, "connection closed by the client"),
-        Err(e) => crate::trace::note(name, &format!("connection ended with an error: {e}")),
+        Ok(()) => crate::trace::end("finished: the client closed the connection (see the line above)"),
+        Err(e) => crate::trace::end(&format!("error: {e} ({:?})", e.kind())),
+    }
+    result
+}
+
+/// Writes bytes to the client, recording them; a failure is recorded with its kind before it is returned.
+fn send(stream: &mut TcpStream, bytes: &[u8]) -> std::io::Result<()> {
+    crate::trace::raw_out(bytes);
+    let result = socket::write_all(stream, bytes);
+    if let Err(e) = &result {
+        crate::trace::note(&format!("write failed: {e} ({:?}) after {} bytes", e.kind(), bytes.len()));
     }
     result
 }
@@ -86,7 +101,7 @@ fn handle_login(mut stream: TcpStream, db: Arc<Db>, current: Arc<Mutex<u32>>, ga
     let mut sequence: u16 = 0;
     loop {
         let Some(frame) = read_frame(&mut stream, &mut reader)? else { return Ok(()) };
-        crate::trace::frame("in", "login", &frame, "");
+        crate::trace::frame("in", &frame, "");
         let chars = db.characters_of(&session.account);
         let (_phase, mut replies) = session.handle(&frame, &chars);
         let kind = system_kind(&frame);
@@ -96,17 +111,17 @@ fn handle_login(mut stream: TcpStream, db: Arc<Db>, current: Arc<Mutex<u32>>, ga
             if db.account_exists(&session.account) {
                 replies = vec![crate::frames::character_list_slots(1, session.character_id(), &chars, slots as i32, expansions as i32)];
             } else {
-                crate::trace::note("login", &format!("account {:?} is not known: refused", session.account));
+                crate::trace::note(&format!("account {:?} is not known: refused", session.account));
                 replies = vec![crate::frames::refused(1, session.character_id(), 1)];
             }
         }
         // (a creation past the account's slots is refused with code 8, "CantCreateMoreChars" in the client's table)
         if kind == crate::login::CREATE_CHARACTER && chars.len() as i64 >= slots {
-            crate::trace::note("login", &format!("no slot left for {:?} ({} of {slots} used)", session.account, chars.len()));
+            crate::trace::note(&format!("no slot left for {:?} ({} of {slots} used)", session.account, chars.len()));
             replies = vec![crate::frames::refused(1, session.character_id(), 8)];
         }
         if kind != 0 && replies.is_empty() {
-            crate::trace::note("login", &format!("UNANSWERED system kind {kind:#x}"));
+            crate::trace::note(&format!("UNANSWERED system kind {kind:#x}"));
         }
         if kind == crate::login::LOGIN_CHARACTER {
             let id = u32::from_be_bytes(frame.body.get(4..8).map(|b| b.try_into().unwrap()).unwrap_or([0u8; 4]));
@@ -127,13 +142,13 @@ fn handle_login(mut stream: TcpStream, db: Arc<Db>, current: Arc<Mutex<u32>>, ga
             }
         }
         for reply in replies {
-            crate::trace::frame("out", "login", &reply, "");
+            crate::trace::frame("out", &reply, "");
             sequence = sequence.wrapping_add(1);
             if sequence == 0xffff {
                 sequence = 0;
             }
             let bytes = reply.encode(sequence);
-            socket::write_all(&mut stream, &bytes)?;
+            send(&mut stream, &bytes)?;
         }
     }
 }
@@ -177,9 +192,9 @@ fn handle_game(mut stream: TcpStream, db: Arc<Db>, current: Arc<Mutex<u32>>) -> 
         let mut entering = false;
         let mut replies = match read_frame_within(&mut stream, &mut reader, TICK) {
             Ok(Some(frame)) => {
-                crate::trace::frame("in", "game", &frame, "");
+                crate::trace::frame("in", &frame, "");
                 if !crate::game::answers(&frame) {
-                    crate::trace::note("game", &format!("UNHANDLED: {}", crate::game::describe(&frame)));
+                    crate::trace::note(&format!("UNHANDLED: {}", crate::game::describe(&frame)));
                 }
                 entering = crate::game::is_enter(&frame);
                 game.handle(&frame).1
@@ -190,11 +205,11 @@ fn handle_game(mut stream: TcpStream, db: Arc<Db>, current: Arc<Mutex<u32>>) -> 
         };
         replies.extend(game.tick(std::time::Instant::now()));
         if entering && zip.is_none() {
-            socket::write_all(&mut stream, &COMPRESS_ON)?;
+            send(&mut stream, &COMPRESS_ON)?;
             zip = Some(Compressed::new());
         }
         for reply in replies {
-            crate::trace::frame("out", "game", &reply, "");
+            crate::trace::frame("out", &reply, "");
             sequence = sequence.wrapping_add(1);
             if sequence == 0xffff {
                 sequence = 0;
@@ -204,7 +219,7 @@ fn handle_game(mut stream: TcpStream, db: Arc<Db>, current: Arc<Mutex<u32>>) -> 
                 Some(z) => z.pack(&bytes)?,
                 None => bytes,
             };
-            socket::write_all(&mut stream, &bytes)?;
+            send(&mut stream, &bytes)?;
         }
     }
 }
@@ -237,14 +252,32 @@ fn read_frame(stream: &mut TcpStream, reader: &mut Reader) -> std::io::Result<Op
 fn read_frame_within(stream: &mut TcpStream, reader: &mut Reader, within: Duration) -> std::io::Result<Option<Frame>> {
     let mut buffer = [0u8; 8192];
     loop {
-        if let Some(frame) = reader.next().map_err(|e| std::io::Error::other(e.to_string()))? {
-            return Ok(Some(frame));
+        match reader.next() {
+            Ok(Some(frame)) => return Ok(Some(frame)),
+            Ok(None) => {}
+            Err(e) => {
+                crate::trace::note(&format!("frame decoding failed: {e}"));
+                return Err(std::io::Error::other(e.to_string()));
+            }
         }
-        let n = socket::read(stream, &mut buffer, within)?;
+        let n = match socket::read(stream, &mut buffer, within) {
+            Ok(n) => n,
+            // (a quiet spell is normal: the game connection wakes for its ticks)
+            Err(e) if e.kind() == std::io::ErrorKind::TimedOut => return Err(e),
+            Err(e) => {
+                crate::trace::note(&format!("read failed: {e} ({:?})", e.kind()));
+                return Err(e);
+            }
+        };
         if n == 0 {
+            crate::trace::note("the client closed its end of the connection (end of stream)");
             return Ok(None);
         }
-        reader.push(&buffer[..n]).map_err(|e| std::io::Error::other(e.to_string()))?;
+        crate::trace::raw_in(&buffer[..n]);
+        if let Err(e) = reader.push(&buffer[..n]) {
+            crate::trace::note(&format!("frame decoding failed on {n} bytes: {e}"));
+            return Err(std::io::Error::other(e.to_string()));
+        }
     }
 }
 

@@ -226,7 +226,7 @@ fn give(db: &Db, path: &str, id: &str, amount: &str, count: &str, template: &str
     };
     match db.save_hero(&hero) {
         Ok(()) => {
-            crate::trace::note("admin", &format!("character {id}: given {what}"));
+            crate::trace::note(&format!("character {id}: given {what}"));
             format!("Character {id} was given {what}.")
         }
         Err(e) => format!("Could not save: {e}"),
@@ -273,7 +273,7 @@ fn handle(mut stream: TcpStream, db: &Db, sessions: &Mutex<HashSet<String>>, pas
             } else {
                 match db.save_account(&name, &pass) {
                     Ok(()) => {
-                        crate::trace::note("admin", &format!("account {name} made"));
+                        crate::trace::note(&format!("account {name} made"));
                         format!("Account {name} is ready.")
                     }
                     Err(e) => format!("Could not save the account: {e}"),
@@ -288,7 +288,7 @@ fn handle(mut stream: TcpStream, db: &Db, sessions: &Mutex<HashSet<String>>, pas
             let message = match (slots, expansions) {
                 (Some(slots), Some(expansions)) if db.account_exists(&name) => match db.set_account_settings(&name, slots, expansions) {
                     Ok(()) => {
-                        crate::trace::note("admin", &format!("account {name}: {slots} slots, expansion flags {expansions:#x}"));
+                        crate::trace::note(&format!("account {name}: {slots} slots, expansion flags {expansions:#x}"));
                         format!("{name} now has {slots} character slots.")
                     }
                     Err(e) => format!("Could not save: {e}"),
@@ -308,7 +308,7 @@ fn handle(mut stream: TcpStream, db: &Db, sessions: &Mutex<HashSet<String>>, pas
             let message = match id {
                 Some(id) => match db.delete_character(&account, id) {
                     Ok(()) => {
-                        crate::trace::note("admin", &format!("character {id} of {account} deleted"));
+                        crate::trace::note(&format!("character {id} of {account} deleted"));
                         format!("Character {id} deleted.")
                     }
                     Err(e) => format!("Could not delete: {e}"),
@@ -321,7 +321,7 @@ fn handle(mut stream: TcpStream, db: &Db, sessions: &Mutex<HashSet<String>>, pas
             let name = field("name");
             let message = match db.delete_account(&name) {
                 Ok(()) => {
-                    crate::trace::note("admin", &format!("account {name} removed"));
+                    crate::trace::note(&format!("account {name} removed"));
                     format!("Account {name} removed.")
                 }
                 Err(e) => format!("Could not remove {name}: {e}"),

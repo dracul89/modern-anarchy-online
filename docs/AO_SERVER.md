@@ -140,3 +140,16 @@ Verified: the headless client's `action` run gets the whole entry over the compr
 original client then leaves "Welcome to Rubi-Ka". Its chat connection (after `0x43`) goes to the login listener, which does
 not answer chat packets yet; the trace shows what it asks.
 
+## Logs (send these when the client misbehaves)
+
+Run the server from the `modern-anarchy-online` folder. It writes:
+
+* `ao-server-trace.log`: one line per event, tagged with the connection (`c0003 game`). Each connection starts with `begin`,
+  lists every frame in and out with its name and body, and ends with `end after N s` and why (the client's end of stream, a
+  read or write error, or a frame that could not be decoded).
+* `ao-server-logs/`: for each connection, the raw bytes as they crossed the socket: `cNNNN-login-in.bin` and
+  `cNNNN-login-out.bin` (and the game equivalents). The game's `-out.bin` holds the control packet and the zlib stream exactly
+  as sent.
+
+Send the trace and the `ao-server-logs/` folder after a failed run.
+

@@ -90,7 +90,7 @@ pub fn is_enter(frame: &Frame) -> bool {
 
 /// Whether the game session acts on a frame of the client's (the trace marks the others as UNHANDLED).
 pub fn answers(frame: &Frame) -> bool {
-    if frame.kind == PING || frame.kind == TEXT {
+    if frame.kind == PING || frame.kind == TEXT || is_enter(frame) {
         return true;
     }
     if frame.kind != N3 {
@@ -101,6 +101,10 @@ pub fn answers(frame: &Frame) -> bool {
 
 /// A frame's kind and what it is called, for the trace.
 pub fn describe(frame: &Frame) -> String {
+    if frame.kind == SYSTEM {
+        let kind = frame.body.get(..4).map(|b| u32::from_be_bytes(b.try_into().unwrap())).unwrap_or(0);
+        return format!("system {kind:#x}");
+    }
     match n3::Message::parse(frame) {
         Some(m) => format!("n3 {:#010x} {}", m.kind, mao_net::schema::Schema::global().n3_name(m.kind).unwrap_or("?")),
         None => format!("frame kind {:#x}", frame.kind),
