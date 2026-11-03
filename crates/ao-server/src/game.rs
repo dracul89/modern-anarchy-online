@@ -130,6 +130,13 @@ fn health_damage(character: u32, target: (u32, u32), health: u32, damage: u32) -
     Some(to_client(character, m.kind, m.identity, m.data))
 }
 
+/// A frame as the server sends it: the zone is its source and the character its destination (the captures' direction).
+fn server_frame(character: u32, mut frame: Frame) -> Frame {
+    frame.source = SERVER;
+    frame.destination = character;
+    frame
+}
+
 /// The text a chat line carries (`ChatText`'s data): two zero bytes, the length, the text.
 fn chat_line(character: u32, text: &str) -> Frame {
     let text: Vec<u8> = text.bytes().take(255).collect();
@@ -196,8 +203,8 @@ impl GameSession {
     fn world_entry(&mut self, out: &mut Vec<Frame>) {
         self.monsters = monsters::spawns(self.playfield);
         self.fight = None;
-        out.push(crate::frames::game_time(self.character_id, 2, self.clock, 27, 0, 0));
-        out.push(crate::frames::position_update(self.character_id, 0, [0.0, 0.0, 0.0, 1.0], self.arrived, 0));
+        out.push(server_frame(self.character_id, crate::frames::game_time(SERVER, self.character_id, self.clock, 27, 0, 0)));
+        out.push(server_frame(self.character_id, crate::frames::position_update(self.character_id, 0, [0.0, 0.0, 0.0, 1.0], self.arrived, 0)));
         if let Ok(m) = progress::stat_message(self.character_id, &progress::stats(&self.hero)) {
             out.push(to_client(self.character_id, m.kind, m.identity, m.data));
         }
@@ -247,7 +254,7 @@ impl GameSession {
         if is_enter(frame) {
             // The original answers the entry with the chat server (the client opens its chat connection there) and the playfield.
             out.push(crate::frames::chat_server_info(SERVER, self.character_id, crate::login::CHAT_SERVER));
-            out.push(crate::frames::playfield(self.character_id, 2, self.playfield, self.arrived));
+            out.push(crate::frames::playfield(SERVER, self.character_id, self.playfield, self.arrived));
             return (self.ready_sent, out);
         }
         if frame.kind == N3 {
@@ -294,7 +301,7 @@ impl GameSession {
                             self.playfield = t.playfield.1;
                             self.hero.playfield = self.playfield;
                             self.ready_sent = true;
-                            out.push(crate::frames::playfield(self.character_id, 2, self.playfield, self.arrived));
+                            out.push(crate::frames::playfield(SERVER, self.character_id, self.playfield, self.arrived));
                             self.world_entry(&mut out);
                             self.save();
                         }

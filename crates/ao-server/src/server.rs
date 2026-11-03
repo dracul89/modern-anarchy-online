@@ -70,10 +70,14 @@ fn relay(listener: TcpListener, db: Arc<Db>, current: Arc<Mutex<u32>>, login: bo
 fn handle(stream: TcpStream, db: Arc<Db>, current: Arc<Mutex<u32>>, login: bool, game: ([u8; 4], u16)) -> std::io::Result<()> {
     // (the reads wait with a timeout, so the connection's clock runs: a stream must be non-blocking for that)
     mao_net::socket::prepare(&stream)?;
-    if login {
-        return handle_login(stream, db, current, game);
+    let name = if login { "login" } else { "game" };
+    let result = if login { handle_login(stream, db, current, game) } else { handle_game(stream, db, current) };
+    // (the trace says how each connection ended: a client that left, or a link that broke)
+    match &result {
+        Ok(()) => crate::trace::note(name, "connection closed by the client"),
+        Err(e) => crate::trace::note(name, &format!("connection ended with an error: {e}")),
     }
-    handle_game(stream, db, current)
+    result
 }
 
 fn handle_login(mut stream: TcpStream, db: Arc<Db>, current: Arc<Mutex<u32>>, game: ([u8; 4], u16)) -> std::io::Result<()> {
