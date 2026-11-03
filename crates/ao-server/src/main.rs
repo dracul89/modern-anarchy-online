@@ -10,7 +10,10 @@ fn main() -> std::io::Result<()> {
     let game_addr: SocketAddr = env_game_addr()?;
     let db_path = std::env::var("MAO_DB").unwrap_or_else(|_| "ao-server-data.db".to_string());
     let server = server::Server::new(login_addr, game_addr, &db_path);
+    ao_server::trace::open();
     server.spawn_listeners()?;
+    let admin_addr: SocketAddr = std::env::var("MAO_ADMIN_ADDR").unwrap_or_else(|_| "127.0.0.1:8080".to_string()).parse().map_err(|e| std::io::Error::other(e))?;
+    ao_server::admin::spawn(admin_addr, server.db())?;
     println!("ao-server: login on {login_addr}, game on {game_addr}, database {db_path}");
     loop {
         std::thread::sleep(Duration::from_secs(3600));

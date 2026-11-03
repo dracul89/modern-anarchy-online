@@ -75,6 +75,35 @@ impl Db {
         Db { conn: std::sync::Mutex::new(conn) }
     }
 
+    /// Whether an account exists.
+    pub fn account_exists(&self, name: &str) -> bool {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row("SELECT COUNT(*) FROM accounts WHERE name = ?1", [name], |r| r.get::<_, i64>(0)).map_or(false, |n| n > 0)
+    }
+
+    /// The accounts, each with how many characters it has, by name.
+    pub fn list_accounts(&self) -> Vec<(String, i64)> {
+        let conn = self.conn.lock().unwrap();
+        let Ok(mut stmt) = conn.prepare("SELECT a.name, (SELECT COUNT(*) FROM characters c WHERE c.account = a.name) FROM accounts a ORDER BY a.name") else { return Vec::new() };
+        let Ok(rows) = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))) else { return Vec::new() };
+        rows.flatten().collect()
+    }
+
+    /// The characters of an account by name, with their level (for the admin panel).
+    pub fn character_names(&self, account: &str) -> Vec<(u32, String, i32)> {
+        self.characters_of(account).into_iter().map(|c| (c.id, c.name, c.level)).collect()
+    }
+
+    /// Removes an account with its characters and what they carried.
+    pub fn delete_account(&self, name: &str) -> Result<(), rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM items WHERE character IN (SELECT id FROM characters WHERE account = ?1)", [name])?;
+        conn.execute("DELETE FROM missions WHERE character IN (SELECT id FROM characters WHERE account = ?1)", [name])?;
+        conn.execute("DELETE FROM characters WHERE account = ?1", [name])?;
+        conn.execute("DELETE FROM accounts WHERE name = ?1", [name])?;
+        Ok(())
+    }
+
     /// Make an account known (the one the server answers the logins of).
     pub fn save_account(&self, name: &str, password: &str) -> Result<(), rusqlite::Error> {
         self.conn.lock().unwrap().execute("INSERT INTO accounts (name, password) VALUES (?1, ?2) ON CONFLICT (name) DO UPDATE SET password = excluded.password", rusqlite::params![name, password])?;

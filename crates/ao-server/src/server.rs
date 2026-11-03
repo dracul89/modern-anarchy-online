@@ -17,12 +17,6 @@ use crate::progress::Hero;
 /// The most characters an account has.
 pub const MAX_CHARACTERS: usize = 6;
 
-/// The password the server takes for an account it has not seen (the login's answer is not checked: the server has no key the
-/// client's encrypted response could be opened with; see `docs/AO_SERVER.md`).
-fn default_password() -> String {
-    std::env::var("MAO_PASSWORD").unwrap_or_else(|_| "alpha123".to_string())
-}
-
 pub struct Server {
     pub login_addr: SocketAddr,
     pub game_addr: SocketAddr,
@@ -88,11 +82,17 @@ fn handle_login(mut stream: TcpStream, db: Arc<Db>, current: Arc<Mutex<u32>>, ga
     let mut sequence: u16 = 0;
     loop {
         let Some(frame) = read_frame(&mut stream, &mut reader)? else { return Ok(()) };
+        crate::trace::frame("in", "login", &frame, "");
         let chars = db.characters_of(&session.account);
-        let (_phase, replies) = session.handle(&frame, &chars);
+        let (_phase, mut replies) = session.handle(&frame, &chars);
         let kind = system_kind(&frame);
-        if kind == crate::login::INIT_AUTH && !session.account.is_empty() {
-            let _ = db.save_account(&session.account, &default_password());
+        // (accounts are made in the admin panel: a login for one that is not there is refused)
+        if kind == crate::login::AUTH_CLIENT && !db.account_exists(&session.account) {
+            crate::trace::note("login", &format!("account {:?} is not known: refused", session.account));
+            replies = vec![crate::frames::refused(1, session.character_id(), 1)];
+        }
+        if kind != 0 && replies.is_empty() {
+            crate::trace::note("login", &format!("UNANSWERED system kind {kind:#x}"));
         }
         if kind == crate::login::LOGIN_CHARACTER {
             let id = u32::from_be_bytes(frame.body.get(4..8).map(|b| b.try_into().unwrap()).unwrap_or([0u8; 4]));
@@ -113,6 +113,7 @@ fn handle_login(mut stream: TcpStream, db: Arc<Db>, current: Arc<Mutex<u32>>, ga
             }
         }
         for reply in replies {
+            crate::trace::frame("out", "login", &reply, "");
             sequence = sequence.wrapping_add(1);
             if sequence == 0xffff {
                 sequence = 0;
@@ -134,13 +135,20 @@ fn handle_game(mut stream: TcpStream, db: Arc<Db>, current: Arc<Mutex<u32>>) -> 
     let mut sequence: u16 = 0;
     loop {
         let mut replies = match read_frame_within(&mut stream, &mut reader, TICK) {
-            Ok(Some(frame)) => game.handle(&frame).1,
+            Ok(Some(frame)) => {
+                crate::trace::frame("in", "game", &frame, "");
+                if !crate::game::answers(&frame) {
+                    crate::trace::note("game", &format!("UNHANDLED: {}", crate::game::describe(&frame)));
+                }
+                game.handle(&frame).1
+            }
             Ok(None) => return Ok(()),
             Err(e) if e.kind() == std::io::ErrorKind::TimedOut => Vec::new(),
             Err(e) => return Err(e),
         };
         replies.extend(game.tick(std::time::Instant::now()));
         for reply in replies {
+            crate::trace::frame("out", "game", &reply, "");
             sequence = sequence.wrapping_add(1);
             if sequence == 0xffff {
                 sequence = 0;

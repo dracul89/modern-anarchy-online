@@ -48,6 +48,8 @@ fn a_character_is_made_entered_and_commanded_over_the_network() {
     let (login, game) = (free_address(), free_address());
     let server = ao_server::server::Server::new(login, game, ":memory:");
     server.spawn_listeners().expect("the listeners");
+    // (an account is made in the admin panel; the test makes it the same way)
+    server.db().save_account("testaccount", "not-checked").expect("the account");
 
     // The first login: an account with no characters.
     let mut connection = Connection::connect(login).expect("the login server");

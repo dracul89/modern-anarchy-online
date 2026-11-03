@@ -81,6 +81,25 @@ struct Fight {
     next: Instant,
 }
 
+/// Whether the game session acts on a frame of the client's (the trace marks the others as UNHANDLED).
+pub fn answers(frame: &Frame) -> bool {
+    if frame.kind == PING || frame.kind == TEXT {
+        return true;
+    }
+    if frame.kind != N3 {
+        return false;
+    }
+    n3::Message::parse(frame).is_some_and(|m| matches!(m.kind, READY | GAME_TIME | POSITION_UPDATE | ACTION | N3_TELEPORT | ATTACK | STOP_FIGHT | GENERIC_CMD | TRADE | QUEST_ALTERNATIVE | CREATE_QUEST))
+}
+
+/// A frame's kind and what it is called, for the trace.
+pub fn describe(frame: &Frame) -> String {
+    match n3::Message::parse(frame) {
+        Some(m) => format!("n3 {:#010x} {}", m.kind, mao_net::schema::Schema::global().n3_name(m.kind).unwrap_or("?")),
+        None => format!("frame kind {:#x}", frame.kind),
+    }
+}
+
 /// A server message to the character: the zone is the source, the character the destination.
 fn to_client(character: u32, kind: u32, identity: (u32, u32), data: Vec<u8>) -> Frame {
     let mut frame = n3::Message { kind, identity, data }.frame(SERVER);

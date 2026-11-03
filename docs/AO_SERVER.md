@@ -90,3 +90,22 @@ MAO_SERVER=127.0.0.1:7105 mao-client net <game folder> action <name> 0 8
 ```
 
 The server's database is `ao-server-data.db` in the working folder, or `MAO_DB`.
+
+## Testing with the original client
+
+1. Start the server with an admin password (the panel does not start without one):
+
+   ```bash
+   MAO_ADMIN_PASSWORD=choose-a-password cargo run -p ao-server
+   ```
+
+2. Open <http://127.0.0.1:8080>, sign in, and make an account (name and password). The login accepts only accounts made here.
+3. Start the original client as you did: `AnarchyOnline.exe IA16777343 IP7105 DU127.0.0.1:7500`, log in with that account, and
+   try to create a character.
+4. Everything the server sends and receives is written to `ao-server-trace.log` in the folder the server runs from (set
+   `MAO_TRACE` to choose another file). Lines marked `UNANSWERED` or `UNHANDLED` are messages the server did not act on. The
+   panel also shows the end of the trace, and <http://127.0.0.1:8080/trace> gives the whole file.
+
+The passwords are stored as typed and are not checked yet (the login's encrypted answer needs the server's private key, which
+is not known). The admin panel listens on this machine only.
+
