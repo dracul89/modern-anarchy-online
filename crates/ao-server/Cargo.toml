@@ -9,6 +9,7 @@ publish.workspace = true
 [dependencies]
 mao-net.workspace = true
 rusqlite = { version = "0.41.1", features = ["bundled"] }
+flate2 = "1.1.10"
 
 [lints]
 workspace = true

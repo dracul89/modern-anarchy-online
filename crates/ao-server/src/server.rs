@@ -137,19 +137,47 @@ fn handle_login(mut stream: TcpStream, db: Arc<Db>, current: Arc<Mutex<u32>>, ga
 /// How often the game connection wakes without a frame, to let the world move on (a fight's swings).
 const TICK: Duration = Duration::from_millis(250);
 
+/// The control packet the game server sends when it starts compressing: the captures' sixteen bytes (sequence 0xdfdf, kind 0x7f00,
+/// one, size 16, the source 0x01000000 and destination 0). From then on the server's frames are one zlib stream, the frames inside it.
+const COMPRESS_ON: [u8; 16] = [0xdf, 0xdf, 0x7f, 0x00, 0x00, 0x01, 0x00, 0x10, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+
+/// The game connection's compression: each frame is written into one zlib stream, flushed after every frame so the client reads
+/// it as it comes.
+struct Compressed(flate2::write::ZlibEncoder<Vec<u8>>);
+
+impl Compressed {
+    fn new() -> Self {
+        Compressed(flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::fast()))
+    }
+
+    /// The bytes of a frame as they go out: the part of the zlib stream this frame makes. Inside a compressed stream a frame is not
+    /// padded to four bytes (the captures' frames follow each other exactly), so the padding is cut here.
+    fn pack(&mut self, bytes: &[u8]) -> std::io::Result<Vec<u8>> {
+        use std::io::Write;
+        let size = u16::from_be_bytes([bytes[6], bytes[7]]) as usize;
+        self.0.write_all(&bytes[..size.min(bytes.len())])?;
+        self.0.flush()?;
+        Ok(std::mem::take(self.0.get_mut()))
+    }
+}
+
 fn handle_game(mut stream: TcpStream, db: Arc<Db>, current: Arc<Mutex<u32>>) -> std::io::Result<()> {
     let id = *current.lock().unwrap();
     let hero = db.load_hero(id).unwrap_or_else(|| Hero::new(id));
     let mut game = GameSession::new(id, hero, Some(db));
     let mut reader = Reader::default();
     let mut sequence: u16 = 0;
+    let mut zip: Option<Compressed> = None;
     loop {
+        // (the entry into the world turns the compression on: the control packet goes out before the frames of the answer)
+        let mut entering = false;
         let mut replies = match read_frame_within(&mut stream, &mut reader, TICK) {
             Ok(Some(frame)) => {
                 crate::trace::frame("in", "game", &frame, "");
                 if !crate::game::answers(&frame) {
                     crate::trace::note("game", &format!("UNHANDLED: {}", crate::game::describe(&frame)));
                 }
+                entering = crate::game::is_enter(&frame);
                 game.handle(&frame).1
             }
             Ok(None) => return Ok(()),
@@ -157,6 +185,10 @@ fn handle_game(mut stream: TcpStream, db: Arc<Db>, current: Arc<Mutex<u32>>) -> 
             Err(e) => return Err(e),
         };
         replies.extend(game.tick(std::time::Instant::now()));
+        if entering && zip.is_none() {
+            socket::write_all(&mut stream, &COMPRESS_ON)?;
+            zip = Some(Compressed::new());
+        }
         for reply in replies {
             crate::trace::frame("out", "game", &reply, "");
             sequence = sequence.wrapping_add(1);
@@ -164,6 +196,10 @@ fn handle_game(mut stream: TcpStream, db: Arc<Db>, current: Arc<Mutex<u32>>) -> 
                 sequence = 0;
             }
             let bytes = reply.encode(sequence);
+            let bytes = match zip.as_mut() {
+                Some(z) => z.pack(&bytes)?,
+                None => bytes,
+            };
             socket::write_all(&mut stream, &bytes)?;
         }
     }
@@ -205,5 +241,31 @@ fn read_frame_within(stream: &mut TcpStream, reader: &mut Reader, within: Durati
             return Ok(None);
         }
         reader.push(&buffer[..n]).map_err(|e| std::io::Error::other(e.to_string()))?;
+    }
+}
+
+#[cfg(test)]
+mod compression_tests {
+    use super::*;
+
+    #[test]
+    fn compressed_frames_read_back_after_the_control_packet() {
+        let mut stream: Vec<u8> = COMPRESS_ON.to_vec();
+        let mut zip = Compressed::new();
+        let mut seq = 1u16;
+        for body in [vec![1u8, 2, 3, 4, 5, 6, 7, 8], vec![9u8; 40]] {
+            let f = Frame { kind: SYSTEM, source: 1, destination: 2, body };
+            stream.extend(zip.pack(&f.encode(seq)).unwrap());
+            seq += 1;
+        }
+        // (fed in pieces, as the socket delivers them)
+        let mut reader = Reader::default();
+        for piece in stream.chunks(7) {
+            reader.push(piece).unwrap();
+        }
+        let a = reader.next().unwrap().expect("the first frame");
+        assert_eq!(a.body, vec![1u8, 2, 3, 4, 5, 6, 7, 8]);
+        let b = reader.next().unwrap().expect("the second frame");
+        assert_eq!(b.body.len(), 40);
     }
 }

@@ -34,10 +34,14 @@ fn collect(world: &mut Connection, wanted: &[u32], within: Duration) -> Vec<(u32
     let until = Instant::now() + within;
     let mut seen = Vec::new();
     while Instant::now() < until && !wanted.iter().all(|k| seen.iter().any(|(s, _): &(u32, Vec<u8>)| s == k)) {
-        if let Ok(frame) = world.receive() {
-            if let Some(m) = n3::Message::parse(&frame) {
-                seen.push((m.kind, m.data));
+        match world.receive() {
+            Ok(frame) => {
+                if let Some(m) = n3::Message::parse(&frame) {
+                    seen.push((m.kind, m.data));
+                }
             }
+            Err(e) if matches!(&e, mao_net::session::Error::Io(io) if io.kind() == std::io::ErrorKind::TimedOut || io.kind() == std::io::ErrorKind::WouldBlock) => {}
+            Err(e) => panic!("the game connection: {e}"),
         }
     }
     seen

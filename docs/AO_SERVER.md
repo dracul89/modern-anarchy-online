@@ -122,3 +122,21 @@ is not known). The admin panel listens on this machine only.
 * **Unverified:** the meaning of the trailer's first number (the slots are assumed; the captured lists show 8, 10, 11 and 18
   with different accounts) and the expansion flags' values (the captures show 1 and 171).
 
+## Entering the world (the "Welcome to Rubi-Ka" screen)
+
+The original client stopped on its loading screen because the game server sent nothing after `EnterGameServer` (system `0x1b`).
+The captures show what the original sends then:
+
+* a **control packet** (sequence `0xdfdf`, kind `0x7f00`, one, size 16, source `0x01000000`): from here on the server's frames
+  are one zlib stream. Inside the stream each frame is **not** padded to four bytes. The client's reader already reads this
+  (`mao-net`'s `Reader`); the server now writes it (`server::Compressed`), and the test that reads it back passes.
+* the **chat server** (system `0x43`), so the client can open its chat connection, then the **playfield** (`0x5f4b1a39`), as
+  the first two messages of the stream. The world entry proper (time, position, stats, items, monsters) follows the client's
+  `READY`, as before.
+* The **ticket** now ends with the event server type (0) and the player id, the last eight bytes of the captured ticket. The
+  ticket was 22 bytes; the captured one is 30.
+
+Verified: the headless client's `action` run gets the whole entry over the compressed stream. **Not verified:** whether the
+original client then leaves "Welcome to Rubi-Ka". Its chat connection (after `0x43`) goes to the login listener, which does
+not answer chat packets yet; the trace shows what it asks.
+

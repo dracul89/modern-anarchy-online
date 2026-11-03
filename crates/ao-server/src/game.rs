@@ -5,7 +5,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use mao_net::frame::{Frame, N3, PING, TEXT};
+use mao_net::frame::{Frame, N3, PING, SYSTEM, TEXT};
 use mao_net::n3;
 use mao_net::schema::{Schema, Value};
 
@@ -40,6 +40,8 @@ pub const LOGOUT: u8 = 0x78;
 pub const STOP_LOGOUT: u8 = 0x7a;
 /// The source the server's frames carry (the zone's object the captures show).
 pub const SERVER: u32 = 0xdbc;
+/// The system message the client sends first on the game connection: it enters the world (`EnterGameServer`).
+pub const ENTER_GAME_SERVER: u32 = 0x1b;
 /// `Attack` (`28494070`): the character attacks the target it names.
 pub const ATTACK: u32 = 0x28494070;
 /// `StopFight` (`4a41203e`): the character stops fighting.
@@ -79,6 +81,11 @@ pub struct GameSession {
 struct Fight {
     target: u32,
     next: Instant,
+}
+
+/// Whether a frame of the client's is the entry into the world (`EnterGameServer`), which turns the compression on.
+pub fn is_enter(frame: &Frame) -> bool {
+    frame.kind == SYSTEM && frame.body.get(..4) == Some(&ENTER_GAME_SERVER.to_be_bytes()[..])
 }
 
 /// Whether the game session acts on a frame of the client's (the trace marks the others as UNHANDLED).
@@ -189,7 +196,6 @@ impl GameSession {
     fn world_entry(&mut self, out: &mut Vec<Frame>) {
         self.monsters = monsters::spawns(self.playfield);
         self.fight = None;
-        out.push(crate::frames::playfield(self.character_id, 2, self.playfield, self.arrived));
         out.push(crate::frames::game_time(self.character_id, 2, self.clock, 27, 0, 0));
         out.push(crate::frames::position_update(self.character_id, 0, [0.0, 0.0, 0.0, 1.0], self.arrived, 0));
         if let Ok(m) = progress::stat_message(self.character_id, &progress::stats(&self.hero)) {
@@ -238,6 +244,12 @@ impl GameSession {
             }
             return (self.ready_sent, out);
         }
+        if is_enter(frame) {
+            // The original answers the entry with the chat server (the client opens its chat connection there) and the playfield.
+            out.push(crate::frames::chat_server_info(SERVER, self.character_id, crate::login::CHAT_SERVER));
+            out.push(crate::frames::playfield(self.character_id, 2, self.playfield, self.arrived));
+            return (self.ready_sent, out);
+        }
         if frame.kind == N3 {
             let Some(m) = n3::Message::parse(frame) else { return (self.ready_sent, out) };
             match m.kind {
@@ -282,6 +294,7 @@ impl GameSession {
                             self.playfield = t.playfield.1;
                             self.hero.playfield = self.playfield;
                             self.ready_sent = true;
+                            out.push(crate::frames::playfield(self.character_id, 2, self.playfield, self.arrived));
                             self.world_entry(&mut out);
                             self.save();
                         }
@@ -629,7 +642,9 @@ mod tests {
         let mut s = session();
         let (_, out) = s.handle(&ready());
         assert_eq!(s.playfield, monsters::OLD_ATHENS);
-        let first = n3::Message::parse(&out[0]).unwrap();
+        let enter = Frame { kind: SYSTEM, source: 1, destination: 2, body: vec![0, 0, 0, 0x1b, 0, 0, 0, 1, 1, 2, 3, 4, 5, 6, 7, 8] };
+        let (_, entered) = s.handle(&enter);
+        let first = n3::Message::parse(&entered[1]).unwrap();
         let (playfield, at) = first.arrival().unwrap();
         assert_eq!(playfield, monsters::OLD_ATHENS);
         assert_eq!(at, monsters::SPAWN);
