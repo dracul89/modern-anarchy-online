@@ -25,8 +25,9 @@ pub const CHARACTER_DELETED: u32 = 0x15;
 pub const SUGGEST_NAME: u32 = 0x55;
 pub const SUGGESTED_NAME: u32 = 0x56;
 
-/// The chat server of the test server: the login / chat manager listens here.
-pub const CHAT_SERVER: &str = "127.0.0.1:7105";
+/// The chat server of the test server: the client is told to connect here, and the chat listener accepts there.
+pub const CHAT_HOST: &str = "127.0.0.1";
+pub const CHAT_PORT: u16 = 7106;
 
 /// The slots of an account: the ones the original's character creation refuses over.
 pub const MAX_CHARACTERS: usize = 6;
@@ -125,7 +126,7 @@ impl LoginSession {
                 out.push(crate::frames::redirect(1, self.character_id, self.game.0, self.game.1));
             }
             CHAT_SERVER_INFO => {
-                out.push(crate::frames::chat_server_info(1, self.character_id, CHAT_SERVER));
+                out.push(crate::frames::chat_server_info(1, self.character_id, CHAT_HOST, CHAT_PORT));
             }
             CREATE_CHARACTER => {
                 self.phase = Phase::CharacterSelected;

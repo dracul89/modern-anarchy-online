@@ -259,7 +259,7 @@ impl GameSession {
             // The original answers the entry with the chat server (the client opens its chat connection there) and the playfield.
             // (the original sends its first burst here, before the client's ready: the chat server, the playfield, the time, the
             // position, the stats, the items and the monsters; the ready that follows is the client's own)
-            out.push(crate::frames::chat_server_info(SERVER, self.character_id, crate::login::CHAT_SERVER));
+            out.push(crate::frames::chat_server_info(SERVER, self.character_id, crate::login::CHAT_HOST, crate::login::CHAT_PORT));
             out.push(crate::frames::playfield(SERVER, self.character_id, self.playfield, self.arrived));
             self.world_entry(&mut out);
             return (self.ready_sent, out);

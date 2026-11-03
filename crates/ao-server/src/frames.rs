@@ -108,11 +108,14 @@ pub fn redirect(source: u32, destination: u32, address: [u8; 4], port: u16) -> F
 }
 
 /// system 0x43: the chat server info (the address as text, a length and the bytes).
-pub fn chat_server_info(source: u32, destination: u32, text: &str) -> Frame {
+pub fn chat_server_info(source: u32, destination: u32, host: &str, port: u16) -> Frame {
+    // (the captured layout: a one, the host's length and the host, the port as a u32, then a zero)
     let mut payload = Vec::new();
-    let b = text.as_bytes();
-    payload.extend_from_slice(&(b.len() as u32).to_be_bytes());
-    payload.extend_from_slice(b);
+    payload.extend_from_slice(&1u32.to_be_bytes());
+    payload.extend_from_slice(&(host.len() as u32).to_be_bytes());
+    payload.extend_from_slice(host.as_bytes());
+    payload.extend_from_slice(&u32::from(port).to_be_bytes());
+    payload.extend_from_slice(&0u32.to_be_bytes());
     system(source, destination, 0x43, &payload)
 }
 
@@ -174,4 +177,18 @@ pub fn info_request(character: u32, target: u32) -> Frame {
 /// The character's position update: the movement type, the rotation, the position, and the elapsed ms.
 pub fn position_update(character: u32, movement: u8, rotation: [f32; 4], position: [f32; 3], elapsed_ms: u32) -> Frame {
     mao_net::n3::position_update_pitched(character, movement, rotation[1], rotation[2], position, elapsed_ms)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_chat_server_info_has_the_captured_layout() {
+        // (the captured frame's body: the kind, a one, the host's length, the host, the port, a zero)
+        let frame = chat_server_info(1, 2, "37.18.192.41", 7105);
+        let captured = "00000043000000010000000c33372e31382e3139322e343100001bc100000000";
+        let hex: String = frame.body.iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(hex, captured);
+    }
 }

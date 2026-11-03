@@ -52,8 +52,46 @@ impl Server {
         std::thread::spawn(move || {
             let _ = relay(game_listener, db, current, false, game);
         });
+        let chat_listener = TcpListener::bind((crate::login::CHAT_HOST, crate::login::CHAT_PORT))?;
+        std::thread::spawn(move || {
+            let _ = chat_relay(chat_listener);
+        });
         Ok(())
     }
+}
+
+/// The chat listener: each connection is traced, frame by frame, and nothing is answered yet (the trace shows what the client sends).
+fn chat_relay(listener: TcpListener) -> std::io::Result<()> {
+    for stream in listener.incoming() {
+        let Ok(stream) = stream else { continue };
+        std::thread::spawn(move || {
+            let _ = handle_chat(stream);
+        });
+    }
+    Ok(())
+}
+
+fn handle_chat(mut stream: TcpStream) -> std::io::Result<()> {
+    let peer = stream.peer_addr().map(|a| a.to_string()).unwrap_or_else(|_| "unknown".to_string());
+    crate::trace::begin("chat", &peer);
+    if let Err(e) = socket::prepare(&stream) {
+        crate::trace::end(&format!("could not be prepared: {e}"));
+        return Err(e);
+    }
+    let mut reader = Reader::default();
+    let result = loop {
+        match read_frame_within(&mut stream, &mut reader, TICK) {
+            Ok(Some(frame)) => crate::trace::frame("in", &frame, "UNANSWERED: the chat server does not answer yet"),
+            Ok(None) => break Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::TimedOut => continue,
+            Err(e) => break Err(e),
+        }
+    };
+    match &result {
+        Ok(()) => crate::trace::end("the client closed the connection"),
+        Err(e) => crate::trace::end(&format!("error: {e} ({:?})", e.kind())),
+    }
+    result
 }
 
 fn relay(listener: TcpListener, db: Arc<Db>, current: Arc<Mutex<u32>>, login: bool, game: ([u8; 4], u16)) -> std::io::Result<()> {
