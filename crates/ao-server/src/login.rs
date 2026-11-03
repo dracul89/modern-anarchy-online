@@ -115,7 +115,9 @@ impl LoginSession {
                 // (the rest: the event server type, 0, and the player id, the captured ticket's last eight bytes)
                 let mut rest = 0u32.to_be_bytes().to_vec();
                 rest.extend_from_slice(&self.character_id.to_be_bytes());
-                self.ticket = mao_net::system::Ticket { id: 1, address: self.game.0, port: self.game.1, key: [1, 2, 3, 4, 5, 6, 7, 8], rest };
+                // (the ticket's id is the character's: the client sends its entry with that id as the source, and the game server
+                // matches the client's frames by it)
+                self.ticket = mao_net::system::Ticket { id: self.character_id, address: self.game.0, port: self.game.1, key: [1, 2, 3, 4, 5, 6, 7, 8], rest };
                 out.push(crate::frames::ticket(1, self.character_id, &self.ticket));
             }
             REDIRECT => {
