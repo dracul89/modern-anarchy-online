@@ -2086,7 +2086,17 @@ impl World {
             self.door_ids.insert(m.identity.1);
             let word = |at: usize| m.data.get(at..at + 4).map(|b| u32::from_be_bytes(b.try_into().unwrap()));
             let count = word(55).and_then(|n| usize::try_from(n / 0x3f1).ok()?.checked_sub(1)).unwrap_or(0).min(64);
-            let template = (0..count).map(|i| 59 + 8 * i).find(|&p| word(p) == Some(23)).and_then(|p| word(p + 4)).filter(|&t| t > 0);
+            let stat = |key: u32| (0..count).map(|i| 59 + 8 * i).find(|&p| word(p) == Some(key)).and_then(|p| word(p + 4));
+            // The door takes a number like the table's doors (its place in the run of ids), so the server's status messages, a
+            // use of our own and the swing animation find it; the door flags (stat 259) bit 0x80 is "open" (`DoorFullUpdateIIR_t`'s
+            // apply FUN_1009fff9 opens or closes the new door by it).
+            if let Some(n) = self.door_number(m.identity.1) {
+                self.door_slots.insert(n, (m.identity.1, at));
+                if stat(259).is_some_and(|flags| flags & 0x80 != 0) {
+                    self.doors_open.insert(n, Instant::now() + SERVER_OPEN);
+                }
+            }
+            let template = stat(23).filter(|&t| t > 0);
             if let Some(template) = template {
                 self.door_templates.insert(m.identity.1, template);
                 if let Some(mesh) = template_stat(template, 12).filter(|&mesh| mesh > 0) {
@@ -8225,6 +8235,9 @@ mod door_tests {
         assert!(!w.programs_changed);
     }
 
+    /// The Arete Landing capture's second ship door, as announced (`DoorFullUpdate`, identity `0x10c32dc2`).
+    const DOOR_BYTES: &str = "000000000b000000000000000041f0020d41ab31c4434d0000000000003f3504f1000000003f3504f50020da1b000f424f00000001006f00002f4c00000000c0081403000000170003de4d000002bd00000000000002be00000000000002bf000000000000019c00000001000000fc00000000000000c000000000000000c100000000000000c3000000000000010300000000000000000000000200000032000003f10000000200010000";
+
     /// The Arete Landing capture's generated ship (playfield 0x20da1b): its second door's `DoorFullUpdate` puts a usable door at
     /// (30, 21.4, 205), where the test `the_ship_rooms_meet_at_the_servers_doors` has it.
     #[test]
@@ -8236,7 +8249,7 @@ mod door_tests {
         }
         let mut w = World { own: 0x7b1a0021, ..World::default() };
         let door = 0x10c32dc2;
-        w.add(&Message { kind: DOOR_FULL_UPDATE, identity: (DOOR_TYPE, door), data: hex("000000000b000000000000000041f0020d41ab31c4434d0000000000003f3504f1000000003f3504f50020da1b000f424f00000001006f00002f4c00000000c0081403000000170003de4d000002bd00000000000002be00000000000002bf000000000000019c00000001000000fc00000000000000c000000000000000c100000000000000c3000000000000010300000000000000000000000200000032000003f10000000200010000") }.frame(1));
+        w.add(&Message { kind: DOOR_FULL_UPDATE, identity: (DOOR_TYPE, door), data: hex(DOOR_BYTES) }.frame(1));
         let at = w.objects.get(&door).copied().expect("the door is a usable object");
         assert!((at[0] - 30.0).abs() < 0.01 && (at[1] - 21.4).abs() < 0.01 && (at[2] - 205.0).abs() < 0.01, "{at:?}");
         assert_eq!(w.names.get(&door).map(|n| n.0.as_str()), Some("Door"));
@@ -8250,6 +8263,18 @@ mod door_tests {
         } else if std::env::var_os("MAO_GAME").is_some() {
             panic!("the door's template has no Mesh stat");
         }
+        // (the door is numbered and placed like the table's doors; its flags, stat 259, say it is shut: 0)
+        let n = w.door_number(door).expect("a number");
+        assert_eq!(w.door_slots.get(&n), Some(&(door, at)));
+        assert!(!w.doors_open.contains_key(&n));
+        // (the next door of the run announced open: flags 0x80)
+        let open_door = door + 1;
+        let open_bytes = DOOR_BYTES.replace("0000010300000000", "0000010300000080");
+        assert_ne!(open_bytes, DOOR_BYTES);
+        w.add(&Message { kind: DOOR_FULL_UPDATE, identity: (DOOR_TYPE, open_door), data: hex(&open_bytes) }.frame(1));
+        let n_open = w.door_number(open_door).expect("a number");
+        assert_ne!(n_open, n);
+        assert!(w.doors_open.get(&n_open).is_some_and(|until| *until > Instant::now()));
     }
 
     /// The 16:55 capture's Malfunctioning Cleaning Robot: its two `SpellList`s make their effects on it; Cedric Harding's
