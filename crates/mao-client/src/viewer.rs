@@ -505,7 +505,7 @@ pub fn headless_on(model: &Model, textures: &Textures, out: &str, ui: Option<(&H
         let (mut meshes, mut sheets, mut named) = Default::default();
         let mut caches = SkyCaches { meshes: &mut meshes, mesh_sheets: &mut sheets, named: &mut named };
         let (backdrops, others) = sky_draws(&frame, [e.x, e.z, e.y], [forward.x, forward.z, forward.y], 1000.0, textures, &mut renderer, &gpu, &mut caches);
-        eprintln!("sky: {} draws, {} backdrops, {} others; lights {:?}", frame.draws.len(), backdrops.len(), others.len(), frame.lights.ground);
+        eprintln!("sky: {} draws, {} backdrops, {} others; lights {:?}, fog {:?}", frame.draws.len(), backdrops.len(), others.len(), frame.lights, frame.fog);
         scene.backdrops = backdrops;
         scene.shells.extend(others);
         scene.sun = frame.lights.ground.map(|l| mao_render::glam::Vec3::new(-l.direction[0], -l.direction[2], -l.direction[1]));

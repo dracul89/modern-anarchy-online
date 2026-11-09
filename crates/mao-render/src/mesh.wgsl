@@ -157,7 +157,9 @@ fn shade(in: VertexOut) -> vec4<f32> {
     // Lit from both sides: the winding of the original's meshes isn't
     // relied on. Sky light from above, a warmer bounce from below, and a sun.
     let sun = normalize(globals.light.xyz);
-    let diffuse = abs(dot(n, sun)) * shadow_at(in.world, n);
+    // (under the scripts' light, one-sided as Direct3D's: their night light shines up from under the horizon and lights nothing)
+    let facing = select(abs(dot(n, sun)), max(dot(n, sun), 0.0), scripted());
+    let diffuse = facing * shadow_at(in.world, n);
     let d = day();
     // The area's ambient light is added as the original's `AddAmbientLight` adds it: each channel at its maximum.
     var ambient = max(mix(vec3<f32>(0.34, 0.32, 0.30), vec3<f32>(0.60, 0.66, 0.76), n.z * 0.5 + 0.5) * d, globals.ambient.rgb);

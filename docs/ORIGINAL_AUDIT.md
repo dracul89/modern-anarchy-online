@@ -95,8 +95,9 @@ eighteen names, not seventeen: `AOU_mod` was missed in the first count.
      (`Tweak_Playfield_<n>.txt`, the outdoor and indoor defaults, `Tweak_GAME.txt`, `Tweak_Rubi-Ka_*.txt`), and the engine
      now runs them (`fxs/`, see the effect scripts row) and draws the outdoor sky they make (the star dome, moons, atmosphere,
      battle stations, the two suns, the clouds and the horizon) and takes their ground light as the scene's sun direction.
-     The world's lighting itself (colours, ambient) is still the client's own, scaled by the day's intensity
-     (`Scene::daylight`).
+     The world's lighting is theirs too: the ambient and the ground light's colour and direction, lit one-sided as
+     Direct3D's (so the night light under the horizon leaves the world to the ambient); the client's own light, scaled
+     by the day's intensity, stands in only without them (CLIENT_UI "The scripts' light and the client's own").
    - **Weather** is a deterministic schedule per area and day: FUN_100b1821 builds it from three seeds (FUN_100bce27: the
      sum of the environment bytes plus `GameTime_t`+0x4c the day count, plus 1/0/−1), a period of 19440 s, states of 120–1200
      s, 16 entries; FUN_100bd555 steps it, FUN_100bcec6 rolls a state: the weather bytes 0–7 (each ×2+100 when above 1)

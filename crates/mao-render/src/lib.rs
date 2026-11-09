@@ -1745,13 +1745,13 @@ impl Renderer {
         // The sun's box: around the player (or the whole scene with none),
         // its edges snapped to texels so the shadows don't shimmer as it moves.
         // (the scripts' sun when it is given, held a little over the horizon so the shadow map stays above the ground)
-        let sun = match scene.sun {
-            Some(s) if s.length_squared() > 0.0 => {
-                let s = s.normalize();
-                Vec3::new(s.x, s.y, s.z.max(0.15)).normalize()
-            }
+        // (`lit_sun` is the light the shaders light by: the scripts' as it is, under the horizon at night, so a one-sided
+        // light leaves the ground to the ambient then)
+        let lit_sun = match scene.sun {
+            Some(s) if s.length_squared() > 0.0 => s.normalize(),
             _ => Vec3::new(0.4, -0.5, 0.8).normalize(),
         };
+        let sun = Vec3::new(lit_sun.x, lit_sun.y, lit_sun.z.max(0.15)).normalize();
         let (focus, extent) = match scene.player {
             Some(p) => (p, 70.0f32.min(scene.radius.max(1.0))),
             None => (scene.center, scene.radius.max(1.0)),
@@ -1835,7 +1835,7 @@ impl Renderer {
             light_vp: light_vp.to_cols_array(),
             params: [self.shadows as u32 as f32, texel, water.map_or(0.0, |w| w.level), water.is_some() as u32 as f32],
             rect: water.map_or([0.0; 4], |w| [w.min[0], w.min[1], w.max[0], w.max[1]]),
-            light: [sun.x, sun.y, sun.z, 0.0],
+            light: [lit_sun.x, lit_sun.y, lit_sun.z, 0.0],
             player: player_now,
             eye: [eye.x, eye.y, eye.z, fog_start],
             horizon: [scene.sky.0[0], scene.sky.0[1], scene.sky.0[2], fog_end],
