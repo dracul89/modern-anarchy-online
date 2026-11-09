@@ -23,6 +23,7 @@ macro_rules! profile {
 }
 
 mod actions;
+mod interior;
 mod perf;
 mod crash;
 mod factions;
@@ -397,7 +398,10 @@ pub(crate) fn generated_rooms(db: &ResourceDatabase, playfield: u32) -> Option<(
     let object = db.get(Id { kind: 0xf4249, instance: template.tilemap }).ok().flatten()?;
     let grid = mao_formats::rooms::Grid::new(&mao_formats::tilemap::parse_new(&object).ok()?)?;
     let records: Vec<mao_formats::rooms::BuildingRoom> = building.rooms.iter().map(|r| mao_formats::rooms::BuildingRoom { room: r.room, floor: r.floor, x: r.x, y: r.y, turn: r.turn }).collect();
-    mao_formats::rooms::generate(&template, grid.scale, building.height as u32 * 10, building.floor_step as f32, &records)
+    let (mut rooms, sources) = mao_formats::rooms::generate(&template, grid.scale, building.height as u32 * 10, building.floor_step as f32, &records)?;
+    // (the copies' doors are linked by where they stand, as the generator's FUN_100c92b3 does)
+    rooms.connect_doors(&grid);
+    Some((rooms, sources))
 }
 
 /// The doors, terminals and other machines a playfield has built in (its dynel table), with the mesh of each one's item template:
@@ -557,6 +561,11 @@ pub(crate) fn room_floors(db: &ResourceDatabase, playfield: u32) -> Option<(Vec<
 
 /// The shell of an interior: its rooms' floors and walls as a model (Z-up), when the playfield is made of rooms.
 pub(crate) fn load_room_shell(db: &ResourceDatabase, playfield: u32) -> Option<Model> {
+    load_room_shell_parts(db, playfield).map(|(model, _)| model)
+}
+
+/// [`load_room_shell`] with the rooms behind it: the playfield's rooms, their grid and each room's range of the model's parts.
+pub(crate) fn load_room_shell_parts(db: &ResourceDatabase, playfield: u32) -> Option<(Model, interior::Interior)> {
     let rooms = load_rooms(db, playfield)?;
     let object = db.get(Id { kind: 0xf4249, instance: rooms.tilemap }).ok().flatten()?;
     let map = mao_formats::tilemap::parse_new(&object).ok()?;
@@ -576,7 +585,7 @@ pub(crate) fn load_room_shell(db: &ResourceDatabase, playfield: u32) -> Option<M
             None => eprintln!("room piece {id} could not be read"),
         }
     }
-    let mut model = mao_formats::rooms::model(&grid, &rooms, &material, &pieces);
+    let (mut model, ranges) = mao_formats::rooms::model_by_room(&grid, &rooms, &material, &pieces);
     // The rooms' own water surfaces.
     let triangles: Vec<([[f32; 3]; 3], u32)> = rooms.rooms.iter().flat_map(mao_formats::rooms::water).collect();
     if !triangles.is_empty() {
@@ -584,7 +593,7 @@ pub(crate) fn load_room_shell(db: &ResourceDatabase, playfield: u32) -> Option<M
         eprintln!("water: {} triangles from the rooms (highest {level:.1})", triangles.len());
         model.water = Some(mao_formats::model::Water { level, min: [0.0; 2], max: [0.0; 2], triangles });
     }
-    (!model.parts.is_empty()).then_some(model)
+    (!model.parts.is_empty()).then_some((model, interior::Interior { rooms, grid, parts: ranges }))
 }
 
 /// The playfield's static objects (its `.pf` statel file), as parts placed on
@@ -1446,8 +1455,9 @@ fn run(args: &[String]) -> Result<(), String> {
                 }
                 add_static_props(&db, number, &mut model);
             }
-            // An interior or dungeon: the shell of its rooms.
+            // An interior or dungeon: the shell of its rooms, seen against the dark as the live view shows it.
             if let Some(shell) = load_room_shell(&db, number) {
+                viewer::PREVIEW_INTERIOR.store(true, std::sync::atomic::Ordering::Relaxed);
                 if model.instances.is_empty() {
                     let ground = model.parts.len();
                     model.instances.extend((0..ground).map(|i| (i, model::IDENTITY)));
@@ -2090,6 +2100,27 @@ mod generated_tests {
             });
             assert!(on_edge, "door at {d:?} is on no room's edge");
         }
+        // The copies' doors are linked afresh by where they stand (FUN_100c92b3): every door into another room meets one back,
+        // and the interior ties the server's doors to those doorways.
+        let (mut linked, mut back) = (0, 0);
+        for (i, r) in rooms.rooms.iter().enumerate() {
+            for door in r.doors() {
+                let Some(other) = door.room else { continue };
+                linked += 1;
+                let (at, facing) = r.door_place(&grid, door);
+                if rooms.rooms[other as usize].doors().any(|d| d.room == Some(i as u16) && {
+                    let (bt, bf) = rooms.rooms[other as usize].door_place(&grid, d);
+                    (bt[0] - at[0]).abs() < 1.2 && (bt[2] - at[2]).abs() < 1.2 && bf == (facing + 2) & 3
+                }) {
+                    back += 1;
+                }
+            }
+        }
+        assert!(linked >= 6 && back == linked, "{back} of {linked} linked doors meet one back");
+        let interior = crate::interior::Interior { rooms, grid, parts: Vec::new() };
+        let doorways: Vec<Option<(usize, usize)>> = doors.iter().map(|d| interior.doorway_at([d[0], 0.0, d[1]])).collect();
+        eprintln!("the server's doors stand in doorways {doorways:?}");
+        assert!(doorways.iter().filter(|d| d.is_some()).count() >= 5, "{doorways:?}");
     }
 }
 

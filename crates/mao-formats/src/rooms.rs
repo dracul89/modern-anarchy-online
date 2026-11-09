@@ -10,12 +10,13 @@
 //! # A room
 //! A flags byte (bits 0-1: the turn in quarter turns, bit 7: a 32-byte name follows the links), a byte (5), the rectangle
 //! of tile-map cells `x0 y0 x1 y1` (`u16`, the far edge excluded), the centre `x y z` (`f32`), a link count with that many
-//! `(u16, u16)` pairs, the name, a size word and a count followed by that size minus 4 bytes (the light map: the count's 565
+//! `(u16, u16)` pairs (the doorways, [`Door`]: the room each opens into, −1 for a way out, and `cell << 2 | side`), the name, a size word and a count followed by that size minus 4 bytes (the light map: the count's 565
 //! colours, one per vertex of the room's welded piece stream, zlib-packed; `n3Room_t::DepackLightmap` inflates them to two
 //! bytes each, six in a file older than version 8; see [`room_parts`]), a word `(n + 1) * 0x3f1` and `n` water
 //! surfaces (flags, a count of `f32` triples with the height rounded to a hundredth, a count of `u16` triples: a surface with
 //! the low flag bit clear and other than three points is fanned round its centre, the others take their triangles), a count
-//! of camera attractors (version 10: position, rotation, direction, a float: 44 bytes each).
+//! of camera attractors ([`Attractor`], version 5 on: position, rotation, the guide point from version 6, its radius: 44
+//! bytes each).
 //!
 //! # The shape
 //! The tile-map's `DCGA` image says the type of each cell (its place in the map's type list; 0 is empty), `DHGA` is the
@@ -78,7 +79,39 @@ pub struct Room {
     /// The depacked light map: a 565 colour (`u16`) per vertex of the room's welded vertex stream, in its order (see
     /// `dungeon::light_colours`); empty when the room has none or it did not inflate.
     pub light: Vec<u8>,
+    /// The camera's vantage points in the room (none before version 5).
+    pub attractors: Vec<Attractor>,
 }
+
+/// A doorway of a room (`n3Room_t` +0x7c, the `links` as stored: `connect zone, cell << 2 | side`): the room it opens to
+/// (`None` for a way out of the playfield, stored as −1), the cell it sits in (an index into the room's rectangle, row by
+/// row) and which side of that cell it is on — 0 the far z, 1 the far x, 2 the near z, 3 the near x, before the room's turn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Door {
+    pub room: Option<u16>,
+    pub cell: u16,
+    pub side: u8,
+}
+
+/// A vantage point the camera is drawn to while the character is in the room (`PointCameraAttractor_t`, read by
+/// FUN_10012803 from a version-5 record on): where the camera stands, its rotation, the guide point it watches from there
+/// (the position itself before version 6) and the guide's radius. A radius under 1 disables it (the flag at +0x30).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Attractor {
+    pub position: [f32; 3],
+    pub rotation: [f32; 4],
+    pub guide: [f32; 3],
+    pub radius: f32,
+}
+
+impl Attractor {
+    pub fn enabled(&self) -> bool {
+        self.radius >= 1.0
+    }
+}
+
+/// How far from a door's point a position still counts as at the door (`GetDoorLinkFromPos`, `_DAT_1003d370`).
+pub const DOOR_REACH: f32 = 1.2;
 
 impl Room {
     /// Quarter turns.
@@ -93,6 +126,83 @@ impl Room {
         }
         (dx, dz)
     }
+
+    /// The room's doors, from its links.
+    pub fn doors(&self) -> impl Iterator<Item = Door> + '_ {
+        self.links.iter().map(|&(zone, word)| Door { room: (zone != 0xffff).then_some(zone), cell: word >> 2, side: (word & 3) as u8 })
+    }
+
+    /// A door's point in the room's own frame (`GetDoorPosRot` 0x10010acf): its cell's centre moved 0.999 towards its side;
+    /// and its facing in quarter turns once the room is turned (`(turn + side) & 3`).
+    fn door_frame(&self, scale: f32, door: Door) -> ((f32, f32), u8) {
+        let [x0, y0, x1, y1] = self.rect.map(|v| v as i64);
+        let (w, h) = ((x1 - x0).max(1), y1 - y0);
+        let (col, row) = (door.cell as i64 % w, door.cell as i64 / w);
+        let (mut dx, mut dz) = ((col as f32 - odd(w) as f32 / 2.0) * scale, (row as f32 - odd(h) as f32 / 2.0) * scale);
+        match door.side {
+            0 => dz += 0.999,
+            1 => dx += 0.999,
+            2 => dz -= 0.999,
+            _ => dx -= 0.999,
+        }
+        ((dx, dz), (self.turn() + door.side) & 3)
+    }
+
+    /// Where a door stands in the world (the game's frame, y up): its point on the floor there (the two height samples
+    /// along its side averaged), turned with the room; and its facing in quarter turns.
+    pub fn door_place(&self, grid: &Grid, door: Door) -> ([f32; 3], u8) {
+        let ((dx, dz), facing) = self.door_frame(grid.scale, door);
+        let [x0, y0, x1, _] = self.rect.map(|v| v as i64);
+        let w = (x1 - x0).max(1);
+        let (cx, cy) = (x0 + door.cell as i64 % w, y0 + door.cell as i64 / w);
+        let surface = grid.surface();
+        let (a, b) = match door.side {
+            0 => ((cx - 1, cy), (cx, cy)),
+            1 => ((cx, cy - 1), (cx, cy)),
+            2 => ((cx - 1, cy - 1), (cx, cy - 1)),
+            _ => ((cx - 1, cy - 1), (cx - 1, cy)),
+        };
+        let y = self.position[1] + grid.floor_base(self) + (surface.floor(a.0, a.1) + surface.floor(b.0, b.1)) / 2.0;
+        let (dx, dz) = self.turn_xz(dx, dz);
+        ([self.position[0] + dx, y, self.position[2] + dz], facing)
+    }
+
+    /// The door the world point `(x, z)` stands at, within [`DOOR_REACH`] along x and z (`GetDoorLinkFromPos` 0x100105f9),
+    /// with its index among the room's doors.
+    pub fn door_at(&self, grid: &Grid, x: f32, z: f32) -> Option<(usize, Door)> {
+        self.doors().enumerate().find(|&(_, door)| {
+            let (at, _) = self.door_place(grid, door);
+            (at[0] - x).abs() < DOOR_REACH && (at[2] - z).abs() < DOOR_REACH
+        })
+    }
+
+    /// The room's cell under the world point `(x, z)`, as tile-map coordinates, when it is one of the room's existing cells.
+    pub fn cell_at(&self, grid: &Grid, x: f32, z: f32) -> Option<(i64, i64)> {
+        let [x0, y0, x1, y1] = self.rect.map(|v| v as i64);
+        let (w, h) = (x1 - x0, y1 - y0);
+        let cell = grid.scale;
+        let (mut dx, mut dy) = ((x - self.position[0]) / cell, (z - self.position[2]) / cell);
+        // undo the turn: the forward turn is (dx, dy) -> (dy, -dx), so its inverse is (dx, dy) -> (-dy, dx)
+        for _ in 0..self.turn() {
+            (dx, dy) = (-dy, dx);
+        }
+        let (cx, cy) = ((dx + odd(w) as f32 / 2.0 + 0.5).floor() as i64, (dy + odd(h) as f32 / 2.0 + 0.5).floor() as i64);
+        (cx >= 0 && cy >= 0 && cx < w && cy < h && grid.at(x0 + cx, y0 + cy).is_some_and(|(place, _)| place != 0)).then_some((x0 + cx, y0 + cy))
+    }
+
+    /// Whether the world point (the game's frame, y up) is inside the room (`n3Room_t::IsPosInside` 0x10011664): over one of
+    /// its cells, higher than half a unit under the cell's lowest corner and no higher than half a unit over its roof — the
+    /// cell type's height (the tile-map's `THSA` table, 8 where there is none) scaled by `1 + 0.25 × the cell's code`.
+    pub fn contains(&self, grid: &Grid, p: [f32; 3]) -> bool {
+        let Some((cx, cy)) = self.cell_at(grid, p[0], p[2]) else { return false };
+        let surface = grid.surface();
+        let lowest = [(cx, cy), (cx - 1, cy), (cx - 1, cy - 1), (cx, cy - 1)].into_iter().map(|(x, y)| surface.floor(x, y)).fold(f32::MAX, f32::min);
+        let floor = self.position[1] + grid.floor_base(self) + lowest;
+        let place = grid.at(cx, cy).map_or(0, |(place, _)| place);
+        let height = grid.type_heights.get(place as usize).copied().unwrap_or(8.0);
+        let roof = floor + height * (1.0 + 0.25 * surface.code(cx, cy));
+        floor - 0.5 < p[1] && p[1] <= roof + 0.5
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -102,6 +212,47 @@ pub struct RoomPlayfield {
     /// The instance of the tile-map (`0xf4249`) the rooms are cut from.
     pub tilemap: u32,
     pub rooms: Vec<Room>,
+}
+
+impl RoomPlayfield {
+    /// The room the world point is in (`n3Playfield_t::PosToRoom` 0x1000c8aa): `hint`, the room it was in, when it still is;
+    /// else the first that [`Room::contains`] it.
+    pub fn room_at(&self, grid: &Grid, p: [f32; 3], hint: Option<usize>) -> Option<usize> {
+        if let Some(h) = hint
+            && self.rooms.get(h).is_some_and(|r| r.contains(grid, p))
+        {
+            return Some(h);
+        }
+        self.rooms.iter().position(|r| r.contains(grid, p))
+    }
+
+    /// Links the rooms' doors by where they stand (the building generator's FUN_100c92b3, which does this for a generated
+    /// building whose rooms are copies of a template's): two doors that face each other (facings two quarter turns apart)
+    /// within a tenth of a unit along x and z and three tenths in height are the two sides of one doorway, and each is set to
+    /// open into the other's room. A door that meets none is a way out.
+    pub fn connect_doors(&mut self, grid: &Grid) {
+        let mut places: Vec<(usize, usize, [f32; 3], u8)> = Vec::new();
+        for (i, room) in self.rooms.iter().enumerate() {
+            for (k, door) in room.doors().enumerate() {
+                let (at, facing) = room.door_place(grid, door);
+                places.push((i, k, at, facing));
+            }
+        }
+        let mut target: Vec<Option<u16>> = vec![None; places.len()];
+        for (a, &(_, _, at, facing)) in places.iter().enumerate() {
+            if target[a].is_some() {
+                continue;
+            }
+            let other = places.iter().enumerate().position(|(b, &(_, _, bt, bf))| b != a && target[b].is_none() && bf == (facing + 2) & 3 && (bt[0] - at[0]).abs() < 0.1 && (bt[1] - at[1]).abs() < 0.3 && (bt[2] - at[2]).abs() < 0.1);
+            if let Some(b) = other {
+                target[a] = Some(places[b].0 as u16);
+                target[b] = Some(places[a].0 as u16);
+            }
+        }
+        for (n, &(i, k, _, _)) in places.iter().enumerate() {
+            self.rooms[i].links[k].0 = target[n].unwrap_or(0xffff);
+        }
+    }
 }
 
 /// One room of a generated building (a mission dungeon: the server's `BuildingRoomInfo_t`, read by Gamecode's FUN_100cad28):
@@ -122,7 +273,8 @@ pub struct BuildingRoom {
 /// +0x68, FUN_10012803) times the tile-map's scale plus `(1, 0, 1)`, turned with the room, then moved back into the block by the
 /// turn (90°: z + tilesX × scale; 180°: x + tilesX × scale, z + tilesZ × scale; 270°: x + tilesZ × scale). The height is the
 /// template room's, raised `floor_step` per floor above the lowest. Returns the rooms and, for each, the template room it
-/// came from (whose zone's statels it takes). `None` for a record naming no template room.
+/// came from (whose zone's statels it takes). `None` for a record naming no template room. The copies' doors still name the
+/// template's rooms: [`RoomPlayfield::connect_doors`] links them by where they stand.
 pub fn generate(template: &RoomPlayfield, scale: f32, height: u32, floor_step: f32, records: &[BuildingRoom]) -> Option<(RoomPlayfield, Vec<usize>)> {
     let lowest = records.iter().map(|r| r.floor).min().unwrap_or(0);
     let mut rooms = Vec::new();
@@ -152,6 +304,8 @@ pub fn generate(template: &RoomPlayfield, scale: f32, height: u32, floor_step: f
         let mut room = source.clone();
         room.flags = (source.flags & !3) | turn;
         room.position = [corner.0 + dx, source.position[1] + (r.floor - lowest) as f32 * floor_step, corner.1 + dz];
+        // (the camera's vantage points go with the room: `PointCameraAttractor_t`'s move, slot 6 of its table)
+        room.attractors = source.attractors.iter().map(|a| Attractor { position: move_between(source, &room, a.position), guide: move_between(source, &room, a.guide), ..*a }).collect();
         rooms.push(room);
         sources.push(r.room as usize);
     }
@@ -295,12 +449,23 @@ pub fn parse_with_end(object: &[u8]) -> Result<(Option<RoomPlayfield>, usize), E
                 }
             }
         }
-        let attractors = r.u32("the attractor count")? as usize;
-        if attractors >= 1000 {
-            return Err(Error::Layout("too many camera attractors"));
+        // The camera attractors (version 5 on): position, rotation, the guide (version 6 on; else the position) and the
+        // guide's radius.
+        let mut attractors = Vec::new();
+        if version > 4 {
+            let count = r.u32("the attractor count")? as usize;
+            if count >= 1000 {
+                return Err(Error::Layout("too many camera attractors"));
+            }
+            for _ in 0..count {
+                let position = [r.f32("an attractor")?, r.f32("an attractor")?, r.f32("an attractor")?];
+                let rotation = [r.f32("an attractor")?, r.f32("an attractor")?, r.f32("an attractor")?, r.f32("an attractor")?];
+                let guide = if version > 5 { [r.f32("an attractor")?, r.f32("an attractor")?, r.f32("an attractor")?] } else { position };
+                let radius = r.f32("an attractor")?;
+                attractors.push(Attractor { position, rotation, guide, radius });
+            }
         }
-        r.take(attractors * 44, "the camera attractors")?;
-        rooms.push(Room { flags, rect, position, links: link_list, name, water, light });
+        rooms.push(Room { flags, rect, position, links: link_list, name, water, light, attractors });
     }
     Ok((Some(RoomPlayfield { number, name, tilemap, rooms }), r.at))
 }
@@ -337,6 +502,8 @@ pub struct Grid {
     pub palette: Vec<u32>,
     pub tables: Tables,
     pub words: Cells,
+    /// Each tile type's height (`THSA`: a short in tenths per type, `RDBTilemap_t` +0x8244), by its place in the type list.
+    pub type_heights: Vec<f32>,
 }
 
 /// The quality type of the room textures.
@@ -415,7 +582,8 @@ impl Grid {
         let tables = Tables::new(&map.tile_types, &map.type_tables, lists);
         let images = dungeon::CellImages { width, height, places: &cells, doors: &doors, choices: choices.as_deref() };
         let words = dungeon::cells(&images, &tables);
-        Some(Grid { width, height, cells, heights: heights.into_raw(), codes, layers, tiles, scale: map.scale, step: map.second, palette, tables, words })
+        let type_heights = chunk(b"THSA").map(|c| c.body.chunks_exact(2).take(map.tile_types.len()).map(|b| u16::from_le_bytes([b[0], b[1]]) as f32 / 10.0).collect()).unwrap_or_default();
+        Some(Grid { width, height, cells, heights: heights.into_raw(), codes, layers, tiles, scale: map.scale, step: map.second, palette, tables, words, type_heights })
     }
 
     fn at(&self, x: i64, y: i64) -> Option<(u8, u8)> {
@@ -732,13 +900,15 @@ pub fn floor_cells(grid: &Grid, rooms: &RoomPlayfield) -> Vec<[f32; 4]> {
 /// Whether the world point `(x, z)` is over one of the room's existing cells. `reversed` turns the room the other way (the check
 /// that told the two senses apart: the machines and terminals built into a playfield stand on floor cells).
 pub fn covers(grid: &Grid, room: &Room, x: f32, z: f32, reversed: bool) -> bool {
+    if !reversed {
+        return room.cell_at(grid, x, z).is_some();
+    }
     let [x0, y0, x1, y1] = room.rect.map(|v| v as i64);
     let (w, h) = (x1 - x0, y1 - y0);
     let cell = grid.scale;
     let (mut dx, mut dy) = ((x - room.position[0]) / cell, (z - room.position[2]) / cell);
-    // undo the turn: the forward turn is (dx, dy) -> (dy, -dx), so its inverse is (dx, dy) -> (-dy, dx)
     for _ in 0..room.turn() {
-        (dx, dy) = if reversed { (dy, -dx) } else { (-dy, dx) };
+        (dx, dy) = (dy, -dx);
     }
     let (cx, cy) = ((dx + odd(w) as f32 / 2.0 + 0.5).floor() as i64, (dy + odd(h) as f32 / 2.0 + 0.5).floor() as i64);
     cx >= 0 && cy >= 0 && cx < w && cy < h && grid.at(x0 + cx, y0 + cy).is_some_and(|(place, _)| place != 0)
@@ -746,8 +916,19 @@ pub fn covers(grid: &Grid, room: &Room, x: f32, z: f32, reversed: bool) -> bool 
 
 /// All the rooms of a playfield as one model.
 pub fn model(grid: &Grid, rooms: &RoomPlayfield, material: &Material, pieces: &HashMap<u16, Piece>) -> Model {
-    let parts: Vec<Part> = rooms.rooms.iter().flat_map(|r| room_parts(grid, r, material, pieces)).collect();
-    Model { parts, instances: Vec::new(), water: None, lod_groups: Vec::new() }
+    model_by_room(grid, rooms, material, pieces).0
+}
+
+/// All the rooms of a playfield as one model, with each room's range of its parts (to show a room on its own).
+pub fn model_by_room(grid: &Grid, rooms: &RoomPlayfield, material: &Material, pieces: &HashMap<u16, Piece>) -> (Model, Vec<std::ops::Range<usize>>) {
+    let mut parts: Vec<Part> = Vec::new();
+    let mut ranges = Vec::new();
+    for r in &rooms.rooms {
+        let start = parts.len();
+        parts.extend(room_parts(grid, r, material, pieces));
+        ranges.push(start..parts.len());
+    }
+    (Model { parts, instances: Vec::new(), water: None, lod_groups: Vec::new() }, ranges)
 }
 
 #[cfg(test)]
@@ -805,7 +986,9 @@ mod tests {
             d.extend_from_slice(&0x3f1u32.to_le_bytes());
         }
         d.extend_from_slice(&1u32.to_le_bytes());
-        d.extend_from_slice(&[0; 44]);
+        for v in [3.0f32, 4.0, 5.0, 0.0, 0.0, 0.0, 1.0, 6.0, 7.0, 8.0, 2.5] {
+            d.extend_from_slice(&v.to_le_bytes());
+        }
         d
     }
 
@@ -818,6 +1001,8 @@ mod tests {
         assert_eq!(p.rooms[0].rect, [10, 115, 21, 124]);
         assert_eq!(p.rooms[0].position, [208.0, 5.0, 202.0]);
         assert_eq!(p.rooms[0].links, vec![(5, 10)]);
+        assert_eq!(p.rooms[0].doors().collect::<Vec<_>>(), vec![Door { room: Some(5), cell: 2, side: 2 }]);
+        assert_eq!(p.rooms[0].attractors, vec![Attractor { position: [3.0, 4.0, 5.0], rotation: [0.0, 0.0, 0.0, 1.0], guide: [6.0, 7.0, 8.0], radius: 2.5 }]);
         assert_eq!((p.rooms[1].name.as_str(), p.rooms[1].turn()), ("Clan_Basic_2", 3));
     }
 
@@ -848,13 +1033,13 @@ mod tests {
         let tables = Tables::new(&[0, 1], &[], HashMap::new());
         let images = dungeon::CellImages { width, height, places: &cells, doors: &[], choices: None };
         let words = dungeon::cells(&images, &tables);
-        Grid { width, height, cells, heights, codes: vec![0; width * height], layers: 0, tiles: Vec::new(), scale: 2.0, step: 0.2, palette: Vec::new(), tables, words }
+        Grid { width, height, cells, heights, codes: vec![0; width * height], layers: 0, tiles: Vec::new(), scale: 2.0, step: 0.2, palette: Vec::new(), tables, words, type_heights: Vec::new() }
     }
 
     #[test]
     fn a_flat_room_is_a_floor_at_its_height() {
         let grid = grid(4, 4, vec![0; 16]);
-        let room = Room { flags: 0, rect: [0, 0, 2, 2], position: [10.0, 5.0, 20.0], links: Vec::new(), name: String::new(), water: Vec::new(), light: Vec::new() };
+        let room = Room { flags: 0, rect: [0, 0, 2, 2], position: [10.0, 5.0, 20.0], links: Vec::new(), name: String::new(), water: Vec::new(), light: Vec::new(), attractors: Vec::new() };
         let part = room_parts(&grid, &room, &Material::default(), &HashMap::new()).remove(0);
         // four cells, no walls
         assert_eq!(part.vertices.len(), 16);
@@ -875,7 +1060,7 @@ mod tests {
         let mut heights = vec![0u8; 16];
         heights[5] = 10;
         let grid = grid(4, 4, heights);
-        let room = Room { flags: 0, rect: [0, 0, 4, 4], position: [0.0, 0.0, 0.0], links: Vec::new(), name: String::new(), water: Vec::new(), light: Vec::new() };
+        let room = Room { flags: 0, rect: [0, 0, 4, 4], position: [0.0, 0.0, 0.0], links: Vec::new(), name: String::new(), water: Vec::new(), light: Vec::new(), attractors: Vec::new() };
         let part = room_parts(&grid, &room, &Material::default(), &HashMap::new()).remove(0);
         let raised: Vec<&Vertex> = part.vertices.iter().filter(|v| v.position[2] > 1.5).collect();
         // the corner is shared by four cells, whose quads tilt apart there: the weld keeps vertices whose normals differ
@@ -888,7 +1073,7 @@ mod tests {
     #[test]
     fn a_turned_room_swaps_its_sides() {
         let grid = grid(8, 8, vec![0; 64]);
-        let room = Room { flags: 1, rect: [0, 0, 4, 2], position: [0.0, 0.0, 0.0], links: Vec::new(), name: String::new(), water: Vec::new(), light: Vec::new() };
+        let room = Room { flags: 1, rect: [0, 0, 4, 2], position: [0.0, 0.0, 0.0], links: Vec::new(), name: String::new(), water: Vec::new(), light: Vec::new(), attractors: Vec::new() };
         let part = room_parts(&grid, &room, &Material::default(), &HashMap::new()).remove(0);
         let (mut xs, mut zs) = (Vec::new(), Vec::new());
         for v in &part.vertices {
@@ -902,7 +1087,7 @@ mod tests {
     #[test]
     fn covers_agrees_with_the_floor() {
         let grid = grid(8, 8, vec![0; 64]);
-        let room = Room { flags: 0, rect: [0, 0, 3, 3], position: [100.0, 0.0, 200.0], links: Vec::new(), name: String::new(), water: Vec::new(), light: Vec::new() };
+        let room = Room { flags: 0, rect: [0, 0, 3, 3], position: [100.0, 0.0, 200.0], links: Vec::new(), name: String::new(), water: Vec::new(), light: Vec::new(), attractors: Vec::new() };
         let part = room_parts(&grid, &room, &Material::default(), &HashMap::new()).remove(0);
         let min_x = part.vertices.iter().map(|v| v.position[0]).fold(f32::MAX, f32::min);
         let max_x = part.vertices.iter().map(|v| v.position[0]).fold(f32::MIN, f32::max);
@@ -1023,5 +1208,107 @@ mod tests {
             out.extend_from_slice(&body);
             std::fs::write(&path, out).unwrap();
         }
+    }
+
+    #[test]
+    fn a_door_stands_at_its_cells_side_and_a_point_there_finds_it() {
+        let grid = grid(8, 8, vec![0; 64]);
+        // a 4 x 2 room at (100, 0, 200): cell 5 is column 1 of the second row; side 1 is its far x edge
+        let mut room = Room { flags: 0, rect: [0, 0, 4, 2], position: [100.0, 0.0, 200.0], links: vec![(2, 5 << 2 | 1)], name: String::new(), water: Vec::new(), light: Vec::new(), attractors: Vec::new() };
+        let door = room.doors().next().unwrap();
+        assert_eq!(door, Door { room: Some(2), cell: 5, side: 1 });
+        // odd width 3: columns at -3, -1, 1, 3; rows at -1, 1 (odd height 1): cell 5 is centred at (-1, 1), the door 0.999 further in x
+        let (at, facing) = room.door_place(&grid, door);
+        assert!((at[0] - 99.999).abs() < 1e-3 && (at[2] - 201.0).abs() < 1e-3, "{at:?}");
+        assert_eq!(facing, 1);
+        assert_eq!(room.door_at(&grid, 99.5, 201.5), Some((0, door)));
+        assert_eq!(room.door_at(&grid, 97.0, 201.5), None);
+        // turned a quarter: (dx, dz) -> (dz, -dx), the facing one further
+        room.flags = 1;
+        let (at, facing) = room.door_place(&grid, door);
+        assert!((at[0] - 101.0).abs() < 1e-3 && (at[2] - 200.001).abs() < 1e-3, "{at:?}");
+        assert_eq!(facing, 2);
+    }
+
+    #[test]
+    fn a_room_contains_points_between_its_floor_and_roof() {
+        let mut grid = grid(4, 4, vec![0; 16]);
+        grid.type_heights = vec![0.0, 6.0];
+        let room = Room { flags: 0, rect: [0, 0, 2, 2], position: [10.0, 5.0, 20.0], links: Vec::new(), name: String::new(), water: Vec::new(), light: Vec::new(), attractors: Vec::new() };
+        let rooms = RoomPlayfield { number: 1, name: String::new(), tilemap: 1, rooms: vec![room] };
+        // the floor is at the room's height (its lowest cell), the roof 6 above
+        assert!(rooms.rooms[0].contains(&grid, [10.0, 5.0, 20.0]));
+        assert!(rooms.rooms[0].contains(&grid, [10.0, 4.6, 20.0]));
+        assert!(!rooms.rooms[0].contains(&grid, [10.0, 4.4, 20.0]));
+        assert!(rooms.rooms[0].contains(&grid, [10.0, 11.4, 20.0]));
+        assert!(!rooms.rooms[0].contains(&grid, [10.0, 11.6, 20.0]));
+        assert!(!rooms.rooms[0].contains(&grid, [13.0, 5.0, 20.0]), "outside the two cells");
+        assert_eq!(rooms.room_at(&grid, [10.0, 5.0, 20.0], None), Some(0));
+        assert_eq!(rooms.room_at(&grid, [10.0, 5.0, 20.0], Some(0)), Some(0));
+        assert_eq!(rooms.room_at(&grid, [30.0, 5.0, 20.0], Some(0)), None);
+    }
+
+    #[test]
+    fn doors_that_face_each_other_are_linked() {
+        // two 2 x 2 rooms side by side along x: room 0 at x 0..4 with a door on cell 1's far x side, room 1 at x 4..8 with
+        // a door on cell 0's near x side; a third door that meets nothing is a way out
+        let a = Room { flags: 0, rect: [0, 0, 2, 2], position: [2.0, 0.0, 2.0], links: vec![(0xffff, 1 << 2 | 1), (0xffff, 0 << 2 | 3)], name: String::new(), water: Vec::new(), light: Vec::new(), attractors: Vec::new() };
+        let b = Room { flags: 0, rect: [0, 0, 2, 2], position: [6.0, 0.0, 2.0], links: vec![(7, 0 << 2 | 3)], name: String::new(), water: Vec::new(), light: Vec::new(), attractors: Vec::new() };
+        let mut rooms = RoomPlayfield { number: 1, name: String::new(), tilemap: 1, rooms: vec![a, b] };
+        rooms.connect_doors(&grid(8, 8, vec![0; 64]));
+        let doors: Vec<Vec<Door>> = rooms.rooms.iter().map(|r| r.doors().collect()).collect();
+        assert_eq!(doors[0][0], Door { room: Some(1), cell: 1, side: 1 });
+        assert_eq!(doors[0][1], Door { room: None, cell: 0, side: 3 });
+        assert_eq!(doors[1][0], Door { room: Some(0), cell: 0, side: 3 });
+    }
+
+    /// With `MAO_GAME`: in every room playfield, a door that opens into another room meets a door of that room opening back,
+    /// within reach — which also checks the quarter-turn sense on every room, not just the one shop's booths.
+    #[test]
+    fn every_doorway_has_its_two_sides() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        use crate::resource::{Id, ResourceDatabase};
+        let db = ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap();
+        let (mut doors, mut unmatched, mut playfields, mut old_maps) = (0usize, Vec::new(), 0usize, Vec::new());
+        for pf in crate::playfield::all(&db) {
+            let Some(object) = db.get(Id { kind: KIND, instance: pf.number }).ok().flatten() else { continue };
+            let Ok(Some(rooms)) = parse(&object) else { continue };
+            let Some(map) = db.get(Id { kind: 0xf4249, instance: rooms.tilemap }).ok().flatten().and_then(|o| crate::tilemap::parse_new(&o).ok()) else {
+                old_maps.push(pf.number);
+                continue;
+            };
+            if &map.tag != b"GNDA" {
+                old_maps.push(pf.number);
+            }
+            let Some(grid) = Grid::new(&map) else { continue };
+            playfields += 1;
+            for (i, room) in rooms.rooms.iter().enumerate() {
+                for door in room.doors() {
+                    // (a door onto the room itself is an opening in it, not a way to another room: the generator skips them too)
+                    let Some(other) = door.room.filter(|&o| o as usize != i) else { continue };
+                    doors += 1;
+                    let (at, facing) = room.door_place(&grid, door);
+                    let back = rooms.rooms.get(other as usize).and_then(|o| o.doors().find(|d| d.room == Some(i as u16) && {
+                        let (bt, bf) = o.door_place(&grid, *d);
+                        (bt[0] - at[0]).abs() < DOOR_REACH && (bt[2] - at[2]).abs() < DOOR_REACH && bf == (facing + 2) & 3
+                    }));
+                    if back.is_none() && unmatched.len() < 24 {
+                        let nearest = rooms.rooms.get(other as usize).map(|o| o.doors().map(|d| { let (bt, bf) = o.door_place(&grid, d); (((bt[0] - at[0]).powi(2) + (bt[2] - at[2]).powi(2)).sqrt(), bt[1] - at[1], bf, d.room) }).fold((f32::MAX, 0.0, 0u8, None), |a, b| if b.0 < a.0 { b } else { a }));
+                        unmatched.push(format!("pf {} room {i} {:?} rect {:?} turn {} door {door:?} at {at:?} facing {facing}: room {other} ({:?}, turn {}) nearest door {nearest:?}", pf.number, room.name, room.rect, room.turn(), rooms.rooms[other as usize].rect, rooms.rooms[other as usize].turn()));
+                    }
+                    if back.is_none() {
+                        unmatched.push(String::new());
+                    }
+                }
+            }
+        }
+        let missing = unmatched.len();
+        for line in unmatched.iter().filter(|l| !l.is_empty()) {
+            eprintln!("{line}");
+        }
+        eprintln!("{playfields} room playfields, {doors} doors into other rooms, {missing} without a matching door back");
+        assert!(doors > 1000 && missing * 100 < doors, "{missing} of {doors} doors unmatched");
+        // (the old `CHGA` tile-maps, whose branch of the cell constructor is not ported: no room playfield has one)
+        assert!(old_maps.is_empty(), "room playfields on a tile-map that is not GNDA: {old_maps:?}");
     }
 }

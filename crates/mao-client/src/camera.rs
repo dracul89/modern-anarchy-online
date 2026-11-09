@@ -130,6 +130,9 @@ pub struct SteeringCamera {
     vel: [f32; 3],
     speed: f32,
     placed: bool,
+    /// A room's camera attractor the vehicle is drawn to (`CameraVehicle_t` +0x1a0, `PointCameraAttractor_t`'s steering:
+    /// `SteeringArrive` to its point), in the server's frame; none outside such a room.
+    pub attractor: Option<[f32; 3]>,
     /// The preferred direction (in the character's frame for the fixed cameras) and distance (+0x1f8, +0x198).
     pref_dir: [f32; 3],
     pref_dist: f32,
@@ -147,6 +150,7 @@ impl SteeringCamera {
         let len = length(DEFAULT_DIRECTION);
         SteeringCamera {
             mode,
+            attractor: None,
             preferred,
             pos: [0.0; 3],
             vel: [0.0; 3],
@@ -397,7 +401,14 @@ impl SteeringCamera {
                 return self.update(0.0, look, heading, char_speed, Inputs::default(), los);
             }
         }
-        // The steering (CalcSteering) and the vehicle's step.
+        // The steering (CalcSteering) and the vehicle's step. Drawn to a room's camera attractor, the vehicle arrives at its
+        // point instead (`PointCameraAttractor_t`'s steering, slot 1 of its table: `SteeringArrive` with a 0.1 radius) and
+        // keeps looking at the character.
+        if let Some(at) = self.attractor.filter(|_| self.mode != Mode::First) {
+            let force = self.arrive(at);
+            self.integrate(force, dt);
+            return (self.pos, look);
+        }
         let force = match self.mode {
             Mode::Free => {
                 // the camera keeps its direction and is pulled along at the preferred distance

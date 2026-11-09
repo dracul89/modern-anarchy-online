@@ -128,8 +128,9 @@ eighteen names, not seventeen: `AOU_mod` was missed in the first count.
    are in the session scratchpad noted in memory). Left: the free camera's sensors (`CalculateSensorSteerDir`: flexes of
    0.5, 2, 8 and 32 units up, down, left, right, forward and back until one is seen), the line of sight against statels
    (the viewer has only the terrain; the collision lives on the network thread), the look target from the CAT mesh's
-   `Attractor31_camera` (smoothed by FUN_10020bdb), the room camera attractors (`n3Zone_t::GetCameraAttractorList`),
-   `MouseTurnSensitivity` / `ZoomSpeed` / `MouseLookInverted` as settings, and the mode-3 eased zoom (+0x204, 3 units a
+   `Attractor31_camera` (smoothed by FUN_10020bdb), the room camera attractors' manual cycling (`GetNextVisibleAttractor`)
+   and collider-based visibility (the attraction itself is ported: `PointCameraAttractor_t`'s cost picks the point, the
+   vehicle arrives at it — see CLIENT_UI's rooms section), `MouseTurnSensitivity` / `ZoomSpeed` / `MouseLookInverted` as settings, and the mode-3 eased zoom (+0x204, 3 units a
    second) which nothing in the decompile sets.
 5. **Automap / minimap** — ported (see the table): the corner map and the overlay show the planet map's biggest level,
    placed by FUN_1004bedd's formula, for any playfield in `MapCoordinates.xml`; the client's fog-of-war map stays for the
@@ -151,8 +152,11 @@ eighteen names, not seventeen: `AOU_mod` was missed in the first count.
    `ao-difftest`'s `n3_weld` with identical results) and with it the light map (one 565 colour per welded vertex,
    zlib-packed in the room record; `DepackLightmap` 0x10010eb7, applied by FUN_100082a7 as the vertex's emissive colour)
    — though the files' maps hold more colours than the rooms have vertices, so the original colours from the map's start
-   as the client now does. Left: the old `CHGA` tile-maps' branch of FUN_100169ab (no shop uses one); the room camera
-   attractors (item 4).
+   as the client now does. Also done: the doorways (`n3Room_t` +0x7c, `GetDoorPosRot` / `GetDoorLinkFromPos`), the door
+   dynels tied to them (Gamecode FUN_100800cb), the crossing rule (`PlayfieldAnarchy_t::IsDynelRoomTransitionAllowed`),
+   the rooms shown (`n3RoomMonitor_t`), the generated buildings' door matching (FUN_100c92b3), `IsPosInside` with the
+   `THSA` type heights, and the room camera attractors (item 4). Left: the old `CHGA` tile-maps' branch of FUN_100169ab
+   (no room playfield uses one: the doors test checks every tile-map's tag).
 7. **Shadows** — the characters' blobs are ported (see the table). What the original has: only `GfxVisualSimpleShadow_c`
    under CAT meshes; randy31's `RShadow` (planar projected shadows, `shadow.rs`) is made from mesh archives only and no
    statel archive here carries one; the ground's own shadows were the 0xf4247 maps (absent, item 2). So the original showed

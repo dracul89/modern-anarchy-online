@@ -163,6 +163,9 @@ pub const DARK_SKY: ([f32; 3], [f32; 3]) = ([0.03, 0.035, 0.05], [0.01, 0.012, 0
 /// A model on the GPU, with its bounds.
 pub struct Scene {
     parts: Vec<GpuPart>,
+    /// Parts of the model (by their index in it) not drawn this frame: an interior's rooms the character cannot see into
+    /// (`n3RoomMonitor_t` shows a room on entering it or when a door to it opens).
+    pub hidden: std::collections::HashSet<usize>,
     /// Parts drawn after the others and replaceable (see [`Scene::set_overlay`]).
     overlay: Vec<GpuPart>,
     /// Parts that follow a moving point between uploads (the player's character): see [`Scene::set_follow`].
@@ -1298,7 +1301,7 @@ impl Renderer {
             let buffer = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("water"), contents: bytemuck::cast_slice(&data), usage: wgpu::BufferUsages::VERTEX });
             (buffer, data.len() as u32)
         });
-        Scene { parts, overlay: Vec::new(), follow: Vec::new(), center, radius, player: None, fog: (1.0e9, 2.0e9), sky: DAY_SKY, water: model.water.clone(), water_mesh, particles: Vec::new(), blobs: Vec::new(), shells: Vec::new(), backdrops: Vec::new(), sun: None, lighting: None, daylight: 1.0, ambient: [0.0; 3], area_fog: None }
+        Scene { parts, hidden: Default::default(), overlay: Vec::new(), follow: Vec::new(), center, radius, player: None, fog: (1.0e9, 2.0e9), sky: DAY_SKY, water: model.water.clone(), water_mesh, particles: Vec::new(), blobs: Vec::new(), shells: Vec::new(), backdrops: Vec::new(), sun: None, lighting: None, daylight: 1.0, ambient: [0.0; 3], area_fog: None }
     }
 
     fn depth_view(&mut self, gpu: &Gpu, size: (u32, u32), samples: u32) {
@@ -1482,6 +1485,13 @@ impl Renderer {
             if use_low && !hidden {
                 for &k in &lod.low {
                     lod_draw[k] = true;
+                }
+            }
+        }
+        if !scene.hidden.is_empty() {
+            for (k, part) in scene.parts.iter().enumerate() {
+                if scene.hidden.contains(&part.source) {
+                    lod_draw[k] = false;
                 }
             }
         }

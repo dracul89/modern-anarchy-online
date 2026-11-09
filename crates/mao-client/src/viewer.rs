@@ -104,6 +104,11 @@ pub struct Update {
     pub messages_only: bool,
     /// A new playfield to replace the one drawn (zoning).
     pub scene: Option<Model>,
+    /// With a new playfield: its rooms when it is an interior (`Some(None)` when it has none), for the camera's attractors and
+    /// the rooms' parts.
+    pub interior: Option<Option<std::sync::Arc<crate::interior::Interior>>>,
+    /// Which rooms the character can see into (one flag a room), when that changes.
+    pub rooms_shown: Option<Vec<bool>>,
     pub model: Model,
     /// The player's own character, drawn separately so it can move smoothly between updates, and its speed
     /// (units a second, server coordinates) for the prediction.
@@ -276,6 +281,9 @@ pub fn headless_with(model: &Model, textures: &Textures, out: &str, ui: Option<(
 /// [`headless_with`] for a scene that is one posed body at the origin: `attractors` are its attractors' frames (the server's
 /// frame), where `MAO_AURA`'s effect meshes at attach points 2000–2023 are held; `atrox`, whether the body is an Atrox's (the
 /// hoverbike circles have Atrox meshes).
+/// Set by the `map` command for a playfield made of rooms: the headless picture is drawn against the dark, as an interior is.
+pub static PREVIEW_INTERIOR: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 pub fn headless_on(model: &Model, textures: &Textures, out: &str, ui: Option<(&Hud, bool)>, attractors: &[(String, mao_formats::model::Matrix)], atrox: bool) -> Result<(), String> {
     let gpu = Gpu::headless()?;
     eprintln!("adapter: {:?}", gpu.adapter.get_info());
@@ -294,6 +302,10 @@ pub fn headless_on(model: &Model, textures: &Textures, out: &str, ui: Option<(&H
     let uploading = std::time::Instant::now();
     let mut scene = renderer.upload(&gpu, model, &mut |k, i| textures.get_for_upload(k, i));
     profile!("[profile] scene upload {:?} ({} parts)", uploading.elapsed(), model.parts.len());
+    if PREVIEW_INTERIOR.load(std::sync::atomic::Ordering::Relaxed) {
+        scene.sky = mao_render::DARK_SKY;
+        scene.daylight = 1.0;
+    }
     // `MAO_AURA=<effect id>` (with `MAO_GFX=<gfxtweak.bin>`, `MAO_AURA_AT=x,y,z` for the feet, `MAO_AURA_TIME=seconds`): the running
     // effect of a nano program round that point, for pictures of it.
     if let (Ok(id), Ok(file)) = (std::env::var("MAO_AURA"), std::env::var("MAO_GFX")) {
@@ -540,6 +552,12 @@ struct App {
     own_at: std::time::Instant,
     ground: Option<(std::sync::Arc<mao_formats::terrain::Terrain>, f32)>,
     zones: Option<std::sync::Arc<mao_formats::zones::Zones>>,
+    /// The interior's rooms, which of them are drawn, the room the character was last found in, and when the camera's
+    /// attractor was last chosen (`RunCameraSelectionCollChecks` runs every tenth of a second).
+    interior: Option<std::sync::Arc<crate::interior::Interior>>,
+    rooms_shown: Vec<bool>,
+    room_hint: Option<usize>,
+    attractor_at: std::time::Instant,
     /// The characters' meshes from the last update, and how far the own one has been moved on since.
     casters: Vec<crate::blobshadow::Caster>,
     follow_shift: [f32; 3],
@@ -612,7 +630,7 @@ pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<()
     let settings = Settings::load();
     crate::ui::set_debug_overlay(settings.debug_overlay);
     crate::font::set_enabled(settings.original_font);
-    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, world_in: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), flares: Vec::new(), sky: Default::default(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), fxs_frame: None, script_meshes: Default::default(), named_sheets: Default::default(), trails: Default::default(), motions: Default::default(), shake: (0.0, 0), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, zones: None, casters: Vec::new(), follow_shift: [0.0; 3], environment: Default::default(), quake: Default::default(), quake_offset: [0.0; 3], wind: Default::default(), wind_at: std::time::Instant::now(), perf_memory_at: std::time::Instant::now() - std::time::Duration::from_secs(10), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
+    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, world_in: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), flares: Vec::new(), sky: Default::default(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), fxs_frame: None, script_meshes: Default::default(), named_sheets: Default::default(), trails: Default::default(), motions: Default::default(), shake: (0.0, 0), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, zones: None, interior: None, rooms_shown: Vec::new(), room_hint: None, attractor_at: std::time::Instant::now(), casters: Vec::new(), follow_shift: [0.0; 3], environment: Default::default(), quake: Default::default(), quake_offset: [0.0; 3], wind: Default::default(), wind_at: std::time::Instant::now(), perf_memory_at: std::time::Instant::now() - std::time::Duration::from_secs(10), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
     // (entering the game: the loading screen, `ServerLogin3DModule_t::InitialiseMessage`)
     if app.live.is_some() {
         crate::loading::begin(crate::loading::FADE_IN, crate::loading::FADE_OUT);
@@ -1472,6 +1490,15 @@ impl ApplicationHandler for App {
                         }
                         self.ground = update.ground.take();
                         self.zones = update.zones.take();
+                        if let Some(interior) = update.interior.take() {
+                            self.interior = interior;
+                            self.room_hint = None;
+                            self.rooms_shown = Vec::new();
+                            self.steering.attractor = None;
+                        }
+                        if let Some(shown) = update.rooms_shown.take() {
+                            self.rooms_shown = shown;
+                        }
                         if let Some(e) = update.environment.take() {
                             self.environment = e;
                         }
@@ -1550,6 +1577,45 @@ impl ApplicationHandler for App {
                             })
                         };
                         let speed = (vx * vx + vz * vz).sqrt();
+                        // The room's camera attractors (`n3Playfield_t::RunCameraSelectionCollChecks`, every tenth of a second): of
+                        // the room's enabled vantage points that see the character, the one of least cost (`PointCameraAttractor_t`'s
+                        // table, slot 3) — the squared distance, or 10000 when it stands within half a unit of the character; a
+                        // thousand per unit the character is beyond the guide's radius; a hundred when it looks at the character the
+                        // way the camera's present point does; 10000 for a point under a tenth of a unit high. None, and the camera
+                        // steers as usual.
+                        if self.attractor_at.elapsed() >= std::time::Duration::from_millis(100) {
+                            self.attractor_at = std::time::Instant::now();
+                            let target = [px, y + 1.3, pz];
+                            let guide_now = self.steering.attractor.unwrap_or(target);
+                            self.steering.attractor = self.interior.as_ref().and_then(|interior| {
+                                let room = interior.room_at([px, y, pz], self.room_hint)?;
+                                self.room_hint = Some(room);
+                                let mut best: Option<(f32, [f32; 3])> = None;
+                                for a in interior.rooms.rooms[room].attractors.iter().filter(|a| a.enabled()) {
+                                    if !los(a.position, target) {
+                                        continue;
+                                    }
+                                    let d = [target[0] - a.position[0], target[1] - a.position[1], target[2] - a.position[2]];
+                                    let mut cost = if d[0].hypot(d[2]) >= 0.5 { d[0] * d[0] + d[1] * d[1] + d[2] * d[2] } else { 10000.0 };
+                                    let g = ((a.guide[0] - target[0]).powi(2) + (a.guide[1] - target[1]).powi(2) + (a.guide[2] - target[2]).powi(2)).sqrt();
+                                    if g > a.radius {
+                                        cost += (g - a.radius) * 1000.0;
+                                    }
+                                    let n = [guide_now[0] - a.position[0], guide_now[1] - a.position[1], guide_now[2] - a.position[2]];
+                                    let (ln, ld) = ((n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt(), (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt());
+                                    if ln > 0.5 && ld > 0.0 && (n[0] * d[0] + n[1] * d[1] + n[2] * d[2]) / (ln * ld) > 0.9 {
+                                        cost += 100.0;
+                                    }
+                                    if a.position[1] < 0.1 {
+                                        cost += 10000.0;
+                                    }
+                                    if best.is_none_or(|(c, _)| cost < c) {
+                                        best = Some((cost, a.position));
+                                    }
+                                }
+                                best.map(|(_, at)| at)
+                            });
+                        }
                         let (eye, at) = self.steering.update(dt, [px, y + 1.3, pz], self.heading, speed, inputs, &mut los);
                         w.camera = mao_render::Camera::looking(mao_render::glam::Vec3::new(eye[0], eye[2], eye[1]), mao_render::glam::Vec3::new(at[0], at[2], at[1]));
                         if self.steering.is_first_person() {
@@ -1793,6 +1859,15 @@ impl ApplicationHandler for App {
                     }
                     w.scene.particles = sparks;
                     w.scene.shells = shells;
+                    // (an interior's rooms the character cannot see into are not drawn: `n3RoomMonitor_t`)
+                    w.scene.hidden.clear();
+                    if let Some(interior) = &self.interior
+                        && self.rooms_shown.len() == interior.parts.len()
+                    {
+                        for (range, _) in interior.parts.iter().zip(&self.rooms_shown).filter(|(_, shown)| !**shown) {
+                            w.scene.hidden.extend(range.clone());
+                        }
+                    }
                 }
                 prof_t = crate::prof::lap("update", prof_t);
                 let frame = match w.surface.get_current_texture() {

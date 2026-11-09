@@ -4068,6 +4068,8 @@ pub(crate) struct Area {
     pub(crate) zones: Option<Arc<mao_formats::zones::Zones>>,
     /// The statels' moving parts, drawn each frame.
     pub(crate) animated: Vec<crate::AnimatedPart>,
+    /// An interior's rooms (their doorways and which parts are each room's), when the playfield is made of rooms.
+    pub(crate) interior: Option<Arc<crate::interior::Interior>>,
 }
 
 pub(crate) fn load_area(game: &str, db: &Arc<ResourceDatabase>, playfield: u32) -> Result<Area, String> {
@@ -4090,12 +4092,17 @@ pub(crate) fn load_area_with(game: &str, db: &Arc<ResourceDatabase>, playfield: 
         scene.instances.extend((0..ground_parts).map(|i| (i, model::IDENTITY)));
     }
     // An interior made of rooms (a shop instance): their floors and walls.
+    let mut interior = None;
     let ground_parts = if terrain.is_none() {
         let before = scene.parts.len();
-        if let Some(shell) = crate::load_room_shell(db, playfield) {
+        if let Some((shell, mut rooms)) = crate::load_room_shell_parts(db, playfield) {
             let base = scene.parts.len();
             scene.instances.extend((0..shell.parts.len()).map(|i| (base + i, model::IDENTITY)));
             scene.parts.extend(shell.parts);
+            for range in &mut rooms.parts {
+                *range = range.start + base..range.end + base;
+            }
+            interior = Some(Arc::new(rooms));
         }
         // (the shell is solid ground, not a prop: collision counts it with the ground)
         let _ = before;
@@ -4149,7 +4156,7 @@ pub(crate) fn load_area_with(game: &str, db: &Arc<ResourceDatabase>, playfield: 
     if let Some(e) = &base_environment {
         eprintln!("playfield {playfield}: environment weather {:?} ambient {:?} fog {:?} density {}", &e[..8], &e[19..22], &e[22..25], e[25]);
     }
-    Ok(Area { scene, terrain, collision, booths, areas, base_environment, teleportals, zones, animated })
+    Ok(Area { scene, terrain, collision, booths, areas, base_environment, teleportals, zones, animated, interior })
 }
 
 /// The label over each whompah booth: where it leads, when that is known.
@@ -4182,7 +4189,13 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     let db = Arc::new(ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?);
     crate::effects::load_calibration(game);
     let textures = crate::Textures::new(db.clone());
-    let Area { scene, terrain, collision, booths, areas, base_environment, teleportals, zones, animated } = load_area_with(game, &db, playfield, Some(&textures))?;
+    let Area { scene, terrain, collision, booths, areas, base_environment, teleportals, zones, animated, interior } = load_area_with(game, &db, playfield, Some(&textures))?;
+    // The rooms of an interior: where the character is among them, which doors it may pass, which rooms are drawn.
+    let mut interior = interior;
+    let mut room_state = crate::interior::RoomState::default();
+    let mut pending_interior: Option<Option<Arc<crate::interior::Interior>>> = Some(interior.clone());
+    let mut rooms_shown: Vec<bool> = Vec::new();
+    let mut pending_rooms_shown: Option<Vec<bool>> = None;
     state.animated_statels = Arc::new(animated);
     let mut teleportals = teleportals;
     let mut zones = zones;
@@ -4954,6 +4967,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     match load_area_with(&game_dir, &thread_db, playfield, Some(&thread_textures)) {
                         Ok(area) => {
                             (terrain, collision, teleportals, zones) = (area.terrain, area.collision, area.teleportals, area.zones);
+                            interior = area.interior.clone();
+                            room_state = Default::default();
+                            pending_interior = Some(interior.clone());
+                            rooms_shown = Vec::new();
                             state.set_static_props(crate::static_props(&thread_db, playfield));
                             state.prop_textures.extend(crate::static_prop_textures(&thread_db, playfield));
                             state.approach_doors = crate::approach_doors(&thread_db, playfield);
@@ -5893,6 +5910,29 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 (airborne, vy) = (false, 0.0);
                 body_reset = true;
             }
+            // The rooms: the character crosses from one to another only through an open door (`IsDynelRoomTransitionAllowed`);
+            // the step that would have taken it elsewhere is undone. The rooms it can see are told to the viewer when they change.
+            if let Some(interior) = &interior {
+                room_state.register(interior, &state.door_slots);
+                let now = Instant::now();
+                let open = |n: u8| state.doors_open.get(&n).is_some_and(|until| *until > now);
+                let to = interior.room_at(position, room_state.current);
+                match (room_state.current, to) {
+                    (Some(from), Some(to)) if from != to && !keys.noclip && !room_state.allowed(interior, from, to, &open) => {
+                        position = room_state.last_position;
+                    }
+                    (_, Some(to)) => {
+                        room_state.current = Some(to);
+                        room_state.last_position = position;
+                    }
+                    _ => {}
+                }
+                let shown = room_state.shown(interior, now, &open);
+                if shown != rooms_shown {
+                    rooms_shown = shown.clone();
+                    pending_rooms_shown = Some(shown);
+                }
+            }
             let elevation = if flying { keys.pitch } else { 0.0 };
             own_pitch.set(elevation);
             let start_jump = (keys.jump || std::mem::take(&mut autoplay_jump)) && !was_jumping && !airborne && !state.swimming.contains(&own) && !flying;
@@ -6588,6 +6628,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 let update = crate::viewer::Update {
                     messages_only: false,
                     scene: pending_scene.take(),
+                    interior: pending_interior.take(),
+                    rooms_shown: pending_rooms_shown.take(),
                     model,
                     own_model,
                     own_velocity,
