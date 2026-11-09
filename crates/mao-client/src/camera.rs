@@ -26,8 +26,8 @@
 //!   pitch kept within ±1.55334 rad.
 //! - **Reset** (`N3Msg_ResetCamera` → FUN_10020e0c): the camera goes behind the character at the same horizontal
 //!   distance, looking from where it was (first person: straight ahead).
-//! - The look target is the character's camera attractor (`Attractor31_camera`, FUN_10020bdb), at least 0.3 above the
-//!   feet; the client uses the character's eye height.
+//! - The look target is the character's camera attractor (`Attractor31_camera`, FUN_10020bdb) smoothed frame by frame,
+//!   at least 0.3 above the feet: [`LookTarget`].
 //! - The field of view is 90° across (`VisualCamera_t::SetViewPlaneWindow(1.5708, aspect)`, FUN_1002107a).
 //!
 //! - **The free camera's sensors** (`UpdateSensors` 0x1001e71f, `CalculateSensorSteerDir` 0x1001d955): with the character
@@ -84,6 +84,69 @@ impl<F: FnMut([f32; 3], [f32; 3]) -> bool> Surface for Sight<F> {
 
     fn align(&mut self, _: [f32; 3], pos: [f32; 3]) -> [f32; 3] {
         pos
+    }
+}
+
+/// The look target's place on the character (`n3Camera_t`'s FUN_10020bdb, `CameraVehicle_t::SetEyeTargetLocalPos`): a point
+/// in the character's frame (unturned, y up) that follows the body's camera attractor (`Attractor31_camera`, else the head's,
+/// `AttractorMesh::GetName(0)`; no player body has the first: FUN_10020af1) — its x and z as they were when first found (times the body scale), its y live — and is
+/// turned by the character's rotation and added to its position (`GetLookTargetPos`). Each frame it is smoothed: in first
+/// person it goes to the attractor at once (`0.001 × old + 0.999 × new`); in third person a fifth of the way (`0.8 × old
+/// + 0.2 × new`), or with `UseNoBobCamera` it holds still until the attractor has drifted over 0.25 away and then chases it a
+/// hundredth of the way a frame until within 0.01. It is never under 0.3 (`_DAT_1003e29c`). It starts at 2 up (SetCamera,
+/// `_DAT_1003c968`).
+#[derive(Clone, Debug)]
+pub struct LookTarget {
+    pub local: [f32; 3],
+    /// The attractor's x and z when first found.
+    held: Option<[f32; 2]>,
+    /// `DAT_1005c87c`: the no-bob chase under way.
+    chasing: bool,
+}
+
+impl Default for LookTarget {
+    fn default() -> LookTarget {
+        LookTarget { local: [0.0, 2.0, 0.0], held: None, chasing: false }
+    }
+}
+
+impl LookTarget {
+    /// A frame: `attractor` is the camera attractor's place in the character's frame (unturned), when the body has one.
+    pub fn update(&mut self, attractor: Option<[f32; 3]>, first_person: bool, no_bob: bool) -> [f32; 3] {
+        let attractor = attractor.map(|a| {
+            let held = *self.held.get_or_insert([a[0], a[2]]);
+            [held[0], a[1], held[1]]
+        });
+        let old = self.local;
+        let mut new = match (attractor, first_person, no_bob) {
+            (Some(a), _, true) if !first_person => {
+                let d = length(sub(old, a));
+                if d >= 0.01 {
+                    if self.chasing || d > 0.25 {
+                        self.chasing = true;
+                        add(scale(old, 0.99), scale(a, 0.01))
+                    } else {
+                        old
+                    }
+                } else {
+                    self.chasing = false;
+                    old
+                }
+            }
+            (a, true, _) => add(scale(old, 0.001), scale(a.unwrap_or([0.0; 3]), 0.999)),
+            (Some(a), false, _) if old[1] != 0.0 => add(scale(old, 0.8), scale(a, 0.2)),
+            _ => old,
+        };
+        if new[1] < 0.3 {
+            new[1] = 0.3;
+        }
+        self.local = new;
+        new
+    }
+
+    /// The attractor's place forgotten (a new body: `+0x240`).
+    pub fn new_body(&mut self) {
+        self.held = None;
     }
 }
 
@@ -535,6 +598,29 @@ mod tests {
 
     fn clear(_: [f32; 3], _: [f32; 3]) -> bool {
         true
+    }
+
+    #[test]
+    fn the_look_target_follows_the_camera_attractor() {
+        let mut t = LookTarget::default();
+        assert_eq!(t.local, [0.0, 2.0, 0.0]);
+        // third person: a fifth of the way each frame, the x and z held as first found, the y live
+        let p = t.update(Some([0.1, 1.5, 0.05]), false, false);
+        assert!((p[1] - 1.9).abs() < 1e-5 && (p[0] - 0.02).abs() < 1e-5, "{p:?}");
+        for _ in 0..60 {
+            t.update(Some([0.3, 1.6, 0.0]), false, false);
+        }
+        let p = t.local;
+        assert!((p[1] - 1.6).abs() < 1e-3 && (p[0] - 0.1).abs() < 1e-3 && (p[2] - 0.05).abs() < 1e-3, "{p:?}");
+        // never under 0.3; first person goes to the attractor at once
+        assert_eq!(t.update(Some([0.0, 0.0, 0.0]), true, false)[1], 0.3);
+        // no bob: still until the attractor has gone over 0.25 away, then chasing a hundredth a frame
+        let mut t = LookTarget::default();
+        let y = t.update(Some([0.0, 1.5, 0.0]), true, false)[1];
+        assert!((y - 1.5005).abs() < 1e-5);
+        assert_eq!(t.update(Some([0.0, 1.7, 0.0]), false, true)[1], y);
+        let p = t.update(Some([0.0, 1.8, 0.0]), false, true);
+        assert!((p[1] - (y * 0.99 + 0.018)).abs() < 1e-5, "{p:?}");
     }
 
     /// A flat floor at height `y` with nothing else: seen across, near when the camera is low, and the camera held a

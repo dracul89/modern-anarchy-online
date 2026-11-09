@@ -608,6 +608,8 @@ struct App {
     collision: Option<std::sync::Arc<mao_formats::collision::Collision>>,
     /// The camera vehicle's body (no gravity), settled against the surface after each of its steps.
     camera_body: crate::vehicle::Body,
+    /// Where on the character the camera looks (`camera::LookTarget`).
+    look_target: crate::camera::LookTarget,
     /// The interior's rooms, which of them are drawn, the room the character was last found in, and when the camera's
     /// attractor was last chosen (`RunCameraSelectionCollChecks` runs every tenth of a second).
     interior: Option<std::sync::Arc<crate::interior::Interior>>,
@@ -771,7 +773,7 @@ pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<()
     let settings = Settings::load();
     crate::ui::set_debug_overlay(settings.debug_overlay);
     crate::font::set_enabled(settings.original_font);
-    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, world_in: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), flares: Vec::new(), falls: None, area_fog_base: None, sky: Default::default(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), fxs_frame: None, script_meshes: Default::default(), named_sheets: Default::default(), trails: Default::default(), motions: Default::default(), shake: (0.0, 0), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, zones: None, collision: None, camera_body: crate::vehicle::Body::without_gravity(), interior: None, rooms_shown: Vec::new(), room_hint: None, attractor_at: std::time::Instant::now(), casters: Vec::new(), character_parts: Vec::new(), highlight_runs: Default::default(), highlight_fades: Default::default(), follow_shift: [0.0; 3], environment: Default::default(), quake: Default::default(), quake_offset: [0.0; 3], wind: Default::default(), wind_at: std::time::Instant::now(), perf_memory_at: std::time::Instant::now() - std::time::Duration::from_secs(10), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
+    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, world_in: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), flares: Vec::new(), falls: None, area_fog_base: None, sky: Default::default(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), fxs_frame: None, script_meshes: Default::default(), named_sheets: Default::default(), trails: Default::default(), motions: Default::default(), shake: (0.0, 0), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, zones: None, collision: None, camera_body: crate::vehicle::Body::without_gravity(), look_target: Default::default(), interior: None, rooms_shown: Vec::new(), room_hint: None, attractor_at: std::time::Instant::now(), casters: Vec::new(), character_parts: Vec::new(), highlight_runs: Default::default(), highlight_fades: Default::default(), follow_shift: [0.0; 3], environment: Default::default(), quake: Default::default(), quake_offset: [0.0; 3], wind: Default::default(), wind_at: std::time::Instant::now(), perf_memory_at: std::time::Instant::now() - std::time::Duration::from_secs(10), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
     // (entering the game: the loading screen, `ServerLogin3DModule_t::InitialiseMessage`)
     if app.live.is_some() {
         crate::loading::begin(crate::loading::FADE_IN, crate::loading::FADE_OUT);
@@ -1709,6 +1711,19 @@ impl ApplicationHandler for App {
                             reset: std::mem::take(&mut self.cam_reset),
                         };
                         self.mouse_look = (0.0, 0.0);
+                        // The look target: the body's camera attractor in the character's frame (the posed body moved on with the
+                        // character), smoothed as the original smooths it, then turned by the facing and put at the feet.
+                        let attractor = self.casters.iter().find(|c| c.own).map(|c| c.shifted(self.follow_shift)).and_then(|c| {
+                            let find = |name: &str| c.attractors.iter().find(|(n, _)| n == name).map(|(_, m)| [m[12] - px, m[13] - y, m[14] - pz]);
+                            // (no player body has the camera attractor: the head's, `AttractorMesh::GetName(0)`, stands in as in the original)
+                            find("Attractor31_camera").or_else(|| find("Attractor01_head"))
+                        });
+                        let no_bob = crate::prefs::get("UseNoBobCamera").is_some_and(|v| v != 0.0);
+                        let local = self.look_target.update(attractor.map(|a| crate::camera::rotate_y(a, -self.heading)), self.steering.is_first_person(), no_bob);
+                        let look = {
+                            let t = crate::camera::rotate_y(local, self.heading);
+                            [px + t[0], y + t[1], pz + t[2]]
+                        };
                         let ground = self.ground.clone();
                         // (the playfield as the camera's vehicle asks for it, `camera::Surface`: the zones' surfaces and the tile-map
                         // ground as `n3TilemapSurface_t` has them, the rooms, and without surfaces the props' meshes)
@@ -1731,7 +1746,7 @@ impl ApplicationHandler for App {
                         // steers as usual.
                         if self.attractor_at.elapsed() >= std::time::Duration::from_millis(100) {
                             self.attractor_at = std::time::Instant::now();
-                            let target = [px, y + 1.3, pz];
+                            let target = look;
                             let guide_now = self.steering.attractor.unwrap_or(target);
                             self.steering.attractor = self.interior.as_ref().and_then(|interior| {
                                 let room = interior.room_at([px, y, pz], self.room_hint)?;
@@ -1762,7 +1777,7 @@ impl ApplicationHandler for App {
                                 best.map(|(_, at)| at)
                             });
                         }
-                        let (eye, at) = self.steering.update(dt, [px, y + 1.3, pz], self.heading, speed, inputs, &mut surface);
+                        let (eye, at) = self.steering.update(dt, look, self.heading, speed, inputs, &mut surface);
                         w.camera = mao_render::Camera::looking(mao_render::glam::Vec3::new(eye[0], eye[2], eye[1]), mao_render::glam::Vec3::new(at[0], at[2], at[1]));
                         if self.steering.is_first_person() {
                             // (looking out of the head: the target is a step ahead, the eye at the head)

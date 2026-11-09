@@ -764,3 +764,16 @@ fn fall_effect_survey() {
     }
     println!("visual: {:?}", gfx.visual(0x30d6).map(|v| format!("{v:?}").chars().take(600).collect::<String>()));
 }
+
+/// The attractors of the player bodies (the camera's look target wants `Attractor31_camera`, else the first).
+#[test]
+#[ignore]
+fn body_attractor_survey() {
+    let Some(db) = database() else { return };
+    let index = mao_formats::instances::Instances::parse(&db.get(Id { kind: 0xf424a, instance: 1 }).unwrap().unwrap()).unwrap();
+    for file in ["solitus_male.cir", "solitus_female.cir", "opifex_male.cir", "nanomage_female.cir", "athrox_male.cir"] {
+        let mesh = index.find(0xf6952, file).unwrap();
+        let body = mao_formats::catmesh::parse(&db.get(Id { kind: 0xf6952, instance: mesh }).unwrap().unwrap()).unwrap();
+        println!("{file}: camera {} head {}", body.attractor_named("Attractor31_camera").is_some(), body.attractor_named("Attractor01_head").is_some());
+    }
+}
