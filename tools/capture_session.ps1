@@ -4,7 +4,8 @@
 
 .DESCRIPTION
   1. Starts tools/capture_proxy.py on 127.0.0.1:7505 (it follows the hand-offs to the game servers, the shops' and
-     instances' servers too), writing captures/<name>-<time>/net.log.
+     instances' servers too), writing captures/<name>-<time>/net.log; what it did with the hand-offs and any
+     trouble (a server it could not reach, a port it could not take) is in proxy.log beside it.
   2. Starts tools/screen_logger.py: a screenshot every 2 s into captures/<name>-<time>/shots (file names are Unix ms, the
      proxy log's clock).
   3. Launches the real install's anarchyonline.exe pointed at the proxy (command-line arguments only: nothing in the
@@ -34,10 +35,11 @@ $busy = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction Silentl
 if ($busy) { throw "Port $Port is in use by process $($busy[0].OwningProcess): stop it first (an old capture_proxy?)" }
 if (Get-Process anarchyonline -ErrorAction SilentlyContinue) { throw 'An Anarchy Online client is already running: close it first' }
 
-$proxy = Start-Process python -ArgumentList @("`"$repo\tools\capture_proxy.py`"", $Port, 'cm.d1.funcom.com:7505', "`"$dir\net.log`"") -WorkingDirectory $repo -WindowStyle Minimized -PassThru
+# The proxy's own account of the session (hand-offs followed, servers it could not reach) goes to proxy.log.
+$proxy = Start-Process python -ArgumentList @("`"$repo\tools\capture_proxy.py`"", $Port, 'cm.d1.funcom.com:7505', "`"$dir\net.log`"") -WorkingDirectory $repo -WindowStyle Minimized -PassThru -RedirectStandardOutput "$dir\proxy.log" -RedirectStandardError "$dir\proxy.err"
 $shots = Start-Process python -ArgumentList @("`"$repo\tools\screen_logger.py`"", "`"$dir\shots`"", $ShotSeconds) -WorkingDirectory $repo -WindowStyle Minimized -PassThru
 Start-Sleep -Seconds 2
-if ($proxy.HasExited) { throw "The proxy did not start (exit code $($proxy.ExitCode))" }
+if ($proxy.HasExited) { throw "The proxy did not start (exit code $($proxy.ExitCode)): $(Get-Content "$dir\proxy.log", "$dir\proxy.err" -ErrorAction SilentlyContinue | Out-String)" }
 Write-Host "Recording into $dir"
 Write-Host "  proxy pid $($proxy.Id), screenshots pid $($shots.Id)"
 
@@ -76,3 +78,6 @@ Write-Host ''
 Write-Host "Done: $dir"
 Write-Host ("  net.log {0:N0} bytes, {1} connections" -f ($(if ($net) { $net.Length } else { 0 })), $connections)
 Write-Host "  $pictures screenshots, $files client files"
+$trouble = Get-Content "$dir\proxy.log" -ErrorAction SilentlyContinue | Where-Object { $_ -match 'cannot|failed|dropped' }
+if ($trouble) { Write-Host "  proxy trouble (see proxy.log):"; $trouble | ForEach-Object { Write-Host "    $_" } }
+if ((Get-Item "$dir\proxy.err" -ErrorAction SilentlyContinue).Length) { Write-Host "  the proxy wrote errors: see proxy.err" }
