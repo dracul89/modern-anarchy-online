@@ -1265,6 +1265,118 @@ impl SkyFlash {
     }
 }
 
+
+/// A kind-3009 template as `_GfxControlCrazyCone_t` reads it (made by `CreateGfxControl` FUN_100d7517 / FUN_100d7594 /
+/// FUN_100d7611; FUN_100d6a6f the words, FUN_100d73b2 the `GfxVisualCone`s, FUN_100d6dcc the run): word 0 the flags (0x100
+/// the cones' texture runs up them, 0x200 added (unless 0x1000, the cone's own blend byte), 0x400 each cone turned its share
+/// of a turn at the start, 0x800 the point on the ground, 0x2000 kept running when the effect's locator is gone), word 7 the attach
+/// point, word 9 the material, word 10 the cones, word 11 their segments, words 12–13 how much wider each further cone is
+/// above and below, words 14–15 the texture's extents round and up, words 16–17 the radii above and below, words 18–19 the
+/// heights of the top and the base, word 20 the tracks and from word 21 the tracks of 29 words each ([`ConeTrack`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct CrazyCone {
+    pub flags: u32,
+    pub attach: i32,
+    pub material: i32,
+    pub cones: u32,
+    pub segments: i32,
+    /// (above, below): each further cone's radii are these more.
+    pub steps: (f32, f32),
+    pub texture: (f32, f32),
+    /// (above, below) at the start.
+    pub radii: (f32, f32),
+    /// (top, base) at the start: the cone stands on the base height over the point and reaches the top height.
+    pub heights: (f32, f32),
+    pub tracks: Vec<ConeTrack>,
+}
+
+/// One track of a [`CrazyCone`]: for its duration (word 0) the control's values move at the track's speeds, the speeds
+/// themselves at its accelerations (the run's `v += dt × a; x += dt × v`): the texture extents (words 1–2), its offsets (3–4;
+/// the client does not draw them), the top and base heights (5–6; 10–11), the radii above and below (7–8; 12–13), the
+/// offsets' accelerations (14–15) and the spin (9; 16), which turns every cone by the time into the track times it. The
+/// colours above and below run from words 17–18 to 19–20 over the track. Word 21 pulses (none for 0) start word 22 seconds
+/// into the track: each rises to the pulse colours (27 above, 28 below) over word 25 seconds, fades back until word 24, holds
+/// until word 23 past that, and the last pulse's fade is word 26 longer.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ConeTrack {
+    pub duration: f32,
+    pub texture_speed: (f32, f32),
+    pub offset_speed: (f32, f32),
+    pub height_speed: (f32, f32),
+    pub radius_speed: (f32, f32),
+    pub spin: f32,
+    pub height_accel: (f32, f32),
+    pub radius_accel: (f32, f32),
+    pub offset_accel: (f32, f32),
+    pub spin_accel: f32,
+    /// ((above, below) at the start, (above, below) at the end), ARGB.
+    pub colours: ((u32, u32), (u32, u32)),
+    pub pulses: i32,
+    pub pulse_start: f32,
+    pub pulse_hold: f32,
+    pub pulse_fade: f32,
+    pub pulse_rise: f32,
+    pub pulse_extra: f32,
+    /// (above, below), ARGB.
+    pub pulse_colours: (u32, u32),
+}
+
+impl CrazyCone {
+    pub fn read(r: &Record) -> Option<CrazyCone> {
+        if r.payload.len() < 21 {
+            return None;
+        }
+        let tracks = usize::try_from(r.int(20)).ok()?.min(64);
+        if r.payload.len() < 21 + 29 * tracks {
+            return None;
+        }
+        let tracks = (0..tracks)
+            .map(|k| {
+                let b = 21 + 29 * k;
+                let f = |j: usize| r.float(b + j);
+                let c = |j: usize| r.int(b + j) as u32;
+                ConeTrack {
+                    duration: f(0),
+                    texture_speed: (f(1), f(2)),
+                    offset_speed: (f(3), f(4)),
+                    height_speed: (f(5), f(6)),
+                    radius_speed: (f(7), f(8)),
+                    spin: f(9),
+                    height_accel: (f(10), f(11)),
+                    radius_accel: (f(12), f(13)),
+                    offset_accel: (f(14), f(15)),
+                    spin_accel: f(16),
+                    colours: ((c(17), c(18)), (c(19), c(20))),
+                    pulses: r.int(b + 21),
+                    pulse_start: f(22),
+                    pulse_hold: f(23),
+                    pulse_fade: f(24),
+                    pulse_rise: f(25),
+                    pulse_extra: f(26),
+                    pulse_colours: (c(27), c(28)),
+                }
+            })
+            .collect();
+        Some(CrazyCone {
+            flags: r.int(0) as u32,
+            attach: r.int(7),
+            material: r.int(9),
+            cones: r.int(10).clamp(0, 64) as u32,
+            segments: r.int(11),
+            steps: (r.float(12), r.float(13)),
+            texture: (r.float(14), r.float(15)),
+            radii: (r.float(16), r.float(17)),
+            heights: (r.float(18), r.float(19)),
+            tracks,
+        })
+    }
+
+    /// How long it runs: its tracks' durations together.
+    pub fn length(&self) -> f32 {
+        self.tracks.iter().map(|t| t.duration.max(0.0)).sum()
+    }
+}
+
 /// A kind-3020 template as `GfxControlTParticle_t` reads it (the dynel constructor FUN_101134ed; FUN_10112ccd the words,
 /// FUN_10112b4e the `GfxVisualTParticle` (displaysystem `gfxbparticle.rs` `tp_new`, `tp_process`, `tp_draw`), FUN_10113101 the
 /// run): word 0 the flags (0x100 flipped, 0x200 added, 0x400 the point on the ground), word 7 the attach point, word 8 the
@@ -2017,6 +2129,9 @@ pub enum Visual {
     TParticle(TParticle),
     /// Nested cones of light coming down from the sky (kind 3006, `_GfxControlSkyFlash_t`).
     SkyFlash(SkyFlash),
+    /// Spinning open cones about a point whose radii, heights, colours and spin follow tracks (kind 3009, `_GfxControlCrazyCone_t`:
+    /// the Destruction perk line's hits).
+    CrazyCone(CrazyCone),
     /// Ribbons spiralling round the point, turning (kind 3033, `GfxControlSpiral2_t`).
     Spiral2(Spiral2),
     /// Flames off a disc at the point (kind 1004, `_GfxControlFire_t`).
@@ -2207,6 +2322,7 @@ impl Gfx {
             1007 => Nano::read(r).map(Visual::Nano),
             3020 => TParticle::read(r).map(Visual::TParticle),
             3006 => SkyFlash::read(r).map(Visual::SkyFlash),
+            3009 => CrazyCone::read(r).map(Visual::CrazyCone),
             3033 => Spiral2::read(r).map(Visual::Spiral2),
             1004 => Fire::read(r).map(Visual::Fire),
             3030 => GroundGrid::read(r).map(Visual::GroundGrid),

@@ -1649,6 +1649,103 @@ pub fn skyflash_shells(s: &mao_formats::gfx::SkyFlash, at: [f32; 3], t: f32, gro
     out
 }
 
+
+/// What a [`CrazyCone`]'s tracks have made of its values `t` seconds in (FUN_100d6dcc's run, which moves each value by its
+/// track's speed and the speed by its acceleration a frame at a time, taken here as `v t + a t² / 2` over the track):
+/// the track it is in and the time into it, the texture extents, the top and base heights, the radii above and below, the
+/// spin angle and the colours above and below; none once the tracks have run out.
+struct ConeState {
+    track: usize,
+    into: f32,
+    texture: (f32, f32),
+    heights: (f32, f32),
+    radii: (f32, f32),
+    angle: f32,
+    colours: (u32, u32),
+}
+
+fn crazycone_state(c: &mao_formats::gfx::CrazyCone, t: f32) -> Option<ConeState> {
+    let mut texture = c.texture;
+    let mut heights = c.heights;
+    let mut radii = c.radii;
+    let mut left = t;
+    for (k, track) in c.tracks.iter().enumerate() {
+        let d = track.duration.max(0.0);
+        let into = if left >= d && k + 1 < c.tracks.len() { d } else { left.min(d) };
+        let run = |speed: f32, accel: f32| speed * into + 0.5 * accel * into * into;
+        texture.0 += run(track.texture_speed.0, 0.0);
+        texture.1 += run(track.texture_speed.1, 0.0);
+        heights.0 += run(track.height_speed.0, track.height_accel.0);
+        heights.1 += run(track.height_speed.1, track.height_accel.1);
+        radii.0 += run(track.radius_speed.0, track.radius_accel.0);
+        radii.1 += run(track.radius_speed.1, track.radius_accel.1);
+        if left >= d && k + 1 < c.tracks.len() {
+            left -= d;
+            continue;
+        }
+        if left >= d {
+            return None;
+        }
+        let u = if d > 0.0 { into / d } else { 1.0 };
+        let mix = |a: u32, b: u32, f: f32| mao_formats::gfx::key_colour(&[(0.0, a), (1.0, b)], f.clamp(0.0, 1.0));
+        let mut above = mix(track.colours.0 .0, track.colours.1 .0, u);
+        let mut below = mix(track.colours.0 .1, track.colours.1 .1, u);
+        // (the pulses: each rises to the pulse colours, fades back and holds, the last one's fade drawn out)
+        if track.pulses > 0 && into > track.pulse_start {
+            let mut p = into - track.pulse_start;
+            let mut index = 0;
+            let mut fade = track.pulse_fade;
+            while index < track.pulses && p > track.pulse_hold + fade {
+                p -= track.pulse_hold + fade;
+                index += 1;
+                if index == track.pulses - 1 {
+                    fade += track.pulse_extra;
+                }
+            }
+            if index < track.pulses {
+                if p < track.pulse_rise {
+                    let f = p / track.pulse_rise.max(1e-6);
+                    above = mix(above, track.pulse_colours.0, f);
+                    below = mix(below, track.pulse_colours.1, f);
+                } else if p < fade {
+                    let f = (p - track.pulse_rise) / (fade - track.pulse_rise).max(1e-6);
+                    above = mix(track.pulse_colours.0, above, f);
+                    below = mix(track.pulse_colours.1, below, f);
+                }
+            }
+        }
+        let angle = into * (track.spin + track.spin_accel * into);
+        return Some(ConeState { track: k, into, texture, heights, radii, angle, colours: (above, below) });
+    }
+    None
+}
+
+/// `_GfxControlCrazyCone_t`'s cones `t` seconds in about `at` (world, Z up; see [`mao_formats::gfx::CrazyCone`]): cone k is
+/// k steps wider above and below, turned the spin angle plus k shares of a turn, standing on the base height over the point
+/// (on the ground with flag 0x800) and as tall as the top height over the base; the texture's offsets are not drawn.
+pub fn crazycone_shells(c: &mao_formats::gfx::CrazyCone, at: [f32; 3], t: f32, ground: &dyn Fn(f32, f32) -> Option<f32>) -> Vec<Shell> {
+    if t < 0.0 || c.cones == 0 {
+        return Vec::new();
+    }
+    let Some(s) = crazycone_state(c, t) else { return Vec::new() };
+    let _ = (s.track, s.into);
+    let mut foot = at;
+    if c.flags & 0x800 != 0 {
+        foot[2] = ground(at[0], at[1]).unwrap_or(at[2]);
+    }
+    foot[2] += s.heights.1;
+    let height = s.heights.0 - s.heights.1;
+    let colours = (shell_colour(s.colours.1), shell_colour(s.colours.0));
+    (0..c.cones)
+        .map(|k| {
+            let turn = s.angle + k as f32 * std::f32::consts::TAU / c.cones as f32;
+            let vertices = cone_vertices(foot, c.segments, s.radii.1 + k as f32 * c.steps.1, s.radii.0 + k as f32 * c.steps.0, height, turn, colours, s.texture, c.flags & 0x100 != 0);
+            // (the cone adds its colours with the visual's first flag unless its own byte says to blend: `GfxVisualCone`'s draw)
+            Shell { sprite: c.material.max(0) as u16, additive: c.flags & 0x200 != 0 && c.flags & 0x1000 == 0, vertices }
+        })
+        .collect()
+}
+
 /// A triangle strip's vertices as a list of triangles.
 fn strip_triangles(strip: &[ShellVertex]) -> Vec<ShellVertex> {
     let mut out = Vec::with_capacity(strip.len().saturating_sub(2) * 3);
@@ -1670,6 +1767,7 @@ pub fn visual_ground_shells(v: &Visual, feet: [f32; 3], t: f32, ground: &dyn Fn(
         Visual::Spiral2(s) => spiral2_shells(s, [feet[0], feet[1], feet[2] + if s.attach == 0 { 0.0 } else { anchor(s.attach).0 }], t),
         Visual::GroundGrid(g) => groundgrid_shells(g, feet, t, ground),
         Visual::SkyFlash(s) => skyflash_shells(s, [feet[0], feet[1], feet[2] + if s.attach == 0 { 0.0 } else { anchor(s.attach).0 }], t, ground),
+        Visual::CrazyCone(c) => crazycone_shells(c, [feet[0], feet[1], feet[2] + if c.attach == 0 { 0.0 } else { anchor(c.attach).0 }], t, ground),
         Visual::TParticle(p) => tparticle_shells(p, [feet[0], feet[1], feet[2] + if p.attach == 0 { 0.0 } else { anchor(p.attach).0 }], t),
         Visual::Meta(children) => children.iter().filter(|c| t < pulse_timing(c).1).flat_map(|c| visual_ground_shells(c, feet, t, ground)).collect(),
         Visual::Scatter { child, children, looping } => {
@@ -2752,6 +2850,7 @@ impl Shot {
                 Visual::VulcanRocks(_) => ROCKS_LAST,
                 Visual::TParticle(p) => p.duration.max(0.0),
                 Visual::SkyFlash(s) => s.length(),
+                Visual::CrazyCone(c) => c.length(),
                 Visual::GroundShake { duration, .. } => duration.max(0.0),
                 Visual::GroundGrid(g) => g.duration.max(0.0),
                 Visual::Spiral2(s) => s.duration.max(0.0),
@@ -2841,7 +2940,7 @@ pub fn visual_particles(v: &Visual, feet: [f32; 3], time: f32, reach: Reach) -> 
         // (a streak along a shot's line: see `tracer5_shell`, `tracer1_shells`, `tracer3_particles`)
         Visual::Tracer5(_) | Visual::Tracer1(_) | Visual::Tracer3(_) => Vec::new(),
         // (crossed strips and cones: see `tparticle_shells`, `skyflash_shells`)
-        Visual::TParticle(_) | Visual::SkyFlash(_) | Visual::Spiral2(_) | Visual::TParticle2 { .. } | Visual::GroundGrid(_) => Vec::new(),
+        Visual::TParticle(_) | Visual::SkyFlash(_) | Visual::CrazyCone(_) | Visual::Spiral2(_) | Visual::TParticle2 { .. } | Visual::GroundGrid(_) => Vec::new(),
         Visual::Fire(f) => fire_particles(f, feet, 0.0, time),
         // (it shakes the camera: see `shake`)
         Visual::GroundShake { .. } => Vec::new(),
@@ -3035,6 +3134,7 @@ pub fn pulse_timing(v: &Visual) -> (f32, f32, i32) {
         Visual::Tracer5(_) | Visual::Tracer1(_) | Visual::Tracer3(_) => (600.0, 1.0, 1),
         Visual::TParticle(p) => if p.duration >= 0.0 { (600.0, p.duration.max(0.05), 1) } else { (600.0, 600.0, -1) },
         Visual::SkyFlash(s) => (600.0, s.length().max(0.05), 1),
+        Visual::CrazyCone(c) => (600.0, c.length().max(0.05), 1),
         Visual::Fire(f) => if f.duration >= 0.0 { (600.0, f.duration.max(0.05), 1) } else { (600.0, 600.0, -1) },
         Visual::GroundShake { duration, .. } => (600.0, duration.max(0.05), 1),
         Visual::GroundGrid(g) => if g.duration > 0.0 { (600.0, g.duration, 1) } else { (600.0, 600.0, -1) },
