@@ -86,13 +86,12 @@ doesn't turn); **right button drag** turns the camera and the character with it
 (the character faces where the camera looks); **both buttons** walk forward;
 **scroll** zooms. While walking or turning with the keys the camera swings round
 behind the character (unless the mouse is steering). The cursor is hidden and
-confined while a button is held. Not done: strafing (A/D turn; the server's
-strafe messages aren't decoded), camera collision with the ground and walls,
-a first-person view, an option for inverted mouse. Not tried in the live window.
+confined while a button is held. Strafing is on `Z` / `C` (A/D turn, as the original's defaults do; see 4e). Not done:
+camera collision with the ground and walls, an option for inverted mouse.
 
 ## 4e. Controls added for playing
-`Z` / `C` strafe left / right (the position is reported with ordinary updates; the strafe start and stop
-types, probably 5-8, are a guess behind `MAO_STRAFE_TYPES=1`); `Ctrl+Shift+C` toggles walking through props (was `C`);
+`Z` / `C` strafe left / right (the protocol's `StrafeLeftStart` 7 / `Stop` 8 and `StrafeRightStart` 5 / `Stop` 6 are
+sent as the original sends its movement types; the captures carry them for the other characters, who are drawn strafing); `Ctrl+Shift+C` toggles walking through props (was `C`);
 `X` sits or stands (sit = action `0x78`, which the protocol names **Logout**: the server starts a ~30 s logout
 countdown and broadcasts `0x7a`; stand = `0x57` cancels it; moving stands you up, and the log says so); `E` uses the target (message `52526858`, action 3, decoded from the capture and
 byte-exact in a test; not yet confirmed live because the test character stands in an interior with no
@@ -1398,10 +1397,13 @@ colour is the client's. `MAO_TYPE=<text>` types into the preview after `MAO_CLIC
 windows, the skills window's lists, the character selection) are GUI.dll's `ScrollView_c` and `ScrollViewChild_c` now:
 the bar modes (`never`, `always`, `auto`, `auto_reserve`), `scroll_client`, the client sized to at least its frame and its
 minimum and at most its maximum and moved by the scroll (`LayoutChilds` 0x10143dd4), its minimum without the scrolled axes
-(0x10143ca5), the scroll view's preferred size with the bar's room (0x10142a4b), the bar as wide as the skin's arrows
-(`GetDefaultWidth`) a pixel right of the client, drawn and handled as `chrome::scroll` does (arrows 5, page 20, knob
-drag), the wheel 10 a notch (`WheelMoved`, step `_DAT_101a98ec`). What lies outside a scroll child is neither drawn nor
-clicked (the host clips by every clipping ancestor). Not done: a horizontal bar's pictures, wheel snapping.
+(0x10143ca5), the scroll view's preferred size with the bars' room (0x10142a4b), the bars as wide as the skin's arrows
+(`GetDefaultWidth`) a pixel right of and below the client (the vertical of `GFX_GUI_SIMPLE_SB_UP`, `_DOWN`, `_SLIDER_VERT`,
+the horizontal of `_LEFT`, `_RIGHT`, `_SLIDER_HOR`, as `_UpdateScrollBars` makes them), drawn and handled as `chrome::scroll`
+does (arrows 5, page 20, knob drag), the wheel 10 a notch (`WheelMoved`, step `_DAT_101a98ec`), and with snapping
+(`SetSnapToScrollWheelStep`, which the multi-list view turns on with a row's step) the notches add up and the scroll lands
+on a multiple of the step. What lies outside a scroll child is neither drawn nor clicked (the host clips by every clipping
+ancestor).
 
 **Drop-down lists and the pop-up menu** (`gui/dropdown.rs`, `gui/popup.rs`). The skins' `DropdownMenu` elements (looking
 for team, the Notum Wars signup terminal) are GUI.dll's `DropdownMenu_c`: a three-piece box (`GFX_GUI_DROPDOWNMENU_LEFT`,

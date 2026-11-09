@@ -21,6 +21,11 @@ pub mod movement {
     pub const FORWARD_STOP: u8 = 2;
     pub const BACKWARD_START: u8 = 3;
     pub const BACKWARD_STOP: u8 = 4;
+    /// The strafes (`MovementType`): the captures carry them for the other characters about.
+    pub const STRAFE_RIGHT_START: u8 = 5;
+    pub const STRAFE_RIGHT_STOP: u8 = 6;
+    pub const STRAFE_LEFT_START: u8 = 7;
+    pub const STRAFE_LEFT_STOP: u8 = 8;
     pub const TURN_LEFT_START: u8 = 9;
     pub const TURN_RIGHT_START: u8 = 11;
     pub const TURN_STOP: u8 = 12;

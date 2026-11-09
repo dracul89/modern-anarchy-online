@@ -583,7 +583,11 @@ impl Control for MultiList {
 pub fn create(tree: &mut Tree, name: &str) -> Id {
     let header = tree.add(Node::new("", Box::new(Header { columns: Vec::new(), press: Press::None, last_edge: None, height: Shared::new(0.0) })));
     // (the scroll view: bars when needed, `SetVScrollBarMode(2)` / `SetHScrollBarMode(2)`)
-    let scroll = tree.add(Node::new("", Box::new(ScrollView::new(2, 2))));
+    // (the wheel moves a row at a time and lands on one: `UpdateScrollWheelStep` and `SetSnapToScrollWheelStep(true)`)
+    let mut view = ScrollView::new(2, 2);
+    view.step = Rows::step();
+    view.snap = true;
+    let scroll = tree.add(Node::new("", Box::new(view)));
     tree.get_mut(scroll).layout = Layout::Scroll;
     let child = tree.add(Node::new("", Box::new(ScrollChild)));
     tree.get_mut(child).layout = Layout::ScrollChild;

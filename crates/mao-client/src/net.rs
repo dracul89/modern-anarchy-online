@@ -2396,6 +2396,16 @@ impl World {
                     mao_net::n3::movement::LEAVE_SWIM => {
                         self.swimming.remove(&m.identity.1);
                     }
+                    // (the strafes, for their animation)
+                    mao_net::n3::movement::STRAFE_LEFT_START => {
+                        self.strafing.insert(m.identity.1, -1);
+                    }
+                    mao_net::n3::movement::STRAFE_RIGHT_START => {
+                        self.strafing.insert(m.identity.1, 1);
+                    }
+                    mao_net::n3::movement::STRAFE_LEFT_STOP | mao_net::n3::movement::STRAFE_RIGHT_STOP => {
+                        self.strafing.remove(&m.identity.1);
+                    }
                     _ => {}
                 }
             }
@@ -6319,19 +6329,15 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 send_kind(if landed { movement::JUMP_STOP } else { movement::FULL }, &mut connection);
             }
             if keys.strafe != strafing {
-                // The strafe start / stop types (5..8) are a guess from the numbering; until verified the
-                // server is told with ordinary position updates (MAO_STRAFE_TYPES=1 sends the guesses).
-                if std::env::var_os("MAO_STRAFE_TYPES").is_some() {
-                    let kind = match (strafing, keys.strafe) {
-                        (_, -1) => 5,
-                        (_, 1) => 7,
-                        (-1, _) => 6,
-                        _ => 8,
-                    };
-                    send_kind(kind, &mut connection);
-                } else if !(keys.turn != turning) {
-                    send_kind(movement::UPDATE, &mut connection);
-                }
+                // The strafe start and stop types (the protocol's `MovementType`: `StrafeRightStart` 5, `StrafeRightStop` 6,
+                // `StrafeLeftStart` 7, `StrafeLeftStop` 8; the captures carry them for the other characters about).
+                let kind = match (strafing, keys.strafe) {
+                    (_, -1) => movement::STRAFE_LEFT_START,
+                    (_, 1) => movement::STRAFE_RIGHT_START,
+                    (-1, _) => movement::STRAFE_LEFT_STOP,
+                    _ => movement::STRAFE_RIGHT_STOP,
+                };
+                send_kind(kind, &mut connection);
             }
             if !ok {
                 break;

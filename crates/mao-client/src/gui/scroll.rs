@@ -5,10 +5,13 @@
 //! (0x10143434): a wheel step of 10 (`_DAT_101a98ec`), no snapping. The client fills the view less a bar's width and a
 //! pixel on the right (and at the bottom for a horizontal bar) where a bar is shown: always with modes 1 and 3, with `auto`
 //! when the client's content does not fit (`_UpdateScrollBars` 0x10142b68); its preferred size is the client's plus that
-//! room (`CalculatePreferredSize` 0x10142a4b). The bar is a `ScrollBar_c` of `GFX_GUI_SIMPLE_SB_UP`, `_DOWN` and
-//! `_SLIDER_VERT` as wide as its arrows (`GetDefaultWidth` 0x10142507), drawn and handled as `chrome::scroll` does: an arrow
-//! scrolls 5, a click beside the knob 20, the knob drags. The wheel scrolls 10 a notch (`WheelMoved` 0x10142820; egui's
-//! notch is 50 points).
+//! room (`CalculatePreferredSize` 0x10142a4b). The bars are `ScrollBar_c`s (0x10142b68 makes them: the vertical of pictures
+//! 0x17c, 0x177 and 0x17b, `GFX_GUI_SIMPLE_SB_UP`, `_DOWN` and `_SLIDER_VERT`; the horizontal of 0x178, 0x179 and 0x17a,
+//! `_LEFT`, `_RIGHT` and `_SLIDER_HOR`) as wide as their arrows (`GetDefaultWidth` 0x10142507), drawn and handled as
+//! `chrome::scroll` does: an arrow scrolls 5, a click beside the knob 20, the knob drags. The wheel scrolls 10 a notch
+//! (`WheelMoved` 0x10142820; egui's notch is 50 points); with snapping on (`SetSnapToScrollWheelStep`, the multi-list view
+//! sets it) the notches are added up and, from one whole notch (`_DAT_101a87f8`), the scroll lands on a multiple of the
+//! step — the next below when scrolling down, the next above when scrolling up.
 //!
 //! `ScrollViewChild_c` (0x10143eca): its children in one inner view laid out by the element's `view_layout`
 //! (`SetClient` 0x10144016), sized to at least the frame and its minimum, at most its maximum (`LayoutChilds`
@@ -32,10 +35,13 @@ pub fn mode(s: &str) -> u8 {
     }
 }
 
-/// The bar's arrows and knob (the default `ScrollBar_c`'s pictures).
+/// The bars' arrows and knobs (the default `ScrollBar_c`'s pictures).
 pub const UP: &str = "GFX_GUI_SIMPLE_SB_UP";
 pub const DOWN: &str = "GFX_GUI_SIMPLE_SB_DOWN";
 pub const KNOB: &str = "GFX_GUI_SIMPLE_SB_SLIDER_VERT";
+pub const LEFT: &str = "GFX_GUI_SIMPLE_SB_LEFT";
+pub const RIGHT: &str = "GFX_GUI_SIMPLE_SB_RIGHT";
+pub const KNOB_H: &str = "GFX_GUI_SIMPLE_SB_SLIDER_HOR";
 
 /// What is pressed on the bar.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -46,12 +52,20 @@ enum Press {
     Down,
     Knob(f32),
     Page,
+    /// The same on the horizontal bar.
+    Left,
+    Right,
+    KnobH(f32),
+    PageH,
 }
 
 pub struct ScrollView {
     pub h_mode: u8,
     pub v_mode: u8,
     pub step: f32,
+    /// Whether the wheel lands on multiples of the step, and the notches added up so far.
+    pub snap: bool,
+    notches: f32,
     /// How far the client is scrolled (right, down).
     pub offset: Point,
     /// Set by the layout: the client's content size, the room it is shown in, which bars are shown, the view's size and
@@ -62,8 +76,9 @@ pub struct ScrollView {
     pub h_bar: Cell<bool>,
     pub size: Cell<Point>,
     pub bar_width: Cell<f32>,
-    /// The arrows' heights (from the skin, when drawn).
+    /// The arrows' heights (from the skin, when drawn), and the horizontal bar's arrows' widths.
     arrows: Cell<(f32, f32)>,
+    arrows_h: Cell<(f32, f32)>,
     press: Press,
 }
 
@@ -73,6 +88,8 @@ impl ScrollView {
             h_mode,
             v_mode,
             step: 10.0,
+            snap: false,
+            notches: 0.0,
             offset: Point::new(0.0, 0.0),
             content: Cell::new(Point::new(0.0, 0.0)),
             visible: Cell::new(Point::new(0.0, 0.0)),
@@ -81,6 +98,7 @@ impl ScrollView {
             size: Cell::new(Point::new(0.0, 0.0)),
             bar_width: Cell::new(16.0),
             arrows: Cell::new((16.0, 16.0)),
+            arrows_h: Cell::new((16.0, 16.0)),
             press: Press::None,
         }
     }
@@ -90,17 +108,35 @@ impl ScrollView {
         (self.content.get().y - self.visible.get().y).max(0.0)
     }
 
+    /// How far right the client can go.
+    pub fn overflow_x(&self) -> f32 {
+        (self.content.get().x - self.visible.get().x).max(0.0)
+    }
+
     /// Scrolls to `y`, kept within the content.
     pub fn scroll_to(&mut self, y: f32) {
         self.offset.y = y.clamp(0.0, self.overflow()).floor();
     }
 
-    /// The bar's rect in the view (its right edge, above any horizontal bar).
+    /// Scrolls to `x`, kept within the content.
+    pub fn scroll_to_x(&mut self, x: f32) {
+        self.offset.x = x.clamp(0.0, self.overflow_x()).floor();
+    }
+
+    /// The vertical bar's rect in the view (its right edge, above any horizontal bar).
     fn bar(&self) -> egui::Rect {
         let s = self.size.get();
         let w = self.bar_width.get();
         let bottom = s.y + 1.0 - if self.h_bar.get() { w + 1.0 } else { 0.0 };
         egui::Rect::from_min_max(egui::pos2(s.x + 1.0 - w, 0.0), egui::pos2(s.x + 1.0, bottom))
+    }
+
+    /// The horizontal bar's rect in the view (its bottom edge, left of any vertical bar).
+    fn bar_h(&self) -> egui::Rect {
+        let s = self.size.get();
+        let w = self.bar_width.get();
+        let right = s.x + 1.0 - if self.v_bar.get() { w + 1.0 } else { 0.0 };
+        egui::Rect::from_min_max(egui::pos2(0.0, s.y + 1.0 - w), egui::pos2(right, s.y + 1.0))
     }
 
     fn knob(&self) -> (f32, f32) {
@@ -110,6 +146,16 @@ impl ScrollView {
         let overflow = self.overflow();
         let fraction = if overflow > 0.0 { self.offset.y / overflow } else { 0.0 };
         crate::chrome::knob(bar.top(), bar.bottom(), up, down, self.visible.get().y / content, fraction)
+    }
+
+    /// The horizontal knob's left and right.
+    fn knob_h(&self) -> (f32, f32) {
+        let bar = self.bar_h();
+        let (left, right) = self.arrows_h.get();
+        let content = self.content.get().x.max(1.0);
+        let overflow = self.overflow_x();
+        let fraction = if overflow > 0.0 { self.offset.x / overflow } else { 0.0 };
+        crate::chrome::knob(bar.left(), bar.right(), left, right, self.visible.get().x / content, fraction)
     }
 }
 
@@ -122,19 +168,32 @@ impl Control for ScrollView {
         if let (Some(up), Some(down)) = (skin.get(UP), skin.get(DOWN)) {
             self.arrows.set((up.size.y, down.size.y));
         }
-        if !self.v_bar.get() {
-            return;
+        if let (Some(left), Some(right)) = (skin.get(LEFT), skin.get(RIGHT)) {
+            self.arrows_h.set((left.size.x, right.size.x));
         }
-        let (up, down) = self.arrows.get();
-        let bar = self.bar().translate(p.rect.min.to_vec2());
         let tint = crate::chrome::rgb(p.env.palette.accent);
         let w = self.bar_width.get();
-        skin.draw_in(p.painter, UP, egui::Rect::from_min_size(bar.min, egui::vec2(w, up)), tint);
-        skin.draw_in(p.painter, DOWN, egui::Rect::from_min_size(egui::pos2(bar.left(), bar.bottom() - down), egui::vec2(w, down)), tint);
-        if self.overflow() > 0.0 {
-            let (k0, k1) = self.knob();
-            let off = p.rect.min.y;
-            skin.draw_in(p.painter, KNOB, egui::Rect::from_min_max(egui::pos2(bar.left(), off + k0), egui::pos2(bar.right(), off + k1)), tint);
+        if self.v_bar.get() {
+            let (up, down) = self.arrows.get();
+            let bar = self.bar().translate(p.rect.min.to_vec2());
+            skin.draw_in(p.painter, UP, egui::Rect::from_min_size(bar.min, egui::vec2(w, up)), tint);
+            skin.draw_in(p.painter, DOWN, egui::Rect::from_min_size(egui::pos2(bar.left(), bar.bottom() - down), egui::vec2(w, down)), tint);
+            if self.overflow() > 0.0 {
+                let (k0, k1) = self.knob();
+                let off = p.rect.min.y;
+                skin.draw_in(p.painter, KNOB, egui::Rect::from_min_max(egui::pos2(bar.left(), off + k0), egui::pos2(bar.right(), off + k1)), tint);
+            }
+        }
+        if self.h_bar.get() {
+            let (left, right) = self.arrows_h.get();
+            let bar = self.bar_h().translate(p.rect.min.to_vec2());
+            skin.draw_in(p.painter, LEFT, egui::Rect::from_min_size(bar.min, egui::vec2(left, w)), tint);
+            skin.draw_in(p.painter, RIGHT, egui::Rect::from_min_size(egui::pos2(bar.right() - right, bar.top()), egui::vec2(right, w)), tint);
+            if self.overflow_x() > 0.0 {
+                let (k0, k1) = self.knob_h();
+                let off = p.rect.min.x;
+                skin.draw_in(p.painter, KNOB_H, egui::Rect::from_min_max(egui::pos2(off + k0, bar.top()), egui::pos2(off + k1, bar.bottom())), tint);
+            }
         }
     }
     fn takes_mouse(&self) -> bool {
@@ -144,7 +203,26 @@ impl Control for ScrollView {
         let bar = self.bar();
         let (up, down) = self.arrows.get();
         let pos = egui::pos2(at.x, at.y);
+        let bar_h = self.bar_h();
         match m {
+            Mouse::Down if self.h_bar.get() && bar_h.contains(pos) => {
+                let (left, right) = self.arrows_h.get();
+                let (k0, k1) = self.knob_h();
+                let x = self.offset.x;
+                if at.x < bar_h.left() + left {
+                    self.press = Press::Left;
+                    self.scroll_to_x(x - 5.0);
+                } else if at.x >= bar_h.right() - right {
+                    self.press = Press::Right;
+                    self.scroll_to_x(x + 5.0);
+                } else if (k0..k1).contains(&at.x) {
+                    self.press = Press::KnobH(at.x - k0);
+                } else {
+                    self.press = Press::PageH;
+                    self.scroll_to_x(if at.x < k0 { x - 20.0 } else { x + 20.0 });
+                }
+                Some(Signal::Scrolled)
+            }
             Mouse::Down if self.v_bar.get() && bar.contains(pos) => {
                 let (k0, k1) = self.knob();
                 let y = self.offset.y;
@@ -173,6 +251,16 @@ impl Control for ScrollView {
                         return Some(Signal::Scrolled);
                     }
                 }
+                if let Press::KnobH(grab) = self.press {
+                    let (left, right) = self.arrows_h.get();
+                    let (k0, k1) = self.knob_h();
+                    let (start, end) = (bar_h.left() + left, bar_h.right() - right - 1.0 - (k1 - k0 - 1.0));
+                    if end > start {
+                        let to = self.overflow_x() * (at.x - grab - start) / (end - start);
+                        self.scroll_to_x(to);
+                        return Some(Signal::Scrolled);
+                    }
+                }
                 None
             }
             Mouse::Up { .. } => {
@@ -186,9 +274,23 @@ impl Control for ScrollView {
         if !self.v_bar.get() || self.overflow() <= 0.0 || self.step <= 0.0 {
             return false;
         }
-        // (a notch of egui's 50 points is the original's one)
-        let y = self.offset.y - dy / 50.0 * self.step;
-        self.scroll_to(y);
+        // (a notch of egui's 50 points is the original's one; the wheel's sign is the original's: down is positive)
+        let notches = -dy / 50.0;
+        if !self.snap {
+            let y = self.offset.y + notches * self.step;
+            self.scroll_to(y);
+            return true;
+        }
+        // Snapping (`WheelMoved` 0x10142820): the notches add up until a whole one, then the scroll goes to the multiple of
+        // the step the notches reach, rounded down going down and up going up.
+        self.notches += notches;
+        if self.notches.abs() < 1.0 {
+            return true;
+        }
+        let steps = (self.notches * self.step + self.offset.y) / self.step;
+        let steps = if self.notches >= 0.0 || self.offset.y >= 0.0 { steps.floor() } else { steps.ceil() };
+        self.notches = 0.0;
+        self.scroll_to(steps * self.step);
         true
     }
     fn as_any(&self) -> &dyn std::any::Any {
@@ -298,8 +400,9 @@ pub fn layout_view(tree: &mut Tree, id: Id) {
         v.content.set(content);
         v.visible.set(Point::new(frame.width(), frame.height()));
         v.size.set(Point::new(bounds.width(), bounds.height()));
-        let y = v.offset.y;
+        let (x, y) = (v.offset.x, v.offset.y);
         v.scroll_to(y);
+        v.scroll_to_x(x);
     }
 }
 
@@ -369,6 +472,32 @@ mod tests {
         assert!(tree.get_mut(id).control.wheel(-50.0, 100.0));
         tree.set_frame(id, Rect::new(0.0, 0.0, 120.0, 99.0));
         assert_eq!(tree.window_frame(row).top, before - 10.0);
+        // a wide row shows a horizontal bar at the bottom, and the wheel with snapping lands on the step
+        let (mut tree, id) = load(r#"<ScrollView h_scrollbar_mode="auto" v_scrollbar_mode="auto"><ScrollViewChild view_layout="vertical" name="list"><View name="wide" min_size="Point(300,18)" max_size="Point(300,18)"/></ScrollViewChild></ScrollView>"#);
+        tree.set_frame(id, Rect::new(0.0, 0.0, 120.0, 99.0));
+        {
+            let v = tree.control::<ScrollView>(id).unwrap();
+            assert!(v.h_bar.get() && !v.v_bar.get());
+            assert!((v.overflow_x() - (300.0 - 120.0)).abs() < 1e-3, "{}", v.overflow_x());
+            let bar = v.bar_h();
+            assert_eq!((bar.top(), bar.bottom(), bar.left(), bar.right()), (100.0 - 16.0, 100.0, 0.0, 121.0));
+        }
+        let (mut tree, id) = load(&format!(r#"<ScrollView v_scrollbar_mode="auto"><ScrollViewChild view_layout="vertical" name="list">{rows}</ScrollViewChild></ScrollView>"#));
+        tree.set_frame(id, Rect::new(0.0, 0.0, 120.0, 99.0));
+        {
+            let v = tree.control_mut::<ScrollView>(id).unwrap();
+            v.snap = true;
+            v.step = 19.0;
+            v.scroll_to(25.0);
+            // half a notch does nothing yet; the whole notch lands on the next multiple of 19 below 25 + 19
+            assert!(v.wheel(-25.0, 100.0));
+            assert_eq!(v.offset.y, 25.0);
+            assert!(v.wheel(-25.0, 100.0));
+            assert_eq!(v.offset.y, 38.0);
+            // and back up: the multiple above 38 - 19
+            assert!(v.wheel(50.0, 100.0));
+            assert_eq!(v.offset.y, 19.0);
+        }
         // a short list shows no bar
         let (mut tree, id) = load(r#"<ScrollView v_scrollbar_mode="auto"><ScrollViewChild view_layout="vertical"><View min_size="Point(50,18)"/></ScrollViewChild></ScrollView>"#);
         tree.set_frame(id, Rect::new(0.0, 0.0, 120.0, 99.0));

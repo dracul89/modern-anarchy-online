@@ -30,9 +30,17 @@
 //!   feet; the client uses the character's eye height.
 //! - The field of view is 90° across (`VisualCamera_t::SetViewPlaneWindow(1.5708, aspect)`, FUN_1002107a).
 //!
-//! Not ported: the free camera's sensors round obstacles (`CalculateSensorSteerDir`), the two-shot and secondary-target
-//! framing, the camera attractors of rooms, the vehicle's own collision. Lines of sight come from the caller (the
-//! client tests the terrain only).
+//! - **The free camera's sensors** (`UpdateSensors` 0x1001e71f, `CalculateSensorSteerDir` 0x1001d955): with the character
+//!   out of the camera's sight, the camera is flexed 0.5, 2, 8 and 32 units along its up, its down, the world's up and down,
+//!   its forward and back, in that order, until a flexed place sees the character (from half a unit back along the flex)
+//!   and is itself reached from the camera; the steering target is then nudged a unit that way (`CalcSteering` 0x1001e797).
+//!   No flex seeing it, the camera is blind (`IsBlind`). Seeing the character, the target is kept 0.4 up when the camera
+//!   sits under it.
+//! - **Room camera attractors**: see `attractor`.
+//!
+//! Not ported: the two-shot and secondary-target framing, the vehicle's own collision (a blind camera takes the nearest seen
+//! point of the way to its target instead) and the 0.4 lift near the ground's surface (the caller gives lines of sight,
+//! not surface distances).
 //!
 //! All positions here are in the server's frame (x, height, z); the character's heading is 0 along +z and turns
 //! towards +x as it grows (`rotate_y`).
@@ -133,6 +141,8 @@ pub struct SteeringCamera {
     /// A room's camera attractor the vehicle is drawn to (`CameraVehicle_t` +0x1a0, `PointCameraAttractor_t`'s steering:
     /// `SteeringArrive` to its point), in the server's frame; none outside such a room.
     pub attractor: Option<[f32; 3]>,
+    /// `IsBlind` (+0x1e9): the free camera cannot see the character and no sensor found a way to.
+    pub blind: bool,
     /// The preferred direction (in the character's frame for the fixed cameras) and distance (+0x1f8, +0x198).
     pref_dir: [f32; 3],
     pref_dist: f32,
@@ -151,6 +161,7 @@ impl SteeringCamera {
         SteeringCamera {
             mode,
             attractor: None,
+            blind: false,
             preferred,
             pos: [0.0; 3],
             vel: [0.0; 3],
@@ -244,6 +255,27 @@ impl SteeringCamera {
             }
         }
         (optimal, Some(blocked))
+    }
+
+    /// `CalculateSensorSteerDir` (0x1001d955): the camera flexed 0.5, 2, 8 and 32 units (`(1 << k) × 0.5`, k = 0, 2, 4, 6)
+    /// along its up, its down, the world's up and down, its forward and back, in that order, until a flexed place sees the
+    /// character from half a unit back along the flex and is itself reached from the camera (`CanSeeFlexedPos`): that unit
+    /// direction, signed. None when no flex does.
+    fn sensor_dir(&self, look: [f32; 3], los: &mut dyn FnMut([f32; 3], [f32; 3]) -> bool) -> Option<[f32; 3]> {
+        let forward = normalize(sub(look, self.pos));
+        let mut up = sub(UP, scale(forward, dot(UP, forward)));
+        up = if length(up) > 1e-6 { normalize(up) } else { UP };
+        for k in [0u32, 2, 4, 6] {
+            let flex = (1u32 << k) as f32 * 0.5;
+            for (axis, sign) in [(up, 1.0), (up, -1.0), (UP, 1.0), (UP, -1.0), (forward, 1.0), (forward, -1.0)] {
+                let d = scale(axis, sign);
+                let flexed = add(self.pos, scale(d, flex));
+                if los(sub(flexed, scale(d, 0.5)), look) && los(self.pos, flexed) {
+                    return Some(d);
+                }
+            }
+        }
+        None
     }
 
     /// `SteeringArrive`: the force towards `target` (`None` to halt).
@@ -411,18 +443,29 @@ impl SteeringCamera {
         }
         let force = match self.mode {
             Mode::Free => {
-                // the camera keeps its direction and is pulled along at the preferred distance
+                // (`CalcSteering` 0x1001e797) the camera keeps its direction and is pulled along at the preferred distance
                 let mut dir = sub(self.pos, look);
                 if length(dir) < 1e-6 {
                     dir = rotate_y(self.pref_dir, heading);
                 }
                 let dir = normalize(dir);
                 let mut target = add(look, scale(dir, self.pref_dist));
+                // The sensors (`UpdateSensors`): out of sight of the character, the target is nudged a unit along the first
+                // direction a flexed camera sees it from; no such direction leaves the camera blind.
+                if los(self.pos, look) {
+                    self.blind = false;
+                } else if let Some(steer) = self.sensor_dir(look, los) {
+                    self.blind = false;
+                    target = add(target, steer);
+                } else {
+                    self.blind = true;
+                }
                 if self.pos[1] < look[1] {
                     target[1] += 0.4;
                 }
-                // no line of sight: the nearest seen point of the way there (in place of the sensors)
-                if !los(look, add(target, scale(dir, RADIUS))) {
+                // Blind, the camera would sit in what hides the character: the vehicle's own collision is not ported, so the
+                // nearest seen point of the way there stands in for it.
+                if self.blind && !los(look, add(target, scale(dir, RADIUS))) {
                     let (mut lo, mut hi) = (0.01f32, 0.95f32);
                     for _ in 0..20 {
                         let mid = (lo + hi) * 0.5;
@@ -470,6 +513,28 @@ mod tests {
 
     fn clear(_: [f32; 3], _: [f32; 3]) -> bool {
         true
+    }
+
+    #[test]
+    fn the_free_camera_s_sensors_lift_it_over_what_hides_the_character() {
+        let mut c = SteeringCamera::new(Mode::Free);
+        let look = [100.0, 10.0, 100.0];
+        // placed behind the character (z 95.5, 1.5 up), then a wall 11.8 high at z 97 between them: the direct line crosses
+        // it at 11.0, the camera flexed two units up sees over it
+        c.update(0.016, look, 0.0, 0.0, Inputs::default(), &mut clear);
+        let before = c.pos;
+        let mut blocked = |a: [f32; 3], b: [f32; 3]| {
+            if (a[2] - 97.0) * (b[2] - 97.0) >= 0.0 {
+                return true;
+            }
+            let t = (97.0 - a[2]) / (b[2] - a[2]);
+            a[1] + (b[1] - a[1]) * t >= 11.8
+        };
+        for _ in 0..30 {
+            c.update(0.016, look, 0.0, 0.0, Inputs::default(), &mut blocked);
+        }
+        assert!(!c.blind);
+        assert!(c.pos[1] > before[1] + 0.05, "{:?} -> {:?}", before, c.pos);
     }
 
     #[test]

@@ -125,16 +125,19 @@ eighteen names, not seventeen: `AOU_mod` was missed in the first count.
    passes (`fxliquid.rs`: reflection, falling water strips, the fifth layer on the wide grid). The rooms' water surfaces
    are read and placed like the rooms' statels (item 6); no shop has any, so a dungeon with water should be looked at.
 4. **Camera** — ported (see the table and `camera.rs`'s header; N3.dll and Vehicle.dll were decompiled for it, the dumps
-   are in the session scratchpad noted in memory). Left: the free camera's sensors (`CalculateSensorSteerDir`: flexes of
-   0.5, 2, 8 and 32 units up, down, left, right, forward and back until one is seen), the line of sight against statels
-   (the viewer has only the terrain; the collision lives on the network thread), the look target from the CAT mesh's
+   are in the session scratchpad noted in memory). Since then: the free camera's sensors (`CalculateSensorSteerDir`:
+   flexes of 0.5, 2, 8 and 32 units along its up and down, the world's up and down, forward and back until one sees the
+   character; the target nudged a unit that way, `camera.rs`) and the rooms' camera attractors. Left: the line of sight
+   against statels (the viewer has only the terrain; the collision lives on the network thread), the look target from the CAT mesh's
    `Attractor31_camera` (smoothed by FUN_10020bdb), the room camera attractors' manual cycling (`GetNextVisibleAttractor`)
    and collider-based visibility (the attraction itself is ported: `PointCameraAttractor_t`'s cost picks the point, the
    vehicle arrives at it — see CLIENT_UI's rooms section), `MouseTurnSensitivity` / `ZoomSpeed` / `MouseLookInverted` as settings, and the mode-3 eased zoom (+0x204, 3 units a
    second) which nothing in the decompile sets.
 5. **Automap / minimap** — ported (see the table): the corner map and the overlay show the planet map's biggest level,
    placed by FUN_1004bedd's formula, for any playfield in `MapCoordinates.xml`; the client's fog-of-war map stays for the
-   rest. Left: the `PlanetMap` window itself (its zoom levels, centre-on-quest), the Shadowlands/Dovves sets. The data: `cd_image/textures/PlanetMap/normal/PlanetMapIndexNormal.txt` (`Name`, `Type Rubika`, `CoordsFile`,
+   rest. The `PlanetMap` window is in (`planetwindow.rs`: the index's zoom levels, centre on the character or the
+   mission's waypoint), and the Shadowlands map and the alternative Rubi-Ka sets (Dovves, Saavick's) are chosen by the
+   `planet_map` / `shadowlands_map` settings (`planetmaps.rs`). The data: `cd_image/textures/PlanetMap/normal/PlanetMapIndexNormal.txt` (`Name`, `Type Rubika`, `CoordsFile`,
    then per zoom level `File <bin>`, `TextureSize 128`, `Size w h`, `Tiles cols rows`, `MapRect l t r b`, and a `FilePos`
    per tile: a 128×128 PNG at that offset in `PlanetMapGfxNormal.bin`; levels 384×640 of 3×5 tiles, 1024×1536 of 8×12, …),
    `MapCoordinates.xml` (`<Playfield id x xscale z zscale>`: where each playfield's origin sits on the map, e.g. Old Athen
