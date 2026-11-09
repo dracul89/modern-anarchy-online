@@ -147,6 +147,9 @@ pub struct Update {
     pub flares: Vec<([f32; 3], mao_formats::gfx::Flare)>,
     /// The lightning's strikes to light (server coordinates, Y up) and their seeds (`lightning.rs`).
     pub strikes: Vec<([f32; 3], u32)>,
+    /// With a new playfield: the feet of its waterfalls (server coordinates, Y up) and the fall effect (gfx 0x30d6) drawn at each,
+    /// as Gamecode's FUN_100afc4c makes it from the environment's effect 2 (`liquid::fall_effects`); none for a playfield without.
+    pub falls: Option<(Vec<[f32; 3]>, Option<mao_formats::gfx::Visual>)>,
     /// The eye's jolts from strikes near (the quake's kick, `Quake::jolt`).
     pub jolts: Vec<f32>,
     /// The characters' landings (server coordinates, Y up): the environment's effect 0x2c at each (`Sky::landing`).
@@ -431,6 +434,31 @@ pub fn headless_on(model: &Model, textures: &Textures, out: &str, ui: Option<(&H
     }
     let mut camera = Camera::fit(&scene);
     camera_override(&mut camera);
+    // (the camera under a liquid: the liquid raised 0.2 and the view fogged in its colour, as the live client has it)
+    if let Some(kind) = under_water(camera.eye()) {
+        scene.under_water = true;
+        if let Some((colour, weight)) = under_water_fog(kind) {
+            scene.area_fog = crate::environment::add_fog(scene.area_fog, colour, weight, 1.0);
+            if scene.fog.1 > 1.0e8 {
+                scene.fog = fog_for(1800.0);
+            }
+        }
+        eprintln!("camera: under a liquid of type {kind}");
+    }
+    // `MAO_FALLS=<seconds>` (with `MAO_GFX`): the fall effect at the playfield's waterfalls' feet, that long in.
+    if let (Ok(age), Ok(file)) = (std::env::var("MAO_FALLS"), std::env::var("MAO_GFX")) {
+        let visual = std::fs::read(&file).ok().and_then(|d| mao_formats::gfx::Gfx::parse(&d).ok()).and_then(|g| g.visual(0x30d6));
+        if let (Some(v), Ok(age)) = (visual, age.parse::<f32>()) {
+            let e = camera.eye();
+            let feet = crate::liquid::falls();
+            for p in &feet {
+                scene.particles.extend(crate::effects::placed_particles(&v, [p[0], p[2], p[1]], age, [e.x, e.y, e.z]));
+            }
+            eprintln!("falls: {} feet, {} sparks", feet.len(), scene.particles.len());
+            let mut tried = std::collections::HashSet::new();
+            load_sprites(&mut renderer, &gpu, textures, &scene.particles, &mut tried);
+        }
+    }
     // `MAO_SKY=<hour>`: the effect scripts' outdoor sky at that hour (the playfield's tweaks, or the outdoor default's, run
     // a few frames at it), its ground light the scene's sun.
     if let (Some(hour), Some(game)) = (std::env::var("MAO_SKY").ok().and_then(|v| v.parse::<f32>().ok()), crate::theme::game_dir()) {
@@ -547,6 +575,10 @@ struct App {
     bursts: Vec<(std::time::Instant, crate::effects::CastShow)>,
     shots: Vec<(std::time::Instant, crate::effects::Shot)>,
     flares: Vec<(std::time::Instant, [f32; 3], mao_formats::gfx::Flare)>,
+    /// The waterfalls' feet (Z up) and the fall effect drawn at each since the playfield came, when it has any.
+    falls: Option<(std::time::Instant, Vec<[f32; 3]>, mao_formats::gfx::Visual)>,
+    /// The area's fog as the environment gives it, before the camera's own (under a liquid) is gathered into it.
+    area_fog_base: Option<([f32; 3], f32)>,
     /// The lightning's flashes and bolts under way.
     sky: crate::lightning::Sky,
     /// The effect sprite sheets already asked for.
@@ -618,6 +650,29 @@ struct App {
     last_click: Option<(u32, std::time::Instant)>,
 }
 
+/// The liquid the camera is under, by type: Gamecode's FUN_100b77cb (every frame of the playfield's state) tests the eye a tenth
+/// lower against the playfield's liquid and takes the surface above it. `eye` is in the world (Z up).
+pub fn under_water(eye: mao_render::glam::Vec3) -> Option<u32> {
+    let p = [eye.x, eye.z - 0.1, eye.y];
+    crate::liquid::current()?.at(p).filter(|s| s.height > p[1]).map(|s| s.kind)
+}
+
+/// The fog FUN_100b77cb adds under a liquid of a type (`VisualFog_t::AddFog`'s colour and weight): the water's (types 0, 1, 12,
+/// 13, 18, 19) a dark blue-green at 0.99 (`_DAT_10161850`, `_DAT_10168460`, `_DAT_101584f8`, `_DAT_10168eb8`), lava's (2, 3) red,
+/// type 4's a dark green at 1, the toxic's (6, 7) bright green at 1, type 8's brown, type 10's the water's at 0.98; none under the
+/// star water and the rest.
+pub fn under_water_fog(kind: u32) -> Option<([f32; 3], f32)> {
+    Some(match kind {
+        0 | 1 | 12 | 13 | 18 | 19 => ([0.1, 0.3, 0.25], 0.99),
+        2 | 3 => ([1.0, 0.0, 0.0], 0.99),
+        4 | 5 => ([0.062, 0.114, 0.065], 1.0),
+        6 | 7 => ([0.154, 0.991, 0.02], 1.0),
+        8 | 9 => ([0.2, 0.1175, 0.0545], 0.99),
+        10 | 11 => ([0.1, 0.3, 0.25], 0.98),
+        _ => return None,
+    })
+}
+
 /// The fog's start and end for a view distance: the haze begins a seventh of the way out (250 of the default 1800), or at 40.
 pub fn fog_for(distance: f32) -> (f32, f32) {
     ((distance / 7.2).max(40.0), distance)
@@ -654,7 +709,7 @@ pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<()
     let settings = Settings::load();
     crate::ui::set_debug_overlay(settings.debug_overlay);
     crate::font::set_enabled(settings.original_font);
-    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, world_in: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), flares: Vec::new(), sky: Default::default(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), fxs_frame: None, script_meshes: Default::default(), named_sheets: Default::default(), trails: Default::default(), motions: Default::default(), shake: (0.0, 0), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, zones: None, interior: None, rooms_shown: Vec::new(), room_hint: None, attractor_at: std::time::Instant::now(), casters: Vec::new(), character_parts: Vec::new(), highlight_runs: Default::default(), highlight_fades: Default::default(), follow_shift: [0.0; 3], environment: Default::default(), quake: Default::default(), quake_offset: [0.0; 3], wind: Default::default(), wind_at: std::time::Instant::now(), perf_memory_at: std::time::Instant::now() - std::time::Duration::from_secs(10), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
+    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, world_in: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), flares: Vec::new(), falls: None, area_fog_base: None, sky: Default::default(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), fxs_frame: None, script_meshes: Default::default(), named_sheets: Default::default(), trails: Default::default(), motions: Default::default(), shake: (0.0, 0), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, zones: None, interior: None, rooms_shown: Vec::new(), room_hint: None, attractor_at: std::time::Instant::now(), casters: Vec::new(), character_parts: Vec::new(), highlight_runs: Default::default(), highlight_fades: Default::default(), follow_shift: [0.0; 3], environment: Default::default(), quake: Default::default(), quake_offset: [0.0; 3], wind: Default::default(), wind_at: std::time::Instant::now(), perf_memory_at: std::time::Instant::now() - std::time::Duration::from_secs(10), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
     // (entering the game: the loading screen, `ServerLogin3DModule_t::InitialiseMessage`)
     if app.live.is_some() {
         crate::loading::begin(crate::loading::FADE_IN, crate::loading::FADE_OUT);
@@ -1447,6 +1502,9 @@ impl ApplicationHandler for App {
                                 self.flares.push((std::time::Instant::now(), at, flare));
                             }
                         }
+                        if let Some((feet, visual)) = u.falls.take() {
+                            self.falls = visual.filter(|_| !feet.is_empty()).map(|v| (std::time::Instant::now(), feet.into_iter().map(|p| [p[0], p[2], p[1]]).collect(), v));
+                        }
                         let ground = self.ground.clone();
                         for (at, seed) in std::mem::take(&mut u.strikes) {
                             if shown(crate::prefs::ENVIRONMENT) {
@@ -1822,6 +1880,17 @@ impl ApplicationHandler for App {
                     for (began, at, f) in &self.flares {
                         sparks.extend(crate::effects::flare_particles(f, *at, began.elapsed().as_secs_f32(), f32::INFINITY, None));
                     }
+                    // (the waterfalls' feet: the fall effect at each, an environment effect, hidden past 80 units from the eye as
+                    // its mode is)
+                    if let Some((began, feet, visual)) = &self.falls {
+                        if crate::prefs::effect_category_active(crate::prefs::ENVIRONMENT) {
+                            let eye = w.camera.eye();
+                            let age = began.elapsed().as_secs_f32();
+                            for at in feet {
+                                sparks.extend(crate::effects::placed_particles(visual, *at, age, [eye.x, eye.y, eye.z]));
+                            }
+                        }
+                    }
                     self.shots.retain(|(began, shot)| began.elapsed().as_secs_f32() < shot.lasts());
                     for (began, shot) in &self.shots {
                         // (the target's posed surface, for the hits thrown from it: the character nearest the shot's end)
@@ -1965,7 +2034,8 @@ impl ApplicationHandler for App {
                     let e = self.environment;
                     w.scene.daylight = if interior { 1.0 } else { self.daylight * e.sky };
                     w.scene.ambient = e.ambient;
-                    w.scene.area_fog = if interior { None } else { e.fog };
+                    self.area_fog_base = if interior { None } else { e.fog };
+                    w.scene.area_fog = self.area_fog_base;
                     if self.keys.char_distance != self.settings.char_distance || self.keys.auto_loot != self.settings.auto_loot {
                         self.keys.char_distance = self.settings.char_distance;
                         self.keys.auto_loot = self.settings.auto_loot;
@@ -2039,6 +2109,14 @@ impl ApplicationHandler for App {
                         }
                     }
                     w.scene.blobs = blobs;
+                }
+                // The camera under a liquid (Gamecode's FUN_100b77cb each frame of the playfield's state: the liquid's surface at the
+                // eye, a tenth lower, above it): the liquid is drawn 0.2 higher (`VisualLiquid_t`'s frame) and the view is fogged in
+                // the liquid's colour (`VisualFog_t::AddFog`, gathered after the environment's fogs).
+                let under = under_water(camera.eye());
+                w.scene.under_water = under.is_some();
+                if let Some((colour, weight)) = under.and_then(under_water_fog) {
+                    w.scene.area_fog = crate::environment::add_fog(self.area_fog_base, colour, weight, self.environment.fog_light);
                 }
                 if std::mem::take(&mut self.screenshot) {
                     // (the window as it shows, with its open windows and the web page: `screenshot.rs`; else the scene and

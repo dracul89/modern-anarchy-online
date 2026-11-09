@@ -125,13 +125,86 @@ impl Liquid {
         None
     }
 
+    /// The liquid surface under a point: the first info whose triangle holds the point's x and z and whose plane there lies below
+    /// its height. It is what the fall effect's walk along a waterfall's foot asks of the playfield's collision (Gamecode
+    /// FUN_100afc4c's effect 2 puts each step on the liquid and keeps the ones that went down).
+    pub fn surface_below(&self, p: [f32; 3]) -> Option<f32> {
+        for i in &self.infos {
+            let side = |k: usize| {
+                let (a, b) = (i.corners[k], i.corners[(k + 1) % 3]);
+                (p[2] as f64 - a[2] as f64) * (b[0] - a[0]) as f64 - (p[0] as f64 - a[0] as f64) * (b[2] - a[2]) as f64
+            };
+            let inside = i.min[0] < p[0] && i.top[0] > p[0] && i.min[1] < p[2] && i.top[2] > p[2] && side(0) < 0.0 && side(1) < 0.0 && side(2) < 0.0;
+            if !inside {
+                continue;
+            }
+            let h = (((-(p[0] as f64 * i.normal[0] as f64) - i.normal[2] as f64 * p[2] as f64) - i.distance as f64) / i.normal[1] as f64) as f32;
+            if h < p[1] {
+                return Some(h);
+            }
+        }
+        None
+    }
+
     pub fn is_empty(&self) -> bool {
         self.infos.is_empty()
     }
 }
 
-/// The current playfield's liquid (set by the game connection when the playfield loads).
+/// Where the fall effect is made (server coordinates, Y up): `VisualWater_t::Create` (DisplaySystem FUN_1003b1cd, drop-in
+/// `liquid.rs` `start_fall`) starts the environment's effect 2 for every falling triangle (the type's low bit) over a tenth high
+/// with one high corner — but lava, types 2 and 3 — at one low corner with the other as its ground; Gamecode's FUN_100afc4c then
+/// walks from the one towards the other a unit at a time (`floor(length) + 1` steps from the first) and makes gfx 0x30d6 at each
+/// step with a liquid surface below it ([`Liquid::surface_below`]), at the step's own height.
+pub fn fall_effects(water: &[mao_formats::playfield::WaterTriangle], liquid: &Liquid) -> Vec<[f32; 3]> {
+    let mut out = Vec::new();
+    for t in water {
+        let [a, b, c] = t.points;
+        if a == b || b == c || c == a || t.kind & 1 == 0 || t.kind == 2 || t.kind == 3 {
+            continue;
+        }
+        let most = a[1].max(b[1]).max(c[1]);
+        let least = a[1].min(b[1]).min(c[1]);
+        let h = most - least;
+        if h < 0.1 {
+            continue;
+        }
+        // (the original snaps each height to 1 above the half or −0.01 below it: one high corner is two low ones)
+        let low = |y: f32| (y - least) / h <= 0.5;
+        let (at, ground) = match (low(a[1]), low(b[1]), low(c[1])) {
+            (true, true, _) => (a, b),
+            (true, false, true) => (c, a),
+            (false, true, true) => (b, c),
+            _ => continue,
+        };
+        let d = minus(&ground, &at);
+        let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+        if len <= 0.0 {
+            continue;
+        }
+        let step = [d[0] / len, d[1] / len, d[2] / len];
+        for k in 0..(len.floor() as u32 + 1) {
+            let p = [at[0] + step[0] * k as f32, at[1] + step[1] * k as f32, at[2] + step[2] * k as f32];
+            if liquid.surface_below(p).is_some() {
+                out.push(p);
+            }
+        }
+    }
+    out
+}
+
+/// The current playfield's liquid (set by the game connection when the playfield loads), and the feet of its waterfalls
+/// ([`fall_effects`]; set with the terrain, for the pictures that draw the fall effect).
 static CURRENT: Mutex<Option<Arc<Liquid>>> = Mutex::new(None);
+static FALLS: Mutex<Vec<[f32; 3]>> = Mutex::new(Vec::new());
+
+pub fn set_falls(f: Vec<[f32; 3]>) {
+    *FALLS.lock().unwrap_or_else(|e| e.into_inner()) = f;
+}
+
+pub fn falls() -> Vec<[f32; 3]> {
+    FALLS.lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
 
 pub fn set_current(l: Option<Arc<Liquid>>) {
     *CURRENT.lock().unwrap_or_else(|e| e.into_inner()) = l;
@@ -145,6 +218,41 @@ pub fn current() -> Option<Arc<Liquid>> {
 mod tests {
     use super::*;
     use mao_formats::playfield::WaterTriangle;
+
+    /// Which playfields have the fall effect, and at how many places (`MAO_GAME`).
+    #[test]
+    #[ignore]
+    fn fall_effect_survey() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let db = mao_formats::resource::ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap();
+        for p in mao_formats::playfield::all(&db) {
+            let Some(a) = mao_formats::playfield::load_anarchy(&db, p.number) else { continue };
+            let falling = a.water.iter().filter(|t| t.kind & 1 != 0).count();
+            if falling == 0 {
+                continue;
+            }
+            let feet = fall_effects(&a.water, &Liquid::new(&a.water));
+            println!("{} {}: {} falling triangles, the effect at {} places{}", p.number, p.name.trim(), falling, feet.len(), feet.first().map_or(String::new(), |f| format!(", first {f:?}")));
+        }
+    }
+
+    #[test]
+    fn a_fall_over_a_pool_gets_its_effect_along_its_foot() {
+        // (a pool at height 0 over (0..20, 0..20) and a fall 5 high dropping to height 1 along z = 10 from x 2 to x 8)
+        let pool = |a, b, c| WaterTriangle { kind: 0, value: 100.0, points: [a, b, c] };
+        let fall = |kind, y| WaterTriangle { kind, value: 100.0, points: [[2.0, y, 10.0], [8.0, y, 10.0], [8.0, y + 5.0, 10.0]] };
+        let water = vec![pool([0.0, 0.0, 0.0], [20.0, 0.0, 0.0], [20.0, 0.0, 20.0]), pool([0.0, 0.0, 0.0], [20.0, 0.0, 20.0], [0.0, 0.0, 20.0]), fall(1, 1.0)];
+        let liquid = Liquid::new(&water);
+        assert_eq!(liquid.surface_below([5.0, 1.0, 10.0]), Some(0.0));
+        assert_eq!(liquid.surface_below([5.0, 0.0, 10.0]), None, "a surface at the point's height is not below it");
+        let feet = fall_effects(&water, &liquid);
+        assert_eq!(feet.len(), 7, "{feet:?}");
+        assert_eq!((feet[0], feet[6]), ([2.0, 1.0, 10.0], [8.0, 1.0, 10.0]));
+        // a fall whose foot sits at the pool's surface, one over no pool, and lava get none
+        for water in [vec![water[0].clone(), water[1].clone(), fall(1, 0.0)], vec![fall(1, 1.0)], vec![water[0].clone(), water[1].clone(), fall(3, 1.0)]] {
+            assert!(fall_effects(&water, &Liquid::new(&water)).is_empty());
+        }
+    }
 
     #[test]
     fn a_pool_s_surface() {

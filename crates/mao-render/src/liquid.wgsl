@@ -30,7 +30,8 @@ struct Liquid {
     drift: vec4<f32>,
     // x: which pass (see `fs_liquid`).
     which: vec4<u32>,
-    // x, y: the picture's size in pixels; z: the camera's tilt (its forward's up component): the refraction pass.
+    // x, y: the picture's size in pixels; z: the camera's tilt (its forward's up component): the refraction pass; w: the surfaces'
+    // raise (0.2 with the camera under a liquid).
     screen: vec4<f32>,
 }
 
@@ -53,8 +54,10 @@ struct LiquidOut {
 @vertex
 fn vs_liquid(@location(0) position: vec3<f32>, @location(1) normal: vec3<f32>, @location(2) colour: vec4<f32>) -> LiquidOut {
     var out: LiquidOut;
-    out.world = position;
-    out.clip = globals.view_proj * vec4<f32>(position, 1.0);
+    // (the surfaces raised while the camera is under a liquid: `VisualLiquid_t`'s frame moved up 0.2)
+    let raised = vec3<f32>(position.xy, position.z + liquid.screen.w);
+    out.world = raised;
+    out.clip = globals.view_proj * vec4<f32>(raised, 1.0);
     out.normal = normal;
     out.colour = colour;
     return out;

@@ -214,6 +214,9 @@ pub struct Scene {
     /// The area's fog at the player, when it has one: colour and density. The original's `VisualFog_t::process` makes a
     /// linear fog from the near plane to `far - (far - near - 5) × density`, in that colour.
     pub area_fog: Option<([f32; 3], f32)>,
+    /// Whether the camera is under a liquid: the liquid surfaces are drawn 0.2 higher, as `VisualLiquid_t`'s frame (DisplaySystem
+    /// FUN_100406d3) raises its frame while `CameraIsUnderWater` was called. Set by the caller every frame.
+    pub under_water: bool,
 }
 
 /// One sprite: where (world, Z up), how wide (world units) and its colour with the alpha as the strength. A billboard faces the
@@ -323,7 +326,8 @@ struct LiquidUniform {
     phases: [f32; 4],
     drift: [f32; 4],
     which: [u32; 4],
-    /// x, y: the picture's size in pixels; z: the camera's tilt (its forward's up component), for the refraction pass.
+    /// x, y: the picture's size in pixels; z: the camera's tilt (its forward's up component), for the refraction pass; w: how far
+    /// the surfaces are raised (0.2 with the camera under a liquid).
     screen: [f32; 4],
 }
 
@@ -1618,7 +1622,7 @@ impl Renderer {
             }
         }
         let liquid = model.water.as_ref().filter(|w| !w.surfaces.is_empty()).map(|w| LiquidMesh::new(gpu, &w.surfaces));
-        Scene { parts, hidden: Default::default(), overlay: Vec::new(), follow: Vec::new(), center, radius, player: None, fog: (1.0e9, 2.0e9), sky: DAY_SKY, water: model.water.clone(), liquid, water_light: None, particles: Vec::new(), blobs: Vec::new(), shells: Vec::new(), backdrops: Vec::new(), sun: None, lighting: None, daylight: 1.0, ambient: [0.0; 3], area_fog: None }
+        Scene { parts, hidden: Default::default(), overlay: Vec::new(), follow: Vec::new(), center, radius, player: None, fog: (1.0e9, 2.0e9), sky: DAY_SKY, water: model.water.clone(), liquid, water_light: None, particles: Vec::new(), blobs: Vec::new(), shells: Vec::new(), backdrops: Vec::new(), sun: None, lighting: None, daylight: 1.0, ambient: [0.0; 3], area_fog: None, under_water: false }
     }
 
     fn depth_view(&mut self, gpu: &Gpu, size: (u32, u32), samples: u32) {
@@ -1860,7 +1864,7 @@ impl Renderer {
             let ambient = scene.lighting.map_or([day * 0.5; 3], |(a, _)| a);
             // (the camera's tilt: how much its forward points up, as FUN_1003b9c9 turns the camera's axis into the world)
             let tilt = (camera.target - eye).normalize_or_zero().z;
-            self.liquid.update(gpu, light, ambient, [render_size.0 as f32, render_size.1 as f32, tilt, 0.0]);
+            self.liquid.update(gpu, light, ambient, [render_size.0 as f32, render_size.1 as f32, tilt, if scene.under_water { 0.2 } else { 0.0 }]);
         }
         let globals_bind = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,

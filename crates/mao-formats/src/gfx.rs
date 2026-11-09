@@ -686,6 +686,68 @@ impl Smoke {
     }
 }
 
+/// A kind-3017 template as `_GfxControlGlobalSmoke_t` reads it (Gamecode FUN_100e0d8a and FUN_100e08bb the constructors,
+/// FUN_100e060f the words, FUN_100e0738 the set-up, FUN_100dfc38 the run): sixty-four sprites of the material (word 9) on a
+/// `GfxVisualSol`, added to the scene (blended under alpha for mode 5), each living word 26 seconds. Word 0 is the flags (bit 2:
+/// the sprites move along the world's axes, not the locator's frame), word 8 the duration (below zero: for ever), word 10 the
+/// mode: every frame `word 30 + (rand() & word 31)` sprites are born (none in the last life of a finite run) in the free slots,
+/// at the effect's place with a start by the mode —
+/// 0: flying at word 13 along a random direction turned upward; 2: at word 13 along the frame's x, down 0.4 of it;
+/// 3: spread up to 1.5 along the frame's x (the original's `rand() / 21845 − 1.5`, one-sided), moving along −z at word 13 to
+/// 1.05 of it; 4 and 5: falling at word 13; 6: along the frame's −z the same way; 1 (a wandering emitter that follows the
+/// ground, FUN_100dfc38's `+0x750` walk) is taken as 0 here —
+/// then moved by its velocity, modes 2 and 4 adding word 29 a second to its y. Over its life its width runs from word 14 to 15
+/// and its height from 16 to 17, its colour from words 18–21 to 22–25 (alpha, red, green, blue) and its frame across the
+/// material's sheet; its quad spins at `(k − 4)(k − 0.5)` radians a second (slot `k`). Mode 3 is not drawn past 80 units from
+/// the camera (`_DAT_1016ceb8`, 6400 squared). Words 11, 12, 27 and 28 are read and never used.
+///
+/// 12502 is the fall effect (the mist at a waterfall's foot: mode 3, flags 7, for ever, material 49, 0.7 to 3 wide, white at
+/// alpha 0.15 to 0.05 over 1.4 s); 12277–12282 are mode 0 puffs of 2 s, 12530/12531/12550/92001 mode 4 and 6 columns.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GlobalSmoke {
+    pub flags: u32,
+    pub duration: f32,
+    pub material: i32,
+    pub mode: i32,
+    pub speed: f32,
+    pub width: (f32, f32),
+    pub height: (f32, f32),
+    pub colour_a: [f32; 4],
+    pub colour_b: [f32; 4],
+    pub life: f32,
+    pub rise: f32,
+    pub count: i32,
+    pub mask: i32,
+}
+
+impl GlobalSmoke {
+    pub fn read(r: &Record) -> Option<GlobalSmoke> {
+        if r.payload.len() < 32 {
+            return None;
+        }
+        Some(GlobalSmoke {
+            flags: r.int(0) as u32,
+            duration: r.float(8),
+            material: r.int(9),
+            mode: r.int(10),
+            speed: r.float(13),
+            width: (r.float(14), r.float(15)),
+            height: (r.float(16), r.float(17)),
+            colour_a: [r.float(18), r.float(19), r.float(20), r.float(21)],
+            colour_b: [r.float(22), r.float(23), r.float(24), r.float(25)],
+            life: r.float(26),
+            rise: r.float(29),
+            count: r.int(30),
+            mask: r.int(31),
+        })
+    }
+
+    /// Whether the sprites take the world's axes (flag 2) rather than the locator's frame.
+    pub fn world_axes(&self) -> bool {
+        self.flags & 2 != 0
+    }
+}
+
 /// A kind-1012 template as `_GfxControlSprite_t` reads it (FUN_100f6b86 the constructor, FUN_100f6369 the words, FUN_100f6483
 /// picks the visual, FUN_100f64a7 makes it, FUN_100f6d2b runs it): one quad of the material (word 9) at the attach point (word 7)
 /// plus the offset of words 1–3, cycling over the period of word 23 (0 counts as 1 s) for word 24 cycles (−1: for ever) when
@@ -2178,6 +2240,7 @@ pub enum Visual {
     VolGrid(VolGrid),
     /// A steady stream of sprites drifting from a point (kind 1009).
     Smoke(Smoke),
+    GlobalSmoke(GlobalSmoke),
     /// One quad at a point, cycling its size, colour and frame (kind 1012).
     Sprite(Sprite),
     /// A pool of thrown billboard particles (kind 3028).
@@ -2326,6 +2389,7 @@ impl Gfx {
             1024 if r.payload.len() >= 17 => Some(Visual::Cords(Cords { width: r.float(11), radius: r.float(12), colour: [r.float(13), r.float(14), r.float(15), r.float(16)], material: r.int(9), duration: r.float(8) })),
             3038 => VolGrid::read(r).map(Visual::VolGrid),
             1009 => Smoke::read(r).map(Visual::Smoke),
+            3017 => GlobalSmoke::read(r).map(Visual::GlobalSmoke),
             1012 => Sprite::read(r).map(Visual::Sprite),
             3028 => BParticles::read(r).map(Visual::BParticles),
             3001 if r.payload.len() >= 16 && r.int(10) == 1 => Some(Visual::Deform(Deform { duration: r.float(8), strength: r.float(11), ramp_in: r.float(12), ramp_out: r.float(13), frequency: r.float(14), amplitude: r.float(15) })),
@@ -2542,6 +2606,21 @@ impl Gfx {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_global_smoke_reads_its_words() {
+        let f = |x: f32| x.to_bits() as i32;
+        let mut payload = vec![7, 0, 0, 0, 0, 0, 0, 2002, f(-1.0), 49, 3, f(0.4), f(0.15), f(1.35), f(0.7), f(3.0), f(0.7), f(3.0)];
+        payload.extend([f(0.15), f(0.7), f(0.8), f(0.9), f(0.05), f(1.0), f(1.0), f(1.0), f(1.4), 0, f(1.0), f(1.0), 1, 0]);
+        let r = Record { id: 12502, kind: 3017, payload };
+        let s = GlobalSmoke::read(&r).unwrap();
+        assert_eq!((s.mode, s.material, s.count, s.mask), (3, 49, 1, 0));
+        assert!(s.world_axes() && s.duration < 0.0);
+        assert_eq!((s.speed, s.width, s.life, s.rise), (1.35, (0.7, 3.0), 1.4, 1.0));
+        assert_eq!(s.colour_a, [0.15, 0.7, 0.8, 0.9]);
+        let gfx = Gfx { records: vec![r.clone()], by_id: [(12502, 0)].into_iter().collect() };
+        assert!(matches!(gfx.visual(12502), Some(Visual::GlobalSmoke(_))));
+    }
 
     #[test]
     fn a_volgrid_curve_is_linear_between_its_keys_and_holds_its_last_value() {

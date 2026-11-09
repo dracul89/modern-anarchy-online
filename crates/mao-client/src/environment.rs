@@ -18,11 +18,13 @@
 
 use mao_formats::areas::{self, Area};
 
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Environment {
     pub ambient: [f32; 3],
     /// The gathered fog's colour (lit by the fog light) and density, when any.
     pub fog: Option<([f32; 3], f32)>,
+    /// The fog light the colour was lit by (`AddFogLightIntensity`'s least; 1 without an area fog), for a fog gathered later.
+    pub fog_light: f32,
     /// What the weather leaves of the sky's light, 0 to 1.
     pub sky: f32,
     /// The weather values, for the debugging overlay.
@@ -99,7 +101,24 @@ pub fn compute(areas_list: &[Area], base: Option<&[u8; 26]>, position: [f32; 3],
         fog.add(blend.fog, blend.density);
     }
     let gathered = (fog.density > 0.0).then(|| (fog.colour.map(|c| c * fog.light), fog.density));
-    Environment { ambient: blend.ambient, fog: gathered, sky: (1.0 - v[8] / 2.333).clamp(0.0, 1.0), weather: v }
+    Environment { ambient: blend.ambient, fog: gathered, fog_light: fog.light, sky: (1.0 - v[8] / 2.333).clamp(0.0, 1.0), weather: v }
+}
+
+impl Default for Environment {
+    fn default() -> Environment {
+        Environment { ambient: [0.0; 3], fog: None, fog_light: 1.0, sky: 0.0, weather: [0.0; 14] }
+    }
+}
+
+/// A fog added after the environment's (the camera under a liquid, Gamecode FUN_100b77cb's `AddFog` in the playfield's frame):
+/// the gathered fog `fog` (its colour lit by `light`) with `rgb` at `weight` gathered into it by the same rules, lit the same.
+pub fn add_fog(fog: Option<([f32; 3], f32)>, rgb: [f32; 3], weight: f32, light: f32) -> Option<([f32; 3], f32)> {
+    let mut g = Gather::new();
+    if let Some((colour, density)) = fog {
+        g.add(colour.map(|c| if light > 0.0 { c / light } else { c }), density);
+    }
+    g.add(rgb, weight);
+    (g.density > 0.0).then(|| (g.colour.map(|c| c * light), g.density))
 }
 
 #[cfg(test)]
@@ -119,6 +138,16 @@ mod tests {
         g.add([0.0, 0.0, 1.0], 0.1);
         assert_eq!(g.density, 0.6);
         assert!(g.colour[2] > 0.1 && g.colour[2] < 0.2);
+    }
+
+    #[test]
+    fn a_fog_added_later_is_gathered_by_the_same_rules() {
+        // (a water fog at 0.99 over an area's fog at 0.3: the colour blends by the weights, the density rises; alone, it is itself)
+        let f = add_fog(Some(([0.5, 0.5, 0.5], 0.3)), [0.1, 0.3, 0.25], 0.99, 0.5).unwrap();
+        let t = 0.3 / (0.99 + 0.3);
+        assert!((f.0[1] - (1.0 * t + 0.3 * (1.0 - t)) * 0.5).abs() < 1e-5, "{f:?}");
+        assert_eq!(f.1, 0.99);
+        assert_eq!(add_fog(None, [1.0, 0.0, 0.0], 0.99, 1.0), Some(([1.0, 0.0, 0.0], 0.99)));
     }
 
     #[test]

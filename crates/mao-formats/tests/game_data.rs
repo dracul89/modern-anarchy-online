@@ -750,3 +750,17 @@ fn highlight_survey() {
         }
     }
 }
+
+/// What the fall effect (gfx 0x30d6, the one Gamecode's FUN_100afc4c makes along a waterfall's foot) is made of.
+#[test]
+#[ignore]
+fn fall_effect_survey() {
+    let game = PathBuf::from(std::env::var_os("MAO_GAME").unwrap());
+    let gfx = mao_formats::gfx::Gfx::parse(&std::fs::read(game.join("Setupf/gfxtweak.bin")).unwrap()).unwrap();
+    for r in gfx.tree(0x30d6) {
+        let ints: Vec<i32> = (0..r.payload.len().min(24)).map(|i| r.int(i)).collect();
+        let floats: Vec<String> = (0..r.payload.len().min(24)).map(|i| format!("{:.3}", r.float(i))).collect();
+        println!("id {} kind {} words {}\n  ints {ints:?}\n  floats {floats:?}", r.id, r.kind, r.payload.len());
+    }
+    println!("visual: {:?}", gfx.visual(0x30d6).map(|v| format!("{v:?}").chars().take(600).collect::<String>()));
+}

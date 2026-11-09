@@ -4,7 +4,7 @@
 //! ([`ring`]: the cord ribbon `_GfxControlBuffPlaceHolder_t` lays as its point turns, of which the original only ever draws the
 //! forward-spinning one).
 
-use mao_formats::gfx::{colour_curve, curve, unpack_argb, BParticles, Cast, Cords, Deform, Emitter, Flare, Helix, Smoke, Sparks, Sprite, Stars, Visual, VolGrid};
+use mao_formats::gfx::{colour_curve, curve, unpack_argb, BParticles, Cast, Cords, Deform, Emitter, Flare, GlobalSmoke, Helix, Smoke, Sparks, Sprite, Stars, Visual, VolGrid};
 use mao_formats::gfx::{EffectMesh, Nano, Shield, Shield2, ShockWave, Suns, Trail2, Tracer1, Tracer3, Tracer5, VulcanRocks};
 use mao_render::{Particle, Shell, ShellVertex, NO_SPRITE};
 
@@ -2265,6 +2265,82 @@ pub fn smoke_particles(s: &Smoke, feet: [f32; 3], time: f32) -> Vec<Particle> {
     out
 }
 
+/// `_GfxControlGlobalSmoke_t`'s sprites (kind 3017) `time` seconds after it began at `at` (world, Z up), its frame turned by
+/// `heading` (a character's facing; unused with the template's world axes), as FUN_100dfc38 makes and moves them (the words:
+/// `mao_formats::gfx::GlobalSmoke`). The original's frame-by-frame births are modelled at sixty a second: the sixty-four slots are
+/// first filled `count` a frame, and a slot is filled again as soon as its sprite's life is up (at that rate the frame's budget
+/// always allows it); a finite run fills none in its last life. The random numbers are stood in for by a hash of the slot and its
+/// filling, so a sprite keeps its path from frame to frame. `eye` (world, Z up) hides mode 3 past 80 units, as the original's
+/// camera test does. Not drawn: the quads' spin, mode 5's blending under alpha (these sprites are added like the rest) and mode
+/// 1's wandering emitter (taken as mode 0).
+pub fn global_smoke_particles(s: &GlobalSmoke, at: [f32; 3], heading: f32, time: f32, eye: Option<[f32; 3]>) -> Vec<Particle> {
+    let mut out = Vec::new();
+    if s.life <= 0.0 || time < 0.0 || s.duration >= 0.0 && time >= s.duration {
+        return out;
+    }
+    if s.mode == 3 {
+        if let Some(e) = eye {
+            let d = [e[0] - at[0], e[1] - at[1], e[2] - at[2]];
+            if d[0] * d[0] + d[1] * d[1] + d[2] * d[2] > 6400.0 {
+                return out;
+            }
+        }
+    }
+    const FRAME: f32 = 1.0 / 60.0;
+    let per_frame = (s.count + s.mask / 2).max(1) as f32;
+    let lerp = |(a, b): (f32, f32), r: f32| a + (b - a) * r;
+    // (the frame's x and z axes in the world (Z up): the world's own with flag 2, else the facing's; the original's y is up)
+    let (ax, az) = if s.world_axes() { ([1.0f32, 0.0, 0.0], [0.0f32, 1.0, 0.0]) } else { ([heading.cos(), -heading.sin(), 0.0], [heading.sin(), heading.cos(), 0.0]) };
+    let frame = |v: [f32; 3]| [v[0] * ax[0] + v[2] * az[0], v[0] * ax[1] + v[2] * az[1], v[1]];
+    for k in 0..64u32 {
+        let first = (k as f32 / per_frame).floor() * FRAME;
+        if time < first {
+            continue;
+        }
+        let n = ((time - first) / s.life).floor();
+        let born = first + n * s.life;
+        if s.duration >= 0.0 && born > s.duration - s.life {
+            continue;
+        }
+        let age = time - born;
+        let t = age / s.life;
+        let salt = k.wrapping_mul(64).wrapping_add(n as u32).wrapping_mul(3017);
+        let r = |i: u32| hash(salt, i);
+        // (the start by the mode, in the original's frame: x, y up, z; `rand()` tops out at 32767, so its `/ 655350` reaches 0.05
+        // and its `/ 21845` 1.5)
+        let (p0, v0): ([f32; 3], [f32; 3]) = match s.mode {
+            2 => ([0.0; 3], [(1.0 + r(1) * 0.05) * s.speed, -0.4 * s.speed, 0.0]),
+            3 => ([r(2) * 1.5 - 1.5, 0.0, 0.0], [0.0, 0.0, -(1.0 + r(1) * 0.05) * s.speed]),
+            4 | 5 => ([0.0; 3], [0.0, -s.speed, 0.0]),
+            6 => ([0.0; 3], [0.0, 0.0, -(1.0 + r(1) * 0.05) * s.speed]),
+            _ => {
+                // (`GetRandomPointOnSphere`, its y turned up, at the speed; born up to half a unit lower)
+                let (turn, el) = (r(3) * std::f32::consts::TAU, (r(4) * 2.0 - 1.0).asin());
+                let d = [turn.cos() * el.cos(), el.sin().abs(), turn.sin() * el.cos()];
+                ([0.0, -r(5) * 0.5, 0.0], [d[0] * s.speed, d[1] * s.speed, d[2] * s.speed])
+            }
+        };
+        let gravity = if matches!(s.mode, 2 | 4) { s.rise } else { 0.0 };
+        let local = [p0[0] + v0[0] * age, p0[1] + v0[1] * age + 0.5 * gravity * age * age, p0[2] + v0[2] * age];
+        let w = frame(local);
+        let position = [at[0] + w[0], at[1] + w[1], at[2] + w[2]];
+        let colour = [1, 2, 3, 0].map(|c| lerp((s.colour_a[c], s.colour_b[c]), t));
+        let size = lerp(s.width, t).max(lerp(s.height, t));
+        out.push(sprite(s.material, t, position, size.max(0.0), colour));
+    }
+    out
+}
+
+/// The sparks of a visual made alone at `at` (world, Z up), with no body, `time` seconds in; `eye` (world, Z up) is for the
+/// visuals that hide far from the camera.
+pub fn placed_particles(v: &Visual, at: [f32; 3], time: f32, eye: [f32; 3]) -> Vec<Particle> {
+    match v {
+        Visual::GlobalSmoke(s) => global_smoke_particles(s, at, 0.0, time, Some(eye)),
+        Visual::Meta(children) => children.iter().flat_map(|c| placed_particles(c, at, time, eye)).collect(),
+        other => visual_particles(other, at, time, Reach::Small),
+    }
+}
+
 /// `_GfxControlSprite_t`'s quad (kind 1012) `time` seconds after it began, its attach point at `feet` (world, Z up), as
 /// FUN_100f6d2b runs it (see `mao_formats::gfx::Sprite` for the flags): nothing once its cycles are spent; the width, height,
 /// colour and frame at the cycle's fraction; a billboard for a `GfxVisualSprite2`, and for a `GfxVisualSprite3` a quad standing
@@ -3010,6 +3086,8 @@ pub fn visual_particles(v: &Visual, feet: [f32; 3], time: f32, reach: Reach) -> 
         // (drawn as a shell over the character's mesh: see `shield_shell`, `shield2_shell`)
         Visual::Shield(_) | Visual::Shield2(_) => Vec::new(),
         // (tints the target's own mesh instead: see `visual_highlights`)
+        // (the locator's frame is not carried here: the facing is taken as 0)
+        Visual::GlobalSmoke(s) => global_smoke_particles(s, feet, 0.0, time, None),
         Visual::Highlight(_) => Vec::new(),
         // (drawn as shells of its mesh: see `effect_mesh_shells`; its rings and cones: `shockwave_shells`)
         Visual::EffectMesh(_) | Visual::ShockWave(_) => Vec::new(),
@@ -3184,6 +3262,11 @@ pub fn pulse_timing(v: &Visual) -> (f32, f32, i32) {
             let long = if s.duration >= 0.0 { s.duration + s.life * 1.3 } else { 600.0 };
             (long, long, -1)
         }
+        // (the global smoke's last sprites are born a life before its end and live it out)
+        Visual::GlobalSmoke(s) => {
+            let long = if s.duration >= 0.0 { s.duration.max(0.05) } else { 600.0 };
+            (long, long, -1)
+        }
         Visual::Suns(s) => {
             let long = if s.duration > 0.0 { s.duration } else { 600.0 };
             (long, long, -1)
@@ -3284,6 +3367,33 @@ pub fn emitter_particles(e: &Emitter, origin: [f32; 3], age: f32, active: f32) -
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_fall_s_mist_spreads_along_x_and_drifts_along_minus_z() {
+        let s = GlobalSmoke { flags: 7, duration: -1.0, material: 49, mode: 3, speed: 1.35, width: (0.7, 3.0), height: (0.7, 3.0), colour_a: [0.15, 0.7, 0.8, 0.9], colour_b: [0.05, 1.0, 1.0, 1.0], life: 1.4, rise: 1.0, count: 1, mask: 0 };
+        // (after a few seconds every slot is filled: sixty-four sprites, each within 1.5 of the place along x (one-sided, as the
+        // original's random spread is), run along the world's −y (the original's −z) by at most 1.05 × 1.35 a second over its
+        // life, at the place's height; their sizes and alphas within the template's)
+        let p = global_smoke_particles(&s, [10.0, 20.0, 5.0], 0.0, 5.0, None);
+        assert_eq!(p.len(), 64);
+        for q in &p {
+            assert!(q.position[0] <= 10.0 + 1e-4 && q.position[0] >= 8.5 - 1e-4, "{:?}", q.position);
+            assert!(q.position[1] <= 20.0 + 1e-4 && q.position[1] >= 20.0 - 1.42 * 1.4 - 1e-4, "{:?}", q.position);
+            assert!((q.position[2] - 5.0).abs() < 1e-4);
+            assert!(q.size >= 0.7 - 1e-4 && q.size <= 3.0 + 1e-4);
+            assert!(q.colour[3] <= 0.15 + 1e-4 && q.colour[3] >= 0.05 - 1e-4);
+        }
+        // the first frame fills one slot
+        assert_eq!(global_smoke_particles(&s, [0.0; 3], 0.0, 0.0, None).len(), 1);
+        // mode 3 is hidden past 80 units from the eye
+        assert!(global_smoke_particles(&s, [0.0; 3], 0.0, 5.0, Some([100.0, 0.0, 0.0])).is_empty());
+        assert_eq!(global_smoke_particles(&s, [0.0; 3], 0.0, 5.0, Some([50.0, 0.0, 0.0])).len(), 64);
+        // a finite puff (mode 0) fills no slot in its last life and is gone at its end
+        let puff = GlobalSmoke { mode: 0, duration: 2.0, flags: 5, ..s.clone() };
+        assert!(!global_smoke_particles(&puff, [0.0; 3], 0.0, 0.5, None).is_empty());
+        assert!(global_smoke_particles(&puff, [0.0; 3], 0.0, 1.95, None).iter().all(|q| q.position[2] >= -0.5 - 1e-4));
+        assert!(global_smoke_particles(&puff, [0.0; 3], 0.0, 2.0, None).is_empty());
+    }
 
     #[test]
     fn a_sequencer_s_highlights_come_with_their_own_ages() {

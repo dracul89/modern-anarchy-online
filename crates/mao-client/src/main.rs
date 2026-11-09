@@ -334,6 +334,10 @@ pub(crate) fn load_terrain(db: &ResourceDatabase, playfield: u32) -> Result<Mode
             eprintln!("water: {} triangles from the playfield, {} surfaces (highest {level:.1}, over x {:.0}..{:.0}, y {:.0}..{:.0})", anarchy.water.len(), surfaces.len(), lo[0], hi[0], lo[1], hi[1]);
             model.water = Some(mao_formats::model::Water { level, min: [0.0; 2], max: [0.0; 2], surfaces });
         }
+        // (the liquid for the effects and the camera that ask where it is: `liquid.rs`)
+        let liquid = crate::liquid::Liquid::new(&anarchy.water);
+        crate::liquid::set_falls(crate::liquid::fall_effects(&anarchy.water, &liquid));
+        crate::liquid::set_current(Some(std::sync::Arc::new(liquid)));
     }
     for p in model.parts.iter().take(4) {
         eprintln!("part {} {} vertices, textures {:?}", p.name, p.vertices.len(), p.material.textures);

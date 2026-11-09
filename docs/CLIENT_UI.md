@@ -67,9 +67,9 @@ whompah plaza); `Renderer.shadows = false` turns them off.
 `VisualLiquid_t` do (see "The water and the playfield's own environment" below; `mao_formats::liquid`, `liquid.wgsl`).
 A playfield without polygons falls back to the old guessed sheet (`Terrain::water`: a flat floor holding a fifth of the
 ground's points at the bottom of its range is a seabed, the water 1.5 above it; `MAO_WATER=<level>` overrides the
-level), which no playfield with a readable tile-map needs any more. The refraction pass is done too (below). Not done:
-the star water of types 0xe/0xf (no playfield has any), the liquid raised 0.2 while the camera is under water, and the
-fall effect a falling polygon starts.
+level), which no playfield with a readable tile-map needs any more. The refraction pass, the liquid raised 0.2 while the
+camera is under water (with the under-water fog) and the fall effect a falling polygon starts are done too (below). Not
+done: the star water of types 0xe/0xf (no playfield has any).
 
 ## 4c. Performance
 * **Frame rate:** uncapped by default (`[window] vsync = off`; `on` waits for the monitor).
@@ -568,7 +568,7 @@ Missed attacks at or by the character (`MissedAttackInfo`: the attacker and the 
   * **since drawn** (step 4 and the paragraphs after it): the second running-effect class (3004/3003), the hit effects of kind 2007 (bundles), kinds 2001/2002, and the effects of items and spell functions (`GfxEffect`'s argument). Chosen rather than decoded: the radius, height and life of the spirals, the hand height of the cast, the flight time and the hit's size. The sprite sheet each emitter's material number names (word 9: 8, 15, 10, 31...) is not read: every particle is a soft round dot.
 
 - **Nano effects, step 4: the rest of the classes and the real sprites**:
-  * every effect id a nano names now reaches a look (`mao_formats::gfx::Visual`) except a few rare classes: a **bundle** (kind 2007: its first words are up to four children; 300 hits, 319 tracers, 63 buffs) and a **sequencer** (kind 3004, `_GfxControlSequencer_t`: word 1 entries of child, start and end from word 2) show every child that has a look, a sequencer's from each entry's start (`Visual::Delayed`; an entry's end, which cuts the child's duration to `end − start` in 56 of 522 entries, and flag 0x400's looping round are not followed); kind **3003** (the running effect of 114 programs, 52 of them one cyan ground glow, `0x8800ffff`: the packed colour is word 10, the sprite size word 11) is a soft glow under the feet that breathes; kind **2001** (the hit of 123 programs) a short bright flash with a ring of sparks; kind **2002** (the tracer of 250) a glowing ball in flight. Since drawn (the paragraphs below): kinds 1025, 1022 and 1019 (the tracers), 3001 (the deformer), 3006 (the sky flash) and 3009 (the crazy cones); not drawn: 2011 (`_GfxControlHighlight_t`, 9 programs such as Dimensional Shift and the Monster Cloak: it hides the character's mesh and changes its render priority) and 3017 (an effect no program reaches directly);
+  * every effect id a nano names now reaches a look (`mao_formats::gfx::Visual`) except a few rare classes: a **bundle** (kind 2007: its first words are up to four children; 300 hits, 319 tracers, 63 buffs) and a **sequencer** (kind 3004, `_GfxControlSequencer_t`: word 1 entries of child, start and end from word 2) show every child that has a look, a sequencer's from each entry's start (`Visual::Delayed`; an entry's end, which cuts the child's duration to `end − start` in 56 of 522 entries, and flag 0x400's looping round are not followed); kind **3003** (the running effect of 114 programs, 52 of them one cyan ground glow, `0x8800ffff`: the packed colour is word 10, the sprite size word 11) is a soft glow under the feet that breathes; kind **2001** (the hit of 123 programs) a short bright flash with a ring of sparks; kind **2002** (the tracer of 250) a glowing ball in flight. Since drawn (the paragraphs below): kinds 1025, 1022 and 1019 (the tracers), 3001 (the deformer), 3006 (the sky flash) and 3009 (the crazy cones); since drawn too: 2011 (`_GfxControlHighlight_t`, the highlights of 9 programs such as Dimensional Shift and the Monster Cloak) and 3017 (`_GfxControlGlobalSmoke_t`, the fall effect's mist; no program reaches it);
   * **the sprite sheets**: the material number of an emitter (word 9) is a row of `_MaterialManager_t::GetMaterial`'s 102-case switch (Gamecode.dll): a texture by file name with its columns, rows and first and last frame (`mao_formats::gfx::MATERIALS`: 8 = `light_halo2.png`, 15 = `s_bullet.png`, 31 = `x_smoke.png` 8x8, 10 = `muzzleflash.png` 8x8, 3 = `explo04_01_v01.png`...). The particle pass cuts particles from them (`Particle::sprite`/`rect`, `Renderer::add_sprite`; the client loads each sheet once from the database, `Textures::sheet`), plays a sheet's frames over a particle's life, and a sheet that cannot be loaded draws as a soft dot. The blend is now additive with the sheet's colour times its alpha;
   * **creature animation speed**: `Setupf/animcalibration.txt` lists, for a creature's mesh and a movement animation (instance numbers), the factor the original plays it with (the wolf walks at 0.7 and runs at 0.5, the sparrow 1.2, the greatness creature 1.5; tab separated lines `mesh animation factor`). Read at start (`effects::calibration`) and applied to every creature's animation, which replaces the guessed 0.75 for polymorphs.
 
@@ -753,6 +753,36 @@ into (multisampling) or draws into (without) a copy texture, a second pass carri
 blitting the copy back, and the water layer is drawn once more sampling the copy, clamped and unfiltered, blended by that
 band. `MAO_NO_REFRACTION=1` turns it off; `shots/refr_sea.png` against `shots/refr_sea_off.png` shows the band on the
 Coast of Peace's sea. Not followed: the frame block's byte 0x188, which skips the pass when set (what sets it was not found).
+
+**Under water** (Gamecode FUN_100b77cb and FUN_100b79f7, run each frame by the playfield's state; `viewer::under_water`,
+`under_water_fog`, `environment::add_fog`, `Scene::under_water`). Each frame the original tests the eye a tenth lower against
+the playfield's liquid (`WaterCollisionInfo_t`'s previous test data) and, with the surface above it, calls
+`VisualWater_t::CameraIsUnderWater` and adds a fog by the liquid's type (`VisualFog_t::AddFog`: the water's a dark blue-green
+`(0.1, 0.3, 0.25)` at 0.99, lava's red at 0.99, type 4's dark green and the toxic's bright green at 1, type 8's brown at 0.99,
+type 10's the water's at 0.98; none under the star water); the liquid's frame (DisplaySystem FUN_100406d3) then sits 0.2
+higher for that frame. The client does the same from `liquid::current()` at the camera's eye: the fog is gathered after the
+environment's by `AddFog`'s rules and lit by the environment's fog light, and the surfaces are raised in the liquid vertex
+shader (`LiquidUniform::screen.w`). `shots/under_sea.png` is the Coast of Peace's sea from under it
+(`MAO_CAMERA=2600,400,4,10,1.5708,0.05`).
+
+**The fall effect** (`VisualWater_t::Create`'s effect 2, DisplaySystem FUN_1003b1cd; Gamecode FUN_100afc4c;
+`liquid::fall_effects`, `gfx::GlobalSmoke`, `effects::global_smoke_particles`, `placed_particles`). A falling liquid triangle
+(the type's low bit) over a tenth high with one high corner, but lava, starts the environment's effect 2 at one low corner with
+the other as its ground; the environment's frame hands it to Gamecode's effect handler, which walks from the one towards the
+other a unit at a time (`floor(length) + 1` steps) and makes gfx 0x30d6 at every step the playfield's collision puts on a
+liquid surface below it. 0x30d6 is kind 3017, `_GfxControlGlobalSmoke_t` (FUN_100e0d8a; FUN_100e060f the words, FUN_100dfc38
+the run): sixty-four sprites of a material on a `GfxVisualSol`, added to the scene, each born in a free slot (`word 30 +
+(rand() & word 31)` a frame) and living word 26 seconds while its width, height and colour run between the template's pairs;
+the mode sets the start, and 0x30d6's mode 3 spreads them up to 1.5 along the world's x (flag 2: the world's axes; the
+original's `rand() / 21845 − 1.5` is one-sided) and moves them along −z at 1.35 to 1.42 a second for 1.4 s, 0.7 to 3 wide,
+white at alpha 0.15 to 0.05 of material 49 — a mist along the foot — hidden past 80 units from the camera. The client finds
+the feet with the playfield (`Area::falls`, `Update::falls`) and draws the effect at each from the frame the playfield came,
+while the environment effects are shown; the births are modelled at sixty a second, with a hash for the random numbers. Not
+drawn: the quads' spin, mode 5's blend under alpha, mode 1's wandering emitter (taken as mode 0); not followed: the first
+call of the walk's collision test (slot 8 of the playfield's collision, whose refusal skips a step). Across the playfields
+the effect lands at 25 places on each coast, 556 in Adonis City, 135 in 4 Holes, 97 in Belial Forest
+(`liquid::tests::fall_effect_survey`); `shots/fall_coast.png` is the Coast of Peace's fall at (574, 1836) with
+`MAO_FALLS=5`, `shots/fall_mist.png` the effect alone on a standing player (`MAO_AURA=12502`).
 
 **Sixteen-bit tile-maps** (`terrain::build`): the original's ground height is the stored value times the tile-map's
 second float (`_GfxControl_t::GetGroundHeight` over FUN_100459f8, which gives a 16-bit map's value as it is and an 8-bit

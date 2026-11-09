@@ -4083,6 +4083,8 @@ pub(crate) struct Area {
     pub(crate) animated: Vec<crate::AnimatedPart>,
     /// An interior's rooms (their doorways and which parts are each room's), when the playfield is made of rooms.
     pub(crate) interior: Option<Arc<crate::interior::Interior>>,
+    /// The feet of the waterfalls (x, height, z), for the fall effect (`liquid::fall_effects`).
+    pub(crate) falls: Vec<[f32; 3]>,
 }
 
 pub(crate) fn load_area(game: &str, db: &Arc<ResourceDatabase>, playfield: u32) -> Result<Area, String> {
@@ -4164,12 +4166,18 @@ pub(crate) fn load_area_with(game: &str, db: &Arc<ResourceDatabase>, playfield: 
     }
     let anarchy = mao_formats::playfield::load_anarchy(db, playfield);
     // (the playfield's liquid, for the effects that ask for it: `liquid.rs`)
-    crate::liquid::set_current(anarchy.as_ref().map(|a| std::sync::Arc::new(crate::liquid::Liquid::new(&a.water))));
+    let liquid = anarchy.as_ref().map(|a| std::sync::Arc::new(crate::liquid::Liquid::new(&a.water)));
+    // (the feet of its waterfalls, for the fall effect: `liquid::fall_effects`)
+    let falls = anarchy.as_ref().zip(liquid.as_ref()).map_or(Vec::new(), |(a, l)| crate::liquid::fall_effects(&a.water, l));
+    if !falls.is_empty() {
+        eprintln!("playfield {playfield}: the fall effect at {} places", falls.len());
+    }
+    crate::liquid::set_current(liquid);
     let base_environment = anarchy.and_then(|a| a.environment);
     if let Some(e) = &base_environment {
         eprintln!("playfield {playfield}: environment weather {:?} ambient {:?} fog {:?} density {}", &e[..8], &e[19..22], &e[22..25], e[25]);
     }
-    Ok(Area { scene, terrain, collision, booths, areas, base_environment, teleportals, zones, animated, interior })
+    Ok(Area { scene, terrain, collision, booths, areas, base_environment, teleportals, zones, animated, interior, falls })
 }
 
 /// The label over each whompah booth: where it leads, when that is known.
@@ -4202,7 +4210,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     let db = Arc::new(ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?);
     crate::effects::load_calibration(game);
     let textures = crate::Textures::new(db.clone());
-    let Area { scene, terrain, collision, booths, areas, base_environment, teleportals, zones, animated, interior } = load_area_with(game, &db, playfield, Some(&textures))?;
+    let Area { scene, terrain, collision, booths, areas, base_environment, teleportals, zones, animated, interior, falls } = load_area_with(game, &db, playfield, Some(&textures))?;
     // The rooms of an interior: where the character is among them, which doors it may pass, which rooms are drawn.
     let mut interior = interior;
     let mut room_state = crate::interior::RoomState::default();
@@ -4470,6 +4478,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut fresh = false;
         state.arrival = None;
         let mut pending_scene: Option<Model> = None;
+        // (the new playfield's waterfalls' feet, for the viewer's fall effects)
+        let mut pending_falls: Option<Vec<[f32; 3]>> = Some(falls);
         let first_inventory = state.inventory.take();
         if let Some(entries) = &first_inventory {
             state.worn = entries.clone();
@@ -4997,6 +5007,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             }
                             pending_scene = Some(scene);
                             booths = area.booths;
+                            pending_falls = Some(area.falls);
                             areas = area.areas;
                             state.grid = is_grid(&areas);
                             base_environment = area.base_environment;
@@ -5008,6 +5019,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             eprintln!("can't draw playfield {playfield}: {e}");
                             (terrain, collision) = (None, Default::default());
                             pending_scene = Some(Model::default());
+                            pending_falls = Some(Vec::new());
                             booths = Vec::new();
                             pending_labels = Some(Vec::new());
                         }
@@ -6638,6 +6650,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 let update = crate::viewer::Update {
                     messages_only: false,
                     scene: pending_scene.take(),
+                    falls: pending_falls.take().map(|feet| (feet, gfx.as_ref().and_then(|g| g.visual(0x30d6)))),
                     interior: pending_interior.take(),
                     rooms_shown: pending_rooms_shown.take(),
                     model,
