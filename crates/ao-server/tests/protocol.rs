@@ -116,8 +116,8 @@ fn the_game_answers_the_entry_with_the_chat_server_the_playfield_and_the_world()
     let enter = mao_net::frame::Frame { kind: SYSTEM, source: 1, destination: 2, body: vec![0, 0, 0, 0x1b, 0, 0, 0, 1, 1, 2, 3, 4, 5, 6, 7, 8] };
     let (sent, replies) = session.handle(&enter);
     assert!(!sent, "the ready is the client's");
-    // (the chat server, the playfield, the time, the position, the stats, the items, four monsters and the agency receptionist)
-    assert_eq!(replies.len(), 11);
+    // (the chat server, the playfield, the time, the position, the stats, the items, five monsters and the agency receptionist)
+    assert_eq!(replies.len(), 12);
     assert_eq!(replies[0].kind, SYSTEM, "the chat server");
     assert_eq!(n3::Message::parse(&replies[1]).unwrap().kind, ao_server::game::PLAYFIELD);
     assert_eq!(n3::Message::parse(&replies[2]).unwrap().kind, ao_server::game::GAME_TIME);
@@ -161,7 +161,7 @@ fn entering_the_world_answers_with_the_chat_server_and_the_playfield() {
     let enter = mao_net::frame::Frame { kind: SYSTEM, source: 1, destination: 2, body: vec![0, 0, 0, 0x1b, 0, 0, 0, 1, 1, 2, 3, 4, 5, 6, 7, 8] };
     assert!(ao_server::game::is_enter(&enter));
     let (_, replies) = session.handle(&enter);
-    assert_eq!(replies.len(), 11);
+    assert_eq!(replies.len(), 12);
     assert_eq!(replies[0].kind, SYSTEM, "the chat server");
     let playfield = n3::Message::parse(&replies[1]).unwrap();
     assert_eq!(playfield.kind, ao_server::game::PLAYFIELD);

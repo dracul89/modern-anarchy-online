@@ -140,19 +140,36 @@ fn to_client(character: u32, kind: u32, identity: (u32, u32), data: Vec<u8>) -> 
     frame
 }
 
-/// The swing of an attack on a target: the attack's record (`AttackInfo`), the character's, with the damage and a normal hit.
-fn attack_info(character: u32, target: (u32, u32), damage: u32) -> Option<Frame> {
+/// The swing of an attack on a target: the attack's record (`AttackInfo`) about `attacker` (a character or a monster), with the
+/// damage and a normal hit, sent to `character`.
+fn attack_info(character: u32, attacker: u32, target: (u32, u32), damage: u32) -> Option<Frame> {
     let mut t = templates::of(0x46002f16)?;
     t.set("Amount", int(damage as i64)).set("AmmoCount", int(-1)).set("WeaponSlot", int(0)).set("Target", identity(target)).set("Unk1", int(0)).set("HitType", int(3)).set("WeaponInstance", int(0));
-    let m = t.message(0x46002f16, (n3::CHARACTER, character)).ok()?;
+    let m = t.message(0x46002f16, (n3::CHARACTER, attacker)).ok()?;
     Some(to_client(character, m.kind, m.identity, m.data))
 }
 
-/// The damage a target took and the health it has left (`HealthDamage`, about the damaged target).
-fn health_damage(character: u32, target: (u32, u32), health: u32, damage: u32) -> Option<Frame> {
+/// The damage `hurt` took from `source` and the health it has left (`HealthDamage`, about the damaged one), sent to `character`.
+fn health_damage(character: u32, hurt: (u32, u32), source: (u32, u32), health: u32, damage: u32) -> Option<Frame> {
     let mut t = templates::of(0x3710256c)?;
-    t.set("TargetHp", int(health as i64)).set("Amount", int(damage as i64)).set("Target", identity(target)).set("Unk2", int(0));
-    let m = t.message(0x3710256c, target).ok()?;
+    t.set("TargetHp", int(health as i64)).set("Amount", int(damage as i64)).set("Target", identity(source)).set("Unk2", int(0));
+    let m = t.message(0x3710256c, hurt).ok()?;
+    Some(to_client(character, m.kind, m.identity, m.data))
+}
+
+/// A move of the character within its playfield (`N3Teleport` with the same-playfield type `0xc7a0` and no proxy, as the
+/// captured moves inside a mission), to `position`: the reclaim after a death.
+fn move_within(character: u32, position: [f32; 3]) -> Option<Frame> {
+    let mut t = templates::of(0x43197d22)?;
+    let vector = |v: [f32; 3]| templates::record(vec![("X", Value::Float(v[0] as f64)), ("Y", Value::Float(v[1] as f64)), ("Z", Value::Float(v[2] as f64))]);
+    t.set("Destination", vector(position))
+        .set("Heading", templates::record(vec![("X", Value::Float(0.0)), ("Y", Value::Float(0.0)), ("Z", Value::Float(0.0)), ("W", Value::Float(1.0))]))
+        .set("Playfield", identity((0xc7a0, 0)))
+        .set("GameServerId", int(0))
+        .set("SgId", int(0))
+        .set("ChangePlayfield", identity((0, 0)))
+        .set("Playfield2", identity((0, 0)));
+    let m = t.message(0x43197d22, (n3::CHARACTER, character)).ok()?;
     Some(to_client(character, m.kind, m.identity, m.data))
 }
 
@@ -635,17 +652,48 @@ impl GameSession {
         let damage = 10 + self.hero.level * 2;
         let monster = &mut self.monsters[index];
         monster.health = monster.health.saturating_sub(damage);
-        let (name, health, id, xp, loot) = (monster.name.clone(), monster.health, monster.id, monster.xp, monster.loot);
+        let (name, health, id, xp, loot, strikes) = (monster.name.clone(), monster.health, monster.id, monster.xp, monster.loot, monster.strikes);
         let character = self.character_id;
         let target = (n3::CHARACTER, id);
-        if let Some(f) = attack_info(character, target, damage) {
+        if let Some(f) = attack_info(character, character, target, damage) {
             out.push(f);
         }
-        if let Some(f) = health_damage(character, target, health, damage) {
+        if let Some(f) = health_damage(character, target, (n3::CHARACTER, character), health, damage) {
             out.push(f);
         }
         out.push(chat_line(character, &format!("You hit {name} for {damage} damage.")));
         if health > 0 {
+            // A monster that fights back swings too (the captures' fights: the monster's `AttackInfo`, the character's
+            // `HealthDamage`); at zero health the character is killed and reclaimed at the spawn with full health.
+            if strikes > 0 {
+                self.hero.health = self.hero.health.saturating_sub(strikes);
+                let me = (n3::CHARACTER, character);
+                if let Some(f) = attack_info(character, id, me, strikes) {
+                    out.push(f);
+                }
+                if let Some(f) = health_damage(character, me, target, self.hero.health, strikes) {
+                    out.push(f);
+                }
+                out.push(chat_line(character, &format!("{name} hits you for {strikes} damage.")));
+                if self.hero.health == 0 {
+                    self.fight = None;
+                    if let Ok(m) = templates::of(0x4a41203e).ok_or(()).and_then(|t| t.message(0x4a41203e, me).map_err(|_| ())) {
+                        out.push(to_client(character, m.kind, m.identity, m.data));
+                    }
+                    out.push(chat_line(character, &format!("You were killed by {name}.")));
+                    self.hero.health = self.hero.max_health();
+                    self.hero.position = monsters::SPAWN;
+                    self.arrived = monsters::SPAWN;
+                    if let Some(f) = move_within(character, monsters::SPAWN) {
+                        out.push(f);
+                    }
+                    out.push(chat_line(character, "You are reclaimed at the spawn."));
+                    self.stats_changed(&mut out);
+                    self.save();
+                    return out;
+                }
+                self.stats_changed(&mut out);
+            }
             self.fight = Some(Fight { next: now + SWING, ..fight });
             return out;
         }
@@ -966,9 +1014,9 @@ mod tests {
         let (playfield, at) = first.arrival().unwrap();
         assert_eq!(playfield, monsters::OLD_ATHENS);
         assert_eq!(at, monsters::SPAWN);
-        // (the four training dummies, and the agency receptionist by the same message)
+        // (the four training dummies and the rollerrat, and the agency receptionist by the same message)
         let monsters_seen = out.iter().filter(|f| n3::Message::parse(f).is_some_and(|m| m.kind == 0x271b3a6b && m.identity.1 != knubot::RECEPTIONIST.id)).count();
-        assert_eq!(monsters_seen, 4);
+        assert_eq!(monsters_seen, 5);
     }
 
     #[test]
@@ -992,6 +1040,44 @@ mod tests {
         assert!(kinds.contains(&0x36510078), "the monster is taken away");
         assert!(s.hero.xp >= 400, "the experience: {}", s.hero.xp);
         assert!(s.hero.items.iter().any(|i| i.template == monsters::LOOT), "the loot");
+    }
+
+    #[test]
+    fn the_rollerrat_fights_back_and_a_killed_character_is_reclaimed_at_the_spawn() {
+        let mut s = session();
+        s.handle(&enter());
+        s.hero.health = 12;
+        s.hero.position = [1.0, 2.0, 3.0];
+        s.handle(&n3::attack(0x7b1a0021, monsters::ROLLERRAT));
+        let mut now = Instant::now();
+        let mut kinds = Vec::new();
+        let mut lines = Vec::new();
+        for _ in 0..10 {
+            now += Duration::from_secs(3);
+            let out = s.tick(now);
+            for f in &out {
+                if let Some(m) = n3::Message::parse(f) {
+                    kinds.push((m.kind, m.identity.1));
+                    if m.kind == CHAT_TEXT {
+                        lines.push(n3::chat_text(&m.data).unwrap_or_default());
+                    }
+                }
+            }
+            if s.hero.position == monsters::SPAWN {
+                break;
+            }
+        }
+        // (the rat's swing: its AttackInfo about itself, the character's HealthDamage; three swings of 5 take 12 health)
+        assert!(kinds.contains(&(0x46002f16, monsters::ROLLERRAT)), "the rat's attack record: {kinds:x?}");
+        assert!(kinds.contains(&(0x3710256c, 0x7b1a0021)), "the character's damage: {kinds:x?}");
+        assert!(lines.iter().any(|l| l.starts_with("Training Rollerrat hits you")), "{lines:?}");
+        assert!(lines.iter().any(|l| l.starts_with("You were killed by")), "{lines:?}");
+        // (reclaimed: full health, moved to the spawn within the playfield, the fight over)
+        assert_eq!(s.hero.health, s.hero.max_health());
+        assert_eq!(s.hero.position, monsters::SPAWN);
+        let teleport = kinds.iter().any(|&(k, id)| k == 0x43197d22 && id == 0x7b1a0021);
+        assert!(teleport && kinds.contains(&(0x4a41203e, 0x7b1a0021)), "{kinds:x?}");
+        assert!(s.tick(now + Duration::from_secs(10)).is_empty(), "no fight goes on");
     }
 
     #[test]

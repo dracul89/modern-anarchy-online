@@ -23,14 +23,20 @@ pub struct Monster {
     pub max_health: u32,
     pub xp: u32,
     pub loot: u32,
+    /// What the monster takes off the character each swing when it fights back (0: it never does, a dummy).
+    pub strikes: u32,
 }
 
-/// The monsters a playfield has when a character enters it (only Old Athens has any: the server's own table).
+/// The rollerrat that fights back, by the spawn.
+pub const ROLLERRAT: u32 = 0x7f00_0005;
+
+/// The monsters a playfield has when a character enters it (only Old Athens has any: the server's own table): four
+/// training dummies that stand there and a rollerrat that fights back.
 pub fn spawns(playfield: u32) -> Vec<Monster> {
     if playfield != OLD_ATHENS {
         return Vec::new();
     }
-    (0..4u32)
+    let mut out: Vec<Monster> = (0..4u32)
         .map(|i| {
             let angle = i as f32 * std::f32::consts::FRAC_PI_2;
             Monster {
@@ -42,9 +48,12 @@ pub fn spawns(playfield: u32) -> Vec<Monster> {
                 max_health: 120,
                 xp: 400,
                 loot: LOOT,
+                strikes: 0,
             }
         })
-        .collect()
+        .collect();
+    out.push(Monster { id: ROLLERRAT, name: "Training Rollerrat".to_string(), position: [SPAWN[0] - 12.0, SPAWN[1], SPAWN[2] + 6.0], playfield, health: 60, max_health: 60, xp: 300, loot: LOOT, strikes: 5 });
+    out
 }
 
 /// The monster's entity message (its place, name and health), made from the captured monster.
@@ -67,7 +76,9 @@ mod tests {
 
     #[test]
     fn the_monsters_are_in_old_athens_only() {
-        assert_eq!(spawns(OLD_ATHENS).len(), 4);
+        let monsters = spawns(OLD_ATHENS);
+        assert_eq!(monsters.len(), 5);
+        assert_eq!(monsters.iter().filter(|m| m.strikes > 0).count(), 1, "one fights back");
         assert!(spawns(1234).is_empty());
     }
 
