@@ -67,9 +67,9 @@ whompah plaza); `Renderer.shadows = false` turns them off.
 `VisualLiquid_t` do (see "The water and the playfield's own environment" below; `mao_formats::liquid`, `liquid.wgsl`).
 A playfield without polygons falls back to the old guessed sheet (`Terrain::water`: a flat floor holding a fifth of the
 ground's points at the bottom of its range is a seabed, the water 1.5 above it; `MAO_WATER=<level>` overrides the
-level), which no playfield with a readable tile-map needs any more. Not done: the original's refraction pass (it renders
-the screen into a texture), the star water of types 0xe/0xf (no playfield has any), the liquid raised 0.2 while the camera
-is under water, and the fall effect a falling polygon starts.
+level), which no playfield with a readable tile-map needs any more. The refraction pass is done too (below). Not done:
+the star water of types 0xe/0xf (no playfield has any), the liquid raised 0.2 while the camera is under water, and the
+fall effect a falling polygon starts.
 
 ## 4c. Performance
 * **Frame rate:** uncapped by default (`[window] vsync = off`; `on` waits for the monitor).
@@ -738,6 +738,21 @@ which comes to the same world tiling). The wide water: the water texture over 16
 which the scripts' `GameWaveCurve0..15` set to 0 everywhere so they never move anything, and the lava's second (rippling)
 pass, whose alpha of 1 under the inverse blend contributes nothing. The textures come by name from the resource database
 (`Textures::sheet`); a missing one leaves the pass white.
+
+**The refraction pass** (`VisualLiquid_t::RenderRefraction`, FUN_1003d13a and FUN_1003b9c9; `Renderer::refraction`, pass 7 of
+`liquid.wgsl`, `blit.wgsl`). The original's frame with water goes through its render targets (`DisplaySystem` FUN_100793b8):
+the sky, ground, meshes and the liquid's own passes are drawn to target 1, `VisualOffscreen2Refraction_t` (render list 9)
+copies that picture into target 2, and then the water's triangles are drawn again with target 2 as their texture: each
+vertex's texture coordinates are its own screen place, the water layer's mirrored top to bottom and shifted by the camera's
+lean (1.414 times the camera axis's up component), with a vertex alpha of `(1 − |5 (t − base)|)² (1 − |tilt|)²` about the
+mirror line (`t` the height up the screen, `base` half minus half the lean; nothing under 0.2) — so a level camera sees what
+stands just above the horizon mirrored in a band of the water just below it, and a camera looking down sees nothing of it.
+The wide layer's copy is straight and opaque, which with the scripts' wave offsets at 0 redraws the picture as it is, so it
+is left out. The client does the same with a screen copy: with water in the scene the pass up to the liquid passes resolves
+into (multisampling) or draws into (without) a copy texture, a second pass carries on in the multisampled target or after
+blitting the copy back, and the water layer is drawn once more sampling the copy, clamped and unfiltered, blended by that
+band. `MAO_NO_REFRACTION=1` turns it off; `shots/refr_sea.png` against `shots/refr_sea_off.png` shows the band on the
+Coast of Peace's sea. Not followed: the frame block's byte 0x188, which skips the pass when set (what sets it was not found).
 
 **Sixteen-bit tile-maps** (`terrain::build`): the original's ground height is the stored value times the tile-map's
 second float (`_GfxControl_t::GetGroundHeight` over FUN_100459f8, which gives a 16-bit map's value as it is and an 8-bit

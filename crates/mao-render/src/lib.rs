@@ -323,11 +323,13 @@ struct LiquidUniform {
     phases: [f32; 4],
     drift: [f32; 4],
     which: [u32; 4],
+    /// x, y: the picture's size in pixels; z: the camera's tilt (its forward's up component), for the refraction pass.
+    screen: [f32; 4],
 }
 
 /// The passes' uniforms sit this far apart in their buffer (the dynamic offset alignment every device allows).
 const LIQUID_PASS_STRIDE: usize = 256;
-const LIQUID_PASSES: usize = 7;
+const LIQUID_PASSES: usize = 8;
 
 /// The liquid passes' textures and bind group, their uniform buffer, and the phases that move the surfaces: the water's
 /// flow (`DAT_10150174`, down by the frame's time over a hundred, wrapped), the ripples (a step a frame: 0.003 for the
@@ -335,22 +337,36 @@ const LIQUID_PASSES: usize = 7;
 /// over 10 and 20, over its tilings of 75 and 250, wrapped).
 struct LiquidResources {
     layout: wgpu::BindGroupLayout,
+    /// The passes' bind group, and the same with the screen copy in place of the white texture for the refraction pass (a
+    /// pass that draws into the copy cannot also sample it).
     bind: wgpu::BindGroup,
+    bind_screen: wgpu::BindGroup,
     buffer: wgpu::Buffer,
     flow: f32,
     ripples: [f32; 3],
     drift: [f32; 2],
     last: Option<std::time::Instant>,
+    /// The water, toxic and lava textures (the white one until they are given), the samplers (repeating for them, clamped
+    /// and unfiltered for the screen copy) and the blit's layout, to make the bind groups again.
+    textures: [wgpu::TextureView; 3],
+    white: wgpu::TextureView,
+    sampler: wgpu::Sampler,
+    clamp: wgpu::Sampler,
+    sprite_layout: wgpu::BindGroupLayout,
+    /// The picture so far, copied for the refraction pass (the original's `VisualOffscreen2Refraction_t` drawing render
+    /// target 1 into target 2): its size, its view and its bind group for the blit back.
+    screen: Option<((u32, u32), wgpu::TextureView, wgpu::BindGroup)>,
 }
 
 impl LiquidResources {
-    fn new(gpu: &Gpu, layout: wgpu::BindGroupLayout, white: &wgpu::TextureView, sampler: &wgpu::Sampler) -> LiquidResources {
+    fn new(gpu: &Gpu, layout: wgpu::BindGroupLayout, white: &wgpu::TextureView, sampler: &wgpu::Sampler, clamp: &wgpu::Sampler, sprite_layout: &wgpu::BindGroupLayout) -> LiquidResources {
         let buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor { label: Some("liquid passes"), size: (LIQUID_PASS_STRIDE * LIQUID_PASSES) as u64, usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false });
-        let bind = Self::bind_group(gpu, &layout, &buffer, [white, white, white], sampler);
-        LiquidResources { layout, bind, buffer, flow: 0.0, ripples: [0.0; 3], drift: [0.0; 2], last: None }
+        let bind = Self::bind_group(gpu, &layout, &buffer, [white, white, white], sampler, white, clamp);
+        let bind_screen = bind.clone();
+        LiquidResources { layout, bind, bind_screen, buffer, flow: 0.0, ripples: [0.0; 3], drift: [0.0; 2], last: None, textures: [white.clone(), white.clone(), white.clone()], white: white.clone(), sampler: sampler.clone(), clamp: clamp.clone(), sprite_layout: sprite_layout.clone(), screen: None }
     }
 
-    fn bind_group(gpu: &Gpu, layout: &wgpu::BindGroupLayout, buffer: &wgpu::Buffer, textures: [&wgpu::TextureView; 3], sampler: &wgpu::Sampler) -> wgpu::BindGroup {
+    fn bind_group(gpu: &Gpu, layout: &wgpu::BindGroupLayout, buffer: &wgpu::Buffer, textures: [&wgpu::TextureView; 3], sampler: &wgpu::Sampler, screen: &wgpu::TextureView, clamp: &wgpu::Sampler) -> wgpu::BindGroup {
         gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("liquid"),
             layout,
@@ -360,12 +376,47 @@ impl LiquidResources {
                 wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(textures[1]) },
                 wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(textures[2]) },
                 wgpu::BindGroupEntry { binding: 4, resource: wgpu::BindingResource::Sampler(sampler) },
+                wgpu::BindGroupEntry { binding: 5, resource: wgpu::BindingResource::TextureView(screen) },
+                wgpu::BindGroupEntry { binding: 6, resource: wgpu::BindingResource::Sampler(clamp) },
             ],
         })
     }
 
-    /// The phases moved on by a frame and every pass's uniform written for it.
-    fn update(&mut self, gpu: &Gpu, light: WaterLight, ambient: [f32; 3]) {
+    /// The bind group made again from the textures and the screen copy there are.
+    fn rebind(&mut self, gpu: &Gpu) {
+        let screen = self.screen.as_ref().map_or(&self.white, |(_, v, _)| v);
+        self.bind = Self::bind_group(gpu, &self.layout, &self.buffer, [&self.textures[0], &self.textures[1], &self.textures[2]], &self.sampler, &self.white, &self.clamp);
+        self.bind_screen = Self::bind_group(gpu, &self.layout, &self.buffer, [&self.textures[0], &self.textures[1], &self.textures[2]], &self.sampler, screen, &self.clamp);
+    }
+
+    /// A screen copy of this size and format, made when there is none or the size changed (the bind groups follow).
+    fn ensure_screen(&mut self, gpu: &Gpu, size: (u32, u32), format: wgpu::TextureFormat) {
+        if self.screen.as_ref().is_some_and(|(s, _, _)| *s == size) {
+            return;
+        }
+        let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("screen copy"),
+            size: wgpu::Extent3d { width: size.0, height: size.1, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let blit = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("screen copy"),
+            layout: &self.sprite_layout,
+            entries: &[wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&view) }, wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&self.clamp) }],
+        });
+        self.screen = Some((size, view, blit));
+        self.rebind(gpu);
+    }
+
+    /// The phases moved on by a frame and every pass's uniform written for it; `screen` is the picture's size and the camera's
+    /// tilt (see `LiquidUniform::screen`).
+    fn update(&mut self, gpu: &Gpu, light: WaterLight, ambient: [f32; 3], screen: [f32; 4]) {
         let now = std::time::Instant::now();
         let dt = self.last.map_or(0.01, |t| now.duration_since(t).as_secs_f32().min(0.1));
         self.last = Some(now);
@@ -395,6 +446,7 @@ impl LiquidResources {
                 phases: [self.flow, self.ripples[0], self.ripples[1], self.ripples[2]],
                 drift: [self.drift[0], self.drift[1], 0.0, 0.0],
                 which: [pass as u32, 0, 0, 0],
+                screen,
             };
             let at = pass * LIQUID_PASS_STRIDE;
             data[at..at + std::mem::size_of::<LiquidUniform>()].copy_from_slice(bytemuck::bytes_of(&u));
@@ -630,6 +682,9 @@ struct Shaders {
     particle_layout: wgpu::PipelineLayout,
     /// The globals and the liquid's textures and pass uniform.
     liquid_layout: wgpu::PipelineLayout,
+    /// The screen copy's blit: its shader and its layout (a sprite's texture and sampler).
+    blit: wgpu::ShaderModule,
+    blit_layout: wgpu::PipelineLayout,
 }
 
 /// The format of the motion buffer (see `taa.wgsl`).
@@ -644,6 +699,8 @@ struct ScenePipelines {
     /// The mesh pipeline blending by the fragment's alpha: the tinted character parts under full alpha.
     mesh_blend: wgpu::RenderPipeline,
     sky: wgpu::RenderPipeline,
+    /// The screen copy drawn back over the whole picture (no depth), before the refraction pass continues on it.
+    blit: wgpu::RenderPipeline,
     water: wgpu::RenderPipeline,
     /// The liquid surfaces: blended by their alpha, and the ripple passes blended the other way round (`1 - a` of the
     /// pass over `a` of what is there).
@@ -717,6 +774,18 @@ impl ScenePipelines {
             depth_stencil: depth(false, wgpu::CompareFunction::Always, Default::default()),
             multisample,
             fragment: Some(wgpu::FragmentState { module: shader, entry_point: Some("fs_sky"), compilation_options: Default::default(), targets: &opaque }),
+            multiview_mask: None,
+            cache: None,
+        });
+        // The screen copy blitted back: one triangle over the picture, no depth.
+        let blit = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("blit"),
+            layout: Some(&shaders.blit_layout),
+            vertex: wgpu::VertexState { module: &shaders.blit, entry_point: Some("vs_blit"), compilation_options: Default::default(), buffers: &[] },
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: depth(false, wgpu::CompareFunction::Always, Default::default()),
+            multisample,
+            fragment: Some(wgpu::FragmentState { module: &shaders.blit, entry_point: Some("fs_blit"), compilation_options: Default::default(), targets: &opaque }),
             multiview_mask: None,
             cache: None,
         });
@@ -837,7 +906,7 @@ impl ScenePipelines {
             shell_like("vs_backdrop", "fs_shell_blend", Some(wgpu::BlendState::ALPHA_BLENDING), wgpu::CompareFunction::Always),
             shell_like("vs_backdrop", "fs_shell_add", Some(wgpu::BlendState { color: additive, alpha: additive }), wgpu::CompareFunction::Always),
         ];
-        ScenePipelines { mesh, mesh_blend, sky, water, liquid, liquid_inverse, blob, particle, shell_add, shell_blend, backdrops }
+        ScenePipelines { mesh, mesh_blend, sky, blit, water, liquid, liquid_inverse, blob, particle, shell_add, shell_blend, backdrops }
     }
 }
 
@@ -977,6 +1046,9 @@ pub struct Renderer {
     shadow_bind: wgpu::BindGroup,
     /// Draw the sun's shadows (on by default).
     pub shadows: bool,
+    /// Whether the water's refraction pass is drawn (`MAO_NO_REFRACTION` turns it off): the picture so far mirrored into
+    /// the water about the horizon, as the original's `VisualLiquid_t::RenderRefraction` draws it.
+    pub refraction: bool,
     /// What the last frame drew.
     pub stats: Stats,
     /// The share of the window's size the scene is drawn at (1 = native); less is upscaled with FSR 1.
@@ -1172,10 +1244,16 @@ impl Renderer {
                 texture_entry(2),
                 texture_entry(3),
                 wgpu::BindGroupLayoutEntry { binding: 4, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering), count: None },
+                // (the screen copy the refraction pass samples, clamped and unfiltered)
+                texture_entry(5),
+                wgpu::BindGroupLayoutEntry { binding: 6, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering), count: None },
             ],
         });
         let liquid_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("liquid"), bind_group_layouts: &[Some(&globals_layout), Some(&liquid_bind_layout)], immediate_size: 0 });
-        let shaders = Shaders { mesh: shader, particle: particle_shader, liquid: liquid_shader, mesh_layout: layout, sky_layout, particle_layout, liquid_layout };
+        // The blit of the screen copy back onto the picture (`blit.wgsl`: a texture and a sampler, the sprite layout).
+        let blit_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("blit"), source: wgpu::ShaderSource::Wgsl(include_str!("blit.wgsl").into()) });
+        let blit_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("blit"), bind_group_layouts: &[Some(&sprite_layout)], immediate_size: 0 });
+        let shaders = Shaders { mesh: shader, particle: particle_shader, liquid: liquid_shader, blit: blit_shader, mesh_layout: layout, sky_layout, particle_layout, liquid_layout, blit_layout };
         let mut pipeline_sets = HashMap::new();
         pipeline_sets.insert((samples, false), ScenePipelines::new(device, &shaders, format, samples, false));
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -1252,8 +1330,8 @@ impl Renderer {
             layout: &sprite_layout,
             entries: &[wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&white) }, wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&sampler) }],
         });
-        let liquid = LiquidResources::new(gpu, liquid_bind_layout, &white, &sampler);
-        Renderer { shadow_cache: None, shadow_pipeline, pipeline_sets, shaders, antialiasing: Antialiasing::default(), taa_pipeline, taa_layout, taa_sampler, taa: None, copy_pipeline, timer: GpuTimer::new(gpu), gpu_ms: None, frame: 0, previous: None, sprites: HashMap::new(), sprite_layout, white_sprite, shadow_view, shadow_bind, shadows: true, stats: Stats::default(), render_scale: 1.0, sharpness: 0.2, fsr_easu, fsr_rcas, fsr_layout, fsr_sampler, fsr: None, samples, msaa: None, started: std::time::Instant::now(), globals_layout, part_layout, sampler, white, format, depth: None, textures: Default::default(), liquid }
+        let liquid = LiquidResources::new(gpu, liquid_bind_layout, &white, &sampler, &fsr_sampler, &sprite_layout);
+        Renderer { shadow_cache: None, shadow_pipeline, pipeline_sets, shaders, antialiasing: Antialiasing::default(), taa_pipeline, taa_layout, taa_sampler, taa: None, copy_pipeline, timer: GpuTimer::new(gpu), gpu_ms: None, frame: 0, previous: None, sprites: HashMap::new(), sprite_layout, white_sprite, shadow_view, shadow_bind, shadows: true, refraction: std::env::var_os("MAO_NO_REFRACTION").is_none(), stats: Stats::default(), render_scale: 1.0, sharpness: 0.2, fsr_easu, fsr_rcas, fsr_layout, fsr_sampler, fsr: None, samples, msaa: None, started: std::time::Instant::now(), globals_layout, part_layout, sampler, white, format, depth: None, textures: Default::default(), liquid }
     }
 
     /// Puts a model on the GPU. `texture` finds a texture by (type, instance).
@@ -1263,7 +1341,8 @@ impl Renderer {
     /// (`env_lava2.png`); one not given stays white.
     pub fn set_liquid_textures(&mut self, gpu: &Gpu, water: Option<&Texture>, toxic: Option<&Texture>, lava: Option<&Texture>) {
         let views: Vec<wgpu::TextureView> = [water, toxic, lava].iter().map(|t| t.map_or_else(|| self.white.clone(), |t| upload_texture(gpu, t))).collect();
-        self.liquid.bind = LiquidResources::bind_group(gpu, &self.liquid.layout, &self.liquid.buffer, [&views[0], &views[1], &views[2]], &self.sampler);
+        self.liquid.textures = [views[0].clone(), views[1].clone(), views[2].clone()];
+        self.liquid.rebind(gpu);
     }
 
     pub fn add_sprite(&mut self, gpu: &Gpu, id: u16, texture: &Texture) {
@@ -1779,7 +1858,9 @@ impl Renderer {
             let day = 0.2 + 0.8 * scene.daylight;
             let light = scene.water_light.unwrap_or(WaterLight { colour: [day; 3], to_light: sun, specular: 1.0 });
             let ambient = scene.lighting.map_or([day * 0.5; 3], |(a, _)| a);
-            self.liquid.update(gpu, light, ambient);
+            // (the camera's tilt: how much its forward points up, as FUN_1003b9c9 turns the camera's axis into the world)
+            let tilt = (camera.target - eye).normalize_or_zero().z;
+            self.liquid.update(gpu, light, ambient, [render_size.0 as f32, render_size.1 as f32, tilt, 0.0]);
         }
         let globals_bind = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
@@ -1899,23 +1980,40 @@ impl Renderer {
             }
         }
         lap(1, "render-shadow");
+        // The water's refraction pass (the original's `VisualLiquid_t::RenderRefraction`, FUN_1003b9c9) draws the picture so far
+        // through the water, so with water in the scene the picture up to the liquid passes goes to a copy first: with
+        // multisampling the pass resolves into the copy and the next pass carries on in the multisampled target; without, the
+        // first pass draws into the copy and the next blits it back before carrying on.
+        let refraction = self.refraction && scene.liquid.as_ref().is_some_and(|m| !m.ranges[0].is_empty());
+        if refraction {
+            self.liquid.ensure_screen(gpu, render_size, self.format);
+        }
+        let screen = self.liquid.screen.as_ref().filter(|_| refraction).map(|(_, view, blit)| (view, blit));
         {
+            let (first_view, first_resolve, first_store) = match screen {
+                Some((copy, _)) if samples > 1 => (colour_view, Some(copy), wgpu::StoreOp::Store),
+                Some((copy, _)) => (copy, None, wgpu::StoreOp::Store),
+                None => (colour_view, resolve, if resolve.is_some() { wgpu::StoreOp::Discard } else { wgpu::StoreOp::Store }),
+            };
             let mut attachments = vec![Some(wgpu::RenderPassColorAttachment {
-                view: colour_view,
+                view: first_view,
                 depth_slice: None,
-                resolve_target: resolve,
-                ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.66, g: 0.74, b: 0.84, a: 1.0 }), store: if resolve.is_some() { wgpu::StoreOp::Discard } else { wgpu::StoreOp::Store } },
+                resolve_target: first_resolve,
+                ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.66, g: 0.74, b: 0.84, a: 1.0 }), store: first_store },
             })];
             if let Some(t) = taa_targets {
                 attachments.push(Some(wgpu::RenderPassColorAttachment { view: &t.motion, depth_slice: None, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT), store: wgpu::StoreOp::Store } }));
             }
+            let depth_store = if taa { wgpu::StoreOp::Store } else { wgpu::StoreOp::Discard };
+            // (the pass after the water's copy, when there is one: its attachments live as long as the pass)
+            let mut later_attachments: Vec<Option<wgpu::RenderPassColorAttachment>> = Vec::new();
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("scene"),
                 color_attachments: &attachments,
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: depth,
                     // (kept for the anti-aliasing, which follows the camera's move by it where nothing moved of itself)
-                    depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(1.0), store: if taa { wgpu::StoreOp::Store } else { wgpu::StoreOp::Discard } }),
+                    depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(1.0), store: if screen.is_some() { wgpu::StoreOp::Store } else { depth_store } }),
                     stencil_ops: None,
                 }),
                 timestamp_writes: None,
@@ -1997,6 +2095,46 @@ impl Renderer {
                         pass.set_bind_group(1, &self.liquid.bind, &[p * LIQUID_PASS_STRIDE as u32]);
                         pass.draw(range.clone(), 0..1);
                     }
+                }
+                if let Some((_, blit)) = screen {
+                    // The refraction: the picture so far is complete in the copy; the pass carries on (the multisampled target
+                    // kept, or the copy blitted back) and the water's triangles are drawn again sampling the copy mirrored
+                    // about the horizon (pass 7 of `liquid.wgsl`), blended by the band the original fades it with.
+                    drop(pass);
+                    later_attachments.push(Some(wgpu::RenderPassColorAttachment {
+                        view: if samples > 1 { colour_view } else { scene_target },
+                        depth_slice: None,
+                        resolve_target: if samples > 1 { Some(scene_target) } else { None },
+                        ops: wgpu::Operations {
+                            load: if samples > 1 { wgpu::LoadOp::Load } else { wgpu::LoadOp::Clear(wgpu::Color::BLACK) },
+                            store: if samples > 1 { wgpu::StoreOp::Discard } else { wgpu::StoreOp::Store },
+                        },
+                    }));
+                    if let Some(t) = taa_targets {
+                        later_attachments.push(Some(wgpu::RenderPassColorAttachment { view: &t.motion, depth_slice: None, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store } }));
+                    }
+                    pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("scene after the water"),
+                        color_attachments: &later_attachments,
+                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                            view: depth,
+                            depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Load, store: depth_store }),
+                            stencil_ops: None,
+                        }),
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                        multiview_mask: None,
+                    });
+                    if samples == 1 {
+                        pass.set_pipeline(&pipes.blit);
+                        pass.set_bind_group(0, blit, &[]);
+                        pass.draw(0..3, 0..1);
+                    }
+                    pass.set_pipeline(&pipes.liquid);
+                    pass.set_bind_group(0, &globals_bind, &[]);
+                    pass.set_bind_group(1, &self.liquid.bind_screen, &[7 * LIQUID_PASS_STRIDE as u32]);
+                    pass.set_vertex_buffer(0, mesh.buffer.slice(..));
+                    pass.draw(mesh.ranges[0].clone(), 0..1);
                 }
             } else if water.is_some() {
                 pass.set_pipeline(&pipes.water);

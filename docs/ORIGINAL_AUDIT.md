@@ -122,8 +122,9 @@ eighteen names, not seventeen: `AOU_mod` was missed in the first count.
    textures turned by the tile's top bits match the client's; the original also averages far patches to one texel.
    The client keeps its slope lighting and shadow map rather than flatten to a look that depends on FXS data it lacks.
 3. **Water** — ported (see the table and CLIENT_UI "The liquid's shape" / "The liquid's passes"): the playfield's own
-   triangles shaped, coloured and drawn as the original's passes draw them. Left: the refraction pass (the original
-   renders the screen to a texture and draws it through the water), the star water (types 0xe/0xf, which no playfield
+   triangles shaped, coloured and drawn as the original's passes draw them, and the refraction pass (FUN_1003b9c9 over
+   the render targets of DisplaySystem FUN_100793b8: the picture so far mirrored into a band of the water about the
+   horizon, CLIENT_UI "The refraction pass"). Left: the star water (types 0xe/0xf, which no playfield
    carries), the 0.2 raise while the camera is under water, and the fall effect a falling polygon starts. The rooms'
    water surfaces are read and placed like the rooms' statels (item 6); no shop has any, so a dungeon with water should
    be looked at.

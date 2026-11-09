@@ -30,6 +30,8 @@ struct Liquid {
     drift: vec4<f32>,
     // x: which pass (see `fs_liquid`).
     which: vec4<u32>,
+    // x, y: the picture's size in pixels; z: the camera's tilt (its forward's up component): the refraction pass.
+    screen: vec4<f32>,
 }
 
 @group(1) @binding(0) var<uniform> liquid: Liquid;
@@ -37,6 +39,9 @@ struct Liquid {
 @group(1) @binding(2) var toxic_tex: texture_2d<f32>;
 @group(1) @binding(3) var lava_tex: texture_2d<f32>;
 @group(1) @binding(4) var liquid_samp: sampler;
+// The picture so far (the renderer's screen copy), clamped and unfiltered.
+@group(1) @binding(5) var screen_tex: texture_2d<f32>;
+@group(1) @binding(6) var screen_samp: sampler;
 
 struct LiquidOut {
     @builtin(position) clip: vec4<f32>,
@@ -135,6 +140,26 @@ fn fs_liquid(in: LiquidOut) -> @location(0) vec4<f32> {
         let tex = textureSample(toxic_tex, liquid_samp, uv);
         rgb = tex.rgb * in.colour.rgb;
         alpha = tex.a * in.colour.a;
+    } else if p == 7u {
+        // The water's refraction (FUN_1003b9c9): the picture so far sampled at the fragment's own screen place mirrored top to
+        // bottom and shifted by the camera's lean (1.414 times its tilt), so the water shows what stands above the horizon;
+        // blended by a band about the mirror line, `1 - |5 (t - base)|` squared (nothing under 0.2) and times `(1 - |tilt|)²`,
+        // so it is strongest with the camera level and gone looking straight down. (The frame block's wave offsets that
+        // wobble the place are 0 in every script.)
+        let px = in.clip.x / liquid.screen.x;
+        let py = in.clip.y / liquid.screen.y;
+        let tilt = liquid.screen.z;
+        let c = 1.0 - abs(tilt);
+        let lean = tilt * 1.414;
+        let base = 0.5 - lean * 0.5;
+        let t = 1.0 - py;
+        let s = 1.0 - abs((t - base) * 5.0);
+        var band = 0.0;
+        if s > 0.2 {
+            band = s * s * c * c;
+        }
+        rgb = textureSample(screen_tex, screen_samp, vec2<f32>(px, t + lean)).rgb;
+        alpha = band;
     } else if p == 5u {
         // the lava's base: the water texture in the vertex colour, as opaque as the colour
         let tex = textureSample(water_tex, liquid_samp, xy / 8.0);
