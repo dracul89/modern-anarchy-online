@@ -187,11 +187,27 @@ impl Default for PetWindow {
     }
 }
 
+/// The pets in the order the window shows them: as they came (their places), or with "Fixed Pet Buttons" held in rows by
+/// their kind (the original's `PetTypeToLocation` puts each `PetType` in its own row; the entity message gives the family,
+/// stat 455, which stands in for the type: attack pets 0x5f, healing pets 0x60) so a pet's buttons stay where they were.
+pub fn ordered(pets: &[Pet], fixed: bool) -> Vec<Pet> {
+    let mut out: Vec<Pet> = pets.to_vec();
+    if fixed {
+        out.sort_by_key(|p| (p.family.unwrap_or(u16::MAX), p.id.1));
+    }
+    out
+}
+
 impl PetWindow {
-    pub fn show(&mut self, ctx: &egui::Context, pets: &[Pet], palette: &Palette) {
+    /// Draws the window. `fixed` is the "Fixed Pet Buttons" option; the icon menu (the original's FUN_1007e75e: "Show
+    /// buttons", "Fixed Pet Buttons") changes it and `show_buttons`, and the call returns whether either changed.
+    pub fn show(&mut self, ctx: &egui::Context, pets: &[Pet], palette: &Palette, fixed: &mut bool) -> bool {
         if !self.open {
-            return;
+            return false;
         }
+        let pets = ordered(pets, *fixed);
+        let pets = pets.as_slice();
+        let before = (self.show_buttons, *fixed);
         let made_for: Vec<((u32, u32), u32)> = pets.iter().map(|p| (p.id, first_button(p).2)).collect();
         if self.views.as_ref().is_none_or(|v| v.2 != made_for) {
             self.views = None;
@@ -212,7 +228,7 @@ impl PetWindow {
                 self.views = Some((tree, root, made_for));
             }
         }
-        let Some((tree, root, _)) = self.views.as_mut() else { return };
+        let Some((tree, root, _)) = self.views.as_mut() else { return false };
         let root = *root;
         for (k, pet) in pets.iter().enumerate() {
             let name: String = pet.name.chars().filter(|&c| c >= ' ').collect();
@@ -227,7 +243,15 @@ impl PetWindow {
         let skin = crate::skin::skin(ctx);
         let mut open = self.open;
         let title = text("PetWindow");
+        let (show_buttons, fixed_buttons) = (&mut self.show_buttons, &mut *fixed);
         crate::chrome::window(ctx, palette, "PetWindow", &title, &mut open, |w| w.default_pos(crate::layout::pos("PetWindow", ctx.content_rect().center() - egui::vec2(200.0, 100.0))).default_size(egui::vec2(400.0, 200.0)), |ui| {
+            // (the window's icon menu: its entries are the two options the original keeps as booleans)
+            ui.horizontal(|ui| {
+                ui.menu_button("\u{2261}", |ui| {
+                    ui.checkbox(show_buttons, "Show buttons");
+                    ui.checkbox(fixed_buttons, "Fixed Pet Buttons");
+                });
+            });
             crate::gui::host::show(ui, tree, root, skin.as_deref(), palette);
         });
         for (id, signal) in std::mem::take(&mut tree.signals) {
@@ -241,6 +265,7 @@ impl PetWindow {
             }
         }
         self.open = open;
+        (self.show_buttons, *fixed) != before
     }
 }
 

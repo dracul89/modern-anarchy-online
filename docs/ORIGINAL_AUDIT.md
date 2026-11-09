@@ -109,7 +109,11 @@ eighteen names, not seventeen: `AOU_mod` was missed in the first count.
      cyclically by FUN_100b138c / FUN_100b13b6) is independent, so the weather is reproducible from the area's bytes and the
      day count. **Ported** (`mao_formats::weather`, the table's effects in `environment.rs`); note the seeding adds the
      seed to one table word, so a neighbouring day's weather is all but the same and it is the area's bytes that vary it.
-     Left: the rain, snow and dust sprites, the cloud layer, wind, thunder and lightning (the camera shake, FUN_100bd902).
+     Since then: the cloud layer and the storm reach the effect scripts' `GAME` object (`ThickCloudsIntensity`,
+     `CloudTranspariency`, `GamePrecipitationIntensity`, `GameStormIntensity`), the wind blows (`wind.rs`), thunder sounds
+     (`ambience.rs`) and lightning strikes with its camera jolt (`lightning.rs`, the quake's kick), and the precipitations fall
+     round the eye as particles (`precipitation.rs`: the dust blown level, the rain and the two fallouts as streaks in their
+     colours). Left: the original's `VisualRain_t` streak counts and sizes, which the client's own numbers stand in for.
 2. **Terrain texturing and lighting** — read this pass: `AnarchyGround_t` (`anarchyground.rs`) gives every ground vertex
    an *up* normal (`put_vertex`), so the original's terrain has no slope shading of its own; its relief came from a
    per-playfield set of six 4-bit shadow PNGs (resource type 0xf4247, blended across the day's windows by FUN_100b7fca

@@ -1785,6 +1785,12 @@ impl ApplicationHandler for App {
                         shells.extend(others);
                         w.scene.sun = frame.lights.ground.map(|l| mao_render::glam::Vec3::new(-l.direction[0], -l.direction[2], -l.direction[1]));
                     }
+                    // (the weather's rain, dust and fallout round the eye: outdoors, with the environment effects on)
+                    if self.ground.is_some() && crate::prefs::effect_category_active(crate::prefs::ENVIRONMENT) {
+                        let eye = w.camera.eye();
+                        let wind = self.wind.now();
+                        sparks.extend(crate::precipitation::particles(&self.environment.weather, [eye.x, eye.y, eye.z], [wind[0], wind[2], wind[1]], crate::precipitation::clock()));
+                    }
                     w.scene.particles = sparks;
                     w.scene.shells = shells;
                 }

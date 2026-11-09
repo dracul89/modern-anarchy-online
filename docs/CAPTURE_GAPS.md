@@ -137,9 +137,10 @@ FUN_1007d273: its counter +0x140 becomes twice the value; its 500 ms timer (FUN_
 below zero, and while it is odd (not -1) the name is `#ff0000` (FUN_1007d67c) and the bar the other way round (FUN_1007cf95:
 empty in the playfield, full away). **Ported**: the name flashes red ten times over ten seconds.
 
-Left: the window's icon menu (FUN_1007e75e: "Show buttons" on the window's +0x78, "Fixed Pet Buttons" on the distributed
-value `EnableFixedPetButtons`, "Remember Pet Names" on `AutoPetRenaming`, each a boolean entry; the client's windows have no
-icon menu yet), and the nano icons under each pet.
+The window's icon menu (FUN_1007e75e) is a menu button in the window: "Show buttons" (the window's +0x78) and "Fixed Pet
+Buttons" (`EnableFixedPetButtons`: the pets held in rows by their kind, the family standing in for `PetType` since the entity
+message gives the family and not stat 512), both kept in `mao.ini`. Left: "Remember Pet Names" (`AutoPetRenaming`: the
+client's `/pet rename` carries no name, so there is nothing to remember yet) and the nano icons under each pet.
 
 ### 5. Research — ported
 

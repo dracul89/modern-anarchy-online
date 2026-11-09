@@ -883,7 +883,11 @@ impl Ui {
                 skills_window.show(&ctx, &hud.character_name, &hud.stats, &hud.stat_parts, palette);
             }
             team_window.show(&ctx, palette);
-            pet_window.show(&ctx, &crate::pets::get(), palette);
+            pet_window.show_buttons = settings.pet_buttons;
+            if pet_window.show(&ctx, &crate::pets::get(), palette, &mut settings.fixed_pet_buttons) {
+                settings.pet_buttons = pet_window.show_buttons;
+                requests.save = true;
+            }
             faction_window.show(&ctx, &hud.stats, palette);
             raid_window.show(&ctx, palette);
             lft_window.show(&ctx, palette);
@@ -1243,7 +1247,8 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
                 team.show(&ctx, &palette);
             }
             if let Some(window) = preview_pets.as_mut() {
-                window.show(&ctx, &pet_sample, &palette);
+                let mut fixed = false;
+                window.show(&ctx, &pet_sample, &palette, &mut fixed);
             }
             if let Some(window) = preview_factions.as_mut() {
                 window.show(&ctx, &faction_sample, &palette);

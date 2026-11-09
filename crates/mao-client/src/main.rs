@@ -53,6 +53,7 @@ mod friends;
 mod fxs;
 mod icon;
 mod knowledge;
+mod precipitation;
 mod lft;
 mod raid;
 mod help;
