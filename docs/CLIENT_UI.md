@@ -52,7 +52,8 @@ Sky gradient, distance fog into the horizon colour (live view), hemisphere
 ambient light with a warm sun, 4x MSAA (where the device supports it), mip
 chains and 16x anisotropic filtering for every texture, and character textures
 drawn opaque (their alpha channel is not a cut-out mask: that fixed the Waste
-Collector). Not done: per-playfield sky and fog, bloom.
+Collector). The sky and fog are the effect scripts' per playfield now (see "The sky"). Bloom is not a look the original
+had and is not planned.
 
 ## 4b. Shadows and water
 **Shadows (done):** a 4096x4096 sun shadow map is drawn each frame around the
@@ -929,7 +930,7 @@ level range) plays the land control music (`Landcontrol_neutral`, the layer -911
 night counted as 1:00; 103 districts have all four; each background is a loop with timed calls of its own); the rain at the
 weather table's entry 0 squared times entry 8 over 3.5; and the four winds (FUN_100bff68: the plain wind, the sand storm, the red
 and the green fallout winds) at `(0.5 + 0.5 × gust) × strength / 33` times their shares of the weather (`max(1 − entry 2,
-entry 4)`, entries 3, 5 and 6), the gust being the wind object's (`wind.rs`). Not done: the quake and the thunder.
+entry 4)`, entries 3, 5 and 6), the gust being the wind object's (`wind.rs`). The quake and the thunder are below.
 
 **Nano and effect sounds.** A nano cast plays the program's own sounds as `CharCastNano_t` does (5255 of the 10964 programs
 have some, all sources of the game's file): its gather sound (stat 269) when the cast is made, at 0.6 and held a moment, then
@@ -950,8 +951,8 @@ mission-complete jingle by your side.
 do (`hazards.rs`): their places come from their full updates (each a simple item's update first); when the server says one was
 sprung (`ActionIIR_t` 0x6d) `SM_Sandy_Game_Explo_Big` plays at it and, if it caught you, the Combat tab says so; a disarm
 (0x6c) says you succeeded; a mine's malfunction (0x8c) plays its malfunction sound. A central controller hums its idle sound
-while idle and plays its shutdown sound once when it shuts down. Not done: the explosion's effect and a mine's bleep as you walk
-into it.
+while idle and plays its shutdown sound once when it shuts down. The blast's effect is below ("A sprung mine's or trap's
+blast"). Not done: a mine's bleep as you walk into it.
 
 **Voice lines.** A group (channel) message whose blob carries a voice (record 1: breed, sex, mood and line) plays it as the
 original's chat does (`voices.rs`): when your character's stat 389 has bit 0, the group allows it (organisation groups by
@@ -977,7 +978,7 @@ client (an R250 generator seeded 0x85c19 for storms, gaps of 0.1 to 20 s over 60
 300 s, used while the weather's entries 5 and 6 add up to more than 0.2), run on the game clock (its seconds into the day over
 15). While the weather's entry 9 is above 0 and its entry 2 at least 0.4, each strike falls somewhere in a cell six zones
 across around you and plays `SM_Sandy_Env_NearLightning`, quieter the farther it is (`1 − d / cell × 0.5`) and later by
-`d / 100` seconds, like sound travelling. Not done: the bolt itself and the camera's jolt near one.
+`d / 100` seconds, like sound travelling. The bolt and the camera's jolt are below ("Lightning's light").
 
 **A sprung mine's or trap's blast.** When one is sprung its effect (0x834, template 2100) bursts at it: a flare of 64 streaks
 made at once (its word 31, which `_GfxControlFlare_t` makes first, FUN_100dd071 taking it off the count it has made, before the

@@ -165,8 +165,8 @@ eighteen names, not seventeen: `AOU_mod` was missed in the first count.
    statel archive here carries one; the ground's own shadows were the 0xf4247 maps (absent, item 2). So the original showed
    no cast shadows from buildings or props. The client's sun shadow map still darkens the ground under the playfield's
    statels — the allowed backend choice, but it is a look the original did not have; `Renderer::shadows = false` gives the
-   original's. Left: the light's direction is the client's fixed sun, not the FXS `GroundLightDirection` (item 1); the
-   ground under a character is the heightmap only (the original asks the collision, so a blob on a bridge or a statel's
+   original's. The light's direction is the scripts' ground light (`GAME.Sun1Rotation`, CLIENT_UI "The sky"), so the shadows
+   follow the sun. Left: the ground under a character is the heightmap only (the original asks the collision, so a blob on a bridge or a statel's
    floor lies on it); in a dungeon the projection is taken as vertical onto the floor (FUN_100ed439's dungeon branch passes
    an upward light and the room's floor query, whose normal sense was not confirmed).
 8. **Character rendering** — the animation layers are ported (see the table): a character's animations are a stack
