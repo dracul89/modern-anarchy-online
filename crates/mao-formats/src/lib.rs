@@ -28,6 +28,7 @@ pub mod planetmap;
 pub mod weather;
 pub mod rooms;
 pub mod dynels;
+pub mod liquid;
 pub mod gfx;
 pub mod ldb;
 pub mod sound;

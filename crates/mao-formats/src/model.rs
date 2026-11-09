@@ -137,14 +137,14 @@ pub struct Model {
     pub lod_groups: Vec<(std::ops::Range<usize>, Option<std::ops::Range<usize>>)>,
 }
 
-/// The water: the playfield's liquid triangles (world, Z up, each with its liquid type) when they are known, else a
-/// flat sheet at `level` over the box `min`–`max`.
+/// The water: the playfield's liquid surfaces (world, Z up; `crate::liquid::surfaces` shapes and colours them as the
+/// original does) when they are known, else a flat sheet at `level` over the box `min`–`max`.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Water {
     pub level: f32,
     pub min: [f32; 2],
     pub max: [f32; 2],
-    pub triangles: Vec<([[f32; 3]; 3], u32)>,
+    pub surfaces: Vec<crate::liquid::Surface>,
 }
 
 pub const IDENTITY: Matrix = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];

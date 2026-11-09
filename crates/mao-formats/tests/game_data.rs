@@ -623,3 +623,38 @@ fn old_athens_ways_out() {
     assert_eq!(gate.points.len(), 4);
     assert!(!gate.contains(240.0, 307.0) && !gate.contains(224.0, 320.0));
 }
+
+/// `cargo test -p mao-formats --test game_data water_survey -- --ignored --nocapture`: every playfield's water polygons by
+/// type, their heights, and the ground's height range, to pick where to look at the liquid passes.
+#[test]
+#[ignore]
+fn water_survey() {
+    let Some(db) = database() else { return };
+    for p in mao_formats::playfield::all(&db) {
+        let Some(a) = mao_formats::playfield::load_anarchy(&db, p.number) else { continue };
+        if a.water.is_empty() {
+            continue;
+        }
+        let mut kinds = std::collections::BTreeMap::<u32, usize>::new();
+        let (mut lo, mut hi) = (f32::MAX, f32::MIN);
+        for t in &a.water {
+            *kinds.entry(t.kind).or_default() += 1;
+            for q in &t.points {
+                lo = lo.min(q[1]);
+                hi = hi.max(q[1]);
+            }
+        }
+        let ground = db
+            .get(Id { kind: 0xf4249, instance: p.number })
+            .ok()
+            .flatten()
+            .and_then(|o| mao_formats::tilemap::parse_old(&o).ok())
+            .and_then(|m| mao_formats::terrain::build(&m).ok())
+            .map(|t| {
+                let (a, b) = t.heights.iter().fold((u16::MAX, 0u16), |(a, b), &h| (a.min(h), b.max(h)));
+                format!("ground {:.1}..{:.1} (scale {})", a as f32 * t.height_scale, b as f32 * t.height_scale, t.height_scale)
+            })
+            .unwrap_or_else(|| "no ground".into());
+        println!("{:>5} {:<28} water {:?} heights {lo:.1}..{hi:.1}; {ground}", p.number, p.name.trim(), kinds);
+    }
+}

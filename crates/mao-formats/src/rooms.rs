@@ -659,16 +659,17 @@ pub fn place_statel(room: &Room, position: [f32; 3], rotation: [f32; 4]) -> ([f3
     ([room.position[0] + dx, room.position[1] + position[1], room.position[2] + dz], q)
 }
 
-/// The room's water triangles in the viewer's Z-up world, placed like its statels, with each one's liquid kind.
-pub fn water(room: &Room) -> Vec<([[f32; 3]; 3], u32)> {
+/// The room's water triangles placed like its statels (the server's frame, x, height, z), each with its liquid type, for
+/// `crate::liquid::surfaces`.
+pub fn water(room: &Room) -> Vec<(u32, [[f32; 3]; 3])> {
     room.water
         .iter()
         .map(|(points, flags)| {
             let placed = points.map(|p| {
                 let (dx, dz) = room.turn_xz(p[0], p[2]);
-                [room.position[0] + dx, room.position[2] + dz, p[1]]
+                [room.position[0] + dx, p[1], room.position[2] + dz]
             });
-            (placed, flags & 0x1f)
+            (flags & 0x1f, placed)
         })
         .collect()
 }
@@ -1015,9 +1016,9 @@ mod tests {
         // the height is rounded to a hundredth; the centre is the square's middle
         assert_eq!(w[0].0[0], [2.0, 1.0, 2.0]);
         let placed = water(&p.rooms[0]);
-        // a quarter turn: (x, z) -> (z, -x); the viewer's frame is (x, z, y)
-        assert_eq!(placed[0].0[0], [102.0, 198.0, 1.0]);
-        assert_eq!(placed[0].1, 2);
+        // a quarter turn: (x, z) -> (z, -x), in the server's frame
+        assert_eq!(placed[0].1[0], [102.0, 1.0, 198.0]);
+        assert_eq!(placed[0].0, 2);
     }
 
     impl Grid {

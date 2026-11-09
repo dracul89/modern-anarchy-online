@@ -322,10 +322,17 @@ pub(crate) fn load_terrain(db: &ResourceDatabase, playfield: u32) -> Result<Mode
     // The playfield's own water polygons (the Anarchy part of its definition object) in place of the guessed sheet.
     if let Some(anarchy) = mao_formats::playfield::load_anarchy(db, playfield) {
         if !anarchy.water.is_empty() {
-            let triangles: Vec<([[f32; 3]; 3], u32)> = anarchy.water.iter().map(|t| (t.points.map(|p| [p[0], p[2], p[1]]), t.kind)).collect();
+            // (MAO_WATER_DUMP=1 lists the polygons' triangles: type, depth value and corners)
+            if std::env::var_os("MAO_WATER_DUMP").is_some() {
+                for t in &anarchy.water {
+                    eprintln!("water triangle: type {} value {} {:?}", t.kind, t.value, t.points);
+                }
+            }
+            let surfaces = mao_formats::liquid::surfaces(anarchy.water.iter().map(|t| (t.kind, t.points)));
             let level = anarchy.water.iter().flat_map(|t| t.points.iter().map(|p| p[1])).fold(f32::MIN, f32::max);
-            eprintln!("water: {} triangles from the playfield (highest {level:.1})", triangles.len());
-            model.water = Some(mao_formats::model::Water { level, min: [0.0; 2], max: [0.0; 2], triangles });
+            let (lo, hi) = surfaces.iter().flat_map(|s| s.points.iter()).fold(([f32::MAX; 2], [f32::MIN; 2]), |(lo, hi), p| ([lo[0].min(p[0]), lo[1].min(p[1])], [hi[0].max(p[0]), hi[1].max(p[1])]));
+            eprintln!("water: {} triangles from the playfield, {} surfaces (highest {level:.1}, over x {:.0}..{:.0}, y {:.0}..{:.0})", anarchy.water.len(), surfaces.len(), lo[0], hi[0], lo[1], hi[1]);
+            model.water = Some(mao_formats::model::Water { level, min: [0.0; 2], max: [0.0; 2], surfaces });
         }
     }
     for p in model.parts.iter().take(4) {
@@ -587,11 +594,11 @@ pub(crate) fn load_room_shell_parts(db: &ResourceDatabase, playfield: u32) -> Op
     }
     let (mut model, ranges) = mao_formats::rooms::model_by_room(&grid, &rooms, &material, &pieces);
     // The rooms' own water surfaces.
-    let triangles: Vec<([[f32; 3]; 3], u32)> = rooms.rooms.iter().flat_map(mao_formats::rooms::water).collect();
-    if !triangles.is_empty() {
-        let level = triangles.iter().flat_map(|t| t.0.iter().map(|p| p[2])).fold(f32::MIN, f32::max);
-        eprintln!("water: {} triangles from the rooms (highest {level:.1})", triangles.len());
-        model.water = Some(mao_formats::model::Water { level, min: [0.0; 2], max: [0.0; 2], triangles });
+    let surfaces = mao_formats::liquid::surfaces(rooms.rooms.iter().flat_map(mao_formats::rooms::water));
+    if !surfaces.is_empty() {
+        let level = surfaces.iter().flat_map(|s| s.points.iter().map(|p| p[2])).fold(f32::MIN, f32::max);
+        eprintln!("water: {} surfaces from the rooms (highest {level:.1})", surfaces.len());
+        model.water = Some(mao_formats::model::Water { level, min: [0.0; 2], max: [0.0; 2], surfaces });
     }
     (!model.parts.is_empty()).then_some((model, interior::Interior { rooms, grid, parts: ranges }))
 }

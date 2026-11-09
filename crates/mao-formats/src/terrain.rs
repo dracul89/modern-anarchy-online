@@ -163,7 +163,7 @@ impl Terrain {
             None if n * 3 >= self.heights.len() && floor == bottom && (top - floor) as f32 * unit > 5.0 => floor as f32 * unit + 1.5,
             None => return None,
         };
-        Some(crate::model::Water { level, min: [0.0, 0.0], max: [(self.width - 1) as f32 * self.tile_size, (self.height - 1) as f32 * self.tile_size], triangles: Vec::new() })
+        Some(crate::model::Water { level, min: [0.0, 0.0], max: [(self.width - 1) as f32 * self.tile_size, (self.height - 1) as f32 * self.tile_size], surfaces: Vec::new() })
     }
 }
 

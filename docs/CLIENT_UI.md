@@ -63,16 +63,13 @@ at the map's edge, and plants bending and cut-out leaves in the shadow pass as
 in the main one. Parts outside the box are skipped. Verified offscreen (the
 whompah plaza); `Renderer.shadows = false` turns them off.
 
-**Water (partly done):** a translucent animated sheet (crossing swells, Fresnel
-sky reflection, sun glint, fog; it flattens with distance so it doesn't
-shimmer). *Where the water is* is a guess: the original builds its liquid from
-"water triangles" (`VisualWater_t`) this client can't read yet. The heuristic
-(`Terrain::water`): a playfield whose ground has a flat floor holding a fifth of
-its points, at the bottom of the height range and well below the land, is a
-seabed and the water lies 1.5 units above it. That finds Coast of Peace and
-draws the shore along its beaches; Old Athens has none. `MAO_WATER=<level>`
-overrides the level. Not done: shoreline foam, depth tint, caustics, underwater
-view, and the true water data.
+**Water (done):** the playfield's own water polygons, shaped and drawn as the original's `VisualWater_t` and
+`VisualLiquid_t` do (see "The water and the playfield's own environment" below; `mao_formats::liquid`, `liquid.wgsl`).
+A playfield without polygons falls back to the old guessed sheet (`Terrain::water`: a flat floor holding a fifth of the
+ground's points at the bottom of its range is a seabed, the water 1.5 above it; `MAO_WATER=<level>` overrides the
+level), which no playfield with a readable tile-map needs any more. Not done: the original's refraction pass (it renders
+the screen into a texture), the star water of types 0xe/0xf (no playfield has any), the liquid raised 0.2 while the camera
+is under water, and the fall effect a falling polygon starts.
 
 ## 4c. Performance
 * **Frame rate:** uncapped by default (`[window] vsync = off`; `on` waits for the monitor).
@@ -290,7 +287,7 @@ The lines also appear in the on-screen log as before, and now survive a zoning (
 - Decode the key-binding providers (verify the assumed defaults).
 - Decode the zone-line records so every booth's destination is known up front.
 - Chat window, target and hotbars on the same `egui` layer.
-- Real water data (decode the ground's water triangles), per-playfield sky; the AOU skin archive.
+- The AOU skin archive.
 
 **Stats are computed.** The Stats window shows the original's values: the stored stats the server sends plus the modifiers of what is worn (`derived.rs`, from `docs/STAT_ENGINE.md`). Worn places are the weapon/utility slots, clothes and implants; each item's effects are read from its template and interpolated between its low and high template by quality; effects with a level requirement (`item::modifiers_at`: operator 1 = below, 2 = at least) are kept only when the character's level qualifies. Armour classes, attack rating and the bonuses to max health and nano therefore appear (preview: `MAO_UI_PREVIEW=stats MAO_CAPTURE=<log> MAO_LEVEL=<level>`). The perks the world-entry message lists (`FullCharacter.Perks`) are included too: each perk id's record (type `0xf4264`, instance = id) names an item template whose effects are summed (`derived::perk_modifiers`). Not included yet: research ranks and the perk lines the server has not been seen to send (see `docs/STAT_ENGINE.md`), active nano buffs, and the attribute trickle-down into skills.
 
@@ -716,7 +713,34 @@ The original's planet map (`cd_image/textures/PlanetMap/normal/`: an index of zo
 
 ## The water and the playfield's own environment, from the original's code
 
-Gamecode's `RDBPlayfieldAnarchy_t::ReadBlob` (FUN_10124692) reads on where N3's playfield reader stops (the header, then the zones — a camera attractor count and the attractors per zone — or the rooms): a count of water polygons, each a flags word (`& 0x1f` the liquid type, the low bit a falling liquid, `>> 5` over 10 a value), its points and index triangles (a polygon with an even type and more than three points is fanned round its centre), then two words, a size and the playfield's own 26-byte `EnvironmentData_t`. `mao_formats::playfield::anarchy` reads it; the water goes to the renderer as triangles with their type (water, toxic, lava, a fourth: the colours are the client's, the original's liquid passes are not ported) in place of the sheet guessed from the heightmap, and the environment is the base table the areas' environments blend into (Old Athen's: a warm ambient (75, 50, 25), grey fog at 0.25, and weather weights of its own) — the earlier note that there was no playfield-level environment was wrong.
+Gamecode's `RDBPlayfieldAnarchy_t::ReadBlob` (FUN_10124692) reads on where N3's playfield reader stops (the header, then the zones — a camera attractor count and the attractors per zone — or the rooms): a count of water polygons, each a flags word (`& 0x1f` the liquid type, the low bit a falling liquid, `>> 5` over 10 a value), its points and index triangles (a polygon with an even type and more than three points is fanned round its centre), then two words, a size and the playfield's own 26-byte `EnvironmentData_t`. `mao_formats::playfield::anarchy` reads it; the water goes through `mao_formats::liquid` to the renderer, and the environment is the base table the areas' environments blend into (Old Athen's: a warm ambient (75, 50, 25), grey fog at 0.25, and weather weights of its own) — the earlier note that there was no playfield-level environment was wrong.
+
+**The liquid's shape** (`VisualWater_t::Create`, DisplaySystem FUN_1003a4a4 → `mao_formats::liquid`): a still polygon
+(the type's low bit clear) is cut into four by its edges' middles while twice its area is over 10000; a falling one under
+a tenth of a unit high is treated as still, otherwise its heights are made 0..1, snapped to 1 or −0.01, and with two
+corners level it is laid as ten strips from the top to the bottom with each height bent back as `1 − (1 − y)³` (the sheet
+of a fall curls over its lip). A triangle is kept only when its middle is on the playfield's 60 by 60 tiles of 100, its
+corners differ and make a face, which is turned up. Each gets its type's colour (water 0xcc00186a, lava 0xffff0000, toxic
+0xf727fc05, … the alpha is the translucency) and its layer: water (types 0, 1, 4, 5, 8–13), lava (2, 3), toxic (6, 7),
+the star water (0xe, 0xf), the wide water (0x12, 0x13); 0x10 and 0x11 are not drawn.
+
+**The liquid's passes** (`VisualLiquid_t`, FUN_1003f3db and `fxliquid.rs`'s `water_pass` / `toxic_pass` / `lava_pass` /
+`wide_pass` → `liquid.wgsl`, after the meshes without depth writes, lit by the scripts' `WaterLightCurrent` (its
+brightest channel as grey, `set_light(brightest)`) along `WaterLightDirection`, the glint by the light's colour times
+`SpecularLightIntensity`): the water's `water5.png` over 40-unit tiles drifting with a flow phase (down by the frame's time
+over a hundred, wrapped), lit with the vertex colour as diffuse, a black ambient and a white specular of 0.505 at power 10,
+blended by its alpha; then the same texture rippling down the slopes (the normal's horizontal part, a step of 0.003 a
+frame) blended `1 − α` over `α`. The toxic liquid's `toxicwater.png` over 12-unit tiles unlit in the vertex colour, then
+stepping down the slopes by their signs (0.03 a frame). The lava's water texture over 8-unit tiles in red, opaque, then
+`env_lava2.png` over 75 and 250 units drifting, its alpha the product of both (the original projects it in camera space,
+which comes to the same world tiling). The wide water: the water texture over 160-unit tiles, lit with an ambient tint of
+(0.2, 0.3, 0.4) and no specular. Two things the original adds are left out on purpose: the frame block's wave offsets,
+which the scripts' `GameWaveCurve0..15` set to 0 everywhere so they never move anything, and the lava's second (rippling)
+pass, whose alpha of 1 under the inverse blend contributes nothing. The textures come by name from the resource database
+(`Textures::sheet`); a missing one leaves the pass white.
+
+Not right yet: Coast of Peace's and Coast of Tranquility's tile-maps decode with a 1/512 height step (every other
+playfield's is 0.2–0.5), so their ground lies near 0 and their sea at 8 covers it; their height format is a different one.
 
 ## The rooms, from the original's code
 

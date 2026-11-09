@@ -179,8 +179,11 @@ pub struct Scene {
     /// The sky's colours: at the horizon (the fog's colour too) and overhead.
     pub sky: ([f32; 3], [f32; 3]),
     pub water: Option<Water>,
-    /// The water's triangles on the card (position and liquid type per vertex), when the playfield has them.
-    water_mesh: Option<(wgpu::Buffer, u32)>,
+    /// The liquid surfaces on the card, by layer (see [`LiquidMesh`]), when the playfield has them.
+    liquid: Option<LiquidMesh>,
+    /// The water light (the effect scripts' `WaterLightCurrent` and `WaterLightDirection`) when they give it: the liquid
+    /// passes are lit by it; without one, by the sun and the day.
+    pub water_light: Option<WaterLight>,
     /// Soft glowing sprites drawn over the scene, added to its colours (nano effects). Set by the caller every frame.
     pub particles: Vec<Particle>,
     /// The characters' blob shadows (the original's `GfxVisualSimpleShadow_c`): translucent triangles laid on the ground, drawn
@@ -261,6 +264,137 @@ pub struct Backdrop {
     pub sprite: u16,
     pub blend: BackdropBlend,
     pub vertices: Vec<ShellVertex>,
+}
+
+/// A liquid surface's vertex on the card: its place and normal (world, Z up) and its type's colour.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Pod, Zeroable)]
+pub struct LiquidVertex {
+    pub position: [f32; 3],
+    pub normal: [f32; 3],
+    pub colour: [u8; 4],
+}
+
+/// The liquid surfaces on the card, sorted by layer: water (0), lava (1), toxic (2), the star water (3), the wide water
+/// (4); `ranges` are each layer's vertices.
+pub struct LiquidMesh {
+    buffer: wgpu::Buffer,
+    ranges: [std::ops::Range<u32>; 5],
+}
+
+impl LiquidMesh {
+    fn new(gpu: &Gpu, surfaces: &[mao_formats::liquid::Surface]) -> LiquidMesh {
+        let mut vertices: Vec<LiquidVertex> = Vec::with_capacity(surfaces.len() * 3);
+        let mut ranges: [std::ops::Range<u32>; 5] = Default::default();
+        for layer in 0..5u8 {
+            let start = vertices.len() as u32;
+            for s in surfaces.iter().filter(|s| s.layer == layer) {
+                vertices.extend(s.points.iter().map(|&p| LiquidVertex { position: p, normal: s.normal, colour: s.colour }));
+            }
+            ranges[layer as usize] = start..vertices.len() as u32;
+        }
+        let buffer = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("liquid"), contents: bytemuck::cast_slice(&vertices), usage: wgpu::BufferUsages::VERTEX });
+        LiquidMesh { buffer, ranges }
+    }
+}
+
+/// The water light: its colour, the way to it (world, Z up) and the scripts' specular intensity (`SpecularLightIntensity`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct WaterLight {
+    pub colour: [f32; 3],
+    pub to_light: Vec3,
+    pub specular: f32,
+}
+
+/// One liquid pass's uniform (`Liquid` in `liquid.wgsl`).
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct LiquidUniform {
+    light: [f32; 4],
+    specular: [f32; 4],
+    to_light: [f32; 4],
+    ambient: [f32; 4],
+    phases: [f32; 4],
+    drift: [f32; 4],
+    which: [u32; 4],
+}
+
+/// The passes' uniforms sit this far apart in their buffer (the dynamic offset alignment every device allows).
+const LIQUID_PASS_STRIDE: usize = 256;
+const LIQUID_PASSES: usize = 7;
+
+/// The liquid passes' textures and bind group, their uniform buffer, and the phases that move the surfaces: the water's
+/// flow (`DAT_10150174`, down by the frame's time over a hundred, wrapped), the ripples (a step a frame: 0.003 for the
+/// water, 0.03 for the toxic liquid and the lava, back to 0 past 1000) and the lava texture's drifts (the frame's time
+/// over 10 and 20, over its tilings of 75 and 250, wrapped).
+struct LiquidResources {
+    layout: wgpu::BindGroupLayout,
+    bind: wgpu::BindGroup,
+    buffer: wgpu::Buffer,
+    flow: f32,
+    ripples: [f32; 3],
+    drift: [f32; 2],
+    last: Option<std::time::Instant>,
+}
+
+impl LiquidResources {
+    fn new(gpu: &Gpu, layout: wgpu::BindGroupLayout, white: &wgpu::TextureView, sampler: &wgpu::Sampler) -> LiquidResources {
+        let buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor { label: Some("liquid passes"), size: (LIQUID_PASS_STRIDE * LIQUID_PASSES) as u64, usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false });
+        let bind = Self::bind_group(gpu, &layout, &buffer, [white, white, white], sampler);
+        LiquidResources { layout, bind, buffer, flow: 0.0, ripples: [0.0; 3], drift: [0.0; 2], last: None }
+    }
+
+    fn bind_group(gpu: &Gpu, layout: &wgpu::BindGroupLayout, buffer: &wgpu::Buffer, textures: [&wgpu::TextureView; 3], sampler: &wgpu::Sampler) -> wgpu::BindGroup {
+        gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("liquid"),
+            layout,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding { buffer, offset: 0, size: std::num::NonZeroU64::new(std::mem::size_of::<LiquidUniform>() as u64) }) },
+                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(textures[0]) },
+                wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(textures[1]) },
+                wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(textures[2]) },
+                wgpu::BindGroupEntry { binding: 4, resource: wgpu::BindingResource::Sampler(sampler) },
+            ],
+        })
+    }
+
+    /// The phases moved on by a frame and every pass's uniform written for it.
+    fn update(&mut self, gpu: &Gpu, light: WaterLight, ambient: [f32; 3]) {
+        let now = std::time::Instant::now();
+        let dt = self.last.map_or(0.01, |t| now.duration_since(t).as_secs_f32().min(0.1));
+        self.last = Some(now);
+        self.flow -= dt * 0.01;
+        while self.flow < 0.0 {
+            self.flow += 1.0;
+        }
+        for (phase, step) in self.ripples.iter_mut().zip([0.003f32, 0.03, 0.03]) {
+            *phase += step;
+            if *phase > 1000.0 {
+                *phase = 0.0;
+            }
+        }
+        self.drift[0] = (self.drift[0] + dt / 10.0 / 75.0).rem_euclid(1.0);
+        self.drift[1] = (self.drift[1] + dt / 20.0 / 250.0).rem_euclid(1.0);
+        // (the water light's brightest channel lights the surfaces as grey, `set_light(brightest)`; its colour times the
+        // specular intensity is the glint)
+        let grey = light.colour.iter().cloned().fold(0.0f32, f32::max);
+        let specular = light.colour.map(|c| c * light.specular);
+        let mut data = vec![0u8; LIQUID_PASS_STRIDE * LIQUID_PASSES];
+        for pass in 0..LIQUID_PASSES {
+            let u = LiquidUniform {
+                light: [grey, grey, grey, 1.0],
+                specular: [specular[0], specular[1], specular[2], 0.0],
+                to_light: [light.to_light.x, light.to_light.y, light.to_light.z, 0.0],
+                ambient: [ambient[0], ambient[1], ambient[2], 0.0],
+                phases: [self.flow, self.ripples[0], self.ripples[1], self.ripples[2]],
+                drift: [self.drift[0], self.drift[1], 0.0, 0.0],
+                which: [pass as u32, 0, 0, 0],
+            };
+            let at = pass * LIQUID_PASS_STRIDE;
+            data[at..at + std::mem::size_of::<LiquidUniform>()].copy_from_slice(bytemuck::bytes_of(&u));
+        }
+        gpu.queue.write_buffer(&self.buffer, 0, &data);
+    }
 }
 
 /// A shell: a triangle list textured with a sprite sheet ([`Renderer::add_sprite`]), added to the scene or blended over it.
@@ -454,10 +588,13 @@ struct ShadowCache {
 struct Shaders {
     mesh: wgpu::ShaderModule,
     particle: wgpu::ShaderModule,
+    liquid: wgpu::ShaderModule,
     mesh_layout: wgpu::PipelineLayout,
     /// The globals alone (the sky, the water and the blob shadows).
     sky_layout: wgpu::PipelineLayout,
     particle_layout: wgpu::PipelineLayout,
+    /// The globals and the liquid's textures and pass uniform.
+    liquid_layout: wgpu::PipelineLayout,
 }
 
 /// The format of the motion buffer (see `taa.wgsl`).
@@ -471,7 +608,10 @@ struct ScenePipelines {
     mesh: wgpu::RenderPipeline,
     sky: wgpu::RenderPipeline,
     water: wgpu::RenderPipeline,
-    water_mesh: wgpu::RenderPipeline,
+    /// The liquid surfaces: blended by their alpha, and the ripple passes blended the other way round (`1 - a` of the
+    /// pass over `a` of what is there).
+    liquid: wgpu::RenderPipeline,
+    liquid_inverse: wgpu::RenderPipeline,
     blob: wgpu::RenderPipeline,
     particle: wgpu::RenderPipeline,
     /// The shells, added and blended.
@@ -537,24 +677,34 @@ impl ScenePipelines {
             multiview_mask: None,
             cache: None,
         });
-        // The water as the playfield's own triangles (position and liquid type per vertex), the same look.
-        let water_attributes = [wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x3, offset: 0, shader_location: 0 }, wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32, offset: 12, shader_location: 1 }];
-        let water_mesh = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("water mesh"),
-            layout: Some(&shaders.sky_layout),
-            vertex: wgpu::VertexState {
-                module: shader,
-                entry_point: Some("vs_water_mesh"),
-                compilation_options: Default::default(),
-                buffers: &[Some(wgpu::VertexBufferLayout { array_stride: 16, step_mode: wgpu::VertexStepMode::Vertex, attributes: &water_attributes })],
-            },
-            primitive: wgpu::PrimitiveState { cull_mode: None, ..Default::default() },
-            depth_stencil: depth(false, wgpu::CompareFunction::Less, Default::default()),
-            multisample,
-            fragment: Some(wgpu::FragmentState { module: shader, entry_point: Some("fs_water"), compilation_options: Default::default(), targets: &blended }),
-            multiview_mask: None,
-            cache: None,
-        });
+        // The liquid surfaces (`liquid.wgsl`): position, normal and colour per vertex; after the meshes, no depth writes.
+        let liquid_attributes = [
+            wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x3, offset: 0, shader_location: 0 },
+            wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x3, offset: 12, shader_location: 1 },
+            wgpu::VertexAttribute { format: wgpu::VertexFormat::Unorm8x4, offset: 24, shader_location: 2 },
+        ];
+        let liquid_like = |label: &str, blend: wgpu::BlendState| {
+            let liquid_targets = targets(Some(blend), false);
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(label),
+                layout: Some(&shaders.liquid_layout),
+                vertex: wgpu::VertexState {
+                    module: &shaders.liquid,
+                    entry_point: Some("vs_liquid"),
+                    compilation_options: Default::default(),
+                    buffers: &[Some(wgpu::VertexBufferLayout { array_stride: std::mem::size_of::<LiquidVertex>() as u64, step_mode: wgpu::VertexStepMode::Vertex, attributes: &liquid_attributes })],
+                },
+                primitive: wgpu::PrimitiveState { cull_mode: None, ..Default::default() },
+                depth_stencil: depth(false, wgpu::CompareFunction::Less, Default::default()),
+                multisample,
+                fragment: Some(wgpu::FragmentState { module: &shaders.liquid, entry_point: Some("fs_liquid"), compilation_options: Default::default(), targets: &liquid_targets }),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let liquid = liquid_like("liquid", wgpu::BlendState::ALPHA_BLENDING);
+        let inverse = wgpu::BlendComponent { src_factor: wgpu::BlendFactor::OneMinusSrcAlpha, dst_factor: wgpu::BlendFactor::SrcAlpha, operation: wgpu::BlendOperation::Add };
+        let liquid_inverse = liquid_like("liquid inverse", wgpu::BlendState { color: inverse, alpha: inverse });
         // The blob shadows: coloured triangles blended over the ground, pulled a little toward the camera so they sit on it.
         let blob_attributes = [wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x3, offset: 0, shader_location: 0 }, wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x4, offset: 12, shader_location: 1 }];
         let blob = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -631,7 +781,7 @@ impl ScenePipelines {
             shell_like("vs_backdrop", "fs_shell_blend", Some(wgpu::BlendState::ALPHA_BLENDING), wgpu::CompareFunction::Always),
             shell_like("vs_backdrop", "fs_shell_add", Some(wgpu::BlendState { color: additive, alpha: additive }), wgpu::CompareFunction::Always),
         ];
-        ScenePipelines { mesh, sky, water, water_mesh, blob, particle, shell_add, shell_blend, backdrops }
+        ScenePipelines { mesh, sky, water, liquid, liquid_inverse, blob, particle, shell_add, shell_blend, backdrops }
     }
 }
 
@@ -795,6 +945,8 @@ pub struct Renderer {
     depth: Option<((u32, u32), u32, wgpu::TextureView)>,
     /// The textures uploaded so far, by (type, instance), kept between uploads.
     textures: std::cell::RefCell<HashMap<(u32, u32), Option<wgpu::TextureView>>>,
+    /// The liquid passes' textures, uniform and phases.
+    liquid: LiquidResources,
 }
 
 const DEPTH: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
@@ -842,7 +994,10 @@ impl Renderer {
         // 4x multisampling where the device does it for both the colour and depth formats.
         let supports = |f: wgpu::TextureFormat| gpu.adapter.get_texture_format_features(f).flags.sample_count_supported(4);
         let samples = if supports(format) && supports(DEPTH) { 4 } else { 1 };
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("mesh"), source: wgpu::ShaderSource::Wgsl(include_str!("mesh.wgsl").into()) });
+        // (every scene shader starts with the frame's globals)
+        let with_globals = |body: &str| format!("{}\n{}", include_str!("globals.wgsl"), body);
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("mesh"), source: wgpu::ShaderSource::Wgsl(with_globals(include_str!("mesh.wgsl")).into()) });
+        let liquid_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("liquid"), source: wgpu::ShaderSource::Wgsl(with_globals(include_str!("liquid.wgsl")).into()) });
         let uniform = |binding, visibility| wgpu::BindGroupLayoutEntry {
             binding,
             visibility,
@@ -941,7 +1096,30 @@ impl Renderer {
             ],
         });
         let particle_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("particle"), bind_group_layouts: &[Some(&globals_layout), Some(&sprite_layout)], immediate_size: 0 });
-        let shaders = Shaders { mesh: shader, particle: particle_shader, mesh_layout: layout, sky_layout, particle_layout };
+        // The liquid's passes: one uniform block per pass in a single buffer (read at a dynamic offset), the three textures.
+        let texture_entry = |binding| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: true }, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false },
+            count: None,
+        };
+        let liquid_bind_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("liquid"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: true, min_binding_size: None },
+                    count: None,
+                },
+                texture_entry(1),
+                texture_entry(2),
+                texture_entry(3),
+                wgpu::BindGroupLayoutEntry { binding: 4, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering), count: None },
+            ],
+        });
+        let liquid_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("liquid"), bind_group_layouts: &[Some(&globals_layout), Some(&liquid_bind_layout)], immediate_size: 0 });
+        let shaders = Shaders { mesh: shader, particle: particle_shader, liquid: liquid_shader, mesh_layout: layout, sky_layout, particle_layout, liquid_layout };
         let mut pipeline_sets = HashMap::new();
         pipeline_sets.insert((samples, false), ScenePipelines::new(device, &shaders, format, samples, false));
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -1018,12 +1196,20 @@ impl Renderer {
             layout: &sprite_layout,
             entries: &[wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&white) }, wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&sampler) }],
         });
-        Renderer { shadow_cache: None, shadow_pipeline, pipeline_sets, shaders, antialiasing: Antialiasing::default(), taa_pipeline, taa_layout, taa_sampler, taa: None, copy_pipeline, timer: GpuTimer::new(gpu), gpu_ms: None, frame: 0, previous: None, sprites: HashMap::new(), sprite_layout, white_sprite, shadow_view, shadow_bind, shadows: true, stats: Stats::default(), render_scale: 1.0, sharpness: 0.2, fsr_easu, fsr_rcas, fsr_layout, fsr_sampler, fsr: None, samples, msaa: None, started: std::time::Instant::now(), globals_layout, part_layout, sampler, white, format, depth: None, textures: Default::default() }
+        let liquid = LiquidResources::new(gpu, liquid_bind_layout, &white, &sampler);
+        Renderer { shadow_cache: None, shadow_pipeline, pipeline_sets, shaders, antialiasing: Antialiasing::default(), taa_pipeline, taa_layout, taa_sampler, taa: None, copy_pipeline, timer: GpuTimer::new(gpu), gpu_ms: None, frame: 0, previous: None, sprites: HashMap::new(), sprite_layout, white_sprite, shadow_view, shadow_bind, shadows: true, stats: Stats::default(), render_scale: 1.0, sharpness: 0.2, fsr_easu, fsr_rcas, fsr_layout, fsr_sampler, fsr: None, samples, msaa: None, started: std::time::Instant::now(), globals_layout, part_layout, sampler, white, format, depth: None, textures: Default::default(), liquid }
     }
 
     /// Puts a model on the GPU. `texture` finds a texture by (type, instance).
     /// Each part's geometry and texture are uploaded once however many times it is drawn.
     /// Makes a texture the sprite sheet `id` of the particle pass.
+    /// The liquid passes' textures: the water's (`water5.png`), the toxic liquid's (`toxicwater.png`) and the lava's glow
+    /// (`env_lava2.png`); one not given stays white.
+    pub fn set_liquid_textures(&mut self, gpu: &Gpu, water: Option<&Texture>, toxic: Option<&Texture>, lava: Option<&Texture>) {
+        let views: Vec<wgpu::TextureView> = [water, toxic, lava].iter().map(|t| t.map_or_else(|| self.white.clone(), |t| upload_texture(gpu, t))).collect();
+        self.liquid.bind = LiquidResources::bind_group(gpu, &self.liquid.layout, &self.liquid.buffer, [&views[0], &views[1], &views[2]], &self.sampler);
+    }
+
     pub fn add_sprite(&mut self, gpu: &Gpu, id: u16, texture: &Texture) {
         let view = upload_texture(gpu, texture);
         let bind = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -1296,12 +1482,8 @@ impl Renderer {
                 parts[h].lod = Some(Lod { center: (wlo + whi) * 0.5, radius: ((whi - wlo).length() * 0.5).max(0.01), members, low: low_draws, far: std::cell::Cell::new(false) });
             }
         }
-        let water_mesh = model.water.as_ref().filter(|w| !w.triangles.is_empty()).map(|w| {
-            let data: Vec<[f32; 4]> = w.triangles.iter().flat_map(|(points, kind)| points.iter().map(move |p| [p[0], p[1], p[2], *kind as f32])).collect();
-            let buffer = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("water"), contents: bytemuck::cast_slice(&data), usage: wgpu::BufferUsages::VERTEX });
-            (buffer, data.len() as u32)
-        });
-        Scene { parts, hidden: Default::default(), overlay: Vec::new(), follow: Vec::new(), center, radius, player: None, fog: (1.0e9, 2.0e9), sky: DAY_SKY, water: model.water.clone(), water_mesh, particles: Vec::new(), blobs: Vec::new(), shells: Vec::new(), backdrops: Vec::new(), sun: None, lighting: None, daylight: 1.0, ambient: [0.0; 3], area_fog: None }
+        let liquid = model.water.as_ref().filter(|w| !w.surfaces.is_empty()).map(|w| LiquidMesh::new(gpu, &w.surfaces));
+        Scene { parts, hidden: Default::default(), overlay: Vec::new(), follow: Vec::new(), center, radius, player: None, fog: (1.0e9, 2.0e9), sky: DAY_SKY, water: model.water.clone(), liquid, water_light: None, particles: Vec::new(), blobs: Vec::new(), shells: Vec::new(), backdrops: Vec::new(), sun: None, lighting: None, daylight: 1.0, ambient: [0.0; 3], area_fog: None }
     }
 
     fn depth_view(&mut self, gpu: &Gpu, size: (u32, u32), samples: u32) {
@@ -1453,7 +1635,7 @@ impl Renderer {
             }
         };
         // (the flat sheet only where the playfield has no water triangles)
-        let water = scene.water.as_ref().filter(|w| w.triangles.is_empty());
+        let water = scene.water.as_ref().filter(|w| w.surfaces.is_empty());
         let planes = frustum(&camera.view_proj(aspect, scene.radius));
         let (mut parts, mut drawn, mut shadow_drawn) = (0usize, 0usize, 0usize);
         // An area's fog replaces the distance haze: from the near plane (0.2, `VisualFog_t`'s default clip plane) to the far
@@ -1536,6 +1718,13 @@ impl Renderer {
             },
         };
         let globals_buffer = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: bytemuck::bytes_of(&globals), usage: wgpu::BufferUsages::UNIFORM });
+        if scene.liquid.is_some() {
+            // (without the scripts' water light: the sun, as bright as the day, with the scripts' or the sky's ambient)
+            let day = 0.2 + 0.8 * scene.daylight;
+            let light = scene.water_light.unwrap_or(WaterLight { colour: [day; 3], to_light: sun, specular: 1.0 });
+            let ambient = scene.lighting.map_or([day * 0.5; 3], |(a, _)| a);
+            self.liquid.update(gpu, light, ambient);
+        }
         let globals_bind = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
             layout: &self.globals_layout,
@@ -1718,11 +1907,22 @@ impl Renderer {
                 pass.set_vertex_buffer(0, buffer.slice(..));
                 pass.draw(0..scene.blobs.len() as u32, 0..1);
             }
-            if let Some((buffer, count)) = &scene.water_mesh {
-                pass.set_pipeline(&pipes.water_mesh);
+            if let Some(mesh) = &scene.liquid {
+                // (the passes in the original's order: the water, the toxic liquid, the lava, the wide water; the star water
+                // is drawn as water, its own star field and mists not being ported)
                 pass.set_bind_group(0, &globals_bind, &[]);
-                pass.set_vertex_buffer(0, buffer.slice(..));
-                pass.draw(0..*count, 0..1);
+                pass.set_vertex_buffer(0, mesh.buffer.slice(..));
+                for (layer, passes) in [(0usize, &[0u32, 1][..]), (3, &[0, 1]), (2, &[2, 3]), (1, &[5, 6]), (4, &[4])] {
+                    let range = mesh.ranges[layer].clone();
+                    if range.is_empty() {
+                        continue;
+                    }
+                    for &p in passes {
+                        pass.set_pipeline(if p == 1 || p == 3 { &pipes.liquid_inverse } else { &pipes.liquid });
+                        pass.set_bind_group(1, &self.liquid.bind, &[p * LIQUID_PASS_STRIDE as u32]);
+                        pass.draw(range.clone(), 0..1);
+                    }
+                }
             } else if water.is_some() {
                 pass.set_pipeline(&pipes.water);
                 pass.set_bind_group(0, &globals_bind, &[]);

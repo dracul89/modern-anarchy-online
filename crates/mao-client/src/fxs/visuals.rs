@@ -49,6 +49,8 @@ pub struct Light {
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Lights {
     pub ambient: [f32; 3],
+    /// `SpecularLightIntensity` (1 when not given): what the lights' specular colours are scaled by.
+    pub specular: f32,
     pub ground: Option<Light>,
     pub cloud: Option<Light>,
     pub water: Option<Light>,
@@ -246,6 +248,7 @@ impl Visuals {
             let _ = kind;
             frame.lights = Lights {
                 ambient: o.variable_named("AmbientLightCurrent").map_or([1.0; 3], |v| super::vector_of(&v)),
+                specular: float(o, "SpecularLightIntensity").unwrap_or(1.0),
                 ground: light_of(o, "GroundLightCurrent", "GroundLightDirection"),
                 cloud: light_of(o, "CloudLightCurrent", "CloudLightDirection"),
                 water: light_of(o, "WaterLightCurrent", "WaterLightDirection"),

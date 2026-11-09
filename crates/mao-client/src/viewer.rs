@@ -288,6 +288,7 @@ pub fn headless_on(model: &Model, textures: &Textures, out: &str, ui: Option<(&H
     let gpu = Gpu::headless()?;
     eprintln!("adapter: {:?}", gpu.adapter.get_info());
     let mut renderer = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8UnormSrgb);
+    liquid_textures(&mut renderer, &gpu, textures);
     // `MAO_RENDER_SCALE=0.67` draws at that share of the image and upscales it with FSR 1.
     if let Some(s) = std::env::var("MAO_RENDER_SCALE").ok().and_then(|v| v.parse().ok()) {
         renderer.render_scale = s;
@@ -465,6 +466,7 @@ pub fn headless_on(model: &Model, textures: &Textures, out: &str, ui: Option<(&H
         scene.shells.extend(others);
         scene.sun = frame.lights.ground.map(|l| mao_render::glam::Vec3::new(-l.direction[0], -l.direction[2], -l.direction[1]));
         scene.lighting = frame.lights.ground.map(|g| (frame.lights.ambient, g.colour));
+        scene.water_light = frame.lights.water.map(|l| mao_render::WaterLight { colour: l.colour, to_light: mao_render::glam::Vec3::new(-l.direction[0], -l.direction[2], -l.direction[1]), specular: frame.lights.specular });
         if let Some(fog) = frame.fog {
             scene.sky.0 = fog;
         }
@@ -820,7 +822,8 @@ impl ApplicationHandler for App {
         };
         eprintln!("present mode: {:?}", config.present_mode);
         surface.configure(&gpu.device, &config);
-        let renderer = Renderer::new(&gpu, config.format);
+        let mut renderer = Renderer::new(&gpu, config.format);
+        liquid_textures(&mut renderer, &gpu, &self.textures);
         let mut scene = renderer.upload(&gpu, &self.model, &mut |k, i| self.textures.get_for_upload(k, i));
         if self.live.is_some() {
             // Close-up view: distance fades into the sky.
@@ -1850,6 +1853,7 @@ impl ApplicationHandler for App {
                         w.scene.backdrops = backdrops;
                         shells.extend(others);
                         w.scene.sun = frame.lights.ground.map(|l| mao_render::glam::Vec3::new(-l.direction[0], -l.direction[2], -l.direction[1]));
+                        w.scene.water_light = frame.lights.water.map(|l| mao_render::WaterLight { colour: l.colour, to_light: mao_render::glam::Vec3::new(-l.direction[0], -l.direction[2], -l.direction[1]), specular: frame.lights.specular });
                     }
                     // (the weather's rain, dust and fallout round the eye: outdoors, with the environment effects on)
                     if self.ground.is_some() && crate::prefs::effect_category_active(crate::prefs::ENVIRONMENT) {
@@ -2349,6 +2353,18 @@ mod camera_tests {
             assert!(((back - h + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI).abs() < 1e-4, "{h} -> {back}");
         }
     }
+}
+
+/// The liquid passes' textures, by the names the original loads (`VisualLiquid_t`'s frame: `water5.png`, `toxicwater.png`,
+/// `env_lava2.png`), given to the renderer.
+fn liquid_textures(renderer: &mut Renderer, gpu: &Gpu, textures: &Textures) {
+    let [water, toxic, lava] = ["water5.png", "toxicwater.png", "env_lava2.png"].map(|n| textures.sheet(n));
+    for (name, t) in [("water5.png", &water), ("toxicwater.png", &toxic), ("env_lava2.png", &lava)] {
+        if t.is_none() {
+            eprintln!("liquid: no texture {name}");
+        }
+    }
+    renderer.set_liquid_textures(gpu, water.as_ref(), toxic.as_ref(), lava.as_ref());
 }
 
 /// The viewer's caches for the effect scripts' sky: their meshes by name, the meshes' texture sheets, the named sheets.
