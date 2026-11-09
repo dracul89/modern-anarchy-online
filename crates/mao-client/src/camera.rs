@@ -38,9 +38,13 @@
 //!   sits under it.
 //! - **Room camera attractors**: see `attractor`.
 //!
-//! Not ported: the two-shot and secondary-target framing, the vehicle's own collision (a blind camera takes the nearest seen
-//! point of the way to its target instead) and the 0.4 lift near the ground's surface (the caller gives lines of sight,
-//! not surface distances).
+//! - **The playfield** is asked through [`Surface`]: the line of sight (`n3Playfield_t::LineOfSight`: the rooms' doors and
+//!   the surface's `GetLineIntersection` both ways), the distance to the surface's closest point (seeing the character, a
+//!   camera within 0.4 of it has its target lifted 0.4: `CalcSteering`, `_DAT_1003d9d0`), and `Vehicle_t::EnsureSurfaceAlignment`
+//!   after every step of the vehicle (the camera's sphere swept along the step and held off the surface: the camera's own
+//!   collision, which a blind camera relies on).
+//!
+//! Not ported: the two-shot and secondary-target framing.
 //!
 //! All positions here are in the server's frame (x, height, z); the character's heading is 0 along +z and turns
 //! towards +x as it grows (`rotate_y`).
@@ -52,6 +56,35 @@ pub enum Mode {
     Free = 1,
     Rubber = 2,
     Locked = 3,
+}
+
+/// The playfield as `CameraVehicle_t` asks `n3Playfield_t` and its surface about it.
+pub trait Surface {
+    /// `n3Playfield_t::LineOfSight` (0x1000d34c): in a dungeon both points lie in rooms, the same one or two with an open door
+    /// between (`RoomCanSeeFromTo`), and the surface's `GetLineIntersection` finds nothing from the one to the other nor back.
+    fn line_of_sight(&mut self, a: [f32; 3], b: [f32; 3]) -> bool;
+    /// How far the point is from the surface's closest point (`CalculateClosestPoint`); none without a surface.
+    fn surface_distance(&mut self, p: [f32; 3]) -> Option<f32>;
+    /// `Vehicle_t::EnsureSurfaceAlignment` after a step from `previous` to `pos`: where the camera's sphere (radius 0.4, its
+    /// bottom at the camera) comes to rest, swept along the step and held off the surface.
+    fn align(&mut self, previous: [f32; 3], pos: [f32; 3]) -> [f32; 3];
+}
+
+/// A surface that is only a line-of-sight test (the tests): nothing to be near, nothing to be stopped by.
+pub struct Sight<F>(pub F);
+
+impl<F: FnMut([f32; 3], [f32; 3]) -> bool> Surface for Sight<F> {
+    fn line_of_sight(&mut self, a: [f32; 3], b: [f32; 3]) -> bool {
+        (self.0)(a, b)
+    }
+
+    fn surface_distance(&mut self, _: [f32; 3]) -> Option<f32> {
+        None
+    }
+
+    fn align(&mut self, _: [f32; 3], pos: [f32; 3]) -> [f32; 3] {
+        pos
+    }
 }
 
 /// What the player is doing to the camera this frame.
@@ -234,10 +267,10 @@ impl SteeringCamera {
 
     /// The preferred position for the fixed cameras, and the one with a line of sight from the look target
     /// (`RecalcOptimalPos`): `None` when the preferred one is seen.
-    fn optimal(&self, look: [f32; 3], heading: f32, los: &mut dyn FnMut([f32; 3], [f32; 3]) -> bool) -> ([f32; 3], Option<[f32; 3]>) {
+    fn optimal(&self, look: [f32; 3], heading: f32, surface: &mut dyn Surface) -> ([f32; 3], Option<[f32; 3]>) {
         let dir = rotate_y(self.pref_dir, heading);
         let optimal = add(look, scale(dir, self.pref_dist));
-        if los(look, add(optimal, scale(dir, RADIUS))) {
+        if surface.line_of_sight(look, add(optimal, scale(dir, RADIUS))) {
             return (optimal, None);
         }
         let (mut lo, mut hi) = (0.01f32, 0.95f32);
@@ -245,7 +278,7 @@ impl SteeringCamera {
         for _ in 0..20 {
             let mid = (lo + hi) * 0.5;
             blocked = add(scale(look, 1.0 - mid), scale(optimal, mid));
-            if los(look, add(blocked, scale(dir, RADIUS))) {
+            if surface.line_of_sight(look, add(blocked, scale(dir, RADIUS))) {
                 lo = mid;
             } else {
                 hi = mid;
@@ -261,7 +294,7 @@ impl SteeringCamera {
     /// along its up, its down, the world's up and down, its forward and back, in that order, until a flexed place sees the
     /// character from half a unit back along the flex and is itself reached from the camera (`CanSeeFlexedPos`): that unit
     /// direction, signed. None when no flex does.
-    fn sensor_dir(&self, look: [f32; 3], los: &mut dyn FnMut([f32; 3], [f32; 3]) -> bool) -> Option<[f32; 3]> {
+    fn sensor_dir(&self, look: [f32; 3], surface: &mut dyn Surface) -> Option<[f32; 3]> {
         let forward = normalize(sub(look, self.pos));
         let mut up = sub(UP, scale(forward, dot(UP, forward)));
         up = if length(up) > 1e-6 { normalize(up) } else { UP };
@@ -270,7 +303,7 @@ impl SteeringCamera {
             for (axis, sign) in [(up, 1.0), (up, -1.0), (UP, 1.0), (UP, -1.0), (forward, 1.0), (forward, -1.0)] {
                 let d = scale(axis, sign);
                 let flexed = add(self.pos, scale(d, flex));
-                if los(sub(flexed, scale(d, 0.5)), look) && los(self.pos, flexed) {
+                if surface.line_of_sight(sub(flexed, scale(d, 0.5)), look) && surface.line_of_sight(self.pos, flexed) {
                     return Some(d);
                 }
             }
@@ -320,7 +353,7 @@ impl SteeringCamera {
     }
 
     /// `Vehicle_t::Run`: the force applied in substeps.
-    fn integrate(&mut self, force: Option<[f32; 3]>, dt: f32) {
+    fn integrate(&mut self, force: Option<[f32; 3]>, dt: f32, surface: &mut dyn Surface) {
         let mut left = dt.min(4.0);
         while left > 0.0 {
             let step = left.min(MAX_STEP);
@@ -337,9 +370,12 @@ impl SteeringCamera {
                     self.speed = length(self.vel);
                 }
             }
+            let previous = self.pos;
             if self.speed > 0.001 {
                 self.pos = add(self.pos, scale(self.vel, step));
             }
+            // (`EnsureSurfaceAlignment` after every step of `Vehicle_t::Run`, FUN_1000e3d3)
+            self.pos = surface.align(previous, self.pos);
         }
     }
 
@@ -398,7 +434,7 @@ impl SteeringCamera {
     /// One frame: the camera's eye and the point it looks at, in the server's frame. `look` is the look target (the
     /// character's head), `heading` the character's, `char_speed` its speed, `los` whether the segment between two
     /// points is clear.
-    pub fn update(&mut self, dt: f32, look: [f32; 3], heading: f32, char_speed: f32, inputs: Inputs, los: &mut dyn FnMut([f32; 3], [f32; 3]) -> bool) -> ([f32; 3], [f32; 3]) {
+    pub fn update(&mut self, dt: f32, look: [f32; 3], heading: f32, char_speed: f32, inputs: Inputs, surface: &mut dyn Surface) -> ([f32; 3], [f32; 3]) {
         let dt = dt.clamp(0.0, 0.25);
         if inputs.reset {
             self.reset(look, heading);
@@ -430,7 +466,7 @@ impl SteeringCamera {
         let zoom = (inputs.zoom_out as i32 - inputs.zoom_in as i32) as f32 * dt + inputs.wheel * 0.25;
         if across != 0.0 || up != 0.0 || zoom != 0.0 {
             if !self.turn_and_zoom(look, heading, across, up, zoom) {
-                return self.update(0.0, look, heading, char_speed, Inputs::default(), los);
+                return self.update(0.0, look, heading, char_speed, Inputs::default(), surface);
             }
         }
         // The steering (CalcSteering) and the vehicle's step. Drawn to a room's camera attractor, the vehicle arrives at its
@@ -438,7 +474,7 @@ impl SteeringCamera {
         // keeps looking at the character.
         if let Some(at) = self.attractor.filter(|_| self.mode != Mode::First) {
             let force = self.arrive(at);
-            self.integrate(force, dt);
+            self.integrate(force, dt, surface);
             return (self.pos, look);
         }
         let force = match self.mode {
@@ -452,9 +488,13 @@ impl SteeringCamera {
                 let mut target = add(look, scale(dir, self.pref_dist));
                 // The sensors (`UpdateSensors`): out of sight of the character, the target is nudged a unit along the first
                 // direction a flexed camera sees it from; no such direction leaves the camera blind.
-                if los(self.pos, look) {
+                if surface.line_of_sight(self.pos, look) {
                     self.blind = false;
-                } else if let Some(steer) = self.sensor_dir(look, los) {
+                    // (seeing it, a camera within 0.4 of the surface's closest point has its target lifted 0.4: `_DAT_1003d9d0`)
+                    if surface.surface_distance(self.pos).is_some_and(|d| d < 0.4) {
+                        target[1] += 0.4;
+                    }
+                } else if let Some(steer) = self.sensor_dir(look, surface) {
                     self.blind = false;
                     target = add(target, steer);
                 } else {
@@ -463,33 +503,15 @@ impl SteeringCamera {
                 if self.pos[1] < look[1] {
                     target[1] += 0.4;
                 }
-                // Blind, the camera would sit in what hides the character: the vehicle's own collision is not ported, so the
-                // nearest seen point of the way there stands in for it.
-                if self.blind && !los(look, add(target, scale(dir, RADIUS))) {
-                    let (mut lo, mut hi) = (0.01f32, 0.95f32);
-                    for _ in 0..20 {
-                        let mid = (lo + hi) * 0.5;
-                        let p = add(scale(look, 1.0 - mid), scale(target, mid));
-                        if los(look, add(p, scale(dir, RADIUS))) {
-                            lo = mid;
-                        } else {
-                            hi = mid;
-                        }
-                        if hi - lo <= 0.001 {
-                            break;
-                        }
-                    }
-                    target = add(scale(look, 1.0 - lo), scale(target, lo));
-                }
                 self.cam_arrive(target, look)
             }
             Mode::Rubber => {
-                let (optimal, blocked) = self.optimal(look, heading, los);
+                let (optimal, blocked) = self.optimal(look, heading, surface);
                 self.cam_arrive(blocked.unwrap_or(optimal), look)
             }
             Mode::Locked | Mode::First => {
                 // `DecideSnap`: put there, easing out at a tenth a frame when the way opens
-                let (optimal, blocked) = self.optimal(look, heading, los);
+                let (optimal, blocked) = self.optimal(look, heading, surface);
                 let wanted = blocked.unwrap_or(optimal);
                 let v = sub(wanted, look);
                 let d = length(v);
@@ -501,7 +523,7 @@ impl SteeringCamera {
             }
         };
         if self.mode != Mode::Locked {
-            self.integrate(force, dt);
+            self.integrate(force, dt, surface);
         }
         (self.pos, look)
     }
@@ -515,13 +537,47 @@ mod tests {
         true
     }
 
+    /// A flat floor at height `y` with nothing else: seen across, near when the camera is low, and the camera held a
+    /// hundredth above it.
+    struct Floor(f32);
+
+    impl Surface for Floor {
+        fn line_of_sight(&mut self, a: [f32; 3], b: [f32; 3]) -> bool {
+            (a[1] - self.0) * (b[1] - self.0) > 0.0
+        }
+
+        fn surface_distance(&mut self, p: [f32; 3]) -> Option<f32> {
+            Some((p[1] - self.0).abs())
+        }
+
+        fn align(&mut self, _: [f32; 3], pos: [f32; 3]) -> [f32; 3] {
+            [pos[0], pos[1].max(self.0 + 0.01), pos[2]]
+        }
+    }
+
+    #[test]
+    fn the_free_camera_near_the_ground_is_lifted_and_never_under_it() {
+        // (the character stands at 10 with its head at 11.3; the camera starts 1.5 up and is pulled down to the floor's height)
+        let mut c = SteeringCamera::new(Mode::Free);
+        let look = [100.0, 11.3, 100.0];
+        c.update(0.016, look, 0.0, 0.0, Inputs::default(), &mut Sight(clear));
+        c.pos[1] = 10.05;
+        let mut floor = Floor(10.0);
+        for _ in 0..60 {
+            c.update(0.016, look, 0.0, 0.0, Inputs::default(), &mut floor);
+            assert!(c.pos[1] >= 10.01 - 1e-5, "{:?}", c.pos);
+        }
+        // within 0.4 of the floor the target went 0.4 up (and 0.4 more for sitting under the look target): it climbed
+        assert!(c.pos[1] > 10.3, "{:?}", c.pos);
+    }
+
     #[test]
     fn the_free_camera_s_sensors_lift_it_over_what_hides_the_character() {
         let mut c = SteeringCamera::new(Mode::Free);
         let look = [100.0, 10.0, 100.0];
         // placed behind the character (z 95.5, 1.5 up), then a wall 11.8 high at z 97 between them: the direct line crosses
         // it at 11.0, the camera flexed two units up sees over it
-        c.update(0.016, look, 0.0, 0.0, Inputs::default(), &mut clear);
+        c.update(0.016, look, 0.0, 0.0, Inputs::default(), &mut Sight(clear));
         let before = c.pos;
         let mut blocked = |a: [f32; 3], b: [f32; 3]| {
             if (a[2] - 97.0) * (b[2] - 97.0) >= 0.0 {
@@ -531,7 +587,7 @@ mod tests {
             a[1] + (b[1] - a[1]) * t >= 11.8
         };
         for _ in 0..30 {
-            c.update(0.016, look, 0.0, 0.0, Inputs::default(), &mut blocked);
+            c.update(0.016, look, 0.0, 0.0, Inputs::default(), &mut Sight(blocked));
         }
         assert!(!c.blind);
         assert!(c.pos[1] > before[1] + 0.05, "{:?} -> {:?}", before, c.pos);
@@ -541,11 +597,11 @@ mod tests {
     fn the_locked_camera_sits_behind_the_character() {
         let mut c = SteeringCamera::new(Mode::Locked);
         let look = [100.0, 10.0, 100.0];
-        let (eye, _) = c.update(0.016, look, 0.0, 7.0, Inputs::default(), &mut clear);
+        let (eye, _) = c.update(0.016, look, 0.0, 7.0, Inputs::default(), &mut Sight(clear));
         // facing +z: behind is -z, up a little, at the default distance 4.74
         assert!((eye[2] - (100.0 - 4.5)).abs() < 1e-3 && (eye[1] - 11.5).abs() < 1e-3 && eye[0].abs() - 100.0 < 1e-3, "{eye:?}");
         // turned to face +x: the camera swings round at once
-        let (eye, _) = c.update(0.016, look, std::f32::consts::FRAC_PI_2, 7.0, Inputs::default(), &mut clear);
+        let (eye, _) = c.update(0.016, look, std::f32::consts::FRAC_PI_2, 7.0, Inputs::default(), &mut Sight(clear));
         assert!((eye[0] - (100.0 - 4.5)).abs() < 1e-3 && (eye[2] - 100.0).abs() < 1e-3, "{eye:?}");
     }
 
@@ -553,14 +609,14 @@ mod tests {
     fn the_rubber_camera_arrives_rather_than_jumps() {
         let mut c = SteeringCamera::new(Mode::Rubber);
         let look = [0.0, 0.0, 0.0];
-        c.update(0.016, look, 0.0, 7.0, Inputs::default(), &mut clear);
+        c.update(0.016, look, 0.0, 7.0, Inputs::default(), &mut Sight(clear));
         let before = c.pos;
-        let (eye, _) = c.update(0.016, look, std::f32::consts::FRAC_PI_2, 7.0, Inputs::default(), &mut clear);
+        let (eye, _) = c.update(0.016, look, std::f32::consts::FRAC_PI_2, 7.0, Inputs::default(), &mut Sight(clear));
         let moved = length(sub(eye, before));
         assert!(moved > 0.0 && moved < 0.2, "{moved}");
         // and gets there in a few seconds
         for _ in 0..300 {
-            c.update(0.016, look, std::f32::consts::FRAC_PI_2, 7.0, Inputs::default(), &mut clear);
+            c.update(0.016, look, std::f32::consts::FRAC_PI_2, 7.0, Inputs::default(), &mut Sight(clear));
         }
         assert!((c.pos[0] + 4.5).abs() < 0.2 && c.pos[2].abs() < 0.2, "{:?}", c.pos);
     }
@@ -569,11 +625,11 @@ mod tests {
     fn the_free_camera_trails_the_walker() {
         let mut c = SteeringCamera::new(Mode::Free);
         let mut look = [0.0, 0.0, 0.0];
-        c.update(0.016, look, 0.0, 7.0, Inputs::default(), &mut clear);
+        c.update(0.016, look, 0.0, 7.0, Inputs::default(), &mut Sight(clear));
         // the character walks off along +x for a while: the camera ends up behind it along -x
         for _ in 0..600 {
             look[0] += 7.0 * 0.016;
-            c.update(0.016, look, std::f32::consts::FRAC_PI_2, 7.0, Inputs::default(), &mut clear);
+            c.update(0.016, look, std::f32::consts::FRAC_PI_2, 7.0, Inputs::default(), &mut Sight(clear));
         }
         let v = sub(c.pos, look);
         assert!(v[0] < -3.0 && v[2].abs() < 1.0, "{v:?}");
@@ -585,20 +641,20 @@ mod tests {
     fn zoom_is_kept_within_the_limits_and_turns_to_first_person() {
         let mut c = SteeringCamera::new(Mode::Locked);
         let look = [0.0, 0.0, 0.0];
-        c.update(0.016, look, 0.0, 7.0, Inputs::default(), &mut clear);
+        c.update(0.016, look, 0.0, 7.0, Inputs::default(), &mut Sight(clear));
         for _ in 0..600 {
-            c.update(0.016, look, 0.0, 7.0, Inputs { zoom_out: true, ..Default::default() }, &mut clear);
+            c.update(0.016, look, 0.0, 7.0, Inputs { zoom_out: true, ..Default::default() }, &mut Sight(clear));
         }
         assert!((length(sub(c.pos, look)) - MAX_DISTANCE).abs() < 0.05);
         for _ in 0..600 {
-            c.update(0.016, look, 0.0, 7.0, Inputs { zoom_in: true, ..Default::default() }, &mut clear);
+            c.update(0.016, look, 0.0, 7.0, Inputs { zoom_in: true, ..Default::default() }, &mut Sight(clear));
             if c.mode == Mode::First {
                 break;
             }
         }
         assert_eq!(c.mode, Mode::First);
         // zooming out comes back to the locked camera
-        c.update(0.016, look, 0.0, 7.0, Inputs { zoom_out: true, ..Default::default() }, &mut clear);
+        c.update(0.016, look, 0.0, 7.0, Inputs { zoom_out: true, ..Default::default() }, &mut Sight(clear));
         assert_eq!(c.mode, Mode::Locked);
     }
 
@@ -608,7 +664,7 @@ mod tests {
         let look = [0.0, 0.0, 0.0];
         // a wall 2 units behind the character (at z = -2)
         let mut wall = |a: [f32; 3], b: [f32; 3]| !(a[2].min(b[2]) < -2.0);
-        let (eye, _) = c.update(0.016, look, 0.0, 7.0, Inputs::default(), &mut wall);
+        let (eye, _) = c.update(0.016, look, 0.0, 7.0, Inputs::default(), &mut Sight(wall));
         assert!(eye[2] > -2.0 && eye[2] < -1.0, "{eye:?}");
     }
 }

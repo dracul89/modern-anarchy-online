@@ -162,6 +162,9 @@ pub struct Update {
     pub ground: Option<(std::sync::Arc<mao_formats::terrain::Terrain>, f32)>,
     /// The zones' surfaces (server coordinates), for the camera's lines of sight.
     pub zones: Option<std::sync::Arc<mao_formats::zones::Zones>>,
+    /// The playfield's collision (Z up): the camera's lines of sight where the playfield has no zone surfaces (the props' meshes
+    /// then).
+    pub collision: Option<std::sync::Arc<mao_formats::collision::Collision>>,
     pub own: Option<[f32; 3]>,
     /// The area's environment where the character stands (light and fog), and the day's intensity.
     pub environment: Option<crate::environment::Environment>,
@@ -602,6 +605,9 @@ struct App {
     own_at: std::time::Instant,
     ground: Option<(std::sync::Arc<mao_formats::terrain::Terrain>, f32)>,
     zones: Option<std::sync::Arc<mao_formats::zones::Zones>>,
+    collision: Option<std::sync::Arc<mao_formats::collision::Collision>>,
+    /// The camera vehicle's body (no gravity), settled against the surface after each of its steps.
+    camera_body: crate::vehicle::Body,
     /// The interior's rooms, which of them are drawn, the room the character was last found in, and when the camera's
     /// attractor was last chosen (`RunCameraSelectionCollChecks` runs every tenth of a second).
     interior: Option<std::sync::Arc<crate::interior::Interior>>,
@@ -648,6 +654,62 @@ struct App {
     logged_out: bool,
     moved: f32,
     last_click: Option<(u32, std::time::Instant)>,
+}
+
+
+/// The playfield for the camera's vehicle (`camera::Surface`, what `CameraVehicle_t` asks of `n3Playfield_t`): the zones'
+/// surfaces and the tile-map ground as `n3TilemapSurface_t` serves them (`vehicle::Ground`), the rooms of a dungeon, and
+/// where the playfield has no surfaces the props' meshes (`Collision::line`) over the ground sampled along the way. The
+/// camera's own body (`vehicle::Body` without gravity) is what its steps settle against.
+struct CameraSurface<'a> {
+    ground: Option<crate::vehicle::Ground>,
+    terrain: Option<(std::sync::Arc<mao_formats::terrain::Terrain>, f32)>,
+    collision: Option<std::sync::Arc<mao_formats::collision::Collision>>,
+    interior: Option<std::sync::Arc<crate::interior::Interior>>,
+    rooms_shown: Vec<bool>,
+    hint: Option<usize>,
+    body: &'a mut crate::vehicle::Body,
+}
+
+impl crate::camera::Surface for CameraSurface<'_> {
+    fn line_of_sight(&mut self, a: [f32; 3], b: [f32; 3]) -> bool {
+        // (`RoomCanSeeFromTo`: in a dungeon both points lie in rooms, the same one or two with an open door between; the rooms
+        // drawn are the character's and those behind its open doors)
+        if let Some(interior) = &self.interior {
+            match (interior.room_at(a, self.hint), interior.room_at(b, self.hint)) {
+                (Some(x), Some(y)) if x == y => {}
+                (Some(x), Some(y)) if self.rooms_shown.get(x) == Some(&true) && self.rooms_shown.get(y) == Some(&true) => {}
+                _ => return false,
+            }
+        }
+        // (the surface's `GetLineIntersection` finds front faces: tried both ways)
+        if let Some(g) = &self.ground {
+            return g.line(a, b).is_none() && g.line(b, a).is_none();
+        }
+        if self.collision.as_ref().is_some_and(|c| c.line([a[0], a[2], a[1]], [b[0], b[2], b[1]])) {
+            return false;
+        }
+        let Some((terrain, offset)) = &self.terrain else { return true };
+        let steps = ((a[0] - b[0]).hypot(a[2] - b[2]) / 0.5).ceil().clamp(1.0, 64.0) as usize;
+        (0..=steps).all(|i| {
+            let t = i as f32 / steps as f32;
+            let (x, y, z) = (a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t);
+            y >= terrain.height_at(x, z, terrain.height_scale) + offset + 0.3
+        })
+    }
+
+    fn surface_distance(&mut self, p: [f32; 3]) -> Option<f32> {
+        let (closest, _, _) = self.ground.as_ref()?.closest(p);
+        Some(((p[0] - closest[0]).powi(2) + (p[1] - closest[1]).powi(2) + (p[2] - closest[2]).powi(2)).sqrt())
+    }
+
+    fn align(&mut self, previous: [f32; 3], pos: [f32; 3]) -> [f32; 3] {
+        let Some(g) = &self.ground else { return pos };
+        let mut at = pos;
+        let mut events = Vec::new();
+        self.body.align(g, &mut at, previous, false, &mut events);
+        at
+    }
 }
 
 /// The liquid the camera is under, by type: Gamecode's FUN_100b77cb (every frame of the playfield's state) tests the eye a tenth
@@ -709,7 +771,7 @@ pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<()
     let settings = Settings::load();
     crate::ui::set_debug_overlay(settings.debug_overlay);
     crate::font::set_enabled(settings.original_font);
-    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, world_in: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), flares: Vec::new(), falls: None, area_fog_base: None, sky: Default::default(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), fxs_frame: None, script_meshes: Default::default(), named_sheets: Default::default(), trails: Default::default(), motions: Default::default(), shake: (0.0, 0), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, zones: None, interior: None, rooms_shown: Vec::new(), room_hint: None, attractor_at: std::time::Instant::now(), casters: Vec::new(), character_parts: Vec::new(), highlight_runs: Default::default(), highlight_fades: Default::default(), follow_shift: [0.0; 3], environment: Default::default(), quake: Default::default(), quake_offset: [0.0; 3], wind: Default::default(), wind_at: std::time::Instant::now(), perf_memory_at: std::time::Instant::now() - std::time::Duration::from_secs(10), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
+    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, world_in: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), flares: Vec::new(), falls: None, area_fog_base: None, sky: Default::default(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), fxs_frame: None, script_meshes: Default::default(), named_sheets: Default::default(), trails: Default::default(), motions: Default::default(), shake: (0.0, 0), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, zones: None, collision: None, camera_body: crate::vehicle::Body::without_gravity(), interior: None, rooms_shown: Vec::new(), room_hint: None, attractor_at: std::time::Instant::now(), casters: Vec::new(), character_parts: Vec::new(), highlight_runs: Default::default(), highlight_fades: Default::default(), follow_shift: [0.0; 3], environment: Default::default(), quake: Default::default(), quake_offset: [0.0; 3], wind: Default::default(), wind_at: std::time::Instant::now(), perf_memory_at: std::time::Instant::now() - std::time::Duration::from_secs(10), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
     // (entering the game: the loading screen, `ServerLogin3DModule_t::InitialiseMessage`)
     if app.live.is_some() {
         crate::loading::begin(crate::loading::FADE_IN, crate::loading::FADE_OUT);
@@ -1573,6 +1635,9 @@ impl ApplicationHandler for App {
                         }
                         self.ground = update.ground.take();
                         self.zones = update.zones.take();
+                        if let Some(c) = update.collision.take() {
+                            self.collision = Some(c);
+                        }
                         if let Some(interior) = update.interior.take() {
                             self.interior = interior;
                             self.room_hint = None;
@@ -1645,21 +1710,18 @@ impl ApplicationHandler for App {
                         };
                         self.mouse_look = (0.0, 0.0);
                         let ground = self.ground.clone();
-                        let zones = self.zones.clone();
-                        let mut los = |a: [f32; 3], b: [f32; 3]| -> bool {
-                            // (the playfield's surfaces block the view too, the walls and floors indoors: the camera vehicle's
-                            // `GetLineIntersection` against the whole surface)
-                            if zones.as_ref().is_some_and(|z| z.line(a, b).is_some()) {
-                                return false;
-                            }
-                            let Some((terrain, offset)) = &ground else { return true };
-                            let steps = ((a[0] - b[0]).hypot(a[2] - b[2]) / 0.5).ceil().clamp(1.0, 64.0) as usize;
-                            (0..=steps).all(|i| {
-                                let t = i as f32 / steps as f32;
-                                let (x, y, z) = (a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t);
-                                y >= terrain.height_at(x, z, terrain.height_scale) + offset + 0.3
-                            })
+                        // (the playfield as the camera's vehicle asks for it, `camera::Surface`: the zones' surfaces and the tile-map
+                        // ground as `n3TilemapSurface_t` has them, the rooms, and without surfaces the props' meshes)
+                        let mut surface = CameraSurface {
+                            ground: self.zones.clone().map(|z| crate::vehicle::Ground { zones: z, terrain: ground.as_ref().map(|(t, _)| (t.clone(), t.height_scale)), offset: ground.as_ref().map_or(0.0, |(_, o)| *o) }),
+                            terrain: ground.clone(),
+                            collision: self.collision.clone(),
+                            interior: self.interior.clone(),
+                            rooms_shown: self.rooms_shown.clone(),
+                            hint: self.room_hint,
+                            body: &mut self.camera_body,
                         };
+                        let mut los = |a: [f32; 3], b: [f32; 3]| -> bool { crate::camera::Surface::line_of_sight(&mut surface, a, b) };
                         let speed = (vx * vx + vz * vz).sqrt();
                         // The room's camera attractors (`n3Playfield_t::RunCameraSelectionCollChecks`, every tenth of a second): of
                         // the room's enabled vantage points that see the character, the one of least cost (`PointCameraAttractor_t`'s
@@ -1700,7 +1762,7 @@ impl ApplicationHandler for App {
                                 best.map(|(_, at)| at)
                             });
                         }
-                        let (eye, at) = self.steering.update(dt, [px, y + 1.3, pz], self.heading, speed, inputs, &mut los);
+                        let (eye, at) = self.steering.update(dt, [px, y + 1.3, pz], self.heading, speed, inputs, &mut surface);
                         w.camera = mao_render::Camera::looking(mao_render::glam::Vec3::new(eye[0], eye[2], eye[1]), mao_render::glam::Vec3::new(at[0], at[2], at[1]));
                         if self.steering.is_first_person() {
                             // (looking out of the head: the target is a step ahead, the eye at the head)

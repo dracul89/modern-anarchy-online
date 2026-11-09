@@ -247,6 +247,11 @@ impl Default for Body {
 }
 
 impl Body {
+    /// A body that does not fall (the camera's vehicle: +0x50 clear).
+    pub fn without_gravity() -> Body {
+        Body { gravity: false, ..Default::default() }
+    }
+
     /// `LandNow` (0x1000a719).
     fn land(&mut self, height: f32, events: &mut Vec<Event>) {
         self.vy = 0.0;

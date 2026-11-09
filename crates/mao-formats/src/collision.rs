@@ -180,6 +180,61 @@ impl Collision {
         }
         best
     }
+
+    /// Whether the segment from `start` to `end` (Z up) crosses any triangle, either side: a line of sight blocked by the
+    /// props' meshes where a playfield has no zone surfaces (with them, `Zones::line` is the original's test).
+    pub fn line(&self, start: [f32; 3], end: [f32; 3]) -> bool {
+        let d = [end[0] - start[0], end[1] - start[1], end[2] - start[2]];
+        let (lo, hi) = ([start[0].min(end[0]), start[1].min(end[1])], [start[0].max(end[0]), start[1].max(end[1])]);
+        let (x0, x1, y0, y1) = (cell(lo[0]), cell(hi[0]), cell(lo[1]), cell(hi[1]));
+        // (a segment across much of the playfield: every triangle)
+        let ids: Vec<u32> = if (x1 as i64 - x0 as i64 + 1) * (y1 as i64 - y0 as i64 + 1) > 4096 {
+            (0..self.tris.len() as u32).collect()
+        } else {
+            let mut ids = Vec::new();
+            for cx in x0..=x1 {
+                for cy in y0..=y1 {
+                    if let Some(list) = self.grid.get(&(cx, cy)) {
+                        ids.extend_from_slice(list);
+                    }
+                }
+            }
+            ids.sort_unstable();
+            ids.dedup();
+            ids
+        };
+        let (lo_z, hi_z) = (start[2].min(end[2]), end[2].max(start[2]));
+        ids.into_iter().map(|i| &self.tris[i as usize]).filter(|t| t.max_z >= lo_z && t.min_z <= hi_z).any(|t| segment_hits(&t.v, start, d))
+    }
+}
+
+/// Whether `start + s × d`, `s` in 0..1, crosses the triangle (Möller–Trumbore, either face).
+fn segment_hits(t: &Triangle, start: [f32; 3], d: [f32; 3]) -> bool {
+    let sub = |a: [f32; 3], b: [f32; 3]| [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+    let cross = |a: [f32; 3], b: [f32; 3]| [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    let dot = |a: [f32; 3], b: [f32; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    let (e1, e2) = (sub(t[1], t[0]), sub(t[2], t[0]));
+    let p = cross(d, e2);
+    let det = dot(e1, p);
+    if det.abs() < 1e-9 {
+        return false;
+    }
+    let inv = 1.0 / det;
+    let s = sub(start, t[0]);
+    let u = dot(s, p) * inv;
+    if !(0.0..=1.0).contains(&u) {
+        return false;
+    }
+    let q = cross(s, e1);
+    let v = dot(d, q) * inv;
+    if v < 0.0 || u + v > 1.0 {
+        return false;
+    }
+    let along = dot(e2, q) * inv;
+    (0.0..=1.0).contains(&along)
+}
+
+impl Collision {
 }
 
 #[cfg(test)]
@@ -192,6 +247,17 @@ mod tests {
         c.add([[10.0, 0.0, 0.0], [10.0, 10.0, 0.0], [10.0, 10.0, 3.0]]);
         c.add([[10.0, 0.0, 0.0], [10.0, 10.0, 3.0], [10.0, 0.0, 3.0]]);
         c
+    }
+
+
+    #[test]
+    fn a_line_of_sight_is_cut_by_a_wall_in_its_way() {
+        let c = wall();
+        assert!(c.line([5.0, 5.0, 1.5], [15.0, 5.0, 1.5]));
+        assert!(c.line([15.0, 2.0, 0.5], [5.0, 8.0, 2.5]), "either face, slanting");
+        assert!(!c.line([5.0, 5.0, 5.0], [15.0, 5.0, 5.0]), "over the wall");
+        assert!(!c.line([5.0, 5.0, 1.5], [9.0, 5.0, 1.5]), "short of it");
+        assert!(!c.line([5.0, 12.0, 1.5], [15.0, 12.0, 1.5]), "past its end");
     }
 
     #[test]

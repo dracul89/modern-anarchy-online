@@ -4230,7 +4230,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     state.approach_doors = crate::approach_doors(&db, playfield);
     state.table = crate::table_dynels(&db, playfield);
     profile!("[profile] static_props {:?}", started_props.elapsed());
-    let (mut terrain, mut collision) = (terrain, collision);
+    // (the collision is shared with the viewer, for the camera's lines of sight where the playfield has no surfaces)
+    let (mut terrain, mut collision) = (terrain, Arc::new(collision));
     // The interface: the names of the playfields, and where the booths lead.
     let names: std::collections::HashMap<u32, String> = mao_formats::playfield::all(&db).into_iter().map(|p| (p.number, p.name.trim().to_string())).collect();
     let mut destinations = crate::whompah::Destinations::load();
@@ -4989,7 +4990,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     pending_location = Some(names.get(&playfield).cloned().unwrap_or_else(|| format!("playfield {playfield}")));
                     match load_area_with(&game_dir, &thread_db, playfield, Some(&thread_textures)) {
                         Ok(area) => {
-                            (terrain, collision, teleportals, zones) = (area.terrain, area.collision, area.teleportals, area.zones);
+                            (terrain, collision, teleportals, zones) = (area.terrain, Arc::new(area.collision), area.teleportals, area.zones);
                             interior = area.interior.clone();
                             room_state = Default::default();
                             pending_interior = Some(interior.clone());
@@ -6852,6 +6853,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     },
                     ground: terrain.clone().map(|t| (t, offset)),
                     zones: zones.clone(),
+                    collision: Some(collision.clone()),
                     own: Some(position),
                     environment: Some(crate::environment::compute(&areas, base_environment.as_ref(), position, state.game_clock.day(), state.game_clock.seconds(), state.game_clock.day_intensity())),
                     daylight: Some(state.game_clock.day_intensity()),
