@@ -283,6 +283,10 @@ pub struct Ui {
     pub research: crate::research::ResearchWindow,
     /// The faction standings (`faction_window`).
     pub faction: crate::factions::FactionWindow,
+    /// The raid window (`raid_window`), the looking-for-team window (`lft_window`) and the knowledge board (`knowledge_window`).
+    pub raid: crate::raid::RaidWindow,
+    pub lft: crate::lft::LftWindow,
+    pub knowledge: crate::knowledge::KnowledgeWindow,
     pub ncu: crate::ncu::NcuWindow,
     pub friends: crate::friends::FriendsWindow,
     pub programs: crate::nanoprograms::ProgramsWindow,
@@ -513,7 +517,7 @@ impl Ui {
         crate::skin::configure(&ctx, crate::skin::dirs(&settings.gui_dir, &settings.theme, &settings.aou_mod));
         let state = egui_winit::State::new(ctx.clone(), egui::ViewportId::ROOT, window, Some(window.scale_factor() as f32), window.theme(), None);
         let renderer = egui_wgpu::Renderer::new(&gpu.device, format, egui_wgpu::RendererOptions::default());
-        let mut ui = Ui { ctx, state, renderer, open_seen: Vec::new(), options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), shop: Default::default(), npc_chat: Default::default(), mission_log: Default::default(), planet: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), team: Default::default(), pets: Default::default(), tradeskill: Default::default(), research: Default::default(), faction: Default::default(), ncu: Default::default(), friends: Default::default(), programs: Default::default(), perks: Default::default(), help: Default::default(), tips: Default::default(), info: Default::default(), browser: Default::default(), market_send: Default::default(), control_center: None, option_panel: Default::default(), loot: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0, perf: Default::default() };
+        let mut ui = Ui { ctx, state, renderer, open_seen: Vec::new(), options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), shop: Default::default(), npc_chat: Default::default(), mission_log: Default::default(), planet: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), team: Default::default(), pets: Default::default(), tradeskill: Default::default(), research: Default::default(), faction: Default::default(), raid: Default::default(), lft: Default::default(), knowledge: Default::default(), ncu: Default::default(), friends: Default::default(), programs: Default::default(), perks: Default::default(), help: Default::default(), tips: Default::default(), info: Default::default(), browser: Default::default(), market_send: Default::default(), control_center: None, option_panel: Default::default(), loot: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0, perf: Default::default() };
         // (the windows the player left open come back open)
         for name in crate::layout::load_open() {
             ui.set_window(&name, true);
@@ -622,6 +626,9 @@ impl Ui {
             "missionselection" => self.mission.open,
             "friends" => self.friends.open,
             "factions" | "faction" => self.faction.open,
+            "raid" => self.raid.open,
+            "lft" | "findteam" => self.lft.open,
+            "knowledge" => self.knowledge.open,
             "pets" | "pet" => self.pets.open,
             "tradeskill" => self.tradeskill.open,
             "research" => self.research.open,
@@ -684,6 +691,9 @@ impl Ui {
             "tradeskill" => &mut self.tradeskill.open,
             "research" => &mut self.research.open,
             "factions" | "faction" => &mut self.faction.open,
+            "raid" => &mut self.raid.open,
+            "lft" | "findteam" | "looking for team" => &mut self.lft.open,
+            "knowledge" | "reference" => &mut self.knowledge.open,
             "ncu" | "nanos" => &mut self.ncu.open,
             "friends" => &mut self.friends.open,
             "programs" | "nano programs" => &mut self.programs.open,
@@ -751,6 +761,7 @@ impl Ui {
         let tradeskill_window = &mut self.tradeskill;
         let research_window = &mut self.research;
         let faction_window = &mut self.faction;
+        let (raid_window, lft_window, knowledge_window) = (&mut self.raid, &mut self.lft, &mut self.knowledge);
         let (friends_window, programs_window, perks_window, loot_window, help_window) = (&mut self.friends, &mut self.programs, &mut self.perks, &mut self.loot, &mut self.help);
         let info_view = &mut self.info;
         let tips = &mut self.tips;
@@ -874,6 +885,11 @@ impl Ui {
             team_window.show(&ctx, palette);
             pet_window.show(&ctx, &crate::pets::get(), palette);
             faction_window.show(&ctx, &hud.stats, palette);
+            raid_window.show(&ctx, palette);
+            lft_window.show(&ctx, palette);
+            for url in knowledge_window.show(&ctx, gear, &hud.gear, palette) {
+                info_view.show_url(&url);
+            }
             if actions.open {
                 actions.show(&ctx, gear, &hud.perk_actions, palette);
                 if let Some(a) = actions.clicked.take() {

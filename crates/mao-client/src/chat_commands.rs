@@ -194,6 +194,8 @@ pub fn parse(line: &str) -> Parsed {
         },
         "follow" => Parsed::Follow,
         "inspect" => Parsed::Inspect,
+        // (`/raid` and `/lft` open their windows, as the original's commands do)
+        "raid" | "lft" => Parsed::Window { name: command.to_lowercase(), open: true },
         "open" | "items" => Parsed::Window { name: if command.eq_ignore_ascii_case("items") { "inventory".to_string() } else { text.to_string() }, open: true },
         "close" => Parsed::Window { name: text.to_string(), open: false },
         "selectself" => Parsed::SelectSelf,
@@ -281,6 +283,8 @@ mod tests {
         assert_eq!(parse("/follow"), Parsed::Follow);
         assert_eq!(parse("/inspect"), Parsed::Inspect);
         assert_eq!(parse("/open skills"), Parsed::Window { name: "skills".into(), open: true });
+        assert_eq!(parse("/raid"), Parsed::Window { name: "raid".into(), open: true });
+        assert_eq!(parse("/lft"), Parsed::Window { name: "lft".into(), open: true });
         assert_eq!(parse("/items"), Parsed::Window { name: "inventory".into(), open: true });
         assert_eq!(parse("/close"), Parsed::Window { name: String::new(), open: false });
         assert_eq!(parse("/waypoint 450.5, 310"), Parsed::Waypoint { x: 450.5, z: 310.0 });
