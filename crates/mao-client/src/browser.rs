@@ -485,7 +485,7 @@ pub fn test_window(mode: Mode) -> Result<(), String> {
             if self.window.is_some() {
                 return;
             }
-            let window = event_loop.create_window(Window::default_attributes().with_title(self.mode.title()).with_inner_size(winit::dpi::PhysicalSize::new(1024, 768))).expect("a window");
+            let window = event_loop.create_window(Window::default_attributes().with_title(self.mode.title()).with_window_icon(crate::icon::window_icon()).with_inner_size(winit::dpi::PhysicalSize::new(1024, 768))).expect("a window");
             let size = window.inner_size();
             let request = Request { mode: self.mode, headers: headers(0, None, 0, &|_| 0) };
             let data = std::env::temp_dir().join("mao-browser-test");

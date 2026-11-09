@@ -785,7 +785,7 @@ impl ApplicationHandler for App {
             return;
         }
         // (hidden until its first frame is presented: otherwise the system's white fills it first, then the black)
-        let window = Arc::new(event_loop.create_window(Window::default_attributes().with_title("Modern Anarchy Online").with_inner_size(PhysicalSize::new(self.settings.width, self.settings.height)).with_visible(false)).expect("a window"));
+        let window = Arc::new(event_loop.create_window(Window::default_attributes().with_title("Modern Anarchy Online").with_window_icon(crate::icon::window_icon()).with_inner_size(PhysicalSize::new(self.settings.width, self.settings.height)).with_visible(false)).expect("a window"));
         apply_mode(&window, self.settings.mode);
         eprintln!("window mode: {} (F11 or Alt+Enter change it)", self.settings.mode.name());
         let instance = wgpu::Instance::default();

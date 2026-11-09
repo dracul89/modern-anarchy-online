@@ -347,7 +347,7 @@ impl ApplicationHandler for Launcher {
         if self.gfx.is_some() {
             return;
         }
-        let window = Arc::new(event_loop.create_window(Window::default_attributes().with_title("Modern Anarchy Online").with_inner_size(PhysicalSize::new(1000, 640))).expect("a window"));
+        let window = Arc::new(event_loop.create_window(Window::default_attributes().with_title("Modern Anarchy Online").with_window_icon(crate::icon::window_icon()).with_inner_size(PhysicalSize::new(1000, 640))).expect("a window"));
         let instance = wgpu::Instance::default();
         let surface = instance.create_surface(window.clone()).expect("a surface");
         let gpu = Gpu::new(instance, Some(&surface)).expect("a graphics device");

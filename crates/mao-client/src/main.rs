@@ -51,6 +51,7 @@ mod liquid;
 mod voices;
 mod friends;
 mod fxs;
+mod icon;
 mod help;
 mod launcher;
 mod loginviews;

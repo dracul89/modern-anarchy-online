@@ -81,7 +81,9 @@ Hard-won protocol facts (see `crates/mao-net` and the notes in the other repo):
   object archives, meshes, tile-maps, terrain, statels, playfields
 - `mao-net` – the network protocol: framing, login crypto, system and N3 messages, sessions
 - `mao-render` – the `wgpu` renderer
-- `mao-client` – window, input, the viewer
+- `mao-client` – window, input, the viewer. Its icon (`assets/icon/`: the original GUI's steel emblem on slate) is the
+  Windows executable's resource (`build.rs`) and every window's icon (`src/icon.rs`); `tools/render_icons.py` draws it and
+  the other candidates from the original `GFX_GUI_AO_LOGO` texture
 - `mao-tools` – `mao-db`
 
 Tests that need game data run when `MAO_GAME` points at an installed game.
