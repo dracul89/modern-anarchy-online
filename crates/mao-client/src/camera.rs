@@ -311,6 +311,11 @@ impl SteeringCamera {
         self.mode = mode;
     }
 
+    /// The vehicle's state in a line, for the camera script's log.
+    pub fn debug(&self) -> String {
+        format!("mode {:?} pos ({:.2}, {:.2}, {:.2}) speed {:.2} blind {} attractor {:?}", self.mode, self.pos[0], self.pos[1], self.pos[2], self.speed, self.blind, self.attractor)
+    }
+
     pub fn is_first_person(&self) -> bool {
         self.mode == Mode::First
     }

@@ -643,6 +643,11 @@ struct App {
     modifiers: winit::keyboard::ModifiersState,
     /// The movement actions whose keys are down.
     held: std::collections::HashSet<Action>,
+    /// `MAO_CAMERA_SCRIPT=<seconds>:<action>[/<seconds held>],…`: keys pressed by themselves that many seconds in (`screenshot`,
+    /// `log` for the camera's numbers, or an action's name from `settings::ACTIONS`), for testing the camera without a keyboard.
+    camera_script: Vec<(f32, String)>,
+    script_clock: std::time::Instant,
+    script_held: Vec<(Action, std::time::Instant)>,
     /// The camera as first set, and as the player saved it.
     home: Option<Camera>,
     preferred: Option<Camera>,
@@ -773,7 +778,7 @@ pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<()
     let settings = Settings::load();
     crate::ui::set_debug_overlay(settings.debug_overlay);
     crate::font::set_enabled(settings.original_font);
-    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, world_in: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), flares: Vec::new(), falls: None, area_fog_base: None, sky: Default::default(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), fxs_frame: None, script_meshes: Default::default(), named_sheets: Default::default(), trails: Default::default(), motions: Default::default(), shake: (0.0, 0), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, zones: None, collision: None, camera_body: crate::vehicle::Body::without_gravity(), look_target: Default::default(), interior: None, rooms_shown: Vec::new(), room_hint: None, attractor_at: std::time::Instant::now(), casters: Vec::new(), character_parts: Vec::new(), highlight_runs: Default::default(), highlight_fades: Default::default(), follow_shift: [0.0; 3], environment: Default::default(), quake: Default::default(), quake_offset: [0.0; 3], wind: Default::default(), wind_at: std::time::Instant::now(), perf_memory_at: std::time::Instant::now() - std::time::Duration::from_secs(10), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
+    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, world_in: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), flares: Vec::new(), falls: None, area_fog_base: None, sky: Default::default(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), fxs_frame: None, script_meshes: Default::default(), named_sheets: Default::default(), trails: Default::default(), motions: Default::default(), shake: (0.0, 0), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, zones: None, collision: None, camera_body: crate::vehicle::Body::without_gravity(), look_target: Default::default(), interior: None, rooms_shown: Vec::new(), room_hint: None, attractor_at: std::time::Instant::now(), casters: Vec::new(), character_parts: Vec::new(), highlight_runs: Default::default(), highlight_fades: Default::default(), follow_shift: [0.0; 3], environment: Default::default(), quake: Default::default(), quake_offset: [0.0; 3], wind: Default::default(), wind_at: std::time::Instant::now(), perf_memory_at: std::time::Instant::now() - std::time::Duration::from_secs(10), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), camera_script: std::env::var("MAO_CAMERA_SCRIPT").ok().map_or_else(Vec::new, |v| v.split(',').filter_map(|s| s.split_once(':').and_then(|(t, c)| Some((t.trim().parse().ok()?, c.trim().to_string())))).collect()), script_clock: std::time::Instant::now(), script_held: Vec::new(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
     // (entering the game: the loading screen, `ServerLogin3DModule_t::InitialiseMessage`)
     if app.live.is_some() {
         crate::loading::begin(crate::loading::FADE_IN, crate::loading::FADE_OUT);
@@ -1698,7 +1703,25 @@ impl ApplicationHandler for App {
                         w.scene.player = Some(mao_render::glam::Vec3::new(px, pz, y));
                         // The game's camera: the original's steered vehicle (see `camera.rs`), looking at the head, in the
                         // server's frame; the terrain stands in for its lines of sight.
-                        let held = |a: Action| self.held.contains(&a);
+                        // (the camera script's keys: see `camera_script`)
+                        let now = std::time::Instant::now();
+                        while self.camera_script.first().is_some_and(|(t, _)| self.script_clock.elapsed().as_secs_f32() >= *t) {
+                            let (_, what) = self.camera_script.remove(0);
+                            let (name, secs) = what.split_once('/').map_or((what.as_str(), 1.0), |(n, s)| (n, s.parse().unwrap_or(1.0)));
+                            match name {
+                                "screenshot" => self.screenshot = true,
+                                "log" => {
+                                    let (e, t) = (w.camera.eye(), w.camera.target);
+                                    eprintln!("camera: eye ({:.2}, {:.2}, {:.2}) target ({:.2}, {:.2}, {:.2}) look {:?} feet ({px:.2}, {y:.2}, {pz:.2}) {} own casters {:?}", e.x, e.z, e.y, t.x, t.z, t.y, self.look_target.local, self.steering.debug(), self.casters.iter().filter(|c| c.own).map(|c| (c.translation, c.attractors.iter().map(|(n, m)| (n.clone(), [m[12], m[13], m[14]])).collect::<Vec<_>>())).collect::<Vec<_>>());
+                                }
+                                _ => match crate::settings::ACTIONS.iter().find(|(_, n, _)| *n == name) {
+                                    Some((a, _, _)) => self.script_held.push((*a, now + std::time::Duration::from_secs_f32(secs))),
+                                    None => eprintln!("camera script: no action {name:?}"),
+                                },
+                            }
+                        }
+                        self.script_held.retain(|(_, until)| *until > now);
+                        let held = |a: Action| self.held.contains(&a) || self.script_held.iter().any(|(x, _)| *x == a);
                         let inputs = crate::camera::Inputs {
                             rotate_left: held(Action::CameraRotateLeft),
                             rotate_right: held(Action::CameraRotateRight),
