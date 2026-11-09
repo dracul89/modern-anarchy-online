@@ -45,7 +45,34 @@ CREATE TABLE IF NOT EXISTS items (\n\
     count INTEGER NOT NULL,\n\
     quality INTEGER NOT NULL,\n\
     PRIMARY KEY (character, placement)\n\
+);\n\
+CREATE TABLE IF NOT EXISTS mails (\n\
+    character INTEGER NOT NULL,\n\
+    id INTEGER NOT NULL,\n\
+    sender TEXT NOT NULL,\n\
+    subject TEXT NOT NULL,\n\
+    body TEXT NOT NULL,\n\
+    credits INTEGER NOT NULL,\n\
+    item_low INTEGER NOT NULL,\n\
+    item_high INTEGER NOT NULL,\n\
+    item_quality INTEGER NOT NULL,\n\
+    flags INTEGER NOT NULL,\n\
+    sent INTEGER NOT NULL,\n\
+    expires INTEGER NOT NULL,\n\
+    PRIMARY KEY (character, id)\n\
 );";
+
+/// The mission columns added for the captured log layout: who gave the mission, its reward item, and where it leads.
+const MISSION_COLUMNS: &[&str] = &[
+    "ALTER TABLE missions ADD COLUMN giver_type INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE missions ADD COLUMN giver_instance INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE missions ADD COLUMN reward_low INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE missions ADD COLUMN reward_high INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE missions ADD COLUMN playfield INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE missions ADD COLUMN lx REAL NOT NULL DEFAULT 0",
+    "ALTER TABLE missions ADD COLUMN ly REAL NOT NULL DEFAULT 0",
+    "ALTER TABLE missions ADD COLUMN lz REAL NOT NULL DEFAULT 0",
+];
 
 /// The account columns: the character slots the account has, and its expansion flags (the list's trailer, as the captures show).
 const ACCOUNT_COLUMNS: &[&str] = &["ALTER TABLE accounts ADD COLUMN slots INTEGER NOT NULL DEFAULT 6", "ALTER TABLE accounts ADD COLUMN expansions INTEGER NOT NULL DEFAULT 1"];
@@ -59,6 +86,7 @@ const PROGRESS_COLUMNS: &[&str] = &[
     "ALTER TABLE characters ADD COLUMN px REAL NOT NULL DEFAULT 0",
     "ALTER TABLE characters ADD COLUMN py REAL NOT NULL DEFAULT 0",
     "ALTER TABLE characters ADD COLUMN pz REAL NOT NULL DEFAULT 0",
+    "ALTER TABLE characters ADD COLUMN victory_points INTEGER NOT NULL DEFAULT 0",
 ];
 
 /// The accounts and characters of the server, in a SQLite database file.
@@ -71,7 +99,7 @@ impl Db {
     pub fn open(path: &str) -> Self {
         let conn = rusqlite::Connection::open(path).unwrap_or_else(|_| rusqlite::Connection::open(":memory:").expect("an in-memory database"));
         let _ = conn.execute_batch(SCHEMA);
-        for column in ACCOUNT_COLUMNS.iter().chain(PROGRESS_COLUMNS) {
+        for column in ACCOUNT_COLUMNS.iter().chain(PROGRESS_COLUMNS).chain(MISSION_COLUMNS) {
             // (a column the file already has is an error to add again, and that is fine)
             let _ = conn.execute(column, []);
         }
@@ -195,11 +223,17 @@ impl Db {
         Ok(())
     }
 
-    /// A character's progress: its level, experience, health, credits, place and what it carries.
+    /// A character's name, if the server has the character.
+    pub fn character_name(&self, id: u32) -> Option<String> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row("SELECT name FROM characters WHERE id = ?1", [id as i64], |r| r.get::<_, String>(0)).ok()
+    }
+
+    /// A character's progress: its level, experience, health, credits, place, what it carries, its missions and its mail.
     pub fn load_hero(&self, id: u32) -> Option<Hero> {
         let conn = self.conn.lock().unwrap();
         let mut hero = conn
-            .query_row("SELECT level, xp, health, credits, playfield, px, py, pz FROM characters WHERE id = ?1", [id as i64], |r| {
+            .query_row("SELECT level, xp, health, credits, playfield, px, py, pz, victory_points FROM characters WHERE id = ?1", [id as i64], |r| {
                 Ok(Hero {
                     id,
                     level: r.get::<_, i64>(0)? as u32,
@@ -210,10 +244,12 @@ impl Db {
                     position: [r.get::<_, f64>(5)? as f32, r.get::<_, f64>(6)? as f32, r.get::<_, f64>(7)? as f32],
                     items: Vec::new(),
                     missions: Vec::new(),
+                    victory_points: r.get::<_, i64>(8)? as u32,
+                    mail: Vec::new(),
                 })
             })
             .ok()?;
-        if let Ok(mut stmt) = conn.prepare("SELECT mission_type, instance, title, description, credits, xp FROM missions WHERE character = ?1 ORDER BY rowid") {
+        if let Ok(mut stmt) = conn.prepare("SELECT mission_type, instance, title, description, credits, xp, giver_type, giver_instance, reward_low, reward_high, playfield, lx, ly, lz FROM missions WHERE character = ?1 ORDER BY rowid") {
             if let Ok(rows) = stmt.query_map([id as i64], |r| {
                 Ok(crate::missions::Taken {
                     mission: (r.get::<_, i64>(0)? as u32, r.get::<_, i64>(1)? as u32),
@@ -221,9 +257,31 @@ impl Db {
                     description: r.get(3)?,
                     credits: r.get::<_, i64>(4)? as u32,
                     xp: r.get::<_, i64>(5)? as u32,
+                    giver: (r.get::<_, i64>(6)? as u32, r.get::<_, i64>(7)? as u32),
+                    reward: (r.get::<_, i64>(8)? as u32, r.get::<_, i64>(9)? as u32),
+                    playfield: r.get::<_, i64>(10)? as u32,
+                    location: [r.get::<_, f64>(11)? as f32, r.get::<_, f64>(12)? as f32, r.get::<_, f64>(13)? as f32],
                 })
             }) {
                 hero.missions = rows.flatten().collect();
+            }
+        }
+        if let Ok(mut stmt) = conn.prepare("SELECT id, sender, subject, body, credits, item_low, item_high, item_quality, flags, sent, expires FROM mails WHERE character = ?1 ORDER BY id") {
+            if let Ok(rows) = stmt.query_map([id as i64], |r| {
+                let (low, high, quality) = (r.get::<_, i64>(5)? as u32, r.get::<_, i64>(6)? as u32, r.get::<_, i64>(7)? as u32);
+                Ok(crate::mail::Mail {
+                    id: r.get::<_, i64>(0)? as u32,
+                    sender: r.get(1)?,
+                    subject: r.get(2)?,
+                    body: r.get(3)?,
+                    credits: r.get::<_, i64>(4)? as u32,
+                    item: (low != 0).then_some((low, high, quality)),
+                    flags: r.get::<_, i64>(8)? as u32,
+                    sent: r.get::<_, i64>(9)? as u32,
+                    expires: r.get::<_, i64>(10)? as u32,
+                })
+            }) {
+                hero.mail = rows.flatten().collect();
             }
         }
         if let Ok(mut stmt) = conn.prepare("SELECT placement, template, count, quality FROM items WHERE character = ?1 ORDER BY placement") {
@@ -241,14 +299,38 @@ impl Db {
         let mut conn = self.conn.lock().unwrap();
         let tx = conn.transaction()?;
         tx.execute(
-            "UPDATE characters SET level = ?2, xp = ?3, health = ?4, credits = ?5, playfield = ?6, px = ?7, py = ?8, pz = ?9 WHERE id = ?1",
-            rusqlite::params![hero.id as i64, hero.level as i64, hero.xp as i64, hero.health as i64, hero.credits as i64, hero.playfield as i64, hero.position[0] as f64, hero.position[1] as f64, hero.position[2] as f64],
+            "UPDATE characters SET level = ?2, xp = ?3, health = ?4, credits = ?5, playfield = ?6, px = ?7, py = ?8, pz = ?9, victory_points = ?10 WHERE id = ?1",
+            rusqlite::params![hero.id as i64, hero.level as i64, hero.xp as i64, hero.health as i64, hero.credits as i64, hero.playfield as i64, hero.position[0] as f64, hero.position[1] as f64, hero.position[2] as f64, hero.victory_points as i64],
         )?;
         tx.execute("DELETE FROM missions WHERE character = ?1", [hero.id as i64])?;
         for m in &hero.missions {
             tx.execute(
-                "INSERT INTO missions (character, mission_type, instance, title, description, credits, xp) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                rusqlite::params![hero.id as i64, m.mission.0 as i64, m.mission.1 as i64, &m.title, &m.description, m.credits as i64, m.xp as i64],
+                "INSERT INTO missions (character, mission_type, instance, title, description, credits, xp, giver_type, giver_instance, reward_low, reward_high, playfield, lx, ly, lz) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+                rusqlite::params![
+                    hero.id as i64,
+                    m.mission.0 as i64,
+                    m.mission.1 as i64,
+                    &m.title,
+                    &m.description,
+                    m.credits as i64,
+                    m.xp as i64,
+                    m.giver.0 as i64,
+                    m.giver.1 as i64,
+                    m.reward.0 as i64,
+                    m.reward.1 as i64,
+                    m.playfield as i64,
+                    m.location[0] as f64,
+                    m.location[1] as f64,
+                    m.location[2] as f64
+                ],
+            )?;
+        }
+        tx.execute("DELETE FROM mails WHERE character = ?1", [hero.id as i64])?;
+        for m in &hero.mail {
+            let (low, high, quality) = m.item.unwrap_or((0, 0, 0));
+            tx.execute(
+                "INSERT INTO mails (character, id, sender, subject, body, credits, item_low, item_high, item_quality, flags, sent, expires) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                rusqlite::params![hero.id as i64, m.id as i64, &m.sender, &m.subject, &m.body, m.credits as i64, low as i64, high as i64, quality as i64, m.flags as i64, m.sent as i64, m.expires as i64],
             )?;
         }
         tx.execute("DELETE FROM items WHERE character = ?1", [hero.id as i64])?;

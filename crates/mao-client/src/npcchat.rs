@@ -420,14 +420,17 @@ mod tests {
 
     #[test]
     fn the_servers_messages_are_read() {
-        // (AppendText: header byte, i16, the NPC, i32, the text with its i32 length, the kind)
+        // (AppendText: header byte, i16, the NPC, i32, the text with its i32 length; nothing follows the text in any capture)
         let mut d = vec![0u8, 0, 2];
         for w in [0xc350u32, 0x1234, 0] {
             d.extend_from_slice(&w.to_be_bytes());
         }
         d.extend_from_slice(&5u32.to_be_bytes());
         d.extend_from_slice(b"Hello");
-        d.extend_from_slice(&0u32.to_be_bytes());
         assert_eq!(event(0x5d70532a, &d), Some(Event::Text((0xc350, 0x1234), 0, "Hello".into())));
+        // (the 2026-11-08 capture's first line at the agency, as sent)
+        let line = "0000020000c3507b22e1970000000000000037506f69736f6e6f7573732c20737461747573202d20756e61737369676e65642e20576861742063616e204920646f20666f7220796f753f";
+        let d: Vec<u8> = (0..line.len() / 2).map(|i| u8::from_str_radix(&line[2 * i..2 * i + 2], 16).unwrap()).collect();
+        assert!(matches!(event(0x5d70532a, &d), Some(Event::Text((0xc350, 0x7b22e197), 0, t)) if t.ends_with("What can I do for you?")));
     }
 }

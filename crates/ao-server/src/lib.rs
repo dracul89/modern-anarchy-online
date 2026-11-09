@@ -10,7 +10,9 @@ pub mod frames;
 pub mod game;
 pub mod gm;
 pub mod inventory;
+pub mod knubot;
 pub mod login;
+pub mod mail;
 pub mod missions;
 pub mod monsters;
 pub mod progress;
@@ -18,5 +20,6 @@ pub mod server;
 pub mod shop;
 pub mod templates;
 pub mod trace;
+pub mod useitem;
 
 pub use frames::*;

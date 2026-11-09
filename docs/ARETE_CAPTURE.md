@@ -120,3 +120,34 @@ Every zoning is the server's `43197d22` (the place, the rotation and the playfie
 - Also seen, not yet used: `SetStat` 264 stepped 0 to 100 (a slider), `N3Teleport` before each zoning, `DoorFullUpdate`,
   `PlayfieldAllTowers` / `AllCities`, `ResearchUpdate`, `OrgServer`.
 
+# The Arbiter / daily-mission / mail capture (2026-11-08)
+
+`captures/events-20261108-1811/` (9.5 minutes, character `0x39c16ee4` at level 116, 5 connections, 14,491 messages; its
+`NOTES.md` has the timeline). The original client crashed at the end: the Unicorn shuttle pad in ICC HQ answered its use with
+an `N3Teleport` of destination type `0xc7a0` and every id zero (an instance not made yet); the log stops the same second, so
+whether a redirect would have followed is unknown. The new client takes it as a move within the playfield (test
+`the_shuttle_pads_teleport_is_a_move_within_the_playfield`).
+
+- **Mission terminal offers** (`QuestAlternative`, the reply the server docs listed as never captured): the request's first byte
+  4, scope 1, terminal `(0xdac1, c000028f)`; five offers, each with a reward descriptor (version 6; a 44-byte chunk of "MSRE"
+  and the level; a 120-byte chunk with the deadline 2880 minutes, a mission code and the deadline's unix time), one reward item
+  at the character's level, icon 11330, the destination playfield and place. Taking one (`CreateQuest`, the offer's identity)
+  is answered by a `SimpleItemFullUpdate` (type `0xc76d`: the mission key), `ContainerAddItem` and the whole log. Ported to
+  ao-server (`missions.rs`).
+- **Daily-mission agency** (Freelancers Inc. HQ, 7012): `KnubotOpenChatWindow` echoed, `KnubotAppendText` lines, `KnubotAnswerList`,
+  `KnubotAnswer` 0 twice, the log with the daily, `KnubotCloseChatWindow` with word 5. `KnubotAppendText` has no trailing word
+  (the schema's `Unknown3` is in no capture: removed, which fixes the client's reading of NPC lines). Ported to ao-server
+  (`knubot.rs`: the agency receptionist).
+- **Mission completion** (RALPH in Palmiero's Office, 7001): the server's `CharacterAction` 0x3b naming the mission, then the
+  log's `Quest` Delete. Ported (`missions::accomplished`).
+- **Mail** at the Old Athen terminal: `Mail` action 1 (inbox), 1 with the id (open: action 2 reply, flags 0x5c to 0x5d), 3 (take:
+  flags 0x5f, `TemplateAction` Added + `ContainerAddItem`), 5 (delete); stat 0x289 goes 1 then 0. Ported to ao-server (`mail.rs`).
+- **Item use**: an item-shop lottery ticket (303463) used from the backpack: `FormatFeedback` "Congratulations!", the prize
+  (294604) added, the ticket used (`TemplateAction` 0x03) and deleted (0x70); the prize used: "New Victory Points gained.",
+  stat 0x29d. Ported to ao-server (`useitem.rs`).
+- **Zoning types**: `0xc79c` a playfield, `0xc79e` the Grid (152, from the Old Athen Grid Access terminal), `0xc7a0` a move
+  within the playfield (and the shuttle's instance-to-be).
+- **Guards**: `2049527c` ("Action") from `0xc749` guards toward a player who attacked them, with the PvP flag. Not ported.
+- Also in it: seasonal monsters and their corpse around ICC HQ, an event character speaking in chat, Andromeda's tower fields
+  and cities on entry, `SetWantedDirection` on the office's NPCs.
+

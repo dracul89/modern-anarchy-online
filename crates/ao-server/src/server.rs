@@ -221,7 +221,11 @@ impl Compressed {
 fn handle_game(mut stream: TcpStream, db: Arc<Db>, current: Arc<Mutex<u32>>) -> std::io::Result<()> {
     let id = *current.lock().unwrap();
     let hero = db.load_hero(id).unwrap_or_else(|| Hero::new(id));
+    let name = db.character_name(id);
     let mut game = GameSession::new(id, hero, Some(db));
+    if let Some(name) = name {
+        game.name = name;
+    }
     let mut reader = Reader::default();
     let mut sequence: u16 = 0;
     let mut zip: Option<Compressed> = None;

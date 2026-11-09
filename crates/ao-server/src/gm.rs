@@ -10,6 +10,8 @@ pub enum Command {
     Credits(u32),
     /// Completes the mission at this place in the log (from 1): it is removed and its reward given.
     Complete(usize),
+    /// Puts a shop delivery in the character's mail: an item (its template and quality) and credits, to read at a mail terminal.
+    Mail { template: u32, quality: u32, credits: u32 },
     /// A `/gm` line that is not a command (with what was typed, for the usage line).
     Unknown(String),
 }
@@ -41,6 +43,14 @@ pub fn parse(line: &str) -> Option<Command> {
         }
         ["xp", amount] => number(amount).map_or_else(|| Command::Unknown(line.trim().to_string()), Command::Xp),
         ["complete", n] => number(n).and_then(|n| usize::try_from(n).ok()).filter(|n| *n > 0).map_or_else(|| Command::Unknown(line.trim().to_string()), Command::Complete),
+        ["mail", template, rest @ ..] => {
+            let quality = rest.first().and_then(|q| number(q)).and_then(|q| u32::try_from(q).ok()).unwrap_or(1);
+            let credits = rest.get(1).and_then(|c| number(c)).and_then(|c| u32::try_from(c).ok()).unwrap_or(0);
+            match number(template).and_then(|t| u32::try_from(t).ok()) {
+                Some(template) => Command::Mail { template, quality, credits },
+                None => Command::Unknown(line.trim().to_string()),
+            }
+        }
         ["credits", amount] => number(amount).and_then(|a| u32::try_from(a).ok()).map_or_else(|| Command::Unknown(line.trim().to_string()), Command::Credits),
         _ => Command::Unknown(line.trim().to_string()),
     };
@@ -58,6 +68,8 @@ mod tests {
         assert_eq!(parse("/gm xp 5000"), Some(Command::Xp(5000)));
         assert_eq!(parse("/gm credits 250"), Some(Command::Credits(250)));
         assert_eq!(parse("/gm complete 2"), Some(Command::Complete(2)));
+        assert_eq!(parse("/gm mail 303463"), Some(Command::Mail { template: 303463, quality: 1, credits: 0 }));
+        assert_eq!(parse("/gm mail 0x4a167 50 1000"), Some(Command::Mail { template: 0x4a167, quality: 50, credits: 1000 }));
         assert!(matches!(parse("/gm complete 0"), Some(Command::Unknown(_))));
     }
 

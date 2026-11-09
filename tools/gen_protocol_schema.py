@@ -235,6 +235,12 @@ if extra.exists():
             brace = m.end() - 1
             add_type("enum", m.group(1), m.group(2), text[brace + 1:match_brace(text, brace)])
 
+# What the live server sends differs from the definitions in places: `KnuBotAppendTextMessage` ends with its text (the
+# trailing `Unknown3` word is in none of the 2026-10-30 .. 2026-11-08 captures' 230 messages, and with it the client could not
+# read an NPC's lines).
+if "KnuBotAppendTextMessage" in classes:
+    classes["KnuBotAppendTextMessage"]["fields"] = [f for f in classes["KnuBotAppendTextMessage"]["fields"] if f["name"] != "Unknown3"]
+
 kinds = {}
 src = (root / "Messages/N3MessageType.cs").read_text(encoding="utf-8-sig")
 for name, val in re.findall(r"(\w+)\s*=\s*(0x[0-9A-Fa-f]+)", src):

@@ -10,9 +10,12 @@ use mao_net::n3;
 use mao_net::schema::{Schema, Value};
 
 use crate::db::Db;
+use crate::knubot::{self, Reply, Step, Talk};
+use crate::mail::{self, Mail};
 use crate::monsters::{self, Monster};
 use crate::progress::{self, Hero};
 use crate::templates::{self, identity, int};
+use crate::useitem::{self, Effect};
 
 /// The playfield the character is in (the default: the first place a new character is put).
 pub const PLAYFIELD: u32 = 0x5f4b1a39;
@@ -56,6 +59,17 @@ pub const CREATE_QUEST: u32 = 0x291f361b;
 pub const MAX_MISSIONS: usize = 25;
 /// `GenericCmd`'s action `Use`.
 const USE: i64 = 3;
+/// `Mail` (`333b2867`): the inbox, a mail opened, its attachments taken, its deletion.
+pub const MAIL: u32 = mail::MAIL;
+/// The `Knubot` messages the client sends: the window opened, an answer, the window closed.
+pub const KNUBOT_OPEN: u32 = knubot::OPEN;
+pub const KNUBOT_ANSWER: u32 = knubot::ANSWER;
+pub const KNUBOT_CLOSE: u32 = knubot::CLOSE;
+
+/// The unix time now, in seconds.
+fn unix_now() -> u32 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as u32).unwrap_or(0)
+}
 
 pub struct GameSession {
     pub character_id: u32,
@@ -75,6 +89,14 @@ pub struct GameSession {
     monsters: Vec<Monster>,
     /// The monster the character is fighting, and when its next swing is due.
     fight: Option<Fight>,
+    /// The character's name (the NPCs address it).
+    pub name: String,
+    /// The NPC the character is talking to, and where the talk stands.
+    talk: Option<Talk>,
+    /// The mission terminal last asked for offers (a taken mission names it as its giver).
+    terminal: (u32, u32),
+    /// The id the last mail got, so each is new.
+    next_mail: u32,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -96,7 +118,7 @@ pub fn answers(frame: &Frame) -> bool {
     if frame.kind != N3 {
         return false;
     }
-    n3::Message::parse(frame).is_some_and(|m| matches!(m.kind, READY | GAME_TIME | POSITION_UPDATE | ACTION | N3_TELEPORT | ATTACK | STOP_FIGHT | GENERIC_CMD | TRADE | QUEST_ALTERNATIVE | CREATE_QUEST))
+    n3::Message::parse(frame).is_some_and(|m| matches!(m.kind, READY | GAME_TIME | POSITION_UPDATE | ACTION | N3_TELEPORT | ATTACK | STOP_FIGHT | GENERIC_CMD | TRADE | QUEST_ALTERNATIVE | CREATE_QUEST | MAIL | KNUBOT_OPEN | KNUBOT_ANSWER | KNUBOT_CLOSE))
 }
 
 /// A frame's kind and what it is called, for the trace.
@@ -184,6 +206,10 @@ impl GameSession {
             db,
             monsters: Vec::new(),
             fight: None,
+            name: "Citizen".to_string(),
+            talk: None,
+            terminal: (crate::missions::TERMINAL_TYPE, 0),
+            next_mail: unix_now(),
         }
     }
 
@@ -220,6 +246,12 @@ impl GameSession {
                 out.push(to_client(self.character_id, msg.kind, msg.identity, msg.data));
             }
         }
+        for n in knubot::in_playfield(self.playfield) {
+            if let Some(msg) = monsters::npc_entity(&n) {
+                out.push(to_client(self.character_id, msg.kind, msg.identity, msg.data));
+            }
+        }
+        self.talk = None;
     }
 
     /// The stats as they are now, after a change to them.
@@ -319,6 +351,10 @@ impl GameSession {
                 TRADE if frame.source == self.character_id => self.trade(&m.data, &mut out),
                 QUEST_ALTERNATIVE if frame.source == self.character_id => self.offers(&m.data, &mut out),
                 CREATE_QUEST if frame.source == self.character_id => self.accept(&m.data, &mut out),
+                MAIL if frame.source == self.character_id => self.mail(&m.data, &mut out),
+                KNUBOT_OPEN if frame.source == self.character_id => self.talk_open(&m.data, &mut out),
+                KNUBOT_ANSWER if frame.source == self.character_id => self.talk_answer(&m.data, &mut out),
+                KNUBOT_CLOSE if frame.source == self.character_id => self.talk = None,
                 _ => {}
             }
         }
@@ -354,39 +390,223 @@ impl GameSession {
                 self.save();
             }
             Command::Complete(n) => match (n >= 1 && n <= self.hero.missions.len()).then_some(n - 1) {
-                Some(at) => {
-                    let done = self.hero.missions.remove(at);
-                    let up = self.hero.grant_xp(done.xp as u64);
-                    self.hero.credits = self.hero.credits.saturating_add(done.credits);
-                    if let Ok(m) = crate::missions::remove(self.character_id, done.mission) {
-                        out.push(to_client(self.character_id, m.kind, m.identity, m.data));
-                    }
-                    out.push(chat_line(self.character_id, &format!("You complete {} and receive {} xp and {} credits.", done.title, done.xp, done.credits)));
-                    if up {
-                        out.push(chat_line(self.character_id, &format!("You are now level {}.", self.hero.level)));
-                    }
-                    self.stats_changed(out);
-                    self.save();
-                }
+                Some(at) => self.complete_mission(at, out),
                 None => out.push(chat_line(self.character_id, "You have no mission at that place in the log.")),
             },
-            Command::Unknown(line) => out.push(chat_line(self.character_id, &format!("Usage: /gm item <template> [count] [quality] | /gm xp <amount> | /gm credits <amount> (got {line})"))),
+            Command::Mail { template, quality, credits } => {
+                self.next_mail = self.next_mail.wrapping_add(1);
+                self.hero.mail.push(Mail::from_shop(self.next_mail, template, quality, credits, unix_now()));
+                out.push(chat_line(self.character_id, "You have mail: a delivery waits at a mail terminal."));
+                self.stats_changed(out);
+                self.save();
+            }
+            Command::Unknown(line) => out.push(chat_line(self.character_id, &format!("Usage: /gm item <template> [count] [quality] | /gm xp <amount> | /gm credits <amount> | /gm complete <n> | /gm mail <template> [quality] [credits] (got {line})"))),
         }
     }
 
-    /// `GenericCmd`: using the vending machine opens it (its stock, and a trade naming it).
+    /// `GenericCmd`: a Use is echoed first (the header byte 0 and the first word 1, the rest as sent: the original's answer, which the
+    /// client's windows open on), then acted on: the vending machine opens with its stock, an item of the backpack is used
+    /// (`useitem`); a mission terminal or a mail terminal needs nothing more (the client asks on with its own messages).
     fn generic_command(&mut self, data: &[u8], out: &mut Vec<Frame>) {
         let Ok(parsed) = Schema::global().parse_n3(GENERIC_CMD, data) else { return };
         let target = parsed.value.get("Target").map(|t| (field_int(t, "Type") as u32, field_int(t, "Instance") as u32));
         let action = parsed.value.get("Action").and_then(Value::as_int);
-        if action == Some(USE) && target == Some(crate::shop::MACHINE) {
-            if let Ok(m) = crate::shop::shop_update() {
-                out.push(to_client(self.character_id, m.kind, m.identity, m.data));
+        if action != Some(USE) {
+            return;
+        }
+        let mut echo = data.to_vec();
+        echo[0] = 0;
+        if echo.len() >= 5 {
+            echo[1..5].copy_from_slice(&1u32.to_be_bytes());
+        }
+        out.push(to_client(self.character_id, GENERIC_CMD, (n3::CHARACTER, self.character_id), echo));
+        match target {
+            Some(t) if t == crate::shop::MACHINE => {
+                if let Ok(m) = crate::shop::shop_update() {
+                    out.push(to_client(self.character_id, m.kind, m.identity, m.data));
+                }
+                if let Ok(m) = crate::shop::open(self.character_id) {
+                    out.push(to_client(self.character_id, m.kind, m.identity, m.data));
+                }
             }
-            if let Ok(m) = crate::shop::open(self.character_id) {
-                out.push(to_client(self.character_id, m.kind, m.identity, m.data));
+            Some((useitem::BACKPACK, slot)) => self.use_item(slot, out),
+            _ => {}
+        }
+    }
+
+    /// The character used an item of the backpack: what the server knows of the item happens (`useitem`), the item is used up
+    /// (`TemplateAction` Used, the slot's deletion), and the inventory and stats follow.
+    fn use_item(&mut self, slot: u32, out: &mut Vec<Frame>) {
+        let character = self.character_id;
+        let Some(at) = self.hero.items.iter().position(|i| i.placement == slot) else { return };
+        let item = self.hero.items[at].clone();
+        let Some(effect) = useitem::effect(item.template) else { return };
+        let push = |out: &mut Vec<Frame>, m: Result<n3::Message, String>| {
+            if let Ok(m) = m {
+                out.push(to_client(character, m.kind, m.identity, m.data));
+            }
+        };
+        // (as captured: what the item gives arrives first, into a new slot, then the item itself is used up and its slot emptied)
+        match effect {
+            Effect::Prize { template, line } => {
+                push(out, useitem::feedback(character, line));
+                if self.hero.add_item(template, 1, item.quality).is_some() {
+                    push(out, useitem::template_action(character, (template, template), item.quality, 1, useitem::ADDED, (useitem::INVENTORY, 0)));
+                    push(out, useitem::container_add(character));
+                }
+            }
+            Effect::VictoryPoints { points, line } => {
+                push(out, useitem::feedback(character, line));
+                self.hero.victory_points = self.hero.victory_points.saturating_add(points);
             }
         }
+        if item.count > 1 {
+            self.hero.items[at].count -= 1;
+        } else {
+            self.hero.items.remove(at);
+        }
+        push(out, useitem::template_action(character, (item.template, item.template), item.quality, 1, useitem::USED, (useitem::BACKPACK, slot)));
+        if !self.hero.items.iter().any(|i| i.placement == slot) {
+            let m = useitem::deleted(character, slot);
+            out.push(to_client(character, m.kind, m.identity, m.data));
+        }
+        self.items_changed(out);
+        self.stats_changed(out);
+        self.save();
+    }
+
+    /// `Mail` from the character: the inbox (action 1, id 0), a mail opened (1, id), its attachments taken (3) or its deletion (5),
+    /// answered as the capture shows: the list, the opened mail and the flags as they change, the item into the backpack.
+    fn mail(&mut self, data: &[u8], out: &mut Vec<Frame>) {
+        let Some((action, id)) = mail::request(data) else { return };
+        let character = self.character_id;
+        let push = |out: &mut Vec<Frame>, m: n3::Message| out.push(to_client(character, m.kind, m.identity, m.data));
+        match (action, id) {
+            (1, 0) => push(out, mail::list(character, &self.hero.mail)),
+            (1, id) => {
+                let Some(m) = self.hero.mail.iter_mut().find(|m| m.id == id) else { return };
+                m.flags |= mail::READ;
+                let (opened, flags) = (mail::opened(character, m), mail::flags(character, id, m.flags));
+                push(out, opened);
+                push(out, flags);
+                self.stats_changed(out);
+                self.save();
+            }
+            (3, id) => {
+                let Some(at) = self.hero.mail.iter().position(|m| m.id == id) else { return };
+                if self.hero.mail[at].is_taken() {
+                    return;
+                }
+                let (item, credits) = (self.hero.mail[at].item, self.hero.mail[at].credits);
+                if let Some((low, high, quality)) = item {
+                    if self.hero.add_item(low, 1, quality).is_none() {
+                        out.push(chat_line(character, "Your backpack is full."));
+                        return;
+                    }
+                    if let Ok(m) = useitem::template_action(character, (low, high), quality, 1, useitem::ADDED, (useitem::INVENTORY, 0)) {
+                        push(out, m);
+                    }
+                    if let Ok(m) = useitem::container_add(character) {
+                        push(out, m);
+                    }
+                }
+                self.hero.credits = self.hero.credits.saturating_add(credits);
+                self.hero.mail[at].flags |= mail::TAKEN | mail::READ;
+                push(out, mail::flags(character, id, self.hero.mail[at].flags));
+                self.items_changed(out);
+                self.stats_changed(out);
+                self.save();
+            }
+            (5, id) => {
+                self.hero.mail.retain(|m| m.id != id);
+                self.stats_changed(out);
+                self.save();
+            }
+            _ => {}
+        }
+    }
+
+    /// `KnubotOpenChatWindow`: the server echoes it, and the NPC greets (or, when the character carries its mission, completes it).
+    fn talk_open(&mut self, data: &[u8], out: &mut Vec<Frame>) {
+        let Some((npc_id, _)) = knubot::request(KNUBOT_OPEN, data) else { return };
+        let Some(npc) = knubot::npc(npc_id) else { return };
+        if let Ok(m) = knubot::open(self.character_id, npc.id) {
+            out.push(to_client(self.character_id, m.kind, m.identity, m.data));
+        }
+        let has_mission = self.hero.missions.iter().any(|m| m.giver == (n3::CHARACTER, npc.id));
+        let reply = knubot::greet(&npc, &self.name, has_mission);
+        self.reply(&npc, reply, out);
+    }
+
+    /// `KnubotAnswer`: the talk goes on from where it stands.
+    fn talk_answer(&mut self, data: &[u8], out: &mut Vec<Frame>) {
+        let Some((npc_id, choice)) = knubot::request(KNUBOT_ANSWER, data) else { return };
+        let Some(npc) = knubot::npc(npc_id) else { return };
+        let Some(talk) = self.talk.filter(|t| t.npc == npc.id) else { return };
+        let reply = knubot::answer(&npc, talk.step, choice);
+        self.reply(&npc, reply, out);
+    }
+
+    /// The NPC's side of the talk: its lines and the answers, the mission it gives or completes, the window's closing.
+    fn reply(&mut self, npc: &knubot::Npc, reply: Reply, out: &mut Vec<Frame>) {
+        let character = self.character_id;
+        let push = |out: &mut Vec<Frame>, m: Result<n3::Message, String>| {
+            if let Ok(m) = m {
+                out.push(to_client(character, m.kind, m.identity, m.data));
+            }
+        };
+        match reply {
+            Reply::Say { lines, answers, step } => {
+                for line in &lines {
+                    push(out, knubot::text(character, npc.id, line));
+                }
+                push(out, knubot::answers(character, npc.id, &answers));
+                self.talk = Some(Talk { npc: npc.id, step });
+            }
+            Reply::Grant { line } => {
+                push(out, knubot::text(character, npc.id, &line));
+                let daily = knubot::daily(npc);
+                if self.hero.missions.len() < MAX_MISSIONS && !self.hero.missions.iter().any(|m| m.mission == daily.mission) {
+                    self.hero.missions.push(daily);
+                    if let Ok(m) = crate::missions::log(character, &self.hero) {
+                        out.push(to_client(character, m.kind, m.identity, m.data));
+                    }
+                    self.save();
+                }
+                push(out, knubot::close(character, npc.id));
+                self.talk = None;
+            }
+            Reply::Complete { line } => {
+                push(out, knubot::text(character, npc.id, &line));
+                if let Some(at) = self.hero.missions.iter().position(|m| m.giver == (n3::CHARACTER, npc.id)) {
+                    self.complete_mission(at, out);
+                }
+                push(out, knubot::answers(character, npc.id, &["Goodbye"]));
+                self.talk = Some(Talk { npc: npc.id, step: Step::Farewell });
+            }
+            Reply::Close => {
+                push(out, knubot::close(character, npc.id));
+                self.talk = None;
+            }
+        }
+    }
+
+    /// A mission is done (the Arbiter capture's completion): the accomplished action, the log's Delete, the reward, the stats.
+    fn complete_mission(&mut self, at: usize, out: &mut Vec<Frame>) {
+        let done = self.hero.missions.remove(at);
+        let up = self.hero.grant_xp(done.xp as u64);
+        self.hero.credits = self.hero.credits.saturating_add(done.credits);
+        let m = crate::missions::accomplished(self.character_id, done.mission);
+        out.push(to_client(self.character_id, m.kind, m.identity, m.data));
+        if let Ok(m) = crate::missions::remove(self.character_id, done.mission) {
+            out.push(to_client(self.character_id, m.kind, m.identity, m.data));
+        }
+        out.push(chat_line(self.character_id, &format!("You complete {} and receive {} xp and {} credits.", done.title, done.xp, done.credits)));
+        if up {
+            out.push(chat_line(self.character_id, &format!("You are now level {}.", self.hero.level)));
+        }
+        self.stats_changed(out);
+        self.save();
     }
 
     /// `Attack` from the character: a monster it names becomes the fight (its first swing is due at the next tick).
@@ -452,10 +672,14 @@ impl GameSession {
         out
     }
 
-    /// `QuestAlternative` from the character: the terminal's offers, answered with the request's sliders, scope and terminal.
+    /// `QuestAlternative` from the character: the terminal's offers, answered with the request's sliders, scope and terminal (which is
+    /// remembered: a mission taken next names it).
     fn offers(&mut self, data: &[u8], out: &mut Vec<Frame>) {
         let Ok(parsed) = Schema::global().parse_n3(QUEST_ALTERNATIVE, data) else { return };
-        if let Ok(m) = crate::missions::offers(self.character_id, &parsed.value) {
+        if let Some(t) = parsed.value.get("Terminal") {
+            self.terminal = (field_int(t, "Type") as u32, field_int(t, "Instance") as u32);
+        }
+        if let Ok(m) = crate::missions::offers(self.character_id, &parsed.value, self.hero.level, unix_now()) {
             out.push(to_client(self.character_id, m.kind, m.identity, m.data));
         }
     }
@@ -477,7 +701,7 @@ impl GameSession {
             out.push(chat_line(self.character_id, "You have too many missions."));
             return;
         }
-        self.hero.missions.push(crate::missions::Taken::of(&offer));
+        self.hero.missions.push(crate::missions::Taken::of(&offer, self.terminal));
         if let Ok(m) = crate::missions::log(self.character_id, &self.hero) {
             out.push(to_client(self.character_id, m.kind, m.identity, m.data));
         }
@@ -572,7 +796,82 @@ mod tests {
         let use_machine = generic_use(crate::shop::MACHINE);
         let (_, out) = s.handle(&use_machine);
         let kinds: Vec<u32> = out.iter().filter_map(|f| n3::Message::parse(f).map(|m| m.kind)).collect();
-        assert_eq!(kinds, vec![0x58362220, TRADE]);
+        // (the use is echoed first, as the original does)
+        assert_eq!(kinds, vec![GENERIC_CMD, 0x58362220, TRADE]);
+    }
+
+    #[test]
+    fn a_shop_mail_is_listed_opened_and_its_item_taken() {
+        let mut s = session();
+        s.handle(&typed_frame("/gm mail 156020 7 250"));
+        assert_eq!(s.hero.mail.len(), 1);
+        let id = s.hero.mail[0].id;
+        // (the unread stat is 1 while the mail waits)
+        let stats = progress::stats(&s.hero);
+        assert!(stats.contains(&(mail::UNREAD_STAT, 1)));
+        let (_, out) = s.handle(&n3::mail_request(0x7b1a0021));
+        let list = out.iter().filter_map(|f| n3::Message::parse(f)).find(|m| m.kind == MAIL).expect("the inbox");
+        let entries = mao_net::mail::parse_list(&list.data).unwrap();
+        assert_eq!((entries.len(), entries[0].id, entries[0].sender.as_str()), (1, id, "Shop"));
+        let (_, out) = s.handle(&mao_net::mail::open(0x7b1a0021, id));
+        let opened = out.iter().filter_map(|f| n3::Message::parse(f)).filter(|m| m.kind == MAIL).find_map(|m| mao_net::mail::parse_mail(&m.data)).expect("the mail");
+        assert_eq!((opened.item, opened.credits), (Some((156020, 156020, 7)), 250));
+        assert!(!s.hero.mail[0].is_unread());
+        let (_, out) = s.handle(&mao_net::mail::take(0x7b1a0021, id));
+        let kinds: Vec<u32> = out.iter().filter_map(|f| n3::Message::parse(f).map(|m| m.kind)).collect();
+        assert!(kinds.contains(&0x35505644) && kinds.contains(&0x47537a24) && kinds.contains(&MAIL) && kinds.contains(&0x4e536976), "{kinds:x?}");
+        assert_eq!((s.hero.items.len(), s.hero.items[0].template, s.hero.credits), (1, 156020, 250));
+        assert!(s.hero.mail[0].is_taken());
+        s.handle(&mao_net::mail::delete(0x7b1a0021, id));
+        assert!(s.hero.mail.is_empty());
+        assert!(progress::stats(&s.hero).contains(&(mail::UNREAD_STAT, 0)));
+    }
+
+    #[test]
+    fn a_lottery_ticket_gives_a_token_and_the_token_victory_points() {
+        let mut s = session();
+        s.handle(&typed_frame(&format!("/gm item {}", useitem::LOTTERY_TICKET)));
+        let slot = s.hero.items[0].placement;
+        let (_, out) = s.handle(&generic_use((useitem::BACKPACK, slot)));
+        let kinds: Vec<u32> = out.iter().filter_map(|f| n3::Message::parse(f).map(|m| m.kind)).collect();
+        // (the echo, "Congratulations!", the prize's arrival, the ticket used and gone, the inventory and the stats)
+        assert_eq!(kinds[0], GENERIC_CMD);
+        assert!(kinds.contains(&0x206b4b73) && kinds.contains(&0x35505644) && kinds.contains(&0x47537a24) && kinds.contains(&ACTION), "{kinds:x?}");
+        assert_eq!((s.hero.items.len(), s.hero.items[0].template), (1, useitem::VICTORY_TOKEN));
+        let slot = s.hero.items[0].placement;
+        let (_, out) = s.handle(&generic_use((useitem::BACKPACK, slot)));
+        assert!(s.hero.items.is_empty());
+        assert_eq!(s.hero.victory_points, useitem::TOKEN_POINTS);
+        let stats = out.iter().filter_map(|f| n3::Message::parse(f)).filter(|m| m.kind == 0x2b333d6e).count();
+        assert!(stats >= 1);
+        assert!(progress::stats(&s.hero).contains(&(useitem::VICTORY_POINTS_STAT, useitem::TOKEN_POINTS)));
+    }
+
+    #[test]
+    fn the_receptionist_gives_the_daily_and_completes_it_on_the_next_visit() {
+        let mut s = session();
+        let (_, out) = s.handle(&enter());
+        let npcs = out.iter().filter(|f| n3::Message::parse(f).is_some_and(|m| m.kind == 0x271b3a6b && m.identity.1 == knubot::RECEPTIONIST.id)).count();
+        assert_eq!(npcs, 1, "the receptionist is in the world");
+        let npc = (n3::CHARACTER, knubot::RECEPTIONIST.id);
+        let (_, out) = s.handle(&n3::npc_chat_open(0x7b1a0021, npc));
+        let kinds: Vec<u32> = out.iter().filter_map(|f| n3::Message::parse(f).map(|m| m.kind)).collect();
+        assert_eq!(kinds, vec![KNUBOT_OPEN, knubot::TEXT, knubot::ANSWERS]);
+        s.handle(&n3::npc_chat_answer(0x7b1a0021, npc, 0));
+        let (_, out) = s.handle(&n3::npc_chat_answer(0x7b1a0021, npc, 0));
+        let kinds: Vec<u32> = out.iter().filter_map(|f| n3::Message::parse(f).map(|m| m.kind)).collect();
+        assert_eq!(kinds, vec![knubot::TEXT, 0x465a4061, KNUBOT_CLOSE], "the line, the log, the close: {kinds:x?}");
+        assert_eq!(s.hero.missions.len(), 1);
+        assert_eq!(s.hero.missions[0].giver, npc);
+        // (back at the agency: the mission is accomplished and removed, the reward paid)
+        let (_, out) = s.handle(&n3::npc_chat_open(0x7b1a0021, npc));
+        let kinds: Vec<u32> = out.iter().filter_map(|f| n3::Message::parse(f).map(|m| m.kind)).collect();
+        assert!(kinds.contains(&ACTION) && kinds.contains(&0x212c487a) && kinds.contains(&knubot::ANSWERS), "{kinds:x?}");
+        assert!(s.hero.missions.is_empty());
+        assert_eq!(s.hero.credits, knubot::daily(&knubot::RECEPTIONIST).credits);
+        let (_, out) = s.handle(&n3::npc_chat_answer(0x7b1a0021, npc, 0));
+        let kinds: Vec<u32> = out.iter().filter_map(|f| n3::Message::parse(f).map(|m| m.kind)).collect();
+        assert_eq!(kinds, vec![KNUBOT_CLOSE]);
     }
 
     #[test]
@@ -645,13 +944,15 @@ mod tests {
     #[test]
     fn completing_a_mission_pays_and_removes_it() {
         let mut s = session();
-        s.hero.missions.push(crate::missions::Taken::of(&crate::missions::OFFERS[0]));
+        s.hero.missions.push(crate::missions::Taken::of(&crate::missions::OFFERS[0], (crate::missions::TERMINAL_TYPE, 0xc000021c)));
         let (_, out) = s.handle(&typed_frame("/gm complete 1"));
         assert!(s.hero.missions.is_empty());
         assert_eq!(s.hero.credits, crate::missions::OFFERS[0].credits);
         assert_eq!(s.hero.xp, crate::missions::OFFERS[0].xp as u64);
         let kinds: Vec<u32> = out.iter().filter_map(|f| n3::Message::parse(f).map(|m| m.kind)).collect();
         assert!(kinds.contains(&0x212c487a), "the mission is removed from the log: {kinds:x?}");
+        let accomplished = out.iter().filter_map(|f| n3::Message::parse(f)).find(|m| m.kind == ACTION).expect("the accomplished action");
+        assert_eq!(accomplished.data.get(4), Some(&0x3b));
     }
 
     #[test]
@@ -665,7 +966,8 @@ mod tests {
         let (playfield, at) = first.arrival().unwrap();
         assert_eq!(playfield, monsters::OLD_ATHENS);
         assert_eq!(at, monsters::SPAWN);
-        let monsters_seen = out.iter().filter(|f| n3::Message::parse(f).is_some_and(|m| m.kind == 0x271b3a6b)).count();
+        // (the four training dummies, and the agency receptionist by the same message)
+        let monsters_seen = out.iter().filter(|f| n3::Message::parse(f).is_some_and(|m| m.kind == 0x271b3a6b && m.identity.1 != knubot::RECEPTIONIST.id)).count();
         assert_eq!(monsters_seen, 4);
     }
 

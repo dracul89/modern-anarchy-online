@@ -66,12 +66,16 @@ pub struct Hero {
     pub items: Vec<Item>,
     /// The missions taken, in the order they were taken.
     pub missions: Vec<crate::missions::Taken>,
+    /// The Victory Points (stat 0x29d).
+    pub victory_points: u32,
+    /// The inbox.
+    pub mail: Vec<crate::mail::Mail>,
 }
 
 impl Hero {
     /// A new character: first level, full health, nothing carried.
     pub fn new(id: u32) -> Hero {
-        Hero { id, level: 1, xp: 0, health: max_health_for(1), credits: 0, playfield: 0, position: [0.0; 3], items: Vec::new(), missions: Vec::new() }
+        Hero { id, level: 1, xp: 0, health: max_health_for(1), credits: 0, playfield: 0, position: [0.0; 3], items: Vec::new(), missions: Vec::new(), victory_points: 0, mail: Vec::new() }
     }
 
     pub fn max_health(&self) -> u32 {
@@ -123,6 +127,9 @@ pub fn stats(hero: &Hero) -> Vec<(u32, u32)> {
         (stat::NEXT_XP, xp_for_level(hero.level + 1).min(u32::MAX as u64) as u32),
         (stat::LAST_XP, xp_for_level(hero.level).min(u32::MAX as u64) as u32),
         (stat::CREDITS, hero.credits),
+        (crate::useitem::VICTORY_POINTS_STAT, hero.victory_points),
+        // (the client shows unread mail by this stat: 1 while some waits, as the capture's terminal visit shows it going 1 then 0)
+        (crate::mail::UNREAD_STAT, hero.mail.iter().any(|m| m.is_unread()) as u32),
     ]
 }
 

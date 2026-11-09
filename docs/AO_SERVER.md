@@ -7,8 +7,8 @@ still missing.
 ## How the messages are made
 
 * **The schema encodes as well as parses.** `mao-net`'s `Schema::encode_n3` writes an N3 message from its named fields, the
-  inverse of `parse_n3` (same layouts, same flags). Round trip over the captures: 106,946 of 107,031 messages that parse whole
-  come back byte for byte. The 85 that differ are `QuestFullUpdate`: its strings lose their trailing NUL bytes on the way in
+  inverse of `parse_n3` (same layouts, same flags). Round trip over the four captures: 120,749 of 120,844 messages that parse
+  whole come back byte for byte. The 95 that differ are `QuestFullUpdate`: its strings lose their trailing NUL bytes on the way in
   (the reader trims them), so re-encoded text is 1 to 3 bytes shorter. A message the server builds itself is consistent with
   its own length prefixes, so the client reads it correctly.
 * **Templates.** `crates/ao-server/data/templates.txt` holds one captured message of each kind the server answers with
@@ -19,10 +19,16 @@ still missing.
   active-nano list). The client's own decoder (`n3::entity_info`) does read the parts it needs: the playfield, the place, the
   name, and for a monster its template (the appearance) and its health. So a monster is a captured monster's message with
   those parts changed (`n3::set_monster`), the rest kept as captured. The stored template has the server's own name in it
-  (`Monster`), so no captured name is kept. NPC mission givers are not done yet; they can use the same route.
-* **Blocked: the mission offers' reply (`QuestAlternative` from the server).** No capture of it is in the repository (the
-  client's mission window was built from an older capture that is no longer here). The offers have to be built from the
-  schema's `MissionInfo` layout, with its unknown chunks left zero.
+  (`Monster`), so no captured name is kept. The agency receptionist (`knubot.rs`) is placed by the same route.
+* **The mission offers' reply (`QuestAlternative` from the server)** is built in the layout the 2026-11-08 capture shows (the
+  ICC Mission Central terminal's five offers, `captures/events-20261108-1811`): the request's first byte, sliders, scope and
+  terminal echoed, then each offer with its reward descriptor (version 6, the "MSRE" word and the character's level in the
+  44-byte chunk), one reward item at the character's level, the icon 11330, the 48-hour deadline (minutes, and as a unix
+  time in the 120-byte chunk), the destination playfield and place. The mission log (`QuestFullUpdate`) follows the captured
+  entry too: the giver, the reward, the deadline 2880 twice, one action naming the destination (the client's "Upload to map"
+  uses it), the character as the only player, icon 11329. The texts are still the server's own.
+* **Schema fix:** `KnuBotAppendTextMessage` ends with its text. The definition's trailing word is in none of the 230 captured
+  messages, and with it the client could not read an NPC's lines (`gen_protocol_schema.py` drops it when regenerating).
 
 ## What works (tested)
 
@@ -36,7 +42,10 @@ still missing.
 | Experience and levels | `/gm xp <amount>` gives XP; levels follow the curve; a level-up fills health and says so in chat | `game.rs`; `progress.rs`; `tests/network.rs` |
 | Credits | `/gm credits <amount>` (stat 61) | `game.rs` |
 | Shops | Using the Old Athens vending machine sends its stock (`ShopUpdate`, the captured stock) and opens the trade; buying (trade action 5 naming the machine and the slot) takes credits and puts the item in the backpack | `game.rs` tests (open, buy, refuse without credits) |
-| Missions | A terminal's request (`QuestAlternative`) gets the server's three offers; taking one (`CreateQuest`) puts it in the log (`QuestFullUpdate`, built from the schema) and says so in chat; `/gm complete <n>` finishes it: the mission is removed (`Quest` Delete) and its XP and credits are given | `game.rs` tests (offers, accept, refuse a second, complete); `missions.rs` tests. The client's own reading of the offers and the log is not verified |
+| Missions | A terminal's request (`QuestAlternative`) gets the server's three offers in the captured layout; taking one (`CreateQuest`) puts it in the log (`QuestFullUpdate`, the captured entry's layout, naming the terminal as the giver) and says so in chat; `/gm complete <n>` finishes it as the Arbiter capture shows: `CharacterAction` 0x3b (the client's "mission accomplished"), the log's `Quest` Delete, the XP and credits | `game.rs` tests (offers, accept, refuse a second, complete); `missions.rs` tests (the layouts parse whole, the chunks' sizes and marks). The client's own reading of the offers and the log is not verified live |
+| NPC dialogue (`Knubot`) | The agency receptionist stands by the spawn in Old Athens. Opening her window is echoed; she greets by the character's name and offers a job; "I'm applying for a job." then "Straight forward, please." uploads the daily mission (the log is sent, the window closes with word 5); coming back with the mission completes it (the 0x3b action, the Delete, the reward) and leaves "Goodbye" | `game.rs` test (the whole talk, there and back); `knubot.rs` tests (the messages' captured shapes, the client's requests read) |
+| Mail | `/gm mail <template> [quality] [credits]` puts a shop delivery in the inbox; stat 0x289 is 1 while unread mail waits. At a terminal the client's `Mail` requests are answered as captured: the inbox list (action 0), the opened mail (2, flags gain bit 0), the attachment taken (3: `TemplateAction` Added, `ContainerAddItem`, the credits, flags gain bit 1), the deletion (5). Mail is kept in SQLite | `game.rs` test (list, open, take, delete, the stat); `mail.rs` tests (the client's own `mao_net::mail` parsers read the server's messages; the list's captured layout) |
+| Using items | A `GenericCmd` Use is echoed (header 0, first word 1, as the original answers); a backpack item the server knows is used: the lottery ticket (template 303463) gives "Congratulations!" and a Victory Point token (294604) in a new slot; the token gives "New Victory Points gained." and 100 Victory Points (stat 0x29d). The used item leaves with `TemplateAction` Used and the server's `CharacterAction` 0x70 | `game.rs` test (ticket, then token); `useitem.rs` tests (every message byte-equal to the capture's; the packed `FormatFeedback` reads back through the client's decoder) |
 | Combat (the training dummies) | Four monsters in Old Athens come with the world entry. Attacking one starts a fight: a swing every two seconds (`AttackInfo`, `HealthDamage`), the monster's health counts down in the client, and at zero it is taken away (`Despawn`), the fight stops (`StopFight`), the character gets 400 XP and an item from the stock (loot) | `game.rs` tests (fight to the kill, XP and loot, an attack on nothing); the real client's headless `net attack` run: swings every 2 s, 120 to 0, "You kill ...", "You receive item ..." |
 | Arrival | The playfield message is the captured shape (four zero bytes, a 4, the position at 5), the playfield is the identity's instance with type `0x9c50`. A new character starts in Old Athens at the captured spawn | `game.rs` test; the real client reads "playfield 540 at [490.45, 8.01, 447.38]" |
 | Zoning (the client's own zone line) | The server answers a teleport to another playfield with the world entry for it (changed this session) | not tested yet |
@@ -60,10 +69,14 @@ The chat lines the server sends (for example "You are now level 2.") use the gam
   see a monster that one character killed. The character cannot die. The damage is 10 plus twice the level, not the original's
   formula. The swing identities (`AttackInfo` about the attacker, `HealthDamage` about the monster) follow the captures, but
   the client's reading of the fight as a whole is checked only with its headless attack tool.
-* **NPC mission givers** are not placed yet (monsters are, by the same route).
-* **Mission objectives.** The three offers are a stop-gap: the server does not yet run a mission (no kill or delivery goal). A
-  mission ends only with `/gm complete`. The offers' reward layout (the unknown chunks are zero) and the mission log's zeroed
-  fields are not checked against what the original sends.
+* **Mission objectives.** The three offers are a stop-gap: the server does not yet run a terminal mission (no kill or delivery
+  goal); it ends with `/gm complete`. The daily mission ends by returning to the receptionist. Mission keys (the capture's
+  `SimpleItemFullUpdate` of type `0xc76d` after an accept) are not given.
+* **Guards.** The capture shows ICC guards acting against a player who attacked them (`2049527c`, "Action", and the PvP flag);
+  the server's monsters still do not fight back, so no guard does either.
+* **The Victory Points a token gives** are the server's number (the capture shows the total after, not the gain).
+* **The event characters** (the Arbiter speaking in chat, the seasonal monsters around ICC HQ) are ordinary characters and
+  monsters on the wire; the server has no scripted event yet.
 * **Missions from the original.** The captured mission log contains the game's own mission texts, so none of it is kept in the
   repository: the server's titles and descriptions are its own.
 * **Zones and doors.** Entering a door sends the client's teleport; the server's side of a zone line to another playfield needs

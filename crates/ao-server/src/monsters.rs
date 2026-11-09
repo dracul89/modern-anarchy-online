@@ -54,6 +54,13 @@ pub fn entity(m: &Monster) -> Option<Message> {
     Some(Message { kind: 0x271b3a6b, identity: (CHARACTER, m.id), data })
 }
 
+/// An NPC's entity message (`knubot`'s): the captured monster's, with the NPC's name and place and a full health bar.
+pub fn npc_entity(n: &crate::knubot::Npc) -> Option<Message> {
+    let (_, data) = templates::raw(0x271b3a6b)?;
+    let data = set_monster(&data, n.name, n.playfield, n.position, 1000, 1000)?;
+    Some(Message { kind: 0x271b3a6b, identity: (CHARACTER, n.id), data })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

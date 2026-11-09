@@ -8731,6 +8731,20 @@ mod movement_tests {
     }
 
     #[test]
+    fn the_shuttle_pads_teleport_is_a_move_within_the_playfield() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        // (the 2026-11-08 capture's last message: the Unicorn shuttle pad in ICC HQ sends a `c7a0` teleport with every id zero,
+        // into an instance not made yet; the original client crashed on it. Here it is a move to the pad's place, nothing more.)
+        let shuttle = hex("0045454000425000004458800000000000bf31dbb0800000003f382052610000c7a00000000000000000000000000000000000000000000000000000000000000000000000000000000c454540004250000044588000");
+        let mut w = World { own: 0x39c16ee4, ..World::default() };
+        w.entities.insert(0x39c16ee4, ([3182.0, 36.0, 880.0], 0));
+        w.add(&Message { kind: 0x43197d22, identity: (0xc350, 0x39c16ee4), data: shuttle }.frame(1));
+        let (p, _) = w.own_teleport.take().expect("a move within the playfield");
+        assert!((p[0] - 3156.0).abs() < 0.01 && (p[1] - 52.0).abs() < 0.01 && (p[2] - 866.0).abs() < 0.01, "{p:?}");
+        assert!(w.playfield_stopped.is_none() && w.entities.contains_key(&0x39c16ee4));
+    }
+
+    #[test]
     fn the_server_teleports_dynels() {
         let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
         // (the 16:55 capture's move in a generated mission, c7a0: own character 0x7b1a0021 put at (121.4, 148.4, 87.8) facing 0)

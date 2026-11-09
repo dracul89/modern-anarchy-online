@@ -2171,10 +2171,6 @@
      "name": "Text",
      "size": "int32",
      "type": "string"
-    },
-    {
-     "name": "Unknown3",
-     "type": "int"
     }
    ]
   },
