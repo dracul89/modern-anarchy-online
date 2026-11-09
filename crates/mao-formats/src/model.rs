@@ -101,6 +101,14 @@ pub struct Vertex {
     pub position: [f32; 3],
     pub normal: [f32; 3],
     pub uv: [f32; 2],
+    /// A baked colour (a room's light map), RGBA: with alpha 255 it is added to the lighting as the original's emissive
+    /// term; [`Vertex::UNBAKED`] (alpha 0) leaves the vertex to the scene's light.
+    pub colour: [u8; 4],
+}
+
+impl Vertex {
+    /// No baked colour: the vertex is lit by the scene alone.
+    pub const UNBAKED: [u8; 4] = [255, 255, 255, 0];
 }
 
 /// A triangle mesh with its world matrix.
@@ -333,6 +341,7 @@ fn simple_mesh(a: &Archive, s: &Stream, name: &str, world: Matrix, out: &mut Vec
                 position: [f(b), f(b + 4), f(b + 8)],
                 normal: normal.map(|n| [f(b + n), f(b + n + 4), f(b + n + 8)]).unwrap_or_default(),
                 uv: uv.map(|t| [f(b + t), f(b + t + 4)]).unwrap_or_default(),
+                colour: Vertex::UNBAKED,
             }
         })
         .collect();

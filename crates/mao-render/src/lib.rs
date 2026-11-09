@@ -54,6 +54,8 @@ struct GpuVertex {
     position: [f32; 3],
     normal: [f32; 3],
     uv: [f32; 2],
+    /// The baked colour (`model::Vertex::colour`), RGBA bytes.
+    colour: [u8; 4],
 }
 
 #[repr(C)]
@@ -488,7 +490,7 @@ impl ScenePipelines {
         };
         let depth = |write: bool, compare: wgpu::CompareFunction, bias: wgpu::DepthBiasState| Some(wgpu::DepthStencilState { format: DEPTH, depth_write_enabled: Some(write), depth_compare: Some(compare), stencil: Default::default(), bias });
         let shader = &shaders.mesh;
-        let attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x2];
+        let attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x2, 3 => Unorm8x4];
         let mesh_targets = targets(None, true);
         let mesh = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("mesh"),
@@ -897,7 +899,7 @@ impl Renderer {
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("mesh"), bind_group_layouts: &[Some(&globals_layout), Some(&part_layout), Some(&shadow_layout)], immediate_size: 0 });
         let depth_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("depth"), bind_group_layouts: &[Some(&globals_layout), Some(&part_layout)], immediate_size: 0 });
-        let attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x2];
+        let attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x2, 3 => Unorm8x4];
         // The shadow pass: depth only, from the sun, plants bending as in the main pass.
         let shadow_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("shadow"),
@@ -1066,7 +1068,7 @@ impl Renderer {
             if part.indices.is_empty() || part.vertices.is_empty() {
                 continue;
             }
-            let vertices: Vec<GpuVertex> = part.vertices.iter().map(|v: &Vertex| GpuVertex { position: v.position, normal: v.normal, uv: v.uv }).collect();
+            let vertices: Vec<GpuVertex> = part.vertices.iter().map(|v: &Vertex| GpuVertex { position: v.position, normal: v.normal, uv: v.uv, colour: v.colour }).collect();
             let mut indices = part.indices.clone();
             if indices.len() % 2 == 1 {
                 indices.push(0);
@@ -1179,7 +1181,7 @@ impl Renderer {
                 if part.indices.is_empty() || part.vertices.is_empty() {
                     return None;
                 }
-                let vertices: Vec<GpuVertex> = part.vertices.iter().map(|v: &Vertex| GpuVertex { position: v.position, normal: v.normal, uv: v.uv }).collect();
+                let vertices: Vec<GpuVertex> = part.vertices.iter().map(|v: &Vertex| GpuVertex { position: v.position, normal: v.normal, uv: v.uv, colour: v.colour }).collect();
                 let vb = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: bytemuck::cast_slice(&vertices), usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST });
                 let mut indices = part.indices.clone();
                 if indices.len() % 2 == 1 {
@@ -1987,7 +1989,7 @@ mod tests {
     /// A flat ground 200 m across with a pillar 2 m wide and 12 m tall standing on it at the origin (Z up).
     fn pillar_scene() -> Model {
         let quad = |c: [[f32; 3]; 4], n: [f32; 3]| -> (Vec<mao_formats::model::Vertex>, Vec<u16>) {
-            (c.iter().map(|&p| mao_formats::model::Vertex { position: p, normal: n, uv: [0.0, 0.0] }).collect(), vec![0, 1, 2, 0, 2, 3])
+            (c.iter().map(|&p| mao_formats::model::Vertex { position: p, normal: n, uv: [0.0, 0.0], colour: mao_formats::model::Vertex::UNBAKED }).collect(), vec![0, 1, 2, 0, 2, 3])
         };
         let mut parts = Vec::new();
         let identity: [f32; 16] = Mat4::IDENTITY.to_cols_array();

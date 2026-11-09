@@ -4102,7 +4102,7 @@ mod tests {
         let tri = mao_formats::model::Part {
             name: String::new(),
             world: mao_formats::model::IDENTITY,
-            vertices: vec![mao_formats::model::Vertex { position: [1.0, 0.0, 0.0], normal: [0.0; 3], uv: [0.0; 2] }; 3],
+            vertices: vec![mao_formats::model::Vertex { position: [1.0, 0.0, 0.0], normal: [0.0; 3], uv: [0.0; 2], colour: mao_formats::model::Vertex::UNBAKED }; 3],
             indices: vec![0, 1, 2],
             material: Default::default(),
         };
@@ -4126,7 +4126,7 @@ mod tests {
         let moved = EffectMesh { offset: [0.0, 0.0, 2.0], ..spun.clone() };
         let v = effect_mesh_shells(&moved, &model, &|_, _| 7, &Locator::feet([0.0; 3], 1.0), None, 1.0)[0].vertices[0].position;
         assert!((v[1] - (2.0 + (-(std::f32::consts::FRAC_PI_2 + 1.0).sin()))).abs() < 1e-4, "{v:?}");
-        let up = mao_formats::model::Part { vertices: vec![mao_formats::model::Vertex { position: [0.0, 1.0, 0.0], normal: [0.0; 3], uv: [0.0; 2] }; 3], ..model.parts[0].clone() };
+        let up = mao_formats::model::Part { vertices: vec![mao_formats::model::Vertex { position: [0.0, 1.0, 0.0], normal: [0.0; 3], uv: [0.0; 2], colour: mao_formats::model::Vertex::UNBAKED }; 3], ..model.parts[0].clone() };
         let upward = mao_formats::model::Model { parts: vec![up], ..Default::default() };
         let faced = EffectMesh { flags: 0x400, ..spun.clone() };
         let v = effect_mesh_shells(&faced, &upward, &|_, _| 7, &Locator::feet([0.0; 3], 0.0), Some([0.0, 0.0, 0.0]), 1.0);
@@ -4397,7 +4397,7 @@ broken line
         assert!((d.strength_at(0.1) - 1.0).abs() < 1e-5);
         assert!(d.strength_at(0.6) < 1.0 && d.strength_at(0.6) > 0.0);
         assert_eq!(d.strength_at(1.2), 0.0);
-        let mut parts = vec![mao_formats::model::Part { name: String::new(), world: mao_formats::model::IDENTITY, vertices: vec![mao_formats::model::Vertex { position: [0.0, 1.0, 0.0], normal: [1.0, 0.0, 0.0], uv: [0.0; 2] }], indices: vec![], material: Default::default() }];
+        let mut parts = vec![mao_formats::model::Part { name: String::new(), world: mao_formats::model::IDENTITY, vertices: vec![mao_formats::model::Vertex { position: [0.0, 1.0, 0.0], normal: [1.0, 0.0, 0.0], uv: [0.0; 2], colour: mao_formats::model::Vertex::UNBAKED }], indices: vec![], material: Default::default() }];
         deform_parts(&mut parts, &d, 0.3);
         let x = parts[0].vertices[0].position[0];
         assert!(x >= 0.0 && x <= 0.05 + 1e-6, "{x}");

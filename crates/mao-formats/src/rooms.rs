@@ -11,7 +11,8 @@
 //! A flags byte (bits 0-1: the turn in quarter turns, bit 7: a 32-byte name follows the links), a byte (5), the rectangle
 //! of tile-map cells `x0 y0 x1 y1` (`u16`, the far edge excluded), the centre `x y z` (`f32`), a link count with that many
 //! `(u16, u16)` pairs, the name, a size word and a count followed by that size minus 4 bytes (the light map: the count's 565
-//! colours, one per laid vertex, zlib-packed — not applied, see `dungeon.rs`), a word `(n + 1) * 0x3f1` and `n` water
+//! colours, one per vertex of the room's welded piece stream, zlib-packed; `n3Room_t::DepackLightmap` inflates them to two
+//! bytes each, six in a file older than version 8; see [`room_parts`]), a word `(n + 1) * 0x3f1` and `n` water
 //! surfaces (flags, a count of `f32` triples with the height rounded to a hundredth, a count of `u16` triples: a surface with
 //! the low flag bit clear and other than three points is fanned round its centre, the others take their triangles), a count
 //! of camera attractors (version 10: position, rotation, direction, a float: 44 bytes each).
@@ -25,12 +26,16 @@
 //! cell `(x, y)` of the rectangle is centred at `((x - x0) - oddW / 2) × scale` along x and likewise along z, with `oddW` the
 //! width rounded down to odd (`CreateDungeonRoom` FUN_10008563), and the whole room is turned by `flags & 3` quarter turns about
 //! its centre (`VisualRoom_t::SetPosition(position, turn × π/2)`; a cell offset `(dx, dy)` becomes `(dy, -dx)` per turn,
-//! checked against the shop booths the server places in them). The walls are the pieces of `dungeon.rs`.
+//! checked against the shop booths the server places in them). The walls are the pieces of `dungeon.rs`, welded into one
+//! vertex stream per room and coloured from the light map in that order (`CreateDungeonRoom` → FUN_100082a7). The maps in
+//! the files hold more colours than the stream has vertices (playfield 1180: 416 for 226 welded vertices; N3.dll's own
+//! weld gives the same 226 over the same tiles), so they were baked from other geometry and the original client, like this
+//! one, colours the stream from the map's start regardless.
 
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 
-use crate::dungeon::{self, Cells, Piece, Surface, Tables};
+use crate::dungeon::{self, Cells, Laid, Piece, Surface, Tables};
 use crate::model::{Material, Model, Part, Vertex, IDENTITY};
 use crate::texture::OBJECT_HEAD;
 use crate::tilemap::NewTilemap;
@@ -70,6 +75,9 @@ pub struct Room {
     pub name: String,
     /// The water surfaces' triangles (the room's own frame, Y-up) with their flags.
     pub water: Vec<([[f32; 3]; 3], u32)>,
+    /// The depacked light map: a 565 colour (`u16`) per vertex of the room's welded vertex stream, in its order (see
+    /// `dungeon::light_colours`); empty when the room has none or it did not inflate.
+    pub light: Vec<u8>,
 }
 
 impl Room {
@@ -235,10 +243,11 @@ pub fn parse_with_end(object: &[u8]) -> Result<(Option<RoomPlayfield>, usize), E
         } else {
             String::new()
         };
-        // The packed light map.
+        // The packed light map: `count` colours, `DepackLightmap`'s two bytes each (six before version 8).
         let size = r.u32("the light map's size")? as usize;
-        r.u32("the light map's vertex count")?;
-        r.take(size.checked_sub(4).ok_or(Error::Layout("light map too small"))?, "the light map")?;
+        let count = r.u32("the light map's vertex count")? as usize;
+        let packed = r.take(size.checked_sub(4).ok_or(Error::Layout("light map too small"))?, "the light map")?;
+        let light = if count == 0 { Vec::new() } else { depack(packed, count.saturating_mul(if version > 7 { 2 } else { 6 })) };
         // The water surfaces.
         let water_word = r.u32("the water word")?;
         let mut water = Vec::new();
@@ -291,9 +300,20 @@ pub fn parse_with_end(object: &[u8]) -> Result<(Option<RoomPlayfield>, usize), E
             return Err(Error::Layout("too many camera attractors"));
         }
         r.take(attractors * 44, "the camera attractors")?;
-        rooms.push(Room { flags, rect, position, links: link_list, name, water });
+        rooms.push(Room { flags, rect, position, links: link_list, name, water, light });
     }
     Ok((Some(RoomPlayfield { number, name, tilemap, rooms }), r.at))
+}
+
+/// `n3Room_t::DepackLightmap` (0x10010eb7): the zlib-packed light map inflated to `size` bytes; nothing when it does not
+/// inflate.
+fn depack(packed: &[u8], size: usize) -> Vec<u8> {
+    use std::io::Read;
+    let mut out = Vec::with_capacity(size.min(1 << 24));
+    match flate2::read::ZlibDecoder::new(packed).take(size as u64).read_to_end(&mut out) {
+        Ok(_) => out,
+        Err(_) => Vec::new(),
+    }
 }
 
 /// The cell images of a `GNDA` tile-map that a room is cut from, and the cell words worked out from them.
@@ -502,29 +522,35 @@ pub fn room_parts(grid: &Grid, room: &Room, material: &Material, pieces: &HashMa
     let (cx0, cz0) = (room.position[0], room.position[2]);
     let base = grid.floor_base(room);
     let floor = room.position[1] + base;
+    // A point of the room's frame (Y-up, relative to the centre) in the world.
+    let world = |dx: f32, y: f32, dz: f32| {
+        let (dx, dz) = room.turn_xz(dx, dz);
+        [cx0 + dx, cz0 + dz, y]
+    };
+    let name = if room.name.is_empty() { "room".to_string() } else { room.name.clone() };
+    let textured = |texture: Option<u32>| {
+        let mut material = material.clone();
+        if let Some(t) = texture {
+            material.textures = vec![(TEXTURE, t)];
+            material.diffuse = [1.0; 3];
+            material.ambient = [1.0; 3];
+        }
+        material
+    };
     // One part per texture (a new one when the 16-bit indices run out).
     let mut groups: BTreeMap<Option<u32>, Vec<Part>> = BTreeMap::new();
     let mut push = |texture: Option<u32>, vertices: &[Vertex], indices: &[u16]| {
         let parts = groups.entry(texture).or_default();
         if parts.last().is_none_or(|part| part.vertices.len() + vertices.len() > 65_535) {
-            let mut material = material.clone();
-            if let Some(t) = texture {
-                material.textures = vec![(TEXTURE, t)];
-                material.diffuse = [1.0; 3];
-                material.ambient = [1.0; 3];
-            }
-            parts.push(Part { name: if room.name.is_empty() { "room".into() } else { room.name.clone() }, world: IDENTITY, vertices: Vec::new(), indices: Vec::new(), material });
+            parts.push(Part { name: name.clone(), world: IDENTITY, vertices: Vec::new(), indices: Vec::new(), material: textured(texture) });
         }
         let part = parts.last_mut().unwrap();
         let base = part.vertices.len() as u16;
         part.vertices.extend_from_slice(vertices);
         part.indices.extend(indices.iter().map(|&i| base + i));
     };
-    // A point of the room's frame (Y-up, relative to the centre) in the world.
-    let world = |dx: f32, y: f32, dz: f32| {
-        let (dx, dz) = room.turn_xz(dx, dz);
-        [cx0 + dx, cz0 + dz, y]
-    };
+    // The floor: a quad per cell on the four corners' samples (the one before the cell at its near corner). The original
+    // draws it apart from the room's pieces (from the height map, not light-mapped), so it stays outside the coloured stream.
     for cy in y0..y1 {
         for cx in x0..x1 {
             let Some((place, _)) = grid.at(cx, cy) else { continue };
@@ -533,40 +559,105 @@ pub fn room_parts(grid: &Grid, room: &Room, material: &Material, pieces: &HashMa
             }
             let (mx, mz) = centre(cx, cy);
             let half = cell / 2.0;
-            // The floor: the four corners' samples (the one before the cell at its near corner).
             let corners = [(mx - half, mz - half, surface.floor(cx - 1, cy - 1)), (mx + half, mz - half, surface.floor(cx, cy - 1)), (mx + half, mz + half, surface.floor(cx, cy)), (mx - half, mz + half, surface.floor(cx - 1, cy))];
             let p: Vec<[f32; 3]> = corners.iter().map(|&(x, z, y)| world(x, floor + y, z)).collect();
             let (d1, d2) = ([p[2][0] - p[0][0], p[2][1] - p[0][1], p[2][2] - p[0][2]], [p[3][0] - p[1][0], p[3][1] - p[1][1], p[3][2] - p[1][2]]);
             let n = [d1[1] * d2[2] - d1[2] * d2[1], d1[2] * d2[0] - d1[0] * d2[2], d1[0] * d2[1] - d1[1] * d2[0]];
             let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt().max(1e-6);
             let normal = if n[2] < 0.0 { [-n[0] / len, -n[1] / len, -n[2] / len] } else { [n[0] / len, n[1] / len, n[2] / len] };
-            let tile = grid.tile(cx, cy);
             let uv = [[0.0, 1.0], [1.0, 1.0], [1.0, 0.0], [0.0, 0.0]];
-            let vertices: Vec<Vertex> = (0..4).map(|k| Vertex { position: p[k], normal, uv: uv[k] }).collect();
-            push(tile.first().and_then(|&v| grid.texture(v)), &vertices, &[0, 1, 2, 0, 2, 3]);
+            let vertices: Vec<Vertex> = (0..4).map(|k| Vertex { position: p[k], normal, uv: uv[k], colour: Vertex::UNBAKED }).collect();
+            push(grid.tile(cx, cy).first().and_then(|&v| grid.texture(v)), &vertices, &[0, 1, 2, 0, 2, 3]);
+        }
+    }
+    // The pieces: the room's welded vertex stream with the light map's colour per vertex (FUN_100082a7: white when the map
+    // has too few), each texture's triangles gathering the vertices they use.
+    let (vertices, lists) = lay_room(grid, room, pieces);
+    let colours = dungeon::light_colours(&room.light, vertices.len());
+    for (texture, indices) in lists {
+        let mut local: HashMap<u32, u16> = HashMap::new();
+        let (mut gathered, mut remapped): (Vec<Vertex>, Vec<u16>) = (Vec::new(), Vec::new());
+        for triangle in indices.chunks_exact(3) {
+            if gathered.len() + 3 > 65_535 {
+                push(texture, &gathered, &remapped);
+                gathered.clear();
+                remapped.clear();
+                local.clear();
+            }
+            for &i in triangle {
+                let at = *local.entry(i).or_insert_with(|| {
+                    let v = &vertices[i as usize];
+                    let (nx, nz) = room.turn_xz(v.normal[0], v.normal[2]);
+                    gathered.push(Vertex { position: world(v.position[0], room.position[1] + v.position[1], v.position[2]), normal: [nx, nz, v.normal[1]], uv: v.uv, colour: colours[i as usize] });
+                    (gathered.len() - 1) as u16
+                });
+                remapped.push(at);
+            }
+        }
+        if !remapped.is_empty() {
+            push(texture, &gathered, &remapped);
+        }
+    }
+    groups.into_values().flatten().collect()
+}
+
+/// The room's pieces' vertices in its own frame (Y-up about the centre, the floor `floor_base` up), one stream for the whole
+/// room as the original's `CreateDungeonRoom` fills it — cell by cell along the rows, each tile's vertices welded onto the
+/// earlier ones they coincide with — and its triangles by texture, as indices into the stream. The tiles are laid whether or
+/// not their texture layer has a texture (the light map colours the stream in this order), but only textured ones are drawn.
+/// Replayed through N3.dll's own weld over playfield 1180 (`ao-difftest`'s `n3_weld`), the stream came out identical.
+fn lay_room(grid: &Grid, room: &Room, pieces: &HashMap<u16, Piece>) -> (Vec<Laid>, BTreeMap<Option<u32>, Vec<u32>>) {
+    let [x0, y0, x1, y1] = room.rect.map(|v| v as i64);
+    let (w, h) = (x1 - x0, y1 - y0);
+    let cell = grid.scale;
+    let surface = grid.surface();
+    // The centre of a cell in the room's own frame (before its turn).
+    let centre = |cx: i64, cy: i64| (((cx - x0) as f32 - odd(w) as f32 / 2.0) * cell, ((cy - y0) as f32 - odd(h) as f32 / 2.0) * cell);
+    let base = grid.floor_base(room);
+    let mut vertices: Vec<Laid> = Vec::new();
+    let mut lists: BTreeMap<Option<u32>, Vec<u32>> = BTreeMap::new();
+    // Where each cell's vertices begin (the original's sliding window of counts): a tile is welded against the cells of the
+    // row before, from the column before to the one after, and against everything laid since the cell before began.
+    let mut starts = vec![0usize; (w * h).max(0) as usize];
+    let start = |starts: &[usize], k: i64| if k < 0 { 0 } else { starts.get(k as usize).copied().unwrap_or(0) };
+    for cy in y0..y1 {
+        for cx in x0..x1 {
+            let k = (cy - y0) * w + (cx - x0);
+            starts[k as usize] = vertices.len();
+            let above = start(&starts, k - w - 1)..start(&starts, k - w + 2);
+            let left = start(&starts, k - 1);
+            let Some((place, _)) = grid.at(cx, cy) else { continue };
+            if place == 0 {
+                continue;
+            }
+            let (mx, mz) = centre(cx, cy);
+            let mut add = |texture: Option<u32>, laid: Vec<Laid>, triangles: &[u16], drawn: bool| {
+                let begin = vertices.len();
+                vertices.extend(laid);
+                let mut indices: Vec<u32> = triangles.iter().map(|&i| (begin + i as usize) as u32).collect();
+                dungeon::weld(&mut vertices, &mut indices, begin, above.clone(), left);
+                if drawn {
+                    lists.entry(texture).or_default().extend(indices);
+                }
+            };
+            let tile = grid.tile(cx, cy);
             // The pieces: each tile of each with the cell's texture layer of its place.
             for (id, turn) in dungeon::cell_pieces(&grid.words, &grid.tables, place, cx as usize, cy as usize) {
                 let Some(piece) = pieces.get(&id) else { continue };
                 for (k, tile_mesh) in piece.tiles.iter().enumerate() {
-                    if tile_mesh.indices.is_empty() {
+                    if tile_mesh.vertices.is_empty() {
                         continue;
                     }
-                    let Some(texture) = tile.get(k).and_then(|&v| grid.texture(v)) else { continue };
+                    let texture = tile.get(k).and_then(|&v| grid.texture(v));
                     let laid = dungeon::lay(&surface, cx as usize, cy as usize, tile_mesh, turn, [mx, base, mz]);
-                    let vertices: Vec<Vertex> = laid
-                        .iter()
-                        .map(|v| {
-                            let (nx, nz) = room.turn_xz(v.normal[0], v.normal[2]);
-                            Vertex { position: world(v.position[0], room.position[1] + v.position[1], v.position[2]), normal: [nx, nz, v.normal[1]], uv: v.uv }
-                        })
-                        .collect();
-                    let indices: Vec<u16> = tile_mesh.indices.iter().map(|&i| i).filter(|&i| (i as usize) < vertices.len()).collect();
-                    push(Some(texture), &vertices, &indices[..indices.len() / 3 * 3]);
+                    let count = laid.len();
+                    let triangles: Vec<u16> = tile_mesh.indices.iter().copied().filter(|&i| (i as usize) < count).collect();
+                    add(texture, laid, &triangles[..triangles.len() / 3 * 3], texture.is_some());
                 }
             }
         }
     }
-    groups.into_values().flatten().collect()
+    (vertices, lists)
 }
 
 /// The rooms' floors as the vehicle stands on them (`n3RoomSurface_t::CalculateClosestPoint` 0x10013ee6), in the game's
@@ -763,7 +854,7 @@ mod tests {
     #[test]
     fn a_flat_room_is_a_floor_at_its_height() {
         let grid = grid(4, 4, vec![0; 16]);
-        let room = Room { flags: 0, rect: [0, 0, 2, 2], position: [10.0, 5.0, 20.0], links: Vec::new(), name: String::new(), water: Vec::new() };
+        let room = Room { flags: 0, rect: [0, 0, 2, 2], position: [10.0, 5.0, 20.0], links: Vec::new(), name: String::new(), water: Vec::new(), light: Vec::new() };
         let part = room_parts(&grid, &room, &Material::default(), &HashMap::new()).remove(0);
         // four cells, no walls
         assert_eq!(part.vertices.len(), 16);
@@ -784,10 +875,10 @@ mod tests {
         let mut heights = vec![0u8; 16];
         heights[5] = 10;
         let grid = grid(4, 4, heights);
-        let room = Room { flags: 0, rect: [0, 0, 4, 4], position: [0.0, 0.0, 0.0], links: Vec::new(), name: String::new(), water: Vec::new() };
+        let room = Room { flags: 0, rect: [0, 0, 4, 4], position: [0.0, 0.0, 0.0], links: Vec::new(), name: String::new(), water: Vec::new(), light: Vec::new() };
         let part = room_parts(&grid, &room, &Material::default(), &HashMap::new()).remove(0);
         let raised: Vec<&Vertex> = part.vertices.iter().filter(|v| v.position[2] > 1.5).collect();
-        // the corner is shared by four cells
+        // the corner is shared by four cells, whose quads tilt apart there: the weld keeps vertices whose normals differ
         assert_eq!(raised.len(), 4, "{raised:?}");
         assert!(raised.iter().all(|v| (v.position[2] - 2.0).abs() < 1e-5));
         // cells 0..4 centred at (k - 1.5) * 2 (odd width 3): the corner between cells 1 and 2 is at 0
@@ -797,7 +888,7 @@ mod tests {
     #[test]
     fn a_turned_room_swaps_its_sides() {
         let grid = grid(8, 8, vec![0; 64]);
-        let room = Room { flags: 1, rect: [0, 0, 4, 2], position: [0.0, 0.0, 0.0], links: Vec::new(), name: String::new(), water: Vec::new() };
+        let room = Room { flags: 1, rect: [0, 0, 4, 2], position: [0.0, 0.0, 0.0], links: Vec::new(), name: String::new(), water: Vec::new(), light: Vec::new() };
         let part = room_parts(&grid, &room, &Material::default(), &HashMap::new()).remove(0);
         let (mut xs, mut zs) = (Vec::new(), Vec::new());
         for v in &part.vertices {
@@ -811,7 +902,7 @@ mod tests {
     #[test]
     fn covers_agrees_with_the_floor() {
         let grid = grid(8, 8, vec![0; 64]);
-        let room = Room { flags: 0, rect: [0, 0, 3, 3], position: [100.0, 0.0, 200.0], links: Vec::new(), name: String::new(), water: Vec::new() };
+        let room = Room { flags: 0, rect: [0, 0, 3, 3], position: [100.0, 0.0, 200.0], links: Vec::new(), name: String::new(), water: Vec::new(), light: Vec::new() };
         let part = room_parts(&grid, &room, &Material::default(), &HashMap::new()).remove(0);
         let min_x = part.vertices.iter().map(|v| v.position[0]).fold(f32::MAX, f32::min);
         let max_x = part.vertices.iter().map(|v| v.position[0]).fold(f32::MIN, f32::max);
@@ -819,5 +910,118 @@ mod tests {
         assert!(covers(&grid, &room, max_x - 0.1, 200.0, false));
         assert!(!covers(&grid, &room, min_x - 0.1, 200.0, false));
         assert!(!covers(&grid, &room, max_x + 0.1, 200.0, false));
+    }
+
+    fn dump_weld_scenario(grid: &Grid, room: &Room, pieces: &HashMap<u16, Piece>, out: &mut Vec<u8>) -> usize {
+        let [x0, y0, x1, y1] = room.rect.map(|v| v as i64);
+        let (w, h) = (x1 - x0, y1 - y0);
+        let cell = grid.scale;
+        let surface = grid.surface();
+        let centre = |cx: i64, cy: i64| (((cx - x0) as f32 - odd(w) as f32 / 2.0) * cell, ((cy - y0) as f32 - odd(h) as f32 / 2.0) * cell);
+        let base = grid.floor_base(room);
+        let mut vertices: Vec<Laid> = Vec::new();
+        let mut starts = vec![0usize; (w * h).max(0) as usize];
+        let start = |starts: &[usize], k: i64| if k < 0 { 0 } else { starts.get(k as usize).copied().unwrap_or(0) };
+        let mut tiles = 0usize;
+        let put_vertex = |out: &mut Vec<u8>, v: &Laid| {
+            for c in v.position.iter().chain(v.normal.iter()) {
+                out.extend_from_slice(&c.to_le_bytes());
+            }
+            out.extend_from_slice(&0u32.to_le_bytes());
+            for c in &v.uv {
+                out.extend_from_slice(&c.to_le_bytes());
+            }
+        };
+        for cy in y0..y1 {
+            for cx in x0..x1 {
+                let k = (cy - y0) * w + (cx - x0);
+                starts[k as usize] = vertices.len();
+                let above = start(&starts, k - w - 1)..start(&starts, k - w + 2);
+                let left = start(&starts, k - 1);
+                let Some((place, _)) = grid.at(cx, cy) else { continue };
+                if place == 0 {
+                    continue;
+                }
+                let (mx, mz) = centre(cx, cy);
+                for (id, turn) in dungeon::cell_pieces(&grid.words, &grid.tables, place, cx as usize, cy as usize) {
+                    let Some(piece) = pieces.get(&id) else { continue };
+                    for tile_mesh in &piece.tiles {
+                        if tile_mesh.vertices.is_empty() {
+                            continue;
+                        }
+                        let laid = dungeon::lay(&surface, cx as usize, cy as usize, tile_mesh, turn, [mx, base, mz]);
+                        let count = laid.len();
+                        let begin = vertices.len();
+                        let mut indices: Vec<u32> = tile_mesh.indices.iter().copied().filter(|&i| (i as usize) < count).map(|i| (begin + i as usize) as u32).collect();
+                        indices.truncate(indices.len() / 3 * 3);
+                        for v in [begin, k as usize, w as usize, count] {
+                            out.extend_from_slice(&(v as u32).to_le_bytes());
+                        }
+                        for v in &laid {
+                            put_vertex(out, v);
+                        }
+                        out.extend_from_slice(&(indices.len() as u32).to_le_bytes());
+                        for &i in &indices {
+                            out.extend_from_slice(&(i as u16).to_le_bytes());
+                        }
+                        vertices.extend(laid);
+                        dungeon::weld(&mut vertices, &mut indices, begin, above.clone(), left);
+                        out.extend_from_slice(&((vertices.len() - begin) as u32).to_le_bytes());
+                        for v in &vertices[begin..] {
+                            put_vertex(out, v);
+                        }
+                        for &i in &indices {
+                            out.extend_from_slice(&(i as u16).to_le_bytes());
+                        }
+                        tiles += 1;
+                    }
+                }
+            }
+        }
+        tiles
+    }
+
+    /// With `MAO_GAME`: the shop's rooms weld to the counts N3.dll's own weld gives over the same tiles (`ao-difftest`'s
+    /// `n3_weld` replay, which `MAO_WELD_DUMP=<file>` here feeds). Their light maps hold more colours than that (416, 646,
+    /// 132, 132, 705, 132 and 2382): they were baked from other geometry, and the original colours its vertices from the
+    /// start of the map just the same.
+    #[test]
+    fn the_shops_rooms_weld_as_the_original_does() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        use crate::resource::{Id, ResourceDatabase};
+        let db = ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap();
+        let rooms = parse(&db.get(Id { kind: KIND, instance: 1180 }).unwrap().unwrap()).unwrap().unwrap();
+        let map = crate::tilemap::parse_new(&db.get(Id { kind: 0xf4249, instance: rooms.tilemap }).unwrap().unwrap()).unwrap();
+        let grid = Grid::new(&map).unwrap();
+        let mut pieces = HashMap::new();
+        for id in grid.pieces_needed(&rooms) {
+            if let Ok(Some(o)) = db.get(Id { kind: dungeon::PIECE, instance: id as u32 })
+                && let Some(p) = dungeon::parse_piece(&o)
+            {
+                pieces.insert(id, p);
+            }
+        }
+        let counts: Vec<usize> = rooms.rooms.iter().map(|room| lay_room(&grid, room, &pieces).0.len()).collect();
+        assert_eq!(counts, [226, 349, 108, 108, 515, 108, 941]);
+        let colours: Vec<usize> = rooms.rooms.iter().map(|room| room.light.len() / 2).collect();
+        assert_eq!(colours, [416, 646, 132, 132, 705, 132, 2382]);
+        // every room is coloured (the map is never short), and a wall vertex takes the map's colour with full alpha
+        let parts = room_parts(&grid, &rooms.rooms[0], &Material::default(), &pieces);
+        let walls: Vec<&Vertex> = parts.iter().flat_map(|p| &p.vertices).filter(|v| v.colour[3] == 255).collect();
+        assert!(!walls.is_empty() && walls.iter().any(|v| v.colour[..3] != [255, 255, 255]), "the light map colours the walls");
+        if let Some(path) = std::env::var_os("MAO_WELD_DUMP") {
+            let mut body = Vec::new();
+            let mut total = 0usize;
+            for room in &rooms.rooms {
+                total += dump_weld_scenario(&grid, room, &pieces, &mut body);
+                // a room boundary: a tile record with begin = u32::MAX, then the light map's colour count and our total
+                body.extend_from_slice(&u32::MAX.to_le_bytes());
+                body.extend_from_slice(&((room.light.len() / 2) as u32).to_le_bytes());
+                body.extend_from_slice(&(lay_room(&grid, room, &pieces).0.len() as u32).to_le_bytes());
+            }
+            let mut out = (total as u32).to_le_bytes().to_vec();
+            out.extend_from_slice(&body);
+            std::fs::write(&path, out).unwrap();
+        }
     }
 }

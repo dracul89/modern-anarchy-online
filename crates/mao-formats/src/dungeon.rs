@@ -28,9 +28,9 @@
 //! height sample `(i, j)` sits at the corner `((i + 1) × scale, (j + 1) × scale)` of the tile-map (FUN_1001769d), so a cell
 //! `(x, y)` rests on samples `(x - 1 .. x, y - 1 .. y)`.
 //!
-//! Not ported: the original welds each cell's new vertices onto earlier ones that coincide (FUN_10001645, which also shifts the
-//! texture coordinates by whole tiles so neighbours share them); the room's packed light map (a 565 colour per vertex, in that
-//! welded order, `n3Room_t::DepackLightmap` and FUN_100082a7) therefore cannot be applied yet.
+//! Each tile's new vertices are welded onto the earlier ones they coincide with ([`weld`], FUN_10001645, which also shifts the
+//! tile's texture coordinates by whole tiles so neighbours share the vertex), and the room's packed light map (a 565 colour per
+//! vertex in that welded order, `n3Room_t::DepackLightmap` and FUN_100082a7, [`light_colours`]) colours them.
 
 use std::collections::{BTreeSet, HashMap};
 
@@ -665,6 +665,108 @@ pub fn lay(surface: &Surface, x: usize, y: usize, tile: &PieceTile, turn_by: u8,
             p[0] += offset[0];
             p[2] += offset[2];
             Laid { position: p, normal: n, uv: [v[6], v[7]] }
+        })
+        .collect()
+}
+
+/// How close two laid vertices must be to weld (FUN_10001645's `.rdata` constants): the squared distance of the positions
+/// (0x1003c8a0), of the normals (0x1003c898), and how far a texture coordinate may sit from a whole number apart
+/// (0x1003c890).
+const WELD_POSITION: f32 = 0.001;
+const WELD_NORMAL: f32 = 0.2;
+const WELD_UV: f32 = 0.1;
+
+fn distance2(a: [f32; 3], b: [f32; 3]) -> f32 {
+    let d = [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+    d[0] * d[0] + d[1] * d[1] + d[2] * d[2]
+}
+
+/// Whether the earlier vertex `old` is where the new `new` is (within [`WELD_POSITION`], normals within [`WELD_NORMAL`]) with
+/// texture coordinates a whole number of tiles away: that shift `(du, dv)`, which welding adds to the new tile's coordinates
+/// so the neighbours share the vertex.
+fn coincide(old: &Laid, new: &Laid) -> Option<[i32; 2]> {
+    if distance2(old.position, new.position) > WELD_POSITION || distance2(old.normal, new.normal) > WELD_NORMAL {
+        return None;
+    }
+    let mut shift = [0i32; 2];
+    for k in 0..2 {
+        let d = old.uv[k] - new.uv[k] + WELD_UV;
+        let whole = d.floor();
+        if d - whole > WELD_UV * 2.0 {
+            return None;
+        }
+        shift[k] = whole.round() as i32;
+    }
+    Some(shift)
+}
+
+/// FUN_10001645: a tile's vertices, just laid at `begin..` of a room's vertex stream with its triangles as absolute `indices`
+/// into it, welded onto the earlier vertices they coincide with — those of `above` (the three cells of the row before, from
+/// the one before this column to the one after) and those laid since the cell before began (`left..begin`). First every new
+/// vertex's matches are collected with their texture shift (up to twenty): the shift two different vertices agree on, or
+/// else the last one found, is the tile's; without a match the tile stays as it is. Then each new vertex that an earlier one
+/// matches under that shift is dropped (the triangles pointed at the earlier one, later indices moved down) and the rest get
+/// the shift added to their texture coordinates. The stream is shortened by the welded vertices.
+pub fn weld(vertices: &mut Vec<Laid>, indices: &mut [u32], begin: usize, above: std::ops::Range<usize>, left: usize) {
+    let candidates = || above.clone().chain(left..begin);
+    let mut shifts: Vec<(usize, [i32; 2])> = Vec::new();
+    let mut chosen = None;
+    'scan: for n in begin..vertices.len() {
+        for c in candidates() {
+            let Some(shift) = coincide(&vertices[c], &vertices[n]) else { continue };
+            match shifts.iter().position(|&(_, s)| s == shift) {
+                Some(k) => {
+                    if shifts[k].0 != n {
+                        chosen = Some(shift);
+                        break 'scan;
+                    }
+                }
+                None if shifts.len() == 20 => shifts[19] = (n, shift),
+                None => shifts.push((n, shift)),
+            }
+        }
+    }
+    let Some(shift) = chosen.or_else(|| shifts.last().map(|e| e.1)) else { return };
+    let mut n = begin;
+    while n < vertices.len() {
+        let new = vertices[n];
+        let found = candidates().find(|&c| {
+            let old = &vertices[c];
+            distance2(old.position, new.position) <= WELD_POSITION
+                && distance2(old.normal, new.normal) <= WELD_NORMAL
+                && (shift[0] as f32 - (old.uv[0] - new.uv[0])).abs() <= WELD_UV
+                && (shift[1] as f32 - (old.uv[1] - new.uv[1])).abs() <= WELD_UV
+        });
+        match found {
+            Some(c) => {
+                vertices.remove(n);
+                for i in indices.iter_mut() {
+                    if *i as usize == n {
+                        *i = c as u32;
+                    } else if *i as usize > n {
+                        *i -= 1;
+                    }
+                }
+            }
+            None => {
+                vertices[n].uv[0] += shift[0] as f32;
+                vertices[n].uv[1] += shift[1] as f32;
+                n += 1;
+            }
+        }
+    }
+}
+
+/// FUN_100082a7: the colours of a room's `count` welded vertices from its depacked light map — a 565 colour each, in the
+/// stream's order, widened to RGBA with full alpha — or white for them all when the map is shorter than that.
+pub fn light_colours(light: &[u8], count: usize) -> Vec<[u8; 4]> {
+    if light.len() < count * 2 {
+        return vec![[255; 4]; count];
+    }
+    (0..count)
+        .map(|i| {
+            let c = u16::from_le_bytes([light[2 * i], light[2 * i + 1]]);
+            [((c >> 11) as u8) << 3, ((c >> 5) as u8 & 0x3f) << 2, (c as u8 & 0x1f) << 3, 255]
         })
         .collect()
 }

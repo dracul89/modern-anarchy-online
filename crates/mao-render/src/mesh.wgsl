@@ -78,6 +78,8 @@ struct VertexIn {
     @location(0) position: vec3<f32>,
     @location(1) normal: vec3<f32>,
     @location(2) uv: vec2<f32>,
+    // A baked colour (a room's light map); alpha 0 when there is none.
+    @location(3) colour: vec4<f32>,
 }
 
 struct VertexOut {
@@ -88,6 +90,7 @@ struct VertexOut {
     // The point now and the last frame, through the unjittered views (the motion buffer).
     @location(3) now: vec4<f32>,
     @location(4) before: vec4<f32>,
+    @location(5) colour: vec4<f32>,
 }
 
 // Plants move: a slow sway in the wind (more towards the top) and a bend
@@ -127,6 +130,7 @@ fn vs_main(v: VertexIn) -> VertexOut {
     out.uv = v.uv;
     out.normal = (part.model * vec4<f32>(v.normal, 0.0)).xyz;
     out.world = world;
+    out.colour = v.colour;
     return out;
 }
 
@@ -217,7 +221,10 @@ fn shade(in: VertexOut) -> vec4<f32> {
         ambient = max(globals.script_ambient.rgb, globals.ambient.rgb);
         sun_colour = globals.script_sun.rgb;
     }
-    var colour = base.rgb * min(ambient + sun_colour * diffuse + vec3<f32>(baked), vec3<f32>(1.0));
+    // A room's light map (its vertex colour, alpha 1) is the emissive term: the original's rooms take their emissive colour
+    // from the vertex (`VisualRoom_t`'s state D3DRENDERSTATE_EMISSIVEMATERIALSOURCE = COLOR1), added to the lit colour.
+    let emissive = in.colour.rgb * in.colour.a;
+    var colour = base.rgb * min(ambient + sun_colour * diffuse + vec3<f32>(baked) + emissive, vec3<f32>(1.0));
     // Distance fades into the fog's colour (linear when the fog is an area's, as Direct3D's was).
     let far = globals.horizon.w;
     let near = globals.eye.w;

@@ -257,7 +257,7 @@ impl Terrain {
                         0x8000 => [1.0 - ox, oy],
                         _ => [oy, ox],
                     };
-                    part.vertices.push(Vertex { position: position(gx, gy), normal: normal(gx, gy), uv });
+                    part.vertices.push(Vertex { position: position(gx, gy), normal: normal(gx, gy), uv, colour: Vertex::UNBAKED });
                 }
                 part.indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
             }

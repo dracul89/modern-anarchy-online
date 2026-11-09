@@ -428,7 +428,7 @@ impl CatMesh {
                         .iter()
                         .map(|v| {
                             let (position, normal) = vertex(v);
-                            ModelVertex { position, normal, uv: v.uv }
+                            ModelVertex { position, normal, uv: v.uv, colour: ModelVertex::UNBAKED }
                         })
                         .collect(),
                     indices: triangles,
