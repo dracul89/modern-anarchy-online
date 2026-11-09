@@ -6130,8 +6130,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 m.frame_process(dt);
             });
             // The effect scripts (`fxs`): the playfield's tweaks once it is current (PlayfieldInit FUN_100b2478: FUN_100b1e95's
-            // `LoadPFTweakData`, outdoors 0 or indoors 1 — the environment types 2 to 12 are not known — then the automatic-run
-            // objects), Notum Wars merged in (FUN_100b1f3c: `SetExpansion` of stat 389 once), the script events
+            // `LoadPFTweakData` with the environment the playfield's own environment data names, `playfield::sky_scripts` —
+            // then the automatic-run objects), Notum Wars merged in (FUN_100b1f3c: `SetExpansion` of stat 389 once), the script events
             // (FUN_10130a1b), then the frame (`VisualEnvFX_t::FrameProcess` from FUN_100b05b4: FXS's frame, then the game
             // interface's variables: the day time is the clock's seconds over its pace, the server's clock, the character's
             // place as the eye's; no storm, precipitation or wind) and the sounds it played.
@@ -6144,7 +6144,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 fxs_playfield = Some(current);
                 fxs_visuals.clear();
                 crate::fxs::set_data_path(&Path::new(&game_dir).join("cd_image"));
-                crate::fxs::load_playfield(current, if terrain.is_some() { 0 } else { 1 });
+                let sky = mao_formats::playfield::sky_scripts(terrain.is_some(), base_environment.map_or(0, |e| e[18]));
+                crate::fxs::load_playfield(sky.playfield.unwrap_or(current), sky.environment);
                 crate::fxs::start_automatic();
             }
             if state.expansion && !fxs_expansion {

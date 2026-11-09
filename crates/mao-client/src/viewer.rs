@@ -432,7 +432,16 @@ pub fn headless_on(model: &Model, textures: &Textures, out: &str, ui: Option<(&H
         }
         let number = std::env::var("MAO_SKY_PLAYFIELD").ok().and_then(|v| v.parse().ok()).unwrap_or(999_999);
         crate::fxs::set_data_path(&game.join("cd_image"));
-        crate::fxs::load_playfield(number, 0);
+        // (the environment as the original picks it from the playfield's environment data and its ground, `sky_scripts`;
+        // `MAO_SKY_ENV=<0..4>` forces one: 2 the orbit, 3 the sand skyline, 4 the rock skyline)
+        let kind = mao_formats::playfield::load_anarchy(textures.db(), number).map_or(0, |a| a.environment_kind());
+        let ground = crate::load_terrain_data(textures.db(), number).is_ok();
+        let mut sky = mao_formats::playfield::sky_scripts(ground, kind);
+        if let Some(e) = std::env::var("MAO_SKY_ENV").ok().and_then(|v| v.parse().ok()) {
+            sky.environment = e;
+        }
+        eprintln!("sky: playfield {number} kind {kind}, scripts {:?}", sky);
+        crate::fxs::load_playfield(sky.playfield.unwrap_or(number), sky.environment);
         crate::fxs::start_automatic();
         let seconds = hour * 3600.0;
         let (sun1, sun2) = crate::fxs::sun::rotations(seconds);

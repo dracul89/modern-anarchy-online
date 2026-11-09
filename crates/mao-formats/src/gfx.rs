@@ -2133,6 +2133,28 @@ impl Gfx {
             1012 => Sprite::read(r).map(Visual::Sprite),
             3028 => BParticles::read(r).map(Visual::BParticles),
             3001 if r.payload.len() >= 16 && r.int(10) == 1 => Some(Visual::Deform(Deform { duration: r.float(8), strength: r.float(11), ramp_in: r.float(12), ramp_out: r.float(13), frequency: r.float(14), amplitude: r.float(15) })),
+            2005 if r.payload.len() >= 32 && matches!(r.int(10), 0 | 4) => Some(Visual::Suns(Suns {
+                mode: r.int(10),
+                attach: r.int(7),
+                material: r.int(9),
+                colour_a: [r.float(18), r.float(19), r.float(20), r.float(21)],
+                colour_b: [r.float(22), r.float(23), r.float(24), r.float(25)],
+                duration: r.float(26),
+                size: r.float(28),
+                step: r.float(29),
+                life: r.int(30) as f32 / 1000.0,
+            })),
+            2006 if r.payload.len() >= 32 && r.int(10) == 1 => Some(Visual::Electra {
+                material: r.int(9),
+                attach: r.int(7),
+                colour_a: [r.float(18), r.float(19), r.float(20), r.float(21)],
+                colour_b: [r.float(22), r.float(23), r.float(24), r.float(25)],
+                duration: r.float(26),
+                size: r.float(28),
+                reach: r.float(29),
+                life: r.int(30) as f32 / 1000.0,
+            }),
+            // (the other modes of 2005 and 2006, and the classes built on a buff's spiral)
             1001 | 2004 | 2005 | 2006 | 1018 => self.aura(id).map(Visual::Spiral),
             2007 => {
                 let mut looks: Vec<Visual> = (0..10.min(r.payload.len())).map(|k| r.int(k)).filter(|&c| c != 0 && c != id).filter_map(|c| self.visual(c)).collect();
@@ -2213,27 +2235,6 @@ impl Gfx {
                 let n = r.int(4).clamp(0, 64) as usize;
                 Some(Visual::Toggle { child: Box::new(child), flags: r.int(0) as u32, mask: r.int(3) as u32, places: (0..n).map(|k| r.int(5 + k)).collect() })
             }
-            2005 if r.payload.len() >= 32 && matches!(r.int(10), 0 | 4) => Some(Visual::Suns(Suns {
-                mode: r.int(10),
-                attach: r.int(7),
-                material: r.int(9),
-                colour_a: [r.float(18), r.float(19), r.float(20), r.float(21)],
-                colour_b: [r.float(22), r.float(23), r.float(24), r.float(25)],
-                duration: r.float(26),
-                size: r.float(28),
-                step: r.float(29),
-                life: r.int(30) as f32 / 1000.0,
-            })),
-            2006 if r.payload.len() >= 32 && r.int(10) == 1 => Some(Visual::Electra {
-                material: r.int(9),
-                attach: r.int(7),
-                colour_a: [r.float(18), r.float(19), r.float(20), r.float(21)],
-                colour_b: [r.float(22), r.float(23), r.float(24), r.float(25)],
-                duration: r.float(26),
-                size: r.float(28),
-                reach: r.float(29),
-                life: r.int(30) as f32 / 1000.0,
-            }),
             2001 if r.payload.len() >= 18 => Some(Visual::Coil { colour: [r.float(10), r.float(11), r.float(12), r.float(13)], material: r.int(9), duration: r.float(8) }),
             // (word 10 and the pairs after it are the range each colour channel is drawn from: 0.3 to 1)
             2002 if r.payload.len() >= 19 => Some(Visual::Plasma {

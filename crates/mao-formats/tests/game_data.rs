@@ -658,3 +658,51 @@ fn water_survey() {
         println!("{:>5} {:<28} water {:?} heights {lo:.1}..{hi:.1}; {ground}", p.number, p.name.trim(), kinds);
     }
 }
+
+/// `cargo test -p mao-formats --test game_data header_survey -- --ignored --nocapture`: every playfield definition's header
+/// words and the extra header's bytes, to find the environment type `n3EngineClientAnarchy_t::PlayfieldInit` reads.
+#[test]
+#[ignore]
+fn header_survey() {
+    let Some(db) = database() else { return };
+    for p in mao_formats::playfield::all(&db) {
+        let Some(o) = db.get(Id { kind: mao_formats::playfield::KIND, instance: p.number }).ok().flatten() else { continue };
+        let head = mao_formats::texture::OBJECT_HEAD;
+        let u32_at = |o: &[u8], at: usize| o.get(at..at + 4).map(|b| u32::from_le_bytes(b.try_into().unwrap())).unwrap_or(0);
+        let version = u32_at(&o, head);
+        let tilemap = u32_at(&o, head + 0x28);
+        let word = u32_at(&o, head + 0x2c);
+        let count = u32_at(&o, head + 0x30);
+        let extra: Vec<String> = o.get(head + 0x34..head + 0x34 + 44).map(|b| b.iter().map(|x| format!("{x:02x}")).collect()).unwrap_or_default();
+        println!("{:>5} {:<28} v{version} tilemap {tilemap} word {word:#x} rooms {count} extra {}", p.number, p.name.trim(), extra.join(" "));
+    }
+}
+
+/// The suns (kind 2005) and electra (kind 2006) classes have looks of their own before the spiral the other classes built on
+/// a buff share: the commonest templates of each (307 and 113 programs) read as them.
+#[test]
+fn suns_and_electra_have_their_own_looks() {
+    let Some(game) = std::env::var_os("MAO_GAME").map(PathBuf::from) else { return };
+    let data = std::fs::read(game.join("Setupf").join("gfxtweak.bin")).unwrap();
+    let gfx = mao_formats::gfx::Gfx::parse(&data).unwrap();
+    assert!(matches!(gfx.visual(17000), Some(mao_formats::gfx::Visual::Suns(_))), "{:?}", gfx.visual(17000).map(|v| std::mem::discriminant(&v)));
+    assert!(matches!(gfx.visual(43457), Some(mao_formats::gfx::Visual::Electra { .. })));
+    assert!(matches!(gfx.visual(43768), Some(mao_formats::gfx::Visual::Suns(_))));
+}
+
+/// `cargo test -p mao-formats --test game_data environment_kind_survey -- --ignored --nocapture`: byte 0x12 of every
+/// playfield's own `EnvironmentData_t` (the sky kind `n3EngineClientAnarchy_t::PlayfieldInit` reads) and whether it has a
+/// ground tile-map.
+#[test]
+#[ignore]
+fn environment_kind_survey() {
+    let Some(db) = database() else { return };
+    for p in mao_formats::playfield::all(&db) {
+        let Some(a) = mao_formats::playfield::load_anarchy(&db, p.number) else { continue };
+        let Some(env) = a.environment else { continue };
+        let ground = db.get(Id { kind: 0xf4249, instance: p.number }).ok().flatten().and_then(|o| mao_formats::tilemap::parse_old(&o).ok()).is_some();
+        if env[18] != 0 {
+            println!("{:>5} {:<34} kind {} ground {ground} bytes 8..18 {:?}", p.number, p.name.trim(), env[18], &env[8..19]);
+        }
+    }
+}

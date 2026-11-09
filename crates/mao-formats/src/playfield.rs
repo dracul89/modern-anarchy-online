@@ -146,6 +146,55 @@ pub fn anarchy(object: &[u8]) -> Option<Anarchy> {
     Some(Anarchy { water, environment })
 }
 
+impl Anarchy {
+    /// The sky kind of the playfield's own environment data (its byte 0x12, which `n3EngineClientAnarchy_t::PlayfieldInit`
+    /// reads from `PlayfieldAnarchy_t`'s copy of it); 0 without one.
+    pub fn environment_kind(&self) -> u8 {
+        self.environment.map_or(0, |e| e[18])
+    }
+}
+
+/// The effect scripts a playfield's sky and environment come from (see [`sky_scripts`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SkyScripts {
+    /// Another playfield whose `Tweak_Playfield_<n>` is used in place of the playfield's own, when the kind says so.
+    pub playfield: Option<u32>,
+    /// `LoadPFTweakData`'s environment: 0 outdoors, 1 indoors, 2 the orbit, 3 the sand skyline, 4 the rock skyline.
+    pub environment: u32,
+}
+
+/// How the original picks a playfield's sky scripts from its environment kind ([`Anarchy::environment_kind`]) and whether
+/// its tile-map is a ground: `n3EngineClientAnarchy_t::PlayfieldInit` (Gamecode 0x10016e94) turns the kind into the
+/// environment type (`n3Playfield_t` +0xd8: on a ground 6..11 become 7..12 and the rest 0; elsewhere 1 is 3, 2 is 2, 3 is
+/// 4 and the rest 1), and FUN_100b1e95 turns that into `LoadPFTweakData`'s arguments: types 1..4 are the environments 1, 2,
+/// 4 and 3; types 10, 11 and 12 load the Omni, Neutral and Clan training grounds' scripts (950, 954, 952) outdoors; every
+/// other type the playfield's own scripts outdoors.
+pub fn sky_scripts(ground: bool, kind: u8) -> SkyScripts {
+    let environment_type = if ground {
+        match kind {
+            6..=11 => kind as u32 + 1,
+            _ => 0,
+        }
+    } else {
+        match kind {
+            1 => 3,
+            2 => 2,
+            3 => 4,
+            _ => 1,
+        }
+    };
+    match environment_type {
+        1 => SkyScripts { playfield: None, environment: 1 },
+        2 => SkyScripts { playfield: None, environment: 2 },
+        3 => SkyScripts { playfield: None, environment: 4 },
+        4 => SkyScripts { playfield: None, environment: 3 },
+        10 => SkyScripts { playfield: Some(950), environment: 0 },
+        11 => SkyScripts { playfield: Some(954), environment: 0 },
+        12 => SkyScripts { playfield: Some(952), environment: 0 },
+        _ => SkyScripts { playfield: None, environment: 0 },
+    }
+}
+
 /// [`anarchy`] of a playfield in the database.
 pub fn load_anarchy(db: &ResourceDatabase, playfield: u32) -> Option<Anarchy> {
     let object = db.get(Id { kind: KIND, instance: playfield }).ok()??;
@@ -162,4 +211,29 @@ pub fn all(db: &ResourceDatabase) -> Vec<Playfield> {
             Some(Playfield { number: id.instance, name: name(&object)? })
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_sky_scripts_follow_the_kind_and_the_ground() {
+        // the cities (kind 1 or 2 on a ground) and the Pandemoniums (14) run their own outdoor scripts
+        assert_eq!(sky_scripts(true, 1), SkyScripts { playfield: None, environment: 0 });
+        assert_eq!(sky_scripts(true, 14), SkyScripts { playfield: None, environment: 0 });
+        // a ground of kinds 9, 10 and 11 borrows a training ground's scripts
+        assert_eq!(sky_scripts(true, 9), SkyScripts { playfield: Some(950), environment: 0 });
+        assert_eq!(sky_scripts(true, 11), SkyScripts { playfield: Some(952), environment: 0 });
+        assert_eq!(sky_scripts(true, 6), SkyScripts { playfield: None, environment: 0 });
+        // interiors: the temples' kind 1 is the rock skyline, 2 the orbit, 3 the sand skyline, anything else indoors
+        assert_eq!(sky_scripts(false, 1), SkyScripts { playfield: None, environment: 4 });
+        assert_eq!(sky_scripts(false, 2), SkyScripts { playfield: None, environment: 2 });
+        assert_eq!(sky_scripts(false, 3), SkyScripts { playfield: None, environment: 3 });
+        assert_eq!(sky_scripts(false, 0), SkyScripts { playfield: None, environment: 1 });
+        let mut env = [0u8; 26];
+        env[18] = 1;
+        assert_eq!(Anarchy { water: Vec::new(), environment: Some(env) }.environment_kind(), 1);
+        assert_eq!(Anarchy { water: Vec::new(), environment: None }.environment_kind(), 0);
+    }
 }
