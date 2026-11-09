@@ -13,6 +13,12 @@
 //! * heights are stored as differences: each is the sum of those before it
 //!   down its column, then along its row (wrapping), and 8-bit heights are
 //!   scaled up to 16-bit by 256;
+//! * a world height is the stored value times the tile-map's second float
+//!   (`_GfxControl_t::GetGroundHeight` over FUN_100459f8: the 16-bit value
+//!   as it is on a 16-bit map, its top byte on an 8-bit one), so the float
+//!   is per eight-bit step on 8-bit maps and per 1/256 of one on 16-bit
+//!   maps (the coasts' 1/512, Montroyal's 1/320, Playa del Desierto's
+//!   1/1280);
 //! * a tile word's low bits (mask 0x3fff, or 0xff without tile types) index
 //!   the tile texture; its top two bits turn the texture.
 //!
@@ -56,7 +62,8 @@ pub struct Terrain {
     pub tiles: Vec<u16>,
     /// The ground texture instance of each tile index (the tile-map's list).
     pub tile_types: Vec<u16>,
-    /// World units of one eight-bit height step: the tile-map's second float (0.2 in Old Athens, 0.3 and 0.4 elsewhere).
+    /// World units of one eight-bit height step (256 units of `heights`): the tile-map's second float on an 8-bit map
+    /// (0.2 in Old Athens, 0.3 and 0.4 elsewhere), 256 times it on a 16-bit one (0.5 on the coasts).
     pub height_scale: f32,
     /// The mask for a tile word's index: 0x3fff when the ground data has
     /// tile-type data, else 0xff.
@@ -140,7 +147,11 @@ pub fn build(map: &OldTilemap) -> Result<Terrain, Error> {
         }
     }
     let has_types = ground.field("", "tile_type_data").and_then(|f| f.values.first()).is_some_and(|v| v.len() >= 2);
-    Ok(Terrain { width, height, heights, tiles, tile_types: map.tile_types.clone(), height_scale: if map.second > 0.0 { map.second } else { 0.2 }, mask: if has_types { 0x3fff } else { 0xff }, tile_size: map.tile_size })
+    // The original scales the stored value, so on a 16-bit map the float is per unit of `heights` and an eight-bit step
+    // is 256 of them (a map without patches counts as 8-bit).
+    let sixteen_bit = (0..rows * columns).all(|i| values(ground, "heightmap_small_data", i).is_some_and(|s| s.len() == 8)) && rows * columns > 0;
+    let height_scale = if map.second > 0.0 { map.second } else { 0.2 } * if sixteen_bit { 256.0 } else { 1.0 };
+    Ok(Terrain { width, height, heights, tiles, tile_types: map.tile_types.clone(), height_scale, mask: if has_types { 0x3fff } else { 0xff }, tile_size: map.tile_size })
 }
 
 impl Terrain {

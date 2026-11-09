@@ -652,11 +652,33 @@ fn water_survey() {
             .and_then(|m| mao_formats::terrain::build(&m).ok())
             .map(|t| {
                 let (a, b) = t.heights.iter().fold((u16::MAX, 0u16), |(a, b), &h| (a.min(h), b.max(h)));
-                format!("ground {:.1}..{:.1} (scale {})", a as f32 * t.height_scale, b as f32 * t.height_scale, t.height_scale)
+                format!("ground {:.1}..{:.1} (scale {})", a as f32 / 256.0 * t.height_scale, b as f32 / 256.0 * t.height_scale, t.height_scale)
             })
             .unwrap_or_else(|| "no ground".into());
         println!("{:>5} {:<28} water {:?} heights {lo:.1}..{hi:.1}; {ground}", p.number, p.name.trim(), kinds);
     }
+}
+
+/// The coasts' tile-maps store 16-bit heights, which the original scales by the second float as they are (GetGroundHeight
+/// over FUN_100459f8), so their 1/512 is 0.5 per eight-bit step and the ground reaches from the seabed to 128.
+#[test]
+fn sixteen_bit_heights_are_scaled_as_stored() {
+    let Some(db) = database() else { return };
+    let terrain = |n| db.get(Id { kind: 0xf4249, instance: n }).unwrap().and_then(|o| mao_formats::terrain::build(&mao_formats::tilemap::parse_old(&o).ok()?).ok()).unwrap();
+    for coast in [556, 656] {
+        let t = terrain(coast);
+        assert_eq!(t.height_scale, 0.5, "playfield {coast}");
+        let (lo, hi) = t.heights.iter().fold((u16::MAX, 0u16), |(a, b), &h| (a.min(h), b.max(h)));
+        assert_eq!((lo, hi), (0, u16::MAX), "playfield {coast}");
+        // the sea polygons at 8 lie over the lowest ground and under the land
+        let a = mao_formats::playfield::load_anarchy(&db, coast).unwrap();
+        let sea = a.water.iter().filter(|w| w.kind == 0).flat_map(|w| w.points.iter().map(|p| p[1])).fold(f32::MAX, f32::min);
+        assert!((sea - 8.0).abs() < 0.001, "the sea at {sea}");
+        let dry = (0..t.heights.len()).filter(|&i| t.heights[i] as f32 / 256.0 * t.height_scale > sea).count();
+        assert!(dry * 4 > t.heights.len() && dry < t.heights.len(), "playfield {coast}: {dry} of {} points above the sea", t.heights.len());
+    }
+    // an 8-bit map keeps the float as it is
+    assert_eq!(terrain(0x254).height_scale, 0.2);
 }
 
 /// `cargo test -p mao-formats --test game_data header_survey -- --ignored --nocapture`: every playfield definition's header

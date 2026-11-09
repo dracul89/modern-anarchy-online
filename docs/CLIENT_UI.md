@@ -739,8 +739,12 @@ which the scripts' `GameWaveCurve0..15` set to 0 everywhere so they never move a
 pass, whose alpha of 1 under the inverse blend contributes nothing. The textures come by name from the resource database
 (`Textures::sheet`); a missing one leaves the pass white.
 
-Not right yet: Coast of Peace's and Coast of Tranquility's tile-maps decode with a 1/512 height step (every other
-playfield's is 0.2–0.5), so their ground lies near 0 and their sea at 8 covers it; their height format is a different one.
+**Sixteen-bit tile-maps** (`terrain::build`): the original's ground height is the stored value times the tile-map's
+second float (`_GfxControl_t::GetGroundHeight` over FUN_100459f8, which gives a 16-bit map's value as it is and an 8-bit
+map's top byte), so on the maps whose patches carry 16-bit heights (the three coasts at 1/512, Montroyal 1/320, Playa del
+Desierto 1/1280, the Space Apartment and Sunrise Station 1/640) the float is per unit of the 16-bit value and `height_scale`
+(per eight-bit step) is 256 times it. Until this was read the coasts came out flat at 0 under their sea at 8; now their
+ground runs 0–128 with the sea over the seabed, the hollow pond at 14.6 and the hill lake at 62 (`shots/coast_*.png`).
 
 ## The rooms, from the original's code
 
