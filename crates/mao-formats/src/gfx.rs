@@ -231,6 +231,83 @@ impl Gfx {
     }
 }
 
+/// Kind 2011, `_GfxControlHighlight_t` (FUN_100e3365; FUN_100e2dbf the words, FUN_100e2efc the run, FUN_101085de /
+/// FUN_101086fa the colour pair): the target body's own mesh tinted. Word 0 the flags (0x400: the mesh is drawn at render
+/// priority −1 while the effect runs), word 1 the mode, word 2 the duration (mode 2: the fade), words 3–10 a colour at the start
+/// and one at the end (each alpha, red, green, blue), word 11 non-zero to hide the mesh altogether. Each frame the run sets the
+/// mesh's root frame transparency to the alpha and its emissive colour to the colour at the fraction `t`, and the same on every
+/// attractor mesh (the worn items): mode 0 `t = age / duration` (a ramp), modes 1 and 3 `t = 1 − (2 age / duration − 1)²` (a
+/// bump; mode 3 leaves the body alone and sets the items' specular too), mode 2 a ramp over the fade held until the effect is
+/// told to stop, then `(duration − age) / fade` back down (its duration is −1: it runs with its program). When it ends the
+/// frames' specular and emissive are cleared and the alpha refreshed. The data holds eleven templates: 11506 (the running
+/// effect of Dimensional Shift, Monster Cloak Nano and Umbral Fastness: mode 2, a 2 s fade to alpha 0.2 with a 0.2 grey glow),
+/// 61112 and 61110 (alpha 0 for 10 or 3 s: the body gone, in the Destruction perks' hits and the scanner's sequence), 61111
+/// (a 4.5 s fade back in after 61110), and 11500–11508 under bundles no program names.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Highlight {
+    pub flags: u32,
+    pub mode: i32,
+    /// Seconds: the ramp or bump's length, or mode 2's fade in and out.
+    pub duration: f32,
+    /// Alpha, red, green, blue at the start and at the end of the run.
+    pub start: [f32; 4],
+    pub end: [f32; 4],
+    pub hide: bool,
+}
+
+impl Highlight {
+    pub fn read(r: &Record) -> Option<Highlight> {
+        if r.payload.len() < 12 {
+            return None;
+        }
+        Some(Highlight {
+            flags: r.int(0) as u32,
+            mode: r.int(1),
+            duration: r.float(2),
+            start: [r.float(3), r.float(4), r.float(5), r.float(6)],
+            end: [r.float(7), r.float(8), r.float(9), r.float(10)],
+            hide: r.int(11) != 0,
+        })
+    }
+
+    /// Whether the run holds until its program ends (mode 2) rather than playing once over its duration.
+    pub fn sustained(&self) -> bool {
+        self.mode == 2
+    }
+
+    /// The tint `age` seconds in (alpha, red, green, blue: the transparency and the emissive colour FUN_100e2efc sets), or
+    /// none once the run is over. `stopped` is the age at which a sustained run was told to stop (FUN_100e2d91: the duration
+    /// becomes that age plus the fade). The body is left alone in mode 3 (only its items are tinted): `items_only`.
+    pub fn at(&self, age: f32, stopped: Option<f32>) -> Option<[f32; 4]> {
+        let d = self.duration.max(1.0e-3);
+        let t = match self.mode {
+            2 => match stopped {
+                None => (age / d).min(1.0),
+                Some(s) => {
+                    let left = (s + d - age) / d;
+                    if left < 0.0 {
+                        return None;
+                    }
+                    left
+                }
+            },
+            _ if age > self.duration || age < 0.0 => return None,
+            0 => age / d,
+            1 | 3 => {
+                let x = 2.0 * age / d - 1.0;
+                1.0 - x * x
+            }
+            _ => 0.0,
+        };
+        let tint = [0, 1, 2, 3].map(|k| self.start[k] + t * (self.end[k] - self.start[k]));
+        Some(if self.hide { [0.0, tint[1], tint[2], tint[3]] } else { tint })
+    }
+
+    pub fn items_only(&self) -> bool {
+        self.mode == 3
+    }
+}
+
 /// One of the two spirals of a running buff's aura (a kind-1002 template).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Helix {
@@ -2134,6 +2211,8 @@ pub enum Visual {
     CrazyCone(CrazyCone),
     /// Ribbons spiralling round the point, turning (kind 3033, `GfxControlSpiral2_t`).
     Spiral2(Spiral2),
+    /// The target's own mesh made translucent and glowing by a colour pair over its run (kind 2011, `_GfxControlHighlight_t`).
+    Highlight(Highlight),
     /// Flames off a disc at the point (kind 1004, `_GfxControlFire_t`).
     Fire(Fire),
     /// A grid laid on the ground round the point (kind 3030, `GfxControlGroundGrid_t`).
@@ -2158,7 +2237,8 @@ pub enum Visual {
     /// flag 0x2000 only as the body's vehicle starts to move forward; with 0x8000 it is stopped when the vehicle stops; with
     /// 0x400 the toggle waits for the next start once the child has ended.
     Toggle { child: Box<Visual>, flags: u32, mask: u32, places: Vec<i32> },
-    /// A child started `start` seconds into its parent's run (a resolved `Toggle`: see the client's `resolve_toggles`).
+    /// A child started `start` seconds into its parent's run (a resolved `Toggle`, see the client's `resolve_toggles`; or a
+    /// sequencer's entry, kind 3004).
     Delayed(Box<Visual>, f32),
     /// Rings spreading over the ground one after another and cones of light rising with them (kind 3000,
     /// `_GfxControlShockWave_t`).
@@ -2205,7 +2285,8 @@ pub enum Visual {
 
 impl Gfx {
     /// The look of an effect id. A bundle (kind 2007: up to ten children in its first words) shows every child that has a look
-    /// ([`Visual::Meta`]); a wrapper (kind 3004: its second word is a mode and its third the child) its first child that has one.
+    /// ([`Visual::Meta`]); a sequencer (kind 3004, `_GfxControlSequencer_t`: word 1 entries of child, start and end from word 2)
+    /// every child that has one, each later than the first second delayed by its start ([`Visual::Delayed`]).
     pub fn visual(&self, id: i32) -> Option<Visual> {
         let r = self.get(id)?;
         match r.kind {
@@ -2279,7 +2360,29 @@ impl Gfx {
                     _ => Some(Visual::Meta(looks)),
                 }
             }
-            3004 => self.references(id).into_iter().filter(|&c| c != id).find_map(|c| self.visual(c)),
+            // (a sequencer: word 1 entries of (child, start, end) from word 2; each child is made `start` seconds in and, with an end
+            // above 0, given `end − start` as its duration, which is not applied here; flag 0x400 starts the round again once every
+            // child has ended, flag 0x800 runs on without the dynel)
+            3004 => {
+                let count = r.int(1).clamp(0, 64) as usize;
+                let mut looks: Vec<Visual> = (0..count)
+                    .filter(|k| 4 + 3 * k < r.payload.len())
+                    .filter_map(|k| {
+                        let child = r.int(2 + 3 * k);
+                        if child == id {
+                            return None;
+                        }
+                        let start = r.float(3 + 3 * k);
+                        let look = self.visual(child)?;
+                        Some(if start > 0.0 { Visual::Delayed(Box::new(look), start) } else { look })
+                    })
+                    .collect();
+                match looks.len() {
+                    0 => None,
+                    1 => looks.pop(),
+                    _ => Some(Visual::Meta(looks)),
+                }
+            }
             3029 if r.payload.len() >= 11 && r.int(10) != id => {
                 let child = self.visual(r.int(10))?;
                 let (flags, place, timing, count) = (r.int(0) as u32, r.int(4), r.int(5), r.int(6).clamp(0, 64));
@@ -2323,6 +2426,7 @@ impl Gfx {
             3020 => TParticle::read(r).map(Visual::TParticle),
             3006 => SkyFlash::read(r).map(Visual::SkyFlash),
             3009 => CrazyCone::read(r).map(Visual::CrazyCone),
+            2011 => Highlight::read(r).map(Visual::Highlight),
             3033 => Spiral2::read(r).map(Visual::Spiral2),
             1004 => Fire::read(r).map(Visual::Fire),
             3030 => GroundGrid::read(r).map(Visual::GroundGrid),
@@ -2531,5 +2635,54 @@ mod tests {
         assert_eq!((aura.period, aura.plays, aura.helices[0].attach, aura.helices[0].offset, aura.helices[0].radius, aura.helices[0].life), (4.0, -1, 0, 0.0, 0.15, 1.5));
         assert_eq!(aura.helices[0].fit(1, 2, 1), (0.0, 0.15));
         assert!(gfx.aura(20011).is_none());
+    }
+
+    #[test]
+    fn a_highlight_tints_the_body_by_its_mode() {
+        let f = |x: f32| x.to_bits() as i32;
+        // (template 11506: mode 2, a 2 s fade from alpha 1 to 0.2 with a 0.2 grey glow)
+        let r = Record { id: 11506, kind: 2011, payload: vec![3, 2, f(2.0), f(1.0), 0, 0, 0, f(0.2), f(0.2), f(0.2), f(0.2), 0] };
+        let h = Highlight::read(&r).unwrap();
+        assert!(h.sustained() && !h.hide && !h.items_only());
+        assert_eq!(h.at(0.0, None), Some([1.0, 0.0, 0.0, 0.0]));
+        let half = h.at(1.0, None).unwrap();
+        assert!((half[0] - 0.6).abs() < 1e-6 && (half[1] - 0.1).abs() < 1e-6);
+        // held once the fade is over, then back up after a stop
+        assert!((h.at(30.0, None).unwrap()[0] - 0.2).abs() < 1e-6);
+        let up = h.at(31.0, Some(30.0)).unwrap();
+        assert!((up[0] - 0.6).abs() < 1e-6);
+        assert_eq!(h.at(32.5, Some(30.0)), None);
+        // mode 0 ramps over its duration and ends; mode 1 bumps
+        let ramp = Highlight { mode: 0, duration: 4.5, start: [0.0; 4], end: [1.0, 0.0, 0.0, 0.0], ..h.clone() };
+        assert!((ramp.at(1.5, None).unwrap()[0] - 1.0 / 3.0).abs() < 1e-6);
+        assert_eq!(ramp.at(4.6, None), None);
+        let bump = Highlight { mode: 1, duration: 1.0, ..ramp.clone() };
+        assert_eq!(bump.at(0.5, None).map(|t| t[0]), Some(1.0));
+        assert!(bump.at(0.0, None).unwrap()[0].abs() < 1e-6);
+        // a hidden body: alpha 0 whatever the colours say
+        assert_eq!(Highlight { hide: true, ..ramp.clone() }.at(2.0, None).map(|t| t[0]), Some(0.0));
+        assert!(Highlight::read(&Record { id: 1, kind: 2011, payload: vec![0; 11] }).is_none());
+    }
+
+    #[test]
+    fn a_sequencer_delays_its_later_children() {
+        let f = |x: f32| x.to_bits() as i32;
+        let one = |id, mode, duration| Record { id, kind: 2011, payload: vec![3, mode, f(duration), 0, 0, 0, 0, f(1.0), 0, 0, 0, 0] };
+        // (the scanner's sequence: the body gone for 3 s, then fading back in over 4.5 s)
+        let seq = Record { id: 61090, kind: 3004, payload: vec![0, 2, 61110, f(0.0), f(-1.0), 61111, f(3.0), f(-1.0)] };
+        let mut gfx = Gfx::default();
+        for r in [one(61110, 0, 3.0), one(61111, 0, 4.5), seq] {
+            gfx.by_id.insert(r.id, gfx.records.len());
+            gfx.records.push(r);
+        }
+        let Some(Visual::Meta(children)) = gfx.visual(61090) else { panic!("not a bundle") };
+        assert_eq!(children.len(), 2);
+        assert!(matches!(&children[0], Visual::Highlight(h) if h.duration == 3.0));
+        assert!(matches!(&children[1], Visual::Delayed(child, start) if *start == 3.0 && matches!(**child, Visual::Highlight(ref h) if h.duration == 4.5)));
+        // one entry alone is given as itself
+        let lone = Record { id: 25004, kind: 3004, payload: vec![0x400, 1, 61110, f(0.0), f(-1.0)] };
+        gfx.by_id.insert(lone.id, gfx.records.len());
+        gfx.records.push(lone);
+        assert!(matches!(gfx.visual(25004), Some(Visual::Highlight(_))));
     }
 }

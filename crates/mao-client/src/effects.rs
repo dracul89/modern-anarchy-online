@@ -1013,6 +1013,7 @@ pub fn visual_trails(v: &Visual, at: Locator, t: f32, attractors: &dyn Fn(i32) -
         Visual::Trail2(trail) if trail.attach == 0 => vec![(trail.clone(), at, t)],
         Visual::Trail2(trail) => attractors(trail.attach).map(|place| (trail.clone(), place, t)).into_iter().collect(),
         Visual::Meta(children) => children.iter().filter(|c| t < pulse_timing(c).1).flat_map(|c| visual_trails(c, at, t, attractors)).collect(),
+        Visual::Delayed(child, start) => if t >= *start && t - start < pulse_timing(child).1 { visual_trails(child, at, t - start, attractors) } else { Vec::new() },
         Visual::Scatter { child, children, looping } => {
             let life = pulse_timing(child).1.max(0.05);
             let round = children.iter().map(|c| c.0).fold(0.0, f32::max) + life;
@@ -1033,6 +1034,7 @@ pub fn visual_rocks(v: &Visual, feet: [f32; 3], t: f32) -> Vec<(VulcanRocks, [f3
     match v {
         Visual::VulcanRocks(r) if r.attach == 0 => vec![(r.clone(), feet, t)],
         Visual::Meta(children) => children.iter().filter(|c| t < pulse_timing(c).1).flat_map(|c| visual_rocks(c, feet, t)).collect(),
+        Visual::Delayed(child, start) => if t >= *start && t - start < pulse_timing(child).1 { visual_rocks(child, feet, t - start) } else { Vec::new() },
         Visual::Scatter { child, children, looping } => {
             let life = pulse_timing(child).1.max(0.05);
             let round = children.iter().map(|c| c.0).fold(0.0, f32::max) + life;
@@ -1043,6 +1045,18 @@ pub fn visual_rocks(v: &Visual, feet: [f32; 3], t: f32) -> Vec<(VulcanRocks, [f3
                 .flat_map(|(born, at)| visual_rocks(child, [feet[0] + at[0], feet[1] + at[1], feet[2] + at[2]], t - born))
                 .collect()
         }
+        _ => Vec::new(),
+    }
+}
+
+/// The highlights a visual runs `t` seconds in, each with its own age: itself, or a bundle's children's (a sequencer's later
+/// children from their starts). The original's run sets the body's frame from each in turn, so the last one listed is the one
+/// seen when several run at once.
+pub fn visual_highlights(v: &Visual, t: f32) -> Vec<(&mao_formats::gfx::Highlight, f32)> {
+    match v {
+        Visual::Highlight(h) => vec![(h, t)],
+        Visual::Meta(children) => children.iter().filter(|c| t < pulse_timing(c).1).flat_map(|c| visual_highlights(c, t)).collect(),
+        Visual::Delayed(child, start) => if t >= *start && t - start < pulse_timing(child).1 { visual_highlights(child, t - start) } else { Vec::new() },
         _ => Vec::new(),
     }
 }
@@ -1770,6 +1784,7 @@ pub fn visual_ground_shells(v: &Visual, feet: [f32; 3], t: f32, ground: &dyn Fn(
         Visual::CrazyCone(c) => crazycone_shells(c, [feet[0], feet[1], feet[2] + if c.attach == 0 { 0.0 } else { anchor(c.attach).0 }], t, ground),
         Visual::TParticle(p) => tparticle_shells(p, [feet[0], feet[1], feet[2] + if p.attach == 0 { 0.0 } else { anchor(p.attach).0 }], t),
         Visual::Meta(children) => children.iter().filter(|c| t < pulse_timing(c).1).flat_map(|c| visual_ground_shells(c, feet, t, ground)).collect(),
+        Visual::Delayed(child, start) => if t >= *start && t - start < pulse_timing(child).1 { visual_ground_shells(child, feet, t - start, ground) } else { Vec::new() },
         Visual::Scatter { child, children, looping } => {
             let life = pulse_timing(child).1.max(0.05);
             let round = children.iter().map(|c| c.0).fold(0.0, f32::max) + life;
@@ -1792,6 +1807,7 @@ pub fn visual_meshes(v: &Visual, at: Locator, t: f32, attractors: &dyn Fn(i32) -
         Visual::EffectMesh(m) if m.attach == 0 => vec![(m.clone(), at, t)],
         Visual::EffectMesh(m) => attractors(m.attach).map(|place| (m.clone(), place, t)).into_iter().collect(),
         Visual::Meta(children) => children.iter().filter(|c| t < pulse_timing(c).1).flat_map(|c| visual_meshes(c, at, t, attractors)).collect(),
+        Visual::Delayed(child, start) => if t >= *start && t - start < pulse_timing(child).1 { visual_meshes(child, at, t - start, attractors) } else { Vec::new() },
         Visual::Scatter { child, children, looping } => {
             let life = pulse_timing(child).1.max(0.05);
             let round = children.iter().map(|c| c.0).fold(0.0, f32::max) + life;
@@ -1949,6 +1965,7 @@ pub fn visual_shells(v: &Visual, surface: &crate::blobshadow::Surface, origin: [
             children.iter().filter(|(born, _)| t >= *born && t - born < life).flat_map(|(born, _)| visual_shells(child, surface, origin, t - born)).collect()
         }
         Visual::Meta(children) => children.iter().filter(|c| t < pulse_timing(c).1).flat_map(|c| visual_shells(c, surface, origin, t)).collect(),
+        Visual::Delayed(child, start) => if t >= *start && t - start < pulse_timing(child).1 { visual_shells(child, surface, origin, t - start) } else { Vec::new() },
         _ => Vec::new(),
     }
 }
@@ -2711,6 +2728,7 @@ pub fn visual_tracers(v: &Visual) -> Vec<&Tracer5> {
     match v {
         Visual::Tracer5(t) => vec![t],
         Visual::Meta(children) => children.iter().flat_map(visual_tracers).collect(),
+        Visual::Delayed(child, _) => visual_tracers(child),
         _ => Vec::new(),
     }
 }
@@ -2720,6 +2738,7 @@ pub fn visual_tracer1s(v: &Visual) -> Vec<&Tracer1> {
     match v {
         Visual::Tracer1(t) => vec![t],
         Visual::Meta(children) => children.iter().flat_map(visual_tracer1s).collect(),
+        Visual::Delayed(child, _) => visual_tracer1s(child),
         _ => Vec::new(),
     }
 }
@@ -2990,6 +3009,8 @@ pub fn visual_particles(v: &Visual, feet: [f32; 3], time: f32, reach: Reach) -> 
         }
         // (drawn as a shell over the character's mesh: see `shield_shell`, `shield2_shell`)
         Visual::Shield(_) | Visual::Shield2(_) => Vec::new(),
+        // (tints the target's own mesh instead: see `visual_highlights`)
+        Visual::Highlight(_) => Vec::new(),
         // (drawn as shells of its mesh: see `effect_mesh_shells`; its rings and cones: `shockwave_shells`)
         Visual::EffectMesh(_) | Visual::ShockWave(_) => Vec::new(),
         // (a trail keeps its samples: see `TrailState`; rocks are meshes: `vulcan_rocks`)
@@ -3188,6 +3209,8 @@ pub fn pulse_timing(v: &Visual) -> (f32, f32, i32) {
         // once only when every child does)
         // (a toggle runs while its effect does; a resolved one's life counts from its start)
         Visual::Toggle { .. } => (600.0, 600.0, -1),
+        // (a sustained highlight runs with its program; the others play once over their duration)
+        Visual::Highlight(h) => if h.sustained() { (600.0, 600.0, -1) } else { (600.0, h.duration.max(0.05), 1) },
         Visual::Delayed(child, start) => {
             let (period, life, plays) = pulse_timing(child);
             (period, life + start, plays)
@@ -3261,6 +3284,22 @@ pub fn emitter_particles(e: &Emitter, origin: [f32; 3], age: f32, active: f32) -
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_sequencer_s_highlights_come_with_their_own_ages() {
+        let h = |duration| mao_formats::gfx::Highlight { flags: 3, mode: 0, duration, start: [0.0; 4], end: [1.0, 0.0, 0.0, 0.0], hide: false };
+        // (the scanner's sequence: 61110 for 3 s, then 61111 from 3 s on)
+        let v = Visual::Meta(vec![Visual::Highlight(h(3.0)), Visual::Delayed(Box::new(Visual::Highlight(h(4.5))), 3.0)]);
+        let early = visual_highlights(&v, 1.0);
+        assert_eq!(early.len(), 1);
+        assert_eq!((early[0].0.duration, early[0].1), (3.0, 1.0));
+        let late = visual_highlights(&v, 4.5);
+        assert_eq!(late.len(), 1);
+        assert_eq!((late[0].0.duration, late[0].1), (4.5, 1.5));
+        assert!(visual_highlights(&v, 8.0).is_empty());
+        assert_eq!(pulse_timing(&v).1, 7.5);
+        assert_eq!(pulse_timing(&Visual::Highlight(mao_formats::gfx::Highlight { mode: 2, ..h(2.0) })), (600.0, 600.0, -1));
+    }
 
     #[test]
     fn stars_mode_17_is_a_turning_spoke_and_modes_16_and_18_stand_in_a_sphere() {

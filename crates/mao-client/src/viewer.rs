@@ -116,6 +116,8 @@ pub struct Update {
     pub own_velocity: [f32; 3],
     /// The characters' meshes, for their blob shadows (`blobshadow.rs`).
     pub casters: Vec<crate::blobshadow::Caster>,
+    /// Which of `model`'s parts are which character's (by entity id), for the effects that tint a body (`Scene::set_tints`).
+    pub character_parts: Vec<(u32, std::ops::Range<usize>)>,
     /// New cells of the map (fog of war), and the people about (for its dots).
     pub map: Option<crate::automap::MapPatch>,
     /// The character's name and stats, when they change.
@@ -340,6 +342,11 @@ pub fn headless_on(model: &Model, textures: &Textures, out: &str, ui: Option<(&H
                 scene.shells.extend(crate::effects::effect_mesh_shells(&m, &model, &|k, i| sheets.get(&(k, i)).copied().unwrap_or(mao_render::NO_SPRITE), &at, Some(eye), t));
             }
             scene.shells.extend(crate::effects::visual_ground_shells(&visual, feet, time, &|_, _| None));
+            // (a highlight tints the body itself: every part of the picture's model here)
+            if let Some([a, r, g, b]) = crate::effects::visual_highlights(&visual, time).last().and_then(|(h, t)| h.at(*t, None)) {
+                eprintln!("aura: highlight alpha {a:.2}, glow {:.2?}", [r, g, b]);
+                scene.tint_all(&gpu, [r, g, b, a]);
+            }
             // (its rocks, over a level ground at the feet)
             for (r, from, t) in crate::effects::visual_rocks(&visual, feet, time) {
                 for rock in crate::effects::vulcan_rocks(&r, from, t, 7, &|_, _| None) {
@@ -571,6 +578,12 @@ struct App {
     attractor_at: std::time::Instant,
     /// The characters' meshes from the last update, and how far the own one has been moved on since.
     casters: Vec<crate::blobshadow::Caster>,
+    character_parts: Vec<(u32, std::ops::Range<usize>)>,
+    /// The sustained highlights seen running (by character, program and place in its visual): the highlight, its age and the
+    /// frame time it was last seen, and whether it is on the player's own character; one no longer listed fades back out
+    /// in `highlight_fades` (the highlight, its age when it stopped, the time then, and the own flag).
+    highlight_runs: std::collections::HashMap<(u32, u32, usize), (mao_formats::gfx::Highlight, f32, f32, bool)>,
+    highlight_fades: std::collections::HashMap<(u32, u32, usize), (mao_formats::gfx::Highlight, f32, f32, bool)>,
     follow_shift: [f32; 3],
     /// The area's environment where the character stands, and the day's intensity (from the last update).
     environment: crate::environment::Environment,
@@ -641,7 +654,7 @@ pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<()
     let settings = Settings::load();
     crate::ui::set_debug_overlay(settings.debug_overlay);
     crate::font::set_enabled(settings.original_font);
-    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, world_in: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), flares: Vec::new(), sky: Default::default(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), fxs_frame: None, script_meshes: Default::default(), named_sheets: Default::default(), trails: Default::default(), motions: Default::default(), shake: (0.0, 0), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, zones: None, interior: None, rooms_shown: Vec::new(), room_hint: None, attractor_at: std::time::Instant::now(), casters: Vec::new(), follow_shift: [0.0; 3], environment: Default::default(), quake: Default::default(), quake_offset: [0.0; 3], wind: Default::default(), wind_at: std::time::Instant::now(), perf_memory_at: std::time::Instant::now() - std::time::Duration::from_secs(10), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
+    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, world_in: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), flares: Vec::new(), sky: Default::default(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), fxs_frame: None, script_meshes: Default::default(), named_sheets: Default::default(), trails: Default::default(), motions: Default::default(), shake: (0.0, 0), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, zones: None, interior: None, rooms_shown: Vec::new(), room_hint: None, attractor_at: std::time::Instant::now(), casters: Vec::new(), character_parts: Vec::new(), highlight_runs: Default::default(), highlight_fades: Default::default(), follow_shift: [0.0; 3], environment: Default::default(), quake: Default::default(), quake_offset: [0.0; 3], wind: Default::default(), wind_at: std::time::Instant::now(), perf_memory_at: std::time::Instant::now() - std::time::Duration::from_secs(10), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
     // (entering the game: the loading screen, `ServerLogin3DModule_t::InitialiseMessage`)
     if app.live.is_some() {
         crate::loading::begin(crate::loading::FADE_IN, crate::loading::FADE_OUT);
@@ -1530,6 +1543,7 @@ impl ApplicationHandler for App {
                         w.renderer.reupload_follow(&w.gpu, &mut w.scene, &update.own_model, &mut |k, i| self.textures.get_for_upload(k, i));
                         crate::prof::add("upload-own", own_started.elapsed());
                         self.casters = std::mem::take(&mut update.casters);
+                        self.character_parts = std::mem::take(&mut update.character_parts);
                         // (a playfield entered, the first one too: the original makes a new camera behind the character)
                         if let (true, Some(p)) = (update.scene.is_some(), update.own) {
                             self.steering.create(p, self.heading);
@@ -1696,6 +1710,9 @@ impl ApplicationHandler for App {
                         [e.x, e.y, e.z]
                     };
                     let mut shaking = 0.0f32;
+                    // (the highlight effects' tints on the bodies this frame: by character, the tint, whether it is the player's own
+                    // and whether only its items are tinted)
+                    let mut tints: std::collections::HashMap<u32, ([f32; 4], bool, bool)> = std::collections::HashMap::new();
                     let terrain = self.ground.clone();
                     let ground = |x: f32, y: f32| terrain.as_ref().map(|(t, o)| t.height_at(x, y, t.height_scale) + o);
                     for (id, own, at, heading, body, auras) in &self.auras {
@@ -1749,10 +1766,49 @@ impl ApplicationHandler for App {
                                     shells.extend(state.shells(&trail));
                                 }
                                 sparks.extend(crate::effects::pulse_particles(aura, feet, heading, age, *body));
+                                // (a highlight tints the body itself: the last one running on it is the one seen, as the original's
+                                // controls set the frame in turn; a sustained one is remembered for its fade-out)
+                                for (k, (h, local)) in crate::effects::visual_highlights(aura, age).into_iter().enumerate() {
+                                    if h.sustained() {
+                                        self.highlight_runs.insert((*id, *nano, k), (h.clone(), local, time, *own));
+                                        self.highlight_fades.remove(&(*id, *nano, k));
+                                    }
+                                    if let Some([a, r, g, b]) = h.at(local, None) {
+                                        tints.insert(*id, ([r, g, b, a], *own, h.items_only()));
+                                    }
+                                }
                             }
                         }
                     }
                     self.pulses.end_frame();
+                    // (a sustained highlight whose program has gone is told to stop: FUN_100e2d91 sets the duration to its age plus
+                    // the fade, and the run then fades the body back over it)
+                    let stale: Vec<_> = self.highlight_runs.iter().filter(|(_, r)| r.2 != time).map(|(k, r)| (*k, r.clone())).collect();
+                    for (key, (h, age, _, own)) in stale {
+                        self.highlight_runs.remove(&key);
+                        self.highlight_fades.insert(key, (h, age, time, own));
+                    }
+                    self.highlight_fades.retain(|&(id, _, _), (h, stop_age, stopped_at, own)| match h.at(*stop_age + (time - *stopped_at), Some(*stop_age)) {
+                        Some([a, r, g, b]) => {
+                            tints.entry(id).or_insert(([r, g, b, a], *own, h.items_only()));
+                            true
+                        }
+                        None => false,
+                    });
+                    // (mode 3 tints the worn items alone, which the parts do not tell apart: not drawn)
+                    let mut overlay_tints: Vec<(std::ops::Range<usize>, [f32; 4])> = Vec::new();
+                    let mut follow_tint = None;
+                    for (id, (tint, own, items_only)) in &tints {
+                        if *items_only {
+                            continue;
+                        }
+                        if *own {
+                            follow_tint = Some(*tint);
+                        } else {
+                            overlay_tints.extend(self.character_parts.iter().filter(|(c, _)| c == id).map(|(_, r)| (r.clone(), *tint)));
+                        }
+                    }
+                    w.scene.set_tints(&w.gpu, &overlay_tints, follow_tint);
                     self.shake.0 = shaking;
                     // (a trail that did not run this frame has ended)
                     self.trails.retain(|_, (_, ran)| std::mem::take(ran));

@@ -104,7 +104,13 @@ struct PartUniform {
     /// Where the part was the last frame, and x: 1 when it animates in ways the matrices don't show (the motion buffer).
     previous_model: [f32; 16],
     motion: [f32; 4],
+    /// rgb: an emissive colour added to the part's lighting; a: its alpha (under 1 it is drawn blended after the opaque
+    /// parts, at 0 not at all). A character under a highlight effect; otherwise [`NO_TINT`].
+    tint: [f32; 4],
 }
+
+/// No emissive colour, opaque.
+const NO_TINT: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
 
 struct GpuPart {
     vertices: wgpu::Buffer,
@@ -449,6 +455,35 @@ impl Scene {
             part.shift = delta;
         }
     }
+
+    /// Tints the characters (the original's `_GfxControlHighlight_t` on their meshes): each overlay part whose model part lies in
+    /// a range gets that tint (rgb an emissive colour, a the alpha), the followers (the player's own character) `follow`'s, and
+    /// every other overlay or follower part none. Only the tints that changed are written.
+    pub fn set_tints(&mut self, gpu: &Gpu, overlay: &[(std::ops::Range<usize>, [f32; 4])], follow: Option<[f32; 4]>) {
+        for part in &mut self.overlay {
+            let tint = overlay.iter().find(|(range, _)| range.contains(&part.source)).map_or(NO_TINT, |(_, t)| *t);
+            Scene::write_tint(gpu, part, tint);
+        }
+        for part in &mut self.follow {
+            Scene::write_tint(gpu, part, follow.unwrap_or(NO_TINT));
+        }
+    }
+
+    /// Tints every part of the scene (a headless picture of one body under a highlight).
+    pub fn tint_all(&mut self, gpu: &Gpu, tint: [f32; 4]) {
+        for part in &mut self.parts {
+            Scene::write_tint(gpu, part, tint);
+        }
+    }
+
+    fn write_tint(gpu: &Gpu, part: &mut GpuPart, tint: [f32; 4]) {
+        if part.uniform.tint == tint {
+            return;
+        }
+        part.uniform.tint = tint;
+        // (the tint alone: the buffer may hold a shifted model matrix the uniform here does not, see `move_follow`)
+        gpu.queue.write_buffer(&part.uniform_buffer, std::mem::offset_of!(PartUniform, tint) as u64, bytemuck::bytes_of(&tint));
+    }
 }
 
 /// An orbiting camera looking at a point, Z up.
@@ -606,6 +641,8 @@ const HISTORY: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 /// as a second target (temporal anti-aliasing: the meshes write their motion, the rest leave it as it is).
 struct ScenePipelines {
     mesh: wgpu::RenderPipeline,
+    /// The mesh pipeline blending by the fragment's alpha: the tinted character parts under full alpha.
+    mesh_blend: wgpu::RenderPipeline,
     sky: wgpu::RenderPipeline,
     water: wgpu::RenderPipeline,
     /// The liquid surfaces: blended by their alpha, and the ripple passes blended the other way round (`1 - a` of the
@@ -648,6 +685,25 @@ impl ScenePipelines {
             depth_stencil: depth(true, wgpu::CompareFunction::Less, Default::default()),
             multisample,
             fragment: Some(wgpu::FragmentState { module: shader, entry_point: Some(if motion { "fs_main_motion" } else { "fs_main" }), compilation_options: Default::default(), targets: &mesh_targets }),
+            multiview_mask: None,
+            cache: None,
+        });
+        // The same for a translucent part (a highlighted character): blended by its alpha, writing depth as Direct3D's
+        // `SetTransparency` did.
+        let blend_targets = targets(Some(wgpu::BlendState::ALPHA_BLENDING), true);
+        let mesh_blend = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("mesh blend"),
+            layout: Some(&shaders.mesh_layout),
+            vertex: wgpu::VertexState {
+                module: shader,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &[Some(wgpu::VertexBufferLayout { array_stride: std::mem::size_of::<GpuVertex>() as u64, step_mode: wgpu::VertexStepMode::Vertex, attributes: &attributes })],
+            },
+            primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleList, cull_mode: None, ..Default::default() },
+            depth_stencil: depth(true, wgpu::CompareFunction::Less, Default::default()),
+            multisample,
+            fragment: Some(wgpu::FragmentState { module: shader, entry_point: Some(if motion { "fs_main_motion" } else { "fs_main" }), compilation_options: Default::default(), targets: &blend_targets }),
             multiview_mask: None,
             cache: None,
         });
@@ -781,7 +837,7 @@ impl ScenePipelines {
             shell_like("vs_backdrop", "fs_shell_blend", Some(wgpu::BlendState::ALPHA_BLENDING), wgpu::CompareFunction::Always),
             shell_like("vs_backdrop", "fs_shell_add", Some(wgpu::BlendState { color: additive, alpha: additive }), wgpu::CompareFunction::Always),
         ];
-        ScenePipelines { mesh, sky, water, liquid, liquid_inverse, blob, particle, shell_add, shell_blend, backdrops }
+        ScenePipelines { mesh, mesh_blend, sky, water, liquid, liquid_inverse, blob, particle, shell_add, shell_blend, backdrops }
     }
 }
 
@@ -1281,7 +1337,7 @@ impl Renderer {
             let (center, radius) = ((wlo + whi) * 0.5, (whi - wlo).length() * 0.5);
             let d = part.material.diffuse;
             let material = &part.material;
-            let uniform = PartUniform { model: world, colour: [d[0], d[1], d[2], 1.0], flags: [view.is_some() as u32 as f32, (material.ignore_alpha as u32 + material.alpha_lights as u32) as f32, material.foliage as u32 as f32, height], previous_model: world, motion: [0.0; 4] };
+            let uniform = PartUniform { model: world, colour: [d[0], d[1], d[2], 1.0], flags: [view.is_some() as u32 as f32, (material.ignore_alpha as u32 + material.alpha_lights as u32) as f32, material.foliage as u32 as f32, height], previous_model: world, motion: [0.0; 4], tint: NO_TINT };
             let (vertex_bytes, index_bytes): (&[u8], &[u8]) = (bytemuck::cast_slice(&vertices), bytemuck::cast_slice(&indices));
             let reused = pool.get_mut(&(vertex_bytes.len() as u64, index_bytes.len() as u64, key)).and_then(Vec::pop);
             let (vb, ib, ub, bind) = match reused {
@@ -1410,7 +1466,7 @@ impl Renderer {
                     let (center, radius) = ((wlo + whi) * 0.5, (whi - wlo).length() * 0.5);
                     let d = model.parts[index].material.diffuse;
                     let material = &model.parts[index].material;
-                    let uniform = PartUniform { model: world, colour: [d[0], d[1], d[2], 1.0], flags: [view.is_some() as u32 as f32, (material.ignore_alpha as u32 + material.alpha_lights as u32) as f32, material.foliage as u32 as f32, *height], previous_model: world, motion: [0.0; 4] };
+                    let uniform = PartUniform { model: world, colour: [d[0], d[1], d[2], 1.0], flags: [view.is_some() as u32 as f32, (material.ignore_alpha as u32 + material.alpha_lights as u32) as f32, material.foliage as u32 as f32, *height], previous_model: world, motion: [0.0; 4], tint: NO_TINT };
                     let ub = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: bytemuck::bytes_of(&uniform), usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST });
                     let bind = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
                         label: None,
@@ -1885,6 +1941,9 @@ impl Renderer {
             pass.set_pipeline(&pipes.mesh);
             pass.set_bind_group(0, &globals_bind, &[]);
             pass.set_bind_group(2, &self.shadow_bind, &[]);
+            // (the parts under a translucent tint, a highlighted character's: drawn blended after the opaque parts; at alpha 0 not
+            // at all. The opaque pipeline writes the fragment's alpha to the target, so a tinted part must not go through it.)
+            let mut translucent: Vec<&GpuPart> = Vec::new();
             for (k, part) in scene.parts.iter().enumerate().chain(scene.overlay.iter().chain(&scene.follow).map(|p| (usize::MAX, p))) {
                 parts += 1;
                 if k != usize::MAX && !lod_draw[k] {
@@ -1894,11 +1953,27 @@ impl Renderer {
                 if !sphere_visible(&planes, part.center + part.shift, part.radius + 2.0) {
                     continue;
                 }
+                if part.uniform.tint[3] < 1.0 {
+                    if part.uniform.tint[3] > 0.0 {
+                        translucent.push(part);
+                    }
+                    continue;
+                }
                 drawn += 1;
                 pass.set_bind_group(1, &part.bind, &[]);
                 pass.set_vertex_buffer(0, part.vertices.slice(..));
                 pass.set_index_buffer(part.indices.slice(..), wgpu::IndexFormat::Uint16);
                 pass.draw_indexed(0..part.index_count, 0, 0..1);
+            }
+            if !translucent.is_empty() {
+                pass.set_pipeline(&pipes.mesh_blend);
+                for part in translucent {
+                    drawn += 1;
+                    pass.set_bind_group(1, &part.bind, &[]);
+                    pass.set_vertex_buffer(0, part.vertices.slice(..));
+                    pass.set_index_buffer(part.indices.slice(..), wgpu::IndexFormat::Uint16);
+                    pass.draw_indexed(0..part.index_count, 0, 0..1);
+                }
             }
             if !scene.blobs.is_empty() {
                 let buffer = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("blobs"), contents: bytemuck::cast_slice(&scene.blobs), usage: wgpu::BufferUsages::VERTEX });

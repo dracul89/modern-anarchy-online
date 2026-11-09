@@ -3679,12 +3679,14 @@ fn is_grid(areas: &[mao_formats::areas::Area]) -> bool {
 
 /// The entities' markers alone (own character red, the others blue): two
 /// parts and an instance per entity, placed Z-up.
-fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>, characters: &mut Option<Characters>, include: &dyn Fn(u32) -> bool, statels: bool) -> (Model, Vec<crate::blobshadow::Caster>) {
+fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>, characters: &mut Option<Characters>, include: &dyn Fn(u32) -> bool, statels: bool) -> (Model, Vec<crate::blobshadow::Caster>, Vec<(u32, std::ops::Range<usize>)>) {
     let mut model = Model { parts: vec![marker([0.9, 0.1, 0.1]), marker([0.2, 0.4, 0.95]), nose(), marker([0.2, 0.8, 0.3])], instances: Vec::new(), water: None, lod_groups: Vec::new() };
     // (the characters' meshes throw the original's blob shadows: each is noted as a caster)
     let mut casters = Vec::new();
+    // (which parts are which character's, for the effects that tint a body: `Update::character_parts`)
+    let mut ranges = Vec::new();
     // (`frames`: the body's attractors in its local space, carried by the caster in the server's frame for the effects on them)
-    fn push_character(model: &mut Model, casters: &mut Vec<crate::blobshadow::Caster>, parts: Vec<mao_formats::model::Part>, place: mao_formats::model::Matrix, own: bool, frames: Option<&Vec<(String, mao_formats::model::Matrix)>>) {
+    fn push_character(model: &mut Model, casters: &mut Vec<crate::blobshadow::Caster>, ranges: &mut Vec<(u32, std::ops::Range<usize>)>, id: u32, parts: Vec<mao_formats::model::Part>, place: mao_formats::model::Matrix, own: bool, frames: Option<&Vec<(String, mao_formats::model::Matrix)>>) {
         let mut caster = crate::blobshadow::Caster::new(&parts, &place, own);
         let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
         caster.attractors = frames.map_or(Vec::new(), |f| f.iter().map(|(name, m)| (name.clone(), model::multiply(&model::multiply(m, &place), &swap))).collect());
@@ -3694,6 +3696,7 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
             model.parts.push(p);
             model.instances.push((base + k, place));
         }
+        ranges.push((id, base..model.parts.len()));
     }
     let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     for (&id, &(position, _)) in &world.entities {
@@ -3709,7 +3712,7 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
             // (an attack swings the weapon the server said the creature holds in the place it names)
             let swing = world.swings.get(&id).and_then(|&(slot, began, pick, class)| Some((*world.weapons.get(&(id, slot as u8))?, slot, began, pick, class)));
             if let Some(parts) = chars.creature_parts(id, info.template.unwrap(), action, (id % 997) as f32 * 3.0, 1.0, &info.textures, &info.clothes, deform, world.held_action(id), swing) {
-                push_character(&mut model, &mut casters, parts, place, id == world.own, chars.frames.get(&id));
+                push_character(&mut model, &mut casters, &mut ranges, id, parts, place, id == world.own, chars.frames.get(&id));
                 continue;
             }
         }
@@ -3729,7 +3732,7 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
                 _ => Action::Walk,
             };
             if let Some(parts) = chars.creature_parts(id, creature, action, (id % 997) as f32 * 3.0, MORPH_ANIM_RATE, &[], &[], deform, world.held_action(id), None) {
-                push_character(&mut model, &mut casters, parts, place, id == world.own, chars.frames.get(&id));
+                push_character(&mut model, &mut casters, &mut ranges, id, parts, place, id == world.own, chars.frames.get(&id));
                 continue;
             }
         }
@@ -3771,7 +3774,7 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
             // (a character running a vehicle program rides its board or bike)
             let vehicle = world.riding.get(&id).and_then(|&nano| chars.vehicle(nano, info.breed, info.sex));
             if let Some(parts) = chars.parts(id, info.breed, info.sex, action, jumped, (id % 997) as f32 * 3.0, speed, scale, &info.textures, &info.clothes, world.equipment.get(&id).map_or(&[][..], |v| v.as_slice()), social, swing, weapon, fighting, world.held_action(id), deform, vehicle) {
-                push_character(&mut model, &mut casters, parts, place, id == world.own, chars.frames.get(&id));
+                push_character(&mut model, &mut casters, &mut ranges, id, parts, place, id == world.own, chars.frames.get(&id));
                 continue;
             }
         }
@@ -3865,7 +3868,7 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
             model.instances.push((model.parts.len() - 1, a.place));
         }
     }
-    (model, casters)
+    (model, casters, ranges)
 }
 
 /// How far from the character the statels' moving parts are drawn.
@@ -3925,7 +3928,7 @@ fn show_world(game: &str, playfield: u32, world: &World, image: Option<&str>) ->
     let mut world_props = world.props.clone();
     world_props.extend(crate::static_props(&db, playfield).into_iter().map(|(k, p, _)| (k, p)));
     eprintln!("{} machines with a model", world_props.len());
-    let (overlay, _) = overlay_model(world, &world_props, &mut characters, &|_| true, true);
+    let (overlay, _, _) = overlay_model(world, &world_props, &mut characters, &|_| true, true);
     let offset = scene.parts.len();
     scene.parts.extend(overlay.parts);
     scene.instances.extend(overlay.instances.into_iter().map(|(i, m)| (i + offset, m)));
@@ -6450,8 +6453,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     effects.retain(|_, (began, seconds)| seconds.is_none_or(|s| began.elapsed().as_secs_f32() < s));
                     !effects.is_empty()
                 });
-                let (model, mut casters) = overlay_model(&state, &state.props, &mut characters, &|id| id != own && near(id), true);
-                let (own_model, own_casters) = overlay_model(&state, &state.props, &mut characters, &|id| id == own, false);
+                let (model, mut casters, character_parts) = overlay_model(&state, &state.props, &mut characters, &|id| id != own && near(id), true);
+                let (own_model, own_casters, _) = overlay_model(&state, &state.props, &mut characters, &|id| id == own, false);
                 // The notes the animations went past play their sounds at the characters (FUN_100452d3), on the material
                 // under each one; and the deaths theirs.
                 if let Some(c) = &mut characters {
@@ -6641,6 +6644,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     own_model,
                     own_velocity,
                     casters,
+                    character_parts,
                     map: pending_map.take(),
                     stats: std::mem::take(&mut state.stats_changed).then(|| {
                         let parts = crate::derived::breakdown(&state.stats, &state.mods_by_source[0], &state.mods_by_source[1], &state.mods_by_source[2], &state.mods_by_source[3]);

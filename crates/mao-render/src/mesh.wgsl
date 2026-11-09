@@ -10,6 +10,8 @@ struct Part {
     // Where the part was the last frame (its model matrix then), and x: 1 when it animates in ways the matrices don't show.
     previous_model: mat4x4<f32>,
     motion: vec4<f32>,
+    // rgb: an emissive colour added to the lighting (a highlight effect on a character); a: the part's alpha.
+    tint: vec4<f32>,
 }
 
 @group(1) @binding(0) var<uniform> part: Part;
@@ -167,7 +169,8 @@ fn shade(in: VertexOut) -> vec4<f32> {
     }
     // A room's light map (its vertex colour, alpha 1) is the emissive term: the original's rooms take their emissive colour
     // from the vertex (`VisualRoom_t`'s state D3DRENDERSTATE_EMISSIVEMATERIALSOURCE = COLOR1), added to the lit colour.
-    let emissive = in.colour.rgb * in.colour.a;
+    // (a highlight effect's emissive colour is added the same way: the original sets the frame's emissive material colour)
+    let emissive = in.colour.rgb * in.colour.a + part.tint.rgb;
     var colour = base.rgb * min(ambient + sun_colour * diffuse + vec3<f32>(baked) + emissive, vec3<f32>(1.0));
     // Distance fades into the fog's colour (linear when the fog is an area's, as Direct3D's was).
     let far = globals.horizon.w;
@@ -175,7 +178,7 @@ fn shade(in: VertexOut) -> vec4<f32> {
     let fog = clamp((distance(in.world, globals.eye.xyz) - near) / max(far - near, 1.0), 0.0, 1.0);
     let amount = mix(fog * fog * (3.0 - 2.0 * fog), fog, globals.fog.w);
     colour = mix(colour, fog_colour(), amount);
-    return vec4<f32>(colour, 1.0);
+    return vec4<f32>(colour, part.tint.a);
 }
 
 struct SkyOut {

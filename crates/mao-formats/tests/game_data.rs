@@ -728,3 +728,25 @@ fn environment_kind_survey() {
         }
     }
 }
+
+/// `cargo test -p mao-formats --test game_data highlight_survey -- --ignored --nocapture`: the nano programs and items whose
+/// effects reach a highlight (kind 2011, `_GfxControlHighlight_t`), with the template each reaches.
+#[test]
+#[ignore]
+fn highlight_survey() {
+    let Some(db) = database() else { return };
+    let game = PathBuf::from(std::env::var_os("MAO_GAME").unwrap());
+    let gfx = mao_formats::gfx::Gfx::parse(&std::fs::read(game.join("Setupf/gfxtweak.bin")).unwrap()).unwrap();
+    for id in db.ids().unwrap().filter_map(Result::ok).filter(|i| i.kind == 0xfde85 || i.kind == 0xf4254) {
+        let Some(data) = db.get(id).ok().flatten() else { continue };
+        let Some(item) = mao_formats::item::Item::parse(&data) else { continue };
+        for stat in [366u32, 428, 419, 361, 414, 413] {
+            if let Some(e) = item.stat(stat) {
+                let hits: Vec<i32> = gfx.tree(e as i32).iter().filter(|r| r.kind == 2011).map(|r| r.id).collect();
+                if !hits.is_empty() {
+                    println!("{:x} {} {:?} stat {stat} effect {e} -> {hits:?}", id.kind, id.instance, item.name);
+                }
+            }
+        }
+    }
+}
