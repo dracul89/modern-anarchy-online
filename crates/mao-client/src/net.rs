@@ -430,6 +430,8 @@ struct World {
     door_slots: BTreeMap<u8, (u32, [f32; 3])>,
     /// The server's ids of the doors (from their status messages) and until when each door (by number) stays open.
     door_ids: std::collections::BTreeSet<u32>,
+    /// The template (`StaticInstance`, stat 23) of each door the server announced (a generated mission's): its model.
+    door_templates: BTreeMap<u32, u32>,
     doors_open: BTreeMap<u8, Instant>,
     /// The machines the server announces with a model (mesh instance, position, rotation): drawn like the other entities.
     props: BTreeMap<u32, (u32, [f32; 3], [f32; 4])>,
@@ -1603,7 +1605,7 @@ impl World {
         //   the character leaves its casting stance (FUN_1007c8af picks animation state 5 only while the list has a cast). So the
         //   cast's sounds stop and its casting animation ends.
         // - 0x92 (case 48, 0x1005e33a): FUN_1004949c ends the item use timer (+0x198, the item's stat 211 that FUN_100482c7 starts
-        //   on a use: this client keeps none) and signals the container that holds the item named in the target as changed
+        //   on a use: here the kind-4 item entry `start_item_timer` makes) and signals the container that holds the item named in the target as changed
         //   (`(0x6b, handle << 16 | place)`: the open container of that handle, FUN_1004892d; other types, FUN_100493eb): a
         //   refresh, not a close (the same signal follows `N3Msg_DropItem` and `N3Msg_ContainerAddItem`).
         if m.kind == 0x5e477770 && m.data.len() >= 17 {
@@ -1668,6 +1670,8 @@ impl World {
                     }
                 }
                 0x92 if m.identity.1 == self.own => {
+                    // (the item use timer ends: its bar goes, and the next use is free to start)
+                    self.timers.remove_kind(crate::timers::ITEM);
                     let (kind, instance) = (word(9), word(13));
                     if kind == 0x6b && self.loot.as_ref().is_some_and(|l| l.handle == instance >> 16) {
                         self.loot_changed = true;
@@ -2070,12 +2074,27 @@ impl World {
         // `DoorFullUpdate` (`365a5071`): a door the playfield's table does not have (a generated mission's), announced with its
         // place. Its `DoorFullUpdateIIR_t` (read by FUN_1009ff81 after the `SimpleItemFullUpdateIIR_t` part, made a dynel by
         // FUN_1009fff9) starts as a simple item's does: a byte, the version (0x0b), the owner (none: type and instance 0), then
-        // the position and the rotation. The door becomes a usable object there, named as the others are.
+        // the position and the rotation, then the playfield, the `f424f` state machine, a word, a short and the stats (`x3f1`
+        // count, then stat and value pairs). The door becomes a usable object there, named as the others are, and is drawn by
+        // its template's model (`StaticInstance`, stat 23, whose `Mesh` is stat 12) turned by its rotation, as the announced
+        // terminals are.
         if m.kind == DOOR_FULL_UPDATE && m.identity.0 == DOOR_TYPE && m.data.len() >= 41 && m.data[1..13] == [0, 0, 0, 0x0b, 0, 0, 0, 0, 0, 0, 0, 0] {
             let f = |at: usize| f32::from_be_bytes(m.data[at..at + 4].try_into().unwrap());
-            self.objects.insert(m.identity.1, [f(13), f(17), f(21)]);
+            let at = [f(13), f(17), f(21)];
+            self.objects.insert(m.identity.1, at);
             self.names.entry(m.identity.1).or_insert_with(|| ("Door".to_string(), false));
             self.door_ids.insert(m.identity.1);
+            let word = |at: usize| m.data.get(at..at + 4).map(|b| u32::from_be_bytes(b.try_into().unwrap()));
+            let count = word(55).and_then(|n| usize::try_from(n / 0x3f1).ok()?.checked_sub(1)).unwrap_or(0).min(64);
+            let template = (0..count).map(|i| 59 + 8 * i).find(|&p| word(p) == Some(23)).and_then(|p| word(p + 4)).filter(|&t| t > 0);
+            if let Some(template) = template {
+                self.door_templates.insert(m.identity.1, template);
+                if let Some(mesh) = template_stat(template, 12).filter(|&mesh| mesh > 0) {
+                    let rotation = [f(25), f(29), f(33), f(37)];
+                    let rotation = if rotation == [0.0; 4] { [0.0, 0.0, 0.0, 1.0] } else { rotation };
+                    self.props.insert(m.identity.1, (mesh as u32, at, rotation));
+                }
+            }
         }
         if m.kind == mao_net::destinations::DESTINATION_LIST {
             self.destinations = mao_net::destinations::parse(&m.data);
@@ -8211,6 +8230,10 @@ mod door_tests {
     #[test]
     fn a_generated_missions_doors_are_usable() {
         let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        // (`MAO_GAME`: the door's template is looked up, so the door gets its model)
+        if let Some(game) = std::env::var_os("MAO_GAME") {
+            let _ = ITEM_DB.set(std::sync::Arc::new(ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap()));
+        }
         let mut w = World { own: 0x7b1a0021, ..World::default() };
         let door = 0x10c32dc2;
         w.add(&Message { kind: DOOR_FULL_UPDATE, identity: (DOOR_TYPE, door), data: hex("000000000b000000000000000041f0020d41ab31c4434d0000000000003f3504f1000000003f3504f50020da1b000f424f00000001006f00002f4c00000000c0081403000000170003de4d000002bd00000000000002be00000000000002bf000000000000019c00000001000000fc00000000000000c000000000000000c100000000000000c3000000000000010300000000000000000000000200000032000003f10000000200010000") }.frame(1));
@@ -8218,6 +8241,15 @@ mod door_tests {
         assert!((at[0] - 30.0).abs() < 0.01 && (at[1] - 21.4).abs() < 0.01 && (at[2] - 205.0).abs() < 0.01, "{at:?}");
         assert_eq!(w.names.get(&door).map(|n| n.0.as_str()), Some("Door"));
         assert_eq!(w.types.get(&door), Some(&DOOR_TYPE));
+        // (its template, stat 23 of the announcement, names the model it is drawn with when the game's database is at hand)
+        assert_eq!(w.door_templates.get(&door), Some(&0x3de4d));
+        if let Some(mesh) = template_stat(0x3de4d, 12) {
+            eprintln!("the door's template {:#x} has mesh {mesh:#x}", 0x3de4d);
+            assert!(mesh > 0, "the door template names a model");
+            assert_eq!(w.props.get(&door).map(|p| (p.0, p.1)), Some((mesh as u32, at)));
+        } else if std::env::var_os("MAO_GAME").is_some() {
+            panic!("the door's template has no Mesh stat");
+        }
     }
 
     /// The 16:55 capture's Malfunctioning Cleaning Robot: its two `SpellList`s make their effects on it; Cedric Harding's
@@ -8788,10 +8820,13 @@ mod movement_tests {
         w.socials.insert(0x4bc82, ("wave", Instant::now()));
         w.add(&Message { kind: 0x5e477770, identity: (0xc350, 0x4bc82), data: hex("000000008900000000000000000000000000000000000000000000") }.frame(1));
         assert!(w.socials.contains_key(&0x4bc82));
-        // (the 08:42 capture's 0x92 naming the item used out of the open container of handle 0x70: that container refreshed)
+        // (the 08:42 capture's 0x92 naming the item used out of the open container of handle 0x70: that container refreshed;
+        // any 0x92 ends the item use timer)
         w.loot = Some(Loot { identity: (0xc76a, 5), handle: 0x70, entries: Vec::new() });
+        w.timers.add(500, 0, crate::timers::ITEM, 0x40);
+        assert!(w.timers.has(crate::timers::ITEM));
         w.add(&Message { kind: 0x5e477770, identity: (0xc350, 0x4bc82), data: hex("000000009200000000000000000000000000000000000000000000") }.frame(1));
-        assert!(!w.loot_changed);
+        assert!(!w.loot_changed && !w.timers.has(crate::timers::ITEM));
         w.add(&Message { kind: 0x5e477770, identity: (0xc350, 0x4bc82), data: hex("0000000092000000000000006b0070000100000000000000000000") }.frame(1));
         assert!(w.loot_changed && w.loot.is_some());
     }
