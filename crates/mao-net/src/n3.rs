@@ -1451,13 +1451,14 @@ impl Message {
             .collect()
     }
 
-    /// A [`GAME_TIME`] message: the seconds into the day, the day period, the day count and the server's time.
+    /// A [`GAME_TIME`] message (17 bytes: a header byte, then the words Gamecode's handler 0x10039800 reads at +0x18 of the
+    /// message): the seconds into the day (a float), the day period, the day count and the server's time (unix seconds).
     pub fn game_time(&self) -> Option<(f32, i32, i32, i32)> {
-        if self.kind != GAME_TIME || self.data.len() < 16 {
+        if self.kind != GAME_TIME || self.data.len() < 17 {
             return None;
         }
         let w = |at: usize| u32::from_be_bytes(self.data[at..at + 4].try_into().unwrap());
-        Some((f32::from_bits(w(0)), w(4) as i32, w(8) as i32, w(12) as i32))
+        Some((f32::from_bits(w(1)), w(5) as i32, w(9) as i32, w(13) as i32))
     }
 
     /// The nano programs active on a character (`SimpleCharFullUpdate`'s `ActiveNanos`: a count word `(n + 1) * 0x3f1`, then
@@ -1532,6 +1533,17 @@ impl Message {
 #[cfg(test)]
 mod entity_tests {
     use super::*;
+
+    /// A `GameTime` message from a capture of the original (2026-11-08 18:11): 2:54 into the game's day, period 3,
+    /// day 276880, the server's clock five seconds behind the capture's.
+    #[test]
+    fn the_game_time_follows_its_header_byte() {
+        let data: Vec<u8> = (0..17).map(|i| u8::from_str_radix(&"014624000000000003000439906af10fb3"[2 * i..2 * i + 2], 16).unwrap()).collect();
+        let m = Message { kind: GAME_TIME, identity: (0xc350, 0x39c16ee4), data };
+        let (seconds, period, day, server) = m.game_time().unwrap();
+        assert_eq!((seconds, period, day, server), (10496.0, 3, 0x43990, 1794183091));
+        assert_eq!(((seconds as i32) / 3600, (seconds as i32) / 60 % 60), (2, 54));
+    }
 
     /// The template ids of creatures from the capture (the bytes after the name).
     #[test]
