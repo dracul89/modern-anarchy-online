@@ -208,6 +208,9 @@ struct World {
     /// The weapons worn the last time their special actions were worked out (place and template) with the actions'
     /// numbers, and the whole list of numbers the window was last told.
     weapon_specials: (Vec<(u32, u32, Option<i64>)>, Vec<u32>),
+    /// The server has said the character can backstab (`CharacterAction` 0xb5): a sneak attack weapon in a hand
+    /// then gives Backstab too.
+    backstab: bool,
     specials_told: Option<Vec<u32>>,
     perk_locks: BTreeMap<u32, (Instant, f32)>,
     perk_actions_changed: bool,
@@ -770,6 +773,11 @@ impl World {
         for &number in &self.weapon_specials.1 {
             if !list.contains(&number) {
                 list.push(number);
+            }
+            // (backstab beside a weapon's sneak attack, for a character the server has allowed it: FUN_1009e84b when the
+            // weapon is put on, FUN_1009c5c8 when the server's word comes with the weapon already held)
+            if number == crate::actions::SNEAK_ATTACK && self.backstab && !list.contains(&crate::actions::BACKSTAB) {
+                list.push(crate::actions::BACKSTAB);
             }
         }
         Some(list)
@@ -1905,6 +1913,11 @@ impl World {
                     }
                     self.perk_actions_changed = true;
                 }
+                // 0xb5 with its second parameter not zero (FUN_1005d61f's case 0x44, FUN_10068976): the character may
+                // backstab. The original sets bit 20 of the character's second flag word and has each hand's weapon add
+                // Backstab beside its sneak attack (FUN_1009c5c8); nothing in it takes the bit away again. No capture has
+                // the message: which characters are sent it was not seen.
+                0xb5 if word(21) != 0 => self.backstab = true,
                 // `PerkUnavailable` (0xcf): a perk lock (the lock-skill spell's group) runs for that many seconds; `PerkAvailable`
                 // (0xce): it is over
                 0xcf => {
@@ -8828,6 +8841,20 @@ mod door_tests {
         // (bare hands: the server's only)
         w.worn.clear();
         assert_eq!(w.special_numbers(), Some(vec![100, 144, 142]));
+        // (a blade with sneak attack and fast attack; its template has no ammunition stat and the server has told none,
+        // so Reload stays. Backstab comes beside the sneak attack once the server has said so, and only then)
+        w.weapon_energy.clear();
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        w.worn.push(entry(6, 0x1dae4));
+        assert_eq!(w.special_numbers(), Some(vec![100, 144, 142, 146, 147, 110]));
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, 7), data: hex("00000000b500000000000000000000000000000000000000000000") }.frame(1));
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, 8), data: hex("00000000b500000000000000000000000000000000000000010000") }.frame(1));
+        assert_eq!(w.special_numbers(), Some(vec![100, 144, 142, 146, 147, 110]));
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, 7), data: hex("00000000b500000000000000000000000000000000000000010000") }.frame(1));
+        assert_eq!(w.special_numbers(), Some(vec![100, 144, 142, 146, 489, 147, 110]));
+        // (no backstab without a sneak attack weapon)
+        w.worn = vec![entry(6, 0x251db)];
+        assert_eq!(w.special_numbers(), Some(vec![100, 144, 142, 148, 110]));
     }
 
     /// One's own open backpack: an item of the inventory goes into it with a `ContainerAddItem` naming the bag, and

@@ -495,9 +495,13 @@ client's catalogue for every character. How the original's list comes to be was 
   are "Burst" damage). Now `feedback::special`; the rounds left go to the weapon as the original's do (FUN_10068869).
 Tried live between the two test characters in a duel (2026-11-10): a Neutrino Flash gives Burst and Reload; a Kyr'Ozch
 Energy Pistol with an Electrical Surge Pistol gives Burst, Fling Shot and Reload; Burst and Fling Shot hit and are
-told on both sides, a second Burst inside its recharge gets the server's "wait" text, Reload reloads. Not done:
-backstab (489), which the original adds beside sneak attack while a flag of the character is set (FUN_1009c5c8, not
-read further); aimed shot, sneak attack, the bow's attack, fast attack and full auto are sent as the others are but
+told on both sides, a second Burst inside its recharge gets the server's "wait" text, Reload reloads. Backstab
+(489) is added beside a weapon's sneak attack for a character the server has allowed it: the server's
+`CharacterAction` 0xb5 with its second parameter not zero (FUN_1005d61f's case 0x44, FUN_10068976) sets bit 20 of the
+character's second flag word and has each hand's weapon add it (FUN_1009c5c8; putting such a weapon on later adds it
+too, FUN_1009e84b), and nothing takes the bit away again. Done the same way (`World::backstab`,
+`actions::BACKSTAB`), from the decompile only: no capture has the message and neither test character is sent it, so
+which characters get it and whether the attack goes off as the others do is unknown. Not tried: aimed shot, sneak attack, the bow's attack, fast attack and full auto are sent as the others are but
 no character had a weapon for them; the actions' places kept (`item_position_map`), the toggles' other names (sit
 for stand, run for walk), and the profession's own action (numbers 138 and 139, FUN_1004326f).
 

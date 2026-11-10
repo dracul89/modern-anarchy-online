@@ -99,9 +99,13 @@ pub fn number_of(template: u32) -> Option<u32> {
 /// The special actions a weapon gives the character wearing it, by the bits of its "can" flags (stat 30): Gamecode
 /// FUN_1009e84b, the weapon's own part of being put on (in a wear place, by the client's own character), adds each with
 /// the weapon as its owner. Burst, fling shot, full auto, aimed shot, sneak attack, the bow's special attack and fast
-/// attack. (With sneak attack the original adds number 489 too while bit 20 of a flag word of the character is set,
-/// FUN_1009c5c8: not read further, not done.)
+/// attack. Beside sneak attack the original adds backstab ([`BACKSTAB`]) while bit 20 of the character's second flag
+/// word is set, which the server's `CharacterAction` 0xb5 sets (FUN_10068976 → FUN_1009c5c8): `World::backstab`.
 pub const WEAPON_CAN: [(u32, u32); 7] = [(0x800, 148), (0x1000, 150), (0x2000, 167), (0x4000, 151), (0x20000, 146), (0x8000, 121), (0x40000, 147)];
+
+/// Sneak attack's number and backstab's, which goes with it for a character the server allows it.
+pub const SNEAK_ATTACK: u32 = 146;
+pub const BACKSTAB: u32 = 489;
 
 /// Reload's number: added with the character as its owner when a weapon put on has an ammunition stat (26) that is
 /// not -1 (the same function).
@@ -359,6 +363,9 @@ mod tests {
         assert_eq!(specials.iter().map(|s| (s.stat, s.template)).collect::<Vec<_>>(), [(144, 0x14125), (142, 0x14122), (151, 0x14127)]);
         assert_eq!((specials[0].name.as_str(), specials[1].name.as_str()), ("Dimach", "Brawl"));
         assert!(!specials[2].name.starts_with("Special "), "{}", specials[2].name);
+        // (backstab, which goes beside a weapon's sneak attack: its own template)
+        let more = describe_specials(&db, &textures, &[SNEAK_ATTACK, BACKSTAB]);
+        assert_eq!(more.iter().map(|s| (s.template, s.name.as_str())).collect::<Vec<_>>(), [(0x1f83a, "Sneak Attack"), (0x32ba3, "Backstab")]);
     }
 
     /// `MAO_GAME`: the perk action the 2026-10-31 capture lists as `0x374d7`, number `0x2850`, code `QUBS`, is Quick Bash, whose
