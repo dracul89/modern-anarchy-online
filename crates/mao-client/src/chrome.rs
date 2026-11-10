@@ -40,7 +40,7 @@ pub fn end_frame() {
     CLOSING.lock().unwrap().clear();
 }
 
-fn take_closing(name: &str) -> bool {
+pub(crate) fn take_closing(name: &str) -> bool {
     let mut list = CLOSING.lock().unwrap();
     let before = list.len();
     list.retain(|n| n != name);
@@ -63,12 +63,27 @@ pub fn window<R>(ctx: &egui::Context, palette: &Palette, name: &str, title: &str
     if *open && take_closing(name) {
         *open = false;
     }
+    // (a window docked in the rollup area is drawn as a page of it: `rollup.rs`)
+    if *open && crate::rollup::docked(name) {
+        return crate::rollup::page(ctx, palette, name, title, open, add);
+    }
+    if !*open {
+        return None;
+    }
     // (the place the player left it last time, `layout.ini`: over the caller's starting place)
     crate::layout::track(name);
     let saved = crate::layout::kept(name).then(|| crate::layout::saved(name)).flatten();
+    // (the original client's layout gives a size too, until the player has placed the window here)
+    let sized = crate::layout::kept(name).then(|| crate::layout::original_size(name)).flatten();
+    let relocate = crate::layout::relocate(name);
     let build = move |w: egui::Window<'static>| {
         let w = build(w);
+        let w = match sized {
+            Some(size) => w.default_size(size),
+            None => w,
+        };
         match saved {
+            Some(at) if relocate => w.current_pos(at),
             Some(at) => w.default_pos(at),
             None => w,
         }
@@ -104,22 +119,37 @@ pub fn window<R>(ctx: &egui::Context, palette: &Palette, name: &str, title: &str
         // the title row
         crate::font::text(ctx, &painter, egui::pos2(outer.left() + 9.0, outer.top() + 5.0), &title, 15.0, accent);
         let mut x = outer.right() - RIGHT as f32 - 15.0;
-        for (button, what) in [("CLOSE_X", "close"), ("PIN", "pin")] {
+        // (a dockable window has a third button: into the rollup area down the right edge, `rollup.rs`)
+        let dockable = crate::rollup::DOCKABLE.contains(&name.as_str());
+        for (button, what) in [("CLOSE_X", "close"), ("PIN", "pin"), ("ROLLUP_COLLAPSE", "dock")] {
+            if what == "dock" && !dockable {
+                break;
+            }
             let rect = egui::Rect::from_min_size(egui::pos2(x, outer.top() + 5.0), egui::vec2(15.0, 15.0));
             let response = ui.interact(rect, id.with(what), egui::Sense::click());
             let down = what == "pin" && pinned(&name);
             let state = if response.is_pointer_button_down_on() || down { "_STATE3" } else if response.hovered() { "_STATE2" } else { "" };
             let tint = if response.hovered() { hover } else if down { rgb(palette.text_selected) } else { accent };
-            if !skin.draw_in(&painter, &format!("GFX_GUI_WINDOW_{button}{state}"), rect, tint) {
+            let drawn = if what == "dock" {
+                skin.draw_in(&painter, &format!("GFX_GUI_{button}{}", if state.is_empty() { "_STATE1" } else { state }), rect, tint)
+            } else {
+                skin.draw_in(&painter, &format!("GFX_GUI_WINDOW_{button}{state}"), rect, tint)
+            };
+            if !drawn {
                 skin.draw_in(&painter, &format!("GFX_GUI_WINDOW_{button}"), rect, tint);
             }
             if response.clicked() {
                 match what {
                     "pin" => set_pinned(&name, !down),
+                    "dock" => crate::rollup::dock(&name),
                     _ => close = true,
                 }
             }
-            response.on_hover_text(if what == "pin" { "Pinned: stays open when Escape closes the windows" } else { "Close" });
+            response.on_hover_text(match what {
+                "pin" => "Pinned: stays open when Escape closes the windows",
+                "dock" => "Dock in the column at the right edge",
+                _ => "Close",
+            });
             x -= 17.0;
         }
         result
@@ -131,7 +161,7 @@ pub fn window<R>(ctx: &egui::Context, palette: &Palette, name: &str, title: &str
 }
 
 /// The window's fill and the original's border pieces around `outer`: thin top and sides, rounded bottom corners.
-fn frame_shape(skin: &crate::skin::Skin, outer: egui::Rect, panel: egui::Color32, tint: egui::Color32) -> egui::Shape {
+pub(crate) fn frame_shape(skin: &crate::skin::Skin, outer: egui::Rect, panel: egui::Color32, tint: egui::Color32) -> egui::Shape {
     let mut shapes = vec![egui::Shape::rect_filled(outer.shrink(2.0), 2.0, panel)];
     let size = |name: &str| skin.get(&format!("GFX_GUI_WINDOW3_BORDER_{name}")).map(|s| s.size);
     let (Some(tl), Some(tr), Some(bl), Some(br), Some(top), Some(bottom), Some(left), Some(right)) = (size("TL"), size("TR"), size("BL"), size("BR"), size("TOP"), size("BOTTOM"), size("LEFT"), size("RIGHT")) else {

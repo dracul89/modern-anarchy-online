@@ -216,7 +216,9 @@ pub fn show(ui: &mut egui::Ui, tree: &mut Tree, root: Id, skin: Option<&crate::s
         }
     }
     let min = preferred_pixels(tree, root, false);
-    let size = ui.available_size().max(min);
+    // (no room at all — a rollup page's first frame — means "your own size": the preferred size, within a page's worth)
+    let room = ui.available_size();
+    let size = if room.y <= 0.0 { preferred_pixels(tree, root, true).min(egui::vec2(room.x.max(min.x), 320.0)).max(min) } else { room.max(min) };
     let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click_and_drag());
     fit(tree, root, rect.size());
     let origin = rect.min;

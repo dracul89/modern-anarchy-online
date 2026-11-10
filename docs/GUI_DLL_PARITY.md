@@ -105,7 +105,7 @@ programs window's Info, `itemid://53019/<id>`; weapons' damage per second; to co
 | Reclaim (`reclaim_window`, `/reclaim`) | | none | no |
 | Daily login / check rewards (`dailylogin_window`, `checkrewards_window`) | | none | no |
 | Tips (`tip_window`) | `TipView.xml` | `tips.rs` (`TipView_c`: sections, next section, previous/next tip, the two check boxes; `TipButtonWindow_c`'s `GFX_GUI_NEW_TIP` button) | yes |
-| Options (`OptionPanelModule_c`, `optionpanel_window`) | `OptionPanel/*` | `gui/options.rs` (the skin's `Root.xml` pages and option controls, settings saved in `prefs.xml`, sound applied); the client's own options window for the display and keys | part (`HotKeys.xml` not used; most settings kept but not yet acted on) |
+| Options (`OptionPanelModule_c`, `optionpanel_window`) | `OptionPanel/*` | `gui/options.rs` (the `Root.xml` pages and option controls; the game's own Root.xml is empty, so an AOU skin's at hand supplies the pages, with the current skin's art; "Preferences", 800 by 480); the client's own options window for the display and keys behind "Client settings" | part (`HotKeys.xml` not used; most settings kept but not yet acted on) |
 | Help (`help` / info about this window) | | `help.rs` | ours |
 | Notum Wars: tower build menu, laser target, airstrike, battlestation, signup terminal, mech select, teleport target | `LaserTarget.xml`, `SignupTerminal.xml`, `MechSelect.xml`, `TeleportTarget.xml` | the tower sites and the land-control view on the map only (`automap.rs`, above) | no |
 | Whom-pah (in GUI.dll's NPC/terminal handling) | | `whompah.rs` | ours |

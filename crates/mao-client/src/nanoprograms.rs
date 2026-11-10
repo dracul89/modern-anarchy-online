@@ -83,6 +83,15 @@ pub struct ProgramsWindow {
     pub infos: Vec<String>,
     school: Option<usize>,
     views: Option<(crate::gui::view::Tree, crate::gui::view::Id, crate::gui::view::Id, Vec<(crate::gui::view::Id, usize)>)>,
+    /// The school selector and the row views made for the docked layout; whether the docked layout is in force.
+    selector: Option<crate::gui::view::Id>,
+    rows: Vec<crate::gui::view::Id>,
+    docked_layout: Option<bool>,
+}
+
+thread_local! {
+    /// The selector view `build` made last (handed to `arrange`, which runs after it).
+    static SELECTOR: std::cell::Cell<Option<crate::gui::view::Id>> = const { std::cell::Cell::new(None) };
 }
 
 impl ProgramsWindow {
@@ -107,11 +116,52 @@ impl ProgramsWindow {
             buttons.push((id, school));
         }
         tree.add_child(root, selector);
+        SELECTOR.with(|c| c.set(Some(selector)));
         let list = crate::gui::multilist::create_grid(&mut tree, "NanoListView", -1, 6);
         crate::gui::multilist::set_grid(&mut tree, list, |g| g.set_icon_size(0));
         tree.get_mut(list).borders = crate::gui::geom::Rect::new(3.0, 3.0, 3.0, 3.0);
         tree.add_child(root, list);
         (tree, root, list, buttons)
+    }
+
+    /// Lays the school buttons out for the docked (two a row, four grid columns) or the free (one row, six columns) window.
+    fn arrange(&mut self, docked: bool) {
+        use crate::gui::view::{Layout, Node};
+        if self.selector.is_none() {
+            self.selector = SELECTOR.with(|c| c.get());
+        }
+        let Some(selector) = self.selector else { return };
+        let Some((tree, _, list, buttons)) = self.views.as_mut() else { return };
+        for &r in &self.rows {
+            tree.get_mut(r).children.clear();
+        }
+        tree.get_mut(selector).children.clear();
+        if docked {
+            tree.get_mut(selector).layout = Layout::Vertical;
+            for (k, chunk) in buttons.chunks(2).enumerate() {
+                let row = match self.rows.get(k) {
+                    Some(&r) => r,
+                    None => {
+                        let mut node = Node::new(&format!("schools{k}"), Box::new(crate::gui::view::Plain));
+                        node.layout = Layout::Horizontal;
+                        let r = tree.add(node);
+                        self.rows.push(r);
+                        r
+                    }
+                };
+                tree.add_child(selector, row);
+                for &(b, _) in chunk {
+                    tree.add_child(row, b);
+                }
+            }
+        } else {
+            tree.get_mut(selector).layout = Layout::Horizontal;
+            for &(b, _) in buttons.iter() {
+                tree.add_child(selector, b);
+            }
+        }
+        crate::gui::multilist::set_grid(tree, *list, |g| g.columns = Some(if docked { 4 } else { 6 }));
+        tree.relayout = true;
     }
 
     /// Shows the window; returns the program to cast (a click).
@@ -122,6 +172,13 @@ impl ProgramsWindow {
             self.views = Some(Self::build(ctx));
         }
         let school = *self.school.get_or_insert(5);
+        // (docked in the rollup column the window is 175 wide: the original's `SchoolSelector_c` lays its buttons in rows as
+        // wide as the window (FUN_100d6051) and the grid takes as many columns as fit; here two buttons a row and four columns)
+        let docked = crate::rollup::docked("Nano programs");
+        if self.docked_layout != Some(docked) {
+            self.docked_layout = Some(docked);
+            self.arrange(docked);
+        }
         let textures = &mut self.textures;
         let (tree, root, list, buttons) = self.views.as_mut()?;
         let (root, list) = (*root, *list);

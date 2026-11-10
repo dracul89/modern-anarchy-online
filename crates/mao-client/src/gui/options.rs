@@ -251,7 +251,36 @@ struct Page {
 
 /// Whether a skin's folders hold an option panel (an `OptionPanel/Root.xml` with something in it).
 pub fn skin_has_panel(dirs: &[std::path::PathBuf]) -> bool {
-    dirs.iter().any(|d| mao_formats::files::read_to_string(d.join("OptionPanel/Root.xml")).is_ok_and(|t| t.contains("label")))
+    page_dirs(dirs).iter().any(|d| mao_formats::files::read_to_string(d.join("OptionPanel/Root.xml")).is_ok_and(|t| t.contains("label")))
+}
+
+/// The folders whose `OptionPanel/Root.xml` may hold the pages: the skin's own first, then — since the game's shipped
+/// `Default/OptionPanel/Root.xml` is empty (GUI.dll fills the original's panel from code) — any AOU skin at hand, whose
+/// Root.xml carries the same pages: the themes the settings know (`aou_mod =`) and the user's own `Gui/<skin>` folders
+/// under `%LOCALAPPDATA%/Funcom/Anarchy Online/<hash>/Anarchy Online`. So the panel has the original's pages with any skin's art.
+pub fn page_dirs(skin_dirs: &[std::path::PathBuf]) -> Vec<std::path::PathBuf> {
+    let mut out: Vec<std::path::PathBuf> = skin_dirs.to_vec();
+    let settings = crate::settings::Settings::load();
+    for theme in crate::theme::available(&settings.aou_mod) {
+        if let Some(d) = crate::theme::theme_dir(&theme, &settings.aou_mod) {
+            out.push(d);
+        }
+    }
+    if let Ok(local) = std::env::var("LOCALAPPDATA") {
+        let base = std::path::Path::new(&local).join("Funcom/Anarchy Online");
+        if let Ok(hashes) = std::fs::read_dir(&base) {
+            for h in hashes.flatten() {
+                let gui = h.path().join("Anarchy Online/Gui");
+                if let Ok(skins) = std::fs::read_dir(&gui) {
+                    let mut names: Vec<std::path::PathBuf> = skins.flatten().map(|e| e.path()).filter(|p| p.join("OptionPanel/Root.xml").is_file()).collect();
+                    names.sort();
+                    out.extend(names);
+                }
+            }
+        }
+    }
+    out.dedup();
+    out
 }
 
 #[derive(Default)]
@@ -268,7 +297,7 @@ impl OptionPanel {
     /// The pages of the first skin folder whose `OptionPanel/Root.xml` has any.
     fn load(&mut self, dirs: &[std::path::PathBuf]) {
         self.loaded = true;
-        for d in dirs {
+        for d in page_dirs(dirs) {
             let Ok(text) = mao_formats::files::read_to_string(d.join("OptionPanel/Root.xml")) else { continue };
             let doc = super::xml::parse(&text);
             let Some(root) = doc.first() else { continue };
@@ -304,9 +333,10 @@ impl OptionPanel {
         }
         let mut open = self.open;
         let (pages, selected, client_settings) = (&mut self.pages, &mut self.selected, &mut self.client_settings);
-        crate::chrome::window(ctx, palette, "Option panel", "Options", &mut open, |w| w.default_size([640.0, 460.0]).resizable(true), |ui| {
+        // (the original's window is "Preferences", `OptionWindowConfig` 200,200 to 1009,683 by default: 809 by 483)
+        crate::chrome::window(ctx, palette, "Option panel", "Preferences", &mut open, |w| w.default_size([800.0, 480.0]).resizable(true), |ui| {
             if pages.is_empty() {
-                ui.label("This skin has no option panel (its OptionPanel/Root.xml is empty).");
+                ui.label("No option pages were found: the game's own OptionPanel/Root.xml is empty and no AOU skin is at hand.");
                 return;
             }
             let height = ui.available_height().max(200.0);

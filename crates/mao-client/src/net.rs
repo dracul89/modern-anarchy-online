@@ -4215,6 +4215,9 @@ pub(crate) fn booth_labels(playfield: u32, booths: &[[f32; 3]], destinations: &c
 /// The window with the world updating in it: a thread reads the game
 /// server and sends the entities' markers over.
 fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World, session_key: [u8; 8]) -> Result<(), String> {
+    // (the windows start where the original client's layout for this character has them: `layout.rs`, `aoprefs.rs`;
+    // known before the first frame draws a window)
+    crate::layout::set_character(state.own);
     crate::theme::set_game_dir(game);
     // The sound module (made and started once) and the game's sources, as `PlayfieldInit` (0x10016e94) asks with
     // `ActivateGameZone`.
@@ -7210,6 +7213,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
                 }
             }
             state.own = character.id;
+            crate::layout::set_character(character.id);
             state.print();
             if let Some(i) = rest.iter().position(|a| a == "--show") {
                 let image = rest.get(i + 1).filter(|a| a.as_str() == "--image").and(rest.get(i + 2)).map(String::as_str);

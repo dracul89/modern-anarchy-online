@@ -77,6 +77,8 @@ mod skillwindow;
 mod stats;
 mod trickle_data;
 mod chrome;
+mod rollup;
+mod aoprefs;
 mod combat;
 mod nametag;
 mod font;

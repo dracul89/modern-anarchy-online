@@ -147,6 +147,8 @@ pub struct AutoMap {
     pan: [f32; 2],
     /// Where the corner map's top left is (kept in `automap.ini`); `None` is the top right of the window.
     pub mini_at: Option<[f32; 2]>,
+    /// The corner map's diameter in points (kept with its place; dragged at its lower right, or Ctrl and the wheel).
+    pub mini_size: f32,
     /// The original's planet map (its biggest level as a texture), drawn in place of the grid for a playfield that is
     /// on it; tried once.
     planet: Option<Planet>,
@@ -189,7 +191,7 @@ struct Planet {
 
 impl Default for AutoMap {
     fn default() -> Self {
-        AutoMap { grid: None, texture: None, dirty: false, last_upload: std::time::Instant::now(), overlay: false, mini_span: 150.0, zoom: 3.0, pan: [0.0; 2], mini_at: load_position(), planet: None, planet_tried: None, playfield: 0, planet_zoom: PLANET_NATIVE * 2.0, planet_span: 2500.0, land_control: load_land_control(), land_map: None, lc_district: None, controls: None, land_source: None }
+        AutoMap { grid: None, texture: None, dirty: false, last_upload: std::time::Instant::now(), overlay: false, mini_span: 150.0, zoom: 3.0, pan: [0.0; 2], mini_at: load_position(), mini_size: load_size(), planet: None, planet_tried: None, playfield: 0, planet_zoom: PLANET_NATIVE * 2.0, planet_span: 2500.0, land_control: load_land_control(), land_map: None, lc_district: None, controls: None, land_source: None }
     }
 }
 
@@ -203,19 +205,24 @@ fn load_position() -> Option<[f32; 2]> {
     (v.len() >= 2).then(|| [v[0], v[1]])
 }
 
+/// The corner map's diameter as saved (`Size <n>`, a line of the map's file), else 220.
+fn load_size() -> f32 {
+    std::fs::read_to_string(position_path()).ok().and_then(|t| t.lines().find_map(|l| l.trim().strip_prefix("Size ")?.trim().parse().ok())).unwrap_or(220.0)
+}
+
 /// The land-control button as saved (`RenderLandControlData`, the second line of the map's file).
 fn load_land_control() -> bool {
     std::fs::read_to_string(position_path()).is_ok_and(|t| t.lines().any(|l| l.trim() == "RenderLandControlData 1"))
 }
 
 /// The corner map's place and the land-control button, saved together.
-fn save_prefs(at: Option<[f32; 2]>, land_control: bool) {
+fn save_prefs(at: Option<[f32; 2]>, land_control: bool, size: f32) {
     let path = position_path();
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
     let place = at.map(|at| format!("{:.0} {:.0}\n", at[0], at[1])).unwrap_or_default();
-    let _ = std::fs::write(path, format!("{place}RenderLandControlData {}\n", land_control as u8));
+    let _ = std::fs::write(path, format!("{place}RenderLandControlData {}\nSize {size:.0}\n", land_control as u8));
 }
 
 impl AutoMap {
@@ -525,7 +532,7 @@ impl AutoMap {
                 && on != self.land_control
             {
                 self.land_control = on;
-                save_prefs(self.mini_at, on);
+                save_prefs(self.mini_at, on, self.mini_size);
             }
         }
         bar.bottom()
@@ -579,10 +586,13 @@ impl AutoMap {
                 self.pan = [0.0; 2];
             }
         } else {
-            // The corner map: round, turning with the camera, and movable (drag it; the wheel over it zooms).
-            let size = 220.0;
-            let at = self.mini_at.map_or(egui::pos2(screen.right() - size - 12.0, 44.0), |p| egui::pos2(p[0], p[1]));
+            // The corner map: round, turning with the camera, movable (drag it; the wheel over it zooms) and sizeable (drag
+            // the handle at its lower right, or Ctrl and the wheel).
+            let size = self.mini_size.clamp(120.0, 600.0);
+            // (left of the rollup column when windows are docked there)
+            let at = self.mini_at.map_or(egui::pos2(screen.right() - size - 12.0 - crate::rollup::column_width(), 44.0), |p| egui::pos2(p[0], p[1]));
             let at = egui::pos2(at.x.clamp(screen.left(), (screen.right() - size).max(screen.left())), at.y.clamp(screen.top(), (screen.bottom() - size).max(screen.top())));
+            let mut resized = false;
             let area = egui::Area::new(egui::Id::unique("automap-mini")).order(egui::Order::Background).current_pos(at).movable(true).show(ctx, |ui| {
                 let (rect, response) = ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::hover());
                 let (c, r) = (rect.center(), size / 2.0);
@@ -599,8 +609,11 @@ impl AutoMap {
                 let n = if north.length() > 0.0 { north.normalized() } else { egui::vec2(0.0, -1.0) };
                 ui.painter().text(c + n * (r - 9.0), egui::Align2::CENTER_CENTER, "N", egui::FontId::proportional(12.0), egui::Color32::from_rgb(255, 205, 70));
                 if response.hovered() {
-                    let scroll = ui.input(|i| i.smooth_scroll_delta.y);
-                    if scroll != 0.0 {
+                    let (scroll, ctrl) = ui.input(|i| (i.smooth_scroll_delta.y, i.modifiers.ctrl));
+                    if scroll != 0.0 && ctrl {
+                        self.mini_size = (self.mini_size * (1.0 + scroll * 0.002)).clamp(120.0, 600.0);
+                        resized = true;
+                    } else if scroll != 0.0 {
                         if planet {
                             self.planet_span = (self.planet_span * (1.0 - scroll * 0.002)).clamp(600.0, 8000.0);
                         } else {
@@ -608,13 +621,31 @@ impl AutoMap {
                         }
                     }
                 }
+                // the size handle on the ring's lower right
+                let handle = egui::Rect::from_center_size(c + egui::vec2(r * 0.72, r * 0.72), egui::vec2(16.0, 16.0));
+                let grip = ui.interact(handle, ui.scope_id().with("map-size"), egui::Sense::drag());
+                let tint = if grip.hovered() || grip.dragged() { egui::Color32::WHITE } else { egui::Color32::from_rgb(120, 170, 210) };
+                if !crate::skin::skin(ui.ctx()).is_some_and(|s| s.draw_in(ui.painter(), "GFX_GUI_WINDOW_CORNER_DRAG", handle, tint)) {
+                    ui.painter().rect_stroke(handle.shrink(4.0), 2.0, egui::Stroke::new(1.5, tint), egui::StrokeKind::Inside);
+                }
+                if grip.dragged() {
+                    let d = grip.drag_delta();
+                    self.mini_size = (self.mini_size + (d.x + d.y) * 0.5).clamp(120.0, 600.0);
+                }
+                if grip.drag_stopped() {
+                    resized = true;
+                }
+                grip.on_hover_text("Drag to size the map (Ctrl and the wheel too)");
             });
             if area.response.dragged() || area.response.drag_stopped() {
                 let min = area.response.rect.min;
                 self.mini_at = Some([min.x, min.y]);
                 if area.response.drag_stopped() {
-                    save_prefs(Some([min.x, min.y]), self.land_control);
+                    save_prefs(Some([min.x, min.y]), self.land_control, self.mini_size);
                 }
+            }
+            if resized {
+                save_prefs(self.mini_at, self.land_control, self.mini_size);
             }
         }
     }

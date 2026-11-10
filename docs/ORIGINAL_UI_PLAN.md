@@ -28,7 +28,9 @@ anything the original did not have is either dropped from the default view or ma
 | Bitmap fonts (Phase A.2): `.fnt` reader, glyph mesh painter, word wrap; chat lines in `CHAT9` | done, checked offscreen; `original_font` setting | `crates/mao-client/src/font.rs` |
 | Target frame (Phase D.2), chat tabs (Phase E.1) | done, checked offscreen | `ui.rs::target_frame`, `chatwindow.rs` |
 | Theme colours from any `GUIColors.xml` folder (`theme = original`, `aou_cyt`, ... or a path; `aou_mod =` points at the AOU mod folder) | done | `crates/mao-client/src/theme.rs` (`theme_dir`, `Palette`) |
-| Window positions remembered between sessions | done (this client's own `layout.ini`, not the original's `Prefs.xml`) | `layout.rs` |
+| Window positions remembered between sessions | done (this client's own `layout.ini`); a window with no place yet starts at the original client's own frame for the character, read from its `Prefs.xml`, `DockAreas/*.xml` and chat window configs under the Funcom folder and scaled to this window | `layout.rs`, `aoprefs.rs` |
+| The rollup area down the right edge (wear, NCU, programs, team, faction as pages; roll, undock, dock back) | done, seen live | `rollup.rs`, `chrome.rs` |
+| The Preferences window with the original's pages (from an AOU skin's `Root.xml`, since the game's own is empty) | done, previewed | `gui/options.rs` |
 | `/camp` returns to the character screen | built, not tried live | `viewer.rs` (`logged_out`), `launcher.rs` (`LOGGED_OUT`, `MAO_RELOGIN`) |
 | Aura recasts the server repeats are silent | built, not confirmed with the Keeper | `net.rs` (`self_casts`, `asked_casts`) |
 | Character screen: list left, figure in the window, Play at the bottom, cached looks | done | `launcher.rs`, `look.rs` |

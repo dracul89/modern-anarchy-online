@@ -774,6 +774,7 @@ impl Ui {
         let mut cc_windows: Vec<(&'static str, bool)> = Vec::new();
         let (hotbars, clock_now) = (&mut self.hotbars, self.clock.elapsed().as_secs_f64());
         crate::layout::remember(&self.ctx);
+        crate::rollup::begin_frame();
         // (the options' slider: `zoom_factor` multiplies the window's own scale)
         if (self.ctx.zoom_factor() - settings.ui_scale).abs() > 1e-3 {
             self.ctx.set_zoom_factor(settings.ui_scale);

@@ -26,6 +26,18 @@ pub fn kept(name: &str) -> bool {
 
 struct Layout {
     spots: BTreeMap<String, [f32; 2]>,
+    /// The original client's own layout for the character (`aoprefs.rs`), looked up once the character is known; the
+    /// screen's size in points, noted each frame, to scale it.
+    original: Option<Option<crate::aoprefs::Original>>,
+    character: Option<u32>,
+    screen: [f32; 2],
+    /// The windows whose place was noted before the character was known (the loading screens' frames): their place is
+    /// dropped once it is, and the window is moved to the original's frame (`relocate`).
+    auto: BTreeSet<String>,
+    relocate: BTreeSet<String>,
+    /// The windows that asked for a place while the screen's size was not yet known (egui's first frames report a
+    /// 10000-point screen): moved to the original's frame once it is.
+    pending: BTreeSet<String>,
     /// The windows shown since the client started (their places are noted each frame).
     shown: BTreeSet<String>,
     loaded: bool,
@@ -35,7 +47,7 @@ struct Layout {
     tabs: Option<BTreeMap<String, usize>>,
 }
 
-static LAYOUT: Mutex<Layout> = Mutex::new(Layout { spots: BTreeMap::new(), shown: BTreeSet::new(), loaded: false, dirty: false, written: None, tabs: None });
+static LAYOUT: Mutex<Layout> = Mutex::new(Layout { spots: BTreeMap::new(), original: None, character: None, screen: [0.0; 2], auto: BTreeSet::new(), relocate: BTreeSet::new(), pending: BTreeSet::new(), shown: BTreeSet::new(), loaded: false, dirty: false, written: None, tabs: None });
 
 fn path() -> std::path::PathBuf {
     crate::settings::Settings::path().with_file_name("layout.ini")
@@ -67,7 +79,8 @@ pub fn pos(name: &str, default: egui::Pos2) -> egui::Pos2 {
     saved(name).unwrap_or(default)
 }
 
-/// A window's saved place.
+/// A window's saved place, else where the original client's layout for this character puts it (`aoprefs.rs`, scaled to
+/// the screen), else none.
 pub fn saved(name: &str) -> Option<egui::Pos2> {
     if disabled() {
         return None;
@@ -77,7 +90,70 @@ pub fn saved(name: &str) -> Option<egui::Pos2> {
         layout.loaded = true;
         layout.spots = std::fs::read_to_string(path()).map(|t| parse(&t)).unwrap_or_default();
     }
-    layout.spots.get(name).map(|p| egui::pos2(p[0], p[1]))
+    if let Some(p) = layout.spots.get(name) {
+        return Some(egui::pos2(p[0], p[1]));
+    }
+    if !name.is_empty() && !screen_known(&layout) {
+        layout.pending.insert(name.to_string());
+        return None;
+    }
+    original_frame(&mut layout, name).map(|f| egui::pos2(f[0], f[1]))
+}
+
+/// Whether the screen's size is a real one (egui's first frames, before the window is sized, report squares of 5000 or
+/// 10000 points).
+fn screen_known(layout: &Layout) -> bool {
+    let [w, h] = layout.screen;
+    w >= 200.0 && h >= 100.0 && w < 8000.0 && h < 8000.0 && !(w == h && w >= 4000.0)
+}
+
+/// The original's frame for a window, scaled: left, top, width, height.
+fn original_frame(layout: &mut Layout, name: &str) -> Option<[f32; 4]> {
+    let character = layout.character?;
+    if layout.original.is_none() {
+        layout.original = Some(crate::aoprefs::load(character));
+        if std::env::var_os("MAO_TRACE_LAYOUT").is_some() {
+            eprintln!("original layout for {character}: {:?}", layout.original.as_ref().unwrap().as_ref().map(|o| (o.display, o.frames.len(), crate::aoprefs::prefs_dirs(character))));
+        }
+    }
+    let screen = layout.screen;
+    let frame = layout.original.as_ref()?.as_ref()?.frame(name, screen);
+    if std::env::var_os("MAO_TRACE_LAYOUT").is_some() {
+        eprintln!("original frame for {name:?} on {screen:?}: {frame:?}");
+    }
+    frame
+}
+
+/// The size the original's layout gives a window, when it has one and the player has not placed the window here yet.
+pub fn original_size(name: &str) -> Option<egui::Vec2> {
+    if disabled() {
+        return None;
+    }
+    let mut layout = LAYOUT.lock().unwrap();
+    if layout.spots.contains_key(name) || !screen_known(&layout) {
+        return None;
+    }
+    original_frame(&mut layout, name).map(|f| egui::vec2(f[2], f[3]))
+}
+
+/// The character playing (the original's per-character preferences are looked up by its id).
+pub fn set_character(id: u32) {
+    let mut layout = LAYOUT.lock().unwrap();
+    if layout.character != Some(id) {
+        layout.character = Some(id);
+        layout.original = None;
+        // (places noted while no character was known are not the player's: the windows go to the original's frames)
+        let auto = std::mem::take(&mut layout.auto);
+        for name in auto {
+            layout.spots.remove(&name);
+            layout.relocate.insert(name);
+        }
+    }
+}
+
+/// Whether a window is to be moved to its starting place now (once, after `set_character` dropped a place noted too early).
+pub fn relocate(name: &str) -> bool {
+    LAYOUT.lock().unwrap().relocate.remove(name)
 }
 
 /// A window shown (by `chrome::window`): its place is noted from now on, unless it is one of the [`FIXED`] ones.
@@ -142,11 +218,29 @@ pub fn remember(ctx: &egui::Context) {
     // (the saved places first, so the file written keeps the windows not shown this time)
     let _ = saved("");
     let mut layout = LAYOUT.lock().unwrap();
+    let screen = ctx.content_rect().size();
+    layout.screen = [screen.x, screen.y];
+    if !screen_known(&layout) {
+        return;
+    }
+    // (the windows placed before the screen had its size are moved to their starting places now)
+    let pending = std::mem::take(&mut layout.pending);
+    for name in pending {
+        layout.spots.remove(&name);
+        layout.relocate.insert(name);
+    }
     let names: Vec<String> = NAMES.iter().map(|n| n.to_string()).chain(layout.shown.iter().cloned()).collect();
     for name in names {
+        // (a window about to be moved to its starting place is noted once it is there)
+        if layout.relocate.contains(&name) {
+            continue;
+        }
         if let Some(rect) = ctx.memory(|m| m.area_rect(egui::Id::unique(name.as_str()))) {
             let now = [rect.min.x, rect.min.y];
             if layout.spots.get(&name).is_none_or(|old| (old[0] - now[0]).abs() > 1.0 || (old[1] - now[1]).abs() > 1.0) {
+                if layout.character.is_none() && !layout.spots.contains_key(&name) {
+                    layout.auto.insert(name.clone());
+                }
                 layout.spots.insert(name, now);
                 layout.dirty = true;
             }
