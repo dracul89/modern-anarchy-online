@@ -392,6 +392,10 @@ struct World {
     /// The container (corpse, bag) the character opened, and whether that changed.
     loot: Option<Loot>,
     loot_changed: bool,
+    /// One's own backpacks that are open (a bag of the inventory the character used), by the bag's identity, and
+    /// whether any changed.
+    bags: BTreeMap<(u32, u32), Loot>,
+    bags_changed: bool,
     /// The last full position report (`0x16`) the server sent of one's own character (its echo of ours, or its own when it
     /// refuses a move: then it repeats the last place it took, every few seconds).
     own_report: Option<[f32; 3]>,
@@ -1713,6 +1717,9 @@ impl World {
                     if kind == 0x6b && self.loot.as_ref().is_some_and(|l| l.handle == instance >> 16) {
                         self.loot_changed = true;
                     }
+                    if kind == 0x6b && self.bags.values().any(|b| b.handle == instance >> 16) {
+                        self.bags_changed = true;
+                    }
                 }
                 _ => {}
             }
@@ -1934,7 +1941,12 @@ impl World {
                 if std::env::var_os("MAO_COMBAT_LOG").is_some() && entries.is_empty() {
                     eprintln!("combat: container ({:#x}, {:#x}) is empty", identity.0, identity.1);
                 }
-                if entries.is_empty() && identity.0 != 0xc76a && identity.0 != 0xc749 {
+                if identity.0 == crate::loot::BAG && self.worn.iter().any(|e| e.container == identity) {
+                    // (one's own backpack: a window of its own, GUI.dll's `N3Msg_IsItemMine` branch of FUN_100ccefe)
+                    let handle = p.value.get("Handle").and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
+                    self.bags.insert(identity, Loot { identity, handle, entries });
+                    self.bags_changed = true;
+                } else if entries.is_empty() && identity.0 != 0xc76a && identity.0 != 0xc749 {
                     if self.loot.as_ref().is_some_and(|l| l.identity == identity) {
                         self.loot = None;
                         self.loot_changed = true;
@@ -2070,6 +2082,33 @@ impl World {
                         self.add_to_backpack(entry);
                     }
                 }
+                // `(0x68, place)` into one of one's own open backpacks: the item leaves the inventory for the bag's first
+                // free place (a guess, as for the other containers: the server's own place was not found)
+                if source.0 == 0x68 && self.bags.contains_key(&target) {
+                    if let Some(at) = self.worn.iter().position(|e| e.slot == source.1) {
+                        let mut entry = self.worn.remove(at);
+                        if let Some(bag) = self.bags.get_mut(&target) {
+                            entry.slot = (0..).find(|p| !bag.entries.iter().any(|e| e.slot == *p)).unwrap_or(0);
+                            bag.entries.push(entry);
+                        }
+                        self.inventory = Some(self.worn.clone());
+                        self.bags_changed = true;
+                    }
+                }
+                // `(0x6b, handle << 16 | place)` with a backpack's handle: an item came out of that bag into the inventory
+                let bag_key = if source.0 == 0x6b { self.bags.iter().find(|(_, b)| b.handle == source.1 >> 16).map(|(k, _)| *k) } else { None };
+                if let Some(key) = bag_key {
+                    let place = source.1 & 0xffff;
+                    let taken = self.bags.get_mut(&key).and_then(|b| b.entries.iter().position(|e| e.slot == place).map(|at| b.entries.remove(at)));
+                    if let Some(mut entry) = taken {
+                        if let Some(free) = (inventory::BACKPACK_FIRST..inventory::BACKPACK_FIRST + crate::gear::PACK_SLOTS).find(|s| !self.worn.iter().any(|e| e.slot == *s)) {
+                            entry.slot = free;
+                            self.worn.push(entry);
+                            self.inventory = Some(self.worn.clone());
+                        }
+                        self.bags_changed = true;
+                    }
+                }
                 // `(0x68, place)` into the open container: an item went in from the backpack (the bank by its type alone)
                 if source.0 == 0x68 && self.loot.as_ref().is_some_and(|l| l.identity == target || (l.identity.0 == crate::loot::BANK && target.0 == crate::loot::BANK)) {
                     if let Some(at) = self.worn.iter().position(|e| e.slot == source.1) {
@@ -2090,7 +2129,7 @@ impl World {
                 // `(0x6b, handle << 16 | place)`: an item came out of the open container into the backpack (out of the bank: the
                 // item's identity as the bank named it)
                 let bank_item = self.loot.as_ref().filter(|l| l.identity.0 == crate::loot::BANK).and_then(|l| l.entries.iter().find(|e| e.container == source || (source.0 == 0x69 && e.slot == source.1)).map(|e| e.slot));
-                if source.0 == 0x6b || bank_item.is_some() {
+                if bag_key.is_none() && (source.0 == 0x6b || bank_item.is_some()) {
                     let place = bank_item.unwrap_or(source.1 & 0xffff);
                     if let Some(loot) = self.loot.as_mut() {
                         if let Some(at) = loot.entries.iter().position(|e| e.slot == place) {
@@ -5946,7 +5985,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 take_seen = keys.take.0;
                 let (_, handle, place) = keys.take;
                 let places: Vec<u32> = if place == u32::MAX { state.loot.iter().flat_map(|l| l.entries.iter().map(|e| e.slot)).collect() } else { vec![place] };
-                let bank = state.loot.as_ref().filter(|l| l.identity.0 == crate::loot::BANK).map(|l| l.entries.clone());
+                // (the bank's items by its own way of naming them: only when it is the bank's window that asks, handle 0)
+                let bank = state.loot.as_ref().filter(|l| l.identity.0 == crate::loot::BANK && l.handle == handle).map(|l| l.entries.clone());
                 for place in places {
                     match &bank {
                         // (`N3Msg_MoveItemToInventory` with the item's place in the bank, `BankByRef` (0x69), as aosharp's
@@ -7097,7 +7137,23 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     chat_lines: chat_lines_now,
                     friends: friends_now,
                     loot: std::mem::take(&mut state.loot_changed).then(|| {
-                        state.loot.as_ref().map(|l| crate::loot::LootView { title: state.names.get(&l.identity.1).map(|n| n.0.clone()).filter(|n| !n.starts_with("Object ")).unwrap_or_else(|| crate::loot::title(l.identity.0).to_string()), identity: l.identity, handle: l.handle, items: crate::gear::from_entries(&gear_db, &gear_textures, &l.entries, state.stats.get(&0x36).copied().unwrap_or(1)) })
+                        state.loot.as_ref().map(|l| crate::loot::LootView { own: false, title: state.names.get(&l.identity.1).map(|n| n.0.clone()).filter(|n| !n.starts_with("Object ")).unwrap_or_else(|| crate::loot::title(l.identity.0).to_string()), identity: l.identity, handle: l.handle, items: crate::gear::from_entries(&gear_db, &gear_textures, &l.entries, state.stats.get(&0x36).copied().unwrap_or(1)) })
+                    }),
+                    bags: std::mem::take(&mut state.bags_changed).then(|| {
+                        // (a bag that left the inventory has no window any more)
+                        let worn = &state.worn;
+                        state.bags.retain(|identity, _| worn.iter().any(|e| e.container == *identity));
+                        let level = state.stats.get(&0x36).copied().unwrap_or(1);
+                        state
+                            .bags
+                            .values()
+                            .map(|bag| {
+                                // (titled with the bag's own name: the item's)
+                                let item = state.worn.iter().find(|e| e.container == bag.identity).cloned();
+                                let title = item.and_then(|e| crate::gear::from_entries(&gear_db, &gear_textures, &[e], level).pop()).map_or_else(|| crate::loot::title(bag.identity.0).to_string(), |g| g.name);
+                                crate::loot::LootView { own: true, title, identity: bag.identity, handle: bag.handle, items: crate::gear::from_entries(&gear_db, &gear_textures, &bag.entries, level) }
+                            })
+                            .collect()
                     }),
                     perk_list: std::mem::take(&mut state.perks_changed).then(|| {
                         let unix = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64);
@@ -8465,6 +8521,31 @@ mod door_tests {
         // casting it again sets its time
         w.nano_duration(10, 9000);
         assert_eq!(w.nano_times, vec![(10, 9000)]);
+    }
+
+    /// One's own open backpack: an item of the inventory goes into it with a `ContainerAddItem` naming the bag, and
+    /// comes out with one naming the bag's handle; the shared container window's contents are left alone.
+    #[test]
+    fn items_go_in_and_out_of_an_own_backpack() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let own = 0x7b1a0021;
+        let bag = (crate::loot::BAG, 0x4d);
+        let entry = |slot: u32, container: (u32, u32), low_id: u32| inventory::Entry { slot, flags: 0, count: 1, container, low_id, high_id: low_id, quality: 1, extra: 0 };
+        let mut w = World { own, ..World::default() };
+        w.worn.push(entry(inventory::BACKPACK_FIRST, bag, 100));
+        w.worn.push(entry(inventory::BACKPACK_FIRST + 1, (0, 0), 200));
+        w.bags.insert(bag, Loot { identity: bag, handle: 0x71, entries: vec![entry(0, (0, 0), 300)] });
+        w.loot = Some(Loot { identity: (0xc76a, 5), handle: 0x70, entries: vec![entry(0, (0, 0), 400)] });
+        // (`(0x68, 0x41)` into the bag `(0xc749, 0x4d)`: the item takes the bag's first free place)
+        w.add(&Message { kind: CONTAINER_ADD_ITEM, identity: (0xc350, own), data: hex("0000000068000000410000c7490000004d00000000") }.frame(1));
+        assert_eq!(w.bags[&bag].entries.iter().map(|e| (e.slot, e.low_id)).collect::<Vec<_>>(), [(0, 300), (1, 200)]);
+        assert!(w.worn.len() == 1 && w.bags_changed);
+        // (`(0x6b, 0x71 << 16 | 0)`: the bag's item at place 0 comes into the inventory's first free place)
+        w.bags_changed = false;
+        w.add(&Message { kind: CONTAINER_ADD_ITEM, identity: (0xc350, own), data: hex("000000006b007100000000c3507b1a00210000006f") }.frame(1));
+        assert_eq!(w.bags[&bag].entries.iter().map(|e| e.low_id).collect::<Vec<_>>(), [200]);
+        assert_eq!(w.worn.last().map(|e| (e.slot, e.low_id)), Some((inventory::BACKPACK_FIRST + 1, 300)));
+        assert!(w.bags_changed && w.loot.as_ref().is_some_and(|l| l.entries.len() == 1));
     }
 
     /// The Arete Landing capture: a quest item named into the overflow window comes in with its `ContainerAddItem`, and a

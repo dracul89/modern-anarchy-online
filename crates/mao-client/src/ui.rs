@@ -95,6 +95,8 @@ pub struct Hud {
     pub perk_state: crate::perks::PerkState,
     /// The open container (corpse, bag).
     pub loot: Option<crate::loot::LootView>,
+    /// One's own open backpacks.
+    pub bags: Vec<crate::loot::LootView>,
     pub loot_preview: std::sync::Mutex<Option<crate::loot::LootWindow>>,
     pub perks_preview: std::sync::Mutex<Option<crate::perks::PerksWindow>>,
     pub programs_preview: std::sync::Mutex<Option<crate::nanoprograms::ProgramsWindow>>,
@@ -309,6 +311,8 @@ pub struct Ui {
     /// The skin's option panel (`OptionPanel/Root.xml`).
     pub option_panel: crate::gui::options::OptionPanel,
     pub loot: crate::loot::LootWindow,
+    /// One's own backpacks' windows, by the bag's identity.
+    pub bag_windows: std::collections::BTreeMap<(u32, u32), crate::loot::LootWindow>,
     pub chat: crate::chatwindow::ChatWindow,
     gear: crate::gear::GearWindow,
     /// The hotbars, and the clock their cooldowns run on.
@@ -523,7 +527,7 @@ impl Ui {
         crate::skin::configure(&ctx, crate::skin::dirs(&settings.gui_dir, &settings.theme, &settings.aou_mod));
         let state = egui_winit::State::new(ctx.clone(), egui::ViewportId::ROOT, window, Some(window.scale_factor() as f32), window.theme(), None);
         let renderer = egui_wgpu::Renderer::new(&gpu.device, format, egui_wgpu::RendererOptions::default());
-        let mut ui = Ui { ctx, state, renderer, open_seen: Vec::new(), options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), shop: Default::default(), npc_chat: Default::default(), mission_log: Default::default(), planet: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), team: Default::default(), pets: Default::default(), tradeskill: Default::default(), research: Default::default(), faction: Default::default(), raid: Default::default(), lft: Default::default(), knowledge: Default::default(), ncu: Default::default(), target_ncu: [crate::ncu::TargetNcu::new(false), crate::ncu::TargetNcu::new(true)], friends: Default::default(), programs: Default::default(), perks: Default::default(), help: Default::default(), tips: Default::default(), info: Default::default(), browser: Default::default(), market_send: Default::default(), control_center: None, option_panel: Default::default(), loot: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0, perf: Default::default() };
+        let mut ui = Ui { ctx, state, renderer, open_seen: Vec::new(), options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), shop: Default::default(), npc_chat: Default::default(), mission_log: Default::default(), planet: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), team: Default::default(), pets: Default::default(), tradeskill: Default::default(), research: Default::default(), faction: Default::default(), raid: Default::default(), lft: Default::default(), knowledge: Default::default(), ncu: Default::default(), target_ncu: [crate::ncu::TargetNcu::new(false), crate::ncu::TargetNcu::new(true)], friends: Default::default(), programs: Default::default(), perks: Default::default(), help: Default::default(), tips: Default::default(), info: Default::default(), browser: Default::default(), market_send: Default::default(), control_center: None, option_panel: Default::default(), loot: Default::default(), bag_windows: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0, perf: Default::default() };
         // (the windows the player left open come back open; the first time, the planet map, open in the original's default
         // layout at the top left)
         for name in crate::layout::load_open().unwrap_or_else(|| vec!["map".to_string()]) {
@@ -778,6 +782,7 @@ impl Ui {
         let market_send = &mut self.market_send;
         let control_center = &mut self.control_center;
         let target_ncu = &mut self.target_ncu;
+        let bag_windows = &mut self.bag_windows;
         let option_panel = &mut self.option_panel;
         let mut cc_windows: Vec<(&'static str, bool)> = Vec::new();
         let (hotbars, clock_now) = (&mut self.hotbars, self.clock.elapsed().as_secs_f64());
@@ -851,6 +856,25 @@ impl Ui {
                     requests.loot_take = Some(take);
                 }
                 if let (Some(place), Some(at)) = (loot_window.dropped_out.take(), ctx.input(|i| i.pointer.interact_pos())) {
+                    let k = ctx.pixels_per_point();
+                    requests.use_on = Some(((0x6b, view.handle << 16 | (place & 0xffff)), (at.x * k, at.y * k)));
+                }
+            }
+            // (one's own backpacks, each in its window: shown when opened, and again when opened anew)
+            bag_windows.retain(|identity, _| hud.bags.iter().any(|b| b.identity == *identity));
+            for view in &hud.bags {
+                let window = bag_windows.entry(view.identity).or_default();
+                if window.handle_seen != Some(view.handle) {
+                    window.handle_seen = Some(view.handle);
+                    window.open = true;
+                }
+                if !window.open {
+                    continue;
+                }
+                if let Some(take) = window.show(&ctx, view, palette) {
+                    requests.loot_take = Some(take);
+                }
+                if let (Some(place), Some(at)) = (window.dropped_out.take(), ctx.input(|i| i.pointer.interact_pos())) {
                     let k = ctx.pixels_per_point();
                     requests.use_on = Some(((0x6b, view.handle << 16 | (place & 0xffff)), (at.x * k, at.y * k)));
                 }

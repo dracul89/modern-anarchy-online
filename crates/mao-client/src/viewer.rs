@@ -212,6 +212,8 @@ pub struct Update {
     pub perk_list: Option<crate::perks::PerkState>,
     /// The container (corpse, bag) the character opened: `Some(None)` when it closed.
     pub loot: Option<Option<crate::loot::LootView>>,
+    /// One's own open backpacks, when one opens or its contents change.
+    pub bags: Option<Vec<crate::loot::LootView>>,
     /// The running nano programs, when the list changes (the NCU window).
     pub nanos: Option<Vec<crate::ncu::NanoInfo>>,
     /// The nanos running on the selected target and on the fight target (each `None` without one), when either
@@ -1507,6 +1509,9 @@ impl ApplicationHandler for App {
                             }
                             self.hud.loot = loot;
                         }
+                        if let Some(bags) = u.bags.take() {
+                            self.hud.bags = bags;
+                        }
                         if let Some(perks) = u.perk_list.take() {
                             self.hud.perk_state = perks;
                         }
@@ -2480,8 +2485,12 @@ impl ApplicationHandler for App {
                         match take {
                             crate::loot::Take::One { handle, place } => {
                                 self.keys.take = (self.keys.take.0.wrapping_add(1), handle, place);
-                                if let Some(loot) = self.hud.loot.as_mut() {
+                                // (the item leaves its window at once: the shared one's, or a backpack's by the handle)
+                                if let Some(loot) = self.hud.loot.as_mut().filter(|l| l.handle == handle) {
                                     loot.items.retain(|i| i.slot != place);
+                                }
+                                if let Some(bag) = self.hud.bags.iter_mut().find(|b| b.handle == handle) {
+                                    bag.items.retain(|i| i.slot != place);
                                 }
                             }
                             crate::loot::Take::Put { identity, from } => {

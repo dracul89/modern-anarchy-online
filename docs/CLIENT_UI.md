@@ -649,6 +649,30 @@ Using a corpse (`0xc76a`, announced like the other usable objects) or a bag make
 
 **Putting items in (bags and other containers, not corpses).** Dragging an item of the inventory window onto an open container's window puts it in: `ClientContainerAddItem` (`n3::container_add_item`: the container's identity and the source `(0x68, place)`), the message of the captured bag fills. The server confirms with a `ContainerAddItem` whose source is `(0x68, place)` and whose target is the container (slot 0, any), and only then does the item leave the inventory window and appear in the container's list (at the next place after the others: a guess, the server's own place was not found). Drops on a corpse are ignored. The drag is shared between the windows through `gear::DRAGGED` (cleared when the mouse button is up). Not tried live.
 
+**One's own backpacks in windows of their own (2026-11-10, `loot.rs`, `net.rs`).** Until now every container the
+character opened took over the one shared container window. The original gives a bag of one's own inventory its own
+window (`InventoryView_c` FUN_100ccefe, the `N3Msg_IsItemMine` branch), as many at once as bags are opened. Now:
+- An `InventoryUpdate` for a container of type `0xc749` whose identity is that of a bag in the inventory opens (or
+  refreshes) that bag's window; corpses, chests and the bank still share the other window. The captures confirm that
+  a bag item in the inventory carries the container's identity.
+- A backpack's window is named `Container_<type>x<instance>` as the original's, so each keeps its own place
+  (`layout.ini`); it shows the bag's 21 places three to a row, is titled with the bag's name, does not close when
+  empty and has no "Take all".
+- Items move as before: a double click, a right click or a drag onto the inventory takes one out
+  (`take_from_container` with that bag's handle); an inventory item dropped on the window goes in
+  (`container_add_item` with the bag's identity). The server's `ContainerAddItem` moves the item between the lists,
+  by the bag's identity going in and by its handle coming out. Several bags can be open and each is updated by itself.
+- The right button beside the items opens the backpack's menu (FUN_100cbace) with "Rename": the "Enter backpack
+  name." box (FUN_100cb852) with OK, "Reset to default" and Cancel. The names are kept in `backpacks.ini` beside
+  `mao.ini` (the original keeps each in the bag's own file under `Containers/`).
+- Closing a window only hides it; using the bag again shows it (the server gives it a new handle). A bag that leaves
+  the inventory loses its window.
+Tested on built messages (an item into a bag and out again, the shared window untouched) and seen in a preview
+(`MAO_UI_PREVIEW=loot MAO_CAPTURE=<log> MAO_LOOT=<n> MAO_LOOT_OWN=1`); **not tried live**. Not done: the menu's List
+Mode and Auto Arrange for containers, items placed by hand in a bag, moving an item straight from one bag to
+another, closing by Escape (`esc_backpacks`), and telling the server a bag was closed (the original's message was
+not identified).
+
 ## Game text and the fight in the chat window
 
 Three server messages now put lines in the chat window: `ChatText` (`5f4b442a`, the game's own lines such as "Tarasque is no longer immortal."; two zero bytes, the length, the text) goes to the System tab; `FormatFeedback` (`206b4b73`, "You successfully perform a Quick Bash attack.", "You successfully perform Nano Feast.") to a new **Combat** tab (the message is a compact markup of tags and strings, a string being the letter `s`, its length with the closing zero counted, the characters and a zero; only lines that are one plain string are rebuilt, the ones made of names and numbers are not); and `HealthDamage` (`3710256c`: the target's health, an amount, a stat and the target) becomes "You take 49 points of energy damage." / "<name> takes N points of cold damage." for a negative amount (the stat is the armour class that met it, 0 meaning none) and "is healed for N points" for a positive one, also in the Combat tab. All three are checked against captured messages (`mao_net::n3::chat_text` and `feedback_text`). Who dealt the damage is not in the message, so the lines name only the target.

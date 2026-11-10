@@ -71,6 +71,11 @@ Needs: **1** = one character is enough, **2** = a second character on line, **or
 | 40 | 1 | Right-click the window → List Mode; press a column label; → Auto Arrange → By NCU Cost, Sort Ascending (in grid mode) | The ten columns with values as in the original client; the list sorts by the label; the grid reorders; mode, school and order are kept after a restart |
 | 41 | 1 | Right-click a program → Look at; left-click one | The nano's page opens; the left click still casts |
 | 42 | 1 | Perk window on a character with perks: look at the rows; on a spare character remove a perk (it costs the perk; decide first) | Round status icons (green owned, grey available, red not yet); after a removal the timer bar fills and counts down two hours |
+| 43 | 1 | Use two different bags in the inventory | Each opens in its own window with its 21 places and the bag's name; both stay open together |
+| 44 | 1 | Drag an item from the inventory onto a bag's window; double-click an item in a bag | The item goes into that bag, and comes back to the inventory; the other bag's window does not change |
+| 45 | 1 | Right-click beside the items in a bag's window → Rename; type a name; later Reset to default | The window's title changes and is kept after a restart; reset gives the bag's own name back |
+| 46 | 1 | Close a bag's window, use the bag again; move a bag's window and restart | It shows again; it comes back where it was left |
+| 47 | 1 | With a bag window open, open a corpse and the bank | They use the shared container window; taking from each still works |
 
 ## Older notes still marked untried in `CLIENT_UI.md`
 
