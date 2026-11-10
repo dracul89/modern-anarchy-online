@@ -229,6 +229,8 @@ pub struct Requests {
     pub cancel_nano: Option<u32>,
     /// A test script's `target@<id>`: the character to select.
     pub select_id: Option<u32>,
+    /// A test script's `cast@<nano id>`: the nano program to run.
+    pub cast_id: Option<u32>,
     /// A perk rank to train (true) or untrain.
     pub train_perk: Option<(u32, bool)>,
     /// Items chosen to use or to destroy in the inventory window's menu (by place).
@@ -285,6 +287,10 @@ pub struct Ui {
     script_invite: Option<String>,
     /// A test script's `target@<id>`: the character to select as the target.
     script_target: Option<u32>,
+    /// A test script's `cast@<nano id>`: the nano program to run.
+    script_cast: Option<u32>,
+    /// A test script's `useitem@<place>`: the inventory place whose item to use.
+    script_use: Option<u32>,
     /// The duel challenge (`Hud::duel`'s count) already answered, and the one already told in the chat.
     duel_done: u32,
     duel_told: u32,
@@ -545,7 +551,7 @@ impl Ui {
         crate::skin::configure(&ctx, crate::skin::dirs(&settings.gui_dir, &settings.theme, &settings.aou_mod));
         let state = egui_winit::State::new(ctx.clone(), egui::ViewportId::ROOT, window, Some(window.scale_factor() as f32), window.theme(), None);
         let renderer = egui_wgpu::Renderer::new(&gpu.device, format, egui_wgpu::RendererOptions::default());
-        let mut ui = Ui { ctx, state, renderer, open_seen: Vec::new(), injected: Default::default(), script_bag: None, script_invite: None, script_target: None, duel_done: 0, duel_told: 0, options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), shop: Default::default(), npc_chat: Default::default(), mission_log: Default::default(), planet: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), team: Default::default(), pets: Default::default(), tradeskill: Default::default(), research: Default::default(), faction: Default::default(), raid: Default::default(), lft: Default::default(), knowledge: Default::default(), ncu: Default::default(), target_ncu: [crate::ncu::TargetNcu::new(false), crate::ncu::TargetNcu::new(true)], friends: Default::default(), programs: Default::default(), perks: Default::default(), help: Default::default(), tips: Default::default(), info: Default::default(), browser: Default::default(), market_send: Default::default(), control_center: None, option_panel: Default::default(), loot: Default::default(), bag_windows: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0, perf: Default::default() };
+        let mut ui = Ui { ctx, state, renderer, open_seen: Vec::new(), injected: Default::default(), script_bag: None, script_invite: None, script_target: None, script_cast: None, script_use: None, duel_done: 0, duel_told: 0, options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), shop: Default::default(), npc_chat: Default::default(), mission_log: Default::default(), planet: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), team: Default::default(), pets: Default::default(), tradeskill: Default::default(), research: Default::default(), faction: Default::default(), raid: Default::default(), lft: Default::default(), knowledge: Default::default(), ncu: Default::default(), target_ncu: [crate::ncu::TargetNcu::new(false), crate::ncu::TargetNcu::new(true)], friends: Default::default(), programs: Default::default(), perks: Default::default(), help: Default::default(), tips: Default::default(), info: Default::default(), browser: Default::default(), market_send: Default::default(), control_center: None, option_panel: Default::default(), loot: Default::default(), bag_windows: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0, perf: Default::default() };
         // (the windows the player left open come back open; the first time, the planet map, open in the original's default
         // layout at the top left)
         for name in crate::layout::load_open().unwrap_or_else(|| vec!["map".to_string()]) {
@@ -675,7 +681,7 @@ impl Ui {
     /// keys would: `open@<window>` and `close@<window>`; `click@<x>;<y>`, `rclick@...`, `dclick@...` and `move@...` at a
     /// place given in the screenshot's pixels; `type@<line>` into the chat's input (then `key@Enter` sends it);
     /// `text@<letters>` into whatever takes the keys; `key@<Enter|Escape|Tab|Up|Down|Backspace>`; `drag@<x>;<y>;<x>;<y>`
-    /// presses at the first place and lets go at the second; `usebag@<n>` uses the inventory's n-th bag; `pginvite@<name>` invites a character of the friends list to one's private chat group; `target@<id>` selects the character with that id. False
+    /// presses at the first place and lets go at the second; `usebag@<n>` uses the inventory's n-th bag; `pginvite@<name>` invites a character of the friends list to one's private chat group; `target@<id>` selects the character with that id; `cast@<nano id>` runs a nano program of the character's; `useitem@<place>` uses the item in that inventory place. False
     /// for a step it does not know.
     pub fn script(&mut self, step: &str) -> bool {
         let Some((what, argument)) = step.split_once('@') else { return false };
@@ -705,6 +711,8 @@ impl Ui {
             "usebag" => self.script_bag = Some(argument.trim().parse().unwrap_or(1)),
             "pginvite" => self.script_invite = Some(argument.trim().to_string()),
             "target" => self.script_target = argument.trim().parse().ok(),
+            "cast" => self.script_cast = argument.trim().parse().ok(),
+            "useitem" => self.script_use = argument.trim().parse().ok(),
             "drag" => {
                 let k = self.ctx.pixels_per_point();
                 let v: Vec<f32> = argument.split(';').filter_map(|t| t.trim().parse::<f32>().ok()).map(|p| p / k).collect();
@@ -864,6 +872,8 @@ impl Ui {
             }
         }
         requests.select_id = self.script_target.take();
+        requests.cast_id = self.script_cast.take();
+        requests.item_uses.extend(self.script_use.take());
         if let Some(nth) = self.script_bag.take() {
             let bags: Vec<&crate::gear::GearItem> = hud.gear.iter().filter(|g| g.bag).collect();
             eprintln!("script: {} bags in the inventory; using number {nth}", bags.len());

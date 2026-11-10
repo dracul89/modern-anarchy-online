@@ -49,6 +49,24 @@ fn english(name: &str) -> &'static str {
         "Feedback_WasAttackedByNanobotsFrom" => "%s was attacked with nanobots from %s for %u points of %s damage.",
         "Feedback_WasAttackedByNanobots" => "%s was attacked with nanobots for %u points of %s damage.",
         "Feedback_YouHitOtherWith" => "You hit %s with %s for %u points of %s damage.",
+        // (the pet duel's, in this client's own words)
+        "PetDuelChallenge" => "%s asks you for a duel of pets (/petduel accept or /petduel reject).",
+        "ChallengedX2duel" => "You asked %s for a duel of pets.",
+        "ChallengedSomeone" => "You asked for a duel of pets.",
+        "XRejectedDuel" => "%s turned the pet duel down.",
+        "OpponentRejectedDuel" => "The pet duel was turned down.",
+        "XAcceptedDuel" => "%s takes the pet duel.",
+        "OpponentAcceptedDuel" => "The pet duel is on.",
+        "XinvalidOpponentDuel" => "%s cannot be asked for a pet duel.",
+        "TargetNotValidOpponent" => "That target cannot be asked for a pet duel.",
+        "XbusyInDuel" => "%s is in a duel already.",
+        "TargetBusy" => "That target is in a duel already.",
+        "NotChallenged" => "Nobody has asked you for a pet duel.",
+        "NeedDuelPet" => "You need a pet that can duel.",
+        "OpponentNeedsDuelPet" => "Your opponent needs a pet that can duel.",
+        "UwonPetDuel" => "You won the pet duel.",
+        "UlostPetDuel" => "You lost the pet duel.",
+        "OpponentWithdrew" => "Your opponent left the pet duel.",
         // (the duel's, in this client's own words)
         "Feedback_DuelAccepted" => "The duel is on.",
         "Feedback_DuelRefused" => "The duel was turned down.",
@@ -173,6 +191,35 @@ pub fn attack(victim: Who, attacker: Who, amount: i64, kind: u32, hit: i64) -> O
         2 => format!("{text} {}", line("Feedback_GlancingHit", &[])),
         _ => text,
     })
+}
+
+/// A pet duel message of the server's (Gamecode FUN_1005ca5b, the texts of category 110 by name): the action, its
+/// first parameter and the other character's name when the client knows it. A challenge (0xef) names the challenger;
+/// an answer (0xf0) says by its parameter: turned down 0, taken 1, not someone to ask 2, in a duel already 3 (each
+/// with the other's name or without), nobody asked 4, no pet that can duel 5, the opponent has none 6; a result (0xf3):
+/// won 0, lost 1, the opponent left 2; one's own challenge on its way (0xf8).
+pub fn pet_duel(action: u32, first: u32, other: Option<&str>) -> Option<String> {
+    let name = match (action, first) {
+        (0xef, _) => ("PetDuelChallenge", ""),
+        (0xf0, 0) => ("XRejectedDuel", "OpponentRejectedDuel"),
+        (0xf0, 1) => ("XAcceptedDuel", "OpponentAcceptedDuel"),
+        (0xf0, 2) => ("XinvalidOpponentDuel", "TargetNotValidOpponent"),
+        (0xf0, 3) => ("XbusyInDuel", "TargetBusy"),
+        (0xf0, 4) => ("", "NotChallenged"),
+        (0xf0, 5) => ("", "NeedDuelPet"),
+        (0xf0, 6) => ("", "OpponentNeedsDuelPet"),
+        (0xf3, 0) => ("", "UwonPetDuel"),
+        (0xf3, 1) => ("", "UlostPetDuel"),
+        (0xf3, 2) => ("", "OpponentWithdrew"),
+        (0xf8, _) => ("ChallengedX2duel", "ChallengedSomeone"),
+        _ => return None,
+    };
+    match other.filter(|_| !name.0.is_empty()) {
+        Some(other) => Some(line(name.0, &[Arg::Text(other)])),
+        // (the challenge is told with the challenger's name whoever it is)
+        None if name.1.is_empty() => Some(line(name.0, &[Arg::Text("Someone")])),
+        None => Some(line(name.1, &[])),
+    }
 }
 
 /// A special attack's hit (`SpecialAttackInfo`, Gamecode FUN_1006af0e: feedback 0x32 for the client's own, 0x30 for one

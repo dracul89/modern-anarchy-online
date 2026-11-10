@@ -521,6 +521,21 @@ not read). The test script got `target@<character id>` (targets a character with
 that must only ever challenge the first) and `pginvite@<name>`; a `move@x;y` before a box is due puts the box there,
 so that its buttons can be clicked (Accept 90 px left and 83 px below the middle, Reject 64 px right).
 
+**Pet duel (2026-11-10, `chat_commands.rs`, `n3::pet_duel`, `net.rs`, `feedback::pet_duel`).** `/petduel` asks the
+targeted character for a duel of pets, `/petduel accept`, `reject` and `stop` answer and end one (GUI.dll
+FUN_100b8d78, which asks only that the target is a character). Gamecode's `N3Msg_PetDuel_*` (0x1001d083 on) send a
+`CharacterAction` each: 0xef with the challenged character as the target; 0xf0 with the first parameter 1 to accept
+and 0 to refuse; 0xf1 to stop. There is no box: the server's messages are told as texts (Gamecode FUN_1005ca5b,
+category 110 by name, with the other's name when the client knows the character): a challenge received (0xef); an
+answer (0xf0) by its parameter, turned down 0, taken 1, not someone to ask 2, in a duel already 3, nobody asked 4, no
+duel pet 5, the opponent has none 6; a result (0xf3), won 0, lost 1, the opponent left 2; one's own challenge on its
+way (0xf8). Tried live between two of this client: a challenge gets "no duel pet" (5) and an accept or a reject with
+nothing asked gets "nobody asked" (4), both with the game's texts; a stop with no pet duel on gets no answer. An
+engineer's automaton does not count as a duel pet (the same answer with it out), and the game's item and nano
+names have nothing called one, so a pet duel itself could not be had: the challenge received, the answers 0 to 3
+and 6 and the results are from the decompile only. The test script got `cast@<nano id>` and `useitem@<place>`
+(the automaton's program leaves a shell in the inventory, which is used to bring the pet).
+
 **Scripted clicks, and what the first scripted live run found (2026-11-10, `ui.rs::Ui::script`, `viewer.rs`).**
 `MAO_CAMERA_SCRIPT` steps with an `@` act on the interface as the mouse and keys would, so the windows can be tried
 live without anyone at the keyboard: `open@<window>`, `close@<window>` (`close@` alone: all), `click@<x>;<y>`,

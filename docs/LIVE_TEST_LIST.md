@@ -72,6 +72,15 @@ Left as it is: Brasscasings walked about 215 m to stand next to Ballbearing; bot
 - Not tried: Full Auto, Aimed Shot, Sneak Attack, Fast Attack, the bow's attack (no weapon for them), a special
   that misses, a weapon swapped while the window is open, Brawl and Dimach.
 
+**`/petduel` between the same two** (2026-11-10)
+- `/petduel` with the other targeted: the server answers that a duel pet is needed, with or without the engineer's
+  automaton out. `/petduel accept` and `/petduel reject` with nothing asked: the server answers that nobody asked.
+  `/petduel stop` with no pet duel on: no answer.
+- Not reachable: a pet duel itself (neither character has a duel pet, and the game's files name no such thing), so
+  the challenge's line on the other side, the accepting and the results are untried.
+- For the test Ballbearing ran his smallest automaton program, used the shell it made and sent the automaton away
+  again with `/pet terminate`: the pet's lines came on both sides, and the inventory is as it was.
+
 A screenshot is a grab of the screen, so with two full-screen clients it shows the one on top; the other side was
 checked through the chat log (`chat/<date>.txt`), which both write.
 

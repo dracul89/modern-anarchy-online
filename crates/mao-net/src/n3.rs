@@ -252,6 +252,36 @@ pub fn duel(character: u32, target: Option<u32>, what: u32, flag: u32) -> Frame 
 /// The duel's `CharacterAction` number.
 pub const DUEL: u32 = 0x106;
 
+/// The pet duel's `CharacterAction`s (Gamecode `N3Msg_PetDuel_Challenge` 0x1001d083, `Accept` 0x1001d124, `Refuse`
+/// 0x1001d1d7, `Stop` 0x1001d286, all through FUN_10072a88 as the duel's): a challenge is action `0xef` with the
+/// challenged character as the target; accepting and refusing are both `0xf0`, with the first parameter 1 and 0;
+/// stopping is `0xf1`. `what`: 0 challenge, 1 accept, 2 refuse, 3 stop. Built from the decompile: no capture has one.
+pub fn pet_duel(character: u32, target: Option<u32>, what: u32) -> Frame {
+    let (action, first) = match what {
+        0 => (PET_DUEL_CHALLENGE, 0),
+        1 => (PET_DUEL_ANSWER, 1),
+        2 => (PET_DUEL_ANSWER, 0),
+        _ => (PET_DUEL_STOP, 0),
+    };
+    let target = target.filter(|_| what == 0);
+    let mut data = vec![0u8; 5];
+    data[1..5].copy_from_slice(&action.to_be_bytes());
+    data.extend_from_slice(&[0; 4]);
+    for word in [target.map_or(0, |_| CHARACTER), target.unwrap_or(0), first, 0] {
+        data.extend_from_slice(&word.to_be_bytes());
+    }
+    data.extend_from_slice(&[0; 2]);
+    Message { kind: 0x5e477770, identity: (CHARACTER, character), data }.frame(character)
+}
+
+/// The pet duel's `CharacterAction` numbers: the three the client sends, and the two more the server tells with (the
+/// result of a pet duel, and one's own challenge on its way).
+pub const PET_DUEL_CHALLENGE: u32 = 0xef;
+pub const PET_DUEL_ANSWER: u32 = 0xf0;
+pub const PET_DUEL_STOP: u32 = 0xf1;
+pub const PET_DUEL_RESULT: u32 = 0xf3;
+pub const PET_DUEL_CHALLENGED: u32 = 0xf8;
+
 /// `CharacterAction` (`5e477770`) action `0x9a`: resets a skill, giving its IP back (`N3Msg_ResetSkill`, Gamecode
 /// 0x1001ce37: no target, the first parameter nothing and the second the skill's stat; stat 0 is the full reset of
 /// every ability and skill). Built from the decompile: no capture has one.
@@ -1647,6 +1677,12 @@ mod entity_tests {
         assert_eq!(&accept.body[at + 8..at + 24], &[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0]);
         // (the refusal sent by itself says so in the second parameter)
         assert_eq!(&duel(7, None, 2, 1).body[at + 16..at + 24], &[0, 0, 0, 2, 0, 0, 0, 1]);
+        // (the pet duel: its own actions, the same shape; accepting and refusing differ in the first parameter)
+        let pet = |what| pet_duel(7, Some(9), what).body[at..at + 24].to_vec();
+        assert_eq!(pet(0), [0, 0, 0, 0xef, 0, 0, 0, 0, 0, 0, 0xc3, 0x50, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(pet(1), [0, 0, 0, 0xf0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0]);
+        assert_eq!(pet(2), [0, 0, 0, 0xf0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(pet(3)[..4], [0, 0, 0, 0xf1]);
     }
 
     #[test]

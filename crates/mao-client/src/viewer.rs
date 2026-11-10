@@ -85,6 +85,8 @@ pub struct Input {
     pub pet: (u8, u32),
     /// `/duel`: counted, and what (0 challenge the target, 1 accept, 2 reject, 3 stop, 4 draw).
     pub duel: (u8, u32),
+    /// `/petduel`: counted, and what (0 challenge the target, 1 accept, 2 reject, 3 stop).
+    pub pet_duel: (u8, u32),
     /// How far characters are drawn (0: all), from the settings.
     pub char_distance: f32,
     /// Take everything from a corpse when it opens (a setting).
@@ -2398,6 +2400,7 @@ impl ApplicationHandler for App {
                                     self.hud.duel = (self.hud.duel.0.wrapping_add(1), None);
                                 }
                             }
+                            crate::chatwindow::Out::PetDuel(what) => self.keys.pet_duel = (self.keys.pet_duel.0.wrapping_add(1), what),
                             crate::chatwindow::Out::Server(text) => crate::net::server_command(text),
                             crate::chatwindow::Out::Perf => {
                                 self.settings.perf_overlay = !self.settings.perf_overlay;
@@ -2545,6 +2548,9 @@ impl ApplicationHandler for App {
                     }
                     if let Some(id) = requests.select_id.take() {
                         self.keys.select_id = (self.keys.select_id.0.wrapping_add(1), id);
+                    }
+                    if let Some(nano) = requests.cast_id.take() {
+                        self.keys.cast = (self.keys.cast.0.wrapping_add(1), nano);
                     }
                     if let Some(nano) = requests.cancel_nano.take() {
                         self.keys.cancel = (self.keys.cancel.0.wrapping_add(1), nano);

@@ -1757,6 +1757,19 @@ impl World {
         // with flag 0 to the one challenged and 1 to the challenger (the two boxes, in `ui.rs`); the rest are told with
         // a feedback text each: accepted (1), refused (2: by the other 0, taken back 1, by the other's option 2), ended
         // (3: lost 0, won 1, a draw 2), a draw proposed (4: by the other 0, one's own 1).
+        // The pet duel's (FUN_1005ca5b, from the same place as the duel's): texts only, no box.
+        if m.kind == 0x5e477770 && m.identity.1 == self.own && m.data.len() >= 21 {
+            let word = |at: usize| u32::from_be_bytes(m.data[at..at + 4].try_into().unwrap());
+            if matches!(word(1), mao_net::n3::PET_DUEL_CHALLENGE | mao_net::n3::PET_DUEL_ANSWER | mao_net::n3::PET_DUEL_RESULT | mao_net::n3::PET_DUEL_CHALLENGED) {
+                if std::env::var_os("MAO_COMBAT_LOG").is_some() {
+                    eprintln!("combat: pet duel message {:#x}, other {:x}, first {}: {}", word(1), word(13), word(17), m.data.iter().map(|b| format!("{b:02x}")).collect::<String>());
+                }
+                let other = self.names.get(&word(13)).map(|n| n.0.clone()).or_else(|| self.infos.get(&word(13)).map(|i| i.name.clone()));
+                if let Some(line) = crate::feedback::pet_duel(word(1), word(17), other.as_deref()) {
+                    self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, line));
+                }
+            }
+        }
         if m.kind == 0x5e477770 && m.identity.1 == self.own && m.data.len() >= 25 && u32::from_be_bytes(m.data[1..5].try_into().unwrap()) == mao_net::n3::DUEL {
             let word = |at: usize| u32::from_be_bytes(m.data[at..at + 4].try_into().unwrap());
             if std::env::var_os("MAO_COMBAT_LOG").is_some() {
@@ -2542,6 +2555,12 @@ impl World {
                 if let Some(mao_net::schema::Value::List(ids)) = p.value.get("UploadedNanoIds") {
                     self.program_ids = ids.iter().filter_map(mao_net::schema::Value::as_int).map(|v| v as u32).collect();
                     self.programs_changed = true;
+                    if std::env::var_os("MAO_COMBAT_LOG").is_some() {
+                        for &id in &self.program_ids {
+                            let name = ITEM_DB.get().and_then(|db| db.get(mao_formats::resource::Id { kind: 0xfde85, instance: id }).ok().flatten()).as_deref().and_then(mao_formats::item::Item::parse).map(|i| i.name);
+                            eprintln!("combat: nano program {id}: {}", name.unwrap_or_default());
+                        }
+                    }
                 }
                 self.mods_dirty = true;
             }
@@ -4723,7 +4742,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                         chat.send(&mao_net::chat::lookup_packet(&name))?;
                                     }
                                 },
-                                Out::Camp | Out::Sit | Out::Perf | Out::Pet(_) | Out::Duel(_) | Out::Server(_) | Out::Quit | Out::Follow | Out::Inspect | Out::Window { .. } | Out::Waypoint { .. } | Out::SelectSelf | Out::SetOption { .. } | Out::ViewDist(_) | Out::CharDist(_) => {}
+                                Out::Camp | Out::Sit | Out::Perf | Out::Pet(_) | Out::Duel(_) | Out::PetDuel(_) | Out::Server(_) | Out::Quit | Out::Follow | Out::Inspect | Out::Window { .. } | Out::Waypoint { .. } | Out::SelectSelf | Out::SetOption { .. } | Out::ViewDist(_) | Out::CharDist(_) => {}
                                 Out::Befriend { name } => match ids.get(&name.to_lowercase()) {
                                     Some(&id) => {
                                         chat.send(&mao_net::chat::buddy_add_packet(id, false))?;
@@ -4814,6 +4833,11 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let first_inventory = state.inventory.take();
         if let Some(entries) = &first_inventory {
             state.worn = entries.clone();
+            if std::env::var_os("MAO_COMBAT_LOG").is_some() {
+                for e in entries.iter().filter(|e| e.slot >= inventory::BACKPACK_FIRST) {
+                    eprintln!("combat: inventory place {:#x}: {:x} {}", e.slot, e.low_id, template_name(e.low_id).unwrap_or_default());
+                }
+            }
             state.mods_dirty = true;
         }
         state.refresh_mods(&gear_db);
@@ -4932,6 +4956,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut train_perk_seen = 0u8;
         let mut pet_seen = 0u8;
         let mut duel_seen = 0u8;
+        let mut pet_duel_seen = 0u8;
         let mut select_id_seen = 0u8;
         let mut inspect_seen = 0u8;
         let mut self_seen = 0u8;
@@ -5224,6 +5249,11 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     }
                     if let Some(entries) = state.inventory.take() {
                         state.worn = entries.clone();
+                        if std::env::var_os("MAO_COMBAT_LOG").is_some() {
+                            for e in entries.iter().filter(|e| e.slot >= inventory::BACKPACK_FIRST) {
+                                eprintln!("combat: inventory place {:#x}: {:x} {}", e.slot, e.low_id, template_name(e.low_id).unwrap_or_default());
+                            }
+                        }
                         state.mods_dirty = true;
                         pending_gear = Some(crate::gear::from_entries(&gear_db, &gear_textures, &entries, state.stats.get(&0x36).copied().unwrap_or(1)));
                     }
@@ -6090,6 +6120,18 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 } else {
                     // (the high byte: the second parameter, 1 for the refusal the client sends by itself)
                     let _ = connection.send(&n3::duel(own, None, what & 0xff, what >> 8));
+                }
+            }
+            // `/petduel` (GUI.dll FUN_100b8d78): a challenge to the targeted character, or an answer to one. The
+            // original asks only that the target is a character; what comes of it is the server's to say.
+            if keys.pet_duel.0 != pet_duel_seen {
+                pet_duel_seen = keys.pet_duel.0;
+                let what = keys.pet_duel.1;
+                match (what, target.filter(|t| *t != own)) {
+                    (0, None) => pending_messages.push("A pet duel needs a player as the target.".into()),
+                    (_, t) => {
+                        let _ = connection.send(&n3::pet_duel(own, t, what));
+                    }
                 }
             }
             if keys.pet.0 != pet_seen {
@@ -8716,6 +8758,31 @@ mod door_tests {
         w.specials_changed = false;
         w.add(&Message { kind: SPECIAL_ATTACK_WEAPON, identity: (0xc350, own), data }.frame(1));
         assert!(!w.specials_changed);
+    }
+
+    /// The server's pet duel messages (the two seen live on 2026-11-10: no duel pet, and not challenged) are told to
+    /// the character they are for, once each; a code the original has no text for is not told.
+    #[test]
+    fn pet_duel_messages_are_told() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let own = 0x795ab032;
+        let mut w = World { own, ..World::default() };
+        let (no_pet, not_asked) = ("00000000f0000000000000c3500009210c00000005000000000000", "00000000f000000000000000000000000000000004000000000000");
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, own + 1), data: hex(no_pet) }.frame(1));
+        assert!(w.game_lines.is_empty());
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex(no_pet) }.frame(1));
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex(not_asked) }.frame(1));
+        let lines: Vec<String> = w.game_lines.drain(..).map(|l| l.text).collect();
+        assert!(lines.len() == 2 && lines[0] != lines[1] && lines.iter().all(|l| !l.is_empty()), "{lines:?}");
+        // (an answer's code past the seven, and a result's past the three)
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("00000000f000000000000000000000000000000007000000000000") }.frame(1));
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("00000000f300000000000000000000000000000003000000000000") }.frame(1));
+        assert!(w.game_lines.is_empty());
+        // (the texts by what is known of the other: named, or not)
+        assert_ne!(crate::feedback::pet_duel(0xf0, 1, Some("Other")), crate::feedback::pet_duel(0xf0, 1, None));
+        assert!(crate::feedback::pet_duel(0xf8, 0, Some("Other")).is_some_and(|l| l.contains("Other")));
+        assert!(crate::feedback::pet_duel(0xef, 0, Some("Other")).is_some_and(|l| l.contains("Other")));
+        assert_eq!(crate::feedback::pet_duel(0xf1, 0, None), None);
     }
 
     /// `MAO_GAME`: the weapons in the hands add their attacks and Reload to the server's list (the two characters of the
