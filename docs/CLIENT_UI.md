@@ -488,7 +488,7 @@ profession's own action (numbers 138 and 139, FUN_1004326f).
 `MAO_CAMERA_SCRIPT` steps with an `@` act on the interface as the mouse and keys would, so the windows can be tried
 live without anyone at the keyboard: `open@<window>`, `close@<window>` (`close@` alone: all), `click@<x>;<y>`,
 `rclick@...`, `dclick@...`, `move@...` (the place in the screenshot's pixels), `type@<chat line>` then `key@Enter`,
-`text@<letters>`, `key@<Enter|Escape|Tab|Up|Down|Backspace>`. A press and its release each get a frame. Example:
+`text@<letters>`, `key@<Enter|Escape|Tab|Up|Down|Backspace>`, `drag@<x>;<y>;<x>;<y>` (press, move, let go) and `usebag@<n>` (uses the inventory's n-th bag). A press and its release each get a frame. Example:
 `14:open@chat,15:rclick@3600;1150,16.2:click@3700;1388,18:screenshot`. The run found four things, all fixed: the
 Action window's pictures were loaded only on its key press (blank tiles when opened by `/open`, the control center
 or kept open); the control center's NCU figure did not sum the running nanos as the NCU window does; the original's

@@ -27,6 +27,12 @@ irreversible was done. The numbers are the items below.
 - 36: `/setoption ShowNanoTargetNCU on` and `/selectself` show "Nano Target NCU" with one's own nanos.
 - 40 (in part): the nano window's menu and its Auto Arrange list; a school's button shows its programs.
 - 42 (icons only): the perk window's status icons and idle timer.
+- 43: three bags of the inventory used one after another each open their own window, titled with the bag's name,
+  all three open together. (Two used in the same instant open only one: the server is busy with the first.)
+- 44: an inventory item dragged onto a bag's window goes in (it leaves the inventory when the server confirms), and
+  a right click on an item in the bag brings it back to the inventory's first free place. A bag shows its items in
+  the order of the server's places, so an item put in is not always in the last cell. The two items moved for the
+  test were put back where they were.
 
 **Found and fixed**
 - The Action window's tiles were blank unless it was opened with its key (its pictures were loaded on the key press
@@ -42,7 +48,8 @@ irreversible was done. The numbers are the items below.
 
 **Not reached this time**: ticking channels on and off (2), sending to a channel (3, 5, 7), typing in a second
 window's bar (12), the other Visual switches (14 to 17), the configuration's buttons (18), friends' actions (22 to
-26), bags (43 to 47), nano hide and list sorting (39, 40), and everything that needs a second character.
+26), renaming a bag and its kept place (45, 46), a corpse or the bank beside a bag (47), nano hide and list sorting
+(39, 40), and everything that needs a second character.
 
 ## Do not test without deciding first
 
