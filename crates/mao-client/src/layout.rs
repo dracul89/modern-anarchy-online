@@ -2,6 +2,13 @@
 //! window, `name x y`) and used as the window's starting place the next time. `MAO_NO_LAYOUT=1` ignores it; the offline previews
 //! (`MAO_UI_PREVIEW`) ignore it too so their pictures do not depend on the player's layout.
 //!
+//! A window the player can size keeps its size too, in `sizes.ini` beside it (`name width height`, the whole window's):
+//! the original's `WindowFrame` is a rectangle, place and size together. It is the window's starting size the next time,
+//! over the original client's own frame and the window's own default. The size kept is the room the window gives its
+//! content plus its frame (`chrome::window` notes it, [`note_size`]), not the rectangle it was drawn in: a window whose
+//! content stops short of its room, or overshoots it for a frame, would otherwise shrink or grow a little at every
+//! start.
+//!
 //! Every window shown through `chrome::window` is kept (as the original keeps each window's place in its `*Config` value,
 //! `Window::SaveWndConfig`), except the fixed dialogs ([`FIXED`]); the HUD areas are listed in [`NAMES`]. The tabs the
 //! original keeps in a window's config are in `tabs.ini` beside it (`name tab`, by the config's name): the perk window's
@@ -26,6 +33,10 @@ pub fn kept(name: &str) -> bool {
 
 struct Layout {
     spots: BTreeMap<String, [f32; 2]>,
+    /// `sizes.ini`: the sizes of the windows the player can size, and which of the windows shown are such.
+    sizes: BTreeMap<String, [f32; 2]>,
+    sizable: BTreeSet<String>,
+    sizes_dirty: bool,
     /// The original client's own layout for the character (`aoprefs.rs`), looked up once the character is known; the
     /// screen's size in points, noted each frame, to scale it.
     original: Option<Option<crate::aoprefs::Original>>,
@@ -47,7 +58,7 @@ struct Layout {
     tabs: Option<BTreeMap<String, usize>>,
 }
 
-static LAYOUT: Mutex<Layout> = Mutex::new(Layout { spots: BTreeMap::new(), original: None, character: None, screen: [0.0; 2], auto: BTreeSet::new(), relocate: BTreeSet::new(), pending: BTreeSet::new(), shown: BTreeSet::new(), loaded: false, dirty: false, written: None, tabs: None });
+static LAYOUT: Mutex<Layout> = Mutex::new(Layout { spots: BTreeMap::new(), sizes: BTreeMap::new(), sizable: BTreeSet::new(), sizes_dirty: false, original: None, character: None, screen: [0.0; 2], auto: BTreeSet::new(), relocate: BTreeSet::new(), pending: BTreeSet::new(), shown: BTreeSet::new(), loaded: false, dirty: false, written: None, tabs: None });
 
 fn path() -> std::path::PathBuf {
     crate::settings::Settings::path().with_file_name("layout.ini")
@@ -86,10 +97,7 @@ pub fn saved(name: &str) -> Option<egui::Pos2> {
         return None;
     }
     let mut layout = LAYOUT.lock().unwrap();
-    if !layout.loaded {
-        layout.loaded = true;
-        layout.spots = std::fs::read_to_string(path()).map(|t| parse(&t)).unwrap_or_default();
-    }
+    load(&mut layout);
     if let Some(p) = layout.spots.get(name) {
         return Some(egui::pos2(p[0], p[1]));
     }
@@ -98,6 +106,50 @@ pub fn saved(name: &str) -> Option<egui::Pos2> {
         return None;
     }
     original_frame(&mut layout, name).map(|f| egui::pos2(f[0], f[1]))
+}
+
+/// Reads the files, once.
+fn load(layout: &mut Layout) {
+    if !layout.loaded {
+        layout.loaded = true;
+        layout.spots = std::fs::read_to_string(path()).map(|t| parse(&t)).unwrap_or_default();
+        layout.sizes = std::fs::read_to_string(path().with_file_name("sizes.ini")).map(|t| parse(&t)).unwrap_or_default();
+    }
+}
+
+/// The size the player left a window at (`sizes.ini`: the whole window's, frame and title included), for a window that
+/// can be sized; its size is noted from now on.
+pub fn saved_size(name: &str) -> Option<egui::Vec2> {
+    if disabled() || !kept(name) {
+        return None;
+    }
+    let mut layout = LAYOUT.lock().unwrap();
+    load(&mut layout);
+    if !layout.sizable.contains(name) {
+        layout.sizable.insert(name.to_string());
+    }
+    layout.sizes.get(name).filter(|s| sensible(**s)).map(|s| egui::vec2(s[0], s[1]))
+}
+
+/// A sizable window's size this frame (its room and frame), from `chrome::window`.
+pub fn note_size(name: &str, size: egui::Vec2) {
+    if disabled() {
+        return;
+    }
+    let size = [size.x, size.y];
+    let mut layout = LAYOUT.lock().unwrap();
+    if layout.sizable.contains(name) && sensible(size) && screen_known(&layout) && layout.sizes.get(name).is_none_or(|old| (old[0] - size[0]).abs() > 1.0 || (old[1] - size[1]).abs() > 1.0) {
+        if std::env::var_os("MAO_TRACE_LAYOUT").is_some() {
+            eprintln!("size of {name:?}: {size:?} (was {:?})", layout.sizes.get(name));
+        }
+        layout.sizes.insert(name.to_string(), size);
+        layout.sizes_dirty = true;
+    }
+}
+
+/// A size worth keeping: a window's, not a frame of laying out (nothing, or the whole of a placeholder screen).
+fn sensible(size: [f32; 2]) -> bool {
+    size.iter().all(|v| v.is_finite() && *v >= 40.0 && *v < 8000.0)
 }
 
 /// Whether the screen's size is a real one (egui's first frames, before the window is sized, report squares of 5000 or
@@ -252,10 +304,21 @@ pub fn remember(ctx: &egui::Context) {
             }
         }
     }
-    if layout.dirty && layout.written.is_none_or(|t| t.elapsed() > Duration::from_secs(2)) {
-        layout.dirty = false;
+    if (layout.dirty || layout.sizes_dirty) && layout.written.is_none_or(|t| t.elapsed() > Duration::from_secs(2)) {
         layout.written = Some(Instant::now());
+        write(&mut layout);
+    }
+}
+
+/// Writes the files that changed.
+fn write(layout: &mut Layout) {
+    if layout.dirty {
+        layout.dirty = false;
         let _ = std::fs::write(path(), render(&layout.spots));
+    }
+    if layout.sizes_dirty {
+        layout.sizes_dirty = false;
+        let _ = std::fs::write(path().with_file_name("sizes.ini"), render(&layout.sizes));
     }
 }
 
@@ -265,10 +328,9 @@ pub fn flush() {
         return;
     }
     let mut layout = LAYOUT.lock().unwrap();
-    if layout.dirty {
-        layout.dirty = false;
+    if layout.dirty || layout.sizes_dirty {
         layout.written = Some(Instant::now());
-        let _ = std::fs::write(path(), render(&layout.spots));
+        write(&mut layout);
     }
 }
 
@@ -303,6 +365,17 @@ mod tests {
         assert_eq!(back.get("Nano programs"), Some(&[220.0, 90.0]));
         assert_eq!(back.get("Chat"), Some(&[8.0, 451.0]));
         assert!(parse("junk\n 5 6\nname x y\n").is_empty());
+    }
+
+    /// `sizes.ini` is the same kind of file; a size that is no window's is not used.
+    #[test]
+    fn sizes_are_kept_like_places() {
+        let mut sizes = BTreeMap::new();
+        sizes.insert("MissionView".to_string(), [330.4, 172.0]);
+        assert_eq!(render(&sizes), "MissionView 330 172\n");
+        assert_eq!(parse("MissionView 330 172\n").get("MissionView"), Some(&[330.0, 172.0]));
+        assert!(sensible([330.0, 172.0]));
+        assert!(!sensible([0.0, 172.0]) && !sensible([330.0, 10000.0]) && !sensible([f32::NAN, 100.0]));
     }
 
     #[test]

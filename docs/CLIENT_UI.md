@@ -385,7 +385,7 @@ Every line the chat window receives or the player types (tells, channels, game t
 
 ## Window positions are remembered
 
-Where the player leaves a window is kept in `layout.ini` beside `mao.ini` (`Nano programs 220 90`, one line per window: Actions, Chat, Friends, Inventory, the container window, Mail, Missions, Nano programs, NCU, Perks, Shop, Skills, Stats and the health panel) and used as the window's starting place next time (`layout.rs`; `crate::layout::pos(name, default)` wraps each window's `default_pos`). The live interface looks at the windows' places every frame and writes the file when something moved, at most every two seconds. `MAO_NO_LAYOUT=1` ignores it; the offline previews (`MAO_UI_PREVIEW`) ignore it too. Window sizes are not kept (which windows are open are, `open.ini`). The file format and the round trip are tested. A window with no line takes the original client's own frame for the character when its preference files are on the machine (see "Window places from the original's own files").
+Where the player leaves a window is kept in `layout.ini` beside `mao.ini` (`Nano programs 220 90`, one line per window: Actions, Chat, Friends, Inventory, the container window, Mail, Missions, Nano programs, NCU, Perks, Shop, Skills, Stats and the health panel) and used as the window's starting place next time (`layout.rs`; `crate::layout::pos(name, default)` wraps each window's `default_pos`). The live interface looks at the windows' places every frame and writes the file when something moved, at most every two seconds. `MAO_NO_LAYOUT=1` ignores it; the offline previews (`MAO_UI_PREVIEW`) ignore it too. Window sizes are kept too since 2026-11-10 (`sizes.ini`, below; which windows are open are in `open.ini`). The file format and the round trip are tested. A window with no line takes the original client's own frame for the character when its preference files are on the machine (see "Window places from the original's own files").
 
 ## The launcher (`mao-client play <game>`)
 
@@ -1684,7 +1684,20 @@ texts in the info view's preview. Not done: the columns' widths, order and sort 
 uploads again at the start); "Update Team Members" (`GiveQuestToMembers`, never captured); the experience row for a
 reader of level 200 to 220, whom the original pays in shadow knowledge (`GetSKForXP`); a mission with a deadline has
 not been seen live, only in the capture. The window opens 168 points wide like the original's, which hides the time
-column until it is widened, and this client does not keep window sizes yet.
+column until it is widened; the width is kept from then on (`sizes.ini`).
+
+**Window sizes kept (2026-11-10, `layout.rs`, `chrome.rs`).** The original's `WindowFrame` is a rectangle, place and
+size together; this client kept only the place. A window the player can size (an egui window left resizable, asked of
+its `Resize`) now keeps its size in `sizes.ini` beside `layout.ini`, one line a window as there (`name width height`,
+the whole window's in points), and starts at it the next time: over the original client's own frame and the window's
+own default. What is kept is the room the window gives its content plus its frame, noted by `chrome::window` each
+frame (`layout::note_size`), not the rectangle the window was drawn in. The first cut kept the rectangle and two
+windows drifted at every start: the perk window lost 6 points each time (its lists stop 6 short of their room), and
+the planet map gained 29 (its button rows were guessed too short on the first frame, and a window never shrinks back;
+the guess is now too tall instead, so the window is short for one frame). With the room kept, ten windows open came
+back at the same sizes over three starts with nothing written in the second and third. The dialogs and the windows
+docked in the rollup column keep no size; `MAO_TRACE_LAYOUT=1` prints each size as it is noted. Deleting `sizes.ini`
+gives every window its starting size back. Not done: the list views' column widths and sort (`listview_config`).
 
 ## The planet map (P, Ctrl+6) (2026-10-29)
 

@@ -97,7 +97,9 @@ impl PlanetWindow {
             let mut centre_on: Option<(u32, [f32; 3])> = self.pending_centre.take();
             // (the two rows of buttons under the map, and the list of maps when there is a choice)
             let choice = self.map.as_ref().is_some_and(|map| crate::planetmaps::available().iter().filter(|f| f.kind.eq_ignore_ascii_case(&map.kind)).count() > 1);
-            let rows = if self.buttons_height > 0.0 { self.buttons_height } else { 64.0 + if choice { 24.0 } else { 0.0 } };
+            // (not yet measured, the first frame: more than they take, so the window is short for a frame and not grown —
+            // a window never shrinks back, and a kept size would grow by the difference at every start)
+            let rows = if self.buttons_height > 0.0 { self.buttons_height } else { 150.0 + if choice { 30.0 } else { 0.0 } };
             let map_size = (ui.available_size() - egui::vec2(0.0, rows)).max(egui::vec2(180.0, 120.0));
             let Some(map) = self.map.clone() else {
                 ui.label("No planet map was found (textures/PlanetMap).");

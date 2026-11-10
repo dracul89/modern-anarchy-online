@@ -81,8 +81,17 @@ pub fn window<R>(ctx: &egui::Context, palette: &Palette, name: &str, title: &str
     // (the original client's layout gives a size too, until the player has placed the window here)
     let sized = crate::layout::kept(name).then(|| crate::layout::original_size(name)).flatten();
     let relocate = crate::layout::relocate(name);
+    let sizable = std::cell::Cell::new(false);
+    let sizable = &sizable;
     let build = move |w: egui::Window<'static>| {
         let w = build(w);
+        // (a window the player can size starts at the size it was left at, `sizes.ini`: over the original's frame and
+        // the caller's own size)
+        let w = w.resize(|r| {
+            sizable.set(r.is_resizable().any());
+            r
+        });
+        let sized = sizable.get().then(|| crate::layout::saved_size(name)).flatten().or(sized);
         let w = match sized {
             Some(size) => w.default_size(size),
             None => w,
@@ -98,7 +107,17 @@ pub fn window<R>(ctx: &egui::Context, palette: &Palette, name: &str, title: &str
     let skin = crate::skin::skin(ctx).filter(|s| s.has("GFX_GUI_WINDOW3_BORDER_TL"));
     let Some(skin) = skin else {
         let mut is_open = *open;
-        let shown = build(egui::Window::new(egui::RichText::new(title).color(accent)).collapsible(false)).id(id).open(&mut is_open).show(ctx, add);
+        let shown = build(egui::Window::new(egui::RichText::new(title).color(accent)).collapsible(false)).id(id).open(&mut is_open).show(ctx, |ui| {
+            let room = ui.max_rect().size();
+            let result = add(ui);
+            // (the size kept: the room and what egui's own frame and title add round the content)
+            if sizable.get()
+                && let Some(outer) = ctx.memory(|m| m.area_rect(id)).filter(|r| r.is_finite())
+            {
+                crate::layout::note_size(name, room + (outer.size() - ui.min_rect().size()).max(egui::Vec2::ZERO));
+            }
+            result
+        });
         *open = is_open;
         return shown;
     };
@@ -115,7 +134,12 @@ pub fn window<R>(ctx: &egui::Context, palette: &Palette, name: &str, title: &str
         let painter = ui.painter().clone();
         // the frame goes under the content: its place in the paint list is kept, it is drawn once the size is known
         let under = painter.add(egui::Shape::Noop);
+        let room = ui.max_rect().size();
         let result = add(ui);
+        // (the size kept: the room the window gives its content, and the frame)
+        if sizable.get() {
+            crate::layout::note_size(&name, room + egui::vec2((LEFT + RIGHT) as f32, (TOP + BOTTOM) as f32));
+        }
         // The whole window as laid out: egui's record of the area (last frame's for a window that just appeared, hence the fallback
         // from the content).
         let content = ui.min_rect();
