@@ -204,7 +204,12 @@ fn fs_sky(in: SkyOut) -> @location(0) vec4<f32> {
     let t = clamp(in.height * 0.5 + 0.5, 0.0, 1.0);
     // An area's fog hides the horizon in its colour (the lower half of the screen is at or under it), thinning towards the
     // zenith; the sky above is the day's.
-    let sky = mix(globals.horizon.rgb, globals.zenith.rgb, pow(t, 0.8)) * day();
+    var sky = mix(globals.horizon.rgb, globals.zenith.rgb, pow(t, 0.8)) * day();
+    // (under the effect scripts the sky is their domes; what shows between them is the haze colour they gave, as the
+    // original's frame is cleared to the fog's colour)
+    if scripted() {
+        sky = globals.horizon.rgb;
+    }
     return vec4<f32>(mix(sky, fog_colour(), globals.fog.w * (1.0 - smoothstep(0.5, 1.0, t))), 1.0);
 }
 
