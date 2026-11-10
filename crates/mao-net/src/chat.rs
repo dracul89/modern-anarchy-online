@@ -51,6 +51,8 @@ pub enum Packet {
     /// Vicinity speech (34): the speaker, the text and the blob (which may carry a voice line, GUI.dll's FUN_10086075).
     Vicinity { sender: u32, text: String, blob: Vec<u8> },
     Channel { kind: u8, id: u32, name: String, flags: u32 },
+    /// A channel the character is no longer in (61: its kind and id), as the team's when the team is left.
+    ChannelGone { kind: u8, id: u32 },
     Tell { sender: u32, text: String },
     Message { channel: (u8, u32), sender: u32, text: String, blob: Vec<u8> },
     /// A friend: its id, whether it is online, and the type string the client gave it (a byte 1 for a friend).
@@ -119,6 +121,7 @@ pub fn parse(kind: u16, data: &[u8]) -> Packet {
                 Packet::Notice { name, text, blob: c.blob().unwrap_or_default() }
             }
             60 => Packet::Channel { kind: c.u8()?, id: c.u32()?, name: c.text()?, flags: c.u32().unwrap_or(0) },
+            61 => Packet::ChannelGone { kind: c.u8()?, id: c.u32()? },
             40 => Packet::Buddy { id: c.u32()?, online: c.u32()? != 0, kind: c.raw_text()? },
             30 => Packet::Tell { sender: c.u32()?, text: c.text()? },
             50 => Packet::PrivateInvite { owner: c.u32()? },
@@ -359,6 +362,8 @@ mod tests {
         assert_eq!(parse(34, &hex("0000c35000026869000201ff")), Packet::Vicinity { sender: 0xc350, text: "hi".into(), blob: vec![1, 0xff] });
         assert_eq!(parse(60, &hex("87028f0211000d4f54204765726d616e204f4f43000080440000")), Packet::Channel { kind: 0x87, id: 0x028f0211, name: "OT German OOC".into(), flags: 0x8044 });
         assert_eq!(parse(60, &hex("0a000000020014546f77657220426174746c65204f7574636f6d65000080060000")), Packet::Channel { kind: 0x0a, id: 2, name: "Tower Battle Outcome".into(), flags: 0x8006 });
+        // (the team's channel going, as the captures have it: five bytes)
+        assert_eq!(parse(61, &hex("8200012345")), Packet::ChannelGone { kind: 0x82, id: 0x12345 });
         assert_eq!(parse(40, &[0, 9, 33, 53, 0, 0, 0, 0, 0, 1, 0]), Packet::Buddy { id: 598325, online: false, kind: "\u{0}".into() });
         assert!(buddy_is_temporary("\u{0}") && !buddy_is_temporary("\u{1}") && !buddy_is_temporary(""));
         assert_eq!(buddy_add_packet(7, true)[4..], [0, 0, 0, 7, 0, 1, 0]);

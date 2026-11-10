@@ -75,7 +75,6 @@ impl Line {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Out {
     Tell { name: String, text: String },
-    Org { text: String },
     /// `/voice`: a voice line to speak (its checks and text are the chat connection's, `voices::command`).
     Voice { line: String },
     /// Vicinity speech (0 say, 1 whisper, 2 shout, 3 emote), sent on the game connection.
@@ -151,6 +150,8 @@ pub struct ChatWindow {
     /// What to do with an invitation to a private chat group (`ChatPGInviteAction`: 0 decline, else ask), the
     /// invitations waiting for an answer, and what the window sends besides the typed line.
     pub invite_action: i32,
+    /// `ChatWarnWhenSpeakingToUnsubGroups`: a line sent to a group the window does not show is warned of.
+    pub warn_unshown: bool,
     invites: Vec<(u32, String)>,
     pub outs: Vec<Out>,
     /// A preview's: the tab to show and the menu to have open (main, talk, public or combat).
@@ -174,7 +175,7 @@ pub struct ChatWindow {
 
 impl Default for ChatWindow {
     fn default() -> Self {
-        ChatWindow { open: true, log: false, lines: Vec::new(), panes: chatgroups::defaults(), loaded_for: None, tab: 0, shown: Default::default(), menu_pane: 0, menu: None, popup: None, config: Default::default(), invite_action: 1, invites: Vec::new(), outs: Vec::new(), demo: None, input: String::new(), selected: 0, focus_next: false, last_tell: None, scroll_to_end: true, keep_list: false, ignored: load_ignored(), history: Vec::new(), recalled: None, links: Vec::new() }
+        ChatWindow { open: true, log: false, lines: Vec::new(), panes: chatgroups::defaults(), loaded_for: None, tab: 0, shown: Default::default(), menu_pane: 0, menu: None, popup: None, config: Default::default(), invite_action: 1, warn_unshown: true, invites: Vec::new(), outs: Vec::new(), demo: None, input: String::new(), selected: 0, focus_next: false, last_tell: None, scroll_to_end: true, keep_list: false, ignored: load_ignored(), history: Vec::new(), recalled: None, links: Vec::new() }
     }
 }
 
@@ -235,6 +236,22 @@ fn draw_lines(ui: &mut egui::Ui, palette: &Palette, lines: &[Line], pane: Option
             }
         }
     });
+}
+
+/// A text the chat commands answer with (text.mdb 10001 by name), or this client's own words.
+fn command_text(name: &str) -> String {
+    let own = match name {
+        "ChatCmdFeedback_TalkToUnsubscribedChannel" => "This window does not show that group: the answers will not be seen here.",
+        "ChatCmdFeedback_Ch_CanOnlySelectSubscribedGroups" => "Only a group this window shows can be chosen.",
+        "ChatCmdFeedback_GroupIsReadOnly" => "The group '%s' takes no lines.",
+        "ChatCmdFeedback_AmbiguousGroupName" => "More than one group begins so: %s. Type more of the name after %s (typed: %s).",
+        "ChatCmdFeedback_Ch_NoMatchingGroupAreSelectable" => "None of the groups that begin so can be chosen here.",
+        "ChatCmdFeedback_AllMatchingGroupsAreReadOnly" => "None of the groups that begin so takes lines.",
+        "ChatCmdFeedback_O_YouAreNotMemberOfAnOrganizaion" => "You are not in an organization.",
+        "ChatCmdFeedback_T_YouAreNotMemberOfATeam" => "You are not in a team.",
+        _ => name,
+    };
+    crate::gui::xml::ldb_named(10001, name, own)
 }
 
 /// A text of the chat window's menus (text.mdb 10001 by name), or this client's own words.
@@ -303,8 +320,8 @@ impl ChatWindow {
 
     /// The group plain typed lines go to: the shown window's output group, when it is a channel the chat server has
     /// told of this session (a window taken over from another character may name one this character is not in).
-    fn output_channel(&self) -> Option<&str> {
-        let output = self.panes.get(self.tab)?.output.as_str();
+    fn output_channel(&self, pane: usize) -> Option<&str> {
+        let output = self.panes.get(pane)?.output.as_str();
         let known = cfg!(test) || chatgroups::server_groups().iter().any(|g| g == output);
         (!output.is_empty() && output != chatgroups::VICINITY && chatgroups::talkable(output) && known).then_some(output)
     }
@@ -474,11 +491,61 @@ impl ChatWindow {
     }
 
     pub fn run(&mut self, line: &str) -> Option<Out> {
+        self.run_in(self.tab, line)
+    }
+
+    /// A line of the game's or this client's about a command, with its markup.
+    fn tell(&mut self, text: &str) {
+        let text = text.replace("\r\n", "<br>");
+        self.push(Line::new(Kind::System, mao_net::chat::plain(&text)).with_markup("", &text));
+    }
+
+    /// A line to a group (FUN_10085a42): Vicinity's is spoken, a channel's sent to it. With the option on, a group
+    /// the window does not show is warned of.
+    fn say_in(&mut self, pane: usize, group: &str, text: String) -> Option<Out> {
+        if self.warn_unshown && !self.panes.get(pane).is_some_and(|p| p.selected.contains(group)) {
+            self.tell(&command_text("ChatCmdFeedback_TalkToUnsubscribedChannel"));
+        }
+        Some(if group == chatgroups::VICINITY { Out::Vicinity { kind: 0, text } } else { Out::Channel { name: group.to_string(), text } })
+    }
+
+    /// `/ch <name>` (no `text`: the group becomes the window's output group, FUN_1009c5b8) and `/group <name> <text>`
+    /// (the line goes to the group, FUN_1009c977).
+    fn group_command(&mut self, pane: usize, word: &str, name: &str, text: Option<String>) -> Option<Out> {
+        use chatgroups::Pick;
+        use mao_formats::ldb::{Arg, format as fill};
+        let matches = chatgroups::matching(name);
+        let shown = self.panes.get(pane).map(|p| p.selected.clone()).unwrap_or_default();
+        let shows = |g: &str| shown.contains(g);
+        match chatgroups::pick(&matches, text.is_none(), &shows, &chatgroups::read_only) {
+            Pick::Unknown => self.tell(&format!("There is no chat group named '{}'.", name.trim_matches('"'))),
+            Pick::NotShown => self.tell(&command_text("ChatCmdFeedback_Ch_CanOnlySelectSubscribedGroups")),
+            Pick::ReadOnly(group) => self.tell(&fill(&command_text("ChatCmdFeedback_GroupIsReadOnly"), &[Arg::Text(&group)])),
+            Pick::Ambiguous => {
+                let list = chatgroups::ambiguous_list(&matches, &shows, &chatgroups::read_only);
+                self.tell(&fill(&command_text("ChatCmdFeedback_AmbiguousGroupName"), &[Arg::Text(&list), Arg::Text(word), Arg::Text(name)]));
+            }
+            Pick::NoneUsable => self.tell(&command_text(if text.is_none() { "ChatCmdFeedback_Ch_NoMatchingGroupAreSelectable" } else { "ChatCmdFeedback_AllMatchingGroupsAreReadOnly" })),
+            Pick::Group(group) => match text {
+                Some(text) => return self.say_in(pane, &group, text),
+                None => {
+                    if let Some(p) = self.panes.get_mut(pane) {
+                        p.output = group;
+                    }
+                    chatgroups::save(&self.panes);
+                }
+            },
+        }
+        None
+    }
+
+    /// Carries out a line typed in one of the chat windows.
+    pub fn run_in(&mut self, pane: usize, line: &str) -> Option<Out> {
         self.remember(line);
         // (a plain line goes to the window's output group when that is a channel; the vicinity's goes on as speech)
         if !line.trim().is_empty()
             && !line.trim_start().starts_with('/')
-            && let Some(name) = self.output_channel()
+            && let Some(name) = self.output_channel(pane)
         {
             return Some(Out::Channel { name: name.to_string(), text: line.trim().to_string() });
         }
@@ -551,10 +618,23 @@ impl ChatWindow {
                 self.push(Line::new(Kind::System, format!("Adding {name} to your friends.")));
                 Some(Out::Befriend { name })
             }
-            Parsed::Org { text } => {
-                self.push(Line::new(Kind::Own, format!("[Org] {text}")).in_group(chatgroups::SYSTEM));
-                Some(Out::Org { text })
-            }
+            // (FUN_1009cdfe, FUN_1009d028: the first channel of the organization's kind, of the team's)
+            Parsed::Org { text } => match chatgroups::of_kind(3) {
+                Some(group) => self.say_in(pane, &group, text),
+                None => {
+                    self.tell(&command_text("ChatCmdFeedback_O_YouAreNotMemberOfAnOrganizaion"));
+                    None
+                }
+            },
+            Parsed::Team { text } => match chatgroups::of_kind(0x82) {
+                Some(group) => self.say_in(pane, &group, text),
+                None => {
+                    self.tell(&command_text("ChatCmdFeedback_T_YouAreNotMemberOfATeam"));
+                    None
+                }
+            },
+            Parsed::Output { word, name } => self.group_command(pane, &word, &name, None),
+            Parsed::Group { word, name, text } => self.group_command(pane, &word, &name, Some(text)),
             Parsed::Vicinity { command, text } => Some(Out::Vicinity { kind: match command {
                 "whisper" => 1,
                 "shout" => 2,
@@ -805,6 +885,32 @@ impl ChatWindow {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_group_commands_find_their_groups() {
+        chatgroups::note_channel("Yy Clan Chat", 3, 0x8004);
+        chatgroups::note_channel("Yy Team", 0x82, 0x8004);
+        chatgroups::note_channel("Yy Results", 10, 0x8006);
+        let mut w = ChatWindow::default();
+        // (`/ch`: only a group the window shows, and not one that takes no lines)
+        assert_eq!((w.run("/ch \"yy clan chat\""), w.panes[0].output.as_str()), (None, ""));
+        w.panes[0].selected.insert("Yy Clan Chat".into());
+        w.panes[0].selected.insert("Yy Results".into());
+        assert_eq!((w.run("/ch \"yy r\""), w.panes[0].output.as_str()), (None, ""));
+        assert_eq!((w.run("/ch \"yy c\""), w.panes[0].output.as_str()), (None, "Yy Clan Chat"));
+        // (a plain line then goes there; `/group` sends one line elsewhere and warns when the window does not show it)
+        assert_eq!(w.run("hello"), Some(Out::Channel { name: "Yy Clan Chat".into(), text: "hello".into() }));
+        let before = w.lines.len();
+        assert_eq!(w.run("/g \"Yy Team\" over here"), Some(Out::Channel { name: "Yy Team".into(), text: "over here".into() }));
+        assert_eq!(w.lines.len(), before + 1);
+        w.warn_unshown = false;
+        assert_eq!(w.run("/t on my way"), Some(Out::Channel { name: "Yy Team".into(), text: "on my way".into() }));
+        assert_eq!(w.lines.len(), before + 1);
+        assert!(matches!(w.run("/o hi all"), Some(Out::Channel { text, .. }) if text == "hi all"));
+        // (the vicinity's group is spoken; a group nobody knows and one that takes no lines are told of)
+        assert_eq!(w.run("/group vic hi"), Some(Out::Vicinity { kind: 0, text: "hi".into() }));
+        assert_eq!((w.run("/g \"yy results\" x"), w.run("/g nosuchgroup x"), w.lines.len()), (None, None, before + 3));
+    }
 
     #[test]
     fn a_tell_is_echoed_and_sent_and_a_reply_goes_to_the_last_sender() {

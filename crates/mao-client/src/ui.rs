@@ -829,6 +829,8 @@ impl Ui {
             }
             // (what to do with an invitation to a private chat group: the option's, `ChatPGInviteAction`)
             chat_window.invite_action = control_center.as_ref().and_then(|cc| cc.store.get("ChatPGInviteAction")).map_or(1, |v| v.as_int32());
+            // (the warning when a line goes to a group the window does not show: on in the game's own settings)
+            chat_window.warn_unshown = control_center.as_ref().and_then(|cc| cc.store.get("ChatWarnWhenSpeakingToUnsubGroups")).is_none_or(|v| v.as_bool());
             if let Some(out) = chat_window.show(&ctx, palette) {
                 requests.chat.push(out);
             }

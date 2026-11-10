@@ -73,7 +73,7 @@ pub fn is_combat(name: &str) -> bool {
 
 /// Whether a group is a private chat group (FUN_1008537d: a channel of kind 14).
 pub fn is_private(name: &str) -> bool {
-    SERVER_GROUPS.lock().unwrap().get(name) == Some(&0x0e)
+    SERVER_GROUPS.lock().unwrap().get(name).map(|g| g.0) == Some(0x0e)
 }
 
 /// Whether a group is there now: the client's own always, a channel once the chat server has told of it.
@@ -92,7 +92,7 @@ pub fn colour_name(name: &str) -> &'static str {
         Some(0x4100_0001) => "ctch_otherpet",
         Some(0x4200_001c) => "ctch_research",
         Some(_) => "white",
-        None => match SERVER_GROUPS.lock().unwrap().get(name) {
+        None => match SERVER_GROUPS.lock().unwrap().get(name).map(|g| g.0) {
             Some(10) => "ctch_tower",
             Some(1) => "ctch_admin",
             Some(3) => "ctch_clan",
@@ -113,6 +113,92 @@ pub fn colour_name(name: &str) -> &'static str {
 /// the server's channels.
 pub fn talkable(name: &str) -> bool {
     name == VICINITY || !BUILTIN.iter().any(|g| g.1 == name)
+}
+
+/// Whether a group takes no lines (the group's flag bit 1): the client's own but Vicinity, and a channel the chat
+/// server marks so (flags 0x8006 on the tower battle outcome against 0x8004 on a team's).
+pub fn read_only(name: &str) -> bool {
+    !talkable(name) || SERVER_GROUPS.lock().unwrap().get(name).is_some_and(|g| g.1 & 2 != 0)
+}
+
+/// The first channel of a kind the chat server has told of: the organization's (3), the team's (0x82).
+pub fn of_kind(kind: u8) -> Option<String> {
+    SERVER_GROUPS.lock().unwrap().iter().find(|(_, g)| g.0 == kind).map(|(name, _)| name.clone())
+}
+
+/// The groups a typed name stands for (FUN_10083df7): those whose names begin with it, in any case; one it names
+/// in full stands alone. Quotes around it are dropped (FUN_1009c5b8).
+pub fn matching(typed: &str) -> Vec<String> {
+    let typed = typed.trim_matches('"');
+    let mut out = Vec::new();
+    for name in BUILTIN.iter().map(|g| g.1.to_string()).chain(server_groups()) {
+        if name.get(..typed.len()).is_some_and(|start| start.eq_ignore_ascii_case(typed)) {
+            if name.len() == typed.len() {
+                return vec![name];
+            }
+            out.push(name);
+        }
+    }
+    out
+}
+
+/// What a typed group name comes to in `/ch` and `/group`.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Pick {
+    /// No group begins so.
+    Unknown,
+    Group(String),
+    /// `/ch`: the window does not show the group.
+    NotShown,
+    ReadOnly(String),
+    /// More than one usable group begins so.
+    Ambiguous,
+    /// Several begin so and none can be used.
+    NoneUsable,
+}
+
+/// `/ch <name>` (FUN_1009c5b8; `shown_only`: a window's output group is one it shows) and `/group <name> <text>`
+/// (FUN_1009c977): the one group the name stands for. Of several, the read-only ones (and for `/ch` those not
+/// shown) do not count.
+pub fn pick(matches: &[String], shown_only: bool, shows: &dyn Fn(&str) -> bool, read_only: &dyn Fn(&str) -> bool) -> Pick {
+    let single = |g: &String| {
+        if shown_only && !shows(g) {
+            Pick::NotShown
+        } else if read_only(g) {
+            Pick::ReadOnly(g.clone())
+        } else {
+            Pick::Group(g.clone())
+        }
+    };
+    match matches {
+        [] => Pick::Unknown,
+        [one] => single(one),
+        many => {
+            let mut usable = many.iter().filter(|g| !read_only(g) && (!shown_only || shows(g)));
+            match (usable.next(), usable.next()) {
+                (Some(_), Some(_)) => Pick::Ambiguous,
+                (Some(g), None) => single(g),
+                _ => Pick::NoneUsable,
+            }
+        }
+    }
+}
+
+/// The names an ambiguous one stands for, as the original lists them (FUN_1009b144): red a read-only group, white
+/// one the window shows, silver another; the comma inside the colour, as there.
+pub fn ambiguous_list(matches: &[String], shows: &dyn Fn(&str) -> bool, read_only: &dyn Fn(&str) -> bool) -> String {
+    let mut out = String::new();
+    for (n, name) in matches.iter().enumerate() {
+        let colour = if read_only(name) {
+            "red"
+        } else if shows(name) {
+            "white"
+        } else {
+            "silver"
+        };
+        out += &format!("<font color={colour}>{}{name}</font>", if n > 0 { ", " } else { "" });
+    }
+    out
 }
 
 /// The group Gamecode's feedback formatter (FUN_10012c3e) tells a text in, by the text's name in text.mdb's category
@@ -150,17 +236,22 @@ pub fn feedback_group(name: &str) -> Option<u32> {
     })
 }
 
-/// The chat server's channels heard of this session: their names and kinds.
-static SERVER_GROUPS: Mutex<std::collections::BTreeMap<String, u8>> = Mutex::new(std::collections::BTreeMap::new());
+/// The chat server's channels heard of this session: their names, kinds and flags.
+static SERVER_GROUPS: Mutex<std::collections::BTreeMap<String, (u8, u32)>> = Mutex::new(std::collections::BTreeMap::new());
 
 /// Notes a channel of the chat server, with its kind (the first byte of its identity).
 pub fn note(name: &str, kind: u8) {
+    note_channel(name, kind, 0);
+}
+
+/// Notes a channel with the flags the chat server tells it with.
+pub fn note_channel(name: &str, kind: u8, flags: u32) {
     if !name.is_empty() {
-        SERVER_GROUPS.lock().unwrap().insert(name.to_string(), kind);
+        SERVER_GROUPS.lock().unwrap().insert(name.to_string(), (kind, flags));
     }
 }
 
-/// A channel gone (a private group left).
+/// A channel gone (a private group left, the team's when the team is).
 pub fn forget(name: &str) {
     SERVER_GROUPS.lock().unwrap().remove(name);
 }
@@ -447,6 +538,34 @@ mod tests {
         assert_eq!((free_name(&panes), parse(&render(&panes)) == panes), ("Window3".to_string(), true));
         // (a file of before the frames puts every window in the first)
         assert_eq!(parse("window A\nwindow B\n").iter().map(|p| p.frame.clone()).collect::<Vec<_>>(), ["Window1", "Window1"]);
+    }
+
+    #[test]
+    fn a_typed_name_finds_its_group() {
+        note_channel("Zz Trade", 4, 0x8004);
+        note_channel("Zz Trade Results", 10, 0x8006);
+        note_channel("Zz Team", 0x82, 0x8004);
+        // (the start of a name in any case; the whole name alone; quotes dropped)
+        assert_eq!(matching("zz tr"), ["Zz Trade", "Zz Trade Results"]);
+        assert_eq!(matching("\"zz trade\""), ["Zz Trade"]);
+        assert!(matching("Zz Nothing").is_empty());
+        assert!(read_only("Zz Trade Results") && read_only(SYSTEM) && !read_only("Zz Trade") && !read_only(VICINITY));
+        // (a kind of this test's own: the tests share the list)
+        note_channel("Zz Gone", 0x71, 0);
+        assert_eq!((of_kind(0x71).as_deref(), of_kind(0x7f)), (Some("Zz Gone"), None));
+        forget("Zz Gone");
+        assert_eq!(of_kind(0x71), None);
+        let shows = |g: &str| g == "Zz Trade Results" || g == "Zz Team";
+        let pick_of = |typed: &str, shown_only: bool| pick(&matching(typed), shown_only, &shows, &read_only);
+        // (`/group`: of several the one that can be written to; `/ch`: only one the window shows)
+        assert_eq!(pick_of("zz tr", false), Pick::Group("Zz Trade".into()));
+        assert_eq!(pick_of("zz tr", true), Pick::NoneUsable);
+        assert_eq!(pick_of("zz trade", true), Pick::NotShown);
+        assert_eq!(pick_of("zz trade r", false), Pick::ReadOnly("Zz Trade Results".into()));
+        assert_eq!(pick_of("zz te", true), Pick::Group("Zz Team".into()));
+        assert_eq!(pick_of("zz t", false), Pick::Ambiguous);
+        assert_eq!(pick_of("zz nothing", false), Pick::Unknown);
+        assert_eq!(ambiguous_list(&matching("zz tr"), &shows, &read_only), "<font color=silver>Zz Trade</font><font color=red>, Zz Trade Results</font>");
     }
 
     #[test]

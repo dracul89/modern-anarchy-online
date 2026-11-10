@@ -304,8 +304,24 @@ spoken in the vicinity as before. Seen live: the test character came up with "De
 original's files. Preview: `MAO_UI_PREVIEW=chat` with `MAO_CHAT_TAB=<n>` and `MAO_CHAT_MENU=main|talk|public|combat`.
 
 Not done: the original's sub-menus open beside their parent (here one menu replaces the other), the Visual menu
-(borderless, transparency, fading), the team's chat as an output group, `/ch` and `/group`. (Several chat windows on
-screen: see "Chat windows of their own" below.)
+(borderless, transparency, fading). (Several chat windows on screen: see "Chat windows of their own" below; `/ch`,
+`/group` and the team's chat: "Chat group commands".)
+
+**Chat group commands (2026-11-10, `chat_commands.rs`, `chatgroups.rs`, `chatwindow.rs`).** As GUI.dll registers them
+(FUN_1009e379): `/ch <group name>` makes a group the window's output group (FUN_1009c5b8), `/group` or `/g <group
+name> <text>` sends one line to a group (FUN_1009c977), `/o <text>` goes to the organization's channel (FUN_1009cdfe:
+the first channel of kind 3) and `/t <text>` to the team's (FUN_1009d028: kind 0x82). **`/t` was a tell here before;
+the original's `/t` is the team, `/tell` the private message.** A group is named by the start of its name in any
+case, a name with spaces in quotes (FUN_10083df7; the whole name wins alone). `/ch` takes only a group the window
+shows; a group that takes no lines (the client's own but Vicinity, and a channel whose flags have bit 1, as the tower
+battle outcome's 0x8006) is refused; of several that match, the read-only ones (and for `/ch` those not shown) do not
+count, and when more than one is left they are listed in the original's colours (FUN_1009b144). A line sent to a
+group the window does not show is warned of while the option `ChatWarnWhenSpeakingToUnsubGroups` is on. The answers
+are the game's own texts (text.mdb 10001, `ChatCmdFeedback_*`), with this client's words without the game's files.
+The team's channel is the chat server's: it tells of it when the team forms (packet 60, a four-letter name, flags
+0x8004) and takes it away when the team is left (packet 61, kind and id: `Packet::ChannelGone`, new), as two captures
+show; so it is a group like any other, can be shown in a window and be its output group. Tested on built packets and
+typed lines; **not tried live** (the team's needs a second character).
 
 **Chat configuration window and group colours (2026-11-10, `chatconfig.rs`).** The window menu's "Chat Configuration"
 opens the original's `GroupControlView_c` (FUN_100ad81c, FUN_100a19ff): the chat windows listed at the left, and for

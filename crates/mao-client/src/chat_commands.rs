@@ -31,7 +31,10 @@ pub fn emote_id(name: &str) -> u32 {
 
 /// A one-line description of the commands this client carries out (for `/help`).
 pub const IMPLEMENTED: &[(&str, &str)] = &[
-    ("tell <name> <text>", "a private message (also /t)"),
+    ("tell <name> <text>", "a private message"),
+    ("t <text>", "your team's channel"),
+    ("ch <group>", "the group this chat window's plain lines go to (the start of its name is enough)"),
+    ("group <group> <text>", "one line to a group (also /g)"),
     ("reply <text>", "answer the last tell (also /r)"),
     ("org <text>", "your organization's channel (also /o)"),
     ("say <text>", "speak to the people around (plain text too); /shout or /s shouts, /whisper or /w whispers, /me emotes"),
@@ -64,6 +67,12 @@ pub enum Parsed {
     Tell { name: String, text: String },
     /// An answer to the last tell.
     Reply { text: String },
+    /// `/ch <group name>`: the window's output group. `word` is the command as typed.
+    Output { word: String, name: String },
+    /// `/group <group name> <text>` (`/g`): a line to a group.
+    Group { word: String, name: String, text: String },
+    /// `/t <text>`: a line to the team's channel.
+    Team { text: String },
     /// `/befriend <name>`: a character to put on the friends list.
     Befriend { name: String },
     /// `/ignore <name>` (or `/ignore` alone: the list): hide a character's tells and channel lines.
@@ -145,6 +154,17 @@ fn known(word: &str) -> Option<&'static str> {
     COMMANDS.iter().chain(EXTRA).copied().find(|c| c.eq_ignore_ascii_case(word))
 }
 
+/// The first argument of a group command and what follows it: a word, or several in quotes (kept, as the original's
+/// arguments keep them).
+fn group_name(text: &str) -> Option<(&str, &str)> {
+    let text = text.trim();
+    let end = match text.strip_prefix('"') {
+        Some(rest) => rest.find('"').map_or(text.len(), |n| n + 2),
+        None => text.find(char::is_whitespace).unwrap_or(text.len()),
+    };
+    (end > 0).then(|| (&text[..end], text[end..].trim()))
+}
+
 pub fn parse(line: &str) -> Parsed {
     let line = line.trim();
     if line.is_empty() {
@@ -161,7 +181,7 @@ pub fn parse(line: &str) -> Parsed {
     }
     let Some(command) = known(word) else { return Parsed::Unknown(word.to_string()) };
     match command.to_lowercase().as_str() {
-        "tell" | "t" => {
+        "tell" => {
             let (name, message) = match text.split_once(char::is_whitespace) {
                 Some((n, m)) => (n, m.trim()),
                 None => (text, ""),
@@ -227,6 +247,24 @@ pub fn parse(line: &str) -> Parsed {
                 Parsed::Org { text: text.to_string() }
             }
         }
+        // (FUN_1009d028: `/t` is the team's channel; `/tell` the private message)
+        "t" => {
+            if text.is_empty() {
+                Parsed::Usage("/t <text>")
+            } else {
+                Parsed::Team { text: text.to_string() }
+            }
+        }
+        // (FUN_1009c5b8: the group's name and nothing more; a name with spaces goes in quotes)
+        "ch" => match group_name(text) {
+            Some((name, "")) => Parsed::Output { word: format!("/{word}"), name: name.to_string() },
+            _ => Parsed::Usage("/ch <group name>"),
+        },
+        // (FUN_1009c977: the group's name, then the line)
+        "group" | "g" => match group_name(text) {
+            Some((name, line)) if !line.is_empty() => Parsed::Group { word: format!("/{word}"), name: name.to_string(), text: line.to_string() },
+            _ => Parsed::Usage("/group <group name> <text>"),
+        },
         "emote" => match text.split_whitespace().next() {
             None => Parsed::Usage("/emote <emote-name>"),
             Some(name) if emote_id(name) == 0 => Parsed::NoEmote(name.to_string()),
@@ -269,7 +307,7 @@ mod tests {
     #[test]
     fn lines_become_commands() {
         assert_eq!(parse("/tell Abc hello there"), Parsed::Tell { name: "Abc".into(), text: "hello there".into() });
-        assert_eq!(parse("/T Abc hi"), Parsed::Tell { name: "Abc".into(), text: "hi".into() });
+        assert_eq!(parse("/TELL Abc hi"), Parsed::Tell { name: "Abc".into(), text: "hi".into() });
         assert_eq!(parse("/tell Abc"), Parsed::Usage("/tell <name> <text>"));
         assert_eq!(parse("/r thanks"), Parsed::Reply { text: "thanks".into() });
         assert_eq!(parse("/ignore Abc"), Parsed::Ignore { name: "Abc".into() });
@@ -297,6 +335,16 @@ mod tests {
         assert_eq!(parse("/befriend Abc"), Parsed::Befriend { name: "Abc".into() });
         assert_eq!(parse("/befriend"), Parsed::Usage("/befriend <name>"));
         assert_eq!(parse("/o hello org"), Parsed::Org { text: "hello org".into() });
+        // (the original's `/t` is the team's channel, not a tell)
+        assert_eq!(parse("/t on my way"), Parsed::Team { text: "on my way".into() });
+        assert_eq!(parse("/t"), Parsed::Usage("/t <text>"));
+        assert_eq!(parse("/ch clan"), Parsed::Output { word: "/ch".into(), name: "clan".into() });
+        assert_eq!(parse("/CH \"Clan OOC\""), Parsed::Output { word: "/CH".into(), name: "\"Clan OOC\"".into() });
+        assert_eq!(parse("/ch"), Parsed::Usage("/ch <group name>"));
+        assert_eq!(parse("/ch clan ooc"), Parsed::Usage("/ch <group name>"));
+        assert_eq!(parse("/g \"Clan OOC\" hello there"), Parsed::Group { word: "/g".into(), name: "\"Clan OOC\"".into(), text: "hello there".into() });
+        assert_eq!(parse("/group trade selling a pistol"), Parsed::Group { word: "/group".into(), name: "trade".into(), text: "selling a pistol".into() });
+        assert_eq!(parse("/group trade"), Parsed::Usage("/group <group name> <text>"));
         assert_eq!(parse("/voice heal"), Parsed::Voice { line: "heal".into() });
         assert_eq!(parse("/voice"), Parsed::Usage("/voice <sound name>"));
         assert_eq!(parse("hello world"), Parsed::Vicinity { command: "say", text: "hello world".into() });

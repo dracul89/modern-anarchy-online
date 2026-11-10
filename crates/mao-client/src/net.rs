@@ -651,8 +651,6 @@ fn recent_message(chat: &mut mao_net::chat::Chat, id: u32, name: &str) -> Result
     Ok(())
 }
 
-/// The kind of the chat channel that is the character's organization's (the public chat protocol's group type 3).
-const ORG_CHANNEL_KIND: u8 = 3;
 
 /// Sends what the chat window typed (a tell or a line for the organization channel).
 /// Vicinity speech to send on the game connection: (kind: 0 say, 1 whisper, 2 shout; text; voice record).
@@ -4405,8 +4403,16 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             }
                             Some(Packet::Channel { kind, id, name, flags }) => {
                                 channel_flags.insert(id, flags);
-                                crate::chatgroups::note(&name, kind);
+                                crate::chatgroups::note_channel(&name, kind, flags);
                                 channels.insert(id, (kind, name));
+                                None
+                            }
+                            // (a channel left: the team's when the team is)
+                            Some(Packet::ChannelGone { id, .. }) => {
+                                channel_flags.remove(&id);
+                                if let Some((_, name)) = channels.remove(&id) {
+                                    crate::chatgroups::forget(&name);
+                                }
                                 None
                             }
                             Some(Packet::Notice { name, text, blob }) => {
@@ -4552,10 +4558,6 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                     buddies.1.remove(&id);
                                     buddies.0 += 1;
                                 }
-                                Out::Org { text } => match channels.iter().find(|(_, (kind, _))| *kind == ORG_CHANNEL_KIND) {
-                                    Some((&id, _)) => chat.send(&mao_net::chat::channel_packet(ORG_CHANNEL_KIND, id, &text))?,
-                                    None => CHAT_LINES.lock().unwrap().push(Line::new(Kind::System, "You are not in an organization.")),
-                                },
                                 // `/voice` (FUN_100b88b1): its line and record, said in the vicinity (the chat window's selected group in the
                                 // original, Vicinity unless another is picked: this client has no other to pick)
                                 Out::Voice { line } => match crate::voices::command(&line) {
