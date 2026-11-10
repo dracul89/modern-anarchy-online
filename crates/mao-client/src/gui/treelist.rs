@@ -31,6 +31,8 @@ pub struct TreeItem {
     /// The picture, and the one a closed folder or an unselected item shows instead.
     pub picture: Option<String>,
     pub picture_alt: Option<String>,
+    /// `HideIcon`: the picture not drawn, its room kept.
+    pub picture_hidden: bool,
     pub folder: bool,
     pub open: bool,
     pub selectable: bool,
@@ -44,7 +46,7 @@ pub struct TreeItem {
 impl TreeItem {
     /// `StringListViewItem_c(id, label, picture, alt)`: white over 0xc0c0c0.
     pub fn new(id: i64, label: &str, picture: Option<&str>, alt: Option<&str>) -> TreeItem {
-        TreeItem { id, label: label.to_string(), picture: picture.map(str::to_string), picture_alt: alt.map(str::to_string), folder: false, open: false, selectable: true, selected: false, colours: (0xffffff, 0xc0c0c0), flash: false, children: Vec::new() }
+        TreeItem { id, label: label.to_string(), picture: picture.map(str::to_string), picture_alt: alt.map(str::to_string), picture_hidden: false, folder: false, open: false, selectable: true, selected: false, colours: (0xffffff, 0xc0c0c0), flash: false, children: Vec::new() }
     }
 
     /// A folder (`SetIsFolder`, `MakeSelectable(false)`).
@@ -159,6 +161,7 @@ impl Control for TreeList {
             if let Some(name) = item.picture_now() {
                 if let Some(s) = p.env.skin.and_then(|s| s.get(name))
                     && !(item.flash && blink)
+                    && !item.picture_hidden
                 {
                     p.painter.image(s.texture.id(), egui::Rect::from_min_size(egui::pos2(x, top + (row - s.size.y) / 2.0), s.size), uv, egui::Color32::WHITE);
                 }

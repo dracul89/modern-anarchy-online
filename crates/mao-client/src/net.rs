@@ -4403,7 +4403,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             }
                             Some(Packet::Channel { kind, id, name, flags }) => {
                                 channel_flags.insert(id, flags);
-                                crate::chatgroups::note(&name);
+                                crate::chatgroups::note(&name, kind);
                                 channels.insert(id, (kind, name));
                                 None
                             }

@@ -62,9 +62,49 @@ pub fn name_of(id: u32) -> Option<&'static str> {
     BUILTIN.iter().find(|g| g.0 == id).map(|g| g.1)
 }
 
-/// Whether a group is one of the combat messages (ids 0x42......: the menu's "Combat Messages").
+/// Whether a group is one of the combat messages (FUN_1008537d: the client's groups from 0x42000000 to under
+/// 0x4200001a; the loot messages and the research count with the public ones), the menu's and the chat
+/// configuration's "Combat Messages".
 pub fn is_combat(name: &str) -> bool {
-    BUILTIN.iter().any(|g| g.1 == name && g.0 >> 24 == 0x42)
+    BUILTIN.iter().any(|g| g.1 == name && (0x4200_0000..0x4200_001a).contains(&g.0))
+}
+
+/// Whether a group is a private chat group (FUN_1008537d: a channel of kind 14).
+pub fn is_private(name: &str) -> bool {
+    SERVER_GROUPS.lock().unwrap().get(name) == Some(&0x0e)
+}
+
+/// Whether a group is there now: the client's own always, a channel once the chat server has told of it.
+pub fn available(name: &str) -> bool {
+    BUILTIN.iter().any(|g| g.1 == name) || SERVER_GROUPS.lock().unwrap().contains_key(name)
+}
+
+/// The name in TextColors.xml of the colour a group's lines are in (FUN_1008582a): the client's own groups by their
+/// number (the fight's lines white there: their texts bring their own colours), a channel by its kind.
+pub fn colour_name(name: &str) -> &'static str {
+    match BUILTIN.iter().find(|g| g.1 == name).map(|g| g.0) {
+        Some(0x4000_0001) => "ct_system",
+        Some(0x4000_0002) => "ctch_vicinity",
+        Some(0x4000_0003) => "ctch_tell",
+        Some(0x4100_0000) => "ctch_mypet",
+        Some(0x4100_0001) => "ctch_otherpet",
+        Some(0x4200_001c) => "ctch_research",
+        Some(_) => "white",
+        None => match SERVER_GROUPS.lock().unwrap().get(name) {
+            Some(10) => "ctch_tower",
+            Some(1) => "ctch_admin",
+            Some(3) => "ctch_clan",
+            Some(4) => "ctch_misc",
+            Some(5) => "ctch_gm",
+            Some(8) => "ctch_news",
+            Some(0x0e) => "ctch_pgroup",
+            Some(0x82) => "ctch_team",
+            Some(0x86) => "ctch_seekingteam",
+            Some(0x87) => "ctch_newbie",
+            Some(0x8f) => "ctch_raid",
+            _ => "white",
+        },
+    }
 }
 
 /// Whether lines can be typed to a group: of the client's own only Vicinity (the others are made read-only), and
@@ -108,18 +148,18 @@ pub fn feedback_group(name: &str) -> Option<u32> {
     })
 }
 
-/// The chat server's channels heard of this session (their names), for the menus.
-static SERVER_GROUPS: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
+/// The chat server's channels heard of this session: their names and kinds.
+static SERVER_GROUPS: Mutex<std::collections::BTreeMap<String, u8>> = Mutex::new(std::collections::BTreeMap::new());
 
-/// Notes a channel of the chat server.
-pub fn note(name: &str) {
+/// Notes a channel of the chat server, with its kind (the first byte of its identity).
+pub fn note(name: &str, kind: u8) {
     if !name.is_empty() {
-        SERVER_GROUPS.lock().unwrap().insert(name.to_string());
+        SERVER_GROUPS.lock().unwrap().insert(name.to_string(), kind);
     }
 }
 
 pub fn server_groups() -> Vec<String> {
-    SERVER_GROUPS.lock().unwrap().iter().cloned().collect()
+    SERVER_GROUPS.lock().unwrap().keys().cloned().collect()
 }
 
 /// A chat window: here a tab of the chat window.
@@ -365,7 +405,13 @@ mod tests {
         assert_eq!(feedback_group("Feedback_ReceivedXP").and_then(name_of), Some("Me got XP"));
         assert_eq!(feedback_group("Feedback_ExecutingNanoProgram").and_then(name_of), Some("Me Cast Nano"));
         assert_eq!(feedback_group("Feedback_CriticalHit"), None);
-        assert!(is_combat("Me hit by monster") && !is_combat(VICINITY) && !is_combat("Clan OOC"));
+        assert!(is_combat("Me hit by monster") && !is_combat(VICINITY) && !is_combat("Clan OOC") && !is_combat("Research") && !is_combat("Vicinity Loot Messages"));
+        // (a group's colour: the client's own by number, a channel by its kind)
+        note("Test Clan Channel", 3);
+        note("Test Private Group", 0x0e);
+        assert_eq!([colour_name(SYSTEM), colour_name(VICINITY), colour_name(TELLS), colour_name("Research"), colour_name("Me hit by monster")], ["ct_system", "ctch_vicinity", "ctch_tell", "ctch_research", "white"]);
+        assert_eq!([colour_name("Test Clan Channel"), colour_name("Test Private Group"), colour_name("Never heard of")], ["ctch_clan", "ctch_pgroup", "white"]);
+        assert!(is_private("Test Private Group") && !is_private("Test Clan Channel") && available("Test Clan Channel") && available(SYSTEM) && !available("Never heard of"));
         assert!(talkable(VICINITY) && talkable("Clan OOC") && !talkable(SYSTEM) && !talkable("Me got XP"));
     }
 }

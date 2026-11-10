@@ -134,6 +134,8 @@ pub struct ChatWindow {
     /// The menu open (its kind, what each entry stands for and where it opened) and its picture.
     menu: Option<(Menu, Vec<String>, egui::Pos2)>,
     popup: Option<crate::gui::popup::PopupMenu>,
+    /// The chat configuration window (`chatconfig`).
+    pub config: crate::chatconfig::ChatConfig,
     /// A preview's: the tab to show and the menu to have open (main, talk, public or combat).
     pub demo: Option<(usize, String)>,
     input: String,
@@ -155,7 +157,7 @@ pub struct ChatWindow {
 
 impl Default for ChatWindow {
     fn default() -> Self {
-        ChatWindow { open: true, log: false, lines: Vec::new(), panes: chatgroups::defaults(), loaded_for: None, tab: 0, menu: None, popup: None, demo: None, input: String::new(), selected: 0, focus_next: false, last_tell: None, scroll_to_end: true, keep_list: false, ignored: load_ignored(), history: Vec::new(), recalled: None, links: Vec::new() }
+        ChatWindow { open: true, log: false, lines: Vec::new(), panes: chatgroups::defaults(), loaded_for: None, tab: 0, menu: None, popup: None, config: Default::default(), demo: None, input: String::new(), selected: 0, focus_next: false, last_tell: None, scroll_to_end: true, keep_list: false, ignored: load_ignored(), history: Vec::new(), recalled: None, links: Vec::new() }
     }
 }
 
@@ -190,6 +192,7 @@ fn menu_text(name: &str) -> String {
         "NewWindow" => "New window",
         "DeleteWindow" => "Delete this window",
         "NoSelectableGroups" => "No groups to choose",
+        "ChatWindowMenu_ChatConfiguration" => "Chat settings",
         _ => name,
     };
     crate::gui::xml::ldb_named(10001, name, own)
@@ -244,6 +247,7 @@ impl ChatWindow {
                 ("subscribe", menu_text("ChatWindowMenu_ChannelSubscribeMenu"), true, None),
                 ("auto", menu_text("ChatWindowMenu_AutoSubscribeChannels"), true, Some(pane.auto)),
                 ("timestamps", menu_text("ShowTimestamps"), true, Some(pane.timestamps)),
+                ("config", menu_text("ChatWindowMenu_ChatConfiguration"), true, None),
                 ("new", menu_text("NewWindow"), true, None),
                 ("delete", menu_text("DeleteWindow"), self.panes.len() > 1, None),
             ]
@@ -273,6 +277,7 @@ impl ChatWindow {
             (Menu::Main, "talk") => self.open_menu(ctx, Menu::Talk, at),
             (Menu::Main, "subscribe") => self.open_menu(ctx, Menu::Subscribe, at),
             (Menu::Subscribe, kind) => self.open_menu(ctx, Menu::Groups { combat: kind == "combat" }, at),
+            (Menu::Main, "config") => self.config.open = true,
             (Menu::Main, "new") => {
                 // (FUN_10094701: the first `Window%d` not taken)
                 let name = (1..).map(|n| format!("Window{n}")).find(|n| !self.panes.iter().any(|p| p.name == *n)).unwrap_or_default();
@@ -529,7 +534,8 @@ impl ChatWindow {
                             // (the original's TextColors.xml names when the theme has them)
                             Kind::System => text("ct_cmd_feedback", (255, 220, 90)),
                             Kind::Tell => text("ct_itell", (120, 220, 255)),
-                            Kind::Channel => text("ctch_misc", (200, 235, 235)),
+                            // (a channel's lines in its group's colour, FUN_1008582a)
+                            Kind::Channel => text(chatgroups::colour_name(line.group()), (200, 235, 235)),
                             Kind::Own => text("ct_otell", (160, 200, 160)),
                             Kind::Combat => text("CCMeHitOtherColor", (240, 170, 130)),
                         };
@@ -647,6 +653,8 @@ impl ChatWindow {
         }
         if let Some((tab, menu)) = self.demo.take() {
             self.tab = tab.min(self.panes.len().saturating_sub(1));
+            // (`config`: the chat configuration window up)
+            self.config.open = menu == "config";
             let menu = match menu.as_str() {
                 "main" => Some(Menu::Main),
                 "talk" => Some(Menu::Talk),
@@ -666,6 +674,9 @@ impl ChatWindow {
         }
         if self.popup.is_none() {
             self.menu = None;
+        }
+        if self.config.show(ctx, palette, &mut self.panes, &mut self.tab, &mut self.log) {
+            chatgroups::save(&self.panes);
         }
         self.open = open;
         self.links.extend(links);

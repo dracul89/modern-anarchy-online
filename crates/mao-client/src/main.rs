@@ -38,6 +38,7 @@ mod prof;
 mod vehicle;
 mod charinfo;
 mod chat_commands;
+mod chatconfig;
 mod chatgroups;
 mod chatwindow;
 mod chatlog;

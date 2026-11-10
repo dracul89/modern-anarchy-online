@@ -328,7 +328,7 @@ fn esc_default(name: &str) -> bool {
 /// The windows Escape may close, by their `chrome::window` names.
 pub const ESCAPABLE: &[&str] = &[
     "Options", "Whom-Pah", "Browser", "Help", "Option panel", "loot", "Shop", "Perks", "Research",
-    "Missions", "PlanetMap", "Info", "NPCChat", "Nano programs", "Inventory", "Wear", "Inspect", "Tradeskill",
+    "Missions", "PlanetMap", "Info", "NPCChat", "Nano programs", "Inventory", "Wear", "Inspect", "Tradeskill", "ChatConfig",
 ];
 
 /// The `esc_*` option that lets Escape close a window (by its `chrome::window` name), which the original's window reads when
@@ -368,6 +368,7 @@ pub fn escape_option(name: &str, loot_kind: Option<u32>, trading: bool) -> Optio
         // (WearView_c FUN_100e24b8 reads `esc_wear` for the wear window and for an inspection alike)
         "Wear" | "Inspect" => "esc_wear",
         "Tradeskill" => "esc_tradeskill",
+        "ChatConfig" => "esc_chatconfig",
         _ => return None,
     }))
 }

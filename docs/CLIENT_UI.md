@@ -303,10 +303,24 @@ the window's output group when that is a channel the server has told of this ses
 spoken in the vicinity as before. Seen live: the test character came up with "Default Window" and "Combat" from the
 original's files. Preview: `MAO_UI_PREVIEW=chat` with `MAO_CHAT_TAB=<n>` and `MAO_CHAT_MENU=main|talk|public|combat`.
 
-Not done: the original's sub-menus open beside their parent (here one menu replaces the other), "Rename Window", the
-Visual menu (borderless, transparency, fading), the Chat Configuration window, several chat windows on screen at once
-(they are tabs of one), a group's own colour (lines are coloured by kind as before), the team's chat as an output
-group, `/ch` and `/group`.
+Not done: the original's sub-menus open beside their parent (here one menu replaces the other), the Visual menu
+(borderless, transparency, fading), several chat windows on screen at once (they are tabs of one), the team's chat as
+an output group, `/ch` and `/group`.
+
+**Chat configuration window and group colours (2026-11-10, `chatconfig.rs`).** The window menu's "Chat Configuration"
+opens the original's `GroupControlView_c` (FUN_100ad81c, FUN_100a19ff): the chat windows listed at the left, and for
+the selected one the tree of chat groups in three folders (Public Channels, Private Channels, Combat Messages), each
+group with the original's check picture while the window shows it; a press turns it on or off. A channel the server
+has not told of this session is in red, as the original's. Below: "Hide channels subscribed to other windows", the
+four buttons New / Rename / Clone / Remove Window, "Log messages" (the client's one chat log: the original logs each
+window by itself) and "Show message log" (dead: there is no log window). Rename asks for the name in a small window.
+The selected window and the folders' state are kept (`tabs.ini`), Escape closes it with `esc_chatconfig`. The folder
+rule is the original's (FUN_1008537d): the loot messages and Research count as public, only the client's groups under
+0x4200001a as combat messages; the window menu's lists follow it too. A channel's lines are now in the colour
+TextColors.xml gives its kind (FUN_1008582a: clan, tower, newbie, team and so on; vicinity speech in the vicinity's),
+seen live on the organization's channel. Preview: `MAO_UI_PREVIEW=chat MAO_CHAT_MENU=config`. The buttons and the
+tree were not clicked through live. Not done: a window row's own menu (style, show, rename, remove) and a group
+row's (leave, disband).
 
 **Stats window as the original's (2026-11-10, `stats.rs`).** Read from `StatView_c` (FUN_1008057d): the name and the
 level on a line, a white word and its value in 0xbbbbff; the bars, each the skin's `GFX_GUI_HOR_BAR_EMPTY` filled with
