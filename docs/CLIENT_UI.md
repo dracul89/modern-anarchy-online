@@ -1644,13 +1644,47 @@ near the test character).
 Ctrl+4 (`mission_window`) is the journal, GUI.dll's `MissionView_c` (`missionlog.rs`), not the booth's window
 (`MissionSelectionView_c`, which a booth's use opens as `missionselection`). The server's `QuestFullUpdate`
 (`465a4061`) is the whole list (its last byte belongs to the message, not to each `Quest`: the schema had it inside
-`Quest`, which shifted every mission after the first by a byte), and `Quest` action 1 drops one. The list shows each
-mission's icon and title; picking one shows its text; its menu (FUN_100d3123) is Look at Mission, Upload to map,
-Update Team Members (greyed) and Delete Mission (asked first, then `Quest` action 1). Uploading (FUN_10067d5f) takes the
+`Quest`, which shifted every mission after the first by a byte), and `Quest` action 1 drops one. Its menu
+(FUN_100d3123) is Look at Mission, Upload to map, Update Team Members (a team mission's only, greyed) and Delete Mission
+(asked first, then `Quest` action 1). Uploading (FUN_10067d5f) takes the
 first action's playfield and place as the waypoint and says "Waypoint uploaded to map and compass." and either "The
 waypoint is shown as a white dot..." or "Mission is not in this area..." (the texts are text.mdb's category 10000);
 the waypoint is a white dot on the planet map and a yellow mark on the compass in its playfield. Preview:
 `MAO_UI_PREVIEW=missionlog MAO_CAPTURE=capture-225436.log`.
+
+**The window as the original's (2026-11-10).** It was a grid of icons; the original's is a list. `MissionView_c` holds
+one `MissionListView_c` (FUN_100d3df7), a `MultiListView_c` in its list mode with three columns named from text.mdb's
+category 10000: "Icon" (16 wide), "Name" (200) and "Tab_Remaning" (55), the view 167 by 112 until the player sizes it
+(FUN_100d0177). A row (`InventoryListViewItem_c`, FUN_100d2c3b, 15 high) is the mission's icon in a square as tall as
+the row (`multilist.rs` now draws a row's icon in the icon column, FUN_1003edf2), its name, and the time it has left as
+hours and minutes ("%02d:%02d", FUN_1003d7d0's column 15; 00:00 with none), set again every second. The headers sort
+and size the columns as in the mail list. The selected row is not the clicked one but the active mission
+(FUN_100d3366): the one last uploaded to the map, until it is gone. A click shows the mission in the info view as
+`itemid://56003/<instance>` (FUN_100d2cfa), and the page is the original's (FUN_100360d5, `MissionLog::page`): the
+name, "Description:" and the text, the time left in days, hours and minutes, a team mission's rules, then the reward:
+the credits, the experience, and the reward items as icons that link to their own pages, or that there is none (the
+labels and formats are text.mdb's category 506 by name: `RealtimeLeft`, `DayHourMinute`, `TeamMissionRules`, `Reward`,
+`Cash`, `NumCredits`, `Experience`, `NumPoints`, `ItemReward`, `NoReward`).
+
+The time left is `N3Msg_QuestRemainingTime` (Interfaces.dll 0x1000a8ac): of the mission's actions whose deadline has
+not passed, the last one's deadline less the server's time (`N3Msg_GetServerSynceSystemTime`, the clock the `GameTime`
+message sets: `gametime::server_now`). The deadline is `QuestAction_t` +0x5c, read by Gamecode FUN_100acba0 as the
+word after the action's sixth identity: the schema had those four bytes as a text ("UnknownHash1"), now `Deadline`.
+The 2026-11-08 capture's terminal mission carries 1794356426 there, 48 hours after it was taken. In the same pass the
+`Quest`'s `Unknown4` became `Flags` (`Quest_t` +0xa4: bit 8 a team mission, `N3Msg_IsTeamMission`), `Unknown6`
+`Credits` and `Unknown8` `Xp` (FUN_100870a8; the capture's values are the terminal's offer's). These four names are
+set by hand in `protocol.json`, not by `tools/gen_protocol_schema.py`.
+
+The C `printf` the text database's formats go through (`gui/spells.rs`) now pads to a width ("%2d", "%02d"): the time
+left's format needs it.
+
+Seen live (Humility's one mission in the list with its icon) and as a preview; the page was rendered from the game's
+texts in the info view's preview. Not done: the columns' widths, order and sort kept between sessions
+(`MissionViewConfig`'s `listview_config`) and the active mission with them (`active_mission`, whose place the original
+uploads again at the start); "Update Team Members" (`GiveQuestToMembers`, never captured); the experience row for a
+reader of level 200 to 220, whom the original pays in shadow knowledge (`GetSKForXP`); a mission with a deadline has
+not been seen live, only in the capture. The window opens 168 points wide like the original's, which hides the time
+column until it is widened, and this client does not keep window sizes yet.
 
 ## The planet map (P, Ctrl+6) (2026-10-29)
 

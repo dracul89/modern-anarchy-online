@@ -29,6 +29,7 @@ anything the original did not have is either dropped from the default view or ma
 | Target frame (Phase D.2), chat tabs (Phase E.1) | done, checked offscreen | `ui.rs::target_frame`, `chatwindow.rs` |
 | Theme colours from any `GUIColors.xml` folder (`theme = original`, `aou_cyt`, ... or a path; `aou_mod =` points at the AOU mod folder) | done | `crates/mao-client/src/theme.rs` (`theme_dir`, `Palette`) |
 | Window positions remembered between sessions | done (this client's own `layout.ini`); a window with no place yet starts at the original client's own frame for the character, read from its `Prefs.xml`, `DockAreas/*.xml` and chat window configs under the Funcom folder and scaled to this window | `layout.rs`, `aoprefs.rs` |
+| The missions window as the original's list (icon, name, time left), with the mission's info page | done, seen live (a timed mission only from a capture) | `missionlog.rs` |
 | The rollup area down the right edge (wear, NCU, programs, team, faction as pages; roll, undock, dock back) | done, seen live | `rollup.rs`, `chrome.rs` |
 | The Preferences window with the original's pages (from an AOU skin's `Root.xml`, since the game's own is empty) | done, previewed | `gui/options.rs` |
 | `/camp` returns to the character screen | built, not tried live | `viewer.rs` (`logged_out`), `launcher.rs` (`LOGGED_OUT`, `MAO_RELOGIN`) |

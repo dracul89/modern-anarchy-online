@@ -19,6 +19,15 @@ const DAWN_LENGTH: i32 = 2;
 const DUSK_START: i32 = 21;
 const DUSK_LENGTH: i32 = 2;
 
+/// The server's time less the real clock's, as the live clock was last told: for the windows, which have no clock at
+/// hand (the missions' time left).
+static SERVER_OFFSET: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+
+/// The server's time now (`N3Msg_GetServerSynceSystemTime`: `GameTime_t` +0xb4), the real clock's until a server says.
+pub fn server_now() -> u32 {
+    unix_now().wrapping_add(SERVER_OFFSET.load(std::sync::atomic::Ordering::Relaxed)) as u32
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct Clock {
     /// The seconds into the day when the clock was last set, and when.
@@ -57,6 +66,7 @@ impl Clock {
     /// The server's word of its time (`GameTime_t::Update`'s last argument, seconds).
     pub fn set_server_time(&mut self, time: i32) {
         self.server_offset = time.wrapping_sub(unix_now());
+        SERVER_OFFSET.store(self.server_offset, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// The server's time now (`GameTime_t` +0xb4: `_time64` plus +0xb8, `RunFunction` each frame).

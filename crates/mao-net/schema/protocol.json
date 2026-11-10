@@ -3683,7 +3683,7 @@
      "type": "int"
     },
     {
-     "name": "Unknown4",
+     "name": "Flags",
      "type": "int"
     },
     {
@@ -3705,7 +3705,7 @@
      "type": "int"
     },
     {
-     "name": "Unknown6",
+     "name": "Credits",
      "type": "int"
     },
     {
@@ -3713,7 +3713,7 @@
      "type": "int"
     },
     {
-     "name": "Unknown8",
+     "name": "Xp",
      "type": "int"
     },
     {
@@ -3921,10 +3921,8 @@
      "type": "Identity"
     },
     {
-     "fixed": 4,
-     "name": "UnknownHash1",
-     "size": "none",
-     "type": "string"
+     "name": "Deadline",
+     "type": "uint"
     },
     {
      "name": "Unknown9",

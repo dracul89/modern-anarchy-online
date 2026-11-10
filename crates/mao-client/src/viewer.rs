@@ -2486,9 +2486,12 @@ impl ApplicationHandler for App {
                     if let Some(nano) = requests.cancel_nano.take() {
                         self.keys.cancel = (self.keys.cancel.0.wrapping_add(1), nano);
                     }
-                    // (the info view's item pages: N3's item descriptions, built here from the database)
+                    // (the info view's item pages: N3's item descriptions, built here from the database; a mission's from the
+                    // journal's list)
                     for url in ui.info.take_requests() {
-                        if let Some(page) = crate::gui::iteminfo::page(self.textures.db(), &url, &self.hud.stats) {
+                        let level = self.hud.stats.get(&crate::stats::stat::LEVEL).copied().unwrap_or(1);
+                        let mission = ui.mission_log.page(&url, crate::gametime::server_now(), level, self.textures.db());
+                        if let Some(page) = mission.or_else(|| crate::gui::iteminfo::page(self.textures.db(), &url, &self.hud.stats)) {
                             ui.info.show_page(&url, &page);
                         }
                     }

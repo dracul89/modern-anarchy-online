@@ -384,6 +384,14 @@ impl Control for Rows {
                             painter.image(sprite.texture.id(), at, egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
                         }
                     }
+                    // (an `InventoryListViewItem_c` row, FUN_1003edf2: the item's icon at the icon column's left, a square
+                    // as tall as the row, `Rect(0, 0, 15, 15)`)
+                    None if column == 0 => {
+                        if let Some(icon) = item.icon {
+                            let at = egui::Rect::from_min_size(cell.min, egui::vec2(ROW_HEIGHT + 1.0, ROW_HEIGHT + 1.0));
+                            p.painter.with_clip_rect(at.intersect(clip)).image(icon, at, egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
+                        }
+                    }
                     None => {}
                 }
             }

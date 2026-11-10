@@ -17,7 +17,8 @@ fn text(category: i32, name: &str) -> String {
     crate::feedback::texts().and_then(|t| t.named(category, name)).map(str::to_string).unwrap_or_default()
 }
 
-/// A C `printf` of `%s`, `%d`, `%u` and `%%` with the arguments in order.
+/// A C `printf` of `%s`, `%d`, `%u` and `%%` with the arguments in order; a width before the conversion pads the
+/// argument on the left with spaces, or zeros after a `0` flag, and on the right after a `-` ("%2d", "%02d", "%-5s").
 fn printf(format: &str, args: &[String]) -> String {
     let mut out = String::new();
     let mut it = args.iter();
@@ -29,9 +30,25 @@ fn printf(format: &str, args: &[String]) -> String {
         }
         match chars.next() {
             Some('%') => out.push('%'),
-            Some(_) => {
+            Some(first) => {
+                let mut spec = String::new();
+                let mut conversion = Some(first);
+                while let Some(c) = conversion.filter(|c| c.is_ascii_digit() || "-+ #.".contains(*c)) {
+                    spec.push(c);
+                    conversion = chars.next();
+                }
                 if let Some(a) = it.next() {
-                    out += a;
+                    let flags = spec.trim_end_matches(|c: char| c.is_ascii_digit() || c == '.');
+                    let (left, zero) = (flags.contains('-'), spec[flags.len()..].starts_with('0'));
+                    let width: usize = spec[flags.len()..].split('.').next().and_then(|w| w.parse().ok()).unwrap_or(0);
+                    let pad = width.saturating_sub(a.chars().count());
+                    if left {
+                        out += a;
+                        out.extend(std::iter::repeat_n(' ', pad));
+                    } else {
+                        out.extend(std::iter::repeat_n(if zero { '0' } else { ' ' }, pad));
+                        out += a;
+                    }
                 }
             }
             None => out.push('%'),
@@ -161,6 +178,14 @@ pub fn format_modifier(heading: &str, criteria: &str, line: &str, repeat: &str) 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A width pads the number as C does.
+    #[test]
+    fn printf_pads_to_a_width() {
+        assert_eq!(printf_ints("%d days, %2d hours, %02d minutes.", &[1, 2, 5]), "1 days,  2 hours, 05 minutes.");
+        assert_eq!(printf_ints("%-3d|%3d|%d%%", &[7, 1234, 50]), "7  |1234|50%");
+        assert_eq!(printf_ints("%u of %u", &[3, 30]), "3 of 30");
+    }
 
     #[test]
     fn a_modify_spell() {

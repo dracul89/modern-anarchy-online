@@ -48,7 +48,7 @@ use std::collections::BTreeMap;
 /// The identity type of a nano program, as `itemid://` names it.
 pub const NANO_IDENTITY: u32 = 0xcf1b;
 
-fn text(name: &str) -> String {
+pub(crate) fn text(name: &str) -> String {
     crate::feedback::texts().and_then(|t| t.named(506, name)).map(str::to_string).unwrap_or_default()
 }
 

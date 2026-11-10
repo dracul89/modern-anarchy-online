@@ -933,8 +933,8 @@ impl Ui {
                 requests.waypoint = shown.waypoint;
             }
             requests.lines.extend(shown.lines);
-            if let Some(markup) = shown.info {
-                info_view.show_text(&markup);
+            if let Some(url) = shown.info {
+                info_view.show_url(&url);
             }
             planet.show(&ctx, palette, hud.playfield, hud.position, hud.heading, requests.waypoint.or(hud.waypoint));
             if npc_chat.open {
