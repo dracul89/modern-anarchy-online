@@ -164,12 +164,17 @@ pub fn load(theme: &str, aou_mod: &str) -> Palette {
     // (MAO_THEME overrides the setting, for pictures of the interface in a theme)
     let forced = std::env::var("MAO_THEME").ok();
     let theme = forced.as_deref().unwrap_or(theme);
-    let Some(dir) = theme_dir(theme, aou_mod) else { return Palette::built_in() };
+    // (the built-in look has the game's named text colours all the same: the markup of the game's own texts names them)
+    let built_in = || {
+        let text = GAME.get().and_then(|g| mao_formats::files::read_to_string(g.join("cd_image/gui/Default/TextColors.xml")).ok());
+        Palette { text_colors: text.map(|xml| text_colors(&xml)).unwrap_or_default(), ..Palette::built_in() }
+    };
+    let Some(dir) = theme_dir(theme, aou_mod) else { return built_in() };
     match Palette::from_dir(theme, &dir) {
         Some(p) => p,
         None => {
             eprintln!("theme {theme:?}: no GUIColors.xml in {} (using the built-in look)", dir.display());
-            Palette::built_in()
+            built_in()
         }
     }
 }
@@ -250,9 +255,11 @@ mod tests {
         let aou = bundled_gui_dir().map_or(PathBuf::from("C:/mods/aou/Gui/AOU_CYT"), |d| d.join("AOU_CYT"));
         assert_eq!(theme_dir("aou_cyt", "C:/mods/aou"), Some(aou));
         assert_eq!(theme_dir("D:/my theme", ""), Some(PathBuf::from("D:/my theme")));
-        assert_eq!(load("built-in", ""), Palette::built_in());
+        // (the built-in look but for the game's named text colours, when its files are at hand)
+        let plain = |p: Palette| Palette { text_colors: Vec::new(), ..p };
+        assert_eq!(plain(load("built-in", "")), Palette::built_in());
         // An unreadable folder falls back to the built-in look.
-        assert_eq!(load("nowhere-at-all/xyz", ""), Palette::built_in());
+        assert_eq!(plain(load("nowhere-at-all/xyz", "")), Palette::built_in());
     }
 }
 

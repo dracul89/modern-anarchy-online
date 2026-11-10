@@ -205,8 +205,9 @@ pub struct MissionLog {
     confirm: Option<(u32, u32)>,
     textures: std::collections::HashMap<u32, egui::TextureHandle>,
     views: Option<(crate::gui::view::Tree, crate::gui::view::Id, crate::gui::view::Id)>,
-    /// The mission whose menu is open, and where.
-    menu: Option<((u32, u32), egui::Pos2)>,
+    /// The mission whose menu is open with its entries' names, and the menu (`PopupMenu_c`).
+    menu: Option<((u32, u32), Vec<&'static str>)>,
+    popup: Option<crate::gui::popup::PopupMenu>,
 }
 
 /// What a frame of the window did.
@@ -343,62 +344,42 @@ impl MissionLog {
             && ctx.input(|i| i.pointer.secondary_clicked())
             && let Some(m) = self.missions.get(k)
         {
-            self.menu = Some((m.id, at));
+            // (FUN_100d3123's menu: the upload when the mission names a place; the team entry for a team mission only,
+            // and not to be chosen: `GiveQuestToMembers` is not known to this client)
+            let mut names = vec!["Look@Mission"];
+            if m.place.is_some() {
+                names.push("Upload2Map");
+            }
+            if m.team() {
+                names.push("UpdateTeamMembers");
+            }
+            names.push("DeleteMission");
+            let labels: Vec<(String, bool)> = names.iter().map(|n| (text(n), *n != "UpdateTeamMembers")).collect();
+            self.popup = Some(crate::chrome::menu_at(ctx, at, &labels));
+            self.menu = Some((m.id, names));
         }
-        // (FUN_100d3123's menu)
-        if let Some((id, at)) = self.menu
+        if let Some(k) = crate::chrome::menu(ctx, palette, "mission-menu", &mut self.popup)
+            && let Some((id, names)) = self.menu.take()
             && let Some(m) = self.missions.iter().find(|m| m.id == id).cloned()
         {
-            let mut keep = true;
-            let mut upload = false;
-            let area = egui::Area::new(egui::Id::unique("mission-menu")).order(egui::Order::Foreground).fixed_pos(at).show(ctx, |ui| {
-                egui::Frame::popup(ui.style()).show(ui, |ui| {
-                    if ui.button(text("Look@Mission")).clicked() {
-                        shown.info = Some(m.url());
-                        keep = false;
-                    }
-                    if m.place.is_some() && ui.button(text("Upload2Map")).clicked() {
-                        upload = true;
-                        keep = false;
-                    }
-                    // (a team mission's only; `GiveQuestToMembers` is not known to this client)
-                    if m.team() {
-                        ui.add_enabled(false, egui::Button::new(text("UpdateTeamMembers")));
-                    }
-                    if ui.button(text("DeleteMission")).clicked() {
-                        self.confirm = Some(m.id);
-                        keep = false;
-                    }
-                });
-            });
-            if upload {
-                self.upload(id, playfield, &mut shown);
+            match names.get(k).copied() {
+                Some("Look@Mission") => shown.info = Some(m.url()),
+                Some("Upload2Map") => self.upload(id, playfield, &mut shown),
+                Some("DeleteMission") => self.confirm = Some(m.id),
+                _ => {}
             }
-            let elsewhere = ctx.input(|i| i.pointer.any_pressed()) && ctx.input(|i| i.pointer.interact_pos()).is_some_and(|p| !area.response.rect.contains(p));
-            if !keep || elsewhere {
-                self.menu = None;
-            }
-        } else {
+        }
+        if self.popup.is_none() {
             self.menu = None;
         }
         // ("ReallyWant2DeleteMission")
-        if let Some(id) = self.confirm {
-            let mut keep = true;
-            egui::Window::new("Delete Mission").collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO).show(ctx, |ui| {
-                ui.label(text("ReallyWant2DeleteMission"));
-                ui.horizontal(|ui| {
-                    if crate::chrome::button(ui, palette, "Yes", true).clicked() {
-                        shown.commands.push(Command::Delete(id));
-                        keep = false;
-                    }
-                    if crate::chrome::button(ui, palette, "No", true).clicked() {
-                        keep = false;
-                    }
-                });
-            });
-            if !keep {
-                self.confirm = None;
+        if let Some(id) = self.confirm
+            && let Some(yes) = crate::chrome::question(ctx, palette, "delete-mission", &text("DeleteMission"), &text("ReallyWant2DeleteMission"))
+        {
+            if yes {
+                shown.commands.push(Command::Delete(id));
             }
+            self.confirm = None;
         }
         self.open = open;
         shown

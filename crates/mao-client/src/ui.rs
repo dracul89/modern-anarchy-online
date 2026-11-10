@@ -327,7 +327,7 @@ fn esc_default(name: &str) -> bool {
 
 /// The windows Escape may close, by their `chrome::window` names.
 pub const ESCAPABLE: &[&str] = &[
-    "Options", "Whom-Pah", "Browser", "Help", "Option panel", "loot", "Shop", "TradeDoubleConfirmDlg", "perk-dialog", "team-invite", "remove-friend", "delete-mail", "disable-tips", "Perks", "Research",
+    "Options", "Whom-Pah", "Browser", "Help", "Option panel", "loot", "Shop", "Perks", "Research",
     "Missions", "PlanetMap", "Info", "NPCChat", "Nano programs", "Inventory", "Wear", "Inspect", "Tradeskill",
 ];
 
@@ -356,7 +356,7 @@ pub fn escape_option(name: &str, loot_kind: Option<u32>, trading: bool) -> Optio
             }
         }
         // (`DialogBox_c::Go`, 0x1012a871: a dialog's Escape is `SlotSelected(-1)`, its close)
-        "TradeDoubleConfirmDlg" | "perk-dialog" | "team-invite" | "remove-friend" | "delete-mail" | "disable-tips" => "esc_dialogs",
+        name if crate::chrome::DIALOGS.contains(&name) => "esc_dialogs",
         "Perks" => "esc_perkwindow",
         "Research" => "esc_research",
         "Missions" => "esc_missionselection",
@@ -376,6 +376,7 @@ pub fn escape_option(name: &str, loot_kind: Option<u32>, trading: bool) -> Optio
 pub fn escape_closes(loot_kind: Option<u32>, trading: bool, esc: &dyn Fn(&str) -> bool, pinned: impl Fn(&str) -> bool) -> Vec<&'static str> {
     ESCAPABLE
         .iter()
+        .chain(crate::chrome::DIALOGS)
         .copied()
         .filter(|name| escape_option(name, loot_kind, trading).is_some_and(|option| option.is_none_or(esc)) && !pinned(name))
         .collect()
@@ -867,10 +868,20 @@ impl Ui {
                 }
             }
             if friends_window.open {
-                let (outs, tell) = friends_window.show(&ctx, &hud.friends, palette);
+                let (outs, acts) = {
+                    let around = crate::friends::Around { ignored: &|name| chat_window.is_ignored(name), mail: mail.open, chat_open: chat_window.open };
+                    friends_window.show(&ctx, &hud.friends, &around, palette)
+                };
                 requests.chat.extend(outs);
-                if let Some(name) = tell {
-                    chat_window.type_text(&format!("/tell {name} "));
+                for act in acts {
+                    match act {
+                        crate::friends::Act::Tell(name) => chat_window.type_text(&format!("/tell {name} ")),
+                        crate::friends::Act::Ignore(name) => {
+                            chat_window.run(&format!("/ignore {name}"));
+                        }
+                        crate::friends::Act::Mail(name) => mail.message.compose(&name, ""),
+                        crate::friends::Act::ChatWindow(open) => chat_window.open = open,
+                    }
                 }
             }
             if ncu_window.open {
@@ -1271,7 +1282,7 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
                 window.show(&ctx, &hud.programs, &palette);
             }
             if let Some(window) = preview_friends.as_mut() {
-                window.show(&ctx, &hud.friends, &palette);
+                window.show(&ctx, &hud.friends, &crate::friends::Around { ignored: &|name| name == "Ignored", mail: true, chat_open: true }, &palette);
             }
             if let Some(window) = preview_chat.as_mut() {
                 window.show(&ctx, &palette);
@@ -1934,8 +1945,9 @@ mod tests {
         assert!(escape_closes(None, false, &|_| true, |_| false).contains(&"Inventory"));
         assert!(!escape_closes(None, false, &|_| true, |n| n == "Research").contains(&"Research"));
         // (every window Escape may close names an option of LoginPrefs.xml, or is the client's own)
-        for name in ESCAPABLE {
+        for name in ESCAPABLE.iter().chain(crate::chrome::DIALOGS) {
             assert!(escape_option(name, Some(crate::loot::CORPSE), false).is_some(), "{name}");
         }
+        assert!(escape_closes(None, false, &|_| true, |_| false).contains(&"remove-friend"));
     }
 }

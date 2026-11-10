@@ -361,6 +361,12 @@ pub fn ldb_text(v: &str) -> String {
     looked.unwrap_or_else(|| rest.to_string())
 }
 
+/// A text of the text database by the name the original asks for it with (`LDBface::GetText(category, name)`), or
+/// `fallback` (this client's own words) without the game's files.
+pub fn ldb_named(category: i32, name: &str, fallback: &str) -> String {
+    crate::feedback::texts().and_then(|t| t.named(category, name)).map_or_else(|| fallback.to_string(), str::to_string)
+}
+
 /// The first view element of a views file: the root's first child element, or its first one whose `name` is `name`
 /// (`XMLObject_c::LoadXMLObject`).
 pub fn view_element(document: &[Element], name: &str) -> Option<Element> {

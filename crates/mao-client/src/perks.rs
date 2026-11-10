@@ -563,27 +563,13 @@ impl PerksWindow {
     /// The message box or question open (`DialogBox_c`), and its answer.
     fn show_dialog(&mut self, ctx: &egui::Context, palette: &Palette) -> Option<(u32, bool)> {
         let dialog = self.dialog.as_ref()?;
-        let mut keep = true;
-        let mut result = None;
-        crate::chrome::window(ctx, palette, "perk-dialog", &dialog.title, &mut keep, |w| w.resizable(false).anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO).default_width(300.0), |ui| {
-            ui.set_max_width(300.0);
-            ui.label(egui::RichText::new(&dialog.text).color(crate::chrome::rgb(palette.text)));
-            ui.add_space(6.0);
-            ui.horizontal(|ui| {
-                if dialog.ask.is_some() {
-                    if crate::chrome::button(ui, palette, &text("MsgBox_Yes"), true).clicked() {
-                        result = Some(true);
-                    }
-                    if crate::chrome::button(ui, palette, &text("MsgBox_No"), true).clicked() {
-                        result = Some(false);
-                    }
-                } else if crate::chrome::button(ui, palette, &text("MsgBox_OK"), true).clicked() {
-                    result = Some(false);
-                }
-            });
-        });
+        // (the questions with Yes and No, the rest with OK)
+        let [yes, no] = crate::chrome::yes_no();
+        let ok = text("MsgBox_OK");
+        let buttons: Vec<&str> = if dialog.ask.is_some() { vec![&yes, &no] } else { vec![&ok] };
+        let result = crate::chrome::dialog(ctx, palette, "perk-dialog", &dialog.title, &dialog.text, &buttons)?;
         let mut asked = None;
-        if result == Some(true)
+        if result == Some(0)
             && let Some((id, learn)) = dialog.ask
         {
             asked = Some((id, learn));
@@ -592,9 +578,7 @@ impl PerksWindow {
                 self.waiting = true;
             }
         }
-        if result.is_some() || !keep {
-            self.dialog = None;
-        }
+        self.dialog = None;
         asked
     }
 }

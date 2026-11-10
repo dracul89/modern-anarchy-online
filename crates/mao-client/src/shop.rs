@@ -339,21 +339,11 @@ impl ShopWindow {
         // ("Are you sure you want to complete this trade?": yes accepts, no aborts, FUN_100e0132)
         let mut answer = None;
         if self.asking {
-            let mut dialog = true;
-            crate::chrome::window(ctx, palette, "TradeDoubleConfirmDlg", "Trade", &mut dialog, |w| w.resizable(false).anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO), |ui| {
-                ui.label("Are you sure you want to complete this trade?");
-                ui.horizontal(|ui| {
-                    if crate::chrome::button(ui, palette, "Yes", true).clicked() {
-                        answer = Some(true);
-                    }
-                    if crate::chrome::button(ui, palette, "No", true).clicked() {
-                        answer = Some(false);
-                    }
-                });
-            });
-            // (closed, or Escape: `SlotSelected(-1)`, which FUN_100e0132 ignores; the trade stays open)
-            if !dialog && answer.is_none() {
-                self.asking = false;
+            match crate::chrome::dialog(ctx, palette, "TradeDoubleConfirmDlg", "Trade", "Are you sure you want to complete this trade?", &crate::chrome::yes_no().each_ref().map(String::as_str)) {
+                Some(Some(k)) => answer = Some(k == 0),
+                // (closed, or Escape: `SlotSelected(-1)`, which FUN_100e0132 ignores; the trade stays open)
+                Some(None) => self.asking = false,
+                None => {}
             }
         }
         if let Some(yes) = answer {

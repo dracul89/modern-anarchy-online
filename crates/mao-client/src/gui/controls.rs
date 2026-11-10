@@ -639,6 +639,15 @@ impl TextView {
     }
 }
 
+/// The height markup takes word-wrapped to `width` in `font` (what [`markup`] draws).
+pub fn markup_height(ctx: &egui::Context, text: &str, font: FontId, width: f32) -> f32 {
+    let measure = Measure { ctx: Some(ctx.clone()) };
+    let mut view = TextView::new(text);
+    view.font = font;
+    view.feature = super::text::flags::MULTILINE | super::text::flags::WORD_WRAP;
+    view.height_at(&measure, width).max(measure.height(font))
+}
+
 /// Markup (`HTMLParser_c`'s) drawn into an egui `Ui` the width it has, as a word-wrapped `TextView_c` in `colour` with
 /// `font`: returns the link clicked, if any.
 pub fn markup(ui: &mut egui::Ui, palette: &Palette, text: &str, font: FontId, colour: egui::Color32) -> Option<String> {

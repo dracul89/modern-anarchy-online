@@ -47,6 +47,129 @@ pub(crate) fn take_closing(name: &str) -> bool {
     list.len() != before
 }
 
+/// The message boxes' window names ([`dialog`]): none keeps a place, and Escape closes each with `esc_dialogs`.
+pub const DIALOGS: &[&str] = &["TradeDoubleConfirmDlg", "perk-dialog", "team-invite", "remove-friend", "ignore-friend", "delete-mail", "disable-tips", "delete-mission"];
+
+/// When each message box was last shown (the frame), to tell a new showing from the next frame of one.
+static DIALOG_SEEN: Mutex<Vec<(&'static str, u64)>> = Mutex::new(Vec::new());
+
+/// The width a message box's text is wrapped to: `TextRenderer_c::SetAspectRatio(2.0)`, about twice as wide as tall.
+pub fn dialog_width(height_at: impl Fn(f32) -> f32) -> f32 {
+    let mut width = 120.0;
+    while width < 600.0 && width < 2.0 * height_at(width) {
+        width += 20.0;
+    }
+    width
+}
+
+/// A message box, GUI.dll's `DialogBox_c` (`_Init` 0x1012a7a8, `DialogBoxView_c` 0x1012aed3, `DialogButtons_c::_Initialize`
+/// 0x1012b20f): a window that comes up at the pointer (`MoveToMouse`) holding its text (a `TextView_c` in font 5 with
+/// markup, 15 from the sides, 5 from the top and 20 over the buttons, wrapped about twice as wide as tall) over its
+/// buttons in a row 5 from the bottom, each 8 from the next: at the right, or in the middle when there is only one.
+/// `Some(Some(k))` when button `k` was pressed, `Some(None)` when it was closed without one (its close button, or Escape
+/// with `esc_dialogs`: `SlotSelected(-1)`), `None` while it waits. `name` is one of [`DIALOGS`].
+pub fn dialog(ctx: &egui::Context, palette: &Palette, name: &'static str, title: &str, text: &str, buttons: &[&str]) -> Option<Option<usize>> {
+    debug_assert!(DIALOGS.contains(&name), "{name} is not listed in chrome::DIALOGS");
+    let frame = ctx.cumulative_frame_nr();
+    let fresh = {
+        let mut seen = DIALOG_SEEN.lock().unwrap();
+        let was = seen.iter().find(|s| s.0 == name).map(|s| s.1);
+        seen.retain(|s| s.0 != name);
+        seen.push((name, frame));
+        was.is_none_or(|f| f + 1 < frame)
+    };
+    let at = ctx.input(|i| i.pointer.latest_pos()).unwrap_or(ctx.content_rect().center());
+    let font = crate::gui::font::FontId::NORMAL;
+    let width = dialog_width(|w| crate::gui::controls::markup_height(ctx, text, font, w));
+    let mut open = true;
+    let mut answer = None;
+    window(
+        ctx,
+        palette,
+        name,
+        title,
+        &mut open,
+        |w| {
+            let w = w.resizable(false).pivot(egui::Align2::CENTER_CENTER);
+            if fresh { w.current_pos(at) } else { w }
+        },
+        |ui| {
+            ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
+            ui.add_space(5.0);
+            ui.horizontal(|ui| {
+                ui.add_space(15.0);
+                ui.allocate_ui_with_layout(egui::vec2(width, 0.0), egui::Layout::top_down(egui::Align::Min), |ui| {
+                    ui.set_width(width);
+                    crate::gui::controls::markup(ui, palette, text, font, rgb(palette.text));
+                });
+                ui.add_space(15.0);
+            });
+            ui.add_space(20.0);
+            let row = |ui: &mut egui::Ui, answer: &mut Option<usize>| {
+                for (k, label) in buttons.iter().enumerate().rev() {
+                    ui.add_space(8.0);
+                    if button(ui, palette, label, true).clicked() {
+                        *answer = Some(k);
+                    }
+                    ui.add_space(8.0);
+                }
+            };
+            if buttons.len() == 1 {
+                ui.vertical_centered(|ui| {
+                    if button(ui, palette, buttons[0], true).clicked() {
+                        answer = Some(0);
+                    }
+                });
+            } else {
+                ui.allocate_ui_with_layout(egui::vec2(width + 30.0, 0.0), egui::Layout::right_to_left(egui::Align::Center), |ui| row(ui, &mut answer));
+            }
+            ui.add_space(5.0);
+        },
+    );
+    match answer {
+        Some(k) => Some(Some(k)),
+        None if !open => Some(None),
+        None => None,
+    }
+}
+
+/// The texts of a yes/no message box's buttons (text.mdb 10000's `MsgBox_Yes` and `MsgBox_No`).
+pub fn yes_no() -> [String; 2] {
+    [crate::gui::xml::ldb_named(10000, "MsgBox_Yes", "Yes"), crate::gui::xml::ldb_named(10000, "MsgBox_No", "No")]
+}
+
+/// A yes/no message box ([`dialog`]): `Some(true)` for Yes, `Some(false)` for No or when it was closed.
+pub fn question(ctx: &egui::Context, palette: &Palette, name: &'static str, title: &str, text: &str) -> Option<bool> {
+    let [yes, no] = yes_no();
+    dialog(ctx, palette, name, title, text, &[&yes, &no]).map(|a| a == Some(0))
+}
+
+/// A right-click menu as the original's `PopupMenu_c` (`gui::popup`), for the client's windows: `entries` are the labels
+/// and whether each can be chosen.
+pub fn menu_at(ctx: &egui::Context, at: egui::Pos2, entries: &[(String, bool)]) -> crate::gui::popup::PopupMenu {
+    let entries = entries.iter().map(|(label, enabled)| crate::gui::popup::Entry { label: label.clone(), enabled: *enabled }).collect();
+    crate::gui::popup::PopupMenu::new(entries, at, None, ctx.cumulative_frame_nr())
+}
+
+/// A frame of an open menu ([`menu_at`]): the entry chosen, if one was; the menu is gone once it closes.
+pub fn menu(ctx: &egui::Context, palette: &Palette, name: &str, menu: &mut Option<crate::gui::popup::PopupMenu>) -> Option<usize> {
+    let open = menu.as_mut()?;
+    let skin = crate::skin::skin(ctx);
+    let measure = crate::gui::font::Measure { ctx: Some(ctx.clone()) };
+    let env = crate::gui::host::Env { skin: skin.as_deref(), palette, measure: &measure };
+    match open.show(ctx, &env, egui::Id::unique(name)) {
+        crate::gui::popup::Outcome::None => None,
+        crate::gui::popup::Outcome::Chosen(k) => {
+            *menu = None;
+            Some(k)
+        }
+        crate::gui::popup::Outcome::Closed => {
+            *menu = None;
+            None
+        }
+    }
+}
+
 pub fn rgb(c: [u8; 3]) -> egui::Color32 {
     egui::Color32::from_rgb(c[0], c[1], c[2])
 }

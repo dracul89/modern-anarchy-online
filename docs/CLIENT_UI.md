@@ -345,6 +345,40 @@ A playfield's object `0xf425a` (`mao_formats::dynels`) lists what is built into 
 
 The chat server keeps the friends list. At login it sends each friend as a name (`20`) followed by a **buddy packet** (`40`: the id, a word that is 1 when the friend is online, and a string, the type the client gave it: one byte, 1 for a friend, empty in the captured ones). `mao_net::chat` decodes it (`Packet::Buddy`) and builds the two client packets from the public chat protocol: `40` adds (the id and the string `"\x01"`) and `41` removes (the id). Neither client packet was in a capture, so adding and removing are **not tested live** (the decoding of the server's packet is, against the captured ones). The window (`friends.rs`, key `L`, also `/befriend <name>`) shows who is online first with a green dot, a **Tell** button (it starts `/tell name ` in the chat input), **x** to take a friend off and a field to add one by name; a name whose id is not known is looked up first (packet `21`), as a tell is. A friend's login or logout arrives as another buddy packet and updates the dot. Preview: `MAO_UI_PREVIEW=friends MAO_FRIENDS="name:1,name:0" mao-client <game> map 540 --image out.png`.
 
+**The window as the original's (2026-11-10, `friends.rs`).** Read from `FriendListView_c` (FUN_100aa315) and its
+controller. A character on the list is of a kind: a friend online, a friend offline, or one of the **recent messages**,
+which the original makes of anyone a tell goes to or comes from who is no friend (FUN_100a6487): it adds them as a
+*temporary* buddy, packet `40` with the kind byte 0 where a friend's is 1, and the server tells of them with the same
+byte (FUN_100a6581: a kind of exactly one zero byte is a recent message). The captures show both: the original client
+sending `40 <id> 00` after tells, and one character's list coming back as 32 of kind 1 and 15 of kind 0. The server
+keeps the temporary ones between sessions (one character has 188). So `mao_net::chat` now keeps the kind as sent
+(`buddy_is_temporary`), `buddy_add_packet(id, temporary)` builds either, the client adds a temporary buddy on a tell in
+or out as the original does, and the window puts those under "Recent Messages". Seen live: the test character's four
+names are all recent messages (the server's kind 0), where the window before showed them as friends. The chat line "X
+is now online" is for friends only now (the client's own notice).
+
+The left button on a row starts a tell in the chat line at the first press (the original opens that character's tell
+window, which this client has not). The right button opens the original's menu (FUN_100a99cb) drawn as its
+`PopupMenu_c`: "Befriend" (a recent message only: a buddy add of kind 1), "Invite" (chat packet `50`, to the player's
+private chat group: sent, but the group's lines are not shown by this client yet), "Delete" and "Ignore" (each asking
+first with the original's question, `chrome::question`) or "Unignore", and "Mail" while the mail window is up. The
+"Chat Windows" folder lists this client's one chat window; a press shows or hides it. Which folders are open is kept
+(`FriendsWindowConfig`'s four flags: a line of `tabs.ini`). Preview: `MAO_UI_PREVIEW=friends MAO_FRIENDS="a:1,b:0,c:r"`
+(`r` a recent message) and `MAO_FRIENDS_MENU=1` for the menu and a question. `MAO_TRACE_CHAT=1` prints each buddy
+packet's kind.
+
+**Message boxes and menus (2026-11-10, `chrome.rs`).** `chrome::dialog` is the original's `DialogBox_c`: it comes up at
+the pointer, its text (markup, so the names in yellow) 15 from the sides and wrapped about twice as wide as tall, the
+buttons in a row at the right, or the one button in the middle; `chrome::question` is the yes/no one with text.mdb's
+`MsgBox_Yes` / `MsgBox_No`. Every yes/no and OK box of the client uses it now (removing a friend, ignoring, deleting a
+mail or a mission, the trade's second confirmation, a team invitation, turning the tips off, the perk window's boxes);
+their names are `chrome::DIALOGS`, none keeps a place and Escape closes each with `esc_dialogs`. `chrome::menu` shows a
+right-click menu as the original's `PopupMenu_c` (`gui::popup`): the friends and missions windows use it. The built-in
+look now reads the game's `TextColors.xml` too, so named colours in the game's own texts (`yellow`, `CCInfoHeader`)
+are drawn in it: before, only the themes had them.
+
+`mao-client ldb-text <game> <category> <name>...` prints the game's texts by the names the original asks for them with.
+
 ## Nano programs window (`Ctrl+N`)
 
 The programs the character has are the world-entry message's `UploadedNanoIds` (40 for the captured character); `nanoprograms.rs` looks each up in the nano table (type `0xfde85`, the same records the NCU window reads) for its name, icon, description, NCU cost (the quality stat) and stat changes (the tooltip, as in the NCU window), sorted by name with a find field. **Casting**: the cast message is `5e477770` action `0x13` (`n3::cast_nano`: four zero bytes, the action, four zero bytes, the target identity `(0xc350, id)` or zeros for none, the nano identity `(0xcf1b, id)` and two zero bytes), matched byte for byte against two captured casts (one at a character, one at oneself). A click casts the program at the current target (not a usable object) or at oneself; a program can also be dragged onto a hotbar (`hotbar::Action::Nano`, saved as `nano <id> <cooldown> <icon> <name>`) and fired from there. Not tried live: the server's answer (the nano effect `4d450114` that fills the NCU window, or a refusal such as range or NCU memory) is not shown, only the line "Casting <name>". Preview: `MAO_UI_PREVIEW=nanos MAO_PROGRAMS=<ids> mao-client <game> map 540 --image out.png`.

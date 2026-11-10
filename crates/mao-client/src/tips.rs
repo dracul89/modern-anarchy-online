@@ -351,27 +351,15 @@ impl Tips {
             }
         }
         if self.confirm {
-            let mut open = true;
             let question = crate::gui::xml::ldb_text("#10000:212410675");
-            let mut answer = None;
-            crate::chrome::window(ctx, palette, "disable-tips", &crate::gui::xml::ldb_text("#DisableTips"), &mut open, |w| w.resizable(false).anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO), |ui| {
-                ui.label(egui::RichText::new(&question).color(crate::chrome::rgb(palette.text)));
-                ui.horizontal(|ui| {
-                    if crate::chrome::button(ui, palette, "Yes", true).clicked() {
-                        answer = Some(true);
-                    }
-                    if crate::chrome::button(ui, palette, "No", true).clicked() {
-                        answer = Some(false);
-                    }
-                });
-            });
+            let answer = crate::chrome::question(ctx, palette, "disable-tips", &crate::gui::xml::ldb_text("#DisableTips"), &question);
             if answer == Some(true) {
                 // (`SlotDisableTipsDlg`: `IsTipEnabled` off, which also takes the button away)
                 self.enabled = false;
                 self.button = false;
                 self.save();
             }
-            if answer.is_some() || !open {
+            if answer.is_some() {
                 self.confirm = false;
             }
         }

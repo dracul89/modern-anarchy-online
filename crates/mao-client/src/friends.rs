@@ -1,12 +1,23 @@
 //! The friends window (`L`), GUI.dll's `FriendListView_c` (FUN_100aa315): a `ListViewBase_c` tree (`gui::treelist`) in a
-//! scroll view, 169 by 215 to start, of four folders, each open unless `FriendsWindowConfig` says not: text.mdb 10001's
-//! "Chat Windows", "Online Friends", "Offline Friends" and "Recent Messages". A friend (FUN_100a87fe) goes into the
-//! online or offline folder by name (no regard to case) with `GFX_GUI_FRIENDLIST_STATUS_GREEN` online or `_RED` offline.
-//! A double click on a friend starts a tell (FUN_100aa208 -> FUN_100a99cb); the client's own right-click menu tells or
-//! takes the friend off the list (asking first: text.mdb 10001's "Are you sure you want to remove user ..."). Clicks do
-//! not select (`+0x155` cleared). Adding is `/befriend <name>`, as the original's chat command.
+//! scroll view, 169 by 215 to start, of four folders: text.mdb 10001's "Chat Windows", "Online Friends", "Offline
+//! Friends" and "Recent Messages", each open unless `FriendsWindowConfig` says not (`is_chat_window_list_open`,
+//! `is_online_list_open`, `is_offline_list_open`, `is_recent_list_open`, FUN_100a84c8; here a line of `tabs.ini`).
 //!
-//! The chat windows folder lists no windows yet (the client's chat has one), and recent messages are not kept.
+//! A character (`FriendListNode_c`, FUN_100a87fe) is of a kind: 0 a friend online, 1 a friend offline, 2 one a tell was
+//! sent to or came from who is no friend (FUN_100a6487, a temporary buddy on the chat server: the "Recent Messages"),
+//! 3 one the window's config remembered a tell window of. It goes into its folder by name (no regard to case) with
+//! `GFX_GUI_FRIENDLIST_STATUS_GREEN` online or `_RED` offline. Clicks do not select (`+0x155` cleared): a row is
+//! selected while its window is open.
+//!
+//! A press on a row (FUN_100aa208) with the left button opens the character's tell window or closes it (FUN_100a7ca7):
+//! this client has no tell windows and starts a tell in the chat line. The right button opens the row's menu
+//! (FUN_100a99cb): "Befriend %s" (a recent one only, FUN_100a8530: a buddy add), "Invite %s" (FUN_100a856f: chat packet
+//! 50, to the player's private chat group), "Delete %s" (FUN_100a93fd, asking first), "Ignore %s" or "Unignore %s"
+//! (FUN_100a961f, asking before ignoring) and, while the mail window is up, "Mail %s" (FUN_100a989a). Adding by name is
+//! `/befriend <name>`, as the original's chat command.
+//!
+//! The chat windows folder lists this client's one chat window: a press shows or hides it (FUN_1009b4ff). Its own menu
+//! (FUN_100a8a69: visual settings, click-through, text input) is not here, nor the flashing of a row with unread tells.
 
 use crate::chatwindow::Out;
 use crate::gui::host::Signal;
@@ -19,21 +30,96 @@ pub struct Friend {
     pub id: u32,
     pub name: String,
     pub online: bool,
+    /// Not a friend: one of the recent messages (a temporary buddy).
+    pub recent: bool,
 }
 
 const CHAT_WINDOWS: i64 = -1;
 const ONLINE: i64 = -2;
 const OFFLINE: i64 = -3;
 const RECENT: i64 = -4;
+/// The chat window's row.
+const CHAT: i64 = -10;
+/// The folders in the order of the saved mask's bits.
+const FOLDERS: [i64; 4] = [CHAT_WINDOWS, ONLINE, OFFLINE, RECENT];
+
+/// What the window needs to know of the others.
+pub struct Around<'a> {
+    pub ignored: &'a dyn Fn(&str) -> bool,
+    /// Whether the mail window is up.
+    pub mail: bool,
+    pub chat_open: bool,
+}
+
+/// What the window asks of the others.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Act {
+    Tell(String),
+    /// Ignore the character, or stop ignoring it.
+    Ignore(String),
+    Mail(String),
+    /// Show or hide the chat window.
+    ChatWindow(bool),
+}
+
+/// A menu entry (FUN_100a99cb).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Entry {
+    Befriend,
+    Invite,
+    Delete,
+    Ignore,
+    Mail,
+}
+
+/// The entries of a character's menu, in the original's order.
+fn entries(recent: bool, mail: bool) -> Vec<Entry> {
+    let mut list = Vec::new();
+    if recent {
+        list.push(Entry::Befriend);
+    }
+    list.extend([Entry::Invite, Entry::Delete, Entry::Ignore]);
+    if mail {
+        list.push(Entry::Mail);
+    }
+    list
+}
+
+/// A text of text.mdb 10001 by name, with `%s` the character's name.
+fn text(name: &str, who: &str) -> String {
+    let own = match name {
+        "BefriendX" => "Add %s as a friend",
+        "InviteX" => "Invite %s",
+        "DeleteX" => "Remove %s",
+        "IgnoreX" => "Ignore %s",
+        "UnignoreX" => "Stop ignoring %s",
+        "MailX" => "Mail %s",
+        "ReallyWant2IgnoreX" => "Ignore what <font color=yellow>%s</font> says from now on?",
+        "ReallyWantToRemoveXfromFriends" => "Take <font color=yellow>%s</font> off your friends?",
+        _ => name,
+    };
+    crate::gui::xml::ldb_named(10001, name, own).replace("%s", who)
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Ask {
+    Remove,
+    Ignore,
+}
 
 #[derive(Default)]
 pub struct FriendsWindow {
     pub open: bool,
     views: Option<(Tree, Id, Id)>,
     shown: Vec<Friend>,
-    /// The friend whose menu is open (and where), and the one to be removed once confirmed.
-    menu: Option<(u32, egui::Pos2)>,
-    removing: Option<u32>,
+    chat_shown: bool,
+    /// The character whose menu is open with its entries, and the menu.
+    menu: Option<(u32, Vec<Entry>)>,
+    popup: Option<crate::gui::popup::PopupMenu>,
+    /// The question being asked, and of whom.
+    asking: Option<(Ask, u32)>,
+    /// A preview's: the menu of the first recent message and the question before removing the first friend, both up.
+    pub demo: bool,
 }
 
 /// The order of a folder: by name, no regard to case (FUN_100a87fe's `CompareNoCase` insert).
@@ -43,8 +129,18 @@ pub fn sorted(friends: &[Friend]) -> Vec<&Friend> {
     list
 }
 
-/// The folders with the friends in them.
-fn folders(friends: &[Friend], open: &[(i64, bool)]) -> Vec<TreeItem> {
+/// The folders open in a saved mask (a bit a folder, in [`FOLDERS`]' order).
+fn open_of(mask: usize) -> Vec<(i64, bool)> {
+    FOLDERS.iter().enumerate().map(|(k, id)| (*id, mask & (1 << k) != 0)).collect()
+}
+
+/// The mask of the folders open now.
+fn mask_of(items: &[TreeItem]) -> usize {
+    FOLDERS.iter().enumerate().filter(|(_, id)| items.iter().any(|i| i.id == **id && i.open)).map(|(k, _)| 1 << k).sum()
+}
+
+/// The folders with the chat window and the characters in them.
+fn folders(friends: &[Friend], open: &[(i64, bool)], chat_open: bool) -> Vec<TreeItem> {
     let is_open = |id: i64| open.iter().find(|o| o.0 == id).is_none_or(|o| o.1);
     let mut items = vec![
         TreeItem::folder(CHAT_WINDOWS, &crate::gui::xml::ldb_text("#10001:231562867"), is_open(CHAT_WINDOWS)),
@@ -52,26 +148,19 @@ fn folders(friends: &[Friend], open: &[(i64, bool)]) -> Vec<TreeItem> {
         TreeItem::folder(OFFLINE, &crate::gui::xml::ldb_text("#10001:22857075"), is_open(OFFLINE)),
         TreeItem::folder(RECENT, &crate::gui::xml::ldb_text("#10001:120922995"), is_open(RECENT)),
     ];
+    let mut chat = TreeItem::new(CHAT, "Chat", None, None);
+    chat.selected = chat_open;
+    items[0].children.push(chat);
     for f in sorted(friends) {
         let picture = if f.online { "GFX_GUI_FRIENDLIST_STATUS_GREEN" } else { "GFX_GUI_FRIENDLIST_STATUS_RED" };
-        items[if f.online { 1 } else { 2 }].children.push(TreeItem::new(f.id as i64, &f.name, Some(picture), None));
+        let folder = match (f.recent, f.online) {
+            (true, _) => 3,
+            (false, true) => 1,
+            (false, false) => 2,
+        };
+        items[folder].children.push(TreeItem::new(f.id as i64, &f.name, Some(picture), None));
     }
     items
-}
-
-/// Markup as plain text (the question's `<font>` tags).
-fn plain(markup: &str) -> String {
-    let mut out = String::new();
-    let mut tag = false;
-    for c in markup.chars() {
-        match c {
-            '<' => tag = true,
-            '>' => tag = false,
-            _ if !tag => out.push(c),
-            _ => {}
-        }
-    }
-    out
 }
 
 impl FriendsWindow {
@@ -92,30 +181,36 @@ impl FriendsWindow {
         (tree, root, list)
     }
 
-    /// Shows the window; returns what to send to the chat server and the name to start a tell to, if one was chosen.
-    pub fn show(&mut self, ctx: &egui::Context, friends: &[Friend], palette: &Palette) -> (Vec<Out>, Option<String>) {
-        let (mut outs, mut tell) = (Vec::new(), None);
-        if self.views.is_none() {
+    /// Shows the window; returns what to send to the chat server and what it asks of the other windows.
+    pub fn show(&mut self, ctx: &egui::Context, friends: &[Friend], around: &Around, palette: &Palette) -> (Vec<Out>, Vec<Act>) {
+        let (mut outs, mut acts) = (Vec::new(), Vec::new());
+        let fresh = self.views.is_none();
+        if fresh {
             self.views = Some(Self::build(ctx));
             self.shown.clear();
         }
-        let Some((tree, root, list)) = self.views.as_mut() else { return (outs, tell) };
+        let Some((tree, root, list)) = self.views.as_mut() else { return (outs, acts) };
         let (root, list) = (*root, *list);
-        // (the folders keep whether they are open when the list changes)
-        if self.shown != friends {
-            let open: Vec<(i64, bool)> = tree.control::<TreeList>(list).map(|t| t.items.iter().map(|i| (i.id, i.open)).collect()).unwrap_or_default();
+        // (the folders keep whether they are open when the list changes; at first as they were left, `tabs.ini`)
+        if fresh || self.shown != friends || self.chat_shown != around.chat_open {
+            let open: Vec<(i64, bool)> = if fresh {
+                open_of(crate::layout::tab("FriendsWindowConfig").unwrap_or(15))
+            } else {
+                tree.control::<TreeList>(list).map(|t| t.items.iter().map(|i| (i.id, i.open)).collect()).unwrap_or_default()
+            };
             if let Some(t) = tree.control_mut::<TreeList>(list) {
-                t.items = folders(friends, &open);
+                t.items = folders(friends, &open, around.chat_open);
             }
             tree.relayout = true;
             self.shown = friends.to_vec();
+            self.chat_shown = around.chat_open;
         }
         let skin = crate::skin::skin(ctx);
         let mut open = self.open;
         let mut right_clicked = None;
         crate::chrome::window(ctx, palette, "Friends", "Friends", &mut open, |w| w.default_pos(crate::layout::pos("Friends", egui::pos2(300.0, 120.0))).default_size(egui::vec2(169.0, 215.0)).resizable(true), |ui| {
             let response = crate::gui::host::show(ui, tree, root, skin.as_deref(), palette);
-            // (a right click on a friend opens the client's menu)
+            // (the right button on a character: its menu)
             if response.secondary_clicked()
                 && let Some(at) = response.interact_pointer_pos()
             {
@@ -127,70 +222,90 @@ impl FriendsWindow {
                 }
             }
         });
-        if right_clicked.is_some() {
-            self.menu = right_clicked;
+        if std::mem::take(&mut self.demo) {
+            right_clicked = friends.iter().find(|f| f.recent).map(|f| (f.id, egui::pos2(470.0, 150.0)));
+            self.asking = friends.first().map(|f| (Ask::Remove, f.id));
         }
-        // (a folder opened or closed lays the list out again; FUN_100aa208: a double click on a friend starts a tell)
+        if let Some((id, at)) = right_clicked
+            && let Some(f) = friends.iter().find(|f| f.id == id)
+        {
+            let list = entries(f.recent, around.mail);
+            let labels: Vec<(String, bool)> = list
+                .iter()
+                .map(|e| {
+                    let name = match e {
+                        Entry::Befriend => "BefriendX",
+                        Entry::Invite => "InviteX",
+                        Entry::Delete => "DeleteX",
+                        Entry::Ignore if (around.ignored)(&f.name) => "UnignoreX",
+                        Entry::Ignore => "IgnoreX",
+                        Entry::Mail => "MailX",
+                    };
+                    (text(name, &f.name), true)
+                })
+                .collect();
+            self.popup = Some(crate::chrome::menu_at(ctx, at, &labels));
+            self.menu = Some((id, list));
+        }
+        // (a folder opened or closed lays the list out again and is remembered; FUN_100aa208: the left button on a
+        // character starts a tell, on the chat window shows or hides it)
         for (_, s) in std::mem::take(&mut tree.signals) {
             if let Signal::ItemClicked(id, clicks) = s {
                 tree.relayout = true;
-                if clicks > 1
+                if FOLDERS.contains(&id) {
+                    if let Some(t) = tree.control::<TreeList>(list) {
+                        crate::layout::set_tab("FriendsWindowConfig", mask_of(&t.items));
+                    }
+                } else if id == CHAT {
+                    acts.push(Act::ChatWindow(!around.chat_open));
+                } else if clicks == 1
                     && let Some(f) = friends.iter().find(|f| f.id as i64 == id)
                 {
-                    tell = Some(f.name.clone());
+                    acts.push(Act::Tell(f.name.clone()));
                 }
             }
         }
-        if let Some((id, at)) = self.menu
+        if let Some(k) = crate::chrome::menu(ctx, palette, "friend-menu", &mut self.popup)
+            && let Some((id, list)) = self.menu.take()
             && let Some(f) = friends.iter().find(|f| f.id == id)
         {
-            let mut keep = true;
-            let shown = egui::Area::new(egui::Id::unique("friend-menu")).order(egui::Order::Foreground).fixed_pos(at).show(ctx, |ui| {
-                egui::Frame::popup(ui.style()).show(ui, |ui| {
-                    ui.label(egui::RichText::new(&f.name).strong());
-                    if ui.button("Tell").clicked() {
-                        tell = Some(f.name.clone());
-                        keep = false;
-                    }
-                    if ui.button("Remove").clicked() {
-                        self.removing = Some(id);
-                        keep = false;
-                    }
-                });
-            });
-            let elsewhere = ctx.input(|i| i.pointer.any_pressed()) && ctx.input(|i| i.pointer.interact_pos()).is_some_and(|p| !shown.response.rect.contains(p));
-            if !keep || elsewhere {
-                self.menu = None;
+            match list.get(k) {
+                Some(Entry::Befriend) => outs.push(Out::Befriend { name: f.name.clone() }),
+                Some(Entry::Invite) => outs.push(Out::PrivateInvite { id }),
+                Some(Entry::Delete) => self.asking = Some((Ask::Remove, id)),
+                // (FUN_100a961f: asked before ignoring, not before ignoring no more)
+                Some(Entry::Ignore) if (around.ignored)(&f.name) => acts.push(Act::Ignore(f.name.clone())),
+                Some(Entry::Ignore) => self.asking = Some((Ask::Ignore, id)),
+                Some(Entry::Mail) => acts.push(Act::Mail(f.name.clone())),
+                None => {}
             }
-        } else {
+        }
+        if self.popup.is_none() {
             self.menu = None;
         }
-        if let Some(id) = self.removing
-            && let Some(f) = friends.iter().find(|f| f.id == id)
-        {
-            let question = plain(&crate::gui::xml::ldb_text("#10001:146099907")).replace("%s", &f.name);
-            let mut answer = None;
-            let mut dialog = true;
-            crate::chrome::window(ctx, palette, "remove-friend", "Friends", &mut dialog, |w| w.resizable(false).anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO), |ui| {
-                ui.label(egui::RichText::new(&question).color(crate::chrome::rgb(palette.text)));
-                ui.horizontal(|ui| {
-                    if crate::chrome::button(ui, palette, "Yes", true).clicked() {
-                        answer = Some(true);
+        if let Some((ask, id)) = self.asking {
+            match friends.iter().find(|f| f.id == id) {
+                Some(f) => {
+                    let title = crate::gui::xml::ldb_named(10001, "Warning", "Warning");
+                    let (name, question) = match ask {
+                        Ask::Remove => ("remove-friend", text("ReallyWantToRemoveXfromFriends", &f.name)),
+                        Ask::Ignore => ("ignore-friend", text("ReallyWant2IgnoreX", &f.name)),
+                    };
+                    if let Some(yes) = crate::chrome::question(ctx, palette, name, &title, &question) {
+                        if yes {
+                            match ask {
+                                Ask::Remove => outs.push(Out::Unfriend { id }),
+                                Ask::Ignore => acts.push(Act::Ignore(f.name.clone())),
+                            }
+                        }
+                        self.asking = None;
                     }
-                    if crate::chrome::button(ui, palette, "No", true).clicked() {
-                        answer = Some(false);
-                    }
-                });
-            });
-            if answer == Some(true) {
-                outs.push(Out::Unfriend { id });
-            }
-            if answer.is_some() || !dialog {
-                self.removing = None;
+                }
+                None => self.asking = None,
             }
         }
         self.open = open;
-        (outs, tell)
+        (outs, acts)
     }
 }
 
@@ -200,18 +315,31 @@ mod tests {
 
     #[test]
     fn friends_go_into_their_folders_by_name() {
-        let friends = vec![
-            Friend { id: 1, name: "zed".into(), online: true },
-            Friend { id: 2, name: "Abe".into(), online: false },
-            Friend { id: 3, name: "bob".into(), online: true },
-            Friend { id: 4, name: "Cy".into(), online: false },
-        ];
-        let items = folders(&friends, &[(OFFLINE, false)]);
+        let friend = |id: u32, name: &str, online: bool, recent: bool| Friend { id, name: name.into(), online, recent };
+        let friends = vec![friend(1, "zed", true, false), friend(2, "Abe", false, false), friend(3, "bob", true, false), friend(4, "Cy", false, false), friend(5, "Dee", true, true)];
+        let items = folders(&friends, &[(OFFLINE, false)], true);
         let names = |k: usize| items[k].children.iter().map(|c| c.label.clone()).collect::<Vec<_>>();
         assert_eq!(names(1), ["bob", "zed"]);
         assert_eq!(names(2), ["Abe", "Cy"]);
+        // (one a tell came from who is no friend is a recent message, online or not)
+        assert_eq!(names(3), ["Dee"]);
         assert!(items[1].open && !items[2].open);
         assert_eq!(items[1].children[0].picture.as_deref(), Some("GFX_GUI_FRIENDLIST_STATUS_GREEN"));
-        assert_eq!(plain("<font color=CCInfoText>Remove <font color=yellow>%s</font>?</font>"), "Remove %s?");
+        // (the chat window's row is selected while the window shows)
+        assert!(items[0].children[0].selected);
+    }
+
+    #[test]
+    fn the_menu_is_the_originals() {
+        assert_eq!(entries(false, false), [Entry::Invite, Entry::Delete, Entry::Ignore]);
+        assert_eq!(entries(true, true), [Entry::Befriend, Entry::Invite, Entry::Delete, Entry::Ignore, Entry::Mail]);
+    }
+
+    #[test]
+    fn the_open_folders_are_a_mask() {
+        let open = open_of(0b1010);
+        assert_eq!(open, [(CHAT_WINDOWS, false), (ONLINE, true), (OFFLINE, false), (RECENT, true)]);
+        assert_eq!(mask_of(&folders(&[], &open, false)), 0b1010);
+        assert_eq!(mask_of(&folders(&[], &[], false)), 15);
     }
 }

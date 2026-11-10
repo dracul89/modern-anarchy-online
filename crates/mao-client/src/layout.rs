@@ -24,11 +24,11 @@ pub const NAMES: &[&str] = &["vitals", "compass", "CCHealthBarConfig", "CCNanoBa
 
 /// The windows whose place is not kept: the dialogs held in the middle of the screen (`DialogBox_c`, which has no config) and
 /// the windows anchored where they are (the login screens', the client's options and Whom-Pah list).
-pub const FIXED: &[&str] = &["Login", "Progress", "NewCharacter", "Delete Character", "Options", "Whom-Pah", "remove-friend", "delete-mail", "perk-dialog", "TradeDoubleConfirmDlg", "team-invite", "disable-tips"];
+pub const FIXED: &[&str] = &["Login", "Progress", "NewCharacter", "Delete Character", "Options", "Whom-Pah"];
 
-/// Whether a window's place is kept.
+/// Whether a window's place is kept (not the fixed ones', nor the message boxes').
 pub fn kept(name: &str) -> bool {
-    !FIXED.contains(&name)
+    !FIXED.contains(&name) && !crate::chrome::DIALOGS.contains(&name)
 }
 
 struct Layout {

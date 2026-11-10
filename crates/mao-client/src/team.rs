@@ -163,22 +163,7 @@ impl TeamWindow {
         // (an invitation: the original's question)
         if let Some((id, name)) = &team.invite {
             let question = crate::gui::xml::ldb_text("#10000:110085117").replace("%s", name);
-            let mut answer = None;
-            let mut dialog = true;
-            crate::chrome::window(ctx, palette, "team-invite", &crate::gui::xml::ldb_text("#10000:3860335"), &mut dialog, |w| w.resizable(false).anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO), |ui| {
-                ui.label(egui::RichText::new(&question).color(crate::chrome::rgb(palette.text)));
-                ui.horizontal(|ui| {
-                    if crate::chrome::button(ui, palette, "Yes", true).clicked() {
-                        answer = Some(true);
-                    }
-                    if crate::chrome::button(ui, palette, "No", true).clicked() {
-                        answer = Some(false);
-                    }
-                });
-            });
-            if !dialog {
-                answer = Some(false);
-            }
+            let answer = crate::chrome::question(ctx, palette, "team-invite", &crate::gui::xml::ldb_text("#10000:3860335"), &question);
             if let Some(join) = answer {
                 send(Command::Reply(*id, join));
                 with(|t| t.invite = None);

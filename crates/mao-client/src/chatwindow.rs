@@ -56,6 +56,8 @@ pub enum Out {
     /// Put a character on the friends list / take one off.
     Befriend { name: String },
     Unfriend { id: u32 },
+    /// Invite a character to the player's private chat group (the friends window's "Invite").
+    PrivateInvite { id: u32 },
     /// Sit down to log out / leave the client (handled by the window, not sent to the chat server).
     Camp,
     /// Sit down or stand up (`/sit`, as X).
@@ -159,6 +161,11 @@ impl ChatWindow {
             self.lines.drain(..self.lines.len() - KEEP);
         }
         self.scroll_to_end = true;
+    }
+
+    /// Whether what a character says is hidden (`/ignore`).
+    pub fn is_ignored(&self, name: &str) -> bool {
+        self.ignored.contains(&name.to_lowercase())
     }
 
     /// Puts text in the input line and starts typing there (the previews use it).

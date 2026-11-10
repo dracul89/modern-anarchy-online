@@ -241,24 +241,12 @@ impl MailWindow {
             self.open = is_open;
         }
         if let Some(m) = self.deleting {
-            let mut open = true;
-            let mut answer = None;
             let question = crate::gui::xml::ldb_text("#1000:208922380");
-            crate::chrome::window(ctx, palette, "delete-mail", &crate::gui::xml::ldb_text("#10000:120699445"), &mut open, |w| w.resizable(false).anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO), |ui| {
-                ui.label(egui::RichText::new(&question).color(crate::chrome::rgb(palette.text)));
-                ui.horizontal(|ui| {
-                    if crate::chrome::button(ui, palette, "Yes", true).clicked() {
-                        answer = Some(true);
-                    }
-                    if crate::chrome::button(ui, palette, "No", true).clicked() {
-                        answer = Some(false);
-                    }
-                });
-            });
+            let answer = crate::chrome::question(ctx, palette, "delete-mail", &crate::gui::xml::ldb_text("#10000:120699445"), &question);
             if answer == Some(true) {
                 command = Some(MailCommand::Delete(m));
             }
-            if answer.is_some() || !open {
+            if answer.is_some() {
                 self.deleting = None;
             }
         }

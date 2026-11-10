@@ -870,6 +870,18 @@ fn run(args: &[String]) -> Result<(), String> {
             return net::run(rest);
         }
     }
+    // `ldb-text <game> <category> <name>...`: the game's texts by the names the original asks for them with.
+    if let [word, game, category, names @ ..] = args {
+        if word == "ldb-text" {
+            let category: i32 = category.parse().map_err(|_| format!("not a category: {category}"))?;
+            let data = mao_formats::files::read(Path::new(game).join("cd_image/text/text.mdb")).map_err(|e| e.to_string())?;
+            let texts = mao_formats::ldb::Texts::parse(&data).ok_or("text.mdb is not read")?;
+            for name in names {
+                println!("{name}: {:?}", texts.named(category, name));
+            }
+            return Ok(());
+        }
+    }
     // `rooms-verify <game>`: of the machines, terminals and doors built into the room playfields, how many stand over a floor cell of
     // a room as placed, and how many would if the turn went the other way (per number of quarter turns).
     if let [game, word] = args {
@@ -1648,12 +1660,14 @@ fn run(args: &[String]) -> Result<(), String> {
                             .split(',')
                             .enumerate()
                             .filter_map(|(i, e)| {
+                                // (`name:1` online, `name:0` offline, `name:r` one of the recent messages)
                                 let (name, online) = e.split_once(':')?;
-                                Some(friends::Friend { id: i as u32 + 1, name: name.trim().to_string(), online: online.trim() == "1" })
+                                Some(friends::Friend { id: i as u32 + 1, name: name.trim().to_string(), online: online.trim() == "1", recent: online.trim() == "r" })
                             })
                             .collect();
                         let mut window = friends::FriendsWindow::default();
                         window.open = true;
+                        window.demo = std::env::var_os("MAO_FRIENDS_MENU").is_some();
                         *hud.friends_preview.lock().unwrap() = Some(window);
                     }
                     if preview.as_deref() == Some("chat") {
