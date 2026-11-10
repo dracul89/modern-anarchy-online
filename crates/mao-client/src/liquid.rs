@@ -125,27 +125,6 @@ impl Liquid {
         None
     }
 
-    /// The liquid surface under a point: the first info whose triangle holds the point's x and z and whose plane there lies below
-    /// its height. It is what the fall effect's walk along a waterfall's foot asks of the playfield's collision (Gamecode
-    /// FUN_100afc4c's effect 2 puts each step on the liquid and keeps the ones that went down).
-    pub fn surface_below(&self, p: [f32; 3]) -> Option<f32> {
-        for i in &self.infos {
-            let side = |k: usize| {
-                let (a, b) = (i.corners[k], i.corners[(k + 1) % 3]);
-                (p[2] as f64 - a[2] as f64) * (b[0] - a[0]) as f64 - (p[0] as f64 - a[0] as f64) * (b[2] - a[2]) as f64
-            };
-            let inside = i.min[0] < p[0] && i.top[0] > p[0] && i.min[1] < p[2] && i.top[2] > p[2] && side(0) < 0.0 && side(1) < 0.0 && side(2) < 0.0;
-            if !inside {
-                continue;
-            }
-            let h = (((-(p[0] as f64 * i.normal[0] as f64) - i.normal[2] as f64 * p[2] as f64) - i.distance as f64) / i.normal[1] as f64) as f32;
-            if h < p[1] {
-                return Some(h);
-            }
-        }
-        None
-    }
-
     pub fn is_empty(&self) -> bool {
         self.infos.is_empty()
     }
@@ -155,8 +134,11 @@ impl Liquid {
 /// `liquid.rs` `start_fall`) starts the environment's effect 2 for every falling triangle (the type's low bit) over a tenth high
 /// with one high corner — but lava, types 2 and 3 — at one low corner with the other as its ground; Gamecode's FUN_100afc4c then
 /// walks from the one towards the other a unit at a time (`floor(length) + 1` steps from the first) and makes gfx 0x30d6 at each
-/// step with a liquid surface below it ([`Liquid::surface_below`]), at the step's own height.
-pub fn fall_effects(water: &[mao_formats::playfield::WaterTriangle], liquid: &Liquid) -> Vec<[f32; 3]> {
+/// step the playfield's surface does not veto (`VetoPosition`: off the map) whose closest surface point lies below it
+/// (`CalculateClosestPoint`: the ground under the step, held 1.2 under a liquid's surface, `vehicle::Ground::closest`) — so
+/// along a foot standing in or over water, at the step's own height. `closest` gives that height for a point, or none for a
+/// vetoed one.
+pub fn fall_effects(water: &[mao_formats::playfield::WaterTriangle], closest: &dyn Fn([f32; 3]) -> Option<f32>) -> Vec<[f32; 3]> {
     let mut out = Vec::new();
     for t in water {
         let [a, b, c] = t.points;
@@ -185,7 +167,7 @@ pub fn fall_effects(water: &[mao_formats::playfield::WaterTriangle], liquid: &Li
         let step = [d[0] / len, d[1] / len, d[2] / len];
         for k in 0..(len.floor() as u32 + 1) {
             let p = [at[0] + step[0] * k as f32, at[1] + step[1] * k as f32, at[2] + step[2] * k as f32];
-            if liquid.surface_below(p).is_some() {
+            if closest(p).is_some_and(|under| under < p[1]) {
                 out.push(p);
             }
         }
@@ -231,27 +213,41 @@ mod tests {
             if falling == 0 {
                 continue;
             }
-            let feet = fall_effects(&a.water, &Liquid::new(&a.water));
+            let liquid = Liquid::new(&a.water);
+            // (the survey has no surfaces at hand: a step counts when a liquid's surface lies within half a unit over it or under it,
+            // the surface's closest point being 1.2 under that; `at` wants a point under the surface)
+            let feet = fall_effects(&a.water, &|p| liquid.at([p[0], p[1] - 0.5, p[2]]).map(|s| s.height - 1.2));
             println!("{} {}: {} falling triangles, the effect at {} places{}", p.number, p.name.trim(), falling, feet.len(), feet.first().map_or(String::new(), |f| format!(", first {f:?}")));
+            // (`MAO_FALLS_OF=<playfield>` lists every foot of one playfield, grouped by twenty units)
+            if std::env::var("MAO_FALLS_OF").ok().and_then(|v| v.parse::<u32>().ok()) == Some(p.number) {
+                let mut groups: std::collections::BTreeMap<(i32, i32), (usize, [f32; 3])> = Default::default();
+                for f in &feet {
+                    let e = groups.entry(((f[0] / 20.0) as i32, (f[2] / 20.0) as i32)).or_insert((0, *f));
+                    e.0 += 1;
+                }
+                for ((_, _), (n, f)) in groups {
+                    println!("  {n} feet near ({:.0}, {:.0}, {:.0})", f[0], f[1], f[2]);
+                }
+            }
         }
     }
 
     #[test]
     fn a_fall_over_a_pool_gets_its_effect_along_its_foot() {
-        // (a pool at height 0 over (0..20, 0..20) and a fall 5 high dropping to height 1 along z = 10 from x 2 to x 8)
-        let pool = |a, b, c| WaterTriangle { kind: 0, value: 100.0, points: [a, b, c] };
+        // (a fall 5 high whose foot runs along z = 10 from x 2 to x 8 at height `y`; the surface under a step is a pool bed 3 under
+        // a surface at 0, held 1.2 under that surface, where x is under 20, and dry ground at the foot's height beyond)
         let fall = |kind, y| WaterTriangle { kind, value: 100.0, points: [[2.0, y, 10.0], [8.0, y, 10.0], [8.0, y + 5.0, 10.0]] };
-        let water = vec![pool([0.0, 0.0, 0.0], [20.0, 0.0, 0.0], [20.0, 0.0, 20.0]), pool([0.0, 0.0, 0.0], [20.0, 0.0, 20.0], [0.0, 0.0, 20.0]), fall(1, 1.0)];
-        let liquid = Liquid::new(&water);
-        assert_eq!(liquid.surface_below([5.0, 1.0, 10.0]), Some(0.0));
-        assert_eq!(liquid.surface_below([5.0, 0.0, 10.0]), None, "a surface at the point's height is not below it");
-        let feet = fall_effects(&water, &liquid);
+        let over_pool = |p: [f32; 3]| if p[0] < 20.0 { Some((-3.0f32).max(0.0 - 1.2)) } else { Some(p[1]) };
+        let feet = fall_effects(&[fall(1, 1.0)], &over_pool);
         assert_eq!(feet.len(), 7, "{feet:?}");
         assert_eq!((feet[0], feet[6]), ([2.0, 1.0, 10.0], [8.0, 1.0, 10.0]));
-        // a fall whose foot sits at the pool's surface, one over no pool, and lava get none
-        for water in [vec![water[0].clone(), water[1].clone(), fall(1, 0.0)], vec![fall(1, 1.0)], vec![water[0].clone(), water[1].clone(), fall(3, 1.0)]] {
-            assert!(fall_effects(&water, &Liquid::new(&water)).is_empty());
-        }
+        // a foot at the pool's own surface, or a hair under it, is over the pool too: its closest point is 1.2 under the surface
+        assert_eq!(fall_effects(&[fall(1, -0.05)], &over_pool).len(), 7);
+        // on dry ground at the foot's height there is none; off the map none; lava never
+        let dry = |p: [f32; 3]| Some(p[1]);
+        assert!(fall_effects(&[fall(1, 1.0)], &dry).is_empty());
+        assert!(fall_effects(&[fall(1, 1.0)], &|_| None).is_empty());
+        assert!(fall_effects(&[fall(3, 1.0)], &over_pool).is_empty());
     }
 
     #[test]

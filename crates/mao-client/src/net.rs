@@ -4167,12 +4167,29 @@ pub(crate) fn load_area_with(game: &str, db: &Arc<ResourceDatabase>, playfield: 
     let anarchy = mao_formats::playfield::load_anarchy(db, playfield);
     // (the playfield's liquid, for the effects that ask for it: `liquid.rs`)
     let liquid = anarchy.as_ref().map(|a| std::sync::Arc::new(crate::liquid::Liquid::new(&a.water)));
-    // (the feet of its waterfalls, for the fall effect: `liquid::fall_effects`)
-    let falls = anarchy.as_ref().zip(liquid.as_ref()).map_or(Vec::new(), |(a, l)| crate::liquid::fall_effects(&a.water, l));
+    crate::liquid::set_current(liquid.clone());
+    // (the feet of its waterfalls, for the fall effect: `liquid::fall_effects` over the playfield's surface as the vehicle has it,
+    // or without surfaces the tile-map ground held 1.2 under the liquid)
+    let ground = zones.clone().map(|z| crate::vehicle::Ground { zones: z, terrain: terrain.as_ref().map(|t| (t.clone(), t.height_scale)), offset: 0.0 });
+    let closest = |p: [f32; 3]| -> Option<f32> {
+        match &ground {
+            Some(g) => {
+                let mut q = p;
+                if g.veto(&mut q, None) {
+                    return None;
+                }
+                Some(g.closest(p).0[1])
+            }
+            None => {
+                let h = terrain.as_ref()?.height_at(p[0], p[2], terrain.as_ref()?.height_scale);
+                Some(liquid.as_ref().and_then(|l| l.at(p)).map_or(h, |s| h.max(s.height - 1.2)))
+            }
+        }
+    };
+    let falls = anarchy.as_ref().map_or(Vec::new(), |a| crate::liquid::fall_effects(&a.water, &closest));
     if !falls.is_empty() {
         eprintln!("playfield {playfield}: the fall effect at {} places", falls.len());
     }
-    crate::liquid::set_current(liquid);
     let base_environment = anarchy.and_then(|a| a.environment);
     if let Some(e) = &base_environment {
         eprintln!("playfield {playfield}: environment weather {:?} ambient {:?} fog {:?} density {}", &e[..8], &e[19..22], &e[22..25], e[25]);

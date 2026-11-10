@@ -336,7 +336,9 @@ pub(crate) fn load_terrain(db: &ResourceDatabase, playfield: u32) -> Result<Mode
         }
         // (the liquid for the effects and the camera that ask where it is: `liquid.rs`)
         let liquid = crate::liquid::Liquid::new(&anarchy.water);
-        crate::liquid::set_falls(crate::liquid::fall_effects(&anarchy.water, &liquid));
+        // (the falls' feet over the tile-map ground, held 1.2 under the liquid, as the surface's closest point has it)
+        let closest = |p: [f32; 3]| Some(liquid.at([p[0], p[1] - 0.5, p[2]]).map_or(terrain.height_at(p[0], p[2], terrain.height_scale), |s| terrain.height_at(p[0], p[2], terrain.height_scale).max(s.height - 1.2)));
+        crate::liquid::set_falls(crate::liquid::fall_effects(&anarchy.water, &closest));
         crate::liquid::set_current(Some(std::sync::Arc::new(liquid)));
     }
     for p in model.parts.iter().take(4) {

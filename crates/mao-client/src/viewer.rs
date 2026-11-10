@@ -1713,6 +1713,8 @@ impl ApplicationHandler for App {
                                 "log" => {
                                     let (e, t) = (w.camera.eye(), w.camera.target);
                                     eprintln!("camera: eye ({:.2}, {:.2}, {:.2}) target ({:.2}, {:.2}, {:.2}) look {:?} feet ({px:.2}, {y:.2}, {pz:.2}) {} own casters {:?}", e.x, e.z, e.y, t.x, t.z, t.y, self.look_target.local, self.steering.debug(), self.casters.iter().filter(|c| c.own).map(|c| (c.translation, c.attractors.iter().map(|(n, m)| (n.clone(), [m[12], m[13], m[14]])).collect::<Vec<_>>())).collect::<Vec<_>>());
+                                    let nearest = self.falls.as_ref().and_then(|(_, feet, _)| feet.iter().map(|f| ((f[0] - e.x).powi(2) + (f[1] - e.y).powi(2) + (f[2] - e.z).powi(2)).sqrt()).fold(None, |m: Option<f32>, d| Some(m.map_or(d, |m| m.min(d)))));
+                                    eprintln!("falls: {} feet, nearest {:?} from the eye, environment effects {}", self.falls.as_ref().map_or(0, |(_, f, _)| f.len()), nearest, crate::prefs::effect_category_active(crate::prefs::ENVIRONMENT));
                                 }
                                 _ => match crate::settings::ACTIONS.iter().find(|(_, n, _)| *n == name) {
                                     Some((a, _, _)) => self.script_held.push((*a, now + std::time::Duration::from_secs_f32(secs))),

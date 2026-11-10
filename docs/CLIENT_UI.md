@@ -771,8 +771,9 @@ drawn through it (`shots/live_under_pond.png`); the 0.2 raise is not told apart 
 `liquid::fall_effects`, `gfx::GlobalSmoke`, `effects::global_smoke_particles`, `placed_particles`). A falling liquid triangle
 (the type's low bit) over a tenth high with one high corner, but lava, starts the environment's effect 2 at one low corner with
 the other as its ground; the environment's frame hands it to Gamecode's effect handler, which walks from the one towards the
-other a unit at a time (`floor(length) + 1` steps) and makes gfx 0x30d6 at every step the playfield's collision puts on a
-liquid surface below it. 0x30d6 is kind 3017, `_GfxControlGlobalSmoke_t` (FUN_100e0d8a; FUN_100e060f the words, FUN_100dfc38
+other a unit at a time (`floor(length) + 1` steps) and makes gfx 0x30d6 at every step the playfield's surface does not veto
+(`VetoPosition`, off the map) whose closest surface point (`CalculateClosestPoint`: the ground under the step, held 1.2 under a
+liquid's surface — `vehicle::Ground::closest`) lies below it: along a foot standing in or over water. 0x30d6 is kind 3017, `_GfxControlGlobalSmoke_t` (FUN_100e0d8a; FUN_100e060f the words, FUN_100dfc38
 the run): sixty-four sprites of a material on a `GfxVisualSol`, added to the scene, each born in a free slot (`word 30 +
 (rand() & word 31)` a frame) and living word 26 seconds while its width, height and colour run between the template's pairs;
 the mode sets the start, and 0x30d6's mode 3 spreads them up to 1.5 along the world's x (flag 2: the world's axes; the
@@ -780,11 +781,11 @@ original's `rand() / 21845 − 1.5` is one-sided) and moves them along −z at 1
 white at alpha 0.15 to 0.05 of material 49 — a mist along the foot — hidden past 80 units from the camera. The client finds
 the feet with the playfield (`Area::falls`, `Update::falls`) and draws the effect at each from the frame the playfield came,
 while the environment effects are shown; the births are modelled at sixty a second, with a hash for the random numbers. Not
-drawn: the quads' spin, mode 5's blend under alpha, mode 1's wandering emitter (taken as mode 0); not followed: the first
-call of the walk's collision test (slot 8 of the playfield's collision, whose refusal skips a step). Across the playfields
-the effect lands at 25 places on each coast, 556 in Adonis City, 135 in 4 Holes, 97 in Belial Forest
-(`liquid::tests::fall_effect_survey`); `shots/fall_coast.png` is the Coast of Peace's fall at (574, 1836) with
-`MAO_FALLS=5`, `shots/fall_mist.png` the effect alone on a standing player (`MAO_AURA=12502`). Not seen live (2026-11-09): Old Athens's sea lies beyond the city wall, which the walk to it cannot pass; Andromeda's lake sits forty units under the platform Poisonouss stands on; Upper Scheol's nearest fall is six hundred units away behind a mountain.
+drawn: the quads' spin, mode 5's blend under alpha, mode 1's wandering emitter (taken as mode 0). Across the playfields
+the effect lands at 25 places on each coast, 437 in Adonis City, 337 in Central Elysium, 178 in 4 Holes, 135 in Belial
+Forest and Clondyke, 57 on Borealis's fall (`liquid::tests::fall_effect_survey`, which stands in a liquid's surface within
+half a unit of a step for the surface's closest point); `shots/fall_coast.png` is the Coast of Peace's fall at (574, 1836) with
+`MAO_FALLS=5`, `shots/fall_mist.png` the effect alone on a standing player (`MAO_AURA=12502`). Seen live (2026-11-09, `shots/fall_live.png`): Humility at the foot of Borealis's fall at (476, 513), where the playfield's surfaces put the effect at 18 steps (the survey, with the liquid alone, at 57) and the mist runs along the pool's edge as the original's does; before the surface's closest point was asked, the foot a hair under the pool's surface (9.9 against 10.0) got nothing. Not seen: Old Athens's sea lies beyond the city wall, which the walk to it cannot pass; Andromeda's lake sits forty units under the platform Poisonouss stands on; Upper Scheol's nearest fall is six hundred units away behind a mountain.
 
 **Sixteen-bit tile-maps** (`terrain::build`): the original's ground height is the stored value times the tile-map's
 second float (`_GfxControl_t::GetGroundHeight` over FUN_100459f8, which gives a 16-bit map's value as it is and an 8-bit

@@ -777,3 +777,18 @@ fn body_attractor_survey() {
         println!("{file}: camera {} head {}", body.attractor_named("Attractor31_camera").is_some(), body.attractor_named("Attractor01_head").is_some());
     }
 }
+
+/// The fall effect's sprite sheet (material 49, `mine_explosion02_bw_01_v01.png`) written out for a look (`MAO_SHEET_OUT`).
+#[test]
+#[ignore]
+fn fall_sheet_export() {
+    let Some(db) = database() else { return };
+    let index = mao_formats::instances::Instances::parse(&db.get(Id { kind: 0xf424a, instance: 1 }).unwrap().unwrap()).unwrap();
+    let id = index.find(0xf6954, "mine_explosion02_bw_01_v01.png").unwrap();
+    let object = db.get(Id { kind: 0xf6954, instance: id }).unwrap().unwrap();
+    let t = mao_formats::texture::decode(&object).unwrap();
+    println!("sheet {id:#x}: {}x{}", t.width, t.height);
+    if let Ok(out) = std::env::var("MAO_SHEET_OUT") {
+        image::save_buffer(&out, &t.rgba, t.width, t.height, image::ColorType::Rgba8).unwrap();
+    }
+}
