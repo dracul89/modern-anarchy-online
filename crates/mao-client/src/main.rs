@@ -1674,6 +1674,19 @@ fn run(args: &[String]) -> Result<(), String> {
                         hud.programs = nanoprograms::describe(&db, &textures, &ids, 220);
                         let mut window = nanoprograms::ProgramsWindow::default();
                         window.open = true;
+                        // (MAO_PROGRAMS_SCHOOL=<0..6>: the school's list shown, 6 the hidden ones; MAO_PROGRAMS_HIDDEN=<id,...>)
+                        if let Some(school) = std::env::var("MAO_PROGRAMS_SCHOOL").ok().and_then(|s| s.parse().ok()) {
+                            window.select(school);
+                        }
+                        if let Ok(ids) = std::env::var("MAO_PROGRAMS_HIDDEN") {
+                            window.hidden = Some(ids.split(',').filter_map(|t| t.trim().parse().ok()).collect());
+                        }
+                        // (MAO_PROGRAMS_LIST=1: in list mode, out of the column at the right edge)
+                        if std::env::var_os("MAO_PROGRAMS_LIST").is_some() {
+                            window.list = Some(true);
+                            rollup::undock("Nano programs");
+                            window.start = Some((egui::pos2(40.0, 150.0), egui::vec2(880.0, 230.0)));
+                        }
                         *hud.programs_preview.lock().unwrap() = Some(window);
                     }
                     if preview.as_deref() == Some("friends") {

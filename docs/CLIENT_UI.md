@@ -429,6 +429,27 @@ Preview: `MAO_UI_PREVIEW=ncu MAO_NANOS=<id:ms,...> MAO_NCU_TARGET=1`. Seen in th
 done: the borderless style (Alt and a double click, FUN_100dd7ea), the windows' tab strip, and their places beside
 the target bars. A window's title is now cut where its buttons begin (`chrome::window`), for these narrow windows.
 
+**Nano programs window: list mode, menus and hidden programs (2026-11-10, `nanoprograms.rs`).** Read from
+`NanoView_c` (FUN_100d5328) and its menus:
+- The right button over a program opens its menu (FUN_100d49a0): "Look at" (its page; before, the right button showed
+  the page at once) and "Hide", or "Unhide" in the hidden list. The original keeps hidden programs in a seventh list
+  (school 6); here they are a set kept in `hiddennanos.ini` beside `mao.ini`.
+- The right button elsewhere in the window opens the window's menu (FUN_100d4f90): "List Mode", "Show Hidden" (shows
+  the hidden list, FUN_100d4b49(6); a school's button leads back) and "Auto Arrange".
+- List mode puts the school's programs under a column header with the original's ten columns and the game's labels:
+  icon, name, nano cost, NCU cost, time, radius, attack range, attack delay, recharge delay and the stacking line
+  (the nano strain's name from text.mdb 2009, sorted by strain and place in it, FUN_1003dee6), written as the NCU
+  list's are. It starts sorted by name; a pressed label sorts by its column.
+- "Auto Arrange" (FUN_10041637) orders the grid: "Unsorted", "By <column>" for each column with the current one
+  marked, and "Sort Ascending". "Don't Auto Arrange" is shown dead: programs are not placed by hand here.
+- Kept between starts (`tabs.ini`): list mode (`NanoViewConfig`), the school shown (`NanoViewSchool`, the original's
+  `selected_school`) and the grid's order (`NanoViewGridSort`).
+The original has no find field in this window (the earlier note here that it was missing was wrong). Previews:
+`MAO_UI_PREVIEW=nanos MAO_PROGRAMS=<id,...>` with `MAO_PROGRAMS_LIST=1`, `MAO_PROGRAMS_SCHOOL=<0..6>` and
+`MAO_PROGRAMS_HIDDEN=<id,...>`. The list was seen in a preview; **the menus were not clicked, and nothing was tried
+live**. Not done: programs placed by hand (`item_position_map`), the radius column's value (`---`), keeping column
+widths and the list's sort (`listview_config<n>`).
+
 **Stats window as the original's (2026-11-10, `stats.rs`).** Read from `StatView_c` (FUN_1008057d): the name and the
 level on a line, a white word and its value in 0xbbbbff; the bars, each the skin's `GFX_GUI_HOR_BAR_EMPTY` filled with
 a coloured one to the value's share and labelled "value / max" (health red, nano blue; experience yellow, alien
