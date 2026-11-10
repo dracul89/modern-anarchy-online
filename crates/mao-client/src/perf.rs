@@ -101,7 +101,7 @@ impl Perf {
         }
     }
 
-    /// Draws the overlay at the top right.
+    /// Draws the overlay at the top left (under the menu bar; the minimap has the top right).
     pub fn show(&self, ctx: &egui::Context, gpu: &GpuInfo, palette: &Palette) {
         let frames: Vec<f32> = self.frames.iter().copied().collect();
         let (fps, mean, worst) = summary(&frames);
@@ -109,7 +109,7 @@ impl Perf {
         let gb = |b: u64| b as f64 / (1u64 << 30) as f64;
         let mb = |b: u64| b as f64 / (1u64 << 20) as f64;
         let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
-        egui::Area::new(egui::Id::new("performance")).anchor(egui::Align2::RIGHT_TOP, egui::vec2(-8.0, 40.0)).interactable(false).show(ctx, |ui| {
+        egui::Area::new(egui::Id::new("performance")).anchor(egui::Align2::LEFT_TOP, egui::vec2(8.0, 40.0)).interactable(false).show(ctx, |ui| {
             egui::Frame::new().fill(egui::Color32::from_black_alpha(170)).corner_radius(4.0).inner_margin(8.0).show(ui, |ui| {
                 ui.style_mut().override_text_style = Some(egui::TextStyle::Monospace);
                 let row = |ui: &mut egui::Ui, name: &str, value: String| {
