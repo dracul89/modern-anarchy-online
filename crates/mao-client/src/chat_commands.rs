@@ -33,6 +33,7 @@ pub fn emote_id(name: &str) -> u32 {
 pub const IMPLEMENTED: &[(&str, &str)] = &[
     ("tell <name> <text>", "a private message"),
     ("t <text>", "your team's channel"),
+    ("duel", "ask the targeted player to duel; /duel accept, reject, stop or draw answer and end one"),
     ("ch <group>", "the group this chat window's plain lines go to (the start of its name is enough)"),
     ("group <group> <text>", "one line to a group (also /g)"),
     ("reply <text>", "answer the last tell (also /r)"),
@@ -73,6 +74,8 @@ pub enum Parsed {
     Group { word: String, name: String, text: String },
     /// `/t <text>`: a line to the team's channel.
     Team { text: String },
+    /// `/duel`: challenge the target (`None`), or `accept` (1), `reject` (2), `stop` (3), `draw` (4).
+    Duel { what: Option<u32> },
     /// `/befriend <name>`: a character to put on the friends list.
     Befriend { name: String },
     /// `/ignore <name>` (or `/ignore` alone: the list): hide a character's tells and channel lines.
@@ -247,6 +250,15 @@ pub fn parse(line: &str) -> Parsed {
                 Parsed::Org { text: text.to_string() }
             }
         }
+        // (GUI.dll's `/duel` handler: no word challenges the target; else one of four words)
+        "duel" => match text.to_lowercase().as_str() {
+            "" => Parsed::Duel { what: None },
+            "accept" => Parsed::Duel { what: Some(1) },
+            "reject" => Parsed::Duel { what: Some(2) },
+            "stop" => Parsed::Duel { what: Some(3) },
+            "draw" => Parsed::Duel { what: Some(4) },
+            _ => Parsed::Usage("/duel (asks the target player), /duel accept, /duel reject, /duel stop, /duel draw"),
+        },
         // (FUN_1009d028: `/t` is the team's channel; `/tell` the private message)
         "t" => {
             if text.is_empty() {
@@ -335,6 +347,8 @@ mod tests {
         assert_eq!(parse("/befriend Abc"), Parsed::Befriend { name: "Abc".into() });
         assert_eq!(parse("/befriend"), Parsed::Usage("/befriend <name>"));
         assert_eq!(parse("/o hello org"), Parsed::Org { text: "hello org".into() });
+        assert_eq!((parse("/duel"), parse("/duel Accept"), parse("/duel draw")), (Parsed::Duel { what: None }, Parsed::Duel { what: Some(1) }, Parsed::Duel { what: Some(4) }));
+        assert!(matches!(parse("/duel now"), Parsed::Usage(_)));
         // (the original's `/t` is the team's channel, not a tell)
         assert_eq!(parse("/t on my way"), Parsed::Team { text: "on my way".into() });
         assert_eq!(parse("/t"), Parsed::Usage("/t <text>"));

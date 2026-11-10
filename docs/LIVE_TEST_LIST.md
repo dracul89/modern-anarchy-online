@@ -43,6 +43,25 @@ the second with the `.env`'s free login)
   side arrive on both as `[owner] who: text`. Not tried: No, leaving, the group's end.
 - 18: with the fix below, every announced channel is ticked for the main tab in the chat configuration, and a
   channel of the saved list that was not announced this session is red.
+**`/duel` between two clients** (Ballbearing, a level 22 engineer on the paid account, and Brasscasings, a level 25
+soldier with a gun on the free one, side by side in playfield 540; nobody else involved)
+- `/duel` with the other targeted: the challenger gets the "Duel Challenge" box with Cancel, the challenged one the
+  box with Accept and Reject and the same text as a chat line.
+- Accept, pressed in the box or typed (`/duel accept`): the server counts "Duel starts in 5 seconds." down to
+  "Fight!" on both sides, and the challenger is told the duel was accepted.
+- The fight: each side's attack runs on its own weapon's timer; hits, misses and a weapon's own nano strike are
+  told once each on both sides, the target's frame and the health bars follow. A duel does not kill: the last hit
+  is cut so that the loser stays at 1 health, and the server ends it (won on one side, lost on the other).
+- `/duel stop` by one side ends it at once: the one who stopped has lost, the other has won.
+- `/duel draw`: "proposed, waiting" on the one side, "your opponent proposes" on the other; the other's
+  `/duel draw` ends it as a draw on both.
+- Reject pressed in the box: the challenger's box goes and it is told the refusal.
+- Cancel pressed in the challenger's box: the challenged one's box goes, with the text for a challenge taken back.
+- Not tried: the `AutoRejectDuel` option (nobody has it on), a duel between characters far apart, a challenge to
+  someone already duelling, `/petduel`.
+Found and fixed on the way: every weapon hit between players was told twice (see `CLIENT_UI.md`, "Duel").
+Left as it is: Brasscasings walked about 215 m to stand next to Ballbearing; both are at full health again.
+
 A screenshot is a grab of the screen, so with two full-screen clients it shows the one on top; the other side was
 checked through the chat log (`chat/<date>.txt`), which both write.
 

@@ -484,6 +484,26 @@ files; nothing visible changes for the characters of the captures, and it was **
 actions' places kept (`item_position_map`), the toggles' other names (sit for stand, run for walk), and the
 profession's own action (numbers 138 and 139, FUN_1004326f).
 
+**Duel (2026-11-10, `chat_commands.rs`, `n3::duel`, `net.rs`, `ui.rs`).** `/duel` asks the targeted player
+(a line saying so without one, in this client's words), `/duel accept`, `reject`, `stop` and `draw` answer and end one:
+all five are Gamecode's `N3Msg_Duel_*` (0x1001d335 on), one `CharacterAction` 0x106 with the challenged character as
+the target and 0, or no target and 1 accept, 2 refuse, 3 stop, 4 draw. The server sends each of the two the same
+action back with the other character, what and a flag, which Gamecode FUN_1005bd68 turns into the boxes and the
+texts: a challenge (0) with flag 0 is one received (GUI.dll `DuelChallengeReceived` 0x100308ca: the "Duel Challenge"
+box with Accept and Reject, closing it rejects, and the text as a chat line; with the `AutoRejectDuel` option on, a
+refusal with the second parameter 1 and nothing shown), with flag 1 one's own (`DuelChallengeSent` 0x10030aae: the
+box with Cancel, which sends a refusal, not a stop); accepted (1) and refused (2: by the other, taken back, by the
+other's option) take the box down; ended (3: lost, won, a draw) and a draw proposed (4: by the other, one's own) are
+texts only. The texts are the game's (`Feedback_Duel*`), with this client's own words when the game's are missing.
+The box comes up at the pointer, as every message box does. Tried live between two of this client: every message
+above but the automatic refusal was seen with the flags as read. What the live fight showed: the server sends a
+weapon hit between players twice, as the attack (`AttackInfo`) and as the health it left (`Stat` 27), and the second
+was told as "attacked with nanobots ... unknown damage"; now a health loss is told only as far as it goes beyond the
+hits told in the last two seconds (`World::recent_hits`, `untold_loss`: this client's rule, the original's own was
+not read). The test script got `target@<character id>` (targets a character without a click, for a second client
+that must only ever challenge the first) and `pginvite@<name>`; a `move@x;y` before a box is due puts the box there,
+so that its buttons can be clicked (Accept 90 px left and 83 px below the middle, Reject 64 px right).
+
 **Scripted clicks, and what the first scripted live run found (2026-11-10, `ui.rs::Ui::script`, `viewer.rs`).**
 `MAO_CAMERA_SCRIPT` steps with an `@` act on the interface as the mouse and keys would, so the windows can be tried
 live without anyone at the keyboard: `open@<window>`, `close@<window>` (`close@` alone: all), `click@<x>;<y>`,

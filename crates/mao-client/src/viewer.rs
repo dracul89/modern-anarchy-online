@@ -75,12 +75,16 @@ pub struct Input {
     pub inspect: u8,
     /// Target the character itself (a counter that steps with each `/selectself`).
     pub select_self: u8,
+    /// A test script's target: counted, and the character's id.
+    pub select_id: (u8, u32),
     /// A running nano to cancel: a counter that steps with each and the nano's id.
     pub cancel: (u8, u32),
     /// A perk rank to train or untrain: a counter that steps with each, the rank and whether to train it.
     pub train_perk: (u8, u32, bool),
     /// A command to the pets (`/pet`): a counter that steps with each, and the `PetCommand` number.
     pub pet: (u8, u32),
+    /// `/duel`: counted, and what (0 challenge the target, 1 accept, 2 reject, 3 stop, 4 draw).
+    pub duel: (u8, u32),
     /// How far characters are drawn (0: all), from the settings.
     pub char_distance: f32,
     /// Take everything from a corpse when it opens (a setting).
@@ -208,6 +212,9 @@ pub struct Update {
     pub programs: Option<Vec<crate::nanoprograms::Program>>,
     /// The character's perk actions, when they or their locks change.
     pub perk_actions: Option<Vec<crate::actions::PerkAction>>,
+    /// The duel messages that came: what (0 a challenge, 1 accepted, 2 refused, 3 stopped, 4 a draw offered), the flag
+    /// and the other character's name.
+    pub duel: Vec<(u32, u32, String)>,
     /// The special attacks the server listed for the character, when it lists them (the Action window).
     pub specials: Option<Vec<crate::actions::Special>>,
     /// The perk records and the owned ranks, when the ranks change.
@@ -1525,6 +1532,10 @@ impl ApplicationHandler for App {
                         if let Some(perks) = u.perk_actions.take() {
                             self.hud.perk_actions = perks;
                         }
+                        for (what, flag, name) in u.duel.drain(..) {
+                            // (a challenge puts its box up: received, or one's own sent; anything else takes it down)
+                            self.hud.duel = (self.hud.duel.0.wrapping_add(1), (what == 0).then(|| (flag == 0, name.clone())));
+                        }
                         if let Some(specials) = u.specials.take() {
                             self.hud.specials = Some(specials);
                         }
@@ -2380,6 +2391,13 @@ impl ApplicationHandler for App {
                             crate::chatwindow::Out::Camp => self.keys.camp = self.keys.camp.wrapping_add(1),
                             crate::chatwindow::Out::Sit => self.keys.commands[5] = self.keys.commands[5].wrapping_add(1),
                             crate::chatwindow::Out::Pet(command) => self.keys.pet = (self.keys.pet.0.wrapping_add(1), command),
+                            crate::chatwindow::Out::Duel(what) => {
+                                self.keys.duel = (self.keys.duel.0.wrapping_add(1), what);
+                                // (an answer, typed or pressed, takes the challenge's box down)
+                                if what != 0 {
+                                    self.hud.duel = (self.hud.duel.0.wrapping_add(1), None);
+                                }
+                            }
                             crate::chatwindow::Out::Server(text) => crate::net::server_command(text),
                             crate::chatwindow::Out::Perf => {
                                 self.settings.perf_overlay = !self.settings.perf_overlay;
@@ -2524,6 +2542,9 @@ impl ApplicationHandler for App {
                     }
                     if let Some((rank, train)) = requests.train_perk.take() {
                         self.keys.train_perk = (self.keys.train_perk.0.wrapping_add(1), rank, train);
+                    }
+                    if let Some(id) = requests.select_id.take() {
+                        self.keys.select_id = (self.keys.select_id.0.wrapping_add(1), id);
                     }
                     if let Some(nano) = requests.cancel_nano.take() {
                         self.keys.cancel = (self.keys.cancel.0.wrapping_add(1), nano);

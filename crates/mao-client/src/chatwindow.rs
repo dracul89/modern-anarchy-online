@@ -84,6 +84,8 @@ pub enum Out {
     /// Put a character on the friends list / take one off.
     Befriend { name: String },
     Unfriend { id: u32 },
+    /// `/duel`: challenge the target (0) or accept (1), reject (2), stop (3), propose a draw (4).
+    Duel(u32),
     /// A line to a channel of the chat server, by its name (the window's output group).
     Channel { name: String, text: String },
     /// Invite a character to the player's private chat group (the friends window's "Invite").
@@ -739,6 +741,7 @@ impl ChatWindow {
                     None
                 }
             },
+            Parsed::Duel { what } => Some(Out::Duel(what.unwrap_or(0))),
             Parsed::Output { word, name } => self.group_command(pane, &word, &name, None),
             Parsed::Group { word, name, text } => self.group_command(pane, &word, &name, Some(text)),
             Parsed::Vicinity { command, text } => Some(Out::Vicinity { kind: match command {

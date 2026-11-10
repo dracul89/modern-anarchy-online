@@ -48,7 +48,7 @@ pub(crate) fn take_closing(name: &str) -> bool {
 }
 
 /// The message boxes' window names ([`dialog`]): none keeps a place, and Escape closes each with `esc_dialogs`.
-pub const DIALOGS: &[&str] = &["TradeDoubleConfirmDlg", "perk-dialog", "team-invite", "remove-friend", "ignore-friend", "delete-mail", "disable-tips", "delete-mission", "delete-item", "reset-skill", "rename-chat-window", "private-invite", "rename-backpack"];
+pub const DIALOGS: &[&str] = &["TradeDoubleConfirmDlg", "perk-dialog", "team-invite", "remove-friend", "ignore-friend", "delete-mail", "disable-tips", "delete-mission", "delete-item", "reset-skill", "rename-chat-window", "private-invite", "rename-backpack", "DuelChallenge"];
 
 /// When each message box was last shown (the frame), to tell a new showing from the next frame of one.
 static DIALOG_SEEN: Mutex<Vec<(&'static str, u64)>> = Mutex::new(Vec::new());

@@ -117,9 +117,10 @@ programs window's Info, `itemid://53019/<id>`; weapons' damage per second; to co
 
 Carried out here: `/tell` `/reply` `/whisper` `/shout` `/emote` and the emotes, `/voice`, `/camp`, `/follow`, `/inspect`,
 `/open`, `/close`, `/items`, `/waypoint`, `/selectself`, `/setoption`, `/chardist`, `/viewdist`, `/quit`, `/help`,
-`/version`, `/ignore` (and the client's `/befriend`).
+`/version`, `/ignore` (and the client's `/befriend`), `/duel` (with `accept`, `reject`, `stop`, `draw`; the
+"Duel Challenge" boxes of `GuiSystem_c::DuelChallengeReceived` / `DuelChallengeSent`; tried live with two clients).
 
-Listed but not carried out: `/anon` `/assist` `/bank` `/born` `/duel` `/filter` `/group` `/invite` `/kick` `/leave`
+Listed but not carried out: `/anon` `/assist` `/bank` `/born` `/filter` `/group` `/invite` `/kick` `/leave`
 `/list` `/macro` `/name` `/option` `/perk` `/perks` `/petduel` `/petition` `/played` `/raid` `/reclaim` `/script`
 `/shop` `/showfile` `/stuck` `/team` `/terminate` `/text` `/tipoftheday` `/title` `/toggle` `/tower` `/dvalue`
 `/fxscript` `/messagebox`.

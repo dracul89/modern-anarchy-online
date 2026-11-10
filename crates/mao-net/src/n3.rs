@@ -233,6 +233,25 @@ pub fn info_request(character: u32, target: u32) -> Frame {
     Message { kind: 0x5e477770, identity: (CHARACTER, character), data }.frame(character)
 }
 
+/// `CharacterAction` (`5e477770`) action `0x106`: the duel (Gamecode `N3Msg_Duel_Challenge` 0x1001d335 and its four
+/// neighbours, all through FUN_10072a88): a challenge names the challenged character as the target with the first
+/// parameter 0; accepting (1), refusing (2), stopping (3) and proposing a draw (4) have no target. The second
+/// parameter is 0 but for the refusal the client sends by itself with the `AutoRejectDuel` option on (FUN_1005bd68: 1).
+/// Built from the decompile and tried live between two of this client (2026-11-10); no capture has one.
+pub fn duel(character: u32, target: Option<u32>, what: u32, flag: u32) -> Frame {
+    let mut data = vec![0u8; 5];
+    data[1..5].copy_from_slice(&DUEL.to_be_bytes());
+    data.extend_from_slice(&[0; 4]);
+    for word in [target.map_or(0, |_| CHARACTER), target.unwrap_or(0), what, flag] {
+        data.extend_from_slice(&word.to_be_bytes());
+    }
+    data.extend_from_slice(&[0; 2]);
+    Message { kind: 0x5e477770, identity: (CHARACTER, character), data }.frame(character)
+}
+
+/// The duel's `CharacterAction` number.
+pub const DUEL: u32 = 0x106;
+
 /// `CharacterAction` (`5e477770`) action `0x9a`: resets a skill, giving its IP back (`N3Msg_ResetSkill`, Gamecode
 /// 0x1001ce37: no target, the first parameter nothing and the second the skill's stat; stat 0 is the full reset of
 /// every ability and skill). Built from the decompile: no capture has one.
@@ -1617,6 +1636,18 @@ impl Message {
 #[cfg(test)]
 mod entity_tests {
     use super::*;
+
+    #[test]
+    fn a_duel_is_a_character_action_of_its_own_number() {
+        // (the action is a whole word, 0x106; a challenge names its target, the answers do not)
+        let (challenge, accept) = (duel(7, Some(9), 0, 0), duel(7, None, 1, 0));
+        assert_eq!(challenge.body.len(), accept.body.len());
+        let at = challenge.body.windows(4).position(|w| w == [0, 0, 1, 6]).unwrap();
+        assert_eq!(&challenge.body[at + 8..at + 24], &[0, 0, 0xc3, 0x50, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(&accept.body[at + 8..at + 24], &[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0]);
+        // (the refusal sent by itself says so in the second parameter)
+        assert_eq!(&duel(7, None, 2, 1).body[at + 16..at + 24], &[0, 0, 0, 2, 0, 0, 0, 1]);
+    }
 
     #[test]
     fn a_skill_reset_is_a_character_action() {

@@ -91,6 +91,9 @@ pub struct Hud {
     pub programs: Vec<crate::nanoprograms::Program>,
     /// The character's perk actions (the server's list), for the Action window.
     pub perk_actions: Vec<crate::actions::PerkAction>,
+    /// The duel challenge in the air: counted with every duel message, and the one to show (received or one's own,
+    /// and the other character's name).
+    pub duel: (u32, Option<(bool, String)>),
     /// The special attacks the server listed for the character that have an action (`None`: not told yet).
     pub specials: Option<Vec<crate::actions::Special>>,
     /// The perk records and the ranks the character owns (the perk window's lists).
@@ -224,6 +227,8 @@ pub struct Requests {
     pub item_moves: Vec<(u32, u32)>,
     /// A running nano the player cancelled in the NCU window.
     pub cancel_nano: Option<u32>,
+    /// A test script's `target@<id>`: the character to select.
+    pub select_id: Option<u32>,
     /// A perk rank to train (true) or untrain.
     pub train_perk: Option<(u32, bool)>,
     /// Items chosen to use or to destroy in the inventory window's menu (by place).
@@ -278,6 +283,11 @@ pub struct Ui {
     script_bag: Option<usize>,
     /// A test script's `pginvite@<name>`: the friend to invite to one's private chat group.
     script_invite: Option<String>,
+    /// A test script's `target@<id>`: the character to select as the target.
+    script_target: Option<u32>,
+    /// The duel challenge (`Hud::duel`'s count) already answered, and the one already told in the chat.
+    duel_done: u32,
+    duel_told: u32,
     pub mission: crate::mission::MissionWindow,
     pub mail: crate::mailbox::MailWindow,
     pub shop: crate::shop::ShopWindow,
@@ -535,7 +545,7 @@ impl Ui {
         crate::skin::configure(&ctx, crate::skin::dirs(&settings.gui_dir, &settings.theme, &settings.aou_mod));
         let state = egui_winit::State::new(ctx.clone(), egui::ViewportId::ROOT, window, Some(window.scale_factor() as f32), window.theme(), None);
         let renderer = egui_wgpu::Renderer::new(&gpu.device, format, egui_wgpu::RendererOptions::default());
-        let mut ui = Ui { ctx, state, renderer, open_seen: Vec::new(), injected: Default::default(), script_bag: None, script_invite: None, options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), shop: Default::default(), npc_chat: Default::default(), mission_log: Default::default(), planet: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), team: Default::default(), pets: Default::default(), tradeskill: Default::default(), research: Default::default(), faction: Default::default(), raid: Default::default(), lft: Default::default(), knowledge: Default::default(), ncu: Default::default(), target_ncu: [crate::ncu::TargetNcu::new(false), crate::ncu::TargetNcu::new(true)], friends: Default::default(), programs: Default::default(), perks: Default::default(), help: Default::default(), tips: Default::default(), info: Default::default(), browser: Default::default(), market_send: Default::default(), control_center: None, option_panel: Default::default(), loot: Default::default(), bag_windows: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0, perf: Default::default() };
+        let mut ui = Ui { ctx, state, renderer, open_seen: Vec::new(), injected: Default::default(), script_bag: None, script_invite: None, script_target: None, duel_done: 0, duel_told: 0, options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), shop: Default::default(), npc_chat: Default::default(), mission_log: Default::default(), planet: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), team: Default::default(), pets: Default::default(), tradeskill: Default::default(), research: Default::default(), faction: Default::default(), raid: Default::default(), lft: Default::default(), knowledge: Default::default(), ncu: Default::default(), target_ncu: [crate::ncu::TargetNcu::new(false), crate::ncu::TargetNcu::new(true)], friends: Default::default(), programs: Default::default(), perks: Default::default(), help: Default::default(), tips: Default::default(), info: Default::default(), browser: Default::default(), market_send: Default::default(), control_center: None, option_panel: Default::default(), loot: Default::default(), bag_windows: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0, perf: Default::default() };
         // (the windows the player left open come back open; the first time, the planet map, open in the original's default
         // layout at the top left)
         for name in crate::layout::load_open().unwrap_or_else(|| vec!["map".to_string()]) {
@@ -665,7 +675,7 @@ impl Ui {
     /// keys would: `open@<window>` and `close@<window>`; `click@<x>;<y>`, `rclick@...`, `dclick@...` and `move@...` at a
     /// place given in the screenshot's pixels; `type@<line>` into the chat's input (then `key@Enter` sends it);
     /// `text@<letters>` into whatever takes the keys; `key@<Enter|Escape|Tab|Up|Down|Backspace>`; `drag@<x>;<y>;<x>;<y>`
-    /// presses at the first place and lets go at the second; `usebag@<n>` uses the inventory's n-th bag; `pginvite@<name>` invites a character of the friends list to one's private chat group. False
+    /// presses at the first place and lets go at the second; `usebag@<n>` uses the inventory's n-th bag; `pginvite@<name>` invites a character of the friends list to one's private chat group; `target@<id>` selects the character with that id. False
     /// for a step it does not know.
     pub fn script(&mut self, step: &str) -> bool {
         let Some((what, argument)) = step.split_once('@') else { return false };
@@ -694,6 +704,7 @@ impl Ui {
             }
             "usebag" => self.script_bag = Some(argument.trim().parse().unwrap_or(1)),
             "pginvite" => self.script_invite = Some(argument.trim().to_string()),
+            "target" => self.script_target = argument.trim().parse().ok(),
             "drag" => {
                 let k = self.ctx.pixels_per_point();
                 let v: Vec<f32> = argument.split(';').filter_map(|t| t.trim().parse::<f32>().ok()).map(|p| p / k).collect();
@@ -852,6 +863,7 @@ impl Ui {
                 None => eprintln!("script: {name} is not in the friends list"),
             }
         }
+        requests.select_id = self.script_target.take();
         if let Some(nth) = self.script_bag.take() {
             let bags: Vec<&crate::gear::GearItem> = hud.gear.iter().filter(|g| g.bag).collect();
             eprintln!("script: {} bags in the inventory; using number {nth}", bags.len());
@@ -875,6 +887,8 @@ impl Ui {
         let market_send = &mut self.market_send;
         let control_center = &mut self.control_center;
         let target_ncu = &mut self.target_ncu;
+        let duel_done = &mut self.duel_done;
+        let duel_told = &mut self.duel_told;
         let bag_windows = &mut self.bag_windows;
         let option_panel = &mut self.option_panel;
         let mut cc_windows: Vec<(&'static str, bool)> = Vec::new();
@@ -1032,6 +1046,36 @@ impl Ui {
                 }
                 if let Some(url) = ncu_window.info_url.take() {
                     info_view.show_url(&url);
+                }
+            }
+            // A duel challenge (GUI.dll `GuiSystem_c::DuelChallengeReceived` 0x100308ca and its neighbour for one's own,
+            // 0x10030aae): the "Duel Challenge" box with the game's text, Accept and Reject for one received (closing it
+            // rejects: `DuelChallengeReceivedResult` 0x10030330), Cancel for one sent, which is a refusal too
+            // (`DuelChallengeSentResult` 0x10030353). Gamecode's side of a challenge received (FUN_1005bd68): with the
+            // `AutoRejectDuel` option on, a refusal sent by itself and nothing shown; else the box and the same text
+            // as a chat line.
+            if let (serial, Some((received, name))) = (hud.duel.0, &hud.duel.1)
+                && *duel_done != serial
+            {
+                let text = |name: &str, own: &str| crate::gui::xml::ldb_named(10000, name, own);
+                let words = if *received { crate::gui::xml::ldb_named(110, "Feedback_DuelChallenge", "%s wants a duel with you.") } else { crate::gui::xml::ldb_named(110, "Feedback_DuelChallengeSent", "You asked %s for a duel.") };
+                let words = mao_formats::ldb::format(&words, &[mao_formats::ldb::Arg::Text(name)]);
+                if *received && *duel_told != serial {
+                    *duel_told = serial;
+                    if control_center.as_ref().is_some_and(|cc| cc.store.get_bool("AutoRejectDuel")) {
+                        *duel_done = serial;
+                        chat_window.outs.push(crate::chatwindow::Out::Duel(0x102));
+                    } else {
+                        chat_window.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, words.clone()));
+                    }
+                }
+                let (accept, reject, cancel) = (text("MsgBox_Accept", "Accept"), text("MsgBox_Reject", "Reject"), text("MsgBox_Cancel", "Cancel"));
+                let buttons: Vec<&str> = if *received { vec![accept.as_str(), reject.as_str()] } else { vec![cancel.as_str()] };
+                if *duel_done != serial
+                    && let Some(answer) = crate::chrome::dialog(&ctx, palette, "DuelChallenge", "Duel Challenge", &words, &buttons)
+                {
+                    *duel_done = serial;
+                    chat_window.outs.push(crate::chatwindow::Out::Duel(if *received && answer == Some(0) { 1 } else { 2 }));
                 }
             }
             // (the target NCU windows, `ControlCenterModule_c::CreateTargetMenus`: each while its option is on, which

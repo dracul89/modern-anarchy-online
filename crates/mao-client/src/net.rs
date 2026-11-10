@@ -196,6 +196,11 @@ struct World {
     /// The character's perk actions as the server lists them (`CharacterAction` 0xb4 at entry: the action's item template, its
     /// number and its four-letter code), and the perk locks running (0xcf: a lock and its seconds; 0xce: the lock is free).
     perk_actions: Vec<(u32, u32, [u8; 4])>,
+    /// The duel messages the server sent the character, not yet shown: what, the flag, the other character.
+    duel_events: Vec<(u32, u32, u32)>,
+    /// The weapon hits just told (`AttackInfo`) by victim: the damage and when, so that the health's own message does
+    /// not tell them again.
+    recent_hits: BTreeMap<u32, (i64, Instant)>,
     /// The stats of the special attacks the server listed for the character (`SpecialAttackWeapon`), once it has, and
     /// whether the list changed.
     specials: Option<Vec<u32>>,
@@ -727,6 +732,17 @@ impl crate::spelllist::Scene for World {
 }
 
 impl World {
+    /// A loss of health (negative) less what the weapon hits just told of that character already account for: what
+    /// is left to tell as its own line (0: nothing). A hit cut short (a duel's last one leaves 1 health) covers the
+    /// whole loss.
+    fn untold_loss(&mut self, id: u32, change: i64) -> i64 {
+        if change >= 0 {
+            return change;
+        }
+        let told = self.recent_hits.remove(&id).filter(|h| h.1.elapsed() < Duration::from_secs(2)).map_or(0, |h| h.0);
+        (change + told).min(0)
+    }
+
     /// The nanos known to run on a character, for its NCU window: the nano, the time it had left (milliseconds) when
     /// that was told, and since when. The own character's are its list; another's are those its full update listed
     /// (while their time lasts) and those the server announces (no time: counted from the first announcement).
@@ -1445,6 +1461,12 @@ impl World {
                 if let Some(e) = self.weapon_energy.get_mut(&(m.identity.1, slot as u8)) {
                     *e = int("AmmoCount");
                 }
+                // (the hit is remembered for its victim: the `Stat` that follows with the new health would else tell the
+                // same loss a second time, as nanobots of unknown damage; seen live in a duel between two players)
+                if int("Amount") > 0 {
+                    let hit = self.recent_hits.entry(target).or_insert((0, Instant::now()));
+                    *hit = (if hit.1.elapsed() < Duration::from_secs(2) { hit.0 } else { 0 } + int("Amount"), Instant::now());
+                }
                 let kind = crate::feedback::weapon_damage_type(self.weapons.get(&(m.identity.1, slot as u8)).and_then(|&t| template_stat(t, 436)));
                 if let Some(line) = crate::feedback::attack(self.who(target), self.who(m.identity.1), int("Amount"), kind, int("HitType")) {
                     self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
@@ -1670,6 +1692,32 @@ impl World {
         //   on a use: here the kind-4 item entry `start_item_timer` makes) and signals the container that holds the item named in the target as changed
         //   (`(0x6b, handle << 16 | place)`: the open container of that handle, FUN_1004892d; other types, FUN_100493eb): a
         //   refresh, not a close (the same signal follows `N3Msg_DropItem` and `N3Msg_ContainerAddItem`).
+        // The duel's action as the server sends it to each of the two (Gamecode FUN_1005bd68, and seen live between two
+        // of this client, 2026-11-10): the other character as the target, then what and a flag. A challenge (0) comes
+        // with flag 0 to the one challenged and 1 to the challenger (the two boxes, in `ui.rs`); the rest are told with
+        // a feedback text each: accepted (1), refused (2: by the other 0, taken back 1, by the other's option 2), ended
+        // (3: lost 0, won 1, a draw 2), a draw proposed (4: by the other 0, one's own 1).
+        if m.kind == 0x5e477770 && m.identity.1 == self.own && m.data.len() >= 25 && u32::from_be_bytes(m.data[1..5].try_into().unwrap()) == mao_net::n3::DUEL {
+            let word = |at: usize| u32::from_be_bytes(m.data[at..at + 4].try_into().unwrap());
+            if std::env::var_os("MAO_COMBAT_LOG").is_some() {
+                eprintln!("combat: duel message, other {:x}, what {}, flag {}", word(13), word(17), word(21));
+            }
+            if let Some(name) = match (word(17), word(21)) {
+                (1, _) => Some("Feedback_DuelAccepted"),
+                (2, 0) => Some("Feedback_DuelRefused"),
+                (2, 1) => Some("Feedback_DuelRetracted"),
+                (2, 2) => Some("Feedback_DuelAutoRefused"),
+                (3, 0) => Some("Feedback_DuelLost"),
+                (3, 1) => Some("Feedback_DuelWon"),
+                (3, 2) => Some("Feedback_DuelDraw"),
+                (4, 0) => Some("Feedback_DuelProposeDraw"),
+                (4, 1) => Some("Feedback_DuelDrawProposed"),
+                _ => None,
+            } {
+                self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, crate::feedback::plain(name)));
+            }
+            self.duel_events.push((word(17), word(21), word(13)));
+        }
         if m.kind == 0x5e477770 && m.data.len() >= 17 {
             let word = |at: usize| u32::from_be_bytes(m.data[at..at + 4].try_into().unwrap());
             match word(1) {
@@ -2448,7 +2496,8 @@ impl World {
                     if let Some(hp) = health {
                         let id = m.identity.1;
                         if let Some(old) = self.last_hp.insert(id, hp) {
-                            if let Some(line) = crate::feedback::health(self.who(id), crate::feedback::Who::Unknown, (hp - old).min(0), 0, None) {
+                            let change = self.untold_loss(id, (hp - old).min(0));
+                            if let Some(line) = crate::feedback::health(self.who(id), crate::feedback::Who::Unknown, change, 0, None) {
                                 self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
                             }
                         }
@@ -2467,7 +2516,8 @@ impl World {
                 self.read_stats(p.value.get("Stats"));
                 for (stat, old) in before {
                     let (Some(old), Some(&new)) = (old, self.stats.get(&stat)) else { continue };
-                    if let Some(line) = crate::feedback::own_stat(stat, new - old) {
+                    let change = if stat == 27 && new < old { self.untold_loss(self.own, new - old) } else { new - old };
+                    if let Some(line) = crate::feedback::own_stat(stat, change) {
                         self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
                     }
                 }
@@ -4613,7 +4663,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                         chat.send(&mao_net::chat::lookup_packet(&name))?;
                                     }
                                 },
-                                Out::Camp | Out::Sit | Out::Perf | Out::Pet(_) | Out::Server(_) | Out::Quit | Out::Follow | Out::Inspect | Out::Window { .. } | Out::Waypoint { .. } | Out::SelectSelf | Out::SetOption { .. } | Out::ViewDist(_) | Out::CharDist(_) => {}
+                                Out::Camp | Out::Sit | Out::Perf | Out::Pet(_) | Out::Duel(_) | Out::Server(_) | Out::Quit | Out::Follow | Out::Inspect | Out::Window { .. } | Out::Waypoint { .. } | Out::SelectSelf | Out::SetOption { .. } | Out::ViewDist(_) | Out::CharDist(_) => {}
                                 Out::Befriend { name } => match ids.get(&name.to_lowercase()) {
                                     Some(&id) => {
                                         chat.send(&mao_net::chat::buddy_add_packet(id, false))?;
@@ -4821,6 +4871,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut cancel_seen = 0u8;
         let mut train_perk_seen = 0u8;
         let mut pet_seen = 0u8;
+        let mut duel_seen = 0u8;
+        let mut select_id_seen = 0u8;
         let mut inspect_seen = 0u8;
         let mut self_seen = 0u8;
         let (mut following, mut follow_seen): (Option<u32>, u8) = (None, 0);
@@ -5359,6 +5411,14 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 if let Some(data) = n3::vicinity_data(&text, kind, &record) {
                     let _ = connection.send(&n3::text_message(own, object, at, &data));
                 }
+            }
+            // (a test script's target: the character with that id, selected as a click on it would)
+            if raw.select_id.0 != select_id_seen {
+                select_id_seen = raw.select_id.0;
+                let id = raw.select_id.1;
+                target = Some(id);
+                let _ = connection.send(&n3::select_target(own, id));
+                let _ = connection.send(&n3::set_target(own, id));
             }
             // `/selectself`: the character is its own target.
             if raw.select_self != self_seen {
@@ -5955,6 +6015,23 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 }
             }
             // (`/pet`: a command to all the pets)
+            // `/duel`: a challenge to the targeted player (GUI.dll's handler says so in its own words when no player is targeted), or
+            // an answer to one.
+            if keys.duel.0 != duel_seen {
+                duel_seen = keys.duel.0;
+                let what = keys.duel.1;
+                if what == 0 {
+                    match target.filter(|t| *t != own && state.infos.get(t).is_some_and(|i| i.is_player())) {
+                        Some(t) => {
+                            let _ = connection.send(&n3::duel(own, Some(t), 0, 0));
+                        }
+                        None => pending_messages.push("A duel needs a player as the target.".into()),
+                    }
+                } else {
+                    // (the high byte: the second parameter, 1 for the refusal the client sends by itself)
+                    let _ = connection.send(&n3::duel(own, None, what & 0xff, what >> 8));
+                }
+            }
             if keys.pet.0 != pet_seen {
                 pet_seen = keys.pet.0;
                 let _ = connection.send(&n3::pet_command(own, keys.pet.1));
@@ -7188,6 +7265,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         crate::perks::PerkState { catalog: crate::perks::catalog(&gear_db), owned: state.perks.clone(), server_offset: state.game_clock.server_time() as i64 - unix }
                     }),
                     programs: std::mem::take(&mut state.programs_changed).then(|| crate::nanoprograms::describe(&gear_db, &gear_textures, &state.program_ids, state.stats.get(&0x36).copied().unwrap_or(1))),
+                    duel: std::mem::take(&mut state.duel_events)
+                        .into_iter()
+                        .map(|(what, flag, other)| (what, flag, state.names.get(&other).map(|n| n.0.clone()).or_else(|| state.infos.get(&other).map(|i| i.name.clone())).unwrap_or_default()))
+                        .collect(),
                     specials: std::mem::take(&mut state.specials_changed).then(|| crate::actions::describe_specials(&gear_db, &gear_textures, state.specials.as_deref().unwrap_or_default())),
                     perk_actions: std::mem::take(&mut state.perk_actions_changed).then(|| {
                         let now = Instant::now();
@@ -9018,10 +9099,21 @@ mod door_tests {
         w.add(&Message { kind: 0x3710256c, identity: (0xc350, 0x4bc80), data: hex("000000ce670000007400000000000000000000c3500004bc8000000000") }.frame(1));
         assert_eq!(lines(&mut w), ["You were healed for 116 points."]);
         assert_eq!(w.stats.get(&27), Some(&52839));
-        // (another's health dropping in a Stat: 0x7aedad06 renamed to the rat, 2381 then 2300)
+        // (another's health dropping in a Stat: 0x7aedad06 renamed to the rat, 2381 then 2300; the hit above was long ago)
+        w.recent_hits.clear();
         w.add(&Message { kind: 0x2b333d6e, identity: (0xc350, 0x7b017c26), data: hex("00000000010000001b0000094d") }.frame(1));
         w.add(&Message { kind: 0x2b333d6e, identity: (0xc350, 0x7b017c26), data: hex("00000000010000001b000008fc") }.frame(1));
         assert_eq!(lines(&mut w), ["Rollerrat was attacked with nanobots for 81 points of unknown damage."]);
+        // (a hit just told and the Stat with the health it left: one line, not a second one for nanobots. Seen live in
+        // a duel, where the server sends both for every weapon hit; the same hit, then 2300 down to 387)
+        w.add(&Message { kind: 0x46002f16, identity: (0xc350, 0x4bc80), data: hex("0000000779ffffffff000000080000c3507b017c26000000040000000300000000") }.frame(1));
+        w.add(&Message { kind: 0x2b333d6e, identity: (0xc350, 0x7b017c26), data: hex("00000000010000001b00000183") }.frame(1));
+        assert_eq!(lines(&mut w), ["You hit Rollerrat for 1913 points of projectile damage."]);
+        // (and a loss beyond the hit is still told: the same hit, the health down 100 more than it)
+        w.add(&Message { kind: 0x2b333d6e, identity: (0xc350, 0x7b017c26), data: hex("00000000010000001b00000bb8") }.frame(1));
+        w.add(&Message { kind: 0x46002f16, identity: (0xc350, 0x4bc80), data: hex("0000000779ffffffff000000080000c3507b017c26000000040000000300000000") }.frame(1));
+        w.add(&Message { kind: 0x2b333d6e, identity: (0xc350, 0x7b017c26), data: hex("00000000010000001b000003db") }.frame(1));
+        assert_eq!(lines(&mut w), ["You hit Rollerrat for 1913 points of projectile damage.", "Rollerrat was attacked with nanobots for 100 points of unknown damage."]);
         // the client's damage shield striking 0x7b017c26 (renamed from the capture's 0x7b017c24), and a reflect of nothing
         w.add(&Message { kind: 0x25192476, identity: (0xc350, 0x7b017c26), data: hex("00000000ad0000c3500004bc8000000003") }.frame(1));
         assert_eq!(lines(&mut w), ["Your damage shield hit Rollerrat for 173 points of damage."]);
