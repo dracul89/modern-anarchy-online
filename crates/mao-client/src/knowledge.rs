@@ -52,8 +52,9 @@ pub struct KnowledgeWindow {
     pub cells: BTreeMap<(usize, usize), Entry>,
     loaded: bool,
     dirty: bool,
-    /// The cell whose menu is open.
+    /// The cell whose menu is open, and the menu.
     menu: Option<(usize, usize)>,
+    popup: Option<crate::gui::popup::PopupMenu>,
 }
 
 fn path() -> std::path::PathBuf {
@@ -158,6 +159,7 @@ impl KnowledgeWindow {
         let mut clicked = None;
         let mut menu_action: Option<(usize, usize, bool)> = None;
         let menu = &mut self.menu;
+        let mut menu_at = None;
         let cells = &self.cells;
         crate::chrome::window(ctx, palette, "Knowledge", "Knowledge", &mut is_open, |w| w.resizable(false).default_pos(crate::layout::pos("Knowledge", egui::pos2(80.0, 120.0))), |ui| {
             ui.spacing_mut().item_spacing = egui::vec2(2.0, 2.0);
@@ -185,24 +187,7 @@ impl KnowledgeWindow {
                             }
                             if response.secondary_clicked() {
                                 *menu = Some((x, y));
-                            }
-                            if *menu == Some((x, y)) {
-                                let mut keep = true;
-                                egui::Area::new(egui::Id::unique(format!("knowledge-menu-{x}-{y}"))).fixed_pos(rect.right_top()).order(egui::Order::Foreground).show(ctx, |ui| {
-                                    egui::Frame::popup(ui.style()).show(ui, |ui| {
-                                        if ui.button("Show information").clicked() {
-                                            menu_action = Some((x, y, false));
-                                            keep = false;
-                                        }
-                                        if ui.button("Remove").clicked() {
-                                            menu_action = Some((x, y, true));
-                                            keep = false;
-                                        }
-                                    });
-                                });
-                                if !keep || (released && pointer.is_some_and(|p| !rect.expand(140.0).contains(p))) {
-                                    *menu = None;
-                                }
+                                menu_at = Some(rect.right_top());
                             }
                         }
                         if dragged != u32::MAX && released && pointer.is_some_and(|p| rect.contains(p)) {
@@ -224,6 +209,19 @@ impl KnowledgeWindow {
             && let Some(e) = self.cells.get(&cell)
         {
             pages.push(format!("itemref://{}/{}/{}", e.low, e.high, e.quality));
+        }
+        // (FUN_100cf89e's menu: text.mdb 10001's "Look@Item" and "DeleteReference")
+        if let Some(at) = menu_at {
+            let text = |name: &str, own: &str| crate::gui::xml::ldb_named(10001, name, own);
+            self.popup = Some(crate::chrome::menu_at(ctx, at, &[(text("Look@Item", "Show information"), true), (text("DeleteReference", "Remove"), true)]));
+        }
+        if let Some(k) = crate::chrome::menu(ctx, palette, "knowledge-menu", &mut self.popup)
+            && let Some((x, y)) = self.menu
+        {
+            menu_action = Some((x, y, k == 1));
+        }
+        if self.popup.is_none() {
+            self.menu = None;
         }
         if let Some((x, y, remove)) = menu_action {
             if remove {

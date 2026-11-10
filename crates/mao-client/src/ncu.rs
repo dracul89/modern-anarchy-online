@@ -92,12 +92,14 @@ pub struct NcuWindow {
     views: Option<(crate::gui::view::Tree, crate::gui::view::Id, crate::gui::view::Id)>,
     /// The info page asked for (for the info view).
     pub info_url: Option<String>,
+    /// The program whose menu is up, and the menu (`PopupMenu_c`'s look).
     menu: Option<(u32, egui::Pos2)>,
+    popup: Option<crate::gui::popup::PopupMenu>,
 }
 
 impl Default for NcuWindow {
     fn default() -> NcuWindow {
-        NcuWindow { open: false, textures: HashMap::new(), views: None, info_url: None, menu: None }
+        NcuWindow { open: false, textures: HashMap::new(), views: None, info_url: None, menu: None, popup: None }
     }
 }
 
@@ -168,6 +170,7 @@ impl NcuWindow {
             && ctx.input(|i| i.pointer.secondary_clicked())
         {
             self.menu = Some((id, at));
+            self.popup = Some(crate::chrome::menu_at(ctx, at, &[("Cancel this nano".to_string(), true)]));
         }
         // (a nano's tip: its name, time left, description and what it changes)
         if let Some((id, at)) = hovered.filter(|_| self.menu.is_none())
@@ -194,24 +197,13 @@ impl NcuWindow {
                 });
             });
         }
-        if let Some((id, at)) = self.menu
-            && let Some(nano) = nanos.iter().find(|n| n.id == id)
+        if crate::chrome::menu(ctx, palette, "nano-menu", &mut self.popup).is_some()
+            && let Some((id, _)) = self.menu
+            && nanos.iter().any(|n| n.id == id)
         {
-            let mut keep = true;
-            let shown = egui::Area::new(egui::Id::unique("nano-menu")).order(egui::Order::Foreground).fixed_pos(at).show(ctx, |ui| {
-                egui::Frame::popup(ui.style()).show(ui, |ui| {
-                    ui.label(egui::RichText::new(&nano.name).strong());
-                    if crate::chrome::button(ui, palette, "Cancel this nano", true).clicked() {
-                        cancel = Some(nano.id);
-                        keep = false;
-                    }
-                });
-            });
-            let elsewhere = ctx.input(|i| i.pointer.any_pressed()) && ctx.input(|i| i.pointer.interact_pos()).is_some_and(|p| !shown.response.rect.contains(p));
-            if !keep || elsewhere {
-                self.menu = None;
-            }
-        } else {
+            cancel = Some(id);
+        }
+        if self.popup.is_none() {
             self.menu = None;
         }
         self.open = open;

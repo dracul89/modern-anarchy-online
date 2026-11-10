@@ -419,7 +419,12 @@ right-click menu as the original's `PopupMenu_c` (`gui::popup`): the friends and
 look now reads the game's `TextColors.xml` too, so named colours in the game's own texts (`yellow`, `CCInfoHeader`)
 are drawn in it: before, only the themes had them.
 
-`mao-client ldb-text <game> <category> <name>...` prints the game's texts by the names the original asks for them with.
+`mao-client ldb-text <game> <category> <name or key>...` prints the game's texts by the names (or the numbers) the
+original asks for them with.
+
+The inventory's Shift+right-click menu (Info, Use, Delete: the client's own entries), the NCU window's cancel entry
+and the knowledge board's two (the original's `Look@Item` and `DeleteReference` texts) are drawn as the original's
+popup too, and deleting an item asks in a message box (`delete-item`) where the menu's entry had to be clicked twice.
 
 ## Nano programs window (`Ctrl+N`)
 

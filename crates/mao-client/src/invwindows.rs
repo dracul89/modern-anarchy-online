@@ -92,6 +92,7 @@ pub struct ItemWindows {
     dragging: Option<u32>,
     /// The item whose menu is open, and the place awaiting a second click to be destroyed.
     menu: Option<(u32, egui::Pos2)>,
+    popup: Option<crate::gui::popup::PopupMenu>,
     confirm: Option<u32>,
 }
 
@@ -350,6 +351,7 @@ impl ItemWindows {
         {
             if ctx.input(|i| i.modifiers.shift) {
                 self.menu = Some((*slot, at));
+                self.popup = Some(crate::chrome::menu_at(ctx, at, &[("Info".to_string(), true), ("Use".to_string(), true), ("Delete".to_string(), true)]));
                 self.confirm = None;
             } else {
                 events.uses.push(*slot);
@@ -371,41 +373,33 @@ impl ItemWindows {
         {
             ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::unique("dragged-item"))).image(icon.id(), egui::Rect::from_center_size(at, egui::vec2(40.0, 40.0)), egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)), egui::Color32::from_white_alpha(200));
         }
-        // (an item's menu: the client's own)
-        if let Some((slot, at)) = self.menu
+        // (an item's menu: the client's own entries, in the original's popup; deleting asks first)
+        if let Some(k) = crate::chrome::menu(ctx, palette, "item-menu", &mut self.popup)
+            && let Some((slot, _)) = self.menu
             && let Some(item) = by_slot.get(&slot)
         {
-            let mut keep = true;
-            let sure = self.confirm == Some(slot);
-            let shown = egui::Area::new(egui::Id::unique("item-menu")).order(egui::Order::Foreground).fixed_pos(at).show(ctx, |ui| {
-                egui::Frame::popup(ui.style()).show(ui, |ui| {
-                    ui.label(egui::RichText::new(&item.name).strong());
-                    if ui.button("Info").clicked() {
-                        events.infos.push(format!("itemref://{}/{}/{}", item.item_id, item.high_id, item.quality));
-                        keep = false;
-                    }
-                    if ui.button("Use").clicked() {
-                        events.uses.push(slot);
-                        keep = false;
-                    }
-                    if ui.button(if sure { "Really delete?" } else { "Delete" }).clicked() {
-                        if sure {
-                            events.deletes.push(slot);
-                            self.confirm = None;
-                            keep = false;
-                        } else {
-                            self.confirm = Some(slot);
-                        }
-                    }
-                });
-            });
-            // (closed by a choice, Escape, or a click elsewhere)
-            let elsewhere = ctx.input(|i| i.pointer.any_pressed()) && pointer.is_some_and(|p| !shown.response.rect.contains(p));
-            if !keep || elsewhere || ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-                self.menu = None;
+            match k {
+                0 => events.infos.push(format!("itemref://{}/{}/{}", item.item_id, item.high_id, item.quality)),
+                1 => events.uses.push(slot),
+                _ => self.confirm = Some(slot),
             }
-        } else {
+        }
+        if self.popup.is_none() {
             self.menu = None;
+        }
+        if let Some(slot) = self.confirm {
+            match by_slot.get(&slot) {
+                Some(item) => {
+                    let question = format!("Destroy <font color=yellow>{}</font>? It cannot be brought back.", item.name);
+                    if let Some(yes) = crate::chrome::question(ctx, palette, "delete-item", &crate::gui::xml::ldb_named(10001, "Warning", "Warning"), &question) {
+                        if yes {
+                            events.deletes.push(slot);
+                        }
+                        self.confirm = None;
+                    }
+                }
+                None => self.confirm = None,
+            }
         }
         if released {
             self.dragging = None;
