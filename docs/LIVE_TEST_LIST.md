@@ -7,6 +7,43 @@ in `CLIENT_UI.md` it came from).
 Needs: **1** = one character is enough, **2** = a second character on line, **org** = a character in an organization,
 **team** = two characters teamed.
 
+## Tried live on 2026-11-10 (scripted, one character, nobody else involved)
+
+Run with the test script's new interface steps (`MAO_CAMERA_SCRIPT` with `open@`, `rclick@x;y`, `click@x;y`,
+`type@<line>`, `key@Enter`: see `CLIENT_UI.md`, "Scripted clicks"). Nothing was sent to other players and nothing
+irreversible was done. The numbers are the items below.
+
+**Passed**
+- 1: the chat window's menu, in the original's order.
+- 4, 6 (in part), 8: `/ch` and `/g` with an unknown group, `/ch system` (read-only) and `/t` outside a team answer
+  with the game's own texts; `/ch vic` sets the output group without a word.
+- 10: New Window opens a second chat window with its own input bar; "Move into the window of Default Window" makes
+  it a third tab.
+- 13: Show timestamps.
+- 18 (opens only): the chat configuration window with the windows' list and the channel tree.
+- 22 (menu only): a friend's menu (Befriend, Invite, Delete, Ignore).
+- 29: the stats window's menu; Experience turns its bar on.
+- 34: the NCU window's "List Mode" (as a page of the right-edge column).
+- 36: `/setoption ShowNanoTargetNCU on` and `/selectself` show "Nano Target NCU" with one's own nanos.
+- 40 (in part): the nano window's menu and its Auto Arrange list; a school's button shows its programs.
+- 42 (icons only): the perk window's status icons and idle timer.
+
+**Found and fixed**
+- The Action window's tiles were blank unless it was opened with its key (its pictures were loaded on the key press
+  only): now loaded whenever it is open.
+- The control center's strip said "NCU 0/51" while the NCU window said 20: the strip now sums the running nanos as
+  the window does.
+- **The character's main chat tab showed no system lines, speech or tells.** The original's config for a window
+  that takes new channels by itself lists the groups it does NOT show (GUI.dll FUN_1009e379);
+  the reader took the list for the ones shown, so "Default Window" showed only fight messages and Other Pets. Fixed
+  (`chatgroups::parse_config`); the built-in groups are also read by their numbers now.
+- A channel the chat server announced counted as a group only once a line arrived in it, so the menus showed it
+  unticked: now from the announcement.
+
+**Not reached this time**: ticking channels on and off (2), sending to a channel (3, 5, 7), typing in a second
+window's bar (12), the other Visual switches (14 to 17), the configuration's buttons (18), friends' actions (22 to
+26), bags (43 to 47), nano hide and list sorting (39, 40), and everything that needs a second character.
+
 ## Do not test without deciding first
 
 - **Skill reset** (skills window, "Reset" / "Reset all"; `n3::reset_skill`, action `0x9a`). The message was built from

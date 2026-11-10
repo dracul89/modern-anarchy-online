@@ -394,6 +394,14 @@ fn value<'a>(xml: &'a str, name: &str) -> Option<&'a str> {
 }
 
 /// The strings of an array of the config (`<Array name="..."> <String value='&quot;...&quot;' /> ...`).
+/// The numbers of an `<Array name=...>` of `<Int64 value="...">`.
+fn numbers(xml: &str, name: &str) -> Vec<i64> {
+    let Some(at) = xml.find(&format!("<Array name=\"{name}\"")) else { return Vec::new() };
+    let body = &xml[at..];
+    let body = &body[..body.find("</Array>").unwrap_or(body.len())];
+    body.split("<Int64 value=\"").skip(1).filter_map(|s| s.split_once('"')?.0.parse().ok()).collect()
+}
+
 fn strings(xml: &str, name: &str) -> Vec<String> {
     let Some(at) = xml.find(&format!("<Array name=\"{name}\"")) else { return Vec::new() };
     let body = &xml[at..];
@@ -405,10 +413,17 @@ fn strings(xml: &str, name: &str) -> Vec<String> {
 pub fn parse_config(xml: &str) -> Option<(Pane, i64, bool)> {
     // (`name` is the window's own, the tab's title; `window_name` the frame the tabs share, "Window1")
     let name = value(xml, "name").or_else(|| value(xml, "window_name"))?.to_string();
-    let selected: BTreeSet<String> = strings(xml, "selected_group_names").into_iter().collect();
-    let mut known: BTreeSet<String> = BUILTIN.iter().map(|g| g.1.to_string()).collect();
-    known.extend(selected.iter().cloned());
     let flag = |n: &str| value(xml, n) == Some("true");
+    // (the groups the file lists, by name and, the client's own, by number too)
+    let mut listed: BTreeSet<String> = strings(xml, "selected_group_names").into_iter().collect();
+    listed.extend(numbers(xml, "selected_group_ids").into_iter().filter_map(|id| name_of(id as u32)).map(str::to_string));
+    let mut known: BTreeSet<String> = BUILTIN.iter().map(|g| g.1.to_string()).collect();
+    known.extend(listed.iter().cloned());
+    // (FUN_1009e379: every group starts as the window's autosubscribe flag says and the listed ones are the others, so
+    // a window that takes new channels by itself lists the groups it does NOT show: the default window's list is Other
+    // Pets and the fight's groups, and it shows the system's lines, speech, tells and every channel)
+    let auto = flag("is_autosubscribe_window");
+    let selected: BTreeSet<String> = if auto { known.difference(&listed).cloned().collect() } else { listed };
     let frame = value(xml, "window_name").unwrap_or(FIRST_FRAME).to_string();
     let hundredths = |n: &str, or: u8| value(xml, n).and_then(|v| v.parse::<f32>().ok()).map_or(or, |v| (v.clamp(0.0, 1.0) * 100.0).round() as u8);
     let look = Look {
@@ -419,7 +434,7 @@ pub fn parse_config(xml: &str) -> Option<(Pane, i64, bool)> {
         fade: flag("is_message_fading_enabled"),
         layer: 0,
     };
-    let pane = Pane { name, frame, selected, known, auto: flag("is_autosubscribe_window"), output: value(xml, "output_group").unwrap_or("").to_string(), timestamps: flag("show_timestamps"), look };
+    let pane = Pane { name, frame, selected, known, auto, output: value(xml, "output_group").unwrap_or("").to_string(), timestamps: flag("show_timestamps"), look };
     Some((pane, value(xml, "tab_index").and_then(|v| v.parse().ok()).unwrap_or(0), flag("is_startup_window")))
 }
 
@@ -561,6 +576,13 @@ mod tests {
 </Archive>"#;
         let (mut pane, tab, startup) = parse_config(xml).unwrap();
         assert_eq!((pane.name.as_str(), pane.frame.as_str(), pane.output.as_str(), pane.timestamps, pane.auto, tab, startup), ("Fights", "Window1", "Clan OOC", true, false, 2, true));
+        // (a window that takes new channels by itself lists what it does not show: the default window's file names
+        // Other Pets and a fight group, by name and by number, and the window shows the rest, speech and tells among them)
+        let default = r#"<Archive code="0"><Array name="selected_group_ids"><Int64 value="1090519041" /><Int64 value="1107296258" /></Array><Array name="selected_group_names"><String value='&quot;Other Pets&quot;' /><String value='&quot;Clan OOC&quot;' /></Array><String name="name" value='&quot;Default Window&quot;' /><Bool name="is_autosubscribe_window" value="true" /></Archive>"#;
+        let (shown, _, _) = parse_config(default).unwrap();
+        assert!(shown.auto && shown.selected.contains(SYSTEM) && shown.selected.contains(VICINITY) && shown.selected.contains(TELLS));
+        assert!(!shown.selected.contains("Other Pets") && !shown.selected.contains("Clan OOC") && !shown.selected.contains(name_of(0x4200_0002).unwrap()));
+        assert!(shown.known.contains("Clan OOC") && shown.known.contains("Other Pets"));
         // (a config that says nothing of the look has the original's; one that does is read)
         assert_eq!(pane.look, Look::default());
         let styled = r#"<Archive code="0"><String name="name" value="Side" /><Int32 name="visual_mode" value="2" /><Float name="window_transparency_active" value="0.500000" /><Float name="window_transparency_inactive" value="0.100000" /><Bool name="is_textinput_enabled" value="false" /><Bool name="hide_input_when_inactive" value="true" /><Bool name="is_message_fading_enabled" value="true" /></Archive>"#;

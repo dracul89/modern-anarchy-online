@@ -272,6 +272,8 @@ pub struct Ui {
     pub whompah_open: bool,
     /// The windows last written to `open.ini`.
     open_seen: Vec<&'static str>,
+    /// What a test script does with the interface (`script`): the events of each coming frame, oldest first.
+    injected: std::collections::VecDeque<Vec<egui::Event>>,
     pub mission: crate::mission::MissionWindow,
     pub mail: crate::mailbox::MailWindow,
     pub shop: crate::shop::ShopWindow,
@@ -529,7 +531,7 @@ impl Ui {
         crate::skin::configure(&ctx, crate::skin::dirs(&settings.gui_dir, &settings.theme, &settings.aou_mod));
         let state = egui_winit::State::new(ctx.clone(), egui::ViewportId::ROOT, window, Some(window.scale_factor() as f32), window.theme(), None);
         let renderer = egui_wgpu::Renderer::new(&gpu.device, format, egui_wgpu::RendererOptions::default());
-        let mut ui = Ui { ctx, state, renderer, open_seen: Vec::new(), options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), shop: Default::default(), npc_chat: Default::default(), mission_log: Default::default(), planet: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), team: Default::default(), pets: Default::default(), tradeskill: Default::default(), research: Default::default(), faction: Default::default(), raid: Default::default(), lft: Default::default(), knowledge: Default::default(), ncu: Default::default(), target_ncu: [crate::ncu::TargetNcu::new(false), crate::ncu::TargetNcu::new(true)], friends: Default::default(), programs: Default::default(), perks: Default::default(), help: Default::default(), tips: Default::default(), info: Default::default(), browser: Default::default(), market_send: Default::default(), control_center: None, option_panel: Default::default(), loot: Default::default(), bag_windows: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0, perf: Default::default() };
+        let mut ui = Ui { ctx, state, renderer, open_seen: Vec::new(), injected: Default::default(), options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), shop: Default::default(), npc_chat: Default::default(), mission_log: Default::default(), planet: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), team: Default::default(), pets: Default::default(), tradeskill: Default::default(), research: Default::default(), faction: Default::default(), raid: Default::default(), lft: Default::default(), knowledge: Default::default(), ncu: Default::default(), target_ncu: [crate::ncu::TargetNcu::new(false), crate::ncu::TargetNcu::new(true)], friends: Default::default(), programs: Default::default(), perks: Default::default(), help: Default::default(), tips: Default::default(), info: Default::default(), browser: Default::default(), market_send: Default::default(), control_center: None, option_panel: Default::default(), loot: Default::default(), bag_windows: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0, perf: Default::default() };
         // (the windows the player left open come back open; the first time, the planet map, open in the original's default
         // layout at the top left)
         for name in crate::layout::load_open().unwrap_or_else(|| vec!["map".to_string()]) {
@@ -655,6 +657,57 @@ impl Ui {
         }
     }
 
+    /// A step of a test script (`MAO_CAMERA_SCRIPT`'s `<what>@<argument>`), done to the interface as the mouse and the
+    /// keys would: `open@<window>` and `close@<window>`; `click@<x>;<y>`, `rclick@...`, `dclick@...` and `move@...` at a
+    /// place given in the screenshot's pixels; `type@<line>` into the chat's input (then `key@Enter` sends it);
+    /// `text@<letters>` into whatever takes the keys; `key@<Enter|Escape|Tab|Up|Down|Backspace>`. False for a step it
+    /// does not know.
+    pub fn script(&mut self, step: &str) -> bool {
+        let Some((what, argument)) = step.split_once('@') else { return false };
+        let at = || -> Option<egui::Pos2> {
+            let (x, y) = argument.split_once(';')?;
+            let k = self.ctx.pixels_per_point();
+            Some(egui::pos2(x.trim().parse::<f32>().ok()? / k, y.trim().parse::<f32>().ok()? / k))
+        };
+        let press = |pos: egui::Pos2, button: egui::PointerButton, pressed: bool| egui::Event::PointerButton { pos, button, pressed, modifiers: egui::Modifiers::NONE };
+        match what {
+            "open" | "close" => return self.set_window(argument, what == "open"),
+            "move" | "click" | "rclick" | "dclick" => {
+                let Some(pos) = at() else { return false };
+                let button = if what == "rclick" { egui::PointerButton::Secondary } else { egui::PointerButton::Primary };
+                // (the pointer comes to rest a frame before the button goes down, and each press and release has its frame)
+                self.injected.push_back(vec![egui::Event::PointerMoved(pos)]);
+                self.injected.push_back(vec![egui::Event::PointerMoved(pos)]);
+                for _ in 0..match what {
+                    "move" => 0,
+                    "dclick" => 2,
+                    _ => 1,
+                } {
+                    self.injected.push_back(vec![press(pos, button, true)]);
+                    self.injected.push_back(vec![press(pos, button, false)]);
+                }
+            }
+            "type" => self.chat.type_text(argument),
+            "text" => self.injected.push_back(vec![egui::Event::Text(argument.to_string())]),
+            "key" => {
+                let key = match argument {
+                    "Enter" => egui::Key::Enter,
+                    "Escape" => egui::Key::Escape,
+                    "Tab" => egui::Key::Tab,
+                    "Up" => egui::Key::ArrowUp,
+                    "Down" => egui::Key::ArrowDown,
+                    "Backspace" => egui::Key::Backspace,
+                    _ => return false,
+                };
+                for pressed in [true, false] {
+                    self.injected.push_back(vec![egui::Event::Key { key, physical_key: None, pressed, repeat: false, modifiers: egui::Modifiers::NONE }]);
+                }
+            }
+            _ => return false,
+        }
+        true
+    }
+
     /// Shows or hides a window by name (`/open`, `/close`); an empty name with `open` false hides them all. False for an unknown name.
     pub fn set_window(&mut self, name: &str, open: bool) -> bool {
         let name = name.trim().to_lowercase();
@@ -764,7 +817,11 @@ impl Ui {
         let states: Vec<&str> = ["inventory", "stats", "ncu", "programs", "actions", "missions", "friends", "map"].into_iter().filter(|n| self.window_open(n)).collect();
         let cc_open: Vec<(&str, bool)> = crate::gui::controlcenter::WINDOWS.iter().map(|(_, n)| (*n, if *n == "options" { self.options_open } else { self.window_open(n) })).collect();
         let mut menu_click: Option<&'static str> = None;
-        let raw = self.state.take_egui_input(window);
+        let mut raw = self.state.take_egui_input(window);
+        // (a test script's clicks and keys, a frame's worth at a time)
+        if let Some(events) = self.injected.pop_front() {
+            raw.events.extend(events);
+        }
         let mut requests = Requests::default();
         let (options_open, rebinding, fps, palette, themes) = (&mut self.options_open, &mut self.rebinding, self.fps, &self.palette, &self.themes);
         let (gear_open, gear, whompah_open) = (&mut self.gear_open, &mut self.gear, &mut self.whompah_open);
@@ -822,7 +879,18 @@ impl Ui {
                     *options_open = true;
                 }
                 // (the wings, bars and buttons where the skin's ControlCenter.xml docks them)
-                let clicks = crate::vitals::show_docked(&ctx, hud.camera_yaw, &hud.stats, &hud.stat_parts, palette, &cc.docks);
+                // (the NCU in use: the server does not send stat 180 for one's own character, so, as the NCU window does, the
+                // running nanos' costs are summed for the strip)
+                let with_ncu;
+                let stats = if hud.stats.contains_key(&180) || hud.nanos.is_empty() {
+                    &hud.stats
+                } else {
+                    let mut stats = hud.stats.clone();
+                    stats.insert(180, hud.nanos.iter().map(|n| i64::from(n.cost)).sum());
+                    with_ncu = stats;
+                    &with_ncu
+                };
+                let clicks = crate::vitals::show_docked(&ctx, hud.camera_yaw, stats, &hud.stat_parts, palette, &cc.docks);
                 if clicks.rollup {
                     cc.toggle_rollup();
                 }

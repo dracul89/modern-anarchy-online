@@ -484,6 +484,19 @@ files; nothing visible changes for the characters of the captures, and it was **
 actions' places kept (`item_position_map`), the toggles' other names (sit for stand, run for walk), and the
 profession's own action (numbers 138 and 139, FUN_1004326f).
 
+**Scripted clicks, and what the first scripted live run found (2026-11-10, `ui.rs::Ui::script`, `viewer.rs`).**
+`MAO_CAMERA_SCRIPT` steps with an `@` act on the interface as the mouse and keys would, so the windows can be tried
+live without anyone at the keyboard: `open@<window>`, `close@<window>` (`close@` alone: all), `click@<x>;<y>`,
+`rclick@...`, `dclick@...`, `move@...` (the place in the screenshot's pixels), `type@<chat line>` then `key@Enter`,
+`text@<letters>`, `key@<Enter|Escape|Tab|Up|Down|Backspace>`. A press and its release each get a frame. Example:
+`14:open@chat,15:rclick@3600;1150,16.2:click@3700;1388,18:screenshot`. The run found four things, all fixed: the
+Action window's pictures were loaded only on its key press (blank tiles when opened by `/open`, the control center
+or kept open); the control center's NCU figure did not sum the running nanos as the NCU window does; the original's
+chat config was misread for a window that takes new channels by itself (FUN_1009e379 sets every group to the
+window's autosubscribe flag and the listed ones to the opposite, so such a window lists what it does not show: the
+main tab had been showing only the fight); and an announced channel became a group only with its first line. What
+passed and what was not reached is in `LIVE_TEST_LIST.md`.
+
 **Stats window as the original's (2026-11-10, `stats.rs`).** Read from `StatView_c` (FUN_1008057d): the name and the
 level on a line, a white word and its value in 0xbbbbff; the bars, each the skin's `GFX_GUI_HOR_BAR_EMPTY` filled with
 a coloured one to the value's share and labelled "value / max" (health red, nano blue; experience yellow, alien

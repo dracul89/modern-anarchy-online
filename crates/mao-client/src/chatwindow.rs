@@ -947,6 +947,13 @@ impl ChatWindow {
         let screen = ctx.content_rect();
         let mut open = self.open;
         self.load_panes();
+        // (a channel the chat server has told of is a group from then on, not only once a line comes in it: a window
+        // that takes new channels by itself shows it as selected in its lists at once, as the original's does)
+        for group in chatgroups::server_groups() {
+            if self.panes.iter().any(|p| !p.known.contains(&group)) {
+                self.meet(&group);
+            }
+        }
         let mut menu_at: Option<(egui::Pos2, usize)> = None;
         // each frame of chat windows is a window on screen with its tabs, the shown one's lines and its input bar: the
         // first the chat window itself; another, closed, puts its tabs back into the first

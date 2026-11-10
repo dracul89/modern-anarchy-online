@@ -652,6 +652,8 @@ struct App {
     held: std::collections::HashSet<Action>,
     /// `MAO_CAMERA_SCRIPT=<seconds>:<action>[/<seconds held>],…`: keys pressed by themselves that many seconds in (`screenshot`,
     /// `log` for the camera's numbers, or an action's name from `settings::ACTIONS`), for testing the camera without a keyboard.
+    /// A step with an `@` is one for the interface (`Ui::script`: `open@skills`, `rclick@812;640`, `type@/ch clan`,
+    /// `key@Enter`): the windows clicked and typed in without a mouse.
     camera_script: Vec<(f32, String)>,
     script_clock: std::time::Instant,
     script_held: Vec<(Action, std::time::Instant)>,
@@ -1723,6 +1725,13 @@ impl ApplicationHandler for App {
                         let now = std::time::Instant::now();
                         while self.camera_script.first().is_some_and(|(t, _)| self.script_clock.elapsed().as_secs_f32() >= *t) {
                             let (_, what) = self.camera_script.remove(0);
+                            // (a step for the interface: its argument may hold a slash, as a chat command does)
+                            if what.contains('@') {
+                                if !w.ui.as_mut().is_some_and(|ui| ui.script(&what)) {
+                                    eprintln!("camera script: no step {what:?}");
+                                }
+                                continue;
+                            }
                             let (name, secs) = what.split_once('/').map_or((what.as_str(), 1.0), |(n, s)| (n, s.parse().unwrap_or(1.0)));
                             match name {
                                 "screenshot" => self.screenshot = true,
@@ -2304,6 +2313,10 @@ impl ApplicationHandler for App {
                         for t in &mut self.hud.nameplates {
                             t.hidden = z.line(eye, [t.at[0], t.at[2], t.at[1]]).is_some();
                         }
+                    }
+                    // (the Action window's pictures, however it was opened: its key, `/open`, the control center, or kept open)
+                    if ui.actions.open {
+                        ui.actions.load_icons(&self.textures);
                     }
                     let (frame, mut requests) = ui.run(&w.window, &mut self.settings, &self.hud, &project);
                     prof_t = crate::prof::lap("ui", prof_t);
