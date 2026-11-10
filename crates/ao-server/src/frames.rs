@@ -144,9 +144,11 @@ pub fn playfield(source: u32, destination: u32, instance: u32, position: [f32; 3
     n3(source, destination, 0x5f4b1a39, (0x9c50, instance), &data)
 }
 
-/// The server clock (0x5f52412e): seconds into the 27-hour day, the day period, the day count, the server time.
+/// The server clock (0x5f52412e): the header byte the live server sends (1), then the seconds into the 27-hour day, the day
+/// period, the day count and the server time.
 pub fn game_time(source: u32, destination: u32, seconds: f32, period: u32, days: u32, server_time: u32) -> Frame {
     let mut data = Vec::with_capacity(20);
+    data.push(1);
     data.extend_from_slice(&seconds.to_be_bytes());
     data.extend_from_slice(&period.to_be_bytes());
     data.extend_from_slice(&days.to_be_bytes());
