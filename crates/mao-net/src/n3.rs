@@ -254,6 +254,76 @@ pub fn info_packet(data: &[u8]) -> Option<Info> {
     Some(Info { monster: kind == 80, profession: *data.get(3)?, level: *data.get(4)?, health: word(9)?, max_health: word(13)? })
 }
 
+/// What a character's info packet says beyond [`Info`]: the bytes after the flag and the type are a flag, the
+/// profession, the level, the title level and the look's profession; then the side's experience (a short), the health
+/// and its maximum and the breed's hostility (words); for a member of an organization (types 65, 67 and 71) the
+/// organization's id; the first name, the last name and the legacy title (each a `u16` length and the text) and a
+/// short; for a member the rank's name; then (types 64 and 65; the others list their towers first, which is not read)
+/// the city's playfield and the records: invaders killed, killed by invaders, the alien level, duels won and lost, a
+/// word, and the solo and team kills. The layout of a member's packet is the schema's, not yet seen in a capture.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CharacterInfo {
+    pub profession: u8,
+    pub level: u8,
+    pub title_level: u8,
+    pub first: String,
+    pub last: String,
+    pub legacy: String,
+    pub rank: Option<String>,
+    pub invaders_killed: u32,
+    pub killed_by_invaders: u32,
+    pub ai_level: u32,
+    pub duel_wins: u32,
+    pub duel_losses: u32,
+    pub solo_kills: u32,
+    pub team_kills: u32,
+}
+
+pub fn character_info(data: &[u8]) -> Option<CharacterInfo> {
+    fn word(data: &[u8], at: &mut usize) -> Option<u32> {
+        let v = u32::from_be_bytes(data.get(*at..*at + 4)?.try_into().ok()?);
+        *at += 4;
+        Some(v)
+    }
+    fn text(data: &[u8], at: &mut usize) -> Option<String> {
+        let n = u16::from_be_bytes(data.get(*at..*at + 2)?.try_into().ok()?) as usize;
+        let s = String::from_utf8_lossy(data.get(*at + 2..*at + 2 + n)?).trim_end_matches('\0').to_string();
+        *at += 2 + n;
+        Some(s)
+    }
+    let kind = *data.get(1)?;
+    if !matches!(kind, 64 | 65 | 67 | 71) {
+        return None;
+    }
+    let member = kind != 64;
+    let mut at = 21;
+    if member {
+        word(data, &mut at)?;
+    }
+    let (first, last, legacy) = (text(data, &mut at)?, text(data, &mut at)?, text(data, &mut at)?);
+    at += 2;
+    let rank = if member { Some(text(data, &mut at)?) } else { None };
+    let mut info = CharacterInfo { profession: *data.get(3)?, level: *data.get(4)?, title_level: *data.get(5)?, first, last, legacy, rank, ..Default::default() };
+    if matches!(kind, 64 | 65) {
+        at += 4;
+        let mut records = [0u32; 8];
+        for r in &mut records {
+            match word(data, &mut at) {
+                Some(v) => *r = v,
+                None => return Some(info),
+            }
+        }
+        info.invaders_killed = records[0];
+        info.killed_by_invaders = records[1];
+        info.ai_level = records[2];
+        info.duel_wins = records[3];
+        info.duel_losses = records[4];
+        info.solo_kills = records[6];
+        info.team_kills = records[7];
+    }
+    Some(info)
+}
+
 /// One worn item of an `Inspect` answer.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Inspected {
@@ -1533,6 +1603,33 @@ impl Message {
 #[cfg(test)]
 mod entity_tests {
     use super::*;
+
+    #[test]
+    fn a_characters_info_packet_is_read() {
+        // (a character of no organization: the header, then names, the city and the records)
+        let mut data = vec![0, 64, 1, 4, 27, 3, 4, 0, 0];
+        data.extend([0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 0, 0]);
+        for name in ["Zachary", "", "Old hand"] {
+            data.extend((name.len() as u16).to_be_bytes());
+            data.extend(name.bytes());
+        }
+        data.extend([0, 0]);
+        data.extend(0u32.to_be_bytes());
+        for v in [7u32, 1, 12, 5, 2, 0, 9, 4, 0, 0, 0] {
+            data.extend(v.to_be_bytes());
+        }
+        let info = character_info(&data).unwrap();
+        assert_eq!((info.profession, info.level, info.title_level), (4, 27, 3));
+        assert_eq!((info.first.as_str(), info.last.as_str(), info.legacy.as_str(), info.rank.clone()), ("Zachary", "", "Old hand", None));
+        assert_eq!((info.invaders_killed, info.killed_by_invaders, info.ai_level, info.duel_wins, info.duel_losses, info.solo_kills, info.team_kills), (7, 1, 12, 5, 2, 9, 4));
+        assert_eq!(info_packet(&data).map(|i| (i.health, i.max_health)), Some((512, 768)));
+        // (a monster's is not a character's; a short one keeps what was read)
+        data[1] = 80;
+        assert_eq!(character_info(&data), None);
+        data[1] = 64;
+        data.truncate(50);
+        assert_eq!(character_info(&data).map(|i| (i.first, i.invaders_killed)), Some(("Zachary".to_string(), 0)));
+    }
 
     /// A `GameTime` message from a capture of the original (2026-11-08 18:11): 2:54 into the game's day, period 3,
     /// day 276880, the server's clock five seconds behind the capture's.

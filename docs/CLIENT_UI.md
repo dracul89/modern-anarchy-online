@@ -319,6 +319,23 @@ window had these rows already; the bars were the client's plain ones and the col
 of the original's numeric gfx ids come from AFCM.dll's table (scratch tool `gfxid.py`: 0xda blue, 0xdb empty, 0xdc
 green, 0xdd red, 0xde yellow, 0xdf purple).
 
+**A character's info page as the original's (2026-11-10, `charinfo.rs`).** `/inspect` showed a page of the client's
+own (name, level, profession, health). It is now laid out as GUI.dll's FUN_1003482c: the headline with the first name,
+the name in quotes and the last name, then Breed, Gender, the title level, Profession, Level (with the shadow level
+beside it from 201), invaders killed and killed by invaders, the defender rank, the alignment (the side's name from
+text.mdb 2005), the organization and the rank in it, the duel wins and losses and the solo and team kills, and for
+another character the "Inspect Equipment" link; the labels are text.mdb 506's by name. The names, title level and
+records come from the info packet, read by hand now (`n3::character_info`: the schema's reading of this packet is
+misaligned, its conditions on the type are not carried out); breed, gender and side from the character's entity,
+the organization's name from its org packet. The layout of an organization member's packet (types 65, 67, 71) is the
+schema's and has not been in a capture; the types with towers stop after the rank. Not shown: the profession title's
+and the defender rank's names, the side experience bonus, the city, the PvP ranks, and the own character's tokens,
+veteran points and specializations. Not tried live.
+
+The markup reader now decodes the character entities Utils.dll's reader knows (`&nbsp;`, `&quot;`, `&gt;`, `&lt;`,
+`&amp;`): the pages the original builds use them (`&nbsp;` between the level and the shadow level, in the mission's
+time left).
+
 ## 4l. Action window (`K`) and the map (`O`)
 
 **Actions.** The catalogue is what the running original client reports (`docs/GAME_MECHANICS.md`): 3 weapon attacks, 12 character actions, 35 perks, 63 social ids with 9 dances, each tile with the original's `action_*` icon (perks get a `perk_*` family by name, a guess). Click a tile or drag it onto a hotbar slot (the hotbar file now stores `special` and `social` entries). Doing one sends Stand, Sneak, Search, Reload and Start Combat; the rest (the weapon attacks, Brawl, Dimach, perks, emotes) say their network message is not captured yet. Preview: `MAO_UI_PREVIEW=actions`.

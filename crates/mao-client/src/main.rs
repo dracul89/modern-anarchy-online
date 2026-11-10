@@ -36,6 +36,7 @@ mod planetwindow;
 mod screenshot;
 mod prof;
 mod vehicle;
+mod charinfo;
 mod chat_commands;
 mod chatgroups;
 mod chatwindow;

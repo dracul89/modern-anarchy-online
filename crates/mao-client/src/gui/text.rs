@@ -312,6 +312,15 @@ pub fn parse(text: &str, named: &dyn Fn(&str) -> Option<u32>) -> Vec<Item> {
                 }
             }
         }
+        // (the character entities Utils.dll's text reader knows: a space that is not a break, a quote, the angle
+        // brackets and the ampersand)
+        if bytes[i] == b'&'
+            && let Some((name, c)) = ENTITIES.iter().find(|(name, _)| text[i + 1..].starts_with(name))
+        {
+            text_buf.push(*c);
+            i += 1 + name.len();
+            continue;
+        }
         let c = text[i..].chars().next().unwrap_or('?');
         text_buf.push(c);
         i += c.len_utf8();
@@ -319,6 +328,9 @@ pub fn parse(text: &str, named: &dyn Fn(&str) -> Option<u32>) -> Vec<Item> {
     flush(&mut text_buf, &mut out, &style, title);
     out
 }
+
+/// The character entities of the markup (Utils.dll's table: `nbsp`, `quot`, `gt`, `lt`, `amp`), each with its `;`.
+const ENTITIES: [(&str, char); 5] = [("nbsp;", ' '), ("quot;", '"'), ("gt;", '>'), ("lt;", '<'), ("amp;", '&')];
 
 /// A piece of a word in one style.
 #[derive(Clone, Debug, PartialEq)]
@@ -539,6 +551,13 @@ pub fn preferred(words: &[Word], feature: u32, default_height: f32, given: Optio
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn character_entities_are_read() {
+        let items = parse("a&nbsp;b &lt;c&gt; &amp; &quot;d&quot; &other;", &|_| None);
+        let text: String = items.iter().filter_map(|i| if let Item::Text(t, _) = i { Some(t.as_str()) } else { None }).collect();
+        assert_eq!(text, "a b <c> & \"d\" &other;");
+    }
 
     fn none(_: &str) -> Option<u32> {
         None

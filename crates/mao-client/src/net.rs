@@ -1809,11 +1809,35 @@ impl World {
                     };
                     self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, text.clone()));
                     // (and the info view on it, as the original's `charid://50000/<id>` page)
-                    let mut page = format!("<font color=#ffffff>{name}</font><br><br>");
-                    if !info.monster {
-                        page += &format!("Level: {}<br>Profession: {}<br>", info.level, crate::launcher::profession(info.profession as i32));
-                    }
-                    page += &format!("Health: {} / {}<br>", info.health, info.max_health);
+                    let page = match mao_net::n3::character_info(&m.data) {
+                        // (a character: the original's page, FUN_1003482c)
+                        Some(detail) => {
+                            let id = m.identity.1;
+                            let entity = self.infos.get(&id);
+                            crate::charinfo::page(&crate::charinfo::Character {
+                                name: name.clone(),
+                                first: detail.first,
+                                last: detail.last,
+                                breed: entity.map_or(0, |e| e.breed as i32),
+                                sex: entity.map_or(0, |e| e.sex as i32),
+                                profession: info.profession as i32,
+                                title_level: detail.title_level as i64,
+                                level: info.level as i64,
+                                side: entity.map(|e| e.side as i64),
+                                org: self.orgs.get(&id).cloned(),
+                                rank: detail.rank,
+                                invaders_killed: detail.invaders_killed as i64,
+                                killed_by_invaders: detail.killed_by_invaders as i64,
+                                ai_level: detail.ai_level as i64,
+                                duel_wins: detail.duel_wins as i64,
+                                duel_losses: detail.duel_losses as i64,
+                                solo_kills: detail.solo_kills as i64,
+                                team_kills: detail.team_kills as i64,
+                                own: id == self.own,
+                            })
+                        }
+                        None => format!("<font color=CCInfoHeadline>{name}</font><br><br>Health: {} / {}<br>", info.health, info.max_health),
+                    };
                     self.info_urls.push(format!("text://{page}"));
                 }
             }
