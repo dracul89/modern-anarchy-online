@@ -2,6 +2,17 @@
 //! (`actions_data.rs`) was read from the running original client: the special actions (weapon attacks, the basic
 //! character actions, perks) and the social actions with the dances among them (see `docs/GAME_MECHANICS.md`).
 //! A tile is clicked to do it or dragged onto a hotbar slot.
+//!
+//! How the original's list comes to be (Gamecode): every special action has a number and an item template that names
+//! and pictures it ([`TEMPLATES`], the table FUN_10042b17 fills). The character's own actions are added when the
+//! character is made (FUN_1004326f: use, pick up, start combat, sit or stand, walk, sneak, camp, crawl, search, each
+//! with the number it toggles to). The server's `SpecialAttackWeapon` message lists the character's special attacks
+//! (an item, a stat and a four-letter code each), and each whose stat is in the table is added with the character as
+//! its owner (FUN_1006b14c -> FUN_1006a166 -> FUN_10042f09): Dimach and Brawl in every capture, beside the plain
+//! attack (stat 100, which has no action). The perk actions come with the server's 0xb4 list (FUN_10043080). The
+//! weapon's own attacks in the dump taken from the running original (Burst, Fling Shot, Full Auto, owned by the
+//! weapon and at the head of the list) and Reload come some other way that was not traced: they are shown from the
+//! catalogue as before.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -61,6 +72,66 @@ fn perk_icon(name: &str) -> &'static str {
     } else {
         "perk_procs_1a.png"
     }
+}
+
+/// Each special action's number and the item template that names and pictures it (Gamecode FUN_10042b17). The
+/// numbers are character action codes (1 pick up, 3 use, 11 and 78 start and stop combat, 17 and 18 walk and run, 19
+/// and 79 sneak, 20 and 141 crawl, 76 and 77 sit and stand, 81 and 82 camp, 110 reload, 134 search) and the stats of
+/// the special attack skills (121 sneak attack, 142 brawl, 144 dimach, 146, 147 fast attack, 148 burst, 150 fling
+/// shot, 151 aimed shot, 167 full auto, 489).
+pub const TEMPLATES: &[(u32, u32)] = &[
+    (1, 0xc1aa), (3, 0xc1a3), (0xb, 0xc1a5), (0x4e, 0xc1ab), (0x11, 0xc1a2), (0x12, 0xc1a9), (0x13, 0xc1a7), (0x4f, 0x1412c), (0x4c, 0xc1a8),
+    (0x4d, 0xc1a6), (0x51, 0x14124), (0x52, 0x1412b), (0x86, 0x1d9d7), (0x97, 0x14127), (0x94, 0x14123), (0xa7, 0x14121), (0x96, 0x14120),
+    (0x8e, 0x14122), (0x90, 0x14125), (0x93, 0x14126), (0x79, 0x1e159), (0x92, 0x1f83a), (0x1e9, 0x32ba3), (0x14, 0x39c7d), (0x8d, 0x39c94),
+    (0x6e, 0x3bd0b),
+];
+
+/// The action's item template for a number, and the number for a template.
+pub fn template_of(number: u32) -> Option<u32> {
+    TEMPLATES.iter().find(|t| t.0 == number).map(|t| t.1)
+}
+
+pub fn number_of(template: u32) -> Option<u32> {
+    TEMPLATES.iter().find(|t| t.1 == template).map(|t| t.0)
+}
+
+/// The numbers the weapon's own attacks have: the catalogue's weapon actions, whose way into the original's list was
+/// not traced (they stay whatever the server lists).
+const WEAPON_ATTACKS: [u32; 3] = [148, 150, 167];
+
+/// Whether a catalogue action is shown, given the stats of the special attacks the server listed for the character
+/// (`None`: not told yet, everything shows): an action that is a listed special's (Dimach, Brawl) only when listed.
+pub fn shows(template: u32, listed: Option<&[u32]>) -> bool {
+    match number_of(template) {
+        Some(number) if number > 0x8d && !WEAPON_ATTACKS.contains(&number) => listed.is_none_or(|l| l.contains(&number)),
+        _ => true,
+    }
+}
+
+/// A special attack the server lists for the character whose stat has an action: the stat, the action's template
+/// and what the template says of it.
+#[derive(Clone)]
+pub struct Special {
+    pub stat: u32,
+    pub template: u32,
+    pub name: String,
+    pub description: String,
+    pub icon: Option<Arc<Icon>>,
+}
+
+/// The listed specials that have an action (FUN_10042f09: the stat must be in the table), described from the action's
+/// template.
+pub fn describe_specials(db: &mao_formats::resource::ResourceDatabase, textures: &crate::Textures, stats: &[u32]) -> Vec<Special> {
+    use mao_formats::item::{self, Item};
+    stats
+        .iter()
+        .filter_map(|&stat| Some((stat, template_of(stat).filter(|t| *t != 0)?)))
+        .map(|(stat, template)| {
+            let parsed = db.get(mao_formats::resource::Id { kind: item::TEMPLATE, instance: template }).ok().flatten().as_deref().and_then(Item::parse);
+            let icon = parsed.as_ref().and_then(|t| t.icon()).and_then(|id| textures.get(item::ICON_TYPE, id).map(|t| Arc::new(Icon { id, width: t.width as usize, height: t.height as usize, rgba: t.rgba })));
+            Special { stat, template, name: parsed.as_ref().map_or_else(|| format!("Special {stat}"), |t| t.name.clone()), description: parsed.map(|t| t.description).unwrap_or_default(), icon }
+        })
+        .collect()
 }
 
 /// A perk action of the character's (the server's 0xb4 list): its item template (the special action's id), name, icon, what
@@ -140,7 +211,7 @@ impl ActionsWindow {
     /// performs the action (FUN_100dc033: `N3Msg_PerformSpecialAction`; the list does not select, so a left click is the use
     /// signal); one dragged out goes onto a hotbar. The social actions are the control center's Social menu
     /// (`ActionMenu/SocialMenu.xml`), as in the original.
-    pub fn show(&mut self, ctx: &egui::Context, gear: &mut GearWindow, perks: &[PerkAction], palette: &Palette) {
+    pub fn show(&mut self, ctx: &egui::Context, gear: &mut GearWindow, perks: &[PerkAction], specials: Option<&[Special]>, palette: &Palette) {
         let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
         if self.views.is_none() {
             use crate::gui::view::{Layout, Node, Tree};
@@ -156,14 +227,21 @@ impl ActionsWindow {
         // (the weapon and character actions from the catalogue; the perk actions the server listed for this character, or the
         // catalogue's until it has: `N3Msg_GetSpecialActionList`)
         let now = std::time::Instant::now();
+        // (the special attacks the server listed: a catalogue action that is one of theirs only when listed)
+        let listed: Option<Vec<u32>> = specials.map(|s| s.iter().map(|s| s.stat).collect());
         let mut actions: Vec<(hotbar::Action, String, Option<Arc<Icon>>, String, Option<(f32, f32)>)> = ACTIONS
             .iter()
             .filter(|a| a.1 != Kind::Perk || perks.is_empty())
+            .filter(|a| a.1 == Kind::Perk || shows(a.0, listed.as_deref()))
             .map(|&(id, kind, name, _, _)| {
                 let icon = self.icons.get(icon_name(kind, name)).cloned();
                 (hotbar::Action::Special { id, name: name.to_string(), icon: icon.as_ref().map(|i| i.id) }, name.to_string(), icon, (if kind == Kind::Weapon { "Weapon attack" } else if kind == Kind::Perk { "Perk action" } else { "Character action" }).to_string(), None)
             })
             .collect();
+        // (a listed special the catalogue does not have: named and pictured by its action's template)
+        for s in specials.unwrap_or_default().iter().filter(|s| !ACTIONS.iter().any(|a| a.0 == s.template)) {
+            actions.push((hotbar::Action::Special { id: s.template, name: s.name.clone(), icon: None }, s.name.clone(), s.icon.clone(), if s.description.is_empty() { "Weapon attack".to_string() } else { s.description.clone() }, None));
+        }
         for p in perks {
             let left = p.free_at.map(|(t, total)| (t.saturating_duration_since(now).as_secs_f32(), total)).filter(|&(s, _)| s > 0.0);
             actions.push((hotbar::Action::Special { id: p.template, name: p.name.clone(), icon: None }, p.name.clone(), p.icon.clone(), if p.description.is_empty() { "Perk action".to_string() } else { p.description.clone() }, left));
@@ -236,6 +314,34 @@ impl ActionsWindow {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_listed_specials_decide_which_skill_actions_show() {
+        // (the table: a number's template and back; the plain attack, stat 100, has no action)
+        assert_eq!((template_of(144), template_of(142), template_of(100), number_of(0x14123)), (Some(0x14125), Some(0x14122), None, Some(148)));
+        // (Dimach and Brawl only when the server lists them; everything before it has told)
+        let listed = [100, 144];
+        assert!(shows(0x14125, Some(&listed)) && !shows(0x14122, Some(&listed)) && shows(0x14122, None));
+        // (the character's own actions and the weapon's attacks do not wait for the list)
+        assert!(shows(0xc1a3, Some(&[])) && shows(0x3bd0b, Some(&[])) && shows(0x14123, Some(&[])) && shows(0x39c7d, Some(&[])));
+        // (the catalogue's weapon and character actions are all in the table)
+        for a in ACTIONS.iter().filter(|a| a.1 != Kind::Perk) {
+            assert!(number_of(a.0).is_some(), "{}", a.2);
+        }
+    }
+
+    /// `MAO_GAME`: the specials every capture lists (the plain attack 100, Dimach 144, Brawl 142) become the two actions
+    /// the original shows, named from the actions' templates.
+    #[test]
+    fn listed_specials_are_described_from_their_templates() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let db = Arc::new(mao_formats::resource::ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap());
+        let textures = crate::Textures::new(db.clone());
+        let specials = describe_specials(&db, &textures, &[100, 144, 142, 151]);
+        assert_eq!(specials.iter().map(|s| (s.stat, s.template)).collect::<Vec<_>>(), [(144, 0x14125), (142, 0x14122), (151, 0x14127)]);
+        assert_eq!((specials[0].name.as_str(), specials[1].name.as_str()), ("Dimach", "Brawl"));
+        assert!(!specials[2].name.starts_with("Special "), "{}", specials[2].name);
+    }
 
     /// `MAO_GAME`: the perk action the 2026-10-31 capture lists as `0x374d7`, number `0x2850`, code `QUBS`, is Quick Bash, whose
     /// lock (the capture's `PerkUnavailable` after using it: lock 0xc9 for 25 s) is group 201.

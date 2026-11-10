@@ -91,6 +91,8 @@ pub struct Hud {
     pub programs: Vec<crate::nanoprograms::Program>,
     /// The character's perk actions (the server's list), for the Action window.
     pub perk_actions: Vec<crate::actions::PerkAction>,
+    /// The special attacks the server listed for the character that have an action (`None`: not told yet).
+    pub specials: Option<Vec<crate::actions::Special>>,
     /// The perk records and the ranks the character owns (the perk window's lists).
     pub perk_state: crate::perks::PerkState,
     /// The open container (corpse, bag).
@@ -962,7 +964,7 @@ impl Ui {
                 info_view.show_url(&url);
             }
             if actions.open {
-                actions.show(&ctx, gear, &hud.perk_actions, palette);
+                actions.show(&ctx, gear, &hud.perk_actions, hud.specials.as_deref(), palette);
                 if let Some(a) = actions.clicked.take() {
                     requests.action = Some(a);
                 }
@@ -1356,7 +1358,7 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
                 map.show(&ctx, Some(([at[0], at[2]], hud.heading)), hud.camera_yaw, &hud.map_dots, &[], &hud.towers, true, &hud.location, &palette);
             }
             if let Some(window) = preview_actions.as_mut() {
-                window.show(&ctx, &mut gear, &hud.perk_actions, &palette);
+                window.show(&ctx, &mut gear, &hud.perk_actions, hud.specials.as_deref(), &palette);
             }
             if let Some(window) = preview_mission_log.as_mut() {
                 let shown = window.show(&ctx, &palette, hud.playfield);

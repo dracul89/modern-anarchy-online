@@ -76,6 +76,8 @@ Needs: **1** = one character is enough, **2** = a second character on line, **or
 | 45 | 1 | Right-click beside the items in a bag's window → Rename; type a name; later Reset to default | The window's title changes and is kept after a restart; reset gives the bag's own name back |
 | 46 | 1 | Close a bag's window, use the bag again; move a bag's window and restart | It shows again; it comes back where it was left |
 | 47 | 1 | With a bag window open, open a corpse and the bank | They use the shared container window; taking from each still works |
+| 48 | 1 | Open the Action window on Humility and on a character with a gun that has burst or fling shot | Dimach and Brawl are there as in the original; note whether the gun's attacks match the original's window (their source is not traced) |
+| 49 | 1 | On a character with aimed shot, fast attack or sneak attack: compare the Action window with the original's, and use the extra attack on a target | The same attacks listed; the attack goes off |
 
 ## Older notes still marked untried in `CLIENT_UI.md`
 

@@ -462,6 +462,28 @@ border pieces over its background, the front picture inside the border from the 
 table's note that criteria operator 108 fails was out of date: it passes, as on the original's client
 (`requirements.rs`).
 
+**Special actions from the server's list (2026-11-10, `actions.rs`, `net.rs`).** The Action window's list was this
+client's catalogue for every character. How the original's list comes to be was read from Gamecode:
+- Every special action has a number and an item template that names and pictures it (FUN_10042b17's table, now
+  `actions::TEMPLATES`): character action codes (use, pick up, start/stop combat, walk/run, sneak, crawl, sit/stand,
+  camp, reload, search) and the stats of the special attack skills (brawl 142, dimach 144, fast attack 147, burst
+  148, fling shot 150, aimed shot 151, full auto 167, sneak attack 121 and two more).
+- The character's own actions are added when the character is made (FUN_1004326f), in the order the window already
+  shows them.
+- The server's `SpecialAttackWeapon` message (`1d3c0f1c`, sent for every character about) lists a character's special
+  attacks: an item, a stat and a four-letter code each. Each of one's own whose stat is in the table becomes an action
+  (FUN_1006b14c). Every capture lists the plain attack (100, no action), Dimach and Brawl. The client now reads it:
+  Dimach and Brawl show only when the server lists them, and a listed special the catalogue does not have (aimed
+  shot, fast attack, sneak attack, ...) appears named and pictured from its action's template and is sent as the
+  others are (`n3::special_attack` with its stat).
+- The perk actions come with the server's 0xb4 list, as before.
+What was not traced: how the weapon's own attacks (Burst, Fling Shot, Full Auto, owned by the weapon and at the head
+of the list in the dump taken from the running original) and Reload get in; no capture has a character with a gun.
+They are shown from the catalogue as before, for every character. Tested on a captured message and on the game's
+files; nothing visible changes for the characters of the captures, and it was **not tried live**. Not done: the
+actions' places kept (`item_position_map`), the toggles' other names (sit for stand, run for walk), and the
+profession's own action (numbers 138 and 139, FUN_1004326f).
+
 **Stats window as the original's (2026-11-10, `stats.rs`).** Read from `StatView_c` (FUN_1008057d): the name and the
 level on a line, a white word and its value in 0xbbbbff; the bars, each the skin's `GFX_GUI_HOR_BAR_EMPTY` filled with
 a coloured one to the value's share and labelled "value / max" (health red, nano blue; experience yellow, alien

@@ -208,6 +208,8 @@ pub struct Update {
     pub programs: Option<Vec<crate::nanoprograms::Program>>,
     /// The character's perk actions, when they or their locks change.
     pub perk_actions: Option<Vec<crate::actions::PerkAction>>,
+    /// The special attacks the server listed for the character, when it lists them (the Action window).
+    pub specials: Option<Vec<crate::actions::Special>>,
     /// The perk records and the owned ranks, when the ranks change.
     pub perk_list: Option<crate::perks::PerkState>,
     /// The container (corpse, bag) the character opened: `Some(None)` when it closed.
@@ -1520,6 +1522,9 @@ impl ApplicationHandler for App {
                         }
                         if let Some(perks) = u.perk_actions.take() {
                             self.hud.perk_actions = perks;
+                        }
+                        if let Some(specials) = u.specials.take() {
+                            self.hud.specials = Some(specials);
                         }
                         if let Some(friends) = u.friends.take() {
                             self.hud.friends = friends;

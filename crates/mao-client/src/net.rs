@@ -196,6 +196,10 @@ struct World {
     /// The character's perk actions as the server lists them (`CharacterAction` 0xb4 at entry: the action's item template, its
     /// number and its four-letter code), and the perk locks running (0xcf: a lock and its seconds; 0xce: the lock is free).
     perk_actions: Vec<(u32, u32, [u8; 4])>,
+    /// The stats of the special attacks the server listed for the character (`SpecialAttackWeapon`), once it has, and
+    /// whether the list changed.
+    specials: Option<Vec<u32>>,
+    specials_changed: bool,
     perk_locks: BTreeMap<u32, (Instant, f32)>,
     perk_actions_changed: bool,
     perks_changed: bool,
@@ -559,6 +563,8 @@ const OBJECT_ANNOUNCE: u32 = 0x4f474e05;
 /// `InventoryUpdate` (a container's contents), `ContainerAddItem` (an item moved) and the despawn of an object.
 const INVENTORY_UPDATE: u32 = 0x4e536976;
 const CONTAINER_ADD_ITEM: u32 = 0x47537a24;
+/// `SpecialAttackWeapon`: a character's special attacks.
+const SPECIAL_ATTACK_WEAPON: u32 = 0x1d3c0f1c;
 /// `TeamMember` and `TeamMemberInfo`: a team member and their health and nano.
 const TEAM_MEMBER: u32 = 0x46312d2e;
 const TEAM_MEMBER_INFO: u32 = 0x28784248;
@@ -1516,6 +1522,21 @@ impl World {
                 let mut meshes: Vec<(u32, u8, u32, u32)> = list("Meshes").iter().map(|v| (field(v, "Layer"), field(v, "Position") as u8, field(v, "Id"), field(v, "OverrideTextureId"))).collect();
                 meshes.sort();
                 self.equipment.insert(m.identity.1, meshes.into_iter().map(|(_, at, mesh, texture)| (at, mesh, texture)).collect());
+            }
+        }
+        // `SpecialAttackWeapon`: the special attacks of a character, each an item, a stat and a four-letter code (the
+        // plain attack 100 "MAAT", Dimach 144 "DIIT", Brawl 142 "BRAW" in the captures). One's own make the Action
+        // window's special attacks (Gamecode FUN_1006b14c).
+        if m.kind == SPECIAL_ATTACK_WEAPON && m.identity.1 == self.own {
+            if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
+                let stats: Vec<u32> = match p.value.get("Specials") {
+                    Some(mao_net::schema::Value::List(list)) => list.iter().filter_map(|s| s.get("Unknown3").and_then(mao_net::schema::Value::as_int)).map(|s| s as u32).collect(),
+                    _ => Vec::new(),
+                };
+                if self.specials.as_ref() != Some(&stats) {
+                    self.specials = Some(stats);
+                    self.specials_changed = true;
+                }
             }
         }
         if m.kind == 0x39343c68 {
@@ -5819,6 +5840,13 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         }
                         None => pending_messages.push("No target (Tab selects one)".into()),
                     },
+                    // (a special attack the server listed that the catalogue does not name: its skill's stat, as the others)
+                    _ if name == "that action" && crate::actions::number_of(id).is_some_and(|n| state.specials.as_ref().is_some_and(|s| s.contains(&n))) => match target {
+                        Some(t) => {
+                            let _ = connection.send(&n3::special_attack(own, t, crate::actions::number_of(id).unwrap_or(0)));
+                        }
+                        None => pending_messages.push("That attack needs a target (Tab selects one)".into()),
+                    },
                     // (a perk action the server listed: `N3Msg_PerformSpecialAction`'s 0xc78e case, FUN_100427d6, a `UsePerk`)
                     _ if state.perk_actions.iter().any(|p| p.0 == id) => {
                         let &(_, number, code) = state.perk_actions.iter().find(|p| p.0 == id).unwrap();
@@ -7160,6 +7188,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         crate::perks::PerkState { catalog: crate::perks::catalog(&gear_db), owned: state.perks.clone(), server_offset: state.game_clock.server_time() as i64 - unix }
                     }),
                     programs: std::mem::take(&mut state.programs_changed).then(|| crate::nanoprograms::describe(&gear_db, &gear_textures, &state.program_ids, state.stats.get(&0x36).copied().unwrap_or(1))),
+                    specials: std::mem::take(&mut state.specials_changed).then(|| crate::actions::describe_specials(&gear_db, &gear_textures, state.specials.as_deref().unwrap_or_default())),
                     perk_actions: std::mem::take(&mut state.perk_actions_changed).then(|| {
                         let now = Instant::now();
                         let locks: BTreeMap<u32, (Instant, f32)> = state.perk_locks.iter().filter(|l| l.1.0 > now).map(|(&k, &v)| (k, v)).collect();
@@ -8521,6 +8550,25 @@ mod door_tests {
         // casting it again sets its time
         w.nano_duration(10, 9000);
         assert_eq!(w.nano_times, vec![(10, 9000)]);
+    }
+
+    /// The Arete Landing capture's `SpecialAttackWeapon` for the character: the plain attack (100), Dimach (144) and
+    /// Brawl (142) are its listed specials; another character's list is not taken for one's own.
+    #[test]
+    fn the_servers_special_attacks_are_listed() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let own = 0x7b1a0021;
+        let data = hex("0100000fc40000aac000023569000000644d4141540000a4310000a430000000904449495400011294000112950000008e425241570000000500000005000000050000000600000064");
+        let mut w = World { own, ..World::default() };
+        w.add(&Message { kind: SPECIAL_ATTACK_WEAPON, identity: (0xc350, own + 1), data: data.clone() }.frame(1));
+        assert!(w.specials.is_none() && !w.specials_changed);
+        w.add(&Message { kind: SPECIAL_ATTACK_WEAPON, identity: (0xc350, own), data: data.clone() }.frame(1));
+        assert_eq!(w.specials.as_deref(), Some(&[100, 144, 142][..]));
+        assert!(w.specials_changed);
+        // (told again the same: nothing changed)
+        w.specials_changed = false;
+        w.add(&Message { kind: SPECIAL_ATTACK_WEAPON, identity: (0xc350, own), data }.frame(1));
+        assert!(!w.specials_changed);
     }
 
     /// One's own open backpack: an item of the inventory goes into it with a `ContainerAddItem` naming the bag, and
