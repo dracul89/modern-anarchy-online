@@ -871,14 +871,16 @@ fn run(args: &[String]) -> Result<(), String> {
             return net::run(rest);
         }
     }
-    // `ldb-text <game> <category> <name>...`: the game's texts by the names the original asks for them with.
+    // `ldb-text <game> <category> <name or number>...`: the game's texts by the names (or the keys) the original asks
+    // for them with.
     if let [word, game, category, names @ ..] = args {
         if word == "ldb-text" {
             let category: i32 = category.parse().map_err(|_| format!("not a category: {category}"))?;
             let data = mao_formats::files::read(Path::new(game).join("cd_image/text/text.mdb")).map_err(|e| e.to_string())?;
             let texts = mao_formats::ldb::Texts::parse(&data).ok_or("text.mdb is not read")?;
             for name in names {
-                println!("{name}: {:?}", texts.named(category, name));
+                let text = name.parse::<i32>().ok().and_then(|key| texts.get(category, key)).or_else(|| texts.named(category, name));
+                println!("{name}: {text:?}");
             }
             return Ok(());
         }

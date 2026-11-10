@@ -308,6 +308,17 @@ Visual menu (borderless, transparency, fading), the Chat Configuration window, s
 (they are tabs of one), a group's own colour (lines are coloured by kind as before), the team's chat as an output
 group, `/ch` and `/group`.
 
+**Stats window as the original's (2026-11-10, `stats.rs`).** Read from `StatView_c` (FUN_1008057d): the name and the
+level on a line, a white word and its value in 0xbbbbff; the bars, each the skin's `GFX_GUI_HOR_BAR_EMPTY` filled with
+a coloured one to the value's share and labelled "value / max" (health red, nano blue; experience yellow, alien
+experience green and the duel, solo and team scores purple when turned on); then nine rows, the stat's name from
+text.mdb 2003 with a colon at the left and the value at the right. The five optional bars are `StatViewConfig`'s
+flags, all off in the player's own files; the right button over the window opens a menu that ticks them (kept in
+`tabs.ini`). The experience bar counts from the level's start (FUN_1008038f), shadowknowledge from level 200. The
+window had these rows already; the bars were the client's plain ones and the colours its theme's. The picture names
+of the original's numeric gfx ids come from AFCM.dll's table (scratch tool `gfxid.py`: 0xda blue, 0xdb empty, 0xdc
+green, 0xdd red, 0xde yellow, 0xdf purple).
+
 ## 4l. Action window (`K`) and the map (`O`)
 
 **Actions.** The catalogue is what the running original client reports (`docs/GAME_MECHANICS.md`): 3 weapon attacks, 12 character actions, 35 perks, 63 social ids with 9 dances, each tile with the original's `action_*` icon (perks get a `perk_*` family by name, a guess). Click a tile or drag it onto a hotbar slot (the hotbar file now stores `special` and `social` entries). Doing one sends Stand, Sneak, Search, Reload and Start Combat; the rest (the weapon attacks, Brawl, Dimach, perks, emotes) say their network message is not captured yet. Preview: `MAO_UI_PREVIEW=actions`.
