@@ -4379,6 +4379,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             }
                             Some(Packet::Channel { kind, id, name, flags }) => {
                                 channel_flags.insert(id, flags);
+                                crate::chatgroups::note(&name);
                                 channels.insert(id, (kind, name));
                                 None
                             }
@@ -4390,7 +4391,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             Some(Packet::Vicinity { sender, text, blob }) => {
                                 let who = names.get(&sender).cloned().unwrap_or_else(|| format!("{sender:x}"));
                                 crate::voices::vicinity_message(&mut voices, &who, &blob);
-                                Some(Line { kind: Kind::Channel, text: format!("{who}: {}", mao_net::chat::plain(&text)), from: Some(who.clone()), markup: None }.with_markup(&format!("{who}: "), &text))
+                                Some(Line { kind: Kind::Channel, text: format!("{who}: {}", mao_net::chat::plain(&text)), from: Some(who.clone()), markup: None, group: crate::chatgroups::VICINITY.to_string(), at: None }.with_markup(&format!("{who}: "), &text))
                             }
                             Some(Packet::Tell { sender, text }) => {
                                 let raw = text;
@@ -4399,7 +4400,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                     Some(who) => {
                                         recent_message(&mut chat, sender, who)?;
                                         crate::tips::trigger("OnReceiveTellMessage", "");
-                                        Some(Line { kind: Kind::Tell, text: format!("{who} tells you: {text}"), from: Some(who.clone()), markup: None }.with_markup(&format!("{who} tells you: "), &raw))
+                                        Some(Line { kind: Kind::Tell, text: format!("{who} tells you: {text}"), from: Some(who.clone()), markup: None, group: String::new(), at: None }.with_markup(&format!("{who} tells you: "), &raw))
                                     }
                                     // the server's own notices (the players online) come the same way
                                     None => Some(Line::new(Kind::System, text).with_markup("", &raw)),
@@ -4413,7 +4414,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                 // (its voice line, if it carries one: `HandleGroupMessage` → FUN_1008cdb3, by the group's kind)
                                 let kind = channels.get(&channel.1).map_or(channel.0, |c| c.0);
                                 crate::voices::group_message(&mut voices, &who, kind, &blob);
-                                Some(Line { kind: Kind::Channel, text: format!("[{place}] {who}: {}", mao_net::chat::plain(&text)), from: Some(who.clone()), markup: None }.with_markup(&format!("[{place}] {who}: "), &text))
+                                Some(Line { kind: Kind::Channel, text: format!("[{place}] {who}: {}", mao_net::chat::plain(&text)), from: Some(who.clone()), markup: None, group: place.clone(), at: None }.with_markup(&format!("[{place}] {who}: "), &text))
                             }
                             Some(Packet::Buddy { id, online, kind }) => {
                                 let mut buddies = BUDDIES.lock().unwrap();
@@ -4466,6 +4467,11 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                     }
                                 },
                                 Out::PrivateInvite { id } => chat.send(&mao_net::chat::private_invite_packet(id))?,
+                                // (a line typed in a window whose output group is a channel)
+                                Out::Channel { name, text } => match channels.iter().find(|(_, (_, n))| n.eq_ignore_ascii_case(&name)) {
+                                    Some((&id, (kind, _))) => chat.send(&mao_net::chat::channel_packet(*kind, id, &text))?,
+                                    None => CHAT_LINES.lock().unwrap().push(Line::new(Kind::System, format!("Error: Chat group {name} is currently not available."))),
+                                },
                                 Out::Unfriend { id } => {
                                     chat.send(&mao_net::chat::buddy_remove_packet(id))?;
                                     let mut buddies = BUDDIES.lock().unwrap();

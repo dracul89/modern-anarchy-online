@@ -277,6 +277,37 @@ A second connection to `chat.d1.funcom.com:7105` (`mao_net::chat`, decoded from 
 
 The lines also appear in the on-screen log as before, and now survive a zoning (the connection belongs to the run, not to one playfield). Preview: `MAO_UI_PREVIEW=chat` (`MAO_CHAT_INPUT=/te` types into the input and shows the list; set `MSYS_NO_PATHCONV=1` in Git Bash).
 
+**Chat groups and windows as the original's (2026-11-10, `chatgroups.rs`, `chatwindow.rs`).** In the original every
+line belongs to a *chat group* and a chat window shows the groups selected in it. Read from GUI.dll:
+
+- The client's own groups (FUN_10084436): System, Vicinity (the only one of them that can be talked to), Tell Messages,
+  Your Pets, Other Pets and 23 combat groups ("Me hit by monster", "You hit other", "Your misses", "Me got XP", "Me Cast
+  Nano", ...), ids 0x40000001 on; the chat server's channels are groups by their names.
+- Gamecode's feedback formatter (FUN_10012c3e) sets the group with each fight line: `chatgroups::feedback_group` is that
+  table by the text's name (a hit on the client by a monster or by a player, the client's hits, the others', misses,
+  healing, experience, a cast). `feedback::line` notes the group and `Line::new(Kind::Combat, ...)` takes it. Where the
+  original picks by whether the one hit is the client's pet, the client does not know and takes the other group.
+- A window's config (FUN_1009aecc; the character's `Chat/Windows/Window<n>/Config.xml`): `name`, the selected groups'
+  names, `output_group`, `show_timestamps`, `is_autosubscribe_window`. With none saved the original makes two
+  (FUN_100950df): "Default Window" (everything but Other Pets and the fight) and "Combat" (the client's own fight).
+
+The chat window's tabs are those windows now, in place of the client's own All / Tells / Channels / System / Combat: the
+character's from the original client's folder when it has some (the account's newest character's otherwise, as the
+window places), else the original's two; kept in `chatwindows.ini` beside `mao.ini` from then on. A group that turns up
+later (a channel) is shown by the windows that select new ones by themselves. The right button over the window opens
+its menu (FUN_100abb98) as the original's popup: "Talk to Channel" (the output group, among the window's groups that
+can be talked to), "Subscribe Channels" (then "Public Groups" or "Combat Messages", each group with its check mark; the
+list stays up while groups are ticked), "Autosubscribe new channels", "Show timestamps" (each line led by `(hh:mm) `,
+the original's `(%H:%M) `), "New Window" (`Window<n>`, nothing selected) and "Delete Window". A plain typed line goes to
+the window's output group when that is a channel the server has told of this session (`Out::Channel`), else it is
+spoken in the vicinity as before. Seen live: the test character came up with "Default Window" and "Combat" from the
+original's files. Preview: `MAO_UI_PREVIEW=chat` with `MAO_CHAT_TAB=<n>` and `MAO_CHAT_MENU=main|talk|public|combat`.
+
+Not done: the original's sub-menus open beside their parent (here one menu replaces the other), "Rename Window", the
+Visual menu (borderless, transparency, fading), the Chat Configuration window, several chat windows on screen at once
+(they are tabs of one), a group's own colour (lines are coloured by kind as before), the team's chat as an output
+group, `/ch` and `/group`.
+
 ## 4l. Action window (`K`) and the map (`O`)
 
 **Actions.** The catalogue is what the running original client reports (`docs/GAME_MECHANICS.md`): 3 weapon attacks, 12 character actions, 35 perks, 63 social ids with 9 dances, each tile with the original's `action_*` icon (perks get a `perk_*` family by name, a guess). Click a tile or drag it onto a hotbar slot (the hotbar file now stores `special` and `social` entries). Doing one sends Stand, Sneak, Search, Reload and Start Combat; the rest (the weapon attacks, Brawl, Dimach, perks, emotes) say their network message is not captured yet. Preview: `MAO_UI_PREVIEW=actions`.

@@ -13,12 +13,16 @@
 use super::font::FontId;
 use super::host::Env;
 
-/// An entry: its label and whether it can be chosen.
-#[derive(Clone, Debug, PartialEq)]
+/// An entry: its label, whether it can be chosen, and its check mark when it is one that has one (ticked or not).
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Entry {
     pub label: String,
     pub enabled: bool,
+    pub mark: Option<bool>,
 }
+
+/// The room a menu with check marks keeps left of its labels.
+const MARK: f32 = 12.0;
 
 /// What a frame of the menu did.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -56,7 +60,8 @@ impl PopupMenu {
         let m = env.measure;
         let h = m.height(FontId::NORMAL).ceil();
         let widest = self.entries.iter().map(|e| m.width(FontId::NORMAL, &e.label)).fold(0.0f32, f32::max);
-        let width = (widest + 2.0).ceil();
+        let marks = if self.entries.iter().any(|e| e.mark.is_some()) { MARK } else { 0.0 };
+        let width = (widest + 2.0 + marks).ceil();
         let pitch = h + GAP;
         let height = (self.entries.len() as f32 * pitch - GAP).max(h);
         // (the inset frame's pieces round the room)
@@ -95,7 +100,11 @@ impl PopupMenu {
                 }
                 let colour = if e.enabled { egui::Color32::WHITE } else { egui::Color32::from_gray(0xa0) };
                 let p = super::host::Paint { painter: &clip, env, rect: r, hovered: false, pressed: false, enabled: e.enabled };
-                super::controls::text(&p, FontId::NORMAL, egui::pos2(r.left() + 1.0, r.top() + ((h - m.height(FontId::NORMAL)) * 0.5).floor()), &e.label, colour);
+                if e.mark == Some(true) {
+                    let c = egui::pos2(r.left() + 5.0, r.center().y);
+                    clip.line(vec![c + egui::vec2(-3.0, 0.0), c + egui::vec2(-1.0, 3.0), c + egui::vec2(4.0, -3.0)], egui::Stroke::new(1.5, colour));
+                }
+                super::controls::text(&p, FontId::NORMAL, egui::pos2(r.left() + 1.0 + marks, r.top() + ((h - m.height(FontId::NORMAL)) * 0.5).floor()), &e.label, colour);
             }
             if response.clicked()
                 && let Some(p) = response.interact_pointer_pos()

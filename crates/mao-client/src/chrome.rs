@@ -147,7 +147,13 @@ pub fn question(ctx: &egui::Context, palette: &Palette, name: &'static str, titl
 /// A right-click menu as the original's `PopupMenu_c` (`gui::popup`), for the client's windows: `entries` are the labels
 /// and whether each can be chosen.
 pub fn menu_at(ctx: &egui::Context, at: egui::Pos2, entries: &[(String, bool)]) -> crate::gui::popup::PopupMenu {
-    let entries = entries.iter().map(|(label, enabled)| crate::gui::popup::Entry { label: label.clone(), enabled: *enabled }).collect();
+    let entries = entries.iter().map(|(label, enabled)| crate::gui::popup::Entry { label: label.clone(), enabled: *enabled, mark: None }).collect();
+    crate::gui::popup::PopupMenu::new(entries, at, None, ctx.cumulative_frame_nr())
+}
+
+/// A menu whose entries may have check marks ([`menu_at`]): label, whether it can be chosen, and the mark.
+pub fn menu_marked(ctx: &egui::Context, at: egui::Pos2, entries: &[(String, bool, Option<bool>)]) -> crate::gui::popup::PopupMenu {
+    let entries = entries.iter().map(|(label, enabled, mark)| crate::gui::popup::Entry { label: label.clone(), enabled: *enabled, mark: *mark }).collect();
     crate::gui::popup::PopupMenu::new(entries, at, None, ctx.cumulative_frame_nr())
 }
 

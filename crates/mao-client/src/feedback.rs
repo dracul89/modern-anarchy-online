@@ -15,8 +15,22 @@ pub fn texts() -> Option<&'static ldb::Texts> {
     Some(TEXTS.get_or_init(|| parsed))
 }
 
+thread_local! {
+    /// The chat group of the feedback text last asked for that has one (`chatgroups::feedback_group`).
+    static GROUP: std::cell::Cell<Option<u32>> = const { std::cell::Cell::new(None) };
+}
+
+/// The chat group of the line just made here (FUN_10012c3e names it with the line), taken: a `chatwindow::Line` made
+/// right after reads it. `None` for a line with no group of its own.
+pub fn take_group() -> Option<u32> {
+    GROUP.take()
+}
+
 /// The feedback text of a name, filled in order.
 fn line(name: &str, args: &[Arg]) -> String {
+    if let Some(group) = crate::chatgroups::feedback_group(name) {
+        GROUP.set(Some(group));
+    }
     let text = texts().and_then(|t| t.named(ldb::FEEDBACK, name)).unwrap_or_else(|| english(name));
     ldb::format(text, args)
 }

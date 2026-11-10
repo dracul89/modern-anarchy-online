@@ -79,7 +79,7 @@ impl Control for Arrow {
     }
     fn overlay(&mut self, ctx: &egui::Context, env: &Env, _rect: egui::Rect, id: egui::Id) -> Option<Signal> {
         if std::mem::take(&mut self.want_open) {
-            let entries = self.labels.iter().map(|s| Entry { label: s.clone(), enabled: true }).collect();
+            let entries = self.labels.iter().map(|s| Entry { label: s.clone(), enabled: true, mark: None }).collect();
             self.menu = Some(PopupMenu::new(entries, self.at, None, ctx.cumulative_frame_nr()));
         }
         let menu = self.menu.as_mut()?;

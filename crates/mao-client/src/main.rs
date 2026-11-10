@@ -37,6 +37,7 @@ mod screenshot;
 mod prof;
 mod vehicle;
 mod chat_commands;
+mod chatgroups;
 mod chatwindow;
 mod chatlog;
 mod audio;
@@ -1674,13 +1675,19 @@ fn run(args: &[String]) -> Result<(), String> {
                         use chatwindow::{Kind, Line};
                         let mut window = chatwindow::ChatWindow::default();
                         window.push(Line::new(Kind::System, "Welcome to AnarchyOnline"));
-                        window.push(Line::new(Kind::Channel, "[Clan OOC] Mothra: anyone want to team?"));
-                        window.push(Line { kind: Kind::Tell, text: "Scurlock tells you: hey, got a minute?".into(), from: Some("Scurlock".into()), markup: None });
+                        window.push(Line::new(Kind::Channel, "[Clan OOC] Mothra: anyone want to team?").in_group("Clan OOC"));
+                        window.push(Line { kind: Kind::Tell, text: "Scurlock tells you: hey, got a minute?".into(), from: Some("Scurlock".into()), markup: None, group: String::new(), at: None });
                         let _ = window.run("/tell Scurlock sure, what's up");
-                        window.push(Line::new(Kind::Channel, "[Tour Announcements] The shuttle to Newland leaves in five minutes"));
+                        window.push(Line::new(Kind::Channel, "[Tour Announcements] The shuttle to Newland leaves in five minutes").in_group("Tour Announcements"));
+                        // (fight lines, each of its group)
+                        for line in [feedback::attack(feedback::Who::Named("Rollerrat", false), feedback::Who::You, -49, 92, 3), feedback::attack(feedback::Who::You, feedback::Who::Named("Rollerrat", false), -7, 92, 3), feedback::miss(feedback::Who::Named("Rollerrat", false), feedback::Who::You, None), Some(feedback::executing("Lifeblood"))].into_iter().flatten() {
+                            window.push(Line::new(Kind::Combat, line));
+                        }
+                        // (MAO_CHAT_TAB=<n>: the tab shown; MAO_CHAT_MENU=main|talk|public|combat: a menu open)
+                        window.demo = Some((std::env::var("MAO_CHAT_TAB").ok().and_then(|t| t.parse().ok()).unwrap_or(0), std::env::var("MAO_CHAT_MENU").unwrap_or_default()));
                         // (a line with markup: a coloured word and an item link, as the server sends them)
                         let raw = "selling <a href=\"itemref://200653/200653/1\">Training Pistol</a>, <font color=#ffcc00>cheap</font>";
-                        window.push(Line::new(Kind::Channel, format!("[Trade] Mothra: {}", mao_net::chat::plain(raw))).with_markup("[Trade] Mothra: ", raw));
+                        window.push(Line::new(Kind::Channel, format!("[Trade] Mothra: {}", mao_net::chat::plain(raw))).with_markup("[Trade] Mothra: ", raw).in_group("Trade"));
                         if let Ok(text) = std::env::var("MAO_CHAT_INPUT") {
                             window.type_text(&text);
                         }

@@ -194,6 +194,11 @@ pub fn original_size(name: &str) -> Option<egui::Vec2> {
     original_frame(&mut layout, name).map(|f| egui::vec2(f[2], f[3]))
 }
 
+/// The character playing, once known.
+pub fn character() -> Option<u32> {
+    LAYOUT.lock().unwrap().character
+}
+
 /// The character playing (the original's per-character preferences are looked up by its id).
 pub fn set_character(id: u32) {
     let mut layout = LAYOUT.lock().unwrap();

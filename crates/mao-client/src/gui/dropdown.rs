@@ -120,7 +120,7 @@ impl Control for DropdownMenu {
     }
     fn overlay(&mut self, ctx: &egui::Context, env: &Env, rect: egui::Rect, id: egui::Id) -> Option<Signal> {
         if std::mem::take(&mut self.want_open) {
-            let entries = self.items.iter().map(|s| Entry { label: s.clone(), enabled: true }).collect();
+            let entries = self.items.iter().map(|s| Entry { label: s.clone(), enabled: true, mark: None }).collect();
             self.menu = Some(PopupMenu::new(entries, egui::pos2(rect.left() + 5.0, rect.bottom() + 1.0), self.selection, ctx.cumulative_frame_nr()));
         }
         let menu = self.menu.as_mut()?;

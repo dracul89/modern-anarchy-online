@@ -151,7 +151,7 @@ mao-client`, a live look if the user is around, a paragraph in `docs/CLIENT_UI.m
    no auto-turn), switchable from the Camera menu and keys.
 
 ### Phase E — chat like the original
-*(E.1 tabs done 2026-10-26; the input bar kept plain. Open: the original's tab set/groups from ChatGroupWindowConfig, links/macros, the font.)*
+*(E.1 tabs done 2026-10-26; the input bar kept plain. The original's chat groups and windows done 2026-11-10 (`chatgroups.rs`: the tabs are the player's chat windows or the original's two defaults, each showing its selected groups; the window menu). Open: several chat windows on screen, the chat configuration window, macros.)*
 1. Chat window with the original's tabs (All/Team/Vicinity/… groups from `ChatGroupWindowConfig`,
    `MutedChatGroups`), the `INPUT_BAR_*` input line, the font from Phase A, colours from Phase A.3.
 2. Chat-text macros/HTML subset (`<font color=...>`, item/chat links `text://`, `chatcmd://`) as the
