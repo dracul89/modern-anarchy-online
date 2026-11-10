@@ -1611,6 +1611,14 @@ fn run(args: &[String]) -> Result<(), String> {
                         window.open = true;
                         // (MAO_NCU_LIST=1: in list mode)
                         window.list = std::env::var_os("MAO_NCU_LIST").map(|_| true);
+                        // (MAO_NCU_TARGET=1: the two target windows too, the nano target's as icons and with every nano)
+                        if std::env::var_os("MAO_NCU_TARGET").is_some() {
+                            let mut windows = [ncu::TargetNcu::new(false), ncu::TargetNcu::new(true)];
+                            windows[0].list = Some(false);
+                            windows[0].hostile_only = Some(false);
+                            windows[1].hostile_only = Some(false);
+                            window.target_preview = Some(windows);
+                        }
                         if window.list.is_some() {
                             // (out of the column at the right edge, wide enough for the columns)
                             rollup::undock("NCU");

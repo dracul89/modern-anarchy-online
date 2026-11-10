@@ -190,13 +190,15 @@ pub struct NcuWindow {
     popup: Option<crate::gui::popup::PopupMenu>,
     /// List mode (`listview_mode`); not set until the kept choice is read.
     pub list: Option<bool>,
+    /// A preview's: the two target windows to show with the same nanos.
+    pub target_preview: Option<[TargetNcu; 2]>,
     /// Where the window starts and its size (the original's 160 by 160; a preview's are its own).
     pub start: (egui::Pos2, egui::Vec2),
 }
 
 impl Default for NcuWindow {
     fn default() -> NcuWindow {
-        NcuWindow { open: false, textures: HashMap::new(), views: None, info_url: None, menu: None, popup: None, list: None, start: (egui::pos2(560.0, 90.0), egui::vec2(160.0, 160.0)) }
+        NcuWindow { open: false, textures: HashMap::new(), views: None, info_url: None, menu: None, popup: None, list: None, target_preview: None, start: (egui::pos2(560.0, 90.0), egui::vec2(160.0, 160.0)) }
     }
 }
 
@@ -234,33 +236,7 @@ impl NcuWindow {
         // (the nanos by their time left, each icon faded past its share of time left; drawn again as the time runs)
         let mut order: Vec<&NanoInfo> = nanos.iter().filter(|n| !n.columns.hidden).collect();
         order.sort_by_key(|n| n.left(now));
-        let rows: Vec<crate::gui::multilist::Item> = order
-            .iter()
-            .map(|n| {
-                use crate::gui::multilist::CellView;
-                let c = n.columns;
-                // (the times in hundredths of a second, as `N3Msg_GetBuffCurrentTime` and `GetBuffTotalTime` give them)
-                let values: [(i32, i64); 8] = [(9, c.nano_cost.into()), (10, c.ncu.into()), (13, (n.total_ms / 10).into()), (12, (n.left(now) / 10).into()), (11, 0), (5, c.range.into()), (6, c.attack_delay.into()), (7, c.recharge_delay.into())];
-                let (kind, tint) = kind_text(c.kind);
-                let mut cells = vec![(1, CellView::Text(n.name.clone())), (8, CellView::Tinted(kind.to_string(), tint))];
-                let mut keys = vec![(1, n.name.clone()), (8, kind.to_string())];
-                for (column, value) in values {
-                    cells.push((column, CellView::Text(column_text(column, value))));
-                    keys.push((column, format!("{value:012}")));
-                }
-                (n, cells, keys)
-            })
-            .map(|(n, cells, keys)| crate::gui::multilist::Item {
-                id: n.id as i64,
-                icon: n.icon.as_ref().map(|icon| textures.entry(icon.id).or_insert_with(|| ctx.load_texture(format!("nano-icon-{}", icon.id), egui::ColorImage::from_rgba_unmultiplied([icon.width, icon.height], &icon.rgba), egui::TextureOptions::LINEAR)).id()),
-                left: (n.total_ms > 0).then(|| n.left(now) as f32 / n.total_ms as f32),
-                cells,
-                keys,
-                // (FUN_1004537b: a hostile nano's row red)
-                colour: (n.columns.kind == 2).then_some(0xff0000),
-                ..Default::default()
-            })
-            .collect();
+        let rows = nano_rows(ctx, textures, &order, now);
         if crate::gui::multilist::items(tree, list) != rows.as_slice() {
             crate::gui::multilist::set_items(tree, list, rows);
         }
@@ -343,6 +319,152 @@ impl NcuWindow {
     }
 }
 
+/// The nanos as the list view's items: the icon (fading from the right as the time runs out), and the cells and sort
+/// keys of every column of [`COLUMNS`].
+fn nano_rows(ctx: &egui::Context, textures: &mut HashMap<u32, egui::TextureHandle>, order: &[&NanoInfo], now: Instant) -> Vec<crate::gui::multilist::Item> {
+    let rows: Vec<crate::gui::multilist::Item> = order
+        .iter()
+        .map(|n| {
+            use crate::gui::multilist::CellView;
+            let c = n.columns;
+            // (the times in hundredths of a second, as `N3Msg_GetBuffCurrentTime` and `GetBuffTotalTime` give them)
+            let values: [(i32, i64); 8] = [(9, c.nano_cost.into()), (10, c.ncu.into()), (13, (n.total_ms / 10).into()), (12, (n.left(now) / 10).into()), (11, 0), (5, c.range.into()), (6, c.attack_delay.into()), (7, c.recharge_delay.into())];
+            let (kind, tint) = kind_text(c.kind);
+            let mut cells = vec![(1, CellView::Text(n.name.clone())), (8, CellView::Tinted(kind.to_string(), tint))];
+            let mut keys = vec![(1, n.name.clone()), (8, kind.to_string())];
+            for (column, value) in values {
+                cells.push((column, CellView::Text(column_text(column, value))));
+                keys.push((column, format!("{value:012}")));
+            }
+            (n, cells, keys)
+        })
+        .map(|(n, cells, keys)| crate::gui::multilist::Item {
+            id: n.id as i64,
+            icon: n.icon.as_ref().map(|icon| textures.entry(icon.id).or_insert_with(|| ctx.load_texture(format!("nano-icon-{}", icon.id), egui::ColorImage::from_rgba_unmultiplied([icon.width, icon.height], &icon.rgba), egui::TextureOptions::LINEAR)).id()),
+            left: (n.total_ms > 0).then(|| n.left(now) as f32 / n.total_ms as f32),
+            cells,
+            keys,
+            // (FUN_1004537b: a hostile nano's row red)
+            colour: (n.columns.kind == 2).then_some(0xff0000),
+            ..Default::default()
+        })
+        .collect();
+    rows
+}
+
+/// A target's NCU window, GUI.dll's `TargetNCUView_c` (FUN_100dda60): the nanos running on the selected target ("Nano
+/// Target NCU") or on the one fought ("Fight Target NCU"), in the same list view as the NCU window, 167 by 112 to start,
+/// in list mode with three columns (icon, name, time left) sorted by the time left. Its menu (FUN_100dd94d) has "List
+/// Mode" and "Hostile Only", which is on to start with (the view's flags are 1): only nanos whose flags have 0x8000 and
+/// whose NCU cost is not 999 are listed (FUN_100458b0). With no target the list is hidden (FUN_100dd68f). The original
+/// shows the window while `cc_section1 && Show<Nano|Fight>TargetNCU` holds, and closing it turns the option off
+/// (FUN_100dd390).
+///
+/// Not ported: the borderless style (Alt and a double click, FUN_100dd7ea) and the window's own tab strip.
+pub struct TargetNcu {
+    pub fight: bool,
+    textures: HashMap<u32, egui::TextureHandle>,
+    views: Option<(crate::gui::view::Tree, crate::gui::view::Id, crate::gui::view::Id)>,
+    pub info_url: Option<String>,
+    menu: Option<egui::Pos2>,
+    popup: Option<crate::gui::popup::PopupMenu>,
+    /// List mode and "Hostile Only"; not set until the kept choices are read.
+    pub list: Option<bool>,
+    pub hostile_only: Option<bool>,
+}
+
+impl TargetNcu {
+    pub fn new(fight: bool) -> TargetNcu {
+        TargetNcu { fight, textures: HashMap::new(), views: None, info_url: None, menu: None, popup: None, list: None, hostile_only: None }
+    }
+
+    /// The window's name here and its title, and the name its choices are kept under (the original's config).
+    fn names(&self) -> (&'static str, &'static str, &'static str) {
+        if self.fight { ("FightTargetNCU", "Fight Target NCU", "FightTargetNCUWindowConfig") } else { ("NanoTargetNCU", "Nano Target NCU", "NanoTargetNCUWindowConfig") }
+    }
+
+    /// What the window lists of a target's nanos (FUN_100458b0).
+    pub fn listed(nano: &NanoInfo, hostile_only: bool) -> bool {
+        !nano.columns.hidden && (!hostile_only || (nano.columns.kind == 2 && nano.columns.ncu != 999))
+    }
+
+    /// Shows the window with the target's nanos (`None`: no target); false when the player closed it.
+    pub fn show(&mut self, ctx: &egui::Context, nanos: Option<&[NanoInfo]>, palette: &Palette) -> bool {
+        let (name, title, config) = self.names();
+        let now = Instant::now();
+        // (the choices kept as bits: 1 list mode, 2 hostile only; both on to start)
+        let kept = crate::layout::tab(config).unwrap_or(3);
+        let in_list = *self.list.get_or_insert(kept & 1 != 0);
+        let hostile_only = *self.hostile_only.get_or_insert(kept & 2 != 0);
+        if self.views.is_none() {
+            use crate::gui::view::{Layout, Node, Tree};
+            let mut tree = Tree::default();
+            tree.measure = crate::gui::font::Measure { ctx: Some(ctx.clone()) };
+            let root = tree.add(Node::new("", Box::new(crate::gui::view::Plain)));
+            tree.get_mut(root).layout = Layout::Base;
+            let list = crate::gui::multilist::create_grid(&mut tree, "NCUListView", -1, 3);
+            crate::gui::multilist::set_grid(&mut tree, list, |g| g.set_icon_size(2));
+            for &(id, label, own, width, flags) in COLUMNS.iter().filter(|c| matches!(c.0, 0 | 1 | 12)) {
+                crate::gui::multilist::add_column(&mut tree, list, id, &crate::gui::xml::ldb_named(10000, label, own), width, flags);
+            }
+            crate::gui::multilist::set_sort(&mut tree, list, 12, 0);
+            tree.add_child(root, list);
+            self.views = Some((tree, root, list));
+        }
+        let textures = &mut self.textures;
+        let Some((tree, root, list)) = self.views.as_mut() else { return true };
+        let (root, list) = (*root, *list);
+        crate::gui::multilist::set_list_mode(tree, list, in_list);
+        let mut order: Vec<&NanoInfo> = nanos.unwrap_or_default().iter().filter(|n| Self::listed(n, hostile_only)).collect();
+        order.sort_by_key(|n| n.left(now));
+        let rows = nano_rows(ctx, textures, &order, now);
+        if crate::gui::multilist::items(tree, list) != rows.as_slice() {
+            crate::gui::multilist::set_items(tree, list, rows);
+        }
+        crate::gui::multilist::update(tree, list);
+        let skin = crate::skin::skin(ctx);
+        let mut open = true;
+        let mut over = None;
+        let centre = ctx.content_rect().center() - egui::vec2(83.0, 56.0) + egui::vec2(if self.fight { 100.0 } else { -100.0 }, 0.0);
+        crate::chrome::window(ctx, palette, name, title, &mut open, |w| w.default_pos(crate::layout::pos(name, centre)).default_size(egui::vec2(167.0, 112.0)).resizable(true), |ui| {
+            let area = ui.max_rect();
+            // (no target: the window stays, its list does not)
+            if nanos.is_some() {
+                crate::gui::host::show(ui, tree, root, skin.as_deref(), palette);
+            } else {
+                ui.allocate_space(ui.available_size());
+            }
+            over = ui.input(|i| i.pointer.hover_pos()).filter(|at| area.contains(*at));
+        });
+        if !order.is_empty() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(500));
+        }
+        for (_, event) in crate::gui::multilist::take_events(tree) {
+            if let crate::gui::multilist::ItemEvent::Clicked(id, _) = event {
+                self.info_url = Some(format!("itemid://{}/{}", crate::gui::iteminfo::NANO_IDENTITY, id));
+            }
+        }
+        tree.signals.clear();
+        if let Some(at) = over
+            && ctx.input(|i| i.pointer.secondary_clicked())
+        {
+            let entries = [(crate::gui::xml::ldb_named(10000, "ListMode", "As a list"), true, Some(in_list)), (crate::gui::xml::ldb_named(10000, "HostileOnly", "Hostile nanos only"), true, Some(hostile_only))];
+            self.menu = Some(at);
+            self.popup = Some(crate::chrome::menu_marked(ctx, at, &entries));
+        }
+        if let Some(chosen) = crate::chrome::menu(ctx, palette, if self.fight { "fight-ncu-menu" } else { "nano-ncu-menu" }, &mut self.popup) {
+            let (list_now, hostile_now) = if chosen == 0 { (!in_list, hostile_only) } else { (in_list, !hostile_only) };
+            self.list = Some(list_now);
+            self.hostile_only = Some(hostile_now);
+            crate::layout::set_tab(config, usize::from(list_now) | usize::from(hostile_now) << 1);
+        }
+        if self.popup.is_none() {
+            self.menu = None;
+        }
+        open
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -368,6 +490,15 @@ mod tests {
         assert_eq!((kind_text(2), kind_text(4).0, kind_text(9).0), (("Hostile", 0xff0000), "Team", "Unknown"));
         // (the columns in the original's order, the time left the one the list starts sorted by)
         assert_eq!(COLUMNS.iter().map(|c| c.0).collect::<Vec<_>>(), [0, 1, 8, 9, 10, 13, 12, 11, 5, 6, 7]);
+    }
+
+    #[test]
+    fn a_target_window_lists_the_hostile_nanos_to_start_with() {
+        let nano = |kind: u8, ncu: u32, hidden: bool| NanoInfo { id: 1, name: String::new(), description: String::new(), icon: None, remaining_ms: 0, total_ms: 0, at: Instant::now(), effects: Vec::new(), cost: 0, columns: Columns { kind, ncu, hidden, ..Default::default() } };
+        // (FUN_100458b0: with "Hostile Only" a nano needs the hostile flag and an NCU cost; without, only the unlisted are out)
+        assert!(TargetNcu::listed(&nano(2, 30, false), true) && !TargetNcu::listed(&nano(1, 30, false), true) && !TargetNcu::listed(&nano(2, 999, false), true));
+        assert!(TargetNcu::listed(&nano(1, 30, false), false) && TargetNcu::listed(&nano(2, 999, false), false) && !TargetNcu::listed(&nano(2, 30, true), false));
+        assert_eq!((TargetNcu::new(true).names().1, TargetNcu::new(false).names().2), ("Fight Target NCU", "NanoTargetNCUWindowConfig"));
     }
 
     #[test]

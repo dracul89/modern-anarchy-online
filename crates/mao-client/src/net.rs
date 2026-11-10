@@ -237,6 +237,11 @@ struct World {
     buffs_seen: Vec<(u32, u32)>,
     /// The programs other characters run, with when their buff was last announced (the server repeats them about every twenty seconds).
     active_buffs: BTreeMap<u32, BTreeMap<u32, Instant>>,
+    /// When each of those was first announced (character, nano): the buff message has no time, so a target's NCU
+    /// window counts its time left from here.
+    buff_first: BTreeMap<(u32, u32), Instant>,
+    /// The nanos another character's full update listed, with the time each had left then.
+    other_nano_times: BTreeMap<u32, (Vec<(u32, u32)>, Instant)>,
     /// The polymorph of each other character: the creature and when its program was last announced.
     morphed_until: BTreeMap<u32, (u32, Instant)>,
     /// The vehicle program (a Phasefront hoverboard or hoverbike) each character runs: its `ChangeMesh` spells, keyed on the
@@ -712,6 +717,27 @@ impl crate::spelllist::Scene for World {
 }
 
 impl World {
+    /// The nanos known to run on a character, for its NCU window: the nano, the time it had left (milliseconds) when
+    /// that was told, and since when. The own character's are its list; another's are those its full update listed
+    /// (while their time lasts) and those the server announces (no time: counted from the first announcement).
+    fn nanos_on(&self, id: u32) -> Vec<(u32, Option<u32>, Instant)> {
+        if id == self.own {
+            let at = self.nano_times_at.unwrap_or_else(Instant::now);
+            return self.nano_times.iter().map(|&(nano, ms)| (nano, Some(ms), at)).collect();
+        }
+        let mut out: Vec<(u32, Option<u32>, Instant)> = Vec::new();
+        if let Some((times, at)) = self.other_nano_times.get(&id) {
+            let elapsed = at.elapsed().as_millis();
+            out.extend(times.iter().filter(|t| elapsed < u128::from(t.1)).map(|&(nano, ms)| (nano, Some(ms), *at)));
+        }
+        for &nano in self.active_buffs.get(&id).into_iter().flat_map(|buffs| buffs.keys()) {
+            if !out.iter().any(|o| o.0 == nano) {
+                out.push((nano, None, self.buff_first.get(&(id, nano)).copied().unwrap_or_else(Instant::now)));
+            }
+        }
+        out
+    }
+
     /// The spell runner's clock: seconds since its first use.
     fn spell_now(&mut self) -> f64 {
         self.spell_epoch.get_or_insert_with(Instant::now).elapsed().as_secs_f64()
@@ -1494,6 +1520,7 @@ impl World {
                 if nano != 0 && m.identity.1 != self.own {
                     self.buffs_seen.push((m.identity.1, nano));
                     self.active_buffs.entry(m.identity.1).or_default().insert(nano, Instant::now());
+                    self.buff_first.entry((m.identity.1, nano)).or_insert_with(Instant::now);
                 }
             }
         }
@@ -2303,6 +2330,12 @@ impl World {
             if !self.org_benefits.iter().any(|e| e.low_id == entry.low_id && e.high_id == entry.high_id && e.quality == entry.quality) {
                 self.org_benefits.push(entry);
                 self.mods_dirty = true;
+            }
+        }
+        if m.kind == mao_net::n3::ENTITY_INFO && m.identity.1 != self.own {
+            let times = m.active_nano_times();
+            if !times.is_empty() {
+                self.other_nano_times.insert(m.identity.1, (times, Instant::now()));
             }
         }
         if m.kind == mao_net::n3::ENTITY_INFO && m.identity.1 == self.own {
@@ -4714,6 +4747,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut shot_cache: std::collections::HashMap<u32, (Option<mao_formats::gfx::Visual>, Option<mao_formats::gfx::Visual>)> = std::collections::HashMap::new();
         let mut burst_cache: std::collections::HashMap<u32, Option<mao_formats::gfx::Cast>> = std::collections::HashMap::new();
         let mut aura_cache: std::collections::HashMap<u32, Option<mao_formats::gfx::Visual>> = std::collections::HashMap::new();
+        // (the target NCU windows: whose nanos were told last, and the nanos' whole times)
+        let mut target_nanos_told: [Option<(u32, Vec<u32>)>; 2] = [None, None];
+        let mut duration_cache: std::collections::HashMap<u32, u32> = std::collections::HashMap::new();
         // (the effect templates: what a running nano program looks like)
         let gfx = mao_formats::files::read(Path::new(&game_dir).join("Setupf").join("gfxtweak.bin")).ok().and_then(|d| mao_formats::gfx::Gfx::parse(&d).ok());
         // (the lightning's splash, gfx 0x859b)
@@ -6780,8 +6816,39 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         buddies.1.iter().map(|(&id, (name, online, recent))| crate::friends::Friend { id, name: name.clone(), online: *online, recent: *recent }).collect::<Vec<_>>()
                     })
                 };
+                // The target NCU windows' lists: the selected target's nanos and the fight target's, told when either's
+                // target or set of nanos changes.
+                let target_nanos = {
+                    let ids = [target, state.fighting.get(&own).copied()];
+                    let lists = ids.map(|id| id.map(|id| state.nanos_on(id)));
+                    let key = [0, 1].map(|k| ids[k].map(|id| (id, lists[k].iter().flatten().map(|n| n.0).collect::<Vec<u32>>())));
+                    (key != target_nanos_told).then(|| {
+                        target_nanos_told = key;
+                        let level = state.stats.get(&0x36).copied().unwrap_or(1);
+                        lists.map(|list| {
+                            list.map(|list| {
+                                let now = Instant::now();
+                                let running: Vec<(u32, u32)> = list
+                                    .iter()
+                                    .map(|&(nano, left, since)| {
+                                        // (a nano announced without its time: its whole duration from when it was first seen)
+                                        let whole = left.unwrap_or_else(|| {
+                                            *duration_cache.entry(nano).or_insert_with(|| {
+                                                let data = gear_db.get(mao_formats::resource::Id { kind: 0xfde85, instance: nano }).ok().flatten();
+                                                data.as_deref().and_then(mao_formats::item::Item::parse).and_then(|t| t.stat(8)).unwrap_or(0)
+                                            })
+                                        });
+                                        (nano, whole.saturating_sub(since.elapsed().as_millis().min(u128::from(u32::MAX)) as u32))
+                                    })
+                                    .collect();
+                                crate::ncu::describe(&gear_db, &gear_textures, &running, level, now)
+                            })
+                        })
+                    })
+                };
                 let update = crate::viewer::Update {
                     messages_only: false,
+                    target_nanos,
                     scene: pending_scene.take(),
                     falls: pending_falls.take().map(|feet| (feet, gfx.as_ref().and_then(|g| g.visual(0x30d6)))),
                     interior: pending_interior.take(),
@@ -6827,6 +6894,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             nanos.retain(|_, at| at.elapsed() < Duration::from_secs(30));
                             !nanos.is_empty()
                         });
+                        let still = &state.active_buffs;
+                        state.buff_first.retain(|(character, nano), _| still.get(character).is_some_and(|nanos| nanos.contains_key(nano)));
                         let mut aura_of = |nano: u32| -> Option<mao_formats::gfx::Visual> {
                             aura_cache
                                 .entry(nano)

@@ -214,6 +214,9 @@ pub struct Update {
     pub loot: Option<Option<crate::loot::LootView>>,
     /// The running nano programs, when the list changes (the NCU window).
     pub nanos: Option<Vec<crate::ncu::NanoInfo>>,
+    /// The nanos running on the selected target and on the fight target (each `None` without one), when either
+    /// changes (the target NCU windows).
+    pub target_nanos: Option<[Option<Vec<crate::ncu::NanoInfo>>; 2]>,
     /// The way the character faces (radians about the vertical, 0 along +Z of the server's world).
     pub heading: Option<f32>,
     /// The travel list the server sent for this playfield, when it arrives.
@@ -1531,6 +1534,9 @@ impl ApplicationHandler for App {
                         if let Some(nanos) = u.nanos.take() {
                             self.hud.nanos = nanos;
                         }
+                        if let Some(lists) = u.target_nanos.take() {
+                            self.hud.target_nanos = lists;
+                        }
                         if let Some(name) = u.location.take() {
                             self.hud.location = name;
                         }
@@ -2368,6 +2374,15 @@ impl ApplicationHandler for App {
                                 }
                             }
                             crate::chatwindow::Out::SelectSelf => self.keys.select_self = self.keys.select_self.wrapping_add(1),
+                            // (a yes/no value of the original's own, as `ShowFightTargetNCU`: set where the control center
+                            // keeps them)
+                            crate::chatwindow::Out::SetOption { name, value } if ui.control_center.as_ref().is_some_and(|cc| matches!(cc.store.get(&name), Some(crate::gui::variant::Variant::Bool(_)))) => {
+                                let on = matches!(value.to_lowercase().as_str(), "on" | "true" | "1" | "yes");
+                                if let Some(cc) = ui.control_center.as_mut() {
+                                    cc.store.set_user(&name, crate::gui::variant::Variant::Bool(on));
+                                }
+                                ui.chat.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, format!("{name} {}", if on { "on" } else { "off" })));
+                            }
                             crate::chatwindow::Out::SetOption { name, value } => {
                                 let line = self.settings.set_option(&name, &value);
                                 ui.chat.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, line));

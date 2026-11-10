@@ -408,8 +408,26 @@ Nanos whose flags have 0x1000000 are left out of the window in both modes, as th
 list view itself gained `set_list_mode` (`SetLayoutMode`), a row colour and coloured cells. Preview:
 `MAO_UI_PREVIEW=ncu MAO_NANOS=<id:ms,...> MAO_NCU_LIST=1`. Seen in the preview only. Not done: the radius column
 (`N3Msg_GetFormularRadius` reads a field of Gamecode's nano object that was not traced back to the record: `---`), the
-"Self" type (the same object's self-only flag), the menu's "Auto Arrange" sub-menu, keeping column widths and the sort,
-and the two target NCU windows (`TargetNCUView_c` FUN_100dda60: fight target and nano target, with "Hostile Only").
+"Self" type (the same object's self-only flag), the menu's "Auto Arrange" sub-menu, and keeping column widths and
+the sort.
+
+**Target NCU windows (2026-11-10, `ncu.rs::TargetNcu`, `net.rs`).** The original makes two more NCU windows beside
+the target bars (`ControlCenterModule_c::CreateTargetMenus` FUN_1006a9b8, `TargetNCUView_c` FUN_100dda60): "Nano
+Target NCU" for the selected target and "Fight Target NCU" for the one fought. Each shows while its option is on
+(`cc_section1 && ShowNanoTargetNCU` / `ShowFightTargetNCU`, both off in the game's settings) and closing it turns the
+option off (FUN_100dd390). Ported: the same list view, 167 by 112 at first, in list mode with the three columns icon,
+name and time left, sorted by the time left; the menu's "List Mode" and "Hostile Only" (FUN_100dd94d), the latter on
+to start with as in the original, so that only nanos flagged hostile and with an NCU cost are listed (FUN_100458b0);
+no target, no list (FUN_100dd68f); a click on a nano shows its page. The two choices are kept per window (`tabs.ini`,
+under the original's config names). Since nothing in the game's files offers the two options, `/setoption
+ShowFightTargetNCU on` (or `ShowNanoTargetNCU`) turns a window on: `/setoption` now sets a yes/no value of the
+original's own where the control center keeps them.
+What runs on a target: one's own list for oneself; for another character the nanos its full update listed (with
+their times) and those the server announces about every twenty seconds (`Buff`, which has no time: the time left is
+counted from the nano's whole duration at the first announcement, so it is only right for a nano seen being cast).
+Preview: `MAO_UI_PREVIEW=ncu MAO_NANOS=<id:ms,...> MAO_NCU_TARGET=1`. Seen in the preview only, **not tried live**. Not
+done: the borderless style (Alt and a double click, FUN_100dd7ea), the windows' tab strip, and their places beside
+the target bars. A window's title is now cut where its buttons begin (`chrome::window`), for these narrow windows.
 
 **Stats window as the original's (2026-11-10, `stats.rs`).** Read from `StatView_c` (FUN_1008057d): the name and the
 level on a line, a white word and its value in 0xbbbbff; the bars, each the skin's `GFX_GUI_HOR_BAR_EMPTY` filled with

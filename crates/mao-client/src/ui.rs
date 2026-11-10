@@ -116,6 +116,8 @@ pub struct Hud {
     pub inspected: (u32, String, Vec<crate::gear::GearItem>),
     /// The running nano programs.
     pub nanos: Vec<crate::ncu::NanoInfo>,
+    /// The nanos on the selected target and on the fight target (`None` without one).
+    pub target_nanos: [Option<Vec<crate::ncu::NanoInfo>>; 2],
     pub ncu_preview: std::sync::Mutex<Option<crate::ncu::NcuWindow>>,
     pub chat_preview: std::sync::Mutex<Option<crate::chatwindow::ChatWindow>>,
     pub gear_open: bool,
@@ -288,6 +290,8 @@ pub struct Ui {
     pub lft: crate::lft::LftWindow,
     pub knowledge: crate::knowledge::KnowledgeWindow,
     pub ncu: crate::ncu::NcuWindow,
+    /// The nano target's and the fight target's NCU windows.
+    pub target_ncu: [crate::ncu::TargetNcu; 2],
     pub friends: crate::friends::FriendsWindow,
     pub programs: crate::nanoprograms::ProgramsWindow,
     pub perks: crate::perks::PerksWindow,
@@ -519,7 +523,7 @@ impl Ui {
         crate::skin::configure(&ctx, crate::skin::dirs(&settings.gui_dir, &settings.theme, &settings.aou_mod));
         let state = egui_winit::State::new(ctx.clone(), egui::ViewportId::ROOT, window, Some(window.scale_factor() as f32), window.theme(), None);
         let renderer = egui_wgpu::Renderer::new(&gpu.device, format, egui_wgpu::RendererOptions::default());
-        let mut ui = Ui { ctx, state, renderer, open_seen: Vec::new(), options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), shop: Default::default(), npc_chat: Default::default(), mission_log: Default::default(), planet: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), team: Default::default(), pets: Default::default(), tradeskill: Default::default(), research: Default::default(), faction: Default::default(), raid: Default::default(), lft: Default::default(), knowledge: Default::default(), ncu: Default::default(), friends: Default::default(), programs: Default::default(), perks: Default::default(), help: Default::default(), tips: Default::default(), info: Default::default(), browser: Default::default(), market_send: Default::default(), control_center: None, option_panel: Default::default(), loot: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0, perf: Default::default() };
+        let mut ui = Ui { ctx, state, renderer, open_seen: Vec::new(), options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), shop: Default::default(), npc_chat: Default::default(), mission_log: Default::default(), planet: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), team: Default::default(), pets: Default::default(), tradeskill: Default::default(), research: Default::default(), faction: Default::default(), raid: Default::default(), lft: Default::default(), knowledge: Default::default(), ncu: Default::default(), target_ncu: [crate::ncu::TargetNcu::new(false), crate::ncu::TargetNcu::new(true)], friends: Default::default(), programs: Default::default(), perks: Default::default(), help: Default::default(), tips: Default::default(), info: Default::default(), browser: Default::default(), market_send: Default::default(), control_center: None, option_panel: Default::default(), loot: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0, perf: Default::default() };
         // (the windows the player left open come back open; the first time, the planet map, open in the original's default
         // layout at the top left)
         for name in crate::layout::load_open().unwrap_or_else(|| vec!["map".to_string()]) {
@@ -773,6 +777,7 @@ impl Ui {
         let browser = &mut self.browser;
         let market_send = &mut self.market_send;
         let control_center = &mut self.control_center;
+        let target_ncu = &mut self.target_ncu;
         let option_panel = &mut self.option_panel;
         let mut cc_windows: Vec<(&'static str, bool)> = Vec::new();
         let (hotbars, clock_now) = (&mut self.hotbars, self.clock.elapsed().as_secs_f64());
@@ -898,6 +903,22 @@ impl Ui {
                     requests.cancel_nano = Some(nano);
                 }
                 if let Some(url) = ncu_window.info_url.take() {
+                    info_view.show_url(&url);
+                }
+            }
+            // (the target NCU windows, `ControlCenterModule_c::CreateTargetMenus`: each while its option is on, which
+            // closing it turns off)
+            for (k, window) in target_ncu.iter_mut().enumerate() {
+                let option = if window.fight { "ShowFightTargetNCU" } else { "ShowNanoTargetNCU" };
+                if !control_center.as_ref().is_some_and(|cc| cc.store.get_bool("cc_section1") && cc.store.get_bool(option)) {
+                    continue;
+                }
+                if !window.show(&ctx, hud.target_nanos[k].as_deref(), palette)
+                    && let Some(cc) = control_center.as_mut()
+                {
+                    cc.store.set_user(option, crate::gui::variant::Variant::Bool(false));
+                }
+                if let Some(url) = window.info_url.take() {
                     info_view.show_url(&url);
                 }
             }
@@ -1297,6 +1318,9 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
                 window.show(&ctx, &palette);
             }
             if let Some(window) = preview_ncu.as_mut() {
+                for target in window.target_preview.iter_mut().flatten() {
+                    target.show(&ctx, Some(&hud.nanos), &palette);
+                }
                 window.show(&ctx, &hud.nanos, &hud.stats, &palette);
             }
             if let Some(window) = preview_skills.as_mut() {
