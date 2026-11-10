@@ -7,9 +7,16 @@
 //! skill's name category 2003, its full name 2002 and its description 2001 (the `LDBface::GetText` calls). A row is a
 //! clickable frame shown only while selected (`BorderView_c::HideBorders`) holding the name, a spacer, the buffed value and
 //! the decrease and increase buttons (`GFX_GUI_DEC_SKILL`, `GFX_GUI_INC_SKILL`; the `_CHANGED` pictures once points are
-//! added, FUN_100f9a0f). Not ported: the name's colour by the skill's cost level, the page's progress bars, the cost and
-//! maximum fields and the suggested distribution and resets: they need the IP cost tables (`N3Msg_GetSkillCost`), which
-//! are not in this client's data (`skills::trainable`).
+//! added, FUN_100f9a0f). The name is coloured by the skill's cost level (FUN_100f99b1) and a page's row ends in a small
+//! bar of the trained value against the skill's cap (a `PowerbarView_c` of `GFX_GUI_HOR_BAR_SMALL_EMPTY` / `_BLUE`, 5
+//! from the right; FUN_100fe550 sets it). The details show what the next point costs (FUN_100f9aeb), what the points
+//! added cost together (FUN_100f9b0d) and the cap; the costs and caps are Gamecode's, from the game's records
+//! (`skillcost`).
+//!
+//! The increase button (FUN_100fe968) adds a point unless the skill is at its cap or the IP left do not pay for it
+//! (text.mdb 502's `Skill_LackIP`); let go with Shift or Ctrl held it raises the skill as far as the cap and the IP
+//! allow (FUN_100fea68). The IP shown are those left after the points added. Not ported: the button repeating while
+//! held, the value's colour when buffed or debuffed, the suggested distribution and the resets.
 
 use std::collections::BTreeMap;
 
@@ -83,14 +90,17 @@ fn row_xml(stat: u32, mode: u8) -> String {
     let name = attr(&text(2003, stat, &crate::skills::stat_name(stat)));
     format!(
         "<BorderView name=\"row{mode}_{stat}\" view_layout=\"horizontal\" layout_borders=\"Rect(1,1,1,1)\">\
-           <TextView name=\"name\" value=\"{name}\" layout_borders=\"Rect(3,0,0,0)\"/>\
+           <TextView name=\"name{mode}_{stat}\" value=\"{name}\" layout_borders=\"Rect(3,0,0,0)\"/>\
            <HLayoutSpacer/>\
            <TextView name=\"value{mode}_{stat}\" value=\"0\"/>\
            <View view_layout=\"horizontal\">\
              <Button name=\"dec{mode}_{stat}\" label=\"\"/>\
              <Button name=\"inc{mode}_{stat}\" label=\"\" layout_borders=\"Rect(1,0,0,0)\"/>\
            </View>\
-         </BorderView>"
+           {bar}\
+         </BorderView>",
+        // (a page's row: the bar of the trained value against the cap)
+        bar = if mode == 1 { format!("<PowerBar name=\"bar_{stat}\" bg_gfx=\"GFX_GUI_HOR_BAR_SMALL_EMPTY\" full_gfx=\"GFX_GUI_HOR_BAR_SMALL_BLUE\" layout_borders=\"Rect(0,0,5,0)\"/>") } else { String::new() }
     )
 }
 
@@ -109,6 +119,8 @@ pub struct SkillWindow {
     pending: BTreeMap<u32, i64>,
     selected: Option<u32>,
     pub status: String,
+    /// A preview's: the group whose page to open, the skill to select and the points to have added to it.
+    pub demo: Option<(usize, u32, i64)>,
 }
 
 impl SkillWindow {
@@ -156,13 +168,20 @@ impl SkillWindow {
                 }
             }
         }
-        // (the suggested distribution and the resets need the cost tables this client does not have)
+        // (the suggested distribution and the resets are not ported)
         for name in ["suggest_ip", "resetAll", "reset", "resetFree"] {
             if let Some(id) = tree.find(root, name) {
                 tree.get_mut(id).enabled = false;
             }
         }
         self.window = Some(crate::gui::window::XmlWindow { name: "Skills".into(), title: "Skills".into(), tree, root, open: true, default_size: egui::vec2(640.0, 480.0) });
+        // (MAO_SKILL=<group number>,<stat>,<points added>: the window comes up on that group's page with the skill selected,
+        // for pictures of it)
+        if self.demo.is_none()
+            && let Some(v) = std::env::var("MAO_SKILL").ok().map(|t| t.split(',').filter_map(|x| x.trim().parse::<i64>().ok()).collect::<Vec<_>>()).filter(|v| v.len() == 3)
+        {
+            self.demo = Some((v[0] as usize, v[1] as u32, v[2]));
+        }
     }
 
     fn set_text(tree: &mut Tree, root: Id, name: &str, value: &str) {
@@ -181,15 +200,57 @@ impl SkillWindow {
         }
         let Some(w) = self.window.as_mut() else { return };
         let (tree, root) = (&mut w.tree, w.root);
+        if let Some((group, stat, added)) = self.demo.take() {
+            if let Some(list) = GROUPS.get(group).and_then(|g| tree.find(root, &format!("{}_view", g.0))) {
+                tree.get_mut(list).hidden = 0;
+            }
+            for (selector, value) in [("infoselect", 1), ("groupselect", group as i32)] {
+                if let Some(s) = tree.find(root, selector) {
+                    crate::gui::selector::set_value(tree, s, value);
+                }
+            }
+            self.selected = Some(stat);
+            if added > 0 {
+                self.pending.insert(stat, added);
+            }
+            tree.relayout = true;
+        }
         let stored = |stat: u32| parts.get(&stat).map_or_else(|| stats.get(&stat).copied().unwrap_or(0), |b| b.stored);
         let buffed = |stat: u32| stats.get(&stat).copied().unwrap_or_else(|| stored(stat));
         let ip = stored(IP);
+        // (the costs and caps: Gamecode's, for the character as trained with the points being added to its abilities)
+        let tables = crate::skillcost::tables();
+        let added_to = |pending: &BTreeMap<u32, i64>, stat: u32| pending.get(&stat).copied().unwrap_or(0);
+        let who = |pending: &BTreeMap<u32, i64>| crate::skillcost::Character {
+            breed: stats.get(&4).copied().unwrap_or(0) as u32,
+            profession: stats.get(&60).map(|p| *p as u32),
+            level: stats.get(&54).copied().unwrap_or(1),
+            title: stats.get(&37).copied().unwrap_or(1),
+            abilities: std::array::from_fn(|k| stored(16 + k as u32) + added_to(pending, 16 + k as u32)),
+        };
+        let spent = |pending: &BTreeMap<u32, i64>| tables.map_or(0, |t| pending.iter().map(|(&stat, &p)| t.total_cost(&who(pending), stat, stored(stat), p)).sum::<i64>());
+        let character = who(&self.pending);
         // the values: each row's buffed value with the points added (FUN_100fa0e0), the buttons' pictures changed once added
-        Self::set_text(tree, root, "remaining_ip", &ip.to_string());
+        Self::set_text(tree, root, "remaining_ip", &(ip - spent(&self.pending)).to_string());
         Self::set_text(tree, root, "status", &self.status);
         for (_, stats) in GROUPS {
             for &stat in stats {
                 let added = self.pending.get(&stat).copied().unwrap_or(0);
+                // (the name in its cost level's colour, FUN_100f99b1; the page's bar: trained over the cap, FUN_100fe550)
+                if let Some(t) = tables {
+                    let colour = crate::skillcost::colour(t.cost_level(&character, stat));
+                    for mode in 0..2 {
+                        if let Some(id) = tree.find(root, &format!("name{mode}_{stat}"))
+                            && let Some(name) = tree.control_mut::<crate::gui::controls::TextView>(id)
+                        {
+                            name.colour = crate::gui::controls::Colour(colour);
+                        }
+                    }
+                    if let Some(bar) = tree.find(root, &format!("bar_{stat}")) {
+                        let max = t.max(&character, stat);
+                        crate::gui::powerbar::set_value(tree, bar, if max > 0 { ((stored(stat) + added) as f32 / max as f32).clamp(0.0, 1.0) } else { 0.0 });
+                    }
+                }
                 for mode in 0..2 {
                     Self::set_text(tree, root, &format!("value{mode}_{stat}"), &(buffed(stat) + added).to_string());
                     for button in ["dec", "inc"] {
@@ -216,8 +277,13 @@ impl SkillWindow {
             Self::set_text(tree, root, "base", &right((stored(stat) + added).to_string()));
             Self::set_text(tree, root, "buffed", &right((buffed(stat) + added).to_string()));
             Self::set_text(tree, root, "pointdelta", &right(added.to_string()));
-            for field in ["unitcost", "totalcost", "maxskill"] {
-                Self::set_text(tree, root, field, &right("-".to_string()));
+            // (what the next point costs, FUN_100f9aeb; the points added together, FUN_100f9b0d; the cap)
+            let fields = match tables {
+                Some(t) => [t.cost(&character, stat, stored(stat) + added).to_string(), t.total_cost(&character, stat, stored(stat), added).to_string(), t.max(&character, stat).to_string()],
+                None => ["-".to_string(), "-".to_string(), "-".to_string()],
+            };
+            for (field, value) in ["unitcost", "totalcost", "maxskill"].into_iter().zip(fields) {
+                Self::set_text(tree, root, field, &right(value));
             }
         }
         // (the notice that a skill is disabled: shown only for one of the disabled group's, FUN_100fa1c4's `Show`)
@@ -256,8 +322,39 @@ impl SkillWindow {
                 }
                 tree.relayout = true;
             } else if let Some(stat) = stat_of("inc") {
-                if ip > self.pending.values().sum::<i64>() {
-                    *self.pending.entry(stat).or_insert(0) += 1;
+                self.status.clear();
+                match tables {
+                    // (FUN_100fe968: not past the cap, FUN_100fdf13; FUN_100fe550: not past the IP left. Let go with Shift
+                    // or Ctrl held, FUN_100fea68: as far as both allow)
+                    Some(t) => {
+                        let all = ctx.input(|i| i.modifiers.shift || i.modifiers.ctrl);
+                        loop {
+                            let added = added_to(&self.pending, stat);
+                            if t.max(&who(&self.pending), stat) < stored(stat) + added + 1 {
+                                if !all || added == 0 {
+                                    self.status = format!("{} cannot be raised further now.", text(2003, stat, &crate::skills::stat_name(stat)));
+                                }
+                                break;
+                            }
+                            let mut next = self.pending.clone();
+                            *next.entry(stat).or_insert(0) += 1;
+                            if spent(&next) > ip {
+                                if !all || added == 0 {
+                                    self.status = crate::gui::xml::ldb_named(502, "Skill_LackIP", "Not enough IP to raise this skill further.");
+                                }
+                                break;
+                            }
+                            self.pending = next;
+                            if !all {
+                                break;
+                            }
+                        }
+                    }
+                    None => {
+                        if ip > self.pending.values().sum::<i64>() {
+                            *self.pending.entry(stat).or_insert(0) += 1;
+                        }
+                    }
                 }
                 self.selected = Some(stat);
             } else if let Some(stat) = stat_of("dec") {

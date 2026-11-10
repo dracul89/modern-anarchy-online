@@ -336,6 +336,24 @@ The markup reader now decodes the character entities Utils.dll's reader knows (`
 `&amp;`): the pages the original builds use them (`&nbsp;` between the level and the shadow level, in the mission's
 time left).
 
+**Skill costs, caps, colours and bars (2026-11-10, `skillcost.rs`, `skillwindow.rs`).** The Skills window lacked
+what a point costs and how far a skill goes, because the tables were thought not to be in the data. They are records of
+the resource database that Gamecode reads at start: a breed's ability costs (`0xf4312`) and ability starts and caps
+(`0xf425b`), a profession's cost level for 77 skills (`0xf430e`) and the levels its seven titles start at (`0xf4308`),
+and for each of five cost classes the cap at each title level and its growth a level (`0xf4311`). `skillcost::Tables`
+reads them and carries out Gamecode's three functions: a point costs the cost level times the value raised from, over
+ten (an ability: the breed's number times the value); a skill's cap is the least of the title level's cap, the cap of
+the title before plus the growth for each level into this one, and twice the abilities' weighted mean, with more past
+level 200; an ability grows three a level to the breed's cap. In the window (as `SkillWindow`'s rows and details): a
+skill's name is in its cost level's colour (five steps from green to blue), a page's row ends in a small bar of the
+trained value against the cap, the details give the cost of the next point, the cost of the points added and the cap,
+and the IP at the top are those left after the points added. The increase button stops at the cap and at the IP left
+(the original's `Skill_LackIP` text); with Shift or Ctrl it raises as far as both allow. Points added to an ability
+count at once towards the caps of the skills it feeds, as the original's. Seen live on the level 27 test character:
+two points of Body Development from 103 cost 247 and 249, the next 252, the cap 107. `MAO_SKILL=<group>,<stat>,<points>`
+opens the window on a group's page with a skill selected (previews and live). Not done: the suggested distribution, the
+resets, the button repeating while held, the value's colour when buffed.
+
 ## 4l. Action window (`K`) and the map (`O`)
 
 **Actions.** The catalogue is what the running original client reports (`docs/GAME_MECHANICS.md`): 3 weapon attacks, 12 character actions, 35 perks, 63 social ids with 9 dances, each tile with the original's `action_*` icon (perks get a `perk_*` family by name, a guess). Click a tile or drag it onto a hotbar slot (the hotbar file now stores `special` and `social` entries). Doing one sends Stand, Sneak, Search, Reload and Start Combat; the rest (the weapon attacks, Brawl, Dimach, perks, emotes) say their network message is not captured yet. Preview: `MAO_UI_PREVIEW=actions`.

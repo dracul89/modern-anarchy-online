@@ -75,6 +75,7 @@ mod marketsend;
 mod prefs;
 mod ncu;
 mod skills;
+mod skillcost;
 mod skillwindow;
 mod stats;
 mod trickle_data;
