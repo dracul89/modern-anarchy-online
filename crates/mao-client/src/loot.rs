@@ -319,6 +319,7 @@ impl LootWindow {
             let mut answer = None;
             crate::chrome::window(ctx, palette, "rename-backpack", "Enter backpack name.", &mut asking, |w| w.resizable(false).pivot(egui::Align2::CENTER_CENTER).default_pos(ctx.content_rect().center()), |ui| {
                 let field = crate::chrome::text_edit(ui, palette, egui::TextEdit::singleline(typed).desired_width(200.0));
+                crate::chrome::focus_when_new(ctx, "rename-backpack", &field);
                 if field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                     answer = Some(Some(()));
                 }

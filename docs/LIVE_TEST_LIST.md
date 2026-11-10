@@ -81,6 +81,33 @@ Left as it is: Brasscasings walked about 215 m to stand next to Ballbearing; bot
 - For the test Ballbearing ran his smallest automaton program, used the shell it made and sent the automaton away
   again with `/pet terminate`: the pet's lines came on both sides, and the inventory is as it was.
 
+**More with the same two, and alone** (2026-11-10, third round; the second character only standing by, started
+first so that the first one's window is the one in the screenshots)
+- 33: `/inspect` with the other player targeted opens the info window with his page (breed, gender, title level,
+  profession, level, the invader and duel figures, alignment, the "Inspect Equipment" link) and the one-line
+  answer in the chat. The profession title's name is still missing (only its level is shown, as noted in
+  `charinfo.rs`).
+- 38: "Nano Target NCU" with the other player targeted and Hostile Only off lists his running nanos at once.
+- 23, 22: `/befriend <name>` puts him under Online Friends with the two chat lines; right-click → Delete brings
+  the warning box at the pointer, Yes removes him, and he is still gone after a relog. 25: the Recent Messages
+  names are still there after a relog.
+- A nano run with nothing targeted (older note): **found and fixed**, see below; after the fix it lands on the
+  caster, the NCU window gets its icon and the strip's figure goes up.
+- `/follow` (older note): the follower walks after a player who walks away, and stops 3.5 m from him when he stands.
+- 45: a bag's Rename box. **Found and fixed**: the box did not take the keys (the original's gives its field the
+  focus when it comes up); now the name can be typed and Enter keeps it, and the window's title changes.
+- 12 (in part): a second chat window's bar and the first's each keep their own text. Nothing was sent from the
+  second (its output group may be the vicinity).
+**Found and fixed in this round**
+- A buff run with nothing targeted landed on another player. The test client is stopped without logging out, so
+  the character stands in the world for a while with the target it had; the next session takes that character
+  over, shows no target, and the server still has one. The client now tells the server on entering that nothing is
+  selected (and again when a target is lost).
+- The rename boxes (a bag's, a chat window's) take the keyboard when they come up.
+Still not reached: team chat (8: this client cannot invite to a team yet), the private group's No and Leave (19,
+20), the Visual switches (14 to 17), the chat configuration's buttons (18), ignoring and mail from the friends
+menu (24, 26), nano hide and sorting (39, 40), a bag's kept place and a corpse or the bank beside it (46, 47).
+
 A screenshot is a grab of the screen, so with two full-screen clients it shows the one on top; the other side was
 checked through the chat log (`chat/<date>.txt`), which both write.
 

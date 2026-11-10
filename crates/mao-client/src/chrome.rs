@@ -53,6 +53,21 @@ pub const DIALOGS: &[&str] = &["TradeDoubleConfirmDlg", "perk-dialog", "team-inv
 /// When each message box was last shown (the frame), to tell a new showing from the next frame of one.
 static DIALOG_SEEN: Mutex<Vec<(&'static str, u64)>> = Mutex::new(Vec::new());
 
+/// A box that asks for a text takes the keys when it comes up: GUI.dll's `TextInputDialogForm_c::AllAttached`
+/// (0x101483d8) gives its text view the focus. Called every frame with the box's field, it asks for the focus on the
+/// first frame of a showing; `name` is one of [`DIALOGS`].
+pub fn focus_when_new(ctx: &egui::Context, name: &'static str, field: &egui::Response) {
+    static SEEN: Mutex<Vec<(&'static str, u64)>> = Mutex::new(Vec::new());
+    let frame = ctx.cumulative_frame_nr();
+    let mut seen = SEEN.lock().unwrap();
+    let was = seen.iter().find(|s| s.0 == name).map(|s| s.1);
+    seen.retain(|s| s.0 != name);
+    seen.push((name, frame));
+    if was.is_none_or(|f| f + 1 < frame) {
+        field.request_focus();
+    }
+}
+
 /// The width a message box's text is wrapped to: `TextRenderer_c::SetAspectRatio(2.0)`, about twice as wide as tall.
 pub fn dialog_width(height_at: impl Fn(f32) -> f32) -> f32 {
     let mut width = 120.0;

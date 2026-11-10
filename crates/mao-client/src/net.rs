@@ -4808,6 +4808,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         // (the movement mode told the server on entering a playfield: it keeps the last one it heard, even from another session,
         // and checks the reports against that mode's speed)
         let mut mode_told = false;
+        let mut target_told = false;
         // (the heading the last movement message carried: `CheckMotionUpdate` reports a turn of more than 0.17 rad since)
         let mut sent_heading = 0.0f32;
         let old_reports = std::env::var_os("MAO_OLD_REPORTS").is_some();
@@ -5608,9 +5609,15 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             // (the progress watch only restarts when a walk starts: the target keeps moving)
                             if goto.is_none() {
                                 (goto_best, goto_progress, detour, detours) = (f32::MAX, Instant::now(), None, 0);
+                                if std::env::var_os("MAO_COMBAT_LOG").is_some() {
+                                    eprintln!("combat: following {id:x}: it is at ({:.2}, {:.2}), {distance:.2} m from ({:.2}, {:.2})", p[0], p[2], position[0], position[2]);
+                                }
                             }
                             goto = Some([p[0], p[2]]);
                         } else {
+                            if goto.is_some() && std::env::var_os("MAO_COMBAT_LOG").is_some() {
+                                eprintln!("combat: following {id:x}: near enough at {distance:.2} m, at ({:.2}, {:.2})", position[0], position[2]);
+                            }
                             goto = None;
                         }
                     }
@@ -6275,6 +6282,16 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             }
             if target.is_some_and(|t| state.position_of(t).is_none()) {
                 target = None;
+                let _ = connection.send(&n3::set_target(own, 0));
+            }
+            // Nothing is selected on entering, and the server is told so: a character whose client went without
+            // logging out stands in the world for a while with the target it had, and a session that takes it over
+            // would have its targetless casts (a buff meant for oneself) land on that target. Seen live 2026-11-10; the
+            // original sends its selection whenever it changes (`N3Msg_SelectedTarget`), what it does on entering was
+            // not read.
+            if !target_told {
+                target_told = true;
+                let _ = connection.send(&n3::set_target(own, 0));
             }
             // Moving stands a seated character up first.
             // (`CancelCampMessage`: the bar goes and "Timed logout aborted.")

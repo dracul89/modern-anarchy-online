@@ -536,6 +536,17 @@ names have nothing called one, so a pet duel itself could not be had: the challe
 and 6 and the results are from the decompile only. The test script got `cast@<nano id>` and `useitem@<place>`
 (the automaton's program leaves a shell in the inventory, which is used to bring the pet).
 
+**No target on entering, and text boxes that take the keys (2026-11-10, `net.rs`, `chrome::focus_when_new`).** Two
+things the third round of live tests found. A nano run with nothing selected goes out with no target, as the
+original's does (`N3Msg_CastNanoSpell` 0x1001b5d4 passes the selection as it is; only its own check, FUN_1004fbe4,
+takes the caster for a harmless nano's missing target), and the server then uses the target it knows of. A
+character whose client stopped without logging out stands in the world for a while with its target, so a session
+that takes it over could buff somebody it did not show as selected. The client now sends `LookAt` with no target
+once on entering and whenever a target is lost; what the original sends on entering was not read. And a box that
+asks for a text (a bag's or a chat window's new name) takes the keyboard when it comes up, as GUI.dll's
+`TextInputDialogForm_c::AllAttached` (0x101483d8) gives its field the focus: before, the name could only be typed
+after a click in the field.
+
 **Scripted clicks, and what the first scripted live run found (2026-11-10, `ui.rs::Ui::script`, `viewer.rs`).**
 `MAO_CAMERA_SCRIPT` steps with an `@` act on the interface as the mouse and keys would, so the windows can be tried
 live without anyone at the keyboard: `open@<window>`, `close@<window>` (`close@` alone: all), `click@<x>;<y>`,
