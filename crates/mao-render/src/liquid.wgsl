@@ -3,15 +3,17 @@
 // their type's colour (`mao_formats::liquid::colour`); the passes texture them by their world place:
 //
 // - water (layer 0): `water5.png` over 40-unit tiles, drifting with the flow phase, lit by the water light (the vertex
-//   colour as the diffuse, a black ambient, a white specular of 0.505 at power 10); then a second pass of the same
+//   colour as the diffuse, the scene's ambient through the material's default white ambient, a white specular of 0.505
+//   at power 10); then a second pass of the same
 //   texture rippling down the slopes, blended `1 − α` over `α` (so a flat sheet shows a fifth of it);
 // - toxic (layer 2): `toxicwater.png` over 12-unit tiles, unlit, in the vertex colour; a second pass stepping down the
 //   slopes by their signs;
 // - lava (layer 1): the water texture over 8-unit tiles in the vertex colour (red, opaque); then `env_lava2.png` twice,
 //   over 75 and 250 units, drifting, its alpha the product of both (the original's camera-space projection comes to the
 //   same world tiling);
-// - the wide water (layer 4): the water texture over 160-unit tiles, lit with an ambient tint of (0.2, 0.3, 0.4) and no
-//   specular.
+// - the wide water (layer 4): the water texture over 160-unit tiles, lit the same without the specular (the (0.2, 0.3, 0.4)
+//   ambient tint its Randy material carries never reaches Direct3D: `RViewPort_t::SetMaterial` sends only the alpha, the
+//   emissive, the specular and the power, so every liquid's material ambient is the default white).
 //
 // The frame block's wave offsets (`GameWaveCurve0..15`) are 0 in every script, so the waves they would add are left out.
 
@@ -81,11 +83,11 @@ fn step_sign(c: f32) -> f32 {
 
 // Direct3D's lit colour for a liquid vertex: the ambient light on the material's tint, the water light on the vertex
 // colour by the slope it meets, clamped; the specular is added after the texture.
-fn lit(normal: vec3<f32>, colour: vec3<f32>, tint: vec3<f32>) -> vec3<f32> {
+fn lit(normal: vec3<f32>, colour: vec3<f32>) -> vec3<f32> {
     let n = normalize(normal);
     let l = normalize(liquid.to_light.xyz);
     let diffuse = liquid.light.rgb * colour * max(dot(n, l), 0.0);
-    return clamp(liquid.ambient.rgb * tint + diffuse, vec3<f32>(0.0), vec3<f32>(1.0));
+    return clamp(liquid.ambient.rgb + diffuse, vec3<f32>(0.0), vec3<f32>(1.0));
 }
 
 fn glint(world: vec3<f32>, normal: vec3<f32>, strength: f32, shininess: f32) -> vec3<f32> {
@@ -125,14 +127,11 @@ fn fs_liquid(in: LiquidOut) -> @location(0) vec4<f32> {
             uv = xy / 160.0;
         }
         let tex = textureSample(water_tex, liquid_samp, uv);
-        var tint = vec3<f32>(0.0);
         var spec = vec3<f32>(0.0);
-        if p == 4u {
-            tint = vec3<f32>(0.2, 0.3, 0.4);
-        } else {
+        if p != 4u {
             spec = glint(in.world, n, 0.505, 10.0);
         }
-        rgb = tex.rgb * lit(n, in.colour.rgb, tint) + spec;
+        rgb = tex.rgb * lit(n, in.colour.rgb) + spec;
         alpha = tex.a * in.colour.a;
     } else if p == 2u || p == 3u {
         // the toxic liquid's two passes: still, then stepping down the slopes by their signs

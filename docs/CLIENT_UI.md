@@ -728,13 +728,16 @@ the star water (0xe, 0xf), the wide water (0x12, 0x13); 0x10 and 0x11 are not dr
 `wide_pass` → `liquid.wgsl`, after the meshes without depth writes, lit by the scripts' `WaterLightCurrent` (its
 brightest channel as grey, `set_light(brightest)`) along `WaterLightDirection`, the glint by the light's colour times
 `SpecularLightIntensity`): the water's `water5.png` over 40-unit tiles drifting with a flow phase (down by the frame's time
-over a hundred, wrapped), lit with the vertex colour as diffuse, a black ambient and a white specular of 0.505 at power 10,
-blended by its alpha; then the same texture rippling down the slopes (the normal's horizontal part, a step of 0.003 a
+over a hundred, wrapped), lit with the vertex colour as diffuse, the scene's ambient and a white specular of 0.505 at power 10,
+blended by its alpha (the material's ambient stays Randy's default white: `RViewPort_t::SetMaterial` sends only the alpha,
+the emissive, the specular and the power to Direct3D, so the water material's black ambient and the wide water's (0.2, 0.3,
+0.4) tint, both set on the Randy material's +0x44, never arrive; until 2026-11-09 the client took them as the ambient, which
+left Borealis's pool dark blue where the original's is lilac-grey); then the same texture rippling down the slopes (the normal's horizontal part, a step of 0.003 a
 frame) blended `1 − α` over `α`. The toxic liquid's `toxicwater.png` over 12-unit tiles unlit in the vertex colour, then
 stepping down the slopes by their signs (0.03 a frame). The lava's water texture over 8-unit tiles in red, opaque, then
 `env_lava2.png` over 75 and 250 units drifting, its alpha the product of both (the original projects it in camera space,
-which comes to the same world tiling). The wide water: the water texture over 160-unit tiles, lit with an ambient tint of
-(0.2, 0.3, 0.4) and no specular. Two things the original adds are left out on purpose: the frame block's wave offsets,
+which comes to the same world tiling). The wide water: the water texture over 160-unit tiles, lit the same without the
+specular. Two things the original adds are left out on purpose: the frame block's wave offsets,
 which the scripts' `GameWaveCurve0..15` set to 0 everywhere so they never move anything, and the lava's second (rippling)
 pass, whose alpha of 1 under the inverse blend contributes nothing. The textures come by name from the resource database
 (`Textures::sheet`); a missing one leaves the pass white.
@@ -780,7 +783,9 @@ the mode sets the start, and 0x30d6's mode 3 spreads them up to 1.5 along the wo
 original's `rand() / 21845 − 1.5` is one-sided) and moves them along −z at 1.35 to 1.42 a second for 1.4 s, 0.7 to 3 wide,
 white at alpha 0.15 to 0.05 of material 49 — a mist along the foot — hidden past 80 units from the camera. The client finds
 the feet with the playfield (`Area::falls`, `Update::falls`) and draws the effect at each from the frame the playfield came,
-while the environment effects are shown; the births are modelled at sixty a second, with a hash for the random numbers. Not
+while the environment effects are shown; the births are modelled at sixty a second, with a hash for the random numbers, salted
+by the emitter's place (every step of a fall's foot drew the same cloud a unit apart, a string of beads where the original has
+a band). Not
 drawn: the quads' spin, mode 5's blend under alpha, mode 1's wandering emitter (taken as mode 0). Across the playfields
 the effect lands at 25 places on each coast, 437 in Adonis City, 337 in Central Elysium, 178 in 4 Holes, 135 in Belial
 Forest and Clondyke, 57 on Borealis's fall (`liquid::tests::fall_effect_survey`, which stands in a liquid's surface within

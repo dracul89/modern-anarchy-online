@@ -784,11 +784,26 @@ fn body_attractor_survey() {
 fn fall_sheet_export() {
     let Some(db) = database() else { return };
     let index = mao_formats::instances::Instances::parse(&db.get(Id { kind: 0xf424a, instance: 1 }).unwrap().unwrap()).unwrap();
-    let id = index.find(0xf6954, "mine_explosion02_bw_01_v01.png").unwrap();
+    // (`MAO_SHEET_NAME` picks another texture by name: `water5.png` for the liquid's)
+    let name = std::env::var("MAO_SHEET_NAME").unwrap_or_else(|_| "mine_explosion02_bw_01_v01.png".to_string());
+    let id = index.find(0xf6954, &name).or_else(|| index.find(0xf6954, &name.to_lowercase())).unwrap();
     let object = db.get(Id { kind: 0xf6954, instance: id }).unwrap().unwrap();
     let t = mao_formats::texture::decode(&object).unwrap();
-    println!("sheet {id:#x}: {}x{}", t.width, t.height);
+    let n = (t.width * t.height) as f64;
+    let mean: Vec<f64> = (0..4).map(|c| t.rgba.iter().skip(c).step_by(4).map(|&v| v as f64).sum::<f64>() / n / 255.0).collect();
+    println!("sheet {name} {id:#x}: {}x{}, mean rgba {mean:.3?}", t.width, t.height);
     if let Ok(out) = std::env::var("MAO_SHEET_OUT") {
         image::save_buffer(&out, &t.rgba, t.width, t.height, image::ColorType::Rgba8).unwrap();
     }
+}
+
+/// `MAO_GFX_ID=<id>`: a gfx template's decoded look, from `Setupf/gfxtweak.bin` (the fall's mist is 12502).
+#[test]
+#[ignore]
+fn gfx_visual_dump() {
+    let Some(game) = std::env::var_os("MAO_GAME") else { return };
+    let data = std::fs::read(std::path::Path::new(&game).join("Setupf/gfxtweak.bin")).unwrap();
+    let gfx = mao_formats::gfx::Gfx::parse(&data).unwrap();
+    let id: i32 = std::env::var("MAO_GFX_ID").ok().and_then(|v| v.parse().ok()).unwrap_or(12502);
+    println!("gfx {id}: {:#?}", gfx.visual(id));
 }

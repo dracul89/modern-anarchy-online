@@ -2304,7 +2304,9 @@ pub fn global_smoke_particles(s: &GlobalSmoke, at: [f32; 3], heading: f32, time:
         }
         let age = time - born;
         let t = age / s.life;
-        let salt = k.wrapping_mul(64).wrapping_add(n as u32).wrapping_mul(3017);
+        // (each emitter draws its own `rand()`s: the place salts the slot's, or every fall-foot step a unit apart would repeat one cloud)
+        let place = at.iter().fold(0u32, |h, c| h.wrapping_mul(16777619) ^ c.to_bits());
+        let salt = k.wrapping_mul(64).wrapping_add(n as u32).wrapping_mul(3017).wrapping_add(place);
         let r = |i: u32| hash(salt, i);
         // (the start by the mode, in the original's frame: x, y up, z; `rand()` tops out at 32767, so its `/ 655350` reaches 0.05
         // and its `/ 21845` 1.5)

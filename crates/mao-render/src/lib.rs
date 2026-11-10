@@ -1861,7 +1861,9 @@ impl Renderer {
             // (without the scripts' water light: the sun, as bright as the day, with the scripts' or the sky's ambient)
             let day = 0.2 + 0.8 * scene.daylight;
             let light = scene.water_light.unwrap_or(WaterLight { colour: [day; 3], to_light: sun, specular: 1.0 });
+            // (the scripts' ambient, or the day's, with the area's as `AddAmbientLight` adds it: each channel at its maximum)
             let ambient = scene.lighting.map_or([day * 0.5; 3], |(a, _)| a);
+            let ambient = [ambient[0].max(scene.ambient[0]), ambient[1].max(scene.ambient[1]), ambient[2].max(scene.ambient[2])];
             // (the camera's tilt: how much its forward points up, as FUN_1003b9c9 turns the camera's axis into the world)
             let tilt = (camera.target - eye).normalize_or_zero().z;
             self.liquid.update(gpu, light, ambient, [render_size.0 as f32, render_size.1 as f32, tilt, if scene.under_water { 0.2 } else { 0.0 }]);
