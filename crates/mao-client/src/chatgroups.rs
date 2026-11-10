@@ -271,6 +271,31 @@ pub fn server_groups() -> Vec<String> {
     SERVER_GROUPS.lock().unwrap().keys().cloned().collect()
 }
 
+/// How a chat window looks and takes typing: what its Visual menu sets (FUN_1009a00d, FUN_10097756).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Look {
+    /// `visual_mode` 2: no frame and title, only a background (0 is the normal window).
+    pub borderless: bool,
+    /// `window_transparency_active` and `window_transparency_inactive`, in hundredths: how solid the borderless
+    /// window's background is while it is active, and otherwise.
+    pub solid: (u8, u8),
+    /// `is_textinput_enabled`: the window has an input bar.
+    pub input: bool,
+    /// `hide_input_when_inactive`: the input bar shows only while typing.
+    pub hide_input: bool,
+    /// `is_message_fading_enabled`: the lines fade away while the window is not active.
+    pub fade: bool,
+    /// The frame's "always on top" (1) and "always behind" (-1).
+    pub layer: i8,
+}
+
+impl Default for Look {
+    /// As the original's configs come (0.8 and 0.3 are in every one of the player's own files).
+    fn default() -> Look {
+        Look { borderless: false, solid: (80, 30), input: true, hide_input: false, fade: false, layer: 0 }
+    }
+}
+
 /// A chat window: here a tab of the chat window.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Pane {
@@ -287,6 +312,7 @@ pub struct Pane {
     pub output: String,
     /// `show_timestamps`.
     pub timestamps: bool,
+    pub look: Look,
 }
 
 impl Pane {
@@ -294,14 +320,14 @@ impl Pane {
     fn all_but(name: &str, without: &[u32]) -> Pane {
         let known: BTreeSet<String> = BUILTIN.iter().map(|g| g.1.to_string()).collect();
         let selected = BUILTIN.iter().filter(|g| !without.contains(&g.0)).map(|g| g.1.to_string()).collect();
-        Pane { name: name.to_string(), frame: FIRST_FRAME.to_string(), selected, known, auto: true, output: String::new(), timestamps: false }
+        Pane { name: name.to_string(), frame: FIRST_FRAME.to_string(), selected, known, auto: true, output: String::new(), timestamps: false, look: Look::default() }
     }
 
     /// A window that selects only the built-in groups named.
     fn only(name: &str, with: &[u32]) -> Pane {
         let known: BTreeSet<String> = BUILTIN.iter().map(|g| g.1.to_string()).collect();
         let selected = with.iter().filter_map(|id| name_of(*id)).map(str::to_string).collect();
-        Pane { name: name.to_string(), frame: FIRST_FRAME.to_string(), selected, known, auto: false, output: String::new(), timestamps: false }
+        Pane { name: name.to_string(), frame: FIRST_FRAME.to_string(), selected, known, auto: false, output: String::new(), timestamps: false, look: Look::default() }
     }
 
     /// Whether the window shows a group's lines; a group it has not met is selected first when the window selects
@@ -384,7 +410,16 @@ pub fn parse_config(xml: &str) -> Option<(Pane, i64, bool)> {
     known.extend(selected.iter().cloned());
     let flag = |n: &str| value(xml, n) == Some("true");
     let frame = value(xml, "window_name").unwrap_or(FIRST_FRAME).to_string();
-    let pane = Pane { name, frame, selected, known, auto: flag("is_autosubscribe_window"), output: value(xml, "output_group").unwrap_or("").to_string(), timestamps: flag("show_timestamps") };
+    let hundredths = |n: &str, or: u8| value(xml, n).and_then(|v| v.parse::<f32>().ok()).map_or(or, |v| (v.clamp(0.0, 1.0) * 100.0).round() as u8);
+    let look = Look {
+        borderless: value(xml, "visual_mode") == Some("2"),
+        solid: (hundredths("window_transparency_active", 80), hundredths("window_transparency_inactive", 30)),
+        input: value(xml, "is_textinput_enabled") != Some("false"),
+        hide_input: flag("hide_input_when_inactive"),
+        fade: flag("is_message_fading_enabled"),
+        layer: 0,
+    };
+    let pane = Pane { name, frame, selected, known, auto: flag("is_autosubscribe_window"), output: value(xml, "output_group").unwrap_or("").to_string(), timestamps: flag("show_timestamps"), look };
     Some((pane, value(xml, "tab_index").and_then(|v| v.parse().ok()).unwrap_or(0), flag("is_startup_window")))
 }
 
@@ -398,12 +433,15 @@ pub fn from_original(prefs: &Path) -> Vec<Pane> {
     found.into_iter().map(|f| f.0).collect()
 }
 
-/// `chatwindows.ini`: a window a block: `window <name>`, `auto 0|1`, `timestamps 0|1`, `output <group>`, then a line
-/// a group it has met, `+ <group>` shown or `- <group>` not.
+/// `chatwindows.ini`: a window a block: `window <name>`, `frame <name>`, `auto 0|1`, `timestamps 0|1`, `look` with
+/// its seven numbers (borderless, solid while active and otherwise, input bar, hidden bar, fading, layer), `output
+/// <group>`, then a line a group it has met, `+ <group>` shown or `- <group>` not.
 pub fn render(panes: &[Pane]) -> String {
     let mut out = String::new();
     for p in panes {
-        out += &format!("window {}\nframe {}\nauto {}\ntimestamps {}\noutput {}\n", p.name, p.frame, u8::from(p.auto), u8::from(p.timestamps), p.output);
+        let l = p.look;
+        out += &format!("window {}\nframe {}\nauto {}\ntimestamps {}\n", p.name, p.frame, u8::from(p.auto), u8::from(p.timestamps));
+        out += &format!("look {} {} {} {} {} {} {}\noutput {}\n", u8::from(l.borderless), l.solid.0, l.solid.1, u8::from(l.input), u8::from(l.hide_input), u8::from(l.fade), l.layer, p.output);
         for g in &p.known {
             out += &format!("{} {g}\n", if p.selected.contains(g) { '+' } else { '-' });
         }
@@ -417,7 +455,7 @@ pub fn parse(text: &str) -> Vec<Pane> {
         let (word, rest) = line.split_once(' ').unwrap_or((line, ""));
         let rest = rest.trim();
         if word == "window" && !rest.is_empty() {
-            panes.push(Pane { name: rest.to_string(), frame: FIRST_FRAME.to_string(), selected: BTreeSet::new(), known: BTreeSet::new(), auto: false, output: String::new(), timestamps: false });
+            panes.push(Pane { name: rest.to_string(), frame: FIRST_FRAME.to_string(), selected: BTreeSet::new(), known: BTreeSet::new(), auto: false, output: String::new(), timestamps: false, look: Look::default() });
             continue;
         }
         let Some(p) = panes.last_mut() else { continue };
@@ -425,6 +463,11 @@ pub fn parse(text: &str) -> Vec<Pane> {
             "auto" => p.auto = rest == "1",
             "frame" if !rest.is_empty() => p.frame = rest.to_string(),
             "timestamps" => p.timestamps = rest == "1",
+            "look" => {
+                if let [borderless, active, inactive, input, hide, fade, layer] = rest.split_whitespace().filter_map(|w| w.parse::<i32>().ok()).collect::<Vec<_>>()[..] {
+                    p.look = Look { borderless: borderless == 1, solid: (active.clamp(0, 100) as u8, inactive.clamp(0, 100) as u8), input: input == 1, hide_input: hide == 1, fade: fade == 1, layer: layer.signum() as i8 };
+                }
+            }
             "output" => p.output = rest.to_string(),
             "+" | "-" if !rest.is_empty() => {
                 p.known.insert(rest.to_string());
@@ -518,6 +561,10 @@ mod tests {
 </Archive>"#;
         let (mut pane, tab, startup) = parse_config(xml).unwrap();
         assert_eq!((pane.name.as_str(), pane.frame.as_str(), pane.output.as_str(), pane.timestamps, pane.auto, tab, startup), ("Fights", "Window1", "Clan OOC", true, false, 2, true));
+        // (a config that says nothing of the look has the original's; one that does is read)
+        assert_eq!(pane.look, Look::default());
+        let styled = r#"<Archive code="0"><String name="name" value="Side" /><Int32 name="visual_mode" value="2" /><Float name="window_transparency_active" value="0.500000" /><Float name="window_transparency_inactive" value="0.100000" /><Bool name="is_textinput_enabled" value="false" /><Bool name="hide_input_when_inactive" value="true" /><Bool name="is_message_fading_enabled" value="true" /></Archive>"#;
+        assert_eq!(parse_config(styled).unwrap().0.look, Look { borderless: true, solid: (50, 10), input: false, hide_input: true, fade: true, layer: 0 });
         assert!(pane.shows("Me hit by monster") && pane.shows("Clan OOC") && !pane.shows(SYSTEM) && !pane.shows("Neu. OOC"));
     }
 
@@ -536,6 +583,10 @@ mod tests {
         panes[1].frame = free_name(&panes);
         assert_eq!((panes[1].frame.as_str(), frames(&panes).len(), members(&panes, FIRST_FRAME)), ("Window2", 2, vec![0]));
         assert_eq!((free_name(&panes), parse(&render(&panes)) == panes), ("Window3".to_string(), true));
+        // (the look goes round too; a file without it has the original's)
+        panes[0].look = Look { borderless: true, solid: (60, 10), input: false, hide_input: true, fade: true, layer: -1 };
+        assert_eq!(parse(&render(&panes)), panes);
+        assert_eq!(parse("window A\n")[0].look, Look::default());
         // (a file of before the frames puts every window in the first)
         assert_eq!(parse("window A\nwindow B\n").iter().map(|p| p.frame.clone()).collect::<Vec<_>>(), ["Window1", "Window1"]);
     }

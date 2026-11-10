@@ -318,6 +318,33 @@ pub fn window<R>(ctx: &egui::Context, palette: &Palette, name: &str, title: &str
     shown
 }
 
+/// A window without the frame and the title, only a background `solid` (0 to 1) of the panel's colour: a chat window
+/// in its borderless mode. Its place and size are kept under `name` as a framed window's are, so one can be turned
+/// into the other where it stands.
+pub fn bare_window(ctx: &egui::Context, palette: &Palette, name: &str, solid: f32, build: impl FnOnce(egui::Window<'static>) -> egui::Window<'static>, add: impl FnOnce(&mut egui::Ui)) {
+    if crate::layout::kept(name) && crate::layout::screen().is_none() && std::env::var_os("MAO_UI_PREVIEW").is_none() {
+        return;
+    }
+    crate::layout::track(name);
+    let saved = crate::layout::kept(name).then(|| crate::layout::saved(name)).flatten();
+    let fill = egui::Color32::from_rgba_unmultiplied(palette.panel[0], palette.panel[1], palette.panel[2], (solid.clamp(0.0, 1.0) * 255.0) as u8);
+    const MARGIN: i8 = 4;
+    let mut w = build(egui::Window::new(name).title_bar(false).collapsible(false).frame(egui::Frame::NONE.fill(fill).inner_margin(MARGIN))).id(egui::Id::unique(name));
+    if let Some(size) = crate::layout::saved_size(name) {
+        w = w.default_size(size);
+    }
+    w = match saved {
+        Some(at) if crate::layout::relocate(name) => w.current_pos(at),
+        Some(at) => w.default_pos(at),
+        None => w,
+    };
+    w.show(ctx, |ui| {
+        let room = ui.max_rect().size();
+        add(ui);
+        crate::layout::note_size(name, room + egui::Vec2::splat(f32::from(MARGIN) * 2.0));
+    });
+}
+
 /// The window's fill and the original's border pieces around `outer`: thin top and sides, rounded bottom corners.
 pub(crate) fn frame_shape(skin: &crate::skin::Skin, outer: egui::Rect, panel: egui::Color32, tint: egui::Color32) -> egui::Shape {
     let mut shapes = vec![egui::Shape::rect_filled(outer.shrink(2.0), 2.0, panel)];

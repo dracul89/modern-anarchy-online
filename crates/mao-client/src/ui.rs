@@ -831,6 +831,9 @@ impl Ui {
             chat_window.invite_action = control_center.as_ref().and_then(|cc| cc.store.get("ChatPGInviteAction")).map_or(1, |v| v.as_int32());
             // (the warning when a line goes to a group the window does not show: on in the game's own settings)
             chat_window.warn_unshown = control_center.as_ref().and_then(|cc| cc.store.get("ChatWarnWhenSpeakingToUnsubGroups")).is_none_or(|v| v.as_bool());
+            // (when a line of a fading chat window starts to go and how long it takes: 8 and 0.3 seconds in the game's settings)
+            let seconds = |name: &str, or: f32| control_center.as_ref().and_then(|cc| cc.store.get(name)).map_or(or, |v| v.as_float());
+            chat_window.fade_times = (seconds("ChatTextFadeDelay", 8.0), seconds("ChatTextFadeTime", 0.3));
             if let Some(out) = chat_window.show(&ctx, palette) {
                 requests.chat.push(out);
             }

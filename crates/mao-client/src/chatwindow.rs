@@ -128,6 +128,17 @@ enum Menu {
     Subscribe,
     /// The groups of a kind, each with its mark: public or combat.
     Groups { combat: bool },
+    /// "Visual" (FUN_10097756 over FUN_1009a00d): the mode, how solid, the times, the input bar, fading, the layer.
+    Visual,
+    /// "Mode": normal or borderless.
+    Mode,
+    /// "Transparency": the original's two sliders, here steps of ten for a window not active and for an active one.
+    Solid,
+}
+
+/// The id of a frame's input bar.
+fn bar_id(frame: &str) -> egui::Id {
+    egui::Id::unique(("chat-input", frame))
 }
 
 pub struct ChatWindow {
@@ -142,6 +153,14 @@ pub struct ChatWindow {
     /// The window shown in each other frame, and the window the open menu is about.
     shown: std::collections::BTreeMap<String, usize>,
     menu_pane: usize,
+    /// What is typed in the other frames' input bars (the first frame's is `input`), and the frame whose bar takes
+    /// the keys next (a press on a window that hides its bar).
+    inputs: std::collections::BTreeMap<String, String>,
+    focus_frame: Option<String>,
+    /// When each of `lines` came, for the fading.
+    born: Vec<std::time::Instant>,
+    /// `ChatTextFadeDelay` and `ChatTextFadeTime`: how old a line is when it starts to fade, and how long it takes.
+    pub fade_times: (f32, f32),
     /// The menu open (its kind, what each entry stands for and where it opened) and its picture.
     menu: Option<(Menu, Vec<String>, egui::Pos2)>,
     popup: Option<crate::gui::popup::PopupMenu>,
@@ -175,7 +194,7 @@ pub struct ChatWindow {
 
 impl Default for ChatWindow {
     fn default() -> Self {
-        ChatWindow { open: true, log: false, lines: Vec::new(), panes: chatgroups::defaults(), loaded_for: None, tab: 0, shown: Default::default(), menu_pane: 0, menu: None, popup: None, config: Default::default(), invite_action: 1, warn_unshown: true, invites: Vec::new(), outs: Vec::new(), demo: None, input: String::new(), selected: 0, focus_next: false, last_tell: None, scroll_to_end: true, keep_list: false, ignored: load_ignored(), history: Vec::new(), recalled: None, links: Vec::new() }
+        ChatWindow { open: true, log: false, lines: Vec::new(), panes: chatgroups::defaults(), loaded_for: None, tab: 0, shown: Default::default(), menu_pane: 0, inputs: Default::default(), focus_frame: None, born: Vec::new(), fade_times: (8.0, 0.3), menu: None, popup: None, config: Default::default(), invite_action: 1, warn_unshown: true, invites: Vec::new(), outs: Vec::new(), demo: None, input: String::new(), selected: 0, focus_next: false, last_tell: None, scroll_to_end: true, keep_list: false, ignored: load_ignored(), history: Vec::new(), recalled: None, links: Vec::new() }
     }
 }
 
@@ -201,12 +220,21 @@ fn save_ignored(list: &std::collections::BTreeSet<String>) {
 const KEEP: usize = 600;
 
 /// The lines of a chat window's selected groups, in a scroll view `height` tall that stays at its end.
-fn draw_lines(ui: &mut egui::Ui, palette: &Palette, lines: &[Line], pane: Option<&Pane>, height: f32, links: &mut Vec<String>) {
+/// With `fade` (the delay and the time, in seconds) a line older than the delay is drawn fainter, to nothing once
+/// the time is over; `born` is when each line came.
+#[allow(clippy::too_many_arguments)]
+fn draw_lines(ui: &mut egui::Ui, palette: &Palette, lines: &[Line], born: &[std::time::Instant], pane: Option<&Pane>, height: f32, fade: Option<(f32, f32)>, links: &mut Vec<String>) {
+    let now = std::time::Instant::now();
     let text = |name: &str, (r, g, b): (u8, u8, u8)| palette.text(name).map_or(egui::Color32::from_rgb(r, g, b), |c| egui::Color32::from_rgb(c[0], c[1], c[2]));
     let chat_font = if crate::font::enabled() { crate::font::chat(ui.ctx()) } else { None };
     let stamps = pane.is_some_and(|p| p.timestamps);
     crate::chrome::scroll(ui, palette, egui::ScrollArea::vertical().max_height(height).min_scrolled_height(height).auto_shrink([false, false]).stick_to_bottom(true), |ui| {
-        for line in lines.iter().filter(|l| pane.is_none_or(|p| p.selected.contains(l.group()))) {
+        for (k, line) in lines.iter().enumerate().filter(|(_, l)| pane.is_none_or(|p| p.selected.contains(l.group()))) {
+            let faint = fade.zip(born.get(k)).map_or(1.0, |((delay, time), came)| (1.0 - (now.duration_since(*came).as_secs_f32() - delay) / time.max(0.01)).clamp(0.0, 1.0));
+            // (set for each line: the setting stays on the view for what is drawn after)
+            if fade.is_some() {
+                ui.set_opacity(faint);
+            }
             // (`show_timestamps`: the line led by its time, strftime's `(%H:%M) `)
             let stamp = line.at.filter(|_| stamps).map(|(h, m)| format!("({h:02}:{m:02}) ")).unwrap_or_default();
             let color = match line.kind {
@@ -265,6 +293,19 @@ fn menu_text(name: &str) -> String {
         "DeleteWindow" => "Delete this window",
         "NoSelectableGroups" => "No groups to choose",
         "ChatWindowMenu_ChatConfiguration" => "Chat settings",
+        "ChatWindowMenu_Visual" => "Looks",
+        "ChatWindowMenu_Style_Mode" => "Kind of window",
+        "ChatWindowMenu_Style_Mode_Normal" => "With frame and title",
+        "ChatWindowMenu_Style_Mode_Borderless" => "Without frame",
+        "ChatWindowMenu_Style_Transparancy" => "How solid",
+        "ChatWindowMenu_Style_Transparancy_InactiveToolTip" => "While the window is not in use",
+        "ChatWindowMenu_Style_Transparancy_ActiveToolTip" => "While the window is in use",
+        "DisableTextInput" => "No input line",
+        "ChatWindowMenu_Style_HideInputBarWhenInactive" => "Input line only while typing",
+        "ChatWindowMenu_Style_FadeMessages" => "Lines fade away",
+        "ChatWindowMenu_Style_AlwaysBehind" => "Always behind the other windows",
+        "ChatWindowMenu_Style_AlwaysOnTop" => "Always over the other windows",
+        "RenameWindow" => "Rename this window",
         "own:detach" => "Move to a window of its own",
         "own:attach" => "Move into the window of %s",
         _ => name,
@@ -333,14 +374,17 @@ impl ChatWindow {
         groups.extend(chatgroups::server_groups());
         groups.extend(pane.known.iter().cloned());
         let (keys, entries): (Vec<String>, Vec<(String, bool, Option<bool>)>) = match menu {
+            // (FUN_10097a40 puts "Visual" over FUN_100abb98's entries; the configuration's is marked while its window
+            // is up)
             Menu::Main => [
+                ("visual", menu_text("ChatWindowMenu_Visual"), true, None),
                 ("talk", menu_text("ChatWindowMenu_TalkToChannel"), true, None),
                 ("subscribe", menu_text("ChatWindowMenu_ChannelSubscribeMenu"), true, None),
                 ("auto", menu_text("ChatWindowMenu_AutoSubscribeChannels"), true, Some(pane.auto)),
-                ("timestamps", menu_text("ShowTimestamps"), true, Some(pane.timestamps)),
-                ("config", menu_text("ChatWindowMenu_ChatConfiguration"), true, None),
-                ("new", menu_text("NewWindow"), true, None),
+                ("config", menu_text("ChatWindowMenu_ChatConfiguration"), true, Some(self.config.open)),
+                ("rename", menu_text("RenameWindow"), true, None),
                 ("delete", menu_text("DeleteWindow"), self.panes.len() > 1, None),
+                ("new", menu_text("NewWindow"), true, None),
             ]
             .into_iter()
             .map(|(k, label, enabled, mark)| (k.to_string(), (label, enabled, mark)))
@@ -352,6 +396,40 @@ impl ChatWindow {
                 (format!("attach:{f}"), (menu_text("own:attach").replace("%s", &first), true, None))
             }))
             .unzip(),
+            Menu::Visual => {
+                let look = pane.look;
+                // (FUN_10099a56: the mode is for a window that has its frame to itself)
+                let alone = chatgroups::members(&self.panes, &pane.frame).len() == 1;
+                [
+                    ("mode", menu_text("ChatWindowMenu_Style_Mode"), alone, None),
+                    ("solid", menu_text("ChatWindowMenu_Style_Transparancy"), true, None),
+                    ("timestamps", menu_text("ShowTimestamps"), true, Some(pane.timestamps)),
+                    ("noinput", menu_text("DisableTextInput"), true, Some(!look.input)),
+                    ("hideinput", menu_text("ChatWindowMenu_Style_HideInputBarWhenInactive"), look.input, Some(look.hide_input)),
+                    ("fade", menu_text("ChatWindowMenu_Style_FadeMessages"), true, Some(look.fade)),
+                    ("behind", menu_text("ChatWindowMenu_Style_AlwaysBehind"), true, Some(look.layer < 0)),
+                    ("top", menu_text("ChatWindowMenu_Style_AlwaysOnTop"), true, Some(look.layer > 0)),
+                ]
+                .into_iter()
+                // (how solid: only a borderless window's)
+                .filter(|e| e.0 != "solid" || look.borderless)
+                .map(|(k, label, enabled, mark)| (k.to_string(), (label, enabled, mark)))
+                .unzip()
+            }
+            Menu::Mode => [("normal", "ChatWindowMenu_Style_Mode_Normal", !pane.look.borderless), ("borderless", "ChatWindowMenu_Style_Mode_Borderless", pane.look.borderless)]
+                .into_iter()
+                .map(|(k, label, mark)| (k.to_string(), (menu_text(label), true, Some(mark))))
+                .unzip(),
+            Menu::Solid => {
+                let mut rows = Vec::new();
+                for (key, label, now) in [("inactive", "ChatWindowMenu_Style_Transparancy_InactiveToolTip", pane.look.solid.1), ("active", "ChatWindowMenu_Style_Transparancy_ActiveToolTip", pane.look.solid.0)] {
+                    rows.push((String::new(), (menu_text(label), false, None)));
+                    for step in (0..=100u8).step_by(10) {
+                        rows.push((format!("{key}:{step}"), (format!("{step}%"), true, Some((now + 5) / 10 * 10 == step))));
+                    }
+                }
+                rows.into_iter().unzip()
+            }
             Menu::Subscribe => [("public", "Public Groups"), ("combat", "Combat Messages")].into_iter().map(|(k, label)| (k.to_string(), (label.to_string(), true, None))).unzip(),
             Menu::Talk => {
                 let output = if pane.output.is_empty() { chatgroups::VICINITY } else { pane.output.as_str() };
@@ -375,7 +453,20 @@ impl ChatWindow {
             (Menu::Main, "talk") => self.open_menu(ctx, Menu::Talk, at),
             (Menu::Main, "subscribe") => self.open_menu(ctx, Menu::Subscribe, at),
             (Menu::Subscribe, kind) => self.open_menu(ctx, Menu::Groups { combat: kind == "combat" }, at),
-            (Menu::Main, "config") => self.config.open = true,
+            (Menu::Main, "config") => self.config.open = !self.config.open,
+            (Menu::Main, "visual") => self.open_menu(ctx, Menu::Visual, at),
+            (Menu::Visual, "mode") => self.open_menu(ctx, Menu::Mode, at),
+            (Menu::Visual, "solid") => self.open_menu(ctx, Menu::Solid, at),
+            (Menu::Main, "rename") => self.config.rename(tab, &self.panes),
+            // (always behind and always on top are the frame's: every window in it)
+            (Menu::Visual, "behind" | "top") => {
+                let want = if key == "top" { 1 } else { -1 };
+                if let Some((frame, now)) = self.panes.get(tab).map(|p| (p.frame.clone(), p.look.layer)) {
+                    for pane in self.panes.iter_mut().filter(|p| p.frame == frame) {
+                        pane.look.layer = if now == want { 0 } else { want };
+                    }
+                }
+            }
             (Menu::Main, "new") => {
                 // (FUN_10094701: the first `Window%d` not taken, in a frame of its own)
                 let mut pane = chatgroups::defaults().remove(0);
@@ -404,7 +495,18 @@ impl ChatWindow {
                 let Some(pane) = self.panes.get_mut(tab) else { return };
                 match (menu, key) {
                     (Menu::Main, "auto") => pane.auto = !pane.auto,
-                    (Menu::Main, "timestamps") => pane.timestamps = !pane.timestamps,
+                    (Menu::Visual, "timestamps") => pane.timestamps = !pane.timestamps,
+                    (Menu::Visual, "noinput") => pane.look.input = !pane.look.input,
+                    (Menu::Visual, "hideinput") => pane.look.hide_input = !pane.look.hide_input,
+                    (Menu::Visual, "fade") => pane.look.fade = !pane.look.fade,
+                    (Menu::Mode, mode) => pane.look.borderless = mode == "borderless",
+                    (Menu::Solid, step) => {
+                        if let Some((which, value)) = step.split_once(':').and_then(|(w, v)| Some((w, v.parse::<u8>().ok()?))) {
+                            if which == "active" { pane.look.solid.0 = value } else { pane.look.solid.1 = value }
+                        }
+                        // (the list stays up, as a slider would)
+                        self.open_menu(ctx, menu, at);
+                    }
                     (Menu::Talk, group) if !group.is_empty() => pane.output = group.to_string(),
                     (Menu::Groups { .. }, group) => {
                         pane.toggle(group);
@@ -437,8 +539,12 @@ impl ChatWindow {
             }
         }
         self.lines.push(line);
+        self.born.push(std::time::Instant::now());
         if self.lines.len() > KEEP {
             self.lines.drain(..self.lines.len() - KEEP);
+        }
+        if self.born.len() > self.lines.len() {
+            self.born.drain(..self.born.len() - self.lines.len());
         }
         self.scroll_to_end = true;
     }
@@ -673,6 +779,165 @@ impl ChatWindow {
         }
     }
 
+    /// The input bar of a frame of chat windows: the line typed (the first frame's is `input`, another's is kept by
+    /// its frame), the list of commands over it, the lines sent before. What is typed goes to window `pane`.
+    fn input_bar(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, frame: &str, main: bool, pane: usize) -> Option<Out> {
+        let mut out = None;
+        // (another frame's line stands in `input` while its bar is drawn)
+        let mut own = (!main).then(|| self.inputs.remove(frame).unwrap_or_default());
+        if let Some(own) = own.as_mut() {
+            std::mem::swap(&mut self.input, own);
+        }
+        let input_id = bar_id(frame);
+        if (main && self.focus_next) || self.focus_frame.as_deref() == Some(frame) {
+            ctx.memory_mut(|m| m.request_focus(input_id));
+            self.focus_next &= !main;
+            self.focus_frame = None;
+            // (the cursor after what is already there: `/` starts the line with its slash)
+            let mut state = egui::TextEdit::load_state(ctx, input_id).unwrap_or_default();
+            state.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(self.input.chars().count()))));
+            state.store(ctx, input_id);
+        }
+        let suggestions = chat_commands::suggest(&self.input);
+        let has_focus = ctx.memory(|m| m.has_focus(input_id));
+        // The list's keys are taken before the field sees them.
+        let (mut up, mut down, mut take) = (false, false, false);
+        if has_focus && !suggestions.is_empty() {
+            ctx.input_mut(|i| {
+                up = i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp);
+                down = i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown);
+                take = i.consume_key(egui::Modifiers::NONE, egui::Key::Tab);
+            });
+        }
+        // Up and Down walk the lines sent before when no command list is open.
+        if has_focus && suggestions.is_empty() {
+            let (older, newer) = ctx.input_mut(|i| (i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp), i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown)));
+            if older || newer {
+                if let Some(line) = self.recall(older) {
+                    self.input = line;
+                    if let Some(mut state) = egui::TextEdit::load_state(ctx, input_id) {
+                        state.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(self.input.chars().count()))));
+                        state.store(ctx, input_id);
+                    }
+                }
+            }
+        }
+        self.selected = self.selected.min(suggestions.len().saturating_sub(1));
+        if up {
+            self.selected = self.selected.saturating_sub(1);
+        }
+        if down && self.selected + 1 < suggestions.len() {
+            self.selected += 1;
+        }
+        let response = ui.add(egui::TextEdit::singleline(&mut self.input).id(input_id).desired_width(f32::INFINITY).hint_text("Type to speak, / for commands"));
+        if response.changed() {
+            self.selected = 0;
+            self.keep_list = false;
+        }
+        let enter = response.lost_focus() && ctx.input(|i| i.key_pressed(egui::Key::Enter));
+        // Enter on a half-typed command takes the highlighted one instead of sending.
+        let complete = !suggestions.is_empty() && (take || (enter && !suggestions.iter().any(|c| format!("/{c}").eq_ignore_ascii_case(self.input.trim()))));
+        if complete {
+            self.input = format!("/{} ", suggestions[self.selected.min(suggestions.len() - 1)]);
+            response.request_focus();
+            // put the cursor after the completion
+            if let Some(mut state) = egui::TextEdit::load_state(ctx, input_id) {
+                state.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(self.input.chars().count()))));
+                state.store(ctx, input_id);
+            }
+        } else if enter {
+            // (the line sent, the keys are the game's again: Enter starts the next one)
+            let line = std::mem::take(&mut self.input);
+            out = self.run_in(pane, &line);
+            response.surrender_focus();
+        }
+        // The list of commands, above the input line, as the original's.
+        if (has_focus || response.has_focus() || self.keep_list) && !suggestions.is_empty() {
+            // as many rows as fit above the input line, scrolling to keep the highlighted one in view
+            let fits = (((response.rect.top() - 14.0) / 15.0).max(3.0)) as usize;
+            let rows = suggestions.len().min(fits);
+            let first = if self.selected >= rows { self.selected + 1 - rows } else { 0 };
+            egui::Area::new(input_id.with("commands")).order(egui::Order::Foreground).fixed_pos(egui::pos2(response.rect.left(), response.rect.top() - 4.0 - rows as f32 * 15.0)).show(ctx, |ui| {
+                egui::Frame::new().fill(egui::Color32::from_rgb(8, 40, 50)).stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(20, 90, 100))).inner_margin(4.0).show(ui, |ui| {
+                    ui.spacing_mut().item_spacing.y = 0.0;
+                    for (n, command) in suggestions.iter().enumerate().skip(first).take(rows) {
+                        let chosen = n == self.selected;
+                        let (rect, _) = ui.allocate_exact_size(egui::vec2(150.0, 15.0), egui::Sense::hover());
+                        if chosen {
+                            ui.painter().rect_filled(rect, 0.0, egui::Color32::from_rgb(30, 30, 200));
+                        }
+                        ui.painter().text(rect.left_center() + egui::vec2(3.0, 0.0), egui::Align2::LEFT_CENTER, format!("/{command}"), egui::FontId::proportional(12.0), egui::Color32::from_rgb(220, 240, 245));
+                    }
+                });
+            });
+        }
+        if let Some(mut own) = own {
+            std::mem::swap(&mut self.input, &mut own);
+            self.inputs.insert(frame.to_string(), own);
+        }
+        out
+    }
+
+    /// Whether a frame's window is active: typed in, about to be, or under the pointer.
+    fn frame_active(&self, ctx: &egui::Context, name: &str, frame: &str, main: bool) -> bool {
+        let typing = ctx.memory(|m| m.has_focus(bar_id(frame))) || (main && self.focus_next) || self.focus_frame.as_deref() == Some(frame);
+        typing || ctx.memory(|m| m.area_rect(egui::Id::unique(name))).zip(ctx.input(|i| i.pointer.hover_pos())).is_some_and(|(rect, at)| rect.contains(at))
+    }
+
+    /// A frame of chat windows inside its window on screen: the tabs (none when `bare`), the shown window's lines and
+    /// its input bar. `n` is the frame's number, 0 the chat window itself.
+    #[allow(clippy::too_many_arguments)]
+    fn frame_body(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, palette: &Palette, n: usize, frame: &str, members: &[usize], bare: bool, links: &mut Vec<String>, menu_at: &mut Option<(egui::Pos2, usize)>) -> Option<Out> {
+        let main = n == 0;
+        let Some(&lead) = members.first() else { return None };
+        let mut shown = if main { self.tab } else { self.shown.get(frame).copied().unwrap_or(lead) };
+        if !members.contains(&shown) {
+            shown = lead;
+        }
+        let area = ui.max_rect();
+        let name = if main { "Chat".to_string() } else { format!("Chat:{frame}") };
+        let active = self.frame_active(ctx, &name, frame, main);
+        let typing = ctx.memory(|m| m.has_focus(bar_id(frame))) || (main && self.focus_next) || self.focus_frame.as_deref() == Some(frame);
+        let look = self.panes.get(shown).map(|p| p.look).unwrap_or_default();
+        // (the input bar: none with `is_textinput_enabled` off, and with `hide_input_when_inactive` only while typing;
+        // Enter still starts a line in the chat window itself)
+        let bar = (look.input && (!look.hide_input || typing)) || (main && self.focus_next);
+        // (`is_message_fading_enabled`: while the window is not active a line fades once it is `ChatTextFadeDelay` old)
+        let fade = (look.fade && !active).then_some(self.fade_times);
+        let below = if bar { 41.0 } else { 4.0 };
+        if bare {
+            let height = (ui.available_height() - below).max(40.0);
+            draw_lines(ui, palette, &self.lines, &self.born, self.panes.get(shown), height, fade, links);
+        } else {
+            // (each tab one of the frame's chat windows: the lines of the groups selected in it)
+            let names: Vec<String> = members.iter().map(|k| self.panes[*k].name.clone()).collect();
+            let names: Vec<&str> = names.iter().map(String::as_str).collect();
+            let mut tab = members.iter().position(|k| *k == shown).unwrap_or(0);
+            crate::chrome::tab_view(ui, palette, &names, &mut tab, |ui, tab| {
+                shown = members.get(tab).copied().unwrap_or(lead);
+                let height = (ui.available_height() - below).max(40.0);
+                draw_lines(ui, palette, &self.lines, &self.born, self.panes.get(shown), height, fade, links);
+            });
+        }
+        if main {
+            self.tab = shown;
+        } else {
+            self.shown.insert(frame.to_string(), shown);
+        }
+        let pointer = ui.input(|i| i.pointer.interact_pos()).filter(|p| area.contains(*p));
+        // (the right button over the window: its menu, FUN_10097a40)
+        if ui.input(|i| i.pointer.secondary_clicked())
+            && let Some(at) = pointer
+        {
+            *menu_at = Some((at, shown));
+        }
+        // (a press on a window whose bar hides: typing starts in it)
+        if look.input && look.hide_input && !typing && pointer.is_some() && ui.input(|i| i.pointer.primary_clicked()) {
+            self.focus_frame = Some(frame.to_string());
+        }
+        if bar { self.input_bar(ui, ctx, frame, main, shown) } else { None }
+    }
+
     pub fn show(&mut self, ctx: &egui::Context, palette: &Palette) -> Option<Out> {
         if !self.open {
             return None;
@@ -683,137 +948,41 @@ impl ChatWindow {
         let mut open = self.open;
         self.load_panes();
         let mut menu_at: Option<(egui::Pos2, usize)> = None;
-        // (the first frame's windows are this window's tabs)
+        // each frame of chat windows is a window on screen with its tabs, the shown one's lines and its input bar: the
+        // first the chat window itself; another, closed, puts its tabs back into the first
         let frames = chatgroups::frames(&self.panes);
-        let members = frames.first().map(|f| chatgroups::members(&self.panes, f)).unwrap_or_default();
-        if !members.contains(&self.tab) {
-            self.tab = members.first().copied().unwrap_or(0);
+        let first = frames.first().map(|f| chatgroups::members(&self.panes, f)).unwrap_or_default();
+        if !first.contains(&self.tab) {
+            self.tab = first.first().copied().unwrap_or(0);
         }
-        crate::chrome::window(ctx, palette, "Chat", "Chat", &mut open, |w| w.default_pos(crate::layout::pos("Chat", egui::pos2(8.0, (screen.height() - 270.0).max(40.0)))).default_size([560.0, 230.0]), |ui| {
-                // (each tab one of the frame's chat windows: the lines of the groups selected in it)
-                let names: Vec<String> = members.iter().map(|k| self.panes[*k].name.clone()).collect();
-                let names: Vec<&str> = names.iter().map(String::as_str).collect();
-                let mut tab = members.iter().position(|k| *k == self.tab).unwrap_or(0);
-                let area = ui.max_rect();
-                crate::chrome::tab_view(ui, palette, &names, &mut tab, |ui, tab| {
-                    self.tab = members.get(tab).copied().unwrap_or(0);
-                    let height = (ui.available_height() - 41.0).max(40.0);
-                    draw_lines(ui, palette, &self.lines, self.panes.get(self.tab), height, &mut links);
-                });
-                // (the right button over the window: its menu, FUN_100abb98)
-                if ui.input(|i| i.pointer.secondary_clicked())
-                    && let Some(at) = ui.input(|i| i.pointer.interact_pos()).filter(|p| area.contains(*p))
-                {
-                    menu_at = Some((at, self.tab));
-                }
-                self.scroll_to_end = false;
-                let input_id = egui::Id::unique("chat-input");
-                if self.focus_next {
-                    ctx.memory_mut(|m| m.request_focus(input_id));
-                    self.focus_next = false;
-                    // (the cursor after what is already there: `/` starts the line with its slash)
-                    let mut state = egui::TextEdit::load_state(ctx, input_id).unwrap_or_default();
-                    state.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(self.input.chars().count()))));
-                    state.store(ctx, input_id);
-                }
-                let suggestions = chat_commands::suggest(&self.input);
-                let has_focus = ctx.memory(|m| m.has_focus(input_id));
-                // The list's keys are taken before the field sees them.
-                let (mut up, mut down, mut take) = (false, false, false);
-                if has_focus && !suggestions.is_empty() {
-                    ctx.input_mut(|i| {
-                        up = i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp);
-                        down = i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown);
-                        take = i.consume_key(egui::Modifiers::NONE, egui::Key::Tab);
-                    });
-                }
-                // Up and Down walk the lines sent before when no command list is open.
-                if has_focus && suggestions.is_empty() {
-                    let (older, newer) = ctx.input_mut(|i| (i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp), i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown)));
-                    if older || newer {
-                        if let Some(line) = self.recall(older) {
-                            self.input = line;
-                            if let Some(mut state) = egui::TextEdit::load_state(ctx, input_id) {
-                                state.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(self.input.chars().count()))));
-                                state.store(ctx, input_id);
-                            }
-                        }
-                    }
-                }
-                self.selected = self.selected.min(suggestions.len().saturating_sub(1));
-                if up {
-                    self.selected = self.selected.saturating_sub(1);
-                }
-                if down && self.selected + 1 < suggestions.len() {
-                    self.selected += 1;
-                }
-                let response = ui.add(egui::TextEdit::singleline(&mut self.input).id(input_id).desired_width(f32::INFINITY).hint_text("Type to speak, / for commands"));
-                if response.changed() {
-                    self.selected = 0;
-                    self.keep_list = false;
-                }
-                let enter = response.lost_focus() && ctx.input(|i| i.key_pressed(egui::Key::Enter));
-                // Enter on a half-typed command takes the highlighted one instead of sending.
-                let complete = !suggestions.is_empty() && (take || (enter && !suggestions.iter().any(|c| format!("/{c}").eq_ignore_ascii_case(self.input.trim()))));
-                if complete {
-                    self.input = format!("/{} ", suggestions[self.selected.min(suggestions.len() - 1)]);
-                    response.request_focus();
-                    // put the cursor after the completion
-                    if let Some(mut state) = egui::TextEdit::load_state(ctx, input_id) {
-                        state.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(self.input.chars().count()))));
-                        state.store(ctx, input_id);
-                    }
-                } else if enter {
-                    // (the line sent, the keys are the game's again: Enter starts the next one)
-                    let line = std::mem::take(&mut self.input);
-                    out = self.run(&line);
-                    response.surrender_focus();
-                }
-                // The list of commands, above the input line, as the original's.
-                if (has_focus || response.has_focus() || self.keep_list) && !suggestions.is_empty() {
-                    // as many rows as fit above the input line, scrolling to keep the highlighted one in view
-                    let fits = (((response.rect.top() - 14.0) / 15.0).max(3.0)) as usize;
-                    let rows = suggestions.len().min(fits);
-                    let first = if self.selected >= rows { self.selected + 1 - rows } else { 0 };
-                    egui::Area::new(egui::Id::unique("chat-commands")).order(egui::Order::Foreground).fixed_pos(egui::pos2(response.rect.left(), response.rect.top() - 4.0 - rows as f32 * 15.0)).show(ctx, |ui| {
-                        egui::Frame::new().fill(egui::Color32::from_rgb(8, 40, 50)).stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(20, 90, 100))).inner_margin(4.0).show(ui, |ui| {
-                            ui.spacing_mut().item_spacing.y = 0.0;
-                            for (n, command) in suggestions.iter().enumerate().skip(first).take(rows) {
-                                let chosen = n == self.selected;
-                                let (rect, _) = ui.allocate_exact_size(egui::vec2(150.0, 15.0), egui::Sense::hover());
-                                if chosen {
-                                    ui.painter().rect_filled(rect, 0.0, egui::Color32::from_rgb(30, 30, 200));
-                                }
-                                ui.painter().text(rect.left_center() + egui::vec2(3.0, 0.0), egui::Align2::LEFT_CENTER, format!("/{command}"), egui::FontId::proportional(12.0), egui::Color32::from_rgb(220, 240, 245));
-                            }
-                        });
-                    });
-                }
-            });
-        // each other frame: a window of its tabs and lines; closed, its tabs go back into the first
         let mut docked = false;
-        for frame in frames.iter().skip(1) {
+        for (n, frame) in frames.iter().enumerate() {
             let members = chatgroups::members(&self.panes, frame);
-            let Some(&first) = members.first() else { continue };
-            let name = format!("Chat:{frame}");
-            let mut shown = self.shown.get(frame).copied().filter(|k| members.contains(k)).unwrap_or(first);
+            let Some(&lead) = members.first() else { continue };
+            let name = if n == 0 { "Chat".to_string() } else { format!("Chat:{frame}") };
+            let look = self.panes[lead].look;
+            // (`visual_mode` 2: a window alone in its frame has no frame or title, and a background as solid as its
+            // setting for an active window or for one that is not)
+            let bare = look.borderless && members.len() == 1;
+            let (at, size) = if n == 0 { (egui::pos2(8.0, (screen.height() - 270.0).max(40.0)), [560.0, 230.0]) } else { (egui::pos2(60.0, 160.0), [420.0, 170.0]) };
+            let order = match look.layer {
+                1 => egui::Order::Foreground,
+                -1 => egui::Order::Background,
+                _ => egui::Order::Middle,
+            };
+            let place = crate::layout::pos(&name, at);
+            let build = move |w: egui::Window<'static>| w.default_pos(place).default_size(size).order(order);
             let mut stays = true;
-            crate::chrome::window(ctx, palette, &name, "Chat", &mut stays, |w| w.default_pos(crate::layout::pos(&name, egui::pos2(60.0, 160.0))).default_size([420.0, 170.0]), |ui| {
-                let area = ui.max_rect();
-                let names: Vec<&str> = members.iter().map(|k| self.panes[*k].name.as_str()).collect();
-                let mut tab = members.iter().position(|k| *k == shown).unwrap_or(0);
-                crate::chrome::tab_view(ui, palette, &names, &mut tab, |ui, tab| {
-                    shown = members.get(tab).copied().unwrap_or(first);
-                    let height = (ui.available_height() - 4.0).max(40.0);
-                    draw_lines(ui, palette, &self.lines, self.panes.get(shown), height, &mut links);
-                });
-                if ui.input(|i| i.pointer.secondary_clicked())
-                    && let Some(at) = ui.input(|i| i.pointer.interact_pos()).filter(|p| area.contains(*p))
-                {
-                    menu_at = Some((at, shown));
-                }
-            });
-            self.shown.insert(frame.clone(), shown);
+            let mut sent = None;
+            if bare {
+                let active = self.frame_active(ctx, &name, frame, n == 0);
+                let solid = f32::from(if active { look.solid.0 } else { look.solid.1 }) / 100.0;
+                crate::chrome::bare_window(ctx, palette, &name, solid, build, |ui| sent = self.frame_body(ui, ctx, palette, n, frame, &members, true, &mut links, &mut menu_at));
+            } else {
+                let open = if n == 0 { &mut open } else { &mut stays };
+                crate::chrome::window(ctx, palette, &name, "Chat", open, build, |ui| sent = self.frame_body(ui, ctx, palette, n, frame, &members, false, &mut links, &mut menu_at));
+            }
+            out = out.or(sent);
             if !stays {
                 for k in members {
                     self.panes[k].frame = frames[0].clone();
@@ -821,6 +990,7 @@ impl ChatWindow {
                 docked = true;
             }
         }
+        self.scroll_to_end = false;
         if docked {
             chatgroups::save(&self.panes);
         }
@@ -837,6 +1007,18 @@ impl ChatWindow {
             {
                 pane.frame = "Window2".to_string();
             }
+            // (`borderless`: the second window alone and without its frame; `visual`, `mode`, `solid`: those menus)
+            if menu == "borderless"
+                && let Some(pane) = self.panes.get_mut(1)
+            {
+                pane.frame = "Window2".to_string();
+                pane.look.borderless = true;
+            }
+            if menu == "solid"
+                && let Some(pane) = self.panes.get_mut(self.tab)
+            {
+                pane.look.borderless = true;
+            }
             // (`config`: the chat configuration window up)
             self.config.open = menu == "config";
             let menu = match menu.as_str() {
@@ -844,6 +1026,9 @@ impl ChatWindow {
                 "talk" => Some(Menu::Talk),
                 "public" => Some(Menu::Groups { combat: false }),
                 "combat" => Some(Menu::Groups { combat: true }),
+                "visual" => Some(Menu::Visual),
+                "mode" => Some(Menu::Mode),
+                "solid" => Some(Menu::Solid),
                 _ => None,
             };
             if let Some(menu) = menu {

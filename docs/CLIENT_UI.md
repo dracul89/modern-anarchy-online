@@ -303,9 +303,9 @@ the window's output group when that is a channel the server has told of this ses
 spoken in the vicinity as before. Seen live: the test character came up with "Default Window" and "Combat" from the
 original's files. Preview: `MAO_UI_PREVIEW=chat` with `MAO_CHAT_TAB=<n>` and `MAO_CHAT_MENU=main|talk|public|combat`.
 
-Not done: the original's sub-menus open beside their parent (here one menu replaces the other), the Visual menu
-(borderless, transparency, fading). (Several chat windows on screen: see "Chat windows of their own" below; `/ch`,
-`/group` and the team's chat: "Chat group commands".)
+Not done: the original's sub-menus open beside their parent (here one menu replaces the other). (Several chat
+windows on screen: see "Chat windows of their own" below; `/ch`, `/group` and the team's chat: "Chat group
+commands"; the Visual menu: "Chat window looks and input bars".)
 
 **Chat group commands (2026-11-10, `chat_commands.rs`, `chatgroups.rs`, `chatwindow.rs`).** As GUI.dll registers them
 (FUN_1009e379): `/ch <group name>` makes a group the window's output group (FUN_1009c5b8), `/group` or `/g <group
@@ -358,13 +358,42 @@ that share a frame are its tabs, and a tab dragged out gets a frame of its own. 
 (`Pane::frame`, read from the original's config, a `frame <name>` line in `chatwindows.ini`; a file of before has
 every window in "Window1"). The frame of the first window is the client's chat window with the input line; each other
 frame is a window on screen with its own tabs and lines (named `Chat:<frame>` for its place in `layout.ini`), without
-an input line (the original gives each its own input bar). In place of dragging tabs, the window menu has this
+an input line at first (each has its own bar since "Chat window looks and input bars" below). In place of dragging tabs, the window menu has this
 client's own "Move to a window of its own" (when the tab shares its frame) and "Move into the window of <first tab>"
 for each other frame; "New Window" and the configuration's New and Clone make their window in a frame of its own, as
 the original does (FUN_10094701: the first `Window<n>` free among names and frames). Closing such a window puts its
 tabs back into the first one. Preview: `MAO_UI_PREVIEW=chat MAO_CHAT_MENU=split` (the second window in its own
-frame). Checked in the preview only, not clicked through live. Not done: an input line in the other windows, and the
-places the original's own files give the other frames.
+frame). Checked in the preview only, not clicked through live. Not done: the places the original's own files give
+the other frames.
+
+**Chat window looks and input bars (2026-11-10, `chatgroups::Look`, `chatwindow.rs`, `chrome::bare_window`).** The
+window menu is now in the original's order (FUN_10097a40 over FUN_100abb98): Visual, Talk to Channel, Subscribe
+Channels, Autosubscribe, Chat Configuration (marked while its window is up; choosing it again closes it), Rename
+Window (opens the configuration with the name box), Delete Window, New Window, then this client's two "move" entries.
+"Visual" is the original's sub-menu (FUN_10097756 over FUN_1009a00d), each setting kept with the window (`look` line
+in `chatwindows.ini`) and read from the original's config:
+- **Mode** (`visual_mode`): Normal, or Borderless (2): the window without frame and title, only a background
+  (`chrome::bare_window`, same place and size). Only for a window alone in its frame. The original's rule
+  (FUN_10099a56) also compares the frame's name with a second name of the window that was not identified; here
+  "alone in its frame" is the whole rule.
+- **Transparency** (only when borderless; `window_transparency_active` 0.8 and `_inactive` 0.3 in the player's own
+  files): how solid the background is while the window is active (typed in or under the pointer) and otherwise. The
+  original has two sliders in the menu; here two lists in steps of ten.
+- **Show timestamps** (moved here from the main menu, where the original does not have it).
+- **Disable text input** (`is_textinput_enabled`) and **Hide input bar when inactive** (`hide_input_when_inactive`):
+  every chat window has its own input bar now, with its own line, command list and history keys; what is typed goes
+  to that window's shown tab (its output group, `/ch`). A bar that hides shows while typing; a press on the window
+  starts typing in it. Enter still starts a line in the first chat window, even with its bar turned off.
+- **Fade messages** (`is_message_fading_enabled`): while the window is not active a line fades once it is
+  `ChatTextFadeDelay` old (8 s in the game's settings) over `ChatTextFadeTime` (0.3 s). The two options are the
+  original's; how its `FadingTextView_c` uses them was not read, so the behaviour is this client's reading of the
+  names.
+- **Always behind / Always on top** (the window's flags 0x200 and 0x100 in the original): the frame drawn in egui's
+  background or foreground layer; kept with the window here, not in the original's `VisualFlags`.
+Previews: `MAO_UI_PREVIEW=chat MAO_CHAT_MENU=visual|mode|solid|borderless`. Seen in the previews (the menu with the
+game's texts, a borderless window with its bar, the transparency list) and one live login (the two tabs and the bar as
+before); **the switches were not clicked through live**. Not done: the configuration rows' own menu (click-through,
+deactivate on send, default window), the menus' separators.
 
 **Stats window as the original's (2026-11-10, `stats.rs`).** Read from `StatView_c` (FUN_1008057d): the name and the
 level on a line, a white word and its value in 0xbbbbff; the bars, each the skin's `GFX_GUI_HOR_BAR_EMPTY` filled with

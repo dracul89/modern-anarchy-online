@@ -144,6 +144,14 @@ pub struct ChatConfig {
 }
 
 impl ChatConfig {
+    /// Opens the window on a chat window with the box that asks for its new name (the chat window menu's "Rename
+    /// Window").
+    pub fn rename(&mut self, pane: usize, panes: &[Pane]) {
+        self.open = true;
+        self.selected = Some(pane);
+        self.renaming = panes.get(pane).map(|p| p.name.clone());
+    }
+
     /// Shows the window; true when the chat windows were changed (to be kept). `tab` is the chat window's shown tab,
     /// `log` whether the chat is logged.
     pub fn show(&mut self, ctx: &egui::Context, palette: &Palette, panes: &mut Vec<Pane>, tab: &mut usize, log: &mut bool) -> bool {
