@@ -70,6 +70,7 @@ Needs: **1** = one character is enough, **2** = a second character on line, **or
 | 39 | 1 | Nano programs window: right-click a program → Hide; right-click the window → Show Hidden; there right-click it → Unhide | The program leaves its school's grid, is in the hidden list, and comes back; hidden ones stay hidden after a restart |
 | 40 | 1 | Right-click the window → List Mode; press a column label; → Auto Arrange → By NCU Cost, Sort Ascending (in grid mode) | The ten columns with values as in the original client; the list sorts by the label; the grid reorders; mode, school and order are kept after a restart |
 | 41 | 1 | Right-click a program → Look at; left-click one | The nano's page opens; the left click still casts |
+| 42 | 1 | Perk window on a character with perks: look at the rows; on a spare character remove a perk (it costs the perk; decide first) | Round status icons (green owned, grey available, red not yet); after a removal the timer bar fills and counts down two hours |
 
 ## Older notes still marked untried in `CLIENT_UI.md`
 

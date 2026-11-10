@@ -450,6 +450,18 @@ The original has no find field in this window (the earlier note here that it was
 live**. Not done: programs placed by hand (`item_position_map`), the radius column's value (`---`), keeping column
 widths and the list's sort (`listview_config<n>`).
 
+**Perk window's status icon and timer (2026-11-10, `perks.rs`).** The two pictures the window drew as stand-ins are
+the original's now. The numbers the decompile gives for them are named by AFCM.dll's table (the `gfxid.py` scratch
+tool): 0x121 is `GFX_GUI_PERK_STATUS_ICON` and 0x14f to 0x158 the `GFX_GUI_PROGRESS01` set. A perk row's status icon
+(`StatusIcon_c` FUN_1005ffe0) is that 11 by 11 picture in the status' colour, placed as a button places its icon
+(`Button_c::LayoutLabel` 0x10127d88: 5 in from the border's 5, a pixel above the middle, the label a pixel and 5
+after it, so the label moved 5 to the right). The untraining timer is `TimeBar_c` (FUN_10060920): the progress bar's
+border pieces over its background, the front picture inside the border from the left over the share of the wait
+(FUN_10060354), and the time in white on it (a plain `TextView_c`, FUN_1006063d). Seen in the preview
+(`MAO_UI_PREVIEW=perks MAO_PERKS=<ids>`); a running wait was not seen (it needs a perk untrained live). The parity
+table's note that criteria operator 108 fails was out of date: it passes, as on the original's client
+(`requirements.rs`).
+
 **Stats window as the original's (2026-11-10, `stats.rs`).** Read from `StatView_c` (FUN_1008057d): the name and the
 level on a line, a white word and its value in 0xbbbbff; the bars, each the skin's `GFX_GUI_HOR_BAR_EMPTY` filled with
 a coloured one to the value's share and labelled "value / max" (health red, nano blue; experience yellow, alien

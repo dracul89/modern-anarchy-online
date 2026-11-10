@@ -15,7 +15,7 @@
 //! chosen line's name over its ranks on the right in two columns, then (with Shadowlands, stat 389 bit 2) "UsedPerkPoints"
 //! and "AvailablePerkPoints", (with Alien Invasion or Lost Eden, bits 8 and 16) "UsedAlienPerkPoints" and
 //! "AvailableAlienPerkPoints", and under them the "RemovePerk" button beside the untraining timer. A row (`PerkLineView_c`,
-//! FUN_1005f134) is a toggle button with a status icon (`StatusIcon_c`, bitmap 0x121) tinted by FUN_1005eab2: owned 0x006e00,
+//! FUN_1005f134) is a toggle button with a status icon (`StatusIcon_c`, bitmap 0x121: `GFX_GUI_PERK_STATUS_ICON`) tinted by FUN_1005eab2: owned 0x006e00,
 //! criteria met 0x646464, else 0x960000; an alien perk's label is in `<font color=#30ff30>`; a rank's button is down when the
 //! rank is owned, a line's when it is the chosen one.
 //!
@@ -542,7 +542,7 @@ impl PerksWindow {
                                 answer = Some(untrain(&model, line));
                             }
                             ui.add_space(10.0);
-                            wait_view(ui, &font, &self.wait.0, self.wait.1).on_hover_text(format!("{}\n{}", text("UntrainPerkTimeout"), text("UntrainPerkTimeoutInfo")));
+                            wait_view(ui, skin.as_deref(), &font, &self.wait.0, self.wait.1).on_hover_text(format!("{}\n{}", text("UntrainPerkTimeout"), text("UntrainPerkTimeoutInfo")));
                         });
                     });
                 });
@@ -619,11 +619,16 @@ fn perk_button(ui: &mut egui::Ui, skin: Option<&crate::skin::Skin>, palette: &Pa
     if response.hovered() && !skin.is_some_and(|s| s.nine_slice(painter, "GFX_GUI_BORDER03", rect, crate::chrome::rgb(palette.hover), false)) {
         painter.rect_stroke(rect, 2.0, egui::Stroke::new(1.0, crate::chrome::rgb(palette.hover)), egui::StrokeKind::Inside);
     }
+    // (`Button_c::LayoutLabel` 0x10127d88: the icon 5 in from the border's 5, a pixel over the middle; the label a
+    // pixel and 5 after it. The icon is `StatusIcon_c`'s picture, 11 by 11, in its status' colour)
     let t = tint(status.meets, status.owned);
-    let icon = egui::Rect::from_center_size(egui::pos2(rect.left() + 12.0, rect.center().y), egui::vec2(10.0, 10.0));
-    painter.rect_filled(icon, 2.0, egui::Color32::from_rgb(t[0], t[1], t[2]));
+    let t = egui::Color32::from_rgb(t[0], t[1], t[2]);
+    let icon = egui::Rect::from_min_size(egui::pos2(rect.left() + 10.0, rect.top() + ((rect.height() + 1.0) * 0.5 - 6.0).floor()), egui::vec2(11.0, 11.0));
+    if !skin.is_some_and(|s| s.draw_in(painter, "GFX_GUI_PERK_STATUS_ICON", icon, t)) {
+        painter.rect_filled(icon.shrink(0.5), 2.0, t);
+    }
     let text_colour = if alien { egui::Color32::from_rgb(0x30, 0xff, 0x30) } else { colour };
-    painter.text(egui::pos2(rect.left() + 22.0, rect.center().y), egui::Align2::LEFT_CENTER, label, font.clone(), text_colour);
+    painter.text(egui::pos2(rect.left() + 27.0, rect.center().y), egui::Align2::LEFT_CENTER, label, font.clone(), text_colour);
     response
 }
 
@@ -638,15 +643,40 @@ fn points_label(ui: &mut egui::Ui, font: &egui::FontId, width: f32, label: &str,
     painter.text(egui::pos2(rect.right() - 10.0, rect.center().y), egui::Align2::RIGHT_CENTER, value.to_string(), font.clone(), LABEL);
 }
 
-/// The untraining timer (FUN_10060920 with its text, FUN_1006063d): the share of the wait passed under the time left.
-fn wait_view(ui: &mut egui::Ui, font: &egui::FontId, left: &str, share: f32) -> egui::Response {
+/// The untraining timer, `TimeBar_c` (FUN_10060920 with its text, FUN_1006063d): a `BorderView_c` of the progress bar's
+/// pieces (`GFX_GUI_PROGRESS01_BORDER_*` over `_BACKGROUND`) with `GFX_GUI_PROGRESS01_FRONT` inside the border from the
+/// left over the share of the wait (FUN_10060354: the inner width and one, times the share, less one), and the time
+/// left centred on it.
+fn wait_view(ui: &mut egui::Ui, skin: Option<&crate::skin::Skin>, font: &egui::FontId, left: &str, share: f32) -> egui::Response {
     let (rect, response) = ui.allocate_exact_size(egui::vec2(90.0, 20.0), egui::Sense::hover());
     let painter = ui.painter();
-    painter.rect_filled(rect, 2.0, egui::Color32::from_black_alpha(140));
-    let fill = egui::Rect::from_min_size(rect.min, egui::vec2(rect.width() * share.clamp(0.0, 1.0), rect.height()));
-    painter.rect_filled(fill, 2.0, egui::Color32::from_rgba_unmultiplied(60, 120, 160, 120));
-    painter.text(rect.center(), egui::Align2::CENTER_CENTER, left, font.clone(), LABEL);
+    let uv = egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0));
+    let (inner, width) = wait_fill(rect, share);
+    match skin.filter(|s| s.has("GFX_GUI_PROGRESS01_FRONT")) {
+        Some(skin) => {
+            if let Some(background) = skin.get("GFX_GUI_PROGRESS01_BACKGROUND") {
+                painter.image(background.texture.id(), rect, uv, egui::Color32::WHITE);
+            }
+            skin.nine_slice(painter, "GFX_GUI_PROGRESS01_BORDER", rect, egui::Color32::WHITE, false);
+            if let Some(front) = skin.get("GFX_GUI_PROGRESS01_FRONT").filter(|_| width > 0.0) {
+                painter.image(front.texture.id(), egui::Rect::from_min_size(inner.min, egui::vec2(width, inner.height())), uv, egui::Color32::WHITE);
+            }
+        }
+        None => {
+            painter.rect_filled(rect, 2.0, egui::Color32::from_black_alpha(140));
+            painter.rect_filled(egui::Rect::from_min_size(inner.min, egui::vec2(width, inner.height())), 2.0, egui::Color32::from_rgba_unmultiplied(60, 120, 160, 120));
+        }
+    }
+    // (the time is a plain `TextView_c` (FUN_1006063d), white as those are; the pictures are drawn as they are: the
+    // control's own colour, `View::SetColor` 0x1000000, is not handed on to its border and picture views)
+    painter.text(rect.center(), egui::Align2::CENTER_CENTER, left, font.clone(), egui::Color32::WHITE);
     response
+}
+
+/// The timer's room inside its border (2 on every side, the pieces' size) and how wide its front is for a share.
+fn wait_fill(rect: egui::Rect, share: f32) -> (egui::Rect, f32) {
+    let inner = rect.shrink(2.0);
+    (inner, ((inner.width() + 1.0) * share.clamp(0.0, 1.0) - 1.0).clamp(0.0, inner.width()))
 }
 
 /// FUN_1005f908: a rank's tip, its name with the rank over "Requirements_NL" and the use-by string (past its first six
@@ -764,6 +794,16 @@ mod tests {
         assert_eq!(untrain_wait(1000, 1000 + 7200), None);
         assert_eq!(untrain_wait(1000, 1000 + 7199).map(|w| w.1), Some("00:00:01".into()));
         assert_eq!(untrain_wait(1000, 1000 + 61).map(|w| w.1), Some("01:58:59".into()));
+    }
+
+    #[test]
+    fn the_timers_front_fills_the_room_inside_the_border() {
+        let rect = egui::Rect::from_min_size(egui::pos2(10.0, 10.0), egui::vec2(90.0, 20.0));
+        // (FUN_10060354: nothing at no share, the whole inner width at all of it, half of it and one less a half in between)
+        assert_eq!(wait_fill(rect, 0.0), (rect.shrink(2.0), 0.0));
+        assert_eq!(wait_fill(rect, 1.0).1, 86.0);
+        assert_eq!(wait_fill(rect, 0.5).1, 42.5);
+        assert_eq!(wait_fill(rect, 7.0).1, 86.0);
     }
 
     #[test]
