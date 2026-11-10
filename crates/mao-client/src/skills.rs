@@ -12,6 +12,18 @@ pub fn take_raises() -> Vec<Vec<(u32, u32)>> {
     std::mem::take(&mut *RAISES.lock().unwrap_or_else(|e| e.into_inner()))
 }
 
+/// The resets confirmed in the window, for the connection to send (`N3Msg_ResetSkill`: a skill's stat, or 0 for all).
+static RESETS: Mutex<Vec<u32>> = Mutex::new(Vec::new());
+
+pub fn push_reset(stat: u32) {
+    RESETS.lock().unwrap_or_else(|e| e.into_inner()).push(stat);
+}
+
+/// The resets waiting to be sent.
+pub fn take_resets() -> Vec<u32> {
+    std::mem::take(&mut *RESETS.lock().unwrap_or_else(|e| e.into_inner()))
+}
+
 /// Whether IP raise a stat: the abilities (16..21) and the skills (100..168), the ranges the original's cost lookup
 /// (`N3Msg_GetSkillCost`, FUN_10062521) prices by the breed's and the profession's tables.
 pub fn trainable(stat: u32) -> bool {

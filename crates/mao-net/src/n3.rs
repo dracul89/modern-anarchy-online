@@ -233,6 +233,20 @@ pub fn info_request(character: u32, target: u32) -> Frame {
     Message { kind: 0x5e477770, identity: (CHARACTER, character), data }.frame(character)
 }
 
+/// `CharacterAction` (`5e477770`) action `0x9a`: resets a skill, giving its IP back (`N3Msg_ResetSkill`, Gamecode
+/// 0x1001ce37: no target, the first parameter nothing and the second the skill's stat; stat 0 is the full reset of
+/// every ability and skill). Built from the decompile: no capture has one.
+pub fn reset_skill(character: u32, stat: u32) -> Frame {
+    let mut data = vec![0u8; 5];
+    data[4] = 0x9a;
+    data.extend_from_slice(&[0; 4]);
+    for word in [0, 0, 0, stat] {
+        data.extend_from_slice(&word.to_be_bytes());
+    }
+    data.extend_from_slice(&[0; 2]);
+    Message { kind: 0x5e477770, identity: (CHARACTER, character), data }.frame(character)
+}
+
 /// What an `InfoPacket` (`4d38242e`) says of a character or creature: after the flag byte and the type (64-71 characters, 80 a
 /// monster) come five bytes (a flag, the profession, the level, the title level, the look's profession), the side's experience (a
 /// short) and the health and its maximum (words). The level only means something for a character.
@@ -1603,6 +1617,15 @@ impl Message {
 #[cfg(test)]
 mod entity_tests {
     use super::*;
+
+    #[test]
+    fn a_skill_reset_is_a_character_action() {
+        // (laid out as the info request is: the action, four zero bytes, no target, nothing, the skill's stat, two zero bytes)
+        let (reset, info) = (reset_skill(7, 152).body, info_request(7, 9).body);
+        assert_eq!(reset.len(), info.len());
+        assert!(reset.ends_with(&[0x9a, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 152, 0, 0]));
+        assert!(info.ends_with(&[0x69, 0, 0, 0, 0, 0, 0, 0xc3, 0x50, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]));
+    }
 
     #[test]
     fn a_characters_info_packet_is_read() {

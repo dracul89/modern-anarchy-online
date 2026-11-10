@@ -5191,6 +5191,11 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     let _ = connection.send(&n3::raise_skills(own, &raises));
                 }
             }
+            // A skill reset confirmed there (or all of them: 0).
+            for stat in crate::skills::take_resets() {
+                eprintln!("[{:6.1}] skill reset {stat}", clock.elapsed().as_secs_f32());
+                let _ = connection.send(&n3::reset_skill(own, stat));
+            }
             for text in std::mem::take(&mut *SERVER_COMMANDS.lock().unwrap_or_else(|e| e.into_inner())) {
                 let at = target.map_or((0, 0), |t| (state.types.get(&t).copied().unwrap_or(n3::CHARACTER), t));
                 eprintln!("[{:6.1}] server command {text:?}", clock.elapsed().as_secs_f32());

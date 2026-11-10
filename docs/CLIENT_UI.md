@@ -351,8 +351,24 @@ and the IP at the top are those left after the points added. The increase button
 (the original's `Skill_LackIP` text); with Shift or Ctrl it raises as far as both allow. Points added to an ability
 count at once towards the caps of the skills it feeds, as the original's. Seen live on the level 27 test character:
 two points of Body Development from 103 cost 247 and 249, the next 252, the cap 107. `MAO_SKILL=<group>,<stat>,<points>`
-opens the window on a group's page with a skill selected (previews and live). Not done: the suggested distribution, the
-resets, the button repeating while held, the value's colour when buffed.
+opens the window on a group's page with a skill selected (previews and live).
+
+**The rest of the Skills window (2026-11-10).** *Suggested IP distribution* (FUN_100fb8de, FUN_100fb667): the game
+ships its priorities in `cd_image/data/ipdist.xml`, for each profession and stat a priority over a level range (the
+file covers levels 1 to 20; `ipdist.rs` reads it as `RecommendIPUse` does, the names matched against text.mdb's). The
+skills of priority 1 get a point each in turn until each is at its cap, then those of 2, then 3; a skill of priority 0
+gets none, and it all ends when the IP do not pay for the next point. It runs twice over, as the original calls it
+(abilities raised in the first run lift the caps of their skills), and the info area then lists what was raised and by
+how much, in two columns. *Resets*: "Reset this skill" (a reset point, stat 199, shown beside it; free for a disabled
+skill; none for an ability) and "Reset all skills (n)" each ask first with the original's text, and Yes sends
+`N3Msg_ResetSkill` (`n3::reset_skill`: a character action 0x9a with the skill's stat, 0 for all). That message is
+built from the decompile: no capture has one and it has **not been sent live**, a reset not being something to try on
+a character. "Reset all" counts stats 348 and 691 and is dead when the server has told of neither. *Buttons*: the
+increase and decrease act at the press and, held for half a second, every 50 ms after (the original's two timers);
+let go with Shift or Ctrl, the decrease takes every added point back. *Value*: white when it is what training and the
+abilities give, green when more, red when less (FUN_100fe550). Seen live without pressing anything (the test
+character's buffed skills green, 11 reset points); the suggestion on a made-up level 12 character in the preview
+(`MAO_SKILL_SUGGEST=1` with `MAO_SKILL`; `MAO_TRACE_SKILLS=1` prints what it chose).
 
 ## 4l. Action window (`K`) and the map (`O`)
 

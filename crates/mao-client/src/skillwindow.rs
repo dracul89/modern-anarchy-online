@@ -15,10 +15,16 @@
 //!
 //! The increase button (FUN_100fe968) adds a point unless the skill is at its cap or the IP left do not pay for it
 //! (text.mdb 502's `Skill_LackIP`); let go with Shift or Ctrl held it raises the skill as far as the cap and the IP
-//! allow (FUN_100fea68). The IP shown are those left after the points added. Not ported: the button repeating while
-//! held, the value's colour when buffed or debuffed, the suggested distribution and the resets.
+//! allow (FUN_100fea68). Both buttons act at the press and then every 50 ms once held for half a second. The IP shown
+//! are those left after the points added. The value is white, or green when it is over what training and the abilities
+//! give and red when under.
+//!
+//! "Suggested IP distribution" (FUN_100fb8de) spends the IP by the game's own priorities (`ipdist`, levels 1 to 20) and
+//! lists what it raised. The resets ask first (FUN_100f9db0, FUN_100f9c65) and then send `N3Msg_ResetSkill`: a skill's
+//! for a reset point (stat 199; a disabled skill's is free, an ability has none), or all of them.
 
 use std::collections::BTreeMap;
+use std::time::{Duration, Instant};
 
 use crate::derived::Breakdown;
 use crate::gui::geom::Point;
@@ -121,6 +127,12 @@ pub struct SkillWindow {
     pub status: String,
     /// A preview's: the group whose page to open, the skill to select and the points to have added to it.
     pub demo: Option<(usize, u32, i64)>,
+    /// The increase and decrease buttons: the view, its skill and whether it increases.
+    buttons: Vec<(Id, u32, bool)>,
+    /// The button held down, and when it acts next.
+    held: Option<(Id, u32, bool, Instant)>,
+    /// The reset being asked about: a skill's, or all of them.
+    asking: Option<Option<u32>>,
 }
 
 impl SkillWindow {
@@ -157,6 +169,7 @@ impl SkillWindow {
                 tree.get_mut(row).control = Box::new(Row { pieces: crate::gui::controls::Pieces::named("GFX_GUI_BORDER03", false), selected: false });
                 for (button, picture) in [("dec", "GFX_GUI_DEC_SKILL"), ("inc", "GFX_GUI_INC_SKILL")] {
                     if let Some(b) = tree.find(row, &format!("{button}{mode}_{stat}")) {
+                        self.buttons.push((b, stat, button == "inc"));
                         if let Some(c) = tree.control_mut::<crate::gui::controls::Button>(b) {
                             c.pictures = Some([picture.to_string(), format!("{picture}_CHANGED")]);
                         }
@@ -166,12 +179,6 @@ impl SkillWindow {
                         }
                     }
                 }
-            }
-        }
-        // (the suggested distribution and the resets are not ported)
-        for name in ["suggest_ip", "resetAll", "reset", "resetFree"] {
-            if let Some(id) = tree.find(root, name) {
-                tree.get_mut(id).enabled = false;
             }
         }
         self.window = Some(crate::gui::window::XmlWindow { name: "Skills".into(), title: "Skills".into(), tree, root, open: true, default_size: egui::vec2(640.0, 480.0) });
@@ -191,6 +198,16 @@ impl SkillWindow {
                 t.text = value.to_string();
                 tree.relayout = true;
             }
+        }
+    }
+
+    /// Shows a view or hides it.
+    fn set_shown(tree: &mut Tree, root: Id, name: &str, shown: bool) {
+        let Some(id) = tree.find(root, name) else { return };
+        let want = if shown { 0 } else { 1 };
+        if tree.get(id).hidden.min(1) != want {
+            tree.get_mut(id).hidden = want;
+            tree.relayout = true;
         }
     }
 
@@ -214,30 +231,63 @@ impl SkillWindow {
                 self.pending.insert(stat, added);
             }
             tree.relayout = true;
+            // (MAO_SKILL_SUGGEST: the suggested distribution pressed as well)
+            if std::env::var_os("MAO_SKILL_SUGGEST").is_some()
+                && let Some(id) = tree.find(root, "suggest_ip")
+            {
+                tree.signals.push((id, Signal::Clicked));
+            }
         }
-        let stored = |stat: u32| parts.get(&stat).map_or_else(|| stats.get(&stat).copied().unwrap_or(0), |b| b.stored);
-        let buffed = |stat: u32| stats.get(&stat).copied().unwrap_or_else(|| stored(stat));
-        let ip = stored(IP);
-        // (the costs and caps: Gamecode's, for the character as trained with the points being added to its abilities)
-        let tables = crate::skillcost::tables();
-        let added_to = |pending: &BTreeMap<u32, i64>, stat: u32| pending.get(&stat).copied().unwrap_or(0);
-        let who = |pending: &BTreeMap<u32, i64>| crate::skillcost::Character {
-            breed: stats.get(&4).copied().unwrap_or(0) as u32,
-            profession: stats.get(&60).map(|p| *p as u32),
-            level: stats.get(&54).copied().unwrap_or(1),
-            title: stats.get(&37).copied().unwrap_or(1),
-            abilities: std::array::from_fn(|k| stored(16 + k as u32) + added_to(pending, 16 + k as u32)),
+        let costs = Costs { tables: crate::skillcost::tables(), stats, parts };
+        let ip = costs.stored(IP);
+        // the increase and decrease buttons: a point at the press (FUN_100fe968, FUN_100fe7d1), then one every 50 ms once
+        // held for half a second (their `EventTimer_c`s, FUN_100fecde); let go with Shift or Ctrl held the increase goes as
+        // far as the cap and the IP allow and the decrease takes every added point back (FUN_100fea68, FUN_100fe8bb)
+        let held_now = self.buttons.iter().copied().find(|(id, _, _)| tree.control::<crate::gui::controls::Button>(*id).is_some_and(|b| b.held));
+        let now = Instant::now();
+        let step = |pending: &mut BTreeMap<u32, i64>, status: &mut String, stat: u32, increase: bool| {
+            if increase {
+                raise(pending, status, &costs, stat);
+            } else {
+                lower(pending, stat, false);
+            }
         };
-        let spent = |pending: &BTreeMap<u32, i64>| tables.map_or(0, |t| pending.iter().map(|(&stat, &p)| t.total_cost(&who(pending), stat, stored(stat), p)).sum::<i64>());
-        let character = who(&self.pending);
+        match (self.held, held_now) {
+            (was, Some((id, stat, increase))) if was.map(|h| h.0) != Some(id) => {
+                self.selected = Some(stat);
+                self.status.clear();
+                step(&mut self.pending, &mut self.status, stat, increase);
+                self.held = Some((id, stat, increase, now + Duration::from_millis(500)));
+            }
+            (Some((id, stat, increase, next)), Some(_)) if now >= next => {
+                step(&mut self.pending, &mut self.status, stat, increase);
+                self.held = Some((id, stat, increase, now + Duration::from_millis(50)));
+            }
+            (Some((_, stat, increase, _)), None) => {
+                if ctx.input(|i| i.modifiers.shift || i.modifiers.ctrl) {
+                    if increase {
+                        let mut quiet = String::new();
+                        while raise(&mut self.pending, &mut quiet, &costs, stat) {}
+                    } else {
+                        lower(&mut self.pending, stat, true);
+                    }
+                }
+                self.held = None;
+            }
+            _ => {}
+        }
+        if self.held.is_some() {
+            ctx.request_repaint_after(Duration::from_millis(25));
+        }
+        let character = costs.who(&self.pending);
         // the values: each row's buffed value with the points added (FUN_100fa0e0), the buttons' pictures changed once added
-        Self::set_text(tree, root, "remaining_ip", &(ip - spent(&self.pending)).to_string());
+        Self::set_text(tree, root, "remaining_ip", &(ip - costs.spent(&self.pending)).to_string());
         Self::set_text(tree, root, "status", &self.status);
         for (_, stats) in GROUPS {
             for &stat in stats {
                 let added = self.pending.get(&stat).copied().unwrap_or(0);
                 // (the name in its cost level's colour, FUN_100f99b1; the page's bar: trained over the cap, FUN_100fe550)
-                if let Some(t) = tables {
+                if let Some(t) = costs.tables {
                     let colour = crate::skillcost::colour(t.cost_level(&character, stat));
                     for mode in 0..2 {
                         if let Some(id) = tree.find(root, &format!("name{mode}_{stat}"))
@@ -248,11 +298,24 @@ impl SkillWindow {
                     }
                     if let Some(bar) = tree.find(root, &format!("bar_{stat}")) {
                         let max = t.max(&character, stat);
-                        crate::gui::powerbar::set_value(tree, bar, if max > 0 { ((stored(stat) + added) as f32 / max as f32).clamp(0.0, 1.0) } else { 0.0 });
+                        crate::gui::powerbar::set_value(tree, bar, if max > 0 { ((costs.stored(stat) + added) as f32 / max as f32).clamp(0.0, 1.0) } else { 0.0 });
                     }
                 }
+                // (the value white when it is what training and the abilities give, green when more, red when less:
+                // FUN_100fe550's compare of the shown value with `N3Msg_GetSkill`'s kind 1)
+                let colour = match parts.get(&stat).map(|b| costs.buffed(stat).cmp(&(b.stored + b.trickle))) {
+                    Some(std::cmp::Ordering::Greater) => 0x00ff00,
+                    Some(std::cmp::Ordering::Less) => 0xff0000,
+                    _ => 0xffffff,
+                };
                 for mode in 0..2 {
-                    Self::set_text(tree, root, &format!("value{mode}_{stat}"), &(buffed(stat) + added).to_string());
+                    let name = format!("value{mode}_{stat}");
+                    Self::set_text(tree, root, &name, &(costs.buffed(stat) + added).to_string());
+                    if let Some(id) = tree.find(root, &name)
+                        && let Some(value) = tree.control_mut::<crate::gui::controls::TextView>(id)
+                    {
+                        value.colour = crate::gui::controls::Colour(colour);
+                    }
                     for button in ["dec", "inc"] {
                         if let Some(b) = tree.find(root, &format!("{button}{mode}_{stat}")) {
                             if let Some(c) = tree.control_mut::<crate::gui::controls::Button>(b) {
@@ -269,31 +332,44 @@ impl SkillWindow {
             }
         }
         // the selected skill's details (FUN_100fa1c4)
+        let disabled = self.selected.is_some_and(|stat| GROUPS[DISABLED].1.contains(&stat));
         if let Some(stat) = self.selected {
             let added = self.pending.get(&stat).copied().unwrap_or(0);
             let right = |v: String| format!("<div align=\"right\">{v}</div>");
             Self::set_text(tree, root, "statName", &format!("<center>{}</center>", text(2002, stat, &crate::skills::stat_name(stat))));
             Self::set_text(tree, root, "statdesc", &text(2001, stat, ""));
-            Self::set_text(tree, root, "base", &right((stored(stat) + added).to_string()));
-            Self::set_text(tree, root, "buffed", &right((buffed(stat) + added).to_string()));
+            Self::set_text(tree, root, "base", &right((costs.stored(stat) + added).to_string()));
+            Self::set_text(tree, root, "buffed", &right((costs.buffed(stat) + added).to_string()));
             Self::set_text(tree, root, "pointdelta", &right(added.to_string()));
             // (what the next point costs, FUN_100f9aeb; the points added together, FUN_100f9b0d; the cap)
-            let fields = match tables {
-                Some(t) => [t.cost(&character, stat, stored(stat) + added).to_string(), t.total_cost(&character, stat, stored(stat), added).to_string(), t.max(&character, stat).to_string()],
+            let fields = match costs.tables {
+                Some(t) => [t.cost(&character, stat, costs.stored(stat) + added).to_string(), t.total_cost(&character, stat, costs.stored(stat), added).to_string(), t.max(&character, stat).to_string()],
                 None => ["-".to_string(), "-".to_string(), "-".to_string()],
             };
             for (field, value) in ["unitcost", "totalcost", "maxskill"].into_iter().zip(fields) {
                 Self::set_text(tree, root, field, &right(value));
             }
+            // (the reset: a disabled skill's is free; an ability has none; the others' takes a reset point, stat 199)
+            if let Some(s) = tree.find(root, "resetselect") {
+                crate::gui::selector::set_value(tree, s, i32::from(disabled));
+            }
+            Self::set_shown(tree, root, "resetselect", disabled || !(16..=21).contains(&stat));
+            Self::set_text(tree, root, "rp", &stats.get(&199).copied().unwrap_or(0).to_string());
         }
         // (the notice that a skill is disabled: shown only for one of the disabled group's, FUN_100fa1c4's `Show`)
-        let disabled = self.selected.is_some_and(|stat| GROUPS[DISABLED].1.contains(&stat));
-        if let Some(id) = tree.find(root, "disabledLbl") {
-            let want = if disabled { 0 } else { 1 };
-            if tree.get(id).hidden.min(1) != want {
-                tree.get_mut(id).hidden = want;
+        Self::set_shown(tree, root, "disabledLbl", disabled);
+        // ("Reset all skills (n)", FUN_100fae7a: one when stat 348's third bit is clear, and stat 691's; the button dead
+        // at none. The original reads both stats whatever they hold; here a stat the server has not told of counts nothing)
+        let resets = stats.get(&348).map_or(0, |f| i64::from(f & 4 == 0)) + stats.get(&691).copied().unwrap_or(0);
+        if let Some(id) = tree.find(root, "resetAll") {
+            let label = format!("{} ({resets})", crate::gui::xml::ldb_named(502, "SkillView_ResetAll", "Reset all skills"));
+            if let Some(b) = tree.control_mut::<crate::gui::controls::Button>(id)
+                && b.label != label
+            {
+                b.label = label;
                 tree.relayout = true;
             }
+            tree.get_mut(id).enabled = resets > 0;
         }
         let skin = crate::skin::skin(ctx);
         let min = crate::gui::host::preferred_pixels(tree, root, false);
@@ -321,48 +397,8 @@ impl SkillWindow {
                     crate::gui::selector::set_value(tree, s, g as i32);
                 }
                 tree.relayout = true;
-            } else if let Some(stat) = stat_of("inc") {
-                self.status.clear();
-                match tables {
-                    // (FUN_100fe968: not past the cap, FUN_100fdf13; FUN_100fe550: not past the IP left. Let go with Shift
-                    // or Ctrl held, FUN_100fea68: as far as both allow)
-                    Some(t) => {
-                        let all = ctx.input(|i| i.modifiers.shift || i.modifiers.ctrl);
-                        loop {
-                            let added = added_to(&self.pending, stat);
-                            if t.max(&who(&self.pending), stat) < stored(stat) + added + 1 {
-                                if !all || added == 0 {
-                                    self.status = format!("{} cannot be raised further now.", text(2003, stat, &crate::skills::stat_name(stat)));
-                                }
-                                break;
-                            }
-                            let mut next = self.pending.clone();
-                            *next.entry(stat).or_insert(0) += 1;
-                            if spent(&next) > ip {
-                                if !all || added == 0 {
-                                    self.status = crate::gui::xml::ldb_named(502, "Skill_LackIP", "Not enough IP to raise this skill further.");
-                                }
-                                break;
-                            }
-                            self.pending = next;
-                            if !all {
-                                break;
-                            }
-                        }
-                    }
-                    None => {
-                        if ip > self.pending.values().sum::<i64>() {
-                            *self.pending.entry(stat).or_insert(0) += 1;
-                        }
-                    }
-                }
-                self.selected = Some(stat);
-            } else if let Some(stat) = stat_of("dec") {
-                if let Some(p) = self.pending.get_mut(&stat) {
-                    *p -= 1;
-                }
-                self.pending.retain(|_, p| *p > 0);
-                self.selected = Some(stat);
+            } else if stat_of("inc").or(stat_of("dec")).is_some() {
+                // (carried out at the press, above)
             } else if let Some(stat) = stat_of("row") {
                 self.selected = Some(stat);
                 if let Some(s) = tree.find(root, "infoselect") {
@@ -374,9 +410,48 @@ impl SkillWindow {
                     }
                 }
                 tree.relayout = true;
+            } else if name == "suggest_ip" {
+                // (FUN_100fb8de: the distribution worked out twice over, then the skills it touched listed on the info area's
+                // third page in two columns, each with the points it now has added)
+                let profession = stats.get(&60).map(|p| text(2004, *p as u32, crate::launcher::profession(*p as i32))).unwrap_or_default();
+                let level = stats.get(&54).copied().unwrap_or(1);
+                let priority = |stat: u32| crate::ipdist::priorities().map_or(0, |p| p.priority(&profession, &text(2003, stat, &crate::skills::stat_name(stat)), level));
+                let mut touched = suggest(&mut self.pending, &costs, &priority);
+                for stat in suggest(&mut self.pending, &costs, &priority) {
+                    if !touched.contains(&stat) {
+                        touched.push(stat);
+                    }
+                }
+                if std::env::var_os("MAO_TRACE_SKILLS").is_some() {
+                    eprintln!("suggested for {profession:?} level {level}: {touched:?}, ip {ip}, priorities {:?}", GROUPS[0].1.iter().map(|s| priority(*s)).collect::<Vec<_>>());
+                }
+                if let (Some(a), Some(b)) = (tree.find(root, "col1"), tree.find(root, "col2")) {
+                    tree.get_mut(a).children.clear();
+                    tree.get_mut(b).children.clear();
+                    for column in [a, b] {
+                        tree.get_mut(column).layout = crate::gui::view::Layout::Vertical;
+                    }
+                    for (k, stat) in touched.iter().enumerate() {
+                        // (the original wraps the two in left and right aligned blocks; the spacer between does the same here)
+                        let name = attr(&text(2003, *stat, &crate::skills::stat_name(*stat)));
+                        let points = self.pending.get(stat).copied().unwrap_or(0);
+                        let row = format!(
+                            "<View view_layout=\"horizontal\"><TextView value=\"{name}\" layout_borders=\"Rect(10,3,10,0)\"/><HLayoutSpacer/><TextView value=\"{points}\" layout_borders=\"Rect(10,3,10,0)\"/></View>"
+                        );
+                        add_xml(tree, if k % 2 == 0 { a } else { b }, &row);
+                    }
+                    if let Some(s) = tree.find(root, "infoselect") {
+                        crate::gui::selector::set_value(tree, s, 2);
+                    }
+                }
+                tree.relayout = true;
+            } else if name == "reset" || name == "resetFree" {
+                self.asking = self.selected.map(Some);
+            } else if name == "resetAll" {
+                self.asking = Some(None);
             } else if name == "Accept" {
                 // (the raises: each skill's new trained value; the server checks them and answers with the IP left)
-                let raises: Vec<(u32, u32)> = self.pending.iter().map(|(&stat, &p)| (stat, (stored(stat) + p).max(0) as u32)).collect();
+                let raises: Vec<(u32, u32)> = self.pending.iter().map(|(&stat, &p)| (stat, (costs.stored(stat) + p).max(0) as u32)).collect();
                 if !raises.is_empty() {
                     crate::skills::push_raises(raises);
                     crate::tips::trigger("OnAcceptingSkillChanges", "");
@@ -387,16 +462,175 @@ impl SkillWindow {
                 is_open = false;
             }
         }
+        // the question before a reset (FUN_100f9db0 a skill's, FUN_100f9c65 all of them): Yes sends `N3Msg_ResetSkill`
+        // with the skill's stat, or nothing for all (FUN_100f9c3e, FUN_100f9c21)
+        if let Some(what) = self.asking {
+            let question = match what {
+                Some(stat) => crate::gui::xml::ldb_named(502, "SkillReset_Confirm", "Reset the skill %s?").replace("%s", &text(2002, stat, &crate::skills::stat_name(stat))),
+                None => crate::gui::xml::ldb_named(502, "SkillView_ResetAllConfirm", "Reset every ability and skill to its start and get the IP back?").replace("\r\n", "<br>"),
+            };
+            if let Some(yes) = crate::chrome::question(ctx, palette, "reset-skill", "Skills", &question) {
+                if yes {
+                    crate::skills::push_reset(what.unwrap_or(0));
+                    match what {
+                        Some(stat) => drop(self.pending.remove(&stat)),
+                        None => self.pending.clear(),
+                    }
+                    self.status = "Reset asked for.".into();
+                }
+                self.asking = None;
+            }
+        }
         if !is_open {
             self.pending.clear();
+            self.asking = None;
         }
         *open = is_open;
     }
 }
 
+/// What the window's sums are worked out from: Gamecode's tables and the character's stats.
+struct Costs<'a> {
+    tables: Option<&'static crate::skillcost::Tables>,
+    stats: &'a BTreeMap<u32, i64>,
+    parts: &'a BTreeMap<u32, Breakdown>,
+}
+
+impl Costs<'_> {
+    /// A stat as trained (`N3Msg_GetSkill`'s kind 0).
+    fn stored(&self, stat: u32) -> i64 {
+        self.parts.get(&stat).map_or_else(|| self.stats.get(&stat).copied().unwrap_or(0), |b| b.stored)
+    }
+
+    /// A stat as shown (kind 2).
+    fn buffed(&self, stat: u32) -> i64 {
+        self.stats.get(&stat).copied().unwrap_or_else(|| self.stored(stat))
+    }
+
+    /// The character the costs and caps are for, with the points being added to its abilities.
+    fn who(&self, pending: &BTreeMap<u32, i64>) -> crate::skillcost::Character {
+        let level = self.stats.get(&54).copied().unwrap_or(1);
+        crate::skillcost::Character {
+            breed: self.stats.get(&4).copied().unwrap_or(0) as u32,
+            profession: self.stats.get(&60).map(|p| *p as u32),
+            level,
+            // (the title level: the server's, else worked out from the level as the original does)
+            title: self.stats.get(&37).copied().filter(|t| *t > 0).unwrap_or_else(|| crate::derived::title_level(level)),
+            abilities: std::array::from_fn(|k| self.stored(16 + k as u32) + pending.get(&(16 + k as u32)).copied().unwrap_or(0)),
+        }
+    }
+
+    /// The IP the points added cost together.
+    fn spent(&self, pending: &BTreeMap<u32, i64>) -> i64 {
+        let who = self.who(pending);
+        self.tables.map_or(0, |t| pending.iter().map(|(&stat, &p)| t.total_cost(&who, stat, self.stored(stat), p)).sum())
+    }
+
+    /// Whether a point more fits under the skill's cap (FUN_100f9aac).
+    fn below_cap(&self, pending: &BTreeMap<u32, i64>, stat: u32) -> bool {
+        let added = pending.get(&stat).copied().unwrap_or(0);
+        self.tables.is_none_or(|t| self.stored(stat) + added + 1 <= t.max(&self.who(pending), stat))
+    }
+
+    /// Whether the IP pay for a point more (FUN_100fe550's check).
+    fn affordable(&self, pending: &BTreeMap<u32, i64>, stat: u32) -> bool {
+        let ip = self.stored(IP);
+        match self.tables {
+            Some(_) => {
+                let mut next = pending.clone();
+                *next.entry(stat).or_insert(0) += 1;
+                self.spent(&next) <= ip
+            }
+            None => ip > pending.values().sum::<i64>(),
+        }
+    }
+}
+
+/// The increase button (FUN_100fe968): a point more unless the skill is disabled, at its cap (FUN_100fdf13) or the IP
+/// left do not pay for it (FUN_100fe550). Says why not in `status`; true when the point went in.
+fn raise(pending: &mut BTreeMap<u32, i64>, status: &mut String, costs: &Costs, stat: u32) -> bool {
+    if GROUPS[DISABLED].1.contains(&stat) {
+        *status = "This skill has been disabled and can not be increased.".into();
+    } else if !costs.below_cap(pending, stat) {
+        *status = format!("{} cannot be raised further now.", text(2003, stat, &crate::skills::stat_name(stat)));
+    } else if !costs.affordable(pending, stat) {
+        *status = crate::gui::xml::ldb_named(502, "Skill_LackIP", "Not enough IP to raise this skill further.");
+    } else {
+        *pending.entry(stat).or_insert(0) += 1;
+        return true;
+    }
+    false
+}
+
+/// The decrease button (FUN_100fe7d1): an added point back, or all of them (FUN_100fe8bb).
+fn lower(pending: &mut BTreeMap<u32, i64>, stat: u32, all: bool) {
+    if let Some(p) = pending.get_mut(&stat) {
+        *p = if all { 0 } else { *p - 1 };
+    }
+    pending.retain(|_, p| *p > 0);
+}
+
+/// The suggested distribution (FUN_100fb667): the skills by their priority (`ipdist`), least number first and none for
+/// 0; within a priority a point each in turn, a skill leaving the round once it is at its cap, until none is left or
+/// the IP do not pay for the next point, which ends it all. The skills that got points, in the order they first did.
+fn suggest(pending: &mut BTreeMap<u32, i64>, costs: &Costs, priority: &dyn Fn(u32) -> i32) -> Vec<u32> {
+    let mut rounds: BTreeMap<i32, Vec<u32>> = BTreeMap::new();
+    for (_, stats) in GROUPS {
+        for &stat in stats {
+            rounds.entry(priority(stat)).or_default().push(stat);
+        }
+    }
+    let mut touched = Vec::new();
+    for (_, mut round) in rounds.into_iter().filter(|(p, _)| *p != 0) {
+        let mut at = 0;
+        while !round.is_empty() {
+            let stat = round[at];
+            if GROUPS[DISABLED].1.contains(&stat) || !costs.below_cap(pending, stat) {
+                round.remove(at);
+            } else if !costs.affordable(pending, stat) {
+                return touched;
+            } else {
+                *pending.entry(stat).or_insert(0) += 1;
+                if !touched.contains(&stat) {
+                    touched.push(stat);
+                }
+                at += 1;
+            }
+            if at >= round.len() {
+                at = 0;
+            }
+        }
+    }
+    touched
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_suggestion_goes_round_the_first_priority() {
+        // (without the game's tables a point costs one: five IP go round the two skills of priority 1; the one of
+        // priority 2 gets none, nor those of none)
+        let stats: BTreeMap<u32, i64> = [(IP, 5)].into_iter().collect();
+        let parts = BTreeMap::new();
+        let costs = Costs { tables: None, stats: &stats, parts: &parts };
+        let priority = |stat: u32| match stat {
+            16 | 17 => 1,
+            18 => 2,
+            _ => 0,
+        };
+        let mut pending = BTreeMap::new();
+        assert_eq!(suggest(&mut pending, &costs, &priority), [16, 17]);
+        assert_eq!(pending, [(16, 3), (17, 2)].into_iter().collect());
+        // (the buttons: a point back, all back; a disabled skill takes none)
+        lower(&mut pending, 16, false);
+        lower(&mut pending, 17, true);
+        assert_eq!(pending, [(16, 2)].into_iter().collect());
+        let mut status = String::new();
+        assert!(!raise(&mut pending, &mut status, &costs, 138) && status.contains("disabled"));
+        assert!(raise(&mut pending, &mut status, &costs, 18) && pending[&18] == 1);
+    }
 
     /// The skin's view has every group's list, page and button, and every row goes in.
     #[test]
