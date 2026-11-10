@@ -53,6 +53,8 @@ pub enum CellView {
     Text(String),
     /// A skin picture, centred.
     Picture(String),
+    /// Text in a colour of its own (0xrrggbb): a cell whose text the original writes with a `<font color>`.
+    Tinted(String, u32),
 }
 
 /// A row (`MultiListViewItem_c`): its id (`GetID`), its cells by column id and what it sorts by in each; in a grid, its
@@ -69,6 +71,8 @@ pub struct Item {
     /// A running nano's time left as a share of its whole: the icon's part past it is faded (`ItemIconView_c`
     /// FUN_1003f9ea, `+0x174`).
     pub left: Option<f32>,
+    /// The row's text colour (`MultiListViewItem_c` +0x68, 0xrrggbb) when it is not the default.
+    pub colour: Option<u32>,
 }
 
 impl Item {
@@ -199,6 +203,8 @@ pub struct Rows {
     pub selected: Option<i64>,
     /// Grid mode instead of the list.
     pub grid: Option<GridMode>,
+    /// The grid's settings while the view is in list mode (`SetLayoutMode`).
+    stash: Option<GridMode>,
     last_click: Option<(i64, Instant)>,
     pressed: Option<(usize, Point)>,
     dragged: bool,
@@ -208,7 +214,7 @@ pub struct Rows {
 
 impl Rows {
     fn new(grid: Option<GridMode>) -> Rows {
-        Rows { columns: Vec::new(), items: Vec::new(), selected: None, grid, last_click: None, pressed: None, dragged: false, picture: Shared::new(None) }
+        Rows { columns: Vec::new(), items: Vec::new(), selected: None, grid, stash: None, last_click: None, pressed: None, dragged: false, picture: Shared::new(None) }
     }
     fn step() -> f32 {
         ROW_HEIGHT + 1.0 + SPACE.y
@@ -374,8 +380,13 @@ impl Control for Rows {
                 let cell = egui::Rect::from_min_size(egui::pos2(p.rect.min.x + x, top), egui::vec2(w, ROW_HEIGHT));
                 let painter = p.painter.with_clip_rect(cell.intersect(clip));
                 match item.cell(column) {
-                    Some(CellView::Text(t)) => {
+                    Some(view @ (CellView::Text(t) | CellView::Tinted(t, _))) => {
                         let q = Paint { painter: &painter, env: p.env, rect: cell, hovered: false, pressed: false, enabled: p.enabled };
+                        let rgb = |c: u32| egui::Color32::from_rgb((c >> 16) as u8, (c >> 8) as u8, c as u8);
+                        let colour = match view {
+                            CellView::Tinted(_, c) => rgb(*c),
+                            _ => item.colour.map_or(colour, rgb),
+                        };
                         super::controls::text(&q, font, cell.min + egui::vec2(2.0, 2.0), t, colour);
                     }
                     Some(CellView::Picture(name)) => {
@@ -626,6 +637,34 @@ pub fn create_grid(tree: &mut Tree, name: &str, max_items: i32, columns: usize) 
     id
 }
 
+/// `SetLayoutMode`: the list (1: the column header over a row an item) or the grid (0), for a view made as a grid.
+pub fn set_list_mode(tree: &mut Tree, id: Id, list: bool) {
+    let Some((header, _, rows)) = parts(tree, id) else { return };
+    let Some(r) = tree.control_mut::<Rows>(rows) else { return };
+    if list == r.grid.is_none() || (!list && r.stash.is_none()) {
+        return;
+    }
+    if list {
+        r.stash = r.grid.take();
+    } else {
+        r.grid = r.stash.take();
+    }
+    let node = tree.get_mut(header);
+    if list {
+        node.flags &= !super::view::FLAG_COLLAPSE;
+        node.hidden = 0;
+    } else {
+        node.flags |= super::view::FLAG_COLLAPSE;
+        node.hidden = 1;
+    }
+    tree.relayout = true;
+}
+
+/// `GetLayoutMode() == 1`.
+pub fn list_mode(tree: &Tree, id: Id) -> bool {
+    parts(tree, id).and_then(|(_, _, rows)| tree.control::<Rows>(rows)).is_some_and(|r| r.grid.is_none())
+}
+
 /// Changes a grid's settings (the wear view's spacing, cells, labels and picture).
 pub fn set_grid(tree: &mut Tree, id: Id, f: impl FnOnce(&mut GridMode)) {
     let Some((_, _, rows)) = parts(tree, id) else { return };
@@ -719,7 +758,7 @@ pub fn fit_column(tree: &mut Tree, id: Id, column: i32) {
         r.items
             .iter()
             .filter_map(|i| match i.cell(column) {
-                Some(CellView::Text(t)) => Some(measure.width(FontId::NORMAL, t) + 4.0),
+                Some(CellView::Text(t) | CellView::Tinted(t, _)) => Some(measure.width(FontId::NORMAL, t) + 4.0),
                 _ => None,
             })
             .fold(0.0, f32::max)

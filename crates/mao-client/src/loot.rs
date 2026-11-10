@@ -125,6 +125,7 @@ impl LootWindow {
                     keys: vec![(1, i.name.clone())],
                     pos: None,
                     left: None,
+                    colour: None,
                 })
                 .collect();
             crate::gui::multilist::set_items(tree, list, rows);

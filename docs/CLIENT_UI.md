@@ -395,6 +395,22 @@ game's texts, a borderless window with its bar, the transparency list) and one l
 before); **the switches were not clicked through live**. Not done: the configuration rows' own menu (click-through,
 deactivate on send, default window), the menus' separators.
 
+**NCU window's list mode (2026-11-10, `ncu.rs`, `gui/multilist.rs`).** The original's NCU window is the shared list
+view (`NCUView_c` FUN_100d774b over `NCUListView_c` FUN_10045d42) and its right-click menu (FUN_100d758a) has "List
+Mode": the grid of icons becomes a list under a column header. Ported: the menu entry with its mark (the choice kept
+as `NCUWindowConfig` in `tabs.ini`, the original's `listview_mode`), and the eleven columns in the original's order
+with the game's labels (text.mdb 10000 `Tab_*`): icon, name, type, nano cost (stat 407), NCU cost (stat 54, `---` for
+999), time and time left (`hh:mm:ss`), radius, attack range (stat 287, `%dm`), attack delay and recharge delay (stats
+294 and 210, seconds with two places), written as `InventoryListViewItem_c` writes them (FUN_1003d7d0). The list
+starts sorted by the time left and a pressed label sorts by its column; a hostile nano (flags 0x8000) is "Hostile"
+and its row red, a nano with the team cast spell (0xcf4a) "Team", the others "Friendly" (FUN_1003f4cf, FUN_1003d5a5).
+Nanos whose flags have 0x1000000 are left out of the window in both modes, as the original does (FUN_100458b0). The
+list view itself gained `set_list_mode` (`SetLayoutMode`), a row colour and coloured cells. Preview:
+`MAO_UI_PREVIEW=ncu MAO_NANOS=<id:ms,...> MAO_NCU_LIST=1`. Seen in the preview only. Not done: the radius column
+(`N3Msg_GetFormularRadius` reads a field of Gamecode's nano object that was not traced back to the record: `---`), the
+"Self" type (the same object's self-only flag), the menu's "Auto Arrange" sub-menu, keeping column widths and the sort,
+and the two target NCU windows (`TargetNCUView_c` FUN_100dda60: fight target and nano target, with "Hostile Only").
+
 **Stats window as the original's (2026-11-10, `stats.rs`).** Read from `StatView_c` (FUN_1008057d): the name and the
 level on a line, a white word and its value in 0xbbbbff; the bars, each the skin's `GFX_GUI_HOR_BAR_EMPTY` filled with
 a coloured one to the value's share and labelled "value / max" (health red, nano blue; experience yellow, alien

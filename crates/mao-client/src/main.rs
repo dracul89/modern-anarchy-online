@@ -1609,6 +1609,13 @@ fn run(args: &[String]) -> Result<(), String> {
                         }
                         let mut window = ncu::NcuWindow::default();
                         window.open = true;
+                        // (MAO_NCU_LIST=1: in list mode)
+                        window.list = std::env::var_os("MAO_NCU_LIST").map(|_| true);
+                        if window.list.is_some() {
+                            // (out of the column at the right edge, wide enough for the columns)
+                            rollup::undock("NCU");
+                            window.start = (egui::pos2(100.0, 170.0), egui::vec2(780.0, 190.0));
+                        }
                         *hud.ncu_preview.lock().unwrap() = Some(window);
                     }
                     // MAO_UI_PREVIEW=chat (MAO_CHAT_INPUT=/te): the chat window with sample lines and, with an input, the command list.

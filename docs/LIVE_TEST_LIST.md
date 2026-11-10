@@ -62,6 +62,8 @@ Needs: **1** = one character is enough, **2** = a second character on line, **or
 | 31 | 1 | "Suggested IP distribution" on a character below level 20 with IP | Points handed out and listed; nothing is sent until Save Changes |
 | 32 | 1 | Compare a few skill costs and caps with the original client | The same numbers |
 | 33 | 2 | `/inspect` with another player targeted | The character page as the original lays it out |
+| 34 | 1 | NCU window with a few nanos running: right-click → List Mode | The list with its eleven columns; times count down; pressing a label sorts; the choice is kept after a restart |
+| 35 | 1 | Compare the list's nano cost, NCU cost, range and delays of two nanos with the original client | The same values (the radius shows `---` here) |
 
 ## Older notes still marked untried in `CLIENT_UI.md`
 

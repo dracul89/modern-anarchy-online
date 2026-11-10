@@ -106,6 +106,7 @@ fn entry(item: &GearItem, textures: &mut HashMap<u32, egui::TextureHandle>, ctx:
         keys: vec![(1, item.name.clone())],
         pos,
         left: None,
+        colour: None,
     }
 }
 
