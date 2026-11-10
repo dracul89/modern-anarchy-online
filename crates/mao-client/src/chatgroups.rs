@@ -158,6 +158,22 @@ pub fn note(name: &str, kind: u8) {
     }
 }
 
+/// A channel gone (a private group left).
+pub fn forget(name: &str) {
+    SERVER_GROUPS.lock().unwrap().remove(name);
+}
+
+/// The invitations to private chat groups the chat window has not seen yet: the owner's id and name.
+static INVITES: Mutex<Vec<(u32, String)>> = Mutex::new(Vec::new());
+
+pub fn invite(owner: u32, name: &str) {
+    INVITES.lock().unwrap().push((owner, name.to_string()));
+}
+
+pub fn take_invites() -> Vec<(u32, String)> {
+    std::mem::take(&mut *INVITES.lock().unwrap())
+}
+
 pub fn server_groups() -> Vec<String> {
     SERVER_GROUPS.lock().unwrap().keys().cloned().collect()
 }

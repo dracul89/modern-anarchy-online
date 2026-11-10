@@ -4350,6 +4350,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     let mut names: BTreeMap<u32, String> = BTreeMap::new();
                     let mut ids: BTreeMap<String, u32> = BTreeMap::new();
                     let mut channels: BTreeMap<u32, (u8, String)> = BTreeMap::new();
+                    // the private chat groups the character is in: the owner's id and the group's name (the owner's)
+                    let mut private: BTreeMap<u32, String> = BTreeMap::new();
                     // each channel's flags (0x40: no voice lines)
                     let mut channel_flags: BTreeMap<u32, u32> = BTreeMap::new();
                     // tells waiting for the id of the character they go to: (lower-case name, text)
@@ -4455,6 +4457,41 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                 buddies.0 += 1;
                                 changed.then(|| Line::new(Kind::System, format!("{shown} {}.", if online { "is now online" } else { "has gone offline" })))
                             }
+                            // Private chat groups (GUI.dll's chat library, FUN_1016d6f4): a group goes by its owner's name.
+                            Some(Packet::PrivateInvite { owner }) => {
+                                crate::chatgroups::invite(owner, &names.get(&owner).cloned().unwrap_or_else(|| format!("#{owner}")));
+                                None
+                            }
+                            Some(Packet::PrivateJoined { owner, character }) => {
+                                let said = |key: &str, own_words: &str| crate::gui::xml::ldb_named(10001, key, own_words);
+                                let group = private.entry(owner).or_insert_with(|| names.get(&owner).cloned().unwrap_or_else(|| format!("#{owner}"))).clone();
+                                crate::chatgroups::note(&group, 0x0e);
+                                if character == own {
+                                    Some(Line::new(Kind::System, format!("{}{group}", said("YouJoinedPrivateChat", "You joined the private group "))))
+                                } else {
+                                    let who = names.get(&character).cloned().unwrap_or_else(|| format!("#{character}"));
+                                    Some(Line::new(Kind::Channel, format!("[{group}] {who}{}", said("JoinedGroup", " joined the group."))).in_group(&group))
+                                }
+                            }
+                            Some(Packet::PrivateParted { owner, character }) => {
+                                let group = private.get(&owner).cloned().unwrap_or_else(|| names.get(&owner).cloned().unwrap_or_else(|| format!("#{owner}")));
+                                let who = names.get(&character).cloned().unwrap_or_else(|| format!("#{character}"));
+                                Some(Line::new(Kind::Channel, format!("[{group}] {who}{}", crate::gui::xml::ldb_named(10001, "LeftGroup", " left the group."))).in_group(&group))
+                            }
+                            Some(Packet::PrivateEnded { owner }) => private.remove(&owner).map(|group| {
+                                crate::chatgroups::forget(&group);
+                                Line::new(Kind::System, format!("{}{group}", crate::gui::xml::ldb_named(10001, "LeftPrivateGroup", "You left the private group ")))
+                            }),
+                            Some(Packet::PrivateRefused { character, .. }) => {
+                                let who = names.get(&character).cloned().unwrap_or_else(|| format!("#{character}"));
+                                Some(Line::new(Kind::System, format!("{who}{}", crate::gui::xml::ldb_named(10001, "DeclinedInvite", " declined the invitation."))))
+                            }
+                            Some(Packet::PrivateMessage { owner, sender, text, .. }) => {
+                                let group = private.entry(owner).or_insert_with(|| names.get(&owner).cloned().unwrap_or_else(|| format!("#{owner}"))).clone();
+                                crate::chatgroups::note(&group, 0x0e);
+                                let who = names.get(&sender).cloned().unwrap_or_else(|| format!("{sender:x}"));
+                                Some(Line { kind: Kind::Channel, text: format!("[{group}] {who}: {}", mao_net::chat::plain(&text)), from: Some(who.clone()), markup: None, group: group.clone(), at: None }.with_markup(&format!("[{group}] {who}: "), &text))
+                            }
                             Some(Packet::Other { kind, data }) => {
                                 eprintln!("chat packet {kind}: {}", data.iter().map(|b| format!("{b:02x}")).collect::<String>());
                                 None
@@ -4492,6 +4529,19 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                 },
                                 Out::PrivateInvite { id } => chat.send(&mao_net::chat::private_invite_packet(id))?,
                                 // (a line typed in a window whose output group is a channel)
+                                Out::PrivateJoin { owner } => chat.send(&mao_net::chat::private_join_packet(owner))?,
+                                Out::PrivateDecline { owner } => chat.send(&mao_net::chat::private_leave_packet(owner))?,
+                                Out::PrivateLeave { name } => {
+                                    if let Some((&owner, _)) = private.iter().find(|(_, n)| n.eq_ignore_ascii_case(&name)) {
+                                        chat.send(&mao_net::chat::private_leave_packet(owner))?;
+                                    }
+                                }
+                                // (a line to a private group the character is in goes there)
+                                Out::Channel { name, text } if private.values().any(|n| n.eq_ignore_ascii_case(&name)) => {
+                                    if let Some((&owner, _)) = private.iter().find(|(_, n)| n.eq_ignore_ascii_case(&name)) {
+                                        chat.send(&mao_net::chat::private_message_packet(owner, &text))?;
+                                    }
+                                }
                                 Out::Channel { name, text } => match channels.iter().find(|(_, (_, n))| n.eq_ignore_ascii_case(&name)) {
                                     Some((&id, (kind, _))) => chat.send(&mao_net::chat::channel_packet(*kind, id, &text))?,
                                     None => CHAT_LINES.lock().unwrap().push(Line::new(Kind::System, format!("Error: Chat group {name} is currently not available."))),

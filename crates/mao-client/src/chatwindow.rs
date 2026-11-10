@@ -85,6 +85,11 @@ pub enum Out {
     Channel { name: String, text: String },
     /// Invite a character to the player's private chat group (the friends window's "Invite").
     PrivateInvite { id: u32 },
+    /// Join the private chat group of the character who invited, or decline the invitation.
+    PrivateJoin { owner: u32 },
+    PrivateDecline { owner: u32 },
+    /// Leave a private chat group, by its name.
+    PrivateLeave { name: String },
     /// Sit down to log out / leave the client (handled by the window, not sent to the chat server).
     Camp,
     /// Sit down or stand up (`/sit`, as X).
@@ -136,6 +141,11 @@ pub struct ChatWindow {
     popup: Option<crate::gui::popup::PopupMenu>,
     /// The chat configuration window (`chatconfig`).
     pub config: crate::chatconfig::ChatConfig,
+    /// What to do with an invitation to a private chat group (`ChatPGInviteAction`: 0 decline, else ask), the
+    /// invitations waiting for an answer, and what the window sends besides the typed line.
+    pub invite_action: i32,
+    invites: Vec<(u32, String)>,
+    pub outs: Vec<Out>,
     /// A preview's: the tab to show and the menu to have open (main, talk, public or combat).
     pub demo: Option<(usize, String)>,
     input: String,
@@ -157,7 +167,7 @@ pub struct ChatWindow {
 
 impl Default for ChatWindow {
     fn default() -> Self {
-        ChatWindow { open: true, log: false, lines: Vec::new(), panes: chatgroups::defaults(), loaded_for: None, tab: 0, menu: None, popup: None, config: Default::default(), demo: None, input: String::new(), selected: 0, focus_next: false, last_tell: None, scroll_to_end: true, keep_list: false, ignored: load_ignored(), history: Vec::new(), recalled: None, links: Vec::new() }
+        ChatWindow { open: true, log: false, lines: Vec::new(), panes: chatgroups::defaults(), loaded_for: None, tab: 0, menu: None, popup: None, config: Default::default(), invite_action: 1, invites: Vec::new(), outs: Vec::new(), demo: None, input: String::new(), selected: 0, focus_next: false, last_tell: None, scroll_to_end: true, keep_list: false, ignored: load_ignored(), history: Vec::new(), recalled: None, links: Vec::new() }
     }
 }
 
@@ -224,6 +234,23 @@ impl ChatWindow {
         }
         if self.loaded_for.is_some() && self.panes.iter().zip(before).any(|(p, n)| p.known.len() != n) {
             chatgroups::save(&self.panes);
+        }
+    }
+
+    /// The invitations that came (FUN_100a7986): one from an ignored character is declined without a word; with the
+    /// option at 0 it is declined and said so; else it is told of and waits for the player's answer.
+    fn take_invitations(&mut self) {
+        for (owner, name) in chatgroups::take_invites() {
+            let said = |key: &str, own: &str| crate::gui::xml::ldb_named(10001, key, own).replace("%s", &name);
+            if self.is_ignored(&name) {
+                self.outs.push(Out::PrivateDecline { owner });
+            } else if self.invite_action == 0 {
+                self.push(Line::new(Kind::System, said("ChatInviteAutoDeclined", "The invitation to %s's private chat group was declined.")));
+                self.outs.push(Out::PrivateDecline { owner });
+            } else {
+                self.push(Line::new(Kind::System, said("ChatInvitePending", "%s invites you to a private chat group.")));
+                self.invites.push((owner, name));
+            }
         }
     }
 
@@ -678,6 +705,20 @@ impl ChatWindow {
         if self.config.show(ctx, palette, &mut self.panes, &mut self.tab, &mut self.log) {
             chatgroups::save(&self.panes);
         }
+        for name in self.config.leaves.drain(..) {
+            self.outs.push(Out::PrivateLeave { name });
+        }
+        // an invitation to a private chat group: the original's question (FUN_100a76c9, without its list of chat
+        // windows to put the group in: the windows that take new channels by themselves show it)
+        self.take_invitations();
+        if let Some((owner, name)) = self.invites.first().cloned() {
+            let title = crate::gui::xml::ldb_named(10001, "PrivateGroupInvitation", "Private chat group");
+            let question = crate::gui::xml::ldb_named(10001, "ChatInvitePending", "%s invites you to a private chat group.").replace("%s", &format!("<font color=yellow>{name}</font>"));
+            if let Some(yes) = crate::chrome::question(ctx, palette, "private-invite", &title, &question) {
+                self.outs.push(if yes { Out::PrivateJoin { owner } } else { Out::PrivateDecline { owner } });
+                self.invites.remove(0);
+            }
+        }
         self.open = open;
         self.links.extend(links);
         out
@@ -768,6 +809,27 @@ mod tests {
         assert_eq!(w.run("/s HEY"), Some(Out::Vicinity { kind: 2, text: "HEY".into() }));
         w.panes[0].output = "System".into();
         assert_eq!(w.run("hello"), Some(Out::Vicinity { kind: 0, text: "hello".into() }));
+    }
+
+    #[test]
+    fn an_invitation_waits_is_declined_or_is_dropped() {
+        // (asked about by default; declined and said so with the option at 0; from an ignored character declined
+        // without a word)
+        let mut w = ChatWindow::default();
+        chatgroups::invite(71, "Inviterone");
+        w.take_invitations();
+        assert_eq!((w.invites.clone(), w.outs.clone()), (vec![(71, "Inviterone".to_string())], vec![]));
+        assert!(w.lines.last().unwrap().text.contains("Inviterone"));
+        w.invite_action = 0;
+        chatgroups::invite(72, "Invitertwo");
+        w.take_invitations();
+        assert_eq!(w.outs, vec![Out::PrivateDecline { owner: 72 }]);
+        assert!(w.lines.last().unwrap().text.contains("Invitertwo") && w.invites.len() == 1);
+        w.run("/ignore Inviterthree");
+        let said = w.lines.len();
+        chatgroups::invite(73, "Inviterthree");
+        w.take_invitations();
+        assert_eq!((w.outs.last(), w.lines.len()), (Some(&Out::PrivateDecline { owner: 73 }), said));
     }
 
     #[test]

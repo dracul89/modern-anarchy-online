@@ -827,9 +827,12 @@ impl Ui {
             if stats_window.open {
                 stats_window.show(&ctx, &hud.character_name, &hud.stats, &hud.stat_parts, palette);
             }
+            // (what to do with an invitation to a private chat group: the option's, `ChatPGInviteAction`)
+            chat_window.invite_action = control_center.as_ref().and_then(|cc| cc.store.get("ChatPGInviteAction")).map_or(1, |v| v.as_int32());
             if let Some(out) = chat_window.show(&ctx, palette) {
                 requests.chat.push(out);
             }
+            requests.chat.extend(chat_window.outs.drain(..));
             for url in chat_window.links.drain(..) {
                 info_view.show_url(&url);
             }

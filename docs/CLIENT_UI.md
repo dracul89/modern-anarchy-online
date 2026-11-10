@@ -319,8 +319,22 @@ rule is the original's (FUN_1008537d): the loot messages and Research count as p
 0x4200001a as combat messages; the window menu's lists follow it too. A channel's lines are now in the colour
 TextColors.xml gives its kind (FUN_1008582a: clan, tower, newbie, team and so on; vicinity speech in the vicinity's),
 seen live on the organization's channel. Preview: `MAO_UI_PREVIEW=chat MAO_CHAT_MENU=config`. The buttons and the
-tree were not clicked through live. Not done: a window row's own menu (style, show, rename, remove) and a group
-row's (leave, disband).
+tree were not clicked through live. Not done: a window row's own menu (style, show, rename, remove) and disbanding
+one's own private group.
+
+**Private chat groups (2026-11-10, `mao_net::chat`, `net.rs`, `chatwindow.rs`).** The friends window's "Invite" sent
+the invitation but the client showed nothing of the group. Now, as GUI.dll's chat library reads and sends them
+(FUN_1016d6f4, FUN_1016c84a's callers): an invitation that comes (packet `50`) is handled by the player's option
+`ChatPGInviteAction` (FUN_100a7986): declined without a word from an ignored character, declined and said so at 0,
+else told of in the chat and asked about in a message box ("Private Group Invitation"; Yes joins with `52`, No
+declines with `53`). The original's box also lists the chat windows to put the group in, and at 2 it only marks the
+invitation in the friends list: here the box always comes and the windows that take new channels show the group. A
+group goes by its owner's name and counts as a channel of kind 14: its lines (`57`) show as `[owner] who: text` in
+the private group colour, with the comings and goings (`55`, `56`), a declined invitation (`58`) and the end of the
+membership (`51`, `53`) in the original's words; it appears under "Private Channels" in the chat configuration,
+where the right button offers "Leave <name>" (FUN_100a1102), and a tab whose output group it is sends typed lines
+to it. One invitation and its end are in a capture (packets `50` and `51` with the owner's id); the rest is from
+the decompile and **not tried live** (it needs a second character on line).
 
 **Stats window as the original's (2026-11-10, `stats.rs`).** Read from `StatView_c` (FUN_1008057d): the name and the
 level on a line, a white word and its value in 0xbbbbff; the bars, each the skin's `GFX_GUI_HOR_BAR_EMPTY` filled with
@@ -467,7 +481,7 @@ is now online" is for friends only now (the client's own notice).
 The left button on a row starts a tell in the chat line at the first press (the original opens that character's tell
 window, which this client has not). The right button opens the original's menu (FUN_100a99cb) drawn as its
 `PopupMenu_c`: "Befriend" (a recent message only: a buddy add of kind 1), "Invite" (chat packet `50`, to the player's
-private chat group: sent, but the group's lines are not shown by this client yet), "Delete" and "Ignore" (each asking
+private chat group, whose lines the chat window shows), "Delete" and "Ignore" (each asking
 first with the original's question, `chrome::question`) or "Unignore", and "Mail" while the mail window is up. The
 "Chat Windows" folder lists this client's one chat window; a press shows or hides it. Which folders are open is kept
 (`FriendsWindowConfig`'s four flags: a line of `tabs.ini`). Preview: `MAO_UI_PREVIEW=friends MAO_FRIENDS="a:1,b:0,c:r"`

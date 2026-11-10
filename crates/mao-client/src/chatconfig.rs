@@ -16,7 +16,8 @@
 //!
 //! The chat windows here are the tabs of the client's chat window (`chatgroups::Pane`). "Log messages" turns the
 //! client's one chat log on and off (the original logs each window by itself); there is no log window to show. Not
-//! here: a row's own menus (a window's style, a group's leave and disband).
+//! here: a window row's own menu (its style), and disbanding one's own private group. The right button on a private
+//! group's row opens its menu (FUN_100a1102): "Leave %s".
 
 use crate::chatgroups::{self, Pane};
 use crate::gui::host::Signal;
@@ -110,7 +111,7 @@ fn build(ctx: &egui::Context, select_on_click: bool) -> (Tree, Id, Id) {
 }
 
 /// A list in the original's inset frame, `size` over all.
-fn framed(ui: &mut egui::Ui, size: egui::Vec2, tree: &mut Tree, root: Id, palette: &Palette) {
+fn framed(ui: &mut egui::Ui, size: egui::Vec2, tree: &mut Tree, root: Id, palette: &Palette) -> egui::Response {
     let skin = crate::skin::skin(ui.ctx());
     let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
     let drawn = skin.as_deref().is_some_and(|s| s.nine_slice(ui.painter(), "GFX_GUI_INSET", rect, egui::Color32::WHITE, false));
@@ -118,7 +119,7 @@ fn framed(ui: &mut egui::Ui, size: egui::Vec2, tree: &mut Tree, root: Id, palett
         ui.painter().rect_stroke(rect, 0.0, egui::Stroke::new(1.0, crate::chrome::rgb(palette.accent)), egui::StrokeKind::Inside);
     }
     let mut inner = ui.new_child(egui::UiBuilder::new().max_rect(rect.shrink(5.0)));
-    crate::gui::host::show(&mut inner, tree, root, skin.as_deref(), palette);
+    crate::gui::host::show(&mut inner, tree, root, skin.as_deref(), palette)
 }
 
 #[derive(Default)]
@@ -135,6 +136,11 @@ pub struct ChatConfig {
     hide_others: bool,
     /// The name being typed for the selected window.
     renaming: Option<String>,
+    /// The private group whose menu is up, and the menu.
+    menu: Option<String>,
+    popup: Option<crate::gui::popup::PopupMenu>,
+    /// The private groups the player chose to leave, for the chat window to send.
+    pub leaves: Vec<String>,
 }
 
 impl ChatConfig {
@@ -184,6 +190,7 @@ impl ChatConfig {
         let mut open = self.open;
         let mut hide_others = self.hide_others;
         let (mut new, mut rename, mut clone, mut remove) = (false, false, false, false);
+        let mut right_clicked = None;
         crate::chrome::window(ctx, palette, "ChatConfig", &text("ChatConfig"), &mut open, |w| w.default_pos(crate::layout::pos("ChatConfig", egui::pos2(260.0, 90.0))).resizable(false), |ui| {
             let white = egui::Color32::WHITE;
             ui.horizontal_top(|ui| {
@@ -193,7 +200,14 @@ impl ChatConfig {
                 });
                 ui.vertical(|ui| {
                     ui.label(egui::RichText::new(text("ChatChannels")).color(white));
-                    framed(ui, egui::vec2(260.0, 200.0), gtree, groot, palette);
+                    let response = framed(ui, egui::vec2(260.0, 200.0), gtree, groot, palette);
+                    // (the right button on a group's row)
+                    if response.secondary_clicked()
+                        && let Some(at) = response.interact_pointer_pos()
+                    {
+                        let r = crate::gui::host::screen_rect(gtree, glist, response.rect.min);
+                        right_clicked = gtree.control::<TreeList>(glist).and_then(|t| t.id_at(at.y - r.min.y)).filter(|id| *id > 0).map(|id| (id as usize - 1, at));
+                    }
                     crate::chrome::checkbox(ui, palette, &mut hide_others, &text("HideChannelsInOtherWnd"));
                     ui.add_space(5.0);
                     ui.horizontal(|ui| {
@@ -216,6 +230,21 @@ impl ChatConfig {
             });
         });
         self.hide_others = hide_others;
+        if let Some((k, at)) = right_clicked
+            && let Some(group) = self.listed.get(k).filter(|g| chatgroups::is_private(g))
+        {
+            let label = crate::gui::xml::ldb_named(10001, "LeaveChatGrp", "Leave %s").replace("%s", group);
+            self.popup = Some(crate::chrome::menu_at(ctx, at, &[(label, true)]));
+            self.menu = Some(group.clone());
+        }
+        if crate::chrome::menu(ctx, palette, "chat-group-menu", &mut self.popup).is_some()
+            && let Some(group) = self.menu.take()
+        {
+            self.leaves.push(group);
+        }
+        if self.popup.is_none() {
+            self.menu = None;
+        }
         // (a press on a window selects it; on a group turns it on or off in the selected window; on a folder opens or
         // closes it, which is remembered)
         for (_, s) in std::mem::take(&mut wtree.signals) {
@@ -321,7 +350,8 @@ mod tests {
         for group in ["System", "Vicinity", "Tell Messages", "Research", "Team Loot Messages", "Zeta OOC"] {
             assert!(names(0).contains(&group.to_string()), "{group}");
         }
-        assert!(names(1).is_empty());
+        // (the private folder holds private groups only: other tests may have told of one)
+        assert!(names(1).iter().all(|n| chatgroups::is_private(n)));
         // (by name; selected with its check while the window shows the group)
         let public = names(0);
         let mut sorted = public.clone();
