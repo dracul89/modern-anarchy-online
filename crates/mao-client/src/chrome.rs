@@ -70,6 +70,11 @@ pub fn window<R>(ctx: &egui::Context, palette: &Palette, name: &str, title: &str
     if !*open {
         return None;
     }
+    // (a movable window waits for the screen's real size — egui's first frames report a placeholder — so its starting
+    // place and size are not taken from a 10000-point screen)
+    if crate::layout::kept(name) && crate::layout::screen().is_none() && std::env::var_os("MAO_UI_PREVIEW").is_none() {
+        return None;
+    }
     // (the place the player left it last time, `layout.ini`: over the caller's starting place)
     crate::layout::track(name);
     let saved = crate::layout::kept(name).then(|| crate::layout::saved(name)).flatten();

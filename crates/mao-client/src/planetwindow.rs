@@ -24,6 +24,11 @@ pub struct PlanetWindow {
     tiles: crate::planetmaps::Tiles,
     /// A new map was chosen: pick again.
     repick: bool,
+    /// The buttons' orders (they sit under the map, so they act the frame after).
+    pending_zoom: Option<i32>,
+    pending_centre: Option<(u32, [f32; 3])>,
+    /// How tall the button rows were last frame (the map takes the rest of the window).
+    buttons_height: f32,
 }
 
 /// The level's pixel of a fraction of the map's rectangle, and back: how a point stays put from one level to another.
@@ -82,46 +87,23 @@ impl PlanetWindow {
         let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
         let mut open = self.open;
         let title = self.map.as_ref().map_or("Planet Map".to_string(), |m| m.name.clone());
-        crate::chrome::window(ctx, palette, "PlanetMap", &title, &mut open, |w| w.default_size(egui::vec2(720.0, 620.0)).min_size(egui::vec2(320.0, 240.0)).resizable(true), |ui| {
-            let mut zoom: Option<(i32, Option<egui::Vec2>)> = None;
-            let mut centre_on: Option<(u32, [f32; 3])> = None;
-            ui.horizontal(|ui| {
-                if crate::chrome::button(ui, palette, "-", true).on_hover_text("Zoom out").clicked() {
-                    zoom = Some((-1, None));
-                }
-                if crate::chrome::button(ui, palette, "+", true).on_hover_text("Zoom in").clicked() {
-                    zoom = Some((1, None));
-                }
-                if crate::chrome::button(ui, palette, "Me", own.is_some()).on_hover_text("Centre on the character").clicked() {
-                    self.follow = true;
-                }
-                if crate::chrome::button(ui, palette, "Mission", waypoint.is_some()).on_hover_text("Centre on the mission's waypoint").clicked() {
-                    centre_on = waypoint;
-                    self.follow = false;
-                }
-                // (the maps of this planet: FUN_1004cb15's choice, `PlanetMapIndexFile` / `ShadowlandMapIndexFile`)
-                if let Some(map) = &self.map {
-                    ui.label(egui::RichText::new(format!("level {} of {}", self.level + 1, map.levels.len())).small().weak());
-                    let kind = map.kind.clone();
-                    let mut chosen = None;
-                    egui::ComboBox::from_id_salt("planet-map-choice").selected_text(egui::RichText::new(&map.name).small()).show_ui(ui, |ui| {
-                        for f in crate::planetmaps::available().iter().filter(|f| f.kind.eq_ignore_ascii_case(&kind)) {
-                            if ui.selectable_label(crate::planetmaps::is_chosen(f), &f.name).clicked() {
-                                chosen = Some(f.index.clone());
-                            }
-                        }
-                    });
-                    if let Some(index) = chosen {
-                        crate::planetmaps::choose(&index);
-                        self.repick = true;
-                    }
-                }
-            });
+        // The original's window sits small at the top left (the user's shots: about 400 pixels square on a 5120 by 1440
+        // display, 92 in and 77 down), the map over two rows of buttons: Zoom in / Zoom out, Character / Mission.
+        let screen = crate::layout::screen().map_or(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(2560.0, 1440.0)), |s| egui::Rect::from_min_size(ctx.content_rect().min, egui::vec2(s[0], s[1])));
+        let side = (screen.width() / 12.5).clamp(200.0, 400.0);
+        let at = egui::pos2(screen.left() + screen.width() * 0.018, screen.top() + screen.height() * 0.053);
+        crate::chrome::window(ctx, palette, "PlanetMap", &title, &mut open, |w| w.default_pos(crate::layout::pos("PlanetMap", at)).default_size(egui::vec2(side, side * 1.5)).min_size(egui::vec2(200.0, 240.0)).resizable(true), |ui| {
+            let mut zoom: Option<(i32, Option<egui::Vec2>)> = self.pending_zoom.take().map(|by| (by, None));
+            let mut centre_on: Option<(u32, [f32; 3])> = self.pending_centre.take();
+            // (the two rows of buttons under the map, and the list of maps when there is a choice)
+            let choice = self.map.as_ref().is_some_and(|map| crate::planetmaps::available().iter().filter(|f| f.kind.eq_ignore_ascii_case(&map.kind)).count() > 1);
+            let rows = if self.buttons_height > 0.0 { self.buttons_height } else { 64.0 + if choice { 24.0 } else { 0.0 } };
+            let map_size = (ui.available_size() - egui::vec2(0.0, rows)).max(egui::vec2(180.0, 120.0));
             let Some(map) = self.map.clone() else {
                 ui.label("No planet map was found (textures/PlanetMap).");
                 return;
             };
-            let (rect, response) = ui.allocate_exact_size(ui.available_size().max(egui::vec2(200.0, 150.0)), egui::Sense::click_and_drag());
+            let (rect, response) = ui.allocate_exact_size(map_size, egui::Sense::click_and_drag());
             let mid = rect.center();
             // (the character's place on this level)
             let me = own.and_then(|p| map.pixel(self.level, playfield, p[0], p[2]));
@@ -184,6 +166,51 @@ impl PlanetWindow {
             {
                 painter.text(rect.left_bottom() + egui::vec2(6.0, -6.0), egui::Align2::LEFT_BOTTOM, format!("{wx:.0} x {wz:.0}"), egui::FontId::proportional(12.0), egui::Color32::from_gray(220));
             }
+            // The buttons, as the original's rows (`PlanetMap_ZoomIn`, `PlanetMap_ZoomOut`, `PlanetMap_CentreOnChar`,
+            // `PlanetMap_CentreOnQuest`): each half the width.
+            // (everything under the map, spacing included, is what the map leaves room for next frame)
+            let buttons_top = rect.bottom();
+            ui.add_space(4.0);
+            let row = |ui: &mut egui::Ui, left: (&str, bool, &str), right: (&str, bool, &str)| -> (bool, bool) {
+                let mut out = (false, false);
+                ui.columns(2, |cols| {
+                    out.0 = crate::chrome::button(&mut cols[0], palette, left.0, left.1).on_hover_text(left.2).clicked();
+                    out.1 = crate::chrome::button(&mut cols[1], palette, right.0, right.1).on_hover_text(right.2).clicked();
+                });
+                out
+            };
+            let (zoom_in, zoom_out) = row(ui, ("Zoom in", true, "A level closer"), ("Zoom out", true, "A level further"));
+            let (character, mission) = row(ui, ("Character", own.is_some(), "Centre on the character"), ("Mission", waypoint.is_some(), "Centre on the mission's waypoint"));
+            if zoom_in {
+                self.pending_zoom = Some(1);
+            }
+            if zoom_out {
+                self.pending_zoom = Some(-1);
+            }
+            if character {
+                self.follow = true;
+            }
+            if mission {
+                self.pending_centre = waypoint;
+                self.follow = false;
+            }
+            // (the maps of this planet: FUN_1004cb15's choice, `PlanetMapIndexFile` / `ShadowlandMapIndexFile`)
+            if choice {
+                let kind = map.kind.clone();
+                let mut chosen = None;
+                egui::ComboBox::from_id_salt("planet-map-choice").width(ui.available_width()).selected_text(egui::RichText::new(&map.name).small()).show_ui(ui, |ui| {
+                    for f in crate::planetmaps::available().iter().filter(|f| f.kind.eq_ignore_ascii_case(&kind)) {
+                        if ui.selectable_label(crate::planetmaps::is_chosen(f), &f.name).clicked() {
+                            chosen = Some(f.index.clone());
+                        }
+                    }
+                });
+                if let Some(index) = chosen {
+                    crate::planetmaps::choose(&index);
+                    self.repick = true;
+                }
+            }
+            self.buttons_height = (ui.min_rect().bottom() - buttons_top).max(1.0);
         });
         self.open = open;
     }

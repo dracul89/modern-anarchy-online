@@ -107,6 +107,12 @@ fn screen_known(layout: &Layout) -> bool {
     w >= 200.0 && h >= 100.0 && w < 8000.0 && h < 8000.0 && !(w == h && w >= 4000.0)
 }
 
+/// The screen's size in points, once it is a real one.
+pub fn screen() -> Option<[f32; 2]> {
+    let layout = LAYOUT.lock().unwrap();
+    screen_known(&layout).then_some(layout.screen)
+}
+
 /// The original's frame for a window, scaled: left, top, width, height.
 fn original_frame(layout: &mut Layout, name: &str) -> Option<[f32; 4]> {
     let character = layout.character?;
@@ -266,12 +272,13 @@ pub fn flush() {
     }
 }
 
-/// The windows that were open when the client last ran (`open.ini` beside `layout.ini`, one name per line).
-pub fn load_open() -> Vec<String> {
+/// The windows that were open when the client last ran (`open.ini` beside `layout.ini`, one name per line); none when
+/// there is no file yet (the first start).
+pub fn load_open() -> Option<Vec<String>> {
     if disabled() {
-        return Vec::new();
+        return Some(Vec::new());
     }
-    std::fs::read_to_string(path().with_file_name("open.ini")).map(|t| t.lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect()).unwrap_or_default()
+    std::fs::read_to_string(path().with_file_name("open.ini")).ok().map(|t| t.lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect())
 }
 
 pub fn save_open(names: &[&str]) {

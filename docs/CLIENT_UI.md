@@ -1656,8 +1656,11 @@ the waypoint is a white dot on the planet map and a yellow mark on the compass i
 
 GUI.dll's `PlanetMapView_c` (`planetwindow.rs`): the map's levels drawn tile by tile (the 128 px PNG tiles are decoded
 on a thread and kept as textures while used, `planetmaps::Tiles`), `-`/`+` and the wheel step through the index's
-levels keeping the point under the pointer, a drag moves the map, Me and Mission centre on the character or the
-waypoint; the character is an arrow along its heading (placed as FUN_1004bedd places it), the waypoint a white dot,
+levels keeping the point under the pointer, a drag moves the map, Character and Mission centre on the character or the
+waypoint (the buttons sit under the map in the original's two rows — Zoom in / Zoom out, Character / Mission — and act
+the frame after they are pressed); the window starts small at the top left as the original's does (a twelfth and a half
+of the screen's width square, at 1.8% in and 5.3% down, the user's shots of a 5120 by 1440 display) and open on the
+first start (`open.ini` missing), the list of maps shown only where this planet has more than one; the character is an arrow along its heading (placed as FUN_1004bedd places it), the waypoint a white dot,
 and the pointer's place is shown in the playfield's coordinates. The overlay of the walked map moved to O.
 
 **The maps.** As the original's `PlanetMapIndexFile` and `ShadowlandMapIndexFile` (FUN_1004cb15 lists the index files
