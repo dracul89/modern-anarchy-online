@@ -9,10 +9,11 @@
 //! with the number it toggles to). The server's `SpecialAttackWeapon` message lists the character's special attacks
 //! (an item, a stat and a four-letter code each), and each whose stat is in the table is added with the character as
 //! its owner (FUN_1006b14c -> FUN_1006a166 -> FUN_10042f09): Dimach and Brawl in every capture, beside the plain
-//! attack (stat 100, which has no action). The perk actions come with the server's 0xb4 list (FUN_10043080). The
-//! weapon's own attacks in the dump taken from the running original (Burst, Fling Shot, Full Auto, owned by the
-//! weapon and at the head of the list) and Reload come some other way that was not traced: they are shown from the
-//! catalogue as before.
+//! attack (stat 100, which has no action). The perk actions come with the server's 0xb4 list (FUN_10043080). A
+//! weapon's own attacks (Burst, Fling Shot, Full Auto, Aimed Shot, ...) are added when the weapon is put on, from its
+//! "can" flags and with the weapon as their owner, and Reload with them when the weapon takes ammunition
+//! (FUN_1009e84b: [`WEAPON_CAN`], [`RELOAD`]): the server lists none of them, a soldier with a gun is sent the same
+//! three as everyone (seen live, 2026-11-10).
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -77,8 +78,8 @@ fn perk_icon(name: &str) -> &'static str {
 /// Each special action's number and the item template that names and pictures it (Gamecode FUN_10042b17). The
 /// numbers are character action codes (1 pick up, 3 use, 11 and 78 start and stop combat, 17 and 18 walk and run, 19
 /// and 79 sneak, 20 and 141 crawl, 76 and 77 sit and stand, 81 and 82 camp, 110 reload, 134 search) and the stats of
-/// the special attack skills (121 sneak attack, 142 brawl, 144 dimach, 146, 147 fast attack, 148 burst, 150 fling
-/// shot, 151 aimed shot, 167 full auto, 489).
+/// the special attack skills (121 the bow's special attack, 142 brawl, 144 dimach, 146 sneak attack, 147 fast attack,
+/// 148 burst, 150 fling shot, 151 aimed shot, 167 full auto, 489 backstab: the names are the templates').
 pub const TEMPLATES: &[(u32, u32)] = &[
     (1, 0xc1aa), (3, 0xc1a3), (0xb, 0xc1a5), (0x4e, 0xc1ab), (0x11, 0xc1a2), (0x12, 0xc1a9), (0x13, 0xc1a7), (0x4f, 0x1412c), (0x4c, 0xc1a8),
     (0x4d, 0xc1a6), (0x51, 0x14124), (0x52, 0x1412b), (0x86, 0x1d9d7), (0x97, 0x14127), (0x94, 0x14123), (0xa7, 0x14121), (0x96, 0x14120),
@@ -95,15 +96,27 @@ pub fn number_of(template: u32) -> Option<u32> {
     TEMPLATES.iter().find(|t| t.1 == template).map(|t| t.0)
 }
 
-/// The numbers the weapon's own attacks have: the catalogue's weapon actions, whose way into the original's list was
-/// not traced (they stay whatever the server lists).
-const WEAPON_ATTACKS: [u32; 3] = [148, 150, 167];
+/// The special actions a weapon gives the character wearing it, by the bits of its "can" flags (stat 30): Gamecode
+/// FUN_1009e84b, the weapon's own part of being put on (in a wear place, by the client's own character), adds each with
+/// the weapon as its owner. Burst, fling shot, full auto, aimed shot, sneak attack, the bow's special attack and fast
+/// attack. (With sneak attack the original adds number 489 too while bit 20 of a flag word of the character is set,
+/// FUN_1009c5c8: not read further, not done.)
+pub const WEAPON_CAN: [(u32, u32); 7] = [(0x800, 148), (0x1000, 150), (0x2000, 167), (0x4000, 151), (0x20000, 146), (0x8000, 121), (0x40000, 147)];
 
-/// Whether a catalogue action is shown, given the stats of the special attacks the server listed for the character
-/// (`None`: not told yet, everything shows): an action that is a listed special's (Dimach, Brawl) only when listed.
+/// Reload's number: added with the character as its owner when a weapon put on has an ammunition stat (26) that is
+/// not -1 (the same function).
+pub const RELOAD: u32 = 110;
+
+/// The numbers of the actions a weapon with these "can" flags gives.
+pub fn weapon_numbers(can: u32) -> impl Iterator<Item = u32> {
+    WEAPON_CAN.into_iter().filter(move |f| can & f.0 != 0).map(|f| f.1)
+}
+
+/// Whether a catalogue action is shown, given the numbers of the special actions the character has from the server's
+/// list and from its weapons (`None`: not told yet, everything shows): a special attack or Reload only when among them.
 pub fn shows(template: u32, listed: Option<&[u32]>) -> bool {
     match number_of(template) {
-        Some(number) if number > 0x8d && !WEAPON_ATTACKS.contains(&number) => listed.is_none_or(|l| l.contains(&number)),
+        Some(number) if number > 0x8d || number == RELOAD => listed.is_none_or(|l| l.contains(&number)),
         _ => true,
     }
 }
@@ -322,8 +335,13 @@ mod tests {
         // (Dimach and Brawl only when the server lists them; everything before it has told)
         let listed = [100, 144];
         assert!(shows(0x14125, Some(&listed)) && !shows(0x14122, Some(&listed)) && shows(0x14122, None));
-        // (the character's own actions and the weapon's attacks do not wait for the list)
-        assert!(shows(0xc1a3, Some(&[])) && shows(0x3bd0b, Some(&[])) && shows(0x14123, Some(&[])) && shows(0x39c7d, Some(&[])));
+        // (the character's own actions do not wait for the list; a weapon's attacks and Reload are the weapon's)
+        assert!(shows(0xc1a3, Some(&[])) && shows(0x39c7d, Some(&[])));
+        assert!(!shows(0x3bd0b, Some(&[])) && !shows(0x14123, Some(&[])) && shows(0x3bd0b, Some(&[RELOAD])) && shows(0x14123, Some(&[148])));
+        // (a weapon's flags: burst and full auto; fling shot, aimed shot and fast attack; none)
+        assert_eq!(weapon_numbers(0x2800 | 0x4d).collect::<Vec<_>>(), [148, 167]);
+        assert_eq!(weapon_numbers(0x45000).collect::<Vec<_>>(), [150, 151, 147]);
+        assert_eq!(weapon_numbers(0x4d).count(), 0);
         // (the catalogue's weapon and character actions are all in the table)
         for a in ACTIONS.iter().filter(|a| a.1 != Kind::Perk) {
             assert!(number_of(a.0).is_some(), "{}", a.2);

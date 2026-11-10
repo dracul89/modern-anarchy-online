@@ -477,12 +477,29 @@ client's catalogue for every character. How the original's list comes to be was 
   shot, fast attack, sneak attack, ...) appears named and pictured from its action's template and is sent as the
   others are (`n3::special_attack` with its stat).
 - The perk actions come with the server's 0xb4 list, as before.
-What was not traced: how the weapon's own attacks (Burst, Fling Shot, Full Auto, owned by the weapon and at the head
-of the list in the dump taken from the running original) and Reload get in; no capture has a character with a gun.
-They are shown from the catalogue as before, for every character. Tested on a captured message and on the game's
-files; nothing visible changes for the characters of the captures, and it was **not tried live**. Not done: the
-actions' places kept (`item_position_map`), the toggles' other names (sit for stand, run for walk), and the
-profession's own action (numbers 138 and 139, FUN_1004326f).
+- **A weapon's own attacks and Reload (2026-11-10, second pass).** The server lists none of them: a soldier holding
+  a gun is sent the same three as everyone (seen live). They come from the weapon: when the client's own character
+  puts a weapon in a hand, `WeaponItem_t` (FUN_1009e84b) adds an action for each of these bits of the weapon's "can"
+  flags (stat 30), with the weapon as the owner: 0x800 burst (148), 0x1000 fling shot (150), 0x2000 full auto (167),
+  0x4000 aimed shot (151), 0x20000 sneak attack (146), 0x8000 the bow's special attack (121), 0x40000 fast attack
+  (147); and Reload (110), owned by the character, when the weapon's ammunition stat (26) is not -1. Taking the
+  weapon off (FUN_1009d39a) removes what the weapon in the other hand (places 6 and 8) does not give too. The client
+  does the same (`actions::WEAPON_CAN`, `World::special_numbers`): the Action window shows Burst, Fling Shot, Full
+  Auto, Aimed Shot and the others only for a weapon in a hand that has them, and Reload unless every weapon held
+  says it takes no ammunition (the stat the server tells of the weapon in the hand, else the template's). Before,
+  Burst, Fling Shot, Full Auto and Reload were shown to every character.
+- **A special attack's hit line.** The server answers a special with `CharSecSpecAttack` and `SpecialAttackInfo`
+  (place, amount, rounds left, target, the skill's stat) and no plain attack message, so the hit was told only by
+  the health that followed, as nanobots of unknown damage, and not at all to the attacker. Gamecode FUN_1006af0e
+  tells it as a weapon hit with the skill's name (text category 2003) where the damage type is (a burst's 176 points
+  are "Burst" damage). Now `feedback::special`; the rounds left go to the weapon as the original's do (FUN_10068869).
+Tried live between the two test characters in a duel (2026-11-10): a Neutrino Flash gives Burst and Reload; a Kyr'Ozch
+Energy Pistol with an Electrical Surge Pistol gives Burst, Fling Shot and Reload; Burst and Fling Shot hit and are
+told on both sides, a second Burst inside its recharge gets the server's "wait" text, Reload reloads. Not done:
+backstab (489), which the original adds beside sneak attack while a flag of the character is set (FUN_1009c5c8, not
+read further); aimed shot, sneak attack, the bow's attack, fast attack and full auto are sent as the others are but
+no character had a weapon for them; the actions' places kept (`item_position_map`), the toggles' other names (sit
+for stand, run for walk), and the profession's own action (numbers 138 and 139, FUN_1004326f).
 
 **Duel (2026-11-10, `chat_commands.rs`, `n3::duel`, `net.rs`, `ui.rs`).** `/duel` asks the targeted player
 (a line saying so without one, in this client's words), `/duel accept`, `reject`, `stop` and `draw` answer and end one:

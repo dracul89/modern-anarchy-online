@@ -220,7 +220,7 @@ pub fn feedback_group(name: &str) -> Option<u32> {
         // (0x1f; the client's own shields 0x26 / 0x28)
         "Feedback_HitWithSpecial" | "Feedback_YourDamageShieldHitOther" | "Feedback_YourReflectShieldHitOther" => 0x4200_0008,
         // (0x20 / 0x21, the others' shields and absorbing 0x35; 0x42000009 when the one hit is the client's pet)
-        "Feedback_OtherHitOther" | "Feedback_SomethingHitOther" | "Feedback_OtherDamageShieldHitOther" | "Feedback_SomethingHitOtherWithDamageShield" | "Feedback_OtherReflectShieldHitOther" | "Feedback_SomethingHitOtherWithReflectShield" | "Feedback_SomeoneAbsorbedDamage" => 0x4200_000a,
+        "Feedback_OtherHitOther" | "Feedback_MonsterHitWithSpecial" | "Feedback_SomethingHitOther" | "Feedback_OtherDamageShieldHitOther" | "Feedback_SomethingHitOtherWithDamageShield" | "Feedback_OtherReflectShieldHitOther" | "Feedback_SomethingHitOtherWithReflectShield" | "Feedback_SomeoneAbsorbedDamage" => 0x4200_000a,
         // (0x24 and 0x45)
         "Feedback_LostXP" | "Feedback_ReceivedXP" | "Feedback_GainedAlienXP" => 0x4200_000b,
         // (0x3e)

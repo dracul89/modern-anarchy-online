@@ -62,6 +62,16 @@ soldier with a gun on the free one, side by side in playfield 540; nobody else i
 Found and fixed on the way: every weapon hit between players was told twice (see `CLIENT_UI.md`, "Duel").
 Left as it is: Brasscasings walked about 215 m to stand next to Ballbearing; both are at full health again.
 
+**Special attacks, in a duel between the same two** (2026-11-10)
+- The Action window lists what the weapons in the hands give: Burst and Reload for Brasscasings' Neutrino Flash;
+  Burst, Fling Shot and Reload for Ballbearing's two pistols; Full Auto for neither (it was shown to everyone).
+- Burst by either, Fling Shot by Ballbearing: the hit is told on both sides with the skill for the damage type, the
+  special opens the fight (the plain attacks follow by themselves), and a second Burst inside its recharge gets
+  the server's "wait" text.
+- Reload: the reloading line, then the one for its end a second later.
+- Not tried: Full Auto, Aimed Shot, Sneak Attack, Fast Attack, the bow's attack (no weapon for them), a special
+  that misses, a weapon swapped while the window is open, Brawl and Dimach.
+
 A screenshot is a grab of the screen, so with two full-screen clients it shows the one on top; the other side was
 checked through the chat log (`chat/<date>.txt`), which both write.
 

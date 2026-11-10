@@ -67,6 +67,7 @@ fn english(name: &str) -> &'static str {
         "Feedback_HitWithSpecial" => "You hit %s for %u points of %s damage.",
         "Feedback_OtherHitOther" => "%s hit %s for %u points of %s damage.",
         "Feedback_SomethingHitOther" => "Something hit %s for %u points of %s damage.",
+        "Feedback_MonsterHitWithSpecial" => "%s hit %s for %u points of %s damage.",
         "Feedback_HealedForPoints" => "You were healed for %u points.",
         "TryToAttackWithSpecialButMiss" => "You try to attack %s with %s, but you miss!",
         "Feedback_YouTriedToHitMissed" => "You tried to hit %s, but missed!",
@@ -171,6 +172,24 @@ pub fn attack(victim: Who, attacker: Who, amount: i64, kind: u32, hit: i64) -> O
         4 => format!("{text} {}", line("Feedback_CriticalHit", &[])),
         2 => format!("{text} {}", line("Feedback_GlancingHit", &[])),
         _ => text,
+    })
+}
+
+/// A special attack's hit (`SpecialAttackInfo`, Gamecode FUN_1006af0e: feedback 0x32 for the client's own, 0x30 for one
+/// at the client, 0x31 and 0x33 for others'): a weapon hit's lines with the special's skill named where the damage type
+/// is (the stat's name, text category 2003: a burst's damage is "Burst" damage). For others' the original has a text of
+/// its own with four things fed, taken here to be the attacker, the victim, the amount and the skill.
+pub fn special(victim: Who, attacker: Who, amount: i64, skill: &str) -> Option<String> {
+    if amount == 0 {
+        return None;
+    }
+    let (n, skill) = (Arg::Int(amount.abs()), Arg::Text(skill));
+    Some(match (victim, attacker) {
+        (Who::Named(name, _), Who::You) => line("Feedback_HitWithSpecial", &[Arg::Text(name), n, skill]),
+        (Who::You, Who::Named(name, _)) => line("Feedback_HitYouForPointsOfDamage", &[Arg::Text(name), n, skill]),
+        (Who::Named(victim, _), Who::Named(attacker, _)) => line("Feedback_MonsterHitWithSpecial", &[Arg::Text(attacker), Arg::Text(victim), n, skill]),
+        (Who::Named(victim, _), Who::Unknown) => line("Feedback_SomethingHitOther", &[Arg::Text(victim), n, skill]),
+        _ => return None,
     })
 }
 

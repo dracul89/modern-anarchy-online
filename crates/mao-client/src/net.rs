@@ -205,6 +205,10 @@ struct World {
     /// whether the list changed.
     specials: Option<Vec<u32>>,
     specials_changed: bool,
+    /// The weapons worn the last time their special actions were worked out (place and template) with the actions'
+    /// numbers, and the whole list of numbers the window was last told.
+    weapon_specials: (Vec<(u32, u32, Option<i64>)>, Vec<u32>),
+    specials_told: Option<Vec<u32>>,
     perk_locks: BTreeMap<u32, (Instant, f32)>,
     perk_actions_changed: bool,
     perks_changed: bool,
@@ -732,6 +736,45 @@ impl crate::spelllist::Scene for World {
 }
 
 impl World {
+    /// The numbers of the special actions the character has (`None` until the server has listed its special attacks):
+    /// the server's list, then what each weapon in a hand gives (Gamecode FUN_1009e84b, `WeaponItem_t`'s part of being
+    /// put on: its attacks by its "can" flags, stat 30, and Reload when its ammunition stat, 26, is not -1). The weapons
+    /// are the items in the two hands, places 6 and 8: taking one off (FUN_1009d39a) keeps what the weapon in the other
+    /// hand still gives. The ammunition stat is the one the server tells of the weapon in the hand (`weapon_energy`),
+    /// else the template's, where few weapons have one (some melee weapons and shields say -1); a weapon with neither
+    /// gives Reload, as a stat that is not there is not -1 in the original either.
+    fn special_numbers(&mut self) -> Option<Vec<u32>> {
+        let mut list = self.specials.clone()?;
+        let worn: Vec<(u32, u32, Option<i64>)> = self.worn.iter().filter(|e| e.slot == 6 || e.slot == 8).map(|e| (e.slot, e.low_id, self.weapon_energy.get(&(self.own, e.slot as u8)).copied())).collect();
+        if worn != self.weapon_specials.0 {
+            let mut numbers = Vec::new();
+            let mut reload = false;
+            for &(slot, template, energy) in &worn {
+                let stat = |k| template_stat(template, k).map(|v| v as u32);
+                let energy = energy.or(stat(26).map(|v| v as i32 as i64));
+                for number in crate::actions::weapon_numbers(stat(30).unwrap_or(0)) {
+                    if !numbers.contains(&number) {
+                        numbers.push(number);
+                    }
+                }
+                reload |= energy != Some(-1);
+                if std::env::var_os("MAO_COMBAT_LOG").is_some() {
+                    eprintln!("combat: weapon {template:x} in hand {slot}: can {:x?}, ammunition {energy:?}", stat(30));
+                }
+            }
+            if reload {
+                numbers.push(crate::actions::RELOAD);
+            }
+            self.weapon_specials = (worn, numbers);
+        }
+        for &number in &self.weapon_specials.1 {
+            if !list.contains(&number) {
+                list.push(number);
+            }
+        }
+        Some(list)
+    }
+
     /// A loss of health (negative) less what the weapon hits just told of that character already account for: what
     /// is left to tell as its own line (0: nothing). A hit cut short (a duel's last one leaves 1 health) covers the
     /// whole loss.
@@ -1140,7 +1183,7 @@ impl World {
         }
         let Some(m) = Message::parse(frame) else { return };
         // (MAO_COMBAT_LOG: the fight's messages as they come)
-        if std::env::var_os("MAO_COMBAT_LOG").is_some() && matches!(m.kind, 0x28494070 | 0x46002f16 | 0x4a41203e | 0x5c654b28 | 0x206b4b73 | 0x50544d19 | 0x1d3c0f1c) || (m.kind == 0x5e477770 && m.data.get(4) == Some(&0x63)) {
+        if std::env::var_os("MAO_COMBAT_LOG").is_some() && matches!(m.kind, 0x28494070 | 0x46002f16 | 0x4a41203e | 0x5c654b28 | 0x206b4b73 | 0x50544d19 | 0x1d3c0f1c | 0x754f1115 | 0x51492120) || (m.kind == 0x5e477770 && m.data.get(4) == Some(&0x63)) {
             if std::env::var_os("MAO_COMBAT_LOG").is_some() {
                 let name = mao_net::schema::Schema::global().n3_name(m.kind).unwrap_or("?");
                 eprintln!("combat: server {name} ({:#x}) from ({:x},{:x}) {} bytes", m.kind, m.identity.0, m.identity.1, m.data.len());
@@ -1489,6 +1532,20 @@ impl World {
                 };
                 let n = self.swings.get(&m.identity.1).map_or(0, |s| s.2.wrapping_add(1));
                 self.swings.insert(m.identity.1, (slot, Instant::now(), n, class));
+                // (the line, FUN_1006af0e: a weapon hit's with the special's skill named for the damage type; the rounds
+                // left go to the weapon, FUN_10068869, and the hit is remembered as a weapon's is, for the `Stat` after it)
+                let amount = p.value.get("Amount").and_then(mao_net::schema::Value::as_int).unwrap_or(0);
+                let target = p.value.get("Target").and_then(|t| t.get("Instance")).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
+                if let (Some(e), Some(left)) = (self.weapon_energy.get_mut(&(m.identity.1, slot as u8)), p.value.get("AmmoCount").and_then(mao_net::schema::Value::as_int)) {
+                    *e = left;
+                }
+                if amount > 0 {
+                    let hit = self.recent_hits.entry(target).or_insert((0, Instant::now()));
+                    *hit = (if hit.1.elapsed() < Duration::from_secs(2) { hit.0 } else { 0 } + amount, Instant::now());
+                }
+                if let Some(line) = crate::feedback::special(self.who(target), self.who(m.identity.1), amount, &crate::gui::criteria::stat_name(stat)) {
+                    self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
+                }
             }
         }
         // `CharSecSpecAttack` (`51492120`) from the server, always just before the attacker's `SpecialAttackInfo`: a byte, the
@@ -1549,6 +1606,9 @@ impl World {
         // `SpecialAttackWeapon`: the special attacks of a character, each an item, a stat and a four-letter code (the
         // plain attack 100 "MAAT", Dimach 144 "DIIT", Brawl 142 "BRAW" in the captures). One's own make the Action
         // window's special attacks (Gamecode FUN_1006b14c).
+        if m.kind == SPECIAL_ATTACK_WEAPON && m.identity.1 == self.own && std::env::var_os("MAO_COMBAT_LOG").is_some() {
+            eprintln!("combat: the server's special attacks: {}", m.data.iter().map(|b| format!("{b:02x}")).collect::<String>());
+        }
         if m.kind == SPECIAL_ATTACK_WEAPON && m.identity.1 == self.own {
             if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
                 let stats: Vec<u32> = match p.value.get("Specials") {
@@ -5901,7 +5961,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         None => pending_messages.push("No target (Tab selects one)".into()),
                     },
                     // (a special attack the server listed that the catalogue does not name: its skill's stat, as the others)
-                    _ if name == "that action" && crate::actions::number_of(id).is_some_and(|n| state.specials.as_ref().is_some_and(|s| s.contains(&n))) => match target {
+                    _ if name == "that action" && crate::actions::number_of(id).is_some_and(|n| state.specials_told.as_ref().is_some_and(|s| s.contains(&n))) => match target {
                         Some(t) => {
                             let _ = connection.send(&n3::special_attack(own, t, crate::actions::number_of(id).unwrap_or(0)));
                         }
@@ -7269,7 +7329,13 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         .into_iter()
                         .map(|(what, flag, other)| (what, flag, state.names.get(&other).map(|n| n.0.clone()).or_else(|| state.infos.get(&other).map(|i| i.name.clone())).unwrap_or_default()))
                         .collect(),
-                    specials: std::mem::take(&mut state.specials_changed).then(|| crate::actions::describe_specials(&gear_db, &gear_textures, state.specials.as_deref().unwrap_or_default())),
+                    specials: {
+                        let now = state.special_numbers();
+                        (std::mem::take(&mut state.specials_changed) | (now != state.specials_told)).then(|| {
+                            state.specials_told = now;
+                            crate::actions::describe_specials(&gear_db, &gear_textures, state.specials_told.as_deref().unwrap_or_default())
+                        })
+                    },
                     perk_actions: std::mem::take(&mut state.perk_actions_changed).then(|| {
                         let now = Instant::now();
                         let locks: BTreeMap<u32, (Instant, f32)> = state.perk_locks.iter().filter(|l| l.1.0 > now).map(|(&k, &v)| (k, v)).collect();
@@ -8652,6 +8718,34 @@ mod door_tests {
         assert!(!w.specials_changed);
     }
 
+    /// `MAO_GAME`: the weapons in the hands add their attacks and Reload to the server's list (the two characters of the
+    /// live test of 2026-11-10: a Neutrino Flash in the right hand; a Kyr'Ozch Energy Pistol and an Electrical Surge
+    /// Pistol), and a weapon taken off takes its own away.
+    #[test]
+    fn the_weapons_in_the_hands_give_their_attacks() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let _ = ITEM_DB.set(Arc::new(mao_formats::resource::ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap()));
+        let entry = |slot: u32, low_id: u32| inventory::Entry { slot, flags: 0, count: 1, container: (0, 0), low_id, high_id: low_id, quality: 1, extra: 0 };
+        let mut w = World { own: 7, ..World::default() };
+        w.worn.push(entry(6, 0x251db));
+        // (nothing before the server has listed its own)
+        assert_eq!(w.special_numbers(), None);
+        w.specials = Some(vec![100, 144, 142]);
+        assert_eq!(w.special_numbers(), Some(vec![100, 144, 142, 148, 110]));
+        // (two pistols: the one with burst and fling shot is in the left hand; an item elsewhere gives nothing)
+        w.worn = vec![entry(6, 0x3e2a9), entry(8, 0x3ca17), entry(3, 0x251db), entry(inventory::BACKPACK_FIRST, 0x251db)];
+        assert_eq!(w.special_numbers(), Some(vec![100, 144, 142, 148, 150, 110]));
+        // (the server says the left hand's takes no ammunition, and the right hand's has none of its own: Reload stays
+        // for the right hand's; with both at -1 it goes)
+        w.weapon_energy.insert((7, 8), -1);
+        assert_eq!(w.special_numbers(), Some(vec![100, 144, 142, 148, 150, 110]));
+        w.weapon_energy.insert((7, 6), -1);
+        assert_eq!(w.special_numbers(), Some(vec![100, 144, 142, 148, 150]));
+        // (bare hands: the server's only)
+        w.worn.clear();
+        assert_eq!(w.special_numbers(), Some(vec![100, 144, 142]));
+    }
+
     /// One's own open backpack: an item of the inventory goes into it with a `ContainerAddItem` naming the bag, and
     /// comes out with one naming the bag's handle; the shared container window's contents are left alone.
     #[test]
@@ -9114,6 +9208,14 @@ mod door_tests {
         w.add(&Message { kind: 0x46002f16, identity: (0xc350, 0x4bc80), data: hex("0000000779ffffffff000000080000c3507b017c26000000040000000300000000") }.frame(1));
         w.add(&Message { kind: 0x2b333d6e, identity: (0xc350, 0x7b017c26), data: hex("00000000010000001b000003db") }.frame(1));
         assert_eq!(lines(&mut w), ["You hit Rollerrat for 1913 points of projectile damage.", "Rollerrat was attacked with nanobots for 100 points of unknown damage."]);
+        // (a special attack's hit, `SpecialAttackInfo`: the client's burst at the rat for 175, then the rat's at the
+        // client; the skill is named where the damage type is, and the health that follows tells nothing more)
+        w.add(&Message { kind: 0x2b333d6e, identity: (0xc350, 0x7b017c26), data: hex("00000000010000001b00000bb8") }.frame(1));
+        w.add(&Message { kind: 0x754f1115, identity: (0xc350, 0x4bc80), data: hex("0000000006000000af000000050000c3507b017c260000009400000000") }.frame(1));
+        w.add(&Message { kind: 0x2b333d6e, identity: (0xc350, 0x7b017c26), data: hex("00000000010000001b00000b09") }.frame(1));
+        assert_eq!(lines(&mut w), [format!("You hit Rollerrat for 175 points of {} damage.", crate::gui::criteria::stat_name(148))]);
+        w.add(&Message { kind: 0x754f1115, identity: (0xc350, 0x7b017c26), data: hex("0000000006000000af000000050000c3500004bc800000009400000000") }.frame(1));
+        assert_eq!(lines(&mut w), [format!("Rollerrat hit you for 175 points of {} damage.", crate::gui::criteria::stat_name(148))]);
         // the client's damage shield striking 0x7b017c26 (renamed from the capture's 0x7b017c24), and a reflect of nothing
         w.add(&Message { kind: 0x25192476, identity: (0xc350, 0x7b017c26), data: hex("00000000ad0000c3500004bc8000000003") }.frame(1));
         assert_eq!(lines(&mut w), ["Your damage shield hit Rollerrat for 173 points of damage."]);
