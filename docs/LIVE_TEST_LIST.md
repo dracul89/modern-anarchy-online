@@ -34,6 +34,18 @@ irreversible was done. The numbers are the items below.
   the order of the server's places, so an item put in is not always in the last cell. The two items moved for the
   test were put back where they were.
 
+**Passed with two clients at once** (Humility on the paid account, Brasscasings on the free one; the runner starts
+the second with the `.env`'s free login)
+- 9: `/tell` both ways; each side's line and the other's "tells you" line are in the chat log.
+- 25: a tell from a character not on the list puts it under Recent Messages in the friends window, with its light.
+- 19, 20 (in part): the owner's invitation brings the "Private Group Invitation" box and the chat line; Yes joins
+  ("You joined private group", and the owner is told who joined); lines typed with `/g <owner's name>` on either
+  side arrive on both as `[owner] who: text`. Not tried: No, leaving, the group's end.
+- 18: with the fix below, every announced channel is ticked for the main tab in the chat configuration, and a
+  channel of the saved list that was not announced this session is red.
+A screenshot is a grab of the screen, so with two full-screen clients it shows the one on top; the other side was
+checked through the chat log (`chat/<date>.txt`), which both write.
+
 **Found and fixed**
 - The Action window's tiles were blank unless it was opened with its key (its pictures were loaded on the key press
   only): now loaded whenever it is open.
