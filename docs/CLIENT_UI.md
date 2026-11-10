@@ -304,8 +304,8 @@ spoken in the vicinity as before. Seen live: the test character came up with "De
 original's files. Preview: `MAO_UI_PREVIEW=chat` with `MAO_CHAT_TAB=<n>` and `MAO_CHAT_MENU=main|talk|public|combat`.
 
 Not done: the original's sub-menus open beside their parent (here one menu replaces the other), the Visual menu
-(borderless, transparency, fading), several chat windows on screen at once (they are tabs of one), the team's chat as
-an output group, `/ch` and `/group`.
+(borderless, transparency, fading), the team's chat as an output group, `/ch` and `/group`. (Several chat windows on
+screen: see "Chat windows of their own" below.)
 
 **Chat configuration window and group colours (2026-11-10, `chatconfig.rs`).** The window menu's "Chat Configuration"
 opens the original's `GroupControlView_c` (FUN_100ad81c, FUN_100a19ff): the chat windows listed at the left, and for
@@ -335,6 +335,20 @@ membership (`51`, `53`) in the original's words; it appears under "Private Chann
 where the right button offers "Leave <name>" (FUN_100a1102), and a tab whose output group it is sends typed lines
 to it. One invitation and its end are in a capture (packets `50` and `51` with the owner's id); the rest is from
 the decompile and **not tried live** (it needs a second character on line).
+
+**Chat windows of their own (2026-11-10, `chatgroups.rs`, `chatwindow.rs`).** In the original every chat window's
+config names the frame it is in (`window_name`, "Window1") and its place among the frame's tabs (`tab_index`): windows
+that share a frame are its tabs, and a tab dragged out gets a frame of its own. Here a window keeps its frame too
+(`Pane::frame`, read from the original's config, a `frame <name>` line in `chatwindows.ini`; a file of before has
+every window in "Window1"). The frame of the first window is the client's chat window with the input line; each other
+frame is a window on screen with its own tabs and lines (named `Chat:<frame>` for its place in `layout.ini`), without
+an input line (the original gives each its own input bar). In place of dragging tabs, the window menu has this
+client's own "Move to a window of its own" (when the tab shares its frame) and "Move into the window of <first tab>"
+for each other frame; "New Window" and the configuration's New and Clone make their window in a frame of its own, as
+the original does (FUN_10094701: the first `Window<n>` free among names and frames). Closing such a window puts its
+tabs back into the first one. Preview: `MAO_UI_PREVIEW=chat MAO_CHAT_MENU=split` (the second window in its own
+frame). Checked in the preview only, not clicked through live. Not done: an input line in the other windows, and the
+places the original's own files give the other frames.
 
 **Stats window as the original's (2026-11-10, `stats.rs`).** Read from `StatView_c` (FUN_1008057d): the name and the
 level on a line, a white word and its value in 0xbbbbff; the bars, each the skin's `GFX_GUI_HOR_BAR_EMPTY` filled with

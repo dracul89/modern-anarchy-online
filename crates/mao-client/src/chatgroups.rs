@@ -13,9 +13,11 @@
 //! the original makes two (FUN_100950df): "Default Window", which selects everything but Other Pets and the combat
 //! groups 0x42000001-0a, 0d-18 and 1b, and "Combat", which selects the combat groups 1-3, 5-9, 0d-12 and 14-18.
 //!
-//! Here the windows are the tabs of the client's one chat window ([`Pane`]). They start as the character's own from
-//! the original client's folder when there are some, else as the original's two, and are kept in `chatwindows.ini`
-//! beside `mao.ini`.
+//! Chat windows that share a frame are its tabs: a window's config names its frame (`window_name`, "Window1") and its
+//! place among the frame's tabs (`tab_index`); the original's two start in one frame, and so do the player's own in
+//! their files. Here a window is a [`Pane`]; the client's chat window shows the panes of the first one's frame as its
+//! tabs and each other frame in a window of its own. They start as the character's own from the original client's
+//! folder when there are some, else as the original's two, and are kept in `chatwindows.ini` beside `mao.ini`.
 
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -182,6 +184,8 @@ pub fn server_groups() -> Vec<String> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Pane {
     pub name: String,
+    /// The frame it is a tab of (`window_name`).
+    pub frame: String,
     /// The groups shown (`selected_group_names`).
     pub selected: BTreeSet<String>,
     /// The groups this window has met: one not met yet is selected by itself when `auto` is on.
@@ -199,14 +203,14 @@ impl Pane {
     fn all_but(name: &str, without: &[u32]) -> Pane {
         let known: BTreeSet<String> = BUILTIN.iter().map(|g| g.1.to_string()).collect();
         let selected = BUILTIN.iter().filter(|g| !without.contains(&g.0)).map(|g| g.1.to_string()).collect();
-        Pane { name: name.to_string(), selected, known, auto: true, output: String::new(), timestamps: false }
+        Pane { name: name.to_string(), frame: FIRST_FRAME.to_string(), selected, known, auto: true, output: String::new(), timestamps: false }
     }
 
     /// A window that selects only the built-in groups named.
     fn only(name: &str, with: &[u32]) -> Pane {
         let known: BTreeSet<String> = BUILTIN.iter().map(|g| g.1.to_string()).collect();
         let selected = with.iter().filter_map(|id| name_of(*id)).map(str::to_string).collect();
-        Pane { name: name.to_string(), selected, known, auto: false, output: String::new(), timestamps: false }
+        Pane { name: name.to_string(), frame: FIRST_FRAME.to_string(), selected, known, auto: false, output: String::new(), timestamps: false }
     }
 
     /// Whether the window shows a group's lines; a group it has not met is selected first when the window selects
@@ -228,6 +232,30 @@ impl Pane {
             self.selected.insert(group.to_string());
         }
     }
+}
+
+/// The frame the original's first windows share.
+pub const FIRST_FRAME: &str = "Window1";
+
+/// A name no chat window or frame has yet (FUN_10094701: the first `Window%d` free).
+pub fn free_name(panes: &[Pane]) -> String {
+    (1..).map(|n| format!("Window{n}")).find(|n| !panes.iter().any(|p| p.name == *n || p.frame == *n)).unwrap_or_default()
+}
+
+/// The frames of the windows, in the order they first come; the first is the client's chat window.
+pub fn frames(panes: &[Pane]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for p in panes {
+        if !out.contains(&p.frame) {
+            out.push(p.frame.clone());
+        }
+    }
+    out
+}
+
+/// The windows of a frame, by their numbers.
+pub fn members(panes: &[Pane], frame: &str) -> Vec<usize> {
+    (0..panes.len()).filter(|k| panes[*k].frame == frame).collect()
 }
 
 /// The two windows the original makes when none is saved (FUN_100950df).
@@ -264,7 +292,8 @@ pub fn parse_config(xml: &str) -> Option<(Pane, i64, bool)> {
     let mut known: BTreeSet<String> = BUILTIN.iter().map(|g| g.1.to_string()).collect();
     known.extend(selected.iter().cloned());
     let flag = |n: &str| value(xml, n) == Some("true");
-    let pane = Pane { name, selected, known, auto: flag("is_autosubscribe_window"), output: value(xml, "output_group").unwrap_or("").to_string(), timestamps: flag("show_timestamps") };
+    let frame = value(xml, "window_name").unwrap_or(FIRST_FRAME).to_string();
+    let pane = Pane { name, frame, selected, known, auto: flag("is_autosubscribe_window"), output: value(xml, "output_group").unwrap_or("").to_string(), timestamps: flag("show_timestamps") };
     Some((pane, value(xml, "tab_index").and_then(|v| v.parse().ok()).unwrap_or(0), flag("is_startup_window")))
 }
 
@@ -283,7 +312,7 @@ pub fn from_original(prefs: &Path) -> Vec<Pane> {
 pub fn render(panes: &[Pane]) -> String {
     let mut out = String::new();
     for p in panes {
-        out += &format!("window {}\nauto {}\ntimestamps {}\noutput {}\n", p.name, u8::from(p.auto), u8::from(p.timestamps), p.output);
+        out += &format!("window {}\nframe {}\nauto {}\ntimestamps {}\noutput {}\n", p.name, p.frame, u8::from(p.auto), u8::from(p.timestamps), p.output);
         for g in &p.known {
             out += &format!("{} {g}\n", if p.selected.contains(g) { '+' } else { '-' });
         }
@@ -297,12 +326,13 @@ pub fn parse(text: &str) -> Vec<Pane> {
         let (word, rest) = line.split_once(' ').unwrap_or((line, ""));
         let rest = rest.trim();
         if word == "window" && !rest.is_empty() {
-            panes.push(Pane { name: rest.to_string(), selected: BTreeSet::new(), known: BTreeSet::new(), auto: false, output: String::new(), timestamps: false });
+            panes.push(Pane { name: rest.to_string(), frame: FIRST_FRAME.to_string(), selected: BTreeSet::new(), known: BTreeSet::new(), auto: false, output: String::new(), timestamps: false });
             continue;
         }
         let Some(p) = panes.last_mut() else { continue };
         match word {
             "auto" => p.auto = rest == "1",
+            "frame" if !rest.is_empty() => p.frame = rest.to_string(),
             "timestamps" => p.timestamps = rest == "1",
             "output" => p.output = rest.to_string(),
             "+" | "-" if !rest.is_empty() => {
@@ -396,7 +426,7 @@ mod tests {
     <Bool name="is_startup_window" value="true" />
 </Archive>"#;
         let (mut pane, tab, startup) = parse_config(xml).unwrap();
-        assert_eq!((pane.name.as_str(), pane.output.as_str(), pane.timestamps, pane.auto, tab, startup), ("Fights", "Clan OOC", true, false, 2, true));
+        assert_eq!((pane.name.as_str(), pane.frame.as_str(), pane.output.as_str(), pane.timestamps, pane.auto, tab, startup), ("Fights", "Window1", "Clan OOC", true, false, 2, true));
         assert!(pane.shows("Me hit by monster") && pane.shows("Clan OOC") && !pane.shows(SYSTEM) && !pane.shows("Neu. OOC"));
     }
 
@@ -410,6 +440,13 @@ mod tests {
         panes[0].toggle("OT OOC");
         assert_eq!(parse(&render(&panes)), panes);
         assert!(parse("junk\n+ orphan\n").is_empty());
+        // (the original's two share a frame; one moved out has its own, and a new name is free of both kinds)
+        assert_eq!((frames(&panes), members(&panes, FIRST_FRAME)), (vec![FIRST_FRAME.to_string()], vec![0, 1]));
+        panes[1].frame = free_name(&panes);
+        assert_eq!((panes[1].frame.as_str(), frames(&panes).len(), members(&panes, FIRST_FRAME)), ("Window2", 2, vec![0]));
+        assert_eq!((free_name(&panes), parse(&render(&panes)) == panes), ("Window3".to_string(), true));
+        // (a file of before the frames puts every window in the first)
+        assert_eq!(parse("window A\nwindow B\n").iter().map(|p| p.frame.clone()).collect::<Vec<_>>(), ["Window1", "Window1"]);
     }
 
     #[test]

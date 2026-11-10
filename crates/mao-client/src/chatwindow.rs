@@ -1,4 +1,8 @@
-//! The chat window: the lines that arrive (channels, tells, system notices) in tabs, and an input line. Typing a `/` opens the
+//! The chat windows: the lines that arrive (channels, tells, system notices) in tabs, and an input line. The first
+//! frame of chat windows (`chatgroups`) is the window with the input line; each other frame is a window of its own with
+//! its tabs and lines (the original gives every chat window its own input bar, which it can turn off). A tab is moved
+//! to a window of its own, or into another, from its menu (the original drags tabs); closing such a window puts its
+//! tabs back into the first. Typing a `/` opens the
 //! original's list of commands under the cursor (filtered as you type, Up and Down to pick, Tab or Enter to take it); a line is
 //! sent with Enter. Enter and `/` outside the window start typing (the `chat_input` and `chat_command` keys).
 
@@ -136,6 +140,9 @@ pub struct ChatWindow {
     panes: Vec<Pane>,
     loaded_for: Option<Option<u32>>,
     tab: usize,
+    /// The window shown in each other frame, and the window the open menu is about.
+    shown: std::collections::BTreeMap<String, usize>,
+    menu_pane: usize,
     /// The menu open (its kind, what each entry stands for and where it opened) and its picture.
     menu: Option<(Menu, Vec<String>, egui::Pos2)>,
     popup: Option<crate::gui::popup::PopupMenu>,
@@ -167,7 +174,7 @@ pub struct ChatWindow {
 
 impl Default for ChatWindow {
     fn default() -> Self {
-        ChatWindow { open: true, log: false, lines: Vec::new(), panes: chatgroups::defaults(), loaded_for: None, tab: 0, menu: None, popup: None, config: Default::default(), invite_action: 1, invites: Vec::new(), outs: Vec::new(), demo: None, input: String::new(), selected: 0, focus_next: false, last_tell: None, scroll_to_end: true, keep_list: false, ignored: load_ignored(), history: Vec::new(), recalled: None, links: Vec::new() }
+        ChatWindow { open: true, log: false, lines: Vec::new(), panes: chatgroups::defaults(), loaded_for: None, tab: 0, shown: Default::default(), menu_pane: 0, menu: None, popup: None, config: Default::default(), invite_action: 1, invites: Vec::new(), outs: Vec::new(), demo: None, input: String::new(), selected: 0, focus_next: false, last_tell: None, scroll_to_end: true, keep_list: false, ignored: load_ignored(), history: Vec::new(), recalled: None, links: Vec::new() }
     }
 }
 
@@ -192,6 +199,44 @@ fn save_ignored(list: &std::collections::BTreeSet<String>) {
 /// How many lines are kept.
 const KEEP: usize = 600;
 
+/// The lines of a chat window's selected groups, in a scroll view `height` tall that stays at its end.
+fn draw_lines(ui: &mut egui::Ui, palette: &Palette, lines: &[Line], pane: Option<&Pane>, height: f32, links: &mut Vec<String>) {
+    let text = |name: &str, (r, g, b): (u8, u8, u8)| palette.text(name).map_or(egui::Color32::from_rgb(r, g, b), |c| egui::Color32::from_rgb(c[0], c[1], c[2]));
+    let chat_font = if crate::font::enabled() { crate::font::chat(ui.ctx()) } else { None };
+    let stamps = pane.is_some_and(|p| p.timestamps);
+    crate::chrome::scroll(ui, palette, egui::ScrollArea::vertical().max_height(height).min_scrolled_height(height).auto_shrink([false, false]).stick_to_bottom(true), |ui| {
+        for line in lines.iter().filter(|l| pane.is_none_or(|p| p.selected.contains(l.group()))) {
+            // (`show_timestamps`: the line led by its time, strftime's `(%H:%M) `)
+            let stamp = line.at.filter(|_| stamps).map(|(h, m)| format!("({h:02}:{m:02}) ")).unwrap_or_default();
+            let color = match line.kind {
+                // (the original's TextColors.xml names when the theme has them)
+                Kind::System => text("ct_cmd_feedback", (255, 220, 90)),
+                Kind::Tell => text("ct_itell", (120, 220, 255)),
+                // (a channel's lines in its group's colour, FUN_1008582a)
+                Kind::Channel => text(chatgroups::colour_name(line.group()), (200, 235, 235)),
+                Kind::Own => text("ct_otell", (160, 200, 160)),
+                Kind::Combat => text("CCMeHitOtherColor", (240, 170, 130)),
+            };
+            if let Some(m) = &line.markup {
+                let font = if chat_font.is_some() { crate::gui::font::FontId::named("CHAT") } else { crate::gui::font::FontId::NORMAL };
+                if let Some(link) = crate::gui::controls::markup(ui, palette, &format!("{stamp}{m}"), font, color) {
+                    links.push(link);
+                }
+                continue;
+            }
+            let shown = format!("{stamp}{}", line.text);
+            match &chat_font {
+                Some(font) => {
+                    font.label(ui, &shown, color);
+                }
+                None => {
+                    ui.label(egui::RichText::new(&shown).color(color));
+                }
+            }
+        }
+    });
+}
+
 /// A text of the chat window's menus (text.mdb 10001 by name), or this client's own words.
 fn menu_text(name: &str) -> String {
     let own = match name {
@@ -203,6 +248,8 @@ fn menu_text(name: &str) -> String {
         "DeleteWindow" => "Delete this window",
         "NoSelectableGroups" => "No groups to choose",
         "ChatWindowMenu_ChatConfiguration" => "Chat settings",
+        "own:detach" => "Move to a window of its own",
+        "own:attach" => "Move into the window of %s",
         _ => name,
     };
     crate::gui::xml::ldb_named(10001, name, own)
@@ -264,7 +311,7 @@ impl ChatWindow {
 
     /// Opens one of the window's menus at a place.
     fn open_menu(&mut self, ctx: &egui::Context, menu: Menu, at: egui::Pos2) {
-        let Some(pane) = self.panes.get(self.tab) else { return };
+        let Some(pane) = self.panes.get(self.menu_pane) else { return };
         let mut groups: std::collections::BTreeSet<String> = chatgroups::BUILTIN.iter().map(|g| g.1.to_string()).collect();
         groups.extend(chatgroups::server_groups());
         groups.extend(pane.known.iter().cloned());
@@ -280,6 +327,13 @@ impl ChatWindow {
             ]
             .into_iter()
             .map(|(k, label, enabled, mark)| (k.to_string(), (label, enabled, mark)))
+            // (this client's own, in place of dragging the tab: out into a window of its own when it shares its frame,
+            // or into another frame, named by its first window)
+            .chain((chatgroups::members(&self.panes, &pane.frame).len() > 1).then(|| ("detach".to_string(), (menu_text("own:detach"), true, None))))
+            .chain(chatgroups::frames(&self.panes).into_iter().filter(|f| *f != pane.frame).map(|f| {
+                let first = self.panes.iter().find(|p| p.frame == f).map_or(f.clone(), |p| p.name.clone());
+                (format!("attach:{f}"), (menu_text("own:attach").replace("%s", &first), true, None))
+            }))
             .unzip(),
             Menu::Subscribe => [("public", "Public Groups"), ("combat", "Combat Messages")].into_iter().map(|(k, label)| (k.to_string(), (label.to_string(), true, None))).unzip(),
             Menu::Talk => {
@@ -299,25 +353,35 @@ impl ChatWindow {
 
     /// An entry of the open menu was chosen.
     fn choose(&mut self, ctx: &egui::Context, menu: Menu, key: &str, at: egui::Pos2) {
-        let tab = self.tab;
+        let tab = self.menu_pane.min(self.panes.len().saturating_sub(1));
         match (menu, key) {
             (Menu::Main, "talk") => self.open_menu(ctx, Menu::Talk, at),
             (Menu::Main, "subscribe") => self.open_menu(ctx, Menu::Subscribe, at),
             (Menu::Subscribe, kind) => self.open_menu(ctx, Menu::Groups { combat: kind == "combat" }, at),
             (Menu::Main, "config") => self.config.open = true,
             (Menu::Main, "new") => {
-                // (FUN_10094701: the first `Window%d` not taken)
-                let name = (1..).map(|n| format!("Window{n}")).find(|n| !self.panes.iter().any(|p| p.name == *n)).unwrap_or_default();
+                // (FUN_10094701: the first `Window%d` not taken, in a frame of its own)
                 let mut pane = chatgroups::defaults().remove(0);
-                pane.name = name;
+                pane.name = chatgroups::free_name(&self.panes);
+                pane.frame = pane.name.clone();
                 pane.selected.clear();
                 pane.auto = false;
                 self.panes.push(pane);
-                self.tab = self.panes.len() - 1;
             }
             (Menu::Main, "delete") if self.panes.len() > 1 => {
                 self.panes.remove(tab);
-                self.tab = tab.min(self.panes.len() - 1);
+                self.tab = self.tab.min(self.panes.len() - 1);
+            }
+            (Menu::Main, "detach") => {
+                let frame = chatgroups::free_name(&self.panes);
+                if let Some(pane) = self.panes.get_mut(tab) {
+                    pane.frame = frame;
+                }
+            }
+            (Menu::Main, key) if key.starts_with("attach:") => {
+                if let Some(pane) = self.panes.get_mut(tab) {
+                    pane.frame = key["attach:".len()..].to_string();
+                }
             }
             (_, _) => {
                 let Some(pane) = self.panes.get_mut(tab) else { return };
@@ -533,63 +597,34 @@ impl ChatWindow {
         if !self.open {
             return None;
         }
-        let text = |name: &str, (r, g, b): (u8, u8, u8)| palette.text(name).map_or(egui::Color32::from_rgb(r, g, b), |c| egui::Color32::from_rgb(c[0], c[1], c[2]));
         let mut out = None;
         let mut links = Vec::new();
         let screen = ctx.content_rect();
         let mut open = self.open;
         self.load_panes();
-        let mut menu_at = None;
+        let mut menu_at: Option<(egui::Pos2, usize)> = None;
+        // (the first frame's windows are this window's tabs)
+        let frames = chatgroups::frames(&self.panes);
+        let members = frames.first().map(|f| chatgroups::members(&self.panes, f)).unwrap_or_default();
+        if !members.contains(&self.tab) {
+            self.tab = members.first().copied().unwrap_or(0);
+        }
         crate::chrome::window(ctx, palette, "Chat", "Chat", &mut open, |w| w.default_pos(crate::layout::pos("Chat", egui::pos2(8.0, (screen.height() - 270.0).max(40.0)))).default_size([560.0, 230.0]), |ui| {
-                // The tabs in the original's TabView (`chrome::tab_view`), the input line in its input bar.
-                let chat_font = if crate::font::enabled() { crate::font::chat(ctx) } else { None };
-                // (each tab one of the original's chat windows: the lines of the groups selected in it)
-                let names: Vec<String> = self.panes.iter().map(|p| p.name.clone()).collect();
+                // (each tab one of the frame's chat windows: the lines of the groups selected in it)
+                let names: Vec<String> = members.iter().map(|k| self.panes[*k].name.clone()).collect();
                 let names: Vec<&str> = names.iter().map(String::as_str).collect();
-                let mut tab = self.tab.min(names.len().saturating_sub(1));
+                let mut tab = members.iter().position(|k| *k == self.tab).unwrap_or(0);
                 let area = ui.max_rect();
                 crate::chrome::tab_view(ui, palette, &names, &mut tab, |ui, tab| {
-                self.tab = tab;
-                let pane = self.panes.get(tab);
-                let stamps = pane.is_some_and(|p| p.timestamps);
-                let height = (ui.available_height() - 41.0).max(40.0);
-                crate::chrome::scroll(ui, palette, egui::ScrollArea::vertical().max_height(height).min_scrolled_height(height).stick_to_bottom(true), |ui| {
-                    for line in self.lines.iter().filter(|l| pane.is_none_or(|p| p.selected.contains(l.group()))) {
-                        // (`show_timestamps`: the line led by its time, strftime's `(%H:%M) `)
-                        let stamp = line.at.filter(|_| stamps).map(|(h, m)| format!("({h:02}:{m:02}) ")).unwrap_or_default();
-                        let color = match line.kind {
-                            // (the original's TextColors.xml names when the theme has them)
-                            Kind::System => text("ct_cmd_feedback", (255, 220, 90)),
-                            Kind::Tell => text("ct_itell", (120, 220, 255)),
-                            // (a channel's lines in its group's colour, FUN_1008582a)
-                            Kind::Channel => text(chatgroups::colour_name(line.group()), (200, 235, 235)),
-                            Kind::Own => text("ct_otell", (160, 200, 160)),
-                            Kind::Combat => text("CCMeHitOtherColor", (240, 170, 130)),
-                        };
-                        if let Some(m) = &line.markup {
-                            let font = if chat_font.is_some() { crate::gui::font::FontId::named("CHAT") } else { crate::gui::font::FontId::NORMAL };
-                            if let Some(link) = crate::gui::controls::markup(ui, palette, &format!("{stamp}{m}"), font, color) {
-                                links.push(link);
-                            }
-                            continue;
-                        }
-                        let shown = format!("{stamp}{}", line.text);
-                        match &chat_font {
-                            Some(font) => {
-                                font.label(ui, &shown, color);
-                            }
-                            None => {
-                                ui.label(egui::RichText::new(&shown).color(color));
-                            }
-                        }
-                    }
-                });
+                    self.tab = members.get(tab).copied().unwrap_or(0);
+                    let height = (ui.available_height() - 41.0).max(40.0);
+                    draw_lines(ui, palette, &self.lines, self.panes.get(self.tab), height, &mut links);
                 });
                 // (the right button over the window: its menu, FUN_100abb98)
                 if ui.input(|i| i.pointer.secondary_clicked())
                     && let Some(at) = ui.input(|i| i.pointer.interact_pos()).filter(|p| area.contains(*p))
                 {
-                    menu_at = Some(at);
+                    menu_at = Some((at, self.tab));
                 }
                 self.scroll_to_end = false;
                 let input_id = egui::Id::unique("chat-input");
@@ -675,11 +710,53 @@ impl ChatWindow {
                     });
                 }
             });
-        if let Some(at) = menu_at {
+        // each other frame: a window of its tabs and lines; closed, its tabs go back into the first
+        let mut docked = false;
+        for frame in frames.iter().skip(1) {
+            let members = chatgroups::members(&self.panes, frame);
+            let Some(&first) = members.first() else { continue };
+            let name = format!("Chat:{frame}");
+            let mut shown = self.shown.get(frame).copied().filter(|k| members.contains(k)).unwrap_or(first);
+            let mut stays = true;
+            crate::chrome::window(ctx, palette, &name, "Chat", &mut stays, |w| w.default_pos(crate::layout::pos(&name, egui::pos2(60.0, 160.0))).default_size([420.0, 170.0]), |ui| {
+                let area = ui.max_rect();
+                let names: Vec<&str> = members.iter().map(|k| self.panes[*k].name.as_str()).collect();
+                let mut tab = members.iter().position(|k| *k == shown).unwrap_or(0);
+                crate::chrome::tab_view(ui, palette, &names, &mut tab, |ui, tab| {
+                    shown = members.get(tab).copied().unwrap_or(first);
+                    let height = (ui.available_height() - 4.0).max(40.0);
+                    draw_lines(ui, palette, &self.lines, self.panes.get(shown), height, &mut links);
+                });
+                if ui.input(|i| i.pointer.secondary_clicked())
+                    && let Some(at) = ui.input(|i| i.pointer.interact_pos()).filter(|p| area.contains(*p))
+                {
+                    menu_at = Some((at, shown));
+                }
+            });
+            self.shown.insert(frame.clone(), shown);
+            if !stays {
+                for k in members {
+                    self.panes[k].frame = frames[0].clone();
+                }
+                docked = true;
+            }
+        }
+        if docked {
+            chatgroups::save(&self.panes);
+        }
+        if let Some((at, pane)) = menu_at {
+            self.menu_pane = pane;
             self.open_menu(ctx, Menu::Main, at);
         }
         if let Some((tab, menu)) = self.demo.take() {
             self.tab = tab.min(self.panes.len().saturating_sub(1));
+            self.menu_pane = self.tab;
+            // (`split`: the second window in a frame of its own)
+            if menu == "split"
+                && let Some(pane) = self.panes.get_mut(1)
+            {
+                pane.frame = "Window2".to_string();
+            }
             // (`config`: the chat configuration window up)
             self.config.open = menu == "config";
             let menu = match menu.as_str() {

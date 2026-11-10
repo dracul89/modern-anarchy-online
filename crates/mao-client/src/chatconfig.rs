@@ -269,10 +269,11 @@ impl ChatConfig {
             }
         }
         // the buttons (the window menu's own entries do the same)
-        let free_name = |panes: &[Pane]| (1..).map(|n| format!("Window{n}")).find(|n| !panes.iter().any(|p| p.name == *n)).unwrap_or_default();
+        // (a new window and a copy come up in frames of their own, as the original's)
         if new {
             let mut pane = chatgroups::defaults().remove(0);
-            pane.name = free_name(panes);
+            pane.name = chatgroups::free_name(panes);
+            pane.frame = pane.name.clone();
             pane.selected.clear();
             pane.auto = false;
             panes.push(pane);
@@ -280,7 +281,8 @@ impl ChatConfig {
             changed = true;
         }
         if clone && let Some(mut pane) = panes.get(selected).cloned() {
-            pane.name = free_name(panes);
+            pane.name = chatgroups::free_name(panes);
+            pane.frame = pane.name.clone();
             panes.push(pane);
             self.selected = Some(panes.len() - 1);
             changed = true;
