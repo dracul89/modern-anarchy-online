@@ -29,6 +29,7 @@ mod crash;
 mod factions;
 mod charcreate;
 mod loading;
+mod whiteout;
 mod missionlog;
 mod npcchat;
 mod planetmaps;

@@ -561,6 +561,17 @@ fn template_stat(template: u32, stat: u32) -> Option<i64> {
 }
 
 /// A stat of a nano program (type 0xfde85).
+/// Whether a cast of a nano with this attack time (its stat 294, hundredths of a second) shows the casting stance.
+/// The original stands a character in it only while its list of casts under way has one (FUN_1007c8af), and a cast
+/// whose time comes to nothing is run at once and never waits in the list (FUN_1005141d: the time from the nano, less
+/// the caster's skill; nothing for a nano the function at its +0x14 answers for). So the nanos with no attack time show
+/// no casting: the ones the items cast (a recharger's regeneration), the auras' and the playfields' own (seen by the
+/// user 2026-11-11, who named the rechargers and the keepers' auras). Not ported: the caster's skill bringing a time
+/// down to nothing.
+fn takes_time_to_cast(attack_time: Option<i64>) -> bool {
+    attack_time.is_some_and(|t| t > 0)
+}
+
 fn nano_stat(nano: u32, stat: u32) -> Option<i64> {
     let data = ITEM_DB.get()?.get(mao_formats::resource::Id { kind: 0xfde85, instance: nano }).ok().flatten()?;
     mao_formats::item::Item::parse(&data)?.stat(stat).map(|v| v as i64)
@@ -1246,7 +1257,10 @@ impl World {
             if std::env::var_os("MAO_COMBAT_LOG").is_some() && !self.instance_runs.is_empty() {
                 eprintln!("instance runs: {:x?}", self.instance_runs);
             }
-            self.own_dead = false;
+            // (set down where it comes back to life: the white of its death clears)
+            if std::mem::take(&mut self.own_dead) {
+                crate::whiteout::clear(true);
+            }
         }
         if let Some((seconds, period, day, server_time)) = m.game_time() {
             self.game_clock.set(seconds);
@@ -1423,6 +1437,7 @@ impl World {
                 // nothing, as FUN_1005b3d8 sets it, whatever the last message of it said)
                 self.own_dead = true;
                 self.dead_health = 0;
+                crate::whiteout::begin();
                 if self.stats.insert(27, 0) != Some(0) {
                     self.stats_changed = true;
                 }
@@ -1827,8 +1842,10 @@ impl World {
                     self.landed.push((target, nano));
                     self.cast_bursts.push((caster, target, nano));
                     self.shots_pending.push((caster, target, nano));
-                    // The caster plays its casting animation (at itself or at someone).
-                    self.socials.insert(caster, (if caster == target { "spell-self" } else { "spell-dir" }, Instant::now()));
+                    // The caster plays its casting animation (at itself or at someone), when the nano takes time to cast.
+                    if takes_time_to_cast(nano_stat(nano, 294)) {
+                        self.socials.insert(caster, (if caster == target { "spell-self" } else { "spell-dir" }, Instant::now()));
+                    }
                 }
             }
         }
@@ -2773,7 +2790,9 @@ impl World {
                 mao_net::n3::movement::SIT => {
                     self.seated.insert(m.identity.1);
                 }
-                mao_net::n3::movement::FULL | mao_net::n3::movement::HEADING => {}
+                // (the reports and the turns keep a seated character seated: the original's turn transitions, cases 9
+                // to 0xe of FUN_1006cb58, leave the movement mode alone)
+                mao_net::n3::movement::FULL | 9..=14 => {}
                 _ => {
                     self.stand_up(m.identity.1);
                 }
@@ -3279,6 +3298,12 @@ fn vehicle_step(velocity: [f32; 2], heading: f32, walk: i8, pushed: i8, top: f32
         v = [v[0] * top / speed, v[1] * top / speed];
     }
     v
+}
+
+/// The movement keys of a seated character: forward, back, the sidesteps and the jump do nothing (it neither moves nor
+/// stands up for them; the turn keys are left as they are).
+fn seated_keys(_forward: bool, _back: bool, _strafe: i8, _jump: bool) -> (bool, bool, i8, bool) {
+    (false, false, 0, false)
 }
 
 /// How fast the character turns by key (radians a second), as FUN_1006ca4f sets `CharVehicle_t`'s +0x368: `TurnSpeed`
@@ -4711,6 +4736,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     let mut pending_interior: Option<Option<Arc<crate::interior::Interior>>> = Some(interior.clone());
     let mut rooms_shown: Vec<bool> = Vec::new();
     let mut pending_rooms_shown: Option<Vec<bool>> = None;
+    // (the server set the character down elsewhere in its playfield: the viewer makes a new camera with the next update)
+    let mut pending_camera = false;
     state.animated_statels = Arc::new(animated);
     let mut teleportals = teleportals;
     let mut zones = zones;
@@ -5563,6 +5590,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     jumping = false;
                     body_reset = true;
                     state.entities.insert(own, (position, 0));
+                    pending_camera = true;
                 }
                 if playfield != current {
                     // (a zoning: the loading screen until the new playfield is drawn; an arrival in the same playfield, as
@@ -5672,6 +5700,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             if state.own_dead && state.stats.get(&27).is_some_and(|&h| h > state.dead_health.max(0)) {
                 state.own_dead = false;
                 state.dead.remove(&own);
+                crate::whiteout::clear(false);
             }
             // (the playfield stopped for a zoning: the character stands still until the playfield message; after 30 s, the
             // `TeleportTrier_t`'s time, it is let go, a safety of this client's: the original stays stopped)
@@ -6713,16 +6742,14 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 target_told = true;
                 let _ = connection.send(&n3::set_target(own, 0));
             }
-            // Moving stands a seated character up first.
-            // (`CancelCampMessage`: the bar goes and "Timed logout aborted.")
-            if sitting && (keys.forward || keys.back || keys.strafe != 0 || keys.turn != 0 || keys.jump) {
-                sitting = false;
-                send(&mut connection, n3::movement::LEAVE_SIT, heading, position, &mut sent);
-                state.stand_up(own);
-                if crate::ui::CAMP.lock().unwrap_or_else(|e| e.into_inner()).take().is_some() {
-                    let _ = connection.send(&n3::action(own, n3::STOP_LOGOUT));
-                    pending_messages.push(crate::feedback::gui("TimedLogoutAborted", &[]));
-                }
+            // A seated character stays seated until the sit key (the user's word for the original, 2026-11-11; until then
+            // any movement key stood it up here). It turns on the spot and does not move: in the original's table of
+            // movement transitions (Gamecode FUN_1006cb58) only the sit toggle's `LeaveSit` (0x25) ends the sit mode, the
+            // turns (cases 9 to 0xe) are taken in any mode, and the sit mode's vehicle has the lowest top speed there is
+            // (FUN_1006f9eb gives mode 8 the constant the walking modes use as their floor). What a jump does seated was
+            // not read; it does nothing here.
+            if sitting {
+                (keys.forward, keys.back, keys.strafe, keys.jump) = seated_keys(keys.forward, keys.back, keys.strafe, keys.jump);
             }
             // Walk: integrate the position and tell the server.
             let dt = last_tick.elapsed().as_secs_f32();
@@ -7538,6 +7565,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     falls: pending_falls.take().map(|feet| (feet, gfx.as_ref().and_then(|g| g.visual(0x30d6)))),
                     interior: pending_interior.take(),
                     rooms_shown: pending_rooms_shown.take(),
+                    new_camera: std::mem::take(&mut pending_camera),
                     model,
                     own_model,
                     own_velocity,
@@ -9908,11 +9936,26 @@ mod movement_tests {
         assert_eq!((turn_rate(&stats, false), turn_rate(&stats, true)), (2.0, 1.0));
     }
 
+    /// A nano with no attack time (an item's, an aura's) shows no casting stance; one with a time does.
+    #[test]
+    fn only_a_nano_that_takes_time_shows_the_casting() {
+        assert!(takes_time_to_cast(Some(100)));
+        assert!(!takes_time_to_cast(Some(0)));
+        assert!(!takes_time_to_cast(None));
+    }
+
     #[test]
     fn sitting_is_held_until_getting_up() {
         let mut w = World { own: 1, ..World::default() };
         w.add(&n3::position_update(7, n3::movement::SIT, 0.0, [1.0, 2.0, 3.0], 0));
         assert_eq!(w.held_action(7), Some(0xd5));
+        // (turning on the spot keeps it seated)
+        for kind in [n3::movement::TURN_LEFT_START, n3::movement::TURN_RIGHT_START, n3::movement::TURN_STOP, n3::movement::HEADING] {
+            w.add(&n3::position_update(7, kind, 1.0, [1.0, 2.0, 3.0], 0));
+            assert_eq!(w.held_action(7), Some(0xd5));
+        }
+        // (the keys of a seated character of one's own: nothing but the turns gets through)
+        assert_eq!(seated_keys(true, true, 1, true), (false, false, 0, false));
         // (the periodic report keeps it seated; getting up or walking does not)
         w.add(&n3::position_update(7, n3::movement::FULL, 0.0, [1.0, 2.0, 3.0], 0));
         assert_eq!(w.held_action(7), Some(0xd5));

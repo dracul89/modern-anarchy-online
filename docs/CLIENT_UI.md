@@ -749,6 +749,42 @@ the remains of a scaled creature (not looked at). `MAO_COMBAT_LOG=1` prints a "n
 any creature's update that gives the client neither a template nor a humanoid body, and a "no model" line for
 anything drawn as a marker; `creaturecheck` says whether every creature record's body reads (all but two do).
 
+**Sitting, the recharger, the return from death and the casting stance (2026-11-11; `net.rs`, `whiteout.rs`,
+`viewer.rs`).** Four things the user reported from playing the test character, each seen live afterwards.
+
+- *A seated character stays seated.* Any movement key stood it up (the client's own rule). The user's word for the
+  original: only the sit key does, and the turn keys spin it where it sits. That agrees with Gamecode's table of
+  movement transitions (FUN_1006cb58): the sit mode (8) is left only by `LeaveSit` (0x25), which `N3Msg_SitToggle`
+  asks for; the turns (cases 9 to 0xe) are taken in any mode; and FUN_1006f9eb gives the sit mode's vehicle the
+  floor of the walking speeds. Now forward, back, the sidesteps and the jump do nothing while seated
+  (`seated_keys`), the turn keys turn the character and tell the server as when standing, and another character's
+  turn messages no longer stand it up in the client's picture. What a jump does seated in the original was not
+  read. Live: seated through all the keys, only turn messages sent, up again on the sit key.
+- *The health and nano recharger.* It is an item used from the inventory by a right click, and the server wants the
+  character seated and something selected (itself will do: F1), else it answers that a target must be selected.
+  The client's part was all there; the kit failed for the user because the first turn or step stood the character
+  up. Live after the fix: sat, F1, the kit used, the heal's lines.
+- *Coming back from death.* The camera stayed where the character died and found its own way to the arrival pad.
+  The server's move is a teleport and the playfield's message again, which in the original is a playfield entered
+  and so a new camera (`SetMainDynel` → `CreateCamera`); the viewer makes one now whenever the server sets the
+  character down elsewhere in its playfield (`Update::new_camera`). And the world fades to white while the
+  character lies dead (`whiteout.rs`), as the user describes the original ("the screen fades to white then you
+  teleport to spawn"). **A guess in its times**: the original's code for the white was looked for and not found
+  (GUI.dll's `DeadMessage` and `TeleportStartedMessage` have none; Gamecode's `VisualFader_t`s are the weather's
+  and the playfield's black one), so the white rises over the minute the server leaves the body lying and clears
+  in a second and a half after the arrival; only the world goes white, the windows stay. Live: nearly white 55 s
+  after the death, the pad with the camera behind the character after it.
+- *The casting stance only for a nano that takes time.* Every cast the server tells played the casting animation,
+  so a recharger's use and the auras' repeats did (the user named the rechargers and the keepers' auras). The
+  original stands a character in the stance only while its list of casts under way has one (FUN_1007c8af), and a
+  cast whose time is nothing runs at once and never waits there (FUN_1005141d). The client now plays the animation
+  only for a nano with an attack time (stat 294; the recharger's regeneration nano has 0, an ordinary program 100).
+  Not ported: the caster's skill taking a short time down to nothing. Live: the kit used seated, no stance.
+
+The test script's keys reach the character now (`viewer.rs`): `forward/1.5`, `turn_left/0.5`, `strafe_right/1`,
+`jump/0.3` hold the movement keys that long, and `sit_stand`, `select_self`, `attack`, `use` and the four target
+keys press once. Until now only the camera's keys did anything from a script.
+
 **What a new character's first steps found (2026-11-10, `net.rs`, `gui/controls.rs`).** Three fixes from playing a
 fresh character through its first minutes (the list is in `LIVE_TEST_LIST.md`). An item move is still shown at once,
 but the server's answer is followed now: it takes a move with `ContainerAddItem` naming the old place (`(0x68,

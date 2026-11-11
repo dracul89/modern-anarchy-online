@@ -216,6 +216,11 @@ account with `net <game> create`, in Arete Landing; scripted, other new players 
 - Level 4 reached by kills (the level's own message not yet seen with the fix in).
 - **Found and fixed** (the user saw them): the rifle was not in the character's hands; the health, nano and
   experience bars were drawn off their frames (they are the original's upright bars in the wings now).
+- **Found and fixed** (the user played the character, 2026-11-11): a seated character stood up at any key (now
+  only the sit key, and it turns where it sits); the recharger kit could not be used for that reason (sit, F1,
+  right click: heals); the camera was left behind at a return from death (a new one behind the character now);
+  the world fades to white while dead (the times a guess); a recharger's use and the auras played the casting
+  animation (only nanos that take time to cast do now). All seen live after the fixes, with two more deaths.
 - Not reached: the item's hand-over to Alex, level 5 and the way into ICC, a
   team with a second new character. The character is level 4 with 2,070 credits on the arrival platform.
 

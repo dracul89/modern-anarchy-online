@@ -115,6 +115,9 @@ pub struct Update {
     pub interior: Option<Option<std::sync::Arc<crate::interior::Interior>>>,
     /// Which rooms the character can see into (one flag a room), when that changes.
     pub rooms_shown: Option<Vec<bool>>,
+    /// The server put the character somewhere else in the playfield it is in (a teleport and the playfield's message
+    /// again, as when it comes back to life): a new camera behind it, as for a playfield entered.
+    pub new_camera: bool,
     pub model: Model,
     /// The player's own character, drawn separately so it can move smoothly between updates, and its speed
     /// (units a second, server coordinates) for the prediction.
@@ -664,6 +667,8 @@ struct App {
     /// A step with an `@` is one for the interface (`Ui::script`: `open@skills`, `rclick@812;640`, `type@/ch clan`,
     /// `key@Enter`): the windows clicked and typed in without a mouse.
     camera_script: Vec<(f32, String)>,
+    /// The movement keys the script holds just now (forward, back, jump, turn, sidestep), to tell when they change.
+    script_moves: (bool, bool, bool, i8, i8),
     script_clock: std::time::Instant,
     script_held: Vec<(Action, std::time::Instant)>,
     /// The camera as first set, and as the player saved it.
@@ -796,7 +801,7 @@ pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<()
     let settings = Settings::load();
     crate::ui::set_debug_overlay(settings.debug_overlay);
     crate::font::set_enabled(settings.original_font);
-    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, world_in: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), flares: Vec::new(), falls: None, area_fog_base: None, sky: Default::default(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), fxs_frame: None, script_meshes: Default::default(), named_sheets: Default::default(), trails: Default::default(), motions: Default::default(), shake: (0.0, 0), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, zones: None, collision: None, camera_body: crate::vehicle::Body::without_gravity(), look_target: Default::default(), interior: None, rooms_shown: Vec::new(), room_hint: None, attractor_at: std::time::Instant::now(), casters: Vec::new(), character_parts: Vec::new(), highlight_runs: Default::default(), highlight_fades: Default::default(), follow_shift: [0.0; 3], environment: Default::default(), quake: Default::default(), quake_offset: [0.0; 3], wind: Default::default(), wind_at: std::time::Instant::now(), perf_memory_at: std::time::Instant::now() - std::time::Duration::from_secs(10), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), camera_script: std::env::var("MAO_CAMERA_SCRIPT").ok().map_or_else(Vec::new, |v| v.split(',').filter_map(|s| s.split_once(':').and_then(|(t, c)| Some((t.trim().parse().ok()?, c.trim().to_string())))).collect()), script_clock: std::time::Instant::now(), script_held: Vec::new(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
+    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, world_in: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), flares: Vec::new(), falls: None, area_fog_base: None, sky: Default::default(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), fxs_frame: None, script_meshes: Default::default(), named_sheets: Default::default(), trails: Default::default(), motions: Default::default(), shake: (0.0, 0), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, zones: None, collision: None, camera_body: crate::vehicle::Body::without_gravity(), look_target: Default::default(), interior: None, rooms_shown: Vec::new(), room_hint: None, attractor_at: std::time::Instant::now(), casters: Vec::new(), character_parts: Vec::new(), highlight_runs: Default::default(), highlight_fades: Default::default(), follow_shift: [0.0; 3], environment: Default::default(), quake: Default::default(), quake_offset: [0.0; 3], wind: Default::default(), wind_at: std::time::Instant::now(), perf_memory_at: std::time::Instant::now() - std::time::Duration::from_secs(10), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), script_moves: Default::default(), camera_script: std::env::var("MAO_CAMERA_SCRIPT").ok().map_or_else(Vec::new, |v| v.split(',').filter_map(|s| s.split_once(':').and_then(|(t, c)| Some((t.trim().parse().ok()?, c.trim().to_string())))).collect()), script_clock: std::time::Instant::now(), script_held: Vec::new(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
     // (entering the game: the loading screen, `ServerLogin3DModule_t::InitialiseMessage`)
     if app.live.is_some() {
         crate::loading::begin(crate::loading::FADE_IN, crate::loading::FADE_OUT);
@@ -1705,8 +1710,11 @@ impl ApplicationHandler for App {
                         crate::prof::add("upload-own", own_started.elapsed());
                         self.casters = std::mem::take(&mut update.casters);
                         self.character_parts = std::mem::take(&mut update.character_parts);
-                        // (a playfield entered, the first one too: the original makes a new camera behind the character)
-                        if let (true, Some(p)) = (update.scene.is_some(), update.own) {
+                        // (a playfield entered, the first one too: the original makes a new camera behind the character;
+                        // the same when the server sets the character down elsewhere in the playfield it is in, which is
+                        // the playfield's message again and so the original's `SetMainDynel` again: until 2026-11-11 the
+                        // old camera was left to find its way from where the character died)
+                        if let (true, Some(p)) = (update.scene.is_some() || update.new_camera, update.own) {
                             self.steering.create(p, self.heading);
                         }
                         if let Some(p) = update.own {
@@ -1736,6 +1744,7 @@ impl ApplicationHandler for App {
                         // server's frame; the terrain stands in for its lines of sight.
                         // (the camera script's keys: see `camera_script`)
                         let now = std::time::Instant::now();
+                        let mut script_pressed = false;
                         while self.camera_script.first().is_some_and(|(t, _)| self.script_clock.elapsed().as_secs_f32() >= *t) {
                             let (_, what) = self.camera_script.remove(0);
                             // (a step for the interface: its argument may hold a slash, as a chat command does)
@@ -1755,12 +1764,48 @@ impl ApplicationHandler for App {
                                     eprintln!("falls: {} feet, nearest {:?} from the eye, environment effects {}", self.falls.as_ref().map_or(0, |(_, f, _)| f.len()), nearest, crate::prefs::effect_category_active(crate::prefs::ENVIRONMENT));
                                 }
                                 _ => match crate::settings::ACTIONS.iter().find(|(_, n, _)| *n == name) {
-                                    Some((a, _, _)) => self.script_held.push((*a, now + std::time::Duration::from_secs_f32(secs))),
+                                    Some((a, _, _)) => {
+                                        // (the keys that act once as they go down: the same counters the keyboard steps)
+                                        let slot = match a {
+                                            Action::NextHostileTarget => Some(0),
+                                            Action::PrevHostileTarget => Some(1),
+                                            Action::NextFriendlyTarget => Some(2),
+                                            Action::PrevFriendlyTarget => Some(3),
+                                            Action::Attack => Some(4),
+                                            Action::SitStand => Some(5),
+                                            Action::Use => Some(6),
+                                            _ => None,
+                                        };
+                                        if let Some(slot) = slot {
+                                            self.keys.commands[slot] = self.keys.commands[slot].wrapping_add(1);
+                                            script_pressed = true;
+                                        }
+                                        if *a == Action::SelectSelf {
+                                            self.keys.select_self = self.keys.select_self.wrapping_add(1);
+                                            script_pressed = true;
+                                        }
+                                        self.script_held.push((*a, now + std::time::Duration::from_secs_f32(secs)))
+                                    }
                                     None => eprintln!("camera script: no action {name:?}"),
                                 },
                             }
                         }
                         self.script_held.retain(|(_, until)| *until > now);
+                        // (the script's movement keys, held as long as the step says, go to the character as the keyboard's do)
+                        let scripted = |a: Action| self.script_held.iter().any(|(x, _)| *x == a);
+                        let moves = (scripted(Action::Forward), scripted(Action::Back), scripted(Action::Jump), scripted(Action::TurnRight) as i8 - scripted(Action::TurnLeft) as i8, scripted(Action::StrafeRight) as i8 - scripted(Action::StrafeLeft) as i8);
+                        if moves != self.script_moves || script_pressed {
+                            self.script_moves = moves;
+                            let real = |a: Action| self.held.contains(&a);
+                            self.keys.forward = real(Action::Forward) || self.autorun || moves.0;
+                            self.keys.back = real(Action::Back) || moves.1;
+                            self.keys.jump = real(Action::Jump) || moves.2;
+                            self.keys.turn = (real(Action::TurnRight) as i8 - real(Action::TurnLeft) as i8 + moves.3).clamp(-1, 1);
+                            self.keys.strafe = (real(Action::StrafeRight) as i8 - real(Action::StrafeLeft) as i8 + moves.4).clamp(-1, 1);
+                            if let Some(live) = &self.live {
+                                let _ = live.input.send(self.keys);
+                            }
+                        }
                         let held = |a: Action| self.held.contains(&a) || self.script_held.iter().any(|(x, _)| *x == a);
                         let inputs = crate::camera::Inputs {
                             rotate_left: held(Action::CameraRotateLeft),

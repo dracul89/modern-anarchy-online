@@ -1828,6 +1828,8 @@ fn hud_layer(ctx: &egui::Context, hud: &Hud, project: &dyn Fn(Vec3) -> Option<[f
     let accent = rgb(palette.accent);
     let screen = ctx.content_rect();
     let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Background, egui::Id::unique("labels")));
+    // (dead: the world fades to white under the labels and the windows)
+    crate::whiteout::draw(ctx, &painter, screen);
     for label in &hud.labels {
         let Some([x, y]) = project(label.world) else { continue };
         let at = egui::pos2(screen.left() + x * screen.width(), screen.top() + y * screen.height());
