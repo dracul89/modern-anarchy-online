@@ -185,8 +185,25 @@ account with `net <game> create`, in Arete Landing; scripted, other new players 
 - The return: the quest's giver followed and used, the reward told (experience, 1040 credits, the credits shown go
   from 5 to 1,045) and his window with the next question. **Found and fixed**: the reward's line showed the text's
   markup for "credit or credits" (the texts' choices were not known to the client).
-- Not reached: dying and reclaiming (the one creature tried could not be attacked), a shop (1,045 credits now), a
-  mission, the level 5 way into ICC, a team with a second new character.
+- The second quest (its giver is under attack and answers only between the attacks): his talk, the fire
+  suppressant from him, **the item dragged from the inventory onto a gas fire** (the fire is put out and the quest
+  moves on), the return, and **the item handed back through the NPC's trade slot** (dragged in, Accept): the reward,
+  1080 credits and an item. **Found and fixed**: the fire went on burning after the server took it away; the
+  busy NPC said its line twice.
+- A level gained (twice: by a reward and by a kill). **Found and fixed**: the experience bar was empty after it
+  until the next login (the level's own message was not read). Health and nano grow with the level as told.
+- Nine robots shot on the upper deck, 260 experience each at level 2.
+- The way down to the ground (twenty waypoints taken from the original's capture, `/waypoint` each: ramps and
+  decks, no place where the character was caught) and the third quest's giver; his talk and the quest.
+  **Found and fixed**: a `/waypoint` while following somebody went nowhere.
+- A shop: **found and fixed**: the machine answered "too far away" from 4 m (the client used another machine's
+  id). Now its window opens with the list and the prices; a row double clicked and Accept buys it (100 arrows, 105
+  credits).
+- Not a fault after all: a corner where the character seemed caught (the test's own route cut through stacked
+  crates the original's player walked round; `net <game> caught <playfield> <x> <y> <z>` shows whether a place can
+  be left).
+- Not reached: dying and reclaiming, the third quest's robots and its hand-over, level 5 and the way into ICC, a
+  team with a second new character. The character is level 3 with 2,020 credits by the ammunition machine.
 
 A screenshot is a grab of the screen, so with two full-screen clients it shows the one on top; the other side was
 checked through the chat log (`chat/<date>.txt`), which both write.

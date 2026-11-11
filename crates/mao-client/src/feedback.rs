@@ -50,6 +50,8 @@ fn english(name: &str) -> &'static str {
         "Feedback_WasAttackedByNanobots" => "%s was attacked with nanobots for %u points of %s damage.",
         "Feedback_YouHitOtherWith" => "You hit %s with %s for %u points of %s damage.",
         "Feedback_UnableToWear" => "You do not meet what it takes to wear that.",
+        "Feedback_NewLevel" => "You are level %d now.",
+        "Feedback_YouHaveReceivedIncreasePoints" => "You have new points to raise your skills with.",
         // (the pet duel's, in this client's own words)
         "PetDuelChallenge" => "%s asks you for a duel of pets (/petduel accept or /petduel reject).",
         "ChallengedX2duel" => "You asked %s for a duel of pets.",

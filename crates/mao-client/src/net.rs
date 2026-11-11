@@ -1489,6 +1489,29 @@ impl World {
             }
             _ => {}
         }
+        // A new level (`NewLevel`, Gamecode FUN_10075f55): the message's numbers become the character's stats: the level
+        // (54), the experience (52), the points to spend (53), the experience the level began at (57) and the next takes
+        // (350), and the range of levels that give experience (275). No `Stat` message tells the last two, so the
+        // experience bar had nothing to show after a level (seen live 2026-11-10). The client's own character is told
+        // its level, and below level 4 that there are points to spend. Not ported: the line for the reset points gained
+        // (with the level's title), the `got_ip`, `got_perk` and `got_tech` hints.
+        if m.kind == 0x7f405a16 && m.identity.1 == self.own {
+            if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
+                let field = |name: &str| p.value.get(name).and_then(mao_net::schema::Value::as_int);
+                for (stat, name) in [(54u32, "Level"), (52, "CurrentXp"), (53, "AvailableIp"), (57, "LastLevelXp"), (350, "NextLevelXp"), (275, "XpKillRange")] {
+                    if let Some(v) = field(name) {
+                        self.stats.insert(stat, v);
+                    }
+                }
+                self.stats_changed = true;
+                if let Some(level) = field("Level") {
+                    self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, crate::feedback::with_number("Feedback_NewLevel", level)));
+                    if level < 4 {
+                        self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, crate::feedback::plain("Feedback_YouHaveReceivedIncreasePoints")));
+                    }
+                }
+            }
+        }
         // The jingles: a new level (`NewLevel`, FUN_10075f55: `SM_Sandy_Game_Level_Complete`), a new shadow level
         // (`ShadowLevel`, FUN_10077ae7: `..._Neutral`, `..._Clan` or `..._Omni` by the side, stat 33) and a mission done
         // (`CharacterAction` 59, FUN_1005d61f's case 0xf: `SM_Sandy_Gui_Mission_Complete_Neutral`, `_Clan`, `_Omni` by the
@@ -2678,6 +2701,15 @@ impl World {
                 // (FUN_100a2006 tells the change of the health, experience, alien experience and shadowknowledge from the value
                 // held; a stat not held yet has no change to tell)
                 let before: Vec<(u32, Option<i64>)> = [27u32, 52, 40, 573].iter().map(|&s| (s, self.stats.get(&s).copied())).collect();
+                // (MAO_COMBAT_LOG: the stats told of the character, but its health and nano)
+                if std::env::var_os("MAO_COMBAT_LOG").is_some() {
+                    if let Some(mao_net::schema::Value::List(items)) = p.value.get("Stats") {
+                        let told: Vec<(i64, i64)> = items.iter().filter_map(|i| Some((i.get("Item1")?.as_int()?, i.get("Item2")?.as_int()?))).filter(|t| t.0 != 27 && t.0 != 214).collect();
+                        if !told.is_empty() {
+                            eprintln!("own stats told: {told:?}");
+                        }
+                    }
+                }
                 self.read_stats(p.value.get("Stats"));
                 for (stat, old) in before {
                     let (Some(old), Some(&new)) = (old, self.stats.get(&stat)) else { continue };
@@ -2870,11 +2902,17 @@ impl World {
         if let Some(&corpse) = self.corpses.get(&id).filter(|c| self.objects.contains_key(c)) {
             return (OBJECT_TYPE, corpse);
         }
-        // (a table object in an instance goes by the instance's id: its number among the table's records of its kind, `0xc0NNpppp`,
-        // counted through the playfield message's runs of that kind)
-        if id >> 24 == 0xc0 && self.table.iter().any(|d| d.0 == kind && d.1 == id) {
-            if let Some(instance) = instance_id(&self.instance_runs, kind, (id >> 16) & 0xff) {
-                return (kind, instance);
+        // (a table object in an instance goes by the instance's id: its place among the table's records of its kind, in
+        // the table's order, counted through the playfield message's runs of that kind. Not the number in its own id,
+        // `0xc0NNpppp`: where the numbers have a gap the two differ. Arete Landing's machines are numbered 0 to 4 and 6 to
+        // 8, so the ammunition machine, number 6, is the sixth record and `first + 5`; taken as `first + 6` the use went
+        // to a machine 90 m off and the server answered that it was too far away. The original's capture of 2026-10-30
+        // has the machines' announcements with their places to check this by.)
+        if id >> 24 == 0xc0 {
+            if let Some(nth) = self.table.iter().filter(|d| d.0 == kind).position(|d| d.1 == id) {
+                if let Some(instance) = instance_id(&self.instance_runs, kind, nth as u32) {
+                    return (kind, instance);
+                }
             }
         }
         (kind, id)
@@ -5908,6 +5946,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             if raw.goto.0 != goto_seen {
                 goto_seen = raw.goto.0;
                 goto = Some(raw.goto.1);
+                // (the later order wins: a target followed until now is let go, or the walk never left its side)
+                following = None;
                 (goto_best, goto_progress, detour, detours) = (f32::MAX, Instant::now(), None, 0);
                 pending_messages.push("Walking there (any movement key stops)".into());
             }
@@ -8042,6 +8082,24 @@ pub fn run(args: &[String]) -> Result<(), String> {
         [word, log] if word == "msg-stats" => msg_stats(log),
         [word, log] if word == "msg-check" => msg_check(log, None, 0),
         [word, log, kind, rest @ ..] if word == "msg-parse" => msg_check(log, u32::from_str_radix(kind, 16).ok(), rest.first().and_then(|n| n.parse().ok()).unwrap_or(2)),
+        // `net <game dir> caught <playfield> <x> <y> <z>`: where a body standing there gets to in a second's run each of eight
+        // ways (to see a place a character is caught in).
+        [game, word, pf, x, y, z] if word == "caught" => {
+            let db = Arc::new(ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?);
+            let area = load_area(game, &db, pf.parse().map_err(|_| "bad playfield")?)?;
+            let from: [f32; 3] = [x.parse().map_err(|_| "bad x")?, y.parse().map_err(|_| "bad y")?, z.parse().map_err(|_| "bad z")?];
+            let ground = crate::vehicle::Ground { zones: area.zones.clone().unwrap_or_default(), terrain: area.terrain.clone().map(|t| { let s = t.height_scale; (t, s) }), offset: 0.0 };
+            println!("closest from there: {:?}", ground.closest(from));
+            for k in 0..8 {
+                let a = k as f32 * std::f32::consts::FRAC_PI_4;
+                let (mut body, mut pos, mut events) = (crate::vehicle::Body::default(), from, Vec::new());
+                for _ in 0..30 {
+                    body.run(&ground, &mut pos, [a.cos() * 5.0, a.sin() * 5.0], 1.0 / 30.0, &mut events);
+                }
+                println!("towards ({:+.1}, {:+.1}): to ({:.2}, {:.2}, {:.2}), {:.2} m", a.cos(), a.sin(), pos[0], pos[1], pos[2], ((pos[0] - from[0]).powi(2) + (pos[2] - from[2]).powi(2)).sqrt());
+            }
+            Ok(())
+        }
         // `net <game dir> ground <playfield> <x> <z> [y]`: the vehicle's ground there (the tile-map's, the closest point from
         // y, 100 by default, and a ray straight down), against the old bilinear height.
         [game, word, pf, x, z, rest @ ..] if word == "ground" => {
@@ -9876,6 +9934,47 @@ mod movement_tests {
 #[cfg(test)]
 mod prop_anim_tests {
     use super::prop_anim_time;
+
+    /// A built-in machine is used by the id the server gave its record: by the record's place among its kind in the
+    /// table, not by the number in its table id (Arete Landing: the machines' numbers skip 5; the runs are those of a
+    /// live entering, 2026-11-10, and the original's capture has the sixth machine announced as `first + 5` where the
+    /// table has number 6).
+    #[test]
+    fn a_built_in_machine_goes_by_its_place_in_the_table() {
+        let mut w = super::World { own: 1, ..Default::default() };
+        w.instance_runs = vec![(0xc748, 0, 1, 0x10c16884), (0xc73d, 1, 1, 0x58b158e2), (0xc75b, 2, 8, 0x1324d82c), (0xc73d, 0xa, 0x10, 0x58b158e3), (0xc748, 0x1a, 1, 0x10c16885)];
+        let row = |kind: u32, number: u32| (kind, 0xc000_1999 | number << 16, [0.0f32; 3], 0u32, String::new());
+        w.table = vec![row(0xc73d, 0x10)];
+        w.table.extend([0, 1, 2, 3, 4, 6, 7, 8].map(|n| row(0xc75b, n)));
+        w.table.extend((0..0x10).map(|n| row(0xc73d, n)));
+        assert_eq!(w.used(0xc75b, 0xc006_1999), (0xc75b, 0x1324d831));
+        assert_eq!(w.used(0xc75b, 0xc008_1999), (0xc75b, 0x1324d833));
+        assert_eq!(w.used(0xc75b, 0xc000_1999), (0xc75b, 0x1324d82c));
+        // (the terminals: the first of the table has a run of its own, the others follow in the second)
+        assert_eq!(w.used(0xc73d, 0xc010_1999), (0xc73d, 0x58b158e2));
+        assert_eq!(w.used(0xc73d, 0xc000_1999), (0xc73d, 0x58b158e3));
+        // (a thing that is not the table's keeps its id)
+        assert_eq!(w.used(0xc73d, 0x58b15906), (0xc73d, 0x58b15906));
+    }
+
+    /// A new level's message (this client's test character reaching level 3, 2026-11-10: the first 28 bytes as the trace
+    /// showed them, the rest laid out as the original's capture has it) gives the character its level, its experience
+    /// and the span the experience bar shows.
+    #[test]
+    fn a_new_level_sets_the_experience_span() {
+        let hex = |s: &str| -> Vec<u8> { (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect() };
+        let mut w = super::World { own: 7, ..Default::default() };
+        w.stats.extend([(54, 2), (52, 4240), (57, 1450), (350, 4050)]);
+        w.add(&super::Message { kind: 0x7f405a16, identity: (0xc350, 7), data: hex("00000000030000209b0000109000000fd200001bee000000000000000400000104") }.frame(7));
+        let stat = |k: u32| w.stats.get(&k).copied();
+        assert_eq!((stat(54), stat(52), stat(53), stat(57), stat(350)), (Some(3), Some(4240), Some(8347), Some(4050), Some(7150)));
+        assert_eq!(crate::stats::experience(&w.stats), (Some(190), Some(3100)));
+        assert_eq!(w.game_lines.len(), 2);
+        // (another character's level is not the client's)
+        let mut w = super::World { own: 7, ..Default::default() };
+        w.add(&super::Message { kind: 0x7f405a16, identity: (0xc350, 8), data: hex("00000000030000209b0000109000000fd200001bee000000000000000400000104") }.frame(7));
+        assert!(w.stats.get(&54).is_none() && w.game_lines.is_empty());
+    }
 
     /// `MAO_GAME`: a thing the server tells of (a gas fire of Arete Landing, as the original's capture of 2026-10-30 has
     /// it) is drawn by its template's model and can be used; when the server takes it away it is gone.

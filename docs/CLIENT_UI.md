@@ -641,6 +641,34 @@ argument `N`. `format` is that now (it filled the `%` pieces in order and knew n
 belong to the alternatives, so a plural comes out with two spaces before it, as the original's code makes it. Not
 seen live yet (the reward was taken before the fix).
 
+**A built-in machine's id (2026-11-10, `World::used`).** A use of one of a playfield's own machines was answered
+"too far away" from 4 m (Arete Landing's ammunition machine; the mission booth of an earlier test may be the same
+fault, not tried again). Where the server gives the playfield's built-in things ids of its own (the playfield
+message's runs: a kind, the first record's place in the table, how many, the first id), the client took a record's
+id as the first plus the number in its table id (`0xc0NNpppp`). It is the first plus the record's place among its
+kind in the table: Arete Landing's machines are numbered 0 to 4 and 6 to 8, so machine 6 is the sixth record, and the
+use went to the seventh, 90 m off. The original's capture has the machines announced with their places, which shows
+the order. Seen live: the shop's window opens with its list and prices, and a double click on a row and Accept buys
+it (100 arrows for 105 credits, in the inventory). Left: the on-screen line names the machine by the id used
+("Booth d831") and not by its name.
+
+**A new level (2026-11-10, `World::add`, Gamecode FUN_10075f55).** The experience bar was empty after a level until
+the next login. The server tells a level with a message of its own (`NewLevel`, 0x7f405a16: the level, the points to
+spend, the experience, where the level began and what the next takes, the reset points gained, the range of levels
+that give experience, the last award), and the original puts six of them into the character's stats (54, 53, 52, 57,
+350, 275); no `Stat` message tells 57 and 350. The client only played the jingle. It sets the stats now and tells
+the level (`Feedback_NewLevel`) and, below level 4, that there are points to spend. Not ported: the line for reset
+points with the level's title, the `got_ip`, `got_perk` and `got_tech` hints. Not seen live yet (the next level is
+3100 experience away); the test replays the message of the level it was caught at.
+
+**Things that go, NPCs that are busy, and following (2026-11-10, `net.rs`).** From the same quests: a thing the server
+told of is removed when its `Despawn` comes (a gas fire put out went on burning on its crate); an NPC that answers
+a use with a spoken line and no window is not asked a second time (the client took the silence for a chat left open
+by an earlier run, closed and opened it again, and the NPC said its line twice); a walk to a place lets go of a
+target followed until then (the walk never left the target's side); and the walk's on-screen line no longer calls
+every goal "the booth". Checked against the original and left as it is: two lines an NPC says one after the other are
+joined without a break (FUN_10058ee7 appends a second line of the same kind with neither a break nor the name).
+
 **What a new character's first steps found (2026-11-10, `net.rs`, `gui/controls.rs`).** Three fixes from playing a
 fresh character through its first minutes (the list is in `LIVE_TEST_LIST.md`). An item move is still shown at once,
 but the server's answer is followed now: it takes a move with `ContainerAddItem` naming the old place (`(0x68,
