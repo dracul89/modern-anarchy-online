@@ -1030,7 +1030,12 @@ impl ApplicationHandler for App {
                             w.window.request_redraw();
                         }
                     }
-                    event_loop.set_control_flow(winit::event_loop::ControlFlow::WaitUntil(self.frame_due));
+                    // (asleep until a little before the frame is due, then awake through the rest: the system wakes a
+                    // sleeper a millisecond or more late, which made every frame under a limit that much uneven. Behind
+                    // other windows the sleep alone will do.)
+                    let margin = std::time::Duration::from_micros(if self.focused { crate::settings::LIMIT_SPIN_MICROS } else { 0 });
+                    let left = self.frame_due.saturating_duration_since(std::time::Instant::now());
+                    event_loop.set_control_flow(if left > margin { winit::event_loop::ControlFlow::WaitUntil(self.frame_due - margin) } else { winit::event_loop::ControlFlow::Poll });
                 }
             }
         }

@@ -543,6 +543,9 @@ impl Default for Settings {
     }
 }
 
+/// How long before a limited frame is due the window's thread stops sleeping and waits awake (`viewer.rs`).
+pub const LIMIT_SPIN_MICROS: u64 = 2000;
+
 /// The frame limit in force: the background's while the window is not in front and has one, else the general one; none
 /// when that is 0.
 pub fn frame_limit(limit: u32, background: u32, focused: bool) -> Option<u32> {
