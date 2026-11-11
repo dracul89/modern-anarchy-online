@@ -830,6 +830,20 @@ colour (`FOGCOLOR`, black on the vortex's second layer) is taken. Seen off the g
 hand: the horizon in the fog's colour, the vortex above. Not done: fog on the blended sky draws whose fog is not
 black (the atmosphere's band); whether the original's fog there goes by the distance or by the depth before the
 eye is not known (the distance is taken, as for the world). To be looked at by the user in the Shadowlands.
+*The orbital strike, and what else a script's mesh carries.* `/fxscript EP03_Orbital_Attack` ran and showed
+nothing: its mesh, `EP03_orbital_attack_trigger.abiff`, is an unseen box whose one connector is named
+`eff_universal_71015`. The original's mesh objects make a "universal effect" for each such connector
+(DisplaySystem `fxgmo.rs` `light_attractors`: the number and the connector's place go on the environment's
+attractor stack; Gamecode's `_EffectHandler_t::RunFunction` 0x100d2423 takes them off, makes each with
+`CreateEffect2` and gives it its object's `Position` and `Rotation` every frame until the object's class is
+gone). Done here: a started mesh object's connectors are read (`net.rs::universal_effects`), each effect is made
+with its sounds, goes with its object and ends with it (`Update::placed`, drawn by `placed_particles`,
+`visual_ground_shells` and the shake, as the waterfalls' feet are). Seen live: the strike's rings, its column and
+the white of its flash over the pad, gone eight seconds later (`handoff/duel-shots/orbital-strike.png`). The
+same makes the effects of the other meshes that carry one (the ICC shuttles' 92001 and 12570). Not done: the
+connector's own place and turn on its mesh (the object's place is taken), the object's rotation, and the parts of
+an effect that need a body. The fill square (`e_FillSquare`), which the first note named, is not the strike's:
+only `Tweak_ProgressiveLava` uses it; still not drawn.
 
 **`/fxscript`, the item grids' padding, the CYT skin's wing (2026-11-11, asked for by the user after playing).**
 *`/fxscript <script> [parameters] #`.* The original's command (GUI.dll FUN_100b70be, registered by FUN_100bb3e0 for

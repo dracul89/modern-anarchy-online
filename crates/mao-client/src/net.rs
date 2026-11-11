@@ -711,6 +711,29 @@ static SPEECH: std::sync::Mutex<Vec<(u8, String, Vec<u8>)>> = std::sync::Mutex::
 /// Commands for the server (`/stuck` and the like), sent by the game loop.
 static SERVER_COMMANDS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 
+/// The universal effects a mesh carries: its connectors named `eff_universal_<id>` (DisplaySystem's
+/// `GenericMeshObject_t`, `fxgmo.rs` `light_attractors`: each puts its number and its place on the environment's
+/// attractor stack, which Gamecode's `_EffectHandler_t::RunFunction` 0x100d2423 takes off and makes with `CreateEffect2`).
+/// The orbital strike is such a mesh: an unseen box whose connector names effect 71015.
+fn universal_effects(db: &ResourceDatabase, index: &mao_formats::instances::Instances, mesh: &str) -> Vec<i32> {
+    let Some(instance) = index.find(0xf6951, mesh).or_else(|| index.find(0xf6951, &mesh.to_lowercase())) else { return Vec::new() };
+    let Some(object) = db.get(mao_formats::resource::Id { kind: 0xf6951, instance }).ok().flatten() else { return Vec::new() };
+    let Ok(parsed) = mao_formats::mesh::parse(&object) else { return Vec::new() };
+    let a = &parsed.archive;
+    let mut out = Vec::new();
+    for (i, o) in a.objects.iter().enumerate() {
+        if a.class(i) != Some("RRefFrameConnector") {
+            continue;
+        }
+        let name = o.field("1", "name").or_else(|| o.field("", "name")).and_then(|f| f.values.first()).map(|v| String::from_utf8_lossy(v).trim_end_matches('\0').to_string()).unwrap_or_default();
+        // (`sscanf("%i")` of what follows the prefix)
+        if let Some(id) = name.strip_prefix("eff_universal_").and_then(|rest| rest.trim().parse::<i32>().ok()) {
+            out.push(id);
+        }
+    }
+    out
+}
+
 /// `/fxscript` lines for the effect scripts' engine, which lives on the game loop's thread.
 static FXS_COMMANDS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 
@@ -5274,6 +5297,13 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let (mut body, mut body_reset, mut jumping) = (crate::vehicle::Body::default(), false, false);
         // (`MAO_AUTOPLAY`'s jump: one press)
         let mut autoplay_jump = false;
+        // (the effect scripts' meshes' universal effects by mesh name, and the names' index to find the meshes by)
+        let mut fxs_mesh_effects: std::collections::HashMap<String, Vec<i32>> = std::collections::HashMap::new();
+        // (the universal effects running: a number of its own, the object it goes with, the effect, and whether the
+        // viewer has been given it)
+        let mut fxs_universal: Vec<(u64, crate::fxs::Obj, i32, bool)> = Vec::new();
+        let mut fxs_universal_next = 0u64;
+        let fxs_index = gear_db.get(mao_formats::resource::Id { kind: 0xf424a, instance: 1 }).ok().flatten().and_then(|o| mao_formats::instances::Instances::parse(&o).ok());
         let mut last_tick = Instant::now();
         let mut last_send = Instant::now();
         let mut last_overlay = Instant::now() - Duration::from_secs(1);
@@ -7150,6 +7180,33 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     eprintln!("fxs: effect {fxid} started ({:x})", o.name);
                 }
             }
+            // (a mesh object's universal effects: `universal_effects`. Each goes with its object from then on, as the
+            // original's stays on its connector while `RunFunction` gives it the object's `Position` every frame, and
+            // ends with the object. The connector's own place on the mesh is not taken: the meshes that carry one are
+            // small.)
+            for (fxid, o) in &started {
+                if *fxid != 4 {
+                    continue;
+                }
+                let Some(mesh) = o.variable_named("Mesh").and_then(|v| crate::fxs::string_of(&v)) else { continue };
+                let effects = fxs_mesh_effects.entry(mesh.clone()).or_insert_with(|| fxs_index.as_ref().map_or(Vec::new(), |index| universal_effects(&gear_db, index, &mesh)));
+                if effects.is_empty() {
+                    continue;
+                }
+                let at = o.variable_named("Position").map_or(position, |v| crate::fxs::vector_of(&v));
+                for effect in effects.iter() {
+                    if std::env::var_os("MAO_FXS").is_some() {
+                        eprintln!("fxs: universal effect {effect} of {mesh} at {at:?}");
+                    }
+                    if let Some(g) = gfx.as_ref() {
+                        for s in crate::sounds::effect_sounds(g, *effect) {
+                            crate::audio::with(|m| m.play_sound_command(s.id, at, s.velocity, s.volume, s.range, s.delay, s.defer, s.pitch));
+                        }
+                    }
+                    fxs_universal_next += 1;
+                    fxs_universal.push((fxs_universal_next, o.clone(), *effect, false));
+                }
+            }
             fxs_visuals.start(started);
             // (the frame block the single clouds read: the eye — the character's place here —, `GameSunDirection` toward the two
             // suns together, the storm and the clouds)
@@ -7776,6 +7833,20 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     jolts: std::mem::take(&mut state.jolts),
                     landings: std::mem::take(&mut state.landings),
                     sky_frame: state.sky_frame.take(),
+                    placed_gone: {
+                        let gone = fxs_universal.iter().filter(|u| !u.1.alive()).map(|u| u.0).collect();
+                        fxs_universal.retain(|u| u.1.alive());
+                        gone
+                    },
+                    // (each where its object is now; the effect itself goes with the first of them)
+                    placed: fxs_universal
+                        .iter_mut()
+                        .map(|(key, o, effect, sent)| {
+                            let at = o.variable_named("Position").map_or(position, |v| crate::fxs::vector_of(&v));
+                            let visual = if std::mem::replace(sent, true) { None } else { gfx.as_ref().and_then(|g| g.visual(*effect)) };
+                            (*key, [at[0], at[2], at[1]], visual)
+                        })
+                        .collect(),
                     flares: std::mem::take(&mut state.placed_effects)
                         .into_iter()
                         .filter_map(|(id, at)| Some(([at[0], at[2], at[1]], mao_formats::gfx::Flare::read(gfx.as_ref()?.get(id)?)?)))
