@@ -791,7 +791,7 @@ name (`InitialiseMessage` 0x1011bdaa, the table at 0x102724e4), seen from the fi
 1440: the hall's upper part cut off): the original's angle is across the window, so a wide window sees less up and
 down. Here the angle is kept as a 4:3 window has it and a wider window sees the same height and more to the sides
 (`hall::half_height`; the renderer's camera took an optional view height for it). In a very wide window that shows
-past the hall's walls to the space outside it. Seen: the launcher beside the user's picture of the original's, the
+past the hall's walls to the space outside it (kept so: the user chose the full width over black bars at the sides). Seen: the launcher beside the user's picture of the original's, the
 three settings pages, PLAY into the login, the hall at 16:9 and at 32:9.
 
 Not done: the figures on the hall's pedestals (the original stands characters there, `CCCharacter_t`), the hall
