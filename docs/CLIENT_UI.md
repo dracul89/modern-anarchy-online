@@ -632,6 +632,15 @@ name nor model and could not be picked or used (the cargo box and eight pieces o
 were there. It is attached before the first message is read now. Seen live: the box is named, selected and opened
 (the test hook's `usenear=<name>` also finds the announced things), and the quest moves on.
 
+**A text's choices (2026-11-10, `mao_formats::ldb::format`).** A quest's reward line showed its text's markup, the
+part that picks the singular or the plural by the number of credits. The original's `LDBformat` (the ldb drop-in's
+`format.rs`: `Init`, `FeedInternal`) cuts a text into pieces, each filled by one argument: a `%` conversion by the
+next argument, and `#N{flags:text|text}` by argument `N`, which picks the alternative with the most of its flags (a
+number 0 has the flag `0`, 1 the flag `1`, any other none; the last of equals wins); `#N:` makes the next `%`
+argument `N`. `format` is that now (it filled the `%` pieces in order and knew no `#`). The spaces about the bar
+belong to the alternatives, so a plural comes out with two spaces before it, as the original's code makes it. Not
+seen live yet (the reward was taken before the fix).
+
 **What a new character's first steps found (2026-11-10, `net.rs`, `gui/controls.rs`).** Three fixes from playing a
 fresh character through its first minutes (the list is in `LIVE_TEST_LIST.md`). An item move is still shown at once,
 but the server's answer is followed now: it takes a move with `ContainerAddItem` naming the old place (`(0x68,

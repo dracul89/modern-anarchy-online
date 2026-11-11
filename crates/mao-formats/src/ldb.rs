@@ -76,46 +76,178 @@ pub enum Arg<'a> {
     Int(i64),
 }
 
-/// A text with its placeholders filled in order, as `LDBformat::Feed` fills the next one each time: `%s` a text, `%d`/`%i`/`%u`
-/// a number (either kind of value prints in either), `%%` a percent sign. Placeholders with nothing fed print as they are.
-pub fn format(text: &str, args: &[Arg]) -> String {
-    let mut out = String::new();
-    let mut args = args.iter();
-    let mut chars = text.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c != '%' {
-            out.push(c);
-            continue;
+/// The pieces `LDBformat::Init` cuts a text into (the ldb drop-in's `format.rs`), each with the number of the argument that
+/// fills it (0: plain text). `%` and the characters after it up to the conversion are argument `next`, counted from 1
+/// (`%%` is a percent sign). `#N{...}` is a choice made by argument `N` (a digit); `#N:` makes the next `%` argument `N`; any
+/// other `#N` stays as text.
+fn tokens(text: &str) -> Vec<(u32, String)> {
+    let c: Vec<char> = text.chars().collect();
+    let at = |i: usize| c.get(i).copied().unwrap_or('\0');
+    let mut out: Vec<(u32, String)> = Vec::new();
+    let mut token = |from: usize, to: usize, index: u32| {
+        // (`[from, to]`, stepped back off the end of the text; nothing when it is empty)
+        let to = to.min(c.len().saturating_sub(1));
+        if from <= to && from < c.len() {
+            out.push((index, c[from..=to].iter().collect()));
         }
-        // (the flags and width the drop-in's `init` skips over before the conversion)
-        let mut spec = String::from("%");
-        while let Some(&f) = chars.peek() {
-            if f.is_ascii_digit() || "-+ #.l".contains(f) {
-                spec.push(f);
-                chars.next();
+    };
+    let (mut start, mut p, mut next) = (0usize, 0usize, 1u32);
+    while p < c.len() {
+        if c[p] == '%' {
+            if p != 0 {
+                if let Some(to) = p.checked_sub(1) {
+                    token(start, to, 0);
+                }
+            }
+            let mut q = p + 1;
+            if at(q) == '%' {
+                token(q, q, 0);
+                p = q + 1;
+                start = p;
             } else {
+                while q < c.len() && "-+ 0#123456789.hlL".contains(c[q]) {
+                    q += 1;
+                }
+                token(p, q, next);
+                p = q + 1;
+                start = p;
+                next += 1;
+            }
+        } else if c[p] == '#' {
+            if let Some(to) = p.checked_sub(1) {
+                token(start, to, 0);
+            }
+            start = p + 1;
+            let digit = at(start);
+            if digit == '#' {
+                p = start;
+                continue;
+            }
+            let index = (digit as u32).wrapping_sub('0' as u32);
+            start = p;
+            if digit == '\0' {
+                p += 1;
                 break;
             }
-        }
-        match chars.next() {
-            Some('%') => out.push('%'),
-            Some(k @ ('s' | 'd' | 'i' | 'u')) => match args.next() {
-                Some(Arg::Text(t)) => out.push_str(t),
-                Some(Arg::Int(n)) if k == 'u' => out.push_str(&(*n as u32).to_string()),
-                Some(Arg::Int(n)) => out.push_str(&n.to_string()),
-                None => {
-                    out.push_str(&spec);
-                    out.push(k);
+            let a = p + 2;
+            match at(a) {
+                '\0' => {
+                    p = a;
+                    break;
                 }
-            },
-            Some(k) => {
-                out.push_str(&spec);
-                out.push(k);
+                '{' => {
+                    let mut q = a;
+                    while q < c.len() && c[q] != '}' {
+                        q += 1;
+                    }
+                    token(a, q, index);
+                    p = q + 1;
+                    start = p;
+                }
+                ':' => {
+                    p = a + 1;
+                    start = p;
+                    next = index;
+                }
+                _ => p = a,
             }
-            None => out.push_str(&spec),
+        } else {
+            p += 1;
         }
     }
+    token(start, p, 0);
     out
+}
+
+/// `LDBformat::FeedInternal`: of a choice `{flags:text|flags:text...}` the text of the alternative with the most of
+/// `flags` (the last of equals). An alternative's flags are the characters up to its `:` (a letter is a bit from 0, the
+/// digits 0 to 5 the bits from 26: `MakeFlagBit`); one that begins with a space has none and its text begins at the
+/// space. A choice that does not parse stays as it is.
+fn choose(token: &str, flags: u32) -> Option<String> {
+    let c: Vec<char> = token.chars().collect();
+    if c.first() != Some(&'{') {
+        return None;
+    }
+    let bit = |ch: char| -> u32 {
+        let u = ch.to_ascii_uppercase() as i32;
+        let index = u + if u < 0x41 { -0x16 } else { -0x41 };
+        if (0..32).contains(&index) { 1 << index } else { 0 }
+    };
+    let mut choices: Vec<(u32, usize, usize)> = Vec::new();
+    let mut p = 0usize;
+    loop {
+        p += 1;
+        if p >= c.len() {
+            break;
+        }
+        let mut mask = 0;
+        while p < c.len() && c[p] != ':' && c[p] != ' ' {
+            mask |= bit(c[p]);
+            p += 1;
+        }
+        if p >= c.len() {
+            return None;
+        }
+        if c[p] != ' ' {
+            p += 1;
+        }
+        let start = p;
+        if p >= c.len() {
+            return None;
+        }
+        while p < c.len() && c[p] != '|' && c[p] != '}' {
+            p += 1;
+        }
+        if p >= c.len() {
+            return None;
+        }
+        choices.push((mask, start, p));
+    }
+    let mut best = None;
+    let mut most = 0;
+    for &(mask, start, end) in &choices {
+        let count = (mask & flags).count_ones();
+        if best.is_none() || most <= count {
+            most = count;
+            best = Some((start, end));
+        }
+    }
+    best.map(|(start, end)| c[start..end].iter().collect())
+}
+
+/// A text with its arguments fed in order, as `LDBformat::Init` and `Feed` do it: argument `n` fills every piece that is
+/// its own: a `%s` with a text, a `%d`/`%i`/`%u` with a number (either kind of value prints in either), and a choice
+/// `#n{1:one | many}` with the alternative its value picks (a number 0 has the flag `0`, 1 the flag `1`, any other value
+/// none). `%%` is a percent sign. Pieces with nothing fed print as they are.
+pub fn format(text: &str, args: &[Arg]) -> String {
+    let mut tokens = tokens(text);
+    for (n, arg) in args.iter().enumerate() {
+        let n = n as u32 + 1;
+        for (index, piece) in tokens.iter_mut().filter(|t| t.0 == n) {
+            if piece.starts_with('%') {
+                let filled = match (piece.chars().last(), arg) {
+                    (Some('s' | 'd' | 'i' | 'u'), Arg::Text(t)) => Some(t.to_string()),
+                    (Some('u'), Arg::Int(v)) => Some((*v as u32).to_string()),
+                    (Some('s' | 'd' | 'i'), Arg::Int(v)) => Some(v.to_string()),
+                    _ => None,
+                };
+                if let Some(filled) = filled {
+                    *piece = filled;
+                    *index = 0;
+                }
+            } else {
+                let flags = match arg {
+                    Arg::Int(0) => 0x400_0000,
+                    Arg::Int(1) => 0x800_0000,
+                    _ => 0,
+                };
+                if let Some(chosen) = choose(piece, flags) {
+                    *piece = chosen;
+                }
+            }
+        }
+    }
+    tokens.into_iter().map(|t| t.1).collect()
 }
 
 /// `FromBase85`: five digits (`!` + digit, most significant first); `None` at a byte outside `!`..`u`.
@@ -230,6 +362,15 @@ mod tests {
         assert_eq!(s, "You hit Rollerrat for 49 points of energy damage.");
         assert_eq!(format("100%% of %d", &[Arg::Int(-3)]), "100% of -3");
         assert_eq!(format("%s and %s", &[Arg::Text("one")]), "one and %s");
+        // (a choice by the second argument, as the texts for a reward have it: 1 picks the flagged alternative, another
+        // number the one without flags; the spaces about the bar belong to the alternatives, as in the original)
+        let reward = "%d points, %d #2{1:coin | coins}.";
+        assert_eq!(format(reward, &[Arg::Int(5), Arg::Int(1)]), "5 points, 1 coin .");
+        assert_eq!(format(reward, &[Arg::Int(5), Arg::Int(40)]), "5 points, 40  coins.");
+        assert_eq!(format(reward, &[Arg::Int(5)]), "5 points, %d {1:coin | coins}.");
+        // (`#2:` makes the next `%` the second argument; a `#` that is neither stays)
+        assert_eq!(format("#2:%s then #1:%s", &[Arg::Text("a"), Arg::Text("b")]), "b then a");
+        assert_eq!(format("item #7 of %d", &[Arg::Int(9)]), "item #7 of 9");
     }
 
     #[test]

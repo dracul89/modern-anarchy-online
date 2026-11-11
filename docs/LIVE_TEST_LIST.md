@@ -181,8 +181,11 @@ account with `net <game> create`, in Arete Landing; scripted, other new players 
 - **Found and fixed**: the things announced while entering the first playfield of a run had no name and no model and
   could not be used (the cargo box of the first quest among them).
 - The first quest's second step: the cargo box selected and used from 3 m, the mission's line changes to the return
-  to its giver. Not done yet: the return itself and its reward.
-- Not reached: dying and reclaiming (the one creature tried could not be attacked), a shop (5 credits), a
+  to its giver.
+- The return: the quest's giver followed and used, the reward told (experience, 1040 credits, the credits shown go
+  from 5 to 1,045) and his window with the next question. **Found and fixed**: the reward's line showed the text's
+  markup for "credit or credits" (the texts' choices were not known to the client).
+- Not reached: dying and reclaiming (the one creature tried could not be attacked), a shop (1,045 credits now), a
   mission, the level 5 way into ICC, a team with a second new character.
 
 A screenshot is a grab of the screen, so with two full-screen clients it shows the one on top; the other side was
