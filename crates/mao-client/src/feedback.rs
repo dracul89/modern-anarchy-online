@@ -49,6 +49,7 @@ fn english(name: &str) -> &'static str {
         "Feedback_WasAttackedByNanobotsFrom" => "%s was attacked with nanobots from %s for %u points of %s damage.",
         "Feedback_WasAttackedByNanobots" => "%s was attacked with nanobots for %u points of %s damage.",
         "Feedback_YouHitOtherWith" => "You hit %s with %s for %u points of %s damage.",
+        "Feedback_UnableToWear" => "You do not meet what it takes to wear that.",
         // (the pet duel's, in this client's own words)
         "PetDuelChallenge" => "%s asks you for a duel of pets (/petduel accept or /petduel reject).",
         "ChallengedX2duel" => "You asked %s for a duel of pets.",

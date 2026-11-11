@@ -603,6 +603,16 @@ click anywhere in an NPC's answer chooses it (each word was a clickable piece of
 as the server hands the starter items out; `MAO_AUTOPLAY` has `who` and `what` (the characters and the usable
 things about, with their distances), `target=<part of a name>` and `npcclose`.
 
+**Wearing only what may be worn, and an NPC left waiting (2026-11-10, `net.rs`).** Before a move to a wear place is
+sent, the client now asks what the original asks itself (Gamecode `N3Msg_IsItemPossibleToWear` 0x10026c57): the item
+must be a weapon, armour, implant or spirit by its class (stat 76), its placement mask (stat 298, FUN_10080659) must
+have the place, its "can" flags must have "wear" (FUN_10081d5f), all without a word when not; and its requirements
+to wear it (action 6) must be met, else the game's "unable to wear" text (`World::wear_refusal`). Not ported from
+that function: locked equipment, the implants' own rule, the social armour's and the belt's deck places; the
+server's refusal still takes a move back. The other change is this client's own: an NPC that was being talked to
+when a client went without closing the chat answers no new opening, so an NPC that stays silent for two seconds
+after being asked is told the chat is closed and asked once more.
+
 **Scripted clicks, and what the first scripted live run found (2026-11-10, `ui.rs::Ui::script`, `viewer.rs`).**
 `MAO_CAMERA_SCRIPT` steps with an `@` act on the interface as the mouse and keys would, so the windows can be tried
 live without anyone at the keyboard: `open@<window>`, `close@<window>` (`close@` alone: all), `click@<x>;<y>`,

@@ -160,11 +160,19 @@ account with `net <game> create`, in Arete Landing; scripted, other new players 
 - Talking to an NPC: the window with the NPC's lines and the answers. **Found and fixed**: an answer clicked on a
   space between two of its words did nothing (the words were clickable, the gaps not). One NPC answers that the
   character is too low in level, as it did the original's player in the capture.
-- Found, not fixed: an NPC whose chat was open when the client was stopped answers no new opening until it is
-  told the old one is closed (the test's `npcclose` step does that; a real player would have to wait or relog);
-  the camera stood inside a wall once in the shuttle's room; the character was taken into the shuttle while
-  fighting about 8 m from its door (whether the door's reach is right was not checked); an item can be dragged to
-  a place it cannot be worn in (the server refuses, the original does not let it be tried).
+- The four things found and left at first, looked at again the same day:
+  - An NPC whose chat was open when the client was stopped answers no new opening until it is told the old one is
+    closed. **Fixed** (this client's own way round it): an NPC silent for two seconds is told so and asked once
+    more. Seen live: the window opens two seconds late and fills.
+  - An item could be dragged to a place it cannot be worn in. **Fixed**: the original's own check before anything is
+    sent (`N3Msg_IsItemPossibleToWear`: the item's class, its placement mask, its "wear" flag, its requirements).
+    Seen live: glasses dragged to the right hand stay where they are.
+  - The character was taken into the shuttle's room while fighting about 8 m from its door. Checked: the client
+    asked for no zoning there (its log has no teleport try), so the server did it by itself; walking right up to
+    the Shuttle Door also goes in. Nothing to fix; why the server did it during the fight is not known.
+  - The camera stood outside the shuttle's room once, looking at its walls (279 of the room's 296 parts drawn, 97
+    in a normal view). **Not reproduced** in two tries of the same walk, with and without the NPC's window: left
+    open.
 - Not reached: dying and reclaiming (the one creature tried could not be attacked), a shop (5 credits), a
   mission, the level 5 way into ICC, a team with a second new character.
 

@@ -744,6 +744,23 @@ impl crate::spelllist::Scene for World {
 }
 
 impl World {
+    /// Why an item cannot go to a wear place, as Gamecode's `N3Msg_IsItemPossibleToWear` (0x10026c57) decides before
+    /// anything is sent: `None` when it can; `Some(None)` when it cannot and nothing is said (not a weapon, armour,
+    /// implant or spirit by its class, stat 76; a place its placement mask, stat 298, does not have, FUN_10080659; no
+    /// "wear" among its "can" flags, FUN_10081d5f); `Some(text)` when its requirements to wear it (action 6) are not
+    /// met, with the feedback text's name. Not here: the original's locked equipment, the implants' own rule
+    /// (FUN_10044dd8), the social armour's (FUN_10080aff) and the belt's places for decks (FUN_10046f26).
+    fn wear_refusal(&self, entry: &inventory::Entry, to: u32, db: &ResourceDatabase) -> Option<Option<&'static str>> {
+        let stat = |k: u32| template_stat(entry.low_id, k).unwrap_or(0) as u32;
+        let slot = to % 16;
+        if !matches!(stat(76), 1 | 2 | 3 | 5) || slot == 0 || stat(298) & (1 << slot) == 0 || stat(30) & 4 == 0 {
+            return Some(None);
+        }
+        let own = (crate::requirements::CHARACTER, self.own);
+        let unmet = crate::derived::actions(db, entry).iter().filter(|a| a.kind == 6).any(|a| crate::requirements::evaluate(&a.criteria, own, self) == Ok(false));
+        unmet.then_some(Some("Feedback_UnableToWear"))
+    }
+
     /// The numbers of the special actions the character has (`None` until the server has listed its special attacks):
     /// the server's list, then what each weapon in a hand gives (Gamecode FUN_1009e84b, `WeaponItem_t`'s part of being
     /// put on: its attacks by its "can" flags, stat 30, and Reload when its ammunition stat, 26, is not -1). The weapons
@@ -4930,6 +4947,11 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let (mut pending_shop, mut pending_shop_status): (Option<crate::shop::ShopState>, Option<String>) = (None, None);
         // (the NPC chat: what the server said for the window, and the NPC talked to)
         let (mut pending_npc_chat, mut chat_npc): (Vec<crate::npcchat::Event>, Option<(u32, u32)>) = (Vec::new(), None);
+        // The NPC asked to talk and not yet heard from: who, when, and whether it was asked again. An NPC whose chat was
+        // open when a client went without closing it answers no new opening until it is told that chat is closed (seen
+        // live 2026-11-10), so one that stays silent for two seconds is told so and asked once more. This client's own
+        // way round it: the original has nothing of the kind.
+        let mut npc_asked: Option<((u32, u32), Instant, bool)> = None;
         // (the mission journal: the server's whole list when it sends one, and the missions it dropped)
         let (mut pending_mission_log, mut pending_missions_removed): (Option<Vec<crate::missionlog::Mission>>, Vec<(u32, u32)>) = (None, Vec::new());
         let mut shop_booth: Option<(u32, u32)> = None;
@@ -5143,6 +5165,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             crate::npcchat::Event::Open(n, _) | crate::npcchat::Event::Text(n, ..) | crate::npcchat::Event::Answers(n, _) | crate::npcchat::Event::Close(n) | crate::npcchat::Event::StartTrade(n, ..) | crate::npcchat::Event::Rejected(n, _) => *n,
                         };
                         let name = state.names.get(&npc.1).map(|n| n.0.clone()).or_else(|| state.infos.get(&npc.1).map(|i| i.name.clone())).unwrap_or_default();
+                        if npc_asked.is_some_and(|a| a.0 == npc) {
+                            npc_asked = None;
+                        }
                         match event {
                             crate::npcchat::Event::Open(..) => {
                                 chat_npc = Some(npc);
@@ -5523,6 +5548,13 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             // (the server tells the other members' health and nano, `TeamMemberInfo`; none came for oneself in the live
             // team of 2026-11-10, so one's own bars are filled from the character's own stats: this client's reading, the
             // original's member view was not read for it)
+            if let Some((npc, when, false)) = npc_asked
+                && when.elapsed() > Duration::from_secs(2)
+            {
+                let _ = connection.send(&n3::npc_chat_close(own, npc));
+                let _ = connection.send(&n3::npc_chat_open(own, npc));
+                npc_asked = Some((npc, when, true));
+            }
             crate::team::with(|t| {
                 t.own = own;
                 if let Some(me) = t.members.iter_mut().find(|m| m.id == own) {
@@ -5840,6 +5872,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             // (an NPC is talked to: `KnubotOpenChatWindow`, as aosharp opens a conversation)
                             if kind == n3::CHARACTER && t != own && state.infos.get(&t).is_some_and(|i| !i.is_player()) {
                                 let _ = connection.send(&n3::npc_chat_open(own, (kind, t)));
+                                npc_asked = Some(((kind, t), Instant::now(), false));
                             } else {
                                 let _ = connection.send(&n3::use_object(own, uses, (kind, t)));
                             }
@@ -6220,6 +6253,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     let (kind, id) = state.used(state.types.get(&id).copied().unwrap_or(n3::CHARACTER), id);
                     if kind == n3::CHARACTER && id != own && state.infos.get(&id).is_some_and(|i| !i.is_player()) {
                         let _ = connection.send(&n3::npc_chat_open(own, (kind, id)));
+                        npc_asked = Some(((kind, id), Instant::now(), false));
                     } else if kind == n3::CHARACTER && id != own && state.infos.get(&id).is_some_and(|i| i.is_player()) && !state.fighting.contains_key(&own) {
                         // (another player: the default action on them is a trade, `N3Msg_DefaultActionOnDynel` ->
                         // `N3Msg_TradeStart`, an Open naming them; the server echoes it)
@@ -6352,7 +6386,15 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             if keys.mv.0 != move_seen {
                 move_seen = keys.mv.0;
                 let (from, to) = (keys.mv.1, keys.mv.2);
-                if let Some(i) = state.worn.iter().position(|e| e.slot == from) {
+                // (to a wear place only what may be worn there: the original asks itself before it asks the server)
+                let refusal = state.worn.iter().find(|e| e.slot == from).filter(|_| to < inventory::BACKPACK_FIRST).and_then(|e| state.wear_refusal(e, to, &gear_db));
+                if let Some(Some(name)) = refusal {
+                    state.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, crate::feedback::plain(name)));
+                }
+                if refusal.is_some() {
+                    // (the window shows the move as it is made: the list again puts the item back where it was)
+                    pending_gear = Some(crate::gear::from_entries(&gear_db, &gear_textures, &state.worn, state.stats.get(&0x36).copied().unwrap_or(1)));
+                } else if let Some(i) = state.worn.iter().position(|e| e.slot == from) {
                     let _ = connection.send(&n3::move_item(own, from, to));
                     let other = state.worn.iter().position(|e| e.slot == to);
                     if let Some(j) = other {
@@ -8910,6 +8952,21 @@ mod door_tests {
         w.specials_changed = false;
         w.add(&Message { kind: SPECIAL_ATTACK_WEAPON, identity: (0xc350, own), data }.frame(1));
         assert!(!w.specials_changed);
+    }
+
+    /// `MAO_GAME`: what may go to a wear place (`N3Msg_IsItemPossibleToWear`): a nano crystal nowhere and a rifle not in
+    /// a place its placement mask lacks, both without a word; the rifle in the right hand is not refused that way.
+    #[test]
+    fn only_what_may_be_worn_goes_to_a_wear_place() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let db = Arc::new(mao_formats::resource::ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap());
+        let _ = ITEM_DB.set(db.clone());
+        let entry = |slot: u32, low_id: u32| inventory::Entry { slot, flags: 0, count: 1, container: (0, 0), low_id, high_id: low_id, quality: 1, extra: 0 };
+        let w = World { own: 7, ..World::default() };
+        let (crystal, rifle) = (entry(0x45, 0x46147), entry(0x46, 0x1dae1));
+        assert_eq!(w.wear_refusal(&crystal, 6, &db), Some(None));
+        assert_eq!(w.wear_refusal(&rifle, 0x11, &db), Some(None));
+        assert_ne!(w.wear_refusal(&rifle, 6, &db), Some(None));
     }
 
     /// An item move the server refuses is taken back, one it takes stays (the two answers seen live on 2026-11-10: a nano
