@@ -548,6 +548,10 @@ impl Facing {
 /// The game's resources, for the item names and stats the fight lines need (set when play starts).
 static ITEM_DB: std::sync::OnceLock<Arc<ResourceDatabase>> = std::sync::OnceLock::new();
 
+/// The last line the chat server told as somebody's spoken notice (its sender's name and the text, a line each) and when:
+/// an NPC's answer to a use when it will not open its window (seen live: "busy" lines).
+static NPC_SPOKE: std::sync::Mutex<Option<(String, Instant)>> = std::sync::Mutex::new(None);
+
 /// A stat of an item template.
 fn template_stat(template: u32, stat: u32) -> Option<i64> {
     let data = ITEM_DB.get()?.get(mao_formats::resource::Id { kind: mao_formats::item::TEMPLATE, instance: template }).ok().flatten()?;
@@ -1432,6 +1436,14 @@ impl World {
                     self.dead.remove(&body);
                     self.entities.remove(&body);
                 }
+            } else if m.identity.0 == 0xc73d {
+                // (a thing the server told of goes: a gas fire put out, a box taken away after its opening; the playfield's
+                // own things are kept under keys of their own and stay)
+                self.props.remove(&id);
+                self.prop_anim.remove(&id);
+                self.prop_textures.remove(&id);
+                self.objects.remove(&id);
+                self.terminals.remove(&id);
             } else if !self.dead.contains_key(&id) {
                 self.spell_effects.remove(&id);
                 self.spell_queue.forget((crate::requirements::CHARACTER, id));
@@ -4739,6 +4751,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             Some(Packet::Notice { name, text, blob }) => {
                                 // (`HandleVicinityMessage` → FUN_1008cdb3: its voice line, if any)
                                 crate::voices::vicinity_message(&mut voices, &name, &blob);
+                                // (an NPC that answers a use with a spoken line has answered: `NPC_SPOKE`)
+                                if let Ok(mut spoke) = NPC_SPOKE.lock() {
+                                    *spoke = Some((format!("{name}\n{}", mao_net::chat::plain(&text)), Instant::now()));
+                                }
                                 Some(Line::new(Kind::System, mao_net::chat::plain(&text)).with_markup("", &text))
                             }
                             Some(Packet::Vicinity { sender, text, blob }) => {
@@ -5213,6 +5229,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         if npc_asked.is_some_and(|a| a.0 == npc) {
                             npc_asked = None;
                         }
+                        if std::env::var_os("MAO_COMBAT_LOG").is_some() {
+                            eprintln!("npc chat: {event:?}");
+                        }
                         match event {
                             crate::npcchat::Event::Open(..) => {
                                 chat_npc = Some(npc);
@@ -5597,8 +5616,14 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             if let Some((npc, when, false)) = npc_asked
                 && when.elapsed() > Duration::from_secs(2)
             {
-                let _ = connection.send(&n3::npc_chat_close(own, npc));
-                let _ = connection.send(&n3::npc_chat_open(own, npc));
+                // (not when the NPC answered with a line of its own instead of its window: it is not waiting on an old
+                // chat, and asked again it says the line again)
+                let name = state.names.get(&npc.1).map(|n| n.0.clone()).unwrap_or_default();
+                let spoke = NPC_SPOKE.lock().ok().and_then(|s| s.clone()).is_some_and(|(line, at)| at > when && !name.is_empty() && line.split('\n').any(|part| part.starts_with(&name)));
+                if !spoke {
+                    let _ = connection.send(&n3::npc_chat_close(own, npc));
+                    let _ = connection.send(&n3::npc_chat_open(own, npc));
+                }
                 npc_asked = Some((npc, when, true));
             }
             crate::team::with(|t| {
@@ -5724,6 +5749,22 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     // becomes the target, as a click on it would make it
                     // `npcclose`: tells the target NPC its chat is closed (a client that went with the window open leaves
                     // the NPC waiting, and it answers no new opening until then; seen live 2026-11-10)
+                    // (`answer=<n>`: the open NPC chat's answer of that place, from 0, as a click on it; nothing when no chat is
+                    // open, so it can be said again and again until the NPC talks)
+                    w if w.starts_with("answer=") => match (chat_npc, w["answer=".len()..].parse::<u32>()) {
+                        (Some(npc), Ok(k)) => {
+                            eprintln!("autoplay: answer {k} to {npc:x?}");
+                            let _ = connection.send(&n3::npc_chat_answer(own, npc, k));
+                        }
+                        _ => eprintln!("autoplay: no chat open"),
+                    },
+                    // (`talk`: uses the target unless an NPC's chat is open already, so it can be said again and again while
+                    // the NPC is busy)
+                    "talk" => {
+                        if chat_npc.is_none() {
+                            seen[6] = seen[6].wrapping_sub(1);
+                        }
+                    }
                     "npcclose" => {
                         if let Some(t) = target {
                             let _ = connection.send(&n3::npc_chat_close(own, (n3::CHARACTER, t)));
@@ -5748,7 +5789,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         let mut about: Vec<(f32, u32, String)> = state.entities.iter().filter(|(id, _)| **id != own).map(|(id, (p, _))| (((p[0] - position[0]).powi(2) + (p[2] - position[2]).powi(2)).sqrt(), *id, state.names.get(id).map_or(String::new(), |n| n.0.clone()))).collect();
                         about.sort_by(|a, b| a.0.total_cmp(&b.0));
                         for (far, id, name) in about.iter().take(80) {
-                            eprintln!("autoplay: {far:6.1} m  {id:x} ({id})  {name:?}{}", if state.infos.get(id).is_some_and(|i| i.is_player()) { " (player)" } else { "" });
+                            let at = state.entities.get(id).map_or([0.0; 3], |e| e.0);
+                            eprintln!("autoplay: {far:6.1} m  {id:x} ({id})  {name:?}{} at ({:.1}, {:.1}, {:.1})", if state.infos.get(id).is_some_and(|i| i.is_player()) { " (player)" } else { "" }, at[0], at[1], at[2]);
                         }
                     }
                     // (`kill=<part of a name>`: the same, a living one only, then followed and attacked unless it is being
@@ -5757,7 +5799,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         let kill = w.starts_with("kill=");
                         let name = w[w.find('=').map_or(0, |k| k + 1)..].to_ascii_lowercase();
                         let far = |id: &u32| state.entities.get(id).map_or(f32::MAX, |(p, _)| (p[0] - position[0]).powi(2) + (p[2] - position[2]).powi(2));
-                        let alive = |id: &u32| !kill || (!state.dead.contains_key(id) && !state.corpses.contains_key(id));
+                        let alive = |id: &u32| !kill || (!state.dead.contains_key(id) && !state.corpses.contains_key(id) && state.health.get(id).is_none_or(|h| h.0 > 0));
                         match state.names.iter().filter(|(id, n)| **id != own && n.0.to_ascii_lowercase().contains(&name) && state.entities.contains_key(id) && alive(id)).map(|(id, _)| *id).min_by(|a, b| far(a).total_cmp(&far(b))) {
                             Some(id) => {
                                 target = Some(id);
@@ -5862,12 +5904,12 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     }
                 }
             }
-            // Go (the Whom-Pah window): walk to a place; any movement key of the player's own stops it.
+            // Go (the Whom-Pah window) and `/waypoint`: walk to a place; any movement key of the player's own stops it.
             if raw.goto.0 != goto_seen {
                 goto_seen = raw.goto.0;
                 goto = Some(raw.goto.1);
                 (goto_best, goto_progress, detour, detours) = (f32::MAX, Instant::now(), None, 0);
-                pending_messages.push("Walking to the booth (any movement key stops)".into());
+                pending_messages.push("Walking there (any movement key stops)".into());
             }
             if goto.is_some() && (raw.forward || raw.back || raw.strafe != 0 || raw.turn != 0 || raw.jump) {
                 goto = None;
@@ -9834,6 +9876,23 @@ mod movement_tests {
 #[cfg(test)]
 mod prop_anim_tests {
     use super::prop_anim_time;
+
+    /// `MAO_GAME`: a thing the server tells of (a gas fire of Arete Landing, as the original's capture of 2026-10-30 has
+    /// it) is drawn by its template's model and can be used; when the server takes it away it is gone.
+    #[test]
+    fn a_thing_told_of_goes_when_the_server_takes_it_away() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let _ = super::ITEM_DB.set(std::sync::Arc::new(mao_formats::resource::ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap()));
+        let hex = |s: &str| -> Vec<u8> { (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect() };
+        let mut w = super::World { own: 1, ..Default::default() };
+        let told = "000000000b0000000000000000456318f3422ba0324450cde2000000003b521a7100000000bf7fffaa0020da15000f424f00000000006f0000237900000000800a222100000017000483cb000002bd00000001000002be000483cb000002bf000483cb0000019c00000001000001f500000000000001f40000000000000000";
+        w.add(&super::Message { kind: 0x3b11256f, identity: (0xc73d, 0x58dd9b36), data: hex(told) }.frame(1));
+        assert!(w.props.contains_key(&0x58dd9b36) && w.objects.contains_key(&0x58dd9b36));
+        // (told to stand still: `AnimPlay` and `AnimPos` 0)
+        assert_eq!(w.prop_anim.get(&0x58dd9b36).map(|a| (a.0, a.1)), Some((0, 0)));
+        w.add(&super::Message { kind: 0x36510078, identity: (0xc73d, 0x58dd9b36), data: vec![1] }.frame(1));
+        assert!(!w.props.contains_key(&0x58dd9b36) && !w.objects.contains_key(&0x58dd9b36) && !w.terminals.contains_key(&0x58dd9b36));
+    }
 
     /// A thing's model stands still unless its `AnimPlay` says otherwise (Gamecode FUN_10088970): a crate's doors stay
     /// shut, a looping one follows the clock, an opening one runs once to its end and stays there.
