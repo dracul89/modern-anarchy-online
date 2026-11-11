@@ -104,9 +104,7 @@ first so that the first one's window is the one in the screenshots)
   over, shows no target, and the server still has one. The client now tells the server on entering that nothing is
   selected (and again when a target is lost).
 - The rename boxes (a bag's, a chat window's) take the keyboard when they come up.
-Still not reached: the private group's No and Leave (19,
-20), the Visual switches (14 to 17), the chat configuration's buttons (18), ignoring and mail from the friends
-menu (24, 26), nano hide and sorting (39, 40), a bag's kept place and a corpse or the bank beside it (46, 47).
+What was still not reached after this round is in the fourth round's list above.
 
 **Team between the same two** (2026-11-10)
 - The team window's Recruit: with nobody selected and with oneself selected the game's two texts; with the other
