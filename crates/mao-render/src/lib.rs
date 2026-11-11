@@ -270,16 +270,11 @@ struct TextureBind {
     group: wgpu::BindGroup,
 }
 
-/// A number made of a part's indices (FNV-1a over them), never 0: two uploads of the same character part have the same.
-fn index_hash(indices: &[u16]) -> u64 {
-    let mut hash = 0xcbf2_9ce4_8422_2325u64;
-    for &i in indices {
-        hash = (hash ^ i as u64).wrapping_mul(0x0000_0100_0000_01b3);
-    }
-    hash | 1
-}
+/// The most bytes of vertices, or of indices, packed into one buffer (`Renderer::upload`): a quarter of the largest
+/// buffer a device must allow.
+const PACK_BYTES: usize = 64 << 20;
 
-/// A number no other bind group or geometry has.
+/// A number no other bind group, buffer or geometry has.
 fn next_id() -> u32 {
     static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
     NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
@@ -318,11 +313,11 @@ fn record_of(part: &GpuPart, character: bool) -> PartUniform {
 
 /// Draws `parts` in their order, their records from `first` on in the same order. With `merge`, the parts that follow
 /// one another with the same pipeline, texture and geometry go in one call, as its instances; the pipeline, the texture
-/// and the buffers are set only where they change. `pipeline` gives a part's pipeline and a number for it (none: the one
+/// and each of the two buffers are set only where they change. `pipeline` gives a part's pipeline and a number for it (none: the one
 /// already set). Returns the calls made.
 fn draw_runs<'a>(pass: &mut wgpu::RenderPass<'_>, parts: &[&GpuPart], first: u32, merge: bool, pipeline: &dyn Fn(&GpuPart) -> Option<(u32, &'a wgpu::RenderPipeline)>) -> usize {
     let (mut calls, mut i) = (0usize, 0usize);
-    let (mut set_pipeline, mut set_texture, mut set_geometry) = (None, None, None);
+    let (mut set_pipeline, mut set_texture, mut set_vertices, mut set_indices) = (None, None, None, None);
     while i < parts.len() {
         let p = parts[i];
         let chosen = pipeline(p);
@@ -342,15 +337,16 @@ fn draw_runs<'a>(pass: &mut wgpu::RenderPass<'_>, parts: &[&GpuPart], first: u32
             pass.set_bind_group(1, &p.bind.group, &[]);
             set_texture = Some(p.bind.id);
         }
-        if set_geometry != Some(p.geometry) {
-            match p.vertex_span {
-                Some((start, end)) => pass.set_vertex_buffer(0, p.vertices.slice(start..end)),
-                None => pass.set_vertex_buffer(0, p.vertices.slice(..)),
-            }
-            pass.set_index_buffer(p.indices.slice(..), wgpu::IndexFormat::Uint16);
-            set_geometry = Some(p.geometry);
+        // (the buffers are shared by many parts, see `GpuPart`: most draws set neither)
+        if set_vertices != Some(p.vertex_id) {
+            pass.set_vertex_buffer(0, p.vertices.slice(..));
+            set_vertices = Some(p.vertex_id);
         }
-        pass.draw_indexed(0..p.index_count, 0, first + i as u32..first + (i + count) as u32);
+        if set_indices != Some(p.index_id) {
+            pass.set_index_buffer(p.indices.slice(..), wgpu::IndexFormat::Uint16);
+            set_indices = Some(p.index_id);
+        }
+        pass.draw_indexed(p.first_index..p.first_index + p.index_count, p.base_vertex, first + i as u32..first + (i + count) as u32);
         calls += 1;
         i += count;
     }
@@ -358,17 +354,22 @@ fn draw_runs<'a>(pass: &mut wgpu::RenderPass<'_>, parts: &[&GpuPart], first: u32
 }
 
 struct GpuPart {
+    /// The buffers the part's geometry lies in, each with a number of its own, and where: the vertices from
+    /// `base_vertex` on, `index_count` indices from `first_index` on (they count from the part's first vertex). The
+    /// buffers are shared: a playfield's geometry is packed into a few large ones (`Renderer::upload`) and the
+    /// characters' into one of each (`Renderer::reupload`), so that drawing part after part sets no buffer (a command
+    /// handed to the card costs about a microsecond whatever it does, and a frame has thousands of parts).
     vertices: wgpu::Buffer,
+    vertex_id: u32,
+    base_vertex: i32,
     indices: wgpu::Buffer,
+    index_id: u32,
+    first_index: u32,
     index_count: u32,
-    /// A number for the two buffers: parts with the same one draw the same geometry.
+    /// A number for the geometry: parts with the same one draw the same vertices and indices.
     geometry: u32,
-    /// The part's bytes of `vertices`, when that is a buffer many parts share (the characters': `Renderer::reupload`);
-    /// none when the buffer is the part's own.
-    vertex_span: Option<(u64, u64)>,
-    /// A number made of the indices (`index_hash`), for a character's part, whose index buffer the next upload takes
-    /// over as it is when the indices are the same; 0 otherwise.
-    index_hash: u64,
+    /// The buffers are the characters' own pair, which their next upload writes over (`Renderer::reupload`).
+    characters: bool,
     bind: TextureBind,
     /// A sphere around the part in the world (to skip it in the shadow pass).
     center: Vec3,
@@ -1741,9 +1742,8 @@ impl Renderer {
     /// `model`'s draws as parts, for the characters, which are uploaded again with every network update (a few dozen
     /// times a second) as they move: making and freeing their hundreds of buffers each time cost milliseconds, and so
     /// did writing into each (a write is some 3 microseconds whatever its size, and there were a thousand). So the
-    /// vertices of all the parts go into one buffer the parts share, written once (kept from the last upload while it
-    /// is large enough), and a part's index buffer is taken over from the last upload as it is when its indices are the
-    /// same, which a character's are from pose to pose. (A model with watched meshes or water is uploaded afresh.)
+    /// vertices of all the parts go into one buffer and their indices into another, each written once and kept from
+    /// the last upload while it is large enough. (A model with watched meshes or water is uploaded afresh.)
     fn reupload(&self, gpu: &Gpu, model: &Model, texture: &mut dyn FnMut(u32, u32) -> Option<Texture>, old: Vec<GpuPart>) -> Vec<GpuPart> {
         if !model.lod_groups.is_empty() || model.water.is_some() {
             return self.upload(gpu, model, texture).parts;
@@ -1753,32 +1753,32 @@ impl Renderer {
             return Vec::new();
         }
         let stride = std::mem::size_of::<GpuVertex>() as u64;
-        let needed = draw_list.iter().map(|(i, _)| model.parts[*i].vertices.len() as u64).sum::<u64>() * stride;
-        let shared = match old.iter().find(|p| p.vertex_span.is_some()).map(|p| p.vertices.clone()).filter(|b| b.size() >= needed) {
-            Some(buffer) => buffer,
-            None => gpu.device.create_buffer(&wgpu::BufferDescriptor { label: Some("characters' vertices"), size: (needed + needed / 4).next_multiple_of(stride * 4), usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false }),
-        };
-        let mut pool: HashMap<(u64, u64), Vec<wgpu::Buffer>> = HashMap::new();
-        for part in old {
-            if part.index_hash != 0 {
-                pool.entry((part.indices.size(), part.index_hash)).or_default().push(part.indices);
-            }
-        }
+        let vertex_bytes = draw_list.iter().map(|(i, _)| model.parts[*i].vertices.len() as u64).sum::<u64>() * stride;
+        let index_bytes = (draw_list.iter().map(|(i, _)| model.parts[*i].indices.len() as u64).sum::<u64>() * 2).next_multiple_of(4);
+        // (the last upload's pair, when both are large enough; else a new pair with a quarter to spare)
+        let kept = old.iter().find(|p| p.characters && p.vertices.size() >= vertex_bytes && p.indices.size() >= index_bytes).map(|p| (p.vertices.clone(), p.vertex_id, p.indices.clone(), p.index_id));
+        drop(old);
+        let (vertex_buffer, vertex_id, index_buffer, index_id) = kept.unwrap_or_else(|| {
+            let make = |label: &str, size: u64, usage: wgpu::BufferUsages| gpu.device.create_buffer(&wgpu::BufferDescriptor { label: Some(label), size: (size + size / 4).next_multiple_of(stride * 4), usage: usage | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false });
+            (make("characters' vertices", vertex_bytes, wgpu::BufferUsages::VERTEX), next_id(), make("characters' indices", index_bytes, wgpu::BufferUsages::INDEX), next_id())
+        });
         let mut cache = self.textures.borrow_mut();
-        let mut all: Vec<GpuVertex> = Vec::with_capacity((needed / stride) as usize);
+        let mut vertices: Vec<GpuVertex> = Vec::with_capacity((vertex_bytes / stride) as usize);
+        let mut indices: Vec<u16> = Vec::with_capacity((index_bytes / 2) as usize);
         let mut parts = Vec::with_capacity(draw_list.len());
         for (index, world) in draw_list {
             let part = &model.parts[index];
             let key = part.material.textures.first().copied();
             let view = key.and_then(|(kind, instance)| cache.entry((kind, instance)).or_insert_with(|| texture(kind, instance).map(|t| upload_blocks(gpu, &t, self.compress_textures, false))).clone());
-            let start = all.len() as u64 * stride;
+            let (base_vertex, first_index) = (vertices.len() as i32, indices.len() as u32);
             let (mut lo, mut hi, mut height) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN), 0.0f32);
             for v in &part.vertices {
-                all.push(GpuVertex { position: v.position, normal: v.normal, uv: v.uv, colour: v.colour });
+                vertices.push(GpuVertex { position: v.position, normal: v.normal, uv: v.uv, colour: v.colour });
                 lo = lo.min(Vec3::from(v.position));
                 hi = hi.max(Vec3::from(v.position));
                 height = height.max(v.position[1]);
             }
+            indices.extend_from_slice(&part.indices);
             let m = Mat4::from_cols_array(&world);
             let (mut wlo, mut whi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
             for corner in 0..8 {
@@ -1791,28 +1791,17 @@ impl Renderer {
             let d = part.material.diffuse;
             let material = &part.material;
             let uniform = PartUniform { model: world, colour: [d[0], d[1], d[2], 1.0], flags: [view.is_some() as u32 as f32, (material.ignore_alpha as u32 + material.alpha_lights as u32) as f32, material.foliage as u32 as f32, height], previous_model: world, motion: [0.0; 4], tint: NO_TINT, blend: blend_of(material) };
-            // (the index buffer: the last upload's of the same indices, else a new one; an odd count is filled out, the
-            // buffer's size being a multiple of four bytes)
-            let hash = index_hash(&part.indices);
-            let index_bytes = (part.indices.len() as u64 * 2).next_multiple_of(4);
-            let indices = match pool.get_mut(&(index_bytes, hash)).and_then(Vec::pop) {
-                Some(buffer) => buffer,
-                None => {
-                    let mut indices = part.indices.clone();
-                    if indices.len() % 2 == 1 {
-                        indices.push(0);
-                    }
-                    gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: bytemuck::cast_slice(&indices), usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST })
-                }
-            };
             let bind = texture_bind(&gpu.device, &self.part_layout, &self.sampler, &self.white, &self.binds, key, view.as_ref());
             parts.push(GpuPart {
-                vertices: shared.clone(),
-                indices,
+                vertices: vertex_buffer.clone(),
+                vertex_id,
+                base_vertex,
+                indices: index_buffer.clone(),
+                index_id,
+                first_index,
                 index_count: part.indices.len() as u32,
                 geometry: next_id(),
-                vertex_span: Some((start, all.len() as u64 * stride)),
-                index_hash: hash,
+                characters: true,
                 bind,
                 center,
                 radius,
@@ -1827,7 +1816,12 @@ impl Renderer {
                 before: Default::default(),
             });
         }
-        gpu.queue.write_buffer(&shared, 0, bytemuck::cast_slice(&all));
+        // (a write's size is a multiple of four bytes: an odd count of indices is filled out)
+        if indices.len() % 2 == 1 {
+            indices.push(0);
+        }
+        gpu.queue.write_buffer(&vertex_buffer, 0, bytemuck::cast_slice(&vertices));
+        gpu.queue.write_buffer(&index_buffer, 0, bytemuck::cast_slice(&indices));
         parts
     }
 
@@ -1881,22 +1875,40 @@ impl Renderer {
             tex_count = cache.len() as u32;
             tex_time = upload_started.elapsed();
         }
-        let mut geometry: HashMap<usize, Option<(wgpu::Buffer, wgpu::Buffer, u32, Option<wgpu::TextureView>, f32, (Vec3, Vec3), u32, TextureBind)>> = HashMap::new();
+        // The geometry, each part's once however many times it is drawn, packed: the vertices of part after part into one
+        // large buffer and their indices into another, a new pair begun when one would pass `PACK_BYTES` (a buffer has
+        // a largest size, and the indices are 16 bits from the part's first vertex, so nothing bounds a pair but that).
+        struct Packed {
+            pack: usize,
+            base_vertex: i32,
+            first_index: u32,
+            count: u32,
+            view: Option<wgpu::TextureView>,
+            height: f32,
+            bounds: (Vec3, Vec3),
+            id: u32,
+            bind: TextureBind,
+        }
+        let mut packs: Vec<(Vec<GpuVertex>, Vec<u16>)> = vec![(Vec::new(), Vec::new())];
+        let mut geometry: HashMap<usize, Option<Packed>> = HashMap::new();
         let mut parts: Vec<GpuPart> = Vec::new();
         for &(index, _) in &draw_list {
             let geo_started = std::time::Instant::now();
-            let entry = geometry.entry(index).or_insert_with(|| {
+            geometry.entry(index).or_insert_with(|| {
                 let part = &model.parts[index];
                 if part.indices.is_empty() || part.vertices.is_empty() {
                     return None;
                 }
-                let vertices: Vec<GpuVertex> = part.vertices.iter().map(|v: &Vertex| GpuVertex { position: v.position, normal: v.normal, uv: v.uv, colour: v.colour }).collect();
-                let vb = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: bytemuck::cast_slice(&vertices), usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST });
-                let mut indices = part.indices.clone();
-                if indices.len() % 2 == 1 {
-                    indices.push(0);
+                let stride = std::mem::size_of::<GpuVertex>();
+                let (v, i) = packs.last().unwrap();
+                if (v.len() + part.vertices.len()) * stride > PACK_BYTES || (i.len() + part.indices.len()) * 2 > PACK_BYTES {
+                    packs.push((Vec::new(), Vec::new()));
                 }
-                let ib = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: bytemuck::cast_slice(&indices), usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST });
+                let pack = packs.len() - 1;
+                let (v, i) = packs.last_mut().unwrap();
+                let (base_vertex, first_index) = (v.len() as i32, i.len() as u32);
+                v.extend(part.vertices.iter().map(|v: &Vertex| GpuVertex { position: v.position, normal: v.normal, uv: v.uv, colour: v.colour }));
+                i.extend_from_slice(&part.indices);
                 let view = part.material.textures.first().and_then(|&(kind, instance)| cache.entry((kind, instance)).or_insert_with(|| { let t0 = std::time::Instant::now(); let r = texture(kind, instance).map(|t| upload_blocks(gpu, &t, self.compress_textures, false)); tex_time += t0.elapsed(); tex_count += 1; r }).clone());
                 // A plant's height (in its own Y-up space) sets how it bends.
                 let height = part.vertices.iter().map(|v| v.position[1]).fold(0.0f32, f32::max);
@@ -1906,18 +1918,34 @@ impl Renderer {
                     hi = hi.max(Vec3::from(v.position));
                 }
                 let bind = texture_bind(&gpu.device, &self.part_layout, &self.sampler, &self.white, &self.binds, part.material.textures.first().copied(), view.as_ref());
-                Some((vb, ib, part.indices.len() as u32, view, height, (lo, hi), next_id(), bind))
+                Some(Packed { pack, base_vertex, first_index, count: part.indices.len() as u32, view, height, bounds: (lo, hi), id: next_id(), bind })
             });
             geo_time += geo_started.elapsed();
-            let _ = entry;
         }
+        // (the pairs on the card, each buffer with its number; an odd count of indices filled out, a buffer's size being a
+        // multiple of four bytes)
+        let buffers: Vec<(wgpu::Buffer, u32, wgpu::Buffer, u32)> = packs
+            .into_iter()
+            .filter(|(v, _)| !v.is_empty())
+            .map(|(v, mut i)| {
+                if i.len() % 2 == 1 {
+                    i.push(0);
+                }
+                let vb = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("packed vertices"), contents: bytemuck::cast_slice(&v), usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST });
+                let ib = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("packed indices"), contents: bytemuck::cast_slice(&i), usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST });
+                (vb, next_id(), ib, next_id())
+            })
+            .collect();
+        let buffers = &buffers;
         // Each draw's own part (a playfield draws tens of thousands of props): made on every core.
         let geometry = &geometry;
         let build = |slice: &[(usize, [f32; 16])]| -> Vec<GpuPart> {
             slice
                 .iter()
                 .filter_map(|&(index, world)| {
-                    let (vb, ib, count, view, height, (lo, hi), geometry_id, bind) = geometry.get(&index)?.as_ref()?;
+                    let packed = geometry.get(&index)?.as_ref()?;
+                    let (view, height, (lo, hi)) = (&packed.view, &packed.height, packed.bounds);
+                    let (vb, vertex_id, ib, index_id) = buffers.get(packed.pack)?;
                     // A sphere around the part's box in the world.
                     let m = Mat4::from_cols_array(&world);
                     let (mut wlo, mut whi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
@@ -1931,7 +1959,7 @@ impl Renderer {
                     let d = model.parts[index].material.diffuse;
                     let material = &model.parts[index].material;
                     let uniform = PartUniform { model: world, colour: [d[0], d[1], d[2], 1.0], flags: [view.is_some() as u32 as f32, (material.ignore_alpha as u32 + material.alpha_lights as u32) as f32, material.foliage as u32 as f32, *height], previous_model: world, motion: [0.0; 4], tint: NO_TINT, blend: blend_of(material) };
-                    Some(GpuPart { vertices: vb.clone(), indices: ib.clone(), index_count: *count, geometry: *geometry_id, vertex_span: None, index_hash: 0, bind: bind.clone(), center, radius, uniform, shift: Vec3::ZERO, source: index, texture: model.parts[index].material.textures.first().copied(), low_only: low_parts.contains(&index), faces: faces_of(material.two_sided, &m), lod: None, drawn: Default::default(), before: Default::default() })
+                    Some(GpuPart { vertices: vb.clone(), vertex_id: *vertex_id, base_vertex: packed.base_vertex, indices: ib.clone(), index_id: *index_id, first_index: packed.first_index, index_count: packed.count, geometry: packed.id, characters: false, bind: packed.bind.clone(), center, radius, uniform, shift: Vec3::ZERO, source: index, texture: model.parts[index].material.textures.first().copied(), low_only: low_parts.contains(&index), faces: faces_of(material.two_sided, &m), lod: None, drawn: Default::default(), before: Default::default() })
                 })
                 .collect()
         };
@@ -3041,10 +3069,10 @@ mod tests {
         assert!(plain.chunks(4).filter(|p| p[0] > 100).count() > 500);
     }
 
-    /// The characters' upload: their parts share one vertex buffer, each its own span of it, and a second upload of the
-    /// same indices takes the first's index buffers over; the picture is each part at its place.
+    /// The characters' upload: their parts share one vertex buffer and one index buffer, each its own stretch of them,
+    /// and a second upload writes into the same pair; the picture is each part at its place.
     #[test]
-    fn the_characters_share_a_vertex_buffer_and_keep_their_index_buffers() {
+    fn the_characters_share_their_buffers_from_upload_to_upload() {
         // (skipped on a machine without a graphics device)
         let Ok(gpu) = Gpu::headless() else { return };
         let camera = Camera { target: Vec3::ZERO, distance: 40.0, yaw: 0.0, pitch: 1.4, half_height: None };
@@ -3057,8 +3085,9 @@ mod tests {
         let mut scene = renderer.upload(&gpu, &Model::default(), &mut |_, _| None);
         renderer.reupload_overlay(&gpu, &mut scene, &model(0.0), &mut |_, _| None);
         assert_eq!(scene.overlay.len(), 2);
-        assert!(scene.overlay[0].vertex_span == Some((0, 4 * 36)) && scene.overlay[1].vertex_span == Some((4 * 36, 8 * 36)));
-        assert!(scene.overlay[0].vertices == scene.overlay[1].vertices, "one vertex buffer");
+        assert_eq!((scene.overlay[0].base_vertex, scene.overlay[0].first_index, scene.overlay[1].base_vertex, scene.overlay[1].first_index), (0, 0, 4, 6));
+        assert!(scene.overlay[0].vertices == scene.overlay[1].vertices && scene.overlay[0].indices == scene.overlay[1].indices, "one pair of buffers");
+        assert!(scene.overlay[0].vertex_id == scene.overlay[1].vertex_id && scene.overlay[0].geometry != scene.overlay[1].geometry);
         let (first_indices, first_vertices) = (scene.overlay[0].indices.clone(), scene.overlay[0].vertices.clone());
         // (both colours are in the picture, apart: left and right of the middle or above and below it)
         let count = |image: &[u8], red: bool| image.chunks(4).filter(|p| if red { p[0] > 2 * p[1].max(p[2]) && p[0] > 40 } else { p[2] > 2 * p[0].max(p[1]) && p[2] > 40 }).count();
@@ -3066,11 +3095,15 @@ mod tests {
         assert!(count(&image, true) > 30 && count(&image, false) > 30, "{} red, {} blue", count(&image, true), count(&image, false));
         // (moved: the same buffers, the vertices written anew)
         renderer.reupload_overlay(&gpu, &mut scene, &model(1.0), &mut |_, _| None);
-        assert!(scene.overlay[0].vertices == first_vertices && scene.overlay.iter().any(|p| p.indices == first_indices));
+        assert!(scene.overlay[0].vertices == first_vertices && scene.overlay[1].indices == first_indices);
         let moved = renderer.render_to_image(&gpu, &scene, &camera, 160, 120);
         assert!(count(&moved, true) > 30 && count(&moved, false) > 30 && moved != image);
-        assert_eq!(index_hash(&[0, 2, 1, 0, 3, 2]), index_hash(&[0, 2, 1, 0, 3, 2]));
-        assert!(index_hash(&[0, 2, 1]) != index_hash(&[0, 1, 2]) && index_hash(&[]) != 0);
+        // (a playfield's parts are packed the same way: two meshes, one pair of buffers, and the picture as before)
+        let packed = renderer.upload(&gpu, &model(0.0), &mut |_, _| None);
+        assert!(packed.parts[0].vertices == packed.parts[1].vertices && packed.parts[0].index_id == packed.parts[1].index_id);
+        assert_eq!((packed.parts[1].base_vertex, packed.parts[1].first_index), (4, 6));
+        let again = renderer.render_to_image(&gpu, &packed, &camera, 160, 120);
+        assert_eq!((count(&again, true), count(&again, false)), (count(&image, true), count(&image, false)));
     }
 
     #[test]

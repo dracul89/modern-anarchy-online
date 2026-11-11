@@ -795,6 +795,23 @@ down. Here the angle is kept as a 4:3 window has it and a wider window sees the 
 past the hall's walls to the space outside it (kept so: the user chose the full width over black bars at the sides). Seen: the launcher beside the user's picture of the original's, the
 three settings pages, PLAY into the login, the hall at 16:9 and at 32:9.
 
+**The geometry packed into a few large buffers (2026-11-11, `Renderer::upload`, `reupload`, `draw_runs`).**
+What was left in Arete Landing was the handing over of its 1,800 draw calls, 3.1 ms a frame: each call set a
+vertex buffer and an index buffer of the part's own before it drew. Now a playfield's geometry is packed as it is
+uploaded: the vertices of part after part into one large buffer and their indices into another (a new pair begun at
+64 MB), and a part is where its vertices start, where its indices start and how many there are; the indices stay 16
+bits, counted from the part's first vertex. The characters' parts, which already shared a vertex buffer, share an
+index buffer too, both written once with each upload (the index buffers kept from upload to upload by a number
+made of their contents are gone again: one write of everything is cheaper than keeping count). Drawing sets a
+buffer only where it changes, which in a frame is a handful of times, so a call is the draw alone, and a texture
+where the next part wears another.
+Measured, 2560x720: Arete's pad 166 frames a second (5.9 ms) for 110 (9.1 ms), its hand-over 1.1 ms for 3.1 ms,
+and the slowest hundredth of its frames 10.5 ms for 24 ms; Aegean about 215 (4.7 ms) for 185 (5.4 ms). The guess
+before the work was one millisecond in Arete; the two buffer commands cost more than the draw itself. Since the
+morning: Arete 90 to 166, Aegean 78 to 215.
+Seen right afterwards: Arete's pad with its characters, the shuttle room, Aegean, the login hall. A playfield
+takes no longer to upload (the geometry's share went from 115 to 98 ms in Arete: two large buffers for thousands).
+
 **Two processor costs of a busy place cut (2026-11-11, `nametag::update_sight`, `Renderer::reupload`).**
 Arete Landing's pad ran at 90 frames a second where Aegean ran at 143, and the profile (`MAO_PROFILE=1`, with new
 stages for the interface: `ui-sight`, `ui-layout`, `ui-tessellate`, `ui-hud`) showed why.
@@ -806,9 +823,9 @@ and their name: the list comes anew with every network update). 0.05 ms. A tag m
 The characters' upload: their meshes are posed and uploaded again with every network update, 24 times a second,
 and each of the 512 parts had its vertices and its indices written into buffers of its own: a thousand writes of
 some 3 microseconds each whatever their size, 4.3 ms a time, a hitch in every fourth frame. Now the vertices of all
-the parts go into one buffer the parts share, written once (a part draws its span of it), and a part's index
-buffer is taken over from the last upload when its indices are the same (a number made of them tells), which a
-character's are from pose to pose. 1.7 ms a time.
+the parts go into one buffer the parts share, written once, and so do their indices (at first a part's index buffer
+was kept from the last upload when its indices were the same; the packing above made that one write too). 1.5 ms a
+time.
 Measured after, 2560x720: Arete's pad 110 frames a second (9.1 ms) for 90 (11.1 ms); Aegean 185 (5.4 ms) for 143
 (7.0 ms). In Arete the first of the two alone moved nothing: the time went to waiting for the card instead, so that
 view is held by the card as much as by the processor (at half the drawing scale it ran at 113 before the second
