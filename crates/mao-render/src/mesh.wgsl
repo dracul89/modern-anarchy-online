@@ -17,11 +17,13 @@ struct Part {
     blend: vec4<f32>,
 }
 
-@group(1) @binding(0) var<uniform> part: Part;
-@group(1) @binding(1) var tex: texture_2d<f32>;
-@group(1) @binding(2) var samp: sampler;
-@group(2) @binding(0) var shadow_map: texture_depth_2d;
-@group(2) @binding(1) var shadow_samp: sampler_comparison;
+// A part's texture; the frame's parts, one record for each drawn (a draw's instances are records that follow one another:
+// the instance index is the record's); the sun's shadow map.
+@group(1) @binding(0) var tex: texture_2d<f32>;
+@group(1) @binding(1) var samp: sampler;
+@group(2) @binding(0) var<storage, read> parts: array<Part>;
+@group(3) @binding(0) var shadow_map: texture_depth_2d;
+@group(3) @binding(1) var shadow_samp: sampler_comparison;
 
 struct VertexIn {
     @location(0) position: vec3<f32>,
@@ -40,12 +42,14 @@ struct VertexOut {
     @location(3) now: vec4<f32>,
     @location(4) before: vec4<f32>,
     @location(5) colour: vec4<f32>,
+    // The part's record.
+    @location(6) @interpolate(flat) part: u32,
 }
 
 // Plants move: a slow sway in the wind (more towards the top) and a bend
 // away from the player when it walks through them. The base stays put.
-fn bend(world: vec3<f32>, base: f32, player: vec4<f32>) -> vec3<f32> {
-    let height = max(part.flags.w, 0.3);
+fn bend(world: vec3<f32>, base: f32, player: vec4<f32>, tall: f32) -> vec3<f32> {
+    let height = max(tall, 0.3);
     let up = clamp((world.z - base) / height, 0.0, 1.0);
     let weight = up * up;
     let t = player.w;
@@ -65,19 +69,23 @@ fn bend(world: vec3<f32>, base: f32, player: vec4<f32>) -> vec3<f32> {
 }
 
 @vertex
-fn vs_main(v: VertexIn) -> VertexOut {
+fn vs_main(v: VertexIn, @builtin(instance_index) instance: u32) -> VertexOut {
     var out: VertexOut;
-    var world = (part.model * vec4<f32>(v.position, 1.0)).xyz;
-    var before = (part.previous_model * vec4<f32>(v.position, 1.0)).xyz;
-    if part.flags.z > 0.5 {
-        world = bend(world, part.model[3].z, globals.player);
-        before = bend(before, part.previous_model[3].z, globals.previous_player);
+    let model = parts[instance].model;
+    let previous_model = parts[instance].previous_model;
+    let flags = parts[instance].flags;
+    var world = (model * vec4<f32>(v.position, 1.0)).xyz;
+    var before = (previous_model * vec4<f32>(v.position, 1.0)).xyz;
+    if flags.z > 0.5 {
+        world = bend(world, model[3].z, globals.player, flags.w);
+        before = bend(before, previous_model[3].z, globals.previous_player, flags.w);
     }
+    out.part = instance;
     out.clip = globals.view_proj * vec4<f32>(world, 1.0);
     out.now = globals.current_vp * vec4<f32>(world, 1.0);
     out.before = globals.previous_vp * vec4<f32>(before, 1.0);
     out.uv = v.uv;
-    out.normal = (part.model * vec4<f32>(v.normal, 0.0)).xyz;
+    out.normal = (model * vec4<f32>(v.normal, 0.0)).xyz;
     out.world = world;
     out.colour = v.colour;
     return out;
@@ -111,7 +119,8 @@ fn shadow_at(world: vec3<f32>, n: vec3<f32>) -> f32 {
 // The depth-only pass: plants cut out as they are in the main pass.
 @fragment
 fn fs_shadow(in: VertexOut) {
-    if part.flags.x > 0.5 && part.flags.y < 0.5 {
+    let flags = parts[in.part].flags;
+    if flags.x > 0.5 && flags.y < 0.5 {
         let t = textureSampleLevel(tex, samp, in.uv, 0.0);
         if t.a < 0.5 {
             discard;
@@ -137,7 +146,7 @@ fn fs_main_motion(in: VertexOut) -> SceneOut {
     out.colour = shade(in);
     let now = in.now.xy / in.now.w;
     let before = in.before.xy / in.before.w;
-    out.motion = vec4<f32>((now - before) * vec2<f32>(0.5, -0.5), part.motion.x, 1.0);
+    out.motion = vec4<f32>((now - before) * vec2<f32>(0.5, -0.5), parts[in.part].motion.x, 1.0);
     return out;
 }
 
@@ -158,12 +167,15 @@ fn fs_main_show(in: VertexOut, @builtin(front_facing) front: bool) -> @location(
 fn fs_main_motion_show(in: VertexOut, @builtin(front_facing) front: bool) -> SceneOut {
     var out: SceneOut;
     out.colour = shown(shade(in), front);
-    out.motion = vec4<f32>(0.0, 0.0, part.motion.x, 1.0);
+    out.motion = vec4<f32>(0.0, 0.0, parts[in.part].motion.x, 1.0);
     return out;
 }
 
 fn shade(in: VertexOut) -> vec4<f32> {
-    var base = part.colour;
+    let flags = parts[in.part].flags;
+    let blend = parts[in.part].blend;
+    let tint = parts[in.part].tint;
+    var base = parts[in.part].colour;
     // Baked light in the texture's alpha (flags.y = 2): added to the lighting, as the original's texture stages add it to the
     // diffuse before the colour is multiplied in.
     var baked = 0.0;
@@ -171,24 +183,24 @@ fn shade(in: VertexOut) -> vec4<f32> {
     // diffuse; it is cut by its own alpha test, where an unblended one is cut at a half. This client's own: a pixel
     // that would show nothing, alpha under 0.02, is not drawn either, so that it writes no depth; the original writes
     // it, and what is drawn behind it later is hidden by nothing.)
-    var alpha = part.tint.a;
-    if part.flags.x > 0.5 {
+    var alpha = tint.a;
+    if flags.x > 0.5 {
         let t = textureSampleBias(tex, samp, in.uv, globals.detail.x);
-        if part.blend.x > 0.5 {
-            if t.a < max(part.blend.y, 0.02) {
+        if blend.x > 0.5 {
+            if t.a < max(blend.y, 0.02) {
                 discard;
             }
             alpha = alpha * t.a;
-        } else if t.a < select(0.5, part.blend.y, part.blend.y >= 0.0) && part.flags.y < 0.5 {
+        } else if t.a < select(0.5, blend.y, blend.y >= 0.0) && flags.y < 0.5 {
             discard;
         }
-        if part.flags.y > 1.5 {
+        if flags.y > 1.5 {
             baked = t.a;
         }
         base = vec4<f32>(base.rgb * t.rgb, 1.0);
     }
-    if part.blend.x > 0.5 {
-        alpha = alpha * part.blend.z;
+    if blend.x > 0.5 {
+        alpha = alpha * blend.z;
     }
     let n = normalize(in.normal);
     // Lit from both sides: the winding of the original's meshes isn't
@@ -209,7 +221,7 @@ fn shade(in: VertexOut) -> vec4<f32> {
     // A room's light map (its vertex colour, alpha 1) is the emissive term: the original's rooms take their emissive colour
     // from the vertex (`VisualRoom_t`'s state D3DRENDERSTATE_EMISSIVEMATERIALSOURCE = COLOR1), added to the lit colour.
     // (a highlight effect's emissive colour is added the same way: the original sets the frame's emissive material colour)
-    let emissive = in.colour.rgb * in.colour.a + part.tint.rgb;
+    let emissive = in.colour.rgb * in.colour.a + tint.rgb;
     var colour = base.rgb * min(ambient + sun_colour * diffuse + vec3<f32>(baked) + emissive, vec3<f32>(1.0));
     // Distance fades into the fog's colour (linear when the fog is an area's, as Direct3D's was).
     let far = globals.horizon.w;

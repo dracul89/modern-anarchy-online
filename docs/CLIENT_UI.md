@@ -795,6 +795,36 @@ down. Here the angle is kept as a 4:3 window has it and a wider window sees the 
 past the hall's walls to the space outside it (kept so: the user chose the full width over black bars at the sides). Seen: the launcher beside the user's picture of the original's, the
 three settings pages, PLAY into the login, the hall at 16:9 and at 32:9.
 
+**The same part in many places is one draw call (2026-11-11, `mao_render`: `draw_runs`, `record_of`, `TextureBind`).**
+The third of the renderer's optimisations, and the first that the frame rate shows. Measured first (`MAO_PROFILE=1`,
+Aegean among the trees, 2560x720): of a frame of 11.1 ms, 3.9 ms went on handing the frame's commands to the card
+(wgpu checks and translates them when the encoder is finished), more than on anything else; the card's own work on
+the scene was 2 ms. The frame drew 1,565 of the playfield's 37,470 parts and some 340 parts of characters, each
+with four commands (its bind group, two buffers, the draw); and the 1,565 were only 357 different pairs of geometry
+and texture, on 210 textures (908 were plants: the same trees over and over).
+What was changed: a part no longer has a uniform buffer and a bind group of its own. What the shader reads of a part
+(`PartUniform`: its matrices, colour, flags, tint, blending) is kept beside it and written each frame, for the parts
+drawn and in the order they are drawn, into one buffer the shader reads as an array by the draw's instance index
+(`parts[instance]`, group 2; the shadow map moved to group 3). A texture has one bind group, shared by all the parts
+that wear it (`Renderer::binds`), and a geometry a number. The opaque parts in view are sorted by the faces they
+leave out, their texture and their geometry, and those that follow one another with all three alike go in one call
+as its instances (`draw_runs`); a pipeline, a texture or a pair of buffers is set only where it changes. The blended
+parts keep their order, far to near, one call each; the shadow map's parts are merged the same way. A character's
+part is moved and marked for the motion buffer in its record (`record_of`), where its uniform buffer was written
+again; `Scene::move_follow` and the tints only note the change.
+Measured after, the same place: 1,609 parts in 449 calls; the hand-over 1.1 ms, `draw` as a whole 2.4 ms where it
+was 5.9 ms; the frame 7.0 ms, about 143 frames a second, at 2560x720 and at 5120x1440 alike (before: 12.9 to 15 ms
+in the window, 8.5 to 9.5 ms over the whole monitor). The performance overlay and the debug line now give the
+calls ("1609 of 37834 parts in 449 draws").
+Seen right afterwards: Aegean, Arete Landing and its shuttle room, the character walking (its parts follow it), the
+login hall. What is different by design: the opaque parts are drawn in another order than they were uploaded in,
+which only shows where two surfaces lie in exactly the same plane (whichever is drawn first wins, as before, but it
+may be the other one now). Not checked: character highlights seen side by side with before, the room playfields'
+light maps beyond the one room, the creation screens.
+What still costs on the processor's side, by the same profile: each frame looks at all of the playfield's parts
+(37,000 sphere tests and level-of-detail choices, about 1 ms), the interface 1.1 ms, the characters' meshes posed
+and uploaded again 24 times a second (3.3 ms each time, 0.9 ms a frame on average).
+
 **The faces turned away are not drawn (2026-11-11, `mao_render::Culling`, `faces_of`, `Material::two_sided`).**
 The second of the renderer's optimisations, and as it turned out a matter of likeness and not of speed. The
 original does not draw a face seen from its back: its device's cull mode is `D3DCULL_CCW` (randy31's defaults,

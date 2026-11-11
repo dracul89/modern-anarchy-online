@@ -2372,7 +2372,7 @@ impl ApplicationHandler for App {
                         crate::prof::add(name, took);
                     }
                 }
-                self.hud.draw_info = format!("{} of {} parts, {} in shadow", stats.drawn, stats.parts, stats.shadow_drawn);
+                self.hud.draw_info = format!("{} of {} parts in {} draws, {} in shadow", stats.drawn, stats.parts, stats.calls, stats.shadow_drawn);
                 if self.settings.perf_overlay {
                     let g = &mut self.hud.gpu;
                     if g.adapter.is_empty() {
@@ -2385,7 +2385,7 @@ impl ApplicationHandler for App {
                         self.perf_memory_at = std::time::Instant::now();
                         g.gpu_memory = Renderer::gpu_memory(&w.gpu);
                     }
-                    g.drawn = (stats.drawn, stats.parts, stats.shadow_drawn);
+                    g.drawn = (stats.drawn, stats.parts, stats.shadow_drawn, stats.calls);
                     let scale = w.renderer.render_scale.clamp(0.4, 1.0);
                     g.window_size = size;
                     g.render_size = if scale < 0.999 { ((size.0 as f32 * scale).round() as u32, (size.1 as f32 * scale).round() as u32) } else { size };

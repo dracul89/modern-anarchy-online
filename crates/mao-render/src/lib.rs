@@ -198,6 +198,11 @@ fn blend_of(material: &mao_formats::model::Material) -> [f32; 4] {
 }
 
 /// The pipeline a blended part is drawn with: by its uniform's blend (alpha or added) and whether it writes depth.
+/// A number for each of the blended pipelines ([`blend_pipeline`]).
+fn blend_number(blend: [f32; 4]) -> u32 {
+    (blend[0] > 1.5) as u32 * 2 + (blend[3] > 0.5) as u32
+}
+
 fn blend_pipeline(pipes: &ScenePipelines, blend: [f32; 4], faces: usize) -> &wgpu::RenderPipeline {
     match (blend[0] > 1.5, blend[3] > 0.5) {
         (false, false) => &pipes.mesh_blend[faces],
@@ -251,16 +256,99 @@ const FRONT: wgpu::FrontFace = wgpu::FrontFace::Cw;
 /// No emissive colour, opaque.
 const NO_TINT: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
 
+/// A texture's bind group (the texture and the sampler), with a number of its own to tell when two parts share one.
+#[derive(Clone)]
+struct TextureBind {
+    id: u32,
+    group: wgpu::BindGroup,
+}
+
+/// A number no other bind group or geometry has.
+fn next_id() -> u32 {
+    static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
+/// The bind group of the texture `key` (the white one without a texture), made once and kept.
+fn texture_bind(device: &wgpu::Device, layout: &wgpu::BindGroupLayout, sampler: &wgpu::Sampler, white: &wgpu::TextureView, binds: &std::sync::Mutex<HashMap<Option<(u32, u32)>, TextureBind>>, key: Option<(u32, u32)>, view: Option<&wgpu::TextureView>) -> TextureBind {
+    let key = key.filter(|_| view.is_some());
+    let mut binds = binds.lock().unwrap();
+    binds
+        .entry(key)
+        .or_insert_with(|| TextureBind {
+            id: next_id(),
+            group: device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: None,
+                layout,
+                entries: &[wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(view.unwrap_or(white)) }, wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(sampler) }],
+            }),
+        })
+        .clone()
+}
+
+/// A part's record for the frame ([`PartUniform`], what the shader reads of it): as it was uploaded, and for a character's
+/// part (the overlay's or a follower's) moved by its shift, with where it was the last frame and the mark that it animates
+/// of itself (its vertices are uploaded anew as it moves, which the matrices don't show).
+fn record_of(part: &GpuPart, character: bool) -> PartUniform {
+    let mut u = part.uniform;
+    if character {
+        let base = Mat4::from_cols_array(&u.model);
+        u.model = (Mat4::from_translation(part.shift) * base).to_cols_array();
+        u.previous_model = (Mat4::from_translation(part.before.get()) * base).to_cols_array();
+        u.motion = [1.0, 0.0, 0.0, 0.0];
+    }
+    u
+}
+
+/// Draws `parts` in their order, their records from `first` on in the same order. With `merge`, the parts that follow
+/// one another with the same pipeline, texture and geometry go in one call, as its instances; the pipeline, the texture
+/// and the buffers are set only where they change. `pipeline` gives a part's pipeline and a number for it (none: the one
+/// already set). Returns the calls made.
+fn draw_runs<'a>(pass: &mut wgpu::RenderPass<'_>, parts: &[&GpuPart], first: u32, merge: bool, pipeline: &dyn Fn(&GpuPart) -> Option<(u32, &'a wgpu::RenderPipeline)>) -> usize {
+    let (mut calls, mut i) = (0usize, 0usize);
+    let (mut set_pipeline, mut set_texture, mut set_geometry) = (None, None, None);
+    while i < parts.len() {
+        let p = parts[i];
+        let chosen = pipeline(p);
+        let mut count = 1;
+        if merge {
+            while i + count < parts.len() && parts[i + count].geometry == p.geometry && parts[i + count].bind.id == p.bind.id && pipeline(parts[i + count]).map(|k| k.0) == chosen.map(|k| k.0) {
+                count += 1;
+            }
+        }
+        if let Some((number, pipe)) = chosen {
+            if set_pipeline != Some(number) {
+                pass.set_pipeline(pipe);
+                set_pipeline = Some(number);
+            }
+        }
+        if set_texture != Some(p.bind.id) {
+            pass.set_bind_group(1, &p.bind.group, &[]);
+            set_texture = Some(p.bind.id);
+        }
+        if set_geometry != Some(p.geometry) {
+            pass.set_vertex_buffer(0, p.vertices.slice(..));
+            pass.set_index_buffer(p.indices.slice(..), wgpu::IndexFormat::Uint16);
+            set_geometry = Some(p.geometry);
+        }
+        pass.draw_indexed(0..p.index_count, 0, first + i as u32..first + (i + count) as u32);
+        calls += 1;
+        i += count;
+    }
+    calls
+}
+
 struct GpuPart {
     vertices: wgpu::Buffer,
     indices: wgpu::Buffer,
     index_count: u32,
-    bind: wgpu::BindGroup,
+    /// A number for the two buffers: parts with the same one draw the same geometry.
+    geometry: u32,
+    bind: TextureBind,
     /// A sphere around the part in the world (to skip it in the shadow pass).
     center: Vec3,
     radius: f32,
-    /// The part's uniform and what was written in it (so the part can be moved without uploading it again).
-    uniform_buffer: wgpu::Buffer,
+    /// What the shader reads of the part, as it was uploaded (`record_of` makes the frame's record of it).
     uniform: PartUniform,
     /// How far the part is moved from where it was uploaded.
     shift: Vec3,
@@ -276,6 +364,8 @@ struct GpuPart {
     /// A character's part (the overlay or a follower) under temporal anti-aliasing: its shift when last drawn and whether it
     /// had moved then (none until its motion is first written: see `Renderer::draw`).
     drawn: std::cell::Cell<Option<(Vec3, bool)>>,
+    /// A character's part: its shift when the last frame was drawn (the same as now without the anti-aliasing).
+    before: std::cell::Cell<Vec3>,
 }
 
 /// The original's `LODManager` (displaysystem `lodmanager.rs`, its globals at 0x100ae1a4) on one instance of a statel mesh:
@@ -640,15 +730,9 @@ impl Scene {
     }
 
     /// Moves the followers by `delta` (world, Z up) from where they were uploaded.
-    pub fn move_follow(&mut self, gpu: &Gpu, delta: Vec3) {
+    pub fn move_follow(&mut self, _gpu: &Gpu, delta: Vec3) {
+        // (the frame that draws them makes their records from the shift: `record_of`)
         for part in &mut self.follow {
-            let mut u = part.uniform;
-            let m = Mat4::from_translation(delta) * Mat4::from_cols_array(&u.model);
-            u.model = m.to_cols_array();
-            // (not moving, as far as the motion buffer knows: the frame that draws it writes the move: `Renderer::draw`)
-            u.previous_model = u.model;
-            u.motion = [1.0, 0.0, 0.0, 0.0];
-            gpu.queue.write_buffer(&part.uniform_buffer, 0, bytemuck::bytes_of(&u));
             part.shift = delta;
         }
     }
@@ -673,13 +757,8 @@ impl Scene {
         }
     }
 
-    fn write_tint(gpu: &Gpu, part: &mut GpuPart, tint: [f32; 4]) {
-        if part.uniform.tint == tint {
-            return;
-        }
+    fn write_tint(_gpu: &Gpu, part: &mut GpuPart, tint: [f32; 4]) {
         part.uniform.tint = tint;
-        // (the tint alone: the buffer may hold a shifted model matrix the uniform here does not, see `move_follow`)
-        gpu.queue.write_buffer(&part.uniform_buffer, std::mem::offset_of!(PartUniform, tint) as u64, bytemuck::bytes_of(&tint));
     }
 }
 
@@ -782,6 +861,9 @@ pub struct Stats {
     pub parts: usize,
     pub drawn: usize,
     pub shadow_drawn: usize,
+    /// The draw calls the scene pass's parts took (parts of the same geometry and texture go in one, as instances).
+    /// The shadow map's are not counted: it is drawn only now and then.
+    pub calls: usize,
     /// Where `draw`'s time went (for the client's profile): choosing the levels of detail and the frame's buffers, recording
     /// the shadow pass, the scene pass and the rest, and handing the work to the queue.
     pub times: [(&'static str, std::time::Duration); 5],
@@ -1308,6 +1390,11 @@ pub struct Renderer {
     started: std::time::Instant,
     globals_layout: wgpu::BindGroupLayout,
     part_layout: wgpu::BindGroupLayout,
+    /// The textures' bind groups by (type, instance), none for the white one, kept between uploads.
+    binds: std::sync::Mutex<HashMap<Option<(u32, u32)>, TextureBind>>,
+    /// The frame's part records: the layout, and the buffer with its bind group and how many records it holds.
+    records_layout: wgpu::BindGroupLayout,
+    records: Option<(wgpu::Buffer, wgpu::BindGroup, usize)>,
     sampler: wgpu::Sampler,
     white: wgpu::TextureView,
     format: wgpu::TextureFormat,
@@ -1380,15 +1467,24 @@ impl Renderer {
         let part_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("part"),
             entries: &[
-                uniform(0, wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT),
                 wgpu::BindGroupLayoutEntry {
-                    binding: 1,
+                    binding: 0,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: true }, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false },
                     count: None,
                 },
-                wgpu::BindGroupLayoutEntry { binding: 2, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering), count: None },
+                wgpu::BindGroupLayoutEntry { binding: 1, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering), count: None },
             ],
+        });
+        // The frame's part records: one array the vertex and the fragment stages read by the instance's index.
+        let records_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("part records"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: true }, has_dynamic_offset: false, min_binding_size: None },
+                count: None,
+            }],
         });
         let shadow_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("shadow"),
@@ -1424,8 +1520,8 @@ impl Renderer {
             layout: &shadow_layout,
             entries: &[wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&shadow_view) }, wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&shadow_sampler) }],
         });
-        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("mesh"), bind_group_layouts: &[Some(&globals_layout), Some(&part_layout), Some(&shadow_layout)], immediate_size: 0 });
-        let depth_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("depth"), bind_group_layouts: &[Some(&globals_layout), Some(&part_layout)], immediate_size: 0 });
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("mesh"), bind_group_layouts: &[Some(&globals_layout), Some(&part_layout), Some(&records_layout), Some(&shadow_layout)], immediate_size: 0 });
+        let depth_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("depth"), bind_group_layouts: &[Some(&globals_layout), Some(&part_layout), Some(&records_layout)], immediate_size: 0 });
         let attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x2, 3 => Unorm8x4];
         // The shadow pass: depth only, from the sun, plants bending as in the main pass.
         let shadow_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -1573,7 +1669,7 @@ impl Renderer {
             entries: &[wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&white) }, wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&sampler) }],
         });
         let liquid = LiquidResources::new(gpu, liquid_bind_layout, &white, &sampler, &fsr_sampler, &sprite_layout);
-        Renderer { shadow_cache: None, shadow_pipeline, pipeline_sets, shaders, antialiasing: Antialiasing::default(), culling, taa_pipeline, taa_layout, taa_sampler, taa: None, copy_pipeline, timer: GpuTimer::new(gpu), gpu_ms: None, frame: 0, previous: None, sprites: HashMap::new(), sprite_layout, white_sprite, shadow_view, shadow_bind, shadow_layout, shadow_sampler, shadow_size: SHADOW_SIZE, shadows: true, refraction: std::env::var_os("MAO_NO_REFRACTION").is_none(), stats: Stats::default(), render_scale: 1.0, mip_bias: std::env::var_os("MAO_NO_MIP_BIAS").is_none(), sharpness: 0.2, fsr_easu, fsr_rcas, fsr_layout, fsr_sampler, fsr: None, samples, msaa: None, started: std::time::Instant::now(), globals_layout, part_layout, sampler, white, format, depth: None, textures: Default::default(), liquid }
+        Renderer { shadow_cache: None, shadow_pipeline, pipeline_sets, shaders, antialiasing: Antialiasing::default(), culling, binds: std::sync::Mutex::new(HashMap::new()), records_layout, records: None, taa_pipeline, taa_layout, taa_sampler, taa: None, copy_pipeline, timer: GpuTimer::new(gpu), gpu_ms: None, frame: 0, previous: None, sprites: HashMap::new(), sprite_layout, white_sprite, shadow_view, shadow_bind, shadow_layout, shadow_sampler, shadow_size: SHADOW_SIZE, shadows: true, refraction: std::env::var_os("MAO_NO_REFRACTION").is_none(), stats: Stats::default(), render_scale: 1.0, mip_bias: std::env::var_os("MAO_NO_MIP_BIAS").is_none(), sharpness: 0.2, fsr_easu, fsr_rcas, fsr_layout, fsr_sampler, fsr: None, samples, msaa: None, started: std::time::Instant::now(), globals_layout, part_layout, sampler, white, format, depth: None, textures: Default::default(), liquid }
     }
 
     /// Puts a model on the GPU. `texture` finds a texture by (type, instance).
@@ -1615,7 +1711,7 @@ impl Renderer {
     }
 
     /// `model`'s draws as parts, taking the buffers and bind group of an old part where one has the same sizes and texture
-    /// and writing the new vertices, indices and uniform into them: the characters are uploaded again with every network
+    /// and writing the new vertices and indices into them: the characters are uploaded again with every network
     /// update (a few dozen times a second), and making and freeing their hundreds of buffers each time cost milliseconds.
     /// (A model with watched meshes or water is uploaded afresh.)
     fn reupload(&self, gpu: &Gpu, model: &Model, texture: &mut dyn FnMut(u32, u32) -> Option<Texture>, old: Vec<GpuPart>) -> Vec<GpuPart> {
@@ -1661,30 +1757,20 @@ impl Renderer {
             let uniform = PartUniform { model: world, colour: [d[0], d[1], d[2], 1.0], flags: [view.is_some() as u32 as f32, (material.ignore_alpha as u32 + material.alpha_lights as u32) as f32, material.foliage as u32 as f32, height], previous_model: world, motion: [0.0; 4], tint: NO_TINT, blend: blend_of(material) };
             let (vertex_bytes, index_bytes): (&[u8], &[u8]) = (bytemuck::cast_slice(&vertices), bytemuck::cast_slice(&indices));
             let reused = pool.get_mut(&(vertex_bytes.len() as u64, index_bytes.len() as u64, key)).and_then(Vec::pop);
-            let (vb, ib, ub, bind) = match reused {
+            let (vb, ib, geometry, bind) = match reused {
                 Some(old) => {
                     gpu.queue.write_buffer(&old.vertices, 0, vertex_bytes);
                     gpu.queue.write_buffer(&old.indices, 0, index_bytes);
-                    gpu.queue.write_buffer(&old.uniform_buffer, 0, bytemuck::bytes_of(&uniform));
-                    (old.vertices, old.indices, old.uniform_buffer, old.bind)
+                    (old.vertices, old.indices, old.geometry, old.bind)
                 }
                 None => {
                     let vb = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: vertex_bytes, usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST });
                     let ib = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: index_bytes, usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST });
-                    let ub = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: bytemuck::bytes_of(&uniform), usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST });
-                    let bind = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                        label: None,
-                        layout: &self.part_layout,
-                        entries: &[
-                            wgpu::BindGroupEntry { binding: 0, resource: ub.as_entire_binding() },
-                            wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(view.as_ref().unwrap_or(&self.white)) },
-                            wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(&self.sampler) },
-                        ],
-                    });
-                    (vb, ib, ub, bind)
+                    let bind = texture_bind(&gpu.device, &self.part_layout, &self.sampler, &self.white, &self.binds, key, view.as_ref());
+                    (vb, ib, next_id(), bind)
                 }
             };
-            parts.push(GpuPart { vertices: vb, indices: ib, index_count: part.indices.len() as u32, bind, center, radius, uniform_buffer: ub, uniform, shift: Vec3::ZERO, source: index, texture: key, low_only: false, faces: faces_of(material.two_sided, &m), lod: None, drawn: Default::default() });
+            parts.push(GpuPart { vertices: vb, indices: ib, index_count: part.indices.len() as u32, geometry, bind, center, radius, uniform, shift: Vec3::ZERO, source: index, texture: key, low_only: false, faces: faces_of(material.two_sided, &m), lod: None, drawn: Default::default(), before: Default::default() });
         }
         parts
     }
@@ -1738,7 +1824,7 @@ impl Renderer {
             tex_count = cache.len() as u32;
             tex_time = upload_started.elapsed();
         }
-        let mut geometry: HashMap<usize, Option<(wgpu::Buffer, wgpu::Buffer, u32, Option<wgpu::TextureView>, f32, (Vec3, Vec3))>> = HashMap::new();
+        let mut geometry: HashMap<usize, Option<(wgpu::Buffer, wgpu::Buffer, u32, Option<wgpu::TextureView>, f32, (Vec3, Vec3), u32, TextureBind)>> = HashMap::new();
         let mut parts: Vec<GpuPart> = Vec::new();
         for &(index, _) in &draw_list {
             let geo_started = std::time::Instant::now();
@@ -1762,19 +1848,19 @@ impl Renderer {
                     lo = lo.min(Vec3::from(v.position));
                     hi = hi.max(Vec3::from(v.position));
                 }
-                Some((vb, ib, part.indices.len() as u32, view, height, (lo, hi)))
+                let bind = texture_bind(&gpu.device, &self.part_layout, &self.sampler, &self.white, &self.binds, part.material.textures.first().copied(), view.as_ref());
+                Some((vb, ib, part.indices.len() as u32, view, height, (lo, hi), next_id(), bind))
             });
             geo_time += geo_started.elapsed();
             let _ = entry;
         }
-        // Each draw's own uniform buffer and bind group: made on every core too (a playfield draws tens of thousands of props).
-        let (part_layout, sampler, white) = (&self.part_layout, &self.sampler, &self.white);
+        // Each draw's own part (a playfield draws tens of thousands of props): made on every core.
         let geometry = &geometry;
         let build = |slice: &[(usize, [f32; 16])]| -> Vec<GpuPart> {
             slice
                 .iter()
                 .filter_map(|&(index, world)| {
-                    let (vb, ib, count, view, height, (lo, hi)) = geometry.get(&index)?.as_ref()?;
+                    let (vb, ib, count, view, height, (lo, hi), geometry_id, bind) = geometry.get(&index)?.as_ref()?;
                     // A sphere around the part's box in the world.
                     let m = Mat4::from_cols_array(&world);
                     let (mut wlo, mut whi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
@@ -1788,17 +1874,7 @@ impl Renderer {
                     let d = model.parts[index].material.diffuse;
                     let material = &model.parts[index].material;
                     let uniform = PartUniform { model: world, colour: [d[0], d[1], d[2], 1.0], flags: [view.is_some() as u32 as f32, (material.ignore_alpha as u32 + material.alpha_lights as u32) as f32, material.foliage as u32 as f32, *height], previous_model: world, motion: [0.0; 4], tint: NO_TINT, blend: blend_of(material) };
-                    let ub = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: bytemuck::bytes_of(&uniform), usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST });
-                    let bind = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                        label: None,
-                        layout: part_layout,
-                        entries: &[
-                            wgpu::BindGroupEntry { binding: 0, resource: ub.as_entire_binding() },
-                            wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(view.as_ref().unwrap_or(white)) },
-                            wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(sampler) },
-                        ],
-                    });
-                    Some(GpuPart { vertices: vb.clone(), indices: ib.clone(), index_count: *count, bind, center, radius, uniform_buffer: ub, uniform, shift: Vec3::ZERO, source: index, texture: model.parts[index].material.textures.first().copied(), low_only: low_parts.contains(&index), faces: faces_of(material.two_sided, &m), lod: None, drawn: Default::default() })
+                    Some(GpuPart { vertices: vb.clone(), indices: ib.clone(), index_count: *count, geometry: *geometry_id, bind: bind.clone(), center, radius, uniform, shift: Vec3::ZERO, source: index, texture: model.parts[index].material.textures.first().copied(), low_only: low_parts.contains(&index), faces: faces_of(material.two_sided, &m), lod: None, drawn: Default::default(), before: Default::default() })
                 })
                 .collect()
         };
@@ -2132,17 +2208,8 @@ impl Renderer {
             // are uploaded anew as they move, which the matrices don't show).
             for part in scene.overlay.iter().chain(&scene.follow) {
                 let last = part.drawn.get();
-                let moving = last.is_some_and(|(s, _)| s != part.shift);
-                if last.is_none() || moving || last.is_some_and(|(_, m)| m) {
-                    let base = Mat4::from_cols_array(&part.uniform.model);
-                    let before = last.map_or(part.shift, |(s, _)| s);
-                    let mut u = part.uniform;
-                    u.model = (Mat4::from_translation(part.shift) * base).to_cols_array();
-                    u.previous_model = (Mat4::from_translation(before) * base).to_cols_array();
-                    u.motion = [1.0, 0.0, 0.0, 0.0];
-                    gpu.queue.write_buffer(&part.uniform_buffer, 0, bytemuck::bytes_of(&u));
-                }
-                part.drawn.set(Some((part.shift, moving)));
+                part.before.set(last.map_or(part.shift, |(s, _)| s));
+                part.drawn.set(Some((part.shift, last.is_some_and(|(s, _)| s != part.shift))));
             }
         } else {
             if let Some(t) = self.taa.as_mut() {
@@ -2150,8 +2217,66 @@ impl Renderer {
             }
             for part in scene.overlay.iter().chain(&scene.follow) {
                 part.drawn.set(None);
+                part.before.set(part.shift);
             }
         }
+        // The frame's draws. The shadow map's, when it is drawn anew: anything that can throw a shadow into the box, within
+        // it horizontally and a little beyond for the slant. Only the playfield itself: the characters and the machines (the
+        // overlay and the followers) throw the original's blob shadows instead (`Scene::blobs`), and nothing else in the
+        // original throws one.
+        let reach = extent * 1.6;
+        let mut casters: Vec<&GpuPart> = if redraw_shadows && self.shadows { scene.parts.iter().enumerate().filter(|(k, p)| lod_draw[*k] && (p.center + p.shift - focus).truncate().length() <= reach + p.radius).map(|(_, p)| p).collect() } else { Vec::new() };
+        // The scene's: the parts in view. (the parts under a translucent tint, a highlighted character's, are drawn blended
+        // after the opaque parts; at alpha 0 not at all. The opaque pipeline writes the fragment's alpha to the target, so a
+        // tinted part must not go through it. The same goes for the parts of blended materials, as randy31 draws its
+        // transparent list, 6, after the others and far to near: `RVisual_t::AddToRenderList`'s buckets by the distance from
+        // the camera, DisplaySystem's `Render(5, 6, .., 0x707, 0)`. Here they are ordered by their own distance, not in
+        // buckets.)
+        let (mut opaque, mut translucent): (Vec<(&GpuPart, bool)>, Vec<(&GpuPart, bool)>) = (Vec::new(), Vec::new());
+        for (k, part) in scene.parts.iter().enumerate().chain(scene.overlay.iter().chain(&scene.follow).map(|p| (usize::MAX, p))) {
+            parts += 1;
+            if k != usize::MAX && !lod_draw[k] {
+                continue;
+            }
+            // Plants bend up to a couple of units out of their box.
+            if !sphere_visible(&planes, part.center + part.shift, part.radius + 2.0) {
+                continue;
+            }
+            if part.uniform.tint[3] < 1.0 || part.uniform.blend[0] > 0.5 {
+                if part.uniform.tint[3] > 0.0 {
+                    translucent.push((part, k == usize::MAX));
+                }
+                continue;
+            }
+            opaque.push((part, k == usize::MAX));
+        }
+        // (the order: the opaque parts by the faces they leave out, their texture and their geometry, so that the same of
+        // all three follow one another and go in one call, see `draw_runs`; the shadow map's the same way; the blended
+        // ones far to near)
+        casters.sort_by_key(|p| (p.bind.id, p.geometry));
+        opaque.sort_by_key(|(p, _)| (p.faces, p.bind.id, p.geometry));
+        translucent.sort_by(|(a, _), (b, _)| (b.center + b.shift).distance_squared(eye).total_cmp(&(a.center + a.shift).distance_squared(eye)));
+        drawn += opaque.len() + translucent.len();
+        shadow_drawn += casters.len();
+        // Their records, in the order they are drawn, in one buffer (made larger when the frame needs it).
+        let mut records: Vec<PartUniform> = Vec::with_capacity(casters.len() + opaque.len() + translucent.len());
+        records.extend(casters.iter().map(|p| p.uniform));
+        let first_opaque = records.len() as u32;
+        records.extend(opaque.iter().map(|(p, character)| record_of(p, *character)));
+        let first_translucent = records.len() as u32;
+        records.extend(translucent.iter().map(|(p, character)| record_of(p, *character)));
+        if self.records.as_ref().is_none_or(|r| r.2 < records.len().max(1)) {
+            let capacity = (records.len() * 3 / 2).max(1024);
+            let buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor { label: Some("part records"), size: (capacity * std::mem::size_of::<PartUniform>()) as u64, usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false });
+            let bind = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("part records"), layout: &self.records_layout, entries: &[wgpu::BindGroupEntry { binding: 0, resource: buffer.as_entire_binding() }] });
+            self.records = Some((buffer, bind, capacity));
+        }
+        if !records.is_empty() {
+            gpu.queue.write_buffer(&self.records.as_ref().unwrap().0, 0, bytemuck::cast_slice(&records));
+        }
+        let opaque: Vec<&GpuPart> = opaque.into_iter().map(|(p, _)| p).collect();
+        let translucent: Vec<&GpuPart> = translucent.into_iter().map(|(p, _)| p).collect();
+        let mut calls = 0usize;
         self.depth_view(gpu, render_size, samples);
         if samples > 1 {
             self.msaa_view(gpu, render_size);
@@ -2162,6 +2287,7 @@ impl Renderer {
         }
         let fsr_views = if upscale { Some(self.fsr_targets(gpu, render_size, size)) } else { None };
         let pipes = &self.pipeline_sets[&(samples, taa)];
+        let records_bind = &self.records.as_ref().unwrap().1;
         let taa_targets = self.taa.as_ref().filter(|_| taa);
         let scene_target: &wgpu::TextureView = match (taa_targets, &fsr_views) {
             (Some(t), _) => &t.colour,
@@ -2204,24 +2330,8 @@ impl Renderer {
             if self.shadows {
                 pass.set_pipeline(&self.shadow_pipeline);
                 pass.set_bind_group(0, &shadow_globals_bind, &[]);
-                // Anything that can throw a shadow into the box: within it horizontally, a little beyond for the slant. Only
-                // the playfield itself: the characters and the machines (the overlay and the followers) throw the original's
-                // blob shadows instead (`Scene::blobs`), and nothing else in the original throws one.
-                let reach = extent * 1.6;
-                for (k, part) in scene.parts.iter().enumerate() {
-                    if !lod_draw[k] {
-                        continue;
-                    }
-                    let d = part.center + part.shift - focus;
-                    if d.truncate().length() > reach + part.radius {
-                        continue;
-                    }
-                    shadow_drawn += 1;
-                    pass.set_bind_group(1, &part.bind, &[]);
-                    pass.set_vertex_buffer(0, part.vertices.slice(..));
-                    pass.set_index_buffer(part.indices.slice(..), wgpu::IndexFormat::Uint16);
-                    pass.draw_indexed(0..part.index_count, 0, 0..1);
-                }
+                pass.set_bind_group(2, records_bind, &[]);
+                draw_runs(&mut pass, &casters, 0, true, &|_| None);
             }
         }
         lap(1, "render-shadow");
@@ -2281,53 +2391,12 @@ impl Renderer {
                 pass.set_vertex_buffer(0, buffer.slice(..));
                 pass.draw(0..b.vertices.len() as u32, 0..1);
             }
-            // (the pipeline by the faces a part leaves out, changed only when the next part's differs)
-            let mut faces = 1usize;
-            pass.set_pipeline(&pipes.mesh[faces]);
+            // (the meshes: the opaque parts, then the blended ones one by one in their order)
             pass.set_bind_group(0, &globals_bind, &[]);
-            pass.set_bind_group(2, &self.shadow_bind, &[]);
-            // (the parts under a translucent tint, a highlighted character's: drawn blended after the opaque parts; at alpha 0 not
-            // at all. The opaque pipeline writes the fragment's alpha to the target, so a tinted part must not go through it.)
-            // (the same pass draws the parts of blended materials, as randy31 draws its transparent list, 6, after the
-            // others and far to near: `RVisual_t::AddToRenderList`'s buckets by the distance from the camera, DisplaySystem's
-            // `Render(5, 6, .., 0x707, 0)`. Here they are ordered by their own distance, not in buckets.)
-            let mut translucent: Vec<&GpuPart> = Vec::new();
-            for (k, part) in scene.parts.iter().enumerate().chain(scene.overlay.iter().chain(&scene.follow).map(|p| (usize::MAX, p))) {
-                parts += 1;
-                if k != usize::MAX && !lod_draw[k] {
-                    continue;
-                }
-                // Plants bend up to a couple of units out of their box.
-                if !sphere_visible(&planes, part.center + part.shift, part.radius + 2.0) {
-                    continue;
-                }
-                if part.uniform.tint[3] < 1.0 || part.uniform.blend[0] > 0.5 {
-                    if part.uniform.tint[3] > 0.0 {
-                        translucent.push(part);
-                    }
-                    continue;
-                }
-                drawn += 1;
-                if part.faces as usize != faces {
-                    faces = part.faces as usize;
-                    pass.set_pipeline(&pipes.mesh[faces]);
-                }
-                pass.set_bind_group(1, &part.bind, &[]);
-                pass.set_vertex_buffer(0, part.vertices.slice(..));
-                pass.set_index_buffer(part.indices.slice(..), wgpu::IndexFormat::Uint16);
-                pass.draw_indexed(0..part.index_count, 0, 0..1);
-            }
-            if !translucent.is_empty() {
-                translucent.sort_by(|a, b| (b.center + b.shift).distance_squared(eye).total_cmp(&(a.center + a.shift).distance_squared(eye)));
-                for part in translucent {
-                    pass.set_pipeline(blend_pipeline(pipes, part.uniform.blend, part.faces as usize));
-                    drawn += 1;
-                    pass.set_bind_group(1, &part.bind, &[]);
-                    pass.set_vertex_buffer(0, part.vertices.slice(..));
-                    pass.set_index_buffer(part.indices.slice(..), wgpu::IndexFormat::Uint16);
-                    pass.draw_indexed(0..part.index_count, 0, 0..1);
-                }
-            }
+            pass.set_bind_group(2, records_bind, &[]);
+            pass.set_bind_group(3, &self.shadow_bind, &[]);
+            calls += draw_runs(&mut pass, &opaque, first_opaque, true, &|p| Some((p.faces as u32, &pipes.mesh[p.faces as usize])));
+            calls += draw_runs(&mut pass, &translucent, first_translucent, false, &|p| Some((blend_number(p.uniform.blend) * 3 + p.faces as u32, blend_pipeline(pipes, p.uniform.blend, p.faces as usize))));
             if !scene.blobs.is_empty() {
                 let buffer = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("blobs"), contents: bytemuck::cast_slice(&scene.blobs), usage: wgpu::BufferUsages::VERTEX });
                 pass.set_pipeline(&pipes.blob);
@@ -2450,7 +2519,7 @@ impl Renderer {
             eprintln!("shadow casters: {} ({} under 1 m, {} 1-3 m, {} foliage), extent {extent}", casters.len(), small, medium, foliage);
             eprintln!("draw groups: {} playfield draws from {} meshes ({} repeated), {} overlay, {} follow", sources.values().sum::<usize>(), sources.len(), many, scene.overlay.len(), scene.follow.len());
         }
-        self.stats = Stats { parts, drawn, shadow_drawn, times: [("", std::time::Duration::ZERO); 5] };
+        self.stats = Stats { parts, drawn, shadow_drawn, calls, times: [("", std::time::Duration::ZERO); 5] };
         // The temporal anti-aliasing: this frame blended into the last (`taa.wgsl`), at the size the scene was drawn; the result
         // is what is upscaled or copied to the target, and the next frame's history.
         let mut resolved: Option<wgpu::TextureView> = None;
@@ -2703,6 +2772,36 @@ mod tests {
         assert!(red(&square(false, false)) > 500, "the front is drawn");
         assert_eq!(red(&square(true, false)), 0, "the back is not");
         assert!(red(&square(true, true)) > 500, "a material of two sides shows its back");
+    }
+
+    /// A part placed three times is drawn in one call, each of the three at its own place (its own record); a part of
+    /// another geometry takes a call of its own.
+    #[test]
+    fn the_same_part_in_several_places_is_one_call() {
+        // (skipped on a machine without a graphics device)
+        let Ok(gpu) = Gpu::headless() else { return };
+        let camera = Camera { target: Vec3::ZERO, distance: 40.0, yaw: 0.0, pitch: 1.4, half_height: None };
+        let square = |half: f32| {
+            let vertices = [[-half, -half, 0.0], [half, -half, 0.0], [half, half, 0.0], [-half, half, 0.0]].iter().map(|&p| mao_formats::model::Vertex { position: p, normal: [0.0, 0.0, 1.0], uv: [0.0, 0.0], colour: mao_formats::model::Vertex::UNBAKED }).collect();
+            mao_formats::model::Part { name: String::new(), world: Mat4::IDENTITY.to_cols_array(), vertices, indices: vec![0, 1, 2, 0, 2, 3], material: mao_formats::model::Material { diffuse: [1.0, 0.0, 0.0], opacity: 1.0, two_sided: true, ..Default::default() } }
+        };
+        let at = |x: f32| Mat4::from_translation(Vec3::new(x, 0.0, 0.0)).to_cols_array();
+        let picture = |model: &Model| {
+            let mut renderer = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm);
+            let scene = renderer.upload(&gpu, model, &mut |_, _| None);
+            let image = renderer.render_to_image(&gpu, &scene, &camera, 320, 120);
+            let red = image.chunks(4).filter(|p| p[0] > 2 * p[1].max(p[2]) && p[0] > 40).count();
+            (red, renderer.stats.calls, renderer.stats.drawn)
+        };
+        let (one, calls, drawn) = picture(&Model { parts: vec![square(2.0)], instances: vec![(0, at(0.0))], ..Default::default() });
+        assert_eq!((calls, drawn), (1, 1));
+        assert!(one > 50, "{one}");
+        let (three, calls, drawn) = picture(&Model { parts: vec![square(2.0)], instances: vec![(0, at(-12.0)), (0, at(0.0)), (0, at(12.0))], ..Default::default() });
+        assert_eq!((calls, drawn), (1, 3), "three places, one call");
+        // (apart from one another: three times the red of one, give or take the perspective)
+        assert!(three > one * 5 / 2 && three < one * 7 / 2, "each of the three is drawn at its own place: {three} against {one}");
+        let (_, calls, drawn) = picture(&Model { parts: vec![square(2.0), square(1.0)], instances: vec![(0, at(-12.0)), (0, at(0.0)), (1, at(12.0))], ..Default::default() });
+        assert_eq!((calls, drawn), (2, 3), "another geometry, another call");
     }
 
     #[test]

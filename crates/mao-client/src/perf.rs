@@ -16,8 +16,8 @@ pub struct GpuInfo {
     pub gpu_ms: Option<f32>,
     /// The graphics memory the renderer holds (bytes), where the backend reports it.
     pub gpu_memory: Option<u64>,
-    /// Parts drawn, of all, and in the shadow pass.
-    pub drawn: (usize, usize, usize),
+    /// Parts drawn, of all, in the shadow pass, and the draw calls they took.
+    pub drawn: (usize, usize, usize, usize),
     /// The size the scene is drawn at and the window's, and the anti-aliasing.
     pub render_size: (u32, u32),
     pub window_size: (u32, u32),
@@ -141,8 +141,8 @@ impl Perf {
                 ui.label(egui::RichText::new(&gpu.adapter).small().color(egui::Color32::LIGHT_GRAY));
                 ui.label(
                     egui::RichText::new(format!(
-                        "{}x{} drawn at {}x{}, {}   {} of {} parts, {} in shadow",
-                        gpu.window_size.0, gpu.window_size.1, gpu.render_size.0, gpu.render_size.1, gpu.antialiasing, gpu.drawn.0, gpu.drawn.1, gpu.drawn.2
+                        "{}x{} drawn at {}x{}, {}   {} of {} parts in {} draws, {} in shadow",
+                        gpu.window_size.0, gpu.window_size.1, gpu.render_size.0, gpu.render_size.1, gpu.antialiasing, gpu.drawn.0, gpu.drawn.1, gpu.drawn.3, gpu.drawn.2
                     ))
                     .small()
                     .color(egui::Color32::LIGHT_GRAY),
