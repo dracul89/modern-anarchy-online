@@ -107,6 +107,8 @@ pub enum Out {
     Pet(u32),
     /// A command the server carries out (`/stuck` and the like): its text.
     Server(String),
+    /// `/fxscript`: the line for the effect scripts' engine.
+    FxScript(String),
     Follow,
     Inspect,
     Quit,
@@ -681,6 +683,7 @@ impl ChatWindow {
             Parsed::Pet { command } => Some(Out::Pet(command)),
             Parsed::Perf => Some(Out::Perf),
             Parsed::Server { text } => Some(Out::Server(text)),
+            Parsed::FxScript { line } => Some(Out::FxScript(line)),
             Parsed::Quit => Some(Out::Quit),
             Parsed::Follow => Some(Out::Follow),
             Parsed::Window { name, open } => Some(Out::Window { name, open }),

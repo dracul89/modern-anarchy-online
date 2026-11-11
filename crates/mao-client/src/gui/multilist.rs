@@ -178,15 +178,26 @@ impl GridMode {
     fn cols(&self) -> usize {
         self.columns.unwrap_or_else(|| ((self.width / self.step().0).floor() as usize).max(1))
     }
+    /// Where the first column starts. The original puts it `BORDER` in from the left whatever the width
+    /// (`GridPosToViewPos`), which leaves what the width holds beyond whole columns at the right: up to a cell's worth of
+    /// empty edge on one side only (the user, 2026-11-11: too much padding at the right of the inventory and the bags).
+    /// Here the columns that fill a width by themselves stand in its middle; this client's own.
+    fn left(&self) -> f32 {
+        if self.columns.is_some() {
+            return grid::BORDER;
+        }
+        let across = self.cols() as f32 * self.step().0 - 1.0 - self.spacing.0;
+        ((self.width - across) * 0.5).floor().max(grid::BORDER)
+    }
     /// A cell's top left.
     fn place(&self, (x, y): (usize, usize)) -> (f32, f32) {
         let (sx, sy) = self.step();
-        (grid::BORDER + x as f32 * sx, grid::BORDER + y as f32 * sy)
+        (self.left() + x as f32 * sx, grid::BORDER + y as f32 * sy)
     }
     /// The cell under a point (`ViewPosToGridPos`): not the spacing beside it.
     fn cell_at(&self, p: Point) -> Option<(usize, usize)> {
         let (sx, sy) = self.step();
-        let (cx, cy) = (((p.x - grid::BORDER) / sx).floor(), ((p.y - grid::BORDER) / sy).floor());
+        let (cx, cy) = (((p.x - self.left()) / sx).floor(), ((p.y - grid::BORDER) / sy).floor());
         if cx < 0.0 || cy < 0.0 || cx as usize >= self.cols() {
             return None;
         }
@@ -900,17 +911,31 @@ mod tests {
         assert_eq!(grid::columns(360.0), 6);
         assert_eq!(grid::columns(10.0), 1);
         assert_eq!(grid::place(7, 6), (6.0 + 58.0, 6.0 + 58.0));
+        // (the columns stand in the middle of a width they do not fill: 5 columns, 279 across, in 320; the cell under a
+        // point follows)
+        let mut g = GridMode::new(30, 5);
+        // (as made, a width of five steps and the two borders: 302, the columns 279 across, so 11 in)
+        assert_eq!(g.place((0, 0)), (11.0, 6.0));
+        g.width = 320.0;
+        assert_eq!((g.cols(), g.left()), (5, 20.0));
+        assert_eq!(g.place((1, 0)), (20.0 + 58.0, 6.0));
+        assert_eq!(g.cell_at(Point::new(21.0, 7.0)), Some((0, 0)));
+        assert_eq!(g.cell_at(Point::new(10.0, 7.0)), None);
+        // (a fixed number of columns, the wear view's, starts at the edge as it did)
+        g.columns = Some(3);
+        assert_eq!(g.left(), 6.0);
         assert_eq!(grid::size(102, 6), (12.0 + 6.0 * 58.0 - 11.0, 12.0 + 17.0 * 58.0 - 11.0));
         let mut g = GridMode::new(102, 6);
         g.width = 360.0;
         let mut r = Rows::new(Some(g));
         r.items = vec![item(1, "a"), item(2, "b")];
-        assert_eq!(r.at(Point::new(6.0 + 58.0 + 3.0, 10.0)), Some(1));
-        assert_eq!(r.at(Point::new(6.0 + 50.0, 10.0)), None);
-        assert_eq!(r.at(Point::new(6.0 + 2.0 * 58.0, 10.0)), None);
-        r.mouse(Mouse::Down, Point::new(10.0, 10.0));
-        assert_eq!(r.mouse(Mouse::Move, Point::new(20.0, 10.0)), Some(Signal::ItemDragged(1)));
-        assert_eq!(r.mouse(Mouse::Up { inside: true }, Point::new(20.0, 10.0)), None);
+        // (six columns, 337 across, in 360: the first starts 11 in)
+        assert_eq!(r.at(Point::new(11.0 + 58.0 + 3.0, 10.0)), Some(1));
+        assert_eq!(r.at(Point::new(11.0 + 50.0, 10.0)), None);
+        assert_eq!(r.at(Point::new(11.0 + 2.0 * 58.0, 10.0)), None);
+        r.mouse(Mouse::Down, Point::new(15.0, 10.0));
+        assert_eq!(r.mouse(Mouse::Move, Point::new(25.0, 10.0)), Some(Signal::ItemDragged(1)));
+        assert_eq!(r.mouse(Mouse::Up { inside: true }, Point::new(25.0, 10.0)), None);
     }
 
     fn item(id: i64, from: &str) -> Item {

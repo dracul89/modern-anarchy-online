@@ -124,7 +124,7 @@ Carried out here: `/tell` `/reply` `/whisper` `/shout` `/emote` and the emotes, 
 Listed but not carried out: `/anon` `/assist` `/bank` `/born` `/filter` `/group` `/invite` `/kick` `/leave`
 `/list` `/macro` `/name` `/option` `/perk` `/perks` `/petition` `/played` `/raid` `/reclaim` `/script`
 `/shop` `/showfile` `/stuck` `/team` `/terminate` `/text` `/tipoftheday` `/title` `/toggle` `/tower` `/dvalue`
-`/fxscript` `/messagebox`.
+`/messagebox`. (`/fxscript` is carried out since 2026-11-11: FUN_100b70be, the line sent as the effect scripts' signal.)
 
 Developer and GM commands (not for players; leave out): `/anim` `/center` `/clearunique` `/clone` `/command`
 `/criterialocal` `/damagemult` `/dumphash` `/font` `/framerate` `/funcom` `/getfull` `/gethash` `/getlocal`

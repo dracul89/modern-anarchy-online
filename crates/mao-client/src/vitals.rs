@@ -494,8 +494,10 @@ pub fn show_docked(ctx: &egui::Context, yaw: f32, stats: &BTreeMap<u32, i64>, pa
         if shown {
             let wing = if left { d.left_wing } else { d.right_wing };
             let middle = ctx.content_rect().center().x;
-            // (on the wing's floor: the strip of the menus lies over the wing's lower end, so the floor is the strip's top)
-            let floor = (if left { d.left_bar } else { d.right_bar }).map(|b| b.top());
+            // (on the wing's floor: where the strip lies over the wing's lower end, the floor is the strip's top; a skin
+            // that docks the strip elsewhere, the AOU mod's CYT at the top of the screen, leaves the wing its own floor:
+            // the bars stood at the top of the screen there)
+            let floor = (if left { d.left_bar } else { d.right_bar }).filter(|b| wing.is_some_and(|w| b.intersects(w) && b.top() > w.top())).map(|b| b.top());
             let at = move |size: egui::Vec2| match wing {
                 Some(w) if left => egui::pos2(w.left() + inset, floor.unwrap_or(w.bottom()) - size.y - 2.0),
                 Some(w) => egui::pos2(w.right() - (inset - 12.0) - size.x, floor.unwrap_or(w.bottom()) - size.y - 2.0),

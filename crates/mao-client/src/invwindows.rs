@@ -315,7 +315,15 @@ impl ItemWindows {
                     let (tree, root, list) = (&mut view.tree, view.root, view.list);
                     let min = crate::gui::host::preferred_pixels(tree, root, false);
                     ui.set_min_size(min);
-                    let response = crate::gui::host::show(ui, tree, root, skin.as_deref(), palette);
+                    // (the grid in the middle of the page: the four tabs are wider than its three columns in this
+                    // client's fonts, and it stood at the left with the rest of the width empty beside it)
+                    let spare = ((ui.available_width() - min.x) * 0.5).floor().max(0.0);
+                    let response = ui
+                        .horizontal(|ui| {
+                            ui.add_space(spare);
+                            crate::gui::host::show(ui, tree, root, skin.as_deref(), palette)
+                        })
+                        .inner;
                     if let Some(at) = pointer {
                         if let Some(slot) = multilist::item_at(tree, list, response.rect.min, at) {
                             hovered_item = Some((slot as u32, cell_label(&WEAR_TABS[t], slot as u32)));

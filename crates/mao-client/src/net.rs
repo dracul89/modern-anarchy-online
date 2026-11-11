@@ -711,6 +711,31 @@ static SPEECH: std::sync::Mutex<Vec<(u8, String, Vec<u8>)>> = std::sync::Mutex::
 /// Commands for the server (`/stuck` and the like), sent by the game loop.
 static SERVER_COMMANDS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 
+/// `/fxscript` lines for the effect scripts' engine, which lives on the game loop's thread.
+static FXS_COMMANDS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+/// A `/fxscript` line, run by the game loop before the scripts' next frame.
+pub fn fxs_command(line: String) {
+    FXS_COMMANDS.lock().unwrap_or_else(|e| e.into_inner()).push(line);
+}
+
+/// What a `/fxscript` line did, for the chat window: the effect it started, or why nothing came of it.
+fn fxs_report(line: &str, ran: &crate::fxs::Ran) -> Vec<String> {
+    let name = line.split_whitespace().nth(1).unwrap_or("");
+    let mut out = Vec::new();
+    match (ran.made, ran.fxid) {
+        (true, Some(fxid)) => out.push(format!("Script {name}: running (environment effect {fxid}).")),
+        (true, None) => out.push(format!("Script {name}: running.")),
+        (false, _) => out.push(format!("Script {name}: nothing was started.")),
+    }
+    // (the reader's own complaints, a few of them: a missing file, a line it could not read)
+    out.extend(ran.errors.iter().take(4).map(|e| format!("  {e}")));
+    if ran.errors.len() > 4 {
+        out.push(format!("  ... and {} more", ran.errors.len() - 4));
+    }
+    out
+}
+
 /// A command for the server (`n3::server_command`), sent by the game loop.
 pub fn server_command(text: String) {
     SERVER_COMMANDS.lock().unwrap_or_else(|e| e.into_inner()).push(text);
@@ -4991,7 +5016,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                         chat.send(&mao_net::chat::lookup_packet(&name))?;
                                     }
                                 },
-                                Out::Camp | Out::Sit | Out::Perf | Out::Pet(_) | Out::Duel(_) | Out::PetDuel(_) | Out::Server(_) | Out::Quit | Out::Follow | Out::Inspect | Out::Window { .. } | Out::Waypoint { .. } | Out::SelectSelf | Out::SetOption { .. } | Out::ViewDist(_) | Out::CharDist(_) => {}
+                                Out::Camp | Out::Sit | Out::Perf | Out::Pet(_) | Out::Duel(_) | Out::PetDuel(_) | Out::Server(_) | Out::FxScript(_) | Out::Quit | Out::Follow | Out::Inspect | Out::Window { .. } | Out::Waypoint { .. } | Out::SelectSelf | Out::SetOption { .. } | Out::ViewDist(_) | Out::CharDist(_) => {}
                                 Out::Befriend { name } => match ids.get(&name.to_lowercase()) {
                                     Some(&id) => {
                                         chat.send(&mao_net::chat::buddy_add_packet(id, false))?;
@@ -7053,6 +7078,14 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 let text = mao_formats::ldb::format(&iir.script, &[mao_formats::ldb::Arg::Int(iir.length as i64), mao_formats::ldb::Arg::Int(start as i64)]);
                 if iir.kind != 3 {
                     crate::fxs::script_event(iir.kind, &text, iir.place, position, now, &mut script_rand);
+                }
+            }
+            // (`/fxscript`: the typed lines, each through the scripts' signal as the original's command sends it)
+            for line in std::mem::take(&mut *FXS_COMMANDS.lock().unwrap_or_else(|e| e.into_inner())) {
+                let ran = crate::fxs::command(line.as_bytes());
+                let mut lines = CHAT_LINES.lock().unwrap();
+                for text in fxs_report(&line, &ran) {
+                    lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, text));
                 }
             }
             crate::fxs::frame_process();

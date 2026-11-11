@@ -95,6 +95,9 @@ pub enum Parsed {
     Window { name: String, open: bool },
     /// `/waypoint <x> <z>`: walk to a place.
     Waypoint { x: f32, z: f32 },
+    /// `/fxscript <script> [parameters] #`: an effect script of the game's `cd_image/twk` folder run (GUI.dll
+    /// FUN_100b70be): the line as the script engine's signal takes it, `/fxscript <script> <parameters>`.
+    FxScript { line: String },
     /// `/selectself`: target the character itself.
     SelectSelf,
     /// `/setoption [name value]`: a setting of the client (alone: the list).
@@ -229,6 +232,14 @@ pub fn parse(line: &str) -> Parsed {
             let mut words = text.split_whitespace();
             Parsed::SetOption { name: words.next().unwrap_or("").to_string(), value: words.next().unwrap_or("").to_string() }
         }
+        // (the original wants the script's name at least and hands the whole line on; a script is only run when a
+        // parameters part follows its name, which the scripts' own calls fill with a lone `#`, a comment: that is put
+        // there when the name stands alone, this client's own help)
+        "fxscript" => match text.split_whitespace().count() {
+            0 => Parsed::Usage("/fxscript <script> [parameters] #  (a script of the game's cd_image/twk folder, without .txt)"),
+            1 => Parsed::FxScript { line: format!("/fxscript {} #", text.trim()) },
+            _ => Parsed::FxScript { line: format!("/fxscript {}", text.trim()) },
+        },
         "waypoint" => {
             let n: Vec<f32> = text.split(|c: char| c.is_whitespace() || c == ',').filter_map(|t| t.parse().ok()).collect();
             match n[..] {
@@ -350,6 +361,10 @@ mod tests {
         assert_eq!(parse("/close"), Parsed::Window { name: String::new(), open: false });
         assert_eq!(parse("/waypoint 450.5, 310"), Parsed::Waypoint { x: 450.5, z: 310.0 });
         assert_eq!(parse("/waypoint 450"), Parsed::Usage("/waypoint <x> <z>"));
+        // (`/fxscript`: the line as the engine's signal takes it; a lone name is given the empty parameters part)
+        assert_eq!(parse("/fxscript EP03_Orbital_Attack"), Parsed::FxScript { line: "/fxscript EP03_Orbital_Attack #".into() });
+        assert_eq!(parse("/fxscript Alien_Event_Flyby_01 Float LifeTime 30.0 #"), Parsed::FxScript { line: "/fxscript Alien_Event_Flyby_01 Float LifeTime 30.0 #".into() });
+        assert!(matches!(parse("/fxscript"), Parsed::Usage(_)));
         assert_eq!(parse("/selectself"), Parsed::SelectSelf);
         assert_eq!(parse("/setoption vsync on"), Parsed::SetOption { name: "vsync".into(), value: "on".into() });
         assert_eq!(parse("/viewdist 600"), Parsed::ViewDist { distance: Some(600) });

@@ -246,6 +246,14 @@ window's bar (12), the other Visual switches (14 to 17), the configuration's but
 26), renaming a bag and its kept place (45, 46), a corpse or the bank beside a bag (47), nano hide and list sorting
 (39, 40), and everything that needs a second character.
 
+## `/fxscript` (2026-11-11)
+
+`/fxscript <script>` runs an effect script of the game's `cd_image/twk` folder (the name without `.txt`). To try:
+`EP03_Orbital_Attack`, `EP03_Bomber_Event_01`, `Alien_Event_Flyby_01` to `_05`, `Alien_Event_Mother_01`,
+`Alien_Event_Landing_01`, `Unicorn_Event_Lander_01`; the atmospheres (`Tweak_Shadowlands_Atmosphere_SubSea`,
+`_Lavaland`, `_Penumbra`, `Tweak_Rubi-Ka_Atmosphere`) for fog and under water. The chat says whether the script ran;
+what does not show is an effect kind not drawn yet (start the client with `MAO_FXS=1` to see the kinds started).
+
 ## The camera while running, the login's window (2026-11-11)
 
 Both were found by the user and fixed the same day. To look at again: running, at a high run speed above all, with

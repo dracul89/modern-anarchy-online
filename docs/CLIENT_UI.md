@@ -795,6 +795,36 @@ down. Here the angle is kept as a 4:3 window has it and a wider window sees the 
 past the hall's walls to the space outside it (kept so: the user chose the full width over black bars at the sides). Seen: the launcher beside the user's picture of the original's, the
 three settings pages, PLAY into the login, the hall at 16:9 and at 32:9.
 
+**`/fxscript`, the item grids' padding, the CYT skin's wing (2026-11-11, asked for by the user after playing).**
+*`/fxscript <script> [parameters] #`.* The original's command (GUI.dll FUN_100b70be, registered by FUN_100bb3e0 for
+every player, not only game masters): with a script's name at least, the whole typed line is sent as the effect
+scripts' signal (`FXSSignals_t::SignalFXSScript(line, 0)`), which Gamecode's slot (0x100b2dfc) runs as it runs a
+script's own `[SEND]`: `<word> <script> <parameters>`, the command itself standing for the word, the script read
+from `cd_image/twk/<script>.txt` with the parameters put where the script says `!parameters`, and the first object
+it makes started as an environment effect when it has an `FXID`. The engine and the slot were there
+(`fxs::script_signal`); the command now reaches them (`chat_commands::Parsed::FxScript`, `net::fxs_command`,
+`fxs::command`). A script is only run when something follows its name, which the scripts' own calls fill with a
+lone `#` (a comment): a name typed alone is given that, this client's help. The chat window says what came of it:
+running, with the effect's number, or nothing started, with the script reader's complaints (the original writes
+those to its log). Tried live: `/fxscript EP03_Orbital_Attack` and `/fxscript Alien_Event_Flyby_01` run and start
+their effects (the log's `MAO_FXS=1` lines: seven mesh objects, kind 4, for the flyby; kinds 61, 56 and 7 for the
+attack), an unknown name starts nothing. What a script shows depends on which effect kinds are drawn: the
+environment light (1), mesh objects (4), generic visuals (5), sun rays (42) and single clouds (56) are; the fill
+square (61, the attack's flash) and the others are not yet, so the command is now the way to find and try them.
+The scripts' names are the files of `cd_image/twk` without `.txt`: `Alien_Event_*`, `EP03_*`, `Unicorn_Event_*`,
+the `Tweak_*` of the skies, the atmospheres (`Tweak_Shadowlands_Atmosphere_SubSea` and the like) and the liquids.
+*The grids' padding.* The item grids (inventory, bags, bank) put their first column six pixels in from the left,
+as the original does, and whatever the window's width holds beyond whole columns was left at the right: a cell's
+worth of empty edge on one side. The columns now stand in the middle of the width (`GridMode::left`), and the wear
+window's three columns in the middle of its page, whose four tabs are wider than they are. This client's own.
+*The CYT skin.* What lies behind the menu buttons at the bottom left in the AOU mod's CYT skin is the skin's left
+wing (`GFX_GUI_CONTROLCENTER_WING_LEFT`, 440 by 220 there; in the Slim skins a strip 6000 wide and 25 tall, which
+is the bar across the whole bottom of the screen in the mod's own screenshot), shown while the control center's
+wings are on. Drawn here with the skin's defaults it is there; one fault was found on the way: CYT docks the NCU
+and credits strip at the top of the screen, and the health and nano bars, which stand on the strip's top where it
+lies over the wing, went to the top of the screen with it. They keep the wing's own floor now. Why the wing was
+missing on the user's screen is not known (the wings folded away, or a choice of the AOU menu): asked.
+
 **Found by the user playing, 2026-11-11: the camera shook while running; the login's window stayed behind the game's.**
 *The shake.* Two causes, both older than the day and both worse the faster the frames come and the faster the
 character runs (the user's is level 220, and the frame rate had doubled that day).

@@ -2266,15 +2266,36 @@ pub fn execute_script(text: &[u8], spawner: Option<&Obj>) -> Option<Obj> {
 
 /// Gamecode's `SignalFXSScript` slot (0x100b2dfc): the text run as a script with the sender as its spawner; an object
 /// with an `FXID` is started as that environment effect (`SetFXTweakObject`, FUN_100afbb1 then FUN_100b01a8).
-fn script_signal(text: &[u8], spawner: &Obj) {
-    let Some(o) = execute_script(text, Some(spawner)) else { return };
+fn script_signal(text: &[u8], spawner: Option<&Obj>) -> Option<Obj> {
+    let o = execute_script(text, spawner)?;
     if !o.alive() {
-        return;
+        return None;
     }
     if let Some(v) = o.variable_named("FXID") {
         let fxid = word(&v);
         with(|e| e.started.push((fxid, o.clone())));
     }
+    Some(o)
+}
+
+/// What `/fxscript` found: whether the script made an object, that object's `FXID` when it has one (the environment
+/// effect started), and what the script's reader complained of.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Ran {
+    pub made: bool,
+    pub fxid: Option<u32>,
+    pub errors: Vec<String>,
+}
+
+/// The chat line's `/fxscript` (GUI.dll FUN_100b70be): the whole typed line is the signal's text, with no object
+/// sending it (`SignalFXSScript(line, 0)`), so the slot reads it as `[SEND]`'s `<word> <script> <parameters>` with the
+/// command itself as the word. The reader's complaints made by this run are taken out of the engine's and given back
+/// (the original writes them to its log).
+pub fn command(line: &[u8]) -> Ran {
+    let before = with(|e| e.errors.len());
+    let made = script_signal(line, None);
+    let errors = with(|e| if e.errors.len() > before { e.errors.split_off(before) } else { Vec::new() });
+    Ran { made: made.is_some(), fxid: made.and_then(|o| o.variable_named("FXID").map(|v| word(&v))), errors }
 }
 
 /// `InitiateAutomaticRunQueries()` then `GetNextAutomaticRunObject()` to the end: the named objects whose `Use` is 3;
@@ -2311,7 +2332,7 @@ fn deliver() {
             return;
         }
         for (text, from) in sends {
-            script_signal(&text, &from);
+            script_signal(&text, Some(&from));
         }
     }
 }
