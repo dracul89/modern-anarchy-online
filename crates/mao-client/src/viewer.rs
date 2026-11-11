@@ -1780,6 +1780,12 @@ impl ApplicationHandler for App {
                                             self.keys.commands[slot] = self.keys.commands[slot].wrapping_add(1);
                                             script_pressed = true;
                                         }
+                                        // (and the options' key)
+                                        if *a == Action::ToggleOptions {
+                                            if let Some(ui) = w.ui.as_mut() {
+                                                ui.toggle_options();
+                                            }
+                                        }
                                         if *a == Action::SelectSelf {
                                             self.keys.select_self = self.keys.select_self.wrapping_add(1);
                                             script_pressed = true;

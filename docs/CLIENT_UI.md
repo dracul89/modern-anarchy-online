@@ -794,6 +794,14 @@ down. Here the angle is kept as a 4:3 window has it and a wider window sees the 
 past the hall's walls to the space outside it (kept so: the user chose the full width over black bars at the sides). Seen: the launcher beside the user's picture of the original's, the
 three settings pages, PLAY into the login, the hall at 16:9 and at 32:9.
 
+**The interface size's slider (2026-11-11, `ui.rs::size_from_slider`).** The user found the interface at 200% and the
+options' slider giving only its two ends. The size was taken while the slider was dragged, so with every step the
+slider itself grew or shrank under the pointer and the value ran to one end; a size of 200% kept that way is what
+looked like the default (the default is 100%). The size is now taken when the slider is let go (a typed value at
+once). The launcher's slider for the same setting shows per cent in steps of five like the options' one. Not seen
+live: a test script could not be made to open the client's own options panel twice the same way; the rule itself
+has a test. The script's `options` step presses the options key.
+
 **The game's folder is a setting (2026-11-11, the user's wish: "since we require the original game install").** The
 settings' GUI page has a Game row at the head of its folders: the folder's path, Browse (the system's folder
 picker, the `rfd` crate), Open, and under it what a check of the folder says (the game's version when the folder has

@@ -324,7 +324,8 @@ impl Dialog {
             ui.strong("Font");
             ui.checkbox(&mut self.settings.original_font, "The original's own font");
             ui.horizontal(|ui| {
-                ui.add(egui::Slider::new(&mut self.settings.ui_scale, 0.6..=2.0).text("Interface size").fixed_decimals(1));
+                ui.spacing_mut().slider_width = 170.0;
+                ui.add(egui::Slider::new(&mut self.settings.ui_scale, 0.6..=2.0).step_by(0.05).custom_formatter(|v, _| format!("{:.0}%", v * 100.0)).text("Interface size"));
                 if ui.button("Set Default").clicked() {
                     self.settings.ui_scale = Settings::default().ui_scale;
                 }

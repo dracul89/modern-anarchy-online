@@ -515,6 +515,21 @@ fn lifted(c: [u8; 3], by: u8) -> egui::Color32 {
 }
 
 /// Dresses the interface in a palette (a theme's GUIColors.xml).
+/// The interface's size and the value its slider holds back, from what the slider shows this frame: while the slider
+/// is dragged the size stays and the shown value is held; let go, the held value becomes the size; a value typed or
+/// stepped without a drag is taken at once.
+fn size_from_slider(size: f32, held: Option<f32>, shown: f32, dragged: bool, changed: bool) -> (f32, Option<f32>) {
+    if dragged {
+        (size, Some(shown))
+    } else if let Some(held) = held {
+        (held, None)
+    } else if changed {
+        (shown, None)
+    } else {
+        (size, None)
+    }
+}
+
 fn theme(ctx: &egui::Context, p: &Palette) {
     let mut visuals = egui::Visuals::dark();
     let panel = egui::Color32::from_rgba_unmultiplied(p.panel[0], p.panel[1], p.panel[2], 215);
@@ -2081,7 +2096,21 @@ fn options_window(ctx: &egui::Context, open: &mut bool, rebinding: &mut Option<A
         }
         ui.horizontal(|ui| {
             ui.label("Interface size");
-            ui.add(egui::Slider::new(&mut settings.ui_scale, 0.6..=2.0).step_by(0.05).custom_formatter(|v, _| format!("{:.0}%", v * 100.0)));
+            // (the size is taken when the slider is let go: taken while it is dragged, the slider itself grew or shrank
+            // under the pointer with every step and the value ran to one end, which is how a size of 200% got kept)
+            let id = egui::Id::unique("interface-size-held");
+            let held: Option<f32> = ui.data(|d| d.get_temp(id));
+            let mut shown = held.unwrap_or(settings.ui_scale);
+            let response = ui.add(egui::Slider::new(&mut shown, 0.6..=2.0).step_by(0.05).custom_formatter(|v, _| format!("{:.0}%", v * 100.0)));
+            match size_from_slider(settings.ui_scale, held, shown, response.dragged(), response.changed()) {
+                (size, None) => {
+                    settings.ui_scale = size;
+                    ui.data_mut(|d| d.remove::<f32>(id));
+                }
+                (_, Some(held)) => {
+                    ui.data_mut(|d| d.insert_temp(id, held));
+                }
+            }
         });
         ui.horizontal(|ui| {
             ui.label("Theme");
@@ -2162,6 +2191,21 @@ mod glow_tests {
 
 #[cfg(test)]
 mod tests {
+    /// The interface size slider: nothing is taken while it is dragged, the value it stopped at when it is let go, a
+    /// typed value at once.
+    #[test]
+    fn the_interface_size_waits_for_the_slider_to_be_let_go() {
+        use super::size_from_slider;
+        // (dragging from 100% over 130% to 150%: the size stays 100%)
+        assert_eq!(size_from_slider(1.0, None, 1.3, true, true), (1.0, Some(1.3)));
+        assert_eq!(size_from_slider(1.0, Some(1.3), 1.5, true, true), (1.0, Some(1.5)));
+        // (let go)
+        assert_eq!(size_from_slider(1.0, Some(1.5), 1.5, false, false), (1.5, None));
+        // (typed, or nothing done)
+        assert_eq!(size_from_slider(1.5, None, 0.8, false, true), (0.8, None));
+        assert_eq!(size_from_slider(0.8, None, 0.8, false, false), (0.8, None));
+    }
+
     use super::*;
 
     /// LoginPrefs.xml's defaults: Escape closes the windows that read an option set true, never the inventory, nano or NPC chat
