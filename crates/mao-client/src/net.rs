@@ -566,10 +566,25 @@ fn template_stat(template: u32, stat: u32) -> Option<i64> {
 /// whose time comes to nothing is run at once and never waits in the list (FUN_1005141d: the time from the nano, less
 /// the caster's skill; nothing for a nano the function at its +0x14 answers for). So the nanos with no attack time show
 /// no casting: the ones the items cast (a recharger's regeneration), the auras' and the playfields' own (seen by the
-/// user 2026-11-11, who named the rechargers and the keepers' auras). Not ported: the caster's skill bringing a time
-/// down to nothing.
+/// user 2026-11-11, who named the rechargers and the keepers' auras). The caster's skill can bring a time down to
+/// nothing too: [`cast_seconds`], used for one's own casts, whose skill is known.
 fn takes_time_to_cast(attack_time: Option<i64>) -> bool {
     attack_time.is_some_and(|t| t > 0)
+}
+
+/// How long a cast takes (Gamecode FUN_1005141d, 0x100514c0 on): the nano's attack time (stat 294, hundredths of a
+/// second) less what the caster's nano initiative takes off (stat 149: half of it up to 1200, a sixth of what is above
+/// and 600) less the caster's aggression setting (stat 51, -100 defensive to 100 aggressive: a second either way), not
+/// under nothing and not under the nano's own least (stat 523, where it has one: 1234567890 is none). Nothing: the cast
+/// is run at once and the caster never takes its casting stance. (Not followed: the nano's flag 0x80000, which makes
+/// the time nothing whatever the stats.)
+fn cast_seconds(attack_time: i64, least: Option<i64>, initiative: i64, aggression: i64) -> f32 {
+    let off = if initiative <= 1200 { initiative as f32 * 0.5 } else { (initiative - 1200) as f32 / 6.0 + 600.0 };
+    let mut seconds = (attack_time as f32 / 100.0 - off / 100.0 - aggression as f32 / 100.0).max(0.0);
+    if let Some(least) = least.filter(|l| *l != 1_234_567_890) {
+        seconds = seconds.max(least as f32 / 100.0);
+    }
+    seconds
 }
 
 fn nano_stat(nano: u32, stat: u32) -> Option<i64> {
@@ -1895,7 +1910,16 @@ impl World {
                     self.cast_bursts.push((caster, target, nano));
                     self.shots_pending.push((caster, target, nano));
                     // The caster plays its casting animation (at itself or at someone), when the nano takes time to cast.
-                    if takes_time_to_cast(nano_stat(nano, 294)) {
+                    // (one's own by its time with the initiative and the aggression setting taken off, `cast_seconds`;
+                    // anyone else's, whose skill is not known here, by the nano's time alone)
+                    let attack = nano_stat(nano, 294);
+                    let takes_time = if caster == self.own {
+                        let shown = crate::derived::shown(&self.stats, &self.item_mods);
+                        attack.is_some_and(|t| t > 0 && cast_seconds(t, nano_stat(nano, 523), shown.get(&149).copied().unwrap_or(0), self.stats.get(&51).copied().unwrap_or(0)) > 0.0)
+                    } else {
+                        takes_time_to_cast(attack)
+                    };
+                    if takes_time {
                         self.socials.insert(caster, (if caster == target { "spell-self" } else { "spell-dir" }, Instant::now()));
                     }
                 }
@@ -10085,6 +10109,15 @@ mod movement_tests {
         assert!(takes_time_to_cast(Some(100)));
         assert!(!takes_time_to_cast(Some(0)));
         assert!(!takes_time_to_cast(None));
+        // (a cast's time: 3 s with no skill; 600 initiative takes 3 s off; above 1200 a sixth counts; the aggression
+        // setting a second either way; never under the nano's own least)
+        assert_eq!(cast_seconds(300, None, 0, 0), 3.0);
+        assert_eq!(cast_seconds(300, None, 600, 0), 0.0);
+        assert_eq!(cast_seconds(900, None, 1800, 0), 2.0);
+        assert_eq!(cast_seconds(300, None, 0, 100), 2.0);
+        assert_eq!(cast_seconds(300, None, 0, -100), 4.0);
+        assert_eq!(cast_seconds(300, Some(100), 2000, 100), 1.0);
+        assert_eq!(cast_seconds(300, Some(1_234_567_890), 2000, 0), 0.0);
     }
 
     #[test]

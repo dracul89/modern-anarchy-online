@@ -844,6 +844,16 @@ same makes the effects of the other meshes that carry one (the ICC shuttles' 920
 connector's own place and turn on its mesh (the object's place is taken), the object's rotation, and the parts of
 an effect that need a body. The fill square (`e_FillSquare`), which the first note named, is not the strike's:
 only `Tweak_ProgressiveLava` uses it; still not drawn.
+*The frame limit's pacing.* Under a limit the window's thread slept until the frame was due, and the system wakes
+a sleeper a millisecond or more late. It now sleeps until two milliseconds before and waits awake through the rest
+(`settings::LIMIT_SPIN_MICROS`; behind other windows the sleep alone). At a limit of 60 the slowest hundredth of
+the frames is 20.9 ms where it was 27; what is left is the frames that carry the characters' upload.
+*A cast's time.* The casting stance was shown for any nano with an attack time. The original works the time out
+(Gamecode FUN_1005141d): the nano's attack time less the caster's nano initiative (stat 149: half of it up to 1200,
+a sixth of the rest and 600) less the aggression setting (stat 51), not under the nano's own least (stat 523), and
+runs a cast of no time at once, without the stance. Ported for one's own casts (`net.rs::cast_seconds`); the
+others', whose skill the client does not know, go by the nano's time as before. Not tried live with a character
+of high initiative. Not followed: the nano's flag 0x80000 (no time whatever the stats).
 
 **`/fxscript`, the item grids' padding, the CYT skin's wing (2026-11-11, asked for by the user after playing).**
 *`/fxscript <script> [parameters] #`.* The original's command (GUI.dll FUN_100b70be, registered by FUN_100bb3e0 for
