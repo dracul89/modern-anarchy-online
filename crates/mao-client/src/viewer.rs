@@ -501,6 +501,11 @@ pub fn headless_on(model: &Model, textures: &Textures, out: &str, ui: Option<(&H
         }
         eprintln!("sky: playfield {number} kind {kind}, scripts {:?}", sky);
         crate::fxs::load_playfield(sky.playfield.unwrap_or(number), sky.environment);
+        // (`MAO_SKY_EXPANSION=<stat 389>`: the account's expansions, as the game tells the scripts once the character's
+        // stat has its first bit: the Shadowlands' skies are in their `Expansion EP01` blocks)
+        if let Some(e) = std::env::var("MAO_SKY_EXPANSION").ok().and_then(|v| v.parse().ok()) {
+            crate::fxs::set_expansion(e);
+        }
         crate::fxs::start_automatic();
         let seconds = hour * 3600.0;
         let (sun1, sun2) = crate::fxs::sun::rotations(seconds);
@@ -528,7 +533,7 @@ pub fn headless_on(model: &Model, textures: &Textures, out: &str, ui: Option<(&H
         let forward = (target - e).normalize_or_zero();
         let (mut meshes, mut sheets, mut named) = Default::default();
         let mut caches = SkyCaches { meshes: &mut meshes, mesh_sheets: &mut sheets, named: &mut named };
-        let (backdrops, others) = sky_draws(&frame, [e.x, e.z, e.y], [forward.x, forward.z, forward.y], 1000.0, textures, &mut renderer, &gpu, &mut caches);
+        let (backdrops, others) = sky_draws(&frame, [e.x, e.z, e.y], [forward.x, forward.z, forward.y], 1000.0, sky_fog(&scene, frame.fog), textures, &mut renderer, &gpu, &mut caches);
         eprintln!("sky: {} draws, {} backdrops, {} others; lights {:?}, fog {:?}", frame.draws.len(), backdrops.len(), others.len(), frame.lights, frame.fog);
         scene.backdrops = backdrops;
         scene.shells.extend(others);
@@ -775,6 +780,21 @@ pub fn under_water_fog(kind: u32) -> Option<([f32; 3], f32)> {
         10 | 11 => ([0.1, 0.3, 0.25], 0.98),
         _ => return None,
     })
+}
+
+/// The fog the sky's fogged draws fade into, as the world's shader has it (`mao_render`'s `draw`, `mesh.wgsl`): its colour,
+/// start and end, and whether it grows evenly with the distance. An area's fog (the original's `VisualFog_t`: from the
+/// near plane, 0.2, to the far one drawn in by the density; even) where there is one, else the haze of the effect
+/// scripts' atmosphere (from a seventh of the view distance out, eased), else none.
+fn sky_fog(scene: &Scene, script: Option<[f32; 3]>) -> Option<([f32; 3], f32, f32, bool)> {
+    match scene.area_fog {
+        Some((colour, density)) if density > 0.0 => {
+            let (near, far) = (0.2f32, scene.fog.1);
+            let end = if far - near > 5.0 { far - (far - near - 5.0) * density.min(1.0) } else { far };
+            Some((colour, near, end, true))
+        }
+        _ => script.map(|colour| (colour, scene.fog.0, scene.fog.1, false)),
+    }
 }
 
 /// The fog's start and end for a view distance: the haze begins a seventh of the way out (250 of the default 1800), or at 40.
@@ -2227,7 +2247,7 @@ impl ApplicationHandler for App {
                             [f.x, f.z, f.y]
                         });
                         let mut caches = SkyCaches { meshes: &mut self.script_meshes, mesh_sheets: &mut self.mesh_sheets, named: &mut self.named_sheets };
-                        let (backdrops, others) = sky_draws(frame, eye, forward, self.settings.view_distance as f32, &self.textures, &mut w.renderer, &w.gpu, &mut caches);
+                        let (backdrops, others) = sky_draws(frame, eye, forward, self.settings.view_distance as f32, sky_fog(&w.scene, frame.fog), &self.textures, &mut w.renderer, &w.gpu, &mut caches);
                         w.scene.backdrops = backdrops;
                         shells.extend(others);
                         w.scene.sun = frame.lights.ground.map(|l| mao_render::glam::Vec3::new(-l.direction[0], -l.direction[2], -l.direction[1]));
@@ -2829,7 +2849,7 @@ struct SkyCaches<'a> {
 /// a mesh's parts through their own frames then the draw's, lit as D3D lights them when the draw is (the blob's material,
 /// else the part's), times the draw's factor; the server's frame (Y up) made the world's (Z up). The backdrops in order,
 /// the others as shells.
-fn sky_draws(frame: &crate::fxs::visuals::Frame, eye: [f32; 3], forward: [f32; 3], distance: f32, textures: &crate::Textures, renderer: &mut mao_render::Renderer, gpu: &mao_render::Gpu, c: &mut SkyCaches) -> (Vec<mao_render::Backdrop>, Vec<mao_render::Shell>) {
+fn sky_draws(frame: &crate::fxs::visuals::Frame, eye: [f32; 3], forward: [f32; 3], distance: f32, fog: Option<([f32; 3], f32, f32, bool)>, textures: &crate::Textures, renderer: &mut mao_render::Renderer, gpu: &mao_render::Gpu, c: &mut SkyCaches) -> (Vec<mao_render::Backdrop>, Vec<mao_render::Shell>) {
     use crate::fxs::visuals::{self, Blend, Shape};
     let world = |p: [f32; 3]| [p[0], p[2], p[1]];
     let named_sheet = |named: &mut std::collections::HashMap<String, u16>, renderer: &mut mao_render::Renderer, name: &str| -> u16 {
@@ -2906,16 +2926,54 @@ fn sky_draws(frame: &crate::fxs::visuals::Frame, eye: [f32; 3], forward: [f32; 3
                 (r[2] / (r[0] * r[0] + r[1] * r[1]).sqrt()).atan().to_degrees()
             }).collect();
             let (lo, hi) = el.iter().fold((f32::MAX, f32::MIN), |(a, b), &x| (a.min(x), b.max(x)));
-            eprintln!("sky draw {} sorting {}: elevations {lo:.1}..{hi:.1} matrix {:?}", d.kind, d.sorting, &m[..]);
+            let far = parts.iter().flat_map(|(_, v)| v.iter()).map(|v| ((v.position[0] - eye[0]).powi(2) + (v.position[1] - eye[2]).powi(2) + (v.position[2] - eye[1]).powi(2)).sqrt()).fold((f32::MAX, 0.0f32), |(a, b), x| (a.min(x), b.max(x)));
+            eprintln!("sky draw {} sorting {}: elevations {lo:.1}..{hi:.1} distances {:.0}..{:.0} fogged {} {:?}", d.kind, d.sorting, far.0, far.1, d.fogged, d.fog_colour);
+            let colours: Vec<[f32; 4]> = parts.iter().filter_map(|(_, v)| v.first().map(|v| v.colour)).collect();
+            eprintln!("  shape {:?} blend {:?} backdrop {} factor {:?} texture {:?} light {} material {} parts {:?} first colours {:.2?}", match &d.shape { Shape::Mesh(n) => n.clone(), Shape::Triangles(t) => format!("{} triangles", t.len() / 3) }, d.blend, d.backdrop, d.factor, d.texture, d.light.is_some(), d.material.is_some(), parts.iter().map(|(s, v)| (*s, v.len())).collect::<Vec<_>>(), colours);
         }
-        for (sprite, vertices) in parts {
+        for (sprite, mut vertices) in parts {
             if d.backdrop {
                 let blend = match d.blend {
                     Blend::Opaque => mao_render::BackdropBlend::Opaque,
                     Blend::Alpha => mao_render::BackdropBlend::Alpha,
                     Blend::Add => mao_render::BackdropBlend::Add,
                 };
+                // (a draw whose blob turns the fog on fades into it by how far it is from the eye: the Shadowlands' vortex
+                // dome, a quarter to a half of the view distance out, which under an area's fog shows as that fog's colour
+                // towards the horizon and as itself overhead; drawn without it, it was an opaque blue sheet over the whole
+                // sky. The colour times what the fog leaves, then the fog's own share added over it; a fog of black, which
+                // some blobs set, is the first alone. The fog is the world's own, `sky_fog`, so the dome meets the far
+                // ground.)
+                let mut haze: Option<mao_render::Backdrop> = None;
+                if let (true, Some((world_fog, start, end, linear))) = (d.fogged, fog) {
+                    let colour = d.fog_colour.unwrap_or(world_fog);
+                    let black = colour.iter().all(|c| *c <= 0.0);
+                    if black || d.blend == Blend::Opaque {
+                        let amounts: Vec<f32> = vertices
+                            .iter()
+                            .map(|v| {
+                                let r = [v.position[0] - eye[0], v.position[1] - eye[2], v.position[2] - eye[1]];
+                                let far = (r[0] * r[0] + r[1] * r[1] + r[2] * r[2]).sqrt();
+                                let f = ((far - start) / (end - start).max(1.0)).clamp(0.0, 1.0);
+                                if linear { f } else { f * f * (3.0 - 2.0 * f) }
+                            })
+                            .collect();
+                        for (v, f) in vertices.iter_mut().zip(&amounts) {
+                            for c in &mut v.colour[..3] {
+                                *c *= 1.0 - f;
+                            }
+                        }
+                        if !black {
+                            haze = Some(mao_render::Backdrop {
+                                sprite: mao_render::NO_SPRITE,
+                                blend: mao_render::BackdropBlend::Add,
+                                vertices: vertices.iter().zip(&amounts).map(|(v, f)| mao_render::ShellVertex { position: v.position, uv: [0.5, 0.5], colour: [colour[0], colour[1], colour[2], *f] }).collect(),
+                            });
+                        }
+                    }
+                }
                 backdrops.push(mao_render::Backdrop { sprite, blend, vertices });
+                backdrops.extend(haze);
             } else {
                 shells.push(mao_render::Shell { sprite, additive: d.blend == Blend::Add, vertices });
             }

@@ -2868,6 +2868,15 @@ impl World {
             }
         }
         let position = m.position().or_else(|| m.movement().map(|(_, _, p)| p));
+        // (a place that is no place of this world is not taken: some message read as carrying one gave numbers like 6e-39,
+        // an integer's bytes, and the creature stood at the world's corner, unseen; `MAO_COMBAT_LOG=1` names the message)
+        let position = position.filter(|p| {
+            let sane = p.iter().all(|v| v.is_finite() && v.abs() < 1.0e6 && (*v == 0.0 || v.abs() > 1.0e-12));
+            if !sane && std::env::var_os("MAO_COMBAT_LOG").is_some() {
+                eprintln!("combat: message {:#x} of {:#x} carries no sane place: {p:?}", m.kind, m.identity.1);
+            }
+            sane
+        });
         if let Some((mao_net::n3::movement::FULL, _, p)) = m.movement().filter(|_| m.identity.1 == self.own) {
             self.own_report = Some(p);
         }

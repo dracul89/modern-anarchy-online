@@ -104,6 +104,10 @@ pub struct Draw {
     /// The first stage's texture transform (`TEXTURE0` with `TEXTURETRANSFORMFLAGS` `COUNT2`): the coordinates (u, v, 1)
     /// by its first three rows.
     pub texture_matrix: Option<[f32; 16]>,
+    /// The blob turns the fog on (`FOGENABLE`): the draw fades into the fog with its depth as the world does; and the
+    /// fog's colour when the blob sets one (`FOGCOLOR`), else the world's.
+    pub fogged: bool,
+    pub fog_colour: Option<[f32; 3]>,
 }
 
 /// The frame: the draws and the lights.
@@ -145,6 +149,8 @@ struct Look {
     factor: [f32; 4],
     texture: Option<String>,
     texture_matrix: Option<[f32; 16]>,
+    fogged: bool,
+    fog_colour: Option<[f32; 3]>,
 }
 
 fn look(b: &StateBlob) -> Look {
@@ -187,6 +193,11 @@ fn look(b: &StateBlob) -> Look {
             [c[0], c[1], c[2]]
         }),
         factor,
+        fogged: state(e("e_D3DRENDERSTATE_FOGENABLE")) == Some(e("e_TRUE")),
+        fog_colour: state(e("e_D3DRENDERSTATE_FOGCOLOR")).map(|w| {
+            let c = argb(w);
+            [c[0], c[1], c[2]]
+        }),
         texture: b.textures.last().map(|t| String::from_utf8_lossy(&t.2).into_owned()),
         texture_matrix: (stage(e("e_D3DTSS_TEXTURETRANSFORMFLAGS")) == Some(e("e_D3DTTFF_COUNT2")))
             .then(|| b.transforms.iter().rev().find(|t| t.1 == e("e_D3DTRANSFORMSTATE_TEXTURE0")).map(|t| super::rt_matrix(&t.2)))
@@ -321,6 +332,8 @@ impl Visuals {
             light: light.flatten(),
             ambient: l.ambient,
             factor: l.factor,
+            fogged: l.fogged,
+            fog_colour: l.fog_colour,
             texture: l.texture,
             material,
             texture_matrix: l.texture_matrix,
@@ -355,6 +368,8 @@ impl Visuals {
                 light: None,
                 ambient: [0.0; 3],
                 factor: [1.0; 4],
+                fogged: false,
+                fog_colour: None,
                 texture: Some(texture.to_string()),
                 material: None,
                 texture_matrix: None,

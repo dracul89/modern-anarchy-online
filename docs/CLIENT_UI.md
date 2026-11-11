@@ -813,7 +813,23 @@ puts the corpse (the corpse is what the original draws), and the dead are taken 
 Seen live (`MAO_COMBAT_LOG=1`): the corpses' places and the bodies' before the move. Not done: a corpse that was
 there before the character came (no body is known for it, so nothing is drawn); and some dead entities carry
 places that are no numbers of this world (seen in the log: 6e-39 and the like), which is an older fault of how an
-entity's place is first read and is not looked into yet.
+entity's place is first read and is not looked into yet. (Later the same pass: a place whose numbers are no
+numbers of this world is no longer taken, and `MAO_COMBAT_LOG=1` names the message that carried it; none came in
+the minute tried.)
+*The Shadowlands' sky (the user: "sky dome in shadowlands is off").* Found off the game, with the account's
+expansions given to the scripts as the live client gives them (`MAO_SKY_EXPANSION=<stat 389>` for the headless
+picture: the Shadowlands' skies are in the scripts' `Expansion EP01` blocks, which is why the first pictures showed
+nothing wrong). The sky there is two domes of `shadowlands_vortex.abiff`, one overhead and one turned over below,
+a quarter to a half of the view distance out, and their state blobs turn the fog on (`FOGENABLE`): in the original
+they fade into the area's fog, which is what the capture of 2026-10-31 shows in Inferno, an orange haze with the
+vortex only overhead. This client drew them unfogged: an opaque blue sheet over the whole sky. A sky draw whose
+blob turns the fog on now fades into the world's fog by its distance (`viewer.rs::sky_fog`, `sky_draws`: the
+area's fog, the original's `VisualFog_t` range from the near plane to the far one drawn in by the density, else the
+atmosphere's haze), its colour times what the fog leaves and the fog's share added over it; a blob's own fog
+colour (`FOGCOLOR`, black on the vortex's second layer) is taken. Seen off the game only, with an area fog given by
+hand: the horizon in the fog's colour, the vortex above. Not done: fog on the blended sky draws whose fog is not
+black (the atmosphere's band); whether the original's fog there goes by the distance or by the depth before the
+eye is not known (the distance is taken, as for the world). To be looked at by the user in the Shadowlands.
 
 **`/fxscript`, the item grids' padding, the CYT skin's wing (2026-11-11, asked for by the user after playing).**
 *`/fxscript <script> [parameters] #`.* The original's command (GUI.dll FUN_100b70be, registered by FUN_100bb3e0 for
