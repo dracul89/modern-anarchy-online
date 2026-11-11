@@ -55,6 +55,12 @@ pub enum Command {
     Leave,
     /// Ask the target to join (the Recruit button).
     Invite,
+    /// A member clicked: it becomes the target.
+    Select(u32),
+    /// A member's menu: its page in the info window, the leadership handed to it, or it put out of the team.
+    Info(u32),
+    Lead(u32),
+    Kick(u32),
 }
 
 static TEAM: Mutex<Team> = Mutex::new(Team { members: Vec::new(), invite: None, leader: None, level: None, own: 0 });
@@ -98,11 +104,28 @@ pub fn is_leader(team: &Team, k: usize) -> bool {
 /// the first and under each a `GFX_GUI_FRIENDLIST_SPLITTER`, then the member's name in the middle (the leader's in
 /// 0x11eeaa, others white, FUN_10077b3d) and its health and nano bars (`PowerbarView_c` of `GFX_GUI_BAR_HEALTH_TEAM` /
 /// `_NANO_TEAM` over their `_BG`s). Places without a member are hidden (FUN_1007a154). An invitation asks "Want to join
-/// %s's team?" (text.mdb 10000).
+/// %s's team?" (text.mdb 10000). A member's view takes the mouse (FUN_1007a23a): a click makes the member the target,
+/// a right click brings a menu of "info on" the member and, for the leader on another member, making it the leader
+/// and putting it out of the team (`N3Msg_TransferTeamLeadership`, `N3Msg_KickTeamMember`).
 #[derive(Default)]
 pub struct TeamWindow {
     pub open: bool,
     views: Option<(crate::gui::view::Tree, crate::gui::view::Id)>,
+    /// A member's menu and whom it is for; whether it has the leader's two entries.
+    popup: Option<crate::gui::popup::PopupMenu>,
+    popup_for: (u32, bool),
+}
+
+/// The entries of a member's menu (FUN_1007a23a): the game's texts with the member's name, the leader's two only when
+/// the member is another and the client's character leads.
+pub fn member_menu(name: &str, own: bool, leading: bool) -> Vec<String> {
+    let text = |key: &str, own_words: &str| crate::gui::xml::ldb_named(10000, key, own_words);
+    let mut entries = vec![format!("{}{name}", text("InfoOn", "Info on "))];
+    if !own && leading {
+        entries.push(mao_formats::ldb::format(&text("MakeXLeader", "Make %s the leader"), &[mao_formats::ldb::Arg::Text(name)]));
+        entries.push(format!("{}{name}", text("Kick_", "Put out ")));
+    }
+    entries
 }
 
 /// An XML attribute's text.
@@ -227,9 +250,34 @@ impl TeamWindow {
         let min = crate::gui::host::preferred_pixels(tree, root, false);
         let mut open = self.open;
         let title = crate::gui::xml::ldb_text("#10000:371581");
+        let mut pressed: Option<(usize, bool, egui::Pos2)> = None;
         crate::chrome::window(ctx, palette, "Team", &title, &mut open, |w| w.default_pos(crate::layout::pos("Team", egui::pos2(20.0, 300.0))).default_size(min.max(egui::vec2(200.0, 0.0))).resizable(false), |ui| {
-            crate::gui::host::show(ui, tree, root, skin.as_deref(), palette);
+            let response = crate::gui::host::show(ui, tree, root, skin.as_deref(), palette);
+            // (a member's view under the mouse: its click or right click)
+            let (left, right, at) = ui.input(|i| (i.pointer.primary_clicked(), i.pointer.secondary_clicked(), i.pointer.interact_pos()));
+            if let Some(at) = at.filter(|_| (left || right) && response.contains_pointer()) {
+                pressed = (0..team.members.len()).find(|k| tree.find(root, &format!("mate{k}")).is_some_and(|v| crate::gui::host::screen_rect(tree, v, response.rect.min).contains(at))).map(|k| (k, right, at));
+            }
         });
+        match pressed {
+            Some((k, false, _)) => send(Command::Select(team.members[k].id)),
+            Some((k, true, at)) => {
+                let m = &team.members[k];
+                let entries: Vec<(String, bool)> = member_menu(&m.name, m.id == team.own, leading).into_iter().map(|e| (e, true)).collect();
+                self.popup_for = (m.id, entries.len() > 1);
+                self.popup = Some(crate::chrome::menu_at(ctx, at, &entries));
+            }
+            None => {}
+        }
+        if let Some(chosen) = crate::chrome::menu(ctx, palette, "team-member-menu", &mut self.popup) {
+            let who = self.popup_for.0;
+            match chosen {
+                0 => send(Command::Info(who)),
+                1 if self.popup_for.1 => send(Command::Lead(who)),
+                2 if self.popup_for.1 => send(Command::Kick(who)),
+                _ => {}
+            }
+        }
         for (id, signal) in std::mem::take(&mut tree.signals) {
             if signal != crate::gui::host::Signal::Clicked {
                 continue;
@@ -247,6 +295,16 @@ impl TeamWindow {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_members_menu_has_the_leaders_entries_for_another_only() {
+        // (oneself, or without the leadership: the info alone; the leader on another: three, each naming the member)
+        assert_eq!(member_menu("Me", true, true).len(), 1);
+        assert_eq!(member_menu("Other", false, false).len(), 1);
+        let entries = member_menu("Other", false, true);
+        assert_eq!(entries.len(), 3);
+        assert!(entries.iter().all(|e| e.contains("Other")), "{entries:?}");
+    }
 
     #[test]
     fn members_are_added_once() {

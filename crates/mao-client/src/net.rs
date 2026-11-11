@@ -5497,6 +5497,20 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 let _ = match command {
                     crate::team::Command::Reply(who, join) => connection.send(&n3::team_reply(own, who, join)),
                     crate::team::Command::Leave => connection.send(&n3::action(own, n3::LEAVE_TEAM)),
+                    // A member's view (GUI.dll FUN_1007a23a): clicked, the member is the target; its menu's info, and
+                    // the leader's two (Gamecode sends neither for oneself).
+                    crate::team::Command::Select(who) => {
+                        target = Some(who);
+                        let _ = connection.send(&n3::select_target(own, who));
+                        connection.send(&n3::set_target(own, who))
+                    }
+                    crate::team::Command::Info(who) => {
+                        state.inspecting = Some(who);
+                        connection.send(&n3::info_request(own, who))
+                    }
+                    crate::team::Command::Lead(who) if who != own => connection.send(&n3::team_leader(own, who)),
+                    crate::team::Command::Kick(who) if who != own => connection.send(&n3::team_kick(own, who)),
+                    crate::team::Command::Lead(_) | crate::team::Command::Kick(_) => Ok(()),
                     // The Recruit button (GUI.dll FUN_100782b2): the target is asked to join, with a line saying so; no
                     // target and oneself each have their text; one already in the team is not asked (Gamecode
                     // `N3Msg_TeamJoinRequest` sends nothing for a character marked as a team mate).

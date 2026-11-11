@@ -563,9 +563,14 @@ Yes the window lists both members with the team's level, the leader's name in it
 `/t` lines arrive on both sides as the team's channel; after Leave the window is back to "no team" and `/t` gets
 the game's text for not being in one. Found on the way: the server tells the other members' health and nano but not
 one's own, so one's own bars stood empty; they are filled from the character's own stats now (this client's
-reading). Not done: kicking a member and handing the leadership on (the member menu's `N3Msg_KickTeamMember`, action
-0x16, and `N3Msg_TransferTeamLeadership`, 0x19), the team search window's invite (FUN_100f08c8), and the team's side
-in the header. The test script got `teamreply@yes|no` and `teamleave@`.
+reading). A member's view takes the mouse as the original's does (FUN_1007a23a): a click makes the member the target,
+a right click brings a menu with the game's texts, "info on" the member (its page in the info window) and, for the
+leader on another member, making it the leader (`N3Msg_TransferTeamLeadership`, action 0x19) and putting it out of
+the team (`N3Msg_KickTeamMember`, 0x16; Gamecode sends neither for oneself). Tried live: the leader's menu has the
+three entries and a member's only the first; after "make leader" the other's name takes the leader's colour and one's
+own Recruit button goes; after the kick the window is back to "no team" (a team of two is gone with it). Not done:
+the team search window's invite (FUN_100f08c8), the raid window's same menu (FUN_10102740) and the team's side in the
+header. The test script got `teamreply@yes|no` and `teamleave@`.
 
 **Scripted clicks, and what the first scripted live run found (2026-11-10, `ui.rs::Ui::script`, `viewer.rs`).**
 `MAO_CAMERA_SCRIPT` steps with an `@` act on the interface as the mouse and keys would, so the windows can be tried

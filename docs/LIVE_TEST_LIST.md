@@ -114,7 +114,11 @@ menu (24, 26), nano hide and sorting (39, 40), a bag's kept place and a corpse o
 - 8: after the other's Yes both are listed with bars and the team's level; `/t <text>` from each arrives on both as
   the team's channel; after Leave, `/t` answers with the game's text for not being in a team.
 - Found and fixed: one's own health and nano bars in the team window were empty.
-- Not tried: the invitation's No, a third member, kicking and handing on the leadership (not ported).
+- A member's right-click menu: three entries for the leader on the other member, the info alone for a member.
+  "Make leader" hands the leadership over (the other's name in the leader's colour, one's own Recruit gone); Kick
+  puts the other out, which ends a team of two.
+- Not tried: the invitation's No, a third member, the menu's info entry and a left click on a member, and what the
+  one put out is told.
 
 A screenshot is a grab of the screen, so with two full-screen clients it shows the one on top; the other side was
 checked through the chat log (`chat/<date>.txt`), which both write.

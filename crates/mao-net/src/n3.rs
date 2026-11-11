@@ -644,8 +644,25 @@ pub const LEAVE_TEAM: u8 = 0x18;
 /// Recruit button and the team search's invite both pass as 0). The same action comes from the server to the one
 /// asked, naming who asks. Built from the decompile, then tried live (2026-11-10).
 pub fn team_invite(character: u32, target: u32) -> Frame {
+    team_action(character, 0x1a, target)
+}
+
+/// `5e477770` action `0x16`: the leader puts `target` out of the team (Gamecode `N3Msg_KickTeamMember` 0x1001b7a0:
+/// the member as the target, no parameters; nothing is sent for oneself). Built from the decompile.
+pub fn team_kick(character: u32, target: u32) -> Frame {
+    team_action(character, 0x16, target)
+}
+
+/// `5e477770` action `0x19`: the leader makes `target` the team's leader (Gamecode `N3Msg_TransferTeamLeadership`
+/// 0x1001b8ff: the same shape). Built from the decompile.
+pub fn team_leader(character: u32, target: u32) -> Frame {
+    team_action(character, 0x19, target)
+}
+
+/// A team action that names a character and has no parameters.
+fn team_action(character: u32, action: u8, target: u32) -> Frame {
     let mut data = vec![0u8; 27];
-    data[4] = 0x1a;
+    data[4] = action;
     data[9..13].copy_from_slice(&CHARACTER.to_be_bytes());
     data[13..17].copy_from_slice(&target.to_be_bytes());
     Message { kind: 0x5e477770, identity: (CHARACTER, character), data }.frame(character)
@@ -1191,6 +1208,9 @@ mod tests {
         let differ: Vec<usize> = (0..ask.body.len()).filter(|&k| ask.body[k] != answer.body[k]).collect();
         assert_eq!(differ.len(), 1);
         assert_eq!((ask.body[differ[0]], answer.body[differ[0]]), (0x1a, 0x1c));
+        // (putting a member out and handing the leadership on: the same with their own actions)
+        assert_eq!((team_kick(7, 9).body[differ[0]], team_leader(7, 9).body[differ[0]]), (0x16, 0x19));
+        assert_eq!((team_kick(7, 9).body.len(), team_kick(7, 9).body[differ[0] + 1..] == ask.body[differ[0] + 1..]), (ask.body.len(), true));
     }
 
     #[test]
