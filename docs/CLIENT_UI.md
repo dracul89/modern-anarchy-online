@@ -712,13 +712,34 @@ position, mesh, texture, layer), which were only taken from the appearance updat
 there from the first sight of a character. Seen live: the rifle in both hands on entering. Not ported: the mirrored
 side for a left-hand weapon with the can-flag 0x800000, the social places.
 
-**Dying, as seen live (2026-11-11).** The test character died twice: once between two runs (a client stopped in a
-fight leaves the character standing in the world, and the robot finished it) and once with the client running. The
-server sends the death (`CharacterAction` 0x99), the remains of one's own body, `StopFight`, and at once a teleport
-and a playfield message for the arrival pad: the client followed all of it and the character stood on the pad with
-part of its health, able to fight on. Nothing was told in the chat, and what the original tells or shows at a death
-was not read; no experience was lost at this level. A hit that lands as the target dies is told with the remains'
-name ("Remains of ..."), since the name is the corpse's by then.
+**One's own death (2026-11-11, `World::own_died_of`, `feedback::death`, `net.rs`).** What happens, from two live
+deaths of the test character with the trace on: the hit that takes the last health comes with a death reason; the
+character's `CharacterAction` 99 follows with its death animation, and the creatures stop fighting it; it lies dead
+for 60 seconds; then the server sends `CharacterAction` 0x99, the remains of its body, a teleport and a playfield
+message, and it stands on the arrival pad with part of its health. (An earlier note here took the last step for the
+death.) The original: the reason is the word after the target in `AttackInfo` (the schema's `Unk1`; Gamecode
+FUN_1009f257 and FUN_1009b6b7, and the same in the special attack's and the health damage's messages, FUN_1006af0e
+and FUN_100a0611), handed to FUN_1005b3d8, which tells the client's own character one of seven of the game's texts
+(1 terminated, 2 reflected damage, 3 a damage shield, 4 a weapon, 5 a nano program, 6 a fall, 7 a liquid) and sets its
+health to nothing; the interface is told of the death and of the life again (GUI.dll `FlowControlModule_t::DeadMessage`
+and `AliveMessage`: the alive flag of the input, a signal to the windows), and the sound module gets a death music
+mode. The client had the dead state already (the death's animation, no moving until health or a playfield comes) but
+told nothing, kept the health the last message said, and let the attack and use keys through: in the first live death
+the test's attack orders went out for the whole minute and the server took them, shots, kills and experience
+included. Now the reason's line is told once (seen live: the game's own text for a weapon's kill), the health is
+nothing, and while dead the attack and use keys do nothing and nobody is followed. Seen live: the body lying with
+its rifle beside it and the health bar empty for the minute, then the pad. Not ported: the reason in the special
+attack's and the health damage's messages, the death music mode, the windows' reaction to the dead signal, the
+line and stand-up of a resurrection (FUN_1003ec1f: from level 15 the game's text about the resurrection shock),
+what `CharacterAction` 0x99 itself means. A hit that lands as a creature dies is still told with the remains'
+name, since the name is the corpse's by then.
+
+**Open: a creature drawn as a box (2026-11-11).** The junkyard's boss robot of Arete Landing was drawn as the
+client's placeholder (a blue box) in a live run; the user confirmed what it was. All 1470 creature records but two
+have a body mesh that reads (`creaturecheck`), so the fault is on the live path: either no template is found in that
+creature's full update or no animation is found for it (`Characters::creature_parts` gives nothing without one).
+`MAO_COMBAT_LOG=1` prints a "no model" line with the name, template and flags of anything drawn as a marker; the
+boss was dead on the two visits made to catch it.
 
 **What a new character's first steps found (2026-11-10, `net.rs`, `gui/controls.rs`).** Three fixes from playing a
 fresh character through its first minutes (the list is in `LIVE_TEST_LIST.md`). An item move is still shown at once,

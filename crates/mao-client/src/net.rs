@@ -346,6 +346,8 @@ struct World {
     /// The character itself is dead (GUI.dll `FlowControlModule_t::DeadMessage`: `m_isAlive` false and the movement input
     /// mode cleared) until it is back (`AliveMessage`: the arrival in a playfield, or health again).
     own_dead: bool,
+    /// When the line of the own character's death was told (a death's messages can each carry the reason).
+    death_told: Option<Instant>,
     /// The health when it died: health above it is a revival.
     dead_health: i64,
     /// The nano casts under way, for their sounds (`CharCastNano_t`).
@@ -1417,8 +1419,13 @@ impl World {
             }
             self.fighting.remove(&m.identity.1);
             if m.identity.1 == self.own {
+                // (dead until the server says there is health again or puts the character somewhere: its health is
+                // nothing, as FUN_1005b3d8 sets it, whatever the last message of it said)
                 self.own_dead = true;
-                self.dead_health = self.stats.get(&27).copied().unwrap_or(0);
+                self.dead_health = 0;
+                if self.stats.insert(27, 0) != Some(0) {
+                    self.stats_changed = true;
+                }
             }
             self.died.push(m.identity.1);
         }
@@ -1589,6 +1596,12 @@ impl World {
                 let kind = crate::feedback::weapon_damage_type(self.weapons.get(&(m.identity.1, slot as u8)).and_then(|&t| template_stat(t, 436)));
                 if let Some(line) = crate::feedback::attack(self.who(target), self.who(m.identity.1), int("Amount"), kind, int("HitType")) {
                     self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
+                }
+                // (the hit that kills names what the target died of, the word after the target, `Unk1`: FUN_1009f257 and
+                // FUN_1009b6b7 hand it to FUN_1005b3d8, which tells the client's own character the game's line for it
+                // and sets its health to nothing)
+                if int("Unk1") != 0 && target == self.own {
+                    self.own_died_of(int("Unk1"));
                 }
             }
         }
@@ -2903,6 +2916,20 @@ impl World {
         self.inventory = Some(self.worn.clone());
     }
 
+    /// The client's own character died of `reason` (Gamecode FUN_1005b3d8): the game's line for it, once for a death,
+    /// and no health.
+    fn own_died_of(&mut self, reason: i64) {
+        if self.stats.insert(27, 0) != Some(0) {
+            self.stats_changed = true;
+        }
+        if self.death_told.is_none_or(|t| t.elapsed() > Duration::from_secs(5)) {
+            if let Some(line) = crate::feedback::death(reason) {
+                self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
+                self.death_told = Some(Instant::now());
+            }
+        }
+    }
+
     fn used(&self, kind: u32, id: u32) -> (u32, u32) {
         if let Some(&corpse) = self.corpses.get(&id).filter(|c| self.objects.contains_key(c)) {
             return (OBJECT_TYPE, corpse);
@@ -4179,6 +4206,14 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
             }
         }
         let player = world.names.get(&id).is_some_and(|n| n.1);
+        // (MAO_COMBAT_LOG: who is drawn as a marker for want of a model, once each)
+        if std::env::var_os("MAO_COMBAT_LOG").is_some() {
+            static TOLD: std::sync::Mutex<std::collections::BTreeSet<u32>> = std::sync::Mutex::new(std::collections::BTreeSet::new());
+            if TOLD.lock().is_ok_and(|mut t| t.insert(id)) {
+                let info = world.infos.get(&id);
+                eprintln!("no model: {id:#x} {:?} template {:x?} breed {:?} humanoid {:?} flags {:x?}", world.names.get(&id).map(|n| n.0.as_str()), info.and_then(|i| i.template), info.map(|i| i.breed), info.map(|i| i.is_humanoid()), info.map(|i| i.flags));
+            }
+        }
         model.instances.push((if id == world.own { 0 } else if player { 3 } else { 1 }, place));
         model.instances.push((2, place));
     }
@@ -5637,6 +5672,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 (keys.forward, keys.back, keys.jump, keys.turn, keys.strafe, keys.face) = (false, false, false, 0, 0, None);
                 goto = None;
             }
+            // (dead: nobody is followed either; the attack and use keys do nothing, below)
+            if state.own_dead {
+                following = None;
+            }
             // Vicinity speech: a text message to the server, at the current target (a character's; none for an object or nobody).
             // The pet window: the pets as they are now, and its buttons' commands to one pet (`N3Msg_SendPetCommand`).
             crate::pets::set(state.pets.values().map(|&pet| crate::pets::Pet {
@@ -6042,6 +6081,12 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 let presses = count.wrapping_sub(seen[slot]);
                 seen[slot] = *count;
                 if presses == 0 {
+                    continue;
+                }
+                // (dead: no attack and no use. The original's interface is told of the death, `DeadMessage`, and of the
+                // life again, `AliveMessage`; the server went on taking a dead character's attacks in the live run of
+                // 2026-11-11, which the original's player cannot send)
+                if state.own_dead && matches!(slot, 4 | 6) {
                     continue;
                 }
                 if slot == 6 {
@@ -9967,6 +10012,34 @@ mod movement_tests {
 #[cfg(test)]
 mod prop_anim_tests {
     use super::prop_anim_time;
+
+    /// The hit that kills the client's own character names what it died of: the game's line is told once, the health
+    /// is nothing, and the death's own message makes the character dead (no moving, attacking or using until the
+    /// server gives it health or a place again).
+    #[test]
+    fn the_own_death_is_told_and_leaves_no_health() {
+        let hex = |s: &str| -> Vec<u8> { (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect() };
+        let (own, robot) = (0x7b1e5338u32, 0x7b431329u32);
+        let mut w = super::World { own, ..Default::default() };
+        w.stats.insert(27, 7);
+        // (an `AttackInfo` from the robot on the own character: 7 points, the reason 4, a weapon)
+        let hit = format!("0000000007ffffffff000000000000c350{own:08x}000000040000000300000000");
+        w.add(&super::Message { kind: 0x46002f16, identity: (0xc350, robot), data: hex(&hit) }.frame(own));
+        assert_eq!(w.stats.get(&27), Some(&0));
+        let told = w.game_lines.len();
+        assert!(told >= 1);
+        // (the same reason again within the death: no second line)
+        w.add(&super::Message { kind: 0x46002f16, identity: (0xc350, robot), data: hex(&hit) }.frame(own));
+        assert_eq!(w.game_lines.iter().filter(|l| l.text == crate::feedback::death(4).unwrap()).count(), 1);
+        // (the death: `CharacterAction` 99 from the own character with its animation)
+        w.add(&super::Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("000000006300000000000000000000000000000000000001f40000") }.frame(own));
+        assert!(w.own_dead && w.dead_health == 0);
+        // (a hit on somebody else that kills tells the client nothing of a death)
+        let mut w = super::World { own, ..Default::default() };
+        let other = format!("0000000007ffffffff000000000000c350{robot:08x}000000040000000300000000");
+        w.add(&super::Message { kind: 0x46002f16, identity: (0xc350, own), data: hex(&other) }.frame(own));
+        assert!(w.game_lines.iter().all(|l| l.text != crate::feedback::death(4).unwrap()));
+    }
 
     /// A built-in machine is used by the id the server gave its record: by the record's place among its kind in the
     /// table, not by the number in its table id (Arete Landing: the machines' numbers skip 5; the runs are those of a

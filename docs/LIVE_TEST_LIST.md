@@ -205,12 +205,16 @@ account with `net <game> create`, in Arete Landing; scripted, other new players 
 - The third quest's robots (2026-11-11): six of the seven junkyard robots shot, each telling how many are left;
   their remains opened and what was in them taken. A fight from 3 m where the server let no shot through for 80
   seconds (something between the two, it seems: one step nearer and it shot).
-- **Dying**: twice, once with the client running: the server's teleport to the arrival pad is followed and the
-  character fights on. Nothing is told of it in the chat (what the original tells was not read).
+- **Dying** (three times with the client running): the killing hit, the death, a minute lying dead, then the
+  server's move to the arrival pad with part of the health. **Found and fixed**: nothing was told and the client
+  went on sending attacks while dead (and the server took them); now the game's line for the death is told, the
+  health is nothing, and the attack and use keys do nothing until the character is alive again.
+- The third quest's last robot and its item (the mission's line is the delivery now). Not done: the delivery.
+- **Found, open**: the junkyard's boss robot is drawn as a blue box (no model on the live path).
 - Level 4 reached by kills (the level's own message not yet seen with the fix in).
 - **Found and fixed** (the user saw them): the rifle was not in the character's hands; the health, nano and
   experience bars were drawn off their frames (they are the original's upright bars in the wings now).
-- Not reached: the last junkyard robot, the quest's item and its hand-over to Alex, level 5 and the way into ICC, a
+- Not reached: the item's hand-over to Alex, level 5 and the way into ICC, a
   team with a second new character. The character is level 4 with 2,070 credits on the arrival platform.
 
 A screenshot is a grab of the screen, so with two full-screen clients it shows the one on top; the other side was

@@ -51,6 +51,13 @@ fn english(name: &str) -> &'static str {
         "Feedback_YouHitOtherWith" => "You hit %s with %s for %u points of %s damage.",
         "Feedback_UnableToWear" => "You do not meet what it takes to wear that.",
         "Feedback_NewLevel" => "You are level %d now.",
+        "Feedback_DeathByTerminate" => "You were terminated.",
+        "Feedback_DeathByReflectDamage" => "You died of damage thrown back at you.",
+        "Feedback_DeathByShieldDamage" => "You died of a damage shield.",
+        "Feedback_DeathByWeaponDamage" => "You died of a weapon's hit.",
+        "Feedback_DeathBySpellDamage" => "You died of a nano program.",
+        "Feedback_DeathByFallDamage" => "You died of the fall.",
+        "Feedback_DeathByLiquidDamage" => "You died in the liquid.",
         "Feedback_YouHaveReceivedIncreasePoints" => "You have new points to raise your skills with.",
         // (the pet duel's, in this client's own words)
         "PetDuelChallenge" => "%s asks you for a duel of pets (/petduel accept or /petduel reject).",
@@ -366,6 +373,23 @@ pub fn gui(name: &str, args: &[Arg]) -> String {
 /// A feedback text with nothing to fill (FUN_10059047: a name hashed and told as it is).
 pub fn plain(name: &str) -> String {
     line(name, &[])
+}
+
+/// What the client's own character died of, as a hit's or a health message's death reason names it (Gamecode
+/// FUN_1005b3d8: 1 terminated, 2 reflected damage, 3 a damage shield, 4 a weapon, 5 a nano program, 6 a fall, 7 a
+/// liquid): the game's text of that name; no line for any other number.
+pub fn death(reason: i64) -> Option<String> {
+    let name = match reason {
+        1 => "Feedback_DeathByTerminate",
+        2 => "Feedback_DeathByReflectDamage",
+        3 => "Feedback_DeathByShieldDamage",
+        4 => "Feedback_DeathByWeaponDamage",
+        5 => "Feedback_DeathBySpellDamage",
+        6 => "Feedback_DeathByFallDamage",
+        7 => "Feedback_DeathByLiquidDamage",
+        _ => return None,
+    };
+    Some(plain(name))
 }
 
 /// A feedback line with one number (`%d`), as FUN_10012c3e feeds it.
