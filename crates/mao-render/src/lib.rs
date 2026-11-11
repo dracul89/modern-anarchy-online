@@ -198,14 +198,55 @@ fn blend_of(material: &mao_formats::model::Material) -> [f32; 4] {
 }
 
 /// The pipeline a blended part is drawn with: by its uniform's blend (alpha or added) and whether it writes depth.
-fn blend_pipeline(pipes: &ScenePipelines, blend: [f32; 4]) -> &wgpu::RenderPipeline {
+fn blend_pipeline(pipes: &ScenePipelines, blend: [f32; 4], faces: usize) -> &wgpu::RenderPipeline {
     match (blend[0] > 1.5, blend[3] > 0.5) {
-        (false, false) => &pipes.mesh_blend,
-        (false, true) => &pipes.mesh_blend_no_z,
-        (true, false) => &pipes.mesh_add,
-        (true, true) => &pipes.mesh_add_no_z,
+        (false, false) => &pipes.mesh_blend[faces],
+        (false, true) => &pipes.mesh_blend_no_z[faces],
+        (true, false) => &pipes.mesh_add[faces],
+        (true, true) => &pipes.mesh_add_no_z[faces],
     }
 }
+
+/// Whether the faces turned away from the camera are drawn. The original does not draw them: its device's cull mode is
+/// `D3DCULL_CCW` (randy31 `randy.rs`, the defaults: render state 22 set to 3), and a material draws both sides only when
+/// its own states set the mode to none (`Material::two_sided`; about one material in thirteen of the game's meshes).
+/// `MAO_CULL=off` draws both sides of everything as this client did before, and `MAO_CULL=show` draws both and paints
+/// the faces that would have been left out magenta (to look for geometry whose corners run the wrong way).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Culling {
+    #[default]
+    On,
+    Off,
+    Show,
+}
+
+impl Culling {
+    pub fn from_name(name: &str) -> Culling {
+        match name.trim().to_ascii_lowercase().as_str() {
+            "off" | "0" | "none" => Culling::Off,
+            "show" => Culling::Show,
+            _ => Culling::On,
+        }
+    }
+}
+
+/// Which of a part's faces are the ones turned away, as an index into the mesh pipelines: 0 none (both sides drawn), 1
+/// and 2 by the sense of the part's matrix. Direct3D culls by the corners' order on the screen, and a matrix that
+/// mirrors (a negative determinant) turns that order round; the meshes are drawn here through the swap of the game's
+/// upright and the renderer's, which is such a mirror, so that is the usual case (1), and a part mirrored once more, or
+/// one given in the renderer's own frame, is the other (2).
+fn faces_of(two_sided: bool, world: &Mat4) -> u8 {
+    if two_sided {
+        0
+    } else if world.determinant() < 0.0 {
+        1
+    } else {
+        2
+    }
+}
+
+/// The corners' order of a front face on the screen for the usual case (see [`faces_of`]).
+const FRONT: wgpu::FrontFace = wgpu::FrontFace::Cw;
 
 /// No emissive colour, opaque.
 const NO_TINT: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
@@ -228,6 +269,8 @@ struct GpuPart {
     texture: Option<(u32, u32)>,
     /// A low-detail part: drawn only when the mesh it stands in for is far (`Lod::low`), never on its own.
     low_only: bool,
+    /// Which faces are left out ([`faces_of`]).
+    faces: u8,
     /// On the first part of a watched mesh's instance: the mesh's sphere and what the decision covers.
     lod: Option<Lod>,
     /// A character's part (the overlay or a follower) under temporal anti-aliasing: its shift when last drawn and whether it
@@ -837,13 +880,14 @@ const HISTORY: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 /// The pipelines of the scene pass for one way of drawing it: its samples per pixel, and whether it writes the motion buffer
 /// as a second target (temporal anti-aliasing: the meshes write their motion, the rest leave it as it is).
 struct ScenePipelines {
-    mesh: wgpu::RenderPipeline,
+    /// The meshes' pipeline, three times: both sides drawn, and each of the two ways round culled ([`faces_of`]).
+    mesh: [wgpu::RenderPipeline; 3],
     /// The mesh pipeline blending by the fragment's alpha: the tinted character parts under full alpha.
-    mesh_blend: wgpu::RenderPipeline,
+    mesh_blend: [wgpu::RenderPipeline; 3],
     /// The blended materials' other three: without depth writes, added, and added without depth writes.
-    mesh_blend_no_z: wgpu::RenderPipeline,
-    mesh_add: wgpu::RenderPipeline,
-    mesh_add_no_z: wgpu::RenderPipeline,
+    mesh_blend_no_z: [wgpu::RenderPipeline; 3],
+    mesh_add: [wgpu::RenderPipeline; 3],
+    mesh_add_no_z: [wgpu::RenderPipeline; 3],
     sky: wgpu::RenderPipeline,
     /// The screen copy drawn back over the whole picture (no depth), before the refraction pass continues on it.
     blit: wgpu::RenderPipeline,
@@ -861,7 +905,7 @@ struct ScenePipelines {
 }
 
 impl ScenePipelines {
-    fn new(device: &wgpu::Device, shaders: &Shaders, format: wgpu::TextureFormat, samples: u32, motion: bool) -> ScenePipelines {
+    fn new(device: &wgpu::Device, shaders: &Shaders, format: wgpu::TextureFormat, samples: u32, motion: bool, culling: Culling) -> ScenePipelines {
         let multisample = wgpu::MultisampleState { count: samples, mask: !0, alpha_to_coverage_enabled: false };
         // (the colour target, and the motion buffer written or left alone)
         let targets = |blend: Option<wgpu::BlendState>, writes_motion: bool| -> Vec<Option<wgpu::ColorTargetState>> {
@@ -875,7 +919,31 @@ impl ScenePipelines {
         let shader = &shaders.mesh;
         let attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x2, 3 => Unorm8x4];
         let mesh_targets = targets(None, true);
-        let mesh = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        // (the faces left out, by `faces_of`'s index; to show them instead, both sides are drawn and the fragment is told
+        // which side it is on by the front face's sense)
+        let other = match FRONT {
+            wgpu::FrontFace::Cw => wgpu::FrontFace::Ccw,
+            wgpu::FrontFace::Ccw => wgpu::FrontFace::Cw,
+        };
+        let primitive = |faces: usize| -> wgpu::PrimitiveState {
+            let (cull_mode, front_face) = match (culling, faces) {
+                (Culling::Off, _) | (_, 0) => (None, FRONT),
+                (Culling::On, 1) => (Some(wgpu::Face::Back), FRONT),
+                (Culling::On, _) => (Some(wgpu::Face::Front), FRONT),
+                (Culling::Show, 1) => (None, FRONT),
+                (Culling::Show, _) => (None, other),
+            };
+            wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleList, cull_mode, front_face, ..Default::default() }
+        };
+        let fragment = |faces: usize| -> &'static str {
+            match (culling == Culling::Show && faces != 0, motion) {
+                (false, false) => "fs_main",
+                (false, true) => "fs_main_motion",
+                (true, false) => "fs_main_show",
+                (true, true) => "fs_main_motion_show",
+            }
+        };
+        let mesh = [0, 1, 2].map(|faces| device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("mesh"),
             layout: Some(&shaders.mesh_layout),
             vertex: wgpu::VertexState {
@@ -884,19 +952,19 @@ impl ScenePipelines {
                 compilation_options: Default::default(),
                 buffers: &[Some(wgpu::VertexBufferLayout { array_stride: std::mem::size_of::<GpuVertex>() as u64, step_mode: wgpu::VertexStepMode::Vertex, attributes: &attributes })],
             },
-            primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleList, cull_mode: None, ..Default::default() },
+            primitive: primitive(faces),
             depth_stencil: depth(true, wgpu::CompareFunction::Less, Default::default()),
             multisample,
-            fragment: Some(wgpu::FragmentState { module: shader, entry_point: Some(if motion { "fs_main_motion" } else { "fs_main" }), compilation_options: Default::default(), targets: &mesh_targets }),
+            fragment: Some(wgpu::FragmentState { module: shader, entry_point: Some(fragment(faces)), compilation_options: Default::default(), targets: &mesh_targets }),
             multiview_mask: None,
             cache: None,
-        });
+        }));
         // The same for a translucent part (a highlighted character, a blended material): blended by its alpha, writing
         // depth as Direct3D's `SetTransparency` did and as a material does unless its states turn the writes off; and
         // added (source alpha, one) for the materials whose `DESTBLEND` is one.
         let blended = |label: &str, state: wgpu::BlendState, z: bool| {
             let blend_targets = targets(Some(state), true);
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            [0, 1, 2].map(|faces| device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(label),
                 layout: Some(&shaders.mesh_layout),
                 vertex: wgpu::VertexState {
@@ -905,13 +973,13 @@ impl ScenePipelines {
                     compilation_options: Default::default(),
                     buffers: &[Some(wgpu::VertexBufferLayout { array_stride: std::mem::size_of::<GpuVertex>() as u64, step_mode: wgpu::VertexStepMode::Vertex, attributes: &attributes })],
                 },
-                primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleList, cull_mode: None, ..Default::default() },
+                primitive: primitive(faces),
                 depth_stencil: depth(z, wgpu::CompareFunction::Less, Default::default()),
                 multisample,
-                fragment: Some(wgpu::FragmentState { module: shader, entry_point: Some(if motion { "fs_main_motion" } else { "fs_main" }), compilation_options: Default::default(), targets: &blend_targets }),
+                fragment: Some(wgpu::FragmentState { module: shader, entry_point: Some(fragment(faces)), compilation_options: Default::default(), targets: &blend_targets }),
                 multiview_mask: None,
                 cache: None,
-            })
+            }))
         };
         let added = wgpu::BlendState {
             color: wgpu::BlendComponent { src_factor: wgpu::BlendFactor::SrcAlpha, dst_factor: wgpu::BlendFactor::One, operation: wgpu::BlendOperation::Add },
@@ -1190,6 +1258,8 @@ pub struct Renderer {
     shaders: Shaders,
     /// How the edges are smoothed (multisampling by default).
     pub antialiasing: Antialiasing,
+    /// Whether the faces turned away are left out (set when the renderer is made: `MAO_CULL`).
+    culling: Culling,
     taa_pipeline: wgpu::RenderPipeline,
     taa_layout: wgpu::BindGroupLayout,
     taa_sampler: wgpu::Sampler,
@@ -1426,7 +1496,8 @@ impl Renderer {
         let blit_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("blit"), bind_group_layouts: &[Some(&sprite_layout)], immediate_size: 0 });
         let shaders = Shaders { mesh: shader, particle: particle_shader, liquid: liquid_shader, blit: blit_shader, mesh_layout: layout, sky_layout, particle_layout, liquid_layout, blit_layout };
         let mut pipeline_sets = HashMap::new();
-        pipeline_sets.insert((samples, false), ScenePipelines::new(device, &shaders, format, samples, false));
+        let culling = std::env::var("MAO_CULL").map(|v| Culling::from_name(&v)).unwrap_or_default();
+        pipeline_sets.insert((samples, false), ScenePipelines::new(device, &shaders, format, samples, false, culling));
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::Repeat,
             address_mode_v: wgpu::AddressMode::Repeat,
@@ -1502,7 +1573,7 @@ impl Renderer {
             entries: &[wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&white) }, wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&sampler) }],
         });
         let liquid = LiquidResources::new(gpu, liquid_bind_layout, &white, &sampler, &fsr_sampler, &sprite_layout);
-        Renderer { shadow_cache: None, shadow_pipeline, pipeline_sets, shaders, antialiasing: Antialiasing::default(), taa_pipeline, taa_layout, taa_sampler, taa: None, copy_pipeline, timer: GpuTimer::new(gpu), gpu_ms: None, frame: 0, previous: None, sprites: HashMap::new(), sprite_layout, white_sprite, shadow_view, shadow_bind, shadow_layout, shadow_sampler, shadow_size: SHADOW_SIZE, shadows: true, refraction: std::env::var_os("MAO_NO_REFRACTION").is_none(), stats: Stats::default(), render_scale: 1.0, mip_bias: std::env::var_os("MAO_NO_MIP_BIAS").is_none(), sharpness: 0.2, fsr_easu, fsr_rcas, fsr_layout, fsr_sampler, fsr: None, samples, msaa: None, started: std::time::Instant::now(), globals_layout, part_layout, sampler, white, format, depth: None, textures: Default::default(), liquid }
+        Renderer { shadow_cache: None, shadow_pipeline, pipeline_sets, shaders, antialiasing: Antialiasing::default(), culling, taa_pipeline, taa_layout, taa_sampler, taa: None, copy_pipeline, timer: GpuTimer::new(gpu), gpu_ms: None, frame: 0, previous: None, sprites: HashMap::new(), sprite_layout, white_sprite, shadow_view, shadow_bind, shadow_layout, shadow_sampler, shadow_size: SHADOW_SIZE, shadows: true, refraction: std::env::var_os("MAO_NO_REFRACTION").is_none(), stats: Stats::default(), render_scale: 1.0, mip_bias: std::env::var_os("MAO_NO_MIP_BIAS").is_none(), sharpness: 0.2, fsr_easu, fsr_rcas, fsr_layout, fsr_sampler, fsr: None, samples, msaa: None, started: std::time::Instant::now(), globals_layout, part_layout, sampler, white, format, depth: None, textures: Default::default(), liquid }
     }
 
     /// Puts a model on the GPU. `texture` finds a texture by (type, instance).
@@ -1613,7 +1684,7 @@ impl Renderer {
                     (vb, ib, ub, bind)
                 }
             };
-            parts.push(GpuPart { vertices: vb, indices: ib, index_count: part.indices.len() as u32, bind, center, radius, uniform_buffer: ub, uniform, shift: Vec3::ZERO, source: index, texture: key, low_only: false, lod: None, drawn: Default::default() });
+            parts.push(GpuPart { vertices: vb, indices: ib, index_count: part.indices.len() as u32, bind, center, radius, uniform_buffer: ub, uniform, shift: Vec3::ZERO, source: index, texture: key, low_only: false, faces: faces_of(material.two_sided, &m), lod: None, drawn: Default::default() });
         }
         parts
     }
@@ -1727,7 +1798,7 @@ impl Renderer {
                             wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(sampler) },
                         ],
                     });
-                    Some(GpuPart { vertices: vb.clone(), indices: ib.clone(), index_count: *count, bind, center, radius, uniform_buffer: ub, uniform, shift: Vec3::ZERO, source: index, texture: model.parts[index].material.textures.first().copied(), low_only: low_parts.contains(&index), lod: None, drawn: Default::default() })
+                    Some(GpuPart { vertices: vb.clone(), indices: ib.clone(), index_count: *count, bind, center, radius, uniform_buffer: ub, uniform, shift: Vec3::ZERO, source: index, texture: model.parts[index].material.textures.first().copied(), low_only: low_parts.contains(&index), faces: faces_of(material.two_sided, &m), lod: None, drawn: Default::default() })
                 })
                 .collect()
         };
@@ -2086,7 +2157,7 @@ impl Renderer {
             self.msaa_view(gpu, render_size);
         }
         if !self.pipeline_sets.contains_key(&(samples, taa)) {
-            let set = ScenePipelines::new(&gpu.device, &self.shaders, self.format, samples, taa);
+            let set = ScenePipelines::new(&gpu.device, &self.shaders, self.format, samples, taa, self.culling);
             self.pipeline_sets.insert((samples, taa), set);
         }
         let fsr_views = if upscale { Some(self.fsr_targets(gpu, render_size, size)) } else { None };
@@ -2210,7 +2281,9 @@ impl Renderer {
                 pass.set_vertex_buffer(0, buffer.slice(..));
                 pass.draw(0..b.vertices.len() as u32, 0..1);
             }
-            pass.set_pipeline(&pipes.mesh);
+            // (the pipeline by the faces a part leaves out, changed only when the next part's differs)
+            let mut faces = 1usize;
+            pass.set_pipeline(&pipes.mesh[faces]);
             pass.set_bind_group(0, &globals_bind, &[]);
             pass.set_bind_group(2, &self.shadow_bind, &[]);
             // (the parts under a translucent tint, a highlighted character's: drawn blended after the opaque parts; at alpha 0 not
@@ -2235,6 +2308,10 @@ impl Renderer {
                     continue;
                 }
                 drawn += 1;
+                if part.faces as usize != faces {
+                    faces = part.faces as usize;
+                    pass.set_pipeline(&pipes.mesh[faces]);
+                }
                 pass.set_bind_group(1, &part.bind, &[]);
                 pass.set_vertex_buffer(0, part.vertices.slice(..));
                 pass.set_index_buffer(part.indices.slice(..), wgpu::IndexFormat::Uint16);
@@ -2243,7 +2320,7 @@ impl Renderer {
             if !translucent.is_empty() {
                 translucent.sort_by(|a, b| (b.center + b.shift).distance_squared(eye).total_cmp(&(a.center + a.shift).distance_squared(eye)));
                 for part in translucent {
-                    pass.set_pipeline(blend_pipeline(pipes, part.uniform.blend));
+                    pass.set_pipeline(blend_pipeline(pipes, part.uniform.blend, part.faces as usize));
                     drawn += 1;
                     pass.set_bind_group(1, &part.bind, &[]);
                     pass.set_vertex_buffer(0, part.vertices.slice(..));
@@ -2584,6 +2661,48 @@ mod tests {
         // (the scale is held to what the renderer draws at)
         assert_eq!(mip_bias(0.1), mip_bias(0.4));
         assert_eq!(mip_bias(3.0), 0.0);
+    }
+
+    /// The faces left out: none for a material of two sides, else by the sense of the part's matrix.
+    #[test]
+    fn the_faces_left_out_follow_the_material_and_the_matrix() {
+        let swap = Mat4::from_cols_array(&[1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]);
+        assert_eq!(faces_of(true, &swap), 0);
+        assert_eq!(faces_of(false, &swap), 1);
+        assert_eq!(faces_of(false, &Mat4::IDENTITY), 2);
+        // (a statel mirrored once more is the other way round again)
+        assert_eq!(faces_of(false, &(swap * Mat4::from_scale(Vec3::new(-1.0, 1.0, 1.0)))), 2);
+        assert_eq!(Culling::from_name("off"), Culling::Off);
+        assert_eq!(Culling::from_name("Show"), Culling::Show);
+        assert_eq!(Culling::from_name(""), Culling::On);
+    }
+
+    /// A square seen from its back is not drawn, unless its material has two sides (the original's cull mode).
+    #[test]
+    fn a_face_turned_away_is_not_drawn() {
+        // (skipped on a machine without a graphics device, and when the run asks for no culling)
+        let Ok(gpu) = Gpu::headless() else { return };
+        if std::env::var_os("MAO_CULL").is_some() {
+            return;
+        }
+        let camera = Camera { target: Vec3::ZERO, distance: 30.0, yaw: 0.3, pitch: 1.2, half_height: None };
+        // (a red square on the ground, its corners counter-clockwise seen from above as the terrain's are, or the other
+        // way round)
+        let square = |reversed: bool, two_sided: bool| {
+            let vertices = [[-10.0, -10.0, 0.0], [10.0, -10.0, 0.0], [10.0, 10.0, 0.0], [-10.0, 10.0, 0.0]].iter().map(|&p| mao_formats::model::Vertex { position: p, normal: [0.0, 0.0, 1.0], uv: [0.0, 0.0], colour: mao_formats::model::Vertex::UNBAKED }).collect();
+            let indices = if reversed { vec![0, 2, 1, 0, 3, 2] } else { vec![0, 1, 2, 0, 2, 3] };
+            let material = mao_formats::model::Material { diffuse: [1.0, 0.0, 0.0], opacity: 1.0, two_sided, ..Default::default() };
+            Model { parts: vec![mao_formats::model::Part { name: String::new(), world: Mat4::IDENTITY.to_cols_array(), vertices, indices, material }], ..Default::default() }
+        };
+        let red = |model: &Model| {
+            let mut renderer = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm);
+            let scene = renderer.upload(&gpu, model, &mut |_, _| None);
+            let image = renderer.render_to_image(&gpu, &scene, &camera, 160, 120);
+            image.chunks(4).filter(|p| p[0] > 2 * p[1].max(p[2]) && p[0] > 40).count()
+        };
+        assert!(red(&square(false, false)) > 500, "the front is drawn");
+        assert_eq!(red(&square(true, false)), 0, "the back is not");
+        assert!(red(&square(true, true)) > 500, "a material of two sides shows its back");
     }
 
     #[test]

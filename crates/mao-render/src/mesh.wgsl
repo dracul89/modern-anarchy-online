@@ -141,6 +141,27 @@ fn fs_main_motion(in: VertexOut) -> SceneOut {
     return out;
 }
 
+// The check of the faces' sense (`MAO_CULL=show`): a face that would have been left out is painted magenta.
+fn shown(colour: vec4<f32>, front: bool) -> vec4<f32> {
+    if front {
+        return colour;
+    }
+    return vec4<f32>(1.0, 0.0, 1.0, max(colour.a, 0.6));
+}
+
+@fragment
+fn fs_main_show(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
+    return shown(shade(in), front);
+}
+
+@fragment
+fn fs_main_motion_show(in: VertexOut, @builtin(front_facing) front: bool) -> SceneOut {
+    var out: SceneOut;
+    out.colour = shown(shade(in), front);
+    out.motion = vec4<f32>(0.0, 0.0, part.motion.x, 1.0);
+    return out;
+}
+
 fn shade(in: VertexOut) -> vec4<f32> {
     var base = part.colour;
     // Baked light in the texture's alpha (flags.y = 2): added to the lighting, as the original's texture stages add it to the

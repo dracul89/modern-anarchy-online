@@ -246,6 +246,13 @@ window's bar (12), the other Visual switches (14 to 17), the configuration's but
 26), renaming a bag and its kept place (45, 46), a corpse or the bank beside a bag (47), nano hide and list sorting
 (39, 40), and everything that needs a second character.
 
+## The faces turned away (2026-11-11)
+
+Back faces are no longer drawn, as in the original. Seen without fault in Aegean, Arete Landing, its shuttle room
+and the login hall. To look at while playing elsewhere: a wall, a floor, a piece of clothing or of a creature that is
+missing or see-through where the original shows it, above all in mission dungeons, city interiors, shops, vehicles
+and the Shadowlands. `MAO_CULL=show` paints what is left out magenta; `MAO_CULL=off` draws both sides as before.
+
 ## Do not test without deciding first
 
 - **Skill reset** (skills window, "Reset" / "Reset all"; `n3::reset_skill`, action `0x9a`). The message was built from

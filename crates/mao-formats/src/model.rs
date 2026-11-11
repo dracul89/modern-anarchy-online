@@ -89,6 +89,10 @@ pub struct Material {
     /// The material's own alpha test (`ALPHATESTENABLE` 15 with a reference, `ALPHAREF` 24, above 0): pixels under it,
     /// 0 to 1, are not drawn.
     pub alpha_ref: Option<f32>,
+    /// Both sides of the material's faces are drawn (`CULLMODE`, 22, set to 1, none: randy31's `RMaterial_t::IsTwoSided`).
+    /// Without it the device's own state holds, 3: the faces whose corners run counter-clockwise on the screen, the ones
+    /// turned away, are not drawn (`randy.rs`'s defaults).
+    pub two_sided: bool,
 }
 
 /// Whether a mesh's file name is a plant. The name is split into words at
@@ -280,6 +284,7 @@ fn material(a: &Archive, index: i32) -> Material {
     let mut textures = Vec::new();
     let mut alpha_lights = false;
     let (mut blend, mut no_z_write, mut alpha_ref) = (Blend::None, false, None);
+    let mut two_sided = false;
     if let Some(state) = m.int("0", "delta_state").and_then(|i| a.objects.get(i as usize)) {
         // The texture stage states of stage 0 (`tstm_count` says how many belong to each stage): an `ALPHAOP` (4) of `DISABLE` (1)
         // leaves the pixel's alpha at the vertex's, so the texture's alpha is not a mask; with `COLORARG1` (2) = `TEXTURE |
@@ -294,6 +299,7 @@ fn material(a: &Archive, index: i32) -> Material {
             blend = if state_of(20) == Some(2) { Blend::Add } else { Blend::Alpha };
         }
         no_z_write = state_of(14) == Some(0);
+        two_sided = state_of(22) == Some(1);
         alpha_ref = (state_of(15) == Some(1)).then(|| state_of(24).unwrap_or(0)).filter(|&r| r > 0).map(|r| (r & 0xff) as f32 / 255.0);
         let alpha_off = states.contains(&(4, 1));
         let replicate = states.iter().any(|&(t, v)| t == 2 && v & 0x20 != 0);
@@ -322,6 +328,7 @@ fn material(a: &Archive, index: i32) -> Material {
         blend: if alpha_lights { Blend::None } else { blend },
         no_z_write,
         alpha_ref,
+        two_sided,
     }
 }
 

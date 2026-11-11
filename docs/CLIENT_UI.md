@@ -795,6 +795,29 @@ down. Here the angle is kept as a 4:3 window has it and a wider window sees the 
 past the hall's walls to the space outside it (kept so: the user chose the full width over black bars at the sides). Seen: the launcher beside the user's picture of the original's, the
 three settings pages, PLAY into the login, the hall at 16:9 and at 32:9.
 
+**The faces turned away are not drawn (2026-11-11, `mao_render::Culling`, `faces_of`, `Material::two_sided`).**
+The second of the renderer's optimisations, and as it turned out a matter of likeness and not of speed. The
+original does not draw a face seen from its back: its device's cull mode is `D3DCULL_CCW` (randy31's defaults,
+render state 22 set to 3), and a material draws both sides only when its own states set the mode to 1, none
+(`RMaterial_t::IsTwoSided`; a character mesh's material by bit 1 of its flags, `cat.rs`). Counted over the game's
+meshes (`cullcount` example): 2,812 of 37,516 materials are of two sides, in 1,905 of 11,228 meshes (leaves, fences,
+glass), and none sets the other sense. This client drew both sides of everything. Now the material carries
+`two_sided`, each part is given the faces it leaves out when it is uploaded (none, or one of the two senses by the
+sign of its matrix's determinant: the meshes are drawn through the swap of the upright, a mirror, and the terrain
+and the room shells are in the renderer's own frame), and the mesh pipelines come in the three kinds. The liquids,
+the particles, the shells, the backdrops (the sky's domes) and the blob shadows draw both sides as before, as the
+original's effects do; so does the shadow map, so the shadows are as they were. The client's own markers and the
+stand-in floor are of two sides.
+Checked with `MAO_CULL=show`, which draws both sides and paints magenta what would be left out: an open place with
+terrain, trees, buildings and creatures (Aegean), the arrival pad of Arete Landing, the shuttle room there and the
+login hall show no fault of the game's geometry. What does come out magenta is what the original leaves out too:
+the rim of a far wall seen from behind, and the player's own body from inside when a wall pushes the camera into
+it. Measured with `MAO_CULL=off` against it, four runs each way at 2560x720 and at 5120x1440 in the same place:
+no difference in the frame rate or in the graphics card's time for the scene (2.0 ms and 4.0 ms either way). The
+frame there is held by the processor's side (about 1,600 parts drawn of 37,800 looked at), not by the pixels.
+Not checked: mission dungeons, city interiors, shops, vehicles, the Shadowlands. `MAO_CULL=off` brings the old
+drawing back if a face is missing somewhere.
+
 **The textures' mip bias under a drawing scale (2026-11-11, `mao_render::mip_bias`, `mesh.wgsl`).**
 The first of the renderer's optimisations was to be mip maps, and they turned out to be there already: every
 texture is uploaded with a full chain (`texture::mip_chain`, a box filter, made where the texture is decoded) and
