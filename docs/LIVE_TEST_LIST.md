@@ -104,9 +104,17 @@ first so that the first one's window is the one in the screenshots)
   over, shows no target, and the server still has one. The client now tells the server on entering that nothing is
   selected (and again when a target is lost).
 - The rename boxes (a bag's, a chat window's) take the keyboard when they come up.
-Still not reached: team chat (8: this client cannot invite to a team yet), the private group's No and Leave (19,
+Still not reached: the private group's No and Leave (19,
 20), the Visual switches (14 to 17), the chat configuration's buttons (18), ignoring and mail from the friends
 menu (24, 26), nano hide and sorting (39, 40), a bag's kept place and a corpse or the bank beside it (46, 47).
+
+**Team between the same two** (2026-11-10)
+- The team window's Recruit: with nobody selected and with oneself selected the game's two texts; with the other
+  selected the request goes and is told, and the other gets the invitation.
+- 8: after the other's Yes both are listed with bars and the team's level; `/t <text>` from each arrives on both as
+  the team's channel; after Leave, `/t` answers with the game's text for not being in a team.
+- Found and fixed: one's own health and nano bars in the team window were empty.
+- Not tried: the invitation's No, a third member, kicking and handing on the leadership (not ported).
 
 A screenshot is a grab of the screen, so with two full-screen clients it shows the one on top; the other side was
 checked through the chat log (`chat/<date>.txt`), which both write.

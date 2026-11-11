@@ -551,6 +551,22 @@ asks for a text (a bag's or a chat window's new name) takes the keyboard when it
 `TextInputDialogForm_c::AllAttached` (0x101483d8) gives its field the focus: before, the name could only be typed
 after a click in the field.
 
+**Team: asking somebody in (2026-11-10, `team.rs`, `n3::team_invite`, `net.rs`).** The original has no chat command
+for it (`/invite`, `/kick` and `/leave` are the private chat group's, handed to the chat server as they are typed;
+`/team` is a menu script). It is the team window's Recruit button: GUI.dll FUN_100785d7 builds the window's button
+row, without a team Recruit at the left, in a team Leave at the right and Recruit after it for the leader, and
+Recruit (FUN_100782b2) asks the selected character in with Gamecode's `N3Msg_TeamJoinRequest` (0x1001b9b2: a
+`CharacterAction` 0x1a naming them; nothing is sent for one who is in the team already). Its three lines are the
+game's texts: nobody selected, oneself selected, and the request sent with the name after it. The client does the
+same. Tried live between two of this client: the three lines; the invitation arrives on the other side; with its
+Yes the window lists both members with the team's level, the leader's name in its colour and Leave and Recruit;
+`/t` lines arrive on both sides as the team's channel; after Leave the window is back to "no team" and `/t` gets
+the game's text for not being in one. Found on the way: the server tells the other members' health and nano but not
+one's own, so one's own bars stood empty; they are filled from the character's own stats now (this client's
+reading). Not done: kicking a member and handing the leadership on (the member menu's `N3Msg_KickTeamMember`, action
+0x16, and `N3Msg_TransferTeamLeadership`, 0x19), the team search window's invite (FUN_100f08c8), and the team's side
+in the header. The test script got `teamreply@yes|no` and `teamleave@`.
+
 **Scripted clicks, and what the first scripted live run found (2026-11-10, `ui.rs::Ui::script`, `viewer.rs`).**
 `MAO_CAMERA_SCRIPT` steps with an `@` act on the interface as the mouse and keys would, so the windows can be tried
 live without anyone at the keyboard: `open@<window>`, `close@<window>` (`close@` alone: all), `click@<x>;<y>`,

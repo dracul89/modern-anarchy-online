@@ -681,7 +681,7 @@ impl Ui {
     /// keys would: `open@<window>` and `close@<window>`; `click@<x>;<y>`, `rclick@...`, `dclick@...` and `move@...` at a
     /// place given in the screenshot's pixels; `type@<line>` into the chat's input (then `key@Enter` sends it);
     /// `text@<letters>` into whatever takes the keys; `key@<Enter|Escape|Tab|Up|Down|Backspace>`; `drag@<x>;<y>;<x>;<y>`
-    /// presses at the first place and lets go at the second; `usebag@<n>` uses the inventory's n-th bag; `pginvite@<name>` invites a character of the friends list to one's private chat group; `target@<id>` selects the character with that id; `cast@<nano id>` runs a nano program of the character's; `useitem@<place>` uses the item in that inventory place. False
+    /// presses at the first place and lets go at the second; `usebag@<n>` uses the inventory's n-th bag; `pginvite@<name>` invites a character of the friends list to one's private chat group; `target@<id>` selects the character with that id; `cast@<nano id>` runs a nano program of the character's; `useitem@<place>` uses the item in that inventory place; `teamreply@yes` (or `no`) answers a team invitation and `teamleave@` leaves the team. False
     /// for a step it does not know.
     pub fn script(&mut self, step: &str) -> bool {
         let Some((what, argument)) = step.split_once('@') else { return false };
@@ -713,6 +713,15 @@ impl Ui {
             "target" => self.script_target = argument.trim().parse().ok(),
             "cast" => self.script_cast = argument.trim().parse().ok(),
             "useitem" => self.script_use = argument.trim().parse().ok(),
+            "teamleave" => crate::team::send(crate::team::Command::Leave),
+            // (the answer to a team invitation that is waiting, as its box's Yes or No)
+            "teamreply" => {
+                if let Some((id, _)) = crate::team::with(|t| t.invite.take()) {
+                    crate::team::send(crate::team::Command::Reply(id, argument.trim() == "yes"));
+                } else {
+                    eprintln!("script: no team invitation to answer");
+                }
+            }
             "drag" => {
                 let k = self.ctx.pixels_per_point();
                 let v: Vec<f32> = argument.split(';').filter_map(|t| t.trim().parse::<f32>().ok()).map(|p| p / k).collect();

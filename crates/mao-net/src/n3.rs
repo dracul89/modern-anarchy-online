@@ -639,6 +639,18 @@ pub fn team_reply(character: u32, inviter: u32, join: bool) -> Frame {
 /// `5e477770` action `0x18`: leave the team (no target).
 pub const LEAVE_TEAM: u8 = 0x18;
 
+/// `5e477770` action `0x1a`: ask `target` to join one's team (Gamecode `N3Msg_TeamJoinRequest` 0x1001b9b2: the
+/// character asked as the target, the first parameter 0 and the second the caller's flag, which the team window's
+/// Recruit button and the team search's invite both pass as 0). The same action comes from the server to the one
+/// asked, naming who asks. Built from the decompile, then tried live (2026-11-10).
+pub fn team_invite(character: u32, target: u32) -> Frame {
+    let mut data = vec![0u8; 27];
+    data[4] = 0x1a;
+    data[9..13].copy_from_slice(&CHARACTER.to_be_bytes());
+    data[13..17].copy_from_slice(&target.to_be_bytes());
+    Message { kind: 0x5e477770, identity: (CHARACTER, character), data }.frame(character)
+}
+
 /// `Skill` (`3e205660`): raise skills with IP, each skill with its new trained value (the Arete Landing capture: the six
 /// abilities from 15, 6, 10, 3, 3, 3 to 18, 9, 13, 6, 6, 6 as `00 | 00000006 | 00000010 00000012 | ...`). The server answers
 /// with the same pairs and the IP left (stat 53).
@@ -1169,6 +1181,16 @@ mod tests {
         assert_eq!(g.rooms[0], GeneratedRoom { room: 2, floor: 0, x: 0, y: 2, turn: 3 });
         assert_eq!(g.rooms[7], GeneratedRoom { room: 4, floor: 1, x: 9, y: 7, turn: 0 });
         assert_eq!(m.arrival().map(|a| a.0), Some(382));
+    }
+
+    #[test]
+    fn a_team_invitation_names_the_one_asked() {
+        // (the answer's shape with its own action and no parameter)
+        let (ask, answer) = (team_invite(7, 9), team_reply(7, 9, false));
+        assert_eq!(ask.body.len(), answer.body.len());
+        let differ: Vec<usize> = (0..ask.body.len()).filter(|&k| ask.body[k] != answer.body[k]).collect();
+        assert_eq!(differ.len(), 1);
+        assert_eq!((ask.body[differ[0]], answer.body[differ[0]]), (0x1a, 0x1c));
     }
 
     #[test]

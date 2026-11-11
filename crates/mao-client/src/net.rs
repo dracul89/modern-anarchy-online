@@ -5483,10 +5483,40 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 let _ = connection.send(&n3::pet_command_to(own, command, pet));
             }
             // The team window's answers.
+            // (the server tells the other members' health and nano, `TeamMemberInfo`; none came for oneself in the live
+            // team of 2026-11-10, so one's own bars are filled from the character's own stats: this client's reading, the
+            // original's member view was not read for it)
+            crate::team::with(|t| {
+                t.own = own;
+                if let Some(me) = t.members.iter_mut().find(|m| m.id == own) {
+                    let stat = |k: u32| state.stats.get(&k).copied().unwrap_or(0);
+                    (me.health, me.nano) = ((stat(27), stat(1)), (stat(214), stat(221)));
+                }
+            });
             for command in crate::team::take_commands() {
                 let _ = match command {
                     crate::team::Command::Reply(who, join) => connection.send(&n3::team_reply(own, who, join)),
                     crate::team::Command::Leave => connection.send(&n3::action(own, n3::LEAVE_TEAM)),
+                    // The Recruit button (GUI.dll FUN_100782b2): the target is asked to join, with a line saying so; no
+                    // target and oneself each have their text; one already in the team is not asked (Gamecode
+                    // `N3Msg_TeamJoinRequest` sends nothing for a character marked as a team mate).
+                    crate::team::Command::Invite => {
+                        let text = |category: i32, name: &str, own_words: &str| crate::gui::xml::ldb_named(category, name, own_words);
+                        let line = match target {
+                            None => Some(text(10000, "MustSelectChar2Join", "Select the character to ask first.")),
+                            Some(t) if t == own => Some(text(10000, "CantInviteSelf", "You cannot ask yourself.")),
+                            Some(t) if crate::team::with(|team| team.members.iter().any(|m| m.id == t)) => None,
+                            Some(t) => {
+                                let _ = connection.send(&n3::team_invite(own, t));
+                                let name = state.names.get(&t).map(|n| n.0.clone()).or_else(|| state.infos.get(&t).map(|i| i.name.clone())).unwrap_or_default();
+                                Some(format!("{}{name}", text(100, "JoinTeamRequestSentTo", "Asked to join your team: ")))
+                            }
+                        };
+                        if let Some(line) = line {
+                            state.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, line));
+                        }
+                        Ok(())
+                    }
                 };
             }
             // Skills raised in the Skills window.

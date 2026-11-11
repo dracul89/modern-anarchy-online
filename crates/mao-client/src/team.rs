@@ -3,7 +3,8 @@
 //! answer is the client's 0x1c naming them with 1 (join) or 0 (no); the server then sends `TeamMember` (`46312d2e`: the
 //! character, the team, a word, the level, the profession, the name) for each member and `TeamMemberInfo` (`28784248`:
 //! health, max health, max nano, nano) as they change. Leaving is the client's 0x18; the server's 0x20 names who left (oneself:
-//! the team is gone). aosharp's `Team` names the same actions.
+//! the team is gone). aosharp's `Team` names the same actions. Asking somebody in is the client's own 0x1a naming them
+//! (Gamecode `N3Msg_TeamJoinRequest`), from the window's Recruit button (GUI.dll FUN_100782b2).
 
 use std::sync::Mutex;
 
@@ -31,6 +32,8 @@ pub struct Team {
     /// The team's level (`GetTeamLevel`, +0xec, from interface message 0x10, the server's `CharacterAction` 0x1b with the
     /// level in the target's instance), shown in the header.
     pub level: Option<i64>,
+    /// The client's own character (the connection keeps it told).
+    pub own: u32,
 }
 
 impl Team {
@@ -50,9 +53,11 @@ pub enum Command {
     /// Answer an invitation from this character.
     Reply(u32, bool),
     Leave,
+    /// Ask the target to join (the Recruit button).
+    Invite,
 }
 
-static TEAM: Mutex<Team> = Mutex::new(Team { members: Vec::new(), invite: None, leader: None, level: None });
+static TEAM: Mutex<Team> = Mutex::new(Team { members: Vec::new(), invite: None, leader: None, level: None, own: 0 });
 static COMMANDS: Mutex<Vec<Command>> = Mutex::new(Vec::new());
 
 /// The team as the connection last heard it.
@@ -64,7 +69,7 @@ pub fn take_commands() -> Vec<Command> {
     std::mem::take(&mut *COMMANDS.lock().unwrap_or_else(|e| e.into_inner()))
 }
 
-fn send(c: Command) {
+pub fn send(c: Command) {
     COMMANDS.lock().unwrap_or_else(|e| e.into_inner()).push(c);
 }
 
@@ -87,8 +92,9 @@ pub fn is_leader(team: &Team, k: usize) -> bool {
 }
 
 /// The team window, GUI.dll's `TeamView_c` (FUN_10078c14, `team_view`, 1000 by 1000 at most): a header line (text.mdb
-/// 10000's "Team level: %u  Team side: %s", or "No team"), a row of buttons (in a team: Leave, text.mdb's "Leave"; the
-/// leader's invite button is left out: its join request was not captured) and six member views (FUN_1007981b): above
+/// 10000's "Team level: %u  Team side: %s", or "No team"), a row of buttons (FUN_100785d7: without a team Recruit at
+/// the left; in a team Leave at the right and, for the leader, Recruit after it; Recruit asks the target in,
+/// FUN_100782b2) and six member views (FUN_1007981b): above
 /// the first and under each a `GFX_GUI_FRIENDLIST_SPLITTER`, then the member's name in the middle (the leader's in
 /// 0x11eeaa, others white, FUN_10077b3d) and its health and nano bars (`PowerbarView_c` of `GFX_GUI_BAR_HEALTH_TEAM` /
 /// `_NANO_TEAM` over their `_BG`s). Places without a member are hidden (FUN_1007a154). An invitation asks "Want to join
@@ -126,11 +132,14 @@ fn view_xml() -> String {
         );
     }
     let leave = attr(&crate::gui::xml::ldb_text("#10000:5421253"));
+    let recruit = attr(&crate::gui::xml::ldb_named(10000, "Recruit", "Invite"));
     format!(
         "<View view_layout=\"vertical\">\
            <BorderView layout_borders=\"Rect(4,2,4,2)\"><TextView name=\"header\" value=\"\" layout_borders=\"Rect(4,2,4,2)\"/></BorderView>\
            <View name=\"buttons\" view_layout=\"horizontal\" layout_borders=\"Rect(0,5,0,5)\">\
+             <Button name=\"recruit0\" label=\"{recruit}\" layout_borders=\"Rect(5,0,5,0)\"/>\
              <HLayoutSpacer/><Button name=\"leave\" label=\"{leave}\" layout_borders=\"Rect(5,0,5,0)\"/>\
+             <Button name=\"recruit1\" label=\"{recruit}\" layout_borders=\"Rect(5,0,5,0)\"/>\
            </View>{mates}\
          </View>"
     )
@@ -194,7 +203,12 @@ impl TeamWindow {
             crate::gui::xml::ldb_text("#10000:56702133").replacen("%u", &level.to_string(), 1).replacen("%s", "", 1)
         };
         set_text(tree, root, "header", &header);
-        show_view(tree, root, "buttons", !team.members.is_empty());
+        // (FUN_100785d7: Recruit alone without a team; Leave in one, and Recruit beside it for the leader)
+        let in_team = !team.members.is_empty();
+        let leading = in_team && team.members.iter().position(|m| m.id == team.own).is_some_and(|k| is_leader(&team, k));
+        show_view(tree, root, "recruit0", !in_team);
+        show_view(tree, root, "leave", in_team);
+        show_view(tree, root, "recruit1", leading);
         for k in 0..6 {
             let mate = team.members.get(k);
             show_view(tree, root, &format!("mate{k}"), mate.is_some());
@@ -217,8 +231,13 @@ impl TeamWindow {
             crate::gui::host::show(ui, tree, root, skin.as_deref(), palette);
         });
         for (id, signal) in std::mem::take(&mut tree.signals) {
-            if signal == crate::gui::host::Signal::Clicked && tree.get(id).name == "leave" {
-                send(Command::Leave);
+            if signal != crate::gui::host::Signal::Clicked {
+                continue;
+            }
+            match tree.get(id).name.as_str() {
+                "leave" => send(Command::Leave),
+                "recruit0" | "recruit1" => send(Command::Invite),
+                _ => {}
             }
         }
         self.open = open;
