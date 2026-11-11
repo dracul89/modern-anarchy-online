@@ -795,6 +795,29 @@ down. Here the angle is kept as a 4:3 window has it and a wider window sees the 
 past the hall's walls to the space outside it (kept so: the user chose the full width over black bars at the sides). Seen: the launcher beside the user's picture of the original's, the
 three settings pages, PLAY into the login, the hall at 16:9 and at 32:9.
 
+**Two processor costs of a busy place cut (2026-11-11, `nametag::update_sight`, `Renderer::reupload`).**
+Arete Landing's pad ran at 90 frames a second where Aegean ran at 143, and the profile (`MAO_PROFILE=1`, with new
+stages for the interface: `ui-sight`, `ui-layout`, `ui-tessellate`, `ui-hud`) showed why.
+The name tags: a tag behind a wall is hidden, as the original's tag sprite in the world is, and that was found by a
+line from the eye to every tag through the playfield's surfaces, every frame: 2.0 ms with Arete's sixty characters.
+Now only the tags that would be drawn are looked at (on the screen and at least half a pixel tall), and each of
+those every fourth frame, a quarter of them a frame, the others keeping what was found (by their place in the list
+and their name: the list comes anew with every network update). 0.05 ms. A tag may show or hide three frames late.
+The characters' upload: their meshes are posed and uploaded again with every network update, 24 times a second,
+and each of the 512 parts had its vertices and its indices written into buffers of its own: a thousand writes of
+some 3 microseconds each whatever their size, 4.3 ms a time, a hitch in every fourth frame. Now the vertices of all
+the parts go into one buffer the parts share, written once (a part draws its span of it), and a part's index
+buffer is taken over from the last upload when its indices are the same (a number made of them tells), which a
+character's are from pose to pose. 1.7 ms a time.
+Measured after, 2560x720: Arete's pad 110 frames a second (9.1 ms) for 90 (11.1 ms); Aegean 185 (5.4 ms) for 143
+(7.0 ms). In Arete the first of the two alone moved nothing: the time went to waiting for the card instead, so that
+view is held by the card as much as by the processor (at half the drawing scale it ran at 113 before the second
+change).
+What is left there, by the profile: handing the frame's 1,800 draw calls to the card 3.1 ms (the playfield's parts
+there are mostly different meshes, so few go together as instances; packing the playfield's geometry into a few
+large buffers would save the two buffer commands of each call), the characters' upload 1.7 ms a time, taking the
+frame's picture from the card 1.2 ms.
+
 **The video settings in the game's own options window (2026-11-11, `ui.rs::options_window`, `viewer.rs`).**
 What the launcher's Visual page sets can now be set while playing, in the client's options window (the key for the
 options, or "Client settings" on the original's option panel). Its Window part has the monitor a borderless or

@@ -593,6 +593,9 @@ struct App {
     mouse_look: (f32, f32),
     wheel: f32,
     cam_reset: bool,
+    /// The name tags' lines of sight kept between frames (`nametag::update_sight`), and the frame's count for it.
+    sight_kept: Vec<(String, bool)>,
+    sight_frame: u32,
     /// The shadows the renderer was last given and the wait for the monitor's refresh the surface was last set up
     /// with (the options window changes the settings' while playing).
     applied_shadows: mao_render::Shadows,
@@ -821,7 +824,7 @@ pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<()
     let settings = Settings::load();
     crate::ui::set_debug_overlay(settings.debug_overlay);
     crate::font::set_enabled(settings.original_font);
-    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, world_in: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), flares: Vec::new(), falls: None, area_fog_base: None, sky: Default::default(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), fxs_frame: None, script_meshes: Default::default(), named_sheets: Default::default(), trails: Default::default(), motions: Default::default(), shake: (0.0, 0), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, zones: None, collision: None, camera_body: crate::vehicle::Body::without_gravity(), look_target: Default::default(), interior: None, rooms_shown: Vec::new(), room_hint: None, attractor_at: std::time::Instant::now(), casters: Vec::new(), character_parts: Vec::new(), highlight_runs: Default::default(), highlight_fades: Default::default(), follow_shift: [0.0; 3], environment: Default::default(), quake: Default::default(), quake_offset: [0.0; 3], wind: Default::default(), wind_at: std::time::Instant::now(), perf_memory_at: std::time::Instant::now() - std::time::Duration::from_secs(10), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, applied_shadows: settings.shadows, applied_vsync: settings.vsync, focused: true, frame_due: std::time::Instant::now(), keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), script_moves: Default::default(), camera_script: std::env::var("MAO_CAMERA_SCRIPT").ok().map_or_else(Vec::new, |v| v.split(',').filter_map(|s| s.split_once(':').and_then(|(t, c)| Some((t.trim().parse().ok()?, c.trim().to_string())))).collect()), script_clock: std::time::Instant::now(), script_held: Vec::new(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
+    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, world_in: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), flares: Vec::new(), falls: None, area_fog_base: None, sky: Default::default(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), fxs_frame: None, script_meshes: Default::default(), named_sheets: Default::default(), trails: Default::default(), motions: Default::default(), shake: (0.0, 0), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, zones: None, collision: None, camera_body: crate::vehicle::Body::without_gravity(), look_target: Default::default(), interior: None, rooms_shown: Vec::new(), room_hint: None, attractor_at: std::time::Instant::now(), casters: Vec::new(), character_parts: Vec::new(), highlight_runs: Default::default(), highlight_fades: Default::default(), follow_shift: [0.0; 3], environment: Default::default(), quake: Default::default(), quake_offset: [0.0; 3], wind: Default::default(), wind_at: std::time::Instant::now(), perf_memory_at: std::time::Instant::now() - std::time::Duration::from_secs(10), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, sight_kept: Vec::new(), sight_frame: 0, applied_shadows: settings.shadows, applied_vsync: settings.vsync, focused: true, frame_due: std::time::Instant::now(), keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), script_moves: Default::default(), camera_script: std::env::var("MAO_CAMERA_SCRIPT").ok().map_or_else(Vec::new, |v| v.split(',').filter_map(|s| s.split_once(':').and_then(|(t, c)| Some((t.trim().parse().ok()?, c.trim().to_string())))).collect()), script_clock: std::time::Instant::now(), script_held: Vec::new(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
     // (entering the game: the loading screen, `ServerLogin3DModule_t::InitialiseMessage`)
     if app.live.is_some() {
         crate::loading::begin(crate::loading::FADE_IN, crate::loading::FADE_OUT);
@@ -2421,18 +2424,29 @@ impl ApplicationHandler for App {
                     let aspect = size.0 as f32 / size.1.max(1) as f32;
                     let project = |p: mao_render::glam::Vec3| camera.project(p, aspect, radius);
                     self.hud.camera_yaw = w.camera.yaw;
-                    // (a name behind a wall is hidden, as the original's tag sprite in the world is)
+                    // (a name behind a wall is hidden, as the original's tag sprite in the world is: only the tags that
+                    // would be drawn are looked at, and each of those every few frames, `nametag::update_sight`)
                     if let Some(z) = self.zones.as_ref() {
                         let e = w.camera.eye();
                         let eye = [e.x, e.z, e.y];
-                        for t in &mut self.hud.nameplates {
-                            t.hidden = z.line(eye, [t.at[0], t.at[2], t.at[1]]).is_some();
-                        }
+                        self.sight_frame = self.sight_frame.wrapping_add(1);
+                        let tall = size.1 as f32;
+                        let in_view = |t: &crate::nametag::Tag| {
+                            let centre = mao_render::glam::Vec3::from(t.at);
+                            match (project(centre), project(centre - mao_render::glam::Vec3::new(0.0, 0.0, 0.3))) {
+                                // (on the screen, with a margin for the tag's width, and at least half a pixel tall:
+                                // `nametag::draw` leaves out what is under a point tall)
+                                (Some(c), Some(low)) => (-0.2..=1.2).contains(&c[0]) && (-0.2..=1.2).contains(&c[1]) && ((low[1] - c[1]) * tall).abs() >= 0.5,
+                                _ => false,
+                            }
+                        };
+                        crate::nametag::update_sight(&mut self.hud.nameplates, &mut self.sight_kept, self.sight_frame, &in_view, &mut |t| z.line(eye, [t.at[0], t.at[2], t.at[1]]).is_some());
                     }
                     // (the Action window's pictures, however it was opened: its key, `/open`, the control center, or kept open)
                     if ui.actions.open {
                         ui.actions.load_icons(&self.textures);
                     }
+                    prof_t = crate::prof::lap("ui-sight", prof_t);
                     let (frame, mut requests) = ui.run(&w.window, &mut self.settings, &self.hud, &project);
                     prof_t = crate::prof::lap("ui", prof_t);
                     // (the web page follows its window: opened when it opens, moved with it, gone when it closes)

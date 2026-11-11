@@ -955,9 +955,12 @@ impl Ui {
             self.ctx.set_zoom_factor(settings.ui_scale);
         }
         crate::gui::host::begin_frame();
+        let layout_started = std::time::Instant::now();
         let output = self.ctx.run_ui(raw, |ui| {
             let ctx = ui.ctx().clone();
+            let hud_started = std::time::Instant::now();
             hud_layer(&ctx, hud, project, fps, settings.mode, palette);
+            crate::prof::lap("ui-hud", hud_started);
             if settings.perf_overlay {
                 perf.show(&ctx, &hud.gpu, palette);
             }
@@ -1281,7 +1284,9 @@ impl Ui {
         }
         let cursor = output.platform_output.cursor_icon;
         self.state.handle_platform_output(window, output.platform_output);
+        let tessellate_started = crate::prof::lap("ui-layout", layout_started);
         let jobs = self.ctx.tessellate(output.shapes, output.pixels_per_point);
+        crate::prof::lap("ui-tessellate", tessellate_started);
         (Frame { cursor, jobs, textures: output.textures_delta, pixels_per_point: output.pixels_per_point }, requests)
     }
 

@@ -31,6 +31,38 @@ pub struct Tag {
     pub hidden: bool,
 }
 
+/// How many frames a tag's place behind or before the walls is kept: a line through the playfield's surfaces is costly
+/// (some 30 microseconds each, and a busy place has sixty tags), so each tag in view is looked at again every
+/// `SIGHT_EVERY`th frame, a share of them each frame, and the others keep what was found.
+pub const SIGHT_EVERY: u32 = 4;
+
+/// Sets each tag's `hidden`. `in_view` says whether a tag would be drawn at all (one off the screen or too far to show
+/// is not looked at: nothing draws it); `blocked` is the line from the eye to the tag through the playfield's surfaces.
+/// `kept` is what the last frames found, by the tag's place in the list and its name (the list is made anew with every
+/// network update, in the same order while nobody comes or goes). Returns the lines looked along.
+pub fn update_sight(tags: &mut [Tag], kept: &mut Vec<(String, bool)>, frame: u32, in_view: &dyn Fn(&Tag) -> bool, blocked: &mut dyn FnMut(&Tag) -> bool) -> usize {
+    kept.resize(tags.len(), (String::new(), false));
+    let mut lines = 0;
+    for (i, tag) in tags.iter_mut().enumerate() {
+        let known = kept[i].0 == tag.name;
+        if !in_view(tag) {
+            tag.hidden = known && kept[i].1;
+            continue;
+        }
+        if known && (i as u32).wrapping_add(frame) % SIGHT_EVERY != 0 {
+            tag.hidden = kept[i].1;
+            continue;
+        }
+        tag.hidden = blocked(tag);
+        lines += 1;
+        if !known {
+            kept[i].0.clone_from(&tag.name);
+        }
+        kept[i].1 = tag.hidden;
+    }
+    lines
+}
+
 /// The height a tag stands over the feet (FUN_10025603: the mesh's height, 1.9 without one, plus 0.4).
 pub fn height(mesh: Option<f32>) -> f32 {
     mesh.filter(|h| *h > 0.0).unwrap_or(1.9) + 0.4
@@ -130,6 +162,33 @@ pub fn draw(ctx: &egui::Context, painter: &egui::Painter, screen: egui::Rect, ta
 
 #[cfg(test)]
 mod tests {
+    /// The tags' lines of sight: all of those in view the first time, a quarter of them each frame after, none for a tag
+    /// out of view; a tag whose name changed at its place is looked at again at once.
+    #[test]
+    fn the_lines_of_sight_are_spread_over_the_frames() {
+        use super::{update_sight, Tag, SIGHT_EVERY};
+        let tag = |name: &str, x: f32| Tag { at: [x, 0.0, 0.0], name: name.into(), org: None, brackets: None, health: None, consider: 0.0, hidden: false };
+        let mut tags: Vec<Tag> = (0..8).map(|i| tag(&format!("n{i}"), i as f32)).collect();
+        let mut kept = Vec::new();
+        // (the tags at x of 6 and more are out of view; those at an odd x are behind a wall)
+        let in_view = |t: &Tag| t.at[0] < 6.0;
+        let mut blocked = |t: &Tag| t.at[0] as i32 % 2 == 1;
+        assert_eq!(update_sight(&mut tags, &mut kept, 0, &in_view, &mut blocked), 6);
+        assert_eq!(tags.iter().map(|t| t.hidden).collect::<Vec<_>>(), [false, true, false, true, false, true, false, false]);
+        // (the next frames: every tag in view once in `SIGHT_EVERY` frames, and what was found is kept between)
+        let total: usize = (1..=SIGHT_EVERY).map(|frame| update_sight(&mut tags, &mut kept, frame, &in_view, &mut blocked)).sum();
+        assert_eq!(total, 6);
+        assert_eq!(tags.iter().map(|t| t.hidden).collect::<Vec<_>>(), [false, true, false, true, false, true, false, false]);
+        // (a new list, as a network update brings it: the kept answers hold)
+        let mut tags: Vec<Tag> = (0..8).map(|i| tag(&format!("n{i}"), i as f32)).collect();
+        assert!(update_sight(&mut tags, &mut kept, 1, &in_view, &mut blocked) <= 2);
+        assert!(tags[1].hidden && tags[3].hidden && !tags[2].hidden);
+        // (somebody else at a place: looked at at once)
+        tags[2] = tag("other", 3.0);
+        update_sight(&mut tags, &mut kept, 1, &in_view, &mut blocked);
+        assert!(tags[2].hidden);
+    }
+
     use super::*;
 
     #[test]

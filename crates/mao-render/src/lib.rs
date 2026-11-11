@@ -270,6 +270,15 @@ struct TextureBind {
     group: wgpu::BindGroup,
 }
 
+/// A number made of a part's indices (FNV-1a over them), never 0: two uploads of the same character part have the same.
+fn index_hash(indices: &[u16]) -> u64 {
+    let mut hash = 0xcbf2_9ce4_8422_2325u64;
+    for &i in indices {
+        hash = (hash ^ i as u64).wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash | 1
+}
+
 /// A number no other bind group or geometry has.
 fn next_id() -> u32 {
     static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
@@ -334,7 +343,10 @@ fn draw_runs<'a>(pass: &mut wgpu::RenderPass<'_>, parts: &[&GpuPart], first: u32
             set_texture = Some(p.bind.id);
         }
         if set_geometry != Some(p.geometry) {
-            pass.set_vertex_buffer(0, p.vertices.slice(..));
+            match p.vertex_span {
+                Some((start, end)) => pass.set_vertex_buffer(0, p.vertices.slice(start..end)),
+                None => pass.set_vertex_buffer(0, p.vertices.slice(..)),
+            }
             pass.set_index_buffer(p.indices.slice(..), wgpu::IndexFormat::Uint16);
             set_geometry = Some(p.geometry);
         }
@@ -351,6 +363,12 @@ struct GpuPart {
     index_count: u32,
     /// A number for the two buffers: parts with the same one draw the same geometry.
     geometry: u32,
+    /// The part's bytes of `vertices`, when that is a buffer many parts share (the characters': `Renderer::reupload`);
+    /// none when the buffer is the part's own.
+    vertex_span: Option<(u64, u64)>,
+    /// A number made of the indices (`index_hash`), for a character's part, whose index buffer the next upload takes
+    /// over as it is when the indices are the same; 0 otherwise.
+    index_hash: u64,
     bind: TextureBind,
     /// A sphere around the part in the world (to skip it in the shadow pass).
     center: Vec3,
@@ -1720,35 +1738,43 @@ impl Renderer {
         scene.follow = self.reupload(gpu, model, texture, old);
     }
 
-    /// `model`'s draws as parts, taking the buffers and bind group of an old part where one has the same sizes and texture
-    /// and writing the new vertices and indices into them: the characters are uploaded again with every network
-    /// update (a few dozen times a second), and making and freeing their hundreds of buffers each time cost milliseconds.
-    /// (A model with watched meshes or water is uploaded afresh.)
+    /// `model`'s draws as parts, for the characters, which are uploaded again with every network update (a few dozen
+    /// times a second) as they move: making and freeing their hundreds of buffers each time cost milliseconds, and so
+    /// did writing into each (a write is some 3 microseconds whatever its size, and there were a thousand). So the
+    /// vertices of all the parts go into one buffer the parts share, written once (kept from the last upload while it
+    /// is large enough), and a part's index buffer is taken over from the last upload as it is when its indices are the
+    /// same, which a character's are from pose to pose. (A model with watched meshes or water is uploaded afresh.)
     fn reupload(&self, gpu: &Gpu, model: &Model, texture: &mut dyn FnMut(u32, u32) -> Option<Texture>, old: Vec<GpuPart>) -> Vec<GpuPart> {
         if !model.lod_groups.is_empty() || model.water.is_some() {
             return self.upload(gpu, model, texture).parts;
         }
-        type Key = (u64, u64, Option<(u32, u32)>);
-        let mut pool: HashMap<Key, Vec<GpuPart>> = HashMap::new();
+        let draw_list: Vec<(usize, [f32; 16])> = draws(model).into_iter().filter(|(i, _)| !model.parts[*i].indices.is_empty() && !model.parts[*i].vertices.is_empty()).collect();
+        if draw_list.is_empty() {
+            return Vec::new();
+        }
+        let stride = std::mem::size_of::<GpuVertex>() as u64;
+        let needed = draw_list.iter().map(|(i, _)| model.parts[*i].vertices.len() as u64).sum::<u64>() * stride;
+        let shared = match old.iter().find(|p| p.vertex_span.is_some()).map(|p| p.vertices.clone()).filter(|b| b.size() >= needed) {
+            Some(buffer) => buffer,
+            None => gpu.device.create_buffer(&wgpu::BufferDescriptor { label: Some("characters' vertices"), size: (needed + needed / 4).next_multiple_of(stride * 4), usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false }),
+        };
+        let mut pool: HashMap<(u64, u64), Vec<wgpu::Buffer>> = HashMap::new();
         for part in old {
-            pool.entry((part.vertices.size(), part.indices.size(), part.texture)).or_default().push(part);
+            if part.index_hash != 0 {
+                pool.entry((part.indices.size(), part.index_hash)).or_default().push(part.indices);
+            }
         }
         let mut cache = self.textures.borrow_mut();
-        let mut parts = Vec::new();
-        for (index, world) in draws(model) {
+        let mut all: Vec<GpuVertex> = Vec::with_capacity((needed / stride) as usize);
+        let mut parts = Vec::with_capacity(draw_list.len());
+        for (index, world) in draw_list {
             let part = &model.parts[index];
-            if part.indices.is_empty() || part.vertices.is_empty() {
-                continue;
-            }
-            let vertices: Vec<GpuVertex> = part.vertices.iter().map(|v: &Vertex| GpuVertex { position: v.position, normal: v.normal, uv: v.uv, colour: v.colour }).collect();
-            let mut indices = part.indices.clone();
-            if indices.len() % 2 == 1 {
-                indices.push(0);
-            }
             let key = part.material.textures.first().copied();
             let view = key.and_then(|(kind, instance)| cache.entry((kind, instance)).or_insert_with(|| texture(kind, instance).map(|t| upload_blocks(gpu, &t, self.compress_textures, false))).clone());
+            let start = all.len() as u64 * stride;
             let (mut lo, mut hi, mut height) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN), 0.0f32);
             for v in &part.vertices {
+                all.push(GpuVertex { position: v.position, normal: v.normal, uv: v.uv, colour: v.colour });
                 lo = lo.min(Vec3::from(v.position));
                 hi = hi.max(Vec3::from(v.position));
                 height = height.max(v.position[1]);
@@ -1765,23 +1791,43 @@ impl Renderer {
             let d = part.material.diffuse;
             let material = &part.material;
             let uniform = PartUniform { model: world, colour: [d[0], d[1], d[2], 1.0], flags: [view.is_some() as u32 as f32, (material.ignore_alpha as u32 + material.alpha_lights as u32) as f32, material.foliage as u32 as f32, height], previous_model: world, motion: [0.0; 4], tint: NO_TINT, blend: blend_of(material) };
-            let (vertex_bytes, index_bytes): (&[u8], &[u8]) = (bytemuck::cast_slice(&vertices), bytemuck::cast_slice(&indices));
-            let reused = pool.get_mut(&(vertex_bytes.len() as u64, index_bytes.len() as u64, key)).and_then(Vec::pop);
-            let (vb, ib, geometry, bind) = match reused {
-                Some(old) => {
-                    gpu.queue.write_buffer(&old.vertices, 0, vertex_bytes);
-                    gpu.queue.write_buffer(&old.indices, 0, index_bytes);
-                    (old.vertices, old.indices, old.geometry, old.bind)
-                }
+            // (the index buffer: the last upload's of the same indices, else a new one; an odd count is filled out, the
+            // buffer's size being a multiple of four bytes)
+            let hash = index_hash(&part.indices);
+            let index_bytes = (part.indices.len() as u64 * 2).next_multiple_of(4);
+            let indices = match pool.get_mut(&(index_bytes, hash)).and_then(Vec::pop) {
+                Some(buffer) => buffer,
                 None => {
-                    let vb = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: vertex_bytes, usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST });
-                    let ib = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: index_bytes, usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST });
-                    let bind = texture_bind(&gpu.device, &self.part_layout, &self.sampler, &self.white, &self.binds, key, view.as_ref());
-                    (vb, ib, next_id(), bind)
+                    let mut indices = part.indices.clone();
+                    if indices.len() % 2 == 1 {
+                        indices.push(0);
+                    }
+                    gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: bytemuck::cast_slice(&indices), usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST })
                 }
             };
-            parts.push(GpuPart { vertices: vb, indices: ib, index_count: part.indices.len() as u32, geometry, bind, center, radius, uniform, shift: Vec3::ZERO, source: index, texture: key, low_only: false, faces: faces_of(material.two_sided, &m), lod: None, drawn: Default::default(), before: Default::default() });
+            let bind = texture_bind(&gpu.device, &self.part_layout, &self.sampler, &self.white, &self.binds, key, view.as_ref());
+            parts.push(GpuPart {
+                vertices: shared.clone(),
+                indices,
+                index_count: part.indices.len() as u32,
+                geometry: next_id(),
+                vertex_span: Some((start, all.len() as u64 * stride)),
+                index_hash: hash,
+                bind,
+                center,
+                radius,
+                uniform,
+                shift: Vec3::ZERO,
+                source: index,
+                texture: key,
+                low_only: false,
+                faces: faces_of(material.two_sided, &m),
+                lod: None,
+                drawn: Default::default(),
+                before: Default::default(),
+            });
         }
+        gpu.queue.write_buffer(&shared, 0, bytemuck::cast_slice(&all));
         parts
     }
 
@@ -1885,7 +1931,7 @@ impl Renderer {
                     let d = model.parts[index].material.diffuse;
                     let material = &model.parts[index].material;
                     let uniform = PartUniform { model: world, colour: [d[0], d[1], d[2], 1.0], flags: [view.is_some() as u32 as f32, (material.ignore_alpha as u32 + material.alpha_lights as u32) as f32, material.foliage as u32 as f32, *height], previous_model: world, motion: [0.0; 4], tint: NO_TINT, blend: blend_of(material) };
-                    Some(GpuPart { vertices: vb.clone(), indices: ib.clone(), index_count: *count, geometry: *geometry_id, bind: bind.clone(), center, radius, uniform, shift: Vec3::ZERO, source: index, texture: model.parts[index].material.textures.first().copied(), low_only: low_parts.contains(&index), faces: faces_of(material.two_sided, &m), lod: None, drawn: Default::default(), before: Default::default() })
+                    Some(GpuPart { vertices: vb.clone(), indices: ib.clone(), index_count: *count, geometry: *geometry_id, vertex_span: None, index_hash: 0, bind: bind.clone(), center, radius, uniform, shift: Vec3::ZERO, source: index, texture: model.parts[index].material.textures.first().copied(), low_only: low_parts.contains(&index), faces: faces_of(material.two_sided, &m), lod: None, drawn: Default::default(), before: Default::default() })
                 })
                 .collect()
         };
@@ -2993,6 +3039,38 @@ mod tests {
         assert!(worst <= 24 && mean < 1.5, "worst {worst}, mean {mean}");
         // (and it is a picture of the texture, not of nothing)
         assert!(plain.chunks(4).filter(|p| p[0] > 100).count() > 500);
+    }
+
+    /// The characters' upload: their parts share one vertex buffer, each its own span of it, and a second upload of the
+    /// same indices takes the first's index buffers over; the picture is each part at its place.
+    #[test]
+    fn the_characters_share_a_vertex_buffer_and_keep_their_index_buffers() {
+        // (skipped on a machine without a graphics device)
+        let Ok(gpu) = Gpu::headless() else { return };
+        let camera = Camera { target: Vec3::ZERO, distance: 40.0, yaw: 0.0, pitch: 1.4, half_height: None };
+        let square = |at: f32, half: f32, colour: [f32; 3]| {
+            let vertices = [[at - half, -half, 0.0], [at + half, -half, 0.0], [at + half, half, 0.0], [at - half, half, 0.0]].iter().map(|&p| mao_formats::model::Vertex { position: [p[1], p[0], p[2]], normal: [0.0, 0.0, 1.0], uv: [0.0, 0.0], colour: mao_formats::model::Vertex::UNBAKED }).collect();
+            mao_formats::model::Part { name: String::new(), world: Mat4::IDENTITY.to_cols_array(), vertices, indices: vec![0, 2, 1, 0, 3, 2], material: mao_formats::model::Material { diffuse: colour, opacity: 1.0, two_sided: true, ..Default::default() } }
+        };
+        let model = |shift: f32| Model { parts: vec![square(-8.0 + shift, 2.0, [1.0, 0.0, 0.0]), square(8.0 + shift, 2.0, [0.0, 0.0, 1.0])], ..Default::default() };
+        let mut renderer = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm);
+        let mut scene = renderer.upload(&gpu, &Model::default(), &mut |_, _| None);
+        renderer.reupload_overlay(&gpu, &mut scene, &model(0.0), &mut |_, _| None);
+        assert_eq!(scene.overlay.len(), 2);
+        assert!(scene.overlay[0].vertex_span == Some((0, 4 * 36)) && scene.overlay[1].vertex_span == Some((4 * 36, 8 * 36)));
+        assert!(scene.overlay[0].vertices == scene.overlay[1].vertices, "one vertex buffer");
+        let (first_indices, first_vertices) = (scene.overlay[0].indices.clone(), scene.overlay[0].vertices.clone());
+        // (both colours are in the picture, apart: left and right of the middle or above and below it)
+        let count = |image: &[u8], red: bool| image.chunks(4).filter(|p| if red { p[0] > 2 * p[1].max(p[2]) && p[0] > 40 } else { p[2] > 2 * p[0].max(p[1]) && p[2] > 40 }).count();
+        let image = renderer.render_to_image(&gpu, &scene, &camera, 160, 120);
+        assert!(count(&image, true) > 30 && count(&image, false) > 30, "{} red, {} blue", count(&image, true), count(&image, false));
+        // (moved: the same buffers, the vertices written anew)
+        renderer.reupload_overlay(&gpu, &mut scene, &model(1.0), &mut |_, _| None);
+        assert!(scene.overlay[0].vertices == first_vertices && scene.overlay.iter().any(|p| p.indices == first_indices));
+        let moved = renderer.render_to_image(&gpu, &scene, &camera, 160, 120);
+        assert!(count(&moved, true) > 30 && count(&moved, false) > 30 && moved != image);
+        assert_eq!(index_hash(&[0, 2, 1, 0, 3, 2]), index_hash(&[0, 2, 1, 0, 3, 2]));
+        assert!(index_hash(&[0, 2, 1]) != index_hash(&[0, 1, 2]) && index_hash(&[]) != 0);
     }
 
     #[test]
