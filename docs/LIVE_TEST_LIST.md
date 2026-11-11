@@ -120,6 +120,31 @@ menu (24, 26), nano hide and sorting (39, 40), a bag's kept place and a corpse o
 - Not tried: the invitation's No, a third member, the menu's info entry and a left click on a member, and what the
   one put out is told.
 
+**The rest of the list** (2026-11-10, fourth round)
+- 14: Visual → Disable text input takes the bar away and brings it back; Autohide inputbar hides it while the
+  pointer is elsewhere and a click in the window shows it with the keys in it.
+- 16: Visual → Timeout messages: ten seconds with the pointer elsewhere and the lines are gone; with the pointer
+  on the window they are back.
+- 15 (in part): Mode is grey for a window of two tabs, as it should be.
+- 18: Chat Configuration: New Window adds a window and its row; Rename Window's box takes the keys and the row
+  takes the name; Clone Window adds a copy and Remove Window takes it away; "Hide channels subscribed to other
+  windows" shortens the tree.
+- 39: the nano window's schools show their programs (sixteen over Medical, Prot, Psi and Space for this
+  character); a program's menu is Look at and Hide; Hide takes it out of its school, Show Hidden Items lists it, and
+  there its menu's second entry puts it back.
+- 40 (in part): the window's menu (List Mode, Show Hidden Items, Auto arrange); List Mode shows the list's header.
+  Not tried: the list with programs in it, sorting by a label, Auto arrange.
+- 19: the private group's invitation answered No: the box goes and the original's packet is sent (GUI.dll
+  FUN_100a74cb sends the same one, 0x35); the server tells the inviter nothing. Answered Yes: joined, as before.
+- 20: lines in the group; leaving it from the Chat Configuration's tree (right click on the group under Private
+  Channels) tells both sides. **Found and fixed**: the group stayed in the tree as if it were still there (the tree
+  was only built again when a window changed): now also when the channels do.
+- Team: the invitation's No is told to nobody; a click on a member's row makes it the target; the menu's info
+  entry opens the member's page.
+- Still not reached: 17 (always on top, always behind), 15 for a window alone in its frame (borderless and its
+  transparency), 24 and 26 (ignore, mail from a friend's menu), 41 (a program's Look at page), 46 and 47 (a bag
+  window's kept place, a corpse or the bank beside it), and the private group's end when its owner leaves.
+
 A screenshot is a grab of the screen, so with two full-screen clients it shows the one on top; the other side was
 checked through the chat log (`chat/<date>.txt`), which both write.
 

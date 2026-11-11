@@ -128,7 +128,7 @@ pub struct ChatConfig {
     windows: Option<(Tree, Id, Id)>,
     groups: Option<(Tree, Id, Id)>,
     /// What the two lists were last built from.
-    built: Option<(Vec<Pane>, usize, bool)>,
+    built: Option<(Vec<Pane>, usize, bool, Vec<String>)>,
     /// The groups of the tree's rows, by their number less one.
     listed: Vec<String>,
     /// The window whose controls show, once read from the kept choice.
@@ -168,8 +168,9 @@ impl ChatConfig {
         }
         let (Some((wtree, wroot, wlist)), Some((gtree, groot, glist))) = (self.windows.as_mut(), self.groups.as_mut()) else { return false };
         let (wroot, wlist, groot, glist) = (*wroot, *wlist, *groot, *glist);
-        // (the lists again when the windows, the selection or the hiding changed; the folders as they were left)
-        let now = (panes.clone(), selected, self.hide_others);
+        // (the lists again when the windows, the selection, the hiding or the channels there are changed: a private
+        // group left was still listed as if it were there, seen live 2026-11-10; the folders as they were left)
+        let now = (panes.clone(), selected, self.hide_others, chatgroups::server_groups());
         if self.built.as_ref() != Some(&now) {
             if let Some(t) = wtree.control_mut::<TreeList>(wlist) {
                 t.items = panes
