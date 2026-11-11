@@ -208,6 +208,11 @@ struct World {
     /// The weapons worn the last time their special actions were worked out (place and template) with the actions'
     /// numbers, and the whole list of numbers the window was last told.
     weapon_specials: (Vec<(u32, u32, Option<i64>)>, Vec<u32>),
+    /// The item moves asked for and shown at once, until the server answers: from, to, and whether an item at `to`
+    /// went the other way. A refusal takes the move back (seen live 2026-11-10: the server answers a move it takes with
+    /// `ContainerAddItem` naming the old place and the new, and one it refuses with `CharacterAction` 0x92 naming the
+    /// old place).
+    moves_asked: Vec<(u32, u32, bool)>,
     /// The server has said the character can backstab (`CharacterAction` 0xb5): a sneak attack weapon in a hand
     /// then gives Backstab too.
     backstab: bool,
@@ -1864,6 +1869,21 @@ impl World {
                     // (the item use timer ends: its bar goes, and the next use is free to start)
                     self.timers.remove_kind(crate::timers::ITEM);
                     let (kind, instance) = (word(9), word(13));
+                    // (a move of an inventory item the server did not take: the item is back where it was)
+                    if kind == 0x68
+                        && let Some(at) = self.moves_asked.iter().position(|m| m.0 == instance)
+                    {
+                        let (from, to, swapped) = self.moves_asked.remove(at);
+                        let (moved, other) = (self.worn.iter().position(|e| e.slot == to), self.worn.iter().position(|e| e.slot == from));
+                        if let Some(i) = moved {
+                            self.worn[i].slot = from;
+                        }
+                        if let (true, Some(j)) = (swapped, other) {
+                            self.worn[j].slot = to;
+                        }
+                        self.inventory = Some(self.worn.clone());
+                        self.mods_dirty = true;
+                    }
                     if kind == 0x6b && self.loot.as_ref().is_some_and(|l| l.handle == instance >> 16) {
                         self.loot_changed = true;
                     }
@@ -2231,6 +2251,10 @@ impl World {
             if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
                 let source = (p.value.get("Source").and_then(|v| v.get("Type")).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32, p.value.get("Source").and_then(|v| v.get("Instance")).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32);
                 let target = (p.value.get("Target").and_then(|v| v.get("Type")).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32, p.value.get("Target").and_then(|v| v.get("Instance")).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32);
+                // (a move of an inventory item the server took: nothing to take back)
+                if source.0 == 0x68 {
+                    self.moves_asked.retain(|m| m.0 != source.1);
+                }
                 // `(0x6e, 0)` to `(0x6e, own)`: the overflow window's item comes into the inventory
                 if source == (0x6e, 0) && target == (0x6e, self.own) {
                     if let Some(entry) = self.overflow_item.take() {
@@ -5349,6 +5373,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     // the playfield message at login, draws no new one, so it must not raise the screen)
                     crate::loading::begin(Duration::ZERO, crate::loading::ZONE_FADE_OUT);
                     eprintln!("zoning to playfield {playfield}");
+                    // (nobody is followed into another playfield, and a walk begun in the old one is over: a target left
+                    // behind was still followed, to wherever its number stood in the new playfield; seen live 2026-11-10)
+                    following = None;
+                    goto = None;
                     teleport_try = None;
                     current = playfield;
                     state.last_move.clear_all();
@@ -5614,6 +5642,44 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     "attack" => seen[4] = seen[4].wrapping_sub(1),
                     "use" => seen[6] = seen[6].wrapping_sub(1),
                     "camp" => camp_seen = camp_seen.wrapping_sub(1),
+                    // `who`: the characters about, nearest first; `target=<part of a name>`: the nearest of that name
+                    // becomes the target, as a click on it would make it
+                    // `npcclose`: tells the target NPC its chat is closed (a client that went with the window open leaves
+                    // the NPC waiting, and it answers no new opening until then; seen live 2026-11-10)
+                    "npcclose" => {
+                        if let Some(t) = target {
+                            let _ = connection.send(&n3::npc_chat_close(own, (n3::CHARACTER, t)));
+                        }
+                    }
+                    // `what`: the things about that can be used (terminals, doors and the like), nearest first
+                    "what" => {
+                        let mut about: Vec<(f32, String)> = state.table.iter().map(|d| (((d.2[0] - position[0]).powi(2) + (d.2[2] - position[2]).powi(2)).sqrt(), format!("({:#x}, {:#x}) {:?} at ({:.1}, {:.1}, {:.1})", d.0, d.1, d.4, d.2[0], d.2[1], d.2[2]))).collect();
+                        about.sort_by(|a, b| a.0.total_cmp(&b.0));
+                        for (far, what) in about.iter().take(30) {
+                            eprintln!("autoplay: {far:6.1} m  {what}");
+                        }
+                        eprintln!("autoplay: {} things", state.table.len());
+                    }
+                    "who" => {
+                        let mut about: Vec<(f32, u32, String)> = state.entities.iter().filter(|(id, _)| **id != own).map(|(id, (p, _))| (((p[0] - position[0]).powi(2) + (p[2] - position[2]).powi(2)).sqrt(), *id, state.names.get(id).map_or(String::new(), |n| n.0.clone()))).collect();
+                        about.sort_by(|a, b| a.0.total_cmp(&b.0));
+                        for (far, id, name) in about.iter().take(25) {
+                            eprintln!("autoplay: {far:6.1} m  {id:x} ({id})  {name:?}{}", if state.infos.get(id).is_some_and(|i| i.is_player()) { " (player)" } else { "" });
+                        }
+                    }
+                    w if w.starts_with("target=") => {
+                        let name = w["target=".len()..].to_ascii_lowercase();
+                        let far = |id: &u32| state.entities.get(id).map_or(f32::MAX, |(p, _)| (p[0] - position[0]).powi(2) + (p[2] - position[2]).powi(2));
+                        match state.names.iter().filter(|(id, n)| **id != own && n.0.to_ascii_lowercase().contains(&name) && state.entities.contains_key(id)).map(|(id, _)| *id).min_by(|a, b| far(a).total_cmp(&far(b))) {
+                            Some(id) => {
+                                target = Some(id);
+                                let _ = connection.send(&n3::select_target(own, id));
+                                let _ = connection.send(&n3::set_target(own, id));
+                                eprintln!("autoplay: target {id:x} {:?}, {:.1} m away", state.names.get(&id).map(|n| n.0.as_str()), far(&id).sqrt());
+                            }
+                            None => eprintln!("autoplay: nobody named {name:?} about"),
+                        }
+                    }
                     "x" => seen[5] = seen[5].wrapping_sub(1),
                     "walk" => walk_toggle_seen = walk_toggle_seen.wrapping_sub(1),
                     "jump" => autoplay_jump = true,
@@ -6281,17 +6347,19 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     }
                 }
             }
-            // An item dragged to another place: ask the server, and show the change at once (the server's answer to a move is not
-            // known, so a refused move is not taken back here).
+            // An item dragged to another place: ask the server, and show the change at once; the server's refusal takes it back
+            // (`World::moves_asked`).
             if keys.mv.0 != move_seen {
                 move_seen = keys.mv.0;
                 let (from, to) = (keys.mv.1, keys.mv.2);
                 if let Some(i) = state.worn.iter().position(|e| e.slot == from) {
                     let _ = connection.send(&n3::move_item(own, from, to));
-                    if let Some(j) = state.worn.iter().position(|e| e.slot == to) {
+                    let other = state.worn.iter().position(|e| e.slot == to);
+                    if let Some(j) = other {
                         state.worn[j].slot = from;
                     }
                     state.worn[i].slot = to;
+                    state.moves_asked.push((from, to, other.is_some()));
                     state.mods_dirty = true;
                     pending_gear = Some(crate::gear::from_entries(&gear_db, &gear_textures, &state.worn, state.stats.get(&0x36).copied().unwrap_or(1)));
                 }
@@ -8842,6 +8910,27 @@ mod door_tests {
         w.specials_changed = false;
         w.add(&Message { kind: SPECIAL_ATTACK_WEAPON, identity: (0xc350, own), data }.frame(1));
         assert!(!w.specials_changed);
+    }
+
+    /// An item move the server refuses is taken back, one it takes stays (the two answers seen live on 2026-11-10: a nano
+    /// crystal dragged to the right hand, then a rifle).
+    #[test]
+    fn a_refused_item_move_is_taken_back() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let own = 0x7b1e5338;
+        let entry = |slot: u32, low_id: u32| inventory::Entry { slot, flags: 0, count: 1, container: (0, 0), low_id, high_id: low_id, quality: 1, extra: 0 };
+        let places = |w: &World| { let mut v: Vec<(u32, u32)> = w.worn.iter().map(|e| (e.slot, e.low_id)).collect(); v.sort(); v };
+        let mut w = World { own, ..World::default() };
+        // (the crystal shown in the hand at once, as the loop does on asking)
+        w.worn = vec![entry(6, 0x46147), entry(0x46, 0x1dae1)];
+        w.moves_asked.push((0x45, 6, false));
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("000000009200000000000000680000004500000000000000000000") }.frame(1));
+        assert_eq!((places(&w), w.moves_asked.len()), (vec![(0x45, 0x46147), (0x46, 0x1dae1)], 0));
+        // (the rifle: asked, shown, and the server's `ContainerAddItem` names the old place and the new)
+        w.worn[1].slot = 6;
+        w.moves_asked.push((0x46, 6, false));
+        w.add(&Message { kind: CONTAINER_ADD_ITEM, identity: (0xc350, own), data: hex("0000000068000000460000c3507b1e533800000006") }.frame(1));
+        assert_eq!((places(&w), w.moves_asked.len()), (vec![(6, 0x1dae1), (0x45, 0x46147)], 0));
     }
 
     /// The server's pet duel messages (the two seen live on 2026-11-10: no duel pet, and not challenged) are told to

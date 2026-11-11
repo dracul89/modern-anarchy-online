@@ -143,6 +143,31 @@ What was still not reached after this round is in the fourth round's list above.
   transparency), 24 and 26 (ignore, mail from a friend's menu), 41 (a program's Look at page), 46 and 47 (a bag
   window's kept place, a corpse or the bank beside it), and the private group's end when its owner leaves.
 
+**A new player's first steps** (2026-11-10: a fresh character, Maotesttwo, a Solitus soldier made on the free
+account with `net <game> create`, in Arete Landing; scripted, other new players about and left alone)
+- Made and entered: the starter items come into the inventory over the first sessions (a bag came a session later,
+  moving the others' places).
+- Wearing: the rifle goes into the right hand and the server confirms it; a nano crystal dragged there is refused.
+  **Found and fixed**: the refused item stayed shown in the hand until the next login (the client showed every
+  move at once and never took one back).
+- Nano crystals used from the inventory: both are learnt and gone from the inventory.
+- Skills: "Suggested IP distribution" hands the points out and lists the changed skills; Save Changes sends them
+  (1500 points down to 347, health 34 to 52, the same after a relog). The first IP spent live.
+- A fight: the nearest cleaning robot targeted, shot dead, "You received 145 xp", the remains opened and both
+  items taken; the experience bar and the credits follow.
+- Zoning: into the cargo shuttle's room and back out through its door, each a new connection, the room's map and
+  its two NPCs there. **Found and fixed**: a target followed before the zoning was still followed after it.
+- Talking to an NPC: the window with the NPC's lines and the answers. **Found and fixed**: an answer clicked on a
+  space between two of its words did nothing (the words were clickable, the gaps not). One NPC answers that the
+  character is too low in level, as it did the original's player in the capture.
+- Found, not fixed: an NPC whose chat was open when the client was stopped answers no new opening until it is
+  told the old one is closed (the test's `npcclose` step does that; a real player would have to wait or relog);
+  the camera stood inside a wall once in the shuttle's room; the character was taken into the shuttle while
+  fighting about 8 m from its door (whether the door's reach is right was not checked); an item can be dragged to
+  a place it cannot be worn in (the server refuses, the original does not let it be tried).
+- Not reached: dying and reclaiming (the one creature tried could not be attacked), a shop (5 credits), a
+  mission, the level 5 way into ICC, a team with a second new character.
+
 A screenshot is a grab of the screen, so with two full-screen clients it shows the one on top; the other side was
 checked through the chat log (`chat/<date>.txt`), which both write.
 

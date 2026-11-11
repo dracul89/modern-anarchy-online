@@ -778,8 +778,19 @@ impl Control for TextView {
                         clip.rect_filled(egui::Rect::from_min_max(egui::pos2(x, y + h - 2.0), egui::pos2(x + piece.width, y + h - 1.0)), 0.0, c);
                     }
                     if let Some(link) = &piece.style.link {
-                        let r = egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(piece.width, h));
-                        links.push((r.translate(-p.rect.min.to_vec2()), link.clone()));
+                        let r = egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(piece.width, h)).translate(-p.rect.min.to_vec2());
+                        // (a link's words are pieces of their own, with the spaces between them belonging to nobody: the
+                        // word before is stretched to this one, so that a click between two words of a link is on it.
+                        // Seen live 2026-11-10: an NPC's answer clicked on a space did nothing)
+                        if let Some((last, href)) = links.last_mut()
+                            && href == link
+                            && last.max.x <= r.min.x
+                            && last.max.y > r.min.y
+                            && r.max.y > last.min.y
+                        {
+                            last.max.x = r.min.x;
+                        }
+                        links.push((r, link.clone()));
                     }
                     x += piece.width;
                 }

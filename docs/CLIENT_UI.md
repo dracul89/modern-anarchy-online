@@ -592,6 +592,17 @@ taking the background for black (not checked). The corner map is dimmed so (`aut
 second texture, and the rooms' floor pictures the same view draws for playfields made of rooms (FUN_100474b7). Seen
 live in Old Athens: paths, lawns and the plaza where they are around the character.
 
+**What a new character's first steps found (2026-11-10, `net.rs`, `gui/controls.rs`).** Three fixes from playing a
+fresh character through its first minutes (the list is in `LIVE_TEST_LIST.md`). An item move is still shown at once,
+but the server's answer is followed now: it takes a move with `ContainerAddItem` naming the old place (`(0x68,
+place)`) and the new, and refuses one with `CharacterAction` 0x92 naming the old place, on which the item goes back
+(`World::moves_asked`). A zoning ends following and walking: the followed target's number could stand for something
+else, or nothing, in the new playfield. And a link's words are stretched over the spaces between them, so that a
+click anywhere in an NPC's answer chooses it (each word was a clickable piece of its own). The test steps grew:
+`useitem@<part of a name>` and `wear@<part of a name>;<place>` find the item by its name, since the places shift
+as the server hands the starter items out; `MAO_AUTOPLAY` has `who` and `what` (the characters and the usable
+things about, with their distances), `target=<part of a name>` and `npcclose`.
+
 **Scripted clicks, and what the first scripted live run found (2026-11-10, `ui.rs::Ui::script`, `viewer.rs`).**
 `MAO_CAMERA_SCRIPT` steps with an `@` act on the interface as the mouse and keys would, so the windows can be tried
 live without anyone at the keyboard: `open@<window>`, `close@<window>` (`close@` alone: all), `click@<x>;<y>`,
