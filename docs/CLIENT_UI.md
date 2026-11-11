@@ -807,7 +807,7 @@ in it (the hall scene's overlay) where it was shown alone on a dark blue before.
 pictures, the first frames of the capture of 2026-10-30: drawn with the original's rule for the angle
 (`MAO_HALL_ORIGINAL=1`) the pedestals, the figures and the character fall where they do there. The wide-window
 choice stands: the view keeps the height a 4:3 window has, so at 32:9 the figures and the character are whole and
-smaller than in the original's picture, which cuts them at the knees and the head. Tools: `MAO_HALL_CAMERA=x,y,z,
+smaller than in the original's picture, which cuts them at the knees and the head. (Asked with both pictures, the user chose the whole figures for the character list too.) Tools: `MAO_HALL_CAMERA=x,y,z,
 qx,qy,qz,qw,fov` looks from another place, the `meshboxes` example prints where each part of a named mesh lies.
 Not done: turning the character with the mouse, the hall behind the creation screens (they have their own cameras
 in `CharCreateCamera.dat`, read by `hall::places` and not used yet) with their seven breed figures, the figures'
