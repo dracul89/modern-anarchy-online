@@ -2737,6 +2737,10 @@ impl World {
             self.rotations.insert(m.identity.1, q);
         }
         if let Some(info) = m.entity_info() {
+            // (MAO_COMBAT_LOG: a creature whose update gives the client no template and no humanoid body, with its bytes)
+            if info.template.is_none() && !info.is_humanoid() && std::env::var_os("MAO_COMBAT_LOG").is_some() {
+                eprintln!("no template: {:#x} {:?} flags {:#x} breed {} kind {:#x}: {}", m.identity.1, info.name, info.flags, info.breed, m.kind, m.data.iter().map(|b| format!("{b:02x}")).collect::<String>());
+            }
             // (the meshes the full update lists are worn from the start: hair, shoulder pads, what is on the back; an
             // appearance update replaces the list)
             if !info.meshes.is_empty() {
@@ -4124,6 +4128,16 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
             // (an attack swings the weapon the server said the creature holds in the place it names)
             let swing = world.swings.get(&id).and_then(|&(slot, began, pick, class)| Some((*world.weapons.get(&(id, slot as u8))?, slot, began, pick, class)));
             if let Some(parts) = chars.creature_parts(id, info.template.unwrap(), action, (id % 997) as f32 * 3.0, 1.0, &info.textures, &info.clothes, deform, world.held_action(id), swing) {
+                // (the creature at the size its update gives it, a percentage of its template's: the original's dynel
+                // takes its `Scale` stat as the body's scale, `SetBodyScale`, Gamecode FUN_100892ca; the bosses of Arete
+                // Landing are ordinary creatures at 600)
+                let place = match info.scale.filter(|&s| s != 100 && s != 0) {
+                    Some(s) => {
+                        let k = s as f32 / 100.0;
+                        model::multiply(&[k, 0.0, 0.0, 0.0, 0.0, k, 0.0, 0.0, 0.0, 0.0, k, 0.0, 0.0, 0.0, 0.0, 1.0], &place)
+                    }
+                    None => place,
+                };
                 push_character(&mut model, &mut casters, &mut ranges, id, parts, place, id == world.own, chars.frames.get(&id));
                 continue;
             }

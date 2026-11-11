@@ -1343,6 +1343,8 @@ pub struct EntityInfo {
     /// The NPC template (an object of type 0xfde97) of a creature or NPC:
     /// its record names the CAT mesh (entry 12) and the animations.
     pub template: Option<u32>,
+    /// A creature's body scale in percent (the two bytes after its template): 100 is the template's own size.
+    pub scale: Option<u16>,
     /// A creature's health and its maximum (flag bit 0): Gamecode's reader (FUN_1007916d) takes, after the second flags word
     /// and an `i32`, the family, line-of-sight height and one more value (each a byte with flag bits 17, 19 and 25, else an
     /// `i16`), an `i16` and a byte when that is above zero, the level (a byte, an `i16` with bit 12), the maximum (`+0x98`: an
@@ -1358,9 +1360,22 @@ pub struct EntityInfo {
 /// flags word and always before a level (`00 level 00 1f`), at a position
 /// that moves by a byte with the fields in front.
 fn npc_template(post: &[u8]) -> Option<u32> {
-    (8..post.len().saturating_sub(7).min(72)).find_map(|p| {
-        (post[p + 4] == 0 && post[p + 6] == 0 && post[p + 7] == 0x1f).then(|| u32::from_be_bytes(post[p..p + 4].try_into().unwrap()))
-    })
+    npc_template_and_scale(post).map(|t| t.0)
+}
+
+/// A creature's template and, in the two bytes after it, its body's scale in percent (the original's capture of
+/// 2026-10-30: 75 to 200 for the ordinary creatures, 100 the commonest, and 600 for the bosses of Arete Landing, which
+/// are the ordinary creatures' templates six times the size). The template is found by what follows it: the scale, a
+/// zero and `0x1f`. A scale under 256 is looked for first, as this was read until 2026-11-11, when a boss was drawn as
+/// the placeholder box because its scale's high byte is not zero; then any scale up to 4095 after a template under
+/// 0x1000000.
+fn npc_template_and_scale(post: &[u8]) -> Option<(u32, u16)> {
+    let read = |p: usize| (u32::from_be_bytes(post[p..p + 4].try_into().unwrap()), u16::from_be_bytes([post[p + 4], post[p + 5]]));
+    let range = || 8..post.len().saturating_sub(7).min(72);
+    range()
+        .find(|&p| post[p + 4] == 0 && post[p + 6] == 0 && post[p + 7] == 0x1f)
+        .or_else(|| range().find(|&p| post[p] == 0 && post[p + 4] < 0x10 && post[p + 6] == 0 && post[p + 7] == 0x1f && read(p).0 != 0 && read(p).1 != 0))
+        .map(read)
 }
 
 /// A creature's family, and its health and maximum, from its entity message, `at` just past the second flags word and the
@@ -1736,12 +1751,15 @@ impl Message {
         let tail = &d[at.min(d.len())..];
         let textures = if flags & 0x10 != 0 { texture_overrides(tail) } else { Vec::new() };
         let (clothes, meshes) = cloth_and_meshes(tail);
-        let template = if flags & 1 != 0 { d.get(at - 8..).and_then(npc_template) } else { None };
+        let (template, scale) = match d.get(at - 8..).and_then(npc_template_and_scale).filter(|_| flags & 1 != 0) {
+            Some((template, scale)) => (Some(template), Some(scale)),
+            None => (None, None),
+        };
         let (family, health) = match creature_fields(d, at, flags) {
             Some((family, health)) if flags & 1 != 0 => (Some(family), Some(health)),
             _ => (None, None),
         };
-        Some(EntityInfo { version, flags, playfield, fighting, position, rotation, breed, sex, side, name, flags2, unknown_a0: model, textures, clothes, meshes, template, health, family })
+        Some(EntityInfo { version, flags, playfield, fighting, position, rotation, breed, sex, side, name, flags2, unknown_a0: model, textures, clothes, meshes, template, scale, health, family })
     }
 }
 
@@ -1820,6 +1838,9 @@ mod entity_tests {
         let h = |s: &str| -> Vec<u8> { s.split_whitespace().map(|x| u8::from_str_radix(x, 16).unwrap()).collect() };
         // Waste Collector, Draculeet, Female High Commander (the last is dressed by the tables)
         assert_eq!(npc_template(&h("10 08 12 01 00 00 00 00 4b 00 00 00 00 05 00 a1 00 00 45 32 00 5d 00 1f 00 00 00 00 1c")), Some(0x4532));
+        assert_eq!(npc_template_and_scale(&h("10 08 12 01 00 00 00 00 4b 00 00 00 00 05 00 a1 00 00 45 32 00 5d 00 1f 00 00 00 00 1c")), Some((0x4532, 93)));
+        // (a boss of Arete Landing, live 2026-11-11: a cleaning robot's template at six times the size)
+        assert_eq!(npc_template_and_scale(&h("00 10 08 12 01 00 00 00 00 03 fb 00 00 00 00 02 00 b4 00 00 04 88 3f 02 58 00 1f 00 00 00 00 1c")), Some((0x4883f, 600)));
         assert_eq!(npc_template(&h("10 0a 12 01 00 00 00 00 24 00 00 00 00 01 00 14 00 00 03 ea 06 00 b4 00 1f 00 00 00 00 1c")), Some(0x3ea06));
         assert_eq!(npc_template(&h("10 08 12 01 00 00 00 00 01 00 00 00 00 c8 8e 52 00 00 00 65 ea 00 79 00 1f 00 00 00 00 1c")), Some(0x65ea));
     }

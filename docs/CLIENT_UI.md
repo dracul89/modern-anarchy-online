@@ -734,12 +734,20 @@ line and stand-up of a resurrection (FUN_1003ec1f: from level 15 the game's text
 what `CharacterAction` 0x99 itself means. A hit that lands as a creature dies is still told with the remains'
 name, since the name is the corpse's by then.
 
-**Open: a creature drawn as a box (2026-11-11).** The junkyard's boss robot of Arete Landing was drawn as the
-client's placeholder (a blue box) in a live run; the user confirmed what it was. All 1470 creature records but two
-have a body mesh that reads (`creaturecheck`), so the fault is on the live path: either no template is found in that
-creature's full update or no animation is found for it (`Characters::creature_parts` gives nothing without one).
-`MAO_COMBAT_LOG=1` prints a "no model" line with the name, template and flags of anything drawn as a marker; the
-boss was dead on the two visits made to catch it.
+**A creature's size, and the bosses that were boxes (2026-11-11, `mao_net::n3::npc_template_and_scale`,
+`net.rs::overlay_model`).** The junkyard's boss robot of Arete Landing was drawn as the client's placeholder, a blue
+box; the user said what it was and sent the original's screenshot of its remains (a big yellow box of a robot with a
+red rod). Its full update, caught with a new trace, has an ordinary cleaning robot's template followed by 600: the
+two bytes after a creature's template are its body's scale in percent (in the original's capture 75 to 200 for the
+ordinary creatures, 600 for these bosses, nine times), and the template was found by a pattern that took the scale's
+high byte for a zero, so a creature of 256 percent or more had no template and no model. The pattern takes any scale
+now, and the scale is kept and used: a creature is drawn at that share of its template's size, as the original's
+dynel takes its `Scale` stat for the body's scale (`SetBodyScale`, Gamecode FUN_100892ca). Until now every creature
+was drawn at its template's size, the cleaning robots at half of theirs. Seen live: the boss as in the original's
+picture. Not done: the same scale for the humanoid NPCs and for other players (whose updates were not read for it),
+the remains of a scaled creature (not looked at). `MAO_COMBAT_LOG=1` prints a "no template" line with the bytes of
+any creature's update that gives the client neither a template nor a humanoid body, and a "no model" line for
+anything drawn as a marker; `creaturecheck` says whether every creature record's body reads (all but two do).
 
 **What a new character's first steps found (2026-11-10, `net.rs`, `gui/controls.rs`).** Three fixes from playing a
 fresh character through its first minutes (the list is in `LIVE_TEST_LIST.md`). An item move is still shown at once,

@@ -210,7 +210,9 @@ account with `net <game> create`, in Arete Landing; scripted, other new players 
   went on sending attacks while dead (and the server took them); now the game's line for the death is told, the
   health is nothing, and the attack and use keys do nothing until the character is alive again.
 - The third quest's last robot and its item (the mission's line is the delivery now). Not done: the delivery.
-- **Found, open**: the junkyard's boss robot is drawn as a blue box (no model on the live path).
+- **Found and fixed** (the user said what it was and sent the original's picture): the junkyard's boss robot was
+  drawn as a blue box. A creature's size comes in its update and sizes of 256 percent and more lost the creature
+  its model; creatures are also drawn at their sizes now (they were all at their templates' own).
 - Level 4 reached by kills (the level's own message not yet seen with the fix in).
 - **Found and fixed** (the user saw them): the rifle was not in the character's hands; the health, nano and
   experience bars were drawn off their frames (they are the original's upright bars in the wings now).
