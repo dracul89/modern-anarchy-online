@@ -107,6 +107,37 @@ struct PartUniform {
     /// rgb: an emissive colour added to the part's lighting; a: its alpha (under 1 it is drawn blended after the opaque
     /// parts, at 0 not at all). A character under a highlight effect; otherwise [`NO_TINT`].
     tint: [f32; 4],
+    /// The material's blending ([`blend_of`]): x: 0 opaque, 1 blended by alpha, 2 added; y: its alpha test's reference
+    /// (under 0: none); z: its opacity; w: 1 when it writes no depth.
+    blend: [f32; 4],
+}
+
+/// A material's blending for the part's uniform.
+fn blend_of(material: &mao_formats::model::Material) -> [f32; 4] {
+    use mao_formats::model::Blend;
+    // (MAO_NO_BLEND=1: every material cut out as before, to compare)
+    static OFF: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    let mode = match material.blend {
+        _ if *OFF.get_or_init(|| std::env::var_os("MAO_NO_BLEND").is_some()) => 0.0,
+        // (plants stay cut out at a half: blended, their crowns thin to a veil with distance, as the texture's smaller
+        // levels average its alpha down, where the original's trees stand dense in its screenshots. Why the original's
+        // do not thin is not known: whether its plant textures have smaller levels at all was not read.)
+        _ if material.foliage => 0.0,
+        Blend::None => 0.0,
+        Blend::Alpha => 1.0,
+        Blend::Add => 2.0,
+    };
+    [mode, material.alpha_ref.unwrap_or(-1.0), material.opacity, material.no_z_write as u32 as f32]
+}
+
+/// The pipeline a blended part is drawn with: by its uniform's blend (alpha or added) and whether it writes depth.
+fn blend_pipeline(pipes: &ScenePipelines, blend: [f32; 4]) -> &wgpu::RenderPipeline {
+    match (blend[0] > 1.5, blend[3] > 0.5) {
+        (false, false) => &pipes.mesh_blend,
+        (false, true) => &pipes.mesh_blend_no_z,
+        (true, false) => &pipes.mesh_add,
+        (true, true) => &pipes.mesh_add_no_z,
+    }
 }
 
 /// No emissive colour, opaque.
@@ -702,6 +733,10 @@ struct ScenePipelines {
     mesh: wgpu::RenderPipeline,
     /// The mesh pipeline blending by the fragment's alpha: the tinted character parts under full alpha.
     mesh_blend: wgpu::RenderPipeline,
+    /// The blended materials' other three: without depth writes, added, and added without depth writes.
+    mesh_blend_no_z: wgpu::RenderPipeline,
+    mesh_add: wgpu::RenderPipeline,
+    mesh_add_no_z: wgpu::RenderPipeline,
     sky: wgpu::RenderPipeline,
     /// The screen copy drawn back over the whole picture (no depth), before the refraction pass continues on it.
     blit: wgpu::RenderPipeline,
@@ -749,25 +784,36 @@ impl ScenePipelines {
             multiview_mask: None,
             cache: None,
         });
-        // The same for a translucent part (a highlighted character): blended by its alpha, writing depth as Direct3D's
-        // `SetTransparency` did.
-        let blend_targets = targets(Some(wgpu::BlendState::ALPHA_BLENDING), true);
-        let mesh_blend = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("mesh blend"),
-            layout: Some(&shaders.mesh_layout),
-            vertex: wgpu::VertexState {
-                module: shader,
-                entry_point: Some("vs_main"),
-                compilation_options: Default::default(),
-                buffers: &[Some(wgpu::VertexBufferLayout { array_stride: std::mem::size_of::<GpuVertex>() as u64, step_mode: wgpu::VertexStepMode::Vertex, attributes: &attributes })],
-            },
-            primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleList, cull_mode: None, ..Default::default() },
-            depth_stencil: depth(true, wgpu::CompareFunction::Less, Default::default()),
-            multisample,
-            fragment: Some(wgpu::FragmentState { module: shader, entry_point: Some(if motion { "fs_main_motion" } else { "fs_main" }), compilation_options: Default::default(), targets: &blend_targets }),
-            multiview_mask: None,
-            cache: None,
-        });
+        // The same for a translucent part (a highlighted character, a blended material): blended by its alpha, writing
+        // depth as Direct3D's `SetTransparency` did and as a material does unless its states turn the writes off; and
+        // added (source alpha, one) for the materials whose `DESTBLEND` is one.
+        let blended = |label: &str, state: wgpu::BlendState, z: bool| {
+            let blend_targets = targets(Some(state), true);
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(label),
+                layout: Some(&shaders.mesh_layout),
+                vertex: wgpu::VertexState {
+                    module: shader,
+                    entry_point: Some("vs_main"),
+                    compilation_options: Default::default(),
+                    buffers: &[Some(wgpu::VertexBufferLayout { array_stride: std::mem::size_of::<GpuVertex>() as u64, step_mode: wgpu::VertexStepMode::Vertex, attributes: &attributes })],
+                },
+                primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleList, cull_mode: None, ..Default::default() },
+                depth_stencil: depth(z, wgpu::CompareFunction::Less, Default::default()),
+                multisample,
+                fragment: Some(wgpu::FragmentState { module: shader, entry_point: Some(if motion { "fs_main_motion" } else { "fs_main" }), compilation_options: Default::default(), targets: &blend_targets }),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let added = wgpu::BlendState {
+            color: wgpu::BlendComponent { src_factor: wgpu::BlendFactor::SrcAlpha, dst_factor: wgpu::BlendFactor::One, operation: wgpu::BlendOperation::Add },
+            alpha: wgpu::BlendComponent { src_factor: wgpu::BlendFactor::Zero, dst_factor: wgpu::BlendFactor::One, operation: wgpu::BlendOperation::Add },
+        };
+        let mesh_blend = blended("mesh blend", wgpu::BlendState::ALPHA_BLENDING, true);
+        let mesh_blend_no_z = blended("mesh blend, no depth", wgpu::BlendState::ALPHA_BLENDING, false);
+        let mesh_add = blended("mesh add", added, true);
+        let mesh_add_no_z = blended("mesh add, no depth", added, false);
         // The sky: one triangle behind everything, no depth.
         let opaque = targets(None, false);
         let sky = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -910,7 +956,7 @@ impl ScenePipelines {
             shell_like("vs_backdrop", "fs_shell_blend", Some(wgpu::BlendState::ALPHA_BLENDING), wgpu::CompareFunction::Always),
             shell_like("vs_backdrop", "fs_shell_add", Some(wgpu::BlendState { color: additive, alpha: additive }), wgpu::CompareFunction::Always),
         ];
-        ScenePipelines { mesh, mesh_blend, sky, blit, water, liquid, liquid_inverse, blob, particle, shell_add, shell_blend, backdrops }
+        ScenePipelines { mesh, mesh_blend, mesh_blend_no_z, mesh_add, mesh_add_no_z, sky, blit, water, liquid, liquid_inverse, blob, particle, shell_add, shell_blend, backdrops }
     }
 }
 
@@ -1420,7 +1466,7 @@ impl Renderer {
             let (center, radius) = ((wlo + whi) * 0.5, (whi - wlo).length() * 0.5);
             let d = part.material.diffuse;
             let material = &part.material;
-            let uniform = PartUniform { model: world, colour: [d[0], d[1], d[2], 1.0], flags: [view.is_some() as u32 as f32, (material.ignore_alpha as u32 + material.alpha_lights as u32) as f32, material.foliage as u32 as f32, height], previous_model: world, motion: [0.0; 4], tint: NO_TINT };
+            let uniform = PartUniform { model: world, colour: [d[0], d[1], d[2], 1.0], flags: [view.is_some() as u32 as f32, (material.ignore_alpha as u32 + material.alpha_lights as u32) as f32, material.foliage as u32 as f32, height], previous_model: world, motion: [0.0; 4], tint: NO_TINT, blend: blend_of(material) };
             let (vertex_bytes, index_bytes): (&[u8], &[u8]) = (bytemuck::cast_slice(&vertices), bytemuck::cast_slice(&indices));
             let reused = pool.get_mut(&(vertex_bytes.len() as u64, index_bytes.len() as u64, key)).and_then(Vec::pop);
             let (vb, ib, ub, bind) = match reused {
@@ -1549,7 +1595,7 @@ impl Renderer {
                     let (center, radius) = ((wlo + whi) * 0.5, (whi - wlo).length() * 0.5);
                     let d = model.parts[index].material.diffuse;
                     let material = &model.parts[index].material;
-                    let uniform = PartUniform { model: world, colour: [d[0], d[1], d[2], 1.0], flags: [view.is_some() as u32 as f32, (material.ignore_alpha as u32 + material.alpha_lights as u32) as f32, material.foliage as u32 as f32, *height], previous_model: world, motion: [0.0; 4], tint: NO_TINT };
+                    let uniform = PartUniform { model: world, colour: [d[0], d[1], d[2], 1.0], flags: [view.is_some() as u32 as f32, (material.ignore_alpha as u32 + material.alpha_lights as u32) as f32, material.foliage as u32 as f32, *height], previous_model: world, motion: [0.0; 4], tint: NO_TINT, blend: blend_of(material) };
                     let ub = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: bytemuck::bytes_of(&uniform), usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST });
                     let bind = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
                         label: None,
@@ -2047,6 +2093,9 @@ impl Renderer {
             pass.set_bind_group(2, &self.shadow_bind, &[]);
             // (the parts under a translucent tint, a highlighted character's: drawn blended after the opaque parts; at alpha 0 not
             // at all. The opaque pipeline writes the fragment's alpha to the target, so a tinted part must not go through it.)
+            // (the same pass draws the parts of blended materials, as randy31 draws its transparent list, 6, after the
+            // others and far to near: `RVisual_t::AddToRenderList`'s buckets by the distance from the camera, DisplaySystem's
+            // `Render(5, 6, .., 0x707, 0)`. Here they are ordered by their own distance, not in buckets.)
             let mut translucent: Vec<&GpuPart> = Vec::new();
             for (k, part) in scene.parts.iter().enumerate().chain(scene.overlay.iter().chain(&scene.follow).map(|p| (usize::MAX, p))) {
                 parts += 1;
@@ -2057,7 +2106,7 @@ impl Renderer {
                 if !sphere_visible(&planes, part.center + part.shift, part.radius + 2.0) {
                     continue;
                 }
-                if part.uniform.tint[3] < 1.0 {
+                if part.uniform.tint[3] < 1.0 || part.uniform.blend[0] > 0.5 {
                     if part.uniform.tint[3] > 0.0 {
                         translucent.push(part);
                     }
@@ -2070,8 +2119,9 @@ impl Renderer {
                 pass.draw_indexed(0..part.index_count, 0, 0..1);
             }
             if !translucent.is_empty() {
-                pass.set_pipeline(&pipes.mesh_blend);
+                translucent.sort_by(|a, b| (b.center + b.shift).distance_squared(eye).total_cmp(&(a.center + a.shift).distance_squared(eye)));
                 for part in translucent {
+                    pass.set_pipeline(blend_pipeline(pipes, part.uniform.blend));
                     drawn += 1;
                     pass.set_bind_group(1, &part.bind, &[]);
                     pass.set_vertex_buffer(0, part.vertices.slice(..));

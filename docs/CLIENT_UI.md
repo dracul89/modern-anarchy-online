@@ -669,6 +669,25 @@ target followed until then (the walk never left the target's side); and the walk
 every goal "the booth". Checked against the original and left as it is: two lines an NPC says one after the other are
 joined without a break (FUN_10058ee7 appends a second line of the same kind with neither a break nor the name).
 
+**Blended materials (2026-11-10, `mao_formats::model::Blend`, `mao-render` `blend_of`, `mesh.wgsl`).** Every textured
+mesh was cut out at half alpha, so what the original blends had hard edges: the shuttle door's ring, glass, glows, the
+landing decks' floor panels. The original: a material read from a mesh is transparent when its stored delta state
+turns `ALPHABLENDENABLE` (27) on (randy31 `material.rs`); the device's blend is source alpha over one less source
+alpha, depth writes on, no alpha test (`randy.rs`), unless the material's states say otherwise (20 = 2 adds it, 14 = 0
+writes no depth, 15 with 24 tests the alpha); a transparent visual goes on render list 6, which DisplaySystem draws
+after the others and far to near (`AddToRenderList`'s distance buckets, `Render(5, 6, .., 0x707, 0)`). 2327 of the
+11228 meshes have such a material, 259 of them added. The client reads those states into the material and draws the
+blended parts after the opaque ones, far to near by each part's own distance (not in the original's buckets, and not
+by the visual's origin), with the alpha of the texture times the material's opacity. Checked against the original's
+capture screenshots: the ring is a soft disc with a brighter rim growing from its middle in both, and the landing
+decks' floor panels are see-through in both. Two things are this client's own. Plants stay cut out as before:
+blended, their crowns thinned to a veil with distance (the texture's smaller levels average the alpha down) where
+the original's trees stand dense; why the original's do not thin was not found (whether its plant textures have
+smaller levels was not read). And a blended pixel whose alpha is under 0.02 is not drawn, so that it writes no depth;
+the original writes it. `MAO_NO_BLEND=1` draws everything cut out as before, to compare. Not done: the meshes of one
+visual drawn far to near where the visual asks for it (`sorted`), the frame's own transparency fade through the same
+list, the environment-mapped pass.
+
 **What a new character's first steps found (2026-11-10, `net.rs`, `gui/controls.rs`).** Three fixes from playing a
 fresh character through its first minutes (the list is in `LIVE_TEST_LIST.md`). An item move is still shown at once,
 but the server's answer is followed now: it takes a move with `ContainerAddItem` naming the old place (`(0x68,

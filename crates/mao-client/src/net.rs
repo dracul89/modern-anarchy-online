@@ -2970,7 +2970,7 @@ fn floor_part(x: f32, z: f32, height: f32) -> Part {
     let corners = [(-100.0, -100.0), (100.0, -100.0), (100.0, 100.0), (-100.0, 100.0)];
     let vertices = corners.iter().map(|(dx, dz)| Vertex { position: [x + dx, height, z + dz], normal: [0.0, 1.0, 0.0], uv: [0.0, 0.0], colour: Vertex::UNBAKED }).collect();
     let colour = [0.42, 0.40, 0.38];
-    let material = Material { name: "floor".into(), diffuse: colour, specular: [0.0; 3], ambient: colour, emissive: [0.0; 3], opacity: 1.0, textures: Vec::new(), ignore_alpha: false, alpha_lights: false, foliage: false };
+    let material = Material { name: "floor".into(), diffuse: colour, specular: [0.0; 3], ambient: colour, emissive: [0.0; 3], opacity: 1.0, textures: Vec::new(), ignore_alpha: false, alpha_lights: false, foliage: false, ..Default::default() };
     Part { name: "floor".into(), world: model::IDENTITY, vertices, indices: vec![0, 1, 2, 0, 2, 3, 0, 2, 1, 0, 3, 2], material }
 }
 
@@ -2995,7 +2995,7 @@ fn marker(colour: [f32; 3]) -> Part {
         }
         indices.extend([base, base + 1, base + 2, base, base + 2, base + 3]);
     }
-    let material = Material { name: "marker".into(), diffuse: colour, specular: [0.0; 3], ambient: colour, emissive: [0.0; 3], opacity: 1.0, textures: Vec::new(), ignore_alpha: false, alpha_lights: false, foliage: false };
+    let material = Material { name: "marker".into(), diffuse: colour, specular: [0.0; 3], ambient: colour, emissive: [0.0; 3], opacity: 1.0, textures: Vec::new(), ignore_alpha: false, alpha_lights: false, foliage: false, ..Default::default() };
     Part { name: "marker".into(), world: model::IDENTITY, vertices, indices, material }
 }
 

@@ -174,8 +174,8 @@ account with `net <game> create`, in Arete Landing; scripted, other new players 
     in a normal view). **Not reproduced** in two tries of the same walk, with and without the NPC's window: left
     open.
 - **Found and fixed** (the user saw it in a screenshot): the blue ring at the shuttle's door stood on its edge and
-  did not move; it lies on the ground now and its band runs outwards. Its edges are still hard where the original
-  fades them (blended materials are not drawn yet).
+  did not move; it lies on the ground now and its band runs outwards, and since the blended materials it fades
+  as the original's does (compared with the original's capture screenshots).
 - **Found and fixed** (the user saw it): the cargo crates' doors swung open and shut by themselves; a thing's model
   plays only as its `AnimPlay` stat says now, and the crates stand shut.
 - **Found and fixed**: the things announced while entering the first playfield of a run had no name and no model and

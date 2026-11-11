@@ -48,6 +48,20 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
+/// How a material's pixels go over what is behind them: its delta state's render states, as randy31 applies them
+/// (`material.rs`: a material read from an archive is transparent when its delta state sets `ALPHABLENDENABLE`, 27;
+/// the device's own blend is `SRCBLEND` 5 source alpha, `DESTBLEND` 6 one less source alpha, `randy.rs`).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum Blend {
+    /// Opaque (or cut out by the texture's alpha).
+    #[default]
+    None,
+    /// Blended by the pixel's alpha.
+    Alpha,
+    /// Added, weighted by the pixel's alpha (`DESTBLEND` 2, one: glows, beams).
+    Add,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Material {
     pub name: String,
@@ -68,6 +82,13 @@ pub struct Material {
     /// Plants (trees, bushes, grass ...): the renderer sways them in the wind
     /// and bends them away from the player.
     pub foliage: bool,
+    /// How the pixels are blended (render state 27, with 19 and 20 for the factors).
+    pub blend: Blend,
+    /// The material turns depth writes off (`ZWRITEENABLE`, 14, set to 0).
+    pub no_z_write: bool,
+    /// The material's own alpha test (`ALPHATESTENABLE` 15 with a reference, `ALPHAREF` 24, above 0): pixels under it,
+    /// 0 to 1, are not drawn.
+    pub alpha_ref: Option<f32>,
 }
 
 /// Whether a mesh's file name is a plant. The name is split into words at
@@ -258,6 +279,7 @@ fn material(a: &Archive, index: i32) -> Material {
     let Some(m) = (index >= 0).then(|| a.objects.get(index as usize)).flatten() else { return Material { opacity: 1.0, ..Default::default() } };
     let mut textures = Vec::new();
     let mut alpha_lights = false;
+    let (mut blend, mut no_z_write, mut alpha_ref) = (Blend::None, false, None);
     if let Some(state) = m.int("0", "delta_state").and_then(|i| a.objects.get(i as usize)) {
         // The texture stage states of stage 0 (`tstm_count` says how many belong to each stage): an `ALPHAOP` (4) of `DISABLE` (1)
         // leaves the pixel's alpha at the vertex's, so the texture's alpha is not a mask; with `COLORARG1` (2) = `TEXTURE |
@@ -265,6 +287,14 @@ fn material(a: &Archive, index: i32) -> Material {
         let ints = |name: &str| -> Vec<i32> { state.field("", name).map(|f| f.values.iter().map(|v| i32::from_le_bytes(v[..4].try_into().unwrap_or([0; 4]))).collect()).unwrap_or_default() };
         let stage0 = ints("tstm_count").first().copied().unwrap_or(0).max(0) as usize;
         let states: Vec<(i32, i32)> = ints("tst_type").into_iter().zip(ints("tst_value")).take(stage0).collect();
+        // The render states: alpha blending and its factors, depth writes, the alpha test.
+        let render: Vec<(i32, i32)> = ints("rst_type").into_iter().zip(ints("rst_value")).collect();
+        let state_of = |s: i32| render.iter().find(|r| r.0 == s).map(|r| r.1);
+        if state_of(27) == Some(1) {
+            blend = if state_of(20) == Some(2) { Blend::Add } else { Blend::Alpha };
+        }
+        no_z_write = state_of(14) == Some(0);
+        alpha_ref = (state_of(15) == Some(1)).then(|| state_of(24).unwrap_or(0)).filter(|&r| r > 0).map(|r| (r & 0xff) as f32 / 255.0);
         let alpha_off = states.contains(&(4, 1));
         let replicate = states.iter().any(|&(t, v)| t == 2 && v & 0x20 != 0);
         alpha_lights = alpha_off && replicate;
@@ -288,6 +318,10 @@ fn material(a: &Archive, index: i32) -> Material {
         ignore_alpha: alpha_lights,
         alpha_lights,
         foliage: false,
+        // (a texture whose alpha is light is not a blend's alpha)
+        blend: if alpha_lights { Blend::None } else { blend },
+        no_z_write,
+        alpha_ref,
     }
 }
 

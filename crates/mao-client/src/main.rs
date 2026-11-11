@@ -2192,6 +2192,24 @@ mod animation_tests {
         }
         let (start, half) = (a.texture_at(0.0).unwrap(), a.texture_at(a.length() / 2.0).unwrap());
         assert!((start[2] - half[2]).abs() > 0.4, "{start:?} {half:?}");
+        // (its material turns alpha blending on, render state 27, and nothing else about the blend: by the pixel's alpha,
+        // writing depth, with no alpha test)
+        let material = &m.parts[0].material;
+        assert_eq!((material.blend, material.no_z_write, material.alpha_ref), (mao_formats::model::Blend::Alpha, false, None));
+    }
+
+    /// `MAO_GAME`: a tree of Old Athens (`mcclean_tree02`, 42066): its leaves' material blends (states 27 and 22), its
+    /// trunk's does not; the jungle tree 214912 has a leaf material that blends with an alpha test at a half (15, 24).
+    #[test]
+    fn materials_carry_their_blend_states() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let db = mao_formats::resource::ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap();
+        use mao_formats::model::Blend;
+        let tree = super::load_model(&db, mao_formats::resource::Id { kind: 0xf6951, instance: 42066 }).unwrap();
+        let blends: Vec<(&str, Blend)> = tree.parts.iter().map(|p| (p.name.as_str(), p.material.blend)).collect();
+        assert!(blends.contains(&("leaves", Blend::Alpha)) && blends.iter().any(|b| b.1 == Blend::None), "{blends:?}");
+        let jungle = super::load_model(&db, mao_formats::resource::Id { kind: 0xf6951, instance: 214912 }).unwrap();
+        assert!(jungle.parts.iter().any(|p| p.material.blend == Blend::Alpha && p.material.alpha_ref.is_some_and(|r| (r - 128.0 / 255.0).abs() < 1e-4)));
     }
 }
 

@@ -12,6 +12,9 @@ struct Part {
     motion: vec4<f32>,
     // rgb: an emissive colour added to the lighting (a highlight effect on a character); a: the part's alpha.
     tint: vec4<f32>,
+    // The material's blending: x: above 0 when its pixels are blended by the texture's alpha (drawn after the opaque
+    // parts); y: its own alpha test's reference, under 0 without one; z: its opacity.
+    blend: vec4<f32>,
 }
 
 @group(1) @binding(0) var<uniform> part: Part;
@@ -143,15 +146,28 @@ fn shade(in: VertexOut) -> vec4<f32> {
     // Baked light in the texture's alpha (flags.y = 2): added to the lighting, as the original's texture stages add it to the
     // diffuse before the colour is multiplied in.
     var baked = 0.0;
+    // (a blended material's alpha is its texture's, times its opacity: Direct3D's default alpha stage, texture times
+    // diffuse; it is cut by its own alpha test, where an unblended one is cut at a half. This client's own: a pixel
+    // that would show nothing, alpha under 0.02, is not drawn either, so that it writes no depth; the original writes
+    // it, and what is drawn behind it later is hidden by nothing.)
+    var alpha = part.tint.a;
     if part.flags.x > 0.5 {
         let t = textureSample(tex, samp, in.uv);
-        if t.a < 0.5 && part.flags.y < 0.5 {
+        if part.blend.x > 0.5 {
+            if t.a < max(part.blend.y, 0.02) {
+                discard;
+            }
+            alpha = alpha * t.a;
+        } else if t.a < select(0.5, part.blend.y, part.blend.y >= 0.0) && part.flags.y < 0.5 {
             discard;
         }
         if part.flags.y > 1.5 {
             baked = t.a;
         }
         base = vec4<f32>(base.rgb * t.rgb, 1.0);
+    }
+    if part.blend.x > 0.5 {
+        alpha = alpha * part.blend.z;
     }
     let n = normalize(in.normal);
     // Lit from both sides: the winding of the original's meshes isn't
@@ -180,7 +196,7 @@ fn shade(in: VertexOut) -> vec4<f32> {
     let fog = clamp((distance(in.world, globals.eye.xyz) - near) / max(far - near, 1.0), 0.0, 1.0);
     let amount = mix(fog * fog * (3.0 - 2.0 * fog), fog, globals.fog.w);
     colour = mix(colour, fog_colour(), amount);
-    return vec4<f32>(colour, part.tint.a);
+    return vec4<f32>(colour, alpha);
 }
 
 struct SkyOut {
