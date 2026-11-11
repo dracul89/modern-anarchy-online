@@ -2724,6 +2724,11 @@ impl World {
             self.rotations.insert(m.identity.1, q);
         }
         if let Some(info) = m.entity_info() {
+            // (the meshes the full update lists are worn from the start: hair, shoulder pads, what is on the back; an
+            // appearance update replaces the list)
+            if !info.meshes.is_empty() {
+                self.equipment.insert(m.identity.1, info.meshes.clone());
+            }
             // (the full update's flag bit 21 sets the dynel flag 0x800, FUN_1007835c through vtable +0x18)
             if info.flags & 0x20_0000 != 0 {
                 self.weapon_flag.insert(m.identity.1);
@@ -4153,7 +4158,22 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
             // (A phase per entity keeps a crowd from moving in step.)
             // (a character running a vehicle program rides its board or bike)
             let vehicle = world.riding.get(&id).and_then(|&nano| chars.vehicle(nano, info.breed, info.sex));
-            if let Some(parts) = chars.parts(id, info.breed, info.sex, action, jumped, (id % 997) as f32 * 3.0, speed, scale, &info.textures, &info.clothes, world.equipment.get(&id).map_or(&[][..], |v| v.as_slice()), social, swing, weapon, fighting, world.held_action(id), deform, vehicle) {
+            // (a wielded weapon hangs on its hand, in a fight or out of one: Gamecode's FUN_1009cda2, when the weapon is
+            // wielded, adds the mesh its stat 209 names (not 12, which is the box an item lies on the ground as) to the
+            // character's mesh at attractor place 1 for wear place 6 and 2 for place 8 (`AddAttractorMesh`), and takes it
+            // off when the weapon is put away. A weapon without the stat hangs nothing. Not ported: the other side's
+            // mirroring for a left-hand weapon with the can-flag 0x800000, the social places 0x3d and 0x3f. Not where
+            // the worn meshes the server lists already have something on that hand.)
+            let mut gear: Vec<(u8, u32, u32)> = world.equipment.get(&id).cloned().unwrap_or_default();
+            for (slot, at) in [(6u32, 1u8), (8, 2)] {
+                let template = world.weapons.get(&(id, slot as u8)).copied().or_else(|| (id == world.own).then(|| world.inventory.as_ref()?.iter().find(|e| e.slot == slot).map(|e| e.low_id)).flatten());
+                if let Some(mesh) = template.and_then(|t| template_stat(t, 209)).filter(|&m| m > 0) {
+                    if !gear.iter().any(|g| g.0 == at) {
+                        gear.push((at, mesh as u32, 0));
+                    }
+                }
+            }
+            if let Some(parts) = chars.parts(id, info.breed, info.sex, action, jumped, (id % 997) as f32 * 3.0, speed, scale, &info.textures, &info.clothes, &gear, social, swing, weapon, fighting, world.held_action(id), deform, vehicle) {
                 push_character(&mut model, &mut casters, &mut ranges, id, parts, place, id == world.own, chars.frames.get(&id));
                 continue;
             }
@@ -5857,8 +5877,21 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     "x" => seen[5] = seen[5].wrapping_sub(1),
                     "walk" => walk_toggle_seen = walk_toggle_seen.wrapping_sub(1),
                     "jump" => autoplay_jump = true,
+                    // (`corpse`: the nearest remains within 10 m are used, which opens them; `loot` then takes what is in them)
+                    "corpse" => {
+                        let near = |p: &[f32; 3]| ((p[0] - position[0]).powi(2) + (p[2] - position[2]).powi(2)).sqrt();
+                        match state.objects.iter().filter(|(id, p)| state.types.get(id) == Some(&OBJECT_TYPE) && near(p) < 10.0).min_by(|a, b| near(a.1).total_cmp(&near(b.1))).map(|(id, p)| (*id, near(p))) {
+                            Some((id, far)) => {
+                                eprintln!("autoplay: remains {id:#x} {far:.1} m away");
+                                uses += 1;
+                                let _ = connection.send(&n3::use_object(own, uses, (OBJECT_TYPE, id)));
+                            }
+                            None => eprintln!("autoplay: no remains near"),
+                        }
+                    }
                     "loot" => {
                         if let Some(l) = state.loot.as_ref() {
+                            eprintln!("autoplay: taking {} things", l.entries.len());
                             for e in &l.entries {
                                 let _ = connection.send(&n3::take_from_container(own, l.handle, e.slot));
                             }

@@ -202,8 +202,16 @@ account with `net <game> create`, in Arete Landing; scripted, other new players 
 - Not a fault after all: a corner where the character seemed caught (the test's own route cut through stacked
   crates the original's player walked round; `net <game> caught <playfield> <x> <y> <z>` shows whether a place can
   be left).
-- Not reached: dying and reclaiming, the third quest's robots and its hand-over, level 5 and the way into ICC, a
-  team with a second new character. The character is level 3 with 2,020 credits by the ammunition machine.
+- The third quest's robots (2026-11-11): six of the seven junkyard robots shot, each telling how many are left;
+  their remains opened and what was in them taken. A fight from 3 m where the server let no shot through for 80
+  seconds (something between the two, it seems: one step nearer and it shot).
+- **Dying**: twice, once with the client running: the server's teleport to the arrival pad is followed and the
+  character fights on. Nothing is told of it in the chat (what the original tells was not read).
+- Level 4 reached by kills (the level's own message not yet seen with the fix in).
+- **Found and fixed** (the user saw them): the rifle was not in the character's hands; the health, nano and
+  experience bars were drawn off their frames (they are the original's upright bars in the wings now).
+- Not reached: the last junkyard robot, the quest's item and its hand-over to Alex, level 5 and the way into ICC, a
+  team with a second new character. The character is level 4 with 2,070 credits on the arrival platform.
 
 A screenshot is a grab of the screen, so with two full-screen clients it shows the one on top; the other side was
 checked through the chat log (`chat/<date>.txt`), which both write.

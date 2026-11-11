@@ -1172,6 +1172,21 @@ mod tests {
         assert_eq!(hex(mail_send(0x4c2e2, "Muggles", "hi", "", (0x68, 0x44), 0, true)), "00000600074d7567676c657300026869000000000068000000440000000001");
     }
 
+    /// The end of a player's full update in the original's capture of 2026-10-30: five clothes, none worn, then one
+    /// mesh, the hair 40250 on the head in layer 4.
+    #[test]
+    fn a_full_updates_meshes_follow_its_clothes() {
+        let hex = "000017a6000000000000000000000000000000010000000000000000000000020000000000000000000000030000000000000000000000040000000000000000000007e20000009d3a00000000040000000000";
+        let tail: Vec<u8> = (0..hex.len() / 2).map(|i| u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).unwrap()).collect();
+        // (no clothes: the list is found by its meshes all the same only when a cloth is worn, as `cloth_list` wants one)
+        assert_eq!(cloth_and_meshes(&tail), (Vec::new(), Vec::new()));
+        let mut worn = tail.clone();
+        worn[8..12].copy_from_slice(&0x1234u32.to_be_bytes());
+        let (clothes, meshes) = cloth_and_meshes(&worn);
+        assert_eq!(clothes.len(), 1);
+        assert_eq!(meshes, vec![(0, 40250, 0)]);
+    }
+
     /// The playfield message into ICC (1186, instance 0x20d9be), live: its runs of instance ids.
     #[test]
     fn instance_runs_match_icc() {
@@ -1322,6 +1337,9 @@ pub struct EntityInfo {
     /// The worn clothes: body part name and the texture's instance (types
     /// 0xf6954, 0xf6960, 0xf6961 share instances). Found like `textures`.
     pub clothes: Vec<(String, u32)>,
+    /// The worn meshes (hair, shoulder pads, what is on the back): the attachment position, the mesh's instance (type
+    /// 0xf6951) and a texture to put on it, 0 for its own; in the order of their layers.
+    pub meshes: Vec<(u8, u32, u32)>,
     /// The NPC template (an object of type 0xfde97) of a creature or NPC:
     /// its record names the CAT mesh (entry 12) and the animations.
     pub template: Option<u32>,
@@ -1520,6 +1538,15 @@ const CLOTH_PARTS: [&str; 6] = ["hands", "body", "feet", "arms", "legs", "head"]
 /// texture's instance and a second number. Slot 0 and above with a nonzero
 /// instance are kept.
 fn cloth_list(rest: &[u8]) -> Vec<(String, u32)> {
+    cloth_and_meshes(rest).0
+}
+
+/// The clothes and, after them, the worn meshes of a character's full update: a counted list (a `0x3f1` count) of
+/// meshes, each ten bytes: the attachment position (0 the head, 1 and 2 the hands, 3 and 4 the shoulders, 5 the back),
+/// the mesh's instance, a texture to put on it (0: its own) and a layer; given as (layer, position, mesh, texture) in
+/// the order of the layers, as the appearance update's list is. From the original's capture of 2026-10-30: a player's
+/// update ends its five clothes with `000007e2` and `00 00009d3a 00000000 04`, the hair 40250 on the head.
+fn cloth_and_meshes(rest: &[u8]) -> (Vec<(String, u32)>, Vec<(u8, u32, u32)>) {
     let int = |at: usize| rest.get(at..at + 4).map(|b| i32::from_be_bytes(b.try_into().unwrap()));
     for start in 0..rest.len().saturating_sub(16) {
         let Some(marker) = int(start) else { break };
@@ -1550,10 +1577,23 @@ fn cloth_list(rest: &[u8]) -> Vec<(String, u32)> {
             }
         }
         if valid && !out.is_empty() {
-            return out;
+            let mut meshes: Vec<(u8, u8, u32, u32)> = Vec::new();
+            if let Some(marker) = int(at).filter(|m| *m > 0 && m % 0x3f1 == 0 && m / 0x3f1 <= 17) {
+                let mut m = at + 4;
+                for _ in 0..marker / 0x3f1 - 1 {
+                    let Some(e) = rest.get(m..m + 10) else { break };
+                    let word = |k: usize| u32::from_be_bytes(e[k..k + 4].try_into().unwrap());
+                    if word(1) != 0 {
+                        meshes.push((e[9], e[0], word(1), word(5)));
+                    }
+                    m += 10;
+                }
+            }
+            meshes.sort();
+            return (out, meshes.into_iter().map(|(_, at, mesh, texture)| (at, mesh, texture)).collect());
         }
     }
-    Vec::new()
+    (Vec::new(), Vec::new())
 }
 
 impl Message {
@@ -1695,13 +1735,13 @@ impl Message {
         let model = if flags & 1 == 0 { u32_at(&mut at) } else { None };
         let tail = &d[at.min(d.len())..];
         let textures = if flags & 0x10 != 0 { texture_overrides(tail) } else { Vec::new() };
-        let clothes = cloth_list(tail);
+        let (clothes, meshes) = cloth_and_meshes(tail);
         let template = if flags & 1 != 0 { d.get(at - 8..).and_then(npc_template) } else { None };
         let (family, health) = match creature_fields(d, at, flags) {
             Some((family, health)) if flags & 1 != 0 => (Some(family), Some(health)),
             _ => (None, None),
         };
-        Some(EntityInfo { version, flags, playfield, fighting, position, rotation, breed, sex, side, name, flags2, unknown_a0: model, textures, clothes, template, health, family })
+        Some(EntityInfo { version, flags, playfield, fighting, position, rotation, breed, sex, side, name, flags2, unknown_a0: model, textures, clothes, meshes, template, health, family })
     }
 }
 

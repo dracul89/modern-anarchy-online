@@ -688,6 +688,38 @@ the original writes it. `MAO_NO_BLEND=1` draws everything cut out as before, to 
 visual drawn far to near where the visual asks for it (`sorted`), the frame's own transparency fade through the same
 list, the environment-mapped pass.
 
+**The control center's bars (2026-11-11, `vitals.rs::char_bar`).** The health, nano and experience bars were lying
+bars under the top of the screen with the coloured part off its frame. They were a guess: the original's
+`CharacterBar_c` (GUI.dll FUN_100673ba) is a `PowerbarView_c` that fills upwards, built from four pictures each
+(`GFX_GUI_ACTIONVIEW_HEALTHBAR`, `_BACKGROUND`, `_LEFT`, `_RIGHT`, and the same for `NANOBAR`, `XPBAR` and
+`ALIENXPBAR`: its bitmap numbers 9 to 0x18, named by AFCM.dll's table), 11 by 125 with the end pieces, and it shows
+the value and the maximum as its tooltip (FUN_10066f7a), not as a text on it. The client draws that now, the full
+picture in the middle of the background's size as `PowerbarView_c::Recalculate` puts it. With no place kept they
+stand in the wings of the control center, health and nano in the left and the experience bars in the right, on the
+menu strip's top, following the control center as it is laid out (their first frame's place was the not yet laid
+out wing's); a place the player dragged one to is kept as before. A place kept for the old lying bars is dropped
+once (`layout.rs`, the `upright-bars` mark). Where the original's own default layout stands them was not read: the
+user's original client runs another skin, whose screenshots have no wings.
+
+**A wielded weapon in the hand (2026-11-11, `net.rs::overlay_model`, `mao_net::n3::EntityInfo::meshes`).** A character's
+weapon was not drawn at all unless the server's appearance update happened to list a mesh for the hand, so one's own
+rifle was missing from the moment of entering. Gamecode's FUN_1009cda2, run when a weapon is wielded, adds the mesh
+the weapon's stat 209 names to the character's mesh at attractor place 1 for wear place 6 and 2 for place 8
+(`CharacterMesh::AddAttractorMesh`), in a fight or out of one. The client does that for every character whose
+weapons it knows (the server's weapon updates, or one's own inventory). Stat 12, tried first, is the box an item
+lies on the ground as. Also read now: the meshes a character's full update lists after its clothes (ten bytes each:
+position, mesh, texture, layer), which were only taken from the appearance updates, so hair and shoulder pieces are
+there from the first sight of a character. Seen live: the rifle in both hands on entering. Not ported: the mirrored
+side for a left-hand weapon with the can-flag 0x800000, the social places.
+
+**Dying, as seen live (2026-11-11).** The test character died twice: once between two runs (a client stopped in a
+fight leaves the character standing in the world, and the robot finished it) and once with the client running. The
+server sends the death (`CharacterAction` 0x99), the remains of one's own body, `StopFight`, and at once a teleport
+and a playfield message for the arrival pad: the client followed all of it and the character stood on the pad with
+part of its health, able to fight on. Nothing was told in the chat, and what the original tells or shows at a death
+was not read; no experience was lost at this level. A hit that lands as the target dies is told with the remains'
+name ("Remains of ..."), since the name is the corpse's by then.
+
 **What a new character's first steps found (2026-11-10, `net.rs`, `gui/controls.rs`).** Three fixes from playing a
 fresh character through its first minutes (the list is in `LIVE_TEST_LIST.md`). An item move is still shown at once,
 but the server's answer is followed now: it takes a move with `ContainerAddItem` naming the old place (`(0x68,

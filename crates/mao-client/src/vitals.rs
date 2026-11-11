@@ -166,45 +166,74 @@ fn sub_menu(ctx: &egui::Context, accent: egui::Color32, open: &dyn Fn(&str) -> b
 
 /// A `CharBarWindow_c` holding a `CharacterBar_c` (GUI.dll FUN_1006b8d1, FUN_100673ba): the health, nano, experience or
 /// alien experience bar as a window of its own the player drags anywhere (its place kept under the original's config
-/// name, `CCHealthBarConfig` ...), drawn from the skin's horizontal bar pictures (`GFX_GUI_HOR_BAR_EMPTY` with the
-/// coloured `GFX_GUI_HOR_BAR_<colour>` over it as far as the value goes) with `value / max` on it (FUN_10066f7a's
-/// `%d&nbsp;/&nbsp;%d`, on the bar's coloured upper part). They start in a column under the target's frame. (Which pictures the original's bar loads was not
-/// traced: its constructor only subscribes to the stats.)
-fn char_bar(ctx: &egui::Context, skin: &Skin, index: usize, name: &str, colour: &str, value: Option<i64>, max: Option<i64>, label: &str) -> Option<egui::Response> {
-    let fill_name = format!("GFX_GUI_HOR_BAR_{colour}");
-    let size = skin.get("GFX_GUI_HOR_BAR_EMPTY").or_else(|| skin.get(&fill_name)).map_or(egui::vec2(150.0, 12.0), |s| s.size);
-    let start = egui::pos2(ctx.content_rect().center().x - size.x * 0.5, 80.0 + index as f32 * (size.y + 3.0));
+/// name, `CCHealthBarConfig` ...). The bar is a `PowerbarView_c` that fills upwards (direction 3), made of four of the
+/// skin's pictures (FUN_100673ba's bitmap numbers, named by AFCM.dll's table): `GFX_GUI_ACTIONVIEW_<kind>BAR_BACKGROUND`
+/// stretched between the end pieces `_LEFT` (at the top) and `_RIGHT` (at the bottom), and `GFX_GUI_ACTIONVIEW_<kind>BAR`
+/// at its own size in the middle of the background's, kept from the bottom up as far as the value goes
+/// (`PowerbarView_c::Initialize` and `Recalculate`, as `gui::powerbar`). The value and maximum are its tooltip
+/// (FUN_10066f7a: `%d / %d`), not a text on it. `at`: where it stands when the player has not moved it, in its wing of
+/// the control center. (Until 2026-11-11 this drew the horizontal `GFX_GUI_HOR_BAR_*` pictures, a guess, the full one
+/// at the empty one's corner though it is smaller, with the numbers on it.)
+fn char_bar(ctx: &egui::Context, skin: &Skin, at: impl Fn(egui::Vec2) -> egui::Pos2, name: &str, kind: &str, value: Option<i64>, max: Option<i64>, label: &str) -> Option<egui::Response> {
+    let picture = |part: &str| skin.get(&format!("GFX_GUI_ACTIONVIEW_{kind}BAR{part}"));
+    let (full, background) = (picture(""), picture("_BACKGROUND"));
+    let (top, bottom) = (picture("_LEFT"), picture("_RIGHT"));
+    // (`CalculatePreferredSize`: the background's size, else the full picture's, and the end pieces' heights)
+    let body = background.as_ref().or(full.as_ref()).map_or(egui::vec2(12.0, 152.0), |s| s.size);
+    let caps = [&top, &bottom].map(|c| c.as_ref().map_or(egui::Vec2::ZERO, |s| s.size));
+    let size = egui::vec2(body.x, body.y + caps[0].y + caps[1].y);
+    // (a value over the maximum, which is short of what the client does not know yet, counts as full)
+    let fraction = match (value, max) {
+        (Some(v), Some(m)) if m > 0 => (v as f32 / m as f32).clamp(0.0, 1.0),
+        _ => 0.0,
+    };
     let mut out = None;
-    egui::Area::new(egui::Id::unique(name)).default_pos(crate::layout::pos(name, start)).movable(true).show(ctx, |ui| {
+    // (with no place kept it stands where `at` says, which follows the control center as that is laid out, until the
+    // player drags it: its first frame's place would be the not yet laid out wing's)
+    let id = egui::Id::unique(name);
+    let moved = ctx.data(|d| d.get_temp::<bool>(id.with("moved")).unwrap_or(false));
+    let area = egui::Area::new(id).movable(true);
+    let area = match crate::layout::saved(name) {
+        Some(kept) => area.default_pos(kept),
+        None if !moved => area.current_pos(at(size)),
+        None => area,
+    };
+    let shown = area.show(ctx, |ui| {
         let (rect, response) = ui.allocate_exact_size(size, egui::Sense::hover());
         let painter = ui.painter();
-        if skin.draw(painter, "GFX_GUI_HOR_BAR_EMPTY", rect.min, 1.0, egui::Color32::WHITE).is_none() {
-            painter.rect_filled(rect, 0.0, egui::Color32::from_black_alpha(160));
+        let white = egui::Color32::WHITE;
+        let inner = egui::Rect::from_min_max(rect.min + egui::vec2(0.0, caps[0].y), rect.max - egui::vec2(0.0, caps[1].y));
+        let whole = egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0));
+        if let Some(c) = &top {
+            painter.image(c.texture.id(), egui::Rect::from_min_size(rect.min, egui::vec2(rect.width(), caps[0].y)), whole, white);
         }
-        let fraction = match (value, max) {
-            (Some(v), Some(m)) if m > 0 => (v as f32 / m as f32).clamp(0.0, 1.0),
-            _ => 0.0,
-        };
-        if fraction > 0.0 {
-            let shown = egui::Rect::from_min_size(rect.min, egui::vec2(rect.width() * fraction, rect.height()));
-            skin.draw(&painter.with_clip_rect(shown), &fill_name, rect.min, 1.0, egui::Color32::WHITE);
+        if let Some(c) = &bottom {
+            painter.image(c.texture.id(), egui::Rect::from_min_max(egui::pos2(rect.left(), inner.bottom()), rect.max), whole, white);
+        }
+        match &background {
+            Some(b) => drop(painter.image(b.texture.id(), inner, whole, white)),
+            None => drop(painter.rect_filled(inner, 0.0, egui::Color32::from_black_alpha(160))),
+        }
+        if let Some(f) = &full {
+            let bar = crate::gui::powerbar::PowerBar { direction: crate::gui::powerbar::Direction::Up, background: None, full: None, start_cap: None, end_cap: None, value: fraction, colour: white };
+            let kept = bar.kept(f.size);
+            // (in the middle of the background's size, the halves rounded down)
+            let offset = egui::vec2(((body.x - f.size.x) * 0.5).floor(), ((body.y - f.size.y) * 0.5).floor());
+            if fraction > 0.0 && kept.width() > 0.0 && kept.height() > 0.0 {
+                let uv = egui::Rect::from_min_max(egui::pos2(kept.left() / f.size.x, kept.top() / f.size.y), egui::pos2(kept.right() / f.size.x, kept.bottom() / f.size.y));
+                painter.image(f.texture.id(), kept.translate(inner.min.to_vec2() + offset), uv, white);
+            }
         }
         let text = match (value, max) {
             (Some(v), Some(m)) => format!("{v} / {m}"),
             (Some(v), None) => v.to_string(),
             _ => String::new(),
         };
-        match crate::font::tooltip(ctx) {
-            Some(f) => {
-                let w = f.width(&text);
-                f.paint(painter, egui::pos2(rect.center().x - w * 0.5, rect.top() + size.y * 0.3 - f.line_height * 0.5), &text, egui::Color32::WHITE);
-            }
-            None => {
-                painter.text(egui::pos2(rect.center().x, rect.top() + size.y * 0.3), egui::Align2::CENTER_CENTER, &text, egui::FontId::proportional((size.y - 2.0).clamp(8.0, 12.0)), egui::Color32::WHITE);
-            }
-        }
         out = Some(response.on_hover_text(format!("{label}: {text}")));
     });
+    if shown.response.dragged() {
+        ctx.data_mut(|d| d.insert_temp(id.with("moved"), true));
+    }
     out
 }
 
@@ -452,15 +481,27 @@ pub fn show_docked(ctx: &egui::Context, yaw: f32, stats: &BTreeMap<u32, i64>, pa
     // the bars: windows of their own
     let (xp, xp_span) = progress(get(stat::XP), get(stat::LAST_XP).unwrap_or(0), get(stat::NEXT_XP));
     let (alien, alien_span) = progress(get(stat::ALIEN_XP), 0, get(stat::ALIEN_NEXT_XP));
+    // (where each stands until the player moves it: in the wings' tall sides, on their floors, health and nano in the left
+    // wing and the experience bars in the right, as the original's own layout has them; without the wings, in a row
+    // under the top of the screen)
     let bars = [
-        (d.health, "CCHealthBarConfig", "RED", get(stat::HEALTH), get(stat::MAX_HEALTH), "Health", Some((stat::MAX_HEALTH, "Max health"))),
-        (d.nano, "CCNanoBarConfig", "BLUE", get(stat::CURRENT_NANO), get(stat::MAX_NANO), "Nano", Some((stat::MAX_NANO, "Max nano energy"))),
-        (d.xp, "CCXPBarConfig", "YELLOW", xp, xp_span, "Experience", None),
-        (d.alien_xp && get(stat::ALIEN_LEVEL).is_some_and(|l| l > 0), "CCAlienXPBarConfig", "PURPLE", alien, alien_span, "Alien experience", None),
+        (d.health, "CCHealthBarConfig", "HEALTH", get(stat::HEALTH), get(stat::MAX_HEALTH), "Health", Some((stat::MAX_HEALTH, "Max health")), (true, 8.0)),
+        (d.nano, "CCNanoBarConfig", "NANO", get(stat::CURRENT_NANO), get(stat::MAX_NANO), "Nano", Some((stat::MAX_NANO, "Max nano energy")), (true, 24.0)),
+        (d.xp, "CCXPBarConfig", "XP", xp, xp_span, "Experience", None, (false, 20.0)),
+        (d.alien_xp && get(stat::ALIEN_LEVEL).is_some_and(|l| l > 0), "CCAlienXPBarConfig", "ALIENXP", alien, alien_span, "Alien experience", None, (false, 36.0)),
     ];
-    for (i, (shown, name, art, value, max, label, breakdown)) in bars.into_iter().enumerate() {
+    for (i, (shown, name, art, value, max, label, breakdown, (left, inset))) in bars.into_iter().enumerate() {
         if shown {
-            let response = char_bar(ctx, &skin, i, name, art, value, max, label);
+            let wing = if left { d.left_wing } else { d.right_wing };
+            let middle = ctx.content_rect().center().x;
+            // (on the wing's floor: the strip of the menus lies over the wing's lower end, so the floor is the strip's top)
+            let floor = (if left { d.left_bar } else { d.right_bar }).map(|b| b.top());
+            let at = move |size: egui::Vec2| match wing {
+                Some(w) if left => egui::pos2(w.left() + inset, floor.unwrap_or(w.bottom()) - size.y - 2.0),
+                Some(w) => egui::pos2(w.right() - (inset - 12.0) - size.x, floor.unwrap_or(w.bottom()) - size.y - 2.0),
+                None => egui::pos2(middle - 40.0 + i as f32 * 20.0, 80.0),
+            };
+            let response = char_bar(ctx, &skin, at, name, art, value, max, label);
             if let (Some(r), Some((stat, title))) = (response, breakdown) {
                 crate::stats::hover(r, title, parts.get(&stat), accent);
             }

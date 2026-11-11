@@ -85,6 +85,9 @@ pub fn render(spots: &BTreeMap<String, [f32; 2]>) -> String {
     spots.iter().map(|(name, p)| format!("{name} {} {}\n", p[0].round(), p[1].round())).collect()
 }
 
+/// The mark in the kept places that the control center's bars are the upright ones (see `load`).
+const UPRIGHT_BARS: &str = "upright-bars";
+
 /// Where a window starts: its saved place, else `default`.
 pub fn pos(name: &str, default: egui::Pos2) -> egui::Pos2 {
     saved(name).unwrap_or(default)
@@ -113,6 +116,14 @@ fn load(layout: &mut Layout) {
     if !layout.loaded {
         layout.loaded = true;
         layout.spots = std::fs::read_to_string(path()).map(|t| parse(&t)).unwrap_or_default();
+        // (the four bars of the control center were lying bars under the screen's top until 2026-11-11 and are the
+        // original's upright ones since: a place kept for the old ones is dropped once, so that they stand in the wings)
+        if !layout.spots.contains_key(UPRIGHT_BARS) {
+            for name in ["CCHealthBarConfig", "CCNanoBarConfig", "CCXPBarConfig", "CCAlienXPBarConfig"] {
+                layout.spots.remove(name);
+            }
+            layout.spots.insert(UPRIGHT_BARS.to_string(), [1.0, 0.0]);
+        }
         layout.sizes = std::fs::read_to_string(path().with_file_name("sizes.ini")).map(|t| parse(&t)).unwrap_or_default();
     }
 }
