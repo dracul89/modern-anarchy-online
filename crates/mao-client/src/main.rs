@@ -894,6 +894,10 @@ fn list(db: &ResourceDatabase, filter: Option<&str>) {
 }
 
 fn run(args: &[String]) -> Result<(), String> {
+    // No arguments, or `launch` alone: the launcher with the game folder its settings keep (or one of the usual places).
+    if args.is_empty() || matches!(args, [word] if word == "launch") {
+        return launchwindow::run(None);
+    }
     if let [word, rest @ ..] = args {
         if word == "net" {
             return net::run(rest);
@@ -1325,7 +1329,7 @@ fn run(args: &[String]) -> Result<(), String> {
     // `launch <game>`: the launcher window (the page, the dimensions, the settings, PLAY), which starts `play`.
     if let [game, word] = args {
         if word == "launch" {
-            return launchwindow::run(game);
+            return launchwindow::run(Some(game));
         }
     }
     // `rooms-check <game>`: how many playfields are made of rooms, and whether every one reads and builds.

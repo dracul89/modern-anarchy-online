@@ -794,6 +794,19 @@ down. Here the angle is kept as a 4:3 window has it and a wider window sees the 
 past the hall's walls to the space outside it (kept so: the user chose the full width over black bars at the sides). Seen: the launcher beside the user's picture of the original's, the
 three settings pages, PLAY into the login, the hall at 16:9 and at 32:9.
 
+**The game's folder is a setting (2026-11-11, the user's wish: "since we require the original game install").** The
+settings' GUI page has a Game row at the head of its folders: the folder's path, Browse (the system's folder
+picker, the `rfd` crate), Open, and under it what a check of the folder says (the game's version when the folder has
+`cd_image/data/db/ResourceDatabase.dat` and `version.id`, else what is missing). It is kept as `dir` under `[game]`
+in `mao.ini`. The launcher now starts without a folder on its command line (`mao-client` alone, or `mao-client
+launch`): it takes the settings' folder, else the first of the usual places that has the game (`C:\Funcom\Anarchy
+Online`, the program folders' `Funcom\Anarchy Online`, Steam's), which it then keeps; a folder named on the command
+line is used for that run and kept only when none was. With no game anywhere the launcher opens on that settings
+page with PLAY switched off. Choosing another folder and pressing OK starts the launcher again, since its pictures,
+its page, its version and the interface's skin all came from the old one. The other commands still take the folder
+as their first argument. Also here: the page is opened half a second after the window's first frame (after the
+third, once in about a dozen starts the window's own drawing did not show under it).
+
 Not done: the figures on the hall's pedestals (the original stands characters there, `CCCharacter_t`), the hall
 behind the character list (the picked character is still shown alone), patching (a version that differs is only
 told), the licence dialog, the error pages, which background the original picks.

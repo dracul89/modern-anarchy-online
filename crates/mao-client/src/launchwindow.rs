@@ -132,6 +132,52 @@ pub fn predefined(monitor: impl Iterator<Item = (u32, u32)>, current: (u32, u32)
     sizes
 }
 
+/// What a folder must have to be the original game's: the resource database and the version file. The folder's version
+/// when it has them, else what is missing.
+pub fn check_game_dir(folder: &Path) -> Result<String, String> {
+    if folder.as_os_str().is_empty() {
+        return Err("No folder chosen.".into());
+    }
+    if !folder.is_dir() {
+        return Err("There is no such folder.".into());
+    }
+    for needed in ["cd_image/data/db/ResourceDatabase.dat", "version.id"] {
+        if !mao_formats::files::exists(folder.join(needed)) {
+            return Err(format!("Not the game's folder: it has no {needed}."));
+        }
+    }
+    let version = mao_formats::files::read_to_string(folder.join("version.id")).map(|t| t.lines().next().unwrap_or("").trim().to_string()).unwrap_or_default();
+    Ok(version)
+}
+
+/// Where the game is usually installed, looked through when no folder was ever chosen.
+fn usual_game_dirs() -> Vec<PathBuf> {
+    // (`MAO_NO_USUAL_DIRS=1`: none, to see the launcher with no game)
+    if std::env::var_os("MAO_NO_USUAL_DIRS").is_some() {
+        return Vec::new();
+    }
+    let mut out = vec![PathBuf::from(r"C:\Funcom\Anarchy Online")];
+    for base in ["ProgramFiles(x86)", "ProgramFiles"] {
+        if let Some(base) = std::env::var_os(base).map(PathBuf::from) {
+            out.push(base.join("Funcom").join("Anarchy Online"));
+            out.push(base.join("Steam").join("steamapps").join("common").join("Anarchy Online"));
+        }
+    }
+    out
+}
+
+/// The game's folder for a start of the launcher: the one named on the command line, else the settings', else the first
+/// of the usual places that has the game (`found` says it was neither named nor kept).
+pub fn resolve_game_dir(named: Option<&str>, kept: &str, usual: &[PathBuf]) -> Option<(String, bool)> {
+    if let Some(named) = named {
+        return Some((named.to_string(), false));
+    }
+    if check_game_dir(Path::new(kept)).is_ok() {
+        return Some((kept.to_string(), false));
+    }
+    usual.iter().find(|p| check_game_dir(p).is_ok()).map(|p| (p.display().to_string(), true))
+}
+
 /// The window's title: the game folder's version and the chosen dimension's, as the original's has them.
 pub fn title(local: &str, remote: &str) -> String {
     let or_unknown = |v: &str| if v.is_empty() { "unknown".to_string() } else { v.to_string() };
@@ -151,6 +197,8 @@ struct Dialog {
     themes: Vec<String>,
     network: String,
     dimension: String,
+    /// The game folder's field as it was last checked, and what the check said.
+    checked: Option<(String, Result<String, String>)>,
 }
 
 enum Closed {
@@ -172,6 +220,7 @@ impl Dialog {
             themes: crate::theme::available(&settings.aou_mod),
             network: prefs.network_timeout.to_string(),
             dimension: prefs.dimension_timeout.to_string(),
+            checked: None,
         }
     }
 
@@ -284,6 +333,31 @@ impl Dialog {
         ui.group(|ui| {
             ui.set_width(ui.available_width());
             ui.strong("Folders");
+            // (the original game's own folder: everything the client shows is read from it)
+            ui.horizontal(|ui| {
+                ui.add_sized([80.0, 18.0], egui::Label::new("Game"));
+                ui.add(egui::TextEdit::singleline(&mut self.settings.game_dir).desired_width(180.0));
+                if ui.button("Browse").clicked() {
+                    let mut picker = rfd::FileDialog::new().set_title("The Anarchy Online folder");
+                    if Path::new(self.settings.game_dir.trim()).is_dir() {
+                        picker = picker.set_directory(self.settings.game_dir.trim());
+                    }
+                    if let Some(folder) = picker.pick_folder() {
+                        self.settings.game_dir = folder.display().to_string();
+                    }
+                }
+                if ui.button("Open").clicked() && Path::new(self.settings.game_dir.trim()).is_dir() {
+                    open_outside(self.settings.game_dir.trim());
+                }
+            });
+            if self.checked.as_ref().is_none_or(|(text, _)| *text != self.settings.game_dir) {
+                self.checked = Some((self.settings.game_dir.clone(), check_game_dir(Path::new(self.settings.game_dir.trim()))));
+            }
+            match self.checked.as_ref().map(|(_, result)| result) {
+                Some(Ok(version)) => ui.colored_label(egui::Color32::from_rgb(120, 200, 120), format!("The game is there, version {version}.")),
+                Some(Err(why)) => ui.colored_label(egui::Color32::from_rgb(230, 120, 90), why),
+                None => ui.label(""),
+            };
             let base = Settings::path();
             for (name, folder) in [("Settings", base.parent().map(Path::to_path_buf).unwrap_or_default()), ("Screenshots", base.with_file_name("screenshots")), ("Chat logs", base.with_file_name("chat"))] {
                 ui.horizontal(|ui| {
@@ -356,6 +430,9 @@ struct Gfx {
     page: Option<(wry::WebView, wry::WebContext)>,
     page_shown: bool,
     frames: u32,
+    /// When the window drew its first frame, and whether the page was opened since.
+    first_frame: Option<Instant>,
+    page_tried: bool,
 }
 
 struct Launch {
@@ -371,6 +448,10 @@ struct Launch {
     titled: String,
     dialog: Option<Dialog>,
     play: bool,
+    /// The folder is the game's (PLAY needs it).
+    game_ok: bool,
+    /// The settings chose another game folder: the launcher starts again.
+    restart: bool,
     started: Instant,
     /// `MAO_LAUNCH_QUIT=<seconds>`: the window closes by itself (for pictures of it).
     quit_after: Option<f32>,
@@ -450,7 +531,7 @@ impl Launch {
             if button(ui, "launcher-settings", SETTINGS_BUTTON, &pictures.settings, enabled, "SETTINGS") {
                 open_settings = true;
             }
-            if button(ui, "launcher-play", PLAY_BUTTON, &pictures.play, enabled && self.dimension().is_some(), "PLAY") {
+            if button(ui, "launcher-play", PLAY_BUTTON, &pictures.play, enabled && self.game_ok && self.dimension().is_some(), "PLAY") {
                 self.play = true;
             }
             // (the dimensions: a plain white list box as the original's)
@@ -484,9 +565,15 @@ impl Launch {
                 Some(Closed::Ok) => {
                     dialog.take_fields();
                     self.settings = dialog.settings.clone();
+                    self.settings.game_dir = self.settings.game_dir.trim().to_string();
                     self.prefs = dialog.prefs.clone();
                     self.settings.save();
                     self.dialog = None;
+                    // (another game folder: the launcher starts again with it, since its pictures, its page, its
+                    // version and the interface's skin all came from the old one)
+                    if self.settings.game_dir != self.game {
+                        self.restart = true;
+                    }
                 }
                 Some(Closed::Cancel) => self.dialog = None,
                 None => {}
@@ -568,6 +655,8 @@ impl ApplicationHandler for Launch {
             page: None,
             page_shown: true,
             frames: 0,
+            first_frame: None,
+            page_tried: false,
         });
     }
 
@@ -627,13 +716,17 @@ impl ApplicationHandler for Launch {
                     gfx.ui.paint(&gfx.gpu, &view, size, ui_frame);
                     gfx.window.pre_present_notify();
                     gfx.gpu.queue.present(frame);
-                    // (the page is opened once the window has drawn itself: opened before the first frame, the window's own
-                    // drawing never showed under it)
+                    // (the page is opened once the window has been drawing itself for half a second: opened before the
+                    // first frame, the window's own drawing never showed under it, and once in a dozen starts neither did
+                    // it when the page came after the third frame; the surface is set up anew after it for the same reason)
                     gfx.frames += 1;
+                    let drawing_since = *gfx.first_frame.get_or_insert_with(Instant::now);
                     #[cfg(windows)]
-                    if gfx.frames == 3 && std::env::var_os("MAO_LAUNCH_NO_PAGE").is_none() {
+                    if !gfx.page_tried && gfx.frames >= 10 && drawing_since.elapsed() > Duration::from_millis(500) && std::env::var_os("MAO_LAUNCH_NO_PAGE").is_none() {
+                        gfx.page_tried = true;
                         if let Some(address) = dimensions::page_address(Path::new(&self.game)) {
                             gfx.page = open_page(&gfx.window, &address, page_bounds(gfx.window.inner_size()));
+                            gfx.surface.configure(&gfx.gpu.device, &gfx.config);
                             if !gfx.page_shown {
                                 if let Some((page, _)) = &gfx.page {
                                     let _ = page.set_visible(false);
@@ -642,10 +735,10 @@ impl ApplicationHandler for Launch {
                         }
                     }
                     // (`MAO_LAUNCH_PLAY=<seconds>`: PLAY presses itself, for a test of the way into the login)
-                    if self.play_after.is_some_and(|s| self.started.elapsed().as_secs_f32() > s) && self.list.is_none() {
+                    if self.play_after.is_some_and(|s| self.started.elapsed().as_secs_f32() > s) && self.list.is_none() && self.game_ok {
                         self.play = true;
                     }
-                    if self.play || self.quit_after.is_some_and(|s| self.started.elapsed().as_secs_f32() > s) {
+                    if self.play || self.restart || self.quit_after.is_some_and(|s| self.started.elapsed().as_secs_f32() > s) {
                         event_loop.exit();
                     } else {
                         gfx.window.request_redraw();
@@ -664,9 +757,21 @@ impl ApplicationHandler for Launch {
 }
 
 /// Opens the launcher; PLAY starts the login for the chosen dimension.
-pub fn run(game: &str) -> Result<(), String> {
-    crate::theme::set_game_dir(game);
-    let settings = Settings::load();
+pub fn run(named: Option<&str>) -> Result<(), String> {
+    let mut settings = Settings::load();
+    // (the game's folder: named on the command line, else the settings', else one of the usual places, which is then
+    // kept; with none, the launcher opens on its settings to have one chosen)
+    let resolved = resolve_game_dir(named, &settings.game_dir, &usual_game_dirs());
+    let game_ok = resolved.as_ref().is_some_and(|(folder, _)| check_game_dir(Path::new(folder)).is_ok());
+    let game_owned = resolved.as_ref().map(|(folder, _)| folder.clone()).unwrap_or_default();
+    let game = game_owned.as_str();
+    if game_ok && (settings.game_dir.is_empty() || resolved.as_ref().is_some_and(|(_, found)| *found)) && settings.game_dir != game {
+        settings.game_dir = game.to_string();
+        settings.save();
+    }
+    if game_ok {
+        crate::theme::set_game_dir(game);
+    }
     crate::font::set_enabled(settings.original_font);
     mao_render::prefer_adapter(&settings.adapter);
     let prefs = Prefs::load();
@@ -686,6 +791,8 @@ pub fn run(game: &str) -> Result<(), String> {
         titled: String::new(),
         dialog: None,
         play: false,
+        game_ok,
+        restart: false,
         started: Instant::now(),
         quit_after: std::env::var("MAO_LAUNCH_QUIT").ok().and_then(|v| v.parse().ok()),
         play_after: std::env::var("MAO_LAUNCH_PLAY").ok().and_then(|v| v.parse().ok()),
@@ -705,6 +812,13 @@ pub fn run(game: &str) -> Result<(), String> {
             let _ = tx.send(dimensions::download(&address, timeout));
         });
     }
+    // (no game: the settings open on the page with the folders)
+    if !game_ok {
+        launch.status = "Choose the game's folder in the settings.".into();
+        let mut dialog = Dialog::new(&launch.settings, &launch.prefs, Vec::new());
+        dialog.tab = 1;
+        launch.dialog = Some(dialog);
+    }
     // (MAO_LAUNCH_SETTINGS=<page 0-2>: the settings open at that page, for pictures)
     if let Some(tab) = std::env::var("MAO_LAUNCH_SETTINGS").ok().and_then(|v| v.parse::<usize>().ok()) {
         let mut dialog = Dialog::new(&launch.settings, &launch.prefs, Vec::new());
@@ -715,6 +829,12 @@ pub fn run(game: &str) -> Result<(), String> {
     event_loop.run_app(&mut launch).map_err(|e| e.to_string())?;
     if launch.prefs != prefs {
         launch.prefs.save();
+    }
+    if launch.restart {
+        launch.gfx = None;
+        let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+        std::process::Command::new(exe).arg("launch").spawn().map_err(|e| e.to_string())?;
+        return Ok(());
     }
     if !launch.play {
         return Ok(());
@@ -733,6 +853,30 @@ pub fn run(game: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A folder is the game's when it has the resource database and the version file; the launcher takes the folder
+    /// named, else the one kept, else the first usual place that has the game.
+    #[test]
+    fn the_game_folder_is_checked_and_resolved() {
+        let base = std::env::temp_dir().join(format!("mao-gamedir-{}", std::process::id()));
+        let (good, empty) = (base.join("good"), base.join("empty"));
+        std::fs::create_dir_all(good.join("cd_image/data/db")).unwrap();
+        std::fs::create_dir_all(&empty).unwrap();
+        std::fs::write(good.join("cd_image/data/db/ResourceDatabase.dat"), b"x").unwrap();
+        assert!(check_game_dir(&good).unwrap_err().contains("version.id"));
+        std::fs::write(good.join("version.id"), "18.8.62_EP1\r\n").unwrap();
+        assert_eq!(check_game_dir(&good).as_deref(), Ok("18.8.62_EP1"));
+        assert!(check_game_dir(&empty).unwrap_err().contains("ResourceDatabase"));
+        assert!(check_game_dir(&base.join("missing")).is_err());
+        assert!(check_game_dir(Path::new("")).is_err());
+        let (good_text, empty_text) = (good.display().to_string(), empty.display().to_string());
+        // (named: taken as it is; kept and good: kept; kept and bad: the usual places; nothing anywhere: none)
+        assert_eq!(resolve_game_dir(Some("anything"), &good_text, &[]), Some(("anything".to_string(), false)));
+        assert_eq!(resolve_game_dir(None, &good_text, &[empty.clone()]), Some((good_text.clone(), false)));
+        assert_eq!(resolve_game_dir(None, &empty_text, &[empty.clone(), good.clone()]), Some((good_text.clone(), true)));
+        assert_eq!(resolve_game_dir(None, "", &[empty.clone()]), None);
+        let _ = std::fs::remove_dir_all(&base);
+    }
 
     #[test]
     fn the_two_boxes_are_the_three_window_modes() {

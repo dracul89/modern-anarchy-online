@@ -34,6 +34,7 @@ the environment only, never from arguments or files that are committed:
 `MAO_USER` and `MAO_PASSWORD` (a `.env` in this folder is git-ignored; load it
 with `set -a; . ./.env; set +a`). `MAO_SERVER=host:port` overrides Rubi-Ka.
 ```
+mao-client                                        the launcher, with the game folder its settings keep
 mao-client <game> launch                          the launcher: news page, dimensions, settings, PLAY
 mao-client <game> play                            the login: login form, character list, Play
 mao-client net <game> chars                       the account's characters
