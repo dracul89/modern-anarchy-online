@@ -246,6 +246,22 @@ window's bar (12), the other Visual switches (14 to 17), the configuration's but
 26), renaming a bag and its kept place (45, 46), a corpse or the bank beside a bag (47), nano hide and list sorting
 (39, 40), and everything that needs a second character.
 
+## The unattended pass of 2026-11-11: to look at together
+
+Done while the user was away; each is in `CLIENT_UI.md` under the same date.
+
+- **Creatures' sizes.** Name tags and click areas follow each creature's mesh: a large creature's tag above its head,
+  a small one's close over it; clicking a large creature anywhere on its body targets it; small creatures next to
+  one another are told apart.
+- **Remains.** A killed creature's body lies where its remains are (never in a wall or under a floor), and can be
+  clicked there.
+- **The Shadowlands' sky.** Towards the horizon the area's fog colour, the vortex overhead; no opaque blue sheet.
+  Found and fixed off the game only: the first thing to look at.
+- **The orbital strike.** `/fxscript EP03_Orbital_Attack`: rings, a column and a white flash where the camera
+  stands, with its sound. Other scripts whose meshes carry effects show them too.
+- **The frame limit.** With a limit set: steadier than before.
+- **Casting.** A character whose nano initiative brings a nano's time to nothing casts it without the stance.
+
 ## `/fxscript` (2026-11-11)
 
 `/fxscript <script>` runs an effect script of the game's `cd_image/twk` folder (the name without `.txt`). To try:

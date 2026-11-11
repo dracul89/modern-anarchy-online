@@ -854,6 +854,12 @@ a sixth of the rest and 600) less the aggression setting (stat 51), not under th
 runs a cast of no time at once, without the stance. Ported for one's own casts (`net.rs::cast_seconds`); the
 others', whose skill the client does not know, go by the nano's time as before. Not tried live with a character
 of high initiative. Not followed: the nano's flag 0x80000 (no time whatever the stats).
+*Looked at and left.* Turning the picked character with the mouse in the character list, noted as not done with
+the hall: the original does not do it there (`CharacterViewer_c::SetRot` is called by the creation's module alone),
+so it is no gap. Left for the user: when the white of a death begins and how long it takes; why the CYT skin's
+wing was missing on their screen; the Browse dialog and the restart after a change of the game's folder, which
+need a hand on the mouse; the hall behind the creation screens with its seven figures, which is a piece of work of
+its own.
 
 **`/fxscript`, the item grids' padding, the CYT skin's wing (2026-11-11, asked for by the user after playing).**
 *`/fxscript <script> [parameters] #`.* The original's command (GUI.dll FUN_100b70be, registered by FUN_100bb3e0 for
