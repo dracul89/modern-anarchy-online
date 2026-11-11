@@ -573,6 +573,15 @@ pub fn text_edit(ui: &mut egui::Ui, palette: &Palette, edit: egui::TextEdit<'_>)
     response
 }
 
+/// The width a strip of these tabs takes when none is narrowed ([`tab_view`]'s own widths: each tab its text's width plus
+/// a point and its 5 and 16 point margins, overlapping the one before by 6, 2 points in and 2 to spare), for a window
+/// that sizes itself by its tabs.
+pub fn tabs_width(ui: &egui::Ui, names: &[&str]) -> f32 {
+    let font = crate::font::verdana(ui.ctx(), 13.0);
+    let widths: Vec<f32> = names.iter().map(|n| ui.painter().layout_no_wrap(n.to_string(), font.clone(), egui::Color32::WHITE).size().x.ceil() + 1.0 + 5.0 + 16.0).collect();
+    tab_places(&widths, f32::MAX).last().map_or(40.0, |(x, w)| x + w + 2.0) + 2.0
+}
+
 /// Where `TopBorderView_c` (GUI.dll, laid out by FUN_10147438) puts tabs `widths` wide in a strip `room` wide: the first 2 points
 /// in, each overlapping the one before by 6, every tab its own width (a `Tab`'s text width plus a point plus its 5 and 16 point
 /// margins, FUN_101463a4) when they fit, else all narrowed in proportion (`View::SpaceOut`'s share; not followed exactly). The

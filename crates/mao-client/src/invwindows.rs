@@ -310,17 +310,20 @@ impl ItemWindows {
             let wear = &mut self.wear;
             let title = crate::gui::xml::ldb_text("#10000:383874");
             crate::chrome::window(ctx, palette, "Wear", &title, &mut wear_open, |w| w.default_pos(crate::layout::pos("Wear", egui::pos2(380.0, 70.0))).resizable(false), |ui| {
+                // (as wide as its four tabs: the window sizes itself by what is in it, and the grid is narrower than they)
+                ui.set_min_width(crate::chrome::tabs_width(ui, &name_refs));
                 crate::chrome::tab_view(ui, palette, &name_refs, &mut tab, |ui, t| {
                     let view = &mut wear[t];
                     let (tree, root, list) = (&mut view.tree, view.root, view.list);
-                    let min = crate::gui::host::preferred_pixels(tree, root, false);
-                    ui.set_min_size(min);
-                    // (the grid in the middle of the page: the four tabs are wider than its three columns in this
-                    // client's fonts, and it stood at the left with the rest of the width empty beside it)
-                    let spare = ((ui.available_width() - min.x) * 0.5).floor().max(0.0);
+                    // (the grid at its own size, three columns of five cells, in the middle of the page: the four tabs are
+                    // wider than it in this client's fonts. The page used to take whatever room the window had, which left
+                    // the grid at the left with empty width beside it and empty height under it.)
+                    let natural = multilist::grid_pixels(tree, list).unwrap_or_else(|| crate::gui::host::preferred_pixels(tree, root, false));
+                    let spare = ((ui.available_width() - natural.x) * 0.5).floor().max(0.0);
+                    let place = egui::Rect::from_min_size(ui.available_rect_before_wrap().min + egui::vec2(spare, 0.0), natural);
                     let response = ui
-                        .horizontal(|ui| {
-                            ui.add_space(spare);
+                        .scope_builder(egui::UiBuilder::new().max_rect(place), |ui| {
+                            ui.set_min_size(natural);
                             crate::gui::host::show(ui, tree, root, skin.as_deref(), palette)
                         })
                         .inner;

@@ -817,6 +817,13 @@ the `Tweak_*` of the skies, the atmospheres (`Tweak_Shadowlands_Atmosphere_SubSe
 as the original does, and whatever the window's width holds beyond whole columns was left at the right: a cell's
 worth of empty edge on one side. The columns now stand in the middle of the width (`GridMode::left`), and the wear
 window's three columns in the middle of its page, whose four tabs are wider than they are. This client's own.
+The wear window took two tries. The first set the grid in a row beside a spacer, which gave the page a row's height:
+the grid shrank to a scroll bar (the user's picture, the same day; it had not been looked at after the change).
+The page had been taking whatever room the window had, which is also why there was empty height under the grid.
+Now the grid is given its own size, three columns of five cells (`multilist::grid_pixels`: the layout tree's
+smallest and largest sizes are a scroll view's, next to nothing and without end), in the middle of a page as wide as
+the four tabs unnarrowed (`chrome::tabs_width`). Seen: the tabs' names whole, the grid with the same edge left and
+right and none to spare below.
 *The CYT skin.* What lies behind the menu buttons at the bottom left in the AOU mod's CYT skin is the skin's left
 wing (`GFX_GUI_CONTROLCENTER_WING_LEFT`, 440 by 220 there; in the Slim skins a strip 6000 wide and 25 tall, which
 is the bar across the whole bottom of the screen in the mod's own screenshot), shown while the control center's

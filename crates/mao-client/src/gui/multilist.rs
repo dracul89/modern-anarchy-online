@@ -706,6 +706,15 @@ pub fn set_max_items(tree: &mut Tree, id: Id, max_items: i32) {
     }
 }
 
+/// A grid's own size: its cells' (the rows its items, labels or slots reach) and its picture's, with a pixel to spare
+/// each way so that its scroll view shows no bar. None for a list that is no grid.
+pub fn grid_pixels(tree: &Tree, id: Id) -> Option<egui::Vec2> {
+    let (_, _, rows) = parts(tree, id)?;
+    let r = tree.control::<Rows>(rows)?;
+    let size = r.grid_size(r.grid.as_ref()?, r.picture.get());
+    Some(egui::vec2(size.x + 1.0, size.y + 1.0))
+}
+
 /// Before showing: a grid lays its cells out in the width its scroll view gives it (`FrameSized` 0x101363c5 ->
 /// `RecalcCellCount`).
 pub fn update(tree: &mut Tree, id: Id) {
