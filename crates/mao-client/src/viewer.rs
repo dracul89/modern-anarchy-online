@@ -593,6 +593,9 @@ struct App {
     mouse_look: (f32, f32),
     wheel: f32,
     cam_reset: bool,
+    /// The window is the one in front, and when the next frame is due under the settings' frame limit.
+    focused: bool,
+    frame_due: std::time::Instant,
     /// The cast effects running: when each began, and what.
     bursts: Vec<(std::time::Instant, crate::effects::CastShow)>,
     shots: Vec<(std::time::Instant, crate::effects::Shot)>,
@@ -773,15 +776,18 @@ pub fn fog_for(distance: f32) -> (f32, f32) {
 /// Shows the window the way `mode` says: a framed window, a borderless one
 /// covering the screen, or exclusive fullscreen at the monitor's best video
 /// mode (falling back to borderless where there is none).
-pub(crate) fn apply_mode(window: &Window, mode: WindowMode) {
+/// Puts the window in a mode. `monitor` is the settings' choice for the borderless and full-screen modes: 0 the monitor
+/// the window is on, else the system's n-th (the window's own when there is no such monitor).
+pub(crate) fn apply_mode(window: &Window, mode: WindowMode, monitor: u32) {
+    let chosen = if monitor == 0 { None } else { window.available_monitors().nth(monitor as usize - 1) };
     match mode {
         WindowMode::Windowed => {
             window.set_fullscreen(None);
             window.set_decorations(true);
         }
-        WindowMode::Borderless => window.set_fullscreen(Some(Fullscreen::Borderless(None))),
+        WindowMode::Borderless => window.set_fullscreen(Some(Fullscreen::Borderless(chosen))),
         WindowMode::Fullscreen => {
-            let best = window.current_monitor().and_then(|monitor| {
+            let best = chosen.or_else(|| window.current_monitor()).and_then(|monitor| {
                 let size = monitor.size();
                 monitor.video_modes().filter(|m| m.size() == size).max_by_key(|m| (m.refresh_rate_millihertz(), m.bit_depth()))
             });
@@ -801,7 +807,7 @@ pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<()
     let settings = Settings::load();
     crate::ui::set_debug_overlay(settings.debug_overlay);
     crate::font::set_enabled(settings.original_font);
-    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, world_in: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), flares: Vec::new(), falls: None, area_fog_base: None, sky: Default::default(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), fxs_frame: None, script_meshes: Default::default(), named_sheets: Default::default(), trails: Default::default(), motions: Default::default(), shake: (0.0, 0), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, zones: None, collision: None, camera_body: crate::vehicle::Body::without_gravity(), look_target: Default::default(), interior: None, rooms_shown: Vec::new(), room_hint: None, attractor_at: std::time::Instant::now(), casters: Vec::new(), character_parts: Vec::new(), highlight_runs: Default::default(), highlight_fades: Default::default(), follow_shift: [0.0; 3], environment: Default::default(), quake: Default::default(), quake_offset: [0.0; 3], wind: Default::default(), wind_at: std::time::Instant::now(), perf_memory_at: std::time::Instant::now() - std::time::Duration::from_secs(10), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), script_moves: Default::default(), camera_script: std::env::var("MAO_CAMERA_SCRIPT").ok().map_or_else(Vec::new, |v| v.split(',').filter_map(|s| s.split_once(':').and_then(|(t, c)| Some((t.trim().parse().ok()?, c.trim().to_string())))).collect()), script_clock: std::time::Instant::now(), script_held: Vec::new(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
+    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, world_in: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), flares: Vec::new(), falls: None, area_fog_base: None, sky: Default::default(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), fxs_frame: None, script_meshes: Default::default(), named_sheets: Default::default(), trails: Default::default(), motions: Default::default(), shake: (0.0, 0), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, zones: None, collision: None, camera_body: crate::vehicle::Body::without_gravity(), look_target: Default::default(), interior: None, rooms_shown: Vec::new(), room_hint: None, attractor_at: std::time::Instant::now(), casters: Vec::new(), character_parts: Vec::new(), highlight_runs: Default::default(), highlight_fades: Default::default(), follow_shift: [0.0; 3], environment: Default::default(), quake: Default::default(), quake_offset: [0.0; 3], wind: Default::default(), wind_at: std::time::Instant::now(), perf_memory_at: std::time::Instant::now() - std::time::Duration::from_secs(10), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, focused: true, frame_due: std::time::Instant::now(), keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), script_moves: Default::default(), camera_script: std::env::var("MAO_CAMERA_SCRIPT").ok().map_or_else(Vec::new, |v| v.split(',').filter_map(|s| s.split_once(':').and_then(|(t, c)| Some((t.trim().parse().ok()?, c.trim().to_string())))).collect()), script_clock: std::time::Instant::now(), script_held: Vec::new(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
     // (entering the game: the loading screen, `ServerLogin3DModule_t::InitialiseMessage`)
     if app.live.is_some() {
         crate::loading::begin(crate::loading::FADE_IN, crate::loading::FADE_OUT);
@@ -961,10 +967,25 @@ impl ApplicationHandler for App {
             self.window_event(event_loop, id, WindowEvent::RedrawRequested);
         }
         if self.live.is_some() {
-            // No frame cap: draw as fast as the present mode allows (the original stopped at 100 fps).
-            event_loop.set_control_flow(winit::event_loop::ControlFlow::Poll);
-            if let Some(w) = &self.state {
-                w.window.request_redraw();
+            // (the settings' frame limit, a lower one while the window is not in front; with none, as fast as the present
+            // mode allows. The original stopped at 100 fps.)
+            match crate::settings::frame_limit(self.settings.fps_limit, self.settings.background_fps, self.focused) {
+                None => {
+                    event_loop.set_control_flow(winit::event_loop::ControlFlow::Poll);
+                    if let Some(w) = &self.state {
+                        w.window.request_redraw();
+                    }
+                }
+                Some(fps) => {
+                    let now = std::time::Instant::now();
+                    if now >= self.frame_due {
+                        self.frame_due = crate::settings::next_frame_due(self.frame_due, now, fps);
+                        if let Some(w) = &self.state {
+                            w.window.request_redraw();
+                        }
+                    }
+                    event_loop.set_control_flow(winit::event_loop::ControlFlow::WaitUntil(self.frame_due));
+                }
             }
         }
     }
@@ -975,7 +996,7 @@ impl ApplicationHandler for App {
         }
         // (hidden until its first frame is presented: otherwise the system's white fills it first, then the black)
         let window = Arc::new(event_loop.create_window(Window::default_attributes().with_title("Modern Anarchy Online").with_window_icon(crate::icon::window_icon()).with_inner_size(PhysicalSize::new(self.settings.width, self.settings.height)).with_visible(false)).expect("a window"));
-        apply_mode(&window, self.settings.mode);
+        apply_mode(&window, self.settings.mode, self.settings.monitor);
         eprintln!("window mode: {} (F11 or Alt+Enter change it)", self.settings.mode.name());
         let instance = wgpu::Instance::default();
         let surface = instance.create_surface(window.clone()).expect("a surface");
@@ -992,6 +1013,7 @@ impl ApplicationHandler for App {
         eprintln!("present mode: {:?}", config.present_mode);
         surface.configure(&gpu.device, &config);
         let mut renderer = Renderer::new(&gpu, config.format);
+        renderer.set_shadows(&gpu, self.settings.shadows);
         liquid_textures(&mut renderer, &gpu, &self.textures);
         let mut scene = renderer.upload(&gpu, &self.model, &mut |k, i| self.textures.get_for_upload(k, i));
         if self.live.is_some() {
@@ -1020,6 +1042,10 @@ impl ApplicationHandler for App {
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+        // (whether the window is the one in front: the background's frame limit)
+        if let WindowEvent::Focused(focused) = &event {
+            self.focused = *focused;
+        }
         let Some(w) = self.state.as_mut() else { return };
         if let Some(ui) = w.ui.as_mut() {
             // The key the options window waits for goes to it, not to the interface.
@@ -1187,7 +1213,7 @@ impl ApplicationHandler for App {
                             } else {
                                 WindowMode::Windowed
                             };
-                            apply_mode(&w.window, self.settings.mode);
+                            apply_mode(&w.window, self.settings.mode, self.settings.monitor);
                             eprintln!("window mode: {} (set `mode` in {} to keep it)", self.settings.mode.name(), Settings::path().display());
                         }
                         Action::CloseWindows if !event.repeat => {
@@ -1372,7 +1398,7 @@ impl ApplicationHandler for App {
                 } else {
                     WindowMode::Windowed
                 };
-                apply_mode(&w.window, self.settings.mode);
+                apply_mode(&w.window, self.settings.mode, self.settings.monitor);
                 eprintln!("window mode: {}", self.settings.mode.name());
             }
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
@@ -2662,7 +2688,7 @@ impl ApplicationHandler for App {
                     }
                     if let Some(mode) = requests.mode {
                         self.settings.mode = mode;
-                        apply_mode(&w.window, mode);
+                        apply_mode(&w.window, mode, self.settings.monitor);
                         self.settings.save();
                     }
                     if let Some((width, height)) = requests.size {

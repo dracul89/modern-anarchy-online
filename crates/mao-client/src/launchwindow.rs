@@ -184,6 +184,73 @@ pub fn title(local: &str, remote: &str) -> String {
     format!("Modern Anarchy Online - Local Version: {} - Remote version: {}", or_unknown(local), or_unknown(remote))
 }
 
+/// The drawing scales offered: the share of the window's size the scene is drawn at before it is upscaled (FSR 1's own
+/// steps), with their names.
+pub const SCALES: [(f32, &str); 5] = [(1.0, "Native"), (0.77, "Ultra quality"), (0.67, "Quality"), (0.59, "Balanced"), (0.5, "Performance")];
+
+/// A drawing scale's name: its step's, with the per cent; a scale that is no step (set by hand) by its per cent alone.
+pub fn scale_name(scale: f32) -> String {
+    let percent = (scale * 100.0).round();
+    match SCALES.iter().find(|(s, _)| (s - scale).abs() < 0.005) {
+        Some((_, name)) => format!("{name} ({percent:.0}%)"),
+        None => format!("{percent:.0}%"),
+    }
+}
+
+/// The frame limits offered (0: none; 100 is where the original stopped), and the background's (0: the same).
+pub const FRAME_LIMITS: [u32; 6] = [0, 60, 100, 120, 144, 240];
+pub const BACKGROUND_LIMITS: [u32; 4] = [0, 15, 30, 60];
+
+/// The quality presets: each sets the edges' smoothing, the shadows, the drawing scale and the two distances.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Preset {
+    Low,
+    Medium,
+    High,
+    Ultra,
+}
+
+impl Preset {
+    pub const ALL: [Preset; 4] = [Preset::Low, Preset::Medium, Preset::High, Preset::Ultra];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Preset::Low => "Low",
+            Preset::Medium => "Medium",
+            Preset::High => "High",
+            Preset::Ultra => "Ultra",
+        }
+    }
+
+    /// What the preset sets: smoothing, shadows, scale, view distance, character distance (0: all).
+    fn values(self) -> (mao_render::Antialiasing, mao_render::Shadows, f32, f32, f32) {
+        use mao_render::{Antialiasing, Shadows};
+        match self {
+            Preset::Low => (Antialiasing::Off, Shadows::Off, 0.59, 800.0, 150.0),
+            Preset::Medium => (Antialiasing::Taa, Shadows::Low, 0.77, 1500.0, 250.0),
+            Preset::High => (Antialiasing::Msaa, Shadows::Medium, 1.0, 1800.0, 0.0),
+            Preset::Ultra => (Antialiasing::Msaa, Shadows::High, 1.0, 4000.0, 0.0),
+        }
+    }
+
+    pub fn apply(self, settings: &mut Settings) {
+        (settings.antialiasing, settings.shadows, settings.render_scale, settings.view_distance, settings.char_distance) = self.values();
+    }
+
+    /// Whether the settings are the preset's.
+    pub fn matches(self, settings: &Settings) -> bool {
+        let (antialiasing, shadows, scale, view, characters) = self.values();
+        settings.antialiasing == antialiasing && settings.shadows == shadows && (settings.render_scale - scale).abs() < 0.005 && (settings.view_distance - view).abs() < 0.5 && (settings.char_distance - characters).abs() < 0.5
+    }
+}
+
+/// What the settings' window is told of the screens: the sizes to offer and the monitors' names.
+#[derive(Default)]
+struct Screens {
+    sizes: Vec<(u32, u32)>,
+    monitors: Vec<String>,
+}
+
 /// The settings' window while it is open: copies that OK writes back.
 struct Dialog {
     tab: usize,
@@ -194,6 +261,7 @@ struct Dialog {
     adapters: Vec<String>,
     choosing_device: bool,
     sizes: Vec<(u32, u32)>,
+    monitors: Vec<String>,
     themes: Vec<String>,
     network: String,
     dimension: String,
@@ -207,7 +275,7 @@ enum Closed {
 }
 
 impl Dialog {
-    fn new(settings: &Settings, prefs: &Prefs, monitor: Vec<(u32, u32)>) -> Dialog {
+    fn new(settings: &Settings, prefs: &Prefs, screens: Screens) -> Dialog {
         Dialog {
             tab: 0,
             settings: settings.clone(),
@@ -216,7 +284,8 @@ impl Dialog {
             height: settings.height.to_string(),
             adapters: mao_render::adapter_names(),
             choosing_device: false,
-            sizes: predefined(monitor.into_iter(), (settings.width, settings.height)),
+            sizes: predefined(screens.sizes.into_iter(), (settings.width, settings.height)),
+            monitors: screens.monitors,
             themes: crate::theme::available(&settings.aou_mod),
             network: prefs.network_timeout.to_string(),
             dimension: prefs.dimension_timeout.to_string(),
@@ -261,42 +330,106 @@ impl Dialog {
         ui.group(|ui| {
             ui.set_width(ui.available_width());
             ui.strong("Resolution");
-            ui.horizontal(|ui| {
-                ui.label("Predefined");
-                let current = format!("{}x{}", self.width.trim(), self.height.trim());
-                egui::ComboBox::from_id_salt("launcher-sizes").selected_text(current).width(150.0).show_ui(ui, |ui| {
-                    for (w, h) in self.sizes.clone() {
-                        if ui.selectable_label(self.width.trim() == w.to_string() && self.height.trim() == h.to_string(), format!("{w}x{h}")).clicked() {
-                            (self.width, self.height) = (w.to_string(), h.to_string());
-                        }
-                    }
-                });
-            });
             let (mut window, mut borderless) = mode_boxes(self.settings.mode);
             ui.horizontal(|ui| {
                 ui.checkbox(&mut window, "Run In Window");
                 ui.add_enabled(window, egui::Checkbox::new(&mut borderless, "Borderless"));
             });
             self.settings.mode = boxes_mode(window, borderless);
-            ui.horizontal(|ui| {
-                ui.label("Custom");
-                ui.add(egui::TextEdit::singleline(&mut self.width).desired_width(60.0));
-                ui.label("x");
-                ui.add(egui::TextEdit::singleline(&mut self.height).desired_width(60.0));
+            // (a size is the window's own only: the borderless and full-screen modes take the monitor's)
+            let sized = self.settings.mode == WindowMode::Windowed;
+            ui.add_enabled_ui(sized, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Predefined");
+                    let current = format!("{}x{}", self.width.trim(), self.height.trim());
+                    egui::ComboBox::from_id_salt("launcher-sizes").selected_text(current).width(150.0).show_ui(ui, |ui| {
+                        for (w, h) in self.sizes.clone() {
+                            if ui.selectable_label(self.width.trim() == w.to_string() && self.height.trim() == h.to_string(), format!("{w}x{h}")).clicked() {
+                                (self.width, self.height) = (w.to_string(), h.to_string());
+                            }
+                        }
+                    });
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Custom");
+                    ui.add(egui::TextEdit::singleline(&mut self.width).desired_width(60.0));
+                    ui.label("x");
+                    ui.add(egui::TextEdit::singleline(&mut self.height).desired_width(60.0));
+                });
+            });
+            if !sized {
+                ui.weak("The monitor's own size is used.");
+            }
+            ui.add_enabled_ui(!sized, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Monitor");
+                    let name = |i: u32, monitors: &[String]| if i == 0 { "The one the window is on".to_string() } else { monitors.get(i as usize - 1).cloned().unwrap_or_else(|| format!("Monitor {i}")) };
+                    egui::ComboBox::from_id_salt("launcher-monitors").selected_text(name(self.settings.monitor, &self.monitors)).width(220.0).show_ui(ui, |ui| {
+                        for i in 0..=self.monitors.len() as u32 {
+                            ui.selectable_value(&mut self.settings.monitor, i, name(i, &self.monitors));
+                        }
+                    });
+                });
             });
         });
         ui.group(|ui| {
             ui.set_width(ui.available_width());
-            ui.strong("Drawing");
+            ui.strong("Quality");
+            ui.horizontal(|ui| {
+                for preset in Preset::ALL {
+                    if ui.selectable_label(preset.matches(&self.settings), preset.name()).clicked() {
+                        preset.apply(&mut self.settings);
+                    }
+                }
+            });
             ui.horizontal(|ui| {
                 ui.label("Edges");
-                for (value, name) in [(mao_render::Antialiasing::Off, "Off"), (mao_render::Antialiasing::Msaa, "4x samples"), (mao_render::Antialiasing::Taa, "Temporal")] {
+                for (value, name) in [(mao_render::Antialiasing::Off, "Off"), (mao_render::Antialiasing::Msaa, "MSAA 4x"), (mao_render::Antialiasing::Taa, "TAA")] {
                     ui.radio_value(&mut self.settings.antialiasing, value, name);
                 }
             });
-            ui.checkbox(&mut self.settings.vsync, "Wait for the monitor's refresh");
-            ui.add(egui::Slider::new(&mut self.settings.render_scale, 0.4..=1.0).text("Drawing scale").fixed_decimals(2));
+            ui.horizontal(|ui| {
+                ui.label("Shadows");
+                for (value, name) in [(mao_render::Shadows::Off, "Off"), (mao_render::Shadows::Low, "Low"), (mao_render::Shadows::Medium, "Medium"), (mao_render::Shadows::High, "High")] {
+                    ui.radio_value(&mut self.settings.shadows, value, name);
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("Drawing scale");
+                egui::ComboBox::from_id_salt("launcher-scale").selected_text(scale_name(self.settings.render_scale)).width(170.0).show_ui(ui, |ui| {
+                    for (scale, _) in SCALES {
+                        ui.selectable_value(&mut self.settings.render_scale, scale, scale_name(scale));
+                    }
+                });
+            });
+            // (the sharpening is the upscaler's: it does nothing at the window's own size)
+            if self.settings.render_scale < 0.999 {
+                ui.add(egui::Slider::new(&mut self.settings.sharpness, 0.0..=2.0).text("Sharpening (0 is the most)").fixed_decimals(1));
+            }
             ui.add(egui::Slider::new(&mut self.settings.view_distance, 150.0..=6000.0).text("View distance").fixed_decimals(0));
+            ui.add(egui::Slider::new(&mut self.settings.char_distance, 0.0..=400.0).step_by(5.0).custom_formatter(|v, _| if v < 1.0 { "all".to_string() } else { format!("{v:.0}") }).text("Character distance"));
+        });
+        ui.group(|ui| {
+            ui.set_width(ui.available_width());
+            ui.strong("Frame rate");
+            ui.checkbox(&mut self.settings.vsync, "Wait for the monitor's refresh (VSync)");
+            let limit_name = |fps: u32, none: &str| if fps == 0 { none.to_string() } else { format!("{fps} a second") };
+            ui.horizontal(|ui| {
+                ui.label("Limit");
+                egui::ComboBox::from_id_salt("launcher-limit").selected_text(limit_name(self.settings.fps_limit, "None")).width(120.0).show_ui(ui, |ui| {
+                    for fps in FRAME_LIMITS {
+                        ui.selectable_value(&mut self.settings.fps_limit, fps, limit_name(fps, "None"));
+                    }
+                });
+            });
+            ui.horizontal(|ui| {
+                ui.label("In the background");
+                egui::ComboBox::from_id_salt("launcher-background").selected_text(limit_name(self.settings.background_fps, "The same")).width(120.0).show_ui(ui, |ui| {
+                    for fps in BACKGROUND_LIMITS {
+                        ui.selectable_value(&mut self.settings.background_fps, fps, limit_name(fps, "The same"));
+                    }
+                });
+            });
         });
     }
 
@@ -389,7 +522,7 @@ impl Dialog {
 
     fn show(&mut self, ctx: &egui::Context) -> Option<Closed> {
         let mut closed = None;
-        egui::Window::new("Settings").collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0)).fixed_size(egui::vec2(420.0, 380.0)).show(ctx, |ui| {
+        egui::Window::new("Settings").collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0)).fixed_size(egui::vec2(440.0, 520.0)).show(ctx, |ui| {
             ui.horizontal(|ui| {
                 for (i, name) in ["Visual", "GUI", "Connection"].into_iter().enumerate() {
                     if ui.selectable_label(self.tab == i, name).clicked() {
@@ -398,7 +531,7 @@ impl Dialog {
                 }
             });
             ui.separator();
-            egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| match self.tab {
+            egui::ScrollArea::vertical().max_height(440.0).show(ui, |ui| match self.tab {
                 0 => self.visual(ui),
                 1 => self.gui(ui),
                 _ => self.connection(ui),
@@ -475,7 +608,7 @@ impl Launch {
     }
 
     /// The window's inside, drawn each frame; says whether the page may be shown over its top.
-    fn screen(&mut self, ctx: &egui::Context, pictures: &Pictures, monitor: &dyn Fn() -> Vec<(u32, u32)>) -> bool {
+    fn screen(&mut self, ctx: &egui::Context, pictures: &Pictures, monitor: &dyn Fn() -> Screens) -> bool {
         if let Some(rx) = &self.list {
             if let Ok(result) = rx.try_recv() {
                 self.list = None;
@@ -588,6 +721,13 @@ impl Launch {
     }
 }
 
+/// The sizes of the monitor the window is on (its video modes and its own) and every monitor's name with its size.
+fn screens(window: &Window) -> Screens {
+    let sizes = window.current_monitor().map(|m| m.video_modes().map(|v| (v.size().width, v.size().height)).chain(std::iter::once((m.size().width, m.size().height))).collect()).unwrap_or_default();
+    let monitors = window.available_monitors().enumerate().map(|(i, m)| format!("{}: {} ({}x{})", i + 1, m.name().unwrap_or_else(|| "monitor".into()), m.size().width, m.size().height)).collect();
+    Screens { sizes, monitors }
+}
+
 #[cfg(windows)]
 fn open_page(window: &Window, address: &str, bounds: wry::Rect) -> Option<(wry::WebView, wry::WebContext)> {
     let data = Settings::path().parent().map_or_else(|| PathBuf::from("Browser"), |d| d.join("Browser"));
@@ -682,7 +822,7 @@ impl ApplicationHandler for Launch {
                     let size = (gfx.config.width, gfx.config.height);
                     let game = self.game.clone();
                     let window = gfx.window.clone();
-                    let monitor = move || window.current_monitor().map(|m| m.video_modes().map(|v| (v.size().width, v.size().height)).chain(std::iter::once((m.size().width, m.size().height))).collect()).unwrap_or_default();
+                    let monitor = move || screens(&window);
                     let pictures = &mut gfx.pictures;
                     let mut page_may_show = true;
                     let ui_frame = gfx.ui.run_custom(&gfx.window, &mut |ctx| {
@@ -816,13 +956,13 @@ pub fn run(named: Option<&str>) -> Result<(), String> {
     // (no game: the settings open on the page with the folders)
     if !game_ok {
         launch.status = "Choose the game's folder in the settings.".into();
-        let mut dialog = Dialog::new(&launch.settings, &launch.prefs, Vec::new());
+        let mut dialog = Dialog::new(&launch.settings, &launch.prefs, Screens::default());
         dialog.tab = 1;
         launch.dialog = Some(dialog);
     }
     // (MAO_LAUNCH_SETTINGS=<page 0-2>: the settings open at that page, for pictures)
     if let Some(tab) = std::env::var("MAO_LAUNCH_SETTINGS").ok().and_then(|v| v.parse::<usize>().ok()) {
-        let mut dialog = Dialog::new(&launch.settings, &launch.prefs, Vec::new());
+        let mut dialog = Dialog::new(&launch.settings, &launch.prefs, Screens::default());
         dialog.tab = tab.min(2);
         launch.dialog = Some(dialog);
     }
@@ -877,6 +1017,23 @@ mod tests {
         assert_eq!(resolve_game_dir(None, &empty_text, &[empty.clone(), good.clone()]), Some((good_text.clone(), true)));
         assert_eq!(resolve_game_dir(None, "", &[empty.clone()]), None);
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// A preset sets its values and is known again by them; a scale has its step's name.
+    #[test]
+    fn the_presets_set_and_know_their_values() {
+        let mut settings = Settings::default();
+        for preset in Preset::ALL {
+            preset.apply(&mut settings);
+            assert_eq!(Preset::ALL.into_iter().filter(|p| p.matches(&settings)).collect::<Vec<_>>(), vec![preset]);
+        }
+        Preset::Low.apply(&mut settings);
+        assert_eq!((settings.antialiasing, settings.shadows), (mao_render::Antialiasing::Off, mao_render::Shadows::Off));
+        settings.view_distance = 1234.0;
+        assert!(Preset::ALL.into_iter().all(|p| !p.matches(&settings)));
+        assert_eq!(scale_name(0.77), "Ultra quality (77%)");
+        assert_eq!(scale_name(1.0), "Native (100%)");
+        assert_eq!(scale_name(0.9), "90%");
     }
 
     #[test]

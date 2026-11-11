@@ -49,6 +49,35 @@ pub fn adapter_names() -> Vec<String> {
     names
 }
 
+impl Renderer {
+    /// Sets how the sun's shadows are drawn: on or off, and the shadow map made anew at the choice's size when it is
+    /// another than the one there.
+    pub fn set_shadows(&mut self, gpu: &Gpu, shadows: Shadows) {
+        self.shadows = shadows != Shadows::Off;
+        if shadows.size() != self.shadow_size {
+            self.shadow_size = shadows.size();
+            let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("shadow map"),
+                size: wgpu::Extent3d { width: self.shadow_size, height: self.shadow_size, depth_or_array_layers: 1 },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: DEPTH,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            });
+            self.shadow_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+            self.shadow_bind = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("shadow"),
+                layout: &self.shadow_layout,
+                entries: &[wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&self.shadow_view) }, wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&self.shadow_sampler) }],
+            });
+        }
+        // (the map is drawn anew with the next frame)
+        self.shadow_cache = None;
+    }
+}
+
 impl Gpu {
     /// A device for rendering to textures (or to `surface`, when given).
     pub fn new(instance: wgpu::Instance, surface: Option<&wgpu::Surface<'_>>) -> Result<Gpu, String> {
@@ -729,8 +758,45 @@ fn sphere_visible(planes: &[glam::Vec4; 6], center: Vec3, radius: f32) -> bool {
     })
 }
 
-/// The shadow map's side in texels.
+/// The shadow map's side in texels unless another is chosen ([`Shadows`]).
 const SHADOW_SIZE: u32 = 4096;
+
+/// How the sun's shadows are drawn: not at all, or from a shadow map of a side of 1024, 2048 or 4096 texels over the
+/// same ground (a smaller map is quicker to draw and to read, and its shadows' edges are coarser).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Shadows {
+    Off,
+    Low,
+    Medium,
+    #[default]
+    High,
+}
+
+impl Shadows {
+    pub const ALL: [Shadows; 4] = [Shadows::Off, Shadows::Low, Shadows::Medium, Shadows::High];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Shadows::Off => "off",
+            Shadows::Low => "low",
+            Shadows::Medium => "medium",
+            Shadows::High => "high",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<Shadows> {
+        Shadows::ALL.into_iter().find(|s| s.name().eq_ignore_ascii_case(name.trim()))
+    }
+
+    /// The shadow map's side (the smallest for none: the map is still there, cleared, and reads "lit").
+    pub fn size(self) -> u32 {
+        match self {
+            Shadows::Off | Shadows::Low => 1024,
+            Shadows::Medium => 2048,
+            Shadows::High => SHADOW_SIZE,
+        }
+    }
+}
 
 /// The shadow map last drawn, and what it was drawn for (see `Renderer::draw`).
 #[derive(Clone, Copy)]
@@ -1133,6 +1199,9 @@ pub struct Renderer {
     white_sprite: wgpu::BindGroup,
     shadow_view: wgpu::TextureView,
     shadow_bind: wgpu::BindGroup,
+    shadow_layout: wgpu::BindGroupLayout,
+    shadow_sampler: wgpu::Sampler,
+    shadow_size: u32,
     /// Draw the sun's shadows (on by default).
     pub shadows: bool,
     /// Whether the water's refraction pass is drawn (`MAO_NO_REFRACTION` turns it off): the picture so far mirrored into
@@ -1420,7 +1489,7 @@ impl Renderer {
             entries: &[wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&white) }, wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&sampler) }],
         });
         let liquid = LiquidResources::new(gpu, liquid_bind_layout, &white, &sampler, &fsr_sampler, &sprite_layout);
-        Renderer { shadow_cache: None, shadow_pipeline, pipeline_sets, shaders, antialiasing: Antialiasing::default(), taa_pipeline, taa_layout, taa_sampler, taa: None, copy_pipeline, timer: GpuTimer::new(gpu), gpu_ms: None, frame: 0, previous: None, sprites: HashMap::new(), sprite_layout, white_sprite, shadow_view, shadow_bind, shadows: true, refraction: std::env::var_os("MAO_NO_REFRACTION").is_none(), stats: Stats::default(), render_scale: 1.0, sharpness: 0.2, fsr_easu, fsr_rcas, fsr_layout, fsr_sampler, fsr: None, samples, msaa: None, started: std::time::Instant::now(), globals_layout, part_layout, sampler, white, format, depth: None, textures: Default::default(), liquid }
+        Renderer { shadow_cache: None, shadow_pipeline, pipeline_sets, shaders, antialiasing: Antialiasing::default(), taa_pipeline, taa_layout, taa_sampler, taa: None, copy_pipeline, timer: GpuTimer::new(gpu), gpu_ms: None, frame: 0, previous: None, sprites: HashMap::new(), sprite_layout, white_sprite, shadow_view, shadow_bind, shadow_layout, shadow_sampler, shadow_size: SHADOW_SIZE, shadows: true, refraction: std::env::var_os("MAO_NO_REFRACTION").is_none(), stats: Stats::default(), render_scale: 1.0, sharpness: 0.2, fsr_easu, fsr_rcas, fsr_layout, fsr_sampler, fsr: None, samples, msaa: None, started: std::time::Instant::now(), globals_layout, part_layout, sampler, white, format, depth: None, textures: Default::default(), liquid }
     }
 
     /// Puts a model on the GPU. `texture` finds a texture by (type, instance).
@@ -1850,7 +1919,7 @@ impl Renderer {
             None => {
                 let depth_range = extent * 3.0 + scene.radius.min(400.0);
                 let light_view = look_at(focus + sun * depth_range, focus, Vec3::Z);
-                let texel = 2.0 * extent / SHADOW_SIZE as f32;
+                let texel = 2.0 * extent / self.shadow_size as f32;
                 let c = light_view.transform_point3(focus);
                 let snap = Vec3::new((c.x / texel).round() * texel - c.x, (c.y / texel).round() * texel - c.y, 0.0);
                 let light_vp = orthographic(extent, 0.1, depth_range * 2.0) * Mat4::from_translation(snap) * light_view;

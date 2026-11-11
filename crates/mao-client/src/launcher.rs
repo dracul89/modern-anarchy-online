@@ -385,7 +385,7 @@ impl ApplicationHandler for Launcher {
         let size = if small { PhysicalSize::new(1000, 640) } else { PhysicalSize::new(self.settings.width, self.settings.height) };
         let window = Arc::new(event_loop.create_window(Window::default_attributes().with_title("Modern Anarchy Online").with_window_icon(crate::icon::window_icon()).with_inner_size(size)).expect("a window"));
         if !small {
-            crate::viewer::apply_mode(&window, self.settings.mode);
+            crate::viewer::apply_mode(&window, self.settings.mode, self.settings.monitor);
         }
         let instance = wgpu::Instance::default();
         let surface = instance.create_surface(window.clone()).expect("a surface");

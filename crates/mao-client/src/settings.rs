@@ -478,6 +478,14 @@ pub struct Settings {
     pub height: u32,
     /// The graphics device by its name (`mao_render::adapter_names`); empty for the system's choice.
     pub adapter: String,
+    /// The most frames a second (0: no limit beyond the monitor's when `vsync` is on), and the most while the window is
+    /// not the one in front (0: the same).
+    pub fps_limit: u32,
+    pub background_fps: u32,
+    /// The sun's shadows: off, or from a small, middling or large shadow map.
+    pub shadows: mao_render::Shadows,
+    /// The monitor a borderless or full-screen window covers (0: the one the window is on; else the system's n-th).
+    pub monitor: u32,
     /// The original game's folder (the one with `cd_image` in it), which the client reads everything from; the launcher's
     /// settings set it, and the launcher started without a folder uses it.
     pub game_dir: String,
@@ -529,8 +537,23 @@ pub const DEFAULT_SHADOWLANDS_MAP: &str = "SLmap/SLmap.txt";
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { mode: WindowMode::Windowed, width: 1280, height: 800, adapter: String::new(), game_dir: String::new(), vsync: false, render_scale: 1.0, sharpness: 0.2, antialiasing: mao_render::Antialiasing::default(), ui_scale: 1.0, view_distance: 1800.0, char_distance: 0.0, auto_loot: false, theme: "original".into(), aou_mod: String::new(), gui_dir: String::new(), debug_overlay: false, perf_overlay: false, original_font: true, camera_mode: "rubber".into(), planet_map: DEFAULT_PLANET_MAP.into(), shadowlands_map: DEFAULT_SHADOWLANDS_MAP.into(), pet_buttons: true, fixed_pet_buttons: false, keymap: Keymap::default() }
+        Settings { mode: WindowMode::Windowed, width: 1280, height: 800, adapter: String::new(), game_dir: String::new(), fps_limit: 0, background_fps: 30, shadows: mao_render::Shadows::High, monitor: 0, vsync: false, render_scale: 1.0, sharpness: 0.2, antialiasing: mao_render::Antialiasing::default(), ui_scale: 1.0, view_distance: 1800.0, char_distance: 0.0, auto_loot: false, theme: "original".into(), aou_mod: String::new(), gui_dir: String::new(), debug_overlay: false, perf_overlay: false, original_font: true, camera_mode: "rubber".into(), planet_map: DEFAULT_PLANET_MAP.into(), shadowlands_map: DEFAULT_SHADOWLANDS_MAP.into(), pet_buttons: true, fixed_pet_buttons: false, keymap: Keymap::default() }
     }
+}
+
+/// The frame limit in force: the background's while the window is not in front and has one, else the general one; none
+/// when that is 0.
+pub fn frame_limit(limit: u32, background: u32, focused: bool) -> Option<u32> {
+    let fps = if !focused && background != 0 { if limit != 0 { background.min(limit) } else { background } } else { limit };
+    (fps != 0).then_some(fps)
+}
+
+/// When the next frame is due under a limit: a step after the last one was, or now when that is already more than a
+/// step ago (a slow frame is not made up for with a burst).
+pub fn next_frame_due(last_due: std::time::Instant, now: std::time::Instant, fps: u32) -> std::time::Instant {
+    let step = std::time::Duration::from_secs_f64(1.0 / fps.max(1) as f64);
+    let due = last_due + step;
+    if due + step < now { now } else { due }
 }
 
 impl Settings {
@@ -583,7 +606,7 @@ impl Settings {
     /// The settings text: the window options, then every action's keys.
     pub fn to_text(&self) -> String {
         let mut out = String::from("; Modern Anarchy Online settings\n[window]\n; windowed | borderless | fullscreen (F11 / Alt+Enter change it while playing)\n");
-        out += &format!("mode = {}\nwidth = {}\nheight = {}\n; the graphics device (empty: the system's choice; the launcher's settings list them)\nadapter = {}\nvsync = {}\nrender_scale = {}\nsharpness = {}\nantialiasing = {}\nui_scale = {}\nview_distance = {}\nchar_distance = {}\nauto_loot = {}\n\n", self.mode.name(), self.width, self.height, self.adapter, if self.vsync { "on" } else { "off" }, self.render_scale, self.sharpness, self.antialiasing.name(), self.ui_scale, self.view_distance, self.char_distance, if self.auto_loot { "on" } else { "off" });
+        out += &format!("mode = {}\nwidth = {}\nheight = {}\n; the graphics device (empty: the system's choice; the launcher's settings list them)\nadapter = {}\nvsync = {}\n; the most frames a second (0: no limit), and while the window is not in front (0: the same)\nfps_limit = {}\nbackground_fps = {}\n; off | low | medium | high\nshadows = {}\n; the monitor a borderless or full-screen window covers (0: the window's own)\nmonitor = {}\nrender_scale = {}\nsharpness = {}\nantialiasing = {}\nui_scale = {}\nview_distance = {}\nchar_distance = {}\nauto_loot = {}\n\n", self.mode.name(), self.width, self.height, self.adapter, if self.vsync { "on" } else { "off" }, self.fps_limit, self.background_fps, self.shadows.name(), self.monitor, self.render_scale, self.sharpness, self.antialiasing.name(), self.ui_scale, self.view_distance, self.char_distance, if self.auto_loot { "on" } else { "off" });
         out += &format!("[interface]\n; built-in | original | aou_translucent | aou_cyt | aou_slim_cni | aou_slim_cnt | a folder with GUIColors.xml\ntheme = {}\n; the AOU mod's folder (the one with Gui in it), for its themes\naou_mod = {}\n; a skin folder (Graphics.uvga and Graphics.uvgi, as the original's Gui/<skin> folders), used before the theme's and the game's own pictures\ngui_dir = {}\n; show the location and coordinates, the frame rate and key hints over the game (for developers)\ndebug_overlay = {}\n; the frame rate, processor, memory and graphics card over the game (/perf)\nperf_overlay = {}\n; the chat lines in the original's own bitmap font\noriginal_font = {}\n; the third-person camera: lock (stays behind the character), rubber (swings round behind it), trail (slowly)\ncamera_mode = {}\n; the planet maps: an index file under a maps' folder (the client's PlanetMap folder, then the game's textures/PlanetMap)\nplanet_map = {}\nshadowlands_map = {}\n\n", self.theme, self.aou_mod, self.gui_dir, if self.debug_overlay { "on" } else { "off" }, if self.perf_overlay { "on" } else { "off" }, if self.original_font { "on" } else { "off" }, self.camera_mode, self.planet_map, self.shadowlands_map);
         out += &format!("; the pet window: the buttons beside each pet's bar, and the pets in fixed rows by their kind\npet_buttons = {}\nfixed_pet_buttons = {}\n\n", if self.pet_buttons { "on" } else { "off" }, if self.fixed_pet_buttons { "on" } else { "off" });
         out += &format!("[game]\n; the original game's folder (the one with cd_image in it); the launcher's settings set it\ndir = {}\n\n", self.game_dir);
@@ -622,6 +645,10 @@ impl Settings {
                     None => eprintln!("settings line {}: unknown window mode {value:?}", n + 1),
                 },
                 ("window", "adapter") => settings.adapter = value.to_string(),
+                ("window", "fps_limit") => settings.fps_limit = value.parse().unwrap_or(settings.fps_limit).min(1000),
+                ("window", "background_fps") => settings.background_fps = value.parse().unwrap_or(settings.background_fps).min(1000),
+                ("window", "shadows") => settings.shadows = mao_render::Shadows::from_name(value).unwrap_or(settings.shadows),
+                ("window", "monitor") => settings.monitor = value.parse().unwrap_or(settings.monitor).min(16),
                 ("window", "width") => settings.width = value.parse().unwrap_or(settings.width).clamp(320, 16384),
                 ("window", "render_scale") => settings.render_scale = value.parse().unwrap_or(settings.render_scale).clamp(0.4, 1.0),
                 ("window", "antialiasing") => settings.antialiasing = mao_render::Antialiasing::from_name(value).unwrap_or(settings.antialiasing),
@@ -731,6 +758,23 @@ impl Settings {
 
 #[cfg(test)]
 mod tests {
+    /// The frame limit: the general one in front, the background's behind (never above the general one), none at 0.
+    #[test]
+    fn the_frame_limit_follows_the_windows_place() {
+        use super::{frame_limit, next_frame_due};
+        assert_eq!(frame_limit(0, 30, true), None);
+        assert_eq!(frame_limit(144, 30, true), Some(144));
+        assert_eq!(frame_limit(144, 30, false), Some(30));
+        assert_eq!(frame_limit(20, 30, false), Some(20));
+        assert_eq!(frame_limit(0, 30, false), Some(30));
+        assert_eq!(frame_limit(60, 0, false), Some(60));
+        let start = std::time::Instant::now();
+        let ms = std::time::Duration::from_millis;
+        // (on time: a step after the last; far behind: now)
+        assert_eq!(next_frame_due(start, start + ms(5), 100), start + ms(10));
+        assert_eq!(next_frame_due(start, start + ms(500), 100), start + ms(500));
+    }
+
     use super::*;
 
     #[test]

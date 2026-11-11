@@ -94,7 +94,7 @@ fn shadow_at(world: vec3<f32>, n: vec3<f32>) -> f32 {
     let p = world + n * (facing * globals.params.y * 2.0);
     let clip = globals.light_vp * vec4<f32>(p, 1.0);
     let uv = vec2<f32>(clip.x * 0.5 + 0.5, 0.5 - clip.y * 0.5);
-    let step = 1.0 / 4096.0;
+    let step = 1.0 / f32(textureDimensions(shadow_map).x);
     var sum = 0.0;
     for (var i = -1; i <= 1; i = i + 1) {
         for (var j = -1; j <= 1; j = j + 1) {

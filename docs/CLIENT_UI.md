@@ -795,6 +795,24 @@ down. Here the angle is kept as a 4:3 window has it and a wider window sees the 
 past the hall's walls to the space outside it (kept so: the user chose the full width over black bars at the sides). Seen: the launcher beside the user's picture of the original's, the
 three settings pages, PLAY into the login, the hall at 16:9 and at 32:9.
 
+**The launcher's Visual page, second pass (2026-11-11, `launchwindow.rs`, `settings.rs`, `mao_render::Shadows`).**
+Asked what belongs on the page, the user chose to have it reworked first. New settings, each honoured by the game's
+window: a **frame limit** (`fps_limit`: none, 60, 100, 120, 144, 240 a second; 100 is where the original stopped) and
+a lower one **while the window is not in front** (`background_fps`, 30 unless changed): `viewer.rs` asks for a frame
+only when one is due and waits until then (`settings::frame_limit`, `next_frame_due`), where it drew as fast as the
+present mode allowed; the **sun's shadows** off, low, medium or high (`shadows`): the shadow map's side is 1024, 2048
+or 4096 texels (`Renderer::set_shadows` makes the map anew; the shader reads the map's size, which was written into
+it as 4096); the **monitor** a borderless or full-screen window covers (`monitor`: the window's own, or the system's
+n-th; `apply_mode`). The page itself: four **presets** (Low, Medium, High, Ultra) set the edges' smoothing, the
+shadows, the drawing scale and the two distances, and the one whose values the settings have is marked; the drawing
+scale is a list of the upscaler's own steps (Native, Ultra quality 77%, Quality 67%, Balanced 59%, Performance 50%)
+in the slider's place, and the sharpening shows only below 100%; the character distance is there (it was only in
+the game's options); the size's fields are greyed in the borderless and full-screen modes, which take the monitor's
+size; the smoothing's choices have the names players know (Off, MSAA 4x, TAA). Seen: the page in both window modes;
+live with a limit of 60 and low shadows, the performance overlay read 60 frames a second at 16.6 ms with the wait
+for the monitor off. Not done: the same settings in the game's own options window, a steadier frame pacing (the
+limit waits on the system's timer: the overlay's slowest hundredth was 27 ms).
+
 **The hall behind the login and the character list, as the original has it (2026-11-11, `hall.rs`, `launcher.rs`).**
 The hall drawn behind the login earlier the same day was the wrong view: the first place of `CharCreateCamera.dat`
 is the character creation's corridor. The original's login has a world of its own, GUI.dll's `LoginWorld_c`
