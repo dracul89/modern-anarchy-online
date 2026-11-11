@@ -593,6 +593,10 @@ struct App {
     mouse_look: (f32, f32),
     wheel: f32,
     cam_reset: bool,
+    /// The shadows the renderer was last given and the wait for the monitor's refresh the surface was last set up
+    /// with (the options window changes the settings' while playing).
+    applied_shadows: mao_render::Shadows,
+    applied_vsync: bool,
     /// The window is the one in front, and when the next frame is due under the settings' frame limit.
     focused: bool,
     frame_due: std::time::Instant,
@@ -776,6 +780,16 @@ pub fn fog_for(distance: f32) -> (f32, f32) {
 /// Shows the window the way `mode` says: a framed window, a borderless one
 /// covering the screen, or exclusive fullscreen at the monitor's best video
 /// mode (falling back to borderless where there is none).
+/// How the window's pictures are handed over: waiting for the monitor's refresh with `vsync`, else as they come
+/// (Immediate, else Mailbox, else the always-available Fifo).
+fn present_mode(surface: &wgpu::Surface, gpu: &Gpu, vsync: bool) -> wgpu::PresentMode {
+    if vsync {
+        return wgpu::PresentMode::Fifo;
+    }
+    let modes = surface.get_capabilities(&gpu.adapter).present_modes;
+    [wgpu::PresentMode::Immediate, wgpu::PresentMode::Mailbox].into_iter().find(|m| modes.contains(m)).unwrap_or(wgpu::PresentMode::Fifo)
+}
+
 /// Puts the window in a mode. `monitor` is the settings' choice for the borderless and full-screen modes: 0 the monitor
 /// the window is on, else the system's n-th (the window's own when there is no such monitor).
 pub(crate) fn apply_mode(window: &Window, mode: WindowMode, monitor: u32) {
@@ -807,7 +821,7 @@ pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<()
     let settings = Settings::load();
     crate::ui::set_debug_overlay(settings.debug_overlay);
     crate::font::set_enabled(settings.original_font);
-    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, world_in: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), flares: Vec::new(), falls: None, area_fog_base: None, sky: Default::default(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), fxs_frame: None, script_meshes: Default::default(), named_sheets: Default::default(), trails: Default::default(), motions: Default::default(), shake: (0.0, 0), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, zones: None, collision: None, camera_body: crate::vehicle::Body::without_gravity(), look_target: Default::default(), interior: None, rooms_shown: Vec::new(), room_hint: None, attractor_at: std::time::Instant::now(), casters: Vec::new(), character_parts: Vec::new(), highlight_runs: Default::default(), highlight_fades: Default::default(), follow_shift: [0.0; 3], environment: Default::default(), quake: Default::default(), quake_offset: [0.0; 3], wind: Default::default(), wind_at: std::time::Instant::now(), perf_memory_at: std::time::Instant::now() - std::time::Duration::from_secs(10), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, focused: true, frame_due: std::time::Instant::now(), keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), script_moves: Default::default(), camera_script: std::env::var("MAO_CAMERA_SCRIPT").ok().map_or_else(Vec::new, |v| v.split(',').filter_map(|s| s.split_once(':').and_then(|(t, c)| Some((t.trim().parse().ok()?, c.trim().to_string())))).collect()), script_clock: std::time::Instant::now(), script_held: Vec::new(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
+    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, world_in: false, last_follow: std::time::Instant::now(), auras: Vec::new(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), flares: Vec::new(), falls: None, area_fog_base: None, sky: Default::default(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), fxs_frame: None, script_meshes: Default::default(), named_sheets: Default::default(), trails: Default::default(), motions: Default::default(), shake: (0.0, 0), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, zones: None, collision: None, camera_body: crate::vehicle::Body::without_gravity(), look_target: Default::default(), interior: None, rooms_shown: Vec::new(), room_hint: None, attractor_at: std::time::Instant::now(), casters: Vec::new(), character_parts: Vec::new(), highlight_runs: Default::default(), highlight_fades: Default::default(), follow_shift: [0.0; 3], environment: Default::default(), quake: Default::default(), quake_offset: [0.0; 3], wind: Default::default(), wind_at: std::time::Instant::now(), perf_memory_at: std::time::Instant::now() - std::time::Duration::from_secs(10), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, applied_shadows: settings.shadows, applied_vsync: settings.vsync, focused: true, frame_due: std::time::Instant::now(), keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), script_moves: Default::default(), camera_script: std::env::var("MAO_CAMERA_SCRIPT").ok().map_or_else(Vec::new, |v| v.split(',').filter_map(|s| s.split_once(':').and_then(|(t, c)| Some((t.trim().parse().ok()?, c.trim().to_string())))).collect()), script_clock: std::time::Instant::now(), script_held: Vec::new(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
     // (entering the game: the loading screen, `ServerLogin3DModule_t::InitialiseMessage`)
     if app.live.is_some() {
         crate::loading::begin(crate::loading::FADE_IN, crate::loading::FADE_OUT);
@@ -1003,13 +1017,8 @@ impl ApplicationHandler for App {
         let gpu = Gpu::new(instance, Some(&surface)).expect("a graphics device");
         let size = window.inner_size();
         let mut config = surface.get_default_config(&gpu.adapter, size.width.max(1), size.height.max(1)).expect("a surface format");
-        // Uncapped unless `vsync = on`: Immediate, else Mailbox, else the always-available Fifo.
-        let modes = surface.get_capabilities(&gpu.adapter).present_modes;
-        config.present_mode = if self.settings.vsync {
-            wgpu::PresentMode::Fifo
-        } else {
-            [wgpu::PresentMode::Immediate, wgpu::PresentMode::Mailbox].into_iter().find(|m| modes.contains(m)).unwrap_or(wgpu::PresentMode::Fifo)
-        };
+        config.present_mode = present_mode(&surface, &gpu, self.settings.vsync);
+        crate::ui::set_monitors(crate::launchwindow::monitor_names(&window));
         eprintln!("present mode: {:?}", config.present_mode);
         surface.configure(&gpu.device, &config);
         let mut renderer = Renderer::new(&gpu, config.format);
@@ -2226,6 +2235,14 @@ impl ApplicationHandler for App {
                     }
                 }
                 prof_t = crate::prof::lap("update", prof_t);
+                // (the wait for the monitor's refresh, when the options window changed it: the surface is set up anew
+                // between two frames, before this one's picture is taken from it)
+                if self.applied_vsync != self.settings.vsync {
+                    self.applied_vsync = self.settings.vsync;
+                    w.config.present_mode = present_mode(&w.surface, &w.gpu, self.settings.vsync);
+                    w.surface.configure(&w.gpu.device, &w.config);
+                    eprintln!("present mode: {:?}", w.config.present_mode);
+                }
                 let frame = match w.surface.get_current_texture() {
                     wgpu::CurrentSurfaceTexture::Success(frame) | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
                     _ => {
@@ -2265,6 +2282,13 @@ impl ApplicationHandler for App {
                 w.renderer.render_scale = self.settings.render_scale;
                 w.renderer.sharpness = self.settings.sharpness;
                 w.renderer.antialiasing = self.settings.antialiasing;
+                // (the options window's other choices, each as it changes: the shadow map made anew at its size, the
+                // textures uploaded from now on in blocks or plain, the wait for the monitor's refresh)
+                if self.applied_shadows != self.settings.shadows {
+                    self.applied_shadows = self.settings.shadows;
+                    w.renderer.set_shadows(&w.gpu, self.settings.shadows);
+                }
+                w.renderer.compress_textures = self.settings.texture_compression;
                 // The camera stays above the ground (else the ground's back is culled and the sky shows through it).
                 let mut camera = w.camera;
                 // (a ground shake moves the eye by a random vector of its size each frame: `n3Camera_t` +0x1d4)
@@ -2686,6 +2710,9 @@ impl ApplicationHandler for App {
                         self.settings.gui_dir = dir;
                         ui.set_skin(&self.settings);
                         self.settings.save();
+                    }
+                    if let Some(preset) = requests.preset {
+                        preset.apply(&mut self.settings);
                     }
                     if let Some(mode) = requests.mode {
                         self.settings.mode = mode;

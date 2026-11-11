@@ -795,6 +795,23 @@ down. Here the angle is kept as a 4:3 window has it and a wider window sees the 
 past the hall's walls to the space outside it (kept so: the user chose the full width over black bars at the sides). Seen: the launcher beside the user's picture of the original's, the
 three settings pages, PLAY into the login, the hall at 16:9 and at 32:9.
 
+**The video settings in the game's own options window (2026-11-11, `ui.rs::options_window`, `viewer.rs`).**
+What the launcher's Visual page sets can now be set while playing, in the client's options window (the key for the
+options, or "Client settings" on the original's option panel). Its Window part has the monitor a borderless or
+full-screen window covers; a Quality part has the four presets, the edges' smoothing, the shadows (off, low, medium,
+high), "Compressed textures", the drawing scale as the upscaler's named steps where a free slider was, the
+sharpening (only below 100%, and now more to the right, in the launcher too, where it counted the other way), and
+the two distances; a Frame rate part has the wait for the monitor's refresh, the limit and the background's. Each
+is taken as it is changed: the shadow map is made anew at its size, the surface is set up again for the wait (between
+two frames: done in the middle of one, wgpu refuses it, which the first live try showed), a monitor chosen moves the
+window there, the frame limit holds from the next frame. Two wait for more: compressed textures hold for the
+textures loaded from then on, so wholly after the next zone, and the graphics device is the launcher's to choose.
+The settings are written when "Save settings" is pressed, as the window's others are.
+Tried live by script (`open@options` opens the window; it is centred, so a row that comes or goes moves the rows
+above it up and those below down by half its height): the Low preset drew the scene at 59% without smoothing at
+once, the shadows went from off to high, the wait for the refresh went on and off again with the log's "present
+mode" lines. Not tried: the monitor list with a second monitor, the limit's lists by hand.
+
 **The textures block-compressed on the card (2026-11-11, `mao_render::block_levels`, `[window] texture_compression`).**
 The fourth of the renderer's optimisations, for the video memory: the textures were kept as 32 bits a texel, and
 Arete Landing with its new 4096-texel textures held 5.4 GB. Now a texture is encoded into the card's block formats
@@ -903,7 +920,7 @@ in the slider's place, and the sharpening shows only below 100%; the character d
 the game's options); the size's fields are greyed in the borderless and full-screen modes, which take the monitor's
 size; the smoothing's choices have the names players know (Off, MSAA 4x, TAA). Seen: the page in both window modes;
 live with a limit of 60 and low shadows, the performance overlay read 60 frames a second at 16.6 ms with the wait
-for the monitor off. Not done: the same settings in the game's own options window, a steadier frame pacing (the
+for the monitor off. The same settings came to the game's own options window later that day (see above). Not done: a steadier frame pacing (the
 limit waits on the system's timer: the overlay's slowest hundredth was 27 ms).
 
 **The hall behind the login and the character list, as the original has it (2026-11-11, `hall.rs`, `launcher.rs`).**

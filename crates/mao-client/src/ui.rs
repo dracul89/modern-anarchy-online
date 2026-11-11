@@ -199,6 +199,8 @@ pub struct Requests {
     pub gui_dir: Option<String>,
     pub mode: Option<WindowMode>,
     pub size: Option<(u32, u32)>,
+    /// A quality preset picked in the options window.
+    pub preset: Option<crate::launchwindow::Preset>,
     pub save: bool,
     pub quit: bool,
     /// A hotbar slot clicked with the mouse.
@@ -843,6 +845,7 @@ impl Ui {
             "whompah" | "whom-pah" | "travel" => &mut self.whompah_open,
             "loot" | "container" => &mut self.loot.open,
             "optionpanel" | "option panel" => &mut self.option_panel.open,
+            "options" | "client settings" => &mut self.options_open,
             _ => return false,
         };
         *flag = open;
@@ -2041,7 +2044,16 @@ fn target_frame(ctx: &egui::Context, skin: &crate::skin::Skin, bar: &TargetBar, 
     });
 }
 
-/// The options window: how the window is shown, its size, and the keys.
+/// The system's monitors by name (`launchwindow::monitor_names`), told by the game's window when it opens, for the
+/// options' Monitor list.
+static MONITORS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+pub fn set_monitors(names: Vec<String>) {
+    *MONITORS.lock().unwrap_or_else(|e| e.into_inner()) = names;
+}
+
+/// The options window: how the window is shown, its size, the picture's quality and the frame rate (the launcher's
+/// Visual page while playing: `viewer.rs` takes each change as it is made), the interface, and the keys.
 fn options_window(ctx: &egui::Context, open: &mut bool, rebinding: &mut Option<Action>, settings: &mut Settings, requests: &mut Requests, palette: &Palette, themes: &[String]) {
     let mut is_open = *open;
     let mut close = false;
@@ -2064,23 +2076,67 @@ fn options_window(ctx: &egui::Context, open: &mut bool, rebinding: &mut Option<A
             }
         });
         ui.horizontal(|ui| {
-            ui.label("Render scale");
-            ui.add(egui::Slider::new(&mut settings.render_scale, 0.4..=1.0).step_by(0.01).custom_formatter(|v, _| format!("{:.0}%", v * 100.0)));
-            ui.label(egui::RichText::new("(below 100% the scene is upscaled with AMD FSR 1)").weak());
+            // (the monitor a borderless or full-screen window covers; in a window it is where the window stands)
+            let monitors = MONITORS.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            ui.add_enabled_ui(settings.mode != WindowMode::Windowed, |ui| {
+                ui.label("Monitor");
+                let before = settings.monitor;
+                egui::ComboBox::from_id_salt("options-monitor").selected_text(crate::launchwindow::monitor_choice(settings.monitor, &monitors)).width(240.0).show_ui(ui, |ui| {
+                    for i in 0..=monitors.len() as u32 {
+                        ui.selectable_value(&mut settings.monitor, i, crate::launchwindow::monitor_choice(i, &monitors));
+                    }
+                });
+                if settings.monitor != before {
+                    requests.mode = Some(settings.mode);
+                }
+            });
+        });
+        ui.separator();
+        ui.heading("Quality");
+        ui.horizontal(|ui| {
+            for preset in crate::launchwindow::Preset::ALL {
+                if ui.selectable_label(preset.matches(settings), preset.name()).clicked() {
+                    requests.preset = Some(preset);
+                }
+            }
+            ui.label(egui::RichText::new("(each sets the edges, the shadows, the drawing scale and the two distances)").weak());
         });
         ui.horizontal(|ui| {
-            ui.label("Anti-aliasing");
+            ui.label("Edges");
             for (aa, label) in [(mao_render::Antialiasing::Off, "Off"), (mao_render::Antialiasing::Msaa, "MSAA 4x"), (mao_render::Antialiasing::Taa, "TAA")] {
                 ui.radio_value(&mut settings.antialiasing, aa, label);
             }
             ui.label(egui::RichText::new("(TAA: smoother edges and less shimmer on plants and fences; a little softer)").weak());
         });
         ui.horizontal(|ui| {
-            ui.label("Sharpness");
-            ui.add(egui::Slider::new(&mut settings.sharpness, 0.0..=2.0).text("stops down").step_by(0.05));
+            ui.label("Shadows");
+            for (value, label) in [(mao_render::Shadows::Off, "Off"), (mao_render::Shadows::Low, "Low"), (mao_render::Shadows::Medium, "Medium"), (mao_render::Shadows::High, "High")] {
+                ui.radio_value(&mut settings.shadows, value, label);
+            }
         });
-        ui.separator();
-        ui.heading("Interface");
+        ui.horizontal(|ui| {
+            crate::chrome::checkbox(ui, palette, &mut settings.texture_compression, "Compressed textures");
+            ui.label(egui::RichText::new("(a quarter of the video memory; for the textures loaded from now on, all of them after the next zone)").weak());
+        });
+        ui.horizontal(|ui| {
+            ui.label("Drawing scale");
+            egui::ComboBox::from_id_salt("options-scale").selected_text(crate::launchwindow::scale_name(settings.render_scale)).width(170.0).show_ui(ui, |ui| {
+                for (scale, _) in crate::launchwindow::SCALES {
+                    ui.selectable_value(&mut settings.render_scale, scale, crate::launchwindow::scale_name(scale));
+                }
+            });
+            ui.label(egui::RichText::new("(below 100% the scene is drawn smaller and upscaled with AMD FSR 1)").weak());
+        });
+        if settings.render_scale < 0.999 {
+            ui.horizontal(|ui| {
+                ui.label("Sharpening");
+                // (the setting counts stops down from the sharpest: shown the other way round, more to the right)
+                let mut sharpening = 2.0 - settings.sharpness.clamp(0.0, 2.0);
+                if ui.add(egui::Slider::new(&mut sharpening, 0.0..=2.0).step_by(0.05).show_value(false)).changed() {
+                    settings.sharpness = 2.0 - sharpening;
+                }
+            });
+        }
         ui.horizontal(|ui| {
             ui.label("View distance");
             ui.add(egui::Slider::new(&mut settings.view_distance, 200.0..=4000.0).logarithmic(true).step_by(10.0));
@@ -2089,6 +2145,26 @@ fn options_window(ctx: &egui::Context, open: &mut bool, rebinding: &mut Option<A
             ui.label("Character distance");
             ui.add(egui::Slider::new(&mut settings.char_distance, 0.0..=400.0).step_by(5.0).custom_formatter(|v, _| if v < 1.0 { "all".to_string() } else { format!("{v:.0}") }));
         });
+        ui.separator();
+        ui.heading("Frame rate");
+        crate::chrome::checkbox(ui, palette, &mut settings.vsync, "Wait for the monitor's refresh (VSync)");
+        ui.horizontal(|ui| {
+            ui.label("Limit");
+            egui::ComboBox::from_id_salt("options-limit").selected_text(crate::launchwindow::limit_name(settings.fps_limit, "None")).width(120.0).show_ui(ui, |ui| {
+                for fps in crate::launchwindow::FRAME_LIMITS {
+                    ui.selectable_value(&mut settings.fps_limit, fps, crate::launchwindow::limit_name(fps, "None"));
+                }
+            });
+            ui.label("In the background");
+            egui::ComboBox::from_id_salt("options-background").selected_text(crate::launchwindow::limit_name(settings.background_fps, "The same")).width(120.0).show_ui(ui, |ui| {
+                for fps in crate::launchwindow::BACKGROUND_LIMITS {
+                    ui.selectable_value(&mut settings.background_fps, fps, crate::launchwindow::limit_name(fps, "The same"));
+                }
+            });
+        });
+        ui.label(egui::RichText::new("The graphics device is chosen in the launcher's settings.").weak());
+        ui.separator();
+        ui.heading("Interface");
         crate::chrome::checkbox(ui, palette, &mut settings.perf_overlay, "Show performance: frame rate, processor, memory and graphics card (/perf)");
         crate::chrome::checkbox(ui, palette, &mut settings.auto_loot, "Take everything from a corpse as soon as it opens");
         if crate::chrome::checkbox(ui, palette, &mut settings.original_font, "The original's chat font (its own 9 px bitmap font)").changed() {

@@ -363,7 +363,7 @@ impl Dialog {
             ui.add_enabled_ui(!sized, |ui| {
                 ui.horizontal(|ui| {
                     ui.label("Monitor");
-                    let name = |i: u32, monitors: &[String]| if i == 0 { "The one the window is on".to_string() } else { monitors.get(i as usize - 1).cloned().unwrap_or_else(|| format!("Monitor {i}")) };
+                    let name = monitor_choice;
                     egui::ComboBox::from_id_salt("launcher-monitors").selected_text(name(self.settings.monitor, &self.monitors)).width(220.0).show_ui(ui, |ui| {
                         for i in 0..=self.monitors.len() as u32 {
                             ui.selectable_value(&mut self.settings.monitor, i, name(i, &self.monitors));
@@ -405,7 +405,11 @@ impl Dialog {
             });
             // (the sharpening is the upscaler's: it does nothing at the window's own size)
             if self.settings.render_scale < 0.999 {
-                ui.add(egui::Slider::new(&mut self.settings.sharpness, 0.0..=2.0).text("Sharpening (0 is the most)").fixed_decimals(1));
+                // (the setting counts stops down from the sharpest: shown the other way round, more to the right)
+                let mut sharpening = 2.0 - self.settings.sharpness.clamp(0.0, 2.0);
+                if ui.add(egui::Slider::new(&mut sharpening, 0.0..=2.0).step_by(0.05).show_value(false).text("Sharpening")).changed() {
+                    self.settings.sharpness = 2.0 - sharpening;
+                }
             }
             ui.add(egui::Slider::new(&mut self.settings.view_distance, 150.0..=6000.0).text("View distance").fixed_decimals(0));
             ui.add(egui::Slider::new(&mut self.settings.char_distance, 0.0..=400.0).step_by(5.0).custom_formatter(|v, _| if v < 1.0 { "all".to_string() } else { format!("{v:.0}") }).text("Character distance"));
@@ -414,7 +418,6 @@ impl Dialog {
             ui.set_width(ui.available_width());
             ui.strong("Frame rate");
             ui.checkbox(&mut self.settings.vsync, "Wait for the monitor's refresh (VSync)");
-            let limit_name = |fps: u32, none: &str| if fps == 0 { none.to_string() } else { format!("{fps} a second") };
             ui.horizontal(|ui| {
                 ui.label("Limit");
                 egui::ComboBox::from_id_salt("launcher-limit").selected_text(limit_name(self.settings.fps_limit, "None")).width(120.0).show_ui(ui, |ui| {
@@ -725,8 +728,22 @@ impl Launch {
 /// The sizes of the monitor the window is on (its video modes and its own) and every monitor's name with its size.
 fn screens(window: &Window) -> Screens {
     let sizes = window.current_monitor().map(|m| m.video_modes().map(|v| (v.size().width, v.size().height)).chain(std::iter::once((m.size().width, m.size().height))).collect()).unwrap_or_default();
-    let monitors = window.available_monitors().enumerate().map(|(i, m)| format!("{}: {} ({}x{})", i + 1, m.name().unwrap_or_else(|| "monitor".into()), m.size().width, m.size().height)).collect();
-    Screens { sizes, monitors }
+    Screens { sizes, monitors: monitor_names(window) }
+}
+
+/// The system's monitors as the settings name them: their number (the settings' `monitor`), name and size.
+pub fn monitor_names(window: &Window) -> Vec<String> {
+    window.available_monitors().enumerate().map(|(i, m)| format!("{}: {} ({}x{})", i + 1, m.name().unwrap_or_else(|| "monitor".into()), m.size().width, m.size().height)).collect()
+}
+
+/// A monitor choice's name: 0 the window's own, else the system's n-th.
+pub fn monitor_choice(choice: u32, monitors: &[String]) -> String {
+    if choice == 0 { "The one the window is on".to_string() } else { monitors.get(choice as usize - 1).cloned().unwrap_or_else(|| format!("Monitor {choice}")) }
+}
+
+/// A frame limit's name (`none` for 0).
+pub fn limit_name(fps: u32, none: &str) -> String {
+    if fps == 0 { none.to_string() } else { format!("{fps} a second") }
 }
 
 #[cfg(windows)]
@@ -1035,6 +1052,12 @@ mod tests {
         assert_eq!(scale_name(0.77), "Ultra quality (77%)");
         assert_eq!(scale_name(1.0), "Native (100%)");
         assert_eq!(scale_name(0.9), "90%");
+        // (the names the launcher's page and the game's options window share for a monitor and a frame limit)
+        let monitors = vec!["1: Left (2560x1440)".to_string()];
+        assert_eq!(monitor_choice(0, &monitors), "The one the window is on");
+        assert_eq!(monitor_choice(1, &monitors), "1: Left (2560x1440)");
+        assert_eq!(monitor_choice(3, &monitors), "Monitor 3");
+        assert_eq!((limit_name(0, "None"), limit_name(144, "None")), ("None".to_string(), "144 a second".to_string()));
     }
 
     #[test]
