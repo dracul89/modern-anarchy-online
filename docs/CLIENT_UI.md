@@ -572,6 +572,18 @@ own Recruit button goes; after the kick the window is back to "no team" (a team 
 the team search window's invite (FUN_100f08c8), the raid window's same menu (FUN_10102740) and the team's side in the
 header. The test script got `teamreply@yes|no` and `teamleave@`.
 
+**The playfield map shows the ground (2026-11-10, `automap.rs`).** The round map in the corner showed the planet
+map's picture for a playfield that is on it. The original's playfield map (`playfield_map_view`, the "PF Map" window)
+is not that: GUI.dll's `PFMapGroundRenderer_c` (FUN_10047964) draws the ground from above, each ground patch's own
+texture (`AnarchyGroundData_t::CreateHiTexture`, with a second texture of the patch's when it has one) multiplied
+over the patch's shadow texture (`AnarchyGround_t::GetShadowTexture`) lightened with white at 0xbb. The client now
+builds that picture when a playfield loads (`automap::ground_picture`: every cell's tile texture, turned as the
+ground's model turns it, shrunk so that the whole ground is at most 2048 pixels across; Old Athens is 1792 by 1792
+and takes about 23 ms) and the corner map and the overlay show it. The planet map's picture stays the planet map
+window's, and stands in on the corner map only if a playfield on it has no ground; interiors keep the walked map.
+Not done: the shadow layer (the ground is drawn unshaded), and the patch's second texture. Seen live in Old Athens:
+paths, lawns and the plaza where they are around the character.
+
 **Scripted clicks, and what the first scripted live run found (2026-11-10, `ui.rs::Ui::script`, `viewer.rs`).**
 `MAO_CAMERA_SCRIPT` steps with an `@` act on the interface as the mouse and keys would, so the windows can be tried
 live without anyone at the keyboard: `open@<window>`, `close@<window>` (`close@` alone: all), `click@<x>;<y>`,

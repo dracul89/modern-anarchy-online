@@ -1,5 +1,9 @@
-//! The map. For a playfield on the original's planet map (`mao_formats::planetmap`: the `PlanetMap` window's tiles and
-//! coordinates, placed as GUI.dll's `PlanetMapView_c` places them) the corner map and the overlay show that picture.
+//! The map. For a playfield with ground the corner map and the overlay show the ground itself from above, as the
+//! original's playfield map does: GUI.dll's `PFMapGroundRenderer_c` (FUN_10047964) draws each ground patch's own
+//! texture (`AnarchyGroundData_t::CreateHiTexture`) over the patch's shadow texture lightened with white
+//! ([`ground_picture`]: the tiles' textures laid out cell by cell; the shadow layer is not drawn). The planet map's
+//! picture (`mao_formats::planetmap`) is the planet map window's, and stands in here only when a playfield on it has
+//! no ground picture.
 //! Elsewhere (interiors, instanced playfields) the map is the client's own, in the style of Diablo 2 and 3's: nothing is
 //! drawn until you have walked past it, walls are bright outlines on a faint floor. The small map in the corner turns
 //! with the camera; the large translucent overlay (toggled with a key) sits over the game view.
@@ -51,12 +55,80 @@ pub struct MapPatch {
     pub cells: Vec<(u32, u16)>,
     /// The playfield, with a new grid (to find it on the planet map).
     pub playfield: Option<u32>,
+    /// The ground from above, with a new grid of a playfield that has ground.
+    pub ground: Option<Ground>,
+}
+
+/// A playfield's ground from above: the picture and the world units it spans (from the world's origin).
+pub struct Ground {
+    pub size: [usize; 2],
+    pub rgba: Vec<u8>,
+    pub extent: [f32; 2],
+}
+
+/// The ground's picture: each cell's tile texture (the terrain's tile word: its index's texture, turned by its top two
+/// bits as the ground's model turns it) shrunk to a few pixels a side, so that the whole ground is at most 2048 pixels
+/// across. `tile` gives a ground texture by its instance: width, height and RGBA.
+pub fn ground_picture(terrain: &Terrain, mut tile: impl FnMut(u32) -> Option<(usize, usize, Vec<u8>)>) -> Ground {
+    let (cw, ch) = (terrain.width - 1, terrain.height - 1);
+    let side = [8usize, 4, 2, 1].into_iter().find(|s| cw.max(ch) * s <= 2048).unwrap_or(1);
+    let (w, h) = (cw * side, ch * side);
+    let mut rgba = vec![0u8; w * h * 4];
+    // (a tile's texture as a block of `side` by `side`, each pixel the mean of its part of the texture)
+    let mut blocks: std::collections::HashMap<u16, Vec<[u8; 3]>> = std::collections::HashMap::new();
+    for cy in 0..ch {
+        for cx in 0..cw {
+            let word = terrain.tiles[cy * cw + cx];
+            let index = word & terrain.mask;
+            let block = blocks.entry(index).or_insert_with(|| {
+                let instance = terrain.tile_types.get(index as usize).copied().unwrap_or(index) as u32;
+                match tile(instance).filter(|t| t.0 > 0 && t.1 > 0 && t.2.len() >= t.0 * t.1 * 4) {
+                    Some((tw, th, pixels)) => (0..side * side)
+                        .map(|k| {
+                            let (bx, by) = (k % side, k / side);
+                            let (x0, x1, y0, y1) = (bx * tw / side, ((bx + 1) * tw / side).max(bx * tw / side + 1).min(tw), by * th / side, ((by + 1) * th / side).max(by * th / side + 1).min(th));
+                            let mut sum = [0u32; 3];
+                            for y in y0..y1 {
+                                for x in x0..x1 {
+                                    for c in 0..3 {
+                                        sum[c] += pixels[(y * tw + x) * 4 + c] as u32;
+                                    }
+                                }
+                            }
+                            let n = ((x1 - x0) * (y1 - y0)).max(1) as u32;
+                            [(sum[0] / n) as u8, (sum[1] / n) as u8, (sum[2] / n) as u8]
+                        })
+                        .collect(),
+                    None => vec![[70, 70, 70]; side * side],
+                }
+            });
+            for sy in 0..side {
+                for sx in 0..side {
+                    // (the place in the cell, and the texture's by the tile's turn: `Terrain::model`'s four)
+                    let (ox, oy) = ((sx as f32 + 0.5) / side as f32, (sy as f32 + 0.5) / side as f32);
+                    let (u, v) = match word & 0xc000 {
+                        0 => (ox, 1.0 - oy),
+                        0x4000 => (1.0 - oy, 1.0 - ox),
+                        0x8000 => (1.0 - ox, oy),
+                        _ => (oy, ox),
+                    };
+                    let (bx, by) = (((u * side as f32) as usize).min(side - 1), ((v * side as f32) as usize).min(side - 1));
+                    let at = ((cy * side + sy) * w + cx * side + sx) * 4;
+                    rgba[at..at + 3].copy_from_slice(&block[by * side + bx]);
+                    rgba[at + 3] = 255;
+                }
+            }
+        }
+    }
+    Ground { size: [w, h], rgba, extent: [cw as f32 * terrain.tile_size, ch as f32 * terrain.tile_size] }
 }
 
 /// The network thread's side: classifies cells as they come into reach.
 pub struct MapBuilder {
     grid: Grid,
     playfield: u32,
+    /// The ground's picture, until the first patch takes it along.
+    ground: Option<Ground>,
     /// The height range of the ground, to scale the shading.
     low: f32,
     span: f32,
@@ -71,10 +143,16 @@ impl MapBuilder {
                 let extent = [(t.width - 1) as f32 * t.tile_size, (t.height - 1) as f32 * t.tile_size];
                 let (lo, hi) = t.heights.iter().fold((u16::MAX, 0u16), |(l, h), &v| (l.min(v), h.max(v)));
                 let to_world = t.height_scale / 256.0;
-                MapBuilder { grid: Grid::new([0.0, 0.0], extent), playfield, low: lo as f32 * to_world, span: ((hi - lo) as f32 * to_world).max(1.0), fresh: true }
+                MapBuilder { grid: Grid::new([0.0, 0.0], extent), playfield, ground: None, low: lo as f32 * to_world, span: ((hi - lo) as f32 * to_world).max(1.0), fresh: true }
             }
-            None => MapBuilder { grid: Grid::new([at[0] - 300.0, at[2] - 300.0], [600.0, 600.0]), playfield, low: at[1] - 20.0, span: 40.0, fresh: true },
+            None => MapBuilder { grid: Grid::new([at[0] - 300.0, at[2] - 300.0], [600.0, 600.0]), playfield, ground: None, low: at[1] - 20.0, span: 40.0, fresh: true },
         }
+    }
+
+    /// The ground's picture, for the first patch to take to the interface.
+    pub fn with_ground(mut self, ground: Option<Ground>) -> MapBuilder {
+        self.ground = ground;
+        self
     }
 
     /// Reveals the cells around `at` (x, height, z); returns what changed. `ground` is the ground's height at a
@@ -119,7 +197,8 @@ impl MapBuilder {
         let reset = self.fresh.then(|| self.grid.clone());
         let playfield = self.fresh.then_some(self.playfield);
         self.fresh = false;
-        (reset.is_some() || !done.is_empty()).then_some(MapPatch { reset, cells: done, playfield })
+        let ground = if reset.is_some() { self.ground.take() } else { None };
+        (reset.is_some() || !done.is_empty()).then_some(MapPatch { reset, cells: done, playfield, ground })
     }
 }
 
@@ -149,8 +228,13 @@ pub struct AutoMap {
     pub mini_at: Option<[f32; 2]>,
     /// The corner map's diameter in points (kept with its place; dragged at its lower right, or Ctrl and the wheel).
     pub mini_size: f32,
+    /// The playfield's ground from above (the original's playfield map): the picture waiting to be a texture, the
+    /// texture, and the world units it spans.
+    ground_image: Option<egui::ColorImage>,
+    ground: Option<(egui::TextureHandle, [f32; 2])>,
+    ground_extent: [f32; 2],
     /// The original's planet map (its biggest level as a texture), drawn in place of the grid for a playfield that is
-    /// on it; tried once.
+    /// on it and has no ground picture; tried once.
     planet: Option<Planet>,
     /// The playfield the planet map was picked for (`planetmaps::for_playfield`: the chosen Rubi-Ka or Shadowlands map).
     planet_tried: Option<u32>,
@@ -191,7 +275,7 @@ struct Planet {
 
 impl Default for AutoMap {
     fn default() -> Self {
-        AutoMap { grid: None, texture: None, dirty: false, last_upload: std::time::Instant::now(), overlay: false, mini_span: 150.0, zoom: 3.0, pan: [0.0; 2], mini_at: load_position(), mini_size: load_size(), planet: None, planet_tried: None, playfield: 0, planet_zoom: PLANET_NATIVE * 2.0, planet_span: 2500.0, land_control: load_land_control(), land_map: None, lc_district: None, controls: None, land_source: None }
+        AutoMap { grid: None, texture: None, dirty: false, last_upload: std::time::Instant::now(), overlay: false, mini_span: 150.0, zoom: 3.0, pan: [0.0; 2], mini_at: load_position(), mini_size: load_size(), ground_image: None, ground: None, ground_extent: [0.0; 2], planet: None, planet_tried: None, playfield: 0, planet_zoom: PLANET_NATIVE * 2.0, planet_span: 2500.0, land_control: load_land_control(), land_map: None, lc_district: None, controls: None, land_source: None }
     }
 }
 
@@ -231,6 +315,12 @@ impl AutoMap {
             self.grid = Some(grid);
             self.texture = None;
             self.pan = [0.0; 2];
+            // (a new playfield: its ground's picture, or none for one without ground)
+            self.ground = None;
+            self.ground_image = patch.ground.map(|g| {
+                self.ground_extent = g.extent;
+                egui::ColorImage::from_rgba_unmultiplied(g.size, &g.rgba)
+            });
         }
         if let Some(pf) = patch.playfield {
             self.playfield = pf;
@@ -289,6 +379,9 @@ impl AutoMap {
                 }
             }
         }
+        if let Some(image) = self.ground_image.take() {
+            self.ground = Some((ctx.load_texture("playfield-map", image, egui::TextureOptions::LINEAR), self.ground_extent));
+        }
         let Some(grid) = &self.grid else { return };
         if self.texture.is_some() && (!self.dirty || self.last_upload.elapsed() < std::time::Duration::from_millis(250)) {
             return;
@@ -305,7 +398,13 @@ impl AutoMap {
     /// Paints the map into `rect`: the world point `center` in its middle, `px_per_unit` pixels to a world unit,
     /// turned so that the camera's way (`yaw`) is up, or north up without one.
     fn paint(&self, painter: &egui::Painter, rect: egui::Rect, center: [f32; 2], px_per_unit: f32, yaw: Option<f32>, circle: bool) {
-        // The planet map when the playfield is on it, else the walked grid.
+        // The ground from above when the playfield has ground; else the planet map when the playfield is on it, else the
+        // walked grid.
+        if let Some((texture, extent)) = &self.ground {
+            let uv = |world: [f32; 2]| egui::pos2(world[0] / extent[0], world[1] / extent[1]);
+            painter.add(egui::Shape::mesh(Self::window_mesh(texture.id(), rect, center, px_per_unit, yaw, circle, uv)));
+            return;
+        }
         let planet = self.planet.as_ref().filter(|p| p.map.pixel(p.level, self.playfield, 0.0, 0.0).is_some());
         let (texture, grid) = match (planet, &self.grid, &self.texture) {
             (Some(p), _, _) => (&p.texture, None),
@@ -394,7 +493,7 @@ impl AutoMap {
         if !self.land_control {
             return;
         }
-        let on_planet = self.planet.as_ref().is_some_and(|p| p.map.pixel(p.level, self.playfield, 0.0, 0.0).is_some());
+        let on_planet = self.ground.is_some() || self.planet.as_ref().is_some_and(|p| p.map.pixel(p.level, self.playfield, 0.0, 0.0).is_some());
         if self.land_map.as_ref().is_some_and(|m| m.on_planet != on_planet) {
             self.land_map = None;
         }
@@ -545,7 +644,8 @@ impl AutoMap {
         self.refresh(ctx);
         let Some((pos, heading)) = me else { return };
         let screen = ctx.content_rect();
-        let planet = self.planet.as_ref().is_some_and(|p| p.map.pixel(p.level, self.playfield, 0.0, 0.0).is_some());
+        // (the planet map's own scales only while its picture stands in)
+        let planet = self.ground.is_none() && self.planet.as_ref().is_some_and(|p| p.map.pixel(p.level, self.playfield, 0.0, 0.0).is_some());
         if self.overlay {
             // Over the whole view, north up, panned by the mouse and zoomed with the wheel.
             egui::Area::new(egui::Id::unique("automap-overlay")).order(egui::Order::Background).fixed_pos(screen.min).show(ctx, |ui| {
@@ -765,6 +865,24 @@ mod tower_tests {
         assert_eq!(on_planet.pixels[5 + 2], egui::Color32::from_rgba_unmultiplied(0, 0, 0, 0x44));
         assert_eq!(on_planet.pixels[2 * 5 + 3], egui::Color32::from_rgb(0x33, 0x99, 0x22));
         assert_eq!(AutoMap::land_image(&map, false).pixels[5 + 2], egui::Color32::from_rgb(0x55, 0x55, 0x55));
+    }
+
+    #[test]
+    fn the_ground_picture_lays_the_tiles_out_and_turns_them() {
+        // (two cells side by side: tile 0 as it is, tile 1 turned a half; the textures are 2 by 2, left half red and
+        // right half blue in the first, all green in the second)
+        let terrain = Terrain { width: 3, height: 2, heights: vec![0; 6], tiles: vec![0, 0x8000 | 1], tile_types: vec![10, 11], height_scale: 1.0, mask: 0x3fff, tile_size: 4.0 };
+        let ground = ground_picture(&terrain, |instance| {
+            let (r, b, g) = ([255, 0, 0, 255], [0, 0, 255, 255], [0, 255, 0, 255]);
+            Some((2, 2, if instance == 10 { [r, b, r, b].concat() } else { [g, g, g, g].concat() }))
+        });
+        assert_eq!((ground.size, ground.extent), ([16, 8], [8.0, 4.0]));
+        let pixel = |x: usize, y: usize| ground.rgba[(y * 16 + x) * 4..(y * 16 + x) * 4 + 3].to_vec();
+        // (the first cell: red at its left, blue at its right; the second: green)
+        assert_eq!((pixel(1, 3), pixel(6, 3), pixel(12, 3)), (vec![255, 0, 0], vec![0, 0, 255], vec![0, 255, 0]));
+        // (a tile without a texture is grey, and a big ground gets fewer pixels a cell)
+        let bare = ground_picture(&Terrain { width: 601, height: 2, heights: vec![0; 1202], tiles: vec![0; 600], tile_types: vec![10], height_scale: 1.0, mask: 0x3fff, tile_size: 4.0 }, |_| None);
+        assert_eq!((bare.size, &bare.rgba[..4]), ([1200, 2], &[70, 70, 70, 255][..]));
     }
 
     #[test]

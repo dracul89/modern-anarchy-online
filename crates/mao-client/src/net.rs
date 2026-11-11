@@ -4988,7 +4988,16 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut last_send = Instant::now();
         let mut last_overlay = Instant::now() - Duration::from_secs(1);
         // The map: fog of war revealed as the character walks (see `automap`).
-        let mut map = crate::automap::MapBuilder::new(terrain.as_deref(), start, playfield);
+        // (the playfield's map picture: the ground's tile textures from above, `automap::ground_picture`)
+        let ground_of = |terrain: Option<&mao_formats::terrain::Terrain>| {
+            let began = Instant::now();
+            let ground = terrain.map(|t| crate::automap::ground_picture(t, |instance| gear_textures.get(0xf6966, instance).map(|t| (t.width as usize, t.height as usize, t.rgba))));
+            if let (Some(g), true) = (&ground, std::env::var_os("MAO_PROFILE").is_some()) {
+                eprintln!("profile: the map's ground picture, {} by {}, took {:.0} ms", g.size[0], g.size[1], began.elapsed().as_secs_f32() * 1000.0);
+            }
+            ground
+        };
+        let mut map = crate::automap::MapBuilder::new(terrain.as_deref(), start, playfield).with_ground(ground_of(terrain.as_deref()));
         let mut pending_map: Option<crate::automap::MapPatch> = None;
         let mut last_reveal = Instant::now() - Duration::from_secs(1);
         let profile = std::env::var_os("MAO_PROFILE").is_some();
@@ -5406,7 +5415,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     }
                     position = arrival;
                     offset = ground_offset(&terrain, arrival);
-                    map = crate::automap::MapBuilder::new(terrain.as_deref(), arrival, playfield);
+                    map = crate::automap::MapBuilder::new(terrain.as_deref(), arrival, playfield).with_ground(ground_of(terrain.as_deref()));
                     pending_map = None;
                     base = arrival[1];
                     airborne = false;
@@ -6894,6 +6903,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             old.cells.clear();
                             old.cells.extend(patch.cells);
                             old.reset = patch.reset;
+                            old.ground = patch.ground;
                             old
                         }
                         None => patch,
