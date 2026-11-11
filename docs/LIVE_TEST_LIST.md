@@ -278,6 +278,8 @@ To try by hand:
 - The chat connection ending (not seen): "The chat connection ended", then "Connected to the chat server again."
   within some seconds, and tells work again.
 - A busy chat window (a city, OOC channels): scrolling and the frame rate with every line marked up.
+- A buff bot's `help`: its second tell, the list, shows as a link; the link opens the page; the page's own links send
+  their tells.
 
 ## `/fxscript` (2026-11-11)
 

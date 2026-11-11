@@ -5110,8 +5110,14 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             _ => None,
                         };
                         // A line with control characters is a packet of another layout read wrongly (seen once live): skip it.
-                        if let Some(line) = line.filter(|l| !l.text.chars().any(char::is_control)) {
-                            CHAT_LINES.lock().unwrap().push(line);
+                        // (Its plain text, that is, where a line break is a space and a link's target is left out,
+                        // `chat::plain`: a bot's page of buffs has line breaks in it, and was dropped whole.)
+                        if let Some(line) = line {
+                            if line.text.chars().any(char::is_control) {
+                                eprintln!("chat: a line with control characters dropped ({} characters)", line.text.chars().count());
+                            } else {
+                                CHAT_LINES.lock().unwrap().push(line);
+                            }
                         }
                         while let Ok(out) = out_rx.try_recv() {
                             match out {

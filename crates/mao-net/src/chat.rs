@@ -246,18 +246,36 @@ pub fn channel_packet_with_blob(kind: u8, id: u32, text: &str, blob: &[u8]) -> V
     framed(65, payload)
 }
 
-/// A chat line as plain text: the markup (`<font ...>`, `<a href=...>`) removed, the common entities decoded.
+/// A chat line as plain text: the markup (`<font ...>`, `<a href=...>`) removed, the common entities decoded, a line
+/// break or a tab made a space. A tag ends at the first `>` outside quotes, as the game's own reader has it
+/// (`HTMLParser_c::_ParseTag`): a link's target may be a whole page of markup (`<a href="text://...">`, what a bot
+/// answers with), tags and line breaks and all, and none of that is the line's text. A `<` that no `>` closes is text.
 pub fn plain(text: &str) -> String {
     let mut out = String::new();
-    let mut tag = false;
-    for ch in text.chars() {
-        match ch {
-            '<' => tag = true,
-            '>' if tag => tag = false,
-            _ if !tag => out.push(ch),
-            _ => {}
+    let mut rest = text;
+    while let Some(open) = rest.find('<') {
+        out.push_str(&rest[..open]);
+        let mut quote = None;
+        let end = rest[open + 1..].char_indices().find_map(|(i, c)| {
+            match quote {
+                Some(q) if c == q => quote = None,
+                Some(_) => {}
+                None if c == '"' || c == '\'' => quote = Some(c),
+                None if c == '>' => return Some(open + 1 + i),
+                None => {}
+            }
+            None
+        });
+        match end {
+            Some(end) => rest = &rest[end + 1..],
+            None => {
+                out.push_str(&rest[open..]);
+                rest = "";
+            }
         }
     }
+    out.push_str(rest);
+    let out: String = out.chars().map(|c| if matches!(c, '\n' | '\r' | '\t') { ' ' } else { c }).collect();
     out.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&amp;", "&")
 }
 
@@ -406,6 +424,10 @@ mod tests {
     #[test]
     fn markup_is_stripped() {
         assert_eq!(plain("<font color='#89D2E8'><font color=#FFFF00>Players Online (1)</font></font> a &amp; b"), "Players Online (1) a & b");
+        // (a bot's answer: a link whose target is a page of markup with tags, line breaks and links of its own)
+        let page = "<a href=\"text://<font color=#ffff00>Buffs</font>\n<a href='chatcmd:///tell Bot cast 1'>One</a>\r\nmore\">Buff list</a> for\nyou";
+        assert_eq!(plain(page), "Buff list for you");
+        assert_eq!(plain("2 < 3 and so on"), "2 < 3 and so on");
     }
 
     #[test]

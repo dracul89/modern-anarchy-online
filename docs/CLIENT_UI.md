@@ -795,6 +795,15 @@ down. Here the angle is kept as a 4:3 window has it and a wider window sees the 
 past the hall's walls to the space outside it (kept so: the user chose the full width over black bars at the sides). Seen: the launcher beside the user's picture of the original's, the
 three settings pages, PLAY into the login, the hall at 16:9 and at 32:9.
 
+**A bot's page of buffs did not arrive (2026-11-11, the user: "the response isn't coming back when talking to a bot").**
+The bot's first tell showed and its second, the list, never did. The list is a link whose target is a whole page of
+markup (`<a href="text://...">`), with tags, links and line breaks inside the quotes. `mao_net::chat::plain` ended a
+tag at the first `>`, so the page's inside leaked into the line's plain text, line breaks with it; and the chat thread
+drops a line whose text has control characters (its guard against a packet read wrongly). Now a tag ends at the first
+`>` outside quotes, as `HTMLParser_c::_ParseTag` has it, and a line break or tab in the text is a space; a line still
+dropped is said on the error output. Worked out from the code and a test with a made-up page: not tried against a bot
+(a tell to someone else's bot is outside what the unattended tests may send).
+
 **Tells: `%t`, the tell windows, the menu on a name (2026-11-11, asked for by the user after playing).**
 The user typed `/tell %t help` and got "To %t: help" and, a moment later, "The chat connection ended". Four things
 were missing or wrong, all read from GUI.dll first:
