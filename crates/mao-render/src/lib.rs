@@ -158,6 +158,8 @@ struct Globals {
     current_vp: [f32; 16],
     previous_vp: [f32; 16],
     previous_player: [f32; 4],
+    /// x: the textures' mip bias ([`mip_bias`]).
+    detail: [f32; 4],
 }
 
 #[repr(C)]
@@ -1161,6 +1163,14 @@ impl GpuTimer {
     }
 }
 
+/// The textures' mip bias for a scene drawn at `scale` of the window's size and upscaled: the scale's logarithm to
+/// base 2 (0 at the full size, -1 at a half), so that a texture is read at the level the window's pixels call for and not
+/// the smaller picture's, which is a level blurrier at a half. It is the figure FSR 1 asks for with its steps (-0.38,
+/// -0.58, -0.79, -1).
+pub fn mip_bias(scale: f32) -> f32 {
+    scale.clamp(0.4, 1.0).log2()
+}
+
 /// The `index`th number (from 1) of the Halton sequence in `base`: the jitter's points, spread evenly over a pixel.
 fn halton(mut index: u32, base: u32) -> f32 {
     let (mut f, mut r) = (1.0f32, 0.0f32);
@@ -1211,6 +1221,9 @@ pub struct Renderer {
     pub stats: Stats,
     /// The share of the window's size the scene is drawn at (1 = native); less is upscaled with FSR 1.
     pub render_scale: f32,
+    /// Read the textures sharper when the scene is drawn below the window's size ([`mip_bias`]); on unless
+    /// `MAO_NO_MIP_BIAS` is set (to compare the two).
+    pub mip_bias: bool,
     /// FSR's sharpening in stops (0 = maximum, each stop halves it).
     pub sharpness: f32,
     fsr_easu: wgpu::RenderPipeline,
@@ -1489,7 +1502,7 @@ impl Renderer {
             entries: &[wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&white) }, wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&sampler) }],
         });
         let liquid = LiquidResources::new(gpu, liquid_bind_layout, &white, &sampler, &fsr_sampler, &sprite_layout);
-        Renderer { shadow_cache: None, shadow_pipeline, pipeline_sets, shaders, antialiasing: Antialiasing::default(), taa_pipeline, taa_layout, taa_sampler, taa: None, copy_pipeline, timer: GpuTimer::new(gpu), gpu_ms: None, frame: 0, previous: None, sprites: HashMap::new(), sprite_layout, white_sprite, shadow_view, shadow_bind, shadow_layout, shadow_sampler, shadow_size: SHADOW_SIZE, shadows: true, refraction: std::env::var_os("MAO_NO_REFRACTION").is_none(), stats: Stats::default(), render_scale: 1.0, sharpness: 0.2, fsr_easu, fsr_rcas, fsr_layout, fsr_sampler, fsr: None, samples, msaa: None, started: std::time::Instant::now(), globals_layout, part_layout, sampler, white, format, depth: None, textures: Default::default(), liquid }
+        Renderer { shadow_cache: None, shadow_pipeline, pipeline_sets, shaders, antialiasing: Antialiasing::default(), taa_pipeline, taa_layout, taa_sampler, taa: None, copy_pipeline, timer: GpuTimer::new(gpu), gpu_ms: None, frame: 0, previous: None, sprites: HashMap::new(), sprite_layout, white_sprite, shadow_view, shadow_bind, shadow_layout, shadow_sampler, shadow_size: SHADOW_SIZE, shadows: true, refraction: std::env::var_os("MAO_NO_REFRACTION").is_none(), stats: Stats::default(), render_scale: 1.0, mip_bias: std::env::var_os("MAO_NO_MIP_BIAS").is_none(), sharpness: 0.2, fsr_easu, fsr_rcas, fsr_layout, fsr_sampler, fsr: None, samples, msaa: None, started: std::time::Instant::now(), globals_layout, part_layout, sampler, white, format, depth: None, textures: Default::default(), liquid }
     }
 
     /// Puts a model on the GPU. `texture` finds a texture by (type, instance).
@@ -1986,6 +1999,7 @@ impl Renderer {
             current_vp: unjittered.to_cols_array(),
             previous_vp: previous_vp.to_cols_array(),
             previous_player,
+            detail: [if self.mip_bias { mip_bias(scale) } else { 0.0 }, 0.0, 0.0, 0.0],
             light_vp: light_vp.to_cols_array(),
             params: [self.shadows as u32 as f32, texel, water.map_or(0.0, |w| w.level), water.is_some() as u32 as f32],
             rect: water.map_or([0.0; 4], |w| [w.min[0], w.min[1], w.max[0], w.max[1]]),
@@ -2558,6 +2572,19 @@ fn upload_texture(gpu: &Gpu, t: &Texture) -> wgpu::TextureView {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The mip bias: none at the window's size, a level at a half, FSR 1's figures for its steps between.
+    #[test]
+    fn the_mip_bias_is_the_scales_logarithm() {
+        assert_eq!(mip_bias(1.0), 0.0);
+        assert_eq!(mip_bias(0.5), -1.0);
+        for (scale, want) in [(0.77, -0.38), (0.67, -0.58), (0.59, -0.76)] {
+            assert!((mip_bias(scale) - want).abs() < 0.01, "{scale}");
+        }
+        // (the scale is held to what the renderer draws at)
+        assert_eq!(mip_bias(0.1), mip_bias(0.4));
+        assert_eq!(mip_bias(3.0), 0.0);
+    }
 
     #[test]
     fn the_screen_centre_looks_at_the_target() {

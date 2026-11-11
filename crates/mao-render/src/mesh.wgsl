@@ -152,7 +152,7 @@ fn shade(in: VertexOut) -> vec4<f32> {
     // it, and what is drawn behind it later is hidden by nothing.)
     var alpha = part.tint.a;
     if part.flags.x > 0.5 {
-        let t = textureSample(tex, samp, in.uv);
+        let t = textureSampleBias(tex, samp, in.uv, globals.detail.x);
         if part.blend.x > 0.5 {
             if t.a < max(part.blend.y, 0.02) {
                 discard;

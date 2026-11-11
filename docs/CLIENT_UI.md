@@ -795,6 +795,21 @@ down. Here the angle is kept as a 4:3 window has it and a wider window sees the 
 past the hall's walls to the space outside it (kept so: the user chose the full width over black bars at the sides). Seen: the launcher beside the user's picture of the original's, the
 three settings pages, PLAY into the login, the hall at 16:9 and at 32:9.
 
+**The textures' mip bias under a drawing scale (2026-11-11, `mao_render::mip_bias`, `mesh.wgsl`).**
+The first of the renderer's optimisations was to be mip maps, and they turned out to be there already: every
+texture is uploaded with a full chain (`texture::mip_chain`, a box filter, made where the texture is decoded) and
+read through a trilinear sampler with 16 times anisotropic filtering, since the commit that brought the sky and the
+fog. The list that said otherwise was wrong (it counted the `mip_level_count: 1` of the render targets). What was
+missing is the bias that goes with the drawing scale: a scene drawn at half the window's size picks each texture's
+level for the small picture, a level blurrier than the window's pixels call for, and the upscaler cannot bring that
+back. The meshes' texture is now read with a bias of the scale's logarithm to base 2 (0 at Native, -0.38, -0.58,
+-0.76, -1 at Performance: the figures FSR 1 asks for), in the frame's globals (`detail.x`). Seen live at 50%, with
+and without (`MAO_NO_MIP_BIAS=1` turns it off, to compare): a vent's slats and panel lines some way off are resolved
+where they were smeared. The gain is small and only on textures seen smaller than they are; the game's textures are
+mostly seen larger. Not changed: the liquids' and the particles' textures, the chain's filter (a box in the stored
+values, as Direct3D's own made them for the original; an average in linear light would be a little brighter far
+off), the cut-out textures' cover (a plant's leaves thin out with distance, in the original too).
+
 **The launcher's Visual page, second pass (2026-11-11, `launchwindow.rs`, `settings.rs`, `mao_render::Shadows`).**
 Asked what belongs on the page, the user chose to have it reworked first. New settings, each honoured by the game's
 window: a **frame limit** (`fps_limit`: none, 60, 100, 120, 144, 240 a second; 100 is where the original stopped) and

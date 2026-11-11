@@ -33,6 +33,8 @@ struct Globals {
     current_vp: mat4x4<f32>,
     previous_vp: mat4x4<f32>,
     previous_player: vec4<f32>,
+    // x: the textures' mip bias (the logarithm of the drawing scale: 0 at the window's size, -1 at a half).
+    detail: vec4<f32>,
 }
 
 // Whether the effect scripts light the world (their colours already follow the day).
