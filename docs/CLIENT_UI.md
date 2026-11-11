@@ -581,8 +581,16 @@ builds that picture when a playfield loads (`automap::ground_picture`: every cel
 ground's model turns it, shrunk so that the whole ground is at most 2048 pixels across; Old Athens is 1792 by 1792
 and takes about 23 ms) and the corner map and the overlay show it. The planet map's picture stays the planet map
 window's, and stands in on the corner map only if a playfield on it has no ground; interiors keep the walked map.
-Not done: the shadow layer (the ground is drawn unshaded), and the patch's second texture. Seen live in Old Athens:
-paths, lawns and the plaza where they are around the character.
+The shadow layer (second pass, same day): the patches' shadow textures are made by `AnarchyGround_t::SetShadowMap`
+from a 4-bit map that Gamecode blends, by the time of day, from six stored maps of the playfield (FUN_100b7c29:
+resource type 0xf4247, six PNGs behind a table of their ends; FUN_100b7fca picks two by eight spans of the 97200
+second day and `BlendShadowMaps` mixes them). Today's game files have no object of that type at all (the database's
+types were counted), so the original finds no stream, never sets a shadow map, and no patch has a shadow texture:
+there are no ground shadows to draw, on the map or in the world. What is left of the layer is the white veil at 0xbb
+over the map's background, which the ground's textures are multiplied over: the ground at 0xbb of its brightness,
+taking the background for black (not checked). The corner map is dimmed so (`automap::VEIL`). Not done: the patch's
+second texture, and the rooms' floor pictures the same view draws for playfields made of rooms (FUN_100474b7). Seen
+live in Old Athens: paths, lawns and the plaza where they are around the character.
 
 **Scripted clicks, and what the first scripted live run found (2026-11-10, `ui.rs::Ui::script`, `viewer.rs`).**
 `MAO_CAMERA_SCRIPT` steps with an `@` act on the interface as the mouse and keys would, so the windows can be tried

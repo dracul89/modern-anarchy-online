@@ -1,7 +1,8 @@
 //! The map. For a playfield with ground the corner map and the overlay show the ground itself from above, as the
 //! original's playfield map does: GUI.dll's `PFMapGroundRenderer_c` (FUN_10047964) draws each ground patch's own
 //! texture (`AnarchyGroundData_t::CreateHiTexture`) over the patch's shadow texture lightened with white
-//! ([`ground_picture`]: the tiles' textures laid out cell by cell; the shadow layer is not drawn). The planet map's
+//! ([`ground_picture`]: the tiles' textures laid out cell by cell, dimmed by that veil; today's game files have no
+//! shadow maps for the shadow textures, see `AutoMap::paint`). The planet map's
 //! picture (`mao_formats::planetmap`) is the planet map window's, and stands in here only when a playfield on it has
 //! no ground picture.
 //! Elsewhere (interiors, instanced playfields) the map is the client's own, in the style of Diablo 2 and 3's: nothing is
@@ -19,6 +20,10 @@ use mao_formats::terrain::Terrain;
 /// Known, wall, and a height in 0..=255 across the playfield's range, in a `u16`.
 const KNOWN: u16 = 0x8000;
 const WALL: u16 = 0x4000;
+
+/// The white veil the original's playfield map lays under the ground's textures (`PFMapGroundRenderer_c`, FUN_10047964:
+/// a quad of 0xbbffffff blended over the shadow textures): its strength.
+const VEIL: u8 = 0xbb;
 
 /// How far around the character the map is revealed, in world units.
 const REVEAL: f32 = 75.0;
@@ -402,7 +407,15 @@ impl AutoMap {
         // walked grid.
         if let Some((texture, extent)) = &self.ground {
             let uv = |world: [f32; 2]| egui::pos2(world[0] / extent[0], world[1] / extent[1]);
-            painter.add(egui::Shape::mesh(Self::window_mesh(texture.id(), rect, center, px_per_unit, yaw, circle, uv)));
+            let mut mesh = Self::window_mesh(texture.id(), rect, center, px_per_unit, yaw, circle, uv);
+            // (the original multiplies the ground over what its first two passes left: the patches' shadow textures
+            // under a white veil at 0xbb. The shadow maps they are made of, resource type 0xf4247 with six a
+            // playfield for the sun's places, are not in today's game files, so no patch has a shadow texture and
+            // what is left is the veil over the map's black: the ground at 0xbb of its brightness)
+            for v in &mut mesh.vertices {
+                v.color = egui::Color32::from_gray(VEIL);
+            }
+            painter.add(egui::Shape::mesh(mesh));
             return;
         }
         let planet = self.planet.as_ref().filter(|p| p.map.pixel(p.level, self.playfield, 0.0, 0.0).is_some());
