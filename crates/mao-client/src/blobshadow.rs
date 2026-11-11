@@ -37,9 +37,54 @@ pub struct Caster {
     pub surface: Surface,
     /// The player's own character (moved on between updates like its parts).
     pub own: bool,
+    /// Whose mesh it is (the entity's id; 0 until the one who makes it says).
+    pub id: u32,
+    /// The mesh's size as it stands: see [`Size`].
+    pub size: Size,
     /// The body's attractors by name and their frames on the posed body, row-vector matrices in the server's frame (Y up), for
     /// the effects attached to them (`effects::Locator::attractor`).
     pub attractors: Vec<(String, Matrix)>,
+}
+
+/// How large a character's mesh is as it stands, from its posed points:
+/// - `height`: the original's mesh height, the diameter of the mesh's bounding sphere (`VisualMesh_t::GetMeshHeight`,
+///   `mao_formats::bounds::sphere`), which the name tag and the target's indicator stand on. The original takes it of
+///   the mesh at rest and of the largest of the body's meshes; here it is of the posed body with what it holds, which
+///   for a standing body is nearly the same.
+/// - `top` and `reach`: how far the points go above the feet and out from the upright through them, for the cylinder the
+///   mouse picks it by (the original casts the mouse's line against the dynel's collision).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Size {
+    pub height: f32,
+    pub top: f32,
+    pub reach: f32,
+}
+
+impl Size {
+    /// Of points in the world (Z up) round `feet`.
+    pub fn of(points: &[[f32; 3]], feet: [f32; 3]) -> Size {
+        if points.is_empty() {
+            return Size::default();
+        }
+        let (_, radius) = mao_formats::bounds::sphere(points);
+        let (mut top, mut reach2) = (0.0f32, 0.0f32);
+        for p in points {
+            top = top.max(p[2] - feet[2]);
+            reach2 = reach2.max((p[0] - feet[0]).powi(2) + (p[1] - feet[1]).powi(2));
+        }
+        Size { height: 2.0 * radius, top, reach: reach2.sqrt() }
+    }
+
+    /// The cylinder the mouse picks the character by: its radius and height. Not thinner than a person's arm's reach
+    /// or lower than a small creature, so that a thin or a lying body can still be clicked, and no wider than it is
+    /// tall or 3 units (a body with a long weapon or a tail is picked by its trunk).
+    pub fn pick(&self) -> (f32, f32) {
+        if self.top <= 0.0 {
+            return (0.5, 1.9);
+        }
+        let height = self.top.max(0.6);
+        (self.reach.clamp(0.3, height.clamp(0.5, 3.0)), height)
+    }
 }
 
 /// A character's whole posed mesh (world, Z up).
@@ -86,7 +131,9 @@ impl Caster {
             }
             surface.indices.extend(part.indices.iter().map(|&i| first + i as u32));
         }
-        Caster { translation: transform(place, [0.0; 3]), points, normals, surface, own, attractors: Vec::new() }
+        let translation = transform(place, [0.0; 3]);
+        let size = Size::of(&points, translation);
+        Caster { translation, points, normals, surface, own, id: 0, size, attractors: Vec::new() }
     }
 
     pub fn shifted(&self, by: [f32; 3]) -> Caster {
@@ -102,7 +149,7 @@ impl Caster {
                 (name.clone(), m)
             })
             .collect();
-        Caster { translation: add(&self.translation), points: self.points.iter().map(add).collect(), normals: self.normals.clone(), surface, own: self.own, attractors }
+        Caster { translation: add(&self.translation), points: self.points.iter().map(add).collect(), normals: self.normals.clone(), surface, own: self.own, id: self.id, size: self.size, attractors }
     }
 }
 
@@ -239,7 +286,7 @@ mod tests {
                 points.push([10.0 + x, 20.0 + y, 5.0 + z]);
             }
         }
-        Caster { translation: [10.0, 20.0, 5.0], points, normals: Vec::new(), surface: Surface::default(), own: false, attractors: Vec::new() }
+        Caster { translation: [10.0, 20.0, 5.0], points, normals: Vec::new(), surface: Surface::default(), own: false, id: 0, size: Size::default(), attractors: Vec::new() }
     }
 
     #[test]

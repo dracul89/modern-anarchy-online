@@ -795,6 +795,26 @@ down. Here the angle is kept as a 4:3 window has it and a wider window sees the 
 past the hall's walls to the space outside it (kept so: the user chose the full width over black bars at the sides). Seen: the launcher beside the user's picture of the original's, the
 three settings pages, PLAY into the login, the hall at 16:9 and at 32:9.
 
+**The unattended pass of 2026-11-11 (the user away; their list: every pending item that can be done, and two notes).**
+*The creatures' sizes (the user: "the bounding boxes for mobs seem to be off").* Every creature was a person to the
+mouse and to its name tag: a cylinder 0.5 in radius and 1.9 tall to pick it by, and the tag 1.9 + 0.4 above its
+feet. The original takes a mesh's height for the tag (`TargetingModule`'s FUN_10025603 asks
+`N3Msg_GetMeshHeight`, which is `VisualMesh_t::GetMeshHeight`: twice the greatest radius of the bounding spheres of
+the body's triangle meshes, randy31's `BVolume_t`, Ritter's sphere; 1.9 only without a mesh), and picks by the
+mouse's line against the dynel's collision. Now each body's size is taken as it stands (`blobshadow::Size`, from
+the posed points every network update): the sphere's diameter (`mao_formats::bounds::sphere`, the original's
+method) for the tag, and how far the points go up and out for the picking cylinder (not thinner than 0.3, not
+wider than it is tall or than 3). The sphere is of the posed body with what it holds, where the original's is of
+each mesh at rest: nearly the same for a standing body; a long weapon may lift a player's tag a little.
+*The remains (the user: "monsters remains should never be behind geometry").* A dead body stayed where this client
+had last walked it, and the server's corpse was matched to it within four metres: live, bodies lay up to 3.2 m from
+their corpse and 1.3 m above it, which can be inside a wall or under a floor. The body now lies where the server
+puts the corpse (the corpse is what the original draws), and the dead are taken off the path they were walked on.
+Seen live (`MAO_COMBAT_LOG=1`): the corpses' places and the bodies' before the move. Not done: a corpse that was
+there before the character came (no body is known for it, so nothing is drawn); and some dead entities carry
+places that are no numbers of this world (seen in the log: 6e-39 and the like), which is an older fault of how an
+entity's place is first read and is not looked into yet.
+
 **`/fxscript`, the item grids' padding, the CYT skin's wing (2026-11-11, asked for by the user after playing).**
 *`/fxscript <script> [parameters] #`.* The original's command (GUI.dll FUN_100b70be, registered by FUN_100bb3e0 for
 every player, not only game masters): with a script's name at least, the whole typed line is sent as the effect

@@ -1,6 +1,7 @@
 //! Reading Anarchy Online's game data: the resource database and the
 //! objects in it.
 
+pub mod bounds;
 pub mod collision;
 pub mod surface;
 pub mod zones;

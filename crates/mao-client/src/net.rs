@@ -1456,6 +1456,10 @@ impl World {
                 self.bodies.retain(|_, b| b.1.elapsed() < Duration::from_secs(120));
                 self.bodies.insert(m.identity.1, (e.0, Instant::now()));
             }
+            // (the dead walk no further along the path they were on)
+            if m.identity.1 != self.own {
+                self.paths.remove(&m.identity.1);
+            }
             self.fighting.remove(&m.identity.1);
             if m.identity.1 == self.own {
                 // (dead until the server says there is health again or puts the character somewhere: its health is
@@ -2623,6 +2627,16 @@ impl World {
                 Some(body) => {
                     // (the server names the corpse, "Remains of <name>"; the body lying there is shown by that name too)
                     self.corpses.insert(body, m.identity.1);
+                    // (and it lies where the server puts the corpse, which is what the original draws: the body was left
+                    // where this client had last walked it, up to some metres off and at times inside a wall or under a
+                    // floor, where the remains could not be seen or clicked. The user, 2026-11-11.)
+                    self.paths.remove(&body);
+                    if let Some(e) = self.entities.get_mut(&body) {
+                        e.0 = at;
+                    }
+                    if let Some(b) = self.bodies.get_mut(&body) {
+                        b.0 = at;
+                    }
                     let name = corpse_name(&m.data).unwrap_or_else(|| format!("Remains of {}", self.names.get(&body).map(|n| n.0.clone()).filter(|n| !n.is_empty()).unwrap_or_else(|| "the dead".into())));
                     self.names.insert(m.identity.1, (name.clone(), false));
                     self.names.insert(body, (name, false));
@@ -4154,6 +4168,7 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
     // (`frames`: the body's attractors in its local space, carried by the caster in the server's frame for the effects on them)
     fn push_character(model: &mut Model, casters: &mut Vec<crate::blobshadow::Caster>, ranges: &mut Vec<(u32, std::ops::Range<usize>)>, id: u32, parts: Vec<mao_formats::model::Part>, place: mao_formats::model::Matrix, own: bool, frames: Option<&Vec<(String, mao_formats::model::Matrix)>>) {
         let mut caster = crate::blobshadow::Caster::new(&parts, &place, own);
+        caster.id = id;
         let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
         caster.attractors = frames.map_or(Vec::new(), |f| f.iter().map(|(name, m)| (name.clone(), model::multiply(&model::multiply(m, &place), &swap))).collect());
         casters.push(caster);
@@ -7495,6 +7510,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     }
                 }
                 casters.extend(own_casters);
+                // (each body's size as it stands, for its name tag and the mouse: `blobshadow::Size`)
+                let sizes: std::collections::HashMap<u32, crate::blobshadow::Size> = casters.iter().filter(|c| c.id != 0).map(|c| (c.id, c.size)).collect();
                 let deforms_landed: std::cell::RefCell<Vec<(u32, mao_formats::gfx::Deform)>> = std::cell::RefCell::new(Vec::new());
                 // (the speed over the time the position itself took: the position is the last step's, `last_tick`, not this
                 // moment's, which comes some milliseconds later, after the characters are posed; and the window is told that
@@ -7786,7 +7803,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             let side = info.map_or_else(|| state.stats.get(&33).copied().unwrap_or(0) as u8, |i| i.side);
                             let level = if id == own { own_level } else { state.levels.get(&id).map_or(0, |l| *l as i64) };
                             Some(crate::nametag::Tag {
-                                at: [p[0], p[2], p[1] + crate::nametag::height(None)],
+                                at: [p[0], p[2], p[1] + crate::nametag::height(sizes.get(&id).map(|s| s.height))],
                                 name,
                                 org: state.orgs.get(&id).filter(|_| orgs_shown).map(|o| (o.clone(), side)),
                                 brackets,
@@ -7832,8 +7849,16 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                 let (r, h) = size(kind);
                                 (kind, id, [p[0], p[2], p[1]], r, h, false)
                             }))
-                            .chain(state.entities.iter().filter(|(id, _)| **id != own).map(|(id, (p, _))| (kind_of(id), *id, [p[0], p[2], p[1]], 0.5, 1.9, false)))
-                            .chain(std::iter::once((n3::CHARACTER, own, [position[0], position[2], position[1]], 0.5, 1.9, true)))
+                            .chain(state.entities.iter().filter(|(id, _)| **id != own).map(|(id, (p, _))| {
+                                // (as large as its mesh stands: a cylinder of a person's size missed the large and overlapped
+                                // the small)
+                                let (r, h) = sizes.get(id).map_or((0.5, 1.9), |s| s.pick());
+                                (kind_of(id), *id, [p[0], p[2], p[1]], r, h, false)
+                            }))
+                            .chain(std::iter::once({
+                                let (r, h) = sizes.get(&own).map_or((0.5, 1.9), |s| s.pick());
+                                (n3::CHARACTER, own, [position[0], position[2], position[1]], r, h, true)
+                            }))
                             .collect()
                     }),
                     info_urls: std::mem::take(&mut state.info_urls),
