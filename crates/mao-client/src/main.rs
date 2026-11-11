@@ -482,6 +482,26 @@ pub(crate) fn static_prop_textures(db: &ResourceDatabase, playfield: u32) -> Vec
         .collect()
 }
 
+/// How each built-in prop's model is animated, by [`static_props`]' key: its `AnimPlay` (stat 501) and `AnimPos` (500),
+/// the record's own, else its item template's (see `net::prop_anim_time`). Only those with either set are listed.
+pub(crate) fn static_prop_anims(db: &ResourceDatabase, playfield: u32) -> Vec<(u32, (u32, u32))> {
+    let Some(object) = db.get(Id { kind: mao_formats::dynels::KIND, instance: playfield }).ok().flatten() else { return Vec::new() };
+    let mut templates: std::collections::HashMap<u32, (u32, u32)> = std::collections::HashMap::new();
+    mao_formats::dynels::parse(&object)
+        .into_iter()
+        .enumerate()
+        .filter_map(|(i, d)| {
+            let template = *templates.entry(d.template).or_insert_with(|| {
+                let item = db.get(Id { kind: mao_formats::item::TEMPLATE, instance: d.template }).ok().flatten().and_then(|data| mao_formats::item::Item::parse(&data));
+                let stat = |k: u32| item.as_ref().and_then(|t| t.stat(k)).unwrap_or(0) as u32;
+                (stat(501), stat(500))
+            });
+            let anim = (d.stat(501).unwrap_or(template.0), d.stat(500).unwrap_or(template.1));
+            (anim != (0, 0)).then_some((0xfe00_0000 | i as u32, anim))
+        })
+        .collect()
+}
+
 /// The doors of the playfield that open as a character comes up to them: the Whom-Pahs' (template "Dummy Whom-Pah"). In
 /// the original every door's touch (`Door_t`'s FUN_1007fccc) opens it unless FUN_1007fad8 keeps the character out (a lock,
 /// an owned building); only the Whom-Pahs' are opened here, the other doors on a use as before.
@@ -2129,6 +2149,19 @@ mod animation_tests {
         let mut scene = mao_formats::model::Model::default();
         super::add_props_with(&game.to_string_lossy(), &db, 540, &mut scene, Some(&mut moving));
         assert!(moving.iter().any(|p| p.part.1.texture_at(1.0).is_some()));
+    }
+
+    /// `MAO_GAME`: Arete Landing's shuttle door is told to play its animation round and round by its template (`AnimPlay`
+    /// 2), so its ring runs.
+    #[test]
+    fn the_shuttle_door_plays_its_animation_round_and_round() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let db = mao_formats::resource::ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap();
+        let anims = super::static_prop_anims(&db, 6553);
+        eprintln!("{anims:x?}");
+        let props = super::static_props(&db, 6553);
+        let door = props.iter().find(|p| p.1.0 == 258035).expect("the ring's prop").0;
+        assert!(anims.contains(&(door, (2, 0))), "{anims:x?}");
     }
 
     /// `MAO_GAME`: the ring that marks Arete Landing's shuttle door (the "Shuttle Door" template's mesh, 258035, a single

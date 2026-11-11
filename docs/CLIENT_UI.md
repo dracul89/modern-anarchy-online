@@ -608,6 +608,30 @@ of them adding their light (source alpha, one). Blended world materials are a pi
 New tools in `mao-formats/examples`: `meshframes` (a mesh's frame tree and animation keys), `meshparts` (its parts
 and materials), `meshstates` (its materials' render states), `dynelroots`, `blendcount`.
 
+**When a thing's model plays (2026-11-10, `net::prop_anim_time`, `World::prop_anim`, `main::static_prop_anims`).**
+The client played every machine's and thing's animation round and round on one clock, so Arete Landing's cargo
+crates swung their doors open and shut by themselves. The original steps a thing's model from two of its stats
+(Gamecode FUN_10088970, called each frame from the things' step FUN_10089f0a): `AnimPlay` (501) 2 goes forward for
+ever and 4 backward, 3 goes forward once and stays at the end, 5 backward once and stays at the start (then
+`AnimPlay` becomes 1), and any other value leaves the model alone, in its first pose or, with `AnimPos` (500) 2, its
+last (FUN_100877ec). Opening a thing is `AnimPos` 1 with `AnimPlay` 3 and closing it `AnimPos` 2 with `AnimPlay` 5
+(FUN_1008563d, FUN_10085684). The client does the same: the stats are the built-in record's own, else its item
+template's; for a thing the server announces, the message's, else the template's; and a later `Stat` message naming
+either starts the play from then. In Arete Landing nineteen built-in things have `AnimPlay` 2 from their templates
+(the shuttle door's ring, the signs, the shop machines) and go on playing; the cargo box is announced with both at 0
+and stands shut. Seen live: the crates' doors are shut. The original's capture shows no stat told of the box when it
+is opened (the box is taken away about 110 seconds later), so whether its doors ever open in the original is not
+known. Doors keep their own way (their state's time). Not checked: the statels' moving parts still all play on the
+clock, and the `Scale` stat (360) the same class reads for the body's scale (the shuttle door's template has 50, which
+would make its ring 2 m across, not 4).
+
+**The item database is there before the first message (2026-11-10, `net::live`).** Found on the way to the cargo box:
+the things the server announces while the character enters are named and drawn by their item templates, and the
+database those are read from was attached only after the entering. In the first playfield of a run they had neither
+name nor model and could not be picked or used (the cargo box and eight pieces of junk about it); after a zoning they
+were there. It is attached before the first message is read now. Seen live: the box is named, selected and opened
+(the test hook's `usenear=<name>` also finds the announced things), and the quest moves on.
+
 **What a new character's first steps found (2026-11-10, `net.rs`, `gui/controls.rs`).** Three fixes from playing a
 fresh character through its first minutes (the list is in `LIVE_TEST_LIST.md`). An item move is still shown at once,
 but the server's answer is followed now: it takes a move with `ContainerAddItem` naming the old place (`(0x68,

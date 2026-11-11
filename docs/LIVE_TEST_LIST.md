@@ -176,6 +176,12 @@ account with `net <game> create`, in Arete Landing; scripted, other new players 
 - **Found and fixed** (the user saw it in a screenshot): the blue ring at the shuttle's door stood on its edge and
   did not move; it lies on the ground now and its band runs outwards. Its edges are still hard where the original
   fades them (blended materials are not drawn yet).
+- **Found and fixed** (the user saw it): the cargo crates' doors swung open and shut by themselves; a thing's model
+  plays only as its `AnimPlay` stat says now, and the crates stand shut.
+- **Found and fixed**: the things announced while entering the first playfield of a run had no name and no model and
+  could not be used (the cargo box of the first quest among them).
+- The first quest's second step: the cargo box selected and used from 3 m, the mission's line changes to the return
+  to its giver. Not done yet: the return itself and its reward.
 - Not reached: dying and reclaiming (the one creature tried could not be attacked), a shop (5 credits), a
   mission, the level 5 way into ICC, a team with a second new character.
 

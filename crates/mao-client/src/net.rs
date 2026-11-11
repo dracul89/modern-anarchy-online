@@ -487,6 +487,9 @@ struct World {
     vendor_names: BTreeMap<u32, String>,
     /// A machine's outer texture (`OverrideTexture`, stat 336), put on its mesh's outer materials.
     prop_textures: BTreeMap<u32, u32>,
+    /// How a machine's or thing's model is animated: its `AnimPlay` (stat 501) and `AnimPos` (500) and when they were
+    /// told (see [`prop_anim_time`]). One without an entry stands still in its first pose.
+    prop_anim: BTreeMap<u32, (u32, u32, Instant)>,
     /// The statels' moving parts (`crate::AnimatedPart`), drawn each frame.
     animated_statels: Arc<Vec<crate::AnimatedPart>>,
     /// The doors that open as the character comes up to them (by number).
@@ -1162,6 +1165,7 @@ impl World {
         self.doors_open.clear();
         self.door_motion.clear();
         self.prop_textures.retain(|k, _| *k < 0xfe00_0000);
+        self.prop_anim.retain(|k, _| *k < 0xfe00_0000);
         for (key, prop, door) in props {
             if let Some(n) = door {
                 self.door_slots.insert(n, (key, prop.1));
@@ -1282,6 +1286,13 @@ impl World {
                         let rotation = if rotation == [0.0; 4] { [0.0, 0.0, 0.0, 1.0] } else { rotation };
                         self.props.insert(m.identity.1, (mesh as u32, [x, y, z], rotation));
                         self.objects.insert(m.identity.1, [x, y, z]);
+                        // (how its model plays: the message's `AnimPlay` and `AnimPos`, else its template's)
+                        let stat = |key: i64| match p.value.get("Stats") {
+                            Some(mao_net::schema::Value::List(stats)) => stats.iter().find(|s| s.get("Item1").and_then(mao_net::schema::Value::as_int) == Some(key)).and_then(|s| s.get("Item2")?.as_int()),
+                            _ => None,
+                        };
+                        let of = |key: u32| stat(key as i64).or_else(|| template.and_then(|t| template_stat(t as u32, key))).unwrap_or(0) as u32;
+                        self.prop_anim.insert(m.identity.1, (of(501), of(500), Instant::now()));
                     }
                 }
             }
@@ -2625,6 +2636,15 @@ impl World {
         if m.kind == 0x2b333d6e && m.identity.1 != self.own {
             if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
                 if let Some(mao_net::schema::Value::List(items)) = p.value.get("Stats") {
+                    // (a thing's `AnimPlay` or `AnimPos` told: its model plays from now, `prop_anim_time`)
+                    if self.props.contains_key(&m.identity.1) {
+                        let told = |key: i64| items.iter().filter(|i| i.get("Item1").and_then(mao_net::schema::Value::as_int) == Some(key)).filter_map(|i| i.get("Item2")?.as_int()).last().map(|v| v as u32);
+                        let (play, pos) = (told(501), told(500));
+                        if play.is_some() || pos.is_some() {
+                            let old = self.prop_anim.get(&m.identity.1).copied().unwrap_or((0, 0, Instant::now()));
+                            self.prop_anim.insert(m.identity.1, (play.unwrap_or(old.0), pos.unwrap_or(old.1), Instant::now()));
+                        }
+                    }
                     let health = items.iter().filter(|i| i.get("Item1").and_then(mao_net::schema::Value::as_int) == Some(27)).filter_map(|i| i.get("Item2")?.as_int()).last();
                     if let Some(hp) = health {
                         let id = m.identity.1;
@@ -4107,15 +4127,17 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
             if open.contains(&id) && !animated {
                 continue;
             }
-            if animated {
-                // (a moving machine or door: its own copy of the parts at its time, the door's from its state, the others
-                // the clock's)
+            // (a door's time is its state's; another thing's what its `AnimPlay` and `AnimPos` say, and without them it
+            // stands in its first pose like a thing that has no animation)
+            let length = if animated { chars.prop_parts(mesh).map_or(0.0, |(_, a)| a.iter().flatten().map(|a| a.length()).fold(0.0, f32::max)) } else { 0.0 };
+            let time = match door_of.get(&id) {
+                _ if !animated => None,
+                Some(&n) => Some(world.door_time(n, length)),
+                None => world.prop_anim.get(&id).and_then(|&(play, pos, since)| prop_anim_time(play, pos, since.elapsed().as_secs_f32(), animation_clock(), length)),
+            };
+            if let Some(time) = time {
+                // (a moving machine or door: its own copy of the parts at its time)
                 let Some((parts, anims)) = chars.prop_parts(mesh) else { continue };
-                let length = anims.iter().flatten().map(|a| a.length()).fold(0.0, f32::max);
-                let time = match door_of.get(&id) {
-                    Some(&n) => world.door_time(n, length),
-                    None => animation_clock(),
-                };
                 let place = model::multiply(&model::trs_matrix(position, q, [1.0; 3]), &swap);
                 for (p, a) in parts.iter().zip(anims) {
                     let mut p = p.clone();
@@ -4183,6 +4205,25 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
 
 /// How far from the character the statels' moving parts are drawn.
 const STATEL_ANIMATION_RANGE: f32 = 250.0;
+
+/// The time a thing's model is shown at, or `None` for its first pose, as Gamecode steps it each frame (FUN_10088970,
+/// called from the things' frame step FUN_10089f0a) from its `AnimPlay` (stat 501): 2 goes forward for ever and 4 backward
+/// (the mesh's loop wraps the time); 3 goes forward once and stays at the end, 5 backward once and stays at the start (the
+/// original then sets `AnimPlay` to 1; opening a thing is `AnimPos` 1 with `AnimPlay` 3, closing it `AnimPos` 2 with
+/// `AnimPlay` 5: FUN_1008563d, FUN_10085684); any other value leaves the time alone: at the start, or at the end with
+/// `AnimPos` (stat 500) 2 (FUN_100877ec). `elapsed`: the seconds since the stats were told; `clock`: the looping time.
+pub(crate) fn prop_anim_time(play: u32, pos: u32, elapsed: f32, clock: f32, length: f32) -> Option<f32> {
+    if length <= 0.0 {
+        return None;
+    }
+    match play {
+        2 => Some(clock),
+        4 => Some(length - clock % length),
+        3 => Some(elapsed.min(length)),
+        5 => Some((length - elapsed).max(0.0)),
+        _ => (pos == 2).then_some(length),
+    }
+}
 
 /// The seconds the looping animations (the statels', the machines') are at.
 fn animation_clock() -> f32 {
@@ -4538,6 +4579,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         crate::audio::with(|m| m.play_startup_music());
     }
     let db = Arc::new(ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?);
+    // (before the first message is read: the things the server announces on entering are named and drawn by their item
+    // templates. Set after the entering, as it was, the first ones announced in a run had neither name nor model and could
+    // not be used: Arete Landing's cargo box and the junk about it, until the next zoning.)
+    let _ = ITEM_DB.set(db.clone());
     crate::effects::load_calibration(game);
     let textures = crate::Textures::new(db.clone());
     let Area { scene, terrain, collision, booths, areas, base_environment, teleportals, zones, animated, interior, falls } = load_area_with(game, &db, playfield, Some(&textures))?;
@@ -4557,6 +4602,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     let started_props = Instant::now();
     state.set_static_props(crate::static_props(&db, playfield));
     state.prop_textures.extend(crate::static_prop_textures(&db, playfield));
+    state.prop_anim.extend(crate::static_prop_anims(&db, playfield).into_iter().map(|(k, (play, pos))| (k, (play, pos, Instant::now()))));
     state.approach_doors = crate::approach_doors(&db, playfield);
     state.table = crate::table_dynels(&db, playfield);
     profile!("[profile] static_props {:?}", started_props.elapsed());
@@ -4605,7 +4651,6 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     }
     let heading = state.rotations.get(&own).map(|q| 2.0 * q[1].atan2(q[3])).unwrap_or(0.0);
     let (gear_db, gear_textures) = (db.clone(), crate::Textures::new(db.clone()));
-    let _ = ITEM_DB.set(db.clone());
     // The chat server (once per run, kept across zonings): its lines go to the chat window (and the on-screen log), and what the
     // window sends goes out through `send_chat`.
     if std::env::var_os("MAO_NO_CHAT").is_none() && !CHAT_STARTED.swap(true, std::sync::atomic::Ordering::SeqCst) {
@@ -5438,6 +5483,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             rooms_shown = Vec::new();
                             state.set_static_props(crate::static_props(&thread_db, playfield));
                             state.prop_textures.extend(crate::static_prop_textures(&thread_db, playfield));
+                            state.prop_anim.extend(crate::static_prop_anims(&thread_db, playfield).into_iter().map(|(k, (play, pos))| (k, (play, pos, Instant::now()))));
                             state.approach_doors = crate::approach_doors(&thread_db, playfield);
                             state.animated_statels = Arc::new(area.animated);
                             state.table = crate::table_dynels(&thread_db, playfield);
@@ -5751,7 +5797,15 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                 target = Some(id);
                                 seen[6] = seen[6].wrapping_sub(1);
                             }
-                            None => eprintln!("autoplay: no {name:?} in the table"),
+                            // (else one the server told of: a chest, a thing lying about)
+                            None => match state.objects.iter().filter(|(id, _)| state.names.get(id).is_some_and(|n| n.0.to_ascii_lowercase().contains(&name))).min_by(|a, b| near(a.1).total_cmp(&near(b.1))).map(|(id, at)| (*id, *at)) {
+                                Some((id, at)) => {
+                                    eprintln!("autoplay: object {id:#x} at {at:?}, {:.2} m from us at {position:?}", near(&at));
+                                    target = Some(id);
+                                    seen[6] = seen[6].wrapping_sub(1);
+                                }
+                                None => eprintln!("autoplay: no {name:?} in the table or among the objects"),
+                            },
                         }
                     }
                     _ => {
@@ -9774,5 +9828,30 @@ mod movement_tests {
         assert!(!w.loot_changed && !w.timers.has(crate::timers::ITEM));
         w.add(&Message { kind: 0x5e477770, identity: (0xc350, 0x4bc82), data: hex("0000000092000000000000006b0070000100000000000000000000") }.frame(1));
         assert!(w.loot_changed && w.loot.is_some());
+    }
+}
+
+#[cfg(test)]
+mod prop_anim_tests {
+    use super::prop_anim_time;
+
+    /// A thing's model stands still unless its `AnimPlay` says otherwise (Gamecode FUN_10088970): a crate's doors stay
+    /// shut, a looping one follows the clock, an opening one runs once to its end and stays there.
+    #[test]
+    fn a_things_model_plays_as_its_stats_say() {
+        // (no play: the first pose, or the end with `AnimPos` 2)
+        assert_eq!(prop_anim_time(0, 0, 5.0, 7.3, 1.0), None);
+        assert_eq!(prop_anim_time(1, 0, 5.0, 7.3, 1.0), None);
+        assert_eq!(prop_anim_time(1, 2, 5.0, 7.3, 1.0), Some(1.0));
+        // (round and round, forward and backward)
+        assert_eq!(prop_anim_time(2, 0, 5.0, 7.25, 1.0), Some(7.25));
+        assert_eq!(prop_anim_time(4, 0, 5.0, 7.25, 1.0), Some(0.75));
+        // (once: opening from the start, closing from the end)
+        assert_eq!(prop_anim_time(3, 1, 0.25, 7.3, 1.0), Some(0.25));
+        assert_eq!(prop_anim_time(3, 1, 5.0, 7.3, 1.0), Some(1.0));
+        assert_eq!(prop_anim_time(5, 2, 0.25, 7.3, 1.0), Some(0.75));
+        assert_eq!(prop_anim_time(5, 2, 5.0, 7.3, 1.0), Some(0.0));
+        // (a model without an animation)
+        assert_eq!(prop_anim_time(2, 0, 5.0, 7.3, 0.0), None);
     }
 }
