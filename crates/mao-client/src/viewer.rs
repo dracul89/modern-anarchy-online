@@ -123,6 +123,8 @@ pub struct Update {
     /// (units a second, server coordinates) for the prediction.
     pub own_model: Model,
     pub own_velocity: [f32; 3],
+    /// When the character was at `own`: the network thread's step that put it there (none: as the update arrives).
+    pub own_time: Option<std::time::Instant>,
     /// The characters' meshes, for their blob shadows (`blobshadow.rs`).
     pub casters: Vec<crate::blobshadow::Caster>,
     /// Which of `model`'s parts are which character's (by entity id), for the effects that tint a body (`Scene::set_tints`).
@@ -1759,7 +1761,9 @@ impl ApplicationHandler for App {
                         if let Some(p) = update.own {
                             self.own_base = p;
                             self.own_velocity = update.own_velocity;
-                            self.own_at = std::time::Instant::now();
+                            // (from when the character was there, not from when the update is read, a frame or two later:
+                            // see `Update::own_time`)
+                            self.own_at = update.own_time.unwrap_or_else(std::time::Instant::now);
                         }
                         let uploading = std::time::Instant::now();
                         w.renderer.reupload_overlay(&w.gpu, &mut w.scene, &update.model, &mut |k, i| self.textures.get_for_upload(k, i));
@@ -1872,7 +1876,11 @@ impl ApplicationHandler for App {
                             find("Attractor31_camera").or_else(|| find("Attractor01_head"))
                         });
                         let no_bob = crate::prefs::get("UseNoBobCamera").is_some_and(|v| v != 0.0);
-                        let local = self.look_target.update(attractor.map(|a| crate::camera::rotate_y(a, -self.heading)), self.steering.is_first_person(), no_bob);
+                        // (`MAO_CAMERA_PER_FRAME=1`: the smoothing by the frame, as the original has it and as it was here until
+                        // 2026-11-11, to compare: see `camera::ORIGINAL_FPS`)
+                        static PER_FRAME: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+                        let per_frame = *PER_FRAME.get_or_init(|| std::env::var_os("MAO_CAMERA_PER_FRAME").is_some());
+                        let local = self.look_target.update(if per_frame { 1.0 } else { dt * crate::camera::ORIGINAL_FPS }, attractor.map(|a| crate::camera::rotate_y(a, -self.heading)), self.steering.is_first_person(), no_bob);
                         let look = {
                             let t = crate::camera::rotate_y(local, self.heading);
                             [px + t[0], y + t[1], pz + t[2]]
@@ -1931,6 +1939,12 @@ impl ApplicationHandler for App {
                             });
                         }
                         let (eye, at) = self.steering.update(dt, look, self.heading, speed, inputs, &mut surface);
+                        // (`MAO_CAMERA_TRACE=1`: every frame's time, eye, look target and feet, to measure how steadily the
+                        // camera goes)
+                        static TRACE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+                        if *TRACE.get_or_init(|| std::env::var_os("MAO_CAMERA_TRACE").is_some()) {
+                            eprintln!("cam-trace {:.4} eye {:.4} {:.4} {:.4} look {:.4} {:.4} {:.4} feet {:.4} {:.4} {:.4}", self.script_clock.elapsed().as_secs_f64(), eye[0], eye[1], eye[2], at[0], at[1], at[2], px, y, pz);
+                        }
                         w.camera = mao_render::Camera::looking(mao_render::glam::Vec3::new(eye[0], eye[2], eye[1]), mao_render::glam::Vec3::new(at[0], at[2], at[1]));
                         if self.steering.is_first_person() {
                             // (looking out of the head: the target is a step ahead, the eye at the head)

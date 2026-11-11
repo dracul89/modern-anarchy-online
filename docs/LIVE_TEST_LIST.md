@@ -246,6 +246,12 @@ window's bar (12), the other Visual switches (14 to 17), the configuration's but
 26), renaming a bag and its kept place (45, 46), a corpse or the bank beside a bag (47), nano hide and list sorting
 (39, 40), and everything that needs a second character.
 
+## The camera while running, the login's window (2026-11-11)
+
+Both were found by the user and fixed the same day. To look at again: running, at a high run speed above all, with
+the camera behind and to the side: no shake, no judder. Entering the game from the character list: no login window
+left behind the game's. Still open: what is wrong with the Shadowlands' sky.
+
 ## Compressed textures (2026-11-11)
 
 On by default (the launcher's Visual page, "Compressed textures"). To look at while playing: the sky at dusk and at

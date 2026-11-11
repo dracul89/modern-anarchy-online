@@ -795,6 +795,35 @@ down. Here the angle is kept as a 4:3 window has it and a wider window sees the 
 past the hall's walls to the space outside it (kept so: the user chose the full width over black bars at the sides). Seen: the launcher beside the user's picture of the original's, the
 three settings pages, PLAY into the login, the hall at 16:9 and at 32:9.
 
+**Found by the user playing, 2026-11-11: the camera shook while running; the login's window stayed behind the game's.**
+*The shake.* Two causes, both older than the day and both worse the faster the frames come and the faster the
+character runs (the user's is level 220, and the frame rate had doubled that day).
+The first and larger: the character's place between two network updates is its place at the last one plus its speed
+times the time since. That time was counted from when the window's thread read the update, and the speed from when
+the network thread built it, but the place is the network thread's last step's, some milliseconds older than either
+(the characters are posed in between, and the update waits for a frame to be read). So with every update, 24 times
+a second, the character and the camera's look target jumped a few centimetres on or back. Now the update says when
+the character was there (`Update::own_time`, the step's time) and the speed is taken over the steps' times. Traced
+(`MAO_CAMERA_TRACE=1` prints every frame's eye, look target and feet), a test character running at 5 m/s: its
+jitter along its path 0.2 mm where it was 9.9 mm (at the worst 1.1 mm where it was 73 mm), and the view's turning
+changing from one frame to the next by 12 degrees a second at the worst hundredth where it was 75.
+The second: the original moves the camera's look target a fifth of the way to the head's attractor every frame
+(`LookTarget`), and its snapped camera a tenth, whatever the frame took. It drew a hundred frames a second at most;
+at two hundred that smoothing all but goes and the look target follows the head's bob as the character runs. The
+shares are now taken per sixtieth of a second (`camera::ORIGINAL_FPS`, `keep_for`), the rate the turn keys were
+already scaled by: the same smoothing at any frame rate (a test holds it). `MAO_CAMERA_PER_FRAME=1` gives the old
+way, to compare. Which frame rate the original's players mostly saw is a guess; sixty is this client's choice.
+*The window.* When a character is entered with, the game starts in a process of its own and the login's process
+waits for it. The login's window was let go of after its event loop had ended, and winit takes a window down by a
+message to that loop: so it was never taken down, and since the login became a window of the game's size (the hall,
+the same day) it stood frozen behind the game. It is now hidden and let go of inside the loop, the moment a
+character is chosen. Tried without a hand (`MAO_LAUNCHER_ENTER=<name>` enters with a character as soon as the list
+is there): while the game runs, the login's window is not visible.
+*Not found:* the user also said the Shadowlands' sky dome was off. Nothing drawn off the game showed a difference
+between the morning's build and the day's end's (the playfields 4310 and 4542, with and without compressed
+textures: the same picture), and no test character is in the Shadowlands; what exactly is wrong there is still to
+be asked.
+
 **The geometry packed into a few large buffers (2026-11-11, `Renderer::upload`, `reupload`, `draw_runs`).**
 What was left in Arete Landing was the handing over of its 1,800 draw calls, 3.1 ms a frame: each call set a
 vertex buffer and an index buffer of the part's own before it drew. Now a playfield's geometry is packed as it is

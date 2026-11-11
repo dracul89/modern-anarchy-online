@@ -7463,13 +7463,17 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 }
                 casters.extend(own_casters);
                 let deforms_landed: std::cell::RefCell<Vec<(u32, mao_formats::gfx::Deform)>> = std::cell::RefCell::new(Vec::new());
+                // (the speed over the time the position itself took: the position is the last step's, `last_tick`, not this
+                // moment's, which comes some milliseconds later, after the characters are posed; and the window is told that
+                // time too, `own_time`. Timed by the clock as they were built and as they arrived, the character jumped a few
+                // centimetres on or back with every update, more the faster it ran, and the camera with it)
                 let own_velocity = if walk == 0 && keys.strafe == 0 && !airborne {
                     [0.0; 3]
                 } else {
-                    let dt = last_own.1.elapsed().as_secs_f32().max(0.001);
+                    let dt = last_tick.duration_since(last_own.1).as_secs_f32().max(0.001);
                     [(position[0] - last_own.0[0]) / dt, 0.0, (position[2] - last_own.0[2]) / dt]
                 };
-                last_own = (position, Instant::now());
+                last_own = (position, last_tick);
                 if profile && built.elapsed() > Duration::from_millis(4) {
                     eprintln!("[profile] overlay_model {:?} ({} parts, {} instances)", built.elapsed(), model.parts.len(), model.instances.len());
                 }
@@ -7569,6 +7573,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     model,
                     own_model,
                     own_velocity,
+                    own_time: Some(last_tick),
                     casters,
                     character_parts,
                     map: pending_map.take(),

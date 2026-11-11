@@ -235,6 +235,12 @@ impl Launcher {
                     }
                     Ok(list) => {
                         self.selected = ordered(&list, &self.last).into_iter().find(|c| c.created && !c.banned).map(|c| c.name.clone());
+                        // (`MAO_LAUNCHER_ENTER=<name>`: that character is entered with as soon as the list is there, for trying
+                        // the way from the list into the game without a hand on the mouse)
+                        if let Some(name) = std::env::var("MAO_LAUNCHER_ENTER").ok().filter(|n| list.iter().any(|c| &c.name == n && c.created && !c.banned)) {
+                            self.selected = Some(name.clone());
+                            self.chosen = Some(name);
+                        }
                         if let Some(name) = self.play_new.take().filter(|n| list.iter().any(|c| &c.name == n)) {
                             let _ = std::fs::write(account_path(), render_account(self.user.trim(), &name, &self.accounts));
                             self.selected = Some(name.clone());
@@ -546,7 +552,13 @@ impl ApplicationHandler for Launcher {
                     gfx.window.pre_present_notify();
                     gfx.gpu.queue.present(frame);
                     if self.chosen.is_some() || self.quit {
+                        // (the window goes now, while the loop still runs: the game starts in a process of its own and this
+                        // one waits for it, and a window let go of after the loop has ended is never taken down, since
+                        // winit does that by a message to the loop; it stood frozen behind the game's. Hidden first, so
+                        // that it is gone from the screen whether or not that message is still read.)
+                        gfx.window.set_visible(false);
                         event_loop.exit();
+                        return;
                     } else {
                         gfx.window.request_redraw();
                     }
@@ -623,7 +635,7 @@ pub fn run(game: &str) -> Result<(), String> {
     }
     let event_loop = EventLoop::new().map_err(|e| e.to_string())?;
     event_loop.run_app(&mut launcher).map_err(|e| e.to_string())?;
-    // (the login's window goes before the game's comes)
+    // (the login's window went when a character was chosen, inside the loop: see there)
     launcher.gfx = None;
     let Some(name) = launcher.chosen.take() else { return Ok(()) };
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;

@@ -107,7 +107,8 @@ impl Gpu {
         let timing = wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS;
         let mut required_features = if adapter.features().contains(timing) { timing } else { wgpu::Features::empty() };
         // (block-compressed textures where the device has them: see `block_levels`)
-        let bc = adapter.features().contains(wgpu::Features::TEXTURE_COMPRESSION_BC);
+        // (`MAO_PLAIN_TEXTURES=1` keeps every texture plain, whatever the settings say: to compare)
+        let bc = adapter.features().contains(wgpu::Features::TEXTURE_COMPRESSION_BC) && std::env::var_os("MAO_PLAIN_TEXTURES").is_none();
         if bc {
             required_features |= wgpu::Features::TEXTURE_COMPRESSION_BC;
         }

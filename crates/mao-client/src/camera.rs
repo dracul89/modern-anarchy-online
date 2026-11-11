@@ -110,9 +110,27 @@ impl Default for LookTarget {
     }
 }
 
+/// The frame rate the original's by-the-frame smoothing is taken at (the turn keys' too: `Steering::update`). The original
+/// moves its look target and its snapped camera a fixed share of the way every frame, whatever the frame took; it drew at
+/// most a hundred frames a second and on the machines of its day far fewer. This client draws two hundred and more, and
+/// with the share taken per frame the smoothing all but went: the look target followed every step of the head's bob as
+/// the character ran, and the picture shook (the user, 2026-11-11, the day the frame rate doubled). So the share is taken
+/// per sixtieth of a second: `keep_for` gives what is kept of the old value over a frame of `frames` sixtieths.
+pub const ORIGINAL_FPS: f32 = 60.0;
+
+/// What is kept of the old value over `frames` of the original's frames, when one frame keeps `keep` of it.
+pub fn keep_for(keep: f32, frames: f32) -> f32 {
+    keep.powf(frames.clamp(0.0, 30.0))
+}
+
 impl LookTarget {
-    /// A frame: `attractor` is the camera attractor's place in the character's frame (unturned), when the body has one.
-    pub fn update(&mut self, attractor: Option<[f32; 3]>, first_person: bool, no_bob: bool) -> [f32; 3] {
+    /// A frame of `frames` of the original's frames (the frame's time times [`ORIGINAL_FPS`]): `attractor` is the camera
+    /// attractor's place in the character's frame (unturned), when the body has one.
+    pub fn update(&mut self, frames: f32, attractor: Option<[f32; 3]>, first_person: bool, no_bob: bool) -> [f32; 3] {
+        let blend = |old: [f32; 3], to: [f32; 3], keep: f32| {
+            let k = keep_for(keep, frames);
+            add(scale(old, k), scale(to, 1.0 - k))
+        };
         let attractor = attractor.map(|a| {
             let held = *self.held.get_or_insert([a[0], a[2]]);
             [held[0], a[1], held[1]]
@@ -124,7 +142,7 @@ impl LookTarget {
                 if d >= 0.01 {
                     if self.chasing || d > 0.25 {
                         self.chasing = true;
-                        add(scale(old, 0.99), scale(a, 0.01))
+                        blend(old, a, 0.99)
                     } else {
                         old
                     }
@@ -133,8 +151,8 @@ impl LookTarget {
                     old
                 }
             }
-            (a, true, _) => add(scale(old, 0.001), scale(a.unwrap_or([0.0; 3]), 0.999)),
-            (Some(a), false, _) if old[1] != 0.0 => add(scale(old, 0.8), scale(a, 0.2)),
+            (a, true, _) => blend(old, a.unwrap_or([0.0; 3]), 0.001),
+            (Some(a), false, _) if old[1] != 0.0 => blend(old, a, 0.8),
             _ => old,
         };
         if new[1] < 0.3 {
@@ -528,7 +546,7 @@ impl SteeringCamera {
         }
         self.constrain(char_speed, look);
         // The keys and the mouse (FUN_10022345: 0.02 a frame; the client scales it to the original's frame rate).
-        let frames = dt * 60.0;
+        let frames = dt * ORIGINAL_FPS;
         let across = inputs.mouse.0 + (inputs.rotate_right as i32 - inputs.rotate_left as i32) as f32 * TURN_PER_FRAME * TURN_SENSITIVITY * frames;
         let up = inputs.mouse.1 + (inputs.rotate_up as i32 - inputs.rotate_down as i32) as f32 * TURN_PER_FRAME * TURN_SENSITIVITY * frames;
         let zoom = (inputs.zoom_out as i32 - inputs.zoom_in as i32) as f32 * dt + inputs.wheel * 0.25;
@@ -584,7 +602,8 @@ impl SteeringCamera {
                 let v = sub(wanted, look);
                 let d = length(v);
                 let current = length(sub(self.pos, look));
-                self.pos = if d <= current { wanted } else { add(look, scale(normalize(v), current * 0.9 + d * 0.1)) };
+                let keep = keep_for(0.9, dt * ORIGINAL_FPS);
+                self.pos = if d <= current { wanted } else { add(look, scale(normalize(v), current * keep + d * (1.0 - keep))) };
                 self.vel = [0.0; 3];
                 self.speed = 0.0;
                 None
@@ -610,22 +629,57 @@ mod tests {
         let mut t = LookTarget::default();
         assert_eq!(t.local, [0.0, 2.0, 0.0]);
         // third person: a fifth of the way each frame, the x and z held as first found, the y live
-        let p = t.update(Some([0.1, 1.5, 0.05]), false, false);
+        let p = t.update(1.0, Some([0.1, 1.5, 0.05]), false, false);
         assert!((p[1] - 1.9).abs() < 1e-5 && (p[0] - 0.02).abs() < 1e-5, "{p:?}");
         for _ in 0..60 {
-            t.update(Some([0.3, 1.6, 0.0]), false, false);
+            t.update(1.0, Some([0.3, 1.6, 0.0]), false, false);
         }
         let p = t.local;
         assert!((p[1] - 1.6).abs() < 1e-3 && (p[0] - 0.1).abs() < 1e-3 && (p[2] - 0.05).abs() < 1e-3, "{p:?}");
         // never under 0.3; first person goes to the attractor at once
-        assert_eq!(t.update(Some([0.0, 0.0, 0.0]), true, false)[1], 0.3);
+        assert_eq!(t.update(1.0, Some([0.0, 0.0, 0.0]), true, false)[1], 0.3);
         // no bob: still until the attractor has gone over 0.25 away, then chasing a hundredth a frame
         let mut t = LookTarget::default();
-        let y = t.update(Some([0.0, 1.5, 0.0]), true, false)[1];
+        let y = t.update(1.0, Some([0.0, 1.5, 0.0]), true, false)[1];
         assert!((y - 1.5005).abs() < 1e-5);
-        assert_eq!(t.update(Some([0.0, 1.7, 0.0]), false, true)[1], y);
-        let p = t.update(Some([0.0, 1.8, 0.0]), false, true);
+        assert_eq!(t.update(1.0, Some([0.0, 1.7, 0.0]), false, true)[1], y);
+        let p = t.update(1.0, Some([0.0, 1.8, 0.0]), false, true);
         assert!((p[1] - (y * 0.99 + 0.018)).abs() < 1e-5, "{p:?}");
+    }
+
+    /// The look target's smoothing does not depend on the frame rate: after the same time it is at the same place at 60,
+    /// 120 and 240 frames a second, and a head that bobs moves it as little at 240 as at 60.
+    #[test]
+    fn the_look_target_is_smoothed_alike_at_any_frame_rate() {
+        let after = |fps: f32, seconds: f32| {
+            let mut t = LookTarget::default();
+            t.update(1.0, Some([0.0, 1.5, 0.0]), true, false);
+            for _ in 0..(seconds * fps).round() as usize {
+                t.update(ORIGINAL_FPS / fps, Some([0.0, 1.9, 0.0]), false, false);
+            }
+            t.local[1]
+        };
+        let at_60 = after(60.0, 0.1);
+        assert!((at_60 - (1.9 - 0.4 * 0.8f32.powi(6))).abs() < 1e-3, "{at_60}");
+        assert!((after(120.0, 0.1) - at_60).abs() < 1e-3 && (after(240.0, 0.1) - at_60).abs() < 1e-3);
+        // (a head stepping up and down 24 times a second, as the run's animation moves it: the swing of the look target)
+        let swing = |fps: f32| {
+            let mut t = LookTarget::default();
+            t.update(1.0, Some([0.0, 1.6, 0.0]), true, false);
+            let (mut low, mut high) = (f32::MAX, f32::MIN);
+            for frame in 0..(2.0 * fps) as usize {
+                let time = frame as f32 / fps;
+                let head = 1.6 + if ((time * 24.0) as usize) % 2 == 0 { 0.05 } else { -0.05 };
+                let y = t.update(ORIGINAL_FPS / fps, Some([0.0, head, 0.0]), false, false)[1];
+                if time > 1.0 {
+                    (low, high) = (low.min(y), high.max(y));
+                }
+            }
+            high - low
+        };
+        assert!((swing(240.0) - swing(60.0)).abs() < 0.01, "{} at 240, {} at 60", swing(240.0), swing(60.0));
+        assert_eq!(keep_for(0.8, 1.0), 0.8);
+        assert_eq!(keep_for(0.8, 0.0), 1.0);
     }
 
     /// A flat floor at height `y` with nothing else: seen across, near when the camera is low, and the camera held a
