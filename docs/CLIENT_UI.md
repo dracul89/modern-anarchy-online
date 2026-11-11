@@ -785,7 +785,8 @@ settings window is drawn inside the launcher's (the page is put away while it is
 window of its own.
 
 The login now opens at the size and in the window mode of the settings, as the original's login is already the
-game's window, and behind it is the hall the original shows: the six meshes GUI.dll's `CharCreateModule_t` loads by
+game's window, and behind it is a hall (corrected the same day, see the paragraph above: this first try drew the
+creation's corridor): the six meshes GUI.dll's `CharCreateModule_t` loads by
 name (`InitialiseMessage` 0x1011bdaa, the table at 0x102724e4), seen from the first place of the game folder's
 `CharCreateCamera.dat` with the original's 60 degrees. **The stretch the user showed** (the original at 5120 by
 1440: the hall's upper part cut off): the original's angle is across the window, so a wide window sees less up and
@@ -793,6 +794,24 @@ down. Here the angle is kept as a 4:3 window has it and a wider window sees the 
 (`hall::half_height`; the renderer's camera took an optional view height for it). In a very wide window that shows
 past the hall's walls to the space outside it (kept so: the user chose the full width over black bars at the sides). Seen: the launcher beside the user's picture of the original's, the
 three settings pages, PLAY into the login, the hall at 16:9 and at 32:9.
+
+**The hall behind the login and the character list, as the original has it (2026-11-11, `hall.rs`, `launcher.rs`).**
+The hall drawn behind the login earlier the same day was the wrong view: the first place of `CharCreateCamera.dat`
+is the character creation's corridor. The original's login has a world of its own, GUI.dll's `LoginWorld_c`
+(0x100160c5): five of the creation's meshes (the hall with a profession's figure on each pedestal among them) and
+one fixed camera, inside the hall, looking down it and twelve degrees downwards (constants in the DLL, now
+`hall::LOGIN_CAMERA` and `LOGIN_ROTATION`). The character list's character stands five units in front of that camera
+and 1.9 below it (`CharSelectWindow_c` 0x1000efb1 sets its `CharacterViewer_c` there), facing it, in its idle
+stance. Both are done: the login and the character list share the hall, and the character picked in the list stands
+in it (the hall scene's overlay) where it was shown alone on a dark blue before. Checked against the original's own
+pictures, the first frames of the capture of 2026-10-30: drawn with the original's rule for the angle
+(`MAO_HALL_ORIGINAL=1`) the pedestals, the figures and the character fall where they do there. The wide-window
+choice stands: the view keeps the height a 4:3 window has, so at 32:9 the figures and the character are whole and
+smaller than in the original's picture, which cuts them at the knees and the head. Tools: `MAO_HALL_CAMERA=x,y,z,
+qx,qy,qz,qw,fov` looks from another place, the `meshboxes` example prints where each part of a named mesh lies.
+Not done: turning the character with the mouse, the hall behind the creation screens (they have their own cameras
+in `CharCreateCamera.dat`, read by `hall::places` and not used yet) with their seven breed figures, the figures'
+own animations.
 
 **The interface size's slider (2026-11-11, `ui.rs::size_from_slider`).** The user found the interface at 200% and the
 options' slider giving only its two ends. The size was taken while the slider was dragged, so with every step the

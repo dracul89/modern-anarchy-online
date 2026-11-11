@@ -123,6 +123,8 @@ struct Gfx {
     /// The hall behind the login (`hall.rs`): its scene and the place it is seen from; `Some(None)` once it was looked
     /// for and not found.
     hall: Option<Option<(Scene, crate::hall::Place)>>,
+    /// The character list's character stands in the hall (the hall scene's overlay holds it).
+    hall_character: bool,
     started: std::time::Instant,
     frames: u32,
 }
@@ -359,7 +361,7 @@ impl Launcher {
                 }
             }
             let built = gfx.db.as_ref().and_then(|(db, textures)| {
-                let place = crate::hall::login_place(std::path::Path::new(&self.game))?;
+                let place = crate::hall::login_place();
                 let model = crate::hall::model(db)?;
                 let mut scene = gfx.renderer.upload(&gfx.gpu, &model, &mut |k, i| textures.get_for_upload(k, i));
                 scene.sky = ([0.02, 0.03, 0.05], [0.0, 0.0, 0.0]);
@@ -379,7 +381,7 @@ impl ApplicationHandler for Launcher {
         }
         // (the login is the game's window already in the original: the size and the mode of the settings; the pictures the
         // tests take keep the small window)
-        let small = self.shot.is_some() || std::env::var_os("MAO_LAUNCHER_DEMO").is_some();
+        let small = self.shot.is_some();
         let size = if small { PhysicalSize::new(1000, 640) } else { PhysicalSize::new(self.settings.width, self.settings.height) };
         let window = Arc::new(event_loop.create_window(Window::default_attributes().with_title("Modern Anarchy Online").with_window_icon(crate::icon::window_icon()).with_inner_size(size)).expect("a window"));
         if !small {
@@ -396,7 +398,7 @@ impl ApplicationHandler for Launcher {
         let ui = Ui::new(&window, &gpu, format, &self.settings);
         let renderer = Renderer::new(&gpu, format);
         window.request_redraw();
-        self.gfx = Some(Gfx { window, surface, config, gpu, ui, renderer, shown: None, scene: None, camera: None, db: None, hall: None, started: std::time::Instant::now(), frames: 0 });
+        self.gfx = Some(Gfx { window, surface, config, gpu, ui, renderer, shown: None, scene: None, camera: None, db: None, hall: None, hall_character: false, started: std::time::Instant::now(), frames: 0 });
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
@@ -423,9 +425,22 @@ impl ApplicationHandler for Launcher {
                         Stage::Create(creating, _) => creating.breed_and_sex().map(|(breed, sex)| Character { name: format!("(new {breed} {sex} {} {} {})", creating.head, creating.build, creating.height), breed, sex, width: creating.build, height: crate::charcreate::height(creating.height), ..Default::default() }),
                         _ => None,
                     };
+                    // (the hall, once it is there: the character list's character stands in it; the first time it is
+                    // there, whoever was shown alone is built again to stand there)
+                    let had_hall = matches!(gfx.hall, Some(Some(_)));
+                    let hall = self.hall_ready(&mut gfx);
+                    if hall && !had_hall {
+                        gfx.shown = None;
+                    }
                     if want.as_ref().map(|c| &c.name) != gfx.shown.as_ref() {
                         gfx.shown = want.as_ref().map(|c| c.name.clone());
                         gfx.scene = None;
+                        // (whoever stood in the hall leaves it)
+                        if std::mem::take(&mut gfx.hall_character) {
+                            if let Some(Some((scene, _))) = gfx.hall.as_mut() {
+                                gfx.renderer.reupload_overlay(&gfx.gpu, scene, &mao_formats::model::Model::default(), &mut |_, _| None);
+                            }
+                        }
                         if let Some(c) = &want {
                             if gfx.db.is_none() {
                                 if let Ok(db) = ResourceDatabase::open_game(std::path::Path::new(&self.game)) {
@@ -443,7 +458,13 @@ impl ApplicationHandler for Launcher {
                                     Stage::Create(..) => crate::net::character_model_shaped(db, c.breed, c.sex, look.as_ref(), c.width, c.height as f32),
                                     _ => crate::net::character_model(db, c.breed, c.sex, look.as_ref()),
                                 };
-                                if let Some(model) = shaped {
+                                // (the character list's character stands in the hall where the original's viewer puts it,
+                                // `hall::stand`; a character being made is still shown alone)
+                                let in_hall = hall && matches!(self.stage, Stage::Characters(_));
+                                if let (true, Some(model), Some(Some((scene, _)))) = (in_hall, shaped.as_ref(), gfx.hall.as_mut()) {
+                                    gfx.renderer.reupload_overlay(&gfx.gpu, scene, &crate::hall::stand(model.clone()), &mut |k, i| textures.get_for_upload(k, i));
+                                    gfx.hall_character = true;
+                                } else if let Some(model) = shaped {
                                     let mut scene = gfx.renderer.upload(&gfx.gpu, &model, &mut |k, i| textures.get_for_upload(k, i));
                                     scene.sky = ([0.05, 0.09, 0.15], [0.01, 0.03, 0.07]);
                                     scene.fog = (400.0, 800.0);
@@ -493,16 +514,18 @@ impl ApplicationHandler for Launcher {
                         let camera = *camera;
                         gfx.renderer.draw(&gfx.gpu, scene, &camera, &view, size);
                         gfx.ui.paint(&gfx.gpu, &view, size, ui_frame);
-                    } else if self.hall_ready(&mut gfx) {
+                    } else if hall {
                         let Some(Some((scene, place))) = &gfx.hall else { unreachable!() };
-                        // (no character shown: the hall, from the camera file's first place)
+                        // (the hall from the login world's camera, with the picked character in it when there is one)
                         let p = place.position;
                         let forward = crate::hall::rotate(place.rotation, [0.0, 0.0, 1.0]);
                         // (the game's frame has Y up, the renderer's Z)
                         let eye = mao_render::glam::Vec3::new(p[0], p[2], p[1]);
                         let target = eye + mao_render::glam::Vec3::new(forward[0], forward[2], forward[1]) * 10.0;
                         let mut camera = Camera::looking(eye, target);
-                        camera.half_height = Some(crate::hall::half_height(place.fov_degrees, size.0 as f32 / size.1.max(1) as f32));
+                        let aspect = size.0 as f32 / size.1.max(1) as f32;
+                        // (`MAO_HALL_ORIGINAL=1`: the original's rule, the angle across the window, to compare with its pictures)
+                        camera.half_height = Some(if std::env::var_os("MAO_HALL_ORIGINAL").is_some() { (place.fov_degrees.to_radians() * 0.5).tan() / aspect } else { crate::hall::half_height(place.fov_degrees, aspect) });
                         gfx.renderer.draw(&gfx.gpu, scene, &camera, &view, size);
                         gfx.ui.paint(&gfx.gpu, &view, size, ui_frame);
                     } else {
