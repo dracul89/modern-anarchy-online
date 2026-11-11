@@ -246,6 +246,12 @@ window's bar (12), the other Visual switches (14 to 17), the configuration's but
 26), renaming a bag and its kept place (45, 46), a corpse or the bank beside a bag (47), nano hide and list sorting
 (39, 40), and everything that needs a second character.
 
+## Compressed textures (2026-11-11)
+
+On by default (the launcher's Visual page, "Compressed textures"). To look at while playing: the sky at dusk and at
+night, glows and beams of nano effects, water and lava, faces close up: banding or blocks that the plain textures
+(the box cleared) do not show. And whether a zone with many players stutters more as their textures come in.
+
 ## The faces turned away (2026-11-11)
 
 Back faces are no longer drawn, as in the original. Seen without fault in Aegean, Arete Landing, its shuttle room

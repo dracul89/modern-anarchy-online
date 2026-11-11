@@ -394,6 +394,7 @@ impl Dialog {
                     ui.radio_value(&mut self.settings.shadows, value, name);
                 }
             });
+            ui.checkbox(&mut self.settings.texture_compression, "Compressed textures").on_hover_text("Keeps the textures on the graphics card in compressed blocks: about a quarter of the video memory, for a little longer loading. Off: as the files are.");
             ui.horizontal(|ui| {
                 ui.label("Drawing scale");
                 egui::ComboBox::from_id_salt("launcher-scale").selected_text(scale_name(self.settings.render_scale)).width(170.0).show_ui(ui, |ui| {

@@ -1014,6 +1014,7 @@ impl ApplicationHandler for App {
         surface.configure(&gpu.device, &config);
         let mut renderer = Renderer::new(&gpu, config.format);
         renderer.set_shadows(&gpu, self.settings.shadows);
+        renderer.compress_textures = self.settings.texture_compression;
         liquid_textures(&mut renderer, &gpu, &self.textures);
         let mut scene = renderer.upload(&gpu, &self.model, &mut |k, i| self.textures.get_for_upload(k, i));
         if self.live.is_some() {

@@ -24,6 +24,8 @@ pub struct Gpu {
     pub adapter: wgpu::Adapter,
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
+    /// The device takes block-compressed textures (BC1 to BC7: every desktop card does).
+    pub bc: bool,
 }
 
 /// The graphics device the player chose (the launcher's settings: the original's "Rendering Device"), by the name
@@ -103,9 +105,14 @@ impl Gpu {
         };
         // (timestamps where the device has them: the frame's time on the card, for the performance overlay)
         let timing = wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS;
-        let required_features = if adapter.features().contains(timing) { timing } else { wgpu::Features::empty() };
+        let mut required_features = if adapter.features().contains(timing) { timing } else { wgpu::Features::empty() };
+        // (block-compressed textures where the device has them: see `block_levels`)
+        let bc = adapter.features().contains(wgpu::Features::TEXTURE_COMPRESSION_BC);
+        if bc {
+            required_features |= wgpu::Features::TEXTURE_COMPRESSION_BC;
+        }
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor { required_features, ..Default::default() })).map_err(|e| e.to_string())?;
-        Ok(Gpu { instance, adapter, device, queue })
+        Ok(Gpu { instance, adapter, device, queue, bc })
     }
 
     pub fn headless() -> Result<Gpu, String> {
@@ -1373,6 +1380,9 @@ pub struct Renderer {
     pub stats: Stats,
     /// The share of the window's size the scene is drawn at (1 = native); less is upscaled with FSR 1.
     pub render_scale: f32,
+    /// Keep the textures on the card in compressed blocks, a quarter of their size ([`block_levels`]); on by default, and
+    /// only for the textures uploaded from then on.
+    pub compress_textures: bool,
     /// Read the textures sharper when the scene is drawn below the window's size ([`mip_bias`]); on unless
     /// `MAO_NO_MIP_BIAS` is set (to compare the two).
     pub mip_bias: bool,
@@ -1669,7 +1679,7 @@ impl Renderer {
             entries: &[wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&white) }, wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&sampler) }],
         });
         let liquid = LiquidResources::new(gpu, liquid_bind_layout, &white, &sampler, &fsr_sampler, &sprite_layout);
-        Renderer { shadow_cache: None, shadow_pipeline, pipeline_sets, shaders, antialiasing: Antialiasing::default(), culling, binds: std::sync::Mutex::new(HashMap::new()), records_layout, records: None, taa_pipeline, taa_layout, taa_sampler, taa: None, copy_pipeline, timer: GpuTimer::new(gpu), gpu_ms: None, frame: 0, previous: None, sprites: HashMap::new(), sprite_layout, white_sprite, shadow_view, shadow_bind, shadow_layout, shadow_sampler, shadow_size: SHADOW_SIZE, shadows: true, refraction: std::env::var_os("MAO_NO_REFRACTION").is_none(), stats: Stats::default(), render_scale: 1.0, mip_bias: std::env::var_os("MAO_NO_MIP_BIAS").is_none(), sharpness: 0.2, fsr_easu, fsr_rcas, fsr_layout, fsr_sampler, fsr: None, samples, msaa: None, started: std::time::Instant::now(), globals_layout, part_layout, sampler, white, format, depth: None, textures: Default::default(), liquid }
+        Renderer { shadow_cache: None, shadow_pipeline, pipeline_sets, shaders, antialiasing: Antialiasing::default(), culling, binds: std::sync::Mutex::new(HashMap::new()), records_layout, records: None, taa_pipeline, taa_layout, taa_sampler, taa: None, copy_pipeline, timer: GpuTimer::new(gpu), gpu_ms: None, frame: 0, previous: None, sprites: HashMap::new(), sprite_layout, white_sprite, shadow_view, shadow_bind, shadow_layout, shadow_sampler, shadow_size: SHADOW_SIZE, shadows: true, refraction: std::env::var_os("MAO_NO_REFRACTION").is_none(), stats: Stats::default(), render_scale: 1.0, compress_textures: true, mip_bias: std::env::var_os("MAO_NO_MIP_BIAS").is_none(), sharpness: 0.2, fsr_easu, fsr_rcas, fsr_layout, fsr_sampler, fsr: None, samples, msaa: None, started: std::time::Instant::now(), globals_layout, part_layout, sampler, white, format, depth: None, textures: Default::default(), liquid }
     }
 
     /// Puts a model on the GPU. `texture` finds a texture by (type, instance).
@@ -1678,13 +1688,13 @@ impl Renderer {
     /// The liquid passes' textures: the water's (`water5.png`), the toxic liquid's (`toxicwater.png`) and the lava's glow
     /// (`env_lava2.png`); one not given stays white.
     pub fn set_liquid_textures(&mut self, gpu: &Gpu, water: Option<&Texture>, toxic: Option<&Texture>, lava: Option<&Texture>) {
-        let views: Vec<wgpu::TextureView> = [water, toxic, lava].iter().map(|t| t.map_or_else(|| self.white.clone(), |t| upload_texture(gpu, t))).collect();
+        let views: Vec<wgpu::TextureView> = [water, toxic, lava].iter().map(|t| t.map_or_else(|| self.white.clone(), |t| upload_blocks(gpu, t, self.compress_textures, true))).collect();
         self.liquid.textures = [views[0].clone(), views[1].clone(), views[2].clone()];
         self.liquid.rebind(gpu);
     }
 
     pub fn add_sprite(&mut self, gpu: &Gpu, id: u16, texture: &Texture) {
-        let view = upload_texture(gpu, texture);
+        let view = upload_blocks(gpu, texture, self.compress_textures, true);
         let bind = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
             layout: &self.sprite_layout,
@@ -1736,7 +1746,7 @@ impl Renderer {
                 indices.push(0);
             }
             let key = part.material.textures.first().copied();
-            let view = key.and_then(|(kind, instance)| cache.entry((kind, instance)).or_insert_with(|| texture(kind, instance).map(|t| upload_texture(gpu, &t))).clone());
+            let view = key.and_then(|(kind, instance)| cache.entry((kind, instance)).or_insert_with(|| texture(kind, instance).map(|t| upload_blocks(gpu, &t, self.compress_textures, false))).clone());
             let (mut lo, mut hi, mut height) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN), 0.0f32);
             for v in &part.vertices {
                 lo = lo.min(Vec3::from(v.position));
@@ -1807,13 +1817,14 @@ impl Renderer {
             let decoded: Vec<((u32, u32), Option<Texture>)> = wanted.into_iter().map(|(kind, instance)| ((kind, instance), texture(kind, instance))).collect();
             let next = std::sync::atomic::AtomicUsize::new(0);
             let made: std::sync::Mutex<Vec<((u32, u32), Option<wgpu::TextureView>)>> = std::sync::Mutex::new(Vec::new());
-            let workers = std::thread::available_parallelism().map_or(2, |n| n.get()).min(8).min(decoded.len().max(1));
+            let workers = std::thread::available_parallelism().map_or(2, |n| n.get()).min(16).min(decoded.len().max(1));
+            let compress = self.compress_textures;
             std::thread::scope(|scope| {
                 for _ in 0..workers {
                     scope.spawn(|| loop {
                         let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         let Some((key, t)) = decoded.get(i) else { break };
-                        let view = t.as_ref().map(|t| upload_texture(gpu, t));
+                        let view = t.as_ref().map(|t| upload_blocks(gpu, t, compress, false));
                         made.lock().unwrap().push((*key, view));
                     });
                 }
@@ -1840,7 +1851,7 @@ impl Renderer {
                     indices.push(0);
                 }
                 let ib = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: bytemuck::cast_slice(&indices), usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST });
-                let view = part.material.textures.first().and_then(|&(kind, instance)| cache.entry((kind, instance)).or_insert_with(|| { let t0 = std::time::Instant::now(); let r = texture(kind, instance).map(|t| upload_texture(gpu, &t)); tex_time += t0.elapsed(); tex_count += 1; r }).clone());
+                let view = part.material.textures.first().and_then(|&(kind, instance)| cache.entry((kind, instance)).or_insert_with(|| { let t0 = std::time::Instant::now(); let r = texture(kind, instance).map(|t| upload_blocks(gpu, &t, self.compress_textures, false)); tex_time += t0.elapsed(); tex_count += 1; r }).clone());
                 // A plant's height (in its own Y-up space) sets how it bends.
                 let height = part.vertices.iter().map(|v| v.position[1]).fold(0.0f32, f32::max);
                 let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
@@ -2693,6 +2704,128 @@ impl Renderer {
     }
 }
 
+/// A level's side in blocks of four texels.
+fn blocks(side: u32) -> u32 {
+    side.div_ceil(4)
+}
+
+/// A texture in the card's block formats: its levels one after the other, how many, and the format.
+pub struct Blocks {
+    pub data: Vec<u8>,
+    pub levels: u32,
+    pub format: wgpu::TextureFormat,
+}
+
+/// The block encoders used (Intel's, `intel_tex_2`). All three take 8 bits a texel where the plain texture takes 32.
+#[derive(Clone, Copy, PartialEq)]
+enum Encoder {
+    /// BC7 for a texture without alpha, at the quickest setting: a core does about 50 megapixels a second.
+    Bc7Opaque,
+    /// BC7 with alpha, at the quickest setting: about 20 megapixels a second.
+    Bc7Alpha,
+    /// BC3 (the old DXT5): a 565 colour pair and a full alpha pair a block; hundreds of megapixels a second.
+    Bc3,
+}
+
+impl Encoder {
+    fn encode(self, data: &[u8], width: u32, height: u32) -> Vec<u8> {
+        let surface = intel_tex_2::RgbaSurface { data, width, height, stride: width * 4 };
+        match self {
+            Encoder::Bc7Opaque => intel_tex_2::bc7::compress_blocks(&intel_tex_2::bc7::opaque_ultra_fast_settings(), &surface),
+            Encoder::Bc7Alpha => intel_tex_2::bc7::compress_blocks(&intel_tex_2::bc7::alpha_ultra_fast_settings(), &surface),
+            Encoder::Bc3 => intel_tex_2::bc3::compress_blocks(&surface),
+        }
+    }
+
+    /// A level of whole blocks encoded; one of a megapixel or more in strips, a core each (the blocks do not depend on
+    /// one another), so that a 4096 by 4096 sheet does not hold its thread for most of a second.
+    fn level(self, data: &[u8], width: u32, height: u32) -> Vec<u8> {
+        let threads = if width as usize * height as usize >= 1 << 20 { std::thread::available_parallelism().map_or(1, |n| n.get()).min(16) } else { 1 };
+        if threads < 2 {
+            return self.encode(data, width, height);
+        }
+        let strip = (height / 4).div_ceil(threads as u32).max(1) as usize * 4 * width as usize * 4;
+        std::thread::scope(|scope| {
+            let handles: Vec<_> = data.chunks(strip).map(|rows| scope.spawn(move || self.encode(rows, width, (rows.len() / (width as usize * 4)) as u32))).collect();
+            handles.into_iter().flat_map(|h| h.join().expect("an encoder thread")).collect()
+        })
+    }
+}
+
+/// The texture's levels in the card's block formats, a quarter of their plain size; none for a texture whose sides are
+/// not multiples of four (the card wants whole blocks in the first level) or that is smaller than 8 texels. A level
+/// whose sides are not multiples of four (the last two of every chain) is filled out to whole blocks with its edge
+/// texels.
+///
+/// The format: BC7 for a texture with no texel under full alpha. One with alpha takes BC3 unless `fine_alpha` asks for
+/// BC7: measured on forty of the game's own large textures with alpha (the `bcquality` example), BC3 keeps the colour
+/// to 40 dB and the alpha to 60 dB where BC7's quickest setting keeps 45 dB and 54 dB, and takes a thirty-sixth of the
+/// time (0.3 s against 11.6 s). The meshes' textures, a thousand of them in a playfield, go the quick way; the sky's and
+/// the effects' sheets and the liquids', few and of soft gradients where BC3's colour steps would show, the fine one.
+pub fn block_levels(t: &Texture, fine_alpha: bool) -> Option<Blocks> {
+    if t.width < 8 || t.height < 8 || t.width % 4 != 0 || t.height % 4 != 0 {
+        return None;
+    }
+    let chain;
+    let (data, levels): (&[u8], u32) = if t.mips > 1 {
+        (&t.rgba, t.mips)
+    } else {
+        chain = mao_formats::texture::mip_chain(&t.rgba, t.width, t.height);
+        (&chain.0, chain.1)
+    };
+    let first = (t.width as usize * t.height as usize * 4).min(data.len());
+    let opaque = data[..first].chunks_exact(4).all(|p| p[3] >= 250);
+    let encoder = match (opaque, fine_alpha) {
+        (true, _) => Encoder::Bc7Opaque,
+        (false, true) => Encoder::Bc7Alpha,
+        (false, false) => Encoder::Bc3,
+    };
+    let mut out = Vec::with_capacity(first / 3);
+    let (mut w, mut h, mut at) = (t.width, t.height, 0usize);
+    for _ in 0..levels {
+        let size = w as usize * h as usize * 4;
+        let level = data.get(at..at + size)?;
+        let (bw, bh) = (blocks(w) * 4, blocks(h) * 4);
+        if (bw, bh) == (w, h) {
+            out.extend(encoder.level(level, w, h));
+        } else {
+            let mut padded = Vec::with_capacity((bw * bh * 4) as usize);
+            for y in 0..bh {
+                for x in 0..bw {
+                    let from = ((y.min(h - 1) * w + x.min(w - 1)) * 4) as usize;
+                    padded.extend_from_slice(&level[from..from + 4]);
+                }
+            }
+            out.extend(encoder.level(&padded, bw, bh));
+        }
+        at += size;
+        (w, h) = ((w / 2).max(1), (h / 2).max(1));
+    }
+    Some(Blocks { data: out, levels, format: if encoder == Encoder::Bc3 { wgpu::TextureFormat::Bc3RgbaUnormSrgb } else { wgpu::TextureFormat::Bc7RgbaUnormSrgb } })
+}
+
+/// A texture on the card: in blocks when that is asked for and the device and the texture allow it ([`block_levels`]),
+/// else as it is.
+fn upload_blocks(gpu: &Gpu, t: &Texture, compress: bool, fine_alpha: bool) -> wgpu::TextureView {
+    let Some(made) = (compress && gpu.bc).then(|| block_levels(t, fine_alpha)).flatten() else { return upload_texture(gpu, t) };
+    let texture = gpu.device.create_texture_with_data(
+        &gpu.queue,
+        &wgpu::TextureDescriptor {
+            label: Some("block texture"),
+            size: wgpu::Extent3d { width: t.width, height: t.height, depth_or_array_layers: 1 },
+            mip_level_count: made.levels,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: made.format,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        },
+        wgpu::util::TextureDataOrder::LayerMajor,
+        &made.data,
+    );
+    texture.create_view(&wgpu::TextureViewDescriptor::default())
+}
+
 /// The texture's mip levels, smallest last, each half the size of the one before
 /// (a box filter): all the bytes in order, and how many levels.
 fn upload_texture(gpu: &Gpu, t: &Texture) -> wgpu::TextureView {
@@ -2700,7 +2833,7 @@ fn upload_texture(gpu: &Gpu, t: &Texture) -> wgpu::TextureView {
     let texture = gpu.device.create_texture_with_data(
         &gpu.queue,
         &wgpu::TextureDescriptor {
-            label: None,
+            label: Some("plain texture"),
             size: wgpu::Extent3d { width: t.width, height: t.height, depth_or_array_layers: 1 },
             mip_level_count: levels,
             sample_count: 1,
@@ -2802,6 +2935,64 @@ mod tests {
         assert!(three > one * 5 / 2 && three < one * 7 / 2, "each of the three is drawn at its own place: {three} against {one}");
         let (_, calls, drawn) = picture(&Model { parts: vec![square(2.0), square(1.0)], instances: vec![(0, at(-12.0)), (0, at(0.0)), (1, at(12.0))], ..Default::default() });
         assert_eq!((calls, drawn), (2, 3), "another geometry, another call");
+    }
+
+    /// A texture in BC7 blocks: a quarter of the bytes, every level in whole blocks, and none for sides that are not
+    /// multiples of four.
+    #[test]
+    fn a_texture_in_blocks_is_a_quarter_the_size() {
+        let texture = |w: u32, h: u32, alpha: u8| Texture { width: w, height: h, format: mao_formats::texture::Format::Png, rgba: (0..w * h).flat_map(|i| [(i % w) as u8, (i / w) as u8, 90, alpha]).collect(), mips: 1 };
+        let made = block_levels(&texture(64, 32, 255), false).unwrap();
+        // (64x32, 32x16, 16x8, 8x4, then 4x2, 2x1 and 1x1 as one block each)
+        assert_eq!(made.levels, 7);
+        assert_eq!(made.data.len(), (16 * 8 + 8 * 4 + 4 * 2 + 2 + 1 + 1 + 1) * 16);
+        assert!(made.format == wgpu::TextureFormat::Bc7RgbaUnormSrgb);
+        let plain = mao_formats::texture::mip_chain(&texture(64, 32, 255).rgba, 64, 32).0.len();
+        assert!(made.data.len() * 3 < plain, "{} against {plain}", made.data.len());
+        // (with alpha: BC3 the quick way, BC7 the fine one; the same size)
+        let (quick, fine) = (block_levels(&texture(64, 32, 128), false).unwrap(), block_levels(&texture(64, 32, 128), true).unwrap());
+        assert!(quick.format == wgpu::TextureFormat::Bc3RgbaUnormSrgb && fine.format == wgpu::TextureFormat::Bc7RgbaUnormSrgb);
+        assert_eq!((quick.data.len(), fine.data.len()), (made.data.len(), made.data.len()));
+        assert!(block_levels(&texture(30, 32, 255), false).is_none() && block_levels(&texture(4, 4, 255), false).is_none());
+    }
+
+    /// A large level encoded in strips on several cores is the same bytes as in one piece.
+    #[test]
+    fn a_level_in_strips_is_the_same_blocks() {
+        let (w, h) = (1024u32, 1028u32);
+        let mut seed = 7u32;
+        let data: Vec<u8> = (0..w * h * 4).map(|i| { seed = seed.wrapping_mul(1664525).wrapping_add(1013904223); ((i / 4 % w) as u8 / 2).wrapping_add((seed >> 28) as u8) }).collect();
+        for encoder in [Encoder::Bc7Opaque, Encoder::Bc3] {
+            assert!(encoder.level(&data, w, h) == encoder.encode(&data, w, h));
+        }
+    }
+
+    /// The picture of a textured square is the same, near enough, with its texture in blocks.
+    #[test]
+    fn a_compressed_texture_draws_the_same_picture() {
+        // (skipped on a machine without a graphics device, or one that takes no block-compressed textures)
+        let Ok(gpu) = Gpu::headless() else { return };
+        if !gpu.bc {
+            return;
+        }
+        let camera = Camera { target: Vec3::ZERO, distance: 30.0, yaw: 0.3, pitch: 1.3, half_height: None };
+        let vertices = [([-10.0, -10.0, 0.0], [0.0, 0.0]), ([10.0, -10.0, 0.0], [1.0, 0.0]), ([10.0, 10.0, 0.0], [1.0, 1.0]), ([-10.0, 10.0, 0.0], [0.0, 1.0])].iter().map(|&(p, uv)| mao_formats::model::Vertex { position: p, normal: [0.0, 0.0, 1.0], uv, colour: mao_formats::model::Vertex::UNBAKED }).collect();
+        let material = mao_formats::model::Material { diffuse: [1.0; 3], opacity: 1.0, two_sided: true, textures: vec![(1, 1)], ..Default::default() };
+        let model = Model { parts: vec![mao_formats::model::Part { name: String::new(), world: Mat4::IDENTITY.to_cols_array(), vertices, indices: vec![0, 1, 2, 0, 2, 3], material }], ..Default::default() };
+        // (soft stripes of colour, 256 texels square)
+        let texture = Texture { width: 256, height: 256, format: mao_formats::texture::Format::Png, rgba: (0..256u32 * 256).flat_map(|i| [(i % 256) as u8, (i / 256) as u8, (((i % 256) / 32) * 32) as u8, 255]).collect(), mips: 1 };
+        let picture = |compress: bool| {
+            let mut renderer = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm);
+            renderer.compress_textures = compress;
+            let scene = renderer.upload(&gpu, &model, &mut |_, _| Some(texture.clone()));
+            renderer.render_to_image(&gpu, &scene, &camera, 160, 120)
+        };
+        let (plain, blocks) = (picture(false), picture(true));
+        let worst = plain.iter().zip(&blocks).map(|(a, b)| a.abs_diff(*b)).max().unwrap();
+        let mean = plain.iter().zip(&blocks).map(|(a, b)| a.abs_diff(*b) as f64).sum::<f64>() / plain.len() as f64;
+        assert!(worst <= 24 && mean < 1.5, "worst {worst}, mean {mean}");
+        // (and it is a picture of the texture, not of nothing)
+        assert!(plain.chunks(4).filter(|p| p[0] > 100).count() > 500);
     }
 
     #[test]

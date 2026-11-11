@@ -795,6 +795,31 @@ down. Here the angle is kept as a 4:3 window has it and a wider window sees the 
 past the hall's walls to the space outside it (kept so: the user chose the full width over black bars at the sides). Seen: the launcher beside the user's picture of the original's, the
 three settings pages, PLAY into the login, the hall at 16:9 and at 32:9.
 
+**The textures block-compressed on the card (2026-11-11, `mao_render::block_levels`, `[window] texture_compression`).**
+The fourth of the renderer's optimisations, for the video memory: the textures were kept as 32 bits a texel, and
+Arete Landing with its new 4096-texel textures held 5.4 GB. Now a texture is encoded into the card's block formats
+as it is uploaded, 8 bits a texel, its mip levels with it. The encoder is Intel's (`intel_tex_2`, built in: no
+tool is needed on the machine). The formats: BC7 for a texture with no texel under full alpha; for one with alpha,
+BC3 on the meshes and BC7 on the sky's and the effects' sheets and the liquids. That split was measured (the
+`bcquality` example, forty of the game's large textures with alpha): BC3 keeps the colour to 40 dB and the alpha to
+60 dB, BC7 at its quickest setting 45 dB and 54 dB, and BC3 takes a thirty-sixth of the time; with BC7 for every
+texture the playfield's thousand textures took 2.9 s to put on the card, where the plain ones take 0.75 s. The
+sheets are few and of soft gradients, where BC3's colour steps would show, so they take the fine way; a level of a
+megapixel or more is encoded in strips on several cores, so a 4096 by 4096 sheet does not hold the window's thread.
+A texture whose sides are not multiples of four, or a device without the formats, keeps the plain upload.
+Measured (2560x720, the overlay's "held by the renderer"): Arete Landing 5,440 MB plain, 1,856 MB compressed;
+Aegean 2,368 MB and 1,088 MB. The textures' share of the load: Arete 0.75 s plain, 1.2 s compressed (1,010
+textures); Aegean 0.19 s and 0.34 s (679). The frame rate is the same. The picture: a test draws a textured square
+both ways and holds the difference small; by eye, side by side in Aegean, bark, leaves and ground are not told
+apart. A disk cache of the encoded textures, which the plan first called for, turned out not to be needed.
+The setting is `texture_compression` (on unless set off) and a box on the launcher's Visual page, "Compressed
+textures"; it is read when the game's window opens. What is left of the memory in Arete is the compressed textures
+themselves (about 1 GB), the geometry (190 MB) and the render targets; the interface's own pictures (the planet
+map among them) are not compressed.
+Not looked at closely: the sky's domes and the effects' sprites in blocks against plain, at night and in the
+Shadowlands' skies; the character textures as characters come into view (each is encoded on the window's thread, a
+few milliseconds for a 512-texel one).
+
 **The same part in many places is one draw call (2026-11-11, `mao_render`: `draw_runs`, `record_of`, `TextureBind`).**
 The third of the renderer's optimisations, and the first that the frame rate shows. Measured first (`MAO_PROFILE=1`,
 Aegean among the trees, 2560x720): of a frame of 11.1 ms, 3.9 ms went on handing the frame's commands to the card

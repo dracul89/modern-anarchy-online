@@ -396,7 +396,8 @@ impl ApplicationHandler for Launcher {
         // (a picture of the screen is drawn off screen in a format both the scene and the interface can use)
         let format = if self.shot.is_some() { wgpu::TextureFormat::Rgba8UnormSrgb } else { config.format };
         let ui = Ui::new(&window, &gpu, format, &self.settings);
-        let renderer = Renderer::new(&gpu, format);
+        let mut renderer = Renderer::new(&gpu, format);
+        renderer.compress_textures = self.settings.texture_compression;
         window.request_redraw();
         self.gfx = Some(Gfx { window, surface, config, gpu, ui, renderer, shown: None, scene: None, camera: None, db: None, hall: None, hall_character: false, started: std::time::Instant::now(), frames: 0 });
     }
