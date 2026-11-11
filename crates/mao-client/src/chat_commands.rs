@@ -31,7 +31,8 @@ pub fn emote_id(name: &str) -> u32 {
 
 /// A one-line description of the commands this client carries out (for `/help`).
 pub const IMPLEMENTED: &[(&str, &str)] = &[
-    ("tell <name> <text>", "a private message"),
+    ("tell <name> <text>", "a private message; without the text, a window for talking with that character; alone, one with your target"),
+    ("%t %f %m", "in a line you send: the name of your target, of the one you fight, your own (%% for a percent sign)"),
     ("t <text>", "your team's channel"),
     ("duel", "ask the targeted player to duel; /duel accept, reject, stop or draw answer and end one"),
     ("petduel", "ask the targeted player for a duel of pets; /petduel accept, reject or stop answer and end one"),
@@ -65,8 +66,12 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
 pub enum Parsed {
     /// Nothing typed.
     Empty,
-    /// A private message to a character.
+    /// A private message to a character; with no text, the window for talking with the character (FUN_100ba8d5 sends
+    /// the empty text on, and FUN_10089940 opens the tell window for it).
     Tell { name: String, text: String },
+    /// `/tell` alone: the window for talking with the target. This client's own: the original does nothing without a
+    /// name.
+    TellTarget,
     /// An answer to the last tell.
     Reply { text: String },
     /// `/ch <group name>`: the window's output group. `word` is the command as typed.
@@ -159,6 +164,43 @@ pub const PET_COMMANDS: &[(&str, u32)] = &[
     ("free", 11), ("heal", 12), ("report", 14), ("rename", 15), ("chat", 16), ("script", 17),
 ];
 
+/// The names a sent line's `%` arguments stand for.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Names {
+    /// The player's own character.
+    pub own: String,
+    /// The selected target and the one fought.
+    pub target: Option<String>,
+    pub fighting: Option<String>,
+}
+
+/// `ChatGUIModule_c::ExpandChatTextArgs` 0x100866c6, which every command that sends text runs it through: `%t` is the
+/// target's name, `%f` the name of the one fought, `%m` the player's own, `%%` a percent sign; any other `%x` and a
+/// `%` at the end stay as they are. Without a target the original puts its own words there, marked up as text
+/// (`&lt;no target&gt;`).
+pub fn expand(text: &str, names: &Names) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars();
+    while let Some(c) = chars.next() {
+        if c != '%' {
+            out.push(c);
+            continue;
+        }
+        match chars.next() {
+            Some('%') => out.push('%'),
+            Some('f') => out.push_str(names.fighting.as_deref().unwrap_or("&lt;no fighting target&gt;")),
+            Some('m') => out.push_str(&names.own),
+            Some('t') => out.push_str(names.target.as_deref().unwrap_or("&lt;no target&gt;")),
+            Some(other) => {
+                out.push('%');
+                out.push(other);
+            }
+            None => out.push('%'),
+        }
+    }
+    out
+}
+
 fn known(word: &str) -> Option<&'static str> {
     COMMANDS.iter().chain(EXTRA).copied().find(|c| c.eq_ignore_ascii_case(word))
 }
@@ -195,11 +237,7 @@ pub fn parse(line: &str) -> Parsed {
                 Some((n, m)) => (n, m.trim()),
                 None => (text, ""),
             };
-            if name.is_empty() || message.is_empty() {
-                Parsed::Usage("/tell <name> <text>")
-            } else {
-                Parsed::Tell { name: name.to_string(), text: message.to_string() }
-            }
+            if name.is_empty() { Parsed::TellTarget } else { Parsed::Tell { name: name.to_string(), text: message.to_string() } }
         }
         "reply" | "r" => {
             if text.is_empty() {
@@ -339,10 +377,19 @@ mod tests {
     }
 
     #[test]
+    fn the_percent_arguments_become_names() {
+        let names = Names { own: "Me".into(), target: Some("Abc".into()), fighting: None };
+        assert_eq!(expand("hi %t, I am %m", &names), "hi Abc, I am Me");
+        assert_eq!(expand("%f is at 50%% and %x stays, as 100%", &names), "&lt;no fighting target&gt; is at 50% and %x stays, as 100%");
+        assert_eq!(expand("%%t %t", &Names::default()), "%t &lt;no target&gt;");
+    }
+
+    #[test]
     fn lines_become_commands() {
         assert_eq!(parse("/tell Abc hello there"), Parsed::Tell { name: "Abc".into(), text: "hello there".into() });
         assert_eq!(parse("/TELL Abc hi"), Parsed::Tell { name: "Abc".into(), text: "hi".into() });
-        assert_eq!(parse("/tell Abc"), Parsed::Usage("/tell <name> <text>"));
+        assert_eq!(parse("/tell Abc"), Parsed::Tell { name: "Abc".into(), text: String::new() });
+        assert_eq!(parse("/tell"), Parsed::TellTarget);
         assert_eq!(parse("/r thanks"), Parsed::Reply { text: "thanks".into() });
         assert_eq!(parse("/ignore Abc"), Parsed::Ignore { name: "Abc".into() });
         assert_eq!(parse("/ignore"), Parsed::Ignore { name: String::new() });

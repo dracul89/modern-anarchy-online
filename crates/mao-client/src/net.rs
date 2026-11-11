@@ -4901,11 +4901,23 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             let _ = CHAT_OUT.set(std::sync::Mutex::new(out_tx));
             std::thread::spawn(move || {
                 let server = std::env::var("MAO_CHAT_SERVER").unwrap_or_else(|_| mao_net::chat::SERVER.to_string());
+                // (a connection that ends is made again, as the original's is (FUN_1008a2c1 counts its attempts): here
+                // after some seconds, more after each that did not get as far as logging in, and no more after five such
+                // in a row. The loop's body is not indented again.)
+                let (mut failed, mut again) = (0u32, false);
+                loop {
+                let mut logged_in = false;
                 let result = (|| -> Result<(), mao_net::chat::Error> {
                     use crate::chatwindow::{Kind, Line, Out};
                     use mao_net::chat::Packet;
                     let mut chat = mao_net::chat::Chat::connect(server.as_str())?;
                     chat.login(own, &user, &password)?;
+                    logged_in = true;
+                    if again {
+                        // (what was typed while there was no connection is not sent late)
+                        while out_rx.try_recv().is_ok() {}
+                        CHAT_LINES.lock().unwrap().push(Line::new(Kind::System, "Connected to the chat server again."));
+                    }
                     // The read waits a moment, so what the window sends goes out promptly.
                     chat.set_timeout(Duration::from_millis(200))?;
                     let mut names: BTreeMap<u32, String> = BTreeMap::new();
@@ -4919,6 +4931,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     let mut waiting: Vec<(String, String)> = Vec::new();
                     // names of characters to put on the friends list once their id is known
                     let mut befriending: Vec<String> = Vec::new();
+                    // names of characters a tell window is to open for once the chat server has said it knows them
+                    let mut tell_asked: Vec<String> = Vec::new();
                     // the senders whose voice lines were heard lately
                     let mut voices = crate::voices::Limiter::default();
                     loop {
@@ -4927,10 +4941,33 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             Err(mao_net::chat::Error::Io(e)) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => None,
                             Err(e) => return Err(e),
                         };
+                        if std::env::var_os("MAO_TRACE_CHAT").is_some()
+                            && let Some(Packet::Name { id, name }) = &packet
+                        {
+                            eprintln!("chat name {name:?}: id {id:#x}");
+                        }
                         let line = match packet {
+                            // (no character of that name: the answer's id is all ones. FUN_1008a2c1 says so with
+                            // `ChatCmdFeedback_UnknownUser` and drops what waited for the name. A tell sent on to that id
+                            // made the chat server close the connection.)
+                            Some(Packet::Name { id: u32::MAX, name }) => {
+                                let key = name.to_lowercase();
+                                let asked = waiting.iter().any(|w| w.0 == key) || tell_asked.contains(&key) || befriending.contains(&key);
+                                waiting.retain(|w| w.0 != key);
+                                tell_asked.retain(|w| *w != key);
+                                befriending.retain(|w| *w != key);
+                                asked.then(|| Line::new(Kind::System, crate::gui::xml::ldb_named(10001, "ChatCmdFeedback_UnknownUser", "There is no character named %s.").replace("%s", &name)))
+                            }
                             Some(Packet::Name { id, name }) => {
                                 ids.insert(name.to_lowercase(), id);
                                 names.insert(id, name.clone());
+                                // (the tell window that waited for this name: `OpenTellWindow`, which lists the character
+                                // among the recent ones, FUN_100a6487)
+                                if tell_asked.contains(&name.to_lowercase()) {
+                                    tell_asked.retain(|w| *w != name.to_lowercase());
+                                    recent_message(&mut chat, id, &name)?;
+                                    crate::chatgroups::open_tell(&name);
+                                }
                                 // the tells that were waiting for this name
                                 let mut sent = Vec::new();
                                 waiting.retain(|(who, text)| {
@@ -4990,7 +5027,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             Some(Packet::Vicinity { sender, text, blob }) => {
                                 let who = names.get(&sender).cloned().unwrap_or_else(|| format!("{sender:x}"));
                                 crate::voices::vicinity_message(&mut voices, &who, &blob);
-                                Some(Line { kind: Kind::Channel, text: format!("{who}: {}", mao_net::chat::plain(&text)), from: Some(who.clone()), markup: None, group: crate::chatgroups::VICINITY.to_string(), at: None }.with_markup(&format!("{who}: "), &text))
+                                Some(Line { kind: Kind::Channel, text: format!("{who}: {}", mao_net::chat::plain(&text)), from: Some(who.clone()), markup: None, group: crate::chatgroups::VICINITY.to_string(), at: None }.with_markup(&format!("{}: ", crate::chatwindow::name_link(&who)), &text))
                             }
                             Some(Packet::Tell { sender, text }) => {
                                 let raw = text;
@@ -4999,7 +5036,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                     Some(who) => {
                                         recent_message(&mut chat, sender, who)?;
                                         crate::tips::trigger("OnReceiveTellMessage", "");
-                                        Some(Line { kind: Kind::Tell, text: format!("{who} tells you: {text}"), from: Some(who.clone()), markup: None, group: String::new(), at: None }.with_markup(&format!("{who} tells you: "), &raw))
+                                        // (FUN_100a681d: the sender's name in brackets, a link)
+                                        Some(Line { kind: Kind::Tell, text: format!("[{who}]: {text}"), from: Some(who.clone()), markup: None, group: String::new(), at: None }.with_markup(&format!("[{}]: ", crate::chatwindow::name_link(who)), &raw))
                                     }
                                     // the server's own notices (the players online) come the same way
                                     None => Some(Line::new(Kind::System, text).with_markup("", &raw)),
@@ -5013,7 +5051,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                 // (its voice line, if it carries one: `HandleGroupMessage` → FUN_1008cdb3, by the group's kind)
                                 let kind = channels.get(&channel.1).map_or(channel.0, |c| c.0);
                                 crate::voices::group_message(&mut voices, &who, kind, &blob);
-                                Some(Line { kind: Kind::Channel, text: format!("[{place}] {who}: {}", mao_net::chat::plain(&text)), from: Some(who.clone()), markup: None, group: place.clone(), at: None }.with_markup(&format!("[{place}] {who}: "), &text))
+                                Some(Line { kind: Kind::Channel, text: format!("[{place}] {who}: {}", mao_net::chat::plain(&text)), from: Some(who.clone()), markup: None, group: place.clone(), at: None }.with_markup(&format!("[{place}] {}: ", crate::chatwindow::name_link(&who)), &text))
                             }
                             Some(Packet::Buddy { id, online, kind }) => {
                                 let mut buddies = BUDDIES.lock().unwrap();
@@ -5063,7 +5101,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                 let group = private.entry(owner).or_insert_with(|| names.get(&owner).cloned().unwrap_or_else(|| format!("#{owner}"))).clone();
                                 crate::chatgroups::note(&group, 0x0e);
                                 let who = names.get(&sender).cloned().unwrap_or_else(|| format!("{sender:x}"));
-                                Some(Line { kind: Kind::Channel, text: format!("[{group}] {who}: {}", mao_net::chat::plain(&text)), from: Some(who.clone()), markup: None, group: group.clone(), at: None }.with_markup(&format!("[{group}] {who}: "), &text))
+                                Some(Line { kind: Kind::Channel, text: format!("[{group}] {who}: {}", mao_net::chat::plain(&text)), from: Some(who.clone()), markup: None, group: group.clone(), at: None }.with_markup(&format!("[{group}] {}: ", crate::chatwindow::name_link(&who)), &text))
                             }
                             Some(Packet::Other { kind, data }) => {
                                 eprintln!("chat packet {kind}: {}", data.iter().map(|b| format!("{b:02x}")).collect::<String>());
@@ -5084,6 +5122,16 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                     }
                                     None => {
                                         waiting.push((name.to_lowercase(), text));
+                                        chat.send(&mao_net::chat::lookup_packet(&name))?;
+                                    }
+                                },
+                                Out::TellWindow { name } => match ids.get(&name.to_lowercase()).and_then(|id| Some((*id, names.get(id)?.clone()))) {
+                                    Some((id, known)) => {
+                                        recent_message(&mut chat, id, &known)?;
+                                        crate::chatgroups::open_tell(&known);
+                                    }
+                                    None => {
+                                        tell_asked.push(name.to_lowercase());
                                         chat.send(&mao_net::chat::lookup_packet(&name))?;
                                     }
                                 },
@@ -5140,6 +5188,14 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 if let Err(e) = result {
                     eprintln!("chat: {e}");
                     CHAT_LINES.lock().unwrap().push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, format!("The chat connection ended: {e}")));
+                }
+                failed = if logged_in { 0 } else { failed + 1 };
+                if failed >= 5 {
+                    CHAT_LINES.lock().unwrap().push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, "The chat server cannot be reached: no more tries until the client is started again."));
+                    break;
+                }
+                std::thread::sleep(Duration::from_secs(5 + 10 * u64::from(failed)));
+                again = true;
                 }
             });
         }
@@ -8055,7 +8111,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             let fill = if character { crate::nametag::consider_colour(crate::nametag::consider(own_level, range, level.unwrap_or(0))) } else { 0xff_ffff };
                             let kind = if hostile { crate::automap::DotKind::Hostile } else { crate::automap::DotKind::Friendly };
                             let target_of = state.fighting.get(&t).filter(|_| targets_target).and_then(|f| state.names.get(f).map(|n| n.0.clone()).or_else(|| state.infos.get(f).map(|i| i.name.clone())));
-                            Some(crate::ui::TargetBar { hostile, title: title.to_string(), name_colour: if hostile { 0xff_4444 } else { 0xff_ffff }, fill, target_of, name, level, hp, distance, kind })
+                            Some(crate::ui::TargetBar { hostile, selected: target == Some(t), title: title.to_string(), name_colour: if hostile { 0xff_4444 } else { 0xff_ffff }, fill, target_of, name, level, hp, distance, kind })
                         };
                         let mut bars = Vec::new();
                         if let Some(s) = target.filter(|s| Some(*s) != fighting) {

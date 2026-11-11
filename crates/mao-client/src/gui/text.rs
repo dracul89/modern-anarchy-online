@@ -160,6 +160,9 @@ fn tokenize(tag: &str) -> (String, Vec<(String, String)>) {
             i += 1;
         }
         attrs.push((key, String::from_utf8_lossy(&value).into_owned()));
+        // (the loop's own step, past the value's end: its closing quote or the space after it. Without it a second
+        // attribute after a quoted one was lost: the names' links in chat lines, style first and then href.)
+        i += 1;
     }
     (name, attrs)
 }
@@ -557,6 +560,14 @@ mod tests {
         let items = parse("a&nbsp;b &lt;c&gt; &amp; &quot;d&quot; &other;", &|_| None);
         let text: String = items.iter().filter_map(|i| if let Item::Text(t, _) = i { Some(t.as_str()) } else { None }).collect();
         assert_eq!(text, "a b <c> & \"d\" &other;");
+    }
+
+    #[test]
+    fn every_attribute_of_a_tag_is_read() {
+        // (FUN_1015cb03 steps past each value's end: a quoted value is followed by the next attribute)
+        let (name, attrs) = tokenize(r#"A style="text-decoration:none" HREF="user://Abc" x=1 y='2 3'"#);
+        let pairs: Vec<(&str, &str)> = attrs.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+        assert_eq!((name.as_str(), pairs), ("a", vec![("style", "text-decoration:none"), ("href", "user://Abc"), ("x", "1"), ("y", "2 3")]));
     }
 
     fn none(_: &str) -> Option<u32> {

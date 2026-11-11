@@ -262,6 +262,23 @@ Done while the user was away; each is in `CLIENT_UI.md` under the same date.
 - **The frame limit.** With a limit set: steadier than before.
 - **Casting.** A character whose nano initiative brings a nano's time to nothing casts it without the stance.
 
+## Tells: `%t`, tell windows, the menu on a name (2026-11-11)
+
+Tried live (two of the user's characters): `/tell` alone with the other selected, a line typed in the tell window
+with `%t` in it, `/r` back, the right button's menu on the name in the tell window ("Send Tell", "Ignore" twice),
+an unknown name and `%x` as a name (the connection stayed).
+
+To try by hand:
+- The left button on a name in a chat line: the tell window. With Shift or Ctrl held: `/tell <name> ` typed.
+- The right button on a name in the main chat window while lines are coming in (the menu must be the name's, and
+  the window's own menu anywhere else).
+- The friends list's left button on a character: the tell window.
+- A tell window closed and opened again: the earlier tells are in it. Two tell windows at once.
+- `/tell %t` and `%t` in a plain line with nothing selected: the original's "no target" words go out.
+- The chat connection ending (not seen): "The chat connection ended", then "Connected to the chat server again."
+  within some seconds, and tells work again.
+- A busy chat window (a city, OOC channels): scrolling and the frame rate with every line marked up.
+
 ## `/fxscript` (2026-11-11)
 
 `/fxscript <script>` runs an effect script of the game's `cd_image/twk` folder (the name without `.txt`). To try:

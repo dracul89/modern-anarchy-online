@@ -174,6 +174,8 @@ impl Hud {
 pub struct TargetBar {
     /// The control center's hostile bar (the one fought) or friendly one (the selection): `CCTargetControl_c`'s +0x154.
     pub hostile: bool,
+    /// It is the selected target (the one fought is too when it is the selection).
+    pub selected: bool,
     /// Its header (`TargetHeader_c`): "Selection", "Nano Target", "Fighting Target" or "Nano & Fighting Target".
     pub title: String,
     /// The name's colour (the one fought 0xff4444, else white) and the health bar's (`N3Msg_Consider`'s for a character).
@@ -1020,6 +1022,12 @@ impl Ui {
             // (when a line of a fading chat window starts to go and how long it takes: 8 and 0.3 seconds in the game's settings)
             let seconds = |name: &str, or: f32| control_center.as_ref().and_then(|cc| cc.store.get(name)).map_or(or, |v| v.as_float());
             chat_window.fade_times = (seconds("ChatTextFadeDelay", 8.0), seconds("ChatTextFadeTime", 0.3));
+            // (the names a sent line's `%t`, `%f` and `%m` stand for: the selection, the one fought, the character)
+            chat_window.names = crate::chat_commands::Names {
+                own: hud.character_name.clone(),
+                target: hud.target_bars.iter().find(|b| b.selected).map(|b| b.name.clone()),
+                fighting: hud.target_bars.iter().find(|b| b.hostile).map(|b| b.name.clone()),
+            };
             if let Some(out) = chat_window.show(&ctx, palette) {
                 requests.chat.push(out);
             }
@@ -1089,10 +1097,9 @@ impl Ui {
                 requests.chat.extend(outs);
                 for act in acts {
                     match act {
-                        crate::friends::Act::Tell(name) => chat_window.type_text(&format!("/tell {name} ")),
-                        crate::friends::Act::Ignore(name) => {
-                            chat_window.run(&format!("/ignore {name}"));
-                        }
+                        // (FUN_100a7ca7: the character's tell window)
+                        crate::friends::Act::Tell(name) => chat_window.ask_tell(&name),
+                        crate::friends::Act::Ignore(name) => chat_window.toggle_ignore(&name),
                         crate::friends::Act::Mail(name) => mail.message.compose(&name, ""),
                         crate::friends::Act::ChatWindow(open) => chat_window.open = open,
                     }

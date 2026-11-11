@@ -5,6 +5,14 @@
 //! tabs back into the first. Typing a `/` opens the
 //! original's list of commands under the cursor (filtered as you type, Up and Down to pick, Tab or Enter to take it); a line is
 //! sent with Enter. Enter and `/` outside the window start typing (the `chat_input` and `chat_command` keys).
+//!
+//! A character's name in a line is a link (`user://<name>`, as FUN_1009bc20 and FUN_100a681d write it). The chat
+//! view's `MouseDown` (FUN_1008fa92) and its signals' handlers in `GroupChatView_c` (FUN_100ac65f): the left button on
+//! a name opens the tell window for the character (FUN_100ac2fa), with Shift or Ctrl held it types the start of a tell
+//! instead (FUN_100ac4c4, FUN_100ac42b); the right button opens a menu (FUN_1008e5ea: `IgnoreUser`, `OpenChat`,
+//! `SendTell`). A tell window (`ChatGUIModule_c::OpenTellWindow` 0x10086323) is a window of the tells with one
+//! character: what is typed in it is a tell to them; it holds the tells from before it was opened too (the original
+//! keeps each character's, FUN_100a7394), and the chat windows that show the tells' group go on showing them.
 
 use crate::chat_commands::{self, Parsed};
 use crate::chatgroups::{self, Pane};
@@ -26,7 +34,7 @@ pub enum Kind {
 pub struct Line {
     pub kind: Kind,
     pub text: String,
-    /// The character a tell came from (for `/reply`).
+    /// The character a tell came from (for `/reply`), or the one an echoed tell went to: whose tell window shows it.
     pub from: Option<String>,
     /// The line as the server sent it, markup and all (`<font color=...>`, `<a href="itemref://...">`), when it has
     /// some: drawn as GUI.dll's text views draw it (`gui::controls::markup`).
@@ -62,12 +70,31 @@ impl Line {
         }
     }
 
-    /// The line's markup: `prefix` (plain) before the server's text, kept only when the text has tags.
+    /// The line's markup: `prefix` before the server's text, kept only when either has tags.
     pub fn with_markup(mut self, prefix: &str, raw: &str) -> Line {
-        if raw.contains('<') {
+        if raw.contains('<') || prefix.contains('<') {
             self.markup = Some(format!("{prefix}{raw}"));
         }
         self
+    }
+}
+
+/// A character's name as the link the original's chat lines make of it (FUN_1009bc20's format; FUN_100a681d's pieces).
+pub fn name_link(name: &str) -> String {
+    format!("<a style=\"text-decoration:none\" href=\"user://{name}\">{name}</a>")
+}
+
+/// The character a link names (`user://`, any case as the original compares it).
+fn linked_name(link: &str) -> Option<&str> {
+    link.get(..7).filter(|p| p.eq_ignore_ascii_case("user://")).map(|_| &link[7..]).filter(|n| !n.is_empty())
+}
+
+/// Whether a line is one a view shows: a tell window (`only`: its character) the tells from and to that character,
+/// a chat window the lines of the groups selected in it.
+fn line_shows(line: &Line, pane: Option<&Pane>, only: Option<&str>) -> bool {
+    match only {
+        Some(name) => matches!(line.kind, Kind::Tell | Kind::Own) && line.from.as_deref().is_some_and(|f| f.eq_ignore_ascii_case(name)),
+        None => pane.is_none_or(|p| p.selected.contains(line.group())),
     }
 }
 
@@ -75,6 +102,9 @@ impl Line {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Out {
     Tell { name: String, text: String },
+    /// Open the tell window for a character, once the chat server knows the name (it comes back through
+    /// `chatgroups::open_tell`).
+    TellWindow { name: String },
     /// `/voice`: a voice line to speak (its checks and text are the chat connection's, `voices::command`).
     Voice { line: String },
     /// Vicinity speech (0 say, 1 whisper, 2 shout, 3 emote), sent on the game connection.
@@ -140,6 +170,8 @@ enum Menu {
     Mode,
     /// "Transparency": the original's two sliders, here steps of ten for a window not active and for an active one.
     Solid,
+    /// The right button on a character's name (FUN_1008e5ea): ignore, open the tell window, start a tell.
+    Name,
 }
 
 /// The id of a frame's input bar.
@@ -181,6 +213,22 @@ pub struct ChatWindow {
     pub outs: Vec<Out>,
     /// A preview's: the tab to show and the menu to have open (main, talk, public or combat).
     pub demo: Option<(usize, String)>,
+    /// The names the `%` arguments of a sent line stand for (`chat_commands::expand`): the window's owner sets them.
+    pub names: chat_commands::Names,
+    /// The tell windows open: each one's place among them (its window and input bar go by it, so a layout is kept for
+    /// the first, the second, not for every character ever told) and its character.
+    tells: Vec<(usize, String)>,
+    /// The character whose tell window's input bar is being drawn: a plain line typed there is a tell.
+    telling: Option<String>,
+    /// The name menu's character, and the frame whose input bar "Send Tell" types into (`None`: the chat window's).
+    menu_name: (String, Option<String>),
+    /// A tell window to bring to the front (asked for again while open).
+    raise: Option<usize>,
+    /// How many more frames `focus_frame`'s bar is asked to take the keys: a window on its first frame is only
+    /// measured, and what is asked of it then is lost.
+    focus_tries: u8,
+    /// A preview's: the character whose name menu is to be open.
+    demo_name: Option<String>,
     input: String,
     /// The highlighted entry of the command list.
     selected: usize,
@@ -200,7 +248,7 @@ pub struct ChatWindow {
 
 impl Default for ChatWindow {
     fn default() -> Self {
-        ChatWindow { open: true, log: false, lines: Vec::new(), panes: chatgroups::defaults(), loaded_for: None, tab: 0, shown: Default::default(), menu_pane: 0, inputs: Default::default(), focus_frame: None, born: Vec::new(), fade_times: (8.0, 0.3), menu: None, popup: None, config: Default::default(), invite_action: 1, warn_unshown: true, invites: Vec::new(), outs: Vec::new(), demo: None, input: String::new(), selected: 0, focus_next: false, last_tell: None, scroll_to_end: true, keep_list: false, ignored: load_ignored(), history: Vec::new(), recalled: None, links: Vec::new() }
+        ChatWindow { open: true, log: false, lines: Vec::new(), panes: chatgroups::defaults(), loaded_for: None, tab: 0, shown: Default::default(), menu_pane: 0, inputs: Default::default(), focus_frame: None, born: Vec::new(), fade_times: (8.0, 0.3), menu: None, popup: None, config: Default::default(), invite_action: 1, warn_unshown: true, invites: Vec::new(), outs: Vec::new(), demo: None, names: Default::default(), tells: Vec::new(), telling: None, menu_name: Default::default(), raise: None, focus_tries: 0, demo_name: None, input: String::new(), selected: 0, focus_next: false, last_tell: None, scroll_to_end: true, keep_list: false, ignored: load_ignored(), history: Vec::new(), recalled: None, links: Vec::new() }
     }
 }
 
@@ -229,13 +277,20 @@ const KEEP: usize = 600;
 /// With `fade` (the delay and the time, in seconds) a line older than the delay is drawn fainter, to nothing once
 /// the time is over; `born` is when each line came.
 #[allow(clippy::too_many_arguments)]
-fn draw_lines(ui: &mut egui::Ui, palette: &Palette, lines: &[Line], born: &[std::time::Instant], pane: Option<&Pane>, height: f32, fade: Option<(f32, f32)>, links: &mut Vec<String>) {
+fn draw_lines(ui: &mut egui::Ui, palette: &Palette, lines: &[Line], born: &[std::time::Instant], pane: Option<&Pane>, only: Option<&str>, height: f32, fade: Option<(f32, f32)>, clicks: &mut Vec<crate::gui::controls::LinkClick>) {
     let now = std::time::Instant::now();
+    // (the height each marked-up line took, by its text, the width and the font's line height: a line out of sight is
+    // then not laid out again every frame)
+    let heights_id = egui::Id::unique("chat-line-heights");
+    let mut heights: std::collections::HashMap<(u64, u32, u32), f32> = ui.ctx().data_mut(|d| std::mem::take(d.get_temp_mut_or_default(heights_id)));
+    if heights.len() > 4000 {
+        heights.clear();
+    }
     let text = |name: &str, (r, g, b): (u8, u8, u8)| palette.text(name).map_or(egui::Color32::from_rgb(r, g, b), |c| egui::Color32::from_rgb(c[0], c[1], c[2]));
     let chat_font = if crate::font::enabled() { crate::font::chat(ui.ctx()) } else { None };
     let stamps = pane.is_some_and(|p| p.timestamps);
     crate::chrome::scroll(ui, palette, egui::ScrollArea::vertical().max_height(height).min_scrolled_height(height).auto_shrink([false, false]).stick_to_bottom(true), |ui| {
-        for (k, line) in lines.iter().enumerate().filter(|(_, l)| pane.is_none_or(|p| p.selected.contains(l.group()))) {
+        for (k, line) in lines.iter().enumerate().filter(|(_, l)| line_shows(l, pane, only)) {
             let faint = fade.zip(born.get(k)).map_or(1.0, |((delay, time), came)| (1.0 - (now.duration_since(*came).as_secs_f32() - delay) / time.max(0.01)).clamp(0.0, 1.0));
             // (set for each line: the setting stays on the view for what is drawn after)
             if fade.is_some() {
@@ -254,9 +309,17 @@ fn draw_lines(ui: &mut egui::Ui, palette: &Palette, lines: &[Line], born: &[std:
             };
             if let Some(m) = &line.markup {
                 let font = if chat_font.is_some() { crate::gui::font::FontId::named("CHAT") } else { crate::gui::font::FontId::NORMAL };
-                if let Some(link) = crate::gui::controls::markup(ui, palette, &format!("{stamp}{m}"), font, color) {
-                    links.push(link);
-                }
+                let shown = format!("{stamp}{m}");
+                let key = {
+                    use std::hash::{Hash, Hasher};
+                    let mut h = std::collections::hash_map::DefaultHasher::new();
+                    shown.hash(&mut h);
+                    let line_height = crate::gui::font::Measure { ctx: Some(ui.ctx().clone()) }.height(font);
+                    (h.finish(), ui.available_width().max(10.0).to_bits(), line_height.to_bits())
+                };
+                let (took, click) = crate::gui::controls::markup_click(ui, palette, &shown, font, color, heights.get(&key).copied());
+                heights.insert(key, took);
+                clicks.extend(click);
                 continue;
             }
             let shown = format!("{stamp}{}", line.text);
@@ -270,6 +333,7 @@ fn draw_lines(ui: &mut egui::Ui, palette: &Palette, lines: &[Line], born: &[std:
             }
         }
     });
+    ui.ctx().data_mut(|d| d.insert_temp(heights_id, heights));
 }
 
 /// A text the chat commands answer with (text.mdb 10001 by name), or this client's own words.
@@ -312,6 +376,9 @@ fn menu_text(name: &str) -> String {
         "ChatWindowMenu_Style_AlwaysBehind" => "Always behind the other windows",
         "ChatWindowMenu_Style_AlwaysOnTop" => "Always over the other windows",
         "RenameWindow" => "Rename this window",
+        "IgnoreUser" => "Ignore",
+        "OpenChat" => "Open chat",
+        "SendTell" => "Send tell",
         "own:detach" => "Move to a window of its own",
         "own:attach" => "Move into the window of %s",
         _ => name,
@@ -373,8 +440,20 @@ impl ChatWindow {
         (!output.is_empty() && output != chatgroups::VICINITY && chatgroups::talkable(output) && known).then_some(output)
     }
 
+    /// The right button on a character's name (FUN_1008e5ea): the three entries the chat view's flags allow, which a
+    /// chat window's are all of.
+    fn open_name_menu(&mut self, ctx: &egui::Context, name: &str, frame: Option<String>, at: egui::Pos2) {
+        let entries: Vec<(String, bool, Option<bool>)> = ["IgnoreUser", "OpenChat", "SendTell"].iter().map(|n| (menu_text(n), true, None)).collect();
+        self.popup = Some(crate::chrome::menu_marked(ctx, at, &entries));
+        self.menu = Some((Menu::Name, vec!["ignore".to_string(), "chat".to_string(), "tell".to_string()], at));
+        self.menu_name = (name.to_string(), frame);
+    }
+
     /// Opens one of the window's menus at a place.
     fn open_menu(&mut self, ctx: &egui::Context, menu: Menu, at: egui::Pos2) {
+        if menu == Menu::Name {
+            return;
+        }
         let Some(pane) = self.panes.get(self.menu_pane) else { return };
         let mut groups: std::collections::BTreeSet<String> = chatgroups::BUILTIN.iter().map(|g| g.1.to_string()).collect();
         groups.extend(chatgroups::server_groups());
@@ -447,6 +526,7 @@ impl ChatWindow {
                 }
             }
             Menu::Groups { combat } => groups.iter().filter(|g| chatgroups::is_combat(g) == combat).map(|g| (g.clone(), (g.clone(), true, Some(pane.selected.contains(g))))).unzip(),
+            Menu::Name => return,
         };
         self.popup = Some(crate::chrome::menu_marked(ctx, at, &entries));
         self.menu = Some((menu, keys, at));
@@ -454,6 +534,17 @@ impl ChatWindow {
 
     /// An entry of the open menu was chosen.
     fn choose(&mut self, ctx: &egui::Context, menu: Menu, key: &str, at: egui::Pos2) {
+        // (the name's menu: FUN_100ac39e ignores the character or stops ignoring, FUN_100ac2fa opens the tell window,
+        // FUN_100ac42b types the start of a tell)
+        if menu == Menu::Name {
+            let (name, frame) = self.menu_name.clone();
+            match key {
+                "ignore" => self.toggle_ignore(&name),
+                "chat" => self.ask_tell(&name),
+                _ => self.type_in(frame.as_deref(), &format!("/tell {name} ")),
+            }
+            return;
+        }
         let tab = self.menu_pane.min(self.panes.len().saturating_sub(1));
         match (menu, key) {
             (Menu::Main, "talk") => self.open_menu(ctx, Menu::Talk, at),
@@ -573,6 +664,98 @@ impl ChatWindow {
         self.focus_next = true;
     }
 
+    /// Puts text in a frame's input bar (`None`: the chat window's own) and starts typing there.
+    fn type_in(&mut self, frame: Option<&str>, text: &str) {
+        match frame {
+            None => {
+                self.input = text.to_string();
+                self.focus();
+            }
+            Some(frame) => {
+                self.inputs.insert(frame.to_string(), text.to_string());
+                self.focus_frame = Some(frame.to_string());
+            }
+        }
+    }
+
+    /// A sent line's `%` arguments put in (`chat_commands::expand`).
+    fn expand(&self, text: &str) -> String {
+        chat_commands::expand(text, &self.names)
+    }
+
+    /// The frame name of a tell window, by its place among them.
+    fn tell_frame(slot: usize) -> String {
+        format!("Tell:{slot}")
+    }
+
+    /// The characters with a tell window open.
+    pub fn tell_windows(&self) -> Vec<&str> {
+        self.tells.iter().map(|t| t.1.as_str()).collect()
+    }
+
+    /// Opens the tell window for a character (`ChatGUIModule_c::OpenTellWindow`), or brings up the one open, and
+    /// starts typing in it.
+    pub fn open_tell(&mut self, name: &str) {
+        let slot = match self.tells.iter().find(|t| t.1.eq_ignore_ascii_case(name)) {
+            Some(t) => t.0,
+            None => {
+                let slot = (0..).find(|s| !self.tells.iter().any(|t| t.0 == *s)).unwrap_or(0);
+                self.tells.push((slot, name.to_string()));
+                self.focus_tries = 2;
+                slot
+            }
+        };
+        self.raise = Some(slot);
+        self.focus_frame = Some(Self::tell_frame(slot));
+    }
+
+    /// Asks for the tell window of a character: the chat server is asked for the name first (FUN_1008a2c1 opens the
+    /// window only for a name it knows, and says so for one it does not), unless the window is open already.
+    /// None for the player's own character (FUN_10089940).
+    pub fn ask_tell(&mut self, name: &str) {
+        let name = name.trim();
+        if name.is_empty() {
+            return;
+        }
+        if name.eq_ignore_ascii_case(&self.names.own) {
+            self.push(Line::new(Kind::System, "You cannot send private messages to yourself."));
+        } else if self.tells.iter().any(|t| t.1.eq_ignore_ascii_case(name)) {
+            self.open_tell(name);
+        } else {
+            self.outs.push(Out::TellWindow { name: name.to_string() });
+        }
+    }
+
+    /// A tell to a character: its echo (`ChatTellMsgToField` with the name as a link, FUN_100a5f39) and what to
+    /// send. FUN_10089940: none to the player's own character, and a text over 0x400 long is dropped without a word.
+    fn send_tell(&mut self, name: String, text: String) -> Option<Out> {
+        if text.len() > 0x400 {
+            return None;
+        }
+        if name.eq_ignore_ascii_case(&self.names.own) {
+            self.push(Line::new(Kind::System, "You cannot send private messages to yourself."));
+            return None;
+        }
+        let to = crate::gui::xml::ldb_named(10001, "ChatTellMsgToField", "To [%s]: ");
+        let mut line = Line::new(Kind::Own, format!("{}{}", to.replace("%s", &name), mao_net::chat::plain(&text))).with_markup(&to.replace("%s", &name_link(&name)), &text);
+        line.from = Some(name.clone());
+        self.push(line);
+        Some(Out::Tell { name, text })
+    }
+
+    /// `/ignore <name>` and the name menu's entry: the character's lines hidden, or shown again.
+    pub fn toggle_ignore(&mut self, name: &str) {
+        let key = name.to_lowercase();
+        let text = if self.ignored.remove(&key) {
+            format!("{name} is no longer ignored.")
+        } else {
+            self.ignored.insert(key);
+            format!("{name} is ignored: their tells and channel lines are hidden.")
+        };
+        save_ignored(&self.ignored);
+        self.push(Line::new(Kind::System, text));
+    }
+
     /// Carries out a typed line: what to send (if anything), and the lines it adds to the window.
     /// Remembers a sent line for the arrow keys (the same line twice in a row is kept once).
     fn remember(&mut self, line: &str) {
@@ -615,7 +798,7 @@ impl ChatWindow {
     /// A line to a group (FUN_10085a42): Vicinity's is spoken, a channel's sent to it. With the option on, a group
     /// the window does not show is warned of.
     fn say_in(&mut self, pane: usize, group: &str, text: String) -> Option<Out> {
-        if self.warn_unshown && !self.panes.get(pane).is_some_and(|p| p.selected.contains(group)) {
+        if self.warn_unshown && pane < self.panes.len() && !self.panes.get(pane).is_some_and(|p| p.selected.contains(group)) {
             self.tell(&command_text("ChatCmdFeedback_TalkToUnsubscribedChannel"));
         }
         Some(if group == chatgroups::VICINITY { Out::Vicinity { kind: 0, text } } else { Out::Channel { name: group.to_string(), text } })
@@ -654,23 +837,47 @@ impl ChatWindow {
     /// Carries out a line typed in one of the chat windows.
     pub fn run_in(&mut self, pane: usize, line: &str) -> Option<Out> {
         self.remember(line);
+        // (a plain line typed in a tell window is a tell to its character)
+        if !line.trim().is_empty()
+            && !line.trim_start().starts_with('/')
+            && let Some(name) = self.telling.clone()
+        {
+            let text = self.expand(line.trim());
+            return self.send_tell(name, text);
+        }
         // (a plain line goes to the window's output group when that is a channel; the vicinity's goes on as speech)
         if !line.trim().is_empty()
             && !line.trim_start().starts_with('/')
             && let Some(name) = self.output_channel(pane)
         {
-            return Some(Out::Channel { name: name.to_string(), text: line.trim().to_string() });
+            return Some(Out::Channel { name: name.to_string(), text: self.expand(line.trim()) });
         }
         match chat_commands::parse(line) {
             Parsed::Empty => None,
+            // (FUN_100ba8d5: the name and the text with their `%` arguments put in; no text opens the tell window)
             Parsed::Tell { name, text } => {
-                self.push(Line::new(Kind::Own, format!("To {name}: {text}")));
-                Some(Out::Tell { name, text })
+                let (name, text) = (self.expand(&name), self.expand(&text));
+                if text.is_empty() {
+                    self.ask_tell(&name);
+                    None
+                } else {
+                    self.send_tell(name, text)
+                }
             }
+            Parsed::TellTarget => match self.names.target.clone() {
+                Some(name) => {
+                    self.ask_tell(&name);
+                    None
+                }
+                None => {
+                    self.push(Line::new(Kind::System, "Usage: /tell <name> <text> (without the text: a window for talking with them; alone: with your target)"));
+                    None
+                }
+            },
             Parsed::Reply { text } => match self.last_tell.clone() {
                 Some(name) => {
-                    self.push(Line::new(Kind::Own, format!("To {name}: {text}")));
-                    Some(Out::Tell { name, text })
+                    let text = self.expand(&text);
+                    self.send_tell(name, text)
                 }
                 None => {
                     self.push(Line::new(Kind::System, "There is nobody to reply to."));
@@ -716,15 +923,7 @@ impl ChatWindow {
                 None
             }
             Parsed::Ignore { name } => {
-                let key = name.to_lowercase();
-                let text = if self.ignored.remove(&key) {
-                    format!("{name} is no longer ignored.")
-                } else {
-                    self.ignored.insert(key);
-                    format!("{name} is ignored: their tells and channel lines are hidden.")
-                };
-                save_ignored(&self.ignored);
-                self.push(Line::new(Kind::System, text));
+                self.toggle_ignore(&name);
                 None
             }
             Parsed::Befriend { name } => {
@@ -733,14 +932,14 @@ impl ChatWindow {
             }
             // (FUN_1009cdfe, FUN_1009d028: the first channel of the organization's kind, of the team's)
             Parsed::Org { text } => match chatgroups::of_kind(3) {
-                Some(group) => self.say_in(pane, &group, text),
+                Some(group) => self.say_in(pane, &group, self.expand(&text)),
                 None => {
                     self.tell(&command_text("ChatCmdFeedback_O_YouAreNotMemberOfAnOrganizaion"));
                     None
                 }
             },
             Parsed::Team { text } => match chatgroups::of_kind(0x82) {
-                Some(group) => self.say_in(pane, &group, text),
+                Some(group) => self.say_in(pane, &group, self.expand(&text)),
                 None => {
                     self.tell(&command_text("ChatCmdFeedback_T_YouAreNotMemberOfATeam"));
                     None
@@ -749,13 +948,13 @@ impl ChatWindow {
             Parsed::Duel { what } => Some(Out::Duel(what.unwrap_or(0))),
             Parsed::PetDuel { what } => Some(Out::PetDuel(what.unwrap_or(0))),
             Parsed::Output { word, name } => self.group_command(pane, &word, &name, None),
-            Parsed::Group { word, name, text } => self.group_command(pane, &word, &name, Some(text)),
+            Parsed::Group { word, name, text } => self.group_command(pane, &word, &name, Some(self.expand(&text))),
             Parsed::Vicinity { command, text } => Some(Out::Vicinity { kind: match command {
                 "whisper" => 1,
                 "shout" => 2,
                 "emote" => 3,
                 _ => 0,
-            }, text }),
+            }, text: self.expand(&text) }),
             Parsed::Social { id } => Some(Out::Social { id }),
             Parsed::NoEmote(name) => {
                 self.push(Line::new(Kind::System, format!("Error: No emote named '{name}'")));
@@ -801,7 +1000,11 @@ impl ChatWindow {
         if (main && self.focus_next) || self.focus_frame.as_deref() == Some(frame) {
             ctx.memory_mut(|m| m.request_focus(input_id));
             self.focus_next &= !main;
-            self.focus_frame = None;
+            if self.focus_tries > 0 && self.focus_frame.as_deref() == Some(frame) {
+                self.focus_tries -= 1;
+            } else {
+                self.focus_frame = None;
+            }
             // (the cursor after what is already there: `/` starts the line with its slash)
             let mut state = egui::TextEdit::load_state(ctx, input_id).unwrap_or_default();
             state.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(self.input.chars().count()))));
@@ -896,8 +1099,9 @@ impl ChatWindow {
     /// A frame of chat windows inside its window on screen: the tabs (none when `bare`), the shown window's lines and
     /// its input bar. `n` is the frame's number, 0 the chat window itself.
     #[allow(clippy::too_many_arguments)]
-    fn frame_body(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, palette: &Palette, n: usize, frame: &str, members: &[usize], bare: bool, links: &mut Vec<String>, menu_at: &mut Option<(egui::Pos2, usize)>) -> Option<Out> {
+    fn frame_body(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, palette: &Palette, n: usize, frame: &str, members: &[usize], bare: bool, clicks: &mut Vec<(Option<String>, crate::gui::controls::LinkClick)>, menu_at: &mut Option<(egui::Pos2, usize)>) -> Option<Out> {
         let main = n == 0;
+        let mut pressed = Vec::new();
         let Some(&lead) = members.first() else { return None };
         let mut shown = if main { self.tab } else { self.shown.get(frame).copied().unwrap_or(lead) };
         if !members.contains(&shown) {
@@ -916,7 +1120,7 @@ impl ChatWindow {
         let below = if bar { 41.0 } else { 4.0 };
         if bare {
             let height = (ui.available_height() - below).max(40.0);
-            draw_lines(ui, palette, &self.lines, &self.born, self.panes.get(shown), height, fade, links);
+            draw_lines(ui, palette, &self.lines, &self.born, self.panes.get(shown), None, height, fade, &mut pressed);
         } else {
             // (each tab one of the frame's chat windows: the lines of the groups selected in it)
             let names: Vec<String> = members.iter().map(|k| self.panes[*k].name.clone()).collect();
@@ -925,9 +1129,12 @@ impl ChatWindow {
             crate::chrome::tab_view(ui, palette, &names, &mut tab, |ui, tab| {
                 shown = members.get(tab).copied().unwrap_or(lead);
                 let height = (ui.available_height() - below).max(40.0);
-                draw_lines(ui, palette, &self.lines, &self.born, self.panes.get(shown), height, fade, links);
+                draw_lines(ui, palette, &self.lines, &self.born, self.panes.get(shown), None, height, fade, &mut pressed);
             });
         }
+        // (the right button on a name is the name's menu, not the window's: FUN_1008fa92)
+        let on_name = pressed.iter().any(|c| c.secondary && linked_name(&c.link).is_some());
+        clicks.extend(pressed.into_iter().map(|c| ((!main).then(|| frame.to_string()), c)));
         if main {
             self.tab = shown;
         } else {
@@ -935,7 +1142,8 @@ impl ChatWindow {
         }
         let pointer = ui.input(|i| i.pointer.interact_pos()).filter(|p| area.contains(*p));
         // (the right button over the window: its menu, FUN_10097a40)
-        if ui.input(|i| i.pointer.secondary_clicked())
+        if !on_name
+            && ui.input(|i| i.pointer.secondary_clicked())
             && let Some(at) = pointer
         {
             *menu_at = Some((at, shown));
@@ -947,12 +1155,30 @@ impl ChatWindow {
         if bar { self.input_bar(ui, ctx, frame, main, shown) } else { None }
     }
 
+    /// A tell window's inside: the tells with its character and the input bar, whose plain lines are tells to them.
+    fn tell_body(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, palette: &Palette, name: &str, frame: &str, clicks: &mut Vec<(Option<String>, crate::gui::controls::LinkClick)>) -> Option<Out> {
+        let height = (ui.available_height() - 41.0).max(40.0);
+        let mut pressed = Vec::new();
+        draw_lines(ui, palette, &self.lines, &self.born, None, Some(name), height, None, &mut pressed);
+        clicks.extend(pressed.into_iter().map(|c| (Some(frame.to_string()), c)));
+        self.telling = Some(name.to_string());
+        let out = self.input_bar(ui, ctx, frame, false, usize::MAX);
+        self.telling = None;
+        out
+    }
+
     pub fn show(&mut self, ctx: &egui::Context, palette: &Palette) -> Option<Out> {
-        if !self.open {
+        // (the tell windows asked for whose names the chat server knew)
+        for name in chatgroups::take_tells() {
+            self.open_tell(&name);
+        }
+        // (the tell windows are windows of their own: they stay when the chat window is closed)
+        if !self.open && self.tells.is_empty() {
             return None;
         }
         let mut out = None;
         let mut links = Vec::new();
+        let mut clicks: Vec<(Option<String>, crate::gui::controls::LinkClick)> = Vec::new();
         let screen = ctx.content_rect();
         let mut open = self.open;
         self.load_panes();
@@ -973,6 +1199,9 @@ impl ChatWindow {
         }
         let mut docked = false;
         for (n, frame) in frames.iter().enumerate() {
+            if !self.open {
+                break;
+            }
             let members = chatgroups::members(&self.panes, frame);
             let Some(&lead) = members.first() else { continue };
             let name = if n == 0 { "Chat".to_string() } else { format!("Chat:{frame}") };
@@ -993,10 +1222,10 @@ impl ChatWindow {
             if bare {
                 let active = self.frame_active(ctx, &name, frame, n == 0);
                 let solid = f32::from(if active { look.solid.0 } else { look.solid.1 }) / 100.0;
-                crate::chrome::bare_window(ctx, palette, &name, solid, build, |ui| sent = self.frame_body(ui, ctx, palette, n, frame, &members, true, &mut links, &mut menu_at));
+                crate::chrome::bare_window(ctx, palette, &name, solid, build, |ui| sent = self.frame_body(ui, ctx, palette, n, frame, &members, true, &mut clicks, &mut menu_at));
             } else {
                 let open = if n == 0 { &mut open } else { &mut stays };
-                crate::chrome::window(ctx, palette, &name, "Chat", open, build, |ui| sent = self.frame_body(ui, ctx, palette, n, frame, &members, false, &mut links, &mut menu_at));
+                crate::chrome::window(ctx, palette, &name, "Chat", open, build, |ui| sent = self.frame_body(ui, ctx, palette, n, frame, &members, false, &mut clicks, &mut menu_at));
             }
             out = out.or(sent);
             if !stays {
@@ -1006,6 +1235,28 @@ impl ChatWindow {
                 docked = true;
             }
         }
+        // the tell windows, each titled with its character
+        let mut closed = Vec::new();
+        for (k, (slot, name)) in self.tells.clone().into_iter().enumerate() {
+            let frame = Self::tell_frame(slot);
+            let id = format!("Chat:{frame}");
+            // (over the chat window, each a step from the one before, until the player puts it somewhere)
+            let step = 26.0 * k as f32;
+            let over = ctx.memory(|m| m.area_rect(egui::Id::unique("Chat"))).map_or(egui::pos2(90.0 + step, 110.0 + step), |r| egui::pos2(r.left() + step, (r.top() - 196.0 - step).max(30.0)));
+            let place = crate::layout::pos(&id, over);
+            let (mut stays, mut sent) = (true, None);
+            crate::chrome::window(ctx, palette, &id, &name, &mut stays, move |w| w.default_pos(place).default_size([380.0, 190.0]), |ui| sent = self.tell_body(ui, ctx, palette, &name, &frame, &mut clicks));
+            if self.raise == Some(slot) {
+                ctx.move_to_top(egui::LayerId::new(egui::Order::Middle, egui::Id::unique(&id)));
+            }
+            out = out.or(sent);
+            if !stays {
+                closed.push(slot);
+                self.inputs.remove(&frame);
+            }
+        }
+        self.raise = None;
+        self.tells.retain(|t| !closed.contains(&t.0));
         self.scroll_to_end = false;
         if docked {
             chatgroups::save(&self.panes);
@@ -1013,6 +1264,21 @@ impl ChatWindow {
         if let Some((at, pane)) = menu_at {
             self.menu_pane = pane;
             self.open_menu(ctx, Menu::Main, at);
+        }
+        // the presses on the lines' links: a character's name (FUN_1008fa92, FUN_100ac4c4), else the info view's
+        for (frame, click) in clicks {
+            match linked_name(&click.link).map(str::to_string) {
+                Some(name) if click.secondary => self.open_name_menu(ctx, &name, frame, click.at),
+                Some(name) if click.qualified => self.type_in(frame.as_deref(), &format!("/tell {name} ")),
+                Some(name) => self.ask_tell(&name),
+                None if !click.secondary => links.push(click.link),
+                None => {}
+            }
+        }
+        if let Some((_, menu)) = &self.demo
+            && let Some(name) = menu.strip_prefix("name:")
+        {
+            self.demo_name = Some(name.to_string());
         }
         if let Some((tab, menu)) = self.demo.take() {
             self.tab = tab.min(self.panes.len().saturating_sub(1));
@@ -1049,6 +1315,10 @@ impl ChatWindow {
             };
             if let Some(menu) = menu {
                 self.open_menu(ctx, menu, egui::pos2(420.0, 120.0));
+            }
+            // (`name:<character>`: the menu of a name's right button)
+            if let Some(name) = self.demo_name.take() {
+                self.open_name_menu(ctx, &name, None, egui::pos2(160.0, ctx.content_rect().height() - 215.0));
             }
         }
         if let Some(k) = crate::chrome::menu(ctx, palette, "chat-menu", &mut self.popup)
@@ -1117,10 +1387,62 @@ mod tests {
     fn a_tell_is_echoed_and_sent_and_a_reply_goes_to_the_last_sender() {
         let mut w = ChatWindow::default();
         assert_eq!(w.run("/tell Abc hello"), Some(Out::Tell { name: "Abc".into(), text: "hello".into() }));
-        assert_eq!(w.lines.last().unwrap().text, "To Abc: hello");
+        assert_eq!(w.lines.last().unwrap().text, "To [Abc]: hello");
+        assert!(w.lines.last().unwrap().markup.as_deref().is_some_and(|m| m.contains("href=\"user://Abc\"")));
         assert_eq!(w.run("/r anyone"), None); // nobody has told us anything yet
         w.push(Line { kind: Kind::Tell, text: "Zed: hi".into(), from: Some("Zed".into()), markup: None, group: String::new(), at: None });
         assert_eq!(w.run("/r hello Zed"), Some(Out::Tell { name: "Zed".into(), text: "hello Zed".into() }));
+    }
+
+    #[test]
+    fn the_target_is_told_and_its_tell_window_asked_for() {
+        let mut w = ChatWindow::default();
+        w.names = chat_commands::Names { own: "Me".into(), target: Some("Abc".into()), fighting: None };
+        // (`%t` is the target, in the name and in the text)
+        assert_eq!(w.run("/tell %t hello %t"), Some(Out::Tell { name: "Abc".into(), text: "hello Abc".into() }));
+        assert_eq!(w.run("look at %t"), Some(Out::Vicinity { kind: 0, text: "look at Abc".into() }));
+        // (a name without a text, and the command alone with a target: the tell window, once the server knows the name)
+        assert_eq!((w.run("/tell %t"), w.run("/tell"), w.run("/tell Zed")), (None, None, None));
+        assert_eq!(w.outs, vec![Out::TellWindow { name: "Abc".into() }, Out::TellWindow { name: "Abc".into() }, Out::TellWindow { name: "Zed".into() }]);
+        // (none to oneself, and no window without a target)
+        w.outs.clear();
+        w.names.target = None;
+        let before = w.lines.len();
+        assert_eq!((w.run("/tell me hi"), w.run("/tell %m"), w.run("/tell")), (None, None, None));
+        assert!(w.outs.is_empty());
+        assert_eq!(w.lines.len(), before + 3);
+    }
+
+    #[test]
+    fn a_tell_window_holds_the_tells_with_its_character() {
+        let mut w = ChatWindow::default();
+        w.names.own = "Me".into();
+        w.push(Line { kind: Kind::Tell, text: "[Zed]: hi".into(), from: Some("Zed".into()), markup: None, group: String::new(), at: None });
+        w.push(Line { kind: Kind::Tell, text: "[Abc]: hello".into(), from: Some("Abc".into()), markup: None, group: String::new(), at: None });
+        w.open_tell("zed");
+        w.open_tell("Zed");
+        assert_eq!(w.tell_windows(), vec!["zed"]);
+        // (asked for again while open, it is brought up without another question to the server)
+        w.ask_tell("ZED");
+        assert!(w.outs.is_empty());
+        // (a plain line typed in it is a tell; a command is a command)
+        w.telling = Some("Zed".into());
+        assert_eq!(w.run_in(usize::MAX, "hello there"), Some(Out::Tell { name: "Zed".into(), text: "hello there".into() }));
+        assert_eq!(w.run_in(usize::MAX, "/tell Abc psst"), Some(Out::Tell { name: "Abc".into(), text: "psst".into() }));
+        w.telling = None;
+        // (it shows the tells from and to its character, old and new; a chat window shows them still)
+        let shown: Vec<&str> = w.lines.iter().filter(|l| line_shows(l, None, Some("Zed"))).map(|l| l.text.as_str()).collect();
+        assert_eq!(shown, vec!["[Zed]: hi", "To [Zed]: hello there"]);
+        assert!(w.lines.iter().all(|l| line_shows(l, w.panes.first(), None)));
+    }
+
+    #[test]
+    fn a_name_in_a_line_is_a_link() {
+        assert_eq!(linked_name("user://Abc"), Some("Abc"));
+        assert_eq!(linked_name("USER://Abc"), Some("Abc"));
+        assert_eq!((linked_name("user://"), linked_name("itemref://1/2/3"), linked_name("us")), (None, None, None));
+        let line = Line::new(Kind::Channel, "[Trade] Abc: hi").with_markup(&format!("[Trade] {}: ", name_link("Abc")), "hi");
+        assert_eq!(line.markup.as_deref(), Some("[Trade] <a style=\"text-decoration:none\" href=\"user://Abc\">Abc</a>: hi"));
     }
 
     #[test]

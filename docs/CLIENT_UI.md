@@ -795,6 +795,50 @@ down. Here the angle is kept as a 4:3 window has it and a wider window sees the 
 past the hall's walls to the space outside it (kept so: the user chose the full width over black bars at the sides). Seen: the launcher beside the user's picture of the original's, the
 three settings pages, PLAY into the login, the hall at 16:9 and at 32:9.
 
+**Tells: `%t`, the tell windows, the menu on a name (2026-11-11, asked for by the user after playing).**
+The user typed `/tell %t help` and got "To %t: help" and, a moment later, "The chat connection ended". Four things
+were missing or wrong, all read from GUI.dll first:
+*The `%` arguments.* `ChatGUIModule_c::ExpandChatTextArgs` (0x100866c6), which every command that sends text runs it
+through: `%t` the target's name, `%f` the name of the one fought, `%m` the player's own, `%%` a percent sign, any
+other `%x` left alone; without a target the original's own marked-up words. Ported as `chat_commands::expand` and
+used for `/tell` (name and text), `/reply`, `/o`, `/t`, `/group`, the speech commands and plain lines. The names
+come from the target bars each frame (`ChatWindow::names`).
+*The tell windows.* `/tell <name>` without a text opens the tell window for the character (FUN_100ba8d5 sends the
+empty text on, FUN_10089940 calls `ChatGUIModule_c::OpenTellWindow`); so do the left button on a name and the
+friends list's left button (FUN_100a7ca7; this client typed `/tell <name> ` there before). The window is asked of the
+chat server first (`Out::TellWindow`): it opens once the name is known, as the original's does, and is then listed
+among the recent characters (FUN_100a6487). It is a window titled with the character's name over the chat window,
+with the tells from and to them (the ones from before it opened too: the original keeps each character's,
+FUN_100a7394) and an input bar whose plain lines are tells to them; commands work there as anywhere. The chat windows
+that show the tells go on showing them. A tell to the player's own character is refused (FUN_10089940), in this
+client's words. `/tell` alone opens the window for the target: **this client's own** (the user asked for it; the
+original does nothing without a name), and without a target it says how the command is used.
+*The names as links.* The original writes a character's name in a chat line as a link (`user://<name>`, FUN_1009bc20
+for the groups, FUN_100a681d for a tell, which is `[name]: text`; the echo of one's own is `ChatTellMsgToField`,
+FUN_100a5f39). The lines are now written so (`chatwindow::name_link`): the look is the same but for the tells, which
+were "<name> tells you: " and are `[<name>]: ` now. The chat view's `MouseDown` (FUN_1008fa92) and
+`GroupChatView_c`'s handlers (FUN_100ac65f): the left button on a name opens the tell window (FUN_100ac2fa), with
+Shift or Ctrl held it types `/tell <name> ` instead (FUN_100ac4c4: the qualifiers' low two bits, taken as those two
+keys, which is a guess at which keys they are); the right button opens a menu of three (FUN_1008e5ea: `IgnoreUser`,
+`OpenChat`, `SendTell`): ignore or stop ignoring, the tell window, and `/tell <name> ` typed into the bar of the
+window clicked in. The right button anywhere else in a chat window is still the window's own menu.
+*A name the chat server does not know.* Its answer carries an id of all ones; this client took that for an id and
+sent the tell to it, and the chat server closed the connection: that is what happened to the user (`%t` was the
+"name"). Now it says the game's `ChatCmdFeedback_UnknownUser` and drops what waited for the name (FUN_1008a2c1).
+And a chat connection that ends is made again (the original retries too): after 5 seconds, 10 more after each try
+that does not get as far as logging in, and no more after five such in a row; the timing is this client's.
+*Found on the way.* `HTMLParser_c`'s tag reader (FUN_1015cb03) steps past each attribute's value; the port did not,
+so a second attribute after a quoted one was lost (`style` then `href`: the names' links showed as text). A chat
+window laid out every marked-up line every frame; with every line with a name marked up now, the height each took is
+kept (by its text, width and font) and a line out of sight is no longer laid out.
+Tried live with two of the user's own characters (Ballbearing and Brasscasings, next to each other): `/tell` alone
+with the other selected opened the window; a line typed in it went out with `%t` filled in and came back answered
+with `/r`; the right button on the name gave the menu, "Send Tell" typed into the window's bar, "Ignore" twice
+ignored and stopped ignoring; `/tell Qqzzxxnope hi` and `/tell %x hi` got the unknown-user line and the connection
+stayed. Not done: the tell window's own menu, the friends list's flashing row for a tell not yet seen and the tell
+windows in its "Chat Windows" folder; the group's name in a line as a link (`chatgroup://`, FUN_100ac4f0). Not seen
+live: the reconnect (no connection ended), the left button on a name by hand, Shift or Ctrl with it.
+
 **The unattended pass of 2026-11-11 (the user away; their list: every pending item that can be done, and two notes).**
 *The creatures' sizes (the user: "the bounding boxes for mobs seem to be off").* Every creature was a person to the
 mouse and to its name tag: a cylinder 0.5 in radius and 1.9 tall to pick it by, and the tag 1.9 + 0.4 above its

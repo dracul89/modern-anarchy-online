@@ -651,24 +651,59 @@ pub fn markup_height(ctx: &egui::Context, text: &str, font: FontId, width: f32) 
 /// Markup (`HTMLParser_c`'s) drawn into an egui `Ui` the width it has, as a word-wrapped `TextView_c` in `colour` with
 /// `font`: returns the link clicked, if any.
 pub fn markup(ui: &mut egui::Ui, palette: &Palette, text: &str, font: FontId, colour: egui::Color32) -> Option<String> {
+    markup_click(ui, palette, text, font, colour, None).1.filter(|c| !c.secondary).map(|c| c.link)
+}
+
+/// A press on a link of [`markup_click`]'s: the link, whether it was the right button, and whether Shift or Ctrl was
+/// held.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LinkClick {
+    pub link: String,
+    pub secondary: bool,
+    pub qualified: bool,
+    pub at: egui::Pos2,
+}
+
+/// [`markup`] that tells the right button from the left. `known` is the height the same text took at the same width
+/// before: with it, text out of sight is not laid out at all (a chat window lays hundreds of lines every frame). Returns
+/// the height taken, to keep for the next time.
+pub fn markup_click(ui: &mut egui::Ui, palette: &Palette, text: &str, font: FontId, colour: egui::Color32, known: Option<f32>) -> (f32, Option<LinkClick>) {
     let measure = Measure { ctx: Some(ui.ctx().clone()) };
     let env = super::host::Env { skin: None, palette, measure: &measure };
-    let mut view = TextView::new(text);
-    view.font = font;
-    view.feature = super::text::flags::MULTILINE | super::text::flags::WORD_WRAP;
-    view.colour = Colour(u32::from(colour.r()) << 16 | u32::from(colour.g()) << 8 | u32::from(colour.b()));
+    let build = || {
+        let mut view = TextView::new(text);
+        view.font = font;
+        view.feature = super::text::flags::MULTILINE | super::text::flags::WORD_WRAP;
+        view.colour = Colour(u32::from(colour.r()) << 16 | u32::from(colour.g()) << 8 | u32::from(colour.b()));
+        view
+    };
     let width = ui.available_width().max(10.0);
-    let height = view.height_at(&measure, width).max(measure.height(font));
+    let (view, height) = match known {
+        Some(height) => (None, height),
+        None => {
+            let view = build();
+            let height = view.height_at(&measure, width).max(measure.height(font));
+            (Some(view), height)
+        }
+    };
     let (rect, response) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::click());
     if !ui.is_rect_visible(rect) {
-        return None;
+        return (height, None);
     }
+    let view = view.unwrap_or_else(build);
     view.paint(&Paint { painter: ui.painter(), env: &env, rect, hovered: response.hovered(), pressed: false, enabled: true });
     let over = response.hover_pos().and_then(|p| view.link_at(p - rect.min.to_vec2()));
     if over.is_some() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
-    if response.clicked() { over } else { None }
+    let secondary = response.secondary_clicked();
+    let click = over.filter(|_| response.clicked() || secondary).map(|link| LinkClick {
+        link,
+        secondary,
+        qualified: ui.input(|i| i.modifiers.shift || i.modifiers.ctrl),
+        at: response.interact_pointer_pos().or(response.hover_pos()).unwrap_or(rect.min),
+    });
+    (height, click)
 }
 
 impl Control for TextView {

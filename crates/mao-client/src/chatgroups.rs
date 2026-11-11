@@ -267,6 +267,18 @@ pub fn take_invites() -> Vec<(u32, String)> {
     std::mem::take(&mut *INVITES.lock().unwrap())
 }
 
+/// The characters a tell window is to open for, as the chat server spells their names: the chat window takes them
+/// (`ChatGUIModule_c::OpenTellWindow` 0x10086323 is called once the name's id is known).
+static TELL_WINDOWS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+pub fn open_tell(name: &str) {
+    TELL_WINDOWS.lock().unwrap().push(name.to_string());
+}
+
+pub fn take_tells() -> Vec<String> {
+    std::mem::take(&mut *TELL_WINDOWS.lock().unwrap())
+}
+
 pub fn server_groups() -> Vec<String> {
     SERVER_GROUPS.lock().unwrap().keys().cloned().collect()
 }

@@ -1579,8 +1579,8 @@ fn run(args: &[String]) -> Result<(), String> {
                     hud.labels = net::booth_labels(number, &whompah_booths(game, &db, number), &destinations, &names).into_iter().map(|(p, text)| ui::Label { world: mao_render::glam::Vec3::from(p), text }).collect();
                     hud.target = Some("Rollerrat  (12 m)".into());
                     hud.target_bars = vec![
-                        ui::TargetBar { hostile: true, title: "Fighting Target".into(), name_colour: 0xff4444, fill: nametag::consider_colour(0.8), target_of: Some("Tsunamisbot".into()), name: "Rollerrat".into(), level: Some(14), hp: Some((1890, 2400)), distance: 12.0, kind: automap::DotKind::Hostile },
-                        ui::TargetBar { hostile: false, title: "Nano Target".into(), name_colour: 0xffffff, fill: nametag::consider_colour(0.3), target_of: None, name: "Tsunamisbot".into(), level: Some(9), hp: Some((800, 800)), distance: 4.0, kind: automap::DotKind::Player },
+                        ui::TargetBar { hostile: true, selected: false, title: "Fighting Target".into(), name_colour: 0xff4444, fill: nametag::consider_colour(0.8), target_of: Some("Tsunamisbot".into()), name: "Rollerrat".into(), level: Some(14), hp: Some((1890, 2400)), distance: 12.0, kind: automap::DotKind::Hostile },
+                        ui::TargetBar { hostile: false, selected: true, title: "Nano Target".into(), name_colour: 0xffffff, fill: nametag::consider_colour(0.3), target_of: None, name: "Tsunamisbot".into(), level: Some(9), hp: Some((800, 800)), distance: 4.0, kind: automap::DotKind::Player },
                     ];
                     // MAO_UI_PREVIEW=gear + MAO_CAPTURE=<capture.log>: the inventory window from a captured session.
                     if preview.as_deref() == Some("stats") {
@@ -1744,8 +1744,12 @@ fn run(args: &[String]) -> Result<(), String> {
                         use chatwindow::{Kind, Line};
                         let mut window = chatwindow::ChatWindow::default();
                         window.push(Line::new(Kind::System, "Welcome to AnarchyOnline"));
-                        window.push(Line::new(Kind::Channel, "[Clan OOC] Mothra: anyone want to team?").in_group("Clan OOC"));
-                        window.push(Line { kind: Kind::Tell, text: "Scurlock tells you: hey, got a minute?".into(), from: Some("Scurlock".into()), markup: None, group: String::new(), at: None });
+                        window.push(Line::new(Kind::Channel, "[Clan OOC] Mothra: anyone want to team?").with_markup(&format!("[Clan OOC] {}: ", chatwindow::name_link("Mothra")), "anyone want to team?").in_group("Clan OOC"));
+                        window.push(Line { kind: Kind::Tell, text: "[Scurlock]: hey, got a minute?".into(), from: Some("Scurlock".into()), markup: None, group: String::new(), at: None }.with_markup(&format!("[{}]: ", chatwindow::name_link("Scurlock")), "hey, got a minute?"));
+                        // (MAO_CHAT_TELL=<name>: that character's tell window open)
+                        if let Ok(name) = std::env::var("MAO_CHAT_TELL") {
+                            window.open_tell(&name);
+                        }
                         let _ = window.run("/tell Scurlock sure, what's up");
                         window.push(Line::new(Kind::Channel, "[Tour Announcements] The shuttle to Newland leaves in five minutes").in_group("Tour Announcements"));
                         // (fight lines, each of its group)
