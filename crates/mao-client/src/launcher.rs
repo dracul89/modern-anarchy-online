@@ -120,6 +120,9 @@ struct Gfx {
     scene: Option<Scene>,
     camera: Option<Camera>,
     db: Option<(Arc<ResourceDatabase>, crate::Textures)>,
+    /// The hall behind the login (`hall.rs`): its scene and the place it is seen from; `Some(None)` once it was looked
+    /// for and not found.
+    hall: Option<Option<(Scene, crate::hall::Place)>>,
     started: std::time::Instant,
     frames: u32,
 }
@@ -179,7 +182,9 @@ impl Launcher {
         let (tx, rx) = channel();
         self.answer = Some(rx);
         self.stage = Stage::Busy;
-        self.progress.start(crate::loginviews::network_timeout("GeneralNetworkTimeout", 90.0));
+        // (the time-out of the launcher's Connection page when it was ever saved, else the game's own preference)
+        let timeout = std::fs::read_to_string(crate::dimensions::Prefs::path()).ok().map(|t| crate::dimensions::Prefs::from_text(&t).network_timeout as f32);
+        self.progress.start(timeout.unwrap_or_else(|| crate::loginviews::network_timeout("GeneralNetworkTimeout", 90.0)));
         self.message.clear();
         std::thread::spawn(move || {
             let result = (|| -> Result<Vec<Character>, String> {
@@ -342,12 +347,44 @@ impl Launcher {
     }
 }
 
+impl Launcher {
+    /// The hall's scene, built the first time it is asked for (after the window's first frames, so the window is there
+    /// before the game's database is opened).
+    fn hall_ready(&self, gfx: &mut Gfx) -> bool {
+        if gfx.hall.is_none() && gfx.frames >= 2 && self.shot.is_none() {
+            if gfx.db.is_none() {
+                if let Ok(db) = ResourceDatabase::open_game(std::path::Path::new(&self.game)) {
+                    let db = Arc::new(db);
+                    gfx.db = Some((db.clone(), crate::Textures::new(db)));
+                }
+            }
+            let built = gfx.db.as_ref().and_then(|(db, textures)| {
+                let place = crate::hall::login_place(std::path::Path::new(&self.game))?;
+                let model = crate::hall::model(db)?;
+                let mut scene = gfx.renderer.upload(&gfx.gpu, &model, &mut |k, i| textures.get_for_upload(k, i));
+                scene.sky = ([0.02, 0.03, 0.05], [0.0, 0.0, 0.0]);
+                scene.fog = (900.0, 1000.0);
+                Some((scene, place))
+            });
+            gfx.hall = Some(built);
+        }
+        matches!(gfx.hall, Some(Some(_)))
+    }
+}
+
 impl ApplicationHandler for Launcher {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.gfx.is_some() {
             return;
         }
-        let window = Arc::new(event_loop.create_window(Window::default_attributes().with_title("Modern Anarchy Online").with_window_icon(crate::icon::window_icon()).with_inner_size(PhysicalSize::new(1000, 640))).expect("a window"));
+        // (the login is the game's window already in the original: the size and the mode of the settings; the pictures the
+        // tests take keep the small window)
+        let small = self.shot.is_some() || std::env::var_os("MAO_LAUNCHER_DEMO").is_some();
+        let size = if small { PhysicalSize::new(1000, 640) } else { PhysicalSize::new(self.settings.width, self.settings.height) };
+        let window = Arc::new(event_loop.create_window(Window::default_attributes().with_title("Modern Anarchy Online").with_window_icon(crate::icon::window_icon()).with_inner_size(size)).expect("a window"));
+        if !small {
+            crate::viewer::apply_mode(&window, self.settings.mode);
+        }
         let instance = wgpu::Instance::default();
         let surface = instance.create_surface(window.clone()).expect("a surface");
         let gpu = Gpu::new(instance, Some(&surface)).expect("a graphics device");
@@ -359,7 +396,7 @@ impl ApplicationHandler for Launcher {
         let ui = Ui::new(&window, &gpu, format, &self.settings);
         let renderer = Renderer::new(&gpu, format);
         window.request_redraw();
-        self.gfx = Some(Gfx { window, surface, config, gpu, ui, renderer, shown: None, scene: None, camera: None, db: None, started: std::time::Instant::now(), frames: 0 });
+        self.gfx = Some(Gfx { window, surface, config, gpu, ui, renderer, shown: None, scene: None, camera: None, db: None, hall: None, started: std::time::Instant::now(), frames: 0 });
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
@@ -456,6 +493,18 @@ impl ApplicationHandler for Launcher {
                         let camera = *camera;
                         gfx.renderer.draw(&gfx.gpu, scene, &camera, &view, size);
                         gfx.ui.paint(&gfx.gpu, &view, size, ui_frame);
+                    } else if self.hall_ready(&mut gfx) {
+                        let Some(Some((scene, place))) = &gfx.hall else { unreachable!() };
+                        // (no character shown: the hall, from the camera file's first place)
+                        let p = place.position;
+                        let forward = crate::hall::rotate(place.rotation, [0.0, 0.0, 1.0]);
+                        // (the game's frame has Y up, the renderer's Z)
+                        let eye = mao_render::glam::Vec3::new(p[0], p[2], p[1]);
+                        let target = eye + mao_render::glam::Vec3::new(forward[0], forward[2], forward[1]) * 10.0;
+                        let mut camera = Camera::looking(eye, target);
+                        camera.half_height = Some(crate::hall::half_height(place.fov_degrees, size.0 as f32 / size.1.max(1) as f32));
+                        gfx.renderer.draw(&gfx.gpu, scene, &camera, &view, size);
+                        gfx.ui.paint(&gfx.gpu, &view, size, ui_frame);
                     } else {
                         // no character shown: a plain dark blue background
                         let mut encoder = gfx.gpu.device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
@@ -499,6 +548,7 @@ pub fn run(game: &str) -> Result<(), String> {
     crate::theme::set_game_dir(game);
     let settings = Settings::load();
     crate::font::set_enabled(settings.original_font);
+    mao_render::prefer_adapter(&settings.adapter);
     let palette = crate::theme::load(&settings.theme, &settings.aou_mod);
     let (user, last, accounts) = parse_account(&std::fs::read_to_string(account_path()).unwrap_or_default());
     let mut launcher = Launcher { game: game.to_string(), settings, gfx: None, stage: Stage::Form, user, last, accounts, palette, quit: false, password: String::new(), server: std::env::var("MAO_SERVER").unwrap_or_else(|_| session::RUBI_KA.to_string()), message: String::new(), answer: None, chosen: None, play_new: None, new_character: false, selected: None, shot: std::env::var("MAO_LAUNCHER_SHOT").ok(), looks: crate::look::load(), login_view: Default::default(), char_view: Default::default(), progress: Default::default(), deleting: None };
@@ -549,6 +599,8 @@ pub fn run(game: &str) -> Result<(), String> {
     }
     let event_loop = EventLoop::new().map_err(|e| e.to_string())?;
     event_loop.run_app(&mut launcher).map_err(|e| e.to_string())?;
+    // (the login's window goes before the game's comes)
+    launcher.gfx = None;
     let Some(name) = launcher.chosen.take() else { return Ok(()) };
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let status = std::process::Command::new(&exe)

@@ -749,6 +749,55 @@ the remains of a scaled creature (not looked at). `MAO_COMBAT_LOG=1` prints a "n
 any creature's update that gives the client neither a template nor a humanoid body, and a "no model" line for
 anything drawn as a marker; `creaturecheck` says whether every creature record's body reads (all but two do).
 
+**The launcher, its settings and the hall behind the login (2026-11-11; `launchwindow.rs`, `dimensions.rs`,
+`hall.rs`, `mao_formats::pe`).** `mao-client <game> launch` opens the window the original's `Anarchy.exe` opens before
+the game, built from that program's own parts, all read from the game folder as it runs (none is in this
+repository):
+
+- The window is the original's 794 by 575, not resizable, one of the ten pictures of
+  `cd_image/data/launcher/skins/backgrounds` over all of it. Which one the original shows was not read (one by the
+  clock here).
+- Its upper 428 pixels are a web page: the original embeds a browser control at `SHOWURL` of
+  `cd_image/data/launcher/AnarchyLauncher.url`, and the banner, the row of links, the customer service messages and
+  the tip of the day are all that page's. Here the same page in a WebView2 child (wry); a link that asks for a new
+  window opens in the system's browser. The page is opened after the window's third frame: opened before the first,
+  the window's own drawing never showed under it; and the window asks for its frames from `about_to_wait`, since
+  asking from inside a frame alone stopped once the page was there.
+- The dimensions' list is downloaded as the original does it, from the address in `DimensionServer.url`, and a
+  copy kept beside the settings (`dimensions.txt`) for when the server does not answer. Each dimension has a login
+  server and a version; the one chosen last is selected (`launcher.ini`). The window's title has the game folder's
+  version (without the expansion's mark after the underscore) and the dimension's, as the original's has.
+- SETTINGS and PLAY are drawn with the pictures in the program's resources (`RT_BITMAP` 176, 178 and 187 for PLAY
+  as it is, under the pointer and switched off; 181, 182 and 186 for SETTINGS), read by a small reader of a program
+  file's resources (`mao_formats::pe`); plain buttons when the folder has no `Anarchy.exe`.
+- PLAY starts the login (`mao-client <game> play`) with the dimension's server and the launcher goes.
+
+The settings are the original's three pages (the program's dialog templates 153, 161 and 107) with this client's
+own contents where the original's mean nothing any more: the rendering device is the graphics device wgpu draws
+with (`mao_render::adapter_names`, a new `adapter` setting that every `Gpu` honours; empty is the system's choice);
+the resolution keeps its predefined list (the monitor's modes), the custom size and the two boxes (Run In Window,
+Borderless; neither is exclusive full screen); texture quality, compressed textures and the colour depth are gone
+and the edges' smoothing, the wait for the monitor, the drawing scale and the view distance stand in their place;
+the skin is the interface's theme and skin folder; the font is the original's bitmap font on or off and the
+interface's size; the folders are this client's (settings, screenshots, chat logs); the two time-outs are kept in
+`launcher.ini` (the login's progress bar and the dimension download use them); the report to Funcom is gone. The
+settings window is drawn inside the launcher's (the page is put away while it is open), where the original opens a
+window of its own.
+
+The login now opens at the size and in the window mode of the settings, as the original's login is already the
+game's window, and behind it is the hall the original shows: the six meshes GUI.dll's `CharCreateModule_t` loads by
+name (`InitialiseMessage` 0x1011bdaa, the table at 0x102724e4), seen from the first place of the game folder's
+`CharCreateCamera.dat` with the original's 60 degrees. **The stretch the user showed** (the original at 5120 by
+1440: the hall's upper part cut off): the original's angle is across the window, so a wide window sees less up and
+down. Here the angle is kept as a 4:3 window has it and a wider window sees the same height and more to the sides
+(`hall::half_height`; the renderer's camera took an optional view height for it). In a very wide window that shows
+past the hall's walls to the space outside it. Seen: the launcher beside the user's picture of the original's, the
+three settings pages, PLAY into the login, the hall at 16:9 and at 32:9.
+
+Not done: the figures on the hall's pedestals (the original stands characters there, `CCCharacter_t`), the hall
+behind the character list (the picked character is still shown alone), patching (a version that differs is only
+told), the licence dialog, the error pages, which background the original picks.
+
 **Sitting, the recharger, the return from death and the casting stance (2026-11-11; `net.rs`, `whiteout.rs`,
 `viewer.rs`).** Four things the user reported from playing the test character, each seen live afterwards.
 

@@ -28,6 +28,9 @@ mod perf;
 mod crash;
 mod factions;
 mod charcreate;
+mod launchwindow;
+mod hall;
+mod dimensions;
 mod loading;
 mod whiteout;
 mod missionlog;
@@ -1317,6 +1320,12 @@ fn run(args: &[String]) -> Result<(), String> {
     if let [game, word] = args {
         if word == "play" {
             return launcher::run(game);
+        }
+    }
+    // `launch <game>`: the launcher window (the page, the dimensions, the settings, PLAY), which starts `play`.
+    if let [game, word] = args {
+        if word == "launch" {
+            return launchwindow::run(game);
         }
     }
     // `rooms-check <game>`: how many playfields are made of rooms, and whether every one reads and builds.

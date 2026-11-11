@@ -26,16 +26,52 @@ pub struct Gpu {
     pub queue: wgpu::Queue,
 }
 
+/// The graphics device the player chose (the launcher's settings: the original's "Rendering Device"), by the name
+/// [`adapter_names`] gives it; empty for the system's own choice.
+static PREFERRED_ADAPTER: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+
+/// Names the device every [`Gpu`] made from now on should use when it is there and can draw to the window.
+pub fn prefer_adapter(name: &str) {
+    *PREFERRED_ADAPTER.lock().unwrap_or_else(|e| e.into_inner()) = name.trim().to_string();
+}
+
+/// A device's name as the settings keep it: the card and the interface it is driven through.
+pub fn adapter_name(adapter: &wgpu::Adapter) -> String {
+    let info = adapter.get_info();
+    format!("{} ({:?})", info.name, info.backend)
+}
+
+/// The devices this machine can draw with.
+pub fn adapter_names() -> Vec<String> {
+    let instance = wgpu::Instance::default();
+    let mut names: Vec<String> = pollster::block_on(instance.enumerate_adapters(wgpu::Backends::all())).iter().map(adapter_name).collect();
+    names.dedup();
+    names
+}
+
 impl Gpu {
     /// A device for rendering to textures (or to `surface`, when given).
     pub fn new(instance: wgpu::Instance, surface: Option<&wgpu::Surface<'_>>) -> Result<Gpu, String> {
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
-            compatible_surface: surface,
-            force_fallback_adapter: false,
-            ..Default::default()
-        }))
-        .map_err(|e| e.to_string())?;
+        let wanted = PREFERRED_ADAPTER.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let chosen = if wanted.is_empty() {
+            None
+        } else {
+            let found = pollster::block_on(instance.enumerate_adapters(wgpu::Backends::all())).into_iter().find(|a| adapter_name(a) == wanted && surface.is_none_or(|s| a.is_surface_supported(s)));
+            if found.is_none() {
+                eprintln!("the graphics device of the settings ({wanted}) is not there or cannot draw to the window: using the system's choice");
+            }
+            found
+        };
+        let adapter = match chosen {
+            Some(adapter) => adapter,
+            None => pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                compatible_surface: surface,
+                force_fallback_adapter: false,
+                ..Default::default()
+            }))
+            .map_err(|e| e.to_string())?,
+        };
         // (timestamps where the device has them: the frame's time on the card, for the performance overlay)
         let timing = wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS;
         let required_features = if adapter.features().contains(timing) { timing } else { wgpu::Features::empty() };
@@ -580,12 +616,15 @@ pub struct Camera {
     pub distance: f32,
     pub yaw: f32,
     pub pitch: f32,
+    /// Half the view's height at unit distance, when it is not the original's rule (90 degrees across the window, so the
+    /// height follows the window's shape): the login's hall keeps its height in a wide window (`hall.rs` of the client).
+    pub half_height: Option<f32>,
 }
 
 impl Camera {
     /// A camera that sees the whole scene.
     pub fn fit(scene: &Scene) -> Camera {
-        Camera { target: scene.center, distance: scene.radius * 2.0, yaw: 0.6, pitch: 0.35 }
+        Camera { target: scene.center, distance: scene.radius * 2.0, yaw: 0.6, pitch: 0.35, half_height: None }
     }
 
     /// A camera at `eye` looking at `target` (world, Z up).
@@ -594,7 +633,7 @@ impl Camera {
         let distance = d.length().max(0.01);
         let pitch = (d.z / distance).clamp(-1.0, 1.0).asin();
         let yaw = if d.x.abs() + d.y.abs() > 1e-9 { d.y.atan2(d.x) } else { 0.0 };
-        Camera { target, distance, yaw, pitch }
+        Camera { target, distance, yaw, pitch, half_height: None }
     }
 
     /// Where the camera is.
@@ -632,7 +671,7 @@ impl Camera {
         let near = (far * 0.001).clamp(0.01, 0.2);
         // The original's view is 90° across (`VisualCamera_t::SetViewPlaneWindow(1.5708, aspect)`: the window's half width is
         // tan(45°) at unit distance, its height that over the aspect), so the vertical field follows the window's shape.
-        let fov_y = 2.0 * (1.0 / aspect.max(0.1)).atan();
+        let fov_y = 2.0 * self.half_height.unwrap_or(1.0 / aspect.max(0.1)).atan();
         perspective(fov_y, aspect, near, far) * look_at(eye, self.target, Vec3::Z)
     }
 }
@@ -2453,7 +2492,7 @@ mod tests {
 
     #[test]
     fn the_screen_centre_looks_at_the_target() {
-        let c = Camera { target: Vec3::new(10.0, 5.0, 1.0), distance: 8.0, yaw: 0.7, pitch: 0.3 };
+        let c = Camera { target: Vec3::new(10.0, 5.0, 1.0), distance: 8.0, yaw: 0.7, pitch: 0.3, half_height: None };
         let (from, dir) = c.ray(0.5, 0.5, 16.0 / 9.0, 100.0);
         let want = (c.target - c.eye()).normalize();
         assert!(dir.dot(want) > 0.9999, "{dir:?} {want:?}");
@@ -2490,7 +2529,7 @@ mod tests {
         // (skipped on a machine without a graphics device)
         let Ok(gpu) = Gpu::headless() else { return };
         let format = wgpu::TextureFormat::Rgba8Unorm;
-        let camera = Camera { target: Vec3::new(-6.0, 0.0, 0.0), distance: 40.0, yaw: 0.3, pitch: 1.2 };
+        let camera = Camera { target: Vec3::new(-6.0, 0.0, 0.0), distance: 40.0, yaw: 0.3, pitch: 1.2, half_height: None };
         let (start, moved) = (Vec3::new(0.0, 6.0, 0.0), Vec3::new(5.0, 6.0, 0.0));
         let picture = |renderer: &mut Renderer, scene: &mut Scene, at: Vec3| {
             scene.player = Some(at);
@@ -2541,7 +2580,7 @@ mod tests {
         let Ok(gpu) = Gpu::headless() else { return };
         let format = wgpu::TextureFormat::Rgba8Unorm;
         let (w, h) = (160, 120);
-        let still = Camera { target: Vec3::new(0.0, 0.0, 4.0), distance: 30.0, yaw: 0.3, pitch: 0.4 };
+        let still = Camera { target: Vec3::new(0.0, 0.0, 4.0), distance: 30.0, yaw: 0.3, pitch: 0.4, half_height: None };
         let turned = Camera { yaw: 0.55, ..still };
         let mut renderer = Renderer::new(&gpu, format);
         let mut scene = renderer.upload(&gpu, &pillar_scene(), &mut |_, _| None);

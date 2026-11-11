@@ -6,6 +6,7 @@ pub mod surface;
 pub mod zones;
 pub mod ctree;
 pub mod instances;
+pub mod pe;
 pub mod resource;
 pub mod files;
 pub mod texture;

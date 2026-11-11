@@ -279,7 +279,7 @@ fn camera_override(camera: &mut Camera) {
     let Ok(text) = std::env::var("MAO_CAMERA") else { return };
     let v: Vec<f32> = text.split(',').filter_map(|n| n.trim().parse().ok()).collect();
     if let [x, y, z, distance, yaw, pitch] = v[..] {
-        *camera = Camera { target: mao_render::glam::Vec3::new(x, y, z), distance, yaw, pitch };
+        *camera = Camera { target: mao_render::glam::Vec3::new(x, y, z), distance, yaw, pitch, half_height: None };
     }
 }
 
@@ -773,7 +773,7 @@ pub fn fog_for(distance: f32) -> (f32, f32) {
 /// Shows the window the way `mode` says: a framed window, a borderless one
 /// covering the screen, or exclusive fullscreen at the monitor's best video
 /// mode (falling back to borderless where there is none).
-fn apply_mode(window: &Window, mode: WindowMode) {
+pub(crate) fn apply_mode(window: &Window, mode: WindowMode) {
     match mode {
         WindowMode::Windowed => {
             window.set_fullscreen(None);
@@ -1000,7 +1000,7 @@ impl ApplicationHandler for App {
         }
         let mut camera = Camera::fit(&scene);
         if let Some(([x, y, z], distance)) = self.live.as_ref().and_then(|l| l.focus.map(|f| (f, l.distance))) {
-            camera = Camera { target: mao_render::glam::Vec3::new(x, y, z), distance, yaw: 0.6, pitch: 0.5 };
+            camera = Camera { target: mao_render::glam::Vec3::new(x, y, z), distance, yaw: 0.6, pitch: 0.5, half_height: None };
         }
         window.request_redraw();
         self.home = Some(camera);
