@@ -592,6 +592,22 @@ taking the background for black (not checked). The corner map is dimmed so (`aut
 second texture, and the rooms' floor pictures the same view draws for playfields made of rooms (FUN_100474b7). Seen
 live in Old Athens: paths, lawns and the plaza where they are around the character.
 
+**A built-in thing's root animation (2026-11-10, `mao_formats::model::walk`).** The ring that marks a shuttle's door
+(Arete Landing's "Shuttle Door", mesh 258035, one frame) stood on its edge and still. Its mesh is modelled upright and
+its root frame's animation lays it down (a quarter turn about X, 5 cm up) and scrolls its texture once round in 3.33
+seconds, which shows as a band running outwards over the ground. The client left the root's whole transform out for a
+playfield's built-in things, because the game overwrites the root's local position and rotation with the thing's place;
+but the animation's matrix is no part of that: randy31's `UpdateWorldMatrix` puts it in front of the local transform
+(`refframe.rs`), and a frame saved with an `anim_matrix` and no animation keeps the matrix too. The root's matrix and
+keys are kept now. Thirteen of the 656 meshes the built-in things use have one (`dynelroots` lists them): this ring,
+three posters, wall panels, two buttons, a terminal, a tower's teleporter; they were drawn turned or upside down.
+Seen live: the ring lies under the shuttle's door and its band runs outwards. Not right yet: the band's edges are
+hard. The material asks for alpha blending (render state 27) and its texture's alpha fades from 5 to 208, but the
+client cuts every textured mesh out at half alpha; 2327 of the 11228 meshes have such a material (`blendcount`), 259
+of them adding their light (source alpha, one). Blended world materials are a piece of the renderer of their own.
+New tools in `mao-formats/examples`: `meshframes` (a mesh's frame tree and animation keys), `meshparts` (its parts
+and materials), `meshstates` (its materials' render states), `dynelroots`, `blendcount`.
+
 **What a new character's first steps found (2026-11-10, `net.rs`, `gui/controls.rs`).** Three fixes from playing a
 fresh character through its first minutes (the list is in `LIVE_TEST_LIST.md`). An item move is still shown at once,
 but the server's answer is followed now: it takes a move with `ContainerAddItem` naming the old place (`(0x68,

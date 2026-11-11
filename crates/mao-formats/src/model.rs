@@ -388,7 +388,11 @@ fn walk(a: &Archive, index: i32, parent: &Matrix, depth: usize, root: Root, out:
     // local position and rotation, and the game sets a dynel's root to the object's place, so the exporter's root transform is
     // replaced; the animated frames under it carry the root's inverse in their local transform and their pose in the animation's
     // matrix, which puts them at the object's place (Old Athen's sliding doors, whose root turns a quarter: with the root's rotation
-    // kept the leaves stood across the opening).
+    // kept the leaves stood across the opening). The root's own animation stays: its matrix is not part of the local transform the
+    // game overwrites and `UpdateWorldMatrix` still puts it in front (randy31 `refframe.rs`: a frame saved with an `anim_matrix`
+    // and no animation keeps the matrix in a holder of its own). Thirteen of the 656 meshes the playfields' built-in things use
+    // have one: flat things modelled upright and laid down or turned by it (the 4 m ring that marks a shuttle's door, which also
+    // scrolls its texture and stood on its edge without it, posters, wall panels, buttons).
     let world = match root {
         Root::Rotation if depth == 0 => {
             let mut m = local_matrix(a, frame);
@@ -397,11 +401,11 @@ fn walk(a: &Archive, index: i32, parent: &Matrix, depth: usize, root: Root, out:
             m[14] = 0.0;
             multiply(&m, parent)
         }
-        Root::None if depth == 0 => *parent,
+        Root::None if depth == 0 => saved_anim_matrix(frame).map_or(*parent, |m| multiply(&m, parent)),
         _ => multiply(&local_matrix(a, frame), parent),
     };
     chain.push(match root {
-        Root::None if depth == 0 => Step { trs: IDENTITY, saved: None, keys: None, zero_translation: false },
+        Root::None if depth == 0 => Step { trs: IDENTITY, saved: saved_anim_matrix(frame), keys: keys(a, frame).map(std::sync::Arc::new), zero_translation: false },
         _ => Step { trs: trs_of(frame), saved: saved_anim_matrix(frame), keys: keys(a, frame).map(std::sync::Arc::new), zero_translation: root == Root::Rotation && depth == 0 },
     });
     if a.class(index as usize) == Some("RTriMesh_t") {

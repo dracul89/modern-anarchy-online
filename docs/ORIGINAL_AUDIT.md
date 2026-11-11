@@ -16,7 +16,7 @@ then check a render. Never the other way round.
 
 | Subsystem | Original | Client | Status |
 |---|---|---|---|
-| Dynel mesh placement (doors, machines) | `VisualMesh_t::SetMesh` → `attach` (displaysystem `asyncmesh.rs`, FUN_1006d7b9): mesh frame under the visual's frame at the origin, unrotated; `RRefFrame_t::UpdateWorldMatrix` (randy31 `refframe.rs`) | `model::build_dynel` | done |
+| Dynel mesh placement (doors, machines) | `VisualMesh_t::SetMesh` → `attach` (displaysystem `asyncmesh.rs`, FUN_1006d7b9): mesh frame under the visual's frame at the origin, unrotated; `RRefFrame_t::UpdateWorldMatrix` (randy31 `refframe.rs`: the animation's matrix in front of the local transform, also for a frame saved with the matrix alone) | `model::build_dynel` | done; the root's own animation kept since 2026-11-10 (the shuttle door's ring lay wrong without it) |
 | Zoning through a door | collision with a `Door_t` (FUN_100a944a) → `StartTeleportTry` (0x10019002) → `MovementChanged(0x16)`; 30 s `TeleportTrier_t` | teleport try within 2 m of a door | done; the warps need a live check |
 | Movement action codes | transition table FUN_1006cb58 (0xf jump start, 0x10 jump stop, 0x16 full report, 0x18/0x19 walk/run mode) | `n3::movement` | done |
 | Movement speeds | `CharVehicle_t` FUN_1006f9eb / FUN_1006f2fc | `movement_speeds` | done |

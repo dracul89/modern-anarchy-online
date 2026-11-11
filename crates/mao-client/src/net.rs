@@ -5691,23 +5691,39 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             eprintln!("autoplay: {far:6.1} m  {what}");
                         }
                         eprintln!("autoplay: {} things", state.table.len());
+                        // (and the objects the server tells of: chests, items lying about and the like)
+                        let mut lying: Vec<(f32, String)> = state.objects.iter().map(|(id, p)| (((p[0] - position[0]).powi(2) + (p[2] - position[2]).powi(2)).sqrt(), format!("({:#x}, {id:#x}) {:?} at ({:.1}, {:.1}, {:.1})", state.types.get(id).copied().unwrap_or(0), state.names.get(id).map_or("", |n| n.0.as_str()), p[0], p[1], p[2]))).collect();
+                        lying.sort_by(|a, b| a.0.total_cmp(&b.0));
+                        for (far, what) in lying.iter().take(40) {
+                            eprintln!("autoplay: {far:6.1} m  object {what}");
+                        }
                     }
                     "who" => {
                         let mut about: Vec<(f32, u32, String)> = state.entities.iter().filter(|(id, _)| **id != own).map(|(id, (p, _))| (((p[0] - position[0]).powi(2) + (p[2] - position[2]).powi(2)).sqrt(), *id, state.names.get(id).map_or(String::new(), |n| n.0.clone()))).collect();
                         about.sort_by(|a, b| a.0.total_cmp(&b.0));
-                        for (far, id, name) in about.iter().take(25) {
+                        for (far, id, name) in about.iter().take(80) {
                             eprintln!("autoplay: {far:6.1} m  {id:x} ({id})  {name:?}{}", if state.infos.get(id).is_some_and(|i| i.is_player()) { " (player)" } else { "" });
                         }
                     }
-                    w if w.starts_with("target=") => {
-                        let name = w["target=".len()..].to_ascii_lowercase();
+                    // (`kill=<part of a name>`: the same, a living one only, then followed and attacked unless it is being
+                    // fought already)
+                    w if w.starts_with("target=") || w.starts_with("kill=") => {
+                        let kill = w.starts_with("kill=");
+                        let name = w[w.find('=').map_or(0, |k| k + 1)..].to_ascii_lowercase();
                         let far = |id: &u32| state.entities.get(id).map_or(f32::MAX, |(p, _)| (p[0] - position[0]).powi(2) + (p[2] - position[2]).powi(2));
-                        match state.names.iter().filter(|(id, n)| **id != own && n.0.to_ascii_lowercase().contains(&name) && state.entities.contains_key(id)).map(|(id, _)| *id).min_by(|a, b| far(a).total_cmp(&far(b))) {
+                        let alive = |id: &u32| !kill || (!state.dead.contains_key(id) && !state.corpses.contains_key(id));
+                        match state.names.iter().filter(|(id, n)| **id != own && n.0.to_ascii_lowercase().contains(&name) && state.entities.contains_key(id) && alive(id)).map(|(id, _)| *id).min_by(|a, b| far(a).total_cmp(&far(b))) {
                             Some(id) => {
                                 target = Some(id);
                                 let _ = connection.send(&n3::select_target(own, id));
                                 let _ = connection.send(&n3::set_target(own, id));
                                 eprintln!("autoplay: target {id:x} {:?}, {:.1} m away", state.names.get(&id).map(|n| n.0.as_str()), far(&id).sqrt());
+                                if kill {
+                                    following = Some(id);
+                                    if state.fighting.get(&own) != Some(&id) {
+                                        seen[4] = seen[4].wrapping_sub(1);
+                                    }
+                                }
                             }
                             None => eprintln!("autoplay: nobody named {name:?} about"),
                         }

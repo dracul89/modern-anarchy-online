@@ -173,6 +173,9 @@ account with `net <game> create`, in Arete Landing; scripted, other new players 
   - The camera stood outside the shuttle's room once, looking at its walls (279 of the room's 296 parts drawn, 97
     in a normal view). **Not reproduced** in two tries of the same walk, with and without the NPC's window: left
     open.
+- **Found and fixed** (the user saw it in a screenshot): the blue ring at the shuttle's door stood on its edge and
+  did not move; it lies on the ground now and its band runs outwards. Its edges are still hard where the original
+  fades them (blended materials are not drawn yet).
 - Not reached: dying and reclaiming (the one creature tried could not be attacked), a shop (5 credits), a
   mission, the level 5 way into ICC, a team with a second new character.
 

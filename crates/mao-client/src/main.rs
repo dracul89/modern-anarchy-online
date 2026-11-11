@@ -2130,6 +2130,36 @@ mod animation_tests {
         super::add_props_with(&game.to_string_lossy(), &db, 540, &mut scene, Some(&mut moving));
         assert!(moving.iter().any(|p| p.part.1.texture_at(1.0).is_some()));
     }
+
+    /// `MAO_GAME`: the ring that marks Arete Landing's shuttle door (the "Shuttle Door" template's mesh, 258035, a single
+    /// frame): its root's animation lays it on the ground (about 4 m across and nearly no height, where without the
+    /// animation it stood on its edge) and scrolls its texture once round in its length.
+    #[test]
+    fn the_shuttle_doors_ring_lies_on_the_ground_and_turns() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let db = mao_formats::resource::ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap();
+        let (m, anims) = super::load_model_dynel_animated(&db, mao_formats::resource::Id { kind: 0xf6951, instance: 258035 }).unwrap();
+        let a = anims[0].as_ref().unwrap();
+        assert!(a.moves() && a.looped());
+        // (the part's extent along each axis through a world matrix: row vectors)
+        let extent = |w: &mao_formats::model::Matrix| {
+            let (mut lo, mut hi) = ([f32::MAX; 3], [f32::MIN; 3]);
+            for v in &m.parts[0].vertices {
+                for k in 0..3 {
+                    let c = v.position[0] * w[k] + v.position[1] * w[4 + k] + v.position[2] * w[8 + k] + w[12 + k];
+                    lo[k] = lo[k].min(c);
+                    hi[k] = hi[k].max(c);
+                }
+            }
+            [hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]]
+        };
+        for w in [m.parts[0].world, a.world_at(1.0).0] {
+            let e = extent(&w);
+            assert!(e[0] > 3.0 && e[2] > 3.0 && e[1] < 0.5, "{e:?}");
+        }
+        let (start, half) = (a.texture_at(0.0).unwrap(), a.texture_at(a.length() / 2.0).unwrap());
+        assert!((start[2] - half[2]).abs() > 0.4, "{start:?} {half:?}");
+    }
 }
 
 #[cfg(test)]
