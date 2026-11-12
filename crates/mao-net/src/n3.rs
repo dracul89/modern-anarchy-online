@@ -1199,6 +1199,19 @@ mod tests {
     /// The end of a player's full update in the original's capture of 2026-10-30: five clothes, none worn, then one
     /// mesh, the hair 40250 on the head in layer 4.
     #[test]
+    fn a_helmet_is_drawn_in_the_heads_place() {
+        // (from the captures: a helmet with flags 2 beside the character's own head with 4; glasses with 0 beside
+        // the head; a weapon in a hand, shoulder pads, a back piece)
+        let helmet = [(2, 0, 214482, 0), (4, 0, 223946, 0), (2, 1, 0x8ad6, 0), (0, 3, 0x2d27, 0x4a0b1), (0, 4, 0x2d27, 0x4a0b1)];
+        assert_eq!(shown_meshes(&helmet), vec![(HEAD_REPLACED, 214482, 0), (1, 0x8ad6, 0), (3, 0x2d27, 0x4a0b1), (4, 0x2d27, 0x4a0b1)]);
+        let glasses = [(0, 0, 234533, 0), (4, 0, 40250, 0), (0, 5, 0x2cff, 0)];
+        assert_eq!(shown_meshes(&glasses), vec![(0, 234533, 0), (0, 40250, 0), (5, 0x2cff, 0)]);
+        // (the head listed first changes nothing; of two helmets the later; a mesh listed twice is there once)
+        assert_eq!(shown_meshes(&[(4, 0, 40250, 0), (2, 0, 20063, 0), (2, 0, 205110, 0), (4, 0, 40250, 0)]), vec![(HEAD_REPLACED, 205110, 0)]);
+        assert_eq!(shown_meshes(&[(0, 5, 7, 0), (0, 5, 7, 0)]), vec![(5, 7, 0)]);
+    }
+
+    #[test]
     fn a_full_updates_meshes_follow_its_clothes() {
         let hex = "000017a6000000000000000000000000000000010000000000000000000000020000000000000000000000030000000000000000000000040000000000000000000007e20000009d3a00000000040000000000";
         let tail: Vec<u8> = (0..hex.len() / 2).map(|i| u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).unwrap()).collect();
@@ -1361,8 +1374,9 @@ pub struct EntityInfo {
     /// The worn clothes: body part name and the texture's instance (types
     /// 0xf6954, 0xf6960, 0xf6961 share instances). Found like `textures`.
     pub clothes: Vec<(String, u32)>,
-    /// The worn meshes (hair, shoulder pads, what is on the back): the attachment position, the mesh's instance (type
-    /// 0xf6951) and a texture to put on it, 0 for its own; in the order of their layers.
+    /// The worn meshes that are drawn ([`shown_meshes`]: the head or what takes its place, what is in the hands, shoulder
+    /// pads, what is on the back): the attachment position ([`HEAD_REPLACED`] for a mesh that stands for the whole
+    /// head), the mesh's instance (type 0xf6951) and a texture to put on it, 0 for its own.
     pub meshes: Vec<(u8, u32, u32)>,
     /// The NPC template (an object of type 0xfde97) of a creature or NPC:
     /// its record names the CAT mesh (entry 12) and the animations.
@@ -1580,11 +1594,49 @@ fn cloth_list(rest: &[u8]) -> Vec<(String, u32)> {
     cloth_and_meshes(rest).0
 }
 
+/// The position given to a mesh that takes the head's place (a helmet: position 0 with the flag's bit 1): the body's
+/// own head is not drawn with it. See [`shown_meshes`].
+pub const HEAD_REPLACED: u8 = 0x80;
+
+/// Which of a character's listed meshes are drawn, from (flags, position, mesh, texture) in the list's order. What
+/// the lists call a layer is a set of flags, and DisplaySystem shows by them (`CharacterMesh::AddAttractorMesh` keeps
+/// each place's meshes with bit 1 before the others, FUN_10071e5d, and drops a mesh already at its place, FUN_100734b0;
+/// FUN_10073517 attaches them): at a place with a bit-1 mesh, that one alone, the first of them in the list as kept,
+/// which is the last one added; at a place without, every mesh. In the captures a helmet is on the head with flags 2
+/// beside the character's own head with 4 (bit 2: attached in the bit-1 mesh's stead while that one is not loaded
+/// yet), glasses with 0 beside the head, a weapon in a hand with 2, shoulder pads and back pieces with 0. Drawn
+/// together, as they were here, the head's hair stood out through the helmet. A bit-1 mesh on the head is given
+/// [`HEAD_REPLACED`] as its position. (The original's two hiding modes, +0x74, are not here.)
+pub fn shown_meshes(list: &[(u8, u8, u32, u32)]) -> Vec<(u8, u32, u32)> {
+    let mut places: std::collections::BTreeMap<u8, (Option<(u32, u32)>, Vec<(u32, u32)>)> = Default::default();
+    let mut seen: Vec<(u8, u32)> = Vec::new();
+    for &(flags, position, mesh, texture) in list {
+        if seen.contains(&(position, mesh)) {
+            continue;
+        }
+        seen.push((position, mesh));
+        let place = places.entry(position).or_default();
+        if flags & 2 != 0 {
+            place.0 = Some((mesh, texture));
+        } else {
+            place.1.push((mesh, texture));
+        }
+    }
+    let mut out = Vec::new();
+    for (position, (main, others)) in places {
+        match main {
+            Some((mesh, texture)) => out.push((if position == 0 { HEAD_REPLACED } else { position }, mesh, texture)),
+            None => out.extend(others.into_iter().map(|(mesh, texture)| (position, mesh, texture))),
+        }
+    }
+    out
+}
+
 /// The clothes and, after them, the worn meshes of a character's full update: a counted list (a `0x3f1` count) of
 /// meshes, each ten bytes: the attachment position (0 the head, 1 and 2 the hands, 3 and 4 the shoulders, 5 the back),
-/// the mesh's instance, a texture to put on it (0: its own) and a layer; given as (layer, position, mesh, texture) in
-/// the order of the layers, as the appearance update's list is. From the original's capture of 2026-10-30: a player's
-/// update ends its five clothes with `000007e2` and `00 00009d3a 00000000 04`, the hair 40250 on the head.
+/// the mesh's instance, a texture to put on it (0: its own) and its flags; given as the meshes that are drawn
+/// ([`shown_meshes`]). From the original's capture of 2026-10-30: a player's update ends its five clothes with
+/// `000007e2` and `00 00009d3a 00000000 04`, the head 40250 (`head_opifexmale02`) with flags 4.
 fn cloth_and_meshes(rest: &[u8]) -> (Vec<(String, u32)>, Vec<(u8, u32, u32)>) {
     let int = |at: usize| rest.get(at..at + 4).map(|b| i32::from_be_bytes(b.try_into().unwrap()));
     for start in 0..rest.len().saturating_sub(16) {
@@ -1628,8 +1680,7 @@ fn cloth_and_meshes(rest: &[u8]) -> (Vec<(String, u32)>, Vec<(u8, u32, u32)>) {
                     m += 10;
                 }
             }
-            meshes.sort();
-            return (out, meshes.into_iter().map(|(_, at, mesh, texture)| (at, mesh, texture)).collect());
+            return (out, shown_meshes(&meshes));
         }
     }
     (Vec::new(), Vec::new())

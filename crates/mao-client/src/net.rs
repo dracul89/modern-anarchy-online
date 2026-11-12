@@ -1776,9 +1776,9 @@ impl World {
                         }
                     }
                 }
-                let mut meshes: Vec<(u32, u8, u32, u32)> = list("Meshes").iter().map(|v| (field(v, "Layer"), field(v, "Position") as u8, field(v, "Id"), field(v, "OverrideTextureId"))).collect();
-                meshes.sort();
-                self.equipment.insert(m.identity.1, meshes.into_iter().map(|(_, at, mesh, texture)| (at, mesh, texture)).collect());
+                // (the meshes that are drawn of those listed: a helmet in the head's place, `n3::shown_meshes`)
+                let meshes: Vec<(u8, u8, u32, u32)> = list("Meshes").iter().map(|v| (field(v, "Layer") as u8, field(v, "Position") as u8, field(v, "Id"), field(v, "OverrideTextureId"))).collect();
+                self.equipment.insert(m.identity.1, mao_net::n3::shown_meshes(&meshes));
             }
         }
         // `SpecialAttackWeapon`: the special attacks of a character, each an item, a stat and a four-letter code (the
@@ -3272,7 +3272,8 @@ const CLOTH_PARTS: [&str; 6] = ["hands", "body", "feet", "arms", "legs", "head"]
 /// The attachment point of a worn mesh: its position counts from the body's `Attractor01_head`
 /// (head, right hand, left hand, right shoulder, left shoulder, back).
 fn attractor_name(position: u8) -> String {
-    format!("Attractor{:02}", position as u32 + 1)
+    // (a mesh in the head's place is held where the head is: `n3::HEAD_REPLACED`)
+    format!("Attractor{:02}", (position & !mao_net::n3::HEAD_REPLACED) as u32 + 1)
 }
 
 /// The worn static meshes of a character held at their attachment points of the posed body.
@@ -3683,7 +3684,7 @@ impl Characters {
                 part.material.textures = vec![(0xf6954, *instance)];
             }
         }
-        let custom_head = gear.iter().any(|g| g.0 == 0 && self.head_meshes.contains(&g.1));
+        let custom_head = gear.iter().any(|g| g.0 == mao_net::n3::HEAD_REPLACED || (g.0 == 0 && self.head_meshes.contains(&g.1)));
         if let (Some(Some((_, head, _))), Some(attractor), false) = (self.bodies.get(&(breed, sex)), mesh.attractor("head"), custom_head) {
             parts.extend(mesh.attach(&bones, attractor, head));
         }
@@ -3932,7 +3933,13 @@ impl Characters {
     /// An animation's `loopstart`, `loopend` and length in ms (the whole length as the loop if it has no notes).
     fn loop_points(&mut self, breed: u8, sex: u8, action: mao_formats::appearance::Action) -> Option<(f32, f32, f32)> {
         let name = self.ensure_anim(breed, sex, action);
-        let (anim, length) = self.anims.get(&name)?.as_ref()?;
+        self.file_loop_points(&name)
+    }
+
+    /// A loaded animation file's cycle: its `loopstart` and `loopend` notes and its length (the whole of it without
+    /// them), as FUN_10010929's modes take them of whatever animation is set.
+    fn file_loop_points(&self, name: &str) -> Option<(f32, f32, f32)> {
+        let (anim, length) = self.anims.get(name)?.as_ref()?;
         let note = |n: &str| anim.notes.iter().find(|x| x.name == n).map(|x| x.time);
         Some(match (note("loopstart"), note("loopend")) {
             (Some(s), Some(e)) if e > s => (s, e.min(*length), *length),
@@ -4029,7 +4036,7 @@ impl Characters {
             None => 1.0,
         };
         let (action, _) = self.motion(id, breed, sex, moving, jumped, rate);
-        let custom_head = gear.iter().any(|g| g.0 == 0 && self.head_meshes.contains(&g.1));
+        let custom_head = gear.iter().any(|g| g.0 == mao_net::n3::HEAD_REPLACED || (g.0 == 0 && self.head_meshes.contains(&g.1)));
         let name = self.ensure_anim(breed, sex, action);
         // (with a weapon in hand, its movement: in a fight the drawn weapon's idle, FUN_1003cce2 looping class 0x10 of the weapon
         // in place 6, else 8, else 0; out of one the idle the wielding set, FUN_1009cda2's class 0x29 (a rifle's `idle-2h`, a
@@ -4055,9 +4062,12 @@ impl Characters {
             None => self.anim_by_name(&name),
         };
         let key = (action, if death.is_some() { 9 } else { self.segment }, movement.map_or(0, |m| m.0));
-        let points = match movement.filter(|_| weapon_idle.is_some()) {
-            Some((_, length)) => (0.0, length, length),
-            None => self.loop_points(breed, sex, action).unwrap_or((0.0, 0.0, 0.0)),
+        // (a weapon's own movement has its cycle between its own notes, as the plain one has: a rifle's `run-2h` is four
+        // seconds of a start, the strides and a stop with the cycle from 1166 to 1966 ms. Looped whole, as it was, the
+        // runner started, ran a few strides and stopped, over and over. An idle has no notes and loops whole.)
+        let points = match (&weapon_idle, movement) {
+            (Some((file, _)), Some((_, length))) => self.file_loop_points(file).unwrap_or((0.0, length, length)),
+            _ => self.loop_points(breed, sex, action).unwrap_or((0.0, 0.0, 0.0)),
         };
         let social = social.and_then(|(n, began)| {
             let file = self.ensure_social(breed, sex, n)?;

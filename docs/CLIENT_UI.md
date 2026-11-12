@@ -795,6 +795,31 @@ down. Here the angle is kept as a 4:3 window has it and a wider window sees the 
 past the hall's walls to the space outside it (kept so: the user chose the full width over black bars at the sides). Seen: the launcher beside the user's picture of the original's, the
 three settings pages, PLAY into the login, the hall at 16:9 and at 32:9.
 
+**Hair through a helmet, a shop's wall gone, the run that stops (2026-11-11, the user's three notes after playing).**
+*Hair through a helmet.* A character's listed meshes were all drawn, in the order of what the lists call a layer.
+That number is a set of flags, and DisplaySystem shows by them (`CharacterMesh::AddAttractorMesh` keeps each
+place's meshes with bit 1 first, FUN_10071e5d, and drops one already there, FUN_100734b0; FUN_10073517 attaches):
+at a place with a bit-1 mesh that one alone, at a place without one every mesh. The captures agree: a helmet
+(`opifex_male_helmet_cyberarmour`, a whole head made for the breed) is on the head with flags 2 beside the
+character's own head (`head_opifexmale02`, hair and all) with 4, which the original attaches only while the
+helmet's mesh is not loaded yet; glasses come with 0 beside the head; a weapon in a hand with 2, shoulder pads and
+back pieces with 0. `mao_net::n3::shown_meshes` is that rule, used for the full update's list and the appearance
+update's; a helmet stands in the head's place (`HEAD_REPLACED`) and the body's head is not drawn with it. Checked in
+a picture (`MAO_WEAR=0:9d3a,0:4e5f` against `128:4e5f` on `player 2 2`): the hair's spikes through the helmet are
+gone. The original's two hiding modes (+0x74) are not ported. Not seen live.
+*A shop's wall gone.* Since the faces turned away are no longer drawn (this morning), every interior's own walls and
+ceilings were gone from inside it and the next room showed through; the floors stayed. The rooms' pieces are put from
+the game's upright frame into the viewer's, which mirrors them, and given as parts in the viewer's own frame, so
+their corners' order has to be turned round for that frame (`rooms::room_parts`); the floor, made here, was right
+already. Checked in pictures from inside the clan's basic shop (playfield 1180, `MAO_CAMERA=208,202,7,1,1.57,0.05`
+with `MAO_CULL=show`): no wall or ceiling is among the faces left out now. This was every interior (shops, flats,
+mission buildings), not one shop. `MAO_CAMERA=print` says the fitted camera of a picture.
+*The run that stops.* With a rifle held, the walk and the run are the weapon's own (`walk-2h`, `run-2h`,
+FUN_1009cda2), and those files were looped whole: `run-2h` is four seconds of a start, the strides and a stop, its
+cycle from 1166 to 1966 ms between its `loopstart` and `loopend` notes. The plain run was looped between its notes
+already; the weapon's now is too (`Characters::file_loop_points`, as FUN_10010929's modes take the notes of whatever
+animation is set). By the files' notes (`animnotes`, a new example); not watched live.
+
 **Deleting a mail (2026-11-11, the user: "deleting mail doesn't work", a shop's mail with its item still in it).**
 The original's delete (FUN_101096f1, which the inbox's Delete, FUN_101098a0, and the message window's, FUN_1010686c,
 both come to after their "delete?" question) does not delete a mail that has an item (flag 8) not yet taken (flag

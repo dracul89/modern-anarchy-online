@@ -79,7 +79,8 @@ pub fn player(db: Arc<ResourceDatabase>, breed: u8, sex: u8, anim: u32, image: O
     let pose = move |t: f32| -> Model {
         let bones = body.pose(&animation, t);
         let mut model = body.skinned_model(&bones, 0xf6954);
-        if let Some(a) = &attractor {
+        // (not with a mesh in the head's place, a helmet: position 128, `n3::HEAD_REPLACED`)
+        if let Some(a) = attractor.as_ref().filter(|_| !gear.iter().any(|g| g.0 == mao_net::n3::HEAD_REPLACED)) {
             model.parts.extend(body.attach(&bones, a, &head));
         }
         model.parts.extend(crate::net::wear(&db_for_gear, &mut statics.borrow_mut(), &body, &bones, &gear));

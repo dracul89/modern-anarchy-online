@@ -762,6 +762,12 @@ pub fn room_parts(grid: &Grid, room: &Room, material: &Material, pieces: &HashMa
                 });
                 remapped.push(at);
             }
+            // (the corners' order turned round: the points were put from the game's upright frame into the viewer's, which
+            // mirrors them, and the part is given in the viewer's own frame, so its faces must be wound for that frame as
+            // the floor's are. Left as they came, the walls and ceilings faced outwards: with the faces turned away no
+            // longer drawn, a room's own walls were gone from inside it and the next room showed through.)
+            let last = remapped.len() - 1;
+            remapped.swap(last - 1, last);
         }
         if !remapped.is_empty() {
             push(texture, &gathered, &remapped);

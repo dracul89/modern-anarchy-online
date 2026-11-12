@@ -281,9 +281,12 @@ pub struct Live {
 }
 
 /// Renders the model once to `out`.
-/// `MAO_CAMERA=x,y,z,distance,yaw,pitch` overrides the fitted camera.
+/// `MAO_CAMERA=x,y,z,distance,yaw,pitch` overrides the fitted camera; `MAO_CAMERA=print` says the fitted one.
 fn camera_override(camera: &mut Camera) {
     let Ok(text) = std::env::var("MAO_CAMERA") else { return };
+    if text == "print" {
+        eprintln!("camera: target {:?} distance {} yaw {} pitch {}", camera.target, camera.distance, camera.yaw, camera.pitch);
+    }
     let v: Vec<f32> = text.split(',').filter_map(|n| n.trim().parse().ok()).collect();
     if let [x, y, z, distance, yaw, pitch] = v[..] {
         *camera = Camera { target: mao_render::glam::Vec3::new(x, y, z), distance, yaw, pitch, half_height: None };

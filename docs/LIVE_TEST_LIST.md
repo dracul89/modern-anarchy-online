@@ -281,6 +281,13 @@ To try by hand:
 - A buff bot's `help`: its second tell, the list, shows as a link; the link opens the page; the page's own links send
   their tells.
 
+## Helmets, interiors, running with a rifle (2026-11-11)
+
+- A character with a helmet on: no hair through it, no second head; with glasses: the head and the glasses.
+- Taking the helmet off and putting it on again: the head comes back and goes.
+- Any interior (the Fair Trade shop, a flat, a mission): walls and ceilings there from inside, in every room.
+- Running and walking with a rifle in hand: the stride goes on without stopping; stopping and starting look right.
+
 ## Deleting a mail (2026-11-11)
 
 - A mail with its item still in it: Delete asks, then says the attachments must be taken first; the mail stays.
