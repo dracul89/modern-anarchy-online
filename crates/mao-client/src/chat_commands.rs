@@ -33,6 +33,7 @@ pub fn emote_id(name: &str) -> u32 {
 pub const IMPLEMENTED: &[(&str, &str)] = &[
     ("tell <name> <text>", "a private message; without the text, a window for talking with that character; alone, one with your target"),
     ("%t %f %m", "in a line you send: the name of your target, of the one you fight, your own (%% for a percent sign)"),
+    ("afk [text]", "away from the keyboard: tells are answered with the text; alone, a box for the text, or back when away; /afk status"),
     ("t <text>", "your team's channel"),
     ("duel", "ask the targeted player to duel; /duel accept, reject, stop or draw answer and end one"),
     ("petduel", "ask the targeted player for a duel of pets; /petduel accept, reject or stop answer and end one"),
@@ -151,6 +152,8 @@ pub enum Parsed {
     Voice { line: String },
     /// `/quit`: leave the client.
     Quit,
+    /// `/afk [text]`: away from the keyboard (`afk.rs`).
+    Afk { text: String },
     /// A line for the organization channel.
     Org { text: String },
     /// Plain speech or /say, /shout, /whisper, /me: vicinity chat.
@@ -297,6 +300,7 @@ pub fn parse(line: &str) -> Parsed {
         "open" | "items" => Parsed::Window { name: if command.eq_ignore_ascii_case("items") { "inventory".to_string() } else { text.to_string() }, open: true },
         "close" => Parsed::Window { name: text.to_string(), open: false },
         "selectself" => Parsed::SelectSelf,
+        "afk" => Parsed::Afk { text: text.to_string() },
         "setoption" | "option" => {
             let mut words = text.split_whitespace();
             Parsed::SetOption { name: words.next().unwrap_or("").to_string(), value: words.next().unwrap_or("").to_string() }
@@ -552,7 +556,9 @@ mod tests {
         assert_eq!(parse("hello world"), Parsed::Vicinity { command: "say", text: "hello world".into() });
         assert_eq!(parse("/s HEY"), Parsed::Vicinity { command: "shout", text: "HEY".into() });
         assert_eq!(parse("/help"), Parsed::Help);
-        assert_eq!(parse("/afk"), Parsed::Unsupported("afk".into()));
+        assert_eq!(parse("/aliens"), Parsed::Unsupported("aliens".into()));
+        assert_eq!(parse("/afk  back at nine "), Parsed::Afk { text: "back at nine".into() });
+        assert_eq!(parse("/AFK"), Parsed::Afk { text: String::new() });
         assert_eq!(parse("/nonsense x"), Parsed::Unknown("nonsense".into()));
         assert_eq!(parse("   "), Parsed::Empty);
     }

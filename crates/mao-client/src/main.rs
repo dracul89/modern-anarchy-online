@@ -29,6 +29,7 @@ macro_rules! profile {
 }
 
 mod actions;
+mod afk;
 mod interior;
 mod perf;
 mod crash;
@@ -1823,6 +1824,11 @@ fn run(args: &[String]) -> Result<(), String> {
                         let mut window = chatwindow::ChatWindow::default();
                         window.push(Line::new(Kind::System, "Welcome to AnarchyOnline"));
                         window.push(Line::new(Kind::Channel, "[Clan OOC] Mothra: anyone want to team?").with_markup(&format!("[Clan OOC] {}: ", chatwindow::name_link("Mothra")), "anyone want to team?").in_group("Clan OOC"));
+                        // (MAO_CHAT_AFK=<text>: away with that message, or with the box when it is empty)
+                        if let Ok(text) = std::env::var("MAO_CHAT_AFK") {
+                            window.names.own = "Tester".into();
+                            let _ = window.run(&format!("/afk {text}"));
+                        }
                         window.push(Line { kind: Kind::Tell, text: "[Scurlock]: hey, got a minute?".into(), from: Some("Scurlock".into()), markup: None, group: String::new(), at: None }.with_markup(&format!("[{}]: ", chatwindow::name_link("Scurlock")), "hey, got a minute?"));
                         // (MAO_CHAT_TELL=<name>: that character's tell window open)
                         if let Ok(name) = std::env::var("MAO_CHAT_TELL") {

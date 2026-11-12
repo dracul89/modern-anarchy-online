@@ -830,6 +830,20 @@ behind used to hide some of it. Seen from inside in pictures (`inside.py` in the
 headings, `MAO_CULL=show`): the neutral, Omni and clan basic shops have their walls whole. `rooms::describe_room`
 and the `roomcells` example say a room's cells, pieces and textures. Not seen live.
 
+**Away from the keyboard (2026-11-12, the user: "Do the afk and auto away").** `/afk` as the original's
+(`afk.rs`; what was read is in `docs/GUI_DLL_PARITY.md`, section 3). `/afk <text>`: away with that message, said
+to you and, as an emote, to those around. `/afk` alone: away with the default message and a box to change it
+within 30 seconds (Enter or Ok takes it, Escape ends being away); alone while away: back. `/afk status` says which.
+A tell that comes while away is shown with "(AFK reply sent)" and answered with the character's name, how long it
+has been away and the message; that answer is a tell marked as such (its blob's first byte is 6), which the client
+that gets it shows without a name in front and never answers. **Going away by itself:** three minutes without a key
+or button press or a movement of the mouse over the window and the character is away with "Auto-away"; with that
+setting on (`AutoAFK`, on in the game's own settings, `/setoption AutoAFK off` to change it) any input ends being
+away, also one asked for with `/afk`. That is the original's rule, not a shortcut here. The texts are the
+install's own (text.mdb), with this client's words where it has none. `MAO_AFK_IDLE=<seconds>` shortens the three
+minutes for a trial; `MAO_UI_PREVIEW=chat MAO_CHAT_AFK=<text, or empty for the box>` shows it in a picture. Tried
+live between the two test characters; the box's keys were not.
+
 **The tradeskill guide (2026-11-12, the user: "I'd like a tradeskill helper too, a guide to all the creations a
 user can craft in game").** A window of the client's own (`/crafting [text]`, `/craft`, window name `crafting`;
 `craftguide.rs` over `mao_formats::crafting`; the whole account is `docs/TRADESKILL_GUIDE.md`). **The game's files

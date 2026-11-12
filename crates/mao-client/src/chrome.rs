@@ -48,7 +48,7 @@ pub(crate) fn take_closing(name: &str) -> bool {
 }
 
 /// The message boxes' window names ([`dialog`]): none keeps a place, and Escape closes each with `esc_dialogs`.
-pub const DIALOGS: &[&str] = &["TradeDoubleConfirmDlg", "perk-dialog", "team-invite", "remove-friend", "ignore-friend", "delete-mail", "disable-tips", "delete-mission", "delete-item", "reset-skill", "rename-chat-window", "private-invite", "rename-backpack", "DuelChallenge", "error-box"];
+pub const DIALOGS: &[&str] = &["TradeDoubleConfirmDlg", "perk-dialog", "team-invite", "remove-friend", "ignore-friend", "delete-mail", "disable-tips", "delete-mission", "delete-item", "reset-skill", "rename-chat-window", "private-invite", "rename-backpack", "DuelChallenge", "error-box", "afk-message"];
 
 /// The error boxes waiting to be shown ([`alert`]).
 static ALERTS: Mutex<std::collections::VecDeque<String>> = Mutex::new(std::collections::VecDeque::new());

@@ -130,24 +130,61 @@ group's requests 3, 4 and 5, the name looked up first; not tried live, it needs 
 fight), `/perks` and `/perk` (sent to the server as `/stuck` is). `/messagebox` was tried live; the others ran
 without a fault but their lines were not read back.
 
-Listed but not carried out: `/afk` `/bank` `/born` `/cc` `/filter` `/group` `/macro` `/name` `/option`
+Listed but not carried out: `/bank` `/born` `/cc` `/filter` `/group` `/macro` `/name` `/option`
 `/played` `/reclaim` `/script` `/team` `/terminate` `/title` `/tower` `/dvalue`. (`/anon`, `/list`, `/shop` and
 `/stuck` go to the server as typed; `/raid` and `/lft` open their windows.) Their handlers, for whoever takes them
-next: `/afk` FUN_100b82a7, `/cc` FUN_100ba6f4, `/macro` FUN_100b8c82 (a GlobalSignal with the name and the command),
+next: `/cc` FUN_100ba6f4, `/macro` FUN_100b8c82 (a GlobalSignal with the name and the command),
 `/name` FUN_100baba6, `/option` and `/setoption` FUN_100b60cb, `/dvalue` FUN_100b7716, `/filter` FUN_100b933d,
 `/lft` FUN_100b6f9f, `/terminate` FUN_100b375a, `/tower` FUN_100b3863, `/reclaim` FUN_100b27c2, `/rp` FUN_100b280d. (`/fxscript` is carried out since 2026-11-11: FUN_100b70be, the line sent as the effect scripts' signal.)
 
-`/afk`, read on 2026-11-12 and not yet carried out (it is more than a command). Being away is "the away message
-is not empty" (`ChatGUIModule_c` +0x294, its length at +0x2a4 is `IsAFK` 0x1001b7c2; the time it began at +0x2b0,
-`GetAFKDuration` 0x10086309). `SetAFK` 0x10087669 notes the time when the character was not away before, and
-leaves a battle station (`N3Msg_IsBattleStation` / `N3Msg_LeaveBattle`). The handler FUN_100b82a7: `/afk status`
-says the message or that one is not away; `/afk` alone while away ends it (a line to the chat, and a line through a
-`TextMacro_t` to a chat group, FUN_10085a42); `/afk` alone while not away opens the message dialog
-(`AFKMessageDialog_c` FUN_1008307e, its view `AFKDialogView_c` FUN_100836ab) and is away with the default message
-meanwhile; `/afk <text>` is away with the text after `ExpandChatTextArgs`, or changes the message (a line with the
-old and the new). All its texts are of LDB category 0x2711 (the ids are in the disassembly, not the decompile).
-The rest of it: the answer to a tell while away (`HandlePrivateMessage` 0x10087e59), the "AutoAFK" option
-(`SlotAutoAFK` 0x100870a8, `InputConfig_t::SlotAFKTimer` 0x1001a2cb, `AFKIgnoreInput` 0x1000b835).
+`/afk` and going away by itself, carried out on 2026-11-12 (`afk.rs`, hooks in `chatwindow.rs`, `ui.rs`, `net.rs`,
+`mao_net::chat`). What the original does, and so the client:
+
+- **The state.** Being away is "the away message is not empty" (`ChatGUIModule_c` +0x294, its length at +0x2a4 is
+  `IsAFK` 0x1001b7c2; the time it began at +0x2b0, `GetAFKDuration` 0x10086309). `SetAFK` 0x10087669 notes the time
+  when the character was not away before, and leaves a battle station's queue (`N3Msg_IsBattleStation` /
+  `N3Msg_LeaveBattle`: not ported, the client has no battle stations).
+- **The command** (FUN_100b82a7; its texts are text.mdb 10001 by name, `ChatCmdFeedback_AFK_...`). `/afk status`
+  (exactly that) says the message, or that the character is not away. `/afk` alone while away ends it: a line to the
+  player and `ChatCmdFeedback_AFK_IsBack` as an emote to the vicinity (FUN_10085a42 with the kind 3, as `/me`).
+  `/afk` alone while not away is away with `ChatCmdFeedback_DefaultAFKReply` at once and opens the box. `/afk <text>`
+  is away with the text after `ExpandChatTextArgs`, or, when away already, changes the message and says the old
+  and the new.
+- **The box** (`AFKMessageDialog_c` FUN_1008307e, `AFKDialogView_c` FUN_100836ab, the answer FUN_100b6b65): the
+  body text, a count down from 30 seconds (FUN_10083496), the message in a field, one button "Ok", in the screen's
+  middle. A key in the field stops the count and blanks it (FUN_1008356e). Enter (0x18), the button and the count's
+  end take the field's text: a new one is said and set, an empty one keeps the default ("Using default AFK
+  message."), the same one says nothing. Escape (0xe) ends being away ("AFK off.", "is back" to the vicinity). While
+  the box is up, input does not count as coming back (`InputConfig_t::AFKIgnoreInput` 0x1000b835). The window's
+  title here ("AFK") is this client's: the original's window flags (0x800) were not followed to what its bar shows.
+- **Tells while away** (`HandlePrivateMessage` 0x10087e59). A tell (blob's first byte 0) from a character not
+  ignored is shown with " (AFK reply sent)" in white after it, and answered: `ChatCmdFeedback_AFKReplyText` fed the
+  character's name, the hours and the minutes away and the message, queued as a private message of kind 6.
+  FUN_10089940 sends a private message with its kind as the blob's first byte, so the answer is a tell whose blob is
+  the byte 6. A tell that comes with that byte is shown through FUN_100a681d with an empty name: nothing in front of
+  it, in the tells of the character it came from, with no reply, no tip and no head flash. So two characters who are
+  both away do not answer each other. (`mao_net::chat::Packet::Tell` now keeps the blob; `AWAY_REPLY`,
+  `away_reply_packet`; `chatwindow::Kind::AwayReply`, `Out::AwayReply`.) A tell of another kind is shown as a tell
+  here; the original shows only the kinds 0, 2 (a game master's assist and summon scripts) and 6.
+- **Going away by itself** (`InputConfig_t::AddUserInput` 0x1001b115, `SlotAFKTimer` 0x1001a2cb,
+  `ChatGUIModule_c::SlotAutoAFK` 0x100870a8). The program hands `AddUserInput` every key and button event and every
+  movement of the mouse (its FUN_00404a66 and FUN_0040383a, code 0x77); a release (flag 0x100000) is passed by. Each
+  input, unless the box is up, calls `SlotAutoAFK(false)`, and restarts a timer of 180,000,000 microseconds; the
+  timer calls `SlotAutoAFK(true)`. With a game master's level (stat 215) not 0 neither does anything. With the
+  `AutoAFK` value on (a `DistributedValue`; `true` in the game's `LoginPrefs.xml`; the option panel has no control
+  for it): `true` on a character not away sets the time and the message "Auto-away" and says
+  `ChatCmdFeedback_AFK_IsAFK` to the vicinity, with no line to the player (the text `AutoAFKOn`, "automatically set
+  AFK", is only said on the way out of a battle station); `false` on a character that is away, **however it came to
+  be**, empties the message, says `ChatCmdFeedback_AFK_AFKOff` to the player and `..._IsBack` to the vicinity. So
+  with the setting on, `/afk brb` lasts until the mouse is next moved over the window. A character in the movement
+  mode 6 (sneaking, FUN_10070a2f) says neither line to the vicinity. Here the input is egui's events of the frame (a
+  key or button going down, the pointer moved, the wheel, typed text), looked at before anything typed that frame is
+  carried out, as the original's order has it; `/setoption AutoAFK off` sets the value.
+
+Tried live on 2026-11-12 with the two test characters (`MAO_AFK_IDLE=6` for a timer of 6 seconds): the lines, the
+emotes seen by the other client, the marked tell, the reply arriving and left unanswered by a character that was
+itself away, `/afk status`, the timer and the mouse's movement ending it. Not done: the battle station's part; the
+box's count was only seen in a preview picture (`MAO_UI_PREVIEW=chat MAO_CHAT_AFK=`), its keys not pressed live.
 
 Developer and GM commands (not for players; leave out): `/anim` `/center` `/clearunique` `/clone` `/command`
 `/criterialocal` `/damagemult` `/dumphash` `/font` `/framerate` `/funcom` `/getfull` `/gethash` `/getlocal`

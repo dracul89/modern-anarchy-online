@@ -5139,10 +5139,14 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                 crate::voices::vicinity_message(&mut voices, &who, &blob);
                                 Some(Line { kind: Kind::Channel, text: format!("{who}: {}", mao_net::chat::plain(&text)), from: Some(who.clone()), markup: None, group: crate::chatgroups::VICINITY.to_string(), at: None }.with_markup(&format!("{}: ", crate::chatwindow::name_link(&who)), &text))
                             }
-                            Some(Packet::Tell { sender, text }) => {
+                            Some(Packet::Tell { sender, text, blob }) => {
                                 let raw = text;
                                 let text = mao_net::chat::plain(&raw);
                                 match names.get(&sender) {
+                                    // (the automatic answer of a character that is away, `HandlePrivateMessage`'s kind
+                                    // 6: FUN_100a681d with no name, so nothing in front of it, in that character's
+                                    // tells; it is not answered and makes no tip)
+                                    Some(who) if blob.first() == Some(&mao_net::chat::AWAY_REPLY) => Some(Line { kind: Kind::AwayReply, text, from: Some(who.clone()), markup: None, group: String::new(), at: None }.with_markup("", &raw)),
                                     Some(who) => {
                                         recent_message(&mut chat, sender, who)?;
                                         crate::tips::trigger("OnReceiveTellMessage", "");
@@ -5241,6 +5245,13 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                         chat.send(&mao_net::chat::lookup_packet(&name))?;
                                     }
                                 },
+                                // (FUN_10089940: a text over 0x400 long is dropped; the character's id is known,
+                                // their tell has just come)
+                                Out::AwayReply { name, text } => {
+                                    if let Some(&id) = ids.get(&name.to_lowercase()).filter(|_| text.len() <= 0x400) {
+                                        chat.send(&mao_net::chat::away_reply_packet(id, &text))?;
+                                    }
+                                }
                                 Out::TellWindow { name } => match ids.get(&name.to_lowercase()).and_then(|id| Some((*id, names.get(id)?.clone()))) {
                                     Some((id, known)) => {
                                         recent_message(&mut chat, id, &known)?;
@@ -7189,6 +7200,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             // (a sidestep on its own shows a polymorph's rolling or sidestepping animation)
             state.strafing.insert(own, if walk == 0 { keys.strafe.signum() } else { 0 });
             state.backing.insert(own, walk < 0);
+            // (a sneaking character does not tell the vicinity that it is away: `afk.rs`)
+            crate::afk::SNEAKING.store(state.sneaking.contains(&own), std::sync::atomic::Ordering::Relaxed);
             // (the speeds the original moves at, from the character's RunSpeed and health)
             #[allow(non_snake_case)]
             let (SPEED, BACK_SPEED) = if state.swimming.contains(&own) {

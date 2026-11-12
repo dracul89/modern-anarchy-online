@@ -53,7 +53,9 @@ pub enum Packet {
     Channel { kind: u8, id: u32, name: String, flags: u32 },
     /// A channel the character is no longer in (61: its kind and id), as the team's when the team is left.
     ChannelGone { kind: u8, id: u32 },
-    Tell { sender: u32, text: String },
+    /// A private message (30). Its blob begins with what it is (GUI.dll's `HandlePrivateMessage` 0x10087e59): 0 a
+    /// tell, [`AWAY_REPLY`] the automatic answer of a character that is away.
+    Tell { sender: u32, text: String, blob: Vec<u8> },
     Message { channel: (u8, u32), sender: u32, text: String, blob: Vec<u8> },
     /// A friend: its id, whether it is online, and the type string the client gave it (a byte 1 for a friend).
     Buddy { id: u32, online: bool, kind: String },
@@ -123,7 +125,10 @@ pub fn parse(kind: u16, data: &[u8]) -> Packet {
             60 => Packet::Channel { kind: c.u8()?, id: c.u32()?, name: c.text()?, flags: c.u32().unwrap_or(0) },
             61 => Packet::ChannelGone { kind: c.u8()?, id: c.u32()? },
             40 => Packet::Buddy { id: c.u32()?, online: c.u32()? != 0, kind: c.raw_text()? },
-            30 => Packet::Tell { sender: c.u32()?, text: c.text()? },
+            30 => {
+                let (sender, text) = (c.u32()?, c.text()?);
+                Packet::Tell { sender, text, blob: c.blob().unwrap_or_default() }
+            }
             50 => Packet::PrivateInvite { owner: c.u32()? },
             51 | 53 => Packet::PrivateEnded { owner: c.u32()? },
             55 => Packet::PrivateJoined { owner: c.u32()?, character: c.u32()? },
@@ -215,11 +220,27 @@ pub fn buddy_remove_packet(id: u32) -> Vec<u8> {
     framed(41, id.to_be_bytes().to_vec())
 }
 
-/// A tell to the character with this id.
+/// The first byte of the blob of a tell that is the automatic answer of a character away from the keyboard (GUI.dll's
+/// `HandlePrivateMessage` 0x10087e59 queues it with the kind 6, and FUN_10089940 sends the kind as the blob's first
+/// byte): the client that gets it shows it with no name in front and does not answer it.
+pub const AWAY_REPLY: u8 = 6;
+
+/// A tell to the character with this id. Its blob is one byte, 0: what the tell is (FUN_10089940 puts the queued
+/// message's kind there, and a voice line's record after it when there is one). The original shows only tells whose
+/// blob begins with 0, 2 or 6 (`HandlePrivateMessage`).
 pub fn tell_packet(target: u32, text: &str) -> Vec<u8> {
+    tell_of_kind(target, text, 0)
+}
+
+/// The automatic answer to a tell that came while away ([`AWAY_REPLY`]).
+pub fn away_reply_packet(target: u32, text: &str) -> Vec<u8> {
+    tell_of_kind(target, text, AWAY_REPLY)
+}
+
+fn tell_of_kind(target: u32, text: &str, kind: u8) -> Vec<u8> {
     let mut payload = target.to_be_bytes().to_vec();
     str16(&mut payload, text);
-    str16(&mut payload, " ");
+    payload.extend_from_slice(&[0, 1, kind]);
     framed(30, payload)
 }
 
@@ -456,11 +477,13 @@ mod tests {
         let tell = tell_packet(0x630193db, "hi");
         assert_eq!(&tell[..4], &hex("001e000b")[..]);
         assert_eq!(&tell[4..8], &hex("630193db")[..]);
-        assert_eq!(&tell[8..12], &hex("00026869")[..]);
+        assert_eq!(&tell[8..], &hex("00026869000100")[..]);
+        assert_eq!(&away_reply_packet(0x630193db, "hi")[8..], &hex("00026869000106")[..]);
         let line = channel_packet(0x87, 0x028f0211, "yo");
         assert_eq!(&line[..4], &hex("0041000c")[..]);
         assert_eq!(&line[4..9], &hex("87028f0211")[..]);
-        assert_eq!(parse(30, &hex("630193db0002686900010000")), Packet::Tell { sender: 0x630193db, text: "hi".into() });
+        assert_eq!(parse(30, &hex("630193db0002686900010000")), Packet::Tell { sender: 0x630193db, text: "hi".into(), blob: vec![0] });
+        assert_eq!(parse(30, &hex("630193db00026869000106")), Packet::Tell { sender: 0x630193db, text: "hi".into(), blob: vec![AWAY_REPLY] });
         assert_eq!(parse(21, &hex("000003e900034162 63".replace(' ', "").as_str())), Packet::Name { id: 1001, name: "Abc".into() });
     }
 

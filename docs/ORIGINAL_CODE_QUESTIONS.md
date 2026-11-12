@@ -111,3 +111,14 @@ blank.
 The port keeps the empty title (its internal name is the client's own "Research"). Decide: keep the blank title bar, or
 title it "Research" (text.mdb has the control center's "Research" label).
 
+## 11. The away reply's "hour" and "minute" look at the wrong numbers
+
+`HandlePrivateMessage` (0x10087e59) feeds `ChatCmdFeedback_AFKReplyText` four things in this order: the character's name,
+the hours away, the minutes away, the away message. The text of this install numbers its two choices `#3{1:hour | hours}`
+and `#4{1:minute | minutes}`. A choice's number names the argument that decides it, so "hour" or "hours" is chosen by the
+third argument, the minutes, and "minute" or "minutes" by the fourth, the message (a text, so always "minutes"): one hour
+and five minutes reads "1 hours and 5 minutes", five hours and one minute "5 hour and 1 minutes". They look one too high
+(`#2` and `#3` were meant).
+
+The port feeds the same four in the same order through the same formatting, so it says what the original says. Decide:
+keep it, or count the choices from the right arguments when the text has this shape.

@@ -281,6 +281,26 @@ To try by hand:
 - A buff bot's `help`: its second tell, the list, shows as a link; the link opens the page; the page's own links send
   their tells.
 
+## Away from the keyboard (2026-11-12)
+
+Seen in a scripted run with two characters (the chat log of both): the lines of `/afk <text>`, `/afk status` and
+`/afk`, "is afk" and "is back" in the other's vicinity chat, a tell marked "(AFK reply sent)", the reply in the
+sender's chat, no reply to a reply, going away after the (shortened) time without input, coming back when the
+mouse moved. Left for a person:
+
+- `/afk` alone: the box in the middle of the screen with the count running down from 30; typing stops the count;
+  Enter or Ok takes the text ("Changed AFK message from ... to ..."); with the field emptied, "Using default AFK
+  message."; Escape, "AFK off.". Left alone for 30 seconds it goes with the default message.
+- While the box is up, moving the mouse does not end being away.
+- With `AutoAFK` on (the default): `/afk brb`, hands off the mouse and keyboard, have someone send a tell (the
+  reply names the hours and minutes); touch the mouse: "AFK off.".
+- `/setoption AutoAFK off`, `/afk brb`, move about: still away until `/afk`; and three minutes of nothing does not
+  set "Auto-away".
+- Three minutes without touching anything (the real time, not the trial's): "is afk" for those around, and a tell
+  is answered with "Auto-away".
+- An away reply from someone using the original client: shown in their tell window without their name in front.
+- A tell window open with the character: the marked tell and the reply both show in it.
+
 ## The tradeskill guide (2026-11-12)
 
 - `/crafting nano crystal`: after about two seconds the list, the book on creating nano crystals first; its page

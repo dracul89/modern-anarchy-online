@@ -29,7 +29,7 @@ pub fn stamp(seconds: u64) -> (String, String) {
 fn label(kind: Kind) -> &'static str {
     match kind {
         Kind::System => "system",
-        Kind::Tell => "tell",
+        Kind::Tell | Kind::AwayReply => "tell",
         Kind::Channel => "channel",
         Kind::Own => "you",
         Kind::Combat => "combat",

@@ -996,6 +996,12 @@ impl Ui {
         let layout_started = std::time::Instant::now();
         let output = self.ctx.run_ui(raw, |ui| {
             let ctx = ui.ctx().clone();
+            // (away from the keyboard, `afk.rs`: the frame's input is looked at before anything typed or clicked is
+            // carried out. The `AutoAFK` setting is on in the game's own settings; a game master, stat 215, does not
+            // go away by itself)
+            let auto_afk = control_center.as_ref().and_then(|cc| cc.store.get("AutoAFK")).is_none_or(|v| v.as_bool());
+            let game_master = hud.stats.get(&215).is_some_and(|v| *v != 0);
+            chat_window.away_input(&ctx, auto_afk, game_master);
             let hud_started = std::time::Instant::now();
             hud_layer(&ctx, hud, project, fps, settings.mode, palette);
             crate::prof::lap("ui-hud", hud_started);
@@ -1067,6 +1073,7 @@ impl Ui {
             if let Some(out) = chat_window.show(&ctx, palette) {
                 requests.chat.push(out);
             }
+            chat_window.away_frame(&ctx, palette, auto_afk, game_master);
             requests.chat.extend(chat_window.outs.drain(..));
             for url in chat_window.links.drain(..) {
                 info_view.show_url(&url);
@@ -1605,6 +1612,7 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
             }
             if let Some(window) = preview_chat.as_mut() {
                 window.show(&ctx, &palette);
+                window.away_frame(&ctx, &palette, false, false);
             }
             if let Some(window) = preview_ncu.as_mut() {
                 for target in window.target_preview.iter_mut().flatten() {

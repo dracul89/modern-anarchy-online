@@ -28,6 +28,9 @@ pub enum Kind {
     Own,
     /// Fighting: damage, healing and the actions performed.
     Combat,
+    /// The automatic answer of a character that is away to a tell sent to it: shown with the tells, with no name in
+    /// front, and never answered (`afk.rs`).
+    AwayReply,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -65,7 +68,7 @@ impl Line {
     pub fn group(&self) -> &str {
         match self.kind {
             _ if !self.group.is_empty() => &self.group,
-            Kind::Tell | Kind::Own => chatgroups::TELLS,
+            Kind::Tell | Kind::Own | Kind::AwayReply => chatgroups::TELLS,
             _ => chatgroups::SYSTEM,
         }
     }
@@ -93,7 +96,7 @@ fn linked_name(link: &str) -> Option<&str> {
 /// a chat window the lines of the groups selected in it.
 fn line_shows(line: &Line, pane: Option<&Pane>, only: Option<&str>) -> bool {
     match only {
-        Some(name) => matches!(line.kind, Kind::Tell | Kind::Own) && line.from.as_deref().is_some_and(|f| f.eq_ignore_ascii_case(name)),
+        Some(name) => matches!(line.kind, Kind::Tell | Kind::Own | Kind::AwayReply) && line.from.as_deref().is_some_and(|f| f.eq_ignore_ascii_case(name)),
         None => pane.is_none_or(|p| p.selected.contains(line.group())),
     }
 }
@@ -102,6 +105,8 @@ fn line_shows(line: &Line, pane: Option<&Pane>, only: Option<&str>) -> bool {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Out {
     Tell { name: String, text: String },
+    /// The automatic answer to a tell that came while away (`afk.rs`), to the character who sent it.
+    AwayReply { name: String, text: String },
     /// Open the tell window for a character, once the chat server knows the name (it comes back through
     /// `chatgroups::open_tell`).
     TellWindow { name: String },
@@ -253,11 +258,13 @@ pub struct ChatWindow {
     pub links: Vec<String>,
     /// The tip `/tipoftheday` showed last (the original's `CurrentTipOfTheDay`), 0 before the first.
     tip_of_the_day: i32,
+    /// Away from the keyboard (`/afk`, `afk.rs`).
+    pub away: crate::afk::Away,
 }
 
 impl Default for ChatWindow {
     fn default() -> Self {
-        ChatWindow { open: true, log: false, lines: Vec::new(), panes: chatgroups::defaults(), loaded_for: None, tab: 0, shown: Default::default(), menu_pane: 0, inputs: Default::default(), focus_frame: None, born: Vec::new(), fade_times: (8.0, 0.3), menu: None, popup: None, config: Default::default(), invite_action: 1, warn_unshown: true, invites: Vec::new(), outs: Vec::new(), demo: None, names: Default::default(), tells: Vec::new(), telling: None, menu_name: Default::default(), raise: None, focus_tries: 0, demo_name: None, input: String::new(), selected: 0, focus_next: false, last_tell: None, scroll_to_end: true, keep_list: false, ignored: load_ignored(), history: Vec::new(), recalled: None, links: Vec::new(), tip_of_the_day: 0 }
+        ChatWindow { open: true, log: false, lines: Vec::new(), panes: chatgroups::defaults(), loaded_for: None, tab: 0, shown: Default::default(), menu_pane: 0, inputs: Default::default(), focus_frame: None, born: Vec::new(), fade_times: (8.0, 0.3), menu: None, popup: None, config: Default::default(), invite_action: 1, warn_unshown: true, invites: Vec::new(), outs: Vec::new(), demo: None, names: Default::default(), tells: Vec::new(), telling: None, menu_name: Default::default(), raise: None, focus_tries: 0, demo_name: None, input: String::new(), selected: 0, focus_next: false, last_tell: None, scroll_to_end: true, keep_list: false, ignored: load_ignored(), history: Vec::new(), recalled: None, links: Vec::new(), tip_of_the_day: 0, away: Default::default() }
     }
 }
 
@@ -310,7 +317,7 @@ fn draw_lines(ui: &mut egui::Ui, palette: &Palette, lines: &[Line], born: &[std:
             let color = match line.kind {
                 // (the original's TextColors.xml names when the theme has them)
                 Kind::System => text("ct_cmd_feedback", (255, 220, 90)),
-                Kind::Tell => text("ct_itell", (120, 220, 255)),
+                Kind::Tell | Kind::AwayReply => text("ct_itell", (120, 220, 255)),
                 // (a channel's lines in its group's colour, FUN_1008582a)
                 Kind::Channel => text(chatgroups::colour_name(line.group()), (200, 235, 235)),
                 Kind::Own => text("ct_otell", (160, 200, 160)),
@@ -634,6 +641,18 @@ impl ChatWindow {
         if line.at.is_none() {
             line.at = time::OffsetDateTime::now_local().ok().map(|t| (t.hour(), t.minute()));
         }
+        // (a tell that comes while away is marked so and answered: `HandlePrivateMessage`)
+        if line.kind == Kind::Tell
+            && let Some(from) = line.from.clone()
+            && !from.eq_ignore_ascii_case(&self.names.own)
+            && let Some(reply) = self.away.reply(&self.names.own, std::time::Instant::now())
+        {
+            line.text.push_str(" (AFK reply sent)");
+            if let Some(markup) = &mut line.markup {
+                markup.push_str(" <font color=white>(AFK reply sent)</font>");
+            }
+            self.outs.push(Out::AwayReply { name: from, text: reply });
+        }
         let group = line.group().to_string();
         self.meet(&group);
         if self.log {
@@ -653,6 +672,92 @@ impl ChatWindow {
             self.born.drain(..self.born.len() - self.lines.len());
         }
         self.scroll_to_end = true;
+    }
+
+    /// What a step of being away asks for (`afk::Did`): its lines in the player's chat, and its emote to the vicinity.
+    fn away_did(&mut self, did: crate::afk::Did) -> Option<Out> {
+        for line in &did.lines {
+            self.tell(line);
+        }
+        did.emote.map(|text| Out::Vicinity { kind: 3, text })
+    }
+
+    /// Each frame before the windows are drawn, so before a line typed this frame is carried out (the original looks
+    /// at the input first, `InputConfig_t::AddUserInput`, and `/afk` typed is not undone by its own Enter): input
+    /// brings the character back and restarts the timer of going away by itself. `auto` is the `AutoAFK` setting;
+    /// `game_master` leaves the character out (`SlotAutoAFK`).
+    pub fn away_input(&mut self, ctx: &egui::Context, auto: bool, game_master: bool) {
+        // (a key or button going down, the mouse moved; a release is not input: FUN_00404a66 marks it and
+        // `AddUserInput` passes it by)
+        let input = ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Key { pressed: true, .. } | egui::Event::PointerButton { pressed: true, .. } | egui::Event::PointerMoved(_) | egui::Event::MouseMoved(_) | egui::Event::MouseWheel { .. } | egui::Event::Text(_))));
+        if input {
+            let sneaking = crate::afk::SNEAKING.load(std::sync::atomic::Ordering::Relaxed);
+            let did = self.away.input(auto, game_master, sneaking, std::time::Instant::now());
+            let out = self.away_did(did);
+            self.outs.extend(out);
+        }
+    }
+
+    /// Each frame after the windows, whether the chat window is open or not: the timer of going away by itself and
+    /// the box's count are looked at, and the box of `/afk` is drawn (over the chat's windows).
+    pub fn away_frame(&mut self, ctx: &egui::Context, palette: &Palette, auto: bool, game_master: bool) {
+        let now = std::time::Instant::now();
+        let sneaking = crate::afk::SNEAKING.load(std::sync::atomic::Ordering::Relaxed);
+        let did = self.away.tick(auto, game_master, sneaking, crate::afk::idle(), now);
+        let out = self.away_did(did);
+        self.outs.extend(out);
+        // The box (`AFKMessageDialog_c`): its text, the count down, the message in a field and one button, in the
+        // screen's middle (`MoveToCenter`).
+        let Some(dialog) = self.away.dialog.as_mut() else { return };
+        let mut open = true;
+        let mut answer = None;
+        let count = dialog.count(now);
+        let mut typed = false;
+        // (`MoveToCenter` when it comes up; on its first frames, as the very first frames' screen is not the window's)
+        let fresh = dialog.shown < 3;
+        dialog.shown = dialog.shown.saturating_add(1);
+        let middle = ctx.content_rect().center();
+        let body = dialog.body.trim_end().replace("\r\n", "<br>").replace('\n', "<br>");
+        let place = |w: egui::Window<'static>| {
+            let w = w.resizable(false).pivot(egui::Align2::CENTER_CENTER);
+            if fresh { w.current_pos(middle) } else { w }
+        };
+        crate::chrome::window(ctx, palette, "afk-message", "AFK", &mut open, place, |ui| {
+            let font = crate::gui::font::FontId::NORMAL;
+            let width = 260.0;
+            ui.set_width(width);
+            crate::gui::controls::markup(ui, palette, &body, font, crate::chrome::rgb(palette.text));
+            ui.add_space(3.0);
+            // (the count is a line of its own, empty once a key stopped it)
+            crate::gui::controls::markup(ui, palette, &count.map(|c| c.to_string()).unwrap_or_else(|| " ".to_string()), font, crate::chrome::rgb(palette.text));
+            let field = crate::chrome::text_edit(ui, palette, egui::TextEdit::singleline(&mut dialog.message).desired_width(width - 12.0));
+            crate::chrome::focus_when_new(ctx, "afk-message", &field);
+            typed = field.changed();
+            if field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                answer = Some(true);
+            }
+            ui.add_space(4.0);
+            ui.vertical_centered(|ui| {
+                if crate::chrome::button(ui, palette, "Ok", true).clicked() {
+                    answer = Some(true);
+                }
+            });
+        });
+        if typed {
+            dialog.counting = false;
+        }
+        // (closed without the button, with Escape: no longer away)
+        if !open && answer.is_none() {
+            answer = Some(false);
+        }
+        if let Some(accepted) = answer {
+            let typed = dialog.message.clone();
+            let did = self.away.answer(accepted, &typed, now);
+            let out = self.away_did(did);
+            self.outs.extend(out);
+        }
+        // (the count is redrawn as it goes)
+        ctx.request_repaint_after(std::time::Duration::from_millis(250));
     }
 
     /// Whether what a character says is hidden (`/ignore`).
@@ -919,6 +1024,12 @@ impl ChatWindow {
                 self.tip_of_the_day = if previous { (self.tip_of_the_day - 1).max(0) } else { self.tip_of_the_day + 1 };
                 self.links.push(format!("file://TipOfTheDay.html?section={}", self.tip_of_the_day));
                 None
+            }
+            // (`/afk`: FUN_100b82a7)
+            Parsed::Afk { text } => {
+                let names = self.names.clone();
+                let did = self.away.command(&text, &|t| chat_commands::expand(t, &names), std::time::Instant::now());
+                self.away_did(did)
             }
             // (`/messagebox`: a `DialogBox_c` with the text and OK, put in the screen's middle)
             Parsed::MessageBox { text } => {
@@ -1479,11 +1590,47 @@ mod tests {
     }
 
     #[test]
+    fn a_tell_that_comes_while_away_is_marked_and_answered() {
+        let mut w = ChatWindow::default();
+        w.names.own = "Tester".into();
+        let tell = |from: &str| Line { kind: Kind::Tell, text: format!("[{from}]: hi"), from: Some(from.into()), markup: None, group: String::new(), at: None }.with_markup(&format!("[{}]: ", name_link(from)), "hi");
+        // (not away: shown as it is)
+        w.push(tell("Zed"));
+        assert_eq!((w.lines.last().unwrap().text.as_str(), w.outs.len()), ("[Zed]: hi", 0));
+        // (`/afk <text>`: a line to oneself and an emote to the vicinity)
+        assert_eq!(w.run("/afk back at nine"), Some(Out::Vicinity { kind: 3, text: crate::afk::text("ChatCmdFeedback_AFK_IsAFK") }));
+        assert!(w.away.is_away() && w.away.dialog.is_none());
+        w.push(tell("Zed"));
+        let shown = w.lines.last().unwrap();
+        assert_eq!(shown.text, "[Zed]: hi (AFK reply sent)");
+        assert!(shown.markup.as_ref().unwrap().ends_with("hi <font color=white>(AFK reply sent)</font>"));
+        let [Out::AwayReply { name, text }] = &w.outs[..] else { panic!("{:?}", w.outs) };
+        assert_eq!(name, "Zed");
+        assert!(text.contains("Tester") && text.contains("back at nine"), "{text}");
+        w.outs.clear();
+        // (an automatic answer that comes is shown in its character's tell window and not answered; nor is what an
+        // ignored character sends)
+        w.push(Line { kind: Kind::AwayReply, text: "Zed is away".into(), from: Some("Zed".into()), markup: None, group: String::new(), at: None });
+        assert!(line_shows(w.lines.last().unwrap(), None, Some("zed")) && w.outs.is_empty());
+        w.toggle_ignore("Abc");
+        w.push(tell("Abc"));
+        assert!(w.outs.is_empty());
+        // (`/afk` alone while away: back)
+        assert_eq!(w.run("/afk"), Some(Out::Vicinity { kind: 3, text: crate::afk::text("ChatCmdFeedback_AFK_IsBack") }));
+        assert!(!w.away.is_away());
+        w.push(tell("Zed"));
+        assert!(w.outs.is_empty());
+        // (`/afk` alone while not away: away with the default message, and the box to change it)
+        assert!(w.run("/afk").is_some());
+        assert!(w.away.is_away() && w.away.dialog.is_some());
+    }
+
+    #[test]
     fn local_commands_only_add_lines() {
         let mut w = ChatWindow::default();
         assert_eq!(w.run("/help"), None);
         assert!(w.lines.len() >= 6);
-        assert_eq!(w.run("/afk"), None);
+        assert_eq!(w.run("/aliens"), None);
         assert!(w.lines.last().unwrap().text.contains("not carried out"));
         assert_eq!(w.run("/me waves"), Some(Out::Vicinity { kind: 3, text: "waves".into() }));
         assert_eq!(w.run("/wave"), Some(Out::Social { id: 62 }));
