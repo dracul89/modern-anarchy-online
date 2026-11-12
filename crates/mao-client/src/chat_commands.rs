@@ -363,7 +363,8 @@ pub fn parse(line: &str) -> Parsed {
         },
         // (`/played`, `/bank`, `/born`, `/team` and most of `/tower` are handed by GUI.dll to Gamecode's own text
         // commands, `N3Msg_TextCommand` 0x10017743 and its FUN_1003fe10, which this client has not: they are not the
-        // server commands `/stuck` is, and the server refuses them sent that way. `/played` says its own line.)
+        // server commands `/stuck` is, and the server refuses them sent that way. `/played` says its own line.
+        // Marked for a live trial when they are put back: docs/LIVE_TEST_LIST.md, "Commands taken out on 2026-11-12".)
         "played" => Parsed::Played,
         "char&viewdist" => {
             let mut numbers = text.split_whitespace().map(|t| t.parse::<u32>().ok());

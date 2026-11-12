@@ -299,6 +299,26 @@ script"; `/aou_about` (a script file of the original's folder) ran without a wor
 - `/start https://www.anarchy-online.com`: the system's browser opens it.
 - `/char&viewdist 100 800`.
 
+## Commands taken out on 2026-11-12: to try live once they are carried out
+
+These were written to go to the server as `/stuck` does, tried once (`/played`), refused by the server ("You are not
+authorized to perform that command. (Your request has been logged)") and taken out again the same day. They answer
+"not carried out by this client yet" until Gamecode's text commands are ported (`N3Msg_TextCommand` 0x10017743, its
+FUN_1003fe10; `docs/GUI_DLL_PARITY.md`, section 3). **Each is to be tried live when it is put back, on a test
+character first, and not before its handler is read down to the message it sends:**
+
+- [ ] `/played`: after its time and date line, the server's answer with the time played.
+- [ ] `/bank`: what the server answers away from a bank terminal, and at one.
+- [ ] `/born`: the server's answer.
+- [ ] `/team` with nothing after it, alone and in a team.
+- [ ] `/tower <word>` with no tower selected (sent on as a text command); `/tower create` and `/tower terminate` with
+  a tower selected, and `/terminate` with its yes/no box, belong to Notum Wars and need a tower site to try at.
+
+Also not carried out, and to be tried live when they are (none was ever sent): `/cc info <name>` and `/cc addbuddy
+<name>` (the original's `Befriend` script file is such a line), `/rp` (seen by another character: the role-playing
+mark), `/reclaim` (its window, at a reclaim terminal), `/gfx <n> on|off`. `/name <new name>` asks the server to
+rename the character: not to be tried on a character that is to keep its name.
+
 ## Away from the keyboard (2026-11-12)
 
 Seen in a scripted run with two characters (the chat log of both): the lines of `/afk <text>`, `/afk status` and
