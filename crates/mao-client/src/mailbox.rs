@@ -88,11 +88,13 @@ pub struct MailWindow {
     list: Option<crate::gui::view::Id>,
     shown: Option<(Vec<Entry>, Option<usize>)>,
     deleting: Option<u32>,
+    /// Lines for the chat window: what the game says of a mail (a delete it refuses).
+    pub said: Vec<String>,
 }
 
 impl Default for MailWindow {
     fn default() -> MailWindow {
-        MailWindow { open: false, count: None, entries: Vec::new(), selected: None, opened: None, status: String::new(), message: Default::default(), window: None, list: None, shown: None, deleting: None }
+        MailWindow { open: false, count: None, entries: Vec::new(), selected: None, opened: None, status: String::new(), message: Default::default(), window: None, list: None, shown: None, said: Vec::new(), deleting: None }
     }
 }
 
@@ -113,6 +115,31 @@ impl MailWindow {
             self.opened = None;
         }
         self.entries = entries;
+    }
+
+    /// A mail's delete, the question answered yes (FUN_101096f1, which the inbox's Delete and the message window's both
+    /// come to): a mail with an item that was not taken is not deleted, and the game says why
+    /// (`Feedback_MailDeleteAttachments`; the server would not delete it either, and says nothing). Else the server is
+    /// told, the row goes at once and the message window showing that mail closes.
+    fn delete(&mut self, id: u32) -> Option<MailCommand> {
+        let flags = self.entries.iter().find(|e| e.id == id).map(|e| e.flags).or_else(|| self.opened.as_ref().filter(|o| o.mail.id == id).map(|o| o.mail.flags)).unwrap_or(0);
+        if !deletable(flags) {
+            let text = crate::feedback::plain("Feedback_MailDeleteAttachments");
+            let text = if text.is_empty() { "Take what is attached to the message before deleting it.".to_string() } else { text };
+            self.status = text.clone();
+            self.said.push(text);
+            return None;
+        }
+        self.entries.retain(|e| e.id != id);
+        self.count = Some(self.entries.len());
+        if self.selected == Some(id) {
+            self.selected = None;
+        }
+        if self.opened.as_ref().is_some_and(|o| o.mail.id == id) {
+            self.opened = None;
+        }
+        self.message.close_mail(id);
+        Some(MailCommand::Delete(id))
     }
 
     /// A mail's flags changed (read, taken ...).
@@ -244,7 +271,7 @@ impl MailWindow {
             let question = crate::gui::xml::ldb_text("#1000:208922380");
             let answer = crate::chrome::question(ctx, palette, "delete-mail", &crate::gui::xml::ldb_text("#10000:120699445"), &question);
             if answer == Some(true) {
-                command = Some(MailCommand::Delete(m));
+                command = self.delete(m).or(command);
             }
             if answer.is_some() {
                 self.deleting = None;
@@ -255,15 +282,41 @@ impl MailWindow {
             if matches!(c, MailCommand::Send { .. }) {
                 self.status = "Sending ...".into();
             }
-            command = Some(c);
+            match c {
+                // (its Delete asks the same question first: FUN_1010686c, `ConfirmDeleteMail`)
+                MailCommand::Delete(m) => self.deleting = Some(m),
+                c => command = Some(c),
+            }
         }
         command
     }
 }
 
+/// Whether a mail with these flags is deleted when asked (FUN_101096f1): one with an item is only once the item was
+/// taken; credits alone do not hold it.
+pub fn deletable(flags: u32) -> bool {
+    flags & mao_net::mail::HAS_ITEM == 0 || flags & mao_net::mail::TAKEN != 0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_mail_with_its_item_still_in_it_is_not_deleted() {
+        use mao_net::mail::{HAS_CREDITS, HAS_ITEM, READ, TAKEN};
+        assert!(deletable(0) && deletable(READ) && deletable(HAS_CREDITS | READ));
+        assert!(!deletable(HAS_ITEM) && !deletable(HAS_ITEM | HAS_CREDITS | READ));
+        assert!(deletable(HAS_ITEM | TAKEN | READ));
+        let entry = |id: u32, flags: u32| Entry { id, sender_id: 1, sender: "Shop".into(), subject: "s".into(), sent: 0, expires: 0, flags, express: false };
+        let mut w = MailWindow::default();
+        w.set_entries(vec![entry(7, HAS_ITEM | READ), entry(8, READ)]);
+        // (the one with its item: nothing sent, the game's line said, the row stays)
+        assert_eq!((w.delete(7), w.entries.len(), w.said.len()), (None, 2, 1));
+        // (taken, it goes: the server told, the row gone at once)
+        w.set_flags(7, HAS_ITEM | READ | TAKEN);
+        assert_eq!((w.delete(7), w.delete(8), w.entries.len(), w.count), (Some(MailCommand::Delete(7)), Some(MailCommand::Delete(8)), 0, Some(0)));
+    }
 
     #[test]
     fn the_nearest_known_terminal() {

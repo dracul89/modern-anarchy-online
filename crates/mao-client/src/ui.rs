@@ -1233,6 +1233,10 @@ impl Ui {
                 if let Some(command) = mail.show(&ctx, gear, &hud.gear, palette) {
                     requests.mail = Some(command);
                 }
+                // (what the game says of a mail goes to the chat window, as its feedback lines do)
+                for line in mail.said.drain(..) {
+                    chat_window.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, line));
+                }
             }
             for url in gear.show_inspect(&ctx, &hud.inspected, &hud.stats, palette) {
                 info_view.show_url(&url);

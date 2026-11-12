@@ -281,6 +281,12 @@ To try by hand:
 - A buff bot's `help`: its second tell, the list, shows as a link; the link opens the page; the page's own links send
   their tells.
 
+## Deleting a mail (2026-11-11)
+
+- A mail with its item still in it: Delete asks, then says the attachments must be taken first; the mail stays.
+- Take All, then Delete: the question, then the row goes at once and the message window closes.
+- Delete in the message window answered No: the window stays.
+
 ## Item store, daily rewards, pending rewards (2026-11-11)
 
 Seen live: the item store's lists and tabs; a daily reward claimed and delivered; both claim requests sent.

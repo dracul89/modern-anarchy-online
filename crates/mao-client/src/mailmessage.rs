@@ -67,6 +67,13 @@ impl MessageWindow {
     }
 
     /// A received mail, by its id (its text comes from the server).
+    /// The mail it shows was deleted: the window goes (FUN_101096f1 closes the mail's message window).
+    pub fn close_mail(&mut self, id: u32) {
+        if matches!(self.mode, Mode::Read(m) if m == id) {
+            self.open = false;
+        }
+    }
+
     pub fn read(&mut self, id: u32) {
         self.open = true;
         self.mode = Mode::Read(id);
@@ -194,10 +201,10 @@ impl MessageWindow {
                         enable(&mut w.tree, root, "TakeButton", false);
                     }
                 }
+                // (the owner asks "delete?" and closes this window when the mail goes: `MailWindow::delete`)
                 "Delete" => {
                     if let Mode::Read(m) = self.mode {
                         command = Some(MailCommand::Delete(m));
-                        is_open = false;
                     }
                 }
                 "ReplyButton" => {

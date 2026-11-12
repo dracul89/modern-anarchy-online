@@ -795,6 +795,16 @@ down. Here the angle is kept as a 4:3 window has it and a wider window sees the 
 past the hall's walls to the space outside it (kept so: the user chose the full width over black bars at the sides). Seen: the launcher beside the user's picture of the original's, the
 three settings pages, PLAY into the login, the hall at 16:9 and at 32:9.
 
+**Deleting a mail (2026-11-11, the user: "deleting mail doesn't work", a shop's mail with its item still in it).**
+The original's delete (FUN_101096f1, which the inbox's Delete, FUN_101098a0, and the message window's, FUN_1010686c,
+both come to after their "delete?" question) does not delete a mail that has an item (flag 8) not yet taken (flag
+2): it says `Feedback_MailDeleteAttachments` instead. Else it sends the delete, takes the row out at once and closes
+the message window showing that mail. This client sent the delete whatever the flags; the server deletes no such
+mail and answers nothing, so nothing happened and nothing was said. Now `MailWindow::delete` does as the original:
+the game's line in the chat window and the mail window's status line, or the delete with the row gone at once. The
+message window's Delete asks the question too (it deleted without asking) and stays open on a No. By its test; a
+delete was not tried live (deleting the user's mail is outside what the unattended tests may do).
+
 **The item store's buttons, the daily rewards' claim, the pending rewards (2026-11-11, the user: "doesn't work yet",
 "the buttons don't work for the item shop").** Three things, found by tracing the pages' requests
 (`MAO_BROWSER_TRACE=<folder>`: each request said on the error output and what came back kept in the folder, the
