@@ -281,6 +281,15 @@ To try by hand:
 - A buff bot's `help`: its second tell, the list, shows as a link; the link opens the page; the page's own links send
   their tells.
 
+## Mission terminals (2026-11-12)
+
+- A team mission terminal while in no team: an error box ("You need to be in a team ..."), no mission window.
+  (Tried by script; worth one look by hand for where the box comes up and how it reads.)
+- The same terminal while in a team: the window opens, and Request Missions brings a team's missions.
+- A neutral or an Omni-Tek terminal (Borealis, Omni-1): Request Missions brings missions (the request now names
+  the terminal's own kind; before, only clan terminals could answer).
+- With fewer credits than the character's level: Request Missions says so in an error box.
+
 ## A wrong password, the loading screen after Play (2026-11-12)
 
 - A wrong password: a Browser window over the login window with the site's page ("Please try to re-enter your

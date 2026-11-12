@@ -2761,6 +2761,9 @@ impl ApplicationHandler for App {
                     if let Some(id) = requests.select_id.take() {
                         self.keys.select_id = (self.keys.select_id.0.wrapping_add(1), id);
                     }
+                    if let Some((kind, id)) = requests.use_object.take() {
+                        self.keys.pick = (self.keys.pick.0.wrapping_add(1), kind, id, true);
+                    }
                     if let Some(nano) = requests.cast_id.take() {
                         self.keys.cast = (self.keys.cast.0.wrapping_add(1), nano);
                     }

@@ -830,6 +830,28 @@ behind used to hide some of it. Seen from inside in pictures (`inside.py` in the
 headings, `MAO_CULL=show`): the neutral, Omni and clan basic shops have their walls whole. `rooms::describe_room`
 and the `roomcells` example say a room's cells, pieces and textures. Not seen live.
 
+**A team's mission terminal, and the error box (2026-11-12, the user: "Team Missions should give an error dialog that
+you're not in a team").** A mission terminal's stat 490 is the kind of mission it gives (`QuestOriginator_e`): by the
+game's data (`terminals`, a new example in mao-formats) 1 and 2 the neutral terminals' (one's own missions, a team's),
+3 and 4 Omni-Tek's, 5 and 6 the clans'; the even ones are a team's (`GameData::IsTeamOriginator`). Using a team's
+terminal while in no team, the original says text.mdb's `QuestBooth_NeedTeam` (category 102) through its message
+signal and does not use the terminal (Gamecode FUN_10086b3e). Here the same (`mission::use_refused`, the terminals'
+kinds from `mission_terminals`), in an error box: `chrome::alert` queues a text from any thread and
+`chrome::show_alerts` shows the boxes one after the other, titled text.mdb's `Error` with an OK button. That the
+original's message signal (`GlobalSignals_c` +0x184) ends in such a box is taken from its other uses (the web view's
+"has crashed and will now be restarted", the login's "Unknown error"), not read from the slot that takes it, which was
+not found. Two more things came with it. The request named kind 5 whatever the terminal, the clan terminal's of the
+capture: it now names the terminal's own kind (`MissionGenerateInfo_t`'s eighth number, `N3Msg_GenerateMissions`
+0x10016276), so a neutral or Omni-Tek terminal is asked for its own missions. And asking costs as many credits as the
+character has levels: with fewer, the Request Missions button says `NotEnoughCredits_NeedX` in an error box and asks
+nothing (GUI.dll FUN_100d09cb; `mission::request_refused`). Tried live: Ballbearing, in no team, at Old Athens' clan
+team terminal gets the box and the terminal is not used (`useobject@dac1;<number>`, a new script step for the things
+of a playfield's table). Not tried: a request at a team terminal while in a team, and at an Omni-Tek or neutral one.
+Not ported: `MustHave2FreeSlots` (fewer than two free places in the inventory, on asking and on accepting) and "No
+missions available, please try again later!" (FUN_100d0e71). A message box with no pointer on the window yet is put
+in the screen's middle every frame (it stayed outside an offline picture). `MAO_ALERT=<text>` shows an error box in
+a preview.
+
 **A wrong password, and the wait after Play (2026-11-12, the user: "I put the wrong password and got a huge login box
 not the traditional error window", "when we select a character and login for several seconds there's nothing being
 displayed this is where I expect the loading screen the most").**

@@ -233,6 +233,8 @@ pub struct Requests {
     pub cancel_nano: Option<u32>,
     /// A test script's `target@<id>`: the character to select.
     pub select_id: Option<u32>,
+    /// A thing of the playfield's table to use (its kind and number): a test script's double click.
+    pub use_object: Option<(u32, u32)>,
     /// A test script's `cast@<nano id>`: the nano program to run.
     pub cast_id: Option<u32>,
     /// A perk rank to train (true) or untrain.
@@ -291,6 +293,8 @@ pub struct Ui {
     script_invite: Option<String>,
     /// A test script's `target@<id>`: the character to select as the target.
     script_target: Option<u32>,
+    /// `useobject@<kind hex>;<number>`: a thing of the playfield's own table (a terminal) to use, as a double click on it.
+    script_object: Option<(u32, u32)>,
     /// A test script's `cast@<nano id>`: the nano program to run.
     script_cast: Option<u32>,
     /// A test script's `useitem@<place or part of a name>`: the inventory item to use; `wear@<part of a name>;<place>`:
@@ -572,7 +576,7 @@ impl Ui {
         crate::skin::configure(&ctx, crate::skin::dirs(&settings.gui_dir, &settings.theme, &settings.aou_mod));
         let state = egui_winit::State::new(ctx.clone(), egui::ViewportId::ROOT, window, Some(window.scale_factor() as f32), window.theme(), None);
         let renderer = egui_wgpu::Renderer::new(&gpu.device, format, egui_wgpu::RendererOptions::default());
-        let mut ui = Ui { ctx, state, renderer, open_seen: Vec::new(), injected: Default::default(), script_bag: None, script_invite: None, script_target: None, script_cast: None, script_use: None, script_move: None, duel_done: 0, duel_told: 0, options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), shop: Default::default(), npc_chat: Default::default(), mission_log: Default::default(), planet: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), team: Default::default(), pets: Default::default(), tradeskill: Default::default(), research: Default::default(), faction: Default::default(), raid: Default::default(), lft: Default::default(), knowledge: Default::default(), ncu: Default::default(), target_ncu: [crate::ncu::TargetNcu::new(false), crate::ncu::TargetNcu::new(true)], friends: Default::default(), programs: Default::default(), perks: Default::default(), help: Default::default(), tips: Default::default(), info: Default::default(), browser: Default::default(), market_send: Default::default(), control_center: None, option_panel: Default::default(), loot: Default::default(), bag_windows: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0, perf: Default::default() };
+        let mut ui = Ui { ctx, state, renderer, open_seen: Vec::new(), injected: Default::default(), script_bag: None, script_invite: None, script_target: None, script_object: None, script_cast: None, script_use: None, script_move: None, duel_done: 0, duel_told: 0, options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), shop: Default::default(), npc_chat: Default::default(), mission_log: Default::default(), planet: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), team: Default::default(), pets: Default::default(), tradeskill: Default::default(), research: Default::default(), faction: Default::default(), raid: Default::default(), lft: Default::default(), knowledge: Default::default(), ncu: Default::default(), target_ncu: [crate::ncu::TargetNcu::new(false), crate::ncu::TargetNcu::new(true)], friends: Default::default(), programs: Default::default(), perks: Default::default(), help: Default::default(), tips: Default::default(), info: Default::default(), browser: Default::default(), market_send: Default::default(), control_center: None, option_panel: Default::default(), loot: Default::default(), bag_windows: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0, perf: Default::default() };
         // (the windows the player left open come back open; the first time, the planet map, open in the original's default
         // layout at the top left)
         for name in crate::layout::load_open().unwrap_or_else(|| vec!["map".to_string()]) {
@@ -732,6 +736,7 @@ impl Ui {
             "usebag" => self.script_bag = Some(argument.trim().parse().unwrap_or(1)),
             "pginvite" => self.script_invite = Some(argument.trim().to_string()),
             "target" => self.script_target = argument.trim().parse().ok(),
+            "useobject" => self.script_object = argument.split_once(';').and_then(|(kind, id)| Some((u32::from_str_radix(kind.trim().trim_start_matches("0x"), 16).ok()?, id.trim().parse().ok()?))),
             "cast" => self.script_cast = argument.trim().parse().ok(),
             "useitem" => self.script_use = Some(argument.trim().to_string()),
             "wear" => self.script_move = argument.split_once(';').and_then(|(name, to)| Some((name.trim().to_string(), to.trim().parse().ok()?))),
@@ -912,6 +917,7 @@ impl Ui {
             }
         }
         requests.select_id = self.script_target.take();
+        requests.use_object = self.script_object.take();
         requests.cast_id = self.script_cast.take();
         // (an item by its place's number, or the first of the inventory whose name has the words)
         let named = |words: &str| -> Option<u32> {
@@ -1919,6 +1925,8 @@ fn hud_layer(ctx: &egui::Context, hud: &Hud, project: &dyn Fn(Vec3) -> Option<[f
     crate::nametag::draw(ctx, &painter, screen, &hud.nameplates, project, palette);
     camp_bar(ctx, screen, palette);
     timer_bars(ctx, screen);
+    // (the error boxes: `chrome::alert`)
+    crate::chrome::show_alerts(ctx, palette);
     // (the loading screen over everything while the world comes in)
     crate::loading::draw(ctx, screen);
     let frame = || egui::Frame::new().fill(egui::Color32::from_black_alpha(130)).corner_radius(4).inner_margin(6);

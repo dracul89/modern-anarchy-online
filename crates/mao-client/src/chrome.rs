@@ -48,7 +48,38 @@ pub(crate) fn take_closing(name: &str) -> bool {
 }
 
 /// The message boxes' window names ([`dialog`]): none keeps a place, and Escape closes each with `esc_dialogs`.
-pub const DIALOGS: &[&str] = &["TradeDoubleConfirmDlg", "perk-dialog", "team-invite", "remove-friend", "ignore-friend", "delete-mail", "disable-tips", "delete-mission", "delete-item", "reset-skill", "rename-chat-window", "private-invite", "rename-backpack", "DuelChallenge"];
+pub const DIALOGS: &[&str] = &["TradeDoubleConfirmDlg", "perk-dialog", "team-invite", "remove-friend", "ignore-friend", "delete-mail", "disable-tips", "delete-mission", "delete-item", "reset-skill", "rename-chat-window", "private-invite", "rename-backpack", "DuelChallenge", "error-box"];
+
+/// The error boxes waiting to be shown ([`alert`]).
+static ALERTS: Mutex<std::collections::VecDeque<String>> = Mutex::new(std::collections::VecDeque::new());
+
+/// An error box: the original's message signal (`GlobalSignals_c` +0x184, which Gamecode and GUI.dll raise with a text
+/// for a refusal that needs saying: a team's mission terminal used alone, a mail that cannot be deleted, a web view
+/// that died) and the boxes the windows make themselves with the title `Error` and an OK button (the mission
+/// terminal's `NotEnoughCredits_NeedX`, FUN_100d09cb). The boxes are shown one after the other ([`show_alerts`]); a
+/// text already waiting is not queued twice. Any thread may call it.
+pub fn alert(text: impl Into<String>) {
+    let text = text.into();
+    let mut queue = ALERTS.lock().unwrap_or_else(|e| e.into_inner());
+    if !text.trim().is_empty() && !queue.contains(&text) {
+        eprintln!("error box: {text}");
+        queue.push_back(text);
+    }
+}
+
+/// The error box at the head of the queue, until its OK is pressed or it is closed.
+pub fn show_alerts(ctx: &egui::Context, palette: &Palette) {
+    let Some(text) = ALERTS.lock().unwrap_or_else(|e| e.into_inner()).front().cloned() else { return };
+    let named = |name: &str, or: &str| crate::feedback::texts().and_then(|t| t.named(10000, name)).unwrap_or(or).to_string();
+    if dialog(ctx, palette, "error-box", &named("Error", "Error"), &text, &[&named("MsgBox_OK", "OK")]).is_some() {
+        ALERTS.lock().unwrap_or_else(|e| e.into_inner()).pop_front();
+    }
+}
+
+/// The error boxes waiting (for tests and the scripts' log).
+pub fn alerts_waiting() -> Vec<String> {
+    ALERTS.lock().unwrap_or_else(|e| e.into_inner()).iter().cloned().collect()
+}
 
 /// When each message box was last shown (the frame), to tell a new showing from the next frame of one.
 static DIALOG_SEEN: Mutex<Vec<(&'static str, u64)>> = Mutex::new(Vec::new());
@@ -93,7 +124,10 @@ pub fn dialog(ctx: &egui::Context, palette: &Palette, name: &'static str, title:
         seen.push((name, frame));
         was.is_none_or(|f| f + 1 < frame)
     };
-    let at = ctx.input(|i| i.pointer.latest_pos()).unwrap_or(ctx.content_rect().center());
+    // (without a pointer yet, the screen's middle, and there every frame: the first frames' screen is egui's placeholder,
+    // far larger than the window's, and a box put at its middle once stayed outside the picture)
+    let pointer = ctx.input(|i| i.pointer.latest_pos());
+    let at = pointer.unwrap_or(ctx.content_rect().center());
     let font = crate::gui::font::FontId::NORMAL;
     let width = dialog_width(|w| crate::gui::controls::markup_height(ctx, text, font, w));
     let mut open = true;
@@ -106,7 +140,7 @@ pub fn dialog(ctx: &egui::Context, palette: &Palette, name: &'static str, title:
         &mut open,
         |w| {
             let w = w.resizable(false).pivot(egui::Align2::CENTER_CENTER);
-            if fresh { w.current_pos(at) } else { w }
+            if fresh || pointer.is_none() { w.current_pos(at) } else { w }
         },
         |ui| {
             ui.spacing_mut().item_spacing = egui::Vec2::ZERO;

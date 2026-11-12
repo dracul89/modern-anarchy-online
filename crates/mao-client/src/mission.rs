@@ -15,8 +15,44 @@ use mao_net::schema::Value;
 use crate::gear::{GearWindow, Icon};
 use crate::theme::Palette;
 
-/// The scope the Old Athens booth used in the capture (the meaning of the values is not known).
+/// The kind of mission the Old Athens terminal of the capture gives, sent with the request: the terminal's
+/// `QuestOriginator_e` ([`ORIGINATOR_STAT`]), 5 a clan terminal's own missions. A request names its terminal's kind
+/// (`crate::mission_terminals`); this one is for a terminal whose kind is not known.
 pub const DEFAULT_SCOPE: u8 = 5;
+
+/// A mission terminal's stat with the kind of mission it gives (`QuestOriginator_e`; Gamecode FUN_10086b3e reads it of
+/// the terminal that is used).
+pub const ORIGINATOR_STAT: u32 = 490;
+
+/// `GameData::IsTeamOriginator` (Gamedata.dll 0x10002d23): the kinds that are a team's missions.
+pub fn team_originator(kind: u8) -> bool {
+    matches!(kind, 2 | 4 | 6 | 8)
+}
+
+/// What stands in the way of using a mission terminal of this kind (Gamecode FUN_10086b3e): a team's terminal used by
+/// someone who is in no team is refused with text.mdb's `QuestBooth_NeedTeam` (category 102) in an error box, and
+/// the terminal is not used.
+pub fn use_refused(kind: Option<u8>, in_team: bool) -> Option<String> {
+    (kind.is_some_and(team_originator) && !in_team).then(|| crate::feedback::texts().and_then(|t| t.named(102, "QuestBooth_NeedTeam")).unwrap_or("You must be in a team to use a team mission terminal.").to_string())
+}
+
+/// What stands in the way of asking a terminal for missions (GUI.dll FUN_100d09cb, the Request Missions button): the
+/// asking costs as many credits as the character has levels, and with fewer (stat 61 under stat 54) the window says
+/// `NotEnoughCredits_NeedX` with the number in an error box and asks nothing. (Its other refusal, fewer than two free
+/// places in the inventory, `MustHave2FreeSlots`, is not here yet.)
+pub fn request_refused(level: i64, credits: i64) -> Option<String> {
+    (credits < level).then(|| {
+        let text = crate::feedback::texts().and_then(|t| t.named(10000, "NotEnoughCredits_NeedX")).unwrap_or("You do not have enough credits: you need %d.");
+        // (`LDBformat::Feed`: the number in the text's place for it)
+        match text.find('%') {
+            Some(at) => {
+                let end = text[at + 1..].find(|c: char| c.is_ascii_alphabetic()).map_or(text.len(), |e| at + 2 + e);
+                format!("{}{level}{}", &text[..at], &text[end..])
+            }
+            None => format!("{text} {level}"),
+        }
+    })
+}
 
 /// The seven sliders: (left label, right label, largest value). The captured values (2, 20, 161, 30, 184,
 /// 28, 0) fit a difficulty of 0-7 and 0-255 for the others, which is a guess until more captures show it.
@@ -207,5 +243,28 @@ impl MissionWindow {
         });
         self.open = is_open && !close;
         command
+    }
+}
+
+#[cfg(test)]
+mod refusal_tests {
+    use super::*;
+
+    #[test]
+    fn a_teams_terminal_wants_a_team() {
+        // (the kinds: 1, 3 and 5 one's own missions, 2, 4 and 6 a team's)
+        assert_eq!([1u8, 2, 3, 4, 5, 6, 7, 8].map(team_originator), [false, true, false, true, false, true, false, true]);
+        assert!(use_refused(Some(6), false).is_some());
+        assert!(use_refused(Some(6), true).is_none());
+        assert!(use_refused(Some(5), false).is_none());
+        assert!(use_refused(None, false).is_none());
+    }
+
+    #[test]
+    fn asking_costs_a_credit_a_level() {
+        assert!(request_refused(60, 60).is_none());
+        assert!(request_refused(60, 100_000).is_none());
+        let said = request_refused(60, 59).unwrap();
+        assert!(said.contains("60"), "{said}");
     }
 }

@@ -567,6 +567,25 @@ pub(crate) fn table_dynels(db: &ResourceDatabase, playfield: u32) -> Vec<(u32, u
         .collect()
 }
 
+/// The kind of mission each of a playfield's mission terminals gives (`QuestOriginator_e`, the terminal's stat 490: its
+/// record's own or its template's), by the terminal's number in the dynel table. 1 and 2 are the neutral terminals'
+/// (one's own missions and a team's), 3 and 4 Omni-Tek's, 5 and 6 the clans' (`terminals`, an example in
+/// mao-formats, counts them over the game: Old Athens' are 5 and 6).
+pub(crate) fn mission_terminals(db: &ResourceDatabase, playfield: u32) -> std::collections::HashMap<u32, u8> {
+    let Some(object) = db.get(Id { kind: mao_formats::dynels::KIND, instance: playfield }).ok().flatten() else { return Default::default() };
+    let mut templates: std::collections::HashMap<u32, Option<u32>> = std::collections::HashMap::new();
+    mao_formats::dynels::parse(&object)
+        .into_iter()
+        .filter(|d| d.kind == 0xdac1)
+        .filter_map(|d| {
+            let kind = d.stat(mission::ORIGINATOR_STAT).or_else(|| {
+                *templates.entry(d.template).or_insert_with(|| db.get(Id { kind: mao_formats::item::TEMPLATE, instance: d.template }).ok().flatten().and_then(|data| mao_formats::item::Item::parse(&data)).and_then(|i| i.stat(mission::ORIGINATOR_STAT)))
+            })?;
+            Some((d.instance, kind as u8))
+        })
+        .collect()
+}
+
 /// The client window an item template's use opens: its use event's (0) spell 0xcf7b ("open a client window", Gamecode
 /// FUN_100a9cf4: spell stat 39 the window, stat 117 1 to open it) as GUI.dll FUN_1002e2fe takes it: 0 the market's web page,
 /// 3 the signup terminal, 4 and 5 the laser and air strike targets, 7 the mech choice, 8 the mail window.
@@ -1701,6 +1720,10 @@ fn run(args: &[String]) -> Result<(), String> {
                             *hud.loot_preview.lock().unwrap() = Some(window);
                         }
                     }
+                    // MAO_ALERT=<text> (with any preview): an error box with the text (`chrome::alert`).
+                    if let Ok(text) = std::env::var("MAO_ALERT") {
+                        chrome::alert(text);
+                    }
                     // MAO_UI_PREVIEW=loading: the loading screen (fully shown).
                     if preview.as_deref() == Some("loading") {
                         loading::begin(std::time::Duration::ZERO, loading::FADE_OUT);
@@ -2134,6 +2157,20 @@ fn main() -> ExitCode {
 mod table_tests {
     /// `MAO_GAME`: Old Athens' (540) dynel table gives its vending machines a model (their template's mesh) and lists
     /// its mission booths and mail terminals by name for the mouse.
+    #[test]
+    fn old_athens_has_terminals_for_one_and_for_a_team() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let db = mao_formats::resource::ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap();
+        let kinds = super::mission_terminals(&db, 540);
+        // (a clan city: the clans' terminals, 5 for one's own missions and 6 for a team's, as many of each)
+        let (own, team) = (kinds.values().filter(|&&k| k == 5).count(), kinds.values().filter(|&&k| k == 6).count());
+        assert!(own > 0 && own == team, "{kinds:?}");
+        assert!(kinds.values().all(|&k| k == 5 || k == 6), "{kinds:?}");
+        // (each is one of the table's mission terminals)
+        let table = super::table_dynels(&db, 540);
+        assert!(kinds.keys().all(|n| table.iter().any(|d| d.0 == 0xdac1 && d.1 == *n)));
+    }
+
     #[test]
     fn old_athens_machines_come_from_the_table() {
         let Some(game) = std::env::var_os("MAO_GAME") else { return };

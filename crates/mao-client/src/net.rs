@@ -475,6 +475,8 @@ struct World {
     /// The playfield's built-in terminals, booths and signs (`crate::table_dynels`): picked with the mouse, used and
     /// described like the others.
     table: Vec<(u32, u32, [f32; 3], u32, String)>,
+    /// The kind of mission each of the playfield's mission terminals gives, by its table number (`mission_terminals`).
+    mission_kinds: std::collections::HashMap<u32, u8>,
     /// Pages for the info view (a target's description), until taken.
     info_urls: Vec<String>,
     /// Windows to open (by `Ui::set_window` name), until taken.
@@ -4892,6 +4894,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     state.prop_anim.extend(crate::static_prop_anims(&db, playfield).into_iter().map(|(k, (play, pos))| (k, (play, pos, Instant::now()))));
     state.approach_doors = crate::approach_doors(&db, playfield);
     state.table = crate::table_dynels(&db, playfield);
+    state.mission_kinds = crate::mission_terminals(&db, playfield);
     profile!("[profile] static_props {:?}", started_props.elapsed());
     // (the collision is shared with the viewer, for the camera's lines of sight where the playfield has no surfaces)
     let (mut terrain, mut collision) = (terrain, Arc::new(collision));
@@ -5851,6 +5854,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             state.approach_doors = crate::approach_doors(&thread_db, playfield);
                             state.animated_statels = Arc::new(area.animated);
                             state.table = crate::table_dynels(&thread_db, playfield);
+                            state.mission_kinds = crate::mission_terminals(&thread_db, playfield);
                             let mut scene = area.scene;
                             if terrain.is_none() && crate::load_rooms(&thread_db, playfield).is_none() {
                                 // An interior: the floor isn't readable, so lay a plain one at the arrival height.
@@ -6570,16 +6574,28 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         .filter(|d| near(&d.2) < 40.0)
                         .or_else(|| state.table.iter().filter(|d| d.0 == 0xdac1 && near(&d.2) < 40.0).min_by(|a, b| near(&a.2).total_cmp(&near(&b.2))))
                         .map(|d| (near(&d.2), d.1));
-                    match nearest {
+                    // (what the original's button checks before it asks: the credits, FUN_100d09cb; and the terminal's
+                    // own rule again, for a window left open while the team went)
+                    let refused = crate::mission::request_refused(state.stats.get(&54).copied().unwrap_or(1), state.stats.get(&61).copied().unwrap_or(i64::MAX))
+                        .or_else(|| nearest.and_then(|(_, serial)| crate::mission::use_refused(state.mission_kinds.get(&serial).copied(), crate::team::with(|t| !t.members.is_empty()))));
+                    if let Some(text) = &refused {
+                        crate::chrome::alert(text.clone());
+                        pending_mission_status = Some(String::new());
+                    }
+                    match nearest.filter(|_| refused.is_none()) {
                         Some((_, serial)) => {
                             uses += 1;
                             let booth = state.used(0xdac1, serial);
                             send(&mut connection, movement::HEADING, heading, position, &mut sent);
                             let _ = connection.send(&n3::use_object(own, uses, booth));
-                            let scope = std::env::var("MAO_MISSION_SCOPE").ok().and_then(|v| v.parse().ok()).unwrap_or(crate::mission::DEFAULT_SCOPE);
+                            // (the request names the terminal's own kind of mission: `MissionGenerateInfo_t`'s eighth
+                            // number, which `N3Msg_GenerateMissions` 0x10016276 sends on. It was always 5, the clan
+                            // terminal's of the capture, whatever the terminal.)
+                            let scope = std::env::var("MAO_MISSION_SCOPE").ok().and_then(|v| v.parse().ok()).or_else(|| state.mission_kinds.get(&serial).copied()).unwrap_or(crate::mission::DEFAULT_SCOPE);
                             let _ = connection.send(&n3::quest_alternative(own, cmd.sliders, scope, booth));
                             mission_asked = Some(Instant::now());
                         }
+                        None if refused.is_some() => {}
                         None => pending_mission_status = Some("No mission booth in reach (walk up to one).".into()),
                     }
                 } else if cmd.what == 2 {
@@ -6740,7 +6756,12 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     send(&mut connection, movement::HEADING, heading, position, &mut sent);
                     let table_id = id;
                     let (kind, id) = state.used(state.types.get(&id).copied().unwrap_or(n3::CHARACTER), id);
-                    if kind == n3::CHARACTER && id != own && state.infos.get(&id).is_some_and(|i| !i.is_player()) {
+                    // (a team's mission terminal used by someone in no team: an error box, and the terminal is not used,
+                    // Gamecode FUN_10086b3e)
+                    let refused = (kind == 0xdac1).then(|| crate::mission::use_refused(state.mission_kinds.get(&table_id).copied(), crate::team::with(|t| !t.members.is_empty()))).flatten();
+                    if let Some(text) = &refused {
+                        crate::chrome::alert(text.clone());
+                    } else if kind == n3::CHARACTER && id != own && state.infos.get(&id).is_some_and(|i| !i.is_player()) {
                         let _ = connection.send(&n3::npc_chat_open(own, (kind, id)));
                         npc_asked = Some(((kind, id), Instant::now(), false));
                     } else if kind == n3::CHARACTER && id != own && state.infos.get(&id).is_some_and(|i| i.is_player()) && !state.fighting.contains_key(&own) {
@@ -6757,7 +6778,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         inbox_due = Some(Instant::now() + Duration::from_millis(900));
                         state.open_windows.push("mail");
                     }
-                    if kind == 0xdac1 {
+                    if kind == 0xdac1 && refused.is_none() {
                         // (by its table id, which the request finds it by)
                         mission_booth = Some(table_id);
                         state.open_windows.push("missionselection");
