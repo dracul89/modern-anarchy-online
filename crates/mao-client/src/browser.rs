@@ -203,6 +203,10 @@ pub fn page_script(language: &str) -> String {
     )
 }
 
+/// With `MAO_BROWSER_TRACE`: the page's errors, what is clicked and what it asks of the `AnarchyOnline` object that
+/// is not there, said through the page's message channel.
+const TRACE_SCRIPT: &str = "(function(){function t(s){try{window.ipc.postMessage('trace:'+s);}catch(e){}}window.addEventListener('error',function(e){t('error '+e.message+' at '+e.filename+':'+e.lineno);});document.addEventListener('click',function(e){var x=e.target;t('click <'+x.tagName+' id='+x.id+' class='+x.className+'> '+(x.outerHTML||'').slice(0,300));},true);try{window.AnarchyOnline=new Proxy(window.AnarchyOnline,{get:function(o,k){if(!(k in o)){t('AnarchyOnline.'+String(k)+' asked for');}return o[k];}});}catch(e){}var ce=console.error;console.error=function(){t('console.error '+Array.prototype.join.call(arguments,' '));return ce.apply(console,arguments);};})();";
+
 /// The page loads through this protocol: on Windows `aomarket://localhost/<path>` is served as
 /// `http://aomarket.localhost/<path>`, and every request to it is passed on to the site with the game's headers
 /// ([`forward`]): what Awesomium's header rule does for the original. (WebView2's own request hook is a COM call this
@@ -243,6 +247,25 @@ pub fn proxy_script(site: &str) -> String {
     )
 }
 
+/// An answer's body as it is meant: what came compressed (`Content-Encoding` gzip or deflate, or gzip's first two bytes
+/// whatever the header says) opened; anything else, and what does not open, as it came.
+pub fn decoded(encoding: &str, bytes: Vec<u8>) -> Vec<u8> {
+    use std::io::Read;
+    let mut out = Vec::new();
+    let opened = if encoding.contains("gzip") || bytes.starts_with(&[0x1f, 0x8b]) {
+        flate2::read::MultiGzDecoder::new(&bytes[..]).take(64 << 20).read_to_end(&mut out).is_ok()
+    } else if encoding.contains("deflate") {
+        // (zlib's wrapping as the standard has it, else the bare stream some servers send)
+        flate2::read::ZlibDecoder::new(&bytes[..]).take(64 << 20).read_to_end(&mut out).is_ok() || {
+            out.clear();
+            flate2::read::DeflateDecoder::new(&bytes[..]).take(64 << 20).read_to_end(&mut out).is_ok()
+        }
+    } else {
+        false
+    };
+    if opened && !out.is_empty() { out } else { bytes }
+}
+
 /// One request to the proxy passed on to the site with the game's headers; the answer with the site's addresses made the
 /// proxy's. Runs on its own thread (the protocol answers asynchronously).
 #[cfg(windows)]
@@ -268,8 +291,12 @@ fn forward(site: &str, game_headers: &[(String, String)], request: wry::http::Re
     for (name, value) in game_headers {
         out = out.set(name, value);
     }
+    let method = request.method().as_str().to_string();
     let body = request.into_body();
-    let answer = if body.is_empty() { out.call() } else { out.send_bytes(&body) };
+    let sent = body.len();
+    // (a POST with nothing in it still says how long it is: the daily rewards' claim is one, and a server refuses one
+    // without its length)
+    let answer = if body.is_empty() && !matches!(method.as_str(), "POST" | "PUT" | "PATCH") { out.call() } else { out.send_bytes(&body) };
     let answer = match answer {
         Ok(a) | Err(ureq::Error::Status(_, a)) => a,
         Err(e) => {
@@ -294,7 +321,25 @@ fn forward(site: &str, game_headers: &[(String, String)], request: wry::http::Re
         }
     }
     let mut bytes = Vec::new();
+    let status = answer.status();
+    let encoding = answer.header("content-encoding").unwrap_or("").to_ascii_lowercase();
     let _ = answer.into_reader().take(64 << 20).read_to_end(&mut bytes);
+    // (the answer's `Content-Encoding` is not passed on, so what came compressed is opened here: the item store's list
+    // of items comes gzipped whether asked so or not, and reached the page as it came, where no script could read it)
+    let bytes_in = bytes.len();
+    let mut bytes = decoded(&encoding, bytes);
+    if bytes.len() != bytes_in && std::env::var_os("MAO_BROWSER_TRACE").is_some() {
+        eprintln!("browser: {encoding:?} opened, {bytes_in} to {} bytes", bytes.len());
+    }
+    // (`MAO_BROWSER_TRACE=<folder>`: every request said on the error output, and what came back kept in the folder)
+    if let Some(folder) = std::env::var_os("MAO_BROWSER_TRACE") {
+        static COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let n = COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        eprintln!("browser {n}: {method} {url} -> {status} {kind} {} bytes, sent {sent} bytes", bytes.len());
+        let name: String = url.chars().map(|c| if c.is_ascii_alphanumeric() || c == '.' { c } else { '_' }).collect();
+        let _ = std::fs::create_dir_all(&folder);
+        let _ = std::fs::write(std::path::Path::new(&folder).join(format!("{n:03}-{}", &name[name.len().saturating_sub(80)..])), &bytes);
+    }
     if kind.starts_with("text/") || kind.contains("javascript") || kind.contains("json") {
         bytes = rewrite_text(site, &String::from_utf8_lossy(&bytes)).into_bytes();
     }
@@ -316,6 +361,9 @@ pub struct Page {
     hidden: bool,
     /// Pages of the site the page went to directly (a link with its full address), to load through the proxy instead.
     redirected: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    /// With `MAO_BROWSER_TRACE` and `MAO_BROWSER_EVAL=<script>`: when the page was opened, the script run on it ten
+    /// seconds later, once (a test's way to press something on the page without knowing where it is on the screen).
+    trial: Option<std::time::Instant>,
 }
 
 #[cfg(windows)]
@@ -333,6 +381,7 @@ impl Page {
             .with_bounds(rect(bounds))
             .with_initialization_script(page_script("en"))
             .with_initialization_script(proxy_script(&site))
+            .with_initialization_script(if std::env::var_os("MAO_BROWSER_TRACE").is_some() { TRACE_SCRIPT } else { "" })
             .with_asynchronous_custom_protocol(PROXY_SCHEME.into(), move |_, request, responder| {
                 let (site, headers) = (proxy_site.clone(), game_headers.clone());
                 std::thread::spawn(move || responder.respond(forward(&site, &headers, request)));
@@ -347,6 +396,9 @@ impl Page {
                 None => true,
             })
             .with_ipc_handler(move |message: wry::http::Request<String>| {
+                if let Some(line) = message.body().strip_prefix("trace:") {
+                    eprintln!("browser page: {line}");
+                }
                 if message.body() == "OpenMarketSendWindow" {
                     if let Ok(mut e) = events.lock() {
                         e.push(Event::OpenMarketSendWindow);
@@ -357,7 +409,7 @@ impl Page {
             .with_html(loading_page(request.mode, &home))
             .build_as_child(window)
             .map_err(|e| e.to_string())?;
-        Ok(Page { view, _context: context, bounds, mode: request.mode, request: request.clone(), hidden: false, redirected })
+        Ok(Page { view, _context: context, bounds, mode: request.mode, request: request.clone(), hidden: false, redirected, trial: std::env::var_os("MAO_BROWSER_TRACE").and(std::env::var_os("MAO_BROWSER_EVAL")).map(|_| std::time::Instant::now()) })
     }
 
     /// The window closed: the page hidden and the keyboard given back to the game window (a dropped or hidden page that
@@ -368,6 +420,12 @@ impl Page {
             let _ = self.view.focus_parent();
             let _ = self.view.set_visible(false);
         }
+    }
+
+    /// Whether the page is one whose window, when it goes, asks the server for what was claimed: the daily rewards'
+    /// (`~BrowserWindow_c` 0x1010fcc1, mode 4), while it shows.
+    pub fn claims_on_close(&self) -> bool {
+        !self.hidden && self.mode == Mode::DailyRewards
     }
 
     /// The window opened again for the same request: the page shown at its home page.
@@ -386,6 +444,10 @@ impl Page {
         if self.bounds != bounds {
             self.bounds = bounds;
             let _ = self.view.set_bounds(rect(bounds));
+        }
+        if self.trial.is_some_and(|t| t.elapsed().as_secs() >= 10) {
+            self.trial = None;
+            let _ = self.view.evaluate_script(&std::env::var("MAO_BROWSER_EVAL").unwrap_or_default());
         }
         let pending = self.redirected.lock().map(|mut q| std::mem::take(&mut *q)).unwrap_or_default();
         if let Some(url) = pending.last() {
@@ -445,6 +507,24 @@ mod tests {
         assert_eq!(get("X-Anarchy-Appearance"), Some("1 2 3 4"));
         assert_eq!(get("X-Platform"), Some("Native"));
         assert!(page_script("en").contains("OpenMarketSendWindow"));
+    }
+
+    #[test]
+    fn a_compressed_answer_is_opened() {
+        use std::io::Write;
+        let text = br#"{"pools":{"convenience":[1,2,3]}}"#;
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        gz.write_all(text).unwrap();
+        let gz = gz.finish().unwrap();
+        let mut z = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+        z.write_all(text).unwrap();
+        let z = z.finish().unwrap();
+        // (by its header, by its first bytes without one, deflate by its header; plain bytes and a broken stream stay)
+        assert_eq!(decoded("gzip", gz.clone()), text);
+        assert_eq!(decoded("", gz.clone()), text);
+        assert_eq!(decoded("deflate", z), text);
+        assert_eq!(decoded("", text.to_vec()), text);
+        assert_eq!(decoded("gzip", b"not compressed".to_vec()), b"not compressed");
     }
 
     #[test]

@@ -2526,7 +2526,12 @@ impl ApplicationHandler for App {
                                 ui.browser.fresh = false;
                                 match w.page.as_mut() {
                                     Some(page) if ui.browser.request.as_ref() == Some(&page.request) => page.reopen(),
-                                    _ => retired = w.page.take(),
+                                    _ => {
+                                        retired = w.page.take();
+                                        if retired.as_ref().is_some_and(|p| p.claims_on_close()) {
+                                            crate::net::request_claims(false);
+                                        }
+                                    }
                                 }
                             }
                             if w.page.is_none() {
@@ -2552,6 +2557,10 @@ impl ApplicationHandler for App {
                         }
                         None => {
                             if let Some(page) = w.page.as_mut() {
+                                // (the daily rewards' window gone: the server is asked to hand over what was claimed)
+                                if page.claims_on_close() {
+                                    crate::net::request_claims(false);
+                                }
                                 page.hide();
                             }
                         }

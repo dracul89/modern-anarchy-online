@@ -795,6 +795,30 @@ down. Here the angle is kept as a 4:3 window has it and a wider window sees the 
 past the hall's walls to the space outside it (kept so: the user chose the full width over black bars at the sides). Seen: the launcher beside the user's picture of the original's, the
 three settings pages, PLAY into the login, the hall at 16:9 and at 32:9.
 
+**The item store's buttons, the daily rewards' claim, the pending rewards (2026-11-11, the user: "doesn't work yet",
+"the buttons don't work for the item shop").** Three things, found by tracing the pages' requests
+(`MAO_BROWSER_TRACE=<folder>`: each request said on the error output and what came back kept in the folder, the
+page's errors and clicks said too; `MAO_BROWSER_EVAL=<script>` runs a script on the page ten seconds after it opens,
+a test's way to press something without a place on the screen):
+*What a site sends compressed.* The item store's lists (`/pools/`, `/items/`) come gzipped whether asked so or not.
+The proxy does not pass `Content-Encoding` on and had no way to open them, so the page got the compressed bytes
+(mangled besides, by the rewriting of the site's addresses in them), its script had no lists, and every button
+threw. `browser::decoded` opens gzip and deflate before the addresses are rewritten.
+*A POST with nothing in it.* The daily rewards' Claim is one (`/claim`), and it went out without a length. It is
+sent with a length of 0 now. The page then answers the press and marks the day.
+*The game's side of the claims.* The original asks the server to hand over what was claimed when the daily
+rewards' window goes (`~BrowserWindow_c` 0x1010fcc1, mode 4: `N3Msg_RequestClaims`, `CharacterAction` 0x107), and
+the menus' "Pending Rewards" (`checkrewards_window`, `BrowserModule_c::SlotCheckRewardsActivated` 0x1010a9e1) asks
+it to look for what is waiting (`N3Msg_RequestClaimsDBCheck`, 0x108) and puts the value back. Neither was sent.
+`n3::claims`, `net::request_claims`; the entry is in the control center's list of windows without being one. The
+original holds either request back while its lock 0x8c runs (FUN_1006414f) and says so: not ported, the server is
+asked each time.
+Seen live (2026-11-11): the item store lists its items and its tabs and a price's purchase page answer (free
+account); on a paid account the day's reward was claimed on the page (`/claim` answered with its hash, the
+description loaded), and after the request an item came into the backpack; closing the window sent 0x107 and the
+menu's value 0x108. Not seen: a purchase in the item store carried through, "Claim Items" there, customer service.
+The free account's daily rewards page is only a notice that it is for members.
+
 **A character written by its number (2026-11-11, the user: a bot's page showed `Mocham&#39;s Gift`).** The bot's
 page now arrives (the paragraph below) and showed its apostrophes as `&#39;`. The game's markup reader takes its
 characters through Utils.dll's `String::GetUCChar` (FUN_1000db51), which besides the five named entities reads a

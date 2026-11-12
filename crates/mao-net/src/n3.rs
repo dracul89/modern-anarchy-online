@@ -252,6 +252,20 @@ pub fn duel(character: u32, target: Option<u32>, what: u32, flag: u32) -> Frame 
 /// The duel's `CharacterAction` number.
 pub const DUEL: u32 = 0x106;
 
+/// `N3Msg_RequestClaims` (Gamecode 0x1001db10) and `N3Msg_RequestClaimsDBCheck` (0x1001dbd8): `CharacterAction` 0x107
+/// and 0x108, no target and no parameters (both through FUN_10072a88 as the duel's). The first asks the server to hand
+/// over what the account has claimed (GUI.dll sends it when the daily rewards' window goes, `~BrowserWindow_c`
+/// 0x1010fcc1); the second to look for what is waiting (the menu's "Pending Rewards",
+/// `BrowserModule_c::SlotCheckRewardsActivated` 0x1010a9e1). Built from the decompile: no capture has one.
+pub const REQUEST_CLAIMS: u32 = 0x107;
+pub const REQUEST_CLAIMS_CHECK: u32 = 0x108;
+
+pub fn claims(character: u32, check: bool) -> Frame {
+    let mut data = vec![0u8; 27];
+    data[1..5].copy_from_slice(&(if check { REQUEST_CLAIMS_CHECK } else { REQUEST_CLAIMS }).to_be_bytes());
+    Message { kind: 0x5e477770, identity: (CHARACTER, character), data }.frame(character)
+}
+
 /// The pet duel's `CharacterAction`s (Gamecode `N3Msg_PetDuel_Challenge` 0x1001d083, `Accept` 0x1001d124, `Refuse`
 /// 0x1001d1d7, `Stop` 0x1001d286, all through FUN_10072a88 as the duel's): a challenge is action `0xef` with the
 /// challenged character as the target; accepting and refusing are both `0xf0`, with the first parameter 1 and 0;
@@ -1001,6 +1015,16 @@ pub fn market_send(character: u32, credits: i32, items: &[(u32, u32)]) -> Frame 
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_claims_are_character_actions_without_a_target() {
+        // (the same message as a pet duel's stop, which has no target or parameters either, but for the action)
+        let (asked, check, stop) = (claims(7, false), claims(7, true), pet_duel(7, None, 3));
+        assert_eq!(asked.body.len(), stop.body.len());
+        let differing = |a: &Frame, b: &Frame| a.body.iter().zip(&b.body).filter(|(x, y)| x != y).count();
+        assert_eq!((differing(&asked, &check), differing(&asked, &stop) <= 2), (1, true));
+        assert!(asked.body.windows(4).any(|w| w == 0x107u32.to_be_bytes()) && check.body.windows(4).any(|w| w == 0x108u32.to_be_bytes()));
+    }
+
     #[test]
     fn teleports_read_as_the_captures_have_them() {
         let m = |h: &str| Message { kind: 0x43197d22, identity: (CHARACTER, 0x7b1a0021), data: (0..h.len() / 2).map(|i| u8::from_str_radix(&h[2 * i..2 * i + 2], 16).unwrap()).collect() };

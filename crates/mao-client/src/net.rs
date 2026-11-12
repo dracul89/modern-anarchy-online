@@ -774,6 +774,13 @@ fn fxs_report(line: &str, ran: &crate::fxs::Ran) -> Vec<String> {
     out
 }
 
+/// The claims asked of the server (`n3::claims`; true: the check for what is waiting), sent by the game loop.
+static CLAIM_REQUESTS: std::sync::Mutex<Vec<bool>> = std::sync::Mutex::new(Vec::new());
+
+pub fn request_claims(check: bool) {
+    CLAIM_REQUESTS.lock().unwrap_or_else(|e| e.into_inner()).push(check);
+}
+
 /// A command for the server (`n3::server_command`), sent by the game loop.
 pub fn server_command(text: String) {
     SERVER_COMMANDS.lock().unwrap_or_else(|e| e.into_inner()).push(text);
@@ -5988,6 +5995,12 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             for stat in crate::skills::take_resets() {
                 eprintln!("[{:6.1}] skill reset {stat}", clock.elapsed().as_secs_f32());
                 let _ = connection.send(&n3::reset_skill(own, stat));
+            }
+            // (the claims: asked for when the daily rewards' window goes, and by the menu's "Pending Rewards". The original
+            // holds either back while its lock 0x8c runs, FUN_1006414f, and says so; here the server is asked each time.)
+            for check in std::mem::take(&mut *CLAIM_REQUESTS.lock().unwrap_or_else(|e| e.into_inner())) {
+                eprintln!("[{:6.1}] claims asked for ({})", clock.elapsed().as_secs_f32(), if check { "the check for what is waiting" } else { "what was claimed" });
+                let _ = connection.send(&n3::claims(own, check));
             }
             for text in std::mem::take(&mut *SERVER_COMMANDS.lock().unwrap_or_else(|e| e.into_inner())) {
                 let at = target.map_or((0, 0), |t| (state.types.get(&t).copied().unwrap_or(n3::CHARACTER), t));

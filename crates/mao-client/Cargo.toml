@@ -31,6 +31,8 @@ rfd = "=0.15.4"
 # site's requests passed on with the game's headers by a plain HTTP client.
 [target.'cfg(windows)'.dependencies]
 ureq = { version = "=2.12.1", default-features = false }
+# (what a site sends compressed is opened before its addresses are rewritten)
+flate2 = "1.1.10"
 wry = { version = "=0.53.5", default-features = false, features = ["protocol"] }
 # The screenshot key's picture: the game window as it shows on the screen, its open windows and web page too.
 xcap = { version = "=0.7.1", default-features = false }

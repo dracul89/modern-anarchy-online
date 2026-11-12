@@ -805,6 +805,14 @@ impl Ui {
             self.loot.open = false;
             return true;
         }
+        // (`checkrewards_window`, the menus' "Pending Rewards": no window, the server is asked for what is waiting,
+        // `BrowserModule_c::SlotCheckRewardsActivated` 0x1010a9e1)
+        if matches!(name.as_str(), "checkrewards" | "pending rewards" | "pendingrewards") {
+            if open {
+                crate::net::request_claims(true);
+            }
+            return true;
+        }
         // (BrowserModule_c's windows: the web pages)
         let web = match name.as_str() {
             "itemshop" | "item shop" => Some(crate::browser::Mode::ItemStore),

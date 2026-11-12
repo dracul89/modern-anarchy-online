@@ -281,6 +281,16 @@ To try by hand:
 - A buff bot's `help`: its second tell, the list, shows as a link; the link opens the page; the page's own links send
   their tells.
 
+## Item store, daily rewards, pending rewards (2026-11-11)
+
+Seen live: the item store's lists and tabs; a daily reward claimed and delivered; both claim requests sent.
+
+To try by hand:
+- Daily Rewards on the main account: press the day's square, then Claim; close the window; the item arrives.
+- "Pending Rewards" in the menu with something waiting.
+- The item store: "Claim Items", and a purchase carried through (costs points: the user's call).
+- Customer Service's page.
+
 ## The wear window's squares (2026-11-11)
 
 - The wear window, each tab: the squares reach from side to side, no scroll bars; dragging an item onto a square and

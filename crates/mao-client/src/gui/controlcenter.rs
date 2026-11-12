@@ -53,6 +53,9 @@ pub const WINDOWS: &[(&str, &str)] = &[
     ("itemshop_window", "itemshop"),
     ("petition_window", "petition"),
     ("dailylogin_window", "dailyrewards"),
+    // (no window: `BrowserModule_c::SlotCheckRewardsActivated` asks the server for what is waiting and puts the value
+    // back, `Ui::set_window`)
+    ("checkrewards_window", "checkrewards"),
 ];
 
 /// A `CCMenu` view in the tree: its script's entries (loaded once the skin's folders are known) and where each was last
