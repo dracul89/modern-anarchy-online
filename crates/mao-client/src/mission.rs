@@ -38,8 +38,7 @@ pub fn use_refused(kind: Option<u8>, in_team: bool) -> Option<String> {
 
 /// What stands in the way of asking a terminal for missions (GUI.dll FUN_100d09cb, the Request Missions button): the
 /// asking costs as many credits as the character has levels, and with fewer (stat 61 under stat 54) the window says
-/// `NotEnoughCredits_NeedX` with the number in an error box and asks nothing. (Its other refusal, fewer than two free
-/// places in the inventory, `MustHave2FreeSlots`, is not here yet.)
+/// `NotEnoughCredits_NeedX` with the number in an error box and asks nothing. Its other refusal is [`slots_refused`].
 pub fn request_refused(level: i64, credits: i64) -> Option<String> {
     (credits < level).then(|| {
         let text = crate::feedback::texts().and_then(|t| t.named(10000, "NotEnoughCredits_NeedX")).unwrap_or("You do not have enough credits: you need %d.");
@@ -542,6 +541,16 @@ mod helper_tests {
     }
 }
 
+/// The inventory's places (Gamecode FUN_10047720: thirty, less what lies in the inventory from place 0x40 on).
+pub const INVENTORY_PLACES: usize = 30;
+
+/// The terminal's other refusal, on asking for missions and on accepting one (GUI.dll FUN_100d09cb, FUN_100d0c61): with
+/// fewer than two free places in the inventory (`N3Msg_GetNumberOfFreeInventorySlots`), `MustHave2FreeSlots` in an
+/// error box, and nothing is asked or accepted.
+pub fn slots_refused(carried: usize) -> Option<String> {
+    (INVENTORY_PLACES.saturating_sub(carried) < 2).then(|| crate::feedback::texts().and_then(|t| t.named(10000, "MustHave2FreeSlots")).unwrap_or("You need two free places in your inventory for a mission.").to_string())
+}
+
 #[cfg(test)]
 mod refusal_tests {
     use super::*;
@@ -554,6 +563,15 @@ mod refusal_tests {
         assert!(use_refused(Some(6), true).is_none());
         assert!(use_refused(Some(5), false).is_none());
         assert!(use_refused(None, false).is_none());
+    }
+
+    #[test]
+    fn a_mission_wants_two_free_places() {
+        assert!(slots_refused(28).is_none());
+        assert!(slots_refused(0).is_none());
+        assert!(slots_refused(29).is_some());
+        assert!(slots_refused(30).is_some());
+        assert!(slots_refused(31).is_some());
     }
 
     #[test]

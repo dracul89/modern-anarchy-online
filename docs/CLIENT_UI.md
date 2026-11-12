@@ -908,7 +908,7 @@ character has levels: with fewer, the Request Missions button says `NotEnoughCre
 nothing (GUI.dll FUN_100d09cb; `mission::request_refused`). Tried live: Ballbearing, in no team, at Old Athens' clan
 team terminal gets the box and the terminal is not used (`useobject@dac1;<number>`, a new script step for the things
 of a playfield's table). Not tried: a request at a team terminal while in a team, and at an Omni-Tek or neutral one.
-Not ported: `MustHave2FreeSlots` (fewer than two free places in the inventory, on asking and on accepting) and "No
+`MustHave2FreeSlots` (fewer than two free places of the inventory's thirty, on asking and on accepting; `mission::slots_refused`) followed the same day. Not ported then: "No
 missions available, please try again later!" (FUN_100d0e71). A message box with no pointer on the window yet is put
 in the screen's middle every frame (it stayed outside an offline picture). `MAO_ALERT=<text>` shows an error box in
 a preview.

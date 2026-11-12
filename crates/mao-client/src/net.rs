@@ -6735,7 +6735,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         .map(|d| (near(&d.2), d.1));
                     // (what the original's button checks before it asks: the credits, FUN_100d09cb; and the terminal's
                     // own rule again, for a window left open while the team went)
+                    let carried = state.worn.iter().filter(|e| e.slot >= inventory::BACKPACK_FIRST).count();
                     let refused = crate::mission::request_refused(state.stats.get(&54).copied().unwrap_or(1), state.stats.get(&61).copied().unwrap_or(i64::MAX))
+                        .or_else(|| crate::mission::slots_refused(carried))
                         .or_else(|| nearest.and_then(|(_, serial)| crate::mission::use_refused(state.mission_kinds.get(&serial).copied(), crate::team::with(|t| !t.members.is_empty()))));
                     if let Some(text) = &refused {
                         crate::chrome::alert(text.clone());
@@ -6758,8 +6760,17 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         None => pending_mission_status = Some("No mission booth in reach (walk up to one).".into()),
                     }
                 } else if cmd.what == 2 {
-                    let _ = connection.send(&n3::create_quest(own, cmd.mission));
-                    pending_mission_status = Some("Mission requested; see the mission log.".into());
+                    // (FUN_100d0c61: accepting wants the two free places too)
+                    match crate::mission::slots_refused(state.worn.iter().filter(|e| e.slot >= inventory::BACKPACK_FIRST).count()) {
+                        Some(text) => {
+                            crate::chrome::alert(text);
+                            pending_mission_status = Some(String::new());
+                        }
+                        None => {
+                            let _ = connection.send(&n3::create_quest(own, cmd.mission));
+                            pending_mission_status = Some("Mission requested; see the mission log.".into());
+                        }
+                    }
                 }
             }
             // The mailbox test: use the terminal once nothing is walking, then ask for the inbox.
