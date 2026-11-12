@@ -156,7 +156,7 @@ pub fn suggest(input: &str) -> Vec<&'static str> {
 /// The command with this name (any case), as the original writes it.
 /// Commands of this client's own, beyond the original's list: `/sit` (the X key's sit and stand).
 /// `/pet` is Gamecode's own (FUN_100542ad), not in the input line's list, but the control center's Pets menu runs it.
-pub const EXTRA: &[&str] = &["sit", "pet", "perf"];
+pub const EXTRA: &[&str] = &["sit", "pet", "perf", "damage", "dps"];
 
 /// `/pet <command>`'s words and the `PetCommand` numbers they send (Gamecode FUN_100542ad's table).
 pub const PET_COMMANDS: &[(&str, u32)] = &[
@@ -251,6 +251,8 @@ pub fn parse(line: &str) -> Parsed {
         "stuck" | "anon" | "list" | "shop" => Parsed::Server { text: rest.to_string() },
         "sit" => Parsed::Sit,
         "perf" => Parsed::Perf,
+        // (this client's own tool windows: `extras.rs`)
+        "damage" | "dps" => Parsed::Window { name: "damage".to_string(), open: true },
         "pet" => match text.split_whitespace().next().and_then(|w| PET_COMMANDS.iter().find(|c| c.0.eq_ignore_ascii_case(w))) {
             Some(&(_, command)) => Parsed::Pet { command },
             None => Parsed::Usage("/pet follow|behind|wait|guard|attack|heal|report|terminate|..."),
@@ -403,6 +405,8 @@ mod tests {
         assert_eq!(parse("/inspect"), Parsed::Inspect);
         assert_eq!(parse("/open skills"), Parsed::Window { name: "skills".into(), open: true });
         assert_eq!(parse("/raid"), Parsed::Window { name: "raid".into(), open: true });
+        assert_eq!(parse("/damage"), Parsed::Window { name: "damage".into(), open: true });
+        assert_eq!(parse("/dps"), Parsed::Window { name: "damage".into(), open: true });
         assert_eq!(parse("/lft"), Parsed::Window { name: "lft".into(), open: true });
         assert_eq!(parse("/items"), Parsed::Window { name: "inventory".into(), open: true });
         assert_eq!(parse("/close"), Parsed::Window { name: String::new(), open: false });

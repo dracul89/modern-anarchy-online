@@ -33,6 +33,8 @@ mod interior;
 mod perf;
 mod crash;
 mod factions;
+mod damage;
+mod extras;
 mod charcreate;
 mod launchwindow;
 mod hall;
@@ -1719,6 +1721,17 @@ fn run(args: &[String]) -> Result<(), String> {
                             window.open = true;
                             *hud.loot_preview.lock().unwrap() = Some(window);
                         }
+                    }
+                    // MAO_UI_PREVIEW=damage: the damage meter with a sample fight (MAO_DAMAGE_ROW=<n>: that row's sources).
+                    if preview.as_deref() == Some("damage") {
+                        damage::with(|m| *m = damage::sample());
+                        damage::set_own(1);
+                        let mut tools = extras::Extras::default();
+                        tools.damage.open = true;
+                        if let Some(row) = std::env::var("MAO_DAMAGE_ROW").ok().and_then(|v| v.parse().ok()) {
+                            tools.damage.select(row);
+                        }
+                        *hud.extras_preview.lock().unwrap() = Some(tools);
                     }
                     // MAO_ALERT=<text> (with any preview): an error box with the text (`chrome::alert`).
                     if let Ok(text) = std::env::var("MAO_ALERT") {

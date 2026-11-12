@@ -281,6 +281,17 @@ To try by hand:
 - A buff bot's `help`: its second tell, the list, shows as a link; the link opens the page; the page's own links send
   their tells.
 
+## The damage meter (2026-11-12)
+
+- `/damage` in a fight: one's own row grows with each hit; the figures a second look right against the fight's
+  length; a critical hit and a miss show in the row's tip.
+- With a pet out (an engineer's): its damage under one's own row with "Pets with their owners" ticked, and its own
+  row without.
+- In a team or beside other players: their rows, and whether what they do with nano programs is counted (a nano's
+  damage comes as a health message with the program's name).
+- A second fight after a pause: "Latest fight" changes, the first stays in the list; "All fights" adds them.
+- Copy, then paste into a chat line: the rows as text.
+
 ## Mission terminals (2026-11-12)
 
 - A team mission terminal while in no team: an error box ("You need to be in a team ..."), no mission window.

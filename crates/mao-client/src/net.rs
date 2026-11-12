@@ -1096,6 +1096,21 @@ impl World {
     }
 
     /// Who a character is in a fight line: the client's own, one it knows by name, or one it doesn't.
+    /// Someone as the damage meter counts them (`damage.rs`): by the name the client has for them; none for a stranger.
+    fn fighter(&self, id: u32) -> Option<crate::damage::Actor> {
+        match self.names.get(&id) {
+            Some((name, player)) => Some(crate::damage::Actor { id, name: name.clone(), player: *player || id == self.own }),
+            None if id == self.own => Some(crate::damage::Actor { id, name: "You".to_string(), player: true }),
+            None => None,
+        }
+    }
+
+    /// A blow, a miss or a heal for the damage meter.
+    fn metered(&self, attacker: u32, victim: u32, amount: i64, heal: bool, hit: crate::damage::Hit, source: &str) {
+        let Some(victim) = self.fighter(victim) else { return };
+        crate::damage::record(crate::damage::Event { attacker: self.fighter(attacker), victim, amount: amount.abs(), heal, hit, source: source.to_string() });
+    }
+
     fn who(&self, id: u32) -> crate::feedback::Who<'_> {
         if id == self.own {
             crate::feedback::Who::You
@@ -1489,6 +1504,7 @@ impl World {
                 self.attacks.insert((attacker, slot), (defender, 0, 0));
                 // (the line: FUN_1006b399's feedback 0x3b, with the skill its stat names, `Unknown3`)
                 let skill = p.value.get("Unknown3").and_then(mao_net::schema::Value::as_int).filter(|&s| s != 0).map(|s| crate::skills::stat_name(s as u32).to_string());
+                self.metered(attacker, defender, 0, false, crate::damage::Hit::Miss, skill.as_deref().unwrap_or("Weapon"));
                 if let Some(line) = crate::feedback::miss(self.who(defender), self.who(attacker), skill.as_deref()) {
                     self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
                 }
@@ -1690,6 +1706,9 @@ impl World {
                     *hit = (if hit.1.elapsed() < Duration::from_secs(2) { hit.0 } else { 0 } + int("Amount"), Instant::now());
                 }
                 let kind = crate::feedback::weapon_damage_type(self.weapons.get(&(m.identity.1, slot as u8)).and_then(|&t| template_stat(t, 436)));
+                if int("Amount") != 0 {
+                    self.metered(m.identity.1, target, int("Amount"), false, crate::damage::Hit::of_type(int("HitType")), "Weapon");
+                }
                 if let Some(line) = crate::feedback::attack(self.who(target), self.who(m.identity.1), int("Amount"), kind, int("HitType")) {
                     self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
                 }
@@ -1727,6 +1746,9 @@ impl World {
                 if amount > 0 {
                     let hit = self.recent_hits.entry(target).or_insert((0, Instant::now()));
                     *hit = (if hit.1.elapsed() < Duration::from_secs(2) { hit.0 } else { 0 } + amount, Instant::now());
+                }
+                if amount != 0 {
+                    self.metered(m.identity.1, target, amount, false, crate::damage::Hit::Normal, &crate::gui::criteria::stat_name(stat));
                 }
                 if let Some(line) = crate::feedback::special(self.who(target), self.who(m.identity.1), amount, &crate::gui::criteria::stat_name(stat)) {
                     self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
@@ -1873,6 +1895,9 @@ impl World {
                     if let Some(hp) = self.stats.get_mut(&27) {
                         *hp -= amount;
                     }
+                }
+                if amount != 0 {
+                    self.metered(owner, victim, amount, false, crate::damage::Hit::Normal, if m.kind == 0x1c3a4f77 { "Reflect shield" } else { "Damage shield" });
                 }
                 if let Some(line) = crate::feedback::shield(self.who(victim), self.who(owner), amount, m.kind == 0x1c3a4f77) {
                     self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
@@ -2284,6 +2309,13 @@ impl World {
                         entry.0 = hp;
                     }
                 }
+                // (the damage meter: a loss is the source's damage, by the nano program when one is named; a gain its
+                // healing; a fall, stat 0x1da, is nobody's)
+                if amount < 0 && stat != 0x1da {
+                    self.metered(source, target, amount, false, crate::damage::Hit::Normal, nano.as_deref().unwrap_or("Nano program or other"));
+                } else if amount > 0 {
+                    self.metered(if source == 0 { target } else { source }, target, amount, true, crate::damage::Hit::Normal, nano.as_deref().unwrap_or("Healing"));
+                }
                 if let Some(line) = crate::feedback::health(self.who(target), self.who(source), amount, stat, nano.as_deref()) {
                     self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
                 }
@@ -2388,6 +2420,8 @@ impl World {
             } else if !self.pets.values().any(|p| *p == pet) {
                 let slot = (1..).find(|k| !self.pets.contains_key(k)).unwrap_or(1);
                 self.pets.insert(slot, pet);
+                // (the damage meter counts a pet's damage with its owner's)
+                crate::damage::pet(pet.1, self.own, self.names.get(&self.own).map_or("You", |n| n.0.as_str()));
             }
         }
         if m.kind == TEAM_MEMBER || m.kind == TEAM_MEMBER_INFO {
@@ -4856,6 +4890,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     // (the windows start where the original client's layout for this character has them: `layout.rs`, `aoprefs.rs`;
     // known before the first frame draws a window)
     crate::layout::set_character(state.own);
+    crate::damage::set_own(state.own);
     crate::theme::set_game_dir(game);
     // The sound module (made and started once) and the game's sources, as `PlayfieldInit` (0x10016e94) asks with
     // `ActivateGameZone`.

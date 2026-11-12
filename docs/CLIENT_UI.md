@@ -830,6 +830,25 @@ behind used to hide some of it. Seen from inside in pictures (`inside.py` in the
 headings, `MAO_CULL=show`): the neutral, Omni and clan basic shops have their walls whole. `rooms::describe_room`
 and the `roomcells` example say a room's cells, pieces and textures. Not seen live.
 
+**The damage meter (2026-11-12, the user: "a parsing project that a player can use to determine damage output of
+themselves and other players (should be a new window in the gui)").** `/damage` (or `/dps`, `/open damage`) opens
+the Damage window, this client's own (`damage.rs`; the original has none, players read the chat log's combat lines
+with other programs). It is not fed by text but by the fight's messages as the client reads them: a weapon's hit
+(`AttackInfo`: critical and glancing by its hit type), a special attack's (`SpecialAttackInfo`, named by its skill), a
+miss (`MissedAttackInfo`), a loss or gain of health with its source (`HealthDamage`: a nano program's damage by the
+program's name, a heal), a damage or reflect shield's hit. The server tells these of everyone near, so other players,
+their pets and the creatures are counted with the client's own character. The events fall into fights (a fight ends
+after 12 s with nothing hit; 40 are kept); a row is a fighter: its damage, its damage a second over the fight's
+length, its share, a bar against the largest. The window shows the latest fight, any kept one or all together;
+damage done, damage taken or healing done; players only; a pet's figures with its owner's (the client's own pets:
+the owner of another's pet is not known) or apart. A row's tip says hits, misses, the largest and the average and
+the critical share; a click lists what the damage was done with. Copy puts the rows on the clipboard as lines of
+text, Reset forgets the fights. Not counted: a loss of health told only as a new health value (no source), and a
+fall. Tried live (Maotesttwo against Arete's cleaning robots): its own hits, the robots' on it, and another player's
+fight near by were all counted. Nothing is kept between runs yet, and there is no log file. `MAO_UI_PREVIEW=damage`
+(`MAO_DAMAGE_ROW=<n>`) draws the window with a sample fight; the script's `log` step prints the meter's figures.
+This client's own tool windows are kept in `extras.rs`, which the interface opens and draws by name.
+
 **A team's mission terminal, and the error box (2026-11-12, the user: "Team Missions should give an error dialog that
 you're not in a team").** A mission terminal's stat 490 is the kind of mission it gives (`QuestOriginator_e`): by the
 game's data (`terminals`, a new example in mao-formats) 1 and 2 the neutral terminals' (one's own missions, a team's),

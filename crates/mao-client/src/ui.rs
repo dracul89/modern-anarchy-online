@@ -152,6 +152,8 @@ pub struct Hud {
     /// A Stats window a headless preview shows.
     pub stats_preview: std::sync::Mutex<Option<crate::stats::StatsWindow>>,
     pub skills_preview: std::sync::Mutex<Option<crate::skills::SkillsWindow>>,
+    /// The client's own tool windows as a headless preview shows them.
+    pub extras_preview: std::sync::Mutex<Option<crate::extras::Extras>>,
     /// What the last frame drew (parts), shown beside the frame rate.
     pub draw_info: String,
     /// The renderer's figures for the performance overlay (`perf.rs`).
@@ -319,6 +321,8 @@ pub struct Ui {
     pub pets: crate::pets::PetWindow,
     pub tradeskill: crate::tradeskill::TradeskillWindow,
     pub research: crate::research::ResearchWindow,
+    /// This client's own tool windows (`extras.rs`: the damage meter, ...).
+    pub extras: crate::extras::Extras,
     /// The faction standings (`faction_window`).
     pub faction: crate::factions::FactionWindow,
     /// The raid window (`raid_window`), the looking-for-team window (`lft_window`) and the knowledge board (`knowledge_window`).
@@ -576,7 +580,7 @@ impl Ui {
         crate::skin::configure(&ctx, crate::skin::dirs(&settings.gui_dir, &settings.theme, &settings.aou_mod));
         let state = egui_winit::State::new(ctx.clone(), egui::ViewportId::ROOT, window, Some(window.scale_factor() as f32), window.theme(), None);
         let renderer = egui_wgpu::Renderer::new(&gpu.device, format, egui_wgpu::RendererOptions::default());
-        let mut ui = Ui { ctx, state, renderer, open_seen: Vec::new(), injected: Default::default(), script_bag: None, script_invite: None, script_target: None, script_object: None, script_cast: None, script_use: None, script_move: None, duel_done: 0, duel_told: 0, options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), shop: Default::default(), npc_chat: Default::default(), mission_log: Default::default(), planet: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), team: Default::default(), pets: Default::default(), tradeskill: Default::default(), research: Default::default(), faction: Default::default(), raid: Default::default(), lft: Default::default(), knowledge: Default::default(), ncu: Default::default(), target_ncu: [crate::ncu::TargetNcu::new(false), crate::ncu::TargetNcu::new(true)], friends: Default::default(), programs: Default::default(), perks: Default::default(), help: Default::default(), tips: Default::default(), info: Default::default(), browser: Default::default(), market_send: Default::default(), control_center: None, option_panel: Default::default(), loot: Default::default(), bag_windows: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0, perf: Default::default() };
+        let mut ui = Ui { ctx, state, renderer, open_seen: Vec::new(), injected: Default::default(), script_bag: None, script_invite: None, script_target: None, script_object: None, script_cast: None, script_use: None, script_move: None, duel_done: 0, duel_told: 0, options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), shop: Default::default(), npc_chat: Default::default(), mission_log: Default::default(), planet: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), team: Default::default(), pets: Default::default(), tradeskill: Default::default(), research: Default::default(), extras: Default::default(), faction: Default::default(), raid: Default::default(), lft: Default::default(), knowledge: Default::default(), ncu: Default::default(), target_ncu: [crate::ncu::TargetNcu::new(false), crate::ncu::TargetNcu::new(true)], friends: Default::default(), programs: Default::default(), perks: Default::default(), help: Default::default(), tips: Default::default(), info: Default::default(), browser: Default::default(), market_send: Default::default(), control_center: None, option_panel: Default::default(), loot: Default::default(), bag_windows: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0, perf: Default::default() };
         // (the windows the player left open come back open; the first time, the planet map, open in the original's default
         // layout at the top left)
         for name in crate::layout::load_open().unwrap_or_else(|| vec!["map".to_string()]) {
@@ -673,6 +677,9 @@ impl Ui {
 
     /// Whether the window of that name is shown (the names of [`Ui::set_window`]).
     pub fn window_open(&self, name: &str) -> bool {
+        if let Some(open) = self.extras.is_open(name) {
+            return open;
+        }
         match name {
             "inventory" => self.gear_open,
             "skills" => self.skills.open,
@@ -808,6 +815,12 @@ impl Ui {
             self.mail.open = false;
             self.automap.overlay = false;
             self.loot.open = false;
+            self.extras.close_all();
+            return true;
+        }
+        // (this client's own tool windows)
+        if let Some(flag) = self.extras.window(&name) {
+            *flag = open;
             return true;
         }
         // (`checkrewards_window`, the menus' "Pending Rewards": no window, the server is asked for what is waiting,
@@ -948,6 +961,7 @@ impl Ui {
         let tradeskill_window = &mut self.tradeskill;
         let research_window = &mut self.research;
         let faction_window = &mut self.faction;
+        let extras = &mut self.extras;
         let (raid_window, lft_window, knowledge_window) = (&mut self.raid, &mut self.lft, &mut self.knowledge);
         let (friends_window, programs_window, perks_window, loot_window, help_window) = (&mut self.friends, &mut self.programs, &mut self.perks, &mut self.loot, &mut self.help);
         let info_view = &mut self.info;
@@ -1183,6 +1197,7 @@ impl Ui {
                 requests.save = true;
             }
             faction_window.show(&ctx, &hud.stats, palette);
+            extras.show(&ctx, palette);
             raid_window.show(&ctx, palette);
             lft_window.show(&ctx, palette);
             for url in knowledge_window.show(&ctx, gear, &hud.gear, palette) {
@@ -1389,6 +1404,7 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
     let mut preview_map = hud.map_preview.lock().ok().and_then(|mut m| m.take());
     let mut preview_stats = hud.stats_preview.lock().ok().and_then(|mut m| m.take());
     let mut preview_skills = hud.skills_preview.lock().ok().and_then(|mut m| m.take());
+    let mut preview_extras = hud.extras_preview.lock().ok().and_then(|mut m| m.take());
     let mut preview_ncu = hud.ncu_preview.lock().ok().and_then(|mut m| m.take());
     let mut preview_chat = hud.chat_preview.lock().ok().and_then(|mut m| m.take());
     let mut preview_friends = hud.friends_preview.lock().ok().and_then(|mut m| m.take());
@@ -1579,6 +1595,9 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
                     target.show(&ctx, Some(&hud.nanos), &palette);
                 }
                 window.show(&ctx, &hud.nanos, &hud.stats, &palette);
+            }
+            if let Some(tools) = preview_extras.as_mut() {
+                tools.show(&ctx, &palette);
             }
             if let Some(window) = preview_skills.as_mut() {
                 window.show(&ctx, &hud.character_name, &hud.stats, &hud.stat_parts, &palette);
