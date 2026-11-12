@@ -742,6 +742,8 @@ impl Ui {
                 }
             }
             "usebag" => self.script_bag = Some(argument.trim().parse().unwrap_or(1)),
+            // (`scanbags@`: the item finder's "Look into my bags")
+            "scanbags" => crate::itemindex::ask_scan(),
             "pginvite" => self.script_invite = Some(argument.trim().to_string()),
             "target" => self.script_target = argument.trim().parse().ok(),
             "useobject" => self.script_object = argument.split_once(';').and_then(|(kind, id)| Some((u32::from_str_radix(kind.trim().trim_start_matches("0x"), 16).ok()?, id.trim().parse().ok()?))),
@@ -1207,7 +1209,9 @@ impl Ui {
                 requests.save = true;
             }
             faction_window.show(&ctx, &hud.stats, palette);
-            extras.show(&ctx, palette);
+            for url in extras.show(&ctx, palette) {
+                info_view.show_url(&url);
+            }
             raid_window.show(&ctx, palette);
             lft_window.show(&ctx, palette);
             for url in knowledge_window.show(&ctx, gear, &hud.gear, palette) {
@@ -1609,7 +1613,7 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
                 window.show(&ctx, &hud.nanos, &hud.stats, &palette);
             }
             if let Some(tools) = preview_extras.as_mut() {
-                tools.show(&ctx, &palette);
+                let _ = tools.show(&ctx, &palette);
             }
             if let Some(window) = preview_skills.as_mut() {
                 window.show(&ctx, &hud.character_name, &hud.stats, &hud.stat_parts, &palette);

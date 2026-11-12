@@ -418,6 +418,8 @@ struct World {
     /// One's own backpacks that are open (a bag of the inventory the character used), by the bag's identity, and
     /// whether any changed.
     bags: BTreeMap<(u32, u32), Loot>,
+    /// The bags looked into for the item index only (`itemindex.rs`): known, but with no window.
+    silent_bags: std::collections::BTreeSet<(u32, u32)>,
     bags_changed: bool,
     /// The last full position report (`0x16`) the server sent of one's own character (its echo of ours, or its own when it
     /// refuses a move: then it repeats the last place it took, every few seconds).
@@ -5420,6 +5422,12 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let (mut sitting, mut uses, mut fired) = (false, 0u32, 0u8);
         let mut camp_seen = 0u8;
         let (mut special_seen, mut social_seen, mut pick_seen, mut use_on_seen) = (0u8, 0u8, 0u8, 0u8);
+        // The item index (`itemindex.rs`): when the character's things were last looked at for it, and what they were.
+        let (mut index_checked, mut index_signature) = (Instant::now(), 0u64);
+        let mut index_names: std::collections::HashMap<u32, String> = std::collections::HashMap::new();
+        // (the bags still to be looked into for it, by inventory place, and when the last was used)
+        let mut index_scan: std::collections::VecDeque<(u32, (u32, u32))> = std::collections::VecDeque::new();
+        let mut index_scanned = Instant::now();
         let mut aggdef_seen = 0u8;
         let mut market_seen = 0u8;
         // (an attack sent and not yet answered: FUN_1006817d's +0x79)
@@ -6597,6 +6605,59 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 inbox_due = None;
                 let _ = connection.send(&n3::mail_request(own));
             }
+            // The item finder's "Look into my bags": each bag not seen into yet is used, half a second apart, and kept
+            // without a window (`silent_bags`).
+            if crate::itemindex::take_scan() {
+                index_scan = state.worn.iter().filter(|e| e.is_bag() && e.slot >= inventory::BACKPACK_FIRST && !state.bags.contains_key(&e.container)).map(|e| (e.slot, e.container)).collect();
+            }
+            if index_scanned.elapsed() > Duration::from_millis(500)
+                && let Some((place, identity)) = index_scan.pop_front()
+            {
+                index_scanned = Instant::now();
+                if state.worn.iter().any(|e| e.slot == place && e.container == identity) && !state.bags.contains_key(&identity) {
+                    state.silent_bags.insert(identity);
+                    uses += 1;
+                    let _ = connection.send(&n3::use_object(own, uses, (0x68, place)));
+                }
+            }
+            // The item index: what the character carries is written down when it has changed (looked at every few
+            // seconds), so that the item finder knows it while another character is played.
+            if index_checked.elapsed() > Duration::from_secs(3) {
+                index_checked = Instant::now();
+                let bank = state.loot.as_ref().filter(|l| l.identity.0 == crate::loot::BANK);
+                let signature = {
+                    use std::hash::{Hash, Hasher};
+                    let mut h = std::collections::hash_map::DefaultHasher::new();
+                    for e in state.worn.iter().chain(state.bags.values().flat_map(|b| b.entries.iter())).chain(bank.into_iter().flat_map(|b| b.entries.iter())) {
+                        (e.slot, e.container, e.low_id, e.high_id, e.quality, e.count).hash(&mut h);
+                    }
+                    (state.bags.len(), bank.is_some()).hash(&mut h);
+                    h.finish()
+                };
+                if signature != index_signature && !state.worn.is_empty() {
+                    index_signature = signature;
+                    let mut item = |e: &inventory::Entry| crate::itemindex::Item {
+                        low: e.low_id,
+                        high: e.high_id,
+                        quality: e.quality,
+                        count: u32::from(e.count).max(1),
+                        name: index_names.entry(e.low_id).or_insert_with(|| template_name(e.low_id).unwrap_or_else(|| format!("item #{}", e.low_id))).clone(),
+                    };
+                    let worn: Vec<crate::itemindex::Item> = state.worn.iter().filter(|e| e.slot < inventory::BACKPACK_FIRST).map(&mut item).collect();
+                    let carried: Vec<crate::itemindex::Item> = state.worn.iter().filter(|e| e.slot >= inventory::BACKPACK_FIRST).map(&mut item).collect();
+                    let bags: Vec<crate::itemindex::Bag> = state
+                        .worn
+                        .iter()
+                        .filter(|e| e.is_bag() && e.slot >= inventory::BACKPACK_FIRST)
+                        .map(|e| crate::itemindex::Bag { place: e.slot, template: e.low_id, name: item(e).name, contents: state.bags.get(&e.container).map(|b| b.entries.iter().map(&mut item).collect()) })
+                        .collect();
+                    let banked: Option<Vec<crate::itemindex::Item>> = bank.map(|b| b.entries.iter().map(&mut item).collect());
+                    let dimension = std::env::var("MAO_SERVER").unwrap_or_else(|_| session::RUBI_KA.to_string());
+                    if let Some(name) = state.names.get(&own).map(|n| n.0.clone()) {
+                        crate::itemindex::record(&name, &dimension, worn, carried, bags, banked);
+                    }
+                }
+            }
             // The mission window: ask the nearest booth for missions, or accept an offer.
             if raw.mission.0 != mission_seen {
                 mission_seen = raw.mission.0;
@@ -6979,6 +7040,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             // A hotbar item: use the inventory slot it sits in.
             if keys.fire.0 != fired {
                 fired = keys.fire.0;
+                // (a bag the player uses is one with a window, whatever looked into it before)
+                if let Some(bag) = state.worn.iter().find(|e| e.slot == keys.fire.1 && e.is_bag()).map(|e| e.container) {
+                    state.silent_bags.remove(&bag);
+                }
                 uses += 1;
                 let _ = connection.send(&n3::use_object(own, uses, (0x68, keys.fire.1)));
                 state.start_item_timer(keys.fire.1, 3);
@@ -8156,6 +8221,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         state
                             .bags
                             .values()
+                            .filter(|bag| !state.silent_bags.contains(&bag.identity))
                             .map(|bag| {
                                 // (titled with the bag's own name: the item's)
                                 let item = state.worn.iter().find(|e| e.container == bag.identity).cloned();

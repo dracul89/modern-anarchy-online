@@ -35,6 +35,7 @@ mod crash;
 mod factions;
 mod damage;
 mod extras;
+mod itemindex;
 mod charcreate;
 mod launchwindow;
 mod hall;
@@ -1732,6 +1733,13 @@ fn run(args: &[String]) -> Result<(), String> {
                         if let Some(row) = std::env::var("MAO_DAMAGE_ROW").ok().and_then(|v| v.parse().ok()) {
                             tools.damage.select(row);
                         }
+                        *hud.extras_preview.lock().unwrap() = Some(tools);
+                    }
+                    // MAO_UI_PREVIEW=find (MAO_FIND=<text>): the item finder over two sample characters.
+                    if preview.as_deref() == Some("find") {
+                        let mut tools = extras::Extras::default();
+                        tools.finder.preview = Some(itemindex::sample_at(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs()) - 600));
+                        tools.finder.look_for(&std::env::var("MAO_FIND").unwrap_or_else(|_| "pistol".to_string()));
                         *hud.extras_preview.lock().unwrap() = Some(tools);
                     }
                     // MAO_ALERT=<text> (with any preview): an error box with the text (`chrome::alert`).

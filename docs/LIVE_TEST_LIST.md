@@ -281,6 +281,16 @@ To try by hand:
 - A buff bot's `help`: its second tell, the list, shows as a link; the link opens the page; the page's own links send
   their tells.
 
+## The item finder (2026-11-12)
+
+- `/find kit` on a character: its kits with where they are; then the same from another character of the account:
+  the first one's things are still found, with "seen ... ago".
+- "Look into my bags": no bag window opens, the button's number goes to nothing, and the bags' things are found.
+  Then a bag opened by hand still gets its window.
+- A bank terminal used once: the bank's things are found afterwards, also from another character.
+- A thing moved from the inventory into a bag or the bank: found at its new place within a few seconds.
+- A click on a row: the item's description.
+
 ## The damage meter (2026-11-12)
 
 - `/damage` in a fight: one's own row grows with each hit; the figures a second look right against the fight's

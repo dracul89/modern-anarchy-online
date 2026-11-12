@@ -156,7 +156,7 @@ pub fn suggest(input: &str) -> Vec<&'static str> {
 /// The command with this name (any case), as the original writes it.
 /// Commands of this client's own, beyond the original's list: `/sit` (the X key's sit and stand).
 /// `/pet` is Gamecode's own (FUN_100542ad), not in the input line's list, but the control center's Pets menu runs it.
-pub const EXTRA: &[&str] = &["sit", "pet", "perf", "damage", "dps"];
+pub const EXTRA: &[&str] = &["sit", "pet", "perf", "damage", "dps", "find"];
 
 /// `/pet <command>`'s words and the `PetCommand` numbers they send (Gamecode FUN_100542ad's table).
 pub const PET_COMMANDS: &[(&str, u32)] = &[
@@ -253,6 +253,8 @@ pub fn parse(line: &str) -> Parsed {
         "perf" => Parsed::Perf,
         // (this client's own tool windows: `extras.rs`)
         "damage" | "dps" => Parsed::Window { name: "damage".to_string(), open: true },
+        // (`/find <part of a name>`: the item finder with that to look for; alone, the window)
+        "find" => Parsed::Window { name: format!("find {text}").trim().to_string(), open: true },
         "pet" => match text.split_whitespace().next().and_then(|w| PET_COMMANDS.iter().find(|c| c.0.eq_ignore_ascii_case(w))) {
             Some(&(_, command)) => Parsed::Pet { command },
             None => Parsed::Usage("/pet follow|behind|wait|guard|attack|heal|report|terminate|..."),
@@ -407,6 +409,8 @@ mod tests {
         assert_eq!(parse("/raid"), Parsed::Window { name: "raid".into(), open: true });
         assert_eq!(parse("/damage"), Parsed::Window { name: "damage".into(), open: true });
         assert_eq!(parse("/dps"), Parsed::Window { name: "damage".into(), open: true });
+        assert_eq!(parse("/find Treatment Kit"), Parsed::Window { name: "find Treatment Kit".into(), open: true });
+        assert_eq!(parse("/find"), Parsed::Window { name: "find".into(), open: true });
         assert_eq!(parse("/lft"), Parsed::Window { name: "lft".into(), open: true });
         assert_eq!(parse("/items"), Parsed::Window { name: "inventory".into(), open: true });
         assert_eq!(parse("/close"), Parsed::Window { name: String::new(), open: false });

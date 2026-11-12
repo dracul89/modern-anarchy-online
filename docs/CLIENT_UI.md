@@ -830,6 +830,28 @@ behind used to hide some of it. Seen from inside in pictures (`inside.py` in the
 headings, `MAO_CULL=show`): the neutral, Omni and clan basic shops have their walls whole. `rooms::describe_room`
 and the `roomcells` example say a room's cells, pieces and textures. Not seen live.
 
+**The item finder (2026-11-12, the user: "devise a means for players to find items in their bags or bank on each
+character you might have to tell them which character it is on").** `/find <part of a name>` (or `/find`,
+`/open find`) opens Find items, this client's own (`itemindex.rs`). The server tells a character's things only while
+that character is played, and a container's contents only while it is open, so the client writes down what it sees:
+a text file for each character played on this machine, in the settings folder's `items` folder
+(`<Name>.<the dimension's port>.txt`), with a section for what is worn, the inventory, each bag of the inventory (as
+it was when last opened) and the bank (as it was when a bank terminal was last used), each with when it was seen. The
+network thread looks every three seconds whether the character's things changed and writes then. The search takes
+every word typed, in any order and case, goes through all the characters' files, and lists each thing found with its
+quality and count, the character, the place on it ("Bank", the bag's name) and how long ago that was seen; names
+that begin with what was typed come first, the better quality before the lesser. A click on a row opens the item's
+description. Under the rows the window says what it cannot see: the bags never looked into and a bank never seen,
+by character. "Look into my bags" has the client use each bag of the character played that it has not seen into
+yet, half a second apart and without opening their windows (`silent_bags`), so one press makes the bags known; a bag
+the player then opens by hand gets its window as before. Bags are remembered by their place in the inventory and
+their kind, so a bag moved to another place is taken for a new one until it is opened again. Not known: a bag inside
+the bank (never opened there), and anything on a character not yet played with this client. Tried live with
+Ballbearing: the file written with what is worn, the inventory and an opened bag, eleven more bags listed as not
+looked into; then `scanbags@` (the button's script step) made all twelve known in one run. That the bags' windows
+stay shut during it was not looked at on the screen. `MAO_UI_PREVIEW=find` (`MAO_FIND=<text>`) draws the window over
+two made-up characters.
+
 **The damage meter (2026-11-12, the user: "a parsing project that a player can use to determine damage output of
 themselves and other players (should be a new window in the gui)").** `/damage` (or `/dps`, `/open damage`) opens
 the Damage window, this client's own (`damage.rs`; the original has none, players read the chat log's combat lines
