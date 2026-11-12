@@ -797,6 +797,14 @@ pub fn request_claims(check: bool) {
     CLAIM_REQUESTS.lock().unwrap_or_else(|e| e.into_inner()).push(check);
 }
 
+/// Gamecode's text commands waiting to be sent (`n3::text_command`): the action and its number.
+static TEXT_COMMANDS: std::sync::Mutex<Vec<(u8, u32)>> = std::sync::Mutex::new(Vec::new());
+
+/// One of Gamecode's text commands (`/played`, `/born`, `/team loot`, `/bank info`), sent by the game loop.
+pub fn text_command(action: u8, value: u32) {
+    TEXT_COMMANDS.lock().unwrap_or_else(|e| e.into_inner()).push((action, value));
+}
+
 /// A command for the server (`n3::server_command`), sent by the game loop.
 pub fn server_command(text: String) {
     SERVER_COMMANDS.lock().unwrap_or_else(|e| e.into_inner()).push(text);
@@ -5262,7 +5270,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                         chat.send(&mao_net::chat::lookup_packet(&name))?;
                                     }
                                 },
-                                Out::Camp | Out::Sit | Out::Perf | Out::Pet(_) | Out::Duel(_) | Out::PetDuel(_) | Out::Server(_) | Out::FxScript(_) | Out::Quit | Out::Follow | Out::Inspect | Out::Window { .. } | Out::ToggleWindow { .. } | Out::Assist { .. } | Out::Waypoint { .. } | Out::SelectSelf | Out::SetOption { .. } | Out::DValue { .. } | Out::ViewDist(_) | Out::CharDist(_) => {}
+                                Out::Camp | Out::Sit | Out::Perf | Out::Pet(_) | Out::Duel(_) | Out::PetDuel(_) | Out::Server(_) | Out::FxScript(_) | Out::Quit | Out::Follow | Out::Inspect | Out::Window { .. } | Out::ToggleWindow { .. } | Out::Assist { .. } | Out::Waypoint { .. } | Out::SelectSelf | Out::SetOption { .. } | Out::DValue { .. } | Out::TextCommand { .. } | Out::ViewDist(_) | Out::CharDist(_) => {}
                                 Out::Befriend { name } => match ids.get(&name.to_lowercase()) {
                                     Some(&id) => {
                                         chat.send(&mao_net::chat::buddy_add_packet(id, false))?;
@@ -6160,6 +6168,11 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             for check in std::mem::take(&mut *CLAIM_REQUESTS.lock().unwrap_or_else(|e| e.into_inner())) {
                 eprintln!("[{:6.1}] claims asked for ({})", clock.elapsed().as_secs_f32(), if check { "the check for what is waiting" } else { "what was claimed" });
                 let _ = connection.send(&n3::claims(own, check));
+            }
+            // (the chat window's number is 0 here, as for the server commands below)
+            for (action, value) in std::mem::take(&mut *TEXT_COMMANDS.lock().unwrap_or_else(|e| e.into_inner())) {
+                eprintln!("[{:6.1}] text command {action:#x} ({value})", clock.elapsed().as_secs_f32());
+                let _ = connection.send(&n3::text_command(own, action, 0, value));
             }
             for text in std::mem::take(&mut *SERVER_COMMANDS.lock().unwrap_or_else(|e| e.into_inner())) {
                 let at = target.map_or((0, 0), |t| (state.types.get(&t).copied().unwrap_or(n3::CHARACTER), t));

@@ -843,11 +843,14 @@ that is not a command is spoken**, as it would be typed (two of the files of the
 `del <number>`, `enable`, `disable`, `clear`; it starts disabled, as the original's; the patterns are the old
 regular expressions: `. [ ] * + ? ( ) | ^ $`, kept in `chatfilter.ini`). `/dvalue <name> [value]` shows or sets
 one of the original's stored settings. `/start <http address>` opens it outside the game. `/char&viewdist <a>
-<b>` sets both distances. `/played` says the time and date; the time played is not asked for yet, nor are `/bank`,
-`/born`, `/team`, `/tower` carried out (they need Gamecode's command interpreter, not ported). Previews:
+<b>` sets both distances. `/played` says the time and date and asks the server for the time played; `/born` asks
+when the character was made; `/team loot [all|leader|alpha]` asks for the team's loot order or, from its leader,
+sets it; `/bank info` asks the server (these four are Gamecode's own text commands, each a character action:
+`mao_net::n3::text_command`). `/tower` is not carried out. Previews:
 `MAO_UI_PREVIEW=macro` (a bar with two macros). Tried live: a macro made, set down by a click and pressed; a
-script found and one not found; the filter's and `/dvalue`'s lines. Not tried: the filter on a real channel line,
-a script with `/delay`, `/start`.
+script found and one not found; the filter's and `/dvalue`'s lines; `/played` and `/born` with the server's
+answers. Not tried: the filter on a real channel line, a script with `/delay`, `/start`, `/team loot` in a team;
+`/bank info` was sent and nothing was shown in answer.
 
 **Away from the keyboard (2026-11-12, the user: "Do the afk and auto away").** `/afk` as the original's
 (`afk.rs`; what was read is in `docs/GUI_DLL_PARITY.md`, section 3). `/afk <text>`: away with that message, said

@@ -296,6 +296,28 @@ pub const PET_DUEL_STOP: u32 = 0xf1;
 pub const PET_DUEL_RESULT: u32 = 0xf3;
 pub const PET_DUEL_CHALLENGED: u32 = 0xf8;
 
+/// The `CharacterAction`s Gamecode's text commands make (`N3Msg_TextCommand` 0x10017743 → FUN_1003fe10, each built
+/// with FUN_10072a88 as the others here: the action, then the number of the chat window the command was typed in
+/// where most actions have nothing, nobody as the target, and nobody or a number as the second identity):
+/// `/played` is [`TEXT_PLAYED`], `/born` [`TEXT_BORN`], `/team loot` [`TEXT_TEAM_LOOT`], `/team loot <order>` from the
+/// team's leader [`TEXT_TEAM_LOOT_SET`] with the order's number, `/bank info` [`TEXT_BANK_INFO`]. Built from the
+/// disassembly: no capture has one.
+pub fn text_command(character: u32, action: u8, window: u32, value: u32) -> Frame {
+    let mut data = vec![0u8; 5];
+    data[4] = action;
+    for word in [window, 0, 0, 0, value] {
+        data.extend_from_slice(&word.to_be_bytes());
+    }
+    data.extend_from_slice(&[0; 2]);
+    Message { kind: 0x5e477770, identity: (CHARACTER, character), data }.frame(character)
+}
+
+pub const TEXT_PLAYED: u8 = 0x85;
+pub const TEXT_BORN: u8 = 0x86;
+pub const TEXT_TEAM_LOOT: u8 = 0x91;
+pub const TEXT_TEAM_LOOT_SET: u8 = 0x7f;
+pub const TEXT_BANK_INFO: u8 = 0x5c;
+
 /// `CharacterAction` (`5e477770`) action `0x9a`: resets a skill, giving its IP back (`N3Msg_ResetSkill`, Gamecode
 /// 0x1001ce37: no target, the first parameter nothing and the second the skill's stat; stat 0 is the full reset of
 /// every ability and skill). Built from the decompile: no capture has one.
@@ -2064,5 +2086,22 @@ mod npc_template_tests {
         let mut post = vec![0u8; 32];
         post.extend_from_slice(&bytes);
         assert_eq!(npc_template(&post), Some(0x33115));
+    }
+}
+
+#[cfg(test)]
+mod text_command_tests {
+    use super::*;
+
+    #[test]
+    fn a_text_command_is_a_character_action_with_the_window_and_a_number() {
+        let played = text_command(0x12345678, TEXT_PLAYED, 3, 0).body;
+        let set = text_command(0x12345678, TEXT_TEAM_LOOT_SET, 0, 5).body;
+        // (the same length as the other actions with no text, and the fields where they have them)
+        assert_eq!(played.len(), reset_skill(0x12345678, 0).body.len());
+        let body = &played[played.len() - 27..];
+        assert_eq!(body, &[0, 0, 0, 0, 0x85, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0][..]);
+        assert_eq!(&set[set.len() - 27..][4..9], &[0x7f, 0, 0, 0, 0]);
+        assert_eq!(&set[set.len() - 6..], &[0, 0, 0, 5, 0, 0]);
     }
 }

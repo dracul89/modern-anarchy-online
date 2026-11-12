@@ -163,12 +163,7 @@ Since 2026-11-12 also (`macros.rs`, `scripts.rs`, `chatfilter.rs`; each module's
 Not carried out, and why (the handler is the one registered after each name; an earlier note here had `/tower`,
 `/terminate`, `/rp` and `/reclaim` one off):
 
-- `/played`'s request, `/bank`, `/born`, `/team` (and `/version`, `/org`, `/pet`, `/follow`, `/items`, `/raid` as
-  the original first registers them, FUN_100b2ac9): GUI.dll hands the line to `N3Msg_TextCommand` (FUN_100b285d;
-  Gamecode 0x10017743), whose FUN_1003fe10 is a 1,600-line interpreter of its own (the organization commands and
-  more, each making its own message). **They are not the server commands `/stuck` is** (Fanatic's `FanaticIIR_t`,
-  FUN_100b36da): "played" sent that way on 2026-11-12 was answered "You are not authorized to perform that
-  command. (Your request has been logged)". Porting FUN_1003fe10 is the next step for these.
+- (Carried out later the same day, see below: `/played`'s request, `/born`, `/team`, `/bank info`.)
 - `/tower` (FUN_100b375a: `create`, and `terminate` with a tower selected, go to Fanatic's own
   `ClientInterface_c::Command`; the rest to `N3Msg_TextCommand`), `/terminate` (FUN_100b3a69: a yes/no box, then
   Fanatic), `/gfx <n> <on|off>` (FUN_100b3863, `N3Msg_EnableGFX`): Notum Wars and the effects' switches.
@@ -180,6 +175,33 @@ Not carried out, and why (the handler is the one registered after each name; an 
   0x46), `/reclaim` (0x100b27af: `N3Msg_ToggleReclaim(false)`, the reclaim window), `/bug` (FUN_100b6019: a
   report sent to the server), `/option` beyond what `/setoption` does.
 - `/lft` FUN_100b6f9f opens its window; `/rp` and `/reclaim` need a capture to see what the server answers.
+
+**Gamecode's text commands** (`/played`, `/born`, `/team`, `/bank`; carried out on 2026-11-12). GUI.dll registers
+`/played` (FUN_100b2906) and a list (`/version`, `/bank`, `/team`, `/org`, `/born`, `/pet`, `/follow`, `/items`,
+`/raid`; FUN_100b285d, registered by FUN_100b2ac9) that hand the line, without its slash and with its `%` arguments
+put in, to `N3Msg_TextCommand` (Gamecode 0x10017743) with the chat window's number and the target. Its FUN_1003fe10
+compares the first word (FUN_10044054) and, for most, builds a `CharacterActionIIR_t` with FUN_10072a88: the
+action, the window's number where other actions have nothing, nobody as the target, a second identity, an empty
+text. **They are not the server commands `/stuck` is** (Fanatic's `FanaticIIR_t`): "played" sent that way was
+answered "You are not authorized to perform that command. (Your request has been logged)".
+
+- `played`: action 0x85. `born`: action 0x86. (`version` is 0x9d; `/version` here says the client's own.)
+- `team`: outside a team the feedback text `Feedback_YouAreNotMemberOfTeam` (FUN_10059047, category 110). Alone:
+  `Feedback_AvailableTeamCommands`, `Feedback_TeamLoot`, `Feedback_TeamLootAll`. The next word is looked up in a
+  table (FUN_1002f174; filled at 0x10033bae: team 1, loot 2, all 3, leader 4, alpha 5) and must be `loot`: alone it
+  is action 0x91; with a word after it the team's leader sends action 0x7f with that word's number as the second
+  identity's instance (whatever the word: a word not in the table is 0), and anyone else is told
+  `Feedback_OnlyTeamLeaderCanChangeLootOrder`.
+- `bank`: its word is looked up (FUN_1002f123; open 1, close 2, info 3): `info` is action 0x5c; `open` is action
+  0x24 for a game master only (stat 215); `close` closes the bank's window in the client (not done here).
+- Not read further: `items list|delete`, `resetskill`, `clone`, `damagemult`, `clearunique`, `raid`, `org` (its
+  own keyword table, FUN_1003268e, and a message for each of some thirty commands), `pet`, `tower`, `follow`,
+  and the developers' `getlocal` and the like. `/org`, `/pet`, `/follow`, `/items`, `/raid` are carried out by this
+  client in its own ways, written before this was read.
+
+Here: `mao_net::n3::text_command` and its numbers, `chatwindow::Out::TextCommand`, the window's number sent as 0.
+Tried live on a test character on 2026-11-12: `/played` and `/born` were answered by the server; `/bank info`
+was sent, not refused, and nothing was shown in answer; `/team` was only tried outside a team.
 
 `/afk` and going away by itself, carried out on 2026-11-12 (`afk.rs`, hooks in `chatwindow.rs`, `ui.rs`, `net.rs`,
 `mao_net::chat`). What the original does, and so the client:

@@ -127,6 +127,12 @@ fn english(name: &str) -> &'static str {
         "Feedback_YouSuccededDisarmingMine" => "You succeeded disarming the mine!",
         "Feedback_YouSuccededDisarmingTrap" => "You succeded disarming the trap!.",
         "Feedback_YouHaveBeenDetected" => "You have been detected by %s!",
+        // (`/team`, Gamecode FUN_1003fe10: this client's words where the game's texts are not at hand)
+        "Feedback_YouAreNotMemberOfTeam" => "You are not in a team.",
+        "Feedback_AvailableTeamCommands" => "The team's commands:",
+        "Feedback_TeamLoot" => "/team loot",
+        "Feedback_TeamLootAll" => "/team loot [all/leader/alpha]",
+        "Feedback_OnlyTeamLeaderCanChangeLootOrder" => "Only the team's leader can change the loot order.",
         _ => "",
     }
 }

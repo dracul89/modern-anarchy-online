@@ -37,7 +37,9 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
     ("script <file> [words]", "run a file of chat lines from the scripts folder (also /<file>); %1, %2 in it are the words, /delay <ms> waits"),
     ("filter list|add|del|enable|disable|clear", "hide the lines of chat groups that a pattern matches"),
     ("dvalue <name> [value]", "show or set one of the original's stored settings"),
-    ("played", "the time here, in Greenwich and in the game, and the date (the time played is not asked for yet)"),
+    ("played", "the time here, in Greenwich and in the game, the date, and from the server the time played"),
+    ("born", "when the character was made, from the server"),
+    ("team loot [all|leader|alpha]", "the team's loot order asked for, or set by its leader"),
     ("start <http address>", "open a web address outside the game"),
     ("afk [text]", "away from the keyboard: tells are answered with the text; alone, a box for the text, or back when away; /afk status"),
     ("t <text>", "your team's channel"),
@@ -170,8 +172,14 @@ pub enum Parsed {
     Filter { what: String, rest: String },
     /// `/start <address>` (GUI.dll FUN_100ba073).
     Start { address: String },
-    /// `/played` (GUI.dll FUN_100b2906): the time and date said (its request for the time played is Gamecode's).
+    /// `/played` (GUI.dll FUN_100b2906): the time and date said, then the server asked for the time played.
     Played,
+    /// `/born`: the server asked when the character was made.
+    Born,
+    /// `/team [loot [all|leader|alpha]]` (Gamecode FUN_1003fe10): its words, in small letters.
+    TeamCommand { words: Vec<String> },
+    /// `/bank <open|close|info>` (Gamecode FUN_1003fe10): its first word.
+    Bank { word: String },
     /// `/char&viewdist <characters> <view>` (GUI.dll FUN_100b6a54): both distances.
     BothDist { characters: u32, view: u32 },
     /// A line for the organization channel.
@@ -361,11 +369,14 @@ pub fn parse(line: &str) -> Parsed {
             Some(address) => Parsed::Start { address: address.to_string() },
             None => Parsed::Usage("/start <http address>"),
         },
-        // (`/played`, `/bank`, `/born`, `/team` and most of `/tower` are handed by GUI.dll to Gamecode's own text
-        // commands, `N3Msg_TextCommand` 0x10017743 and its FUN_1003fe10, which this client has not: they are not the
-        // server commands `/stuck` is, and the server refuses them sent that way. `/played` says its own line.
-        // Marked for a live trial when they are put back: docs/LIVE_TEST_LIST.md, "Commands taken out on 2026-11-12".)
+        // (`/played`, `/bank`, `/born`, `/team` and `/tower` are handed by GUI.dll to Gamecode's own text commands,
+        // `N3Msg_TextCommand` 0x10017743 and its FUN_1003fe10: each makes a `CharacterAction` of its own, or says a
+        // feedback text. They are not the server commands `/stuck` is, and the server refuses them sent that way.
+        // `/tower` is still not carried out. docs/LIVE_TEST_LIST.md, "Commands taken out on 2026-11-12".)
         "played" => Parsed::Played,
+        "born" => Parsed::Born,
+        "team" => Parsed::TeamCommand { words: text.split_whitespace().map(str::to_lowercase).collect() },
+        "bank" => Parsed::Bank { word: text.split_whitespace().next().unwrap_or("").to_lowercase() },
         "char&viewdist" => {
             let mut numbers = text.split_whitespace().map(|t| t.parse::<u32>().ok());
             match (numbers.next().flatten(), numbers.next().flatten()) {
@@ -644,7 +655,10 @@ mod tests {
         assert_eq!(parse("/filter list"), Parsed::Filter { what: "list".into(), rest: String::new() });
         assert_eq!(parse("/start https://example.org/a b"), Parsed::Start { address: "https://example.org/a".into() });
         assert_eq!(parse("/played"), Parsed::Played);
-        assert_eq!(parse("/bank open"), Parsed::Unsupported("bank".into()));
+        assert_eq!(parse("/bank INFO now"), Parsed::Bank { word: "info".into() });
+        assert_eq!(parse("/born"), Parsed::Born);
+        assert_eq!(parse("/team Loot ALPHA"), Parsed::TeamCommand { words: vec!["loot".into(), "alpha".into()] });
+        assert_eq!(parse("/team"), Parsed::TeamCommand { words: vec![] });
         assert_eq!(parse("/tower info"), Parsed::Unsupported("tower".into()));
         assert_eq!(parse("/char&viewdist 50 600"), Parsed::BothDist { characters: 50, view: 600 });
         // (a script file's name is not a command of the list: the chat window looks for the file)

@@ -109,6 +109,8 @@ pub enum Out {
     AwayReply { name: String, text: String },
     /// `/dvalue`: one of the original's stored values shown (no value) or set.
     DValue { name: String, value: Option<String> },
+    /// One of Gamecode's text commands (`mao_net::n3::text_command`): its action and number.
+    TextCommand { action: u8, value: u32 },
     /// Open the tell window for a character, once the chat server knows the name (it comes back through
     /// `chatgroups::open_tell`).
     TellWindow { name: String },
@@ -1164,13 +1166,46 @@ impl ChatWindow {
                 }
                 None
             }
-            // (FUN_100b2906: the time here, in Greenwich and in the game, and the date. It then gives "played" to
-            // Gamecode's text commands, `N3Msg_TextCommand`, which are not ported: the time played is not asked for.)
+            // (FUN_100b2906: the time here, in Greenwich and in the game, and the date; then "played" goes to
+            // Gamecode's text commands, FUN_1003fe10, which asks the server with a `CharacterAction`)
             Parsed::Played => {
                 self.push(Line::new(Kind::System, played_line()));
-                self.push(Line::new(Kind::System, "(The time played is not asked of the server by this client yet.)"));
-                None
+                Some(Out::TextCommand { action: mao_net::n3::TEXT_PLAYED, value: 0 })
             }
+            Parsed::Born => Some(Out::TextCommand { action: mao_net::n3::TEXT_BORN, value: 0 }),
+            // (FUN_1003fe10's `team`: not in a team, said so; alone, its three lines of help; `loot` asks for the
+            // order, and with a word after it the leader sets it, the word's number sent whatever it is: its table
+            // has team 1, loot 2, all 3, leader 4, alpha 5, and nothing for any other word. Another first word
+            // does nothing.)
+            Parsed::TeamCommand { words } => {
+                let (in_team, leader) = crate::team::with(|t| (!t.members.is_empty(), t.members.iter().position(|m| m.id == t.own).is_some_and(|k| crate::team::is_leader(t, k))));
+                let word = |w: &str| ["team", "loot", "all", "leader", "alpha"].iter().position(|k| *k == w).map_or(0, |p| p as u32 + 1);
+                match words.as_slice() {
+                    _ if !in_team => {
+                        self.tell(&crate::feedback::plain("Feedback_YouAreNotMemberOfTeam"));
+                        None
+                    }
+                    [] => {
+                        for name in ["Feedback_AvailableTeamCommands", "Feedback_TeamLoot", "Feedback_TeamLootAll"] {
+                            self.tell(&crate::feedback::plain(name));
+                        }
+                        None
+                    }
+                    [first, ..] if word(first) != 2 => None,
+                    [_] => Some(Out::TextCommand { action: mao_net::n3::TEXT_TEAM_LOOT, value: 0 }),
+                    [_, order, ..] if leader => Some(Out::TextCommand { action: mao_net::n3::TEXT_TEAM_LOOT_SET, value: word(order) }),
+                    _ => {
+                        self.tell(&crate::feedback::plain("Feedback_OnlyTeamLeaderCanChangeLootOrder"));
+                        None
+                    }
+                }
+            }
+            // (FUN_1003fe10's `bank`: `info` asks the server; `open` is a game master's; `close` shuts the bank's
+            // window, which this client leaves to the window; any other word does nothing)
+            Parsed::Bank { word } => match word.as_str() {
+                "info" => Some(Out::TextCommand { action: mao_net::n3::TEXT_BANK_INFO, value: 0 }),
+                _ => None,
+            },
             // (FUN_100b6a54: both distances)
             Parsed::BothDist { characters, view } => {
                 self.outs.push(Out::CharDist(characters.min(4000)));
@@ -1771,10 +1806,17 @@ mod tests {
         assert_eq!(lines(&w), ["one", "two"]);
         assert!(w.history.is_empty());
         // (the commands that only make a request)
-        assert_eq!(w.run("/played"), None);
-        let time = &w.lines[w.lines.len() - 2].text;
+        assert_eq!(w.run("/played"), Some(Out::TextCommand { action: 0x85, value: 0 }));
+        let time = &w.lines.last().unwrap().text;
         assert!(time.starts_with("Time: ") && time.contains("Date: "), "{time}");
-        assert_eq!(w.run("/bank"), None);
+        assert_eq!(w.run("/born"), Some(Out::TextCommand { action: 0x86, value: 0 }));
+        assert_eq!(w.run("/bank info"), Some(Out::TextCommand { action: 0x5c, value: 0 }));
+        assert_eq!((w.run("/bank open"), w.run("/bank")), (None, None));
+        // (`/team` outside a team says so and sends nothing)
+        let said = w.lines.len();
+        assert_eq!(w.run("/team loot all"), None);
+        assert_eq!((w.lines.len(), w.lines.last().unwrap().text.clone()), (said + 1, crate::feedback::plain("Feedback_YouAreNotMemberOfTeam")));
+        assert_eq!(w.run("/tower info"), None);
         assert!(w.lines.last().unwrap().text.contains("not carried out"));
         assert_eq!(w.run("/dvalue AutoAFK"), Some(Out::DValue { name: "AutoAFK".into(), value: None }));
         assert_eq!(w.run("/char&viewdist 50 9000"), Some(Out::ViewDist(4000)));

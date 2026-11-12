@@ -299,20 +299,27 @@ script"; `/aou_about` (a script file of the original's folder) ran without a wor
 - `/start https://www.anarchy-online.com`: the system's browser opens it.
 - `/char&viewdist 100 800`.
 
-## Commands taken out on 2026-11-12: to try live once they are carried out
+## Commands taken out on 2026-11-12, and put back the same day
 
-These were written to go to the server as `/stuck` does, tried once (`/played`), refused by the server ("You are not
-authorized to perform that command. (Your request has been logged)") and taken out again the same day. They answer
-"not carried out by this client yet" until Gamecode's text commands are ported (`N3Msg_TextCommand` 0x10017743, its
-FUN_1003fe10; `docs/GUI_DLL_PARITY.md`, section 3). **Each is to be tried live when it is put back, on a test
-character first, and not before its handler is read down to the message it sends:**
+These were first written to go to the server as `/stuck` does, tried once (`/played`), refused by the server ("You
+are not authorized to perform that command. (Your request has been logged)") and taken out. They are Gamecode's
+text commands (`N3Msg_TextCommand` 0x10017743, its FUN_1003fe10), each a `CharacterAction` of its own
+(`mao_net::n3::text_command`), and were put back that way and tried on the test character Maotesttwo:
 
-- [ ] `/played`: after its time and date line, the server's answer with the time played.
-- [ ] `/bank`: what the server answers away from a bank terminal, and at one.
-- [ ] `/born`: the server's answer.
-- [ ] `/team` with nothing after it, alone and in a team.
-- [ ] `/tower <word>` with no tower selected (sent on as a text command); `/tower create` and `/tower terminate` with
-  a tower selected, and `/terminate` with its yes/no box, belong to Notum Wars and need a tower site to try at.
+- [x] `/played`: its time and date line, then the server's "<name> has played 0 days 4 hours 20 minutes 50
+  seconds" (2026-11-12).
+- [x] `/born`: the server's "<name> was born on Wed Nov 11 02:04:38 2026" (2026-11-12).
+- [x] `/team` and `/team loot` outside a team: "You are not a member of a team!", nothing sent (2026-11-12).
+- [ ] `/team` alone in a team: the three lines of help. `/team loot` in a team: the server's answer with the loot
+  order. `/team loot all`, `leader`, `alpha` as the team's leader: the order changed and told to the team; as
+  another member: "Only team leader can change loot order!", nothing sent. (Needs two characters in a team.)
+- [ ] `/bank info`: sent on 2026-11-12 away from a bank, not refused, and nothing was shown in answer. To try with
+  a bank open, and to find what the answer is (it may be a message the client does not show).
+- [ ] `/tower <word>`: still not carried out (Notum Wars: `create`, and `terminate` with a tower selected, are
+  Fanatic's own; the other words are another of Gamecode's text commands, not read yet). `/terminate` with its
+  yes/no box the same.
+
+**A command is not passed to the server before its handler is read down to the message it sends.**
 
 Also not carried out, and to be tried live when they are (none was ever sent): `/cc info <name>` and `/cc addbuddy
 <name>` (the original's `Befriend` script file is such a line), `/rp` (seen by another character: the role-playing
