@@ -162,7 +162,7 @@ navy, `Selected/Text 0x30d2ff` neon cyan, `Hover 0x40e6ff`.
 folder. It is switchable in the options window. The four AOU skins are bundled in
 `assets/gui/` (copied from the user's install, `70dad3e6/Anarchy Online/Gui`, on
 request, 2026-10-28) and are used before an `aou_mod = <folder>` copy. Note: the
-AOU mod is GPL while this client is MIT/Apache; bundling it was the user's call.
+AOU mod is GPL while this client is MIT; bundling it was the user's call.
 
 **The skin's control center** (`gui/controlcenter.rs`): the skin's
 `Views/ControlCenter.xml` is laid out over the screen as GUI.dll does

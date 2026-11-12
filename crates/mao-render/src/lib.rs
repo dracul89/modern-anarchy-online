@@ -2929,6 +2929,16 @@ fn upload_texture(gpu: &Gpu, t: &Texture) -> wgpu::TextureView {
 mod tests {
     use super::*;
 
+    /// A device for a test, and the test's turn with it: the tests that draw go one at a time. On a machine's software
+    /// device (all a build machine has; `MAO_SOFTWARE_GPU=1` here) several devices drawing at once ended the test program
+    /// with an access violation about every other run, while a real card took them together; one at a time both do.
+    /// None where the machine has no device at all: the test then has nothing to check.
+    fn test_gpu() -> Option<(std::sync::MutexGuard<'static, ()>, Gpu)> {
+        static TURN: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
+        Gpu::headless().ok().map(|gpu| (turn, gpu))
+    }
+
     /// The mip bias: none at the window's size, a level at a half, FSR 1's figures for its steps between.
     #[test]
     fn the_mip_bias_is_the_scales_logarithm() {
@@ -2960,7 +2970,7 @@ mod tests {
     #[test]
     fn a_face_turned_away_is_not_drawn() {
         // (skipped on a machine without a graphics device, and when the run asks for no culling)
-        let Ok(gpu) = Gpu::headless() else { return };
+        let Some((_turn, gpu)) = test_gpu() else { return };
         if std::env::var_os("MAO_CULL").is_some() {
             return;
         }
@@ -2989,7 +2999,7 @@ mod tests {
     #[test]
     fn the_same_part_in_several_places_is_one_call() {
         // (skipped on a machine without a graphics device)
-        let Ok(gpu) = Gpu::headless() else { return };
+        let Some((_turn, gpu)) = test_gpu() else { return };
         let camera = Camera { target: Vec3::ZERO, distance: 40.0, yaw: 0.0, pitch: 1.4, half_height: None };
         let square = |half: f32| {
             let vertices = [[-half, -half, 0.0], [half, -half, 0.0], [half, half, 0.0], [-half, half, 0.0]].iter().map(|&p| mao_formats::model::Vertex { position: p, normal: [0.0, 0.0, 1.0], uv: [0.0, 0.0], colour: mao_formats::model::Vertex::UNBAKED }).collect();
@@ -3048,7 +3058,7 @@ mod tests {
     #[test]
     fn a_compressed_texture_draws_the_same_picture() {
         // (skipped on a machine without a graphics device, or one that takes no block-compressed textures)
-        let Ok(gpu) = Gpu::headless() else { return };
+        let Some((_turn, gpu)) = test_gpu() else { return };
         if !gpu.bc {
             return;
         }
@@ -3077,7 +3087,7 @@ mod tests {
     #[test]
     fn the_characters_share_their_buffers_from_upload_to_upload() {
         // (skipped on a machine without a graphics device)
-        let Ok(gpu) = Gpu::headless() else { return };
+        let Some((_turn, gpu)) = test_gpu() else { return };
         let camera = Camera { target: Vec3::ZERO, distance: 40.0, yaw: 0.0, pitch: 1.4, half_height: None };
         let square = |at: f32, half: f32, colour: [f32; 3]| {
             let vertices = [[at - half, -half, 0.0], [at + half, -half, 0.0], [at + half, half, 0.0], [at - half, half, 0.0]].iter().map(|&p| mao_formats::model::Vertex { position: [p[1], p[0], p[2]], normal: [0.0, 0.0, 1.0], uv: [0.0, 0.0], colour: mao_formats::model::Vertex::UNBAKED }).collect();
@@ -3146,7 +3156,7 @@ mod tests {
     #[test]
     fn a_kept_shadow_map_draws_the_same_shadows() {
         // (skipped on a machine without a graphics device)
-        let Ok(gpu) = Gpu::headless() else { return };
+        let Some((_turn, gpu)) = test_gpu() else { return };
         let format = wgpu::TextureFormat::Rgba8Unorm;
         let camera = Camera { target: Vec3::new(-6.0, 0.0, 0.0), distance: 40.0, yaw: 0.3, pitch: 1.2, half_height: None };
         let (start, moved) = (Vec3::new(0.0, 6.0, 0.0), Vec3::new(5.0, 6.0, 0.0));
@@ -3196,7 +3206,7 @@ mod tests {
     #[test]
     fn temporal_antialiasing_settles_and_follows_the_camera() {
         // (skipped on a machine without a graphics device)
-        let Ok(gpu) = Gpu::headless() else { return };
+        let Some((_turn, gpu)) = test_gpu() else { return };
         let format = wgpu::TextureFormat::Rgba8Unorm;
         let (w, h) = (160, 120);
         let still = Camera { target: Vec3::new(0.0, 0.0, 4.0), distance: 30.0, yaw: 0.3, pitch: 0.4, half_height: None };

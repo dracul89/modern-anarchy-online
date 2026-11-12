@@ -88,5 +88,15 @@ Hard-won protocol facts (see `crates/mao-net` and the notes in the other repo):
   the other candidates from the original `GFX_GUI_AO_LOGO` texture
 - `mao-tools` – `mao-db`
 
+## Licence
+MIT (`LICENSE`): the code of this repository. The four skins in `assets/gui` (`AOU_*`) are the AOU GUI mod's, bundled
+as they came, and stay under that mod's own licence (GPL), not this one. Anarchy Online, its files and its names are
+Funcom's; nothing of the game is in the repository or in a package.
+
+## Builds and releases
+Every push to `main` is built and tested on GitHub (`.github/workflows/ci.yml`), and pushing a tag `v<version>` makes a
+draft release with the packaged client (`.github/workflows/release.yml`, `tools/package.ps1`, `tools/package.sh`):
+see `docs/RELEASING.md`.
+
 Tests that need game data run when `MAO_GAME` points at an installed game.
 See `docs/ROADMAP.md` for findings and what's next.

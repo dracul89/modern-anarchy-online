@@ -37,3 +37,6 @@ Settings, window places, hotbars, chat logs, screenshots and crash.log:
 Only the account's name is kept there, never the password.
 
 Updating: unpack the new version over the old one, or anywhere else; the settings stay.
+
+The client's code is under the MIT licence (LICENSE). The skins in assets/gui (AOU_*) are the
+AOU GUI mod's and stay under that mod's own licence (GPL). Anarchy Online is Funcom's.

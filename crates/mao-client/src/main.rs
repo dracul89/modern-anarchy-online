@@ -13,6 +13,12 @@
 //! The type and instance are hexadecimal (for example `f6951 1893`). Drag to
 //! orbit, scroll to zoom, WASD to move the view point, Q/E down and up.
 
+// With the `hide-console` feature (the packages: tools/package.ps1) the Windows program is one without a console: started
+// from Explorer, no console window opens beside the launcher. What it prints then goes only where its output was sent
+// (a file, a pipe); crash.log has its errors either way. A build without the feature keeps the console, for the
+// commands that print.
+#![cfg_attr(all(windows, feature = "hide-console"), windows_subsystem = "windows")]
+
 /// Prints timings (`MAO_PROFILE=1`): how long a playfield takes to load and to reach the graphics card.
 macro_rules! profile {
     ($($arg:tt)*) => {

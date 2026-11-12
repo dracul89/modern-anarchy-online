@@ -30,7 +30,8 @@ Push-Location $root
 try {
     # (cargo's warnings go to stderr, which Windows PowerShell would take as an error)
     $ErrorActionPreference = 'Continue'
-    cargo build --release --locked -p mao-client 2>&1 | Out-Host
+    # (hide-console: no console window beside the client when it is started from Explorer)
+    cargo build --release --locked -p mao-client --features hide-console 2>&1 | Out-Host
     $ErrorActionPreference = 'Stop'
     if ($LASTEXITCODE -ne 0) { throw 'the build failed' }
     $dir = Join-Path $root "$Out/ModernAnarchyOnline"

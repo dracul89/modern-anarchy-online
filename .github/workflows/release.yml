@@ -1,0 +1,211 @@
+# Makes a release from a tag: `git tag v0.2.0 && git push origin v0.2.0` builds the client, runs the tests, packages it
+# (tools/package.ps1, tools/package.sh) and puts the archives into a DRAFT release on GitHub with notes written from the
+# commits. Nothing is public until the draft is published by hand. The steps for a person are in docs/RELEASING.md.
+#
+# The tag has to be the workspace's version (Cargo.toml, [workspace.package] version) with a "v" before it; a version
+# with a dash (v0.2.0-rc.1) is marked as a pre-release.
+#
+# What is built:
+#   Windows x64   always; it has to build and pass its tests, or there is no release.
+#   Linux x86-64  for a tag, or when ticked in a run started by hand; may fail without stopping the release.
+#   macOS arm64   only when the repository variable RELEASE_MACOS is "true" (Settings, Secrets and variables, Actions,
+#                 Variables), or when ticked in a run started by hand: its minutes count ten times on a private
+#                 repository. May fail without stopping the release.
+#
+# Started by hand (Actions tab, "Run workflow") it builds the same packages from the chosen branch and keeps them with
+# the run for two weeks ("Artifacts"), without a release: to try the process or to hand someone a build.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      linux:
+        description: Build the Linux package
+        type: boolean
+        default: true
+      macos:
+        description: Build the macOS package (ten times the minutes on a private repository)
+        type: boolean
+        default: false
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+# (the same shell on every system, one that stops at the first command that fails)
+defaults:
+  run:
+    shell: bash
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUSTUP_MAX_RETRIES: 5
+  CARGO_NET_RETRY: 5
+
+jobs:
+  plan:
+    name: Version and what to build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      release: ${{ steps.plan.outputs.release }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          WANT_LINUX: ${{ inputs.linux }}
+          WANT_MACOS: ${{ inputs.macos }}
+          TAG_MACOS: ${{ vars.RELEASE_MACOS }}
+        run: |
+          # The workspace's version: the first `version = "..."` under [workspace.package].
+          version=$(awk '/^\[workspace\.package\]/{p=1;next} /^\[/{p=0} p && /^version *=/{gsub(/[" ]/,""); sub(/^version=/,""); print; exit}' Cargo.toml)
+          if [ -z "$version" ]; then
+            echo "::error file=Cargo.toml::no version under [workspace.package]"
+            exit 1
+          fi
+          linux=false
+          macos=false
+          if [ "$EVENT" = push ]; then
+            if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+              echo "::error::the tag is $GITHUB_REF_NAME but Cargo.toml's version is $version: the tag has to be v$version (set the version, commit, and tag that commit)"
+              exit 1
+            fi
+            release=true
+            linux=true
+            if [ "$TAG_MACOS" = true ]; then macos=true; fi
+          else
+            # (a run started by hand: a build of the branch, named for its commit, and no release)
+            version="$version-dev.$(git rev-parse --short=8 HEAD)"
+            release=false
+            if [ "$WANT_LINUX" = true ]; then linux=true; fi
+            if [ "$WANT_MACOS" = true ]; then macos=true; fi
+          fi
+          matrix='{"id":"windows-x64","name":"Windows x64","os":"windows-latest","required":true,"tests":true}'
+          if [ "$linux" = true ]; then
+            matrix="$matrix,"'{"id":"linux-x86_64","name":"Linux x86-64","os":"ubuntu-latest","required":false,"tests":true}'
+          fi
+          if [ "$macos" = true ]; then
+            # (no tests there: the Windows and Linux jobs run them, and a macOS minute is ten)
+            matrix="$matrix,"'{"id":"macos-arm64","name":"macOS arm64","os":"macos-latest","required":false,"tests":false}'
+          fi
+          {
+            echo "version=$version"
+            echo "release=$release"
+            echo "matrix={\"include\":[$matrix]}"
+          } >> "$GITHUB_OUTPUT"
+          echo "### Modern Anarchy Online $version" >> "$GITHUB_STEP_SUMMARY"
+          echo "release: $release, Linux: $linux, macOS: $macos" >> "$GITHUB_STEP_SUMMARY"
+
+  package:
+    name: ${{ matrix.name }}
+    needs: plan
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ !matrix.required }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Linux build packages (ALSA's headers for the sound)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev pkg-config
+
+      - name: Rust (stable)
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+          rustc --version
+          cargo --version
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-build
+          # (a tag's run reads what main's runs kept; it keeps nothing of its own)
+          save-if: ${{ github.event_name != 'push' }}
+
+      - name: Test
+        if: matrix.tests
+        run: cargo test --workspace --release --locked
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./tools/package.ps1 -Version $env:VERSION
+
+      - name: Package (Linux, macOS)
+        if: runner.os != 'Windows'
+        run: sh tools/package.sh dist "$VERSION"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: package-${{ matrix.id }}
+          path: |
+            dist/ModernAnarchyOnline-*.zip
+            dist/ModernAnarchyOnline-*.tar.gz
+          if-no-files-found: error
+          # (the archives are compressed already)
+          compression-level: 0
+          retention-days: 14
+
+  release:
+    name: Draft release
+    needs: [plan, package]
+    if: needs.plan.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
+      TAG: ${{ github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: package-*
+          path: out
+          merge-multiple: true
+
+      - name: Checksums
+        working-directory: out
+        run: |
+          ls -la
+          sha256sum ModernAnarchyOnline-* > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Draft the release (or add to the one the tag already has)
+        working-directory: out
+        run: |
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            # (the workflow run again for the same tag: the files are replaced, the release's text is left as it is)
+            gh release upload "$TAG" ModernAnarchyOnline-* SHA256SUMS.txt --clobber
+          else
+            # (what stands above the notes GitHub writes from the commits since the last release)
+            {
+              echo "A client for Anarchy Online: it needs an installed copy of the game and an account. Unpack the archive anywhere and see README.txt in it."
+              echo
+              echo "The files' SHA-256 sums are in SHA256SUMS.txt."
+              if ls ModernAnarchyOnline-*.tar.gz > /dev/null 2>&1; then
+                echo
+                echo "The Linux and macOS archives come from the same build process as the Windows one but have seen little or no play."
+              fi
+            } > ../notes.md
+            flags="--draft --generate-notes --verify-tag"
+            case "$TAG" in *-*) flags="$flags --prerelease" ;; esac
+            gh release create "$TAG" $flags --title "Modern Anarchy Online $VERSION" --notes-file ../notes.md ModernAnarchyOnline-* SHA256SUMS.txt
+          fi
+          echo "The draft is at $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases : read it over and press Publish." >> "$GITHUB_STEP_SUMMARY"
