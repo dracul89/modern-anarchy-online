@@ -37,7 +37,7 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Config {
-        Config { sources: vec![mao_help::GAME.to_string()], model: Model::default(), local: String::new() }
+        Config { sources: vec![mao_help::GAME.to_string(), mao_help::CRAFTING.to_string()], model: Model::default(), local: String::new() }
     }
 }
 
@@ -415,7 +415,11 @@ impl Assistant {
                     if title.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
                         toggle = Some(n);
                     }
-                    let from = if hit.source == mao_help::GAME { "the game's help".to_string() } else { crawl::site(&hit.source).map_or(hit.source.clone(), |s| s.label.to_string()) };
+                    let from = if hit.source == mao_help::GAME {
+                        "the game's help".to_string()
+                    } else if hit.source == mao_help::CRAFTING {
+                        "the game's crafting texts (an item's description)".to_string()
+                    } else { crawl::site(&hit.source).map_or(hit.source.clone(), |s| s.label.to_string()) };
                     ui.horizontal_wrapped(|ui| {
                         ui.label(egui::RichText::new(from).small().color(weak));
                         if web && ui.add(egui::Label::new(egui::RichText::new("open the page").small().underline().color(weak)).sense(egui::Sense::click())).on_hover_text(&hit.url).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
@@ -435,6 +439,14 @@ impl Assistant {
                         config_now.sources.retain(|s| s != mao_help::GAME);
                         if game {
                             config_now.sources.insert(0, mao_help::GAME.to_string());
+                        }
+                        changed = true;
+                    }
+                    let mut crafting = config_now.sources.iter().any(|s| s == mao_help::CRAFTING);
+                    if crate::chrome::checkbox(ui, palette, &mut crafting, "The game's crafting books, manuals and tradeskill items").changed() {
+                        config_now.sources.retain(|s| s != mao_help::CRAFTING);
+                        if crafting {
+                            config_now.sources.insert(usize::from(game), mao_help::CRAFTING.to_string());
                         }
                         changed = true;
                     }
@@ -574,7 +586,7 @@ mod tests {
         // (the one test that touches the shared settings: it puts them back)
         let before = config();
         set_config(Config::default());
-        assert_eq!(config().sources, ["game"]);
+        assert_eq!(config().sources, ["game", "crafting"]);
         assert!(!config().model.configured());
         for (name, value) in [("sources", "game, AO-Universe"), ("endpoint", "http://localhost:11434/v1/chat/completions"), ("model", "small"), ("api", "anthropic"), ("key_env", "MY_KEY"), ("context_chars", "9000")] {
             assert!(configure(name, value), "{name}");

@@ -165,9 +165,13 @@ impl TradeskillWindow {
             Event::Requirement(stat, value) => {
                 let skill = crate::gui::stat_names::STAT_NAMES.iter().find(|s| s.0 == stat).map_or_else(|| stat.to_string(), |s| s.1.to_string());
                 let own = stats.get(&stat).copied().unwrap_or(0);
+                // (kept for the tradeskill guide: `craftguide::Book`)
+                crate::craftguide::learned_need(&name(src), ql(src), &name(dst), ql(dst), &skill, value);
                 self.texts[BUILD_TEXT] = format(&text("YouNeedAtLeastSkill"), &[Arg::Int(value as i64), Arg::Text(&skill), Arg::Text(&skill), Arg::Int(own)]);
             }
-            Event::Result { min, max, low, high, name, icon } => {
+            Event::Result { min, max, low, high, name: result, icon } => {
+                crate::craftguide::learned_result(&name(src), &name(dst), &result, min, max);
+                let name = result;
                 (self.min, self.max) = (min, max);
                 self.result = Some(Result { low, high, name, icon });
             }

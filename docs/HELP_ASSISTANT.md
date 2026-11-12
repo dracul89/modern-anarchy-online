@@ -88,6 +88,11 @@ had), a command-line program `mao-help` for trying it, and the window in `crates
 - `game`: `mao_help::game_docs` reads `cd_image/text/help/*.html` of the game folder (not the `index-*.html` link
   lists). The files are text with a few tags and meaningful line ends; a headline is a `<font color=CCInfoHeadline>`.
   Nothing is cached: 110 files are read and indexed in a few milliseconds each time.
+- `crafting` (2026-11-12): `mao_help::crafting_docs` reads the game's item database through
+  `mao_formats::crafting`: each book or manual, and each item whose description speaks of making, is longer than
+  a line and has no bracket ending, is a page under the item's name (3,476 pages on the install looked at; about
+  two seconds). On by default beside `game`. The window names such a result "the game's crafting texts (an item's
+  description)". See `docs/TRADESKILL_GUIDE.md`.
 - A site (`mao_help::crawl::SITES`): a name, an origin, a sitemap path, the path prefixes that hold guides, a least
   gap between requests, and the owner's terms in a sentence for the player to read. Adding a site whose guides are
   listed in a sitemap is one entry there. Sites that need another way in (a Discourse forum's JSON, a MediaWiki

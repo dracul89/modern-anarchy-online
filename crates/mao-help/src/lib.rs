@@ -52,6 +52,23 @@ pub fn game_docs(game: &Path) -> Vec<Doc> {
     docs
 }
 
+/// The source that is the game's crafting texts: the books, manuals and tradeskill items of its item database.
+pub const CRAFTING: &str = "crafting";
+
+/// The game's crafting texts as pages (`mao_formats::crafting`): each book or manual, and each item whose description
+/// speaks of making and is more than a line, by its name. The links of the long chains (the thousands of items with
+/// what they are for in brackets, which all say the same) are left to the tradeskill guide's window.
+pub fn crafting_docs(game: &Path) -> Vec<Doc> {
+    let Ok(db) = mao_formats::resource::ResourceDatabase::open_game(game) else { return Vec::new() };
+    let guide = mao_formats::crafting::Guide::of_database(&db);
+    guide
+        .entries
+        .iter()
+        .filter(|e| e.guide || (e.speaks && e.text.len() >= 160 && mao_formats::crafting::subject(&e.name).is_none()))
+        .map(|e| Doc { source: CRAFTING.to_string(), url: format!("item {}", e.id), title: e.name.clone(), fetched: 0, stamp: String::new(), sections: vec![text::Section { heading: String::new(), text: e.text.clone() }] })
+        .collect()
+}
+
 /// The index over the sources that are on: the game's help when `game` is given and `enabled` names it, and the kept
 /// pages of the other sources `enabled` names.
 pub fn load(store: &Store, game: Option<&Path>, enabled: &[String]) -> Index {
@@ -60,6 +77,10 @@ pub fn load(store: &Store, game: Option<&Path>, enabled: &[String]) -> Index {
         if name == GAME {
             if let Some(game) = game {
                 docs.extend(game_docs(game));
+            }
+        } else if name == CRAFTING {
+            if let Some(game) = game {
+                docs.extend(crafting_docs(game));
             }
         } else {
             docs.extend(store.load(name));

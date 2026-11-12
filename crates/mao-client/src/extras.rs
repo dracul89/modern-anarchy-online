@@ -5,6 +5,7 @@
 //! |---|---|---|
 //! | `damage` | `/damage`, `/dps` | the damage meter (`damage.rs`) |
 //! | `find` | `/find <part of a name>` | where a thing is, on any of the player's characters (`itemindex.rs`) |
+//! | `crafting` | `/crafting [text]`, `/craft` | the tradeskill guide read from the game's items (`craftguide.rs`) |
 
 use crate::theme::Palette;
 
@@ -12,6 +13,7 @@ use crate::theme::Palette;
 pub struct Extras {
     pub damage: crate::damage::DamageWindow,
     pub finder: crate::itemindex::FindWindow,
+    pub crafting: crate::craftguide::CraftWindow,
 }
 
 impl Extras {
@@ -22,7 +24,13 @@ impl Extras {
             self.finder.query = query.trim().to_string();
             return Some(&mut self.finder.open);
         }
+        // (`/crafting <text>`: the guide with the text to look for)
+        if let Some(query) = name.strip_prefix("crafting ") {
+            self.crafting.look_for(query);
+            return Some(&mut self.crafting.open);
+        }
         match name {
+            "crafting" | "craft" | "craftguide" | "tradeskill guide" | "tradeskills" | "recipes" => Some(&mut self.crafting.open),
             "find" | "finder" | "find items" | "finditems" => Some(&mut self.finder.open),
             "damage" | "dps" | "damagemeter" | "damage meter" => Some(&mut self.damage.open),
             _ => None,
@@ -32,6 +40,7 @@ impl Extras {
     /// Whether a name's window is open.
     pub fn is_open(&self, name: &str) -> Option<bool> {
         match name {
+            "crafting" | "craft" | "craftguide" | "tradeskill guide" | "tradeskills" | "recipes" => Some(self.crafting.open),
             "find" | "finder" | "find items" | "finditems" => Some(self.finder.open),
             "damage" | "dps" | "damagemeter" | "damage meter" => Some(self.damage.open),
             _ => None,
@@ -42,11 +51,14 @@ impl Extras {
     pub fn close_all(&mut self) {
         self.damage.open = false;
         self.finder.open = false;
+        self.crafting.open = false;
     }
 
     /// Draws the open ones; gives back the info pages they ask for (`itemref://` addresses, for the info view).
     pub fn show(&mut self, ctx: &egui::Context, palette: &Palette) -> Vec<String> {
         self.damage.show(ctx, palette);
-        self.finder.show(ctx, palette)
+        let mut infos = self.finder.show(ctx, palette);
+        infos.extend(self.crafting.show(ctx, palette));
+        infos
     }
 }

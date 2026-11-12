@@ -281,6 +281,20 @@ To try by hand:
 - A buff bot's `help`: its second tell, the list, shows as a link; the link opens the page; the page's own links send
   their tells.
 
+## The tradeskill guide (2026-11-12)
+
+- `/crafting nano crystal`: after about two seconds the list, the book on creating nano crystals first; its page
+  reads as a text with its paragraphs. "Books and manuals only" with the box empty lists all 416.
+- A page of an item of a chain (an instruction disc of some nano program): the stated step, the books that speak of
+  its kind, the others of the same name in brackets; each name opens its page, Back returns.
+- A thing in one of your bags or the bank (after `/find` has seen it): its name is green in the guide, the hover
+  says which character and where.
+- The tradeskill window (Shift and a right click on an item onto another, or the window itself) with two items that
+  combine: afterwards the pages of both show "What the tradeskill window told you" with the result, its qualities
+  and the skills; `tradeskills.txt` appears beside `mao.ini`. A pair you lack the skill for: the requirement is
+  written down too.
+- `/open assistant` and a crafting question: the results say "the game's crafting texts".
+
 ## The help window's own model (2026-11-12)
 
 - `/open assistant`, "Sources and the model", the tick for the small model, "Fetch the model (1117 MB, once)": the

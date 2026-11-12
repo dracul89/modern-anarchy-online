@@ -59,7 +59,7 @@ fn run() -> Result<(), String> {
     let args = args()?;
     let store = Store::new(&args.dir);
     // (without --sources: the game's help and every site that has pages kept)
-    let sources = if args.sources.is_empty() { std::iter::once(mao_help::GAME.to_string()).chain(store.sources()).collect() } else { args.sources.clone() };
+    let sources = if args.sources.is_empty() { [mao_help::GAME.to_string(), mao_help::CRAFTING.to_string()].into_iter().chain(store.sources()).collect() } else { args.sources.clone() };
     let command = args.rest.first().map(String::as_str).unwrap_or("");
     match command {
         "sites" => {

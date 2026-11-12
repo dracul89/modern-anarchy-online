@@ -36,6 +36,7 @@ mod factions;
 mod damage;
 mod extras;
 mod itemindex;
+mod craftguide;
 mod charcreate;
 mod launchwindow;
 mod hall;
@@ -1740,6 +1741,16 @@ fn run(args: &[String]) -> Result<(), String> {
                         let mut tools = extras::Extras::default();
                         tools.finder.preview = Some(itemindex::sample_at(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs()) - 600));
                         tools.finder.look_for(&std::env::var("MAO_FIND").unwrap_or_else(|_| "pistol".to_string()));
+                        *hud.extras_preview.lock().unwrap() = Some(tools);
+                    }
+                    // MAO_UI_PREVIEW=crafting (MAO_CRAFT=<text to find>, MAO_CRAFT_PAGE=<a name>): the tradeskill guide
+                    // read from the game's items; MAO_CRAFT_SAMPLE=1: over a made-up guide, things owned and tried.
+                    if preview.as_deref() == Some("crafting") {
+                        let mut tools = extras::Extras::default();
+                        let sample = craftguide::sample();
+                        tools.crafting.preview = Some(if std::env::var_os("MAO_CRAFT_SAMPLE").is_some() { sample } else { (std::sync::Arc::new(mao_formats::crafting::Guide::of_database(&db)), sample.1, Default::default()) });
+                        tools.crafting.look_for(&std::env::var("MAO_CRAFT").unwrap_or_default());
+                        tools.crafting.page = std::env::var("MAO_CRAFT_PAGE").ok();
                         *hud.extras_preview.lock().unwrap() = Some(tools);
                     }
                     // MAO_ALERT=<text> (with any preview): an error box with the text (`chrome::alert`).

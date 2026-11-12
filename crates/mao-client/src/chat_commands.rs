@@ -66,6 +66,7 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
     ("invite <name>", "asks the character into your private chat group; /kick <name> puts one out, /leave <name> leaves that character's group"),
     ("assist [name]", "fights whomever your target (or the character named) is fighting"),
     ("damage", "the damage meter (also /dps)"),
+    ("crafting [text]", "the tradeskill guide: what the game's items and books say about making things"),
     ("find <part of a name>", "where a thing is, on any of your characters this client has played"),
     ("help", "this list"),
     ("version", "the client's version"),
@@ -180,7 +181,7 @@ pub fn suggest(input: &str) -> Vec<&'static str> {
 /// The command with this name (any case), as the original writes it.
 /// Commands of this client's own, beyond the original's list: `/sit` (the X key's sit and stand).
 /// `/pet` is Gamecode's own (FUN_100542ad), not in the input line's list, but the control center's Pets menu runs it.
-pub const EXTRA: &[&str] = &["sit", "pet", "perf", "damage", "dps", "find", "messagebox", "perks", "perk"];
+pub const EXTRA: &[&str] = &["sit", "pet", "perf", "damage", "dps", "find", "messagebox", "perks", "perk", "crafting", "craft"];
 
 /// `/pet <command>`'s words and the `PetCommand` numbers they send (Gamecode FUN_100542ad's table).
 pub const PET_COMMANDS: &[(&str, u32)] = &[
@@ -277,6 +278,8 @@ pub fn parse(line: &str) -> Parsed {
         "perf" => Parsed::Perf,
         // (this client's own tool windows: `extras.rs`)
         "damage" | "dps" => Parsed::Window { name: "damage".to_string(), open: true },
+        // (`/crafting [text]`: the tradeskill guide, with that to look for)
+        "crafting" | "craft" => Parsed::Window { name: format!("crafting {text}").trim().to_string(), open: true },
         // (`/find <part of a name>`: the item finder with that to look for; alone, the window)
         "find" => Parsed::Window { name: format!("find {text}").trim().to_string(), open: true },
         "pet" => match text.split_whitespace().next().and_then(|w| PET_COMMANDS.iter().find(|c| c.0.eq_ignore_ascii_case(w))) {
@@ -493,6 +496,8 @@ mod tests {
         assert_eq!(parse("/dps"), Parsed::Window { name: "damage".into(), open: true });
         assert_eq!(parse("/find Treatment Kit"), Parsed::Window { name: "find Treatment Kit".into(), open: true });
         assert_eq!(parse("/find"), Parsed::Window { name: "find".into(), open: true });
+        assert_eq!(parse("/crafting nano crystal"), Parsed::Window { name: "crafting nano crystal".into(), open: true });
+        assert_eq!(parse("/craft"), Parsed::Window { name: "crafting".into(), open: true });
         // (commands of the original carried out since 2026-11-12)
         assert_eq!(parse("/text hello there"), Parsed::Text { text: "hello there".into() });
         assert_eq!(parse("/text"), Parsed::Empty);

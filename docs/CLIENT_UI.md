@@ -830,6 +830,28 @@ behind used to hide some of it. Seen from inside in pictures (`inside.py` in the
 headings, `MAO_CULL=show`): the neutral, Omni and clan basic shops have their walls whole. `rooms::describe_room`
 and the `roomcells` example say a room's cells, pieces and textures. Not seen live.
 
+**The tradeskill guide (2026-11-12, the user: "I'd like a tradeskill helper too, a guide to all the creations a
+user can craft in game").** A window of the client's own (`/crafting [text]`, `/craft`, window name `crafting`;
+`craftguide.rs` over `mao_formats::crafting`; the whole account is `docs/TRADESKILL_GUIDE.md`). **The game's files
+hold no table of the tradeskill processes**: no record kind for them, no "use on an item" action on the templates
+(their action kinds are 0, 1, 3, 5, 6, 7, 8, 111), and the original client asks the server pair by pair
+(`CharacterAction` 0xdc to 0xe4). So the guide is what Funcom wrote on the items of the player's own install, read
+when the window first opens (two seconds, away from the frame): 16,306 entries, of which 416 are books and manuals
+(the book on nano crystals, a construction manual for each of hundreds of weapons) shown as pages to read; the
+other items a text names as links; the 2,002 steps a text states outright ("with this, that makes that"); the kin
+of a thing made in several steps (the same name in brackets); the books that speak of a thing or its kind; and the
+way back from a thing to its parts as far as the texts say. Two things come from the player's side: a name is
+green where the item finder knows the player has it (which character, which place, on hover), and every answer the
+server gives in the tradeskill window (result, quality range, each skill requirement) is written to
+`tradeskills.txt` beside the settings and shown on the pages of the items involved. That last part is the only
+exact one and grows only with use. The links and steps are read from prose: a thing named in passing is linked like
+one that is needed, and a sentence built unusually is missed. The crafting texts are also a source of the help
+window (`crafting`, on by default: 3,476 pages), so the small model answers "how do I make a nano crystal" from the
+game's own book. Seen in preview pictures over the game's data (`MAO_UI_PREVIEW=crafting`, `MAO_CRAFT`,
+`MAO_CRAFT_PAGE`, `MAO_CRAFT_SAMPLE=1`). Live (Brasscasings), `/crafting nano crystal` opened the window and the
+guide was read in 2.3 s; the window was not looked at on the screen, and the writing down of the tradeskill
+window's answers was not tried against the server.
+
 **The help window's own small model (2026-11-12, the user: "We need a small llm, only needs to interact with our
 data really").** The "Ask the guides" window can now write its answer with a model the client runs itself:
 Qwen2.5 1.5B Instruct, a 1.1 GB file the player fetches once from the window ("Sources and the model", the tick

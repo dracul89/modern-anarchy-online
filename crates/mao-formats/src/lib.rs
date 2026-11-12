@@ -38,3 +38,4 @@ pub mod music;
 pub mod districts;
 pub mod landcontrolmap;
 pub mod spell;
+pub mod crafting;
