@@ -338,6 +338,106 @@ pub fn org_command(character: u32, command: u8, target: (u32, u32), window: u32,
     Message { kind: 0x7f4b3108, identity: (CHARACTER, character), data }.frame(character)
 }
 
+/// What the server answers `/org info` with: `OrgServerIIR_c` (`64582a07`) of type 2 (Gamecode FUN_10126d95 reads it:
+/// after the type and two identities, the second the organization's, seven texts and a list of the areas the
+/// organization controls; FUN_10126f5a makes the info page of them).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct OrgInfo {
+    pub organization: (u32, u32),
+    pub name: String,
+    pub description: String,
+    pub objective: String,
+    pub history: String,
+    pub governing_form: String,
+    pub leader: String,
+    /// The asking character's rank in it.
+    pub rank: String,
+    pub areas: Vec<OrgArea>,
+}
+
+/// An area an organization controls (FUN_1012905a: the playfield, an identity, the area's name, its level and its
+/// type, which the page shows in Roman numerals).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct OrgArea {
+    pub playfield: u32,
+    pub name: String,
+    pub level: u32,
+    pub kind: u32,
+}
+
+/// The pieces of an `OrgServer` message's body after its type and identities.
+struct OrgReader<'a> {
+    data: &'a [u8],
+    at: usize,
+}
+
+impl OrgReader<'_> {
+    fn u32(&mut self) -> Option<u32> {
+        let v = u32::from_be_bytes(self.data.get(self.at..self.at + 4)?.try_into().ok()?);
+        self.at += 4;
+        Some(v)
+    }
+    fn u16(&mut self) -> Option<u16> {
+        let v = u16::from_be_bytes(self.data.get(self.at..self.at + 2)?.try_into().ok()?);
+        self.at += 2;
+        Some(v)
+    }
+    /// A text: its length in two bytes, then its bytes (FUN_10038af8).
+    fn text(&mut self) -> Option<String> {
+        let length = self.u16()? as usize;
+        let text = String::from_utf8_lossy(self.data.get(self.at..self.at + length)?).into_owned();
+        self.at += length;
+        Some(text)
+    }
+    /// A list's length: the word is (length + 1) x 1009.
+    fn count(&mut self) -> Option<usize> {
+        let word = self.u32()?;
+        (word % 0x3f1 == 0 && word / 0x3f1 >= 1 && word / 0x3f1 - 1 < 0x7531).then(|| (word / 0x3f1 - 1) as usize)
+    }
+}
+
+/// The type of an `OrgServer` message's data, and the organization it is about.
+fn org_server(data: &[u8], kind: u8) -> Option<(OrgReader<'_>, (u32, u32))> {
+    if data.get(1) != Some(&kind) {
+        return None;
+    }
+    let mut r = OrgReader { data, at: 10 };
+    let organization = (r.u32()?, r.u32()?);
+    Some((r, organization))
+}
+
+/// An `OrgServer` message of type 2 read ([`OrgInfo`]).
+pub fn org_info(data: &[u8]) -> Option<OrgInfo> {
+    let (mut r, organization) = org_server(data, 2)?;
+    let (name, description, objective, history, governing_form, leader, rank) = (r.text()?, r.text()?, r.text()?, r.text()?, r.text()?, r.text()?, r.text()?);
+    let mut areas = Vec::new();
+    for _ in 0..r.count().unwrap_or(0) {
+        let playfield = r.u32()?;
+        r.at += 8;
+        let name = r.text()?;
+        let (level, kind) = (r.u32()?, r.u32()?);
+        areas.push(OrgArea { playfield, name, level, kind });
+    }
+    Some(OrgInfo { organization, name, description, objective, history, governing_form, leader, rank, areas })
+}
+
+/// What the server answers `/org contract` with: `OrgServer` type 1, the organization's contract as a container of
+/// items (Gamecode FUN_10126d95: a `NewInventory_t` of the organization's identity read by FUN_1002a5db, each item a
+/// place and then what a character's items are in the world's first message, [`crate::inventory::Entry`]). The
+/// organization and its items.
+pub fn org_contract(data: &[u8]) -> Option<((u32, u32), Vec<crate::inventory::Entry>)> {
+    let (mut r, organization) = org_server(data, 1)?;
+    let mut entries = Vec::new();
+    for _ in 0..r.count()? {
+        let slot = r.u32()?;
+        let (flags, count) = (r.u16()?, r.u16()?);
+        let container = (r.u32()?, r.u32()?);
+        let (low_id, high_id, quality, extra) = (r.u32()?, r.u32()?, r.u32()?, r.u32()?);
+        entries.push(crate::inventory::Entry { slot, flags, count, container, low_id, high_id, quality, extra });
+    }
+    Some((organization, entries))
+}
+
 /// The organization commands whose message carries a text (FUN_1012653f's and FUN_101265fe's cases).
 pub const ORG_WITH_TEXT: [u8; 13] = [1, 7, 9, 0xd, 0x11, 0x13, 0x14, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c];
 
@@ -2126,6 +2226,26 @@ mod text_command_tests {
         assert_eq!(body, &[0, 0, 0, 0, 0x85, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0][..]);
         assert_eq!(&set[set.len() - 27..][4..9], &[0x7f, 0, 0, 0, 0]);
         assert_eq!(&set[set.len() - 6..], &[0, 0, 0, 5, 0, 0]);
+        // (the server's answers as they came on 2026-11-12, the organization's number put to 1: the info with its
+        // seven texts and no areas, the contract with no items)
+        let text = |t: &str| [&(t.len() as u16).to_be_bytes()[..], t.as_bytes()].concat();
+        let head = |kind: u8| [&[0, kind][..], &[0; 8], &0xdeaau32.to_be_bytes(), &1u32.to_be_bytes()].concat();
+        let info = [head(2), text("Corrupted"), text(""), text(""), text(""), text("Anarchism"), text(""), text("Anarchist"), 0x3f1u32.to_be_bytes().to_vec()].concat();
+        assert_eq!(info.len(), 63);
+        let read = org_info(&info).unwrap();
+        assert_eq!((read.organization, read.name.as_str(), read.governing_form.as_str(), read.leader.as_str(), read.rank.as_str(), read.areas.len()), ((0xdeaa, 1), "Corrupted", "Anarchism", "", "Anarchist", 0));
+        // (an area: playfield, an identity, its name, level and type)
+        let area = [&655u32.to_be_bytes()[..], &[0; 8], &text("Site 4"), &120u32.to_be_bytes(), &4u32.to_be_bytes()].concat();
+        let with_area = [&info[..info.len() - 4], &(2 * 0x3f1u32).to_be_bytes(), &area].concat();
+        assert_eq!(org_info(&with_area).unwrap().areas, vec![OrgArea { playfield: 655, name: "Site 4".into(), level: 120, kind: 4 }]);
+        assert_eq!(org_info(&info[..40]), None);
+        let contract = [head(1), 0x3f1u32.to_be_bytes().to_vec(), vec![1]].concat();
+        assert_eq!(contract.len(), 23);
+        assert_eq!(org_contract(&contract), Some(((0xdeaa, 1), Vec::new())));
+        let item = [&0x40u32.to_be_bytes()[..], &1u16.to_be_bytes(), &1u16.to_be_bytes(), &[0; 8], &1000u32.to_be_bytes(), &1001u32.to_be_bytes(), &50u32.to_be_bytes(), &0u32.to_be_bytes()].concat();
+        let with_item = [head(1), (2 * 0x3f1u32).to_be_bytes().to_vec(), item, vec![1]].concat();
+        assert_eq!(org_contract(&with_item).unwrap().1, vec![crate::inventory::Entry { slot: 0x40, flags: 1, count: 1, container: (0, 0), low_id: 1000, high_id: 1001, quality: 50, extra: 0 }]);
+        assert_eq!((org_contract(&info), org_info(&contract)), (None, None));
         // (an organization command: number, identity, window; a text only for those that have one; a byte for 10)
         assert_eq!(org_command(1, 5, (0xc350, 7), 2, "ignored", false).body.ends_with(&[0, 5, 0, 0, 0xc3, 0x50, 0, 0, 0, 7, 0, 0, 0, 2]), true);
         assert_eq!(org_command(1, 0xd, (0, 0), 0, "Abc", false).body.ends_with(&[0, 0xd, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, b'A', b'b', b'c']), true);

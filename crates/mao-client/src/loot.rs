@@ -143,9 +143,14 @@ impl LootWindow {
     }
 }
 
+/// The identity type of an organization: its contract is a container of that identity (`/org contract`; GUI.dll's
+/// `ItemContainerView_c` FUN_100ce55d gives it 100 places and sorts it as it does the bank).
+pub const ORGANIZATION: u32 = 0xdeaa;
+
 pub fn max_items(kind: u32, own: bool) -> i32 {
     match kind {
         BANK => 0x66,
+        ORGANIZATION => 100,
         _ if own => BAG_PLACES as i32,
         _ => -1,
     }
@@ -175,7 +180,7 @@ impl LootWindow {
         let mut take = None;
         let mut open = self.open;
         // (FUN_100ccefe: an empty corpse or chest closes after a second; the bank and one's own backpack stay)
-        if view.items.is_empty() && view.identity.0 != BANK && !view.own {
+        if view.items.is_empty() && !matches!(view.identity.0, BANK | ORGANIZATION) && !view.own {
             if self.empty_since.is_none_or(|e| (e.0, e.1) != (view.identity, view.handle)) {
                 self.empty_since = Some((view.identity, view.handle, std::time::Instant::now()));
             }
@@ -242,7 +247,7 @@ impl LootWindow {
             // (the views over the window less the room of the "Take all" row under them)
             // (laid out from the bottom: the button first, the views over what is left, so the window does not grow)
             ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
-                if !view.items.is_empty() && view.identity.0 != BANK && !view.own && crate::chrome::button(ui, palette, "Take all", true).clicked() {
+                if !view.items.is_empty() && !matches!(view.identity.0, BANK | ORGANIZATION) && !view.own && crate::chrome::button(ui, palette, "Take all", true).clicked() {
                     take = Some(Take::All { handle: view.handle });
                 }
                 let response = crate::gui::host::show(ui, tree, root, skin.as_deref(), palette);
@@ -354,6 +359,7 @@ pub fn title(kind: u32) -> &'static str {
         CORPSE => "Corpse",
         0xc749 => "Bag",
         BANK => "Bank",
+        ORGANIZATION => "Organization contract",
         _ => "Container",
     }
 }

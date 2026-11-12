@@ -13,7 +13,8 @@
 //!
 //! Tried live on 2026-11-12: `info`, `ranks` and `contract` only read. Outside an organization the server answers
 //! each with a line; in one, `ranks` is answered with a line (a packed text with the ranks after it), and `info`
-//! and `contract` with `OrgServer` messages (types 2 and 1), which this client does not show yet.
+//! and `contract` with `OrgServer` messages (types 2 and 1): a page of the info view and a container window
+//! (`net.rs`, `mao_net::n3::org_info` and `org_contract`).
 //!
 //! **`history`, `description`, `objective`, `name` and `governingform` set that text of the organization**, and
 //! they are sent with whatever follows, nothing included, as the original sends them: `/org history` alone sets an

@@ -212,8 +212,8 @@ answered "You are not authorized to perform that command. (Your request has been
   and any other word say the game's `OrgCommandHelp` ("Invalid /org command ..."); `leave` and `disband` ask
   first in boxes (`N3Msg_OrgLeaveConfirmed`, `N3Msg_OrgDisbandConfirmed`) and are not carried out here.
   **Tried live:** `info`, `ranks` and `contract` only read (outside an organization each is answered with a line;
-  in one, `ranks` with a line, `info` and `contract` with `OrgServer` messages of types 2 and 1, which this
-  client does not show yet). **`history` is not a question: it sets the organization's history text**, as
+  in one, `ranks` with a line, `info` and `contract` with `OrgServer` messages of types 2 and 1, shown as
+  said below). **`history` is not a question: it sets the organization's history text**, as
   `description`, `objective`, `name` and `governingform` set theirs, and the original sends them with no text
   when none is given. `/org history` alone was sent once on 2026-11-12 on a character in the player's own
   organization, in the belief that it only read; the server answered "Organization info updated.". The text was
@@ -221,6 +221,24 @@ answered "You are not authorized to perform that command. (Your request has been
   them), so nothing was lost. The client sends them as the original does, with an empty text when none is
   given (for some hours it refused to; the user chose the original's way). The other numbers were not sent to a
   server.
+- **The answers to `/org info` and `/org contract`** (shown since 2026-11-12) are `OrgServerIIR_c` messages
+  (`64582a07`; Gamecode FUN_10126d95 reads them, FUN_10126f5a acts on them): a type, two identities (the second
+  the organization's, type 0xdeaa), then by type. **Type 2, the info:** seven texts (name, description, objective,
+  history, governing form, leader, the asking character's rank) and a list of the areas the organization controls
+  (each a playfield, an identity, a name, a level and a type). The original makes a page of them from text.mdb
+  508: `OrgInfo` fed the name, leader, governing form, description, objective and history; `OrgInfoRank` with the
+  rank when there is one; with areas `OrgInfoLC` fed their count and 5, and `LC_AreaInfo` for each fed its
+  playfield's name, its name, its type in Roman numerals (FUN_10126bcd) and its level; and raises
+  `GlobalSignals_c` +0x18c with the text. Here it is a page of the info view (`net::org_info_page`,
+  `n3::org_info`): the page's colours are the info view's, but the signal's receiver was not traced. The game's
+  `LC_AreaInfo` text ends without a line break, so one area's "Level" runs into the next one's "In:", as the
+  original's code would have it too. **Type 1, the contract:** a `NewInventory_t` of the organization's identity
+  (FUN_1002a5db: each item a place and then an item as in a character's inventory) and a byte; the original closes
+  and opens the inventory of that identity (FUN_1001185f, FUN_100117bd), which GUI.dll's `ItemContainerView_c`
+  (FUN_100ce55d) shows as a container of 100 places sorted like the bank. Here it opens the container window
+  (`n3::org_contract`, `loot::ORGANIZATION`, titled "Organization contract" in this client's words). Seen live on
+  one organization: its info read back right, and its contract was empty; a contract with items, and an
+  organization with areas, were not seen, nor was anything taken from or put into the contract.
 - The answers arrive as chat texts with packed pieces in them (`~&…~` and plain text after): the client now
   unpacks them as LDB.dll's `RemoteFormat::ParseString` does (`mao_formats::ldb::parse_string`); before, they
   showed as they came.

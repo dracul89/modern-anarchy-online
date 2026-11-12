@@ -1460,6 +1460,21 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
     // (MAO_UI_PREVIEW=factions: the faction window on sample standings)
     let mut preview_factions = (std::env::var("MAO_UI_PREVIEW").as_deref() == Ok("factions")).then(|| { let mut w = crate::factions::FactionWindow::default(); w.open = true; w });
     let faction_sample: std::collections::BTreeMap<u32, i64> = [(566, 1200), (567, 40000), (568, -12000), (569, -45000), (570, 0), (571, 7500), (572, -300)].into_iter().collect();
+    // (MAO_UI_PREVIEW=infopage MAO_INFO_URL=<url>: the info view on that page, a `text://` one for a text;
+    // MAO_INFO_URL=org: a made-up organization's page as `/org info` is answered)
+    let mut preview_info = (std::env::var("MAO_UI_PREVIEW").as_deref() == Ok("infopage")).then(|| {
+        let mut view = crate::gui::infoview::InfoView::default();
+        let url = match std::env::var("MAO_INFO_URL").unwrap_or_default().as_str() {
+            "org" => {
+                let area = |name: &str, level, kind| mao_net::n3::OrgArea { playfield: 0, name: name.to_string(), level, kind };
+                let sample = mao_net::n3::OrgInfo { organization: (0xdeaa, 1), name: "The Testers".into(), description: "A made-up organization for a picture.".into(), objective: "To be looked at.".into(), history: "Founded for this preview.".into(), governing_form: "Republic".into(), leader: "Somebody".into(), rank: "Member".into(), areas: vec![area("Site 4", 120, 4), area("Site 9", 60, 2)] };
+                format!("text://{}", crate::net::org_info_page(&sample))
+            }
+            other => other.to_string(),
+        };
+        view.show_url(&url);
+        view
+    });
     // (MAO_UI_PREVIEW=inspect: the inspect window)
     let mut preview_inspect = (std::env::var("MAO_UI_PREVIEW").as_deref() == Ok("inspect")).then(crate::gear::GearWindow::default);
     // (MAO_UI_PREVIEW=tradeskill: the tradeskill window after the 2026-10-30 capture's combine)
@@ -1616,6 +1631,9 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
             }
             if let Some(window) = preview_friends.as_mut() {
                 window.show(&ctx, &hud.friends, &crate::friends::Around { ignored: &|name| name == "Ignored", mail: true, chat_open: true }, &palette);
+            }
+            if let Some(view) = preview_info.as_mut() {
+                view.show(&ctx, &palette);
             }
             if let Some(window) = preview_chat.as_mut() {
                 window.show(&ctx, &palette);

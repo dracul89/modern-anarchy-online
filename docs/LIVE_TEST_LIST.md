@@ -322,8 +322,11 @@ text commands (`N3Msg_TextCommand` 0x10017743, its FUN_1003fe10), each a `Charac
 - [x] `/org info`, `/org ranks`, `/org contract` outside an organization: "You are not a member of an
   organization." and "You're not in an organization." (2026-11-12).
 - [x] `/org ranks` in an organization: "Governing form: ... Ranks: ..." (2026-11-12).
-- [ ] `/org info` and `/org contract` in an organization: the server answers (`OrgServer` types 2 and 1); the
-  client does not show the answers yet.
+- [x] `/org info` and `/org contract` in an organization: the answers are read (2026-11-12, by the log: the
+  organization's name, no areas, a page made; the contract with no items). Left for a person: the info window
+  comes up with the page; the container window comes up titled "Organization contract" and empty.
+- [ ] `/org info` of an organization that controls areas (the list at the page's end), and with another member
+  selected; `/org contract` of an organization whose contract has items (they should show; do not move them).
 - [ ] Every other `/org` command (`invite`, `kick`, `promote`, `demote`, `bank`, `tax`, the votes, `debt`, `city`,
   and the ones that set a text: `name`, `description`, `objective`, `history`, `governingform`): never sent
   except `history` once, by mistake (below). **To be tried only in an organization made for testing**, not in the

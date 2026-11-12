@@ -639,6 +639,53 @@ fn inventory_from_schema_items(list: Option<&mao_net::schema::Value>) -> Vec<inv
     inventory_from_schema(list)
 }
 
+/// The playfields' names, for the texts that name one (the game loop sets it when it has read them).
+static PLAYFIELD_NAMES: std::sync::OnceLock<std::collections::HashMap<u32, String>> = std::sync::OnceLock::new();
+
+/// A number in Roman numerals, as Gamecode's FUN_10126bcd writes a controlled area's type (its table at 0x102c6f68:
+/// M, CM, D, CD, C, XC, L, XL, X, IX, V, IV, I); a number over 3999 or under 1 as it is.
+fn roman(mut n: u32) -> String {
+    if !(1..=3999).contains(&n) {
+        return n.to_string();
+    }
+    let mut out = String::new();
+    for (value, letters) in [(1000, "M"), (900, "CM"), (500, "D"), (400, "CD"), (100, "C"), (90, "XC"), (50, "L"), (40, "XL"), (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I")] {
+        while n >= value {
+            out.push_str(letters);
+            n -= value;
+        }
+    }
+    out
+}
+
+/// The info view's page for an organization (Gamecode FUN_10126f5a on `OrgServer` type 2): text.mdb 508's `OrgInfo`
+/// fed the name, the leader, the governing form, the description, the objective and the history; `OrgInfoRank` with
+/// the character's rank when it has one; and for an organization that controls areas `OrgInfoLC` fed their count
+/// and 5, and `LC_AreaInfo` for each fed its playfield's name, its own name, its type in Roman numerals and its
+/// level. The texts are the game's where it is at hand, else this client's own words.
+pub(crate) fn org_info_page(info: &n3::OrgInfo) -> String {
+    use mao_formats::ldb::{Arg, format};
+    let text = |name: &str, own: &str| crate::feedback::texts().and_then(|t| t.named(508, name)).unwrap_or(own).to_string();
+    let mut page = format(
+        &text("OrgInfo", "<font color=CCInfoHeadline>Organization</font>\r\n<font color=CCInfoHeader>Name: </font><font color=CCInfoText>%s</font>\r\n<font color=CCInfoHeader>Leader: </font><font color=CCInfoText>%s</font>\r\n<font color=CCInfoHeader>Governing form: </font><font color=CCInfoText>%s</font>\r\n<font color=CCInfoHeader>Description: </font><font color=CCInfoText>%s</font>\r\n<font color=CCInfoHeader>Objective: </font><font color=CCInfoText>%s</font>\r\n<font color=CCInfoHeader>History: </font><font color=CCInfoText>%s</font>\r\n"),
+        &[Arg::Text(&info.name), Arg::Text(&info.leader), Arg::Text(&info.governing_form), Arg::Text(&info.description), Arg::Text(&info.objective), Arg::Text(&info.history)],
+    );
+    if !info.rank.is_empty() {
+        page += &format(&text("OrgInfoRank", "<font color=CCInfoHeader>Your rank: </font><font color=CCInfoText>%s</font>\r\n"), &[Arg::Text(&info.rank)]);
+    }
+    if !info.areas.is_empty() {
+        page += &format(&text("OrgInfoLC", "\r\n<font color=CCInfoHeader>Controlled areas: </font><font color=CCInfoText>%u of at most %u.</font>\r\n"), &[Arg::Int(info.areas.len() as i64), Arg::Int(5)]);
+        for area in &info.areas {
+            let playfield = PLAYFIELD_NAMES.get().and_then(|n| n.get(&area.playfield)).map_or("ERROR: Unnamed playfield", String::as_str);
+            page += &format(
+                &text("LC_AreaInfo", "<font color=CCInfoHeader>In: </font><font color=CCInfoText>\"%s\"</font>\r\n<font color=CCInfoHeader>Area: </font><font color=CCInfoText>%s</font>\r\n<font color=CCInfoHeader>Type: </font><font color=CCInfoText>%s</font>\r\n<font color=CCInfoHeader>Level: </font><font color=CCInfoText>%d</font>"),
+                &[Arg::Text(playfield), Arg::Text(&area.name), Arg::Text(&roman(area.kind)), Arg::Int(area.level as i64)],
+            );
+        }
+    }
+    page.replace("\r\n", "<br>")
+}
+
 /// `DoorStatusUpdate` and the identity type of doors.
 const DOOR_STATUS: u32 = 0x4c7d403b;
 /// `Bank` (`BankMessage`): the bank's items.
@@ -2819,6 +2866,23 @@ impl World {
                 }
             }
         }
+        // The answers to `/org info` and `/org contract` (`OrgServer` types 2 and 1, Gamecode FUN_10126f5a): the info is a
+        // page of the info view, the contract a container of the organization's identity.
+        if m.kind == 0x64582a07 && m.identity.1 == self.own {
+            if let Some(info) = n3::org_info(&m.data) {
+                if std::env::var_os("MAO_COMBAT_LOG").is_some() {
+                    eprintln!("organization info: {:?}, {} areas, a page of {} characters", info.name, info.areas.len(), org_info_page(&info).len());
+                }
+                self.info_urls.push(format!("text://{}", org_info_page(&info)));
+            }
+            if let Some((organization, entries)) = n3::org_contract(&m.data) {
+                if std::env::var_os("MAO_COMBAT_LOG").is_some() {
+                    eprintln!("organization contract: ({:#x}, {:#x}) with {} items", organization.0, organization.1, entries.len());
+                }
+                self.loot = Some(Loot { identity: organization, handle: 0, entries });
+                self.loot_changed = true;
+            }
+        }
         // An organization benefit: type 6, then (after the organization's identity) a quality and a low and high item template.
         if m.kind == 0x64582a07 && m.identity.1 == self.own && m.data.len() >= 31 && m.data[..2] == [0, 6] {
             let word = |at: usize| u32::from_be_bytes(m.data[at..at + 4].try_into().unwrap());
@@ -4968,6 +5032,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     let (mut terrain, mut collision) = (terrain, Arc::new(collision));
     // The interface: the names of the playfields, and where the booths lead.
     let names: std::collections::HashMap<u32, String> = mao_formats::playfield::all(&db).into_iter().map(|p| (p.number, p.name.trim().to_string())).collect();
+    let _ = PLAYFIELD_NAMES.set(names.clone());
     let mut destinations = crate::whompah::Destinations::load();
     let mut booths = booths;
     let mut booth_playfield = playfield;
@@ -10705,5 +10770,25 @@ mod prop_anim_tests {
         assert_eq!(prop_anim_time(5, 2, 5.0, 7.3, 1.0), Some(0.0));
         // (a model without an animation)
         assert_eq!(prop_anim_time(2, 0, 5.0, 7.3, 0.0), None);
+    }
+}
+
+#[cfg(test)]
+mod org_answer_tests {
+    use super::*;
+
+    #[test]
+    fn an_organizations_info_is_a_page_and_types_are_roman() {
+        assert_eq!((roman(1), roman(4), roman(9), roman(14), roman(1994), roman(3999)), ("I".into(), "IV".into(), "IX".into(), "XIV".into(), "MCMXCIV".into(), "MMMCMXCIX".into()));
+        assert_eq!((roman(0), roman(4000)), ("0".to_string(), "4000".to_string()));
+        let info = n3::OrgInfo { organization: (0xdeaa, 1), name: "Testers".into(), governing_form: "Republic".into(), leader: "Abc".into(), rank: "Member".into(), areas: vec![n3::OrgArea { playfield: 0, name: "Site 4".into(), level: 120, kind: 4 }], ..Default::default() };
+        let page = org_info_page(&info);
+        for part in ["Testers", "Republic", "Abc", "Member", "Site 4", "IV", "120", "<br>"] {
+            assert!(page.contains(part), "{part}: {page}");
+        }
+        assert!(!page.contains("\r\n"));
+        // (no rank and no areas: neither part)
+        let bare = org_info_page(&n3::OrgInfo { name: "Testers".into(), ..Default::default() });
+        assert!(!bare.contains("Site") && bare.len() < page.len());
     }
 }
