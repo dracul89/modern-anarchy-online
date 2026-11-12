@@ -5755,9 +5755,16 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                 Some((template.name, icon))
                             };
                             let icon = |id: u32| gear_textures.get(mao_formats::item::ICON_TYPE, id).map(|t| std::sync::Arc::new(crate::gear::Icon { id, width: t.width as usize, height: t.height as usize, rgba: t.rgba }));
-                            let offers = crate::mission::offers_from(&p.value, &item, &icon);
+                            let mut offers = crate::mission::offers_from(&p.value, &item, &icon);
+                            // (each offer's place by its name, for the window's lines and the helper's lists)
+                            for offer in &mut offers {
+                                offer.playfield = names.get(&offer.destination.0).cloned().unwrap_or_default();
+                            }
                             if !offers.is_empty() {
                                 pending_missions = Some(offers);
+                            } else {
+                                // (GUI.dll FUN_100d0e71 says so in the window; in this client's words)
+                                pending_mission_status = Some("The terminal has no missions just now; try again later.".into());
                             }
                         }
                     }

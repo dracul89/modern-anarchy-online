@@ -2019,8 +2019,18 @@ fn run(args: &[String]) -> Result<(), String> {
                             };
                             let icon = |id: u32| textures2.get(mao_formats::item::ICON_TYPE, id).map(|x| std::sync::Arc::new(gear::Icon { id, width: x.width as usize, height: x.height as usize, rgba: x.rgba }));
                             if let Some(value) = net::capture_quest_alternative(&log.to_string_lossy()) {
-                                let mut window = mission::MissionWindow { open: true, ..Default::default() };
-                                window.set_offers(mission::offers_from(&value, &item, &icon));
+                                let mut window = mission::MissionWindow::default();
+                                window.open = true;
+                                // (MAO_MISSION_ITEMS / MAO_MISSION_PLACES: the helper's lists, `;` between the lines)
+                                window.set_helper(&std::env::var("MAO_MISSION_ITEMS").unwrap_or_default().replace(';', "
+"), &std::env::var("MAO_MISSION_PLACES").unwrap_or_default().replace(';', "
+"), false, mission::DEFAULT_LIMIT);
+                                let places: std::collections::HashMap<u32, String> = mao_formats::playfield::all(&db).into_iter().map(|p| (p.number, p.name.trim().to_string())).collect();
+                                let mut offers = mission::offers_from(&value, &item, &icon);
+                                for offer in &mut offers {
+                                    offer.playfield = places.get(&offer.destination.0).cloned().unwrap_or_default();
+                                }
+                                window.set_offers(offers);
                                 window.selected = Some(3);
                                 *hud.mission_preview.lock().unwrap() = Some(window);
                             }

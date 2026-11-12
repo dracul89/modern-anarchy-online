@@ -281,6 +281,15 @@ To try by hand:
 - A buff bot's `help`: its second tell, the list, shows as a link; the link opens the page; the page's own links send
   their tells.
 
+## The mission helper (2026-11-12): needs a hand, it costs credits
+
+- At a mission terminal, Request Missions: each offer in a line under the button (rewards, place by name, credits).
+- "Looking for": a part of a reward's name that one of the offers has: that offer's line and box turn green.
+- "Keep asking until one fits" with a part that is not on offer and a limit of 3: three requests about a second
+  apart, then "Nothing fitting in 3 requests"; the credits go down by three times the level.
+- The same with a part that does come up: it stops on the fitting offer and selects it.
+- "Stop asking" in the middle, and closing the window in the middle: no more requests.
+
 ## The item finder (2026-11-12)
 
 - `/find kit` on a character: its kits with where they are; then the same from another character of the account:

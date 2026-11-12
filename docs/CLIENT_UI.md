@@ -830,6 +830,26 @@ behind used to hide some of it. Seen from inside in pictures (`inside.py` in the
 headings, `MAO_CULL=show`): the neutral, Omni and clan basic shops have their walls whole. `rooms::describe_room`
 and the `roomcells` example say a room's cells, pieces and textures. Not seen live.
 
+**The mission helper (2026-11-12, the user: "clone the mission-buddy to help users roll missions").** The old
+outside helpers read the mission terminal's offers off the screen and told the player when a wanted reward or place
+came up. Here it is part of the terminal's own window (`mission.rs`), since the client has the offers as data. Under
+the Request Missions button every offer now stands in a line: its reward items with their quality, the playfield it
+sends the player to (by name: the network thread fills it in) and its credits; a click selects the offer. "Looking
+for" holds two lists, parts of reward items' names and parts of places' names, a part a line. An offer fits when
+one of its rewards holds one of the item parts and its place one of the place parts (a list left empty asks
+nothing; with both empty nothing fits): its line and its box are marked green, and the line's tip says what fitted.
+With "Keep asking until one fits" ticked, Request Missions asks again by itself, 1.2 s after each answer that does
+not fit, until an offer fits (it is selected, and the window says after how many requests), the limit is reached
+(20 unless set, at most 200) or the terminal does not answer within 10 s; "Stop asking" ends it, and so does
+closing the window. The lists, the limit and the tick are kept in `missionhelper.txt` beside the settings. Each
+request costs as many credits as the character has levels (the original's own rule, above), which the window says
+under the lists; a request the credits do not cover ends the asking with the error box. A terminal with nothing to
+offer now says so (GUI.dll FUN_100d0e71's line, in this client's words). **Not tried live**: asking a terminal costs
+credits, which the tests on the user's characters may not spend, so the asking-again has only its rule's tests
+(`next_step`) and the window a picture (`MAO_UI_PREVIEW=mission MAO_CAPTURE=capture-221539.log`,
+`MAO_MISSION_ITEMS` / `MAO_MISSION_PLACES` with `;` between the parts). Not there yet: a sound or a flash when an
+offer fits, fitting by the kind of mission, and accepting by itself (left to the player on purpose).
+
 **The item finder (2026-11-12, the user: "devise a means for players to find items in their bags or bank on each
 character you might have to tell them which character it is on").** `/find <part of a name>` (or `/find`,
 `/open find`) opens Find items, this client's own (`itemindex.rs`). The server tells a character's things only while
