@@ -108,12 +108,17 @@ pub struct Prefs {
     pub dimension: String,
     pub network_timeout: u32,
     pub dimension_timeout: u32,
+    /// The launcher's background: `game` (one of the game's pictures), `stars` (this client's night sky with the
+    /// game's steel emblem) or a picture file (`launchskin.rs`).
+    pub background: String,
+    /// The game's news page over the launcher's top.
+    pub page: bool,
 }
 
 impl Default for Prefs {
     fn default() -> Self {
         // (the original's own defaults: its Connection page, `GeneralNetworkTimeout` and `DimensionNetworkTimeout`)
-        Prefs { dimension: String::new(), network_timeout: 90, dimension_timeout: 30 }
+        Prefs { dimension: String::new(), network_timeout: 90, dimension_timeout: 30, background: crate::launchskin::GAME.into(), page: true }
     }
 }
 
@@ -130,6 +135,8 @@ impl Prefs {
                 "dimension" => p.dimension = value.to_string(),
                 "network_timeout" => p.network_timeout = value.parse().unwrap_or(p.network_timeout).clamp(5, 600),
                 "dimension_timeout" => p.dimension_timeout = value.parse().unwrap_or(p.dimension_timeout).clamp(2, 300),
+                "background" if !value.is_empty() => p.background = value.to_string(),
+                "page" => p.page = !matches!(value.to_ascii_lowercase().as_str(), "off" | "false" | "no" | "0"),
                 _ => {}
             }
         }
@@ -137,7 +144,7 @@ impl Prefs {
     }
 
     pub fn to_text(&self) -> String {
-        format!("dimension = {}\nnetwork_timeout = {}\ndimension_timeout = {}\n", self.dimension, self.network_timeout, self.dimension_timeout)
+        format!("dimension = {}\nnetwork_timeout = {}\ndimension_timeout = {}\nbackground = {}\npage = {}\n", self.dimension, self.network_timeout, self.dimension_timeout, self.background, if self.page { "on" } else { "off" })
     }
 
     pub fn load() -> Prefs {
@@ -187,8 +194,12 @@ mod tests {
 
     #[test]
     fn the_launchers_file_keeps_the_dimension_and_the_time_outs() {
-        let p = Prefs { dimension: "Second World".into(), network_timeout: 120, dimension_timeout: 10 };
+        let p = Prefs { dimension: "Second World".into(), network_timeout: 120, dimension_timeout: 10, background: "stars".into(), page: false };
         assert_eq!(Prefs::from_text(&p.to_text()), p);
+        // (a picture's path with a drive's colon and spaces in it is kept whole; the page is on unless it says off)
+        let own = Prefs::from_text("background = D:/My Pictures/sky one.png\npage = on\n");
+        assert_eq!((own.background.as_str(), own.page), ("D:/My Pictures/sky one.png", true));
+        assert_eq!((Prefs::default().background.as_str(), Prefs::default().page), ("game", true));
         assert_eq!(Prefs::from_text(""), Prefs::default());
         assert_eq!(Prefs::from_text("network_timeout = 100000\n").network_timeout, 600);
     }

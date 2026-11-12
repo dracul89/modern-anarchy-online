@@ -216,6 +216,10 @@ account with `net <game> create`, in Arete Landing; scripted, other new players 
 - Level 4 reached by kills (the level's own message not yet seen with the fix in).
 - **Found and fixed** (the user saw them): the rifle was not in the character's hands; the health, nano and
   experience bars were drawn off their frames (they are the original's upright bars in the wings now).
+- [ ] The launcher's own background (2026-11-12): in its settings, GUI page, Launcher group, choose "Stars and the
+  steel emblem" and OK: the sky comes at once, the emblem small at the lower left under the page; untick the news
+  page: the emblem large in the middle; a few stars change their brightness; "A picture of your own" with a file;
+  back to "The game's pictures". PLAY works the same with each.
 - The launcher (2026-11-11, `mao-client <game> launch`): the page, the dimensions downloaded, the settings' three
   pages, PLAY into the login with the hall behind it. Not tried: a login from it by hand, a changed device.
 - **Found and fixed** (the user played the character, 2026-11-11): a seated character stood up at any key (now

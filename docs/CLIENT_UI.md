@@ -757,6 +757,18 @@ repository):
 - The window is the original's 794 by 575, not resizable, one of the ten pictures of
   `cd_image/data/launcher/skins/backgrounds` over all of it. Which one the original shows was not read (one by the
   clock here).
+- **A background of this client's own (2026-11-12, asked for by the user; `launchskin.rs`).** The settings' GUI
+  page has a Launcher group: Background is "The game's pictures" (as before, and the default), "Stars and the steel
+  emblem", or "A picture of your own" (a file, drawn over the whole window); and a box for the game's news page,
+  which can be left out. The star background is drawn by the client from a seed, the same every time and at the
+  window's own pixels: a dark sky, a band of blue and violet cloud across it, some fifteen hundred stars with the
+  brightest few spiked, and 48 more that change their brightness slowly. On it is the game's steel emblem,
+  `GFX_GUI_AO_LOGO` of the game's own skin (`cd_image/gui/Default`), read from the game folder when the launcher
+  opens, its green key taken out, with a blue light behind it: large in the page's place when the page is left
+  out, small at the left of the strip under the page otherwise. Nothing of it is a file of this repository. Kept in
+  `launcher.ini` as `background = game | stars | <a picture's path>` and `page = on | off`. Without a game folder
+  the sky has no emblem; a picture that cannot be read gives the game's. Seen in pictures of the test launcher
+  (both layouts and the settings' page); not yet by the user.
 - Its upper 428 pixels are a web page: the original embeds a browser control at `SHOWURL` of
   `cd_image/data/launcher/AnarchyLauncher.url`, and the banner, the row of links, the customer service messages and
   the tip of the day are all that page's. Here the same page in a WebView2 child (wry); a link that asks for a new

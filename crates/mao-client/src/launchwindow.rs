@@ -3,7 +3,9 @@
 //! What the original's is made of, and what is done with each here:
 //!
 //! - A window of 794 by 575 with one of the pictures of `cd_image/data/launcher/skins/backgrounds` over all of it (the
-//!   art is along the bottom). The same picture here, one of those the folder has.
+//!   art is along the bottom). The same picture here, one of those the folder has; or, by the launcher's own
+//!   `background` setting, this client's night sky with the game's steel emblem, or a picture of the user's
+//!   (`launchskin.rs`), and the page can be left out (`page`).
 //! - In its upper 428 pixels a web page (an embedded browser control at `SHOWURL` of
 //!   `cd_image/data/launcher/AnarchyLauncher.url`: the banner, the row of links, the customer service messages and the
 //!   tip of the day are all that page's). The same page here in a WebView2 child (wry, as the in-game pages); a link
@@ -64,8 +66,16 @@ type ButtonPictures = [Option<egui::TextureHandle>; 3];
 #[derive(Default)]
 struct Pictures {
     background: Option<egui::TextureHandle>,
+    /// This client's night sky in the background's place: what is drawn over it.
+    sky: Option<Sky>,
     play: ButtonPictures,
     settings: ButtonPictures,
+}
+
+struct Sky {
+    emblem: Option<egui::TextureHandle>,
+    glow: egui::TextureHandle,
+    twinklers: Vec<crate::launchskin::Twinkler>,
 }
 
 /// The background pictures a game folder has.
@@ -76,17 +86,48 @@ fn backgrounds(game: &Path) -> Vec<PathBuf> {
     files
 }
 
-fn load_pictures(ctx: &egui::Context, game: &Path) -> Pictures {
+/// A picture file as the window's background.
+fn picture(ctx: &egui::Context, file: &Path) -> Option<egui::TextureHandle> {
+    let image = image::open(file).ok()?.to_rgba8();
+    let (w, h) = image.dimensions();
+    Some(ctx.load_texture("launcher-background", egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], image.as_raw()), egui::TextureOptions::LINEAR))
+}
+
+fn load_pictures(ctx: &egui::Context, game: &Path, prefs: &Prefs) -> Pictures {
+    use crate::launchskin::{self, Background};
     let mut pictures = Pictures::default();
-    let files = backgrounds(game);
-    if !files.is_empty() {
-        // (which of them the original shows was not read: here one by the clock)
-        let pick = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as usize) % files.len();
-        if let Ok(image) = image::open(&files[pick]) {
-            let image = image.to_rgba8();
-            let (w, h) = image.dimensions();
-            pictures.background = Some(ctx.load_texture("launcher-background", egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], image.as_raw()), egui::TextureOptions::LINEAR));
+    let mut wanted = launchskin::background(&prefs.background);
+    if let Background::Picture(file) = &wanted {
+        pictures.background = picture(ctx, file);
+        if pictures.background.is_none() {
+            eprintln!("the launcher's background {} is no picture that can be read: the game's instead", file.display());
+            wanted = Background::Game;
         }
+    }
+    match wanted {
+        Background::Game => {
+            let files = backgrounds(game);
+            if !files.is_empty() {
+                // (which of them the original shows was not read: here one by the clock)
+                let pick = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as usize) % files.len();
+                pictures.background = picture(ctx, &files[pick]);
+            }
+        }
+        Background::Stars => {
+            // (drawn at the window's own pixels, so it is as sharp on a scaled screen)
+            let pixels = ctx.pixels_per_point();
+            let size = ctx.content_rect().size() * pixels;
+            let (w, h) = ((size.x.round() as usize).clamp(64, 8192), (size.y.round() as usize).clamp(64, 8192));
+            pictures.background = Some(ctx.load_texture("launcher-background", egui::ColorImage::from_rgba_unmultiplied([w, h], &launchskin::sky(w, h)), egui::TextureOptions::LINEAR));
+            // (the emblem is the game's own picture of it, from the game's own skin: none without the game)
+            let high = launchskin::emblem_place(prefs.page)[3] * w as f32 / launchskin::FRAME[0];
+            let emblem = crate::skin::Layer::open(&mao_formats::files::find(&game.join("cd_image/gui/Default")))
+                .and_then(|layer| launchskin::emblem(layer.bytes("GFX_GUI_AO_LOGO")?, high.round() as u32))
+                .map(|(pixels, size)| ctx.load_texture("launcher-emblem", egui::ColorImage::from_rgba_premultiplied(size, &pixels), egui::TextureOptions::LINEAR));
+            let glow = ctx.load_texture("launcher-glow", egui::ColorImage::from_rgba_premultiplied([128, 128], &launchskin::glow(128)), egui::TextureOptions::LINEAR);
+            pictures.sky = Some(Sky { emblem, glow, twinklers: launchskin::twinklers() });
+        }
+        Background::Picture(_) => {}
     }
     if let Ok(program) = std::fs::read(mao_formats::files::find(&game.join("Anarchy.exe"))) {
         let bitmaps = mao_formats::pe::bitmaps(&program);
@@ -265,6 +306,9 @@ struct Dialog {
     themes: Vec<String>,
     network: String,
     dimension: String,
+    /// The launcher's background: 0 the game's pictures, 1 the night sky, 2 a picture of the user's, and that picture.
+    background: usize,
+    picture: String,
     /// The game folder's field as it was last checked, and what the check said.
     checked: Option<(String, Result<String, String>)>,
 }
@@ -289,6 +333,15 @@ impl Dialog {
             themes: crate::theme::available(&settings.aou_mod),
             network: prefs.network_timeout.to_string(),
             dimension: prefs.dimension_timeout.to_string(),
+            background: match crate::launchskin::background(&prefs.background) {
+                crate::launchskin::Background::Game => 0,
+                crate::launchskin::Background::Stars => 1,
+                crate::launchskin::Background::Picture(_) => 2,
+            },
+            picture: match crate::launchskin::background(&prefs.background) {
+                crate::launchskin::Background::Picture(file) => file.display().to_string(),
+                _ => String::new(),
+            },
             checked: None,
         }
     }
@@ -299,6 +352,12 @@ impl Dialog {
         self.settings.height = self.height.trim().parse().unwrap_or(self.settings.height).clamp(240, 16384);
         self.prefs.network_timeout = self.network.trim().parse().unwrap_or(self.prefs.network_timeout).clamp(5, 600);
         self.prefs.dimension_timeout = self.dimension.trim().parse().unwrap_or(self.prefs.dimension_timeout).clamp(2, 300);
+        // (a picture of one's own with no file named is the game's pictures)
+        self.prefs.background = match (self.background, self.picture.trim()) {
+            (1, _) => crate::launchskin::STARS.to_string(),
+            (2, file) if !file.is_empty() => file.to_string(),
+            _ => crate::launchskin::GAME.to_string(),
+        };
     }
 
     fn visual(&mut self, ui: &mut egui::Ui) {
@@ -458,6 +517,30 @@ impl Dialog {
         });
         ui.group(|ui| {
             ui.set_width(ui.available_width());
+            ui.strong("Launcher");
+            ui.horizontal(|ui| {
+                ui.label("Background");
+                let names = ["The game's pictures", "Stars and the steel emblem", "A picture of your own"];
+                egui::ComboBox::from_id_salt("launcher-skin").selected_text(names[self.background.min(2)]).width(200.0).show_ui(ui, |ui| {
+                    for (i, name) in names.into_iter().enumerate() {
+                        ui.selectable_value(&mut self.background, i, name);
+                    }
+                });
+            });
+            if self.background == 2 {
+                ui.horizontal(|ui| {
+                    ui.add(egui::TextEdit::singleline(&mut self.picture).desired_width(290.0).hint_text("a picture of 794 by 575, or of that shape"));
+                    if ui.button("Browse").clicked() {
+                        if let Some(file) = rfd::FileDialog::new().set_title("The launcher's background").add_filter("Pictures", &["png", "jpg", "jpeg", "bmp"]).pick_file() {
+                            self.picture = file.display().to_string();
+                        }
+                    }
+                });
+            }
+            ui.checkbox(&mut self.prefs.page, "The game's news page over the top");
+        });
+        ui.group(|ui| {
+            ui.set_width(ui.available_width());
             ui.strong("Font");
             ui.checkbox(&mut self.settings.original_font, "The original's own font");
             ui.horizontal(|ui| {
@@ -590,6 +673,8 @@ struct Launch {
     game_ok: bool,
     /// The settings chose another game folder: the launcher starts again.
     restart: bool,
+    /// The settings chose another background: the pictures are made anew.
+    new_pictures: bool,
     started: Instant,
     /// `MAO_LAUNCH_QUIT=<seconds>`: the window closes by itself (for pictures of it).
     quit_after: Option<f32>,
@@ -644,6 +729,24 @@ impl Launch {
                 }
                 None => {
                     painter.rect_filled(screen, 0.0, egui::Color32::from_rgb(12, 12, 12));
+                }
+            }
+            if let Some(sky) = &pictures.sky {
+                // (the stars that change: a point and a faint ring of light round it, both added to the sky)
+                let seconds = self.started.elapsed().as_secs_f32();
+                for star in &sky.twinklers {
+                    let centre = screen.min + egui::vec2(star.at[0] * screen.width(), star.at[1] * screen.height());
+                    let light = |part: f32| egui::Color32::from_rgba_premultiplied((star.colour[0] as f32 * part) as u8, (star.colour[1] as f32 * part) as u8, (star.colour[2] as f32 * part) as u8, 0);
+                    let bright = star.brightness(seconds);
+                    painter.circle_filled(centre, star.radius * k * 2.8, light(bright * 0.09));
+                    painter.circle_filled(centre, star.radius * k, light(bright));
+                }
+                if let Some(emblem) = &sky.emblem {
+                    let rect = at(crate::launchskin::emblem_place(self.prefs.page));
+                    // (a blue light behind it, added to the sky, so the dark steel stands off the dark)
+                    let glow = egui::Rect::from_center_size(rect.center(), egui::vec2(rect.height() * 1.7, rect.height() * 1.9));
+                    painter.image(sky.glow.id(), glow, whole, egui::Color32::from_rgba_premultiplied(30, 54, 112, 0));
+                    painter.image(emblem.id(), rect, whole, egui::Color32::WHITE);
                 }
             }
             // (the page's place while it is away: a line saying so, or what the list is waiting for)
@@ -704,6 +807,7 @@ impl Launch {
                     dialog.take_fields();
                     self.settings = dialog.settings.clone();
                     self.settings.game_dir = self.settings.game_dir.trim().to_string();
+                    self.new_pictures = dialog.prefs.background != self.prefs.background || dialog.prefs.page != self.prefs.page;
                     self.prefs = dialog.prefs.clone();
                     self.settings.save();
                     self.dialog = None;
@@ -720,8 +824,9 @@ impl Launch {
         if let Some(name) = self.dimension().map(|d| d.name.clone()).filter(|n| *n != self.prefs.dimension) {
             self.prefs.dimension = name;
         }
-        // (the page is a window of its own over the top: away while the settings are open over it)
-        self.dialog.is_none()
+        // (the page is a window of its own over the top: away while the settings are open over it, and when the
+        // launcher's settings leave it out)
+        self.dialog.is_none() && self.prefs.page
     }
 }
 
@@ -844,9 +949,12 @@ impl ApplicationHandler for Launch {
                     let pictures = &mut gfx.pictures;
                     let mut page_may_show = true;
                     let ui_frame = gfx.ui.run_custom(&gfx.window, &mut |ctx| {
-                        let pictures = pictures.get_or_insert_with(|| load_pictures(ctx, Path::new(&game)));
+                        let pictures = pictures.get_or_insert_with(|| load_pictures(ctx, Path::new(&game), &self.prefs));
                         page_may_show = self.screen(ctx, pictures, &monitor);
                     });
+                    if std::mem::take(&mut self.new_pictures) {
+                        gfx.pictures = None;
+                    }
                     if page_may_show != gfx.page_shown {
                         gfx.page_shown = page_may_show;
                         #[cfg(windows)]
@@ -881,7 +989,7 @@ impl ApplicationHandler for Launch {
                     gfx.frames += 1;
                     let drawing_since = *gfx.first_frame.get_or_insert_with(Instant::now);
                     #[cfg(windows)]
-                    if !gfx.page_tried && gfx.frames >= 10 && drawing_since.elapsed() > Duration::from_millis(500) && std::env::var_os("MAO_LAUNCH_NO_PAGE").is_none() {
+                    if !gfx.page_tried && self.prefs.page && gfx.frames >= 10 && drawing_since.elapsed() > Duration::from_millis(500) && std::env::var_os("MAO_LAUNCH_NO_PAGE").is_none() {
                         gfx.page_tried = true;
                         if let Some(address) = dimensions::page_address(Path::new(&self.game)) {
                             gfx.page = open_page(&gfx.window, &address, page_bounds(gfx.window.inner_size()));
@@ -952,6 +1060,7 @@ pub fn run(named: Option<&str>) -> Result<(), String> {
         play: false,
         game_ok,
         restart: false,
+        new_pictures: false,
         started: Instant::now(),
         quit_after: std::env::var("MAO_LAUNCH_QUIT").ok().and_then(|v| v.parse().ok()),
         play_after: std::env::var("MAO_LAUNCH_PLAY").ok().and_then(|v| v.parse().ok()),
