@@ -281,6 +281,17 @@ To try by hand:
 - A buff bot's `help`: its second tell, the list, shows as a link; the link opens the page; the page's own links send
   their tells.
 
+## A wrong password, the loading screen after Play (2026-11-12)
+
+- A wrong password: a Browser window over the login window with the site's page ("Please try to re-enter your
+  username and password"), the login window its usual size under it; its links open the system's browser; the
+  window's close box puts it away; the right password then logs in and the page is gone.
+- No connection (the network off): the page of error 1, or the words if the page cannot be had either.
+- Play: the loading screen at once, in the same window as it seems (borderless), until the world shows through its
+  fade; no desktop in between. In a plain window: the game's window where the list's was.
+- The exclusive full-screen mode, if used: what the change between the two windows looks like.
+- A new character made and played: the welcome picture's turn as before.
+
 ## Doors among rooms (2026-11-11)
 
 - A shop: each doorway has a dark sliding door; it opens as the character comes up to it (about 4 m), the room behind

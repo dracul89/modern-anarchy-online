@@ -31,7 +31,7 @@
 //! | Automatically report disconnects to Funcom | gone |
 //!
 //! Not done: patching (the original turns PLAY into PATCH when the versions differ; here the difference is only
-//! told), the end-user licence dialog, the page of an error code (`ERRORURL`).
+//! told), the end-user licence dialog. (The page of an error code, `ERRORURL`, is the login's: `launcher.rs`.)
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver};
@@ -747,7 +747,7 @@ pub fn limit_name(fps: u32, none: &str) -> String {
 }
 
 #[cfg(windows)]
-fn open_page(window: &Window, address: &str, bounds: wry::Rect) -> Option<(wry::WebView, wry::WebContext)> {
+pub(crate) fn open_page(window: &Window, address: &str, bounds: wry::Rect) -> Option<(wry::WebView, wry::WebContext)> {
     let data = Settings::path().parent().map_or_else(|| PathBuf::from("Browser"), |d| d.join("Browser"));
     let mut context = wry::WebContext::new(Some(data));
     let view = wry::WebViewBuilder::new_with_web_context(&mut context)

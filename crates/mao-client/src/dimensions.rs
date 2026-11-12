@@ -67,6 +67,19 @@ pub fn list_address(game: &Path) -> Option<String> {
     first_address(&mao_formats::files::read_to_string(game.join("cd_image/data/launcher/DimensionServer.url")).ok()?)
 }
 
+/// The page of a login error under `base` (`LoginModule_c::ShowError` 0x10011fd5): the number of the message that
+/// refused (13, the login; 1 when the login server is not reached), a dash and its code when it has one, `.html`.
+pub fn error_page_under(base: &str, kind: u32, code: u32) -> String {
+    if code != 0 { format!("{base}{kind}-{code}.html") } else { format!("{base}{kind}.html") }
+}
+
+/// The page of a login error: under `ERRORURL` of `AnarchyLauncher.url` (GUI.dll's `LoginModule_c` reads that file's
+/// `name=value` lines into its addresses, the names in small letters, and asks for `errorurl`).
+pub fn error_page(game: &Path, kind: u32, code: u32) -> Option<String> {
+    let base = named_value(&mao_formats::files::read_to_string(game.join("cd_image/data/launcher/AnarchyLauncher.url")).ok()?, "ERRORURL")?;
+    Some(error_page_under(&base, kind, code))
+}
+
 /// The page the original launcher shows (`SHOWURL` of `AnarchyLauncher.url`).
 pub fn page_address(game: &Path) -> Option<String> {
     named_value(&mao_formats::files::read_to_string(game.join("cd_image/data/launcher/AnarchyLauncher.url")).ok()?, "SHOWURL")
@@ -153,6 +166,14 @@ mod tests {
         assert_eq!((list[1].name.as_str(), list[1].port), ("Second World", 7506));
         assert_eq!(list[0].server(), "login.example.org:7505");
         assert!(parse("nothing").is_empty());
+    }
+
+    #[test]
+    fn an_error_has_its_page() {
+        assert_eq!(error_page_under("http://pages.example.org/errors/", 13, 0), "http://pages.example.org/errors/13.html");
+        assert_eq!(error_page_under("http://pages.example.org/errors/", 13, 2), "http://pages.example.org/errors/13-2.html");
+        assert_eq!(error_page_under("http://pages.example.org/errors/", 1, 0), "http://pages.example.org/errors/1.html");
+        assert_eq!(named_value("# c\nSHOWURL=a\nERRORURL=http://pages.example.org/errors/\n1=331\n", "errorurl").as_deref(), Some("http://pages.example.org/errors/"));
     }
 
     #[test]

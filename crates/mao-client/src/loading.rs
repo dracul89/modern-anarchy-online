@@ -8,6 +8,10 @@
 //!
 //! This client's own: the picture is tinted blue ([`TINT`], each channel multiplied), and the screen also covers a zoning
 //! (shown at once, fading out over [`ZONE_FADE_OUT`] when the new playfield is drawn).
+//!
+//! The game is a process of its own here, which logs in and reads the playfield before it has a window: the character
+//! list's window puts the screen up when Play is pressed and keeps it until the game's window has drawn (`launcher.rs`),
+//! and the game's goes on from there ([`begin_since`]), so the fade in is one.
 
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -41,6 +45,23 @@ pub fn begin(fade_in: Duration, fade_out: Duration) {
     if l.is_none_or(|l| l.done.is_some()) {
         *l = Some(Load { began: Instant::now(), fade_in, fade_out, done: None });
     }
+}
+
+/// The screen goes up as one that has been up for `elapsed` already (in another window: the character list's).
+pub fn begin_since(elapsed: Duration, fade_in: Duration, fade_out: Duration) {
+    let now = Instant::now();
+    *load() = Some(Load { began: now.checked_sub(elapsed).unwrap_or(now), fade_in, fade_out, done: None });
+}
+
+/// When a screen put up `since` (milliseconds of the system's clock, as [`clock_millis`] gives them) was put up, as
+/// time passed until `now`; nothing for a clock that went backwards.
+pub fn elapsed_since(since: u64, now: u64) -> Duration {
+    Duration::from_millis(now.saturating_sub(since))
+}
+
+/// The system's clock in milliseconds (handed from the character list's process to the game's).
+pub fn clock_millis() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
 }
 
 /// The world is in: the screen fades out.
@@ -134,6 +155,11 @@ mod tests {
         let (sheet, shown) = alphas(&l, t + Duration::from_millis(7500)).unwrap();
         assert!((sheet - 0.5).abs() < 1e-4 && (shown - 0.5).abs() < 1e-4);
         assert_eq!(alphas(&l, t + Duration::from_secs(11)), None);
+        // (a screen taken over from the character list's window, up for three seconds there: a quarter left to fade in)
+        assert_eq!(elapsed_since(10_000, 13_000), Duration::from_secs(3));
+        assert_eq!(elapsed_since(13_000, 10_000), Duration::ZERO);
+        let l = Load { began: t, fade_in: FADE_IN, fade_out: FADE_OUT, done: None };
+        assert_eq!(alphas(&l, t + elapsed_since(10_000, 13_000)), Some((1.0, 0.75)));
         // (the blue: green-teal turned blue, the alpha kept)
         let mut px = [40, 200, 160, 255];
         tint(&mut px, TINT);

@@ -2,6 +2,13 @@
 //! with a Play button each. Playing a character starts the live client for it (`net <game> enter <name> --live`, as a new process
 //! so it gets its own window and event loop) with the credentials in that process's environment only; nothing but the account name
 //! is written to disk (`account.ini` beside `mao.ini`, so the next start has it filled in).
+//!
+//! A login that fails is said as the original says it (`LoginModule_c::ShowError`): the error's page of the game's own
+//! site in a Browser window over the login window (`loginviews::LoginBrowser`, [`Failure`]).
+//!
+//! A character played: the game's process logs in and reads the playfield before it has a window, some seconds. This
+//! window stays for that time with the loading screen up and goes when the game's window has drawn ([`Entering`]); the
+//! game's goes on with the same screen (`loading::begin_since`).
 
 use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
@@ -100,6 +107,25 @@ pub fn ordered<'a>(list: &'a [Character], last: &str) -> Vec<&'a Character> {
     rows
 }
 
+/// A login that failed: what went wrong in words, and the page of the original's that says it.
+struct Failure {
+    text: String,
+    /// The message that refused and its code (`LoginModule_c::SlotLoginReply` 0x10012179: 0xd, 0x10 and 0x21 go to
+    /// `ShowError` with theirs), or 1 and 0 for a login server that is not reached (`SlotLoginAccount` 0x100120f6).
+    page: Option<(u32, u32)>,
+}
+
+/// The game started for the chosen character.
+struct Entering {
+    child: std::process::Child,
+    /// The file the game writes once its window shows what it draws (`MAO_WINDOW_UP`).
+    marker: std::path::PathBuf,
+    since: std::time::Instant,
+}
+
+/// How long the character list's window waits for the game's before it goes anyway.
+const ENTERING_LIMIT: std::time::Duration = std::time::Duration::from_secs(180);
+
 enum Stage {
     Form,
     Busy,
@@ -127,6 +153,12 @@ struct Gfx {
     hall_character: bool,
     started: std::time::Instant,
     frames: u32,
+    /// The page of a login's error (`LoginBrowserWindow_c`'s `BrowserView_c`): a WebView2 child over the Browser
+    /// window's inside.
+    #[cfg(windows)]
+    page: Option<(wry::WebView, wry::WebContext)>,
+    /// The page's address, its place in the window's pixels and whether it shows.
+    page_state: (String, (i32, i32, u32, u32), bool),
 }
 
 struct Launcher {
@@ -144,7 +176,20 @@ struct Launcher {
     password: String,
     server: String,
     message: String,
-    answer: Option<Receiver<Result<Vec<Character>, String>>>,
+    answer: Option<Receiver<Result<Vec<Character>, Failure>>>,
+    /// The page of the login that failed last (`LoginModule_c::ShowError`), shown in the Browser window over the login
+    /// until that window is closed.
+    error_page: Option<String>,
+    /// What went wrong in words, shown where the page cannot be (`error_plain`: no page could be opened).
+    error_text: String,
+    error_plain: bool,
+    browser_view: crate::loginviews::LoginBrowser,
+    /// Points to the window's pixels, as the interface was last drawn.
+    scale: f32,
+    /// The game started for the chosen character: the loading screen is up here until its window has drawn.
+    entering: Option<Entering>,
+    /// The game could not be started.
+    start_error: Option<String>,
     /// The character to play.
     chosen: Option<String>,
     /// Quit was pressed.
@@ -189,10 +234,17 @@ impl Launcher {
         self.progress.start(timeout.unwrap_or_else(|| crate::loginviews::network_timeout("GeneralNetworkTimeout", 90.0)));
         self.message.clear();
         std::thread::spawn(move || {
-            let result = (|| -> Result<Vec<Character>, String> {
-                let version = version.map_err(|e| format!("version.id: {e}"))?;
-                let mut connection = Connection::connect(server.as_str()).map_err(|e| e.to_string())?;
-                let list = session::login(&mut connection, &user, &password, &version).map_err(|e| e.to_string())?;
+            let result = (|| -> Result<Vec<Character>, Failure> {
+                let version = version.map_err(|e| Failure { text: format!("version.id: {e}"), page: None })?;
+                // (`SlotLoginAccount`: `ConnectToLH` failing is error 1, the login handler not found)
+                let mut connection = Connection::connect(server.as_str()).map_err(|e| Failure { text: e.to_string(), page: Some((1, 0)) })?;
+                let list = session::login(&mut connection, &user, &password, &version).map_err(|e| Failure {
+                    page: match &e {
+                        session::Error::Refused { kind, code, .. } => Some((*kind, code.unwrap_or(0))),
+                        _ => None,
+                    },
+                    text: e.to_string(),
+                })?;
                 // (the login connection must be gone before the game's own login)
                 connection.close();
                 Ok(list)
@@ -223,7 +275,37 @@ impl Launcher {
         });
     }
 
+    /// Starts the game for a character: a process of its own (`net <game> enter <name> --live`) with the account in its
+    /// environment only, told when the loading screen went up here and where to say that its window is up.
+    fn start_game(&self, name: &str, window_at: Option<(i32, i32)>) -> Result<Entering, String> {
+        let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+        let marker = std::env::temp_dir().join(format!("mao-window-{}.up", std::process::id()));
+        let _ = std::fs::remove_file(&marker);
+        let mut command = std::process::Command::new(&exe);
+        command
+            .args(["net", &self.game, "enter", name, "--live"])
+            .env("MAO_USER", self.user.trim())
+            .env("MAO_PASSWORD", &self.password)
+            .env("MAO_SERVER", self.server.trim())
+            .env("MAO_NEW_CHARACTER", if self.new_character { "1" } else { "" })
+            .env("MAO_LOADING_SINCE", crate::loading::clock_millis().to_string())
+            .env("MAO_WINDOW_UP", &marker);
+        if let Some((x, y)) = window_at {
+            command.env("MAO_WINDOW_AT", format!("{x},{y}"));
+        }
+        let child = command.spawn().map_err(|e| e.to_string())?;
+        Ok(Entering { child, marker, since: std::time::Instant::now() })
+    }
+
     fn screen(&mut self, ctx: &egui::Context) {
+        self.scale = ctx.pixels_per_point();
+        self.browser_view.area = None;
+        // (the game is starting: the loading screen and nothing else, as `ServerLogin3DModule_t` has it once the
+        // character is logged in; here from the press of Play, the game's own window taking it over)
+        if self.entering.is_some() {
+            crate::loading::draw(ctx, ctx.content_rect());
+            return;
+        }
         if let Some(rx) = &self.answer {
             if let Ok(result) = rx.try_recv() {
                 self.answer = None;
@@ -232,8 +314,12 @@ impl Launcher {
                     Ok(list) if list.is_empty() => {
                         self.stage = Stage::Form;
                         self.message = "This account has no characters.".into();
+                        self.error_page = None;
                     }
                     Ok(list) => {
+                        // (the original keeps an error's page until its window is closed, so it stands over the login
+                        // again after Back; here a login that worked puts it away)
+                        self.error_page = None;
                         self.selected = ordered(&list, &self.last).into_iter().find(|c| c.created && !c.banned).map(|c| c.name.clone());
                         // (`MAO_LAUNCHER_ENTER=<name>`: that character is entered with as soon as the list is there, for trying
                         // the way from the list into the game without a hand on the mouse)
@@ -249,9 +335,14 @@ impl Launcher {
                         }
                         self.stage = Stage::Characters(list);
                     }
-                    Err(e) => {
+                    Err(failure) => {
+                        // (`LoginModule_c::ShowError`: the error's page in the Browser window, and the login again)
+                        eprintln!("login failed: {} (page {:?})", failure.text, failure.page);
                         self.stage = Stage::Form;
-                        self.message = format!("Login failed: {e}");
+                        self.error_page = failure.page.and_then(|(kind, code)| crate::dimensions::error_page(std::path::Path::new(&self.game), kind, code));
+                        self.error_plain = cfg!(not(windows));
+                        self.message = if self.error_page.is_some() { String::new() } else { format!("Login failed: {}", failure.text) };
+                        self.error_text = format!("Login failed: {}", failure.text);
                     }
                 }
             }
@@ -327,7 +418,20 @@ impl Launcher {
             let palette = self.palette.clone();
             let busy = matches!(self.stage, Stage::Busy);
             let accounts = self.accounts.clone();
-            match self.login_view.show(ctx, &palette, &mut self.user, &mut self.password, &accounts, &self.message, busy) {
+            // (an error's page over the login, `Show(0)` with an address: the two centred, the login moved down by half
+            // the browser's height and 5, the browser up by half the login's and 5)
+            let mut lower = 0.0;
+            if let Some(page) = self.error_page.clone() {
+                let apart = crate::loginviews::LoginBrowser::APART;
+                let words = if self.error_plain { format!("{}\n\n{page}", self.error_text) } else { String::new() };
+                if self.browser_view.show(ctx, &palette, self.login_view.height * 0.5 + apart, &words) {
+                    lower = self.browser_view.height * 0.5 + apart;
+                } else {
+                    // (`SlotBrowserQuitPressed`: the address emptied, the login alone again)
+                    self.error_page = None;
+                }
+            }
+            match self.login_view.show(ctx, &palette, &mut self.user, &mut self.password, &accounts, &self.message, busy, lower) {
                 Some(crate::loginviews::LoginAction::Login) => submit = true,
                 Some(crate::loginviews::LoginAction::Quit) => self.quit = true,
                 Some(crate::loginviews::LoginAction::Remove(user)) => {
@@ -380,7 +484,69 @@ impl Launcher {
     }
 }
 
+impl Launcher {
+    /// The error's page follows its window: opened when the window is first there, moved with it, put away when it goes.
+    #[cfg(windows)]
+    fn place_page(&mut self, gfx: &mut Gfx) {
+        let k = self.scale;
+        match self.browser_view.area.zip(self.error_page.clone()).filter(|_| !self.error_plain) {
+            Some((r, address)) => {
+                let bounds = ((r.min.x * k).round() as i32, (r.min.y * k).round() as i32, ((r.width() * k).round() as u32).max(1), ((r.height() * k).round() as u32).max(1));
+                let rect = wry::Rect { position: wry::dpi::PhysicalPosition::new(bounds.0, bounds.1).into(), size: wry::dpi::PhysicalSize::new(bounds.2, bounds.3).into() };
+                if gfx.page.is_none() {
+                    gfx.page = crate::launchwindow::open_page(&gfx.window, &address, rect);
+                    match &gfx.page {
+                        Some((view, _)) => {
+                            // (the keyboard left with the login's fields, `LoginWindow_c::Focus`; the surface set up anew,
+                            // as the launcher's window does after its page)
+                            let _ = view.focus_parent();
+                            gfx.surface.configure(&gfx.gpu.device, &gfx.config);
+                            gfx.page_state = (address, bounds, true);
+                        }
+                        // (no WebView2: the error in words)
+                        None => self.error_plain = true,
+                    }
+                    return;
+                }
+                if let Some((view, _)) = &gfx.page {
+                    if gfx.page_state.0 != address {
+                        let _ = view.load_url(&address);
+                        gfx.page_state.0 = address;
+                    }
+                    if gfx.page_state.1 != bounds {
+                        let _ = view.set_bounds(rect);
+                        gfx.page_state.1 = bounds;
+                    }
+                    if !gfx.page_state.2 {
+                        let _ = view.set_visible(true);
+                        let _ = view.focus_parent();
+                        gfx.page_state.2 = true;
+                    }
+                }
+            }
+            None => {
+                if let Some((view, _)) = gfx.page.as_ref().filter(|_| gfx.page_state.2) {
+                    let _ = view.focus_parent();
+                    let _ = view.set_visible(false);
+                    gfx.page_state.2 = false;
+                }
+            }
+        }
+    }
+}
+
 impl ApplicationHandler for Launcher {
+    /// With a page in the window (a window of its own with its own messages) the frames asked for from inside a frame
+    /// stop coming, and with them the login's buttons: asked for here too, as the launcher's window does.
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        #[cfg(windows)]
+        if let Some(gfx) = self.gfx.as_ref().filter(|g| g.page.is_some()) {
+            gfx.window.request_redraw();
+            event_loop.set_control_flow(winit::event_loop::ControlFlow::WaitUntil(std::time::Instant::now() + std::time::Duration::from_millis(16)));
+        }
+        let _ = event_loop;
+    }
+
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.gfx.is_some() {
             return;
@@ -405,7 +571,25 @@ impl ApplicationHandler for Launcher {
         let mut renderer = Renderer::new(&gpu, format);
         renderer.compress_textures = self.settings.texture_compression;
         window.request_redraw();
-        self.gfx = Some(Gfx { window, surface, config, gpu, ui, renderer, shown: None, scene: None, camera: None, db: None, hall: None, hall_character: false, started: std::time::Instant::now(), frames: 0 });
+        self.gfx = Some(Gfx {
+            window,
+            surface,
+            config,
+            gpu,
+            ui,
+            renderer,
+            shown: None,
+            scene: None,
+            camera: None,
+            db: None,
+            hall: None,
+            hall_character: false,
+            started: std::time::Instant::now(),
+            frames: 0,
+            #[cfg(windows)]
+            page: None,
+            page_state: Default::default(),
+        });
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
@@ -425,6 +609,8 @@ impl ApplicationHandler for Launcher {
                     let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
                     let size = (gfx.config.width, gfx.config.height);
                     let ui_frame = gfx.ui.run_custom(&gfx.window, &mut |ctx| self.screen(ctx));
+                    // (the game is starting: the loading screen's black over everything, nothing drawn under it)
+                    let entering = self.entering.is_some();
                     // the character picked in the list is built once and turned slowly
                     let want = match &self.stage {
                         Stage::Characters(list) => self.selected.as_ref().and_then(|n| list.iter().find(|c| &c.name == n)).cloned(),
@@ -435,7 +621,7 @@ impl ApplicationHandler for Launcher {
                     // (the hall, once it is there: the character list's character stands in it; the first time it is
                     // there, whoever was shown alone is built again to stand there)
                     let had_hall = matches!(gfx.hall, Some(Some(_)));
-                    let hall = self.hall_ready(&mut gfx);
+                    let hall = !entering && self.hall_ready(&mut gfx);
                     if hall && !had_hall {
                         gfx.shown = None;
                     }
@@ -502,7 +688,7 @@ impl ApplicationHandler for Launcher {
                         gfx.camera = Some(camera);
                         gfx.scene = Some(scene);
                     }
-                    if let (Some(scene), Some(camera)) = (&gfx.scene, gfx.camera.as_mut()) {
+                    if let (Some(scene), Some(camera), false) = (&gfx.scene, gfx.camera.as_mut(), entering) {
                         camera.yaw = 0.9 + gfx.started.elapsed().as_secs_f32() * 0.5;
                         if let Some(out) = self.shot.clone().filter(|_| gfx.frames >= 12) {
                             camera.yaw = 0.9;
@@ -536,11 +722,12 @@ impl ApplicationHandler for Launcher {
                         gfx.renderer.draw(&gfx.gpu, scene, &camera, &view, size);
                         gfx.ui.paint(&gfx.gpu, &view, size, ui_frame);
                     } else {
-                        // no character shown: a plain dark blue background
+                        // no character shown: a plain dark blue background (black under the loading screen)
+                        let clear = if entering { wgpu::Color::BLACK } else { wgpu::Color { r: 0.01, g: 0.03, b: 0.06, a: 1.0 } };
                         let mut encoder = gfx.gpu.device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
                         drop(encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                             label: Some("launcher background"),
-                            color_attachments: &[Some(wgpu::RenderPassColorAttachment { view: &view, depth_slice: None, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.01, g: 0.03, b: 0.06, a: 1.0 }), store: wgpu::StoreOp::Store } })],
+                            color_attachments: &[Some(wgpu::RenderPassColorAttachment { view: &view, depth_slice: None, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Clear(clear), store: wgpu::StoreOp::Store } })],
                             depth_stencil_attachment: None,
                             timestamp_writes: None,
                             occlusion_query_set: None,
@@ -551,11 +738,33 @@ impl ApplicationHandler for Launcher {
                     }
                     gfx.window.pre_present_notify();
                     gfx.gpu.queue.present(frame);
-                    if self.chosen.is_some() || self.quit {
-                        // (the window goes now, while the loop still runs: the game starts in a process of its own and this
-                        // one waits for it, and a window let go of after the loop has ended is never taken down, since
-                        // winit does that by a message to the loop; it stood frozen behind the game's. Hidden first, so
-                        // that it is gone from the screen whether or not that message is still read.)
+                    // (the error's page, once the frame is given back: opening it sets the surface up anew, which a frame
+                    // still held does not allow)
+                    #[cfg(windows)]
+                    self.place_page(&mut gfx);
+                    // (a character chosen: the game starts in a process of its own, which logs in and reads the playfield
+                    // before it has a window. This window stays for that time with the loading screen up, where it
+                    // used to go at once and leave the desktop for those seconds.)
+                    if let Some(name) = self.chosen.clone().filter(|_| self.entering.is_none() && self.start_error.is_none() && !self.quit) {
+                        let at = gfx.window.outer_position().ok().map(|p| (p.x, p.y));
+                        match self.start_game(&name, at) {
+                            Ok(entering) => {
+                                crate::loading::begin_since(std::time::Duration::ZERO, crate::loading::FADE_IN, crate::loading::FADE_OUT);
+                                self.entering = Some(entering);
+                            }
+                            Err(e) => self.start_error = Some(e),
+                        }
+                    }
+                    // (the game's window is up, or the game ended before it had one, or it took too long)
+                    let handed_over = self.entering.as_mut().is_some_and(|e| e.marker.exists() || e.child.try_wait().ok().flatten().is_some() || e.since.elapsed() > ENTERING_LIMIT);
+                    if let Some(e) = self.entering.as_ref().filter(|_| handed_over) {
+                        eprintln!("the loading screen was up here for {:.1} s (the game's window is {})", e.since.elapsed().as_secs_f32(), if e.marker.exists() { "up" } else { "not up" });
+                    }
+                    if handed_over || self.start_error.is_some() || self.quit {
+                        // (the window goes now, while the loop still runs: this process waits for the game's, and a window
+                        // let go of after the loop has ended is never taken down, since winit does that by a message to
+                        // the loop; it stood frozen behind the game's. Hidden first, so that it is gone from the screen
+                        // whether or not that message is still read.)
                         gfx.window.set_visible(false);
                         event_loop.exit();
                         return;
@@ -587,7 +796,45 @@ pub fn run(game: &str) -> Result<(), String> {
     mao_render::prefer_adapter(&settings.adapter);
     let palette = crate::theme::load(&settings.theme, &settings.aou_mod);
     let (user, last, accounts) = parse_account(&std::fs::read_to_string(account_path()).unwrap_or_default());
-    let mut launcher = Launcher { game: game.to_string(), settings, gfx: None, stage: Stage::Form, user, last, accounts, palette, quit: false, password: String::new(), server: std::env::var("MAO_SERVER").unwrap_or_else(|_| session::RUBI_KA.to_string()), message: String::new(), answer: None, chosen: None, play_new: None, new_character: false, selected: None, shot: std::env::var("MAO_LAUNCHER_SHOT").ok(), looks: crate::look::load(), login_view: Default::default(), char_view: Default::default(), progress: Default::default(), deleting: None };
+    let mut launcher = Launcher {
+        game: game.to_string(),
+        settings,
+        gfx: None,
+        stage: Stage::Form,
+        user,
+        last,
+        accounts,
+        palette,
+        quit: false,
+        password: String::new(),
+        server: std::env::var("MAO_SERVER").unwrap_or_else(|_| session::RUBI_KA.to_string()),
+        message: String::new(),
+        answer: None,
+        error_page: None,
+        error_text: String::new(),
+        error_plain: false,
+        browser_view: Default::default(),
+        scale: 1.0,
+        entering: None,
+        start_error: None,
+        chosen: None,
+        play_new: None,
+        new_character: false,
+        selected: None,
+        shot: std::env::var("MAO_LAUNCHER_SHOT").ok(),
+        looks: crate::look::load(),
+        login_view: Default::default(),
+        char_view: Default::default(),
+        progress: Default::default(),
+        deleting: None,
+    };
+    // MAO_LAUNCHER_DEMO=error (MAO_LAUNCHER_ERROR=<message>[-<code>], 13 without): the login with an error's page over it.
+    if std::env::var_os("MAO_LAUNCHER_DEMO").is_some_and(|v| v == "error") {
+        let which = std::env::var("MAO_LAUNCHER_ERROR").unwrap_or_default();
+        let (kind, code) = which.split_once('-').unwrap_or((which.as_str(), "0"));
+        launcher.error_page = crate::dimensions::error_page(std::path::Path::new(game), kind.parse().unwrap_or(13), code.parse().unwrap_or(0));
+        launcher.error_text = "Login failed.".into();
+    }
     // MAO_LAUNCHER_DEMO=1: three sample characters instead of a login (for pictures of the character screen).
     // MAO_LAUNCHER_DEMO=progress: logging in, an answer that never comes (the progress window).
     if std::env::var_os("MAO_LAUNCHER_DEMO").is_some_and(|v| v == "progress") {
@@ -596,7 +843,7 @@ pub fn run(game: &str) -> Result<(), String> {
         launcher.answer = Some(rx);
         launcher.stage = Stage::Busy;
         launcher.progress.start(20.0);
-    } else if std::env::var_os("MAO_LAUNCHER_DEMO").is_some_and(|v| v != "form") {
+    } else if std::env::var_os("MAO_LAUNCHER_DEMO").is_some_and(|v| v != "form" && v != "error") {
         // (the characters of a capture's list, as the server sent them: name, breed, sex, profession, level)
         let sample = |name: &str, breed, sex, profession, level| Character { name: name.into(), breed, sex, profession, level, created: true, area: "area unknown".into(), ..Default::default() };
         let list = vec![sample("Brasscasings", 1, 2, 1, 25), sample("Arctangent", 1, 3, 6, 40), sample("Beetlez", 2, 2, 2, 8), sample("Pregnantmule", 4, 1, 5, 160), sample("Diabete5", 3, 3, 10, 60), sample("Fallacy", 2, 3, 15, 220)];
@@ -637,16 +884,14 @@ pub fn run(game: &str) -> Result<(), String> {
     event_loop.run_app(&mut launcher).map_err(|e| e.to_string())?;
     // (the login's window went when a character was chosen, inside the loop: see there)
     launcher.gfx = None;
-    let Some(name) = launcher.chosen.take() else { return Ok(()) };
+    if let Some(e) = launcher.start_error.take() {
+        return Err(format!("the game could not be started: {e}"));
+    }
+    // (the game was started inside the loop, with this window's loading screen up until its own had drawn)
+    let Some(mut entering) = launcher.entering.take() else { return Ok(()) };
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let status = std::process::Command::new(&exe)
-        .args(["net", game, "enter", &name, "--live"])
-        .env("MAO_USER", launcher.user.trim())
-        .env("MAO_PASSWORD", &launcher.password)
-        .env("MAO_SERVER", launcher.server.trim())
-        .env("MAO_NEW_CHARACTER", if launcher.new_character { "1" } else { "" })
-        .status()
-        .map_err(|e| e.to_string())?;
+    let status = entering.child.wait().map_err(|e| e.to_string())?;
+    let _ = std::fs::remove_file(&entering.marker);
     if status.code() == Some(LOGGED_OUT) {
         // (this run is over before the next starts, or the next would take it for one that never ended: `crash.rs`)
         crate::crash::end("launcher", None);

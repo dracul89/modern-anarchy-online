@@ -851,6 +851,18 @@ pub(crate) fn apply_mode(window: &Window, mode: WindowMode, monitor: u32) {
     }
 }
 
+/// The frames presented so far (the first few: see `MAO_WINDOW_UP`).
+static FRAMES_SHOWN: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// The login's loading screen was told to go.
+static LOAD_CLOSED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// A window's place from `x,y`.
+pub fn window_at(text: &str) -> Option<(i32, i32)> {
+    let (x, y) = text.split_once(',')?;
+    Some((x.trim().parse().ok()?, y.trim().parse().ok()?))
+}
+
 pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<(), String> {
     let event_loop = EventLoop::new().map_err(|e| e.to_string())?;
     let settings = Settings::load();
@@ -859,7 +871,10 @@ pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<()
     let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, world_in: false, last_follow: std::time::Instant::now(), auras: Vec::new(), placed: Default::default(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), flares: Vec::new(), falls: None, area_fog_base: None, sky: Default::default(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), fxs_frame: None, script_meshes: Default::default(), named_sheets: Default::default(), trails: Default::default(), motions: Default::default(), shake: (0.0, 0), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, zones: None, collision: None, camera_body: crate::vehicle::Body::without_gravity(), look_target: Default::default(), interior: None, rooms_shown: Vec::new(), room_hint: None, attractor_at: std::time::Instant::now(), casters: Vec::new(), character_parts: Vec::new(), highlight_runs: Default::default(), highlight_fades: Default::default(), follow_shift: [0.0; 3], environment: Default::default(), quake: Default::default(), quake_offset: [0.0; 3], wind: Default::default(), wind_at: std::time::Instant::now(), perf_memory_at: std::time::Instant::now() - std::time::Duration::from_secs(10), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, sight_kept: Vec::new(), sight_frame: 0, applied_shadows: settings.shadows, applied_vsync: settings.vsync, focused: true, frame_due: std::time::Instant::now(), keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), script_moves: Default::default(), camera_script: std::env::var("MAO_CAMERA_SCRIPT").ok().map_or_else(Vec::new, |v| v.split(',').filter_map(|s| s.split_once(':').and_then(|(t, c)| Some((t.trim().parse().ok()?, c.trim().to_string())))).collect()), script_clock: std::time::Instant::now(), script_held: Vec::new(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
     // (entering the game: the loading screen, `ServerLogin3DModule_t::InitialiseMessage`)
     if app.live.is_some() {
-        crate::loading::begin(crate::loading::FADE_IN, crate::loading::FADE_OUT);
+        // (started from the character list, whose window has had the screen up since Play was pressed: it goes on from
+        // there, `MAO_LOADING_SINCE` the clock then)
+        let since = std::env::var("MAO_LOADING_SINCE").ok().and_then(|v| v.parse::<u64>().ok()).map(|since| crate::loading::elapsed_since(since, crate::loading::clock_millis()));
+        crate::loading::begin_since(since.unwrap_or_default(), crate::loading::FADE_IN, crate::loading::FADE_OUT);
     }
     event_loop.run_app(&mut app).map_err(|e| e.to_string())?;
     // (the game closing, `FlowControlModule_t::ActivateGameClosing`: `ControlCenterModule_c::SaveUserConfig`, where the windows
@@ -1050,6 +1065,10 @@ impl ApplicationHandler for App {
         }
         // (hidden until its first frame is presented: otherwise the system's white fills it first, then the black)
         let window = Arc::new(event_loop.create_window(Window::default_attributes().with_title("Modern Anarchy Online").with_window_icon(crate::icon::window_icon()).with_inner_size(PhysicalSize::new(self.settings.width, self.settings.height)).with_visible(false)).expect("a window"));
+        // (`MAO_WINDOW_AT=x,y`: where the character list's window was, so that a plain window opens in its place)
+        if let Some((x, y)) = std::env::var("MAO_WINDOW_AT").ok().as_deref().and_then(window_at).filter(|_| self.settings.mode == WindowMode::Windowed) {
+            window.set_outer_position(winit::dpi::PhysicalPosition::new(x, y));
+        }
         apply_mode(&window, self.settings.mode, self.settings.monitor);
         eprintln!("window mode: {} (F11 or Alt+Enter change it)", self.settings.mode.name());
         let instance = wgpu::Instance::default();
@@ -1738,12 +1757,10 @@ impl ApplicationHandler for App {
                     let latest = updates.into_iter().filter(|u| !u.messages_only).last();
                     if let Some(mut update) = latest {
                         (update.scene, update.environment, update.daylight) = (scene, environment, daylight);
-                        // (the first world update after logging in: the world is in and the loading screen goes,
-                        // `StartClosingLoadscreenMessage`; the login's playfield was drawn before the window opened, so no
-                        // scene comes with it)
-                        if !std::mem::replace(&mut self.world_in, true) {
-                            crate::loading::done();
-                        }
+                        // (the first world update after logging in: the world is in, and the loading screen goes once
+                        // the window shows it, `StartClosingLoadscreenMessage`: see `LOAD_CLOSED`; the login's playfield
+                        // was drawn before the window opened, so no scene comes with it)
+                        self.world_in = true;
                         self.hud.position = update.own;
                         self.hud.heading = self.heading;
                         self.hud.map_dots = std::mem::take(&mut update.map_dots);
@@ -2828,6 +2845,20 @@ impl ApplicationHandler for App {
                 if w.window.is_visible() == Some(false) {
                     w.window.set_visible(true);
                 }
+                // (`MAO_WINDOW_UP=<file>`: written once the window shows what it draws, the third frame presented; the
+                // character list's window, which kept the loading screen up until now, goes when it sees it: `launcher.rs`)
+                let shown = FRAMES_SHOWN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                if shown == 2
+                    && let Some(file) = std::env::var_os("MAO_WINDOW_UP")
+                {
+                    let _ = std::fs::write(file, b"up");
+                }
+                // (the login's loading screen starts to go once the world is in and the window shows it: the window's
+                // first frames take seconds, all that is in sight read in them, and begun with the first update the
+                // screen was half gone before it was seen)
+                if shown >= 2 && self.world_in && !LOAD_CLOSED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                    crate::loading::done();
+                }
                 crate::prof::lap("present", prof_t);
                 crate::prof::frame();
             }
@@ -2839,6 +2870,14 @@ impl ApplicationHandler for App {
 #[cfg(test)]
 mod camera_tests {
     use super::*;
+
+    #[test]
+    fn a_windows_place_is_two_numbers() {
+        assert_eq!(window_at("286,-40"), Some((286, -40)));
+        assert_eq!(window_at(" 12 , 7 "), Some((12, 7)));
+        assert_eq!(window_at("12"), None);
+        assert_eq!(window_at("a,b"), None);
+    }
 
     #[test]
     fn a_line_meets_the_near_side_of_a_cylinder() {

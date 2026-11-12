@@ -19,8 +19,10 @@ pub enum Error {
     Message(system::Error),
     Random(getrandom::Error),
     /// The server answered the login with something else than the
-    /// character list.
-    Refused { kind: u32, text: String },
+    /// character list: the system message's number and the code it
+    /// carries (`Client_t::ProcessMessage` 0x10002a9e reads one number
+    /// of message 0xd, the login refused, and hands both on).
+    Refused { kind: u32, code: Option<u32>, text: String },
     Closed,
 }
 
@@ -31,7 +33,7 @@ impl fmt::Display for Error {
             Error::Frame(e) => write!(f, "framing: {e}"),
             Error::Message(e) => write!(f, "message: {e}"),
             Error::Random(e) => write!(f, "random numbers: {e}"),
-            Error::Refused { kind, text } => write!(f, "the server answered with system message {kind:#x} ({text:?}) instead of the character list"),
+            Error::Refused { kind, code, text } => write!(f, "the server answered with system message {kind:#x} (code {code:?}, {text:?}) instead of the character list"),
             Error::Closed => write!(f, "the server closed the connection"),
         }
     }
@@ -137,9 +139,14 @@ pub fn login(connection: &mut Connection, user: &str, password: &str, version: &
         Ok((list, _rest)) => Ok(list),
         Err(_) => {
             let (kind, payload) = system::split(&reply)?;
-            Err(Error::Refused { kind, text: String::from_utf8_lossy(payload).chars().filter(|c| !c.is_control()).collect() })
+            Err(Error::Refused { kind, code: refusal_code(payload), text: String::from_utf8_lossy(payload).chars().filter(|c| !c.is_control()).collect() })
         }
     }
+}
+
+/// The code of a refusal: the first number of its message.
+pub fn refusal_code(payload: &[u8]) -> Option<u32> {
+    Some(u32::from_be_bytes(payload.get(..4)?.try_into().ok()?))
 }
 
 /// The ticket of the last character logged in: its cookies and the account's ids are what the in-game web pages are
@@ -182,4 +189,17 @@ pub fn enter_world(ticket: &system::Ticket) -> Result<Connection, Error> {
     let mut connection = Connection::connect(ticket.host().as_str())?;
     connection.send(&system::enter_game_server(ticket))?;
     Ok(connection)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_refusal_has_its_code() {
+        // (a login with a wrong password, as the server answered it on 2026-11-12: message 0xd with the number 106)
+        assert_eq!(refusal_code(&[0, 0, 0, 106]), Some(106));
+        assert_eq!(refusal_code(&[0, 0, 1, 0, 9]), Some(256));
+        assert_eq!(refusal_code(&[0, 0]), None);
+    }
 }

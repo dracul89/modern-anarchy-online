@@ -830,6 +830,43 @@ behind used to hide some of it. Seen from inside in pictures (`inside.py` in the
 headings, `MAO_CULL=show`): the neutral, Omni and clan basic shops have their walls whole. `rooms::describe_room`
 and the `roomcells` example say a room's cells, pieces and textures. Not seen live.
 
+**A wrong password, and the wait after Play (2026-11-12, the user: "I put the wrong password and got a huge login box
+not the traditional error window", "when we select a character and login for several seconds there's nothing being
+displayed this is where I expect the loading screen the most").**
+*The error.* The login's refusal was written into the login window in one unbroken line, the whole of the client's
+own sentence about it, and the window grew as wide as the line. The original says a login's error with a page of the
+game's site: `Client_t::ProcessMessage` (Interfaces.dll 0x10002a9e) reads one number of system message 0xd and hands
+both to `LoginModule_c::SlotLoginReply` (0x10012179), which for 0xd, 0x10 and 0x21 calls `ShowError` (0x10011fd5):
+the address `errorurl` (from `data/launcher/AnarchyLauncher.url`, whose `name=value` lines the module reads at its
+making, the names in small letters), the message's number in decimal, a dash and the code when it is not 0, `.html`.
+A login server that is not reached is error 1 with no code (`SlotLoginAccount` 0x100120f6). The page goes into
+`LoginBrowserWindow_c` (0x10010ead): a window named "Browser" without a title, 780 by 410, links to the system's
+browser; `Show(0)` (0x1001175a) centres it and the login window and moves the login down by half the browser's height
+and 5, the browser up by half the login's and 5. Closing it empties the address and leaves the login alone
+(`SlotBrowserQuitPressed`). Here the same: `session::Error::Refused` carries the code, `dimensions::error_page` makes
+the address, `loginviews::LoginBrowser` is the window and the page is a WebView2 child over its inside, as the
+launcher's page is (`launcher.rs` `place_page`; the keyboard stays with the login's fields). Tried live with the
+free test account and a wrong password, once: the server answers 0xd with 106, the page is `13-106.html` and asks to
+enter the name and the password again. Where no page can be shown (no WebView2, another system) the window says the
+error in words, and a message in the login window is now wrapped to the window's width. This client's own: a login
+that works puts the page away (the original keeps it until its window is closed, so it would stand over the login
+again after Back). `MAO_LAUNCHER_DEMO=error` (`MAO_LAUNCHER_ERROR=13-106`) shows the window without a login. Not
+ported: the pages of a character that cannot be entered (0x10, 0x21 after the list) and of a lost connection.
+*The wait.* The game is a process of its own, started when Play is pressed; it logs in, reads the playfield and
+makes its window, and only then is there anything on the screen: the character list's window went at once, and for
+seven or eight seconds the desktop showed. The original has its loading screen up for that time
+(`ServerLogin3DModule_t`). Now the list's window stays with the loading screen (`loading.rs`: the black, the picture
+fading in over 4 s, the line of text) until the game's window has presented three frames, which the game says by
+writing the file named in `MAO_WINDOW_UP`; the game's window opens where the list's was (`MAO_WINDOW_AT`, a plain
+window only) and goes on with the same screen from where it had come (`MAO_LOADING_SINCE`, `loading::begin_since`),
+so the fade in is one. The screen's going was begun with the first world update, in a window not yet shown whose
+first frames take seconds, so it was half gone when it was first seen: it now begins once the window shows the world
+(`viewer.rs` `LOAD_CLOSED`). Tried live through the login to a character twice: the list's window had the screen for
+7.6 s, the game's window came up in its place with the world under the screen's fade. This client's own: the screen
+goes up at the press of Play; the original shows its progress window ("Please wait...", `Show(4)`) until the
+character's ticket has come and the loading screen from then. In the exclusive full-screen mode the two windows
+change places with whatever the system does between two such windows: not tried.
+
 **Hair through a helmet, a shop's wall gone, the run that stops (2026-11-11, the user's three notes after playing).**
 *Hair through a helmet.* A character's listed meshes were all drawn, in the order of what the lists call a layer.
 That number is a set of flags, and DisplaySystem shows by them (`CharacterMesh::AddAttractorMesh` keeps each

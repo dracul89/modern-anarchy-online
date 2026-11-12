@@ -64,6 +64,8 @@ pub struct LoginWindow {
     window: Option<XmlWindow>,
     /// The names the username list was filled with.
     listed: Vec<String>,
+    /// The window's height as last drawn (the error's page is put over it: [`LoginBrowser`]).
+    pub height: f32,
 }
 
 impl LoginWindow {
@@ -81,8 +83,8 @@ impl LoginWindow {
         self.listed.clear();
     }
 
-    /// Shows the window over the screen's middle; `user` and `password` follow the fields.
-    pub fn show(&mut self, ctx: &egui::Context, palette: &Palette, user: &mut String, password: &mut String, accounts: &[String], message: &str, busy: bool) -> Option<LoginAction> {
+    /// Shows the window over the screen's middle, `lower` under it; `user` and `password` follow the fields.
+    pub fn show(&mut self, ctx: &egui::Context, palette: &Palette, user: &mut String, password: &mut String, accounts: &[String], message: &str, busy: bool, lower: f32) -> Option<LoginAction> {
         if self.window.is_none() {
             self.load(ctx);
             if let Some(w) = self.window.as_mut() {
@@ -111,15 +113,20 @@ impl LoginWindow {
         let min = crate::gui::host::preferred_pixels(&w.tree, root, false);
         let tree = &mut w.tree;
         let mut open = true;
-        crate::chrome::window(ctx, palette, "Login", "Login", &mut open, |w| w.resizable(false).anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0)).default_size(min), |ui| {
+        let shown = crate::chrome::window(ctx, palette, "Login", "Login", &mut open, |w| w.resizable(false).anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, lower)).default_size(min), |ui| {
             let response = crate::gui::host::show(ui, tree, root, skin.as_deref(), palette);
             crate::gui::combobox::prepare(tree, response.rect.min);
             if busy {
                 ui.label("Logging in...");
             } else if !message.is_empty() {
-                ui.colored_label(egui::Color32::from_rgb(240, 120, 110), message);
+                // (within the window's own width: a long line, as a refusal's was, made the window as wide as the line)
+                ui.allocate_ui_with_layout(egui::vec2(response.rect.width(), 0.0), egui::Layout::top_down(egui::Align::Min), |ui| {
+                    ui.set_max_width(response.rect.width());
+                    ui.add(egui::Label::new(egui::RichText::new(message).color(egui::Color32::from_rgb(240, 120, 110))).wrap());
+                });
             }
         });
+        self.height = shown.map_or(0.0, |r| r.response.rect.height());
         crate::gui::combobox::take_signals(&mut w.tree);
         if let Some(id) = w.tree.find(root, "username") {
             *user = crate::gui::textinput::text(&w.tree, id).unwrap_or("").to_string();
@@ -147,6 +154,50 @@ impl LoginWindow {
             action = Some(LoginAction::Login);
         }
         action
+    }
+}
+
+/// `LoginBrowserWindow_c` (0x10010ead): the window a login's error is shown in, named "Browser" and without a title, its
+/// inside a web page (`BrowserView_c`) of 780 by 410 (`_DAT_101a9c78`, `_DAT_101a9c7c`) whose links go to the system's
+/// browser (`SetExternalLinksEnabled(true)`). `LoginModule_c::ShowError` (0x10011fd5, 0x10011b6b) sends it to the
+/// error's page and shows the login again, and `Show(0)` (0x1001175a) puts the two in the screen's middle one over the
+/// other: both centred, the login moved down by half the browser's height and 5, the browser up by half the login's and
+/// 5. Closed (`SlotBrowserQuitPressed` 0x10011c33), the address is emptied and the login stands alone again.
+///
+/// The page itself is the launcher's (a WebView2 child put over [`LoginBrowser::area`]); where there is none, the
+/// error is said in words.
+#[derive(Default)]
+pub struct LoginBrowser {
+    /// Where the page goes, in screen points, as the window was last drawn (none while it is not shown).
+    pub area: Option<egui::Rect>,
+    /// The window's height as last drawn (the login window is put under it).
+    pub height: f32,
+}
+
+impl LoginBrowser {
+    /// The page's size.
+    pub const PAGE: egui::Vec2 = egui::vec2(780.0, 410.0);
+    /// How far each of the two windows is moved from the other's edge.
+    pub const APART: f32 = 5.0;
+
+    /// Shows the window `raise` above the screen's middle, `words` in the page's place when they are given; false once
+    /// it was closed.
+    pub fn show(&mut self, ctx: &egui::Context, palette: &Palette, raise: f32, words: &str) -> bool {
+        let mut open = true;
+        let mut area = None;
+        // (on a screen too low for the two, the page gives way)
+        let screen = ctx.content_rect();
+        let size = egui::vec2(Self::PAGE.x.min(screen.width() - 40.0), Self::PAGE.y.min(screen.height() - 2.0 * raise - 60.0)).max(egui::vec2(200.0, 120.0));
+        let shown = crate::chrome::window(ctx, palette, "LoginBrowser", "", &mut open, |w| w.resizable(false).anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, -raise)), |ui| {
+            let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+            area = Some(rect);
+            if !words.is_empty() {
+                ui.put(rect.shrink(12.0), egui::Label::new(words).wrap());
+            }
+        });
+        self.height = shown.map_or(0.0, |r| r.response.rect.height());
+        self.area = area.filter(|_| open);
+        open
     }
 }
 
