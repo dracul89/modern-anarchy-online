@@ -133,3 +133,30 @@ is away again, half a minute after saying it was back.
 
 The port does the same (seen in a live run on 2026-11-12). Decide: keep it, or close the box when being away ends by
 another way.
+
+## 13. A macro of 100 characters is saved and never read again
+
+`TextMacroSystem_t::CreateMacro` (0x1002338f) cuts a name or a command longer than 99 characters to 100. `Load`
+(0x1002350b) stops reading the file at the first length over 99. So a macro with a name or a command of 100 characters
+or more is written whole by `Save`, and at the next start it, and every macro after it in `TextMacro.bin`, is gone; the
+bar entries that pointed at them say "Broken macro".
+
+The port cuts to 99 instead, so what it saves it reads. Decide: keep that, or cut to 100 as the original and lose them.
+
+## 14. A chat filter rule added after a deletion can be dead
+
+`/filter add` (FUN_100b933d) files the rule under the count of rules as its name. After `/filter del 0` of three rules the
+count is 2, a name that is still in use: the new text goes in as a second text under "2". The list (`/filter list`) and
+the filter itself (FUN_100854a8) read only the first text of each name, so the new rule is never shown and never tried,
+though the command answered "Added as 2.".
+
+The port gives the rule the next number that is free. Decide: keep that, or keep the original's dead rule.
+
+## 15. A script's `%N` reads more digits than it replaces, and can pass one by
+
+The script loader (FUN_100b1517) replaces `%` and one digit with a word of the command line, but reads the word's number
+with `atoi`, which takes every digit that follows: `%12` is word 12 with a `2` left after it. And after a replacement it
+looks on from the character after the `%`'s place, so when the word was missing (nothing put in) a `%N` that stood right
+behind is now at that place and is passed by: `%3%1` with two words stays `%1`.
+
+The port does both as the original does. Decide: keep them, or read one digit and look again from the same place.

@@ -107,6 +107,8 @@ pub enum Out {
     Tell { name: String, text: String },
     /// The automatic answer to a tell that came while away (`afk.rs`), to the character who sent it.
     AwayReply { name: String, text: String },
+    /// `/dvalue`: one of the original's stored values shown (no value) or set.
+    DValue { name: String, value: Option<String> },
     /// Open the tell window for a character, once the chat server knows the name (it comes back through
     /// `chatgroups::open_tell`).
     TellWindow { name: String },
@@ -260,11 +262,19 @@ pub struct ChatWindow {
     tip_of_the_day: i32,
     /// Away from the keyboard (`/afk`, `afk.rs`).
     pub away: crate::afk::Away,
+    /// The lines of the scripts being run (`scripts.rs`).
+    scripts: crate::scripts::Runner,
+    /// The chat filter (`/filter`, `chatfilter.rs`).
+    pub filter: crate::chatfilter::Filter,
+    /// A macro `/macro` has just made (its number and name), for the pointer to carry to a hotbar slot.
+    pub macro_made: Option<(i32, String)>,
+    /// Set while a line of a script or a macro is carried out: it is not kept among the lines typed.
+    unkept: bool,
 }
 
 impl Default for ChatWindow {
     fn default() -> Self {
-        ChatWindow { open: true, log: false, lines: Vec::new(), panes: chatgroups::defaults(), loaded_for: None, tab: 0, shown: Default::default(), menu_pane: 0, inputs: Default::default(), focus_frame: None, born: Vec::new(), fade_times: (8.0, 0.3), menu: None, popup: None, config: Default::default(), invite_action: 1, warn_unshown: true, invites: Vec::new(), outs: Vec::new(), demo: None, names: Default::default(), tells: Vec::new(), telling: None, menu_name: Default::default(), raise: None, focus_tries: 0, demo_name: None, input: String::new(), selected: 0, focus_next: false, last_tell: None, scroll_to_end: true, keep_list: false, ignored: load_ignored(), history: Vec::new(), recalled: None, links: Vec::new(), tip_of_the_day: 0, away: Default::default() }
+        ChatWindow { open: true, log: false, lines: Vec::new(), panes: chatgroups::defaults(), loaded_for: None, tab: 0, shown: Default::default(), menu_pane: 0, inputs: Default::default(), focus_frame: None, born: Vec::new(), fade_times: (8.0, 0.3), menu: None, popup: None, config: Default::default(), invite_action: 1, warn_unshown: true, invites: Vec::new(), outs: Vec::new(), demo: None, names: Default::default(), tells: Vec::new(), telling: None, menu_name: Default::default(), raise: None, focus_tries: 0, demo_name: None, input: String::new(), selected: 0, focus_next: false, last_tell: None, scroll_to_end: true, keep_list: false, ignored: load_ignored(), history: Vec::new(), recalled: None, links: Vec::new(), tip_of_the_day: 0, away: Default::default(), scripts: Default::default(), filter: crate::chatfilter::Filter::load(), macro_made: None, unkept: false }
     }
 }
 
@@ -350,6 +360,31 @@ fn draw_lines(ui: &mut egui::Ui, palette: &Palette, lines: &[Line], born: &[std:
         }
     });
     ui.ctx().data_mut(|d| d.insert_temp(heights_id, heights));
+}
+
+/// `/start`: an address handed to the system to open (the original's `ShellExecute` "open").
+fn open_outside(address: &str) {
+    if cfg!(test) {
+        return;
+    }
+    #[cfg(windows)]
+    let started = std::process::Command::new("rundll32").args(["url.dll,FileProtocolHandler", address]).spawn();
+    #[cfg(target_os = "macos")]
+    let started = std::process::Command::new("open").arg(address).spawn();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let started = std::process::Command::new("xdg-open").arg(address).spawn();
+    if let Err(e) = started {
+        eprintln!("/start: {e}");
+    }
+}
+
+/// `/played`'s own line (FUN_100b2906): "Time: 14:05 local (20:05 GMT), 03:41 game" and "Date: 12. Nov 2026 local".
+fn played_line() -> String {
+    let utc = time::OffsetDateTime::now_utc();
+    let local = time::OffsetDateTime::now_local().unwrap_or(utc);
+    let (hour, minute) = crate::gametime::now();
+    let month = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][local.month() as usize - 1];
+    format!("Time: {:02}:{:02} local ({:02}:{:02} GMT), {hour:02}:{minute:02} game\nDate: {:02}. {month} {} local", local.hour(), local.minute(), utc.hour(), utc.minute(), local.day(), local.year())
 }
 
 /// A text the chat commands answer with (text.mdb 10001 by name), or this client's own words.
@@ -640,6 +675,14 @@ impl ChatWindow {
         }
         if line.at.is_none() {
             line.at = time::OffsetDateTime::now_local().ok().map(|t| (t.hour(), t.minute()));
+        }
+        // (the chat filter: a group's line a rule matches is not shown, FUN_100854a8; the text is what was said,
+        // after the speaker's name)
+        if line.kind == Kind::Channel && self.filter.enabled {
+            let said = line.from.as_ref().and_then(|who| line.text.split_once(&format!("{who}: "))).map_or(line.text.as_str(), |p| p.1);
+            if self.filter.hides(said) {
+                return;
+            }
         }
         // (a tell that comes while away is marked so and answered: `HandlePrivateMessage`)
         if line.kind == Kind::Tell
@@ -955,8 +998,71 @@ impl ChatWindow {
     }
 
     /// Carries out a line typed in one of the chat windows.
+    /// A line carried out as if typed, but not kept among the lines typed: a macro's, a script's.
+    pub fn run_unkept(&mut self, line: &str) -> Option<Out> {
+        self.unkept = true;
+        let out = self.run_in(self.tab, line);
+        self.unkept = false;
+        out
+    }
+
+    /// Each frame (`dt` seconds): the macros pressed are carried out, and the next line of a running script
+    /// (FUN_100b1d6c: one a frame).
+    pub fn script_frame(&mut self, dt: f32) {
+        for line in crate::macros::take_pressed() {
+            let out = self.run_unkept(&line);
+            self.outs.extend(out);
+        }
+        if let Some(line) = self.scripts.tick(dt) {
+            let out = self.run_unkept(&line);
+            self.outs.extend(out);
+        }
+    }
+
+    /// A script's lines queued, or why not said (FUN_100b1517).
+    fn run_script(&mut self, line: &str) {
+        match crate::scripts::load(line) {
+            Ok(lines) => self.scripts.add(lines),
+            Err(problem) => self.tell(&problem.text()),
+        }
+    }
+
+    /// `/filter` (FUN_100b933d).
+    fn filter_command(&mut self, what: &str, rest: &str) {
+        let said = match what {
+            "list" => {
+                for (number, rule) in self.filter.rules.clone() {
+                    self.push(Line::new(Kind::System, format!("{number:3}: {rule}")));
+                }
+                return;
+            }
+            "add" | "del" if rest.is_empty() => "Usage: /filter [list|del|add|enable|disable|clear]".to_string(),
+            "add" => format!("Added as {}.", self.filter.add(rest)),
+            "del" => {
+                // (`RemoveName` of the word: one that is no rule's number removes nothing, and it says "Deleted." all the same)
+                if let Ok(number) = rest.split_whitespace().next().unwrap_or("").parse() {
+                    self.filter.delete(number);
+                }
+                "Deleted.".to_string()
+            }
+            "enable" | "disable" => {
+                self.filter.enabled = what == "enable";
+                if self.filter.enabled { "Enabled." } else { "Disabled." }.to_string()
+            }
+            "clear" => {
+                self.filter.rules.clear();
+                "Cleared.".to_string()
+            }
+            _ => "Usage: /filter [list|del|add|enable|disable|clear]".to_string(),
+        };
+        self.filter.save();
+        self.push(Line::new(Kind::System, said));
+    }
+
     pub fn run_in(&mut self, pane: usize, line: &str) -> Option<Out> {
-        self.remember(line);
+        if !self.unkept {
+            self.remember(line);
+        }
         // (a plain line typed in a tell window is a tell to its character)
         if !line.trim().is_empty()
             && !line.trim_start().starts_with('/')
@@ -1009,7 +1115,8 @@ impl ChatWindow {
             Parsed::Sit => Some(Out::Sit),
             Parsed::Pet { command } => Some(Out::Pet(command)),
             Parsed::Perf => Some(Out::Perf),
-            Parsed::Server { text } => Some(Out::Server(text)),
+            // (FUN_100b285d: its `%` arguments put in)
+            Parsed::Server { text } => Some(Out::Server(self.expand(&text))),
             Parsed::FxScript { line } => Some(Out::FxScript(line)),
             Parsed::Quit => Some(Out::Quit),
             Parsed::Follow => Some(Out::Follow),
@@ -1030,6 +1137,45 @@ impl ChatWindow {
                 self.tip_of_the_day = if previous { (self.tip_of_the_day - 1).max(0) } else { self.tip_of_the_day + 1 };
                 self.links.push(format!("file://TipOfTheDay.html?section={}", self.tip_of_the_day));
                 None
+            }
+            // (`/macro`, FUN_100b8c82 and the shortcut bar's FUN_100d8c4a: the macro made and saved, and carried by
+            // the pointer to where it is dropped; the line saying so is this client's)
+            Parsed::Macro { name, command } => {
+                let id = crate::macros::create(&name, &command);
+                let name = crate::macros::get(id).map_or(name, |m| m.name);
+                self.push(Line::new(Kind::System, format!("Macro \"{name}\" is on the pointer: click a hotbar slot to put it there.")));
+                self.macro_made = Some((id, name));
+                None
+            }
+            Parsed::Script { line } => {
+                self.run_script(&line);
+                None
+            }
+            Parsed::Filter { what, rest } => {
+                self.filter_command(&what, &rest);
+                None
+            }
+            Parsed::DValue { name, value } => Some(Out::DValue { name, value }),
+            // (FUN_100ba073, FUN_100b9acf: only an http or https address, opened by the system)
+            Parsed::Start { address } => {
+                let lower = address.to_lowercase();
+                if lower.starts_with("http://") || lower.starts_with("https://") {
+                    open_outside(&address);
+                }
+                None
+            }
+            // (FUN_100b2906: the time here, in Greenwich and in the game, and the date. It then gives "played" to
+            // Gamecode's text commands, `N3Msg_TextCommand`, which are not ported: the time played is not asked for.)
+            Parsed::Played => {
+                self.push(Line::new(Kind::System, played_line()));
+                self.push(Line::new(Kind::System, "(The time played is not asked of the server by this client yet.)"));
+                None
+            }
+            // (FUN_100b6a54: both distances)
+            Parsed::BothDist { characters, view } => {
+                self.outs.push(Out::CharDist(characters.min(4000)));
+                self.push(Line::new(Kind::System, format!("View distance {}, characters up to {} away.", view.clamp(200, 4000), characters.min(4000))));
+                Some(Out::ViewDist(view.clamp(200, 4000)))
             }
             // (`/afk`: FUN_100b82a7)
             Parsed::Afk { text } => {
@@ -1126,8 +1272,9 @@ impl ChatWindow {
                 self.push(Line::new(Kind::System, format!("/{name} is not carried out by this client yet.")));
                 None
             }
-            Parsed::Unknown(word) => {
-                self.push(Line::new(Kind::System, format!("Unknown command /{word}. Type /help.")));
+            // (a command the list does not have is a script file's name, or nothing: FUN_100b1517 says which)
+            Parsed::Unknown(_) => {
+                self.run_script(line.trim());
                 None
             }
             Parsed::Usage(usage) => {
@@ -1160,7 +1307,7 @@ impl ChatWindow {
             state.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(self.input.chars().count()))));
             state.store(ctx, input_id);
         }
-        let suggestions = chat_commands::suggest(&self.input);
+        let suggestions = chat_commands::suggest_with(&self.input, &crate::scripts::names());
         let has_focus = ctx.memory(|m| m.has_focus(input_id));
         // The list's keys are taken before the field sees them.
         let (mut up, mut down, mut take) = (false, false, false);
@@ -1596,6 +1743,45 @@ mod tests {
     }
 
     #[test]
+    fn the_filter_hides_group_lines_and_scripts_run_a_line_a_frame() {
+        let mut w = ChatWindow::default();
+        w.filter = Default::default();
+        let said = |who: &str, text: &str| Line { kind: Kind::Channel, text: format!("[Trade] {who}: {text}"), from: Some(who.into()), markup: None, group: "Trade".into(), at: None };
+        let lines = |w: &ChatWindow| w.lines.iter().map(|l| l.text.clone()).collect::<Vec<_>>();
+        // (the rules are tried on what was said, not on the name before it; tells are not looked at)
+        w.filter.add("^WTS");
+        w.filter.add("credits");
+        w.push(said("Zed", "WTS a pistol"));
+        w.filter.enabled = true;
+        w.push(said("Zed", "WTS a rifle"));
+        w.push(said("WTSman", "hello all"));
+        w.push(said("Abc", "cheap credits here"));
+        w.push(Line { kind: Kind::Tell, text: "[Abc]: credits?".into(), from: Some("Abc".into()), markup: None, group: String::new(), at: None });
+        assert_eq!(lines(&w), ["[Trade] Zed: WTS a pistol", "[Trade] WTSman: hello all", "[Abc]: credits?"]);
+        // (a script's lines: one each frame, a delay waited out, none of them kept among the typed lines)
+        w.lines.clear();
+        w.scripts.add(vec!["/text one".into(), "/delay 100".into(), "/text two".into()]);
+        w.script_frame(0.05);
+        assert_eq!(lines(&w), ["one"]);
+        for _ in 0..3 {
+            w.script_frame(0.05);
+        }
+        assert_eq!(lines(&w), ["one"]);
+        w.script_frame(0.05);
+        assert_eq!(lines(&w), ["one", "two"]);
+        assert!(w.history.is_empty());
+        // (the commands that only make a request)
+        assert_eq!(w.run("/played"), None);
+        let time = &w.lines[w.lines.len() - 2].text;
+        assert!(time.starts_with("Time: ") && time.contains("Date: "), "{time}");
+        assert_eq!(w.run("/bank"), None);
+        assert!(w.lines.last().unwrap().text.contains("not carried out"));
+        assert_eq!(w.run("/dvalue AutoAFK"), Some(Out::DValue { name: "AutoAFK".into(), value: None }));
+        assert_eq!(w.run("/char&viewdist 50 9000"), Some(Out::ViewDist(4000)));
+        assert_eq!(w.outs, vec![Out::CharDist(50)]);
+    }
+
+    #[test]
     fn a_tell_that_comes_while_away_is_marked_and_answered() {
         let mut w = ChatWindow::default();
         w.names.own = "Tester".into();
@@ -1636,7 +1822,7 @@ mod tests {
         let mut w = ChatWindow::default();
         assert_eq!(w.run("/help"), None);
         assert!(w.lines.len() >= 6);
-        assert_eq!(w.run("/aliens"), None);
+        assert_eq!(w.run("/gfx 1 on"), None);
         assert!(w.lines.last().unwrap().text.contains("not carried out"));
         assert_eq!(w.run("/me waves"), Some(Out::Vicinity { kind: 3, text: "waves".into() }));
         assert_eq!(w.run("/wave"), Some(Out::Social { id: 62 }));

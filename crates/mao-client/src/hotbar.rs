@@ -26,6 +26,8 @@ pub enum Action {
     Social { id: u32, name: String },
     /// Cast a nano program (by its id) at the target.
     Nano { id: u32, name: String, icon: Option<u32> },
+    /// A text macro (`macros.rs`), by its number: a press runs its chat line.
+    Macro { id: i32, name: String },
 }
 
 impl Action {
@@ -33,7 +35,7 @@ impl Action {
         match self {
             Action::Item { name, .. } => name,
             Action::Attack => "Attack",
-            Action::Special { name, .. } | Action::Social { name, .. } | Action::Nano { name, .. } => name,
+            Action::Special { name, .. } | Action::Social { name, .. } | Action::Nano { name, .. } | Action::Macro { name, .. } => name,
         }
     }
 }
@@ -224,6 +226,8 @@ pub fn to_text(bars: &Hotbars) -> String {
                     Action::Special { id, name, icon } => format!("special {id} {} {} {name}", e.cooldown, icon.map_or("-".to_string(), |i| i.to_string())),
                     Action::Social { id, name } => format!("social {id} {} {name}", e.cooldown),
                     Action::Nano { id, name, icon } => format!("nano {id} {} {} {name}", e.cooldown, icon.map_or("-".to_string(), |i| i.to_string())),
+                    // (a `|` parts a slot's actions: none in a name here)
+                    Action::Macro { id, name } => format!("macro {id} {} {}", e.cooldown, name.replace('|', "/")),
                 })
                 .collect();
             out += &format!("{}.{} = {}\n", bar + 1, slot + 1, parts.join(" | "));
@@ -256,6 +260,7 @@ pub fn from_text(text: &str) -> Hotbars {
                 ["attack", cooldown] => cooldown.parse().ok().map(|c| Entry::new(Action::Attack, c)),
                 ["special", id, cooldown, icon, name @ ..] => (|| Some(Entry::new(Action::Special { id: id.parse().ok()?, name: name.join(" "), icon: icon.parse().ok() }, cooldown.parse().ok()?)))(),
                 ["nano", id, cooldown, icon, name @ ..] => (|| Some(Entry::new(Action::Nano { id: id.parse().ok()?, name: name.join(" "), icon: icon.parse().ok() }, cooldown.parse().ok()?)))(),
+                ["macro", id, cooldown, name @ ..] => (|| Some(Entry::new(Action::Macro { id: id.parse().ok()?, name: name.join(" ") }, cooldown.parse().ok()?)))(),
                 ["social", id, cooldown, name @ ..] => (|| Some(Entry::new(Action::Social { id: id.parse().ok()?, name: name.join(" ") }, cooldown.parse().ok()?)))(),
                 ["item", id, cooldown, icon, name @ ..] => (|| Some(Entry::new(Action::Item { id: id.parse().ok()?, name: name.join(" "), icon: icon.parse().ok() }, cooldown.parse().ok()?)))(),
                 _ => None,

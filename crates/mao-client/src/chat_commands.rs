@@ -1,16 +1,16 @@
 //! The chat commands of the original game (the list its input line offers when a `/` is typed) and what this client does with
 //! them: a typed line becomes a [`Parsed`].
 
-/// Every command the original lists, in its order (the case is the original's).
-/// (Under review: the AOU and other script-file names in this list, `aliens` to `MapMarker`, came from one install's
-/// `scripts` folder, not the game; see docs/ORIGINAL_AUDIT.md, "For review and removal".)
+/// Every command the original's input line lists for a player, in its order (the case is the original's). The original
+/// lists the files of its `scripts` folder among them (FUN_100a44e8): those are read where they are
+/// (`crate::scripts::names`, [`suggest_with`]), not written here. (Until 2026-11-12 the script files of one install,
+/// `aliens` to `MapMarker`, stood in this list.)
 pub const COMMANDS: &[&str] = &[
-    "afk", "aliens", "anon", "aou_about", "aou_gui_default", "aou_gui_default_1", "aou_gui_slim", "aou_gui_slim_1", "aou_gui_slim_2", "aou_gui_slim_3",
-    "aou_gui_translucent", "AOU_mod", "ao_original", "APanel", "assist", "AVbasic", "bank", "Befriend", "born", "bug", "camp", "cc", "ch", "char&viewdist",
-    "chardist", "close", "custom_maps", "duel", "dvalue", "emote", "filter", "follow", "FriendshipInvite", "fxscript", "g", "gfx", "group", "help", "ignore",
-    "inspect", "invite", "items", "kick", "leave", "lft", "Link_URL_Description", "list", "lof", "macro", "me", "MapMarker", "name", "o", "open", "option",
+    "afk", "anon", "assist", "bank", "born", "bug", "camp", "cc", "ch", "char&viewdist",
+    "chardist", "close", "duel", "dvalue", "emote", "filter", "follow", "fxscript", "g", "gfx", "group", "help", "ignore",
+    "inspect", "invite", "items", "kick", "leave", "lft", "list", "macro", "me", "name", "o", "open", "option",
     "org", "petduel", "petition", "played", "quit", "r", "raid", "reclaim", "reply", "rp", "s", "say", "script", "selectself", "setoption", "shop", "shout",
-    "showfile", "stuck", "t", "team", "tell", "terminate", "text", "tipoftheday", "toggle", "tower", "version", "viewdist", "voice", "w", "waypoint", "whisper",
+    "showfile", "start", "stuck", "t", "team", "tell", "terminate", "text", "tipoftheday", "toggle", "tower", "version", "viewdist", "voice", "w", "waypoint", "whisper",
 ];
 
 /// The emotes (GUI.dll's table at 0x101bae30, FUN_100b2fc3 looks a name up in it, any case): each name's place, from 1, is
@@ -33,6 +33,12 @@ pub fn emote_id(name: &str) -> u32 {
 pub const IMPLEMENTED: &[(&str, &str)] = &[
     ("tell <name> <text>", "a private message; without the text, a window for talking with that character; alone, one with your target"),
     ("%t %f %m", "in a line you send: the name of your target, of the one you fight, your own (%% for a percent sign)"),
+    ("macro <name> <command>", "a macro: a name and a chat line, to drop on a hotbar slot; a press runs the line"),
+    ("script <file> [words]", "run a file of chat lines from the scripts folder (also /<file>); %1, %2 in it are the words, /delay <ms> waits"),
+    ("filter list|add|del|enable|disable|clear", "hide the lines of chat groups that a pattern matches"),
+    ("dvalue <name> [value]", "show or set one of the original's stored settings"),
+    ("played", "the time here, in Greenwich and in the game, and the date (the time played is not asked for yet)"),
+    ("start <http address>", "open a web address outside the game"),
     ("afk [text]", "away from the keyboard: tells are answered with the text; alone, a box for the text, or back when away; /afk status"),
     ("t <text>", "your team's channel"),
     ("duel", "ask the targeted player to duel; /duel accept, reject, stop or draw answer and end one"),
@@ -154,6 +160,20 @@ pub enum Parsed {
     Quit,
     /// `/afk [text]`: away from the keyboard (`afk.rs`).
     Afk { text: String },
+    /// `/macro <name> <command>` (`macros.rs`).
+    Macro { name: String, command: String },
+    /// `/script <file> [words]`: the line after the command (`scripts.rs`).
+    Script { line: String },
+    /// `/dvalue <name> [value]`: a stored setting shown, or set (GUI.dll FUN_100b7716).
+    DValue { name: String, value: Option<String> },
+    /// `/filter <what> [rest]` (`chatfilter.rs`).
+    Filter { what: String, rest: String },
+    /// `/start <address>` (GUI.dll FUN_100ba073).
+    Start { address: String },
+    /// `/played` (GUI.dll FUN_100b2906): the time and date said (its request for the time played is Gamecode's).
+    Played,
+    /// `/char&viewdist <characters> <view>` (GUI.dll FUN_100b6a54): both distances.
+    BothDist { characters: u32, view: u32 },
     /// A line for the organization channel.
     Org { text: String },
     /// Plain speech or /say, /shout, /whisper, /me: vicinity chat.
@@ -181,10 +201,24 @@ pub fn suggest(input: &str) -> Vec<&'static str> {
     COMMANDS.iter().copied().filter(|c| c.to_lowercase().starts_with(&prefix)).collect()
 }
 
+/// [`suggest`] with the script files there are among the commands, as the original lists them: by name, the case
+/// not counting; a file named as a command is not listed twice.
+pub fn suggest_with(input: &str, scripts: &[String]) -> Vec<String> {
+    let Some(rest) = input.strip_prefix('/') else { return Vec::new() };
+    if rest.contains(char::is_whitespace) {
+        return Vec::new();
+    }
+    let prefix = rest.to_lowercase();
+    let mut all: Vec<String> = suggest(input).into_iter().map(str::to_string).collect();
+    all.extend(scripts.iter().filter(|s| s.to_lowercase().starts_with(&prefix) && !COMMANDS.iter().any(|c| c.eq_ignore_ascii_case(s))).cloned());
+    all.sort_by_key(|c| c.to_lowercase());
+    all
+}
+
 /// The command with this name (any case), as the original writes it.
 /// Commands of this client's own, beyond the original's list: `/sit` (the X key's sit and stand).
 /// `/pet` is Gamecode's own (FUN_100542ad), not in the input line's list, but the control center's Pets menu runs it.
-pub const EXTRA: &[&str] = &["sit", "pet", "perf", "damage", "dps", "find", "messagebox", "perks", "perk", "crafting", "craft"];
+pub const EXTRA: &[&str] = &["befriend", "sit", "pet", "perf", "damage", "dps", "find", "messagebox", "perks", "perk", "crafting", "craft"];
 
 /// `/pet <command>`'s words and the `PetCommand` numbers they send (Gamecode FUN_100542ad's table).
 pub const PET_COMMANDS: &[(&str, u32)] = &[
@@ -301,6 +335,43 @@ pub fn parse(line: &str) -> Parsed {
         "close" => Parsed::Window { name: text.to_string(), open: false },
         "selectself" => Parsed::SelectSelf,
         "afk" => Parsed::Afk { text: text.to_string() },
+        // (FUN_100b8c82: a name and a command, or the usage)
+        "macro" => match text.split_once(char::is_whitespace) {
+            Some((name, command)) if !command.trim().is_empty() => Parsed::Macro { name: name.to_string(), command: command.trim().to_string() },
+            _ => Parsed::Usage("/macro <name> <command>"),
+        },
+        "script" => {
+            if text.is_empty() {
+                Parsed::Usage("/script <script file> [words for its %1, %2 ...]")
+            } else {
+                Parsed::Script { line: text.to_string() }
+            }
+        }
+        "dvalue" => match text.split_once(char::is_whitespace) {
+            _ if text.is_empty() => Parsed::Usage("/dvalue <OptionName> [value]"),
+            Some((name, value)) => Parsed::DValue { name: name.to_string(), value: Some(value.trim().to_string()) },
+            None => Parsed::DValue { name: text.to_string(), value: None },
+        },
+        "filter" => match text.split_once(char::is_whitespace) {
+            _ if text.is_empty() => Parsed::Usage("/filter [list|del|add|enable|disable|clear]"),
+            Some((what, rest)) => Parsed::Filter { what: what.to_lowercase(), rest: rest.trim().to_string() },
+            None => Parsed::Filter { what: text.to_lowercase(), rest: String::new() },
+        },
+        "start" => match text.split_whitespace().next() {
+            Some(address) => Parsed::Start { address: address.to_string() },
+            None => Parsed::Usage("/start <http address>"),
+        },
+        // (`/played`, `/bank`, `/born`, `/team` and most of `/tower` are handed by GUI.dll to Gamecode's own text
+        // commands, `N3Msg_TextCommand` 0x10017743 and its FUN_1003fe10, which this client has not: they are not the
+        // server commands `/stuck` is, and the server refuses them sent that way. `/played` says its own line.)
+        "played" => Parsed::Played,
+        "char&viewdist" => {
+            let mut numbers = text.split_whitespace().map(|t| t.parse::<u32>().ok());
+            match (numbers.next().flatten(), numbers.next().flatten()) {
+                (Some(characters), Some(view)) => Parsed::BothDist { characters, view },
+                _ => Parsed::Usage("/char&viewdist <character distance> <view distance>"),
+            }
+        }
         "setoption" | "option" => {
             let mut words = text.split_whitespace();
             Parsed::SetOption { name: words.next().unwrap_or("").to_string(), value: words.next().unwrap_or("").to_string() }
@@ -462,8 +533,13 @@ mod tests {
     #[test]
     fn the_whole_list_is_offered_for_a_bare_slash() {
         assert_eq!(suggest("/").len(), COMMANDS.len());
-        assert_eq!(COMMANDS.len(), 88);
-        assert_eq!(suggest("/aou_gui_s"), vec!["aou_gui_slim", "aou_gui_slim_1", "aou_gui_slim_2", "aou_gui_slim_3"]);
+        assert_eq!(COMMANDS.len(), 70);
+        // (the script files there are go among them)
+        let scripts = ["aou_gui_slim".to_string(), "Text".to_string(), "MapMarker".to_string()];
+        assert_eq!(suggest_with("/aou_gui_s", &scripts), vec!["aou_gui_slim"]);
+        assert_eq!(suggest_with("/ma", &scripts), vec!["macro", "MapMarker"]);
+        assert_eq!(suggest_with("/te", &scripts), vec!["team", "tell", "terminate", "text"]);
+        assert!(suggest_with("/macro x", &scripts).is_empty());
         assert_eq!(suggest("/TE"), vec!["team", "tell", "terminate", "text"]);
         assert!(suggest("/tell ").is_empty());
         assert!(suggest("hello").is_empty());
@@ -556,8 +632,22 @@ mod tests {
         assert_eq!(parse("hello world"), Parsed::Vicinity { command: "say", text: "hello world".into() });
         assert_eq!(parse("/s HEY"), Parsed::Vicinity { command: "shout", text: "HEY".into() });
         assert_eq!(parse("/help"), Parsed::Help);
-        assert_eq!(parse("/aliens"), Parsed::Unsupported("aliens".into()));
+        assert_eq!(parse("/gfx 1 on"), Parsed::Unsupported("gfx".into()));
         assert_eq!(parse("/afk  back at nine "), Parsed::Afk { text: "back at nine".into() });
+        assert_eq!(parse("/macro Heal /pet heal  now"), Parsed::Macro { name: "Heal".into(), command: "/pet heal  now".into() });
+        assert_eq!(parse("/macro Heal"), Parsed::Usage("/macro <name> <command>"));
+        assert_eq!(parse("/script greet Zed"), Parsed::Script { line: "greet Zed".into() });
+        assert_eq!(parse("/dvalue AutoAFK"), Parsed::DValue { name: "AutoAFK".into(), value: None });
+        assert_eq!(parse("/dvalue AutoAFK false"), Parsed::DValue { name: "AutoAFK".into(), value: Some("false".into()) });
+        assert_eq!(parse("/filter ADD ^WTS .*"), Parsed::Filter { what: "add".into(), rest: "^WTS .*".into() });
+        assert_eq!(parse("/filter list"), Parsed::Filter { what: "list".into(), rest: String::new() });
+        assert_eq!(parse("/start https://example.org/a b"), Parsed::Start { address: "https://example.org/a".into() });
+        assert_eq!(parse("/played"), Parsed::Played);
+        assert_eq!(parse("/bank open"), Parsed::Unsupported("bank".into()));
+        assert_eq!(parse("/tower info"), Parsed::Unsupported("tower".into()));
+        assert_eq!(parse("/char&viewdist 50 600"), Parsed::BothDist { characters: 50, view: 600 });
+        // (a script file's name is not a command of the list: the chat window looks for the file)
+        assert_eq!(parse("/aou_about"), Parsed::Unknown("aou_about".into()));
         assert_eq!(parse("/AFK"), Parsed::Afk { text: String::new() });
         assert_eq!(parse("/nonsense x"), Parsed::Unknown("nonsense".into()));
         assert_eq!(parse("   "), Parsed::Empty);

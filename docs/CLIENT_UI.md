@@ -830,6 +830,25 @@ behind used to hide some of it. Seen from inside in pictures (`inside.py` in the
 headings, `MAO_CULL=show`): the neutral, Omni and clan basic shops have their walls whole. `rooms::describe_room`
 and the `roomcells` example say a room's cells, pieces and textures. Not seen live.
 
+**Macros, scripts and more commands (2026-11-12, the user: "Work on /macro and any other missing / commands").**
+What each does in the original is in `docs/GUI_DLL_PARITY.md`, section 3.
+`/macro <name> <command>` makes a macro and puts it on the pointer: click a hotbar slot to set it down (the click
+does not press the slot). The slot shows the macro's name in yellow; a press carries its line out as if typed;
+its tip says the line. Macros are kept in `TextMacro.bin` beside the settings, in the original's format.
+`/script <file> [words]`, or just `/<file>`, runs a file of chat lines from a `scripts` folder beside the
+settings or from the original's own scripts folder: one line a frame, `%1` `%2` filled with the words, `#` lines
+skipped, `/delay 500` waiting half a second. The files' names are in the list a `/` opens. **A line of a script
+that is not a command is spoken**, as it would be typed (two of the files of the install looked at begin with
+`<a`). `/filter add <pattern>` hides the lines of channels and the vicinity that the pattern matches (`list`,
+`del <number>`, `enable`, `disable`, `clear`; it starts disabled, as the original's; the patterns are the old
+regular expressions: `. [ ] * + ? ( ) | ^ $`, kept in `chatfilter.ini`). `/dvalue <name> [value]` shows or sets
+one of the original's stored settings. `/start <http address>` opens it outside the game. `/char&viewdist <a>
+<b>` sets both distances. `/played` says the time and date; the time played is not asked for yet, nor are `/bank`,
+`/born`, `/team`, `/tower` carried out (they need Gamecode's command interpreter, not ported). Previews:
+`MAO_UI_PREVIEW=macro` (a bar with two macros). Tried live: a macro made, set down by a click and pressed; a
+script found and one not found; the filter's and `/dvalue`'s lines. Not tried: the filter on a real channel line,
+a script with `/delay`, `/start`.
+
 **Away from the keyboard (2026-11-12, the user: "Do the afk and auto away").** `/afk` as the original's
 (`afk.rs`; what was read is in `docs/GUI_DLL_PARITY.md`, section 3). `/afk <text>`: away with that message, said
 to you and, as an emote, to those around. `/afk` alone: away with the default message and a box to change it

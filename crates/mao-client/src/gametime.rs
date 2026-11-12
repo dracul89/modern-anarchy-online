@@ -14,6 +14,14 @@ use std::time::Instant;
 pub const DAY: f32 = 27.0 * 3600.0;
 pub const HOURS: i32 = 27;
 pub const PACE: f32 = 15.0;
+
+/// The game's hour and minute as the game connection last knew them (`Clock::publish`), for `/played`.
+static NOW: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+pub fn now() -> (u32, u32) {
+    let minutes = NOW.load(std::sync::atomic::Ordering::Relaxed);
+    (minutes / 60, minutes % 60)
+}
 const DAWN_START: i32 = 7;
 const DAWN_LENGTH: i32 = 2;
 const DUSK_START: i32 = 21;
@@ -96,6 +104,12 @@ impl Clock {
     pub fn time(&self) -> (i32, i32) {
         let s = self.seconds() as i32;
         ((s / 3600) % HOURS, (s / 60) % 60)
+    }
+
+    /// Notes the hour and minute for [`now`].
+    pub fn publish(&self) {
+        let (hour, minute) = self.time();
+        NOW.store((hour * 60 + minute) as u32, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// How much of the day's light there is now, 0 to 1.

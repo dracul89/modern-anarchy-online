@@ -101,6 +101,11 @@ then check a render. Never the other way round.
 
 ## For review and removal: script-file commands in the `/` list
 
+**Done on 2026-11-12:** the names below are out of `chat_commands::COMMANDS` (70 names now, with `start` added); the
+script files there are on the machine are read and offered instead (`scripts::names`, `chat_commands::suggest_with`), and
+`/script` and `/<file>` run them. `Befriend` stays this client's own `/befriend`; the original's file of that name is a
+`/cc` line, which is not carried out.
+
 `chat_commands::COMMANDS` (the 88 names offered when `/` is typed) was copied from the list a live install showed. Some of
 them are not the original game's commands: they are text files in that install's `scripts` folder (the AOU mod's and the
 player's own, `%LOCALAPPDATA%/Funcom/Anarchy Online/<id>/Anarchy Online/scripts`), which the original lists alongside its own

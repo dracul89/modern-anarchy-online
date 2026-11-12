@@ -130,12 +130,56 @@ group's requests 3, 4 and 5, the name looked up first; not tried live, it needs 
 fight), `/perks` and `/perk` (sent to the server as `/stuck` is). `/messagebox` was tried live; the others ran
 without a fault but their lines were not read back.
 
-Listed but not carried out: `/bank` `/born` `/cc` `/filter` `/group` `/macro` `/name` `/option`
-`/played` `/reclaim` `/script` `/team` `/terminate` `/title` `/tower` `/dvalue`. (`/anon`, `/list`, `/shop` and
-`/stuck` go to the server as typed; `/raid` and `/lft` open their windows.) Their handlers, for whoever takes them
-next: `/cc` FUN_100ba6f4, `/macro` FUN_100b8c82 (a GlobalSignal with the name and the command),
-`/name` FUN_100baba6, `/option` and `/setoption` FUN_100b60cb, `/dvalue` FUN_100b7716, `/filter` FUN_100b933d,
-`/lft` FUN_100b6f9f, `/terminate` FUN_100b375a, `/tower` FUN_100b3863, `/reclaim` FUN_100b27c2, `/rp` FUN_100b280d. (`/fxscript` is carried out since 2026-11-11: FUN_100b70be, the line sent as the effect scripts' signal.)
+Since 2026-11-12 also (`macros.rs`, `scripts.rs`, `chatfilter.rs`; each module's head says what was read):
+
+- **`/macro <name> <command>`** (FUN_100b8c82 raises `GlobalSignals_c` +0x1a0; the shortcut bar's FUN_100d8c4a
+  answers). `TextMacroSystem_t` (`CreateMacro` 0x1002338f, `GetMacro` 0x10023366, `Save` 0x10023201, `Load`
+  0x1002350b, `Init` 0x100236ec): a macro is a number, a name and a command, kept in `TextMacro.bin` (a count, then
+  number, name and command with their lengths, big-endian; checked against the files the original wrote on this
+  machine). The macro is made and saved, and a drag of it begun; dropped on a bar it is an entry of kind 7 whose
+  picture is its name in yellow (FUN_100402e8), whose tip is the name and the command (FUN_10042193, "Broken
+  macro" without one), and whose press raises the signal that carries a line out as typed (FUN_100d833f, +0x180).
+  Here: the file is the client's own beside its settings; the macro rides on the pointer (egui's drag payload, its
+  name drawn beside the pointer) until a click on a hotbar slot sets it down; `hotbar::Action::Macro`. The right
+  button on a `chatcmd://` link makes a macro of its command in the original (FUN_10065798): not done.
+- **Script files** (`/script <file> [words]` FUN_1009d4e9, and any `/<word>` the list does not know; the loader
+  FUN_100b1517, the runner FUN_100b1d6c): a file of chat lines in the scripts folder, `#` lines and empty ones
+  left out, `%N` filled with the command line's words, one line a frame, `/delay <ms>` waiting. Limits and texts
+  as the original's (the line under 0xb5 bytes, `Script2Long`; the file at most 0x1000 bytes and not empty;
+  `Unable2FindScriptX`). The folder is the original's (`%LOCALAPPDATA%/Funcom/Anarchy Online/<install>/Anarchy
+  Online/scripts`), after a `scripts` folder beside the client's settings. The files' names are offered with the
+  commands (FUN_100a44e8), read where they are: `chat_commands::COMMANDS` no longer holds one install's.
+- **`/filter list|add|del|enable|disable|clear`** (FUN_100b933d) and the filter itself (FUN_100854a8: a group's
+  line that a rule matches is not shown; tells are not looked at). The rules are `RegExp`s of Utils.dll, which is
+  Henry Spencer's library of 1986 (its program's mark 0234 is checked by 0x1000c469): ported as
+  `chatfilter::Pattern`. The original keeps the rules in the `ChatFilterRules` value; here they are a file.
+- **`/dvalue <name> [value]`** (FUN_100b7716): a stored value shown, or set to what the text works out to as an
+  expression, held to the value's range; a name that is not there is made. **`/start <address>`** (FUN_100ba073,
+  FUN_100b9acf): an `http://` or `https://` address opened by the system (the original asks first when the game
+  is full screen: not done). **`/char&viewdist <a> <b>`** (FUN_100b6a54): both distances.
+- **`/played`** (FUN_100b2906): its own line, the time here, in Greenwich and in the game, and the date. It then
+  gives "played" to Gamecode's text commands, which is the part not done (below).
+
+Not carried out, and why (the handler is the one registered after each name; an earlier note here had `/tower`,
+`/terminate`, `/rp` and `/reclaim` one off):
+
+- `/played`'s request, `/bank`, `/born`, `/team` (and `/version`, `/org`, `/pet`, `/follow`, `/items`, `/raid` as
+  the original first registers them, FUN_100b2ac9): GUI.dll hands the line to `N3Msg_TextCommand` (FUN_100b285d;
+  Gamecode 0x10017743), whose FUN_1003fe10 is a 1,600-line interpreter of its own (the organization commands and
+  more, each making its own message). **They are not the server commands `/stuck` is** (Fanatic's `FanaticIIR_t`,
+  FUN_100b36da): "played" sent that way on 2026-11-12 was answered "You are not authorized to perform that
+  command. (Your request has been logged)". Porting FUN_1003fe10 is the next step for these.
+- `/tower` (FUN_100b375a: `create`, and `terminate` with a tower selected, go to Fanatic's own
+  `ClientInterface_c::Command`; the rest to `N3Msg_TextCommand`), `/terminate` (FUN_100b3a69: a yes/no box, then
+  Fanatic), `/gfx <n> <on|off>` (FUN_100b3863, `N3Msg_EnableGFX`): Notum Wars and the effects' switches.
+- `/cc` (FUN_100ba6f4: `/cc info <name>` is a private message of kind 1, the rest a list of words sent to the chat
+  server by FUN_1016caf7; neither packet is decoded). The original's `Befriend` script file is a `/cc` line.
+- `/name <new name>` (FUN_100baba6: a private message of kind 5, "Sending name change request."): not decoded, and
+  not something to try on a character.
+- `/rp` (FUN_100b27c2: the character's stat 673 with bit 0x200 turned over, sent through `N3Msg_EventFeedback`
+  0x46), `/reclaim` (0x100b27af: `N3Msg_ToggleReclaim(false)`, the reclaim window), `/bug` (FUN_100b6019: a
+  report sent to the server), `/option` beyond what `/setoption` does.
+- `/lft` FUN_100b6f9f opens its window; `/rp` and `/reclaim` need a capture to see what the server answers.
 
 `/afk` and going away by itself, carried out on 2026-11-12 (`afk.rs`, hooks in `chatwindow.rs`, `ui.rs`, `net.rs`,
 `mao_net::chat`). What the original does, and so the client:

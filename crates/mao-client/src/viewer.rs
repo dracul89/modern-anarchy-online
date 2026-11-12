@@ -897,6 +897,12 @@ fn fire_action(action: &crate::hotbar::Action, keys: &mut Input, hud: &mut Hud) 
         crate::hotbar::Action::Special { id, .. } => keys.special = (keys.special.0.wrapping_add(1), *id),
         crate::hotbar::Action::Social { id, .. } => keys.social = (keys.social.0.wrapping_add(1), *id),
         crate::hotbar::Action::Nano { id, .. } => keys.cast = (keys.cast.0.wrapping_add(1), *id),
+        // (FUN_100d833f: the macro's line carried out as typed; one whose number has no macro is "Broken macro")
+        crate::hotbar::Action::Macro { id, .. } => {
+            if !crate::macros::press(*id) {
+                hud.say("Broken macro");
+            }
+        }
         crate::hotbar::Action::Item { id, name, .. } => {
             // The first stack of that item (the backpack before anything worn).
             let found = hud.gear.iter().filter(|i| i.item_id == *id).max_by_key(|i| i.slot >= mao_net::inventory::BACKPACK_FIRST).map(|i| i.slot);
@@ -2654,6 +2660,42 @@ impl ApplicationHandler for App {
                                 let line = self.settings.set_option(&name, &value);
                                 ui.chat.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, line));
                                 self.settings.save();
+                            }
+                            // (`/dvalue`, FUN_100b7716: a value of the original's shown, or set to what the text works out
+                            // to as an expression, held to the value's range; one that is not there is made)
+                            crate::chatwindow::Out::DValue { name, value } => {
+                                let escape = |t: &str| t.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
+                                let shown = |v: &crate::gui::variant::Variant| escape(&String::from_utf8_lossy(&v.as_string()));
+                                let line = match (ui.control_center.as_mut(), value) {
+                                    (None, _) => "The stored settings are not loaded.".to_string(),
+                                    (Some(cc), None) => match cc.store.get(&name) {
+                                        Some(v) => format!("Variable &lt;{}&gt; is &lt;{}&gt;", escape(&name), shown(v)),
+                                        None => format!("Can't find option &lt;{}&gt;.", escape(&name)),
+                                    },
+                                    (Some(cc), Some(text)) => {
+                                        let old = cc.store.get(&name).map_or("none".to_string(), &shown);
+                                        match cc.store.eval(&text, &self.hud.stats, &|_| None) {
+                                            Some(mut new) => {
+                                                if let Some((low, high)) = cc.store.range(&name) {
+                                                    let n = new.as_double();
+                                                    if n < low || n > high {
+                                                        let held = n.clamp(low, high);
+                                                        new = match new {
+                                                            crate::gui::variant::Variant::Float(_) => crate::gui::variant::Variant::Float(held as f32),
+                                                            crate::gui::variant::Variant::Double(_) => crate::gui::variant::Variant::Double(held),
+                                                            _ => crate::gui::variant::Variant::Int32(held as i32),
+                                                        };
+                                                    }
+                                                }
+                                                let said = shown(&new);
+                                                cc.store.set_user(&name, new);
+                                                format!("Changed variable &lt;{}&gt; from &lt;{old}&gt; to &lt;{said}&gt;", escape(&name))
+                                            }
+                                            None => format!("Invalid syntax: {} . Use /dvalue &lt;OptionName&gt; [value]", escape(&text)),
+                                        }
+                                    }
+                                };
+                                ui.chat.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, mao_net::chat::plain(&line)).with_markup("", &line));
                             }
                             crate::chatwindow::Out::Inspect => self.keys.inspect = self.keys.inspect.wrapping_add(1),
                             crate::chatwindow::Out::Follow => self.keys.follow = self.keys.follow.wrapping_add(1),

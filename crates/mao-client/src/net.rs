@@ -5262,7 +5262,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                         chat.send(&mao_net::chat::lookup_packet(&name))?;
                                     }
                                 },
-                                Out::Camp | Out::Sit | Out::Perf | Out::Pet(_) | Out::Duel(_) | Out::PetDuel(_) | Out::Server(_) | Out::FxScript(_) | Out::Quit | Out::Follow | Out::Inspect | Out::Window { .. } | Out::ToggleWindow { .. } | Out::Assist { .. } | Out::Waypoint { .. } | Out::SelectSelf | Out::SetOption { .. } | Out::ViewDist(_) | Out::CharDist(_) => {}
+                                Out::Camp | Out::Sit | Out::Perf | Out::Pet(_) | Out::Duel(_) | Out::PetDuel(_) | Out::Server(_) | Out::FxScript(_) | Out::Quit | Out::Follow | Out::Inspect | Out::Window { .. } | Out::ToggleWindow { .. } | Out::Assist { .. } | Out::Waypoint { .. } | Out::SelectSelf | Out::SetOption { .. } | Out::DValue { .. } | Out::ViewDist(_) | Out::CharDist(_) => {}
                                 Out::Befriend { name } => match ids.get(&name.to_lowercase()) {
                                     Some(&id) => {
                                         chat.send(&mao_net::chat::buddy_add_packet(id, false))?;
@@ -7498,6 +7498,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             fxs_wind.advance(w[7], dt);
             // (FUN_100b8e6f, with Notum Wars: the eye's offset on the planet from the headquarters)
             let offset_from_hq = if state.expansion { crate::fxs::planet::offset_from_hq(current, position) } else { [0.0; 2] };
+            state.game_clock.publish();
             crate::fxs::set_game(&crate::fxs::Game {
                 delta_time: dt,
                 day_time: state.game_clock.seconds() / crate::gametime::PACE,

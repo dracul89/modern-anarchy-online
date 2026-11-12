@@ -1002,6 +1002,8 @@ impl Ui {
             let auto_afk = control_center.as_ref().and_then(|cc| cc.store.get("AutoAFK")).is_none_or(|v| v.as_bool());
             let game_master = hud.stats.get(&215).is_some_and(|v| *v != 0);
             chat_window.away_input(&ctx, auto_afk, game_master);
+            // (the macros pressed and the running script's next line, carried out as if typed)
+            chat_window.script_frame(ctx.input(|i| i.stable_dt));
             let hud_started = std::time::Instant::now();
             hud_layer(&ctx, hud, project, fps, settings.mode, palette);
             crate::prof::lap("ui-hud", hud_started);
@@ -1074,6 +1076,11 @@ impl Ui {
                 requests.chat.push(out);
             }
             chat_window.away_frame(&ctx, palette, auto_afk, game_master);
+            // (a macro just made rides on the pointer until it is dropped on a hotbar slot or let go elsewhere:
+            // the original begins a drag of it, FUN_100d8c4a)
+            if let Some((id, name)) = chat_window.macro_made.take() {
+                egui::DragAndDrop::set_payload(&ctx, hotbar::Action::Macro { id, name });
+            }
             requests.chat.extend(chat_window.outs.drain(..));
             for url in chat_window.links.drain(..) {
                 info_view.show_url(&url);
@@ -1811,6 +1818,12 @@ fn hotbar_layer(ctx: &egui::Context, bars: &mut Hotbars, gear: &mut GearWindow, 
                                 let id = gear.texture(ctx, &icon);
                                 ui.painter().image(id, rect.shrink(3.0), egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
                             }
+                            // (a macro's picture is its name in yellow, FUN_100402e8)
+                            None if matches!(action, hotbar::Action::Macro { .. }) => {
+                                let galley = ui.painter().layout(action.name().to_string(), egui::FontId::proportional(10.0), egui::Color32::YELLOW, rect.width() - 4.0);
+                                let at = rect.center() - galley.size() * 0.5;
+                                ui.painter().with_clip_rect(rect.shrink(1.0)).galley(egui::pos2(at.x.max(rect.left() + 2.0), at.y.max(rect.top() + 2.0)), galley, egui::Color32::YELLOW);
+                            }
                             None => {
                                 let letter = action.name().chars().next().unwrap_or('?');
                                 ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, letter, egui::FontId::proportional(20.0), accent);
@@ -1831,14 +1844,23 @@ fn hotbar_layer(ctx: &egui::Context, bars: &mut Hotbars, gear: &mut GearWindow, 
                         ui.painter().rect_stroke(rect, 3.0, egui::Stroke::new(if queued || hovering { 2.0 } else { 1.0 }, border), egui::StrokeKind::Inside);
                     }
                     ui.painter().text(rect.left_top() + egui::vec2(3.0, 2.0), egui::Align2::LEFT_TOP, format!("{}", (slot + 1) % 10), egui::FontId::proportional(10.0), egui::Color32::from_white_alpha(160));
+                    let mut dropped = false;
                     if let Some(payload) = response.dnd_release_payload::<hotbar::Action>() {
-                        bars.add(bar, slot, (*payload).clone(), 5.0);
+                        // (a macro has no wait of its own)
+                        bars.add(bar, slot, (*payload).clone(), if matches!(*payload, hotbar::Action::Macro { .. }) { 0.0 } else { 5.0 });
                         requests.hotbars_changed = true;
+                        dropped = true;
                     }
-                    if response.clicked() {
+                    // (the click that sets a macro down is not a press of the slot)
+                    if response.clicked() && !dropped {
                         requests.press = Some(slot);
                     }
-                    let tooltip: Vec<String> = bars.slot(bar, slot).entries.iter().enumerate().map(|(i, e)| format!("{}. {} ({:.0}s){}", i + 1, e.action.name(), e.cooldown, if e.ready_at > now { format!(", {:.1}s left", e.ready_at - now) } else { String::new() })).collect();
+                    // (a macro says its name and its line, FUN_10042193)
+                    let named = |a: &hotbar::Action| match a {
+                        hotbar::Action::Macro { id, name } => crate::macros::get(*id).map_or("Broken macro".to_string(), |m| format!("{name}: {}", m.command)),
+                        other => other.name().to_string(),
+                    };
+                    let tooltip: Vec<String> = bars.slot(bar, slot).entries.iter().enumerate().map(|(i, e)| format!("{}. {} ({:.0}s){}", i + 1, named(&e.action), e.cooldown, if e.ready_at > now { format!(", {:.1}s left", e.ready_at - now) } else { String::new() })).collect();
                     if !tooltip.is_empty() {
                         response.clone().on_hover_text(tooltip.join("\n"));
                     }
@@ -1896,6 +1918,18 @@ fn hotbar_layer(ctx: &egui::Context, bars: &mut Hotbars, gear: &mut GearWindow, 
             });
         });
     });
+    // A macro on the pointer (`/macro`): its name beside the pointer until it is dropped.
+    if let Some(payload) = egui::DragAndDrop::payload::<hotbar::Action>(ctx)
+        && let hotbar::Action::Macro { name, .. } = &*payload
+        && let Some(at) = ctx.input(|i| i.pointer.latest_pos())
+    {
+        egui::Area::new(egui::Id::unique("macro-on-pointer")).order(egui::Order::Tooltip).interactable(false).fixed_pos(at + egui::vec2(12.0, 10.0)).show(ctx, |ui| {
+            egui::Frame::new().fill(egui::Color32::from_black_alpha(190)).corner_radius(3).inner_margin(3).show(ui, |ui| {
+                ui.label(egui::RichText::new(name).small().color(egui::Color32::YELLOW));
+            });
+        });
+        ctx.request_repaint();
+    }
     // Where the bar was dropped (or turned) is kept.
     let rect = area.response.rect;
     if area.response.dragged() || area.response.drag_stopped() {

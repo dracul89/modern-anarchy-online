@@ -30,6 +30,9 @@ macro_rules! profile {
 
 mod actions;
 mod afk;
+mod chatfilter;
+mod macros;
+mod scripts;
 mod interior;
 mod perf;
 mod crash;
@@ -2059,6 +2062,14 @@ fn run(args: &[String]) -> Result<(), String> {
                             let hex = "000000c79c00000227000023790000001b000a53747978204d61676d61010100000015000e436861727265642047726f6f7665010100000019000f4e6f727468206f6620597574746f7301010000001f001157657374206f6620506572646974696f6e0101";
                             (0..hex.len() / 2).map(|i| u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>()
                         });
+                    }
+                    // MAO_UI_PREVIEW=macro: a hotbar with two text macros (`/macro`): a macro's picture is its name.
+                    if preview.as_deref() == Some("macro") {
+                        let mut bars = hotbar::Hotbars::default();
+                        bars.add(0, 0, hotbar::Action::Attack, 2.0);
+                        bars.add(0, 1, hotbar::Action::Macro { id: 1, name: "Assist".into() }, 0.0);
+                        bars.add(0, 2, hotbar::Action::Macro { id: 2, name: "Heal pet".into() }, 0.0);
+                        hud.preview_hotbars = bars;
                     }
                     if preview.as_deref() == Some("hotbar") {
                         // A sample: stims then an attack in slot 1 (the stim cooling down, so the attack shows), a recharger in slot 2.

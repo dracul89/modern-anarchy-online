@@ -281,6 +281,24 @@ To try by hand:
 - A buff bot's `help`: its second tell, the list, shows as a link; the link opens the page; the page's own links send
   their tells.
 
+## Macros, scripts, the chat filter (2026-11-12)
+
+Seen in a scripted run (the chat log): `/macro Hello /text the macro ran` said the macro was on the pointer, a
+click on an empty hotbar slot set it down, a second click ran it; `/script nosuchscript` said "Unable to find
+script"; `/aou_about` (a script file of the original's folder) ran without a word; `/filter add`, `list`,
+`clear`; `/dvalue AutoAFK` shown, set, and a name that is not there. Left for a person:
+
+- `/macro Assist /assist`: the name rides beside the pointer; set it on a slot; the slot shows "Assist" in yellow;
+  its tip says the line; it is still there after a restart. Clicking somewhere else instead drops the macro
+  nowhere (it is still saved, but on no bar).
+- A script of your own in `%APPDATA%/ModernAnarchyOnline/scripts` with `/delay 1000` between two `/text` lines:
+  a second between them. With `%1` in a line and a word after the command: the word in its place.
+- Typing `/` and the first letters of a script file's name: it is in the list.
+- `/filter add ^WTS`, `/filter enable`: lines of a trade channel that begin so are gone; tells are not.
+  `/filter disable`: back.
+- `/start https://www.anarchy-online.com`: the system's browser opens it.
+- `/char&viewdist 100 800`.
+
 ## Away from the keyboard (2026-11-12)
 
 Seen in a scripted run with two characters (the chat log of both): the lines of `/afk <text>`, `/afk status` and
