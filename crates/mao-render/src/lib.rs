@@ -98,7 +98,9 @@ impl Gpu {
             None => pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::HighPerformance,
                 compatible_surface: surface,
-                force_fallback_adapter: false,
+                // (`MAO_SOFTWARE_GPU=1`: the system's software device, which is all a build machine without a
+                // graphics card has; to see here what the render tests do there)
+                force_fallback_adapter: std::env::var_os("MAO_SOFTWARE_GPU").is_some(),
                 ..Default::default()
             }))
             .map_err(|e| e.to_string())?,

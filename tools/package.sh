@@ -2,26 +2,35 @@
 # Builds the release client on Linux or macOS and puts together a folder (and a .tar.gz) to play from anywhere:
 # dist/ModernAnarchyOnline. The Windows build's is tools/package.ps1; see docs/PLATFORMS.md.
 #
-# The folder holds mao-client, the bundled skins (assets/, which the client looks for beside itself) and play.sh, which
+# The folder holds mao-client, the bundled skins (assets/, which the client looks for beside itself), README.txt
+# (tools/package-readme.txt), the repository's LICENSE files when it has any, and play.sh, which
 # finds the game (the folder with cd_image: a path given to it, else $MAO_GAME, else the usual Steam, Proton and Wine
 # places) and starts the launcher. The client keeps its settings, hotbars, crash.log and the like in
 # $XDG_CONFIG_HOME/ModernAnarchyOnline (~/.config/ModernAnarchyOnline), or mao.ini's folder when one sits where it runs.
 # Nothing from the game is copied: the player needs an Anarchy Online install.
 #
-#   tools/package.sh [out-dir]          (default: dist)
+#   tools/package.sh [out-dir] [version]          (default: dist, and no version in the archive's name)
+#
+# With a version the archive is named for a release: ModernAnarchyOnline-<version>-<system>.tar.gz (the release
+# workflow, .github/workflows/release.yml, calls it so; see docs/RELEASING.md).
 #
 # Building needs Rust, a C linker and, on Linux, ALSA's development files and pkg-config (libasound2-dev pkg-config on
 # Debian and Ubuntu, alsa-lib-devel pkgconf on Fedora).
 set -eu
 out=${1:-dist}
+version=${2:-}
 root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root"
-cargo build --release -p mao-client
+cargo build --release --locked -p mao-client
 dir="$root/$out/ModernAnarchyOnline"
 rm -rf "$dir"
 mkdir -p "$dir"
 cp target/release/mao-client "$dir/"
 cp -R assets "$dir/"
+cp tools/package-readme.txt "$dir/README.txt"
+for f in LICENSE*; do
+  if [ -f "$f" ]; then cp "$f" "$dir/"; fi
+done
 cat > "$dir/play.sh" <<'PLAY'
 #!/bin/sh
 # Starts Modern Anarchy Online: the launcher (log in, pick a character), then the game.
@@ -57,7 +66,8 @@ fi
 PLAY
 chmod +x "$dir/play.sh" "$dir/mao-client"
 system=$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m)
-archive="$root/$out/ModernAnarchyOnline-$system.tar.gz"
+case "$system" in darwin-*) system=macos-${system#darwin-} ;; esac
+archive="$root/$out/ModernAnarchyOnline${version:+-$version}-$system.tar.gz"
 rm -f "$archive"
 tar -C "$root/$out" -czf "$archive" ModernAnarchyOnline
 echo "packaged: $dir ($archive)"
