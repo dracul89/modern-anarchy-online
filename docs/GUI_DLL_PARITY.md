@@ -137,6 +137,18 @@ next: `/afk` FUN_100b82a7, `/cc` FUN_100ba6f4, `/macro` FUN_100b8c82 (a GlobalSi
 `/name` FUN_100baba6, `/option` and `/setoption` FUN_100b60cb, `/dvalue` FUN_100b7716, `/filter` FUN_100b933d,
 `/lft` FUN_100b6f9f, `/terminate` FUN_100b375a, `/tower` FUN_100b3863, `/reclaim` FUN_100b27c2, `/rp` FUN_100b280d. (`/fxscript` is carried out since 2026-11-11: FUN_100b70be, the line sent as the effect scripts' signal.)
 
+`/afk`, read on 2026-11-12 and not yet carried out (it is more than a command). Being away is "the away message
+is not empty" (`ChatGUIModule_c` +0x294, its length at +0x2a4 is `IsAFK` 0x1001b7c2; the time it began at +0x2b0,
+`GetAFKDuration` 0x10086309). `SetAFK` 0x10087669 notes the time when the character was not away before, and
+leaves a battle station (`N3Msg_IsBattleStation` / `N3Msg_LeaveBattle`). The handler FUN_100b82a7: `/afk status`
+says the message or that one is not away; `/afk` alone while away ends it (a line to the chat, and a line through a
+`TextMacro_t` to a chat group, FUN_10085a42); `/afk` alone while not away opens the message dialog
+(`AFKMessageDialog_c` FUN_1008307e, its view `AFKDialogView_c` FUN_100836ab) and is away with the default message
+meanwhile; `/afk <text>` is away with the text after `ExpandChatTextArgs`, or changes the message (a line with the
+old and the new). All its texts are of LDB category 0x2711 (the ids are in the disassembly, not the decompile).
+The rest of it: the answer to a tell while away (`HandlePrivateMessage` 0x10087e59), the "AutoAFK" option
+(`SlotAutoAFK` 0x100870a8, `InputConfig_t::SlotAFKTimer` 0x1001a2cb, `AFKIgnoreInput` 0x1000b835).
+
 Developer and GM commands (not for players; leave out): `/anim` `/center` `/clearunique` `/clone` `/command`
 `/criterialocal` `/damagemult` `/dumphash` `/font` `/framerate` `/funcom` `/getfull` `/gethash` `/getlocal`
 `/getlocalfull` `/item` `/joycamacc` `/lazyreload` `/monster` `/monsterdata` `/reload` `/reloadgfxtweak` `/resetskill`
