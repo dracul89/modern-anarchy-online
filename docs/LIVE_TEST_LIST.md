@@ -286,7 +286,8 @@ To try by hand:
 Seen in a scripted run with two characters (the chat log of both): the lines of `/afk <text>`, `/afk status` and
 `/afk`, "is afk" and "is back" in the other's vicinity chat, a tell marked "(AFK reply sent)", the reply in the
 sender's chat, no reply to a reply, going away after the (shortened) time without input, coming back when the
-mouse moved. Left for a person:
+mouse moved; and the box's keys (a text and Enter, Escape, the count's end) by their lines. Left for a person, who
+can see the box:
 
 - `/afk` alone: the box in the middle of the screen with the count running down from 30; typing stops the count;
   Enter or Ok takes the text ("Changed AFK message from ... to ..."); with the field emptied, "Using default AFK

@@ -122,3 +122,14 @@ and five minutes reads "1 hours and 5 minutes", five hours and one minute "5 hou
 
 The port feeds the same four in the same order through the same formatting, so it says what the original says. Decide:
 keep it, or count the choices from the right arguments when the text has this shape.
+
+## 12. `/afk` typed again while its box is still up comes back by itself
+
+`/afk` alone goes away with the default message and opens the box, whose count takes the field's text after 30 seconds
+(FUN_10083496 raises the view's signal with 0, FUN_100b6b65 answers it). Typing `/afk` again before that ends being away
+(FUN_100b82a7, "AFK off.") but leaves the box up. When its count ends, FUN_100b6b65 finds the field's text different from
+the message, which is now empty, says "Changed AFK message from '' to '...'" and calls `SetAFK` with it: the character
+is away again, half a minute after saying it was back.
+
+The port does the same (seen in a live run on 2026-11-12). Decide: keep it, or close the box when being away ends by
+another way.

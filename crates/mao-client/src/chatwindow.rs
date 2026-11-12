@@ -679,7 +679,8 @@ impl ChatWindow {
         for line in &did.lines {
             self.tell(line);
         }
-        did.emote.map(|text| Out::Vicinity { kind: 3, text })
+        // (`MAO_AFK_QUIET`: a trial that says nothing to those around)
+        did.emote.filter(|_| std::env::var_os("MAO_AFK_QUIET").is_none()).map(|text| Out::Vicinity { kind: 3, text })
     }
 
     /// Each frame before the windows are drawn, so before a line typed this frame is carried out (the original looks
@@ -732,9 +733,14 @@ impl ChatWindow {
             crate::gui::controls::markup(ui, palette, &count.map(|c| c.to_string()).unwrap_or_else(|| " ".to_string()), font, crate::chrome::rgb(palette.text));
             let field = crate::chrome::text_edit(ui, palette, egui::TextEdit::singleline(&mut dialog.message).desired_width(width - 12.0));
             crate::chrome::focus_when_new(ctx, "afk-message", &field);
-            typed = field.changed();
+            // (FUN_1008356e, the field's key signal: any key stops the count, Enter takes the text, Escape ends being
+            // away. egui's field gives up the focus on either of the two, so "had it or just lost it".)
+            let key = ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Key { pressed: true, .. } | egui::Event::Text(_))));
+            typed = field.changed() || (key && field.has_focus());
             if field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                 answer = Some(true);
+            } else if (field.lost_focus() || field.has_focus()) && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                answer = Some(false);
             }
             ui.add_space(4.0);
             ui.vertical_centered(|ui| {

@@ -841,8 +841,9 @@ or button press or a movement of the mouse over the window and the character is 
 setting on (`AutoAFK`, on in the game's own settings, `/setoption AutoAFK off` to change it) any input ends being
 away, also one asked for with `/afk`. That is the original's rule, not a shortcut here. The texts are the
 install's own (text.mdb), with this client's words where it has none. `MAO_AFK_IDLE=<seconds>` shortens the three
-minutes for a trial; `MAO_UI_PREVIEW=chat MAO_CHAT_AFK=<text, or empty for the box>` shows it in a picture. Tried
-live between the two test characters; the box's keys were not.
+minutes for a trial and `MAO_AFK_QUIET=1` leaves the lines to the vicinity unsent; `MAO_UI_PREVIEW=chat
+MAO_CHAT_AFK=<text, or empty for the box>` shows it in a picture. Tried live between the two test characters, the
+box by its keys; the box was looked at only in the picture.
 
 **The tradeskill guide (2026-11-12, the user: "I'd like a tradeskill helper too, a guide to all the creations a
 user can craft in game").** A window of the client's own (`/crafting [text]`, `/craft`, window name `crafting`;

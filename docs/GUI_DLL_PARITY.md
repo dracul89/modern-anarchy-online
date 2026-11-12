@@ -183,8 +183,11 @@ next: `/cc` FUN_100ba6f4, `/macro` FUN_100b8c82 (a GlobalSignal with the name an
 
 Tried live on 2026-11-12 with the two test characters (`MAO_AFK_IDLE=6` for a timer of 6 seconds): the lines, the
 emotes seen by the other client, the marked tell, the reply arriving and left unanswered by a character that was
-itself away, `/afk status`, the timer and the mouse's movement ending it. Not done: the battle station's part; the
-box's count was only seen in a preview picture (`MAO_UI_PREVIEW=chat MAO_CHAT_AFK=`), its keys not pressed live.
+itself away, `/afk status`, the timer and the mouse's movement ending it; and the box by its keys (a text typed
+and Enter, Escape, the count's end), in runs with `MAO_AFK_QUIET=1`, which leaves the vicinity's lines unsent. The
+box itself was looked at only in a preview picture (`MAO_UI_PREVIEW=chat MAO_CHAT_AFK=`). Not done: the battle
+station's part. Two things the original does that look like slips are kept and written down in
+`ORIGINAL_CODE_QUESTIONS.md` (11 and 12).
 
 Developer and GM commands (not for players; leave out): `/anim` `/center` `/clearunique` `/clone` `/command`
 `/criterialocal` `/damagemult` `/dumphash` `/font` `/framerate` `/funcom` `/getfull` `/gethash` `/getlocal`
