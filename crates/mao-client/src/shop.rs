@@ -470,7 +470,7 @@ impl ShopWindow {
             }
             // (an inventory item dropped on any of the three lists goes in: in shop mode FUN_100e121e gives each list's
             // drop signal, +0x2dc, FUN_100e015f, which adds an "inventory/item" drag to the trade)
-            let dropped = |area: &Option<egui::Rect>| area.is_some_and(|a| ui.input(|i| i.pointer.any_released() && i.pointer.interact_pos().is_some_and(|p| a.contains(p))));
+            let dropped = |area: &Option<egui::Rect>| area.is_some_and(|a| crate::gear::letting_go(ui.ctx()) && ui.input(|i| i.pointer.interact_pos().is_some_and(|p| a.contains(p))));
             if dragged != u32::MAX && [&stock_area, &bought_area, &sold_area].into_iter().any(dropped) {
                 command = Some(ShopCommand::Sell(dragged));
             }

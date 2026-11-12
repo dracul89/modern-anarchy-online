@@ -169,7 +169,7 @@ impl MessageWindow {
             // (a backpack item let go over the item place of a new mail)
             if compose
                 && dragged != u32::MAX
-                && ui.input(|i| i.pointer.any_released())
+                && crate::gear::letting_go(ui.ctx())
                 && let (Some(at), Some(slot)) = (ui.input(|i| i.pointer.interact_pos()), tree.find(root, "ItemView"))
                 && crate::gui::host::screen_rect(tree, slot, response.rect.min).contains(at)
                 && dragged >= mao_net::inventory::BACKPACK_FIRST

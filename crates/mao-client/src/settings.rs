@@ -142,6 +142,7 @@ pub enum Action {
     ChatPageDown,
     PerkWindow,
     VehicleWindow,
+    TradeskillWindow,
     /// Cycle windowed, borderless, fullscreen.
     CycleWindowMode,
     ToggleFullscreen,
@@ -220,6 +221,8 @@ pub const ACTIONS: &[(Action, &str, &str)] = &[
     (Action::NcuWindow, "ncu_window", "Ctrl+0"),
     (Action::PerkWindow, "open_perk_window", "Shift+P"),
     (Action::VehicleWindow, "open_vehicle_window", "Shift+V"),
+    // (the key is the user's word for the original's, 2026-11-12; the action's name is this client's)
+    (Action::TradeskillWindow, "tradeskill_window", "Shift+T"),
     // (This client's own windows have no key in the original: they are reached by using the booth or the terminal.)
     (Action::WhompahWindow, "whompah_window", ""),
     (Action::MailWindow, "mail_window", ""),

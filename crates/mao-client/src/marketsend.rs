@@ -100,7 +100,7 @@ impl MarketSendWindow {
         crate::chrome::window(ctx, palette, "Deposit to Market", "Deposit to Market", &mut open, |w| w.default_size(min).resizable(false), |ui| {
             let response = crate::gui::host::show(ui, tree, root, skin.as_deref(), palette);
             // (an item from the backpack let go over a slot: FUN_100097e4)
-            if dragged == u32::MAX || !ui.input(|inp| inp.pointer.any_released()) {
+            if dragged == u32::MAX || !crate::gear::letting_go(ui.ctx()) {
                 return;
             }
             let Some(at) = ui.input(|inp| inp.pointer.interact_pos()) else { return };
@@ -159,7 +159,7 @@ mod tests {
 
     #[test]
     fn deposits_follow_the_originals_rules() {
-        let item = |slot, flags, bag| GearItem { slot, item_id: 1, high_id: 1, count: 1, quality: 1, bag, flags, name: String::new(), description: String::new(), icon: None, effects: Vec::new(), actions: Vec::new() };
+        let item = |slot, flags, bag| GearItem { slot, item_id: 1, high_id: 1, count: 1, quality: 1, bag, container: (0, 0), flags, name: String::new(), description: String::new(), icon: None, effects: Vec::new(), actions: Vec::new() };
         assert_eq!(refusal(&item(70, 0, false)), None);
         assert_eq!(refusal(&item(6, 0, false)), Some("Feedback_MarketItemMustBeInBackpack"));
         assert_eq!(refusal(&item(70, NO_DROP, false)), Some("Feedback_MarketNoNodrops"));

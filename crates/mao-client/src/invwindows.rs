@@ -11,10 +11,15 @@
 //!   by FUN_101a5910, FUN_101a5514, FUN_101a5734 and FUN_101a5b30; the labels text.mdb 505's 300+ for weapons, 100+ for
 //!   clothes and social, 200+ for implants).
 //!
-//! A right click uses an item (`ItemListViewBase_c` FUN_1004141b: button 2 is the use signal), as does a double click; Ctrl+
-//! double click puts it into an open trade (FUN_100cae1b). An item dragged onto a wear cell is worn there, onto the inventory
-//! is put back in the backpack; dragged onto a hotbar slot it is added to it. Shift+right click opens the client's own menu
-//! (Info, Use, Delete).
+//! The mouse is the original's "new mouse" (`UseNewMouseFunc`; `ItemListViewBase_c`'s mouse down FUN_10041aa4 and up
+//! FUN_1004141b): a left click takes the item up, and it stays on the pointer until the next click puts it down (on a
+//! wear cell it is worn there, on the inventory it goes back into the backpack, on a hotbar slot it is added to it, on
+//! an open bag it goes in); a press that moves does the same in one stroke. A right click uses the item (button 2 is
+//! the use signal, FUN_1004266a), a bag's use opens its window and the next closes it, worn or carried. A right click
+//! with an item in hand uses that item on the one clicked (a tradeskill combine: the one in hand is the source).
+//! Shift+click shows the item's info; Ctrl+double click puts it into an open trade (FUN_100cae1b); Shift+right click
+//! opens the client's own menu (Info, Use, Delete). There is no use by double click any more: the first click of two
+//! has the item in hand.
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -77,7 +82,7 @@ pub struct Events {
     pub deletes: Vec<u32>,
     pub infos: Vec<String>,
     pub trade_adds: Vec<u32>,
-    /// An item let go on another in the backpack: used on it (a tradeskill combine), `(the item, the one it went on)`.
+    /// The backpack item in hand used on another by a right click: a tradeskill combine, `(the item, the one it went on)`.
     pub combines: Vec<(u32, u32)>,
 }
 
@@ -88,12 +93,30 @@ pub struct ItemWindows {
     /// The wear tab shown, and whether the wear window was closed on its own.
     pub tab: usize,
     pub wear_closed: bool,
-    /// The place of the item being dragged out of a grid.
-    dragging: Option<u32>,
     /// The item whose menu is open, and the place awaiting a second click to be destroyed.
     menu: Option<(u32, egui::Pos2)>,
     popup: Option<crate::gui::popup::PopupMenu>,
     confirm: Option<u32>,
+}
+
+/// What a click on an item of a grid does.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum Click {
+    TakeUp,
+    Info,
+    Trade,
+    Nothing,
+}
+
+/// A click's meaning by its count (0: a press that moved, a drag), the keys held and whether an item is in hand
+/// already. The original's lists look at the qualifiers first (FUN_10041aa4: Shift or Ctrl held, nothing is taken up).
+pub fn click(clicks: u32, shift: bool, ctrl: bool, holding: bool) -> Click {
+    match (shift, ctrl) {
+        (true, _) if clicks > 0 => Click::Info,
+        (false, true) if clicks > 1 => Click::Trade,
+        (false, false) if !holding => Click::TakeUp,
+        _ => Click::Nothing,
+    }
 }
 
 /// An item's grid entry: its place, icon and count.
@@ -265,9 +288,14 @@ impl ItemWindows {
         let skin = crate::skin::skin(ctx);
         let accent = crate::chrome::rgb(palette.accent);
         let by_slot: HashMap<u32, &GearItem> = items.iter().map(|i| (i.slot, i)).collect();
-        let released = ctx.input(|i| i.pointer.any_released());
+        let released = crate::gear::letting_go(ctx);
         let pointer = ctx.input(|i| i.pointer.hover_pos());
-        let dragged = Some(crate::gear::DRAGGED.load(std::sync::atomic::Ordering::Relaxed)).filter(|&d| d != u32::MAX);
+        // (the item in hand; one that is no longer there, used up or moved by the server, leaves the hand)
+        let mut dragged = crate::gear::held();
+        if dragged.is_some_and(|d| !by_slot.contains_key(&d)) {
+            crate::gear::put_down();
+            dragged = None;
+        }
         let mut hovered_item: Option<(u32, String)> = None;
 
         // The inventory.
@@ -287,17 +315,31 @@ impl ItemWindows {
                 {
                     hovered_item = Some((slot as u32, String::new()));
                 }
+                // (`MAO_ITEM_TRACE`: where each item is, in the window's pixels, for a script's clicks; told when it changes)
+                if crate::gear::traced() {
+                    let k = ui.ctx().pixels_per_point();
+                    let mut places: BTreeMap<i64, (f32, f32, u32)> = BTreeMap::new();
+                    let (mut x, rect) = (response.rect.left() + 4.0, response.rect.intersect(ui.clip_rect()));
+                    while x < rect.right() {
+                        let mut y = rect.top() + 4.0;
+                        while y < rect.bottom() {
+                            if let Some(slot) = multilist::item_at(tree, list, response.rect.min, egui::pos2(x, y)) {
+                                let p = places.entry(slot).or_insert((0.0, 0.0, 0));
+                                *p = (p.0 + x, p.1 + y, p.2 + 1);
+                            }
+                            y += 4.0;
+                        }
+                        x += 4.0;
+                    }
+                    let told: Vec<String> = places.iter().map(|(slot, p)| format!("{slot} at {:.0};{:.0} {:?}{}", p.0 / p.2 as f32 * k, p.1 / p.2 as f32 * k, by_slot.get(&(*slot as u32)).map_or("", |i| i.name.as_str()), if by_slot.get(&(*slot as u32)).is_some_and(|i| i.bag) { " (bag)" } else { "" })).collect();
+                    let id = egui::Id::unique("item-trace-places");
+                    if ui.ctx().data(|d| d.get_temp::<Vec<String>>(id)).as_ref() != Some(&told) {
+                        eprintln!("items: the inventory's items: {told:?}");
+                        ui.ctx().data_mut(|d| d.insert_temp(id, told));
+                    }
+                }
                 response
             });
-            // (a backpack item let go on another backpack item is used on it: a tradeskill combine, `UseItemOnItem`)
-            if let (Some(from), Some((onto, _))) = (dragged, &hovered_item)
-                && released
-                && from >= BACKPACK_FIRST
-                && *onto >= BACKPACK_FIRST
-                && *onto != from
-            {
-                events.combines.push((from, *onto));
-            }
             // (an item from the wear window let go over the inventory goes back into the backpack: the first free place)
             if let (Some(from), Some(shown)) = (dragged, &shown)
                 && released
@@ -307,7 +349,7 @@ impl ItemWindows {
             {
                 events.moves.push((from, free));
             }
-            Self::events_of(&mut view.tree, view.list, &mut events, items, &mut self.dragging);
+            Self::events_of(&mut view.tree, view.list, &mut events, items, dragged);
         }
         *open = is_open;
         if !is_open {
@@ -356,19 +398,26 @@ impl ItemWindows {
                 events.moves.push((from, to));
             }
             for view in self.wear.iter_mut() {
-                Self::events_of(&mut view.tree, view.list, &mut events, items, &mut self.dragging);
+                Self::events_of(&mut view.tree, view.list, &mut events, items, dragged);
             }
             if !wear_open {
                 self.wear_closed = true;
             }
         }
 
-        // (a right click uses the item, as the original's list does with its default mouse handling (`ItemListViewBase_c`'s
-        // FUN_1004141b: button 2 -> the use signal); Shift+right click opens the client's own menu where it was clicked)
+        // (a right click uses the item, as the original's list does (`ItemListViewBase_c`'s FUN_1004141b: button 2 -> the
+        // use signal); with an item in hand, that item is used on the one clicked (`UseItemOnItem`: the one in hand is
+        // the source, so the order of the two matters) and goes back to its place; Shift+right click opens the client's
+        // own menu where it was clicked)
         if let (Some((slot, _)), Some(at)) = (&hovered_item, pointer)
             && ctx.input(|i| i.pointer.secondary_clicked())
         {
-            if ctx.input(|i| i.modifiers.shift) {
+            if let Some(from) = dragged {
+                if from != *slot && from >= BACKPACK_FIRST && *slot >= BACKPACK_FIRST {
+                    events.combines.push((from, *slot));
+                    crate::gear::put_down();
+                }
+            } else if ctx.input(|i| i.modifiers.shift) {
                 self.menu = Some((*slot, at));
                 self.popup = Some(crate::chrome::menu_at(ctx, at, &[("Info".to_string(), true), ("Use".to_string(), true), ("Delete".to_string(), true)]));
                 self.confirm = None;
@@ -386,7 +435,14 @@ impl ItemWindows {
                 egui::Frame::popup(ui.style()).show(ui, |ui| crate::gear::tooltip(ui, item, &label, stats, accent));
             });
         }
-        // (the item being dragged follows the pointer)
+        // (the item in hand can be set on a hotbar slot: the slots take a drag's load, which goes with every button let
+        // go, so it is given again while the item is held)
+        if let Some(item) = dragged.and_then(|from| by_slot.get(&from))
+            && !egui::DragAndDrop::has_any_payload(ctx)
+        {
+            egui::DragAndDrop::set_payload(ctx, crate::hotbar::Action::Item { id: item.item_id, name: item.name.clone(), icon: item.icon.as_ref().map(|i| i.id) });
+        }
+        // (the item in hand follows the pointer)
         if let (Some(from), Some(at)) = (dragged, pointer)
             && let Some(icon) = by_slot.get(&from).and_then(|i| i.icon.as_ref()).and_then(|icon| textures.get(&icon.id))
         {
@@ -420,34 +476,55 @@ impl ItemWindows {
                 None => self.confirm = None,
             }
         }
-        if released {
-            self.dragging = None;
-        }
         events
     }
 
-    /// A grid's clicks and drags: a click selects, a double click uses (Ctrl: into the trade), a drag lifts the item.
-    fn events_of(tree: &mut Tree, list: Id, events: &mut Events, items: &[GearItem], dragging: &mut Option<u32>) {
-        let ctrl = tree.measure.ctx.as_ref().is_some_and(|c| c.input(|i| i.modifiers.ctrl));
+    /// A grid's clicks and drags: a click takes the item up, as a drag does (with one in hand already, `held`, the click
+    /// is the one that puts that down); Shift+click shows its info; Ctrl+double click puts it into the trade.
+    fn events_of(tree: &mut Tree, list: Id, events: &mut Events, items: &[GearItem], held: Option<u32>) {
+        let Some(ctx) = tree.measure.ctx.clone() else { return };
+        let (ctrl, shift) = ctx.input(|i| (i.modifiers.ctrl, i.modifiers.shift));
         for (_, event) in multilist::take_events(tree) {
-            match event {
-                multilist::ItemEvent::Clicked(slot, clicks) => {
-                    multilist::select(tree, list, Some(slot));
-                    if clicks > 1 {
-                        if ctrl { events.trade_adds.push(slot as u32) } else { events.uses.push(slot as u32) }
-                    }
+            let (slot, clicks) = match event {
+                multilist::ItemEvent::Clicked(slot, clicks) => (slot, clicks),
+                multilist::ItemEvent::Dragged(slot) => (slot, 0),
+            };
+            let Some(item) = items.iter().find(|i| i.slot as i64 == slot) else { continue };
+            if clicks > 0 {
+                multilist::select(tree, list, Some(slot));
+            }
+            match click(clicks, shift, ctrl, held.is_some()) {
+                Click::Info => events.infos.push(format!("itemref://{}/{}/{}", item.item_id, item.high_id, item.quality)),
+                Click::Trade => events.trade_adds.push(item.slot),
+                Click::TakeUp => {
+                    crate::gear::pick_up(item.slot);
+                    egui::DragAndDrop::set_payload(&ctx, crate::hotbar::Action::Item { id: item.item_id, name: item.name.clone(), icon: item.icon.as_ref().map(|i| i.id) });
                 }
-                multilist::ItemEvent::Dragged(slot) => {
-                    let slot = slot as u32;
-                    *dragging = Some(slot);
-                    crate::gear::DRAGGED.store(slot, std::sync::atomic::Ordering::Relaxed);
-                    if let (Some(item), Some(ctx)) = (items.iter().find(|i| i.slot == slot), tree.measure.ctx.as_ref()) {
-                        egui::DragAndDrop::set_payload(ctx, crate::hotbar::Action::Item { id: item.item_id, name: item.name.clone(), icon: item.icon.as_ref().map(|i| i.id) });
-                    }
-                }
+                Click::Nothing => {}
             }
         }
         tree.signals.clear();
     }
 
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_click_takes_up_shows_or_trades() {
+        // (a plain click or a drag takes the item up; not with one in hand already)
+        assert_eq!(click(1, false, false, false), Click::TakeUp);
+        assert_eq!(click(0, false, false, false), Click::TakeUp);
+        assert_eq!(click(1, false, false, true), Click::Nothing);
+        assert_eq!(click(2, false, false, true), Click::Nothing);
+        // (Shift: the item's info, whatever is in hand; a drag with Shift held is nothing)
+        assert_eq!(click(1, true, false, false), Click::Info);
+        assert_eq!(click(1, true, false, true), Click::Info);
+        assert_eq!(click(0, true, false, false), Click::Nothing);
+        // (Ctrl: the second click of two puts it into the trade; nothing is taken up with Ctrl held)
+        assert_eq!(click(1, false, true, false), Click::Nothing);
+        assert_eq!(click(2, false, true, false), Click::Trade);
+    }
 }

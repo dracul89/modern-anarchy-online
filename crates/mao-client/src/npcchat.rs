@@ -342,7 +342,7 @@ fn trade_bar(ui: &mut egui::Ui, palette: &crate::theme::Palette, skin: Option<&c
                 if let Some(i) = item {
                     response.on_hover_text(&i.name);
                 }
-            } else if dragged != u32::MAX && !t.items.contains(&dragged) && ui.input(|i| i.pointer.any_released() && i.pointer.interact_pos().is_some_and(|p| rect.contains(p))) {
+            } else if dragged != u32::MAX && !t.items.contains(&dragged) && crate::gear::letting_go(ui.ctx()) && ui.input(|i| i.pointer.interact_pos().is_some_and(|p| rect.contains(p))) {
                 t.items.push(dragged);
                 commands.push(Command::TradeItem(npc, dragged, true));
             }

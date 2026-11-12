@@ -272,6 +272,7 @@ impl Textures {
         let object = self.db.get(Id { kind, instance }).ok()??;
         match kind {
             0xf6956 | 0xf6965 | 0xf6966 => texture::decode_ground(&object).ok(),
+            mao_formats::item::ICON_TYPE => texture::decode(&object).ok().map(icon_key),
             _ => texture::decode(&object).ok().map(skin_tint),
         }
     }
@@ -295,6 +296,18 @@ fn skin_tint(mut t: Texture) -> Texture {
             p[0] = (SKIN[0] as f32 * shade) as u8;
             p[1] = (SKIN[1] as f32 * shade) as u8;
             p[2] = (SKIN[2] as f32 * shade) as u8;
+        }
+    }
+    t
+}
+
+/// An icon's pure-green areas are its key, as in the skin's pictures: nothing is drawn there, so the slot an item lies
+/// in shows round it. (Before 2026-11-12 the icons went through [`skin_tint`] like every other texture, and every item
+/// stood on a tan square.) The key is taken with the same room for off-greens as the skin tint has.
+fn icon_key(mut t: Texture) -> Texture {
+    for p in t.rgba.chunks_exact_mut(4) {
+        if p[0] < 70 && p[1] > 190 && p[2] < 70 {
+            p.copy_from_slice(&[0, 0, 0, 0]);
         }
     }
     t

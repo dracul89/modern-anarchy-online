@@ -29,6 +29,8 @@ pub struct GearItem {
     pub count: u16,
     pub quality: u32,
     pub bag: bool,
+    /// A bag's own identity (what its window is known by); zeros for anything else.
+    pub container: (u32, u32),
     /// The template's flags (stat 0: NoDrop and the like).
     pub flags: u32,
     pub name: String,
@@ -40,8 +42,56 @@ pub struct GearItem {
     pub actions: Vec<mao_formats::item::Action>,
 }
 
-/// The inventory place of the item being dragged (`u32::MAX` for none): other windows (an open bag) take drops from it.
+/// The inventory place of the item in hand (`u32::MAX` for none): other windows (an open bag) take drops from it.
+///
+/// An item is taken up by a click on it and stays on the pointer until the next click puts it down, or by a press that
+/// moves, and is then put down where the button is let go. The original's item lists do the first with their "new
+/// mouse" (`UseNewMouseFunc`): the left button going down with neither Shift nor Ctrl raises the list's pick-up signal
+/// at once (GUI.dll FUN_10041aa4 -> FUN_1004258f), which the inventory answers with `View::BeginDrag` (FUN_100cc6e8),
+/// and the drag lasts until the next click.
 pub static DRAGGED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(u32::MAX);
+/// The item in hand was taken up this frame: the click that takes it up does not also put it down. (A flag the
+/// interface clears when the frame is over, not the frame's number: what follows the frame's drawing, the use of an
+/// item on the world, already counts the next one.)
+static TAKEN_UP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The inventory place of the item in hand.
+pub fn held() -> Option<u32> {
+    Some(DRAGGED.load(std::sync::atomic::Ordering::Relaxed)).filter(|&d| d != u32::MAX)
+}
+
+/// `MAO_ITEM_TRACE=1`: what is done with the items by the mouse is printed (for tests by script).
+pub fn traced() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("MAO_ITEM_TRACE").is_some())
+}
+
+/// Takes the item of an inventory place into the hand.
+pub fn pick_up(place: u32) {
+    if traced() {
+        eprintln!("items: place {place} taken up");
+    }
+    DRAGGED.store(place, std::sync::atomic::Ordering::Relaxed);
+    TAKEN_UP.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The frame is over: an item taken up in it can be put down from the next on.
+pub fn end_frame() {
+    TAKEN_UP.store(false, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The hand is empty again (the item stays where it was unless something took it).
+pub fn put_down() {
+    if traced() && held().is_some() {
+        eprintln!("items: place {} put down", held().unwrap_or(0));
+    }
+    DRAGGED.store(u32::MAX, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Whether the item in hand is let go this frame: the left button released, other than by the click that took it up.
+pub fn letting_go(ctx: &egui::Context) -> bool {
+    held().is_some() && !TAKEN_UP.load(std::sync::atomic::Ordering::Relaxed) && ctx.input(|i| i.pointer.button_released(egui::PointerButton::Primary))
+}
 
 /// What the window asks for besides moves: items to use and to destroy (by inventory place).
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -54,7 +104,7 @@ pub struct GearEvents {
     /// Items Ctrl+double-clicked: put into the open trade, as the original's inventory list does with a trade open
     /// (FUN_100cae1b on the list's double-click, the qualifiers' Ctrl bits 0xc: `N3Msg_TradeAddItem`).
     pub trade_adds: Vec<u32>,
-    /// A backpack item let go on another: (the item, the one it went on).
+    /// The backpack item in hand used on another by a right click on it: (the item, the one it went on).
     pub combines: Vec<(u32, u32)>,
 }
 
@@ -200,6 +250,7 @@ pub fn from_entries(db: &ResourceDatabase, textures: &crate::Textures, entries: 
                 count: e.count,
                 quality: e.quality,
                 bag: e.is_bag(),
+                container: if e.is_bag() { e.container } else { (0, 0) },
                 flags: template.as_ref().and_then(|t| t.stat(0)).unwrap_or(0),
                 name: template.as_ref().map_or_else(|| format!("Item #{:x}", e.low_id), |t| t.name.clone()),
                 description: template.map(|t| t.description).unwrap_or_default(),

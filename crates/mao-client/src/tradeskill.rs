@@ -247,7 +247,7 @@ impl TradeskillWindow {
         crate::chrome::window(ctx, palette, "Tradeskill", "Tradeskill Kit", &mut open, |w| w.default_pos(crate::layout::pos("Tradeskill", egui::pos2(260.0, 120.0))).default_size(egui::vec2(300.0, 400.0)), |ui| {
             let response = crate::gui::host::show(ui, tree, root, skin.as_deref(), palette);
             // (a backpack item let go over the source or the target slot, FUN_100dec39)
-            if dragged == u32::MAX || dragged < mao_net::inventory::BACKPACK_FIRST || !ui.input(|i| i.pointer.any_released()) {
+            if dragged == u32::MAX || dragged < mao_net::inventory::BACKPACK_FIRST || !crate::gear::letting_go(ui.ctx()) {
                 return;
             }
             let Some(at) = ui.input(|i| i.pointer.interact_pos()) else { return };
@@ -295,7 +295,7 @@ impl TradeskillWindow {
 /// Interface: the source used in 3 processes, the target in 1, BreakingEntry 60 needed, a quality 1 result), on these
 /// sample items (backpack places 0x4b and 0x5b).
 pub fn preview() -> (TradeskillWindow, Vec<GearItem>) {
-    let item = |slot, name: &str, quality| GearItem { slot, item_id: 1, high_id: 1, count: 1, quality, bag: false, flags: 0, name: name.into(), description: String::new(), icon: None, effects: Vec::new(), actions: Vec::new() };
+    let item = |slot, name: &str, quality| GearItem { slot, item_id: 1, high_id: 1, count: 1, quality, bag: false, container: (0, 0), flags: 0, name: name.into(), description: String::new(), icon: None, effects: Vec::new(), actions: Vec::new() };
     let items = vec![item(0x4b, "Lock Pick", 1), item(0x5b, "Nano Programming Interface", 1)];
     let mut w = TradeskillWindow { open: true, ..TradeskillWindow::default() };
     (w.source, w.target) = (Some(0x4b), Some(0x5b));

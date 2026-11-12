@@ -1356,6 +1356,11 @@ impl ApplicationHandler for App {
                                 ui.perks.open = !ui.perks.open;
                             }
                         }
+                        Action::TradeskillWindow if !event.repeat => {
+                            if let Some(ui) = w.ui.as_mut() {
+                                ui.tradeskill.open = !ui.tradeskill.open;
+                            }
+                        }
                         Action::ProgramsWindow if !event.repeat => {
                             if let Some(ui) = w.ui.as_mut() {
                                 ui.programs.open = !ui.programs.open;

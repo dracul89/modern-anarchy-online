@@ -1,8 +1,11 @@
 //! The loot window: what a corpse or a bag holds, as the server's `InventoryUpdate` lists it for a container the character used.
 //! GUI.dll's `InventoryView_c` (FUN_100ccefe) for a container that is not one's own: an icon view of the items (its
 //! `item_position_map` places them three to a row, 21 places), titled with the container's name; a corpse or chest that
-//! is empty closes a second later (its `EventTimer_c` started for 1 000 000 µs). An item is taken by a double click (or
-//! its menu), or all of them at once.
+//! is empty closes a second later (its `EventTimer_c` started for 1 000 000 µs). An item is taken by a click (the
+//! list's pick-up signal, which a container that is not one's own answers with `MoveItemToInventory`: FUN_100cc6e8),
+//! by a right click, or all of them at once. In one's own backpack and the bank a click takes the item up instead
+//! (the same function's `BeginDrag`): it stays on the pointer until the next click, which over the inventory window
+//! takes it out. Shift+click shows an item's info.
 //!
 //! One's own backpack (`N3Msg_IsItemMine`: a bag in the inventory) has a window of its own in the original, as many
 //! open at once as there are bags opened: named `Container_<type>x<instance>` (so each keeps its place), 21 places
@@ -123,8 +126,12 @@ pub struct LootWindow {
     views: Option<(Tree, Id, Id, (u32, u32))>,
     /// The items last put in the grid (their places, counts and icons).
     shown: Vec<(u32, u16, Option<u32>)>,
-    /// The place of the item being dragged out of the grid.
+    /// The place of the item taken up out of the grid, and the frame it was taken up in (the click that takes it up
+    /// does not also put it down).
     dragging: Option<u32>,
+    taken_up: u64,
+    /// Info pages asked for by Shift+click (`itemref://` addresses for the info view).
+    pub infos: Vec<String>,
     /// The place of an item let go over the world (not over a window): to be used on what is there.
     pub dropped_out: Option<u32>,
     /// The handle the window was last shown for: a backpack opened again comes with a new one and shows again.
@@ -252,8 +259,10 @@ impl LootWindow {
                 }
                 let response = crate::gui::host::show(ui, tree, root, skin.as_deref(), palette);
                 let hovered = ui.input(|i| i.pointer.hover_pos()).and_then(|at| crate::gui::multilist::item_at(tree, list, response.rect.min, at));
-                // (a right click takes the item: the list's use signal, FUN_1004141b's button 2)
+                // (a right click takes the item: the list's use signal, FUN_1004141b's button 2; not with an inventory
+                // item in hand, whose right click is a use of it on another)
                 if let Some(slot) = hovered
+                    && crate::gear::held().is_none()
                     && ui.input(|i| i.pointer.secondary_clicked())
                 {
                     take = Some(Take::One { handle: view.handle, place: slot as u32 });
@@ -271,27 +280,36 @@ impl LootWindow {
                 }
             });
         });
-        // (a click selects; a double click also takes the item)
+        // (a click: with Shift the item's info; in one's own backpack or the bank it takes the item up, which a drag
+        // does too; in a corpse or chest it takes the item into the inventory)
+        let shift = ctx.input(|i| i.modifiers.shift);
+        let hands_free = self.dragging.is_none() && crate::gear::held().is_none();
         for (_, event) in crate::gui::multilist::take_events(tree) {
-            match event {
-                crate::gui::multilist::ItemEvent::Clicked(slot, clicks) => {
-                    crate::gui::multilist::select(tree, list, Some(slot));
-                    if clicks > 1 {
-                        take = Some(Take::One { handle: view.handle, place: slot as u32 });
-                    }
+            let (slot, clicked) = match event {
+                crate::gui::multilist::ItemEvent::Clicked(slot, _) => (slot, true),
+                crate::gui::multilist::ItemEvent::Dragged(slot) => (slot, false),
+            };
+            if clicked {
+                crate::gui::multilist::select(tree, list, Some(slot));
+            }
+            match container_click(clicked, shift, view.own || view.identity.0 == BANK, hands_free) {
+                ContainerClick::Info => self.infos.extend(view.items.iter().find(|i| i.slot as i64 == slot).map(|i| format!("itemref://{}/{}/{}", i.item_id, i.high_id, i.quality))),
+                ContainerClick::TakeUp => {
+                    self.dragging = Some(slot as u32);
+                    self.taken_up = ctx.cumulative_frame_nr();
                 }
-                // (dragged out: let go over the inventory, it is taken)
-                crate::gui::multilist::ItemEvent::Dragged(slot) => self.dragging = Some(slot as u32),
+                ContainerClick::Take => take = Some(Take::One { handle: view.handle, place: slot as u32 }),
+                ContainerClick::Nothing => {}
             }
         }
         tree.signals.clear();
-        // (the item being dragged follows the pointer; let go over the inventory window, it is taken into the backpack)
+        // (the item taken up follows the pointer; let go over the inventory window, it is taken into the backpack)
         if let Some(place) = self.dragging {
             let pointer = ctx.input(|i| i.pointer.hover_pos());
             if let (Some(at), Some(icon)) = (pointer, view.items.iter().find(|i| i.slot == place).and_then(|i| i.icon.as_ref()).and_then(|icon| self.textures.get(&icon.id))) {
                 ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::unique("dragged-loot"))).image(icon.id(), egui::Rect::from_center_size(at, egui::vec2(40.0, 40.0)), egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)), egui::Color32::from_white_alpha(200));
             }
-            if ctx.input(|i| i.pointer.any_released()) {
+            if ctx.input(|i| i.pointer.button_released(egui::PointerButton::Primary)) && self.taken_up != ctx.cumulative_frame_nr() {
                 self.dragging = None;
                 if !ctx.is_pointer_over_egui() {
                     self.dropped_out = Some(place);
@@ -307,7 +325,7 @@ impl LootWindow {
         // An inventory item dropped on the window goes in (not into a corpse).
         if let Some(shown) = shown {
             let dragged = crate::gear::DRAGGED.load(std::sync::atomic::Ordering::Relaxed);
-            if dragged != u32::MAX && view.identity.0 != CORPSE && ctx.input(|i| i.pointer.any_released()) && shown.response.contains_pointer() {
+            if dragged != u32::MAX && view.identity.0 != CORPSE && crate::gear::letting_go(ctx) && shown.response.contains_pointer() {
                 take = Some(Take::Put { identity: view.identity, from: dragged });
             }
         }
@@ -355,6 +373,31 @@ impl LootWindow {
     }
 }
 
+/// What a click on an item of a container does.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum ContainerClick {
+    /// The item goes onto the pointer.
+    TakeUp,
+    /// The item goes into the inventory.
+    Take,
+    Info,
+    Nothing,
+}
+
+/// A click's (or, not `clicked`, a drag's) meaning: by Shift, by whether the container is one's own (a backpack, the
+/// bank) and by whether nothing is in hand yet.
+pub fn container_click(clicked: bool, shift: bool, own: bool, hands_free: bool) -> ContainerClick {
+    match (shift, own) {
+        (true, _) if clicked => ContainerClick::Info,
+        (true, _) => ContainerClick::Nothing,
+        (false, true) if hands_free => ContainerClick::TakeUp,
+        (false, false) if clicked && hands_free => ContainerClick::Take,
+        // (dragged out of a corpse or chest: taken up, and taken when let go over the inventory)
+        (false, false) if hands_free => ContainerClick::TakeUp,
+        _ => ContainerClick::Nothing,
+    }
+}
+
 /// The window's title for a container's identity type: a corpse (`0xc76a`), a bag (`0xc749`) or something else.
 pub fn title(kind: u32) -> &'static str {
     match kind {
@@ -386,6 +429,21 @@ mod tests {
         assert_eq!(bag_name((BAG, 77)).as_deref(), Some("Ammo"));
         set_bag_name((BAG, 77), None);
         assert_eq!(bag_name((BAG, 77)), None);
+    }
+
+    #[test]
+    fn a_click_in_a_container_takes_or_takes_up() {
+        // (one's own backpack: onto the pointer; a corpse: into the inventory; Shift: the info)
+        assert_eq!(container_click(true, false, true, true), ContainerClick::TakeUp);
+        assert_eq!(container_click(true, false, false, true), ContainerClick::Take);
+        assert_eq!(container_click(true, true, true, true), ContainerClick::Info);
+        assert_eq!(container_click(true, true, false, false), ContainerClick::Info);
+        // (a drag takes up out of either; nothing with something in hand already, which the click puts down)
+        assert_eq!(container_click(false, false, false, true), ContainerClick::TakeUp);
+        assert_eq!(container_click(false, false, true, true), ContainerClick::TakeUp);
+        assert_eq!(container_click(true, false, true, false), ContainerClick::Nothing);
+        assert_eq!(container_click(true, false, false, false), ContainerClick::Nothing);
+        assert_eq!(container_click(false, true, true, true), ContainerClick::Nothing);
     }
 
     #[test]

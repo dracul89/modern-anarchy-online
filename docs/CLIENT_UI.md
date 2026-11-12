@@ -3274,3 +3274,39 @@ section passed to `helpwindow::configure` / `settings_text`), `vitals.rs` (the m
 (`MAO_UI_PREVIEW=assistant MAO_HELP_QUESTION=...`, `MAO_HELP_DIR` for the pages' folder) and tried from the command
 line, the model's part against a stand-in endpoint; **not tried in the live game, with a real model, or on Linux
 and macOS.**
+
+**The mouse on items, and the items' pictures (2026-11-12, the user's list after a play test; `gear.rs`,
+`invwindows.rs`, `loot.rs`, `ui.rs`).** What changed, and what of it is the original's:
+
+- **The items' pictures stand on their slots.** Every item stood on a tan square: the icons went through the skin
+  tint that paints a character texture's pure green, and the icons' green is their key. It is now nothing
+  (`icon_key` in `main.rs`), for every window that shows an icon.
+- **A left click takes an item up**, and it stays on the pointer until the next click puts it down: on a wear cell
+  it is worn there, on the inventory it goes back, on an open bag it goes in, on a hotbar slot it is set there, on
+  the world it is used on what is there, anywhere else it just goes back. A press that moves does the same in one
+  stroke, as before. Escape puts it back. This is the original's "new mouse" (`UseNewMouseFunc`): its item lists
+  raise the pick-up signal as the left button goes down with neither Shift nor Ctrl held (GUI.dll FUN_10041aa4 ->
+  FUN_1004258f), which the inventory answers with `View::BeginDrag` (FUN_100cc6e8). Here the item is taken up as
+  the button comes back up, not as it goes down. **There is no use by double click any more** (the first click of
+  two has the item in hand); Ctrl+double click still puts an item into an open trade.
+- **A right click uses an item** (as before: button 2 is the list's use signal, FUN_1004266a). **A bag's use opens
+  its window, and the next closes it**, worn or carried: the client closes and shows the window itself and sends
+  the server nothing for the second and third use, since it knows what is in a bag it has opened. Where the original
+  closes a backpack on its second use was not found (its `InventoryGUIModule_c::CloseContainer` is called when a
+  bag is taken up, FUN_100cc6e8): the behaviour is the user's word for the original's.
+- **A right click with an item in hand uses that item on the one clicked** (a tradeskill combine, `UseItemOnItem`:
+  the item in hand is the source, so the order matters), and the item goes back to its place. Both must be in the
+  backpack. Before, letting an item go on another did this; now that only puts it down.
+- **Shift+click shows an item's info**, in the inventory, the wear window, a bag, the bank, a corpse.
+- **In a bag or the bank a click takes the item up** as in the inventory (the next click over the inventory window
+  takes it out); **in a corpse or chest a click takes the item** (the original's `MoveItemToInventory` for a
+  container that is not one's own, FUN_100cc6e8). A right click takes an item out of any of them, as before.
+- **Shift+T opens and closes the tradeskill window** (`tradeskill_window` in the `[keys]` section; the key is the
+  user's word for the original's, the action's name is this client's).
+
+`MAO_ITEM_TRACE=1` prints what the mouse does with the items, and where each of the inventory's items is in the
+window's pixels, for a test by script. Tried live with one (Maotesttwo): an item taken up and put down by a second
+click and by Escape, used by a right click, used on another (the server said "No combination found!" of two pieces
+of junk), a bag opened, closed and shown again by three right clicks. **Not tried:** a worn bag, Shift+click (the
+script's clicks hold no keys), Shift+T, an item in hand set on a hotbar slot or put into a bag or a shop by a
+click, and everything in a bag, the bank and a corpse.

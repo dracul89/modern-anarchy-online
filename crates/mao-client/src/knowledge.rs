@@ -152,7 +152,7 @@ impl KnowledgeWindow {
         }
         let accent = crate::chrome::rgb(palette.accent);
         let dragged = crate::gear::DRAGGED.load(std::sync::atomic::Ordering::Relaxed);
-        let released = ctx.input(|i| i.pointer.any_released());
+        let released = crate::gear::letting_go(ctx);
         let pointer = ctx.input(|i| i.pointer.interact_pos());
         let mut is_open = self.open;
         let mut drop_at = None;

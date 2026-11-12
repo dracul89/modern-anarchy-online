@@ -216,6 +216,13 @@ account with `net <game> create`, in Arete Landing; scripted, other new players 
 - Level 4 reached by kills (the level's own message not yet seen with the fix in).
 - **Found and fixed** (the user saw them): the rifle was not in the character's hands; the health, nano and
   experience bars were drawn off their frames (they are the original's upright bars in the wings now).
+- [ ] The mouse on items (2026-11-12; by script: take up, put down, Escape, use, use on, a bag's three right
+  clicks). By hand: the pictures stand on their slots with no square behind them; a click takes an item up and a
+  second click wears it (a wear cell), sets it on a hotbar slot, puts it into an open bag, sells it (a shop's
+  list), uses it on something in the world; a right click on another item with one in hand combines the two (try
+  both orders); Shift+click shows the info (inventory, wear window, a bag); a worn bag opens and closes by right
+  clicks; in a bag a click takes an item up and a click on the inventory takes it out; in a corpse a click takes
+  the item; Shift+T opens and closes the tradeskill window.
 - [ ] The launcher's own background (2026-11-12): in its settings, GUI page, Launcher group, choose "Stars and the
   steel emblem" and OK: the sky comes at once, the emblem small at the lower left under the page; untick the news
   page: the emblem large in the middle; a few stars change their brightness; "A picture of your own" with a file;

@@ -1089,6 +1089,9 @@ impl Ui {
                 if let Some(take) = loot_window.show(&ctx, view, palette) {
                     requests.loot_take = Some(take);
                 }
+                for url in loot_window.infos.drain(..) {
+                    info_view.show_url(&url);
+                }
                 if let (Some(place), Some(at)) = (loot_window.dropped_out.take(), ctx.input(|i| i.pointer.interact_pos())) {
                     let k = ctx.pixels_per_point();
                     requests.use_on = Some(((0x6b, view.handle << 16 | (place & 0xffff)), (at.x * k, at.y * k)));
@@ -1107,6 +1110,9 @@ impl Ui {
                 }
                 if let Some(take) = window.show(&ctx, view, palette) {
                     requests.loot_take = Some(take);
+                }
+                for url in window.infos.drain(..) {
+                    info_view.show_url(&url);
                 }
                 if let (Some(place), Some(at)) = (window.dropped_out.take(), ctx.input(|i| i.pointer.interact_pos())) {
                     let k = ctx.pixels_per_point();
@@ -1292,8 +1298,26 @@ impl Ui {
             }
             if *gear_open {
                 let events = gear.show(&ctx, gear_open, &hud.gear, &hud.stats, palette);
+                if crate::gear::traced() && !(events.uses.is_empty() && events.combines.is_empty() && events.infos.is_empty() && events.moves.is_empty()) {
+                    eprintln!("items: uses {:?}, used on {:?}, moves {:?}, infos {:?}", events.uses, events.combines, events.moves, events.infos);
+                }
                 requests.item_moves.extend(events.moves);
-                requests.item_uses.extend(events.uses);
+                // (a bag's use opens its window; the use of a bag whose window is up closes that window instead, and
+                // of one whose window was closed here shows it again: nothing is sent for either, the client knows
+                // what is in a bag it has opened. Worn or carried alike. Where the original closes a backpack on its
+                // second use was not found: its `InventoryGUIModule_c::CloseContainer` is called when a bag is taken up)
+                for place in events.uses {
+                    let bag = hud.gear.iter().find(|g| g.slot == place && g.bag).map(|g| g.container).filter(|c| hud.bags.iter().any(|b| b.identity == *c));
+                    match bag.and_then(|c| bag_windows.get_mut(&c)) {
+                        Some(window) => {
+                            window.open = !window.open;
+                            if crate::gear::traced() {
+                                eprintln!("items: the bag at place {place}: its window {}", if window.open { "shown again" } else { "closed" });
+                            }
+                        }
+                        None => requests.item_uses.push(place),
+                    }
+                }
                 requests.item_deletes.extend(events.deletes);
                 requests.item_combines.extend(events.combines);
                 for url in events.infos {
@@ -1327,18 +1351,21 @@ impl Ui {
         });
         crate::chrome::end_frame();
         // (an inventory item let go over the world, not over a window, is used on what is there)
-        let dragged = crate::gear::DRAGGED.load(std::sync::atomic::Ordering::Relaxed);
-        if dragged != u32::MAX
-            && self.ctx.input(|i| i.pointer.any_released())
+        let letting_go = crate::gear::letting_go(&self.ctx);
+        if let Some(dragged) = crate::gear::held()
+            && letting_go
             && !self.ctx.is_pointer_over_egui()
             && let Some(at) = self.ctx.input(|i| i.pointer.interact_pos())
         {
             let k = self.ctx.pixels_per_point();
             requests.use_on = Some(((0x68, dragged), (at.x * k, at.y * k)));
         }
-        if !self.ctx.input(|i| i.pointer.any_down()) {
-            crate::gear::DRAGGED.store(u32::MAX, std::sync::atomic::Ordering::Relaxed);
+        // (the hand is empty once the item is let go, wherever; Escape puts it back, and so does the inventory
+        // window going, which is where the item in hand is drawn)
+        if letting_go || self.ctx.input(|i| i.key_pressed(egui::Key::Escape)) || !self.window_open("inventory") {
+            crate::gear::put_down();
         }
+        crate::gear::end_frame();
         for (w, on) in cc_windows {
             self.set_window(w, on);
         }
@@ -1959,8 +1986,9 @@ fn hotbar_layer(ctx: &egui::Context, bars: &mut Hotbars, gear: &mut GearWindow, 
         bars.pos = Some(bars.pos.unwrap_or([rect.center().x, rect.bottom()]));
         requests.hotbars_changed = true;
     }
-    // While an item is being dragged, say what to do with it.
-    if egui::DragAndDrop::has_payload_of_type::<hotbar::Action>(ctx) {
+    // While something is being dragged, say what to do with it (not for an inventory item in hand: a bar slot is
+    // only one of the places it can go).
+    if egui::DragAndDrop::has_payload_of_type::<hotbar::Action>(ctx) && crate::gear::held().is_none() {
         if let Some(pos) = ctx.pointer_interact_pos() {
             ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::unique("drag-hint"))).text(pos + egui::vec2(14.0, 14.0), egui::Align2::LEFT_TOP, "Drop on a hotbar slot", egui::FontId::proportional(12.0), egui::Color32::WHITE);
         }
