@@ -349,7 +349,9 @@ impl LootWindow {
             }
         }
         self.open = open;
-        take
+        // (an organization's contract is only looked at here: what the original does with a click on one of its
+        // items, or with an item dropped on it, was not read)
+        take.filter(|_| view.identity.0 != ORGANIZATION)
     }
 }
 

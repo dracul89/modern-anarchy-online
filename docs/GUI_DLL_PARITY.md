@@ -237,8 +237,11 @@ answered "You are not authorized to perform that command. (Your request has been
   and opens the inventory of that identity (FUN_1001185f, FUN_100117bd), which GUI.dll's `ItemContainerView_c`
   (FUN_100ce55d) shows as a container of 100 places sorted like the bank. Here it opens the container window
   (`n3::org_contract`, `loot::ORGANIZATION`, titled "Organization contract" in this client's words). Seen live on
-  one organization: its info read back right, and its contract was empty; a contract with items, and an
-  organization with areas, were not seen, nor was anything taken from or put into the contract.
+  two organizations (2026-11-12): one with no areas and an empty contract; one with two controlled areas, read
+  as a playfield the game names, the area's name, a level and a type (132 and IV, 178 and V), and a contract of
+  three items, the first of which the item database names "Universal Advantage - Medical Expertise": the
+  contract is the organization's advantages. The window only shows them: a click on an item or an item dropped on
+  it sends nothing here, as what the original does with either was not read.
 - The answers arrive as chat texts with packed pieces in them (`~&…~` and plain text after): the client now
   unpacks them as LDB.dll's `RemoteFormat::ParseString` does (`mao_formats::ldb::parse_string`); before, they
   showed as they came.

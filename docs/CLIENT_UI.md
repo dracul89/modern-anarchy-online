@@ -851,8 +851,8 @@ sets it; `/bank info` asks the server (these four are Gamecode's own text comman
 `objective`, `history`, `governingform`, the votes, `debt`, `city`; `orgcommands.rs`), and **`/o <text>` is its
 chat**: before, `/org <text>` went to the chat. `/org info` is answered with a page in the info window (name,
 leader, governing form, description, objective, history, your rank, the areas it controls) and `/org contract`
-with a container window of the organization's contract (`MAO_UI_PREVIEW=infopage MAO_INFO_URL=org` shows a
-made-up organization's page). **The
+with a container window of the organization's contract, its advantages, to look at only
+(`MAO_UI_PREVIEW=infopage MAO_INFO_URL=org` shows a made-up organization's page). **The
 commands that set a text (`history`, `description`, `objective`, `name`, `governingform`) are sent as typed, as
 the original sends them: with nothing after the word they empty that text.** `/items` asks the server for the account's items (it opened
 the inventory before; `/open inventory` does that). `/tower` and `/raid`'s commands are not carried out.

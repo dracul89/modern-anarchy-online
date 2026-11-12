@@ -2872,12 +2872,15 @@ impl World {
             if let Some(info) = n3::org_info(&m.data) {
                 if std::env::var_os("MAO_COMBAT_LOG").is_some() {
                     eprintln!("organization info: {:?}, {} areas, a page of {} characters", info.name, info.areas.len(), org_info_page(&info).len());
+                    for area in &info.areas {
+                        eprintln!("  area: playfield {} ({:?}), {:?}, level {}, type {} ({})", area.playfield, PLAYFIELD_NAMES.get().and_then(|n| n.get(&area.playfield)), area.name, area.level, area.kind, roman(area.kind));
+                    }
                 }
                 self.info_urls.push(format!("text://{}", org_info_page(&info)));
             }
             if let Some((organization, entries)) = n3::org_contract(&m.data) {
                 if std::env::var_os("MAO_COMBAT_LOG").is_some() {
-                    eprintln!("organization contract: ({:#x}, {:#x}) with {} items", organization.0, organization.1, entries.len());
+                    eprintln!("organization contract: ({:#x}, {:#x}) with {} items {:?}", organization.0, organization.1, entries.len(), entries.iter().map(|e| (e.slot, e.low_id, e.high_id, e.quality)).collect::<Vec<_>>());
                 }
                 self.loot = Some(Loot { identity: organization, handle: 0, entries });
                 self.loot_changed = true;
