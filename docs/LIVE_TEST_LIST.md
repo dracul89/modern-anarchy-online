@@ -450,3 +450,20 @@ These were written before this list; some may have been seen working since witho
 - Talking to an NPC (`KnubotOpenChatWindow`) and the mission booth window (the booth answered "too far away" on the
   one try).
 - The market's deposit window.
+
+## The help assistant, "Ask the guides" (2026-11-12, branch `agent/help-assistant`)
+
+- `/open assistant` and the Help menu's "Ask the guides" open the window; the field takes the keyboard (the
+  character does not walk while typing); Enter and Ask both ask.
+- A question the game's help covers ("how does insurance work"): numbered results from the game's help, the right
+  page first; a click on a title shows the whole piece and again the short one.
+- Under "Sources and the model": the game's help can be turned off and on (the results change); AO-Universe's
+  checkbox shows its terms; turned on, "Read its guides now" counts pages up slowly, Stop stops it, the pages read so
+  far are searched afterwards and are still there after a restart (`help/ao-universe.jsonl` beside `mao.ini`).
+  A second reading fetches nothing that has not changed.
+- "open the page" on an AO-Universe result opens the guide in the system's browser.
+- `mao.ini` keeps the `[help]` section (sources as ticked) across a start.
+- With a model server on the machine and `endpoint` / `model` set under `[help]`: "Asking the model...", then an
+  answer above the results that names its sources by number; with a wrong address, the reason in red and the
+  results still there. Which small model answers well is for trying.
+- The game does not hitch when the window opens or while a site is being read.

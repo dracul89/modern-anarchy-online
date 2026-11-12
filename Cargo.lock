@@ -2264,6 +2264,7 @@ dependencies = [
  "flate2",
  "image",
  "mao-formats",
+ "mao-help",
  "mao-net",
  "mao-render",
  "pollster 1.0.1",
@@ -2284,6 +2285,15 @@ version = "0.1.0"
 dependencies = [
  "flate2",
  "image",
+]
+
+[[package]]
+name = "mao-help"
+version = "0.1.0"
+dependencies = [
+ "mao-formats",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

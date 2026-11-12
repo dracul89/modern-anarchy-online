@@ -71,6 +71,7 @@ mod precipitation;
 mod lft;
 mod raid;
 mod help;
+mod helpwindow;
 mod launcher;
 mod loginviews;
 mod look;
