@@ -16,9 +16,10 @@
 //! and `contract` with `OrgServer` messages (types 2 and 1), which this client does not show yet.
 //!
 //! **`history`, `description`, `objective`, `name` and `governingform` set that text of the organization**, and
-//! the original sends them with whatever follows, nothing included: `/org history` alone sets an empty history
-//! (seen live: "Organization info updated."). Here those, `create` and `tax` are not sent without a text
-//! (`docs/ORIGINAL_CODE_QUESTIONS.md`, 16); what `tax` alone does was not tried.
+//! they are sent with whatever follows, nothing included, as the original sends them: `/org history` alone sets an
+//! empty history (seen live: "Organization info updated."). For a day this client would not send them without a
+//! text; the user chose the original's way on 2026-11-12 (`docs/ORIGINAL_CODE_QUESTIONS.md`, 16). What `tax` alone
+//! does was not tried.
 
 use mao_formats::ldb::{Arg, format};
 
@@ -64,10 +65,6 @@ pub fn step(rest: &str) -> Step {
         return Step::Say(format(&game_text("CannotUseLettersX"), &[Arg::Text(&bad.join(", "))]));
     }
     let send = |command: u8, targeted: bool, text: &str| Step::Send { command, targeted, text: text.to_string() };
-    // (the commands that set a text of the organization are not sent with none: see the module's note)
-    if text.is_empty() && matches!(word.as_str(), "create" | "tax" | "history" | "objective" | "description" | "name" | "governingform") {
-        return Step::Say(format!("/org {word} sets the organization's {word} to the text after it: give one. (Alone, the original sends an empty text.)"));
-    }
     match word.as_str() {
         "create" => send(1, true, text),
         "ranks" => send(2, false, ""),
@@ -134,10 +131,10 @@ mod tests {
         assert_eq!(step(""), Step::Say(game_text("OrgCommandHelp")));
         assert_eq!((step("startvote"), step("vote")), (Step::Say(game_text("OrgVoteHelp")), Step::Say(game_text("OrgVoteHelpInfo"))));
         assert!(matches!(step("leave"), Step::NotDone(_)) && matches!(step("disband"), Step::NotDone(_)));
-        // (the commands that set a text are not sent without one)
-        for word in ["create", "tax", "history", "objective", "description", "name", "governingform"] {
-            assert!(matches!(step(word), Step::Say(_)), "{word}");
-        }
+        // (the commands that set a text are sent with none when none is given, as the original sends them: that
+        // empties the text)
+        assert_eq!((sent("history"), sent("description"), sent("objective")), ((0x17, true, String::new()), (0x19, true, String::new()), (0x18, true, String::new())));
+        assert_eq!((sent("name"), sent("governingform"), sent("create"), sent("tax")), ((0x1a, true, String::new()), (0x1b, true, String::new()), (1, true, String::new()), (0x11, true, String::new())));
         // (letters that cannot be sent are named, once each, and nothing goes)
         assert_eq!(step("name Caf\u{e9} \u{e9}t\u{e8}"), Step::Say(format(&game_text("CannotUseLettersX"), &[Arg::Text("\u{e9}, \u{e8}")])));
     }

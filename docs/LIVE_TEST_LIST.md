@@ -333,7 +333,8 @@ text commands (`N3Msg_TextCommand` 0x10017743, its FUN_1003fe10), each a `Charac
 **A command is not passed to the server before its handler is read down to the message it sends. And a command
 is not tried on a character of the player's own before what it does is known: `/org history` was sent on
 2026-11-12 in the belief that it only read, and it sets the organization's history (empty before and after, so
-nothing was lost).**
+nothing was lost). The client sends such a command with an empty text when none is typed, as the original does:
+`/org history`, `description`, `objective`, `name` or `governingform` alone empties that text.**
 
 Also not carried out, and to be tried live when they are (none was ever sent): `/cc info <name>` and `/cc addbuddy
 <name>` (the original's `Befriend` script file is such a line), `/rp` (seen by another character: the role-playing

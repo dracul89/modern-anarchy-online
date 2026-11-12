@@ -218,8 +218,9 @@ answered "You are not authorized to perform that command. (Your request has been
   when none is given. `/org history` alone was sent once on 2026-11-12 on a character in the player's own
   organization, in the belief that it only read; the server answered "Organization info updated.". The text was
   empty before and after (the `info` answers before and after are the same 63 bytes, three empty texts among
-  them), so nothing was lost. Since then the client does not send those, `create` or `tax` without a text. The
-  other numbers were not sent to a server.
+  them), so nothing was lost. The client sends them as the original does, with an empty text when none is
+  given (for some hours it refused to; the user chose the original's way). The other numbers were not sent to a
+  server.
 - The answers arrive as chat texts with packed pieces in them (`~&…~` and plain text after): the client now
   unpacks them as LDB.dll's `RemoteFormat::ParseString` does (`mao_formats::ldb::parse_string`); before, they
   showed as they came.

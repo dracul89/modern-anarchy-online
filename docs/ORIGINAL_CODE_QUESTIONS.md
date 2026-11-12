@@ -167,6 +167,6 @@ Gamecode's `org` commands (FUN_1003fe10) send the commands that set a text of th
 word, and with an empty text when nothing follows. Typed to read the text, `/org history` sets an empty history, and the
 server answers "Organization info updated." (seen on 2026-11-12).
 
-The port does not send `history`, `description`, `objective`, `name`, `governingform`, `create` or `tax` without a text;
-it says that the command sets the text. Decide: keep that, or send the empty text as the original does (the way to
-clear a text on purpose is then missing here).
+Decided on 2026-11-12 ("Do as the original"): the port sends them as the original does, the empty text included. (For
+some hours it refused to send `history`, `description`, `objective`, `name`, `governingform`, `create` or `tax` without a
+text.)

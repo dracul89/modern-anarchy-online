@@ -849,8 +849,9 @@ sets it; `/bank info` asks the server (these four are Gamecode's own text comman
 `mao_net::n3::text_command`). **`/org <command>` is the organization's commands** (`info`, `ranks`, `contract`,
 `invite`, `kick [name]`, `promote`, `demote`, `bank [add|remove <n>]`, `tax <n>`, `name`, `description`,
 `objective`, `history`, `governingform`, the votes, `debt`, `city`; `orgcommands.rs`), and **`/o <text>` is its
-chat**: before, `/org <text>` went to the chat. The answers to `info` and `contract` are not shown yet. The
-commands that set a text are not sent without one. `/items` asks the server for the account's items (it opened
+chat**: before, `/org <text>` went to the chat. The answers to `info` and `contract` are not shown yet. **The
+commands that set a text (`history`, `description`, `objective`, `name`, `governingform`) are sent as typed, as
+the original sends them: with nothing after the word they empty that text.** `/items` asks the server for the account's items (it opened
 the inventory before; `/open inventory` does that). `/tower` and `/raid`'s commands are not carried out.
 Previews:
 `MAO_UI_PREVIEW=macro` (a bar with two macros). Tried live: a macro made, set down by a click and pressed; a
