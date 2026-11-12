@@ -685,6 +685,7 @@ impl Ui {
             "skills" => self.skills.open,
             "perks" => self.perks.open,
             "help" => self.help.open,
+            "assistant" => crate::helpwindow::is_open(),
             "stats" => self.stats.open,
             "ncu" => self.ncu.open,
             "programs" => self.programs.open,
@@ -829,6 +830,11 @@ impl Ui {
             if open {
                 crate::net::request_claims(true);
             }
+            return true;
+        }
+        // (the help assistant, which keeps its own window: `helpwindow.rs`)
+        if matches!(name.as_str(), "assistant" | "guides" | "ask") {
+            crate::helpwindow::set_open(open);
             return true;
         }
         // (BrowserModule_c's windows: the web pages)
@@ -1093,6 +1099,10 @@ impl Ui {
             }
             if help_window.open {
                 help_window.show(&ctx, &settings.keymap, palette);
+            }
+            // (the help assistant; its sources changed: the settings are written)
+            if crate::helpwindow::show(&ctx, palette) {
+                settings.save();
             }
             tips.watch(&hud.location, *gear_open, skills_window.open, shop.open, hud.stats.get(&60).copied().unwrap_or(0) as i64);
             for url in tips.show(&ctx, palette, dt) {
@@ -1575,6 +1585,8 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
             if let Some(tips) = preview_tips.as_mut() {
                 tips.show(&ctx, &palette, 0.0);
             }
+            // (MAO_UI_PREVIEW=assistant: the help assistant's window, `helpwindow.rs`)
+            crate::helpwindow::show(&ctx, &palette);
             if let (Some(window), Some(view)) = (preview_loot.as_mut(), hud.loot.as_ref()) {
                 window.show(&ctx, view, &palette);
             }

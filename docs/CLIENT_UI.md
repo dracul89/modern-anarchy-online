@@ -3119,3 +3119,24 @@ The live client's `MAO_AUTOPLAY` takes `usenear=<name>`: target the nearest tabl
 `net <game> walk <who> <x> <z> [secs]` takes `MAO_WALK_USE=<name>` (use the nearest table dynel of that name on arrival and
 print the server's answers) and `MAO_WALK_ZONES=1` (heights from the zone surfaces, as the live client's); `net <game> ground
 <pf> <x> <z> <y>` with `MAO_GRID=<x1>,<z1>,<step>` prints a height grid to plan a route by.
+
+**The help assistant, "Ask the guides" (2026-11-12, the user: "Start looking at scraping ao-universe and other related
+sites for integrated via a small LLM help window"; branch `agent/help-assistant`).** This client's own; the whole of
+it, the sites looked at and what each allows, is in `docs/HELP_ASSISTANT.md`. A window (`helpwindow.rs`; `/open
+assistant`, or "Ask the guides" in the Help menu) with a question field: the answer is the best pieces of the help
+pages, numbered, each with its page's title, where it is from and a few lines (a click shows the whole piece; "open
+the page" a site's page in the system's browser). The pages are the game's own help files, read from the installed
+game (`cd_image/text/help`, 110 pages), and the guides of sites the player turns on under "Sources and the model":
+today AO-Universe's alone, off by default, its terms shown beside its checkbox, read only at the press of "Read its
+guides now", a page every two seconds by the site's robots.txt, into `help/` beside the settings. Nothing fetched is
+in the repository or in a package. The ranking is by words (BM25, `mao_help::index`), all in memory. With `endpoint`
+and `model` under `[help]` in `mao.ini` (an OpenAI-protocol chat endpoint such as a model server on the same machine,
+or Anthropic's with `api = anthropic`; a key only by the name of the environment variable that holds it) the top
+pieces are also sent to that model and its answer stands above them, marked as the model's. The core is the crate
+`mao-help` (text out of HTML, robots.txt, the crawler, the index, the model's request), with a command-line program
+of the same name (`mao-help ask`, `fetch`, `sites`, `stats`). The pages are fetched with the system's `curl`. The
+shared files have only hooks: `ui.rs` (`window_open`, `set_window`, the two draw calls), `settings.rs` (the `[help]`
+section passed to `helpwindow::configure` / `settings_text`), `vitals.rs` (the menu entry). Seen in a picture
+(`MAO_UI_PREVIEW=assistant MAO_HELP_QUESTION=...`, `MAO_HELP_DIR` for the pages' folder) and tried from the command
+line, the model's part against a stand-in endpoint; **not tried in the live game, with a real model, or on Linux
+and macOS.**

@@ -1,0 +1,19 @@
+[package]
+name = "mao-help"
+description = "The help assistant's core: a player's own index of help pages and guides (the game's help files, sites the player chooses), searched on the player's machine, with an optional answer from a language model behind an endpoint the player sets."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "mao-help"
+path = "src/main.rs"
+
+[dependencies]
+mao-formats.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[lints]
+workspace = true

@@ -615,6 +615,7 @@ impl Settings {
         out += &format!("[interface]\n; built-in | original | aou_translucent | aou_cyt | aou_slim_cni | aou_slim_cnt | a folder with GUIColors.xml\ntheme = {}\n; the AOU mod's folder (the one with Gui in it), for its themes\naou_mod = {}\n; a skin folder (Graphics.uvga and Graphics.uvgi, as the original's Gui/<skin> folders), used before the theme's and the game's own pictures\ngui_dir = {}\n; show the location and coordinates, the frame rate and key hints over the game (for developers)\ndebug_overlay = {}\n; the frame rate, processor, memory and graphics card over the game (/perf)\nperf_overlay = {}\n; the chat lines in the original's own bitmap font\noriginal_font = {}\n; the third-person camera: lock (stays behind the character), rubber (swings round behind it), trail (slowly)\ncamera_mode = {}\n; the planet maps: an index file under a maps' folder (the client's PlanetMap folder, then the game's textures/PlanetMap)\nplanet_map = {}\nshadowlands_map = {}\n\n", self.theme, self.aou_mod, self.gui_dir, if self.debug_overlay { "on" } else { "off" }, if self.perf_overlay { "on" } else { "off" }, if self.original_font { "on" } else { "off" }, self.camera_mode, self.planet_map, self.shadowlands_map);
         out += &format!("; the pet window: the buttons beside each pet's bar, and the pets in fixed rows by their kind\npet_buttons = {}\nfixed_pet_buttons = {}\n\n", if self.pet_buttons { "on" } else { "off" }, if self.fixed_pet_buttons { "on" } else { "off" });
         out += &format!("[game]\n; the original game's folder (the one with cd_image in it); the launcher's settings set it\ndir = {}\n\n", self.game_dir);
+        out += &crate::helpwindow::settings_text();
         out += "[keys]\n; one or more keys per action, separated by commas; Shift+, Ctrl+ and Alt+ combine\n";
         out += &format!("version = {KEYMAP_VERSION}\n");
         for &(action, name, _) in ACTIONS {
@@ -677,6 +678,8 @@ impl Settings {
                 ("interface", "pet_buttons") => settings.pet_buttons = matches!(value.to_ascii_lowercase().as_str(), "on" | "true" | "1" | "yes"),
                 ("interface", "fixed_pet_buttons") => settings.fixed_pet_buttons = matches!(value.to_ascii_lowercase().as_str(), "on" | "true" | "1" | "yes"),
                 ("game", "dir") => settings.game_dir = value.to_string(),
+                // (the help assistant's own section: `helpwindow.rs` keeps it)
+                ("help", name) if crate::helpwindow::configure(name, value) => {}
                 ("keys", "version") => key_version = value.parse().unwrap_or(0),
                 ("keys", name) => key_lines.push((n, name.to_string(), value.to_string())),
                 _ => eprintln!("settings line {}: unknown setting {key:?}", n + 1),

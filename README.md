@@ -87,6 +87,7 @@ Hard-won protocol facts (see `crates/mao-net` and the notes in the other repo):
   Windows executable's resource (`build.rs`) and every window's icon (`src/icon.rs`); `tools/render_icons.py` draws it and
   the other candidates from the original `GFX_GUI_AO_LOGO` texture
 - `mao-tools` – `mao-db`
+- `mao-help` – the help assistant's core and its `mao-help` command (`docs/HELP_ASSISTANT.md`)
 
 ## Licence
 MIT (`LICENSE`): the code of this repository. The four skins in `assets/gui` (`AOU_*`) are the AOU GUI mod's, bundled
