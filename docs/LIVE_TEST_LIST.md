@@ -285,7 +285,7 @@ To try by hand:
 
 - A character with a helmet on: no hair through it, no second head; with glasses: the head and the glasses.
 - Taking the helmet off and putting it on again: the head comes back and goes.
-- Any interior (the Fair Trade shop, a flat, a mission): walls and ceilings there from inside, in every room.
+- Any interior (the Fair Trade shop, a flat, a mission): walls and ceilings there from inside, in every room. The walls behind the shops' terminal rows are whole (they were holes into the next room).
 - Running and walking with a rifle in hand: the stride goes on without stopping; stopping and starting look right.
 
 ## Deleting a mail (2026-11-11)

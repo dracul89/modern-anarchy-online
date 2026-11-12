@@ -614,7 +614,10 @@ pub(crate) fn load_room_shell_parts(db: &ResourceDatabase, playfield: u32) -> Op
     let object = db.get(Id { kind: 0xf4249, instance: rooms.tilemap }).ok().flatten()?;
     let map = mao_formats::tilemap::parse_new(&object).ok()?;
     let grid = mao_formats::rooms::Grid::new(&map)?;
-    let material = mao_formats::model::Material { name: "room".into(), diffuse: [0.55, 0.52, 0.48], ambient: [0.55, 0.52, 0.48], opacity: 1.0, ..Default::default() };
+    // (the textures' alpha is not transparency on a room: `VisualRoom_t::Init` makes its one material and turns that off,
+    // `RMaterial_t::UseAlpha(0)`. Several wall textures carry an alpha channel all the same, the dark panels with the
+    // lamps behind a shop's terminals among them: cut out by it, as they were, those walls were holes into the next room.)
+    let material = mao_formats::model::Material { name: "room".into(), diffuse: [0.55, 0.52, 0.48], ambient: [0.55, 0.52, 0.48], opacity: 1.0, ignore_alpha: true, ..Default::default() };
     // The pieces (type 0xf695d) the rooms' cells take: their walls, corners and doorways.
     let mut pieces = std::collections::HashMap::new();
     for id in grid.pieces_needed(&rooms) {

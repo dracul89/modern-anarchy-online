@@ -795,6 +795,17 @@ down. Here the angle is kept as a 4:3 window has it and a wider window sees the 
 past the hall's walls to the space outside it (kept so: the user chose the full width over black bars at the sides). Seen: the launcher beside the user's picture of the original's, the
 three settings pages, PLAY into the login, the hall at 16:9 and at 32:9.
 
+**A shop's walls with holes (2026-11-11, the user after the walls came back: "shop walls are not complete").**
+In the neutral shop (playfield 1186) the wall behind each row of terminals was a hole into the next room. Not the
+faces turned away this time: the holes were there with every face drawn. Those walls' textures (the dark panels
+with the lamps, 300536 and its like) carry an alpha channel, and the client cut every room texture out by its
+alpha. The original does not: `VisualRoom_t::Init` (DisplaySystem) makes the room's one material and turns its
+alpha off (`RMaterial_t::UseAlpha(0)`), and that material is not two-sided either (its faces turned away are left
+out, as here). The rooms' material now has `ignore_alpha`. This was so before today as well; the faces drawn from
+behind used to hide some of it. Seen from inside in pictures (`inside.py` in the scratch folder: a place at four
+headings, `MAO_CULL=show`): the neutral, Omni and clan basic shops have their walls whole. `rooms::describe_room`
+and the `roomcells` example say a room's cells, pieces and textures. Not seen live.
+
 **Hair through a helmet, a shop's wall gone, the run that stops (2026-11-11, the user's three notes after playing).**
 *Hair through a helmet.* A character's listed meshes were all drawn, in the order of what the lists call a layer.
 That number is a set of flags, and DisplaySystem shows by them (`CharacterMesh::AddAttractorMesh` keeps each

@@ -921,6 +921,35 @@ pub fn covers(grid: &Grid, room: &Room, x: f32, z: f32, reversed: bool) -> bool 
     cx >= 0 && cy >= 0 && cx < w && cy < h && grid.at(x0 + cx, y0 + cy).is_some_and(|(place, _)| place != 0)
 }
 
+/// A room's cells in words, a line each (for looking into a room that draws wrongly): the cell, its type, its wall
+/// bits, and each of its pieces with its turn and, for every tile of the piece, how many vertices it has and the
+/// texture its layer gives it (`-` for none: such a tile is laid but not drawn).
+pub fn describe_room(grid: &Grid, room: &Room, pieces: &HashMap<u16, Piece>) -> Vec<String> {
+    let [x0, y0, x1, y1] = room.rect.map(|v| v as i64);
+    let mut out = Vec::new();
+    for cy in y0..y1 {
+        for cx in x0..x1 {
+            let Some((place, _)) = grid.at(cx, cy) else { continue };
+            let tile = grid.tile(cx, cy);
+            let mut line = format!("cell {cx},{cy}: type {place}, walls {:#06b}, layers {:?}:", grid.words.wall_bits(cx as usize, cy as usize), tile);
+            for (id, turn) in dungeon::cell_pieces(&grid.words, &grid.tables, place, cx as usize, cy as usize) {
+                line += &format!(" piece {id} turn {turn}");
+                match pieces.get(&id) {
+                    None => line += " (not loaded)",
+                    Some(piece) => {
+                        for (k, t) in piece.tiles.iter().enumerate() {
+                            let texture = tile.get(k).and_then(|&v| grid.texture(v));
+                            line += &format!(" [{}v {}]", t.vertices.len(), texture.map_or("-".to_string(), |t| t.to_string()));
+                        }
+                    }
+                }
+            }
+            out.push(line);
+        }
+    }
+    out
+}
+
 /// All the rooms of a playfield as one model.
 pub fn model(grid: &Grid, rooms: &RoomPlayfield, material: &Material, pieces: &HashMap<u16, Piece>) -> Model {
     model_by_room(grid, rooms, material, pieces).0
