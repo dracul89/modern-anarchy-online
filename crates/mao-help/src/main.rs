@@ -28,11 +28,13 @@ struct Args {
     sources: Vec<String>,
     limit: usize,
     answer: bool,
+    /// `--local <folder>`: answer with the model inside the client, its `model.gguf` and `tokenizer.json` in the folder.
+    local: Option<PathBuf>,
     rest: Vec<String>,
 }
 
 fn args() -> Result<Args, String> {
-    let mut out = Args { dir: default_dir(), game: std::env::var_os("MAO_GAME").map(PathBuf::from), sources: Vec::new(), limit: 20, answer: false, rest: Vec::new() };
+    let mut out = Args { dir: default_dir(), game: std::env::var_os("MAO_GAME").map(PathBuf::from), sources: Vec::new(), limit: 20, answer: false, local: None, rest: Vec::new() };
     let mut given = std::env::args().skip(1);
     while let Some(arg) = given.next() {
         let mut value = |name: &str| given.next().ok_or(format!("{name} needs a value"));
@@ -42,6 +44,7 @@ fn args() -> Result<Args, String> {
             "--sources" => out.sources = mao_help::source_names(&value("--sources")?),
             "--limit" => out.limit = value("--limit")?.parse().map_err(|_| "--limit needs a number")?,
             "--answer" => out.answer = true,
+            "--local" => out.local = Some(PathBuf::from(value("--local")?)),
             _ => out.rest.push(arg),
         }
     }
@@ -88,6 +91,21 @@ fn run() -> Result<(), String> {
             let name = args.rest.get(1).ok_or("forget needs a site's name")?;
             store.forget(name).map_err(|e| e.to_string())
         }
+        // `model`: the model inside the client, whether its files are here; `model fetch` gets them (once, about a
+        // gigabyte), going on from a fetch that was broken off.
+        #[cfg(feature = "local-model")]
+        "model" => {
+            let known = mao_help::local::known(args.rest.get(2).map(String::as_str).unwrap_or(""));
+            if args.rest.get(1).map(String::as_str) == Some("fetch") {
+                if !Curl::available() {
+                    return Err("the curl program is not there to fetch with".into());
+                }
+                println!("{}: fetching from {}", known.title, known.weights_url);
+                mao_help::local::fetch_model(&mut Curl::new(&args.dir), known, &args.dir, &std::sync::atomic::AtomicBool::new(false))?;
+            }
+            println!("{}: {} ({} of {} bytes in {})", known.title, if known.present(&args.dir) { "here" } else { "not here" }, mao_help::local::fetched_bytes(known, &args.dir), known.weights_bytes, known.dir(&args.dir).display());
+            Ok(())
+        }
         "stats" => {
             let index = mao_help::load(&store, args.game.as_deref(), &sources);
             println!("{} pages, {} pieces from {:?} (help folder {})", index.docs.len(), index.chunks.len(), sources, args.dir.display());
@@ -108,6 +126,26 @@ fn run() -> Result<(), String> {
                 let heading = if hit.heading.is_empty() || hit.heading == hit.title { String::new() } else { format!(" - {}", hit.heading) };
                 println!("[{}] {}{} ({}: {}, {:.1})\n    {}\n", n + 1, hit.title, heading, hit.source, hit.url, hit.score, hit.snippet);
             }
+            // (`--local` with a folder of the two files; `--local here` for the model kept in the help folder)
+            #[cfg(feature = "local-model")]
+            if let Some(dir) = &args.local {
+                let dir = if dir.as_os_str() == "here" { mao_help::local::MODELS[0].dir(&args.dir) } else { dir.clone() };
+                let dir = &dir;
+                let started = std::time::Instant::now();
+                let mut model = mao_help::local::Local::load(&dir.join("model.gguf"), &dir.join("tokenizer.json"))?;
+                let loaded = started.elapsed();
+                let chars = std::env::var("MAO_HELP_CONTEXT").ok().and_then(|v| v.parse().ok()).unwrap_or(5000);
+                let (user, _) = mao_help::local::ask(&question, &hits, chars);
+                let prompt_tokens = model.tokens(&mao_help::local::chat(mao_help::local::SYSTEM, &user));
+                let asked = std::time::Instant::now();
+                let mut first = None;
+                let answer = mao_help::local::answer(&mut model, &question, &hits, chars, &mut |_| {
+                    first.get_or_insert_with(|| asked.elapsed());
+                    true
+                })?;
+                println!("Answer (the model in the client, from sources 1 to {}):\n{}", answer.sources, answer.text);
+                println!("[loaded in {:.1} s; {} prompt tokens read in {:.1} s; the answer's {} tokens in {:.1} s more]", loaded.as_secs_f32(), prompt_tokens, first.unwrap_or_default().as_secs_f32(), model.tokens(&answer.text), (asked.elapsed() - first.unwrap_or_default()).as_secs_f32());
+            }
             if args.answer {
                 let env = |name: &str| std::env::var(name).unwrap_or_default();
                 let model = Model { api: if env("MAO_HELP_API").eq_ignore_ascii_case("anthropic") { Api::Anthropic } else { Api::OpenAi }, endpoint: env("MAO_HELP_ENDPOINT"), model: env("MAO_HELP_MODEL"), key_env: env("MAO_HELP_KEY_ENV"), ..Default::default() };
@@ -117,7 +155,7 @@ fn run() -> Result<(), String> {
             }
             Ok(())
         }
-        _ => Err("commands: sites | fetch <site> [--limit N] | forget <site> | ask [--answer] <question> | stats   (options: --game <folder>, --dir <help folder>, --sources a,b)".into()),
+        _ => Err("commands: sites | fetch <site> [--limit N] | forget <site> | ask [--answer] [--local <model folder>|here] <question> | model [fetch] | stats   (options: --game <folder>, --dir <help folder>, --sources a,b)".into()),
     }
 }
 

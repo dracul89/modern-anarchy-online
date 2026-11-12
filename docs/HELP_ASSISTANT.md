@@ -207,14 +207,68 @@ cargo run --release -p mao-help -- sites
 cargo run --release -p mao-help -- fetch ao-universe --limit 5     # five pages, into the settings' help folder
 ```
 
+## The model inside the client (2026-11-12)
+
+The user's answer to "which model, and where": "We need a small llm, only needs to interact with our data really."
+So the client carries the means to run one itself, and the model sees nothing but the question and the pieces of the
+player's index found for it.
+
+**What runs it.** `candle` (Hugging Face's inference library, written in Rust) and the `tokenizers` crate, in
+`mao-help` behind the `local-model` feature, which is on by default (`crates/mao-help/src/local.rs`). No other
+program to install, no C++ toolchain to build (llama.cpp's Rust binding was the other candidate: faster, but it needs
+libclang and CMake on every build machine, which this one does not have). The client's program grew from 29.9 to
+36.7 MB.
+
+**Which model.** Qwen2.5 1.5B Instruct, quantized (`q4_k_m`, 1,117 MB), from the Qwen team's own repository on
+Hugging Face; Apache-2.0, not gated. Tried against the same family's 0.5B size (491 MB) on this machine the same day:
+
+| | 1.5B | 0.5B |
+|---|---|---|
+| A question its source answers | answered from the source | answered "[1]" and stopped with the large model's instructions; answered with ours |
+| A question its source does not answer | "The sources do not say." | made an answer up (a price, opening hours as a price) |
+| "What happens when I die" over the game's help | the bank, the new body, the experience pool: right | "your experience points are lost": wrong |
+| Reading about 700 tokens of sources, then writing | 2.6 s, then about 13 tokens a second (32 processor threads here, 8 used) | slower to read on this machine (12 s), for no reason found |
+
+So the 0.5B size is not offered. The model is not in the repository and not in a package: `local::MODELS` names the
+two files, where they come from, the weights' size and SHA-256, and the client fetches them when the player presses
+the button (or `mao-help model fetch`), to `<help folder>/models/qwen2.5-1.5b/`. The fetch goes on from where a
+broken one stopped; a file of the wrong size or the wrong hash is not used.
+
+**How it is asked** (`local::ask`, `SYSTEM`, `RULE`). The chat form of the family; the system's part says that it
+knows nothing but the numbered sources; then the sources and the question; then, last, the rule again: one to three
+short sentences from the sources only, and exactly "The sources do not say." when they do not hold the answer. The
+rule at the end is what made the 1.5B model stop inventing: with the same rule only in the system's part it gave a
+room's price that its source never named. The likeliest token is taken each time (the same question over the same
+sources gives the same answer), with a light penalty on repeating, up to 220 tokens. At most 5,000 characters of
+sources go in.
+
+**In the window.** "Write an answer in words with the small model inside the client" in the window's "Sources and
+the model"; ticked without the files, a button fetches them and says how far it is. The model is loaded with the
+first question (about 2 s here), kept for five minutes after its last answer and then let go (it holds about a
+gigabyte of memory). It works on its own few threads (half the machine's, between 2 and 8), so the game keeps
+drawing: tried live, the frame rate went from about 195 to between 120 and 150 while it answered (6 s), with no
+frame longer than 8 ms. The answer appears as it is written, above the results, with the line that it is the
+model's and is to be checked against them. `[help] local_model` in `mao.ini` keeps the choice; it comes before a
+model behind an address when both are set.
+
+**What it gets wrong.** It can only be as right as the pieces found. Asked how to invite someone to a team, the
+search's best pieces were the chat commands and the organization's commands, and the model answered with the
+organization's invitation: the game's help says little about inviting to a team, and a small model takes the nearest
+thing. The answer always stands over the results it was written from, for that reason.
+
+**"Our data"** is, today, the game's own help pages (and a site's guides where the player turned one on). The next
+sources worth adding, each a matter of making `Doc`s of it: the items and nano programs of the game's database (names,
+descriptions, requirements), the player's own item index (`itemindex.rs`: "where is my ..."), and the missions and
+perks the client already reads.
+
 ## Open questions for the user
 
 1. **AO-Universe's permission.** Ask its team before this ships visible to players? (Recommended: yes. Their
    content is the heart of this, and their footer asks for permission.) Until then it stays opt-in.
 2. **Which sources by default.** The first cut: the game's help on, everything else off.
-3. **Which model, and where.** A local model server the player installs (nothing leaves the machine, but the player
-   has to set it up), a hosted one with the player's own key, or none and the window stays a search. The client
-   could also carry a "set up ollama" help text; it should not download a model by itself.
+3. **Which model, and where.** Answered 2026-11-12: a small model inside the client, working only on our data (the
+   section above). The model's files are fetched only when the player asks for them. A model behind an address
+   stays possible for whoever wants a larger one.
 4. **Forums.** Funcom's forums are readable by their robots.txt; do you want them, given they are other players'
    posts? Their terms of use need reading first.
 5. **Search-only sources.** aodb.us offers itself for search but not for AI use. Worth building the distinction

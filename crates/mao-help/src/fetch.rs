@@ -86,6 +86,49 @@ impl Curl {
         Ok(Reply { status, body: out.stdout[..cut].to_vec() })
     }
 
+    /// Fetches a large file to `to`, going on from what is there already (a fetch that was broken off). `stop` ends
+    /// it. The file is whatever the server sent: the caller checks it.
+    pub fn download(&mut self, url: &str, to: &std::path::Path, stop: &std::sync::atomic::AtomicBool) -> Result<(), String> {
+        if let Some(dir) = to.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        }
+        let config = format!("url = {}\nuser-agent = {}\noutput = {}\ncontinue-at = -\n", quoted(url), quoted(AGENT), quoted(&to.to_string_lossy().replace('\\', "/")));
+        let mut command = Command::new("curl");
+        #[cfg(windows)]
+        std::os::windows::process::CommandExt::creation_flags(&mut command, 0x0800_0000);
+        let mut child = command
+            .args(["--silent", "--show-error", "--location", "--max-redirs", "5", "--fail", "--config", "-"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("curl could not be started: {e}"))?;
+        if let Some(mut input) = child.stdin.take() {
+            input.write_all(config.as_bytes()).map_err(|e| e.to_string())?;
+        }
+        loop {
+            if stop.load(std::sync::atomic::Ordering::Relaxed) {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err("stopped".into());
+            }
+            match child.try_wait().map_err(|e| e.to_string())? {
+                Some(status) if status.success() => return Ok(()),
+                // (curl's 33: the server would not go on from the middle, or the file is whole already; the caller's
+                // check says which)
+                Some(status) if status.code() == Some(33) => return Ok(()),
+                Some(_) => {
+                    let mut said = String::new();
+                    if let Some(mut e) = child.stderr.take() {
+                        let _ = std::io::Read::read_to_string(&mut e, &mut said);
+                    }
+                    return Err(format!("curl: {}", said.trim()));
+                }
+                None => std::thread::sleep(Duration::from_millis(200)),
+            }
+        }
+    }
+
     fn base(&self, url: &str) -> String {
         format!("url = {}\nuser-agent = {}\nmax-time = {}\n", quoted(url), quoted(AGENT), self.timeout.as_secs().max(1))
     }

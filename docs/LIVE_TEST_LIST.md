@@ -281,6 +281,15 @@ To try by hand:
 - A buff bot's `help`: its second tell, the list, shows as a link; the link opens the page; the page's own links send
   their tells.
 
+## The help window's own model (2026-11-12)
+
+- `/open assistant`, "Sources and the model", the tick for the small model, "Fetch the model (1117 MB, once)": the
+  megabytes count up; Stop and the same button again goes on from there; at the end "The model's files are here".
+- A question: "The model is reading the results..." for a few seconds, then the answer growing word by word above
+  the results. The game should stay smooth meanwhile; say how it feels on a machine with fewer cores.
+- A question the help does not answer (a weapon's damage formula): "The sources do not say."
+- Five minutes without a question: the client's memory goes down by about a gigabyte again.
+
 ## The mission helper (2026-11-12): needs a hand, it costs credits
 
 - At a mission terminal, Request Missions: each offer in a line under the button (rewards, place by name, credits).

@@ -830,6 +830,17 @@ behind used to hide some of it. Seen from inside in pictures (`inside.py` in the
 headings, `MAO_CULL=show`): the neutral, Omni and clan basic shops have their walls whole. `rooms::describe_room`
 and the `roomcells` example say a room's cells, pieces and textures. Not seen live.
 
+**The help window's own small model (2026-11-12, the user: "We need a small llm, only needs to interact with our
+data really").** The "Ask the guides" window can now write its answer with a model the client runs itself:
+Qwen2.5 1.5B Instruct, a 1.1 GB file the player fetches once from the window ("Sources and the model", the tick
+"Write an answer in words with the small model inside the client"), run by the `candle` library inside the client on
+a few of the processor's threads. It sees the question and the pieces found for it and nothing else, and is told to
+say "The sources do not say." when they do not hold the answer. Tried live in the running game: an answer in 6 s,
+the frame rate from about 195 down to 120 to 150 meanwhile. `docs/HELP_ASSISTANT.md` ("The model inside the
+client") has the choice of the model, the trial against the smaller one that was rejected, how it is asked, and what
+it gets wrong. `mao-help model fetch` and `mao-help ask --local here <question>` do the same from the command line;
+`MAO_HELP_MODEL=<folder>` runs the model's own test.
+
 **The mission helper (2026-11-12, the user: "clone the mission-buddy to help users roll missions").** The old
 outside helpers read the mission terminal's offers off the screen and told the player when a wanted reward or place
 came up. Here it is part of the terminal's own window (`mission.rs`), since the client has the offers as data. Under

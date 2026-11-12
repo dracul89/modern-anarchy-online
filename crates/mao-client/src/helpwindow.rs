@@ -20,6 +20,7 @@ use mao_help::crawl::{self, Site, Step};
 use mao_help::fetch::Curl;
 use mao_help::index::{Hit, Index, Store};
 use mao_help::llm::{self, Api, Model};
+use mao_help::local;
 
 use crate::theme::Palette;
 
@@ -29,11 +30,14 @@ pub struct Config {
     /// The sources that are on: `game` and the names of sites (`mao_help::crawl::SITES`).
     pub sources: Vec<String>,
     pub model: Model,
+    /// The model inside the client that writes the answers (`mao_help::local::MODELS`); empty for none. It is used
+    /// before a model behind an address, once its files are there.
+    pub local: String,
 }
 
 impl Default for Config {
     fn default() -> Config {
-        Config { sources: vec![mao_help::GAME.to_string()], model: Model::default() }
+        Config { sources: vec![mao_help::GAME.to_string()], model: Model::default(), local: String::new() }
     }
 }
 
@@ -57,6 +61,7 @@ pub fn configure(name: &str, value: &str) -> bool {
         "api" => c.model.api = if value.eq_ignore_ascii_case("anthropic") { Api::Anthropic } else { Api::OpenAi },
         "key_env" => c.model.key_env = value.to_string(),
         "context_chars" => c.model.context_chars = value.parse().unwrap_or(c.model.context_chars).clamp(1000, 200_000),
+        "local_model" => c.local = if value.trim().is_empty() { String::new() } else { local::known(value).name.to_string() },
         _ => return false,
     }
     set_config(c);
@@ -77,6 +82,9 @@ pub fn settings_text() -> String {
         c.model.key_env,
         c.model.context_chars
     )
+    .trim_end()
+    .to_string()
+        + &format!("\n; the model inside the client, for answers in words with no other program: {} (empty: none). Its files are fetched\n; once, when asked for in the window, into the help folder's models folder\nlocal_model = {}\n\n", local::MODELS.iter().map(|m| m.name).collect::<Vec<_>>().join(", "), c.local)
 }
 
 /// Where the sites' pages are kept: `help` beside the settings (`MAO_HELP_DIR` puts it elsewhere, for trying things).
@@ -84,10 +92,29 @@ pub fn help_dir() -> PathBuf {
     std::env::var_os("MAO_HELP_DIR").map(PathBuf::from).unwrap_or_else(|| crate::settings::Settings::path().parent().map_or_else(|| PathBuf::from("help"), |d| d.join("help")))
 }
 
+/// What the answering thread sends: the answer as far as it is written, then how it ended.
+enum Said {
+    SoFar(String),
+    Done(Result<llm::Answer, String>),
+}
+
 enum Asking {
     Idle,
-    Waiting(Receiver<Result<llm::Answer, String>>),
+    /// Waiting for the model, with what it has written so far.
+    Waiting(Receiver<Said>, String),
     Done(Result<llm::Answer, String>),
+}
+
+/// The model inside the client, kept loaded between questions (its name, the model, when it last answered) and let go
+/// after [`KEEP_LOADED`] without one: it holds about a gigabyte of memory.
+static LOADED: Mutex<Option<(String, local::Local, std::time::Instant)>> = Mutex::new(None);
+const KEEP_LOADED: std::time::Duration = std::time::Duration::from_secs(300);
+
+/// A model's files being fetched.
+struct Fetching {
+    model: &'static local::Known,
+    done: Receiver<Result<(), String>>,
+    stop: Arc<AtomicBool>,
 }
 
 enum Progress {
@@ -115,6 +142,9 @@ struct Assistant {
     /// A question waits for the index.
     pending: bool,
     crawling: Option<Crawling>,
+    fetching: Option<Fetching>,
+    /// What the last fetch of the model came to.
+    model_status: String,
     /// What the last reading of a site came to.
     status: String,
     focus: bool,
@@ -128,7 +158,7 @@ fn window() -> std::sync::MutexGuard<'static, Option<Assistant>> {
 }
 
 fn fresh() -> Assistant {
-    Assistant { open: false, question: String::new(), asked: String::new(), hits: Vec::new(), expanded: None, asking: Asking::Idle, index: None, loading: None, pending: false, crawling: None, status: String::new(), focus: false, started: false }
+    Assistant { open: false, question: String::new(), asked: String::new(), hits: Vec::new(), expanded: None, asking: Asking::Idle, index: None, loading: None, pending: false, crawling: None, fetching: None, model_status: String::new(), status: String::new(), focus: false, started: false }
 }
 
 pub fn is_open() -> bool {
@@ -175,16 +205,55 @@ impl Assistant {
         self.expanded = None;
         self.hits = index.search(&self.asked, 6);
         self.asking = Asking::Idle;
-        let model = config().model;
-        if model.configured() && !self.hits.is_empty() {
+        let config = config();
+        let model = config.model;
+        let inside = (!config.local.is_empty()).then(|| local::known(&config.local)).filter(|k| k.present(&help_dir()));
+        if let (Some(known), false) = (inside, self.hits.is_empty()) {
+            // (the model inside the client: loaded on its first question, the answer sent on as it is written)
+            let (tx, rx) = channel();
+            let (question, hits, dir) = (self.asked.clone(), self.hits.clone(), help_dir());
+            std::thread::spawn(move || {
+                let kept = LOADED.lock().unwrap_or_else(|e| e.into_inner()).take().filter(|(name, ..)| name == known.name);
+                let loaded = match kept {
+                    Some((_, model, _)) => Ok(model),
+                    None => local::Local::load(&known.weights(&dir), &known.tokenizer(&dir)),
+                };
+                let began = std::time::Instant::now();
+                let result = loaded.and_then(|mut model| {
+                    let progress = tx.clone();
+                    let answer = local::answer(&mut model, &question, &hits, known.context_chars, &mut move |so_far: &str| progress.send(Said::SoFar(so_far.to_string())).is_ok());
+                    *LOADED.lock().unwrap_or_else(|e| e.into_inner()) = Some((known.name.to_string(), model, std::time::Instant::now()));
+                    answer
+                });
+                eprintln!("help model: {} after {:.1} s", result.as_ref().map_or_else(|e| format!("no answer ({e})"), |a| format!("an answer of {} letters", a.text.len())), began.elapsed().as_secs_f32());
+                let _ = tx.send(Said::Done(result));
+            });
+            self.asking = Asking::Waiting(rx, String::new());
+        } else if model.configured() && !self.hits.is_empty() {
             let (tx, rx) = channel();
             let (question, hits, dir) = (self.asked.clone(), self.hits.clone(), help_dir());
             std::thread::spawn(move || {
                 let key = (!model.key_env.trim().is_empty()).then(|| std::env::var(model.key_env.trim()).unwrap_or_default());
-                let _ = tx.send(llm::answer(&mut Curl::new(dir), &model, key.as_deref(), &question, &hits));
+                let _ = tx.send(Said::Done(llm::answer(&mut Curl::new(dir), &model, key.as_deref(), &question, &hits)));
             });
-            self.asking = Asking::Waiting(rx);
+            self.asking = Asking::Waiting(rx, String::new());
         }
+    }
+
+    /// Starts fetching the model's files (the player's press of the button), away from the frame.
+    fn fetch_model(&mut self, model: &'static local::Known) {
+        if !Curl::available() {
+            self.model_status = "The curl program, which fetches the files, is not on this system.".into();
+            return;
+        }
+        let (tx, rx) = channel();
+        let stop = Arc::new(AtomicBool::new(false));
+        let (dir, flag) = (help_dir(), stop.clone());
+        std::thread::spawn(move || {
+            let _ = tx.send(local::fetch_model(&mut Curl::new(&dir), model, &dir, &flag));
+        });
+        self.model_status.clear();
+        self.fetching = Some(Fetching { model, done: rx, stop });
     }
 
     /// Starts reading a site's guides: every page its sitemap lists that is new or changed, a page every few seconds,
@@ -231,9 +300,32 @@ impl Assistant {
                 self.search();
             }
         }
-        if let Asking::Waiting(rx) = &self.asking {
-            if let Ok(result) = rx.try_recv() {
+        if let Asking::Waiting(rx, so_far) = &mut self.asking {
+            let mut done = None;
+            while let Ok(said) = rx.try_recv() {
+                match said {
+                    Said::SoFar(text) => *so_far = text,
+                    Said::Done(result) => done = Some(result),
+                }
+            }
+            if let Some(result) = done {
                 self.asking = Asking::Done(result);
+            }
+        }
+        if let Some(result) = self.fetching.as_ref().and_then(|f| f.done.try_recv().ok()) {
+            let model = self.fetching.take().map(|f| f.model);
+            self.model_status = match (result, model) {
+                (Ok(()), Some(m)) => format!("{} is here: answers are now written by it.", m.title),
+                (Err(e), _) if e == "stopped" => "Stopped; what has come is kept, and the fetch goes on from there the next time.".to_string(),
+                (Err(e), _) => format!("The model was not fetched: {e}"),
+                (Ok(()), None) => String::new(),
+            };
+        }
+        // (a model that has not answered for a while gives its memory back)
+        if !matches!(self.asking, Asking::Waiting(..)) {
+            let mut loaded = LOADED.lock().unwrap_or_else(|e| e.into_inner());
+            if loaded.as_ref().is_some_and(|l| l.2.elapsed() > KEEP_LOADED) {
+                *loaded = None;
             }
         }
         let mut done = None;
@@ -263,7 +355,7 @@ impl Assistant {
         if !std::mem::replace(&mut self.started, true) {
             self.reload();
         }
-        if self.loading.is_some() || matches!(self.asking, Asking::Waiting(_)) || self.crawling.is_some() {
+        if self.loading.is_some() || matches!(self.asking, Asking::Waiting(..)) || self.crawling.is_some() || self.fetching.is_some() {
             ctx.request_repaint_after(std::time::Duration::from_millis(200));
         }
         let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
@@ -273,6 +365,7 @@ impl Assistant {
         let mut submit = false;
         let mut config_now = config();
         let mut read: Option<&'static Site> = None;
+        let mut fetch: Option<&'static local::Known> = None;
         crate::chrome::window(ctx, palette, "Assistant", "Ask the guides", &mut open, |w| w.default_size([470.0, 520.0]), |ui| {
             ui.horizontal(|ui| {
                 let field = crate::chrome::text_edit(ui, palette, egui::TextEdit::singleline(&mut self.question).desired_width(ui.available_width() - 60.0).hint_text("a question about the game"));
@@ -288,8 +381,13 @@ impl Assistant {
             crate::chrome::scroll(ui, palette, egui::ScrollArea::vertical().max_height(420.0).auto_shrink([false, true]), |ui| {
                 // (the model's answer, when one is set up)
                 match &self.asking {
-                    Asking::Waiting(_) => {
-                        ui.label(egui::RichText::new("Asking the model...").italics().color(weak));
+                    Asking::Waiting(_, so_far) if so_far.is_empty() => {
+                        ui.label(egui::RichText::new("The model is reading the results...").italics().color(weak));
+                        ui.add_space(6.0);
+                    }
+                    Asking::Waiting(_, so_far) => {
+                        ui.label(egui::RichText::new("Answer").strong().color(accent));
+                        ui.add(egui::Label::new(so_far.as_str()).wrap());
                         ui.add_space(6.0);
                     }
                     Asking::Done(Ok(answer)) => {
@@ -373,8 +471,43 @@ impl Assistant {
                     if let Some(index) = &self.index {
                         ui.label(egui::RichText::new(format!("{} pages are searched.", index.docs.len())).small().color(weak));
                     }
+                    // The model inside the client: a tick to use it; its files fetched when the player says so.
+                    let known = local::known(&config_now.local);
+                    let mut inside = !config_now.local.is_empty();
+                    if crate::chrome::checkbox(ui, palette, &mut inside, "Write an answer in words with the small model inside the client").changed() {
+                        config_now.local = if inside { known.name.to_string() } else { String::new() };
+                        changed = true;
+                    }
+                    ui.add(egui::Label::new(egui::RichText::new(format!("{}, run on this machine by the client itself: no account, nothing sent anywhere. It only sees your question and the results found for it. Its answers can still be wrong: check them against the results.", known.title)).small().color(weak)).wrap());
+                    if inside {
+                        let dir = help_dir();
+                        ui.horizontal_wrapped(|ui| match (self.fetching.as_ref(), known.present(&dir)) {
+                            (Some(f), _) => {
+                                if crate::chrome::button(ui, palette, "Stop", true).clicked() {
+                                    f.stop.store(true, Ordering::Relaxed);
+                                }
+                                let have = local::fetched_bytes(f.model, &dir);
+                                ui.label(egui::RichText::new(format!("Fetching the model: {} of {} MB", have / 1_000_000, f.model.weights_bytes / 1_000_000)).small());
+                            }
+                            (None, true) => {
+                                ui.label(egui::RichText::new("The model's files are here.").small().color(weak));
+                            }
+                            (None, false) => {
+                                let have = local::fetched_bytes(known, &dir);
+                                let label = if have > 0 { format!("Go on fetching the model ({} of {} MB here)", have / 1_000_000, known.weights_bytes / 1_000_000) } else { format!("Fetch the model ({} MB, once)", known.weights_bytes / 1_000_000) };
+                                if crate::chrome::button(ui, palette, &label, true).on_hover_text(known.weights_url).clicked() {
+                                    fetch = Some(known);
+                                }
+                            }
+                        });
+                    }
+                    if !self.model_status.is_empty() {
+                        ui.add(egui::Label::new(egui::RichText::new(&self.model_status).small()).wrap());
+                    }
                     let model = &config_now.model;
-                    let line = if model.configured() { format!("Answers are written by the model {} at {}.", model.model, model.endpoint) } else { "No language model is set up: results only. One can be named under [help] in mao.ini (endpoint, model).".to_string() };
+                    let line = if inside {
+                        String::new()
+                    } else if model.configured() { format!("Answers are written by the model {} at {}.", model.model, model.endpoint) } else { "No language model is set up: results only. One can be named under [help] in mao.ini (endpoint, model).".to_string() };
                     ui.add(egui::Label::new(egui::RichText::new(line).small().color(weak)).wrap());
                 });
             });
@@ -386,6 +519,9 @@ impl Assistant {
         }
         if let Some(site) = read {
             self.read_site(site);
+        }
+        if let Some(model) = fetch {
+            self.fetch_model(model);
         }
         if submit {
             self.asked = self.question.trim().to_string();
@@ -409,6 +545,19 @@ pub fn show(ctx: &egui::Context, palette: &Palette) -> bool {
                 w.question = question.clone();
                 w.asked = question;
                 w.search();
+                // (a picture is taken of the first frames: the answer is waited for here, as it is nowhere else)
+                if let Asking::Waiting(rx, _) = &w.asking {
+                    let mut done = None;
+                    while let Ok(said) = rx.recv() {
+                        if let Said::Done(result) = said {
+                            done = Some(result);
+                            break;
+                        }
+                    }
+                    if let Some(result) = done {
+                        w.asking = Asking::Done(result);
+                    }
+                }
             }
         }
         w

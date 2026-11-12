@@ -13,6 +13,8 @@ pub mod crawl;
 pub mod fetch;
 pub mod index;
 pub mod llm;
+#[cfg(feature = "local-model")]
+pub mod local;
 pub mod robots;
 pub mod text;
 
