@@ -32,6 +32,7 @@ mod actions;
 mod afk;
 mod chatfilter;
 mod macros;
+mod orgcommands;
 mod scripts;
 mod interior;
 mod perf;

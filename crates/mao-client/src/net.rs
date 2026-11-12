@@ -139,7 +139,7 @@ fn trace(frame: &frame::Frame, clock: Instant) {
             eprintln!("[{t:7.2}] server bulk {:08x} from {:x}:{:x} ({} bytes)", m.kind, m.identity.0, m.identity.1, m.data.len());
         }
         if !BULK.contains(&m.kind) {
-            let head: String = m.data.iter().take(if m.kind == 0x52526858 { 64 } else { 28 }).map(|b| format!("{b:02x}")).collect();
+            let head: String = m.data.iter().take(if m.kind == 0x52526858 { 64 } else if m.kind == 0x64582a07 { 400 } else { 28 }).map(|b| format!("{b:02x}")).collect();
             eprintln!("[{t:7.2}] server n3 {:08x} from {:x}:{:x} ({} bytes) {head}", m.kind, m.identity.0, m.identity.1, m.data.len());
         }
     } else if frame.kind != frame::PING {
@@ -803,6 +803,14 @@ static TEXT_COMMANDS: std::sync::Mutex<Vec<(u8, u32)>> = std::sync::Mutex::new(V
 /// One of Gamecode's text commands (`/played`, `/born`, `/team loot`, `/bank info`), sent by the game loop.
 pub fn text_command(action: u8, value: u32) {
     TEXT_COMMANDS.lock().unwrap_or_else(|e| e.into_inner()).push((action, value));
+}
+
+/// The organization's commands waiting to be sent (`n3::org_command`): the number, whether the target goes with it,
+/// the text.
+static ORG_COMMANDS: std::sync::Mutex<Vec<(u8, bool, String)>> = std::sync::Mutex::new(Vec::new());
+
+pub fn org_command(command: u8, targeted: bool, text: String) {
+    ORG_COMMANDS.lock().unwrap_or_else(|e| e.into_inner()).push((command, targeted, text));
 }
 
 /// A command for the server (`n3::server_command`), sent by the game loop.
@@ -2279,7 +2287,13 @@ impl World {
         // The game's own text and the fight.
         if m.kind == 0x5f4b442a {
             if let Some(text) = mao_net::n3::chat_text(&m.data) {
-                self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, text));
+                // (packed texts in it, `~&` and base-85 words naming a text.mdb text and its arguments up to a `~`, as the
+                // answers to the organization's commands have: LDB.dll's `RemoteFormat::ParseString`)
+                let text = match crate::feedback::texts() {
+                    Some(texts) if text.contains("~&") => mao_formats::ldb::parse_string(texts, &text),
+                    _ => text,
+                };
+                self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, mao_net::chat::plain(&text)).with_markup("", &text));
             }
         }
         // `Feedback` (`50544d19`): a text.mdb line by its category and key ("You are too far away; please move closer!" when a
@@ -5270,7 +5284,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                         chat.send(&mao_net::chat::lookup_packet(&name))?;
                                     }
                                 },
-                                Out::Camp | Out::Sit | Out::Perf | Out::Pet(_) | Out::Duel(_) | Out::PetDuel(_) | Out::Server(_) | Out::FxScript(_) | Out::Quit | Out::Follow | Out::Inspect | Out::Window { .. } | Out::ToggleWindow { .. } | Out::Assist { .. } | Out::Waypoint { .. } | Out::SelectSelf | Out::SetOption { .. } | Out::DValue { .. } | Out::TextCommand { .. } | Out::ViewDist(_) | Out::CharDist(_) => {}
+                                Out::Camp | Out::Sit | Out::Perf | Out::Pet(_) | Out::Duel(_) | Out::PetDuel(_) | Out::Server(_) | Out::FxScript(_) | Out::Quit | Out::Follow | Out::Inspect | Out::Window { .. } | Out::ToggleWindow { .. } | Out::Assist { .. } | Out::Waypoint { .. } | Out::SelectSelf | Out::SetOption { .. } | Out::DValue { .. } | Out::TextCommand { .. } | Out::OrgCommand { .. } | Out::ViewDist(_) | Out::CharDist(_) => {}
                                 Out::Befriend { name } => match ids.get(&name.to_lowercase()) {
                                     Some(&id) => {
                                         chat.send(&mao_net::chat::buddy_add_packet(id, false))?;
@@ -6173,6 +6187,11 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             for (action, value) in std::mem::take(&mut *TEXT_COMMANDS.lock().unwrap_or_else(|e| e.into_inner())) {
                 eprintln!("[{:6.1}] text command {action:#x} ({value})", clock.elapsed().as_secs_f32());
                 let _ = connection.send(&n3::text_command(own, action, 0, value));
+            }
+            for (command, targeted, text) in std::mem::take(&mut *ORG_COMMANDS.lock().unwrap_or_else(|e| e.into_inner())) {
+                let at = target.filter(|_| targeted).map_or((0, 0), |t| (state.types.get(&t).copied().unwrap_or(n3::CHARACTER), t));
+                eprintln!("[{:6.1}] organization command {command:#x} at {:x}:{:x} {text:?}", clock.elapsed().as_secs_f32(), at.0, at.1);
+                let _ = connection.send(&n3::org_command(own, command, at, 0, &text, false));
             }
             for text in std::mem::take(&mut *SERVER_COMMANDS.lock().unwrap_or_else(|e| e.into_inner())) {
                 let at = target.map_or((0, 0), |t| (state.types.get(&t).copied().unwrap_or(n3::CHARACTER), t));

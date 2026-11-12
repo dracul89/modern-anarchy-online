@@ -194,10 +194,40 @@ answered "You are not authorized to perform that command. (Your request has been
   `Feedback_OnlyTeamLeaderCanChangeLootOrder`.
 - `bank`: its word is looked up (FUN_1002f123; open 1, close 2, info 3): `info` is action 0x5c; `open` is action
   0x24 for a game master only (stat 215); `close` closes the bank's window in the client (not done here).
-- Not read further: `items list|delete`, `resetskill`, `clone`, `damagemult`, `clearunique`, `raid`, `org` (its
-  own keyword table, FUN_1003268e, and a message for each of some thirty commands), `pet`, `tower`, `follow`,
-  and the developers' `getlocal` and the like. `/org`, `/pet`, `/follow`, `/items`, `/raid` are carried out by this
-  client in its own ways, written before this was read.
+- `items` (read later the same day): alone or with `list`, action 0xf4 with nothing else (FUN_1004b6c9); `delete
+  <number>` is action 0xf5 with the number (FUN_1004b772), which has the server delete an item of the account:
+  not carried out here. Until then `/items` opened the inventory, which the original's does not.
+- **`org`** (`orgcommands.rs`): **`/org` is the organization's commands; its chat is `/o`** (until 2026-11-12 this
+  client sent `/org <text>` to the chat). The word after it is looked up (FUN_10032366; the table filled at
+  0x100334a0 on: create 2, ranks 3, governingform 4, info 5, promote 6, demote 7, name 8, history 9, description
+  10, objective 11, leave 12, invite 13, disband 14, kick 15, contract 16, tax 17, bank 18, startvote 19, vote 20,
+  stopvote 21, debt 22, city 23) and what follows is its text; a text with a character outside 0x20 to 0x7e is
+  refused (`CannotUseLettersX`). Each makes an `OrgClientIIR_c` (FUN_101266b4; `7f4b3108`, which is
+  `n3InfoItemRemote_t::MapToKey` of the name, N3.dll 0x10009826: the name's bytes laid over one another four by
+  four), packed by FUN_1012653f: the command's number as a byte, an identity (the target), the chat window's
+  number, then a text for the numbers 1, 7, 9, 0xd, 0x11, 0x13, 0x14, 0x17 to 0x1c and a byte for 10. The numbers
+  sent: create 1, ranks 2, contract 3, info 5, startvote 7, vote info 8, vote 9, promote 0xa, demote 0xb, kick
+  0xc (the target) or 0xd (a name), invite 0xe, tax 0x11, bank 0x12 (`add` 0x13, `remove` 0x14), debt 0x16,
+  history 0x17, objective 0x18, description 0x19, name 0x1a, governingform 0x1b, stopvote 0x1c, city 0x1f. `help`
+  and any other word say the game's `OrgCommandHelp` ("Invalid /org command ..."); `leave` and `disband` ask
+  first in boxes (`N3Msg_OrgLeaveConfirmed`, `N3Msg_OrgDisbandConfirmed`) and are not carried out here.
+  **Tried live:** `info`, `ranks` and `contract` only read (outside an organization each is answered with a line;
+  in one, `ranks` with a line, `info` and `contract` with `OrgServer` messages of types 2 and 1, which this
+  client does not show yet). **`history` is not a question: it sets the organization's history text**, as
+  `description`, `objective`, `name` and `governingform` set theirs, and the original sends them with no text
+  when none is given. `/org history` alone was sent once on 2026-11-12 on a character in the player's own
+  organization, in the belief that it only read; the server answered "Organization info updated.". The text was
+  empty before and after (the `info` answers before and after are the same 63 bytes, three empty texts among
+  them), so nothing was lost. Since then the client does not send those, `create` or `tax` without a text. The
+  other numbers were not sent to a server.
+- The answers arrive as chat texts with packed pieces in them (`~&…~` and plain text after): the client now
+  unpacks them as LDB.dll's `RemoteFormat::ParseString` does (`mao_formats::ldb::parse_string`); before, they
+  showed as they came.
+- `raid`: its word is looked up (FUN_100323ce; create, list, listlocal, move, lootaccess, locks) and most make a
+  `RaidCmdIIR_c` (FUN_100a3a86, `4e525e58`): not read further, and not carried out (`/raid` here opens the raid
+  window, which the original's command does not). `tower`: needs a service tower and runs a file of `scripts/`
+  (Notum Wars): not carried out. `resetskill`, `clone`, `damagemult`, `clearunique` and the `getlocal` family
+  ask for a game master's level. `pet` and `follow` were read before and are carried out.
 
 Here: `mao_net::n3::text_command` and its numbers, `chatwindow::Out::TextCommand`, the window's number sent as 0.
 Tried live on a test character on 2026-11-12: `/played` and `/born` were answered by the server; `/bank info`

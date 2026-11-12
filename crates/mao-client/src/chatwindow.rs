@@ -111,6 +111,9 @@ pub enum Out {
     DValue { name: String, value: Option<String> },
     /// One of Gamecode's text commands (`mao_net::n3::text_command`): its action and number.
     TextCommand { action: u8, value: u32 },
+    /// One of the organization's commands (`mao_net::n3::org_command`): its number, whether the selected target
+    /// goes with it, and its text.
+    OrgCommand { command: u8, targeted: bool, text: String },
     /// Open the tell window for a character, once the chat server knows the name (it comes back through
     /// `chatgroups::open_tell`).
     TellWindow { name: String },
@@ -1173,6 +1176,20 @@ impl ChatWindow {
                 Some(Out::TextCommand { action: mao_net::n3::TEXT_PLAYED, value: 0 })
             }
             Parsed::Born => Some(Out::TextCommand { action: mao_net::n3::TEXT_BORN, value: 0 }),
+            Parsed::ItemsList => Some(Out::TextCommand { action: mao_net::n3::TEXT_ITEMS_LIST, value: 0 }),
+            // (`/org`: Gamecode's organization commands, the line's `%` arguments put in first as for the others)
+            Parsed::OrgCommand { text } => match crate::orgcommands::step(&self.expand(&text)) {
+                crate::orgcommands::Step::Say(line) => {
+                    self.tell(&line);
+                    None
+                }
+                crate::orgcommands::Step::Send { command, targeted, text } => Some(Out::OrgCommand { command, targeted, text }),
+                crate::orgcommands::Step::NotDone(line) => {
+                    self.push(Line::new(Kind::System, line));
+                    None
+                }
+                crate::orgcommands::Step::Nothing => None,
+            },
             // (FUN_1003fe10's `team`: not in a team, said so; alone, its three lines of help; `loot` asks for the
             // order, and with a word after it the leader sets it, the word's number sent whatever it is: its table
             // has team 1, loot 2, all 3, leader 4, alpha 5, and nothing for any other word. Another first word
@@ -1810,6 +1827,10 @@ mod tests {
         let time = &w.lines.last().unwrap().text;
         assert!(time.starts_with("Time: ") && time.contains("Date: "), "{time}");
         assert_eq!(w.run("/born"), Some(Out::TextCommand { action: 0x86, value: 0 }));
+        assert_eq!(w.run("/items"), Some(Out::TextCommand { action: 0xf4, value: 0 }));
+        assert_eq!(w.run("/org info"), Some(Out::OrgCommand { command: 5, targeted: true, text: String::new() }));
+        assert_eq!(w.run("/org kick Somebody"), Some(Out::OrgCommand { command: 0xd, targeted: true, text: "Somebody".into() }));
+        assert_eq!((w.run("/org"), w.run("/org leave")), (None, None));
         assert_eq!(w.run("/bank info"), Some(Out::TextCommand { action: 0x5c, value: 0 }));
         assert_eq!((w.run("/bank open"), w.run("/bank")), (None, None));
         // (`/team` outside a team says so and sends nothing)

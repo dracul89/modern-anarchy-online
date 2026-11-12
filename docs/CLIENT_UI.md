@@ -846,7 +846,13 @@ one of the original's stored settings. `/start <http address>` opens it outside 
 <b>` sets both distances. `/played` says the time and date and asks the server for the time played; `/born` asks
 when the character was made; `/team loot [all|leader|alpha]` asks for the team's loot order or, from its leader,
 sets it; `/bank info` asks the server (these four are Gamecode's own text commands, each a character action:
-`mao_net::n3::text_command`). `/tower` is not carried out. Previews:
+`mao_net::n3::text_command`). **`/org <command>` is the organization's commands** (`info`, `ranks`, `contract`,
+`invite`, `kick [name]`, `promote`, `demote`, `bank [add|remove <n>]`, `tax <n>`, `name`, `description`,
+`objective`, `history`, `governingform`, the votes, `debt`, `city`; `orgcommands.rs`), and **`/o <text>` is its
+chat**: before, `/org <text>` went to the chat. The answers to `info` and `contract` are not shown yet. The
+commands that set a text are not sent without one. `/items` asks the server for the account's items (it opened
+the inventory before; `/open inventory` does that). `/tower` and `/raid`'s commands are not carried out.
+Previews:
 `MAO_UI_PREVIEW=macro` (a bar with two macros). Tried live: a macro made, set down by a click and pressed; a
 script found and one not found; the filter's and `/dvalue`'s lines; `/played` and `/born` with the server's
 answers. Not tried: the filter on a real channel line, a script with `/delay`, `/start`, `/team loot` in a team;

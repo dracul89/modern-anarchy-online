@@ -275,11 +275,40 @@ fn utf8_char(b: &[u8]) -> (u32, usize) {
 /// `F` a nested packed text, both as their length + 1 as a UTF-8 character and the bytes) up to a closing `~`. The text is
 /// looked up and filled with the arguments. A text not packed so comes back as it is.
 pub fn remote(texts: &Texts, s: &str) -> String {
+    remote_at(texts, s.as_bytes()).0
+}
+
+/// `RemoteFormat::ParseString` (LDB.dll; the drop-in's `remote::parse_string`): a text with packed pieces in it, each
+/// complete one (closed by its `~`) replaced by its text and everything else kept. The answers to the organization's
+/// commands come so: a packed line with plain text after it.
+pub fn parse_string(texts: &Texts, s: &str) -> String {
     let b = s.as_bytes();
-    if !(b.len() > 11 && b.starts_with(b"~&")) {
-        return s.to_string();
+    let mut out: Vec<u8> = Vec::new();
+    let mut i = 0;
+    while i < b.len() {
+        if b[i..].starts_with(b"~&") {
+            let (text, consumed) = remote_at(texts, &b[i..]);
+            if consumed != 0 {
+                out.extend_from_slice(text.as_bytes());
+                i += consumed;
+                continue;
+            }
+        }
+        out.push(b[i]);
+        i += 1;
     }
-    let (Some(category), Some(id)) = (from_base85(&b[2..]), from_base85(&b[7..])) else { return s.to_string() };
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// [`remote`] on the bytes at the start of `b`: the text, and how many bytes the packed piece took when it was closed
+/// by a `~` (0 when it was not).
+fn remote_at(texts: &Texts, b: &[u8]) -> (String, usize) {
+    let whole = || String::from_utf8_lossy(b).into_owned();
+    if !(b.len() > 11 && b.starts_with(b"~&")) {
+        return (whole(), 0);
+    }
+    let (Some(category), Some(id)) = (from_base85(&b[2..]), from_base85(&b[7..])) else { return (whole(), 0) };
+    let mut consumed = 0;
     let text = texts.get(category as i32, id as i32).unwrap_or("");
     let mut parts: Vec<String> = Vec::new();
     let mut numbers: Vec<Option<i64>> = Vec::new();
@@ -324,11 +353,15 @@ pub fn remote(texts: &Texts, s: &str) -> String {
                 }
                 i += 6;
             }
+            b'~' => {
+                consumed = i + 1;
+                break;
+            }
             _ => break,
         }
     }
     let args: Vec<Arg> = parts.iter().zip(&numbers).map(|(t, n)| n.map_or(Arg::Text(t), Arg::Int)).collect();
-    format(text, &args)
+    (format(text, &args), consumed)
 }
 
 #[cfg(test)]

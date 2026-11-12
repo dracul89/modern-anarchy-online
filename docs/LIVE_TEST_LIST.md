@@ -319,7 +319,21 @@ text commands (`N3Msg_TextCommand` 0x10017743, its FUN_1003fe10), each a `Charac
   Fanatic's own; the other words are another of Gamecode's text commands, not read yet). `/terminate` with its
   yes/no box the same.
 
-**A command is not passed to the server before its handler is read down to the message it sends.**
+- [x] `/org info`, `/org ranks`, `/org contract` outside an organization: "You are not a member of an
+  organization." and "You're not in an organization." (2026-11-12).
+- [x] `/org ranks` in an organization: "Governing form: ... Ranks: ..." (2026-11-12).
+- [ ] `/org info` and `/org contract` in an organization: the server answers (`OrgServer` types 2 and 1); the
+  client does not show the answers yet.
+- [ ] Every other `/org` command (`invite`, `kick`, `promote`, `demote`, `bank`, `tax`, the votes, `debt`, `city`,
+  and the ones that set a text: `name`, `description`, `objective`, `history`, `governingform`): never sent
+  except `history` once, by mistake (below). **To be tried only in an organization made for testing**, not in the
+  player's own.
+- [ ] `/items`: sent on 2026-11-12, not refused, nothing shown in answer.
+
+**A command is not passed to the server before its handler is read down to the message it sends. And a command
+is not tried on a character of the player's own before what it does is known: `/org history` was sent on
+2026-11-12 in the belief that it only read, and it sets the organization's history (empty before and after, so
+nothing was lost).**
 
 Also not carried out, and to be tried live when they are (none was ever sent): `/cc info <name>` and `/cc addbuddy
 <name>` (the original's `Befriend` script file is such a line), `/rp` (seen by another character: the role-playing

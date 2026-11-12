@@ -48,7 +48,9 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
     ("ch <group>", "the group this chat window's plain lines go to (the start of its name is enough)"),
     ("group <group> <text>", "one line to a group (also /g)"),
     ("reply <text>", "answer the last tell (also /r)"),
-    ("org <text>", "your organization's channel (also /o)"),
+    ("o <text>", "your organization's channel"),
+    ("org <command>", "the organization's commands: info, ranks, contract, history, tax, bank, invite, kick, promote, demote ... (/org help)"),
+    ("items", "asks the server for the list of the account's items"),
     ("say <text>", "speak to the people around (plain text too); /shout or /s shouts, /whisper or /w whispers, /me emotes"),
     ("emote <name>", "do an emote (also /<name>: /wave, /bow, /dance-like ones such as /disco; sleep and lounge sitting)"),
     ("voice <sound name>", "speak a voice line (heal, help, inc, no, run, yes) to the people around"),
@@ -58,7 +60,7 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
     ("sit", "sit down, or stand up (the X key)"),
     ("follow", "walk after the target (again, or any movement key: stop)"),
     ("inspect", "level, profession and health of the target"),
-    ("open <window>", "show a window (inventory, stats, skills, ncu, friends, programs, perks, help, map, ...); /items is /open inventory"),
+    ("open <window>", "show a window (inventory, stats, skills, ncu, friends, programs, perks, help, map, ...)"),
     ("close [window]", "hide a window, or all of them"),
     ("waypoint <x> <z>", "walk to a place (any movement key stops)"),
     ("selectself", "target your own character"),
@@ -176,6 +178,10 @@ pub enum Parsed {
     Played,
     /// `/born`: the server asked when the character was made.
     Born,
+    /// `/org <command> [text]`: the organization's commands (`orgcommands.rs`).
+    OrgCommand { text: String },
+    /// `/items`, `/items list`: the server asked for the account's items.
+    ItemsList,
     /// `/team [loot [all|leader|alpha]]` (Gamecode FUN_1003fe10): its words, in small letters.
     TeamCommand { words: Vec<String> },
     /// `/bank <open|close|info>` (Gamecode FUN_1003fe10): its first word.
@@ -339,7 +345,7 @@ pub fn parse(line: &str) -> Parsed {
         "inspect" => Parsed::Inspect,
         // (`/raid` and `/lft` open their windows, as the original's commands do)
         "raid" | "lft" => Parsed::Window { name: command.to_lowercase(), open: true },
-        "open" | "items" => Parsed::Window { name: if command.eq_ignore_ascii_case("items") { "inventory".to_string() } else { text.to_string() }, open: true },
+        "open" => Parsed::Window { name: text.to_string(), open: true },
         "close" => Parsed::Window { name: text.to_string(), open: false },
         "selectself" => Parsed::SelectSelf,
         "afk" => Parsed::Afk { text: text.to_string() },
@@ -413,13 +419,21 @@ pub fn parse(line: &str) -> Parsed {
                 Parsed::Befriend { name: text.split_whitespace().next().unwrap_or(text).to_string() }
             }
         }
-        "org" | "o" => {
+        // (`/o` is the organization's chat, FUN_1009cdfe; `/org` is the organization's commands, Gamecode's)
+        "o" => {
             if text.is_empty() {
-                Parsed::Usage("/org <text>")
+                Parsed::Usage("/o <text>")
             } else {
                 Parsed::Org { text: text.to_string() }
             }
         }
+        "org" => Parsed::OrgCommand { text: text.to_string() },
+        // (Gamecode FUN_1003fe10's `items`: alone or with `list` the server is asked for the list; `delete <number>`
+        // has the server delete one, which this client leaves alone)
+        "items" => match text.split_whitespace().next().map(str::to_lowercase).as_deref() {
+            None | Some("list") => Parsed::ItemsList,
+            Some(_) => Parsed::Unsupported(format!("items {}", text.split_whitespace().next().unwrap_or(""))),
+        },
         // (GUI.dll FUN_100b8d78: no word challenges the target; else one of three words)
         "petduel" => match text.to_lowercase().as_str() {
             "" => Parsed::PetDuel { what: None },
@@ -609,7 +623,10 @@ mod tests {
         assert_eq!(parse("/assist Somebody"), Parsed::Assist { name: Some("Somebody".into()) });
         assert_eq!(parse("/perks"), Parsed::Server { text: "perks".into() });
         assert_eq!(parse("/lft"), Parsed::Window { name: "lft".into(), open: true });
-        assert_eq!(parse("/items"), Parsed::Window { name: "inventory".into(), open: true });
+        assert_eq!((parse("/items"), parse("/items LIST")), (Parsed::ItemsList, Parsed::ItemsList));
+        assert_eq!(parse("/items delete 3"), Parsed::Unsupported("items delete".into()));
+        assert_eq!(parse("/org info"), Parsed::OrgCommand { text: "info".into() });
+        assert_eq!(parse("/org"), Parsed::OrgCommand { text: String::new() });
         assert_eq!(parse("/close"), Parsed::Window { name: String::new(), open: false });
         assert_eq!(parse("/waypoint 450.5, 310"), Parsed::Waypoint { x: 450.5, z: 310.0 });
         assert_eq!(parse("/waypoint 450"), Parsed::Usage("/waypoint <x> <z>"));

@@ -2624,6 +2624,7 @@ impl ApplicationHandler for App {
                             crate::chatwindow::Out::PetDuel(what) => self.keys.pet_duel = (self.keys.pet_duel.0.wrapping_add(1), what),
                             crate::chatwindow::Out::Server(text) => crate::net::server_command(text),
                             crate::chatwindow::Out::TextCommand { action, value } => crate::net::text_command(action, value),
+                            crate::chatwindow::Out::OrgCommand { command, targeted, text } => crate::net::org_command(command, targeted, text),
                             crate::chatwindow::Out::FxScript(line) => crate::net::fxs_command(line),
                             crate::chatwindow::Out::Perf => {
                                 self.settings.perf_overlay = !self.settings.perf_overlay;

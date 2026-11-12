@@ -312,11 +312,34 @@ pub fn text_command(character: u32, action: u8, window: u32, value: u32) -> Fram
     Message { kind: 0x5e477770, identity: (CHARACTER, character), data }.frame(character)
 }
 
+/// `/items` and `/items list` (Gamecode FUN_1004b6c9): `CharacterAction` 0xf4, with nothing else in it.
+pub const TEXT_ITEMS_LIST: u8 = 0xf4;
 pub const TEXT_PLAYED: u8 = 0x85;
 pub const TEXT_BORN: u8 = 0x86;
 pub const TEXT_TEAM_LOOT: u8 = 0x91;
 pub const TEXT_TEAM_LOOT_SET: u8 = 0x7f;
 pub const TEXT_BANK_INFO: u8 = 0x5c;
+
+/// `OrgClientIIR_c` (`7f4b3108`, `n3InfoItemRemote_t::MapToKey("OrgClientIIR_c")`: the name's bytes laid over one
+/// another four by four): one of the organization's commands (Gamecode FUN_101266b4 makes it, FUN_1012653f packs
+/// it: the command's number as a byte, an identity, the chat window's number, then a text for the commands in
+/// [`ORG_WITH_TEXT`] and a byte for number 10). Built from the disassembly: no capture has one.
+pub fn org_command(character: u32, command: u8, target: (u32, u32), window: u32, text: &str, flag: bool) -> Frame {
+    let mut data = vec![0u8, command];
+    for word in [target.0, target.1, window] {
+        data.extend_from_slice(&word.to_be_bytes());
+    }
+    if ORG_WITH_TEXT.contains(&command) {
+        data.extend_from_slice(&(text.len() as u16).to_be_bytes());
+        data.extend_from_slice(text.as_bytes());
+    } else if command == 10 {
+        data.push(flag as u8);
+    }
+    Message { kind: 0x7f4b3108, identity: (CHARACTER, character), data }.frame(character)
+}
+
+/// The organization commands whose message carries a text (FUN_1012653f's and FUN_101265fe's cases).
+pub const ORG_WITH_TEXT: [u8; 13] = [1, 7, 9, 0xd, 0x11, 0x13, 0x14, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c];
 
 /// `CharacterAction` (`5e477770`) action `0x9a`: resets a skill, giving its IP back (`N3Msg_ResetSkill`, Gamecode
 /// 0x1001ce37: no target, the first parameter nothing and the second the skill's stat; stat 0 is the full reset of
@@ -2103,5 +2126,9 @@ mod text_command_tests {
         assert_eq!(body, &[0, 0, 0, 0, 0x85, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0][..]);
         assert_eq!(&set[set.len() - 27..][4..9], &[0x7f, 0, 0, 0, 0]);
         assert_eq!(&set[set.len() - 6..], &[0, 0, 0, 5, 0, 0]);
+        // (an organization command: number, identity, window; a text only for those that have one; a byte for 10)
+        assert_eq!(org_command(1, 5, (0xc350, 7), 2, "ignored", false).body.ends_with(&[0, 5, 0, 0, 0xc3, 0x50, 0, 0, 0, 7, 0, 0, 0, 2]), true);
+        assert_eq!(org_command(1, 0xd, (0, 0), 0, "Abc", false).body.ends_with(&[0, 0xd, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, b'A', b'b', b'c']), true);
+        assert_eq!(org_command(1, 10, (0xc350, 7), 0, "", true).body.ends_with(&[0, 0, 0, 7, 0, 0, 0, 0, 1]), true);
     }
 }

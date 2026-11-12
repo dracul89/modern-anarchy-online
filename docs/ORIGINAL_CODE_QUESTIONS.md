@@ -160,3 +160,13 @@ looks on from the character after the `%`'s place, so when the word was missing 
 behind is now at that place and is passed by: `%3%1` with two words stays `%1`.
 
 The port does both as the original does. Decide: keep them, or read one digit and look again from the same place.
+
+## 16. `/org history` (or `description`, `objective`, `name`) with nothing after it empties that text
+
+Gamecode's `org` commands (FUN_1003fe10) send the commands that set a text of the organization with whatever follows the
+word, and with an empty text when nothing follows. Typed to read the text, `/org history` sets an empty history, and the
+server answers "Organization info updated." (seen on 2026-11-12).
+
+The port does not send `history`, `description`, `objective`, `name`, `governingform`, `create` or `tax` without a text;
+it says that the command sets the text. Decide: keep that, or send the empty text as the original does (the way to
+clear a text on purpose is then missing here).
