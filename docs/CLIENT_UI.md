@@ -795,6 +795,13 @@ down. Here the angle is kept as a 4:3 window has it and a wider window sees the 
 past the hall's walls to the space outside it (kept so: the user chose the full width over black bars at the sides). Seen: the launcher beside the user's picture of the original's, the
 three settings pages, PLAY into the login, the hall at 16:9 and at 32:9.
 
+**A character written by its number (2026-11-11, the user: a bot's page showed `Mocham&#39;s Gift`).** The bot's
+page now arrives (the paragraph below) and showed its apostrophes as `&#39;`. The game's markup reader takes its
+characters through Utils.dll's `String::GetUCChar` (FUN_1000db51), which besides the five named entities reads a
+character by its decimal number: `&#`, a digit, digits up to a `;` before the thirteenth byte, the number `atol`'s,
+0 no character; no hexadecimal form. Ported as `mao_net::chat::numbered_character`, used by the markup
+(`gui/text.rs`) and by the lines' plain text (`chat::plain`). By its tests; not yet seen on a bot's page.
+
 **The wear window's squares fill the window (2026-11-11, the user: "the wear window squares should scale to fill the
 whole window").** The original's wear cells keep their size (47 by 47, 11 and 9 apart) and its window is exactly as
 wide as three of them. This client's window is as wide as its four tabs in its own fonts, or as its rollup page, and

@@ -246,6 +246,23 @@ pub fn channel_packet_with_blob(kind: u8, id: u32, text: &str, blob: &[u8]) -> V
     framed(65, payload)
 }
 
+/// A character written by its number, `&#39;`, at the start of `text`: the character and how many bytes it took.
+/// Utils.dll's `String::GetUCChar` (FUN_1000db51, which the game's markup reader goes through): `&#`, a digit, then
+/// digits up to a `;` that comes before the thirteenth byte; the number is `atol`'s, decimal only, and one of 0 is no
+/// character. The bots' pages write an apostrophe so, their links being quoted with it.
+pub fn numbered_character(text: &str) -> Option<(char, usize)> {
+    let b = text.as_bytes();
+    if b.len() < 4 || b[0] != b'&' || b[1] != b'#' || !b[2].is_ascii_digit() {
+        return None;
+    }
+    let end = (3..0xd.min(b.len())).find(|&k| !b[k].is_ascii_digit())?;
+    if b[end] != b';' {
+        return None;
+    }
+    let number: u32 = text[2..end].parse().ok()?;
+    char::from_u32(number).filter(|c| *c != '\0').map(|c| (c, end + 1))
+}
+
 /// A chat line as plain text: the markup (`<font ...>`, `<a href=...>`) removed, the common entities decoded, a line
 /// break or a tab made a space. A tag ends at the first `>` outside quotes, as the game's own reader has it
 /// (`HTMLParser_c::_ParseTag`): a link's target may be a whole page of markup (`<a href="text://...">`, what a bot
@@ -275,7 +292,24 @@ pub fn plain(text: &str) -> String {
         }
     }
     out.push_str(rest);
-    let out: String = out.chars().map(|c| if matches!(c, '\n' | '\r' | '\t') { ' ' } else { c }).collect();
+    // (the characters written by number, `numbered_character`)
+    let mut numbered = String::with_capacity(out.len());
+    let mut rest = out.as_str();
+    while let Some(at) = rest.find("&#") {
+        numbered.push_str(&rest[..at]);
+        match numbered_character(&rest[at..]) {
+            Some((c, len)) => {
+                numbered.push(c);
+                rest = &rest[at + len..];
+            }
+            None => {
+                numbered.push_str("&#");
+                rest = &rest[at + 2..];
+            }
+        }
+    }
+    numbered.push_str(rest);
+    let out: String = numbered.chars().map(|c| if matches!(c, '\n' | '\r' | '\t') { ' ' } else { c }).collect();
     out.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&amp;", "&")
 }
 
@@ -428,6 +462,9 @@ mod tests {
         let page = "<a href=\"text://<font color=#ffff00>Buffs</font>\n<a href='chatcmd:///tell Bot cast 1'>One</a>\r\nmore\">Buff list</a> for\nyou";
         assert_eq!(plain(page), "Buff list for you");
         assert_eq!(plain("2 < 3 and so on"), "2 < 3 and so on");
+        // (a character by its number: decimal, a digit first, the `;` before the thirteenth byte, not 0)
+        assert_eq!(plain("Mocham&#39;s Gift &#8217; &amp;#39; &#x27; &#; &#0; &#39 &#12345678901;"), "Mocham's Gift \u{2019} &#39; &#x27; &#; &#0; &#39 &#12345678901;");
+        assert_eq!((numbered_character("&#39;s"), numbered_character("&#0000000039;"), numbered_character("&#00000000039;")), (Some(('\'', 5)), Some(('\'', 13)), None));
     }
 
     #[test]

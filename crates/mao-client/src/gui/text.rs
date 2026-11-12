@@ -11,7 +11,8 @@
 //! title=` (a link: the link colour and underlined unless so styled), `/a`, `u` `/u`, `img src=rdb://<n>|tdb://<name>`,
 //! `title`...`/title` (hidden), `section` `/section` `tvoptions wordwrap=yes|no` and any other tag (dropped). A tag that
 //! does not parse (`<>`, `<a>` without `href`, `<font>` with neither attribute, `<img>` without a picture) stays as text.
-//! There are no character entities. Each closing tag returns to what was in force before its nearest unclosed opener
+//! The character entities are Utils.dll's (`String::GetUCChar`): the five named ones and a character by its decimal
+//! number (`&#39;`). Each closing tag returns to what was in force before its nearest unclosed opener
 //! (`_UpdateInheritedData` 0x1015bf54).
 
 use super::font::{FontId, Measure};
@@ -324,6 +325,14 @@ pub fn parse(text: &str, named: &dyn Fn(&str) -> Option<u32>) -> Vec<Item> {
             i += 1 + name.len();
             continue;
         }
+        // (and a character by its number, `&#39;`: `String::GetUCChar` FUN_1000db51)
+        if bytes[i] == b'&'
+            && let Some((c, len)) = mao_net::chat::numbered_character(&text[i..])
+        {
+            text_buf.push(c);
+            i += len;
+            continue;
+        }
         let c = text[i..].chars().next().unwrap_or('?');
         text_buf.push(c);
         i += c.len_utf8();
@@ -557,9 +566,9 @@ mod tests {
 
     #[test]
     fn character_entities_are_read() {
-        let items = parse("a&nbsp;b &lt;c&gt; &amp; &quot;d&quot; &other;", &|_| None);
+        let items = parse("a&nbsp;b &lt;c&gt; &amp; &quot;d&quot; &other; Mocham&#39;s &#x27; &#39", &|_| None);
         let text: String = items.iter().filter_map(|i| if let Item::Text(t, _) = i { Some(t.as_str()) } else { None }).collect();
-        assert_eq!(text, "a b <c> & \"d\" &other;");
+        assert_eq!(text, "a b <c> & \"d\" &other; Mocham's &#x27; &#39");
     }
 
     #[test]
