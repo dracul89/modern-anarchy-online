@@ -496,6 +496,9 @@ struct World {
     animated_statels: Arc<Vec<crate::AnimatedPart>>,
     /// The doors that open as the character comes up to them (by number).
     approach_doors: std::collections::HashSet<u8>,
+    /// The playfield's own door props (`static_props`' keys) and their numbers: a door the server announces takes the
+    /// number's slot with its own id, and the table's prop still swings and goes with that door.
+    door_props: BTreeMap<u32, u8>,
     /// Each door's last change: opening (true) or closing, and when (its animation runs from then).
     door_motion: BTreeMap<u8, (bool, Instant)>,
 }
@@ -1251,11 +1254,13 @@ impl World {
         self.door_slots.clear();
         self.doors_open.clear();
         self.door_motion.clear();
+        self.door_props.clear();
         self.prop_textures.retain(|k, _| *k < 0xfe00_0000);
         self.prop_anim.retain(|k, _| *k < 0xfe00_0000);
         for (key, prop, door) in props {
             if let Some(n) = door {
                 self.door_slots.insert(n, (key, prop.1));
+                self.door_props.insert(key, n);
             }
             self.props.insert(key, prop);
         }
@@ -2550,6 +2555,16 @@ impl World {
                 if stat(259).is_some_and(|flags| flags & 0x80 != 0) {
                     self.doors_open.insert(n, Instant::now() + SERVER_OPEN);
                 }
+                // (and whether it opens at a touch: not when its flags say it is locked, `approach_doors`)
+                match stat(259) {
+                    Some(flags) if crate::door_locked(flags) => {
+                        self.approach_doors.remove(&n);
+                    }
+                    Some(_) => {
+                        self.approach_doors.insert(n);
+                    }
+                    None => {}
+                }
             }
             let template = stat(23).filter(|&t| t > 0);
             if let Some(template) = template {
@@ -2558,6 +2573,14 @@ impl World {
                     let rotation = [f(25), f(29), f(33), f(37)];
                     let rotation = if rotation == [0.0; 4] { [0.0, 0.0, 0.0, 1.0] } else { rotation };
                     self.props.insert(m.identity.1, (mesh as u32, at, rotation));
+                    // (the announced door has its own model: the table's prop for the same door is not drawn as well)
+                    if let Some(n) = self.door_number(m.identity.1) {
+                        let table: Vec<u32> = self.door_props.iter().filter(|(_, d)| **d == n).map(|(k, _)| *k).collect();
+                        for key in table {
+                            self.props.remove(&key);
+                            self.door_props.remove(&key);
+                        }
+                    }
                 }
             }
         }
@@ -4373,8 +4396,13 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
     if let Some(chars) = characters.as_mut() {
         let mut copies: std::collections::HashMap<(u32, Option<u32>), Option<std::ops::Range<usize>>> = std::collections::HashMap::new();
         // (the doors that were used and have not closed again: a door with an animation swings, one without is not drawn)
-        let open: std::collections::HashSet<u32> = world.doors_open.iter().filter(|(_, until)| **until > Instant::now()).filter_map(|(n, _)| world.door_slots.get(n).map(|s| s.0)).collect();
-        let door_of: BTreeMap<u32, u8> = world.door_slots.iter().map(|(&n, s)| (s.0, n)).collect();
+        let mut door_of: BTreeMap<u32, u8> = world.door_slots.iter().map(|(&n, s)| (s.0, n)).collect();
+        // (the table's own door props, whose slot an announced door may have taken: `door_props`)
+        for (&key, &n) in &world.door_props {
+            door_of.entry(key).or_insert(n);
+        }
+        let now = Instant::now();
+        let open: std::collections::HashSet<u32> = door_of.iter().filter(|(_, n)| world.doors_open.get(n).is_some_and(|until| *until > now)).map(|(id, _)| *id).collect();
         for (&id, &(mesh, position, q)) in props {
             if !include(id) {
                 continue;

@@ -795,6 +795,30 @@ down. Here the angle is kept as a 4:3 window has it and a wider window sees the 
 past the hall's walls to the space outside it (kept so: the user chose the full width over black bars at the sides). Seen: the launcher beside the user's picture of the original's, the
 three settings pages, PLAY into the login, the hall at 16:9 and at 32:9.
 
+**A shop's doorways: no door to be seen, no way through (2026-11-11, the user: "adjoining rooms are inaccessible
+and not visible"; then "compare the mappings of the original for these shops").** Compared with the original's
+data and code for the neutral shop (playfield 1186), as its captures hold no picture from inside one:
+- Its dynel table has seven doors (type 0xc748, template 0x49604 "Door", no mesh of their own). Six stand in the
+  doorways between its rooms and the seventh at the way out (`interior::Interior::doorway_at` over the table's
+  places: a test with the game's data).
+- A room is drawn, and may be entered, only through an open door (`n3RoomMonitor_t`,
+  `IsDynelRoomTransitionAllowed`: unchanged here). So everything hangs on the doors opening.
+- A door opens when a character touches it unless it is locked (`Door_t`'s FUN_1007fccc: shut, flags' bit 0x40 clear,
+  vtable +0xfc at 0x10085635 → FUN_10080477 → FUN_10080319: a sound, the flag, the mesh's animation; nothing to the
+  server). Here only the Whom-Pahs' doors opened so, the others on a use, and a shop's doors could be neither seen nor
+  used. `approach_doors` is now every door of the table that is not locked (stat 259, its own or its template's), and
+  a door the server announces by its flags.
+- The door itself: the table's doors without a mesh were not drawn (outdoors such a door is a shuttle's or a
+  Whom-Pah's, whose template mesh put a white door there). Among rooms the template's mesh is the door: the shop's
+  `door_icc_standard1` fills the doorway's frame exactly (picture `shop-door.png`), and its animation takes the leaf
+  away in a third of a second. `static_props` gives a rooms playfield's doors their template's mesh; the table's door
+  prop follows its door's number when the server's announcement takes the slot (`World::door_props`), and gives way
+  to an announced door that brings its own model.
+Not done: the door's sound (stat 131, else 100), its own closing time (stat 335; five seconds here), the locked
+door's question whether this character may pass (FUN_1007fad8: a key, an owned building, the team's mission) with its
+feedback line. The doors' heading is as the table stores it (which side the keypad is on was not compared). Not
+walked live: no test character stands near a shop.
+
 **A shop's walls with holes (2026-11-11, the user after the walls came back: "shop walls are not complete").**
 In the neutral shop (playfield 1186) the wall behind each row of terminals was a hole into the next room. Not the
 faces turned away this time: the holes were there with every face drawn. Those walls' textures (the dark panels

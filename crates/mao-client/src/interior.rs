@@ -139,6 +139,29 @@ mod tests {
         Interior { rooms: RoomPlayfield { number: 1, name: String::new(), tilemap: 1, rooms }, grid, parts: vec![0..2, 2..4, 4..6] }
     }
 
+    /// `MAO_GAME`: the neutral shop (playfield 1186). Its doorways have doors without a mesh: six of the seven stand in
+    /// a doorway between two rooms (the seventh is the way out), none is locked (so each opens at a touch, `approach_doors`), and a doorway is crossed
+    /// with its door open and not with it shut.
+    #[test]
+    fn a_shops_doors_stand_in_its_doorways_and_open_at_a_touch() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let db = mao_formats::resource::ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap();
+        let (_, interior) = crate::load_room_shell_parts(&db, 1186).unwrap();
+        let table = db.get(mao_formats::resource::Id { kind: mao_formats::dynels::KIND, instance: 1186 }).unwrap().unwrap();
+        let slots: BTreeMap<u8, (u32, [f32; 3])> = mao_formats::dynels::parse(&table).into_iter().filter(|d| d.kind == 0xc748).map(|d| ((d.instance >> 16) as u8, (d.instance, d.position))).collect();
+        assert_eq!(slots.len(), 7);
+        let mut state = RoomState::default();
+        state.register(&interior, &slots);
+        // (six between rooms; the seventh, door 4, is the way out of the playfield and ties no two rooms)
+        assert_eq!(state.links.values().map(Vec::len).sum::<usize>(), 6, "{:?}", state.links);
+        assert!(interior.doorway_at(slots[&4].1).is_none());
+        for &(a, b) in state.links.keys() {
+            assert!(state.allowed(&interior, a, b, &|_| true) && state.allowed(&interior, b, a, &|_| true));
+            assert!(!state.allowed(&interior, a, b, &|_| false));
+        }
+        assert_eq!(crate::approach_doors(&db, 1186).len(), 7);
+    }
+
     #[test]
     fn doors_are_tied_to_their_doorways_and_gate_the_crossing() {
         let interior = interior();

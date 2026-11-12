@@ -434,15 +434,20 @@ pub(crate) fn generated_rooms(db: &ResourceDatabase, playfield: u32) -> Option<(
 pub(crate) fn static_props(db: &ResourceDatabase, playfield: u32) -> Vec<(u32, (u32, [f32; 3], [f32; 4]), Option<u8>)> {
     let Some(object) = db.get(Id { kind: mao_formats::dynels::KIND, instance: playfield }).ok().flatten() else { return Vec::new() };
     let mut meshes: std::collections::HashMap<u32, Option<u32>> = std::collections::HashMap::new();
+    // (a playfield of rooms: its doors without a mesh of their own take their template's, below)
+    let rooms = load_rooms(db, playfield).is_some();
     mao_formats::dynels::parse(&object)
         .into_iter()
         .enumerate()
         .filter_map(|(i, d)| {
-            // The record's own mesh first: the doors of a city each have their own. A door without one is a shuttle, a Whom-Pah or a
-            // dungeon entrance whose visual is a statel: it gets nothing (the template's `door_omni_med_blue2` put a white door there).
+            // The record's own mesh first: the doors of a city each have their own. Outdoors a door without one is a shuttle, a
+            // Whom-Pah or a dungeon entrance whose visual is a statel: it gets nothing (the template's `door_omni_med_blue2` put a
+            // white door there). Among rooms it is a doorway's door, and its template's mesh is the door: a shop's seven have the
+            // template "Door" (0x49604), whose `door_icc_standard1` fills the doorway's frame to the pixel. Without it the
+            // doorway stood open on the dark, the room behind a shut door not being drawn.
             let mesh = match d.stat(mao_formats::item::stat::MESH).filter(|&m| m > 0) {
                 Some(m) => m,
-                None if d.kind == 0xc748 => return None,
+                None if d.kind == 0xc748 && !rooms => return None,
                 None => (*meshes.entry(d.template).or_insert_with(|| {
                     let data = db.get(Id { kind: mao_formats::item::TEMPLATE, instance: d.template }).ok().flatten()?;
                     mao_formats::item::Item::parse(&data)?.stat(mao_formats::item::stat::MESH).filter(|&m| m > 0)
@@ -506,22 +511,30 @@ pub(crate) fn static_prop_anims(db: &ResourceDatabase, playfield: u32) -> Vec<(u
         .collect()
 }
 
-/// The doors of the playfield that open as a character comes up to them: the Whom-Pahs' (template "Dummy Whom-Pah"). In
-/// the original every door's touch (`Door_t`'s FUN_1007fccc) opens it unless FUN_1007fad8 keeps the character out (a lock,
-/// an owned building); only the Whom-Pahs' are opened here, the other doors on a use as before.
+/// The doors of the playfield that open as a character comes up to them: every door that is not locked. A door's touch
+/// (`Door_t`'s FUN_1007fccc) opens it when it is shut and not locked (its flags' bit 0x40, vtable +0xfc; the flags are
+/// stat 259, the door's own or its template's), by FUN_10080477 → FUN_10080319: the sound, the flag and the mesh's
+/// animation, nothing told to the server. (A locked door's touch asks FUN_1007fad8 whether this character may pass: a
+/// key, an owned building, the team's mission; those stay shut here until the server says they are open.) Only the
+/// Whom-Pahs' doors were opened so before: a shop's doorways have doors with no mesh to be seen or used, so its rooms
+/// could not be entered and were never shown.
 pub(crate) fn approach_doors(db: &ResourceDatabase, playfield: u32) -> std::collections::HashSet<u8> {
     let Some(object) = db.get(Id { kind: mao_formats::dynels::KIND, instance: playfield }).ok().flatten() else { return Default::default() };
-    let mut names: std::collections::HashMap<u32, bool> = std::collections::HashMap::new();
+    let mut flags: std::collections::HashMap<u32, u32> = std::collections::HashMap::new();
     mao_formats::dynels::parse(&object)
         .into_iter()
         .filter(|d| d.kind == 0xc748)
         .filter(|d| {
-            *names.entry(d.template).or_insert_with(|| {
-                db.get(Id { kind: mao_formats::item::TEMPLATE, instance: d.template }).ok().flatten().and_then(|x| mao_formats::item::Item::parse(&x)).is_some_and(|i| i.name.contains("Whom-Pah"))
-            })
+            let template = *flags.entry(d.template).or_insert_with(|| db.get(Id { kind: mao_formats::item::TEMPLATE, instance: d.template }).ok().flatten().and_then(|x| mao_formats::item::Item::parse(&x)).and_then(|i| i.stat(259)).unwrap_or(0) as u32);
+            !door_locked(d.stat(259).unwrap_or(template))
         })
         .map(|d| (d.instance >> 16) as u8)
         .collect()
+}
+
+/// Whether a door's flags (stat 259) say it is locked: bit 0x40 (`Door_t`'s vtable +0xfc, 0x10085635).
+pub(crate) fn door_locked(flags: u32) -> bool {
+    flags & 0x40 != 0
 }
 
 /// The playfield's built-in terminals, booths and signs (its dynel table, the doors left out: the server announces

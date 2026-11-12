@@ -281,6 +281,14 @@ To try by hand:
 - A buff bot's `help`: its second tell, the list, shows as a link; the link opens the page; the page's own links send
   their tells.
 
+## Doors among rooms (2026-11-11)
+
+- A shop: each doorway has a dark sliding door; it opens as the character comes up to it (about 4 m), the room behind
+  shows and can be walked into; it shuts again some seconds after.
+- Which side the door's keypad is on, against the original.
+- A mission's doors: an unlocked one opens at a touch now; a locked one stays shut until it is opened as before.
+- A city's building doors and the Whom-Pahs': open on approach as before.
+
 ## Helmets, interiors, running with a rifle (2026-11-11)
 
 - A character with a helmet on: no hair through it, no second head; with glasses: the head and the glasses.
