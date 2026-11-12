@@ -784,6 +784,15 @@ fn fxs_report(line: &str, ran: &crate::fxs::Ran) -> Vec<String> {
 /// The claims asked of the server (`n3::claims`; true: the check for what is waiting), sent by the game loop.
 static CLAIM_REQUESTS: std::sync::Mutex<Vec<bool>> = std::sync::Mutex::new(Vec::new());
 
+/// `/assist` asked for: the name given, if any.
+static ASSISTS: std::sync::Mutex<Vec<Option<String>>> = std::sync::Mutex::new(Vec::new());
+
+/// `/assist [name]` (GUI.dll FUN_100b81b4): the network thread fights whomever the target, or the character named,
+/// is fighting.
+pub fn assist(name: Option<String>) {
+    ASSISTS.lock().unwrap_or_else(|e| e.into_inner()).push(name);
+}
+
 pub fn request_claims(check: bool) {
     CLAIM_REQUESTS.lock().unwrap_or_else(|e| e.into_inner()).push(check);
 }
@@ -5016,6 +5025,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     let mut waiting: Vec<(String, String)> = Vec::new();
                     // names of characters to put on the friends list once their id is known
                     let mut befriending: Vec<String> = Vec::new();
+                    // (the private chat group's requests waiting for a name's id: the name, and the request)
+                    let mut private_asked: Vec<(String, u8)> = Vec::new();
                     // names of characters a tell window is to open for once the chat server has said it knows them
                     let mut tell_asked: Vec<String> = Vec::new();
                     // the senders whose voice lines were heard lately
@@ -5037,7 +5048,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             // made the chat server close the connection.)
                             Some(Packet::Name { id: u32::MAX, name }) => {
                                 let key = name.to_lowercase();
-                                let asked = waiting.iter().any(|w| w.0 == key) || tell_asked.contains(&key) || befriending.contains(&key);
+                                let asked = waiting.iter().any(|w| w.0 == key) || tell_asked.contains(&key) || befriending.contains(&key) || private_asked.iter().any(|w| w.0 == key);
+                                private_asked.retain(|w| w.0 != key);
                                 waiting.retain(|w| w.0 != key);
                                 tell_asked.retain(|w| *w != key);
                                 befriending.retain(|w| *w != key);
@@ -5068,6 +5080,19 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                 }
                                 for text in sent {
                                     chat.send(&mao_net::chat::tell_packet(id, &text))?;
+                                }
+                                // (the private chat group's requests that waited for this name)
+                                let mut requests = Vec::new();
+                                private_asked.retain(|(who, what)| {
+                                    if *who == name.to_lowercase() {
+                                        requests.push(*what);
+                                        false
+                                    } else {
+                                        true
+                                    }
+                                });
+                                for what in requests {
+                                    chat.send(&mao_net::chat::private_request_packet(what, id))?;
                                 }
                                 if befriending.contains(&name.to_lowercase()) {
                                     befriending.retain(|w| *w != name.to_lowercase());
@@ -5226,7 +5251,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                         chat.send(&mao_net::chat::lookup_packet(&name))?;
                                     }
                                 },
-                                Out::Camp | Out::Sit | Out::Perf | Out::Pet(_) | Out::Duel(_) | Out::PetDuel(_) | Out::Server(_) | Out::FxScript(_) | Out::Quit | Out::Follow | Out::Inspect | Out::Window { .. } | Out::Waypoint { .. } | Out::SelectSelf | Out::SetOption { .. } | Out::ViewDist(_) | Out::CharDist(_) => {}
+                                Out::Camp | Out::Sit | Out::Perf | Out::Pet(_) | Out::Duel(_) | Out::PetDuel(_) | Out::Server(_) | Out::FxScript(_) | Out::Quit | Out::Follow | Out::Inspect | Out::Window { .. } | Out::ToggleWindow { .. } | Out::Assist { .. } | Out::Waypoint { .. } | Out::SelectSelf | Out::SetOption { .. } | Out::ViewDist(_) | Out::CharDist(_) => {}
                                 Out::Befriend { name } => match ids.get(&name.to_lowercase()) {
                                     Some(&id) => {
                                         chat.send(&mao_net::chat::buddy_add_packet(id, false))?;
@@ -5240,6 +5265,15 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                     }
                                 },
                                 Out::PrivateInvite { id } => chat.send(&mao_net::chat::private_invite_packet(id))?,
+                                // (`/invite`, `/kick`, `/leave` by a name: done at once for a name already known, else
+                                // when the server has said whose it is)
+                                Out::PrivateByName { what, name } => match ids.get(&name.to_lowercase()).copied() {
+                                    Some(id) => chat.send(&mao_net::chat::private_request_packet(what, id))?,
+                                    None => {
+                                        private_asked.push((name.to_lowercase(), what));
+                                        chat.send(&mao_net::chat::lookup_packet(&name))?;
+                                    }
+                                },
                                 // (a line typed in a window whose output group is a channel)
                                 Out::PrivateJoin { owner } => chat.send(&mao_net::chat::private_join_packet(owner))?,
                                 Out::PrivateDecline { owner } => chat.send(&mao_net::chat::private_leave_packet(owner))?,
@@ -6090,6 +6124,28 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             }
             // (the claims: asked for when the daily rewards' window goes, and by the menu's "Pending Rewards". The original
             // holds either back while its lock 0x8c runs, FUN_1006414f, and says so; here the server is asked each time.)
+            // `/assist` (`N3Msg_AssistFight`, Gamecode 0x100274xx): the one meant has to be in a fight
+            // (`Feedback_TargetIsNotInFight` else); its opponent is selected and attacked. A name is one of the
+            // characters here (`N3Msg_NameToID`), else "Can't find target >name<."
+            for name in std::mem::take(&mut *ASSISTS.lock().unwrap_or_else(|e| e.into_inner())) {
+                let who = match &name {
+                    Some(n) => state.names.iter().find(|(_, v)| v.0.eq_ignore_ascii_case(n)).map(|(id, _)| *id),
+                    None => target,
+                };
+                match (who, &name) {
+                    (None, Some(n)) => pending_messages.push(format!("Can't find target >{n}<.")),
+                    (None, None) => {}
+                    (Some(who), _) => match state.fighting.get(&who).copied().filter(|&t| t != 0 && t != own) {
+                        None => pending_messages.push(crate::feedback::plain("Feedback_TargetIsNotInFight")),
+                        Some(opponent) => {
+                            target = Some(opponent);
+                            let _ = connection.send(&n3::select_target(own, opponent));
+                            let _ = connection.send(&n3::set_target(own, opponent));
+                            let _ = connection.send(&n3::attack(own, opponent));
+                        }
+                    },
+                }
+            }
             for check in std::mem::take(&mut *CLAIM_REQUESTS.lock().unwrap_or_else(|e| e.into_inner())) {
                 eprintln!("[{:6.1}] claims asked for ({})", clock.elapsed().as_secs_f32(), if check { "the check for what is waiting" } else { "what was claimed" });
                 let _ = connection.send(&n3::claims(own, check));

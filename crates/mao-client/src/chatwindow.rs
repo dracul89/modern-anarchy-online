@@ -144,6 +144,13 @@ pub enum Out {
     Quit,
     /// Show or hide a window by name (empty and hidden: all of them).
     Window { name: String, open: bool },
+    /// `/toggle`: show a window that is hidden, hide one that is shown.
+    ToggleWindow { name: String },
+    /// `/invite` (3), `/kick` (4), `/leave` (5): a request about a private chat group by a character's name, which
+    /// the chat connection looks up first.
+    PrivateByName { what: u8, name: String },
+    /// `/assist`: fight the opponent of the target, or of the character named.
+    Assist { name: Option<String> },
     Waypoint { x: f32, z: f32 },
     SelectSelf,
     /// Set a client setting (empty name: say the list).
@@ -244,11 +251,13 @@ pub struct ChatWindow {
     recalled: Option<usize>,
     /// The links clicked in the lines' markup (`itemref://`, `text://`, `chatcmd://`), for the info view.
     pub links: Vec<String>,
+    /// The tip `/tipoftheday` showed last (the original's `CurrentTipOfTheDay`), 0 before the first.
+    tip_of_the_day: i32,
 }
 
 impl Default for ChatWindow {
     fn default() -> Self {
-        ChatWindow { open: true, log: false, lines: Vec::new(), panes: chatgroups::defaults(), loaded_for: None, tab: 0, shown: Default::default(), menu_pane: 0, inputs: Default::default(), focus_frame: None, born: Vec::new(), fade_times: (8.0, 0.3), menu: None, popup: None, config: Default::default(), invite_action: 1, warn_unshown: true, invites: Vec::new(), outs: Vec::new(), demo: None, names: Default::default(), tells: Vec::new(), telling: None, menu_name: Default::default(), raise: None, focus_tries: 0, demo_name: None, input: String::new(), selected: 0, focus_next: false, last_tell: None, scroll_to_end: true, keep_list: false, ignored: load_ignored(), history: Vec::new(), recalled: None, links: Vec::new() }
+        ChatWindow { open: true, log: false, lines: Vec::new(), panes: chatgroups::defaults(), loaded_for: None, tab: 0, shown: Default::default(), menu_pane: 0, inputs: Default::default(), focus_frame: None, born: Vec::new(), fade_times: (8.0, 0.3), menu: None, popup: None, config: Default::default(), invite_action: 1, warn_unshown: true, invites: Vec::new(), outs: Vec::new(), demo: None, names: Default::default(), tells: Vec::new(), telling: None, menu_name: Default::default(), raise: None, focus_tries: 0, demo_name: None, input: String::new(), selected: 0, focus_next: false, last_tell: None, scroll_to_end: true, keep_list: false, ignored: load_ignored(), history: Vec::new(), recalled: None, links: Vec::new(), tip_of_the_day: 0 }
     }
 }
 
@@ -894,6 +903,30 @@ impl ChatWindow {
             Parsed::Quit => Some(Out::Quit),
             Parsed::Follow => Some(Out::Follow),
             Parsed::Window { name, open } => Some(Out::Window { name, open }),
+            Parsed::Toggle { name } => Some(Out::ToggleWindow { name }),
+            // (`/text`: FUN_1009bad0 with the text as it is)
+            Parsed::Text { text } => {
+                self.push(Line::new(Kind::System, text));
+                None
+            }
+            // (`/showfile`: the info view's `file://` page, as a clicked link is one)
+            Parsed::ShowFile { file } => {
+                self.links.push(format!("file://{file}"));
+                None
+            }
+            // (`/tipoftheday`: the section after the one shown last, or before it; `CurrentTipOfTheDay`)
+            Parsed::TipOfTheDay { previous } => {
+                self.tip_of_the_day = if previous { (self.tip_of_the_day - 1).max(0) } else { self.tip_of_the_day + 1 };
+                self.links.push(format!("file://TipOfTheDay.html?section={}", self.tip_of_the_day));
+                None
+            }
+            // (`/messagebox`: a `DialogBox_c` with the text and OK, put in the screen's middle)
+            Parsed::MessageBox { text } => {
+                crate::chrome::alert(self.expand(&text));
+                None
+            }
+            Parsed::PrivateByName { what, name } => Some(Out::PrivateByName { what, name: self.expand(&name) }),
+            Parsed::Assist { name } => Some(Out::Assist { name: name.map(|n| self.expand(&n)) }),
             Parsed::Waypoint { x, z } => {
                 self.push(Line::new(Kind::System, format!("Walking to {x:.0}, {z:.0} (any movement key stops).")));
                 Some(Out::Waypoint { x, z })

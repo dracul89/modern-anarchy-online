@@ -195,6 +195,21 @@ pub fn private_invite_packet(id: u32) -> Vec<u8> {
     framed(50, id.to_be_bytes().to_vec())
 }
 
+/// Puts a character out of the player's private chat group (51, the character's id).
+pub fn private_kick_packet(id: u32) -> Vec<u8> {
+    framed(51, id.to_be_bytes().to_vec())
+}
+
+/// A private chat group's request as the chat commands number them (GUI.dll FUN_100bacca and its two neighbours): 3
+/// an invitation into the player's group, 4 someone put out of it, 5 the group of the character named left.
+pub fn private_request_packet(what: u8, id: u32) -> Vec<u8> {
+    match what {
+        3 => private_invite_packet(id),
+        4 => private_kick_packet(id),
+        _ => private_leave_packet(id),
+    }
+}
+
 /// Takes a character off the friends list.
 pub fn buddy_remove_packet(id: u32) -> Vec<u8> {
     framed(41, id.to_be_bytes().to_vec())

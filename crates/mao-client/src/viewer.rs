@@ -2623,6 +2623,13 @@ impl ApplicationHandler for App {
                                 self.settings.save();
                             }
                             crate::chatwindow::Out::Quit => event_loop.exit(),
+                            crate::chatwindow::Out::ToggleWindow { name } => {
+                                let open = !ui.window_open(name.trim().to_lowercase().as_str());
+                                if !ui.set_window(&name, open) {
+                                    self.hud.say(format!("No window called {name:?}."));
+                                }
+                            }
+                            crate::chatwindow::Out::Assist { name } => crate::net::assist(name),
                             crate::chatwindow::Out::Window { name, open } => match ui.set_window(&name, open) {
                                 true => {}
                                 false => self.hud.say(format!("No window called {name:?} (inventory, stats, skills, ncu, friends, programs, perks, help, map, actions, missions, mail, chat)")),

@@ -121,11 +121,21 @@ target's name, the fought one's and the player's own, `ExpandChatTextArgs`) `/re
 `/version`, `/ignore` (and the client's `/befriend`), `/duel` (with `accept`, `reject`, `stop`, `draw`; the
 "Duel Challenge" boxes of `GuiSystem_c::DuelChallengeReceived` / `DuelChallengeSent`; tried live with two clients),
 `/petduel` (with `accept`, `reject`, `stop`; texts only, as the original; live as far as the server's refusals).
+Since 2026-11-12 (the handlers by the registration at 0x100bb434 on, each command's the one pushed after its name):
+`/text` (FUN_100b5f02), `/showfile` (FUN_100b7455: the info view's `file://`), `/tipoftheday [prev]` (FUN_100b74fc),
+`/toggle` (FUN_100b7da5), `/messagebox` (FUN_100b805e: this client's error box, so titled "Error:"), `/petition`
+(FUN_100b5e9c), `/invite` `/kick` `/leave` with a name (FUN_100bacca, FUN_100badd5, FUN_100baee0: the private chat
+group's requests 3, 4 and 5, the name looked up first; not tried live, it needs a second player's consent),
+`/assist [name]` (FUN_100b81b4, `N3Msg_AssistFight`: the target's opponent selected and attacked; not tried in a
+fight), `/perks` and `/perk` (sent to the server as `/stuck` is). `/messagebox` was tried live; the others ran
+without a fault but their lines were not read back.
 
-Listed but not carried out: `/anon` `/assist` `/bank` `/born` `/filter` `/group` `/invite` `/kick` `/leave`
-`/list` `/macro` `/name` `/option` `/perk` `/perks` `/petition` `/played` `/raid` `/reclaim` `/script`
-`/shop` `/showfile` `/stuck` `/team` `/terminate` `/text` `/tipoftheday` `/title` `/toggle` `/tower` `/dvalue`
-`/messagebox`. (`/fxscript` is carried out since 2026-11-11: FUN_100b70be, the line sent as the effect scripts' signal.)
+Listed but not carried out: `/afk` `/bank` `/born` `/cc` `/filter` `/group` `/macro` `/name` `/option`
+`/played` `/reclaim` `/script` `/team` `/terminate` `/title` `/tower` `/dvalue`. (`/anon`, `/list`, `/shop` and
+`/stuck` go to the server as typed; `/raid` and `/lft` open their windows.) Their handlers, for whoever takes them
+next: `/afk` FUN_100b82a7, `/cc` FUN_100ba6f4, `/macro` FUN_100b8c82 (a GlobalSignal with the name and the command),
+`/name` FUN_100baba6, `/option` and `/setoption` FUN_100b60cb, `/dvalue` FUN_100b7716, `/filter` FUN_100b933d,
+`/lft` FUN_100b6f9f, `/terminate` FUN_100b375a, `/tower` FUN_100b3863, `/reclaim` FUN_100b27c2, `/rp` FUN_100b280d. (`/fxscript` is carried out since 2026-11-11: FUN_100b70be, the line sent as the effect scripts' signal.)
 
 Developer and GM commands (not for players; leave out): `/anim` `/center` `/clearunique` `/clone` `/command`
 `/criterialocal` `/damagemult` `/dumphash` `/font` `/framerate` `/funcom` `/getfull` `/gethash` `/getlocal`

@@ -57,6 +57,16 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
     ("chardist [n]", "how far characters are drawn (0 for all)"),
     ("viewdist [n]", "how far the world is seen (200 to 4000)"),
     ("quit", "leave the client"),
+    ("text <text>", "the text as a line of your own chat, sent to nobody"),
+    ("showfile <file>", "a help file of the game in the info window (Action window.html, combat.html, ...)"),
+    ("tipoftheday", "the next tip of the day in the info window; /tipoftheday prev the one before"),
+    ("toggle <window>", "shows the window if it is hidden, hides it if it is shown"),
+    ("messagebox <text>", "a box with the text"),
+    ("petition", "the petition window"),
+    ("invite <name>", "asks the character into your private chat group; /kick <name> puts one out, /leave <name> leaves that character's group"),
+    ("assist [name]", "fights whomever your target (or the character named) is fighting"),
+    ("damage", "the damage meter (also /dps)"),
+    ("find <part of a name>", "where a thing is, on any of your characters this client has played"),
     ("help", "this list"),
     ("version", "the client's version"),
 ];
@@ -96,6 +106,20 @@ pub enum Parsed {
     Follow,
     /// `/inspect`: say what is known of the current target (level, profession, health).
     Inspect,
+    /// `/text`: a line of one's own chat.
+    Text { text: String },
+    /// `/showfile`: a file for the info view.
+    ShowFile { file: String },
+    /// `/tipoftheday`: the next tip, or the one before.
+    TipOfTheDay { previous: bool },
+    /// `/toggle`: a window shown or hidden, whichever it is not.
+    Toggle { name: String },
+    /// `/messagebox`: a box with a message.
+    MessageBox { text: String },
+    /// `/invite` (3), `/kick` (4), `/leave` (5): a private chat group's request by a character's name.
+    PrivateByName { what: u8, name: String },
+    /// `/assist`: fight the target's (or the named one's) opponent.
+    Assist { name: Option<String> },
     /// `/open <window>` and `/close [window]`: show or hide a window (`close` alone hides them all).
     Window { name: String, open: bool },
     /// `/waypoint <x> <z>`: walk to a place.
@@ -156,7 +180,7 @@ pub fn suggest(input: &str) -> Vec<&'static str> {
 /// The command with this name (any case), as the original writes it.
 /// Commands of this client's own, beyond the original's list: `/sit` (the X key's sit and stand).
 /// `/pet` is Gamecode's own (FUN_100542ad), not in the input line's list, but the control center's Pets menu runs it.
-pub const EXTRA: &[&str] = &["sit", "pet", "perf", "damage", "dps", "find"];
+pub const EXTRA: &[&str] = &["sit", "pet", "perf", "damage", "dps", "find", "messagebox", "perks", "perk"];
 
 /// `/pet <command>`'s words and the `PetCommand` numbers they send (Gamecode FUN_100542ad's table).
 pub const PET_COMMANDS: &[(&str, u32)] = &[
@@ -362,6 +386,64 @@ pub fn parse(line: &str) -> Parsed {
         }
         "help" => Parsed::Help,
         "version" => Parsed::Version,
+        // `/text <text>` (GUI.dll FUN_100b5f02): the text as a line of one's own chat, sent nowhere.
+        "text" => {
+            if text.is_empty() {
+                Parsed::Empty
+            } else {
+                Parsed::Text { text: text.to_string() }
+            }
+        }
+        // `/showfile <file>` (FUN_100b7455): the file in the info view, `file://<file>`.
+        "showfile" => {
+            if text.is_empty() {
+                Parsed::Usage("/showfile filename")
+            } else {
+                Parsed::ShowFile { file: text.to_string() }
+            }
+        }
+        // `/tipoftheday [prev]` (FUN_100b74fc): the next tip of the game's `text/TipOfTheDay.html`, or the one before.
+        "tipoftheday" => Parsed::TipOfTheDay { previous: text.eq_ignore_ascii_case("prev") },
+        // `/toggle <window>` (FUN_100b7da5, with `/open` and `/close`): the window shown when hidden, hidden when shown.
+        "toggle" => {
+            if text.is_empty() {
+                Parsed::Usage("/toggle window")
+            } else {
+                Parsed::Toggle { name: text.to_string() }
+            }
+        }
+        // `/messagebox <message>` (FUN_100b805e): a box with the message and an OK button.
+        "messagebox" => {
+            if text.is_empty() {
+                Parsed::Usage("/messagebox <message>")
+            } else {
+                Parsed::MessageBox { text: text.to_string() }
+            }
+        }
+        // `/petition` (FUN_100b5e9c): the petition window.
+        "petition" => Parsed::Window { name: "petition".to_string(), open: true },
+        // `/invite <nick>`, `/kick <nick>`, `/leave <nick>` (FUN_100bacca, FUN_100badd5, FUN_100baee0: chat requests 3, 4
+        // and 5): the player's private chat group, someone asked into it or put out of it; and another's group left.
+        "invite" | "kick" | "leave" => {
+            let what = match command.to_lowercase().as_str() {
+                "invite" => 3,
+                "kick" => 4,
+                _ => 5,
+            };
+            match text.split_whitespace().next() {
+                Some(name) => Parsed::PrivateByName { what, name: name.to_string() },
+                None => Parsed::Usage(match what {
+                    3 => "/invite <nick>",
+                    4 => "/kick <nick>",
+                    _ => "/leave <nick>",
+                }),
+            }
+        }
+        // `/assist [name]` (FUN_100b81b4 -> `N3Msg_AssistFight`): fight whomever the target, or the named one, fights.
+        "assist" => Parsed::Assist { name: text.split_whitespace().next().map(str::to_string) },
+        // (the server's own commands, sent to it as they are typed: the original lists `/perks` and `/perk` with
+        // `/stuck`, `/anon`, `/list` and `/shop`)
+        "perks" | "perk" => Parsed::Server { text: rest.to_string() },
         _ => Parsed::Unsupported(command.to_string()),
     }
 }
@@ -411,6 +493,24 @@ mod tests {
         assert_eq!(parse("/dps"), Parsed::Window { name: "damage".into(), open: true });
         assert_eq!(parse("/find Treatment Kit"), Parsed::Window { name: "find Treatment Kit".into(), open: true });
         assert_eq!(parse("/find"), Parsed::Window { name: "find".into(), open: true });
+        // (commands of the original carried out since 2026-11-12)
+        assert_eq!(parse("/text hello there"), Parsed::Text { text: "hello there".into() });
+        assert_eq!(parse("/text"), Parsed::Empty);
+        assert_eq!(parse("/showfile Action window.html"), Parsed::ShowFile { file: "Action window.html".into() });
+        assert_eq!(parse("/showfile"), Parsed::Usage("/showfile filename"));
+        assert_eq!(parse("/tipoftheday"), Parsed::TipOfTheDay { previous: false });
+        assert_eq!(parse("/tipoftheday prev"), Parsed::TipOfTheDay { previous: true });
+        assert_eq!(parse("/toggle skills"), Parsed::Toggle { name: "skills".into() });
+        assert_eq!(parse("/toggle"), Parsed::Usage("/toggle window"));
+        assert_eq!(parse("/messagebox Dinner is ready"), Parsed::MessageBox { text: "Dinner is ready".into() });
+        assert_eq!(parse("/petition"), Parsed::Window { name: "petition".into(), open: true });
+        assert_eq!(parse("/invite Somebody"), Parsed::PrivateByName { what: 3, name: "Somebody".into() });
+        assert_eq!(parse("/kick Somebody now"), Parsed::PrivateByName { what: 4, name: "Somebody".into() });
+        assert_eq!(parse("/leave Somebody"), Parsed::PrivateByName { what: 5, name: "Somebody".into() });
+        assert_eq!(parse("/kick"), Parsed::Usage("/kick <nick>"));
+        assert_eq!(parse("/assist"), Parsed::Assist { name: None });
+        assert_eq!(parse("/assist Somebody"), Parsed::Assist { name: Some("Somebody".into()) });
+        assert_eq!(parse("/perks"), Parsed::Server { text: "perks".into() });
         assert_eq!(parse("/lft"), Parsed::Window { name: "lft".into(), open: true });
         assert_eq!(parse("/items"), Parsed::Window { name: "inventory".into(), open: true });
         assert_eq!(parse("/close"), Parsed::Window { name: String::new(), open: false });
