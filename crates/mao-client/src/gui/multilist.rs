@@ -153,11 +153,16 @@ pub struct GridMode {
     /// 3 19x11 `SLOT_20X12`).
     pub cell: (f32, f32),
     pub slot: String,
+    /// How much larger than their own size the cells, the room between them and the pictures are drawn (1 as the
+    /// original has them). This client's own, for the wear view: the original's cells keep their size and its wear
+    /// window is exactly as wide as three of them, while here the window is as wide as its tabs or its rollup page, and
+    /// the user asked for the squares to fill it (2026-11-11).
+    pub scale: f32,
 }
 
 impl GridMode {
     pub fn new(max_items: i32, columns: usize) -> GridMode {
-        GridMode { width: columns as f32 * grid::STEP + 2.0 * grid::BORDER, max_items, spacing: (grid::SPACING, grid::SPACING), columns: None, labels: Vec::new(), labels_on_top: true, auto_arrange: true, background: None, cell: (grid::CELL, grid::CELL), slot: grid::SLOT.to_string() }
+        GridMode { width: columns as f32 * grid::STEP + 2.0 * grid::BORDER, max_items, spacing: (grid::SPACING, grid::SPACING), columns: None, labels: Vec::new(), labels_on_top: true, auto_arrange: true, background: None, cell: (grid::CELL, grid::CELL), slot: grid::SLOT.to_string(), scale: 1.0 }
     }
 
     /// `SetGridIconSize`.
@@ -173,7 +178,15 @@ impl GridMode {
     }
     /// One cell to the next (`+0x198`: the cell, the spacing and 1).
     fn step(&self) -> (f32, f32) {
-        (self.cell.0 + self.spacing.0 + 1.0, self.cell.1 + self.spacing.1 + 1.0)
+        (((self.cell.0 + self.spacing.0 + 1.0) * self.scale).floor(), ((self.cell.1 + self.spacing.1 + 1.0) * self.scale).floor())
+    }
+    /// The edge round the cells, and a cell's size, as drawn: whole pixels (grown cells would else stand between
+    /// pixels, and a size a hair over its room brings the scroll bars out).
+    fn border(&self) -> f32 {
+        (grid::BORDER * self.scale).floor()
+    }
+    fn cell_px(&self) -> (f32, f32) {
+        ((self.cell.0 * self.scale).floor(), (self.cell.1 * self.scale).floor())
     }
     fn cols(&self) -> usize {
         self.columns.unwrap_or_else(|| ((self.width / self.step().0).floor() as usize).max(1))
@@ -184,26 +197,26 @@ impl GridMode {
     /// Here the columns that fill a width by themselves stand in its middle; this client's own.
     fn left(&self) -> f32 {
         if self.columns.is_some() {
-            return grid::BORDER;
+            return self.border();
         }
-        let across = self.cols() as f32 * self.step().0 - 1.0 - self.spacing.0;
-        ((self.width - across) * 0.5).floor().max(grid::BORDER)
+        let across = self.cols() as f32 * self.step().0 - (self.step().0 - self.cell_px().0);
+        ((self.width - across) * 0.5).floor().max(self.border())
     }
     /// A cell's top left.
     fn place(&self, (x, y): (usize, usize)) -> (f32, f32) {
         let (sx, sy) = self.step();
-        (self.left() + x as f32 * sx, grid::BORDER + y as f32 * sy)
+        (self.left() + x as f32 * sx, self.border() + y as f32 * sy)
     }
     /// The cell under a point (`ViewPosToGridPos`): not the spacing beside it.
     fn cell_at(&self, p: Point) -> Option<(usize, usize)> {
         let (sx, sy) = self.step();
-        let (cx, cy) = (((p.x - self.left()) / sx).floor(), ((p.y - grid::BORDER) / sy).floor());
+        let (cx, cy) = (((p.x - self.left()) / sx).floor(), ((p.y - self.border()) / sy).floor());
         if cx < 0.0 || cy < 0.0 || cx as usize >= self.cols() {
             return None;
         }
         let cell = (cx as usize, cy as usize);
         let (x, y) = self.place(cell);
-        (p.x - x < self.cell.0 && p.y - y < self.cell.1).then_some(cell)
+        (p.x - x < self.cell_px().0 && p.y - y < self.cell_px().1).then_some(cell)
     }
 }
 
@@ -253,8 +266,9 @@ impl Rows {
             rows = rows.max(y + 1);
         }
         let (sx, sy) = g.step();
-        let (w, h) = (2.0 * grid::BORDER + cols as f32 * sx - 1.0 - g.spacing.0, 2.0 * grid::BORDER + rows.max(1) as f32 * sy - 1.0 - g.spacing.1);
-        let pic = picture.unwrap_or(egui::Vec2::ZERO);
+        let (cw, ch) = g.cell_px();
+        let (w, h) = (2.0 * g.border() + cols as f32 * sx - (sx - cw), 2.0 * g.border() + rows.max(1) as f32 * sy - (sy - ch));
+        let pic = (picture.unwrap_or(egui::Vec2::ZERO) * g.scale).floor();
         Point::new(w.max(pic.x), h.max(pic.y))
     }
     fn at(&self, p: Point) -> Option<usize> {
@@ -276,17 +290,17 @@ impl Rows {
         let skin = p.env.skin;
         let rect_of = |cell: (usize, usize)| {
             let (x, y) = g.place(cell);
-            egui::Rect::from_min_size(p.rect.min + egui::vec2(x, y), egui::vec2(g.cell.0, g.cell.1))
+            egui::Rect::from_min_size(p.rect.min + egui::vec2(x, y), egui::vec2(g.cell_px().0, g.cell_px().1))
         };
         let slot = |name: &str, cell: egui::Rect| {
             if let Some(slot) = skin.and_then(|s| s.get(name)) {
-                p.painter.image(slot.texture.id(), egui::Rect::from_center_size(cell.center(), slot.size), uv, egui::Color32::WHITE);
+                p.painter.image(slot.texture.id(), egui::Rect::from_center_size(cell.center(), slot.size * g.scale), uv, egui::Color32::WHITE);
             }
         };
-        // (the picture under the cells, at its own size)
+        // (the picture under the cells, at its own size, grown as the cells are)
         if let Some(bg) = g.background.as_deref().and_then(|n| skin.and_then(|s| s.get(n))) {
             self.picture.set(Some(bg.size));
-            p.painter.image(bg.texture.id(), egui::Rect::from_min_size(p.rect.min, bg.size), uv, egui::Color32::WHITE);
+            p.painter.image(bg.texture.id(), egui::Rect::from_min_size(p.rect.min, bg.size * g.scale), uv, egui::Color32::WHITE);
         }
         // (labelled cells show the open slot; else every cell up to the most the container holds the closed one)
         if g.labels.is_empty() {
@@ -715,6 +729,27 @@ pub fn grid_pixels(tree: &Tree, id: Id) -> Option<egui::Vec2> {
     Some(egui::vec2(size.x + 1.0, size.y + 1.0))
 }
 
+/// A grid's size with its cells at their own size ([`GridMode::scale`] 1), and the way to grow them: the wear view
+/// fills its page's width with its three columns.
+pub fn grid_natural(tree: &Tree, id: Id) -> Option<egui::Vec2> {
+    let (_, _, rows) = parts(tree, id)?;
+    let r = tree.control::<Rows>(rows)?;
+    let mut plain = r.grid.clone()?;
+    plain.scale = 1.0;
+    let size = r.grid_size(&plain, r.picture.get());
+    Some(egui::vec2(size.x + 1.0, size.y + 1.0))
+}
+
+pub fn set_grid_scale(tree: &mut Tree, id: Id, scale: f32) {
+    let Some((_, _, rows)) = parts(tree, id) else { return };
+    if let Some(g) = tree.control_mut::<Rows>(rows).and_then(|r| r.grid.as_mut())
+        && (g.scale - scale).abs() > 0.001
+    {
+        g.scale = scale;
+        tree.relayout = true;
+    }
+}
+
 /// Before showing: a grid lays its cells out in the width its scroll view gives it (`FrameSized` 0x101363c5 ->
 /// `RecalcCellCount`).
 pub fn update(tree: &mut Tree, id: Id) {
@@ -913,6 +948,23 @@ pub fn take_events(tree: &mut Tree) -> Vec<(Id, ItemEvent)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn grown_grid_cells_are_whole_pixels() {
+        // (the wear view's cells grown to fill a width: 47 with 11 and 9 between, at 1.79 times)
+        let mut g = GridMode::new(-1, 3);
+        g.columns = Some(3);
+        g.spacing = (11.0, 9.0);
+        g.scale = 1.79;
+        assert_eq!((g.step(), g.cell_px(), g.border()), ((105.0, 102.0), (84.0, 84.0), 10.0));
+        assert_eq!(g.place((2, 4)), (10.0 + 210.0, 10.0 + 408.0));
+        // (a point in a cell, and one in the room between two)
+        assert_eq!((g.cell_at(Point::new(10.0 + 105.0 + 83.0, 12.0)), g.cell_at(Point::new(10.0 + 105.0 + 85.0, 12.0))), (Some((1, 0)), None));
+        // (its size: three columns and five labelled rows, the last without the room after it)
+        g.labels = vec![((2, 4), String::new())];
+        let r = Rows::new(Some(g.clone()));
+        assert_eq!(r.grid_size(&g, None), Point::new(20.0 + 3.0 * 105.0 - 21.0, 20.0 + 5.0 * 102.0 - 18.0));
+    }
 
     #[test]
     fn grid_cells() {

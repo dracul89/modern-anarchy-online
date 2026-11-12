@@ -139,6 +139,25 @@ fn wear_grids(ctx: &egui::Context) -> Vec<GridView> {
         .collect()
 }
 
+/// A wear grid drawn to fill its page's width: the three columns of five cells grown, squares still, until they reach
+/// from side to side (never smaller than their own size). The original's cells keep their size and its window is as
+/// wide as they; here the window is as wide as its four tabs in this client's fonts, or as its rollup page, and the
+/// grid at its own size left empty room beside it (the user, 2026-11-11: the squares should fill the whole window).
+fn filled_grid(ui: &mut egui::Ui, tree: &mut Tree, root: Id, list: Id, skin: Option<&crate::skin::Skin>, palette: &Palette) -> egui::Response {
+    let natural = multilist::grid_natural(tree, list).unwrap_or_else(|| crate::gui::host::preferred_pixels(tree, root, false));
+    let scale = (ui.available_width() / natural.x.max(1.0)).max(1.0);
+    multilist::set_grid_scale(tree, list, scale);
+    let size = multilist::grid_pixels(tree, list).unwrap_or(natural * scale);
+    // (the cells are whole pixels, so a few may be left over: half on each side)
+    let spare = ((ui.available_width() - size.x) * 0.5).floor().max(0.0);
+    let place = egui::Rect::from_min_size(ui.available_rect_before_wrap().min + egui::vec2(spare, 0.0), size);
+    ui.scope_builder(egui::UiBuilder::new().max_rect(place), |ui| {
+        ui.set_min_size(size);
+        crate::gui::host::show(ui, tree, root, skin, palette)
+    })
+    .inner
+}
+
 /// A wear cell's label as plain text.
 fn cell_label(tab: &WearTab, slot: u32) -> String {
     tab.cells.iter().position(|c| tab.base + c.0 == slot).map(|k| crate::gui::xml::ldb_text(&format!("#505:{}", tab.label_base + k as i32))).unwrap_or_default().replace("<center>", "").replace("</center>", "").replace("<br>", " ")
@@ -188,12 +207,11 @@ impl InspectWindow {
         // (the title names the character too: several inspections look the same otherwise)
         let title = if name.is_empty() { "Inspect".to_string() } else { format!("Inspect: {name}") };
         crate::chrome::window(ctx, palette, "Inspect", &title, &mut self.open, |w| w.default_pos(crate::layout::pos("Inspect", egui::pos2(420.0, 90.0))).resizable(false), |ui| {
+            ui.set_min_width(crate::chrome::tabs_width(ui, &name_refs));
             crate::chrome::tab_view(ui, palette, &name_refs, &mut tab, |ui, t| {
                 let view = &mut grids[t];
                 let (tree, root, list) = (&mut view.tree, view.root, view.list);
-                let min = crate::gui::host::preferred_pixels(tree, root, false);
-                ui.set_min_size(min);
-                let response = crate::gui::host::show(ui, tree, root, skin.as_deref(), palette);
+                let response = filled_grid(ui, tree, root, list, skin.as_deref(), palette);
                 if let Some(at) = pointer
                     && let Some(slot) = multilist::item_at(tree, list, response.rect.min, at)
                 {
@@ -315,18 +333,7 @@ impl ItemWindows {
                 crate::chrome::tab_view(ui, palette, &name_refs, &mut tab, |ui, t| {
                     let view = &mut wear[t];
                     let (tree, root, list) = (&mut view.tree, view.root, view.list);
-                    // (the grid at its own size, three columns of five cells, in the middle of the page: the four tabs are
-                    // wider than it in this client's fonts. The page used to take whatever room the window had, which left
-                    // the grid at the left with empty width beside it and empty height under it.)
-                    let natural = multilist::grid_pixels(tree, list).unwrap_or_else(|| crate::gui::host::preferred_pixels(tree, root, false));
-                    let spare = ((ui.available_width() - natural.x) * 0.5).floor().max(0.0);
-                    let place = egui::Rect::from_min_size(ui.available_rect_before_wrap().min + egui::vec2(spare, 0.0), natural);
-                    let response = ui
-                        .scope_builder(egui::UiBuilder::new().max_rect(place), |ui| {
-                            ui.set_min_size(natural);
-                            crate::gui::host::show(ui, tree, root, skin.as_deref(), palette)
-                        })
-                        .inner;
+                    let response = filled_grid(ui, tree, root, list, skin.as_deref(), palette);
                     if let Some(at) = pointer {
                         if let Some(slot) = multilist::item_at(tree, list, response.rect.min, at) {
                             hovered_item = Some((slot as u32, cell_label(&WEAR_TABS[t], slot as u32)));

@@ -281,6 +281,12 @@ To try by hand:
 - A buff bot's `help`: its second tell, the list, shows as a link; the link opens the page; the page's own links send
   their tells.
 
+## The wear window's squares (2026-11-11)
+
+- The wear window, each tab: the squares reach from side to side, no scroll bars; dragging an item onto a square and
+  the tooltips still find the right square.
+- The inspect window of another character (not photographed): the same.
+
 ## `/fxscript` (2026-11-11)
 
 `/fxscript <script>` runs an effect script of the game's `cd_image/twk` folder (the name without `.txt`). To try:

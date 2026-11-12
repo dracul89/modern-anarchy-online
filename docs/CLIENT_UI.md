@@ -795,6 +795,18 @@ down. Here the angle is kept as a 4:3 window has it and a wider window sees the 
 past the hall's walls to the space outside it (kept so: the user chose the full width over black bars at the sides). Seen: the launcher beside the user's picture of the original's, the
 three settings pages, PLAY into the login, the hall at 16:9 and at 32:9.
 
+**The wear window's squares fill the window (2026-11-11, the user: "the wear window squares should scale to fill the
+whole window").** The original's wear cells keep their size (47 by 47, 11 and 9 apart) and its window is exactly as
+wide as three of them. This client's window is as wide as its four tabs in its own fonts, or as its rollup page, and
+the grid at its own size left empty room beside it (centred since the morning, which the user did not want either).
+Now the grid is grown until its three columns reach from side to side: `GridMode::scale` (this client's own) grows
+the cells, the room between them, the slot pictures and the picture under them alike, in whole pixels (a size a
+hair over its room, as a fraction gives, brought the scroll bars out; the few pixels left over are halved to the
+sides); never smaller than the original's size. `invwindows::filled_grid`, used by the wear window and the inspect
+window; the labels keep their font. Seen live: the wear window's four tabs on two characters' layouts (one as
+wide as its tabs, one wider). The inspect window was not photographed (the script's click on "Inspect Equipment"
+only ran the inspection again).
+
 **A bot's page of buffs did not arrive (2026-11-11, the user: "the response isn't coming back when talking to a bot").**
 The bot's first tell showed and its second, the list, never did. The list is a link whose target is a whole page of
 markup (`<a href="text://...">`), with tags, links and line breaks inside the quotes. `mao_net::chat::plain` ended a
