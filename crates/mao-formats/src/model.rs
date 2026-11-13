@@ -121,9 +121,35 @@ fn occluders_shown() -> bool {
     *SHOWN.get_or_init(|| std::env::var("MAO_OCCLUDERS").is_ok_and(|v| v == "show"))
 }
 
+/// Whether a triangle mesh is one the original hides, by its name: a helper a modeller left in the file (the block that
+/// stops a walker at a terminal, the anchor of a fire's or a halo's effect, an "invisible" floor), most of them without a
+/// texture and with the exporter's default material, which the original gives a random light colour. DisplaySystem's
+/// `VisualMesh_t` set-up (FUN_1006d49a) goes over every triangle mesh at or under the mesh's root and, where `strstr(name,
+/// "invis")` finds the word, calls `RRefFrame_t::SetVisible(false, false)`: that frame alone, its children stay. The word
+/// is looked for anywhere in the name and in lower case only.
+pub fn is_hidden_name(name: &str) -> bool {
+    name.contains("invis")
+}
+
+/// `MAO_HIDDEN_MESHES=show`: the meshes the original hides by their name are drawn.
+fn hidden_shown() -> bool {
+    static SHOWN: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *SHOWN.get_or_init(|| std::env::var("MAO_HIDDEN_MESHES").is_ok_and(|v| v == "show"))
+}
+
 #[cfg(test)]
 mod foliage_tests {
-    use super::{is_foliage_name, is_occluder_name};
+    use super::{is_foliage_name, is_hidden_name, is_occluder_name};
+
+    #[test]
+    fn hidden_meshes_are_told_by_the_word_anywhere_in_lower_case() {
+        for name in ["invis", "invis07", "invis_object", "invis_colis_stairs", "box_invis", "invisible floor"] {
+            assert!(is_hidden_name(name), "{name}");
+        }
+        for name in ["", "Invis", "INVISIBLE", "in_vis", "Box02", "visible"] {
+            assert!(!is_hidden_name(name), "{name}");
+        }
+    }
 
     #[test]
     fn occluder_bodies_are_told_by_their_first_five_characters() {
@@ -482,7 +508,9 @@ fn walk(a: &Archive, index: i32, parent: &Matrix, depth: usize, root: Root, out:
                 chain.pop();
                 return Ok(());
             }
-            for m in refs(data, "mesh") {
+            // (a mesh the original hides by its name gives no parts; what hangs under its frame is still drawn)
+            let hidden = is_hidden_name(&name) && !hidden_shown();
+            for m in refs(data, "mesh").into_iter().filter(|_| !hidden) {
                 if let Some(s) = a.objects.get(m as usize) {
                     let before = out.len();
                     simple_mesh(a, s, &name, world, out)?;

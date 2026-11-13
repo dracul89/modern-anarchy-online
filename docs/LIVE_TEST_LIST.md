@@ -223,6 +223,10 @@ account with `net <game> create`, in Arete Landing; scripted, other new players 
   both orders); Shift+click shows the info (inventory, wear window, a bag); a worn bag opens and closes by right
   clicks; in a bag a click takes an item up and a click on the inventory takes it out; in a corpse a click takes
   the item; Shift+T opens and closes the tradeskill window.
+- [ ] The helpers named "invis" (2026-11-12): no light-blue slabs under the Market Search terminals of Rome Blue,
+  Rome Green and West Athens, no white floors or coloured blocks in the ACG and Temple of Three Winds dungeons, no
+  grey pyramid in a campfire or red cross where a halo belongs (seen gone in offline pictures of Rome Blue only).
+  Walking is not changed by it: what blocks a walker is the playfield's collision surfaces.
 - [ ] The occluder's bodies (2026-11-12): no pink or purple see-through boxes in Jobe Research, Nascense Frontier,
   South of Elysium, the ICC Shuttleport and Adonis City (seen gone in offline pictures of Jobe Research only).
 - [ ] The launcher's own background (2026-11-12): in its settings, GUI page, Launcher group, choose "Stars and the

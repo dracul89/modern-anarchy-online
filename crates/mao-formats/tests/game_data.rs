@@ -43,6 +43,26 @@ fn occluder_bodies_have_no_parts() {
     assert_eq!(mao_formats::model::build_placed(&mao_formats::mesh::parse(&object).unwrap()).unwrap().parts.len(), 51);
 }
 
+/// The helpers named "invis" are not drawn: the block at a market terminal and the anchor of a campfire have no parts, a
+/// torch keeps the three it is made of and loses its anchor.
+#[test]
+fn hidden_helpers_have_no_parts() {
+    let Some(db) = database() else { return };
+    if std::env::var_os("MAO_HIDDEN_MESHES").is_some() {
+        return;
+    }
+    let parts = |instance: u32| {
+        let object = db.get(Id { kind: 0xf6951, instance }).unwrap().unwrap();
+        mao_formats::model::build_placed(&mao_formats::mesh::parse(&object).unwrap()).unwrap().parts
+    };
+    for instance in [205622, 42153, 244554] {
+        assert!(parts(instance).is_empty(), "mesh {instance}");
+    }
+    let lava = parts(226547);
+    assert_eq!(lava.len(), 1);
+    assert!(lava.iter().all(|p| !mao_formats::model::is_hidden_name(&p.name)));
+}
+
 #[test]
 fn every_index_entry_is_walked_in_order() {
     let Some(db) = database() else { return };

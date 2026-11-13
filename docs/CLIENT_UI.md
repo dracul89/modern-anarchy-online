@@ -3325,3 +3325,31 @@ that draws a mesh. `MAO_OCCLUDERS=show` draws them, as the debug mode does. The 
 its occluder (`HMOccluder_t`), which leaves out what stands behind them; this client has no occlusion culling, so
 nothing is left out here. Seen in offline pictures of Jobe Research before and after (6165 parts, then 6082);
 `cargo run -p mao-formats --example occluders -- <game>` lists the meshes and the playfields. Not seen live.
+
+**The modellers' helpers named "invis" are not drawn (2026-11-12, found by a sweep after the occluders;
+`mao_formats::model`).** 95 of the 11,228 static meshes hold a triangle mesh whose name has the word "invis" in it
+(`invis`, `invis07`, `invis_object`, `invis_colis_stairs`, `invisible_helmet` ...), placed by 5,273 statels: the
+blocks that stop a walker (`bsp_horizontal_2x2x05`, 931 statels: the two under every Market Search terminal of Rome
+and Athens, in ACG and temple dungeons; `invisible_bsp_*`, `bsp_sl_*`, the Omni mine buildings' `_bsp` twins), the
+anchors of the fires, smokes and halos (`fx_campfire`, `fx_bonfire`, `fx_smoke*`, `fx_halo_*`, `halo_*_medium`, the
+Shadowlands' `eff_*` meshes), the triggers of the alien invasion's effects, the collision spheres, and the head
+`head_solitusmale_invisible`. All but eight have no texture and most have the exporter's default material, which
+this client drew in the file's colour: light-blue slabs round the terminals, white floors, grey pyramids, red
+crosses. The original hides them: DisplaySystem's `VisualMesh_t` set-up (FUN_1006d49a, `asyncmesh.rs`
+`make_attractors` in the drop-in) goes over every triangle mesh at or under the mesh's root and calls
+`RRefFrame_t::SetVisible(false, false)` on each whose name `strstr` finds "invis" in: that frame alone (what hangs
+under it is still drawn), the word anywhere in the name, in lower case only. The mesh reader does the same
+(`model::is_hidden_name`, in `walk`); `MAO_HIDDEN_MESHES=show` draws them. Seen in offline pictures of Rome Blue's
+terminals before and after (8,444 parts, then 8,424). The survey that found them:
+`MAO_OCCLUDERS=show MAO_HIDDEN_MESHES=show cargo run -p mao-formats --example untextured -- <game>` (every mesh with
+a bracket-tagged, an "invis" or an untextured part, by how many statels place it); `--example placed -- <game>
+<mesh>` says where a mesh stands, `--example meshobjects` prints a mesh's objects and fields.
+
+What the sweep found and left alone: no other bracket tag than `[OCC]` and no "invis" in another case; 1,086 other
+parts without a texture in 643 meshes (a bridge's underside, a chair's frame, a helmet's face that takes the
+wearer's texture): the original has no rule against them that was found, so they are drawn in their material's
+colour as before. **Found on the way, not done:** the same set-up function turns a mesh's connectors named `eff_*`
+into effects (`eff_fire0..9` 2200-2209, `eff_smoke*` 2300-2302, the halos 7000-7006, `eff_torch` 12124,
+`eff_geyshir`, `eff_waterdrip`, `eff_billboard`, with a colour and a radius from hex digits in the name; another
+name is the red halo). This client reads a mesh's connectors only for the meshes an effect script places, and of
+those only `eff_universal_<id>`: no statel gets its effects, so a campfire is a ring of stones without its fire.
