@@ -712,7 +712,8 @@ impl Ui {
 
     /// A step of a test script (`MAO_CAMERA_SCRIPT`'s `<what>@<argument>`), done to the interface as the mouse and the
     /// keys would: `open@<window>` and `close@<window>`; `click@<x>;<y>`, `rclick@...`, `dclick@...` and `move@...` at a
-    /// place given in the screenshot's pixels; `type@<line>` into the chat's input (then `key@Enter` sends it);
+    /// place given in the screenshot's pixels; `sclick@...` and `srclick@...` with Shift held, `cclick@...` and
+    /// `cdclick@...` (a double click) with Ctrl held; `type@<line>` into the chat's input (then `key@Enter` sends it);
     /// `text@<letters>` into whatever takes the keys; `key@<Enter|Escape|Tab|Up|Down|Backspace>`; `drag@<x>;<y>;<x>;<y>`
     /// presses at the first place and lets go at the second; `usebag@<n>` uses the inventory's n-th bag; `pginvite@<name>` invites a character of the friends list to one's private chat group; `target@<id>` selects the character with that id; `cast@<nano id>` runs a nano program of the character's; `useitem@<place or part of its name>` uses an inventory item and `wear@<part of its name>;<place>` moves one to a place; `teamreply@yes` (or `no`) answers a team invitation and `teamleave@` leaves the team. False
     /// for a step it does not know.
@@ -723,22 +724,33 @@ impl Ui {
             let k = self.ctx.pixels_per_point();
             Some(egui::pos2(x.trim().parse::<f32>().ok()? / k, y.trim().parse::<f32>().ok()? / k))
         };
-        let press = |pos: egui::Pos2, button: egui::PointerButton, pressed: bool| egui::Event::PointerButton { pos, button, pressed, modifiers: egui::Modifiers::NONE };
+        // (the keys held with a click: Shift for `s...`, Ctrl for `c...`)
+        let held = match what {
+            "sclick" | "srclick" => egui::Modifiers::SHIFT,
+            "cclick" | "cdclick" => egui::Modifiers::CTRL,
+            _ => egui::Modifiers::NONE,
+        };
+        let press = |pos: egui::Pos2, button: egui::PointerButton, pressed: bool| egui::Event::PointerButton { pos, button, pressed, modifiers: held };
         match what {
             "open" | "close" => return self.set_window(argument, what == "open"),
-            "move" | "click" | "rclick" | "dclick" => {
+            "move" | "click" | "rclick" | "dclick" | "sclick" | "srclick" | "cclick" | "cdclick" => {
                 let Some(pos) = at() else { return false };
-                let button = if what == "rclick" { egui::PointerButton::Secondary } else { egui::PointerButton::Primary };
+                let button = if matches!(what, "rclick" | "srclick") { egui::PointerButton::Secondary } else { egui::PointerButton::Primary };
                 // (the pointer comes to rest a frame before the button goes down, and each press and release has its frame)
                 self.injected.push_back(vec![egui::Event::PointerMoved(pos)]);
-                self.injected.push_back(vec![egui::Event::PointerMoved(pos)]);
+                // (the keys go down as the pointer comes to rest and up a frame after the click: the windows read them from
+                // the frame, not from the click)
+                self.injected.push_back(if held.is_none() { vec![egui::Event::PointerMoved(pos)] } else { vec![egui::Event::PointerMoved(pos), egui::Event::ModifiersChanged(held)] });
                 for _ in 0..match what {
                     "move" => 0,
-                    "dclick" => 2,
+                    "dclick" | "cdclick" => 2,
                     _ => 1,
                 } {
                     self.injected.push_back(vec![press(pos, button, true)]);
                     self.injected.push_back(vec![press(pos, button, false)]);
+                }
+                if !held.is_none() {
+                    self.injected.push_back(vec![egui::Event::ModifiersChanged(egui::Modifiers::NONE)]);
                 }
             }
             "usebag" => self.script_bag = Some(argument.trim().parse().unwrap_or(1)),
@@ -1890,7 +1902,20 @@ fn hotbar_layer(ctx: &egui::Context, bars: &mut Hotbars, gear: &mut GearWindow, 
                     }
                     ui.painter().text(rect.left_top() + egui::vec2(3.0, 2.0), egui::Align2::LEFT_TOP, format!("{}", (slot + 1) % 10), egui::FontId::proportional(10.0), egui::Color32::from_white_alpha(160));
                     let mut dropped = false;
+                    // (`MAO_ITEM_TRACE`: where the bar's first slots are, in the window's pixels, told once and when it moves)
+                    if crate::gear::traced() && slot < 3 {
+                        let k = ctx.pixels_per_point();
+                        let told = format!("{:.0};{:.0}", rect.center().x * k, rect.center().y * k);
+                        let id = egui::Id::unique(("item-trace-hotbar", slot));
+                        if ctx.data(|d| d.get_temp::<String>(id)).as_ref() != Some(&told) {
+                            eprintln!("items: the hotbar's slot {} at {told}, holding {} actions", slot + 1, count);
+                            ctx.data_mut(|d| d.insert_temp(id, told));
+                        }
+                    }
                     if let Some(payload) = response.dnd_release_payload::<hotbar::Action>() {
+                        if crate::gear::traced() {
+                            eprintln!("items: the hotbar's slot {} takes {:?}", slot + 1, payload.name());
+                        }
                         // (a macro has no wait of its own)
                         bars.add(bar, slot, (*payload).clone(), if matches!(*payload, hotbar::Action::Macro { .. }) { 0.0 } else { 5.0 });
                         requests.hotbars_changed = true;

@@ -217,7 +217,9 @@ account with `net <game> create`, in Arete Landing; scripted, other new players 
 - **Found and fixed** (the user saw them): the rifle was not in the character's hands; the health, nano and
   experience bars were drawn off their frames (they are the original's upright bars in the wings now).
 - [ ] The mouse on items (2026-11-12; by script: take up, put down, Escape, use, use on, a bag's three right
-  clicks). By hand: the pictures stand on their slots with no square behind them; a click takes an item up and a
+  clicks; later the same night also Shift+click in the inventory and in a bag, an item put into a bag and taken
+  out of it by clicks, an item set on a hotbar slot by a click). Left to do by hand: a worn bag, a shop's list,
+  the bank, a corpse, Shift+T. The whole list as it was: the pictures stand on their slots with no square behind them; a click takes an item up and a
   second click wears it (a wear cell), sets it on a hotbar slot, puts it into an open bag, sells it (a shop's
   list), uses it on something in the world; a right click on another item with one in hand combines the two (try
   both orders); Shift+click shows the info (inventory, wear window, a bag); a worn bag opens and closes by right

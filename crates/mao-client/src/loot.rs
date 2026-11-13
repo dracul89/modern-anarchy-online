@@ -258,6 +258,39 @@ impl LootWindow {
                     take = Some(Take::All { handle: view.handle });
                 }
                 let response = crate::gui::host::show(ui, tree, root, skin.as_deref(), palette);
+                // (`MAO_ITEM_TRACE`: where the container's list and each of its items are, in the window's pixels, for a
+                // script's clicks; told when it changes)
+                if crate::gear::traced() {
+                    let k = ui.ctx().pixels_per_point();
+                    let mut places: std::collections::BTreeMap<i64, (f32, f32, u32)> = std::collections::BTreeMap::new();
+                    let (mut x, rect) = (response.rect.left() + 4.0, response.rect.intersect(ui.clip_rect()));
+                    while x < rect.right() {
+                        let mut y = rect.top() + 4.0;
+                        while y < rect.bottom() {
+                            if let Some(slot) = crate::gui::multilist::item_at(tree, list, response.rect.min, egui::pos2(x, y)) {
+                                let p = places.entry(slot).or_insert((0.0, 0.0, 0));
+                                *p = (p.0 + x, p.1 + y, p.2 + 1);
+                            }
+                            y += 4.0;
+                        }
+                        x += 4.0;
+                    }
+                    let told = format!(
+                        "the container {:#x}:{:#x} ({name}): its list from {:.0};{:.0} to {:.0};{:.0}, items {:?}",
+                        view.identity.0,
+                        view.identity.1,
+                        rect.left() * k,
+                        rect.top() * k,
+                        rect.right() * k,
+                        rect.bottom() * k,
+                        places.iter().map(|(slot, p)| format!("{slot} at {:.0};{:.0} {:?}", p.0 / p.2 as f32 * k, p.1 / p.2 as f32 * k, view.items.iter().find(|i| i.slot as i64 == *slot).map_or("", |i| i.name.as_str()))).collect::<Vec<_>>()
+                    );
+                    let id = egui::Id::unique(("item-trace-container", view.identity));
+                    if ui.ctx().data(|d| d.get_temp::<String>(id)).as_ref() != Some(&told) {
+                        eprintln!("items: {told}");
+                        ui.ctx().data_mut(|d| d.insert_temp(id, told));
+                    }
+                }
                 let hovered = ui.input(|i| i.pointer.hover_pos()).and_then(|at| crate::gui::multilist::item_at(tree, list, response.rect.min, at));
                 // (a right click takes the item: the list's use signal, FUN_1004141b's button 2; not with an inventory
                 // item in hand, whose right click is a use of it on another)
@@ -293,10 +326,18 @@ impl LootWindow {
                 crate::gui::multilist::select(tree, list, Some(slot));
             }
             match container_click(clicked, shift, view.own || view.identity.0 == BANK, hands_free) {
-                ContainerClick::Info => self.infos.extend(view.items.iter().find(|i| i.slot as i64 == slot).map(|i| format!("itemref://{}/{}/{}", i.item_id, i.high_id, i.quality))),
+                ContainerClick::Info => {
+                    if crate::gear::traced() {
+                        eprintln!("items: the container's place {slot}: its info");
+                    }
+                    self.infos.extend(view.items.iter().find(|i| i.slot as i64 == slot).map(|i| format!("itemref://{}/{}/{}", i.item_id, i.high_id, i.quality)));
+                }
                 ContainerClick::TakeUp => {
                     self.dragging = Some(slot as u32);
                     self.taken_up = ctx.cumulative_frame_nr();
+                    if crate::gear::traced() {
+                        eprintln!("items: the container's place {slot} taken up");
+                    }
                 }
                 ContainerClick::Take => take = Some(Take::One { handle: view.handle, place: slot as u32 }),
                 ContainerClick::Nothing => {}
@@ -311,6 +352,9 @@ impl LootWindow {
             }
             if ctx.input(|i| i.pointer.button_released(egui::PointerButton::Primary)) && self.taken_up != ctx.cumulative_frame_nr() {
                 self.dragging = None;
+                if crate::gear::traced() {
+                    eprintln!("items: the container's place {place} let go");
+                }
                 if !ctx.is_pointer_over_egui() {
                     self.dropped_out = Some(place);
                 }

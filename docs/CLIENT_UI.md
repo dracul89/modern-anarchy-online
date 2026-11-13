@@ -3353,3 +3353,25 @@ into effects (`eff_fire0..9` 2200-2209, `eff_smoke*` 2300-2302, the halos 7000-7
 `eff_geyshir`, `eff_waterdrip`, `eff_billboard`, with a colour and a radius from hex digits in the name; another
 name is the red halo). This client reads a mesh's connectors only for the meshes an effect script places, and of
 those only `eff_universal_<id>`: no statel gets its effects, so a campfire is a ring of stones without its fire.
+
+**The mouse on items, tried further by script (2026-11-12, night; Maotesttwo).** The script has clicks with keys
+held now: `sclick@x;y` and `srclick@x;y` with Shift, `cclick@x;y` and `cdclick@x;y` (a double click) with Ctrl
+(`ui.rs` `script`: the keys go down as the pointer comes to rest and up a frame after the click, as
+`ModifiersChanged` events, since the windows read the keys from the frame). `MAO_ITEM_TRACE=1` also tells where a
+container's list and its items are, when an item in one is taken up, let go or asked about, and where the hotbar's
+first three slots are and what one takes. Five runs:
+
+- Shift+click on an inventory item: its info asked for (`itemref://291082/291082/1`).
+- An item taken up by a click and a second click on an open bag's window: it is in the bag (the bag's list then
+  shows it at its first place, the inventory closes the gap).
+- An item in hand and a click on a hotbar slot: the slot takes it, and the item goes back to its place.
+- In the bag: a click takes the item up, a click on the inventory window takes it out; Shift+click asks for its
+  info.
+- The bag's window closed and shown again by right clicks, as before.
+
+Shift+T is tested as a key of the table (`settings.rs`: the default key map gives the tradeskill window for it and
+the target's info for T alone, also for a settings file written before the key was there), not by a press in the
+game. **Still not tried:** a worn bag (no test character has one), an item sold by a click on a shop's list, the
+bank, a corpse. One thing seen: an info window opens over the bag's first places with the default layout, so a
+click meant for the bag's item after a Shift+click lands on the info window (the test's own business; the test
+character's Scrap of Notum was left in its bag by it).

@@ -789,6 +789,21 @@ mod tests {
 
     use super::*;
 
+    /// Shift+T is the tradeskill window and T alone stays the target's info; a settings file written before the key
+    /// was there (it has no line for it) keeps the default.
+    #[test]
+    fn shift_t_is_the_tradeskill_window() {
+        let shift = ModifiersState::SHIFT;
+        let keys = Keymap::default();
+        assert_eq!(keys.action(KeyCode::KeyT, shift), Some(Action::TradeskillWindow));
+        assert_eq!(keys.action(KeyCode::KeyT, ModifiersState::empty()), Some(Action::TargetInfo));
+        let old = Settings::from_text(&format!("[keys]
+version = {KEYMAP_VERSION}
+target_info = T
+"));
+        assert_eq!(old.keymap.action(KeyCode::KeyT, shift), Some(Action::TradeskillWindow));
+    }
+
     #[test]
     fn options_are_set_by_name() {
         let mut s = Settings::default();
