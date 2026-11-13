@@ -3352,7 +3352,7 @@ colour as before. **Found on the way, not done:** the same set-up function turns
 into effects (`eff_fire0..9` 2200-2209, `eff_smoke*` 2300-2302, the halos 7000-7006, `eff_torch` 12124,
 `eff_geyshir`, `eff_waterdrip`, `eff_billboard`, with a colour and a radius from hex digits in the name; another
 name is the red halo). This client reads a mesh's connectors only for the meshes an effect script places, and of
-those only `eff_universal_<id>`: no statel gets its effects, so a campfire is a ring of stones without its fire.
+those only `eff_universal_<id>`: no statel got its effects, so a campfire was a ring of stones without its fire (done later the same night: see the statels' own effects, below).
 
 **The mouse on items, tried further by script (2026-11-12, night; Maotesttwo).** The script has clicks with keys
 held now: `sclick@x;y` and `srclick@x;y` with Shift, `cclick@x;y` and `cdclick@x;y` (a double click) with Ctrl
@@ -3375,3 +3375,33 @@ game. **Still not tried:** a worn bag (no test character has one), an item sold 
 bank, a corpse. One thing seen: an info window opens over the bag's first places with the default layout, so a
 click meant for the bag's item after a Shift+click lands on the info window (the test's own business; the test
 character's Scrap of Notum was left in its bag by it).
+
+**The statels' own effects: a campfire burns (2026-11-12, night; `mao_formats::attractors`, `model::connectors_placed`,
+`main.rs` `statel_effects`, `net.rs`, `viewer.rs`).** The other half of the function that hides the "invis"
+helpers (DisplaySystem FUN_1006d49a) turns each of a mesh's connectors named `eff_...` into an effect: the name
+after the prefix picks the template from a table of 31 (`eff_fire0..9` 2200-2209, `eff_smoke`, `eff_smoke1`,
+`eff_smoke2` 2300-2302, the halos 7000-7006, `eff_torch` 12124, `eff_geyshir`, `eff_waterdrip`, `eff_billboard`,
+`eff_muzzleflash`, `eff_explosion`, `eff_lightsabre`), `eff_universal_<id>` is that number, a name the table lacks
+is the red halo 7001, and after a prefix entry up to five hex bytes give a colour (four or more) and a radius (one
+or five: the last, over 255, times 4). `attractors::effect_of` is that table and reading; a connector is the
+`RRefFrameConnector` a frame's `conn` points at, placed by the frame (`connectors_placed`). For every statel of the
+playfield the client now takes its mesh's effects through the statel's placement and draws each at its place as
+the waterfalls' effect is drawn (`placed_particles`), under the environment effects' setting. Newland Desert has
+18 (8 fires, 5 smokes, halos), Andromeda 138, Arete 46, Jobe Research 181.
+
+What is this client's own, or left out:
+- **The effects whose name gives them a colour or a radius are not drawn** (180 of Jobe Research's 181 halos, 24
+  of Andromeda's 138): how the original puts the four values and the radius on the effect was not read
+  (`AttractorEffectData_t`'s words go to Gamecode's effect handler), and a halo in its template's colour would be a
+  guess. Those lamps stay without a halo, as before.
+- Only the effects within 150 units of the eye are drawn, and each place runs a little apart in time from its
+  neighbours so that the fires do not flicker as one: both limits are this client's. When the original starts and
+  stops them was not read.
+- A generated building's statels (a mission's rooms) are not followed. The rendering effects (`eff_hologram`,
+  `eff_space`, `eff_clear`) are not made. A template the effects' file lacks (12200, 12570, 96003 in the playfields
+  looked at) draws nothing.
+
+Seen in an offline picture of a Newland Desert campfire at 3 and at 40 seconds (it burns on), and a live run in
+Arete came up with its 46 effects and no complaint; the fires themselves were not looked at live.
+`mao-client <game> statel-effects <playfield>` lists a playfield's effects by template;
+`MAO_STATEL_EFFECTS=<seconds> MAO_GFX=<game>/Setupf/gfxtweak.bin` puts them into an offline `map` picture.

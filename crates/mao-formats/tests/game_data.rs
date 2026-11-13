@@ -63,6 +63,20 @@ fn hidden_helpers_have_no_parts() {
     assert!(lava.iter().all(|p| !mao_formats::model::is_hidden_name(&p.name)));
 }
 
+/// A campfire's mesh has one connector, `eff_fire1`, which names the fire 2201; a torch has its own.
+#[test]
+fn a_campfire_names_its_fire() {
+    let Some(db) = database() else { return };
+    let connectors = |instance: u32| {
+        let object = db.get(Id { kind: 0xf6951, instance }).unwrap().unwrap();
+        mao_formats::model::connectors_placed(&mao_formats::mesh::parse(&object).unwrap()).unwrap()
+    };
+    let fire = connectors(42153);
+    assert_eq!(fire.iter().map(|c| c.0.as_str()).collect::<Vec<_>>(), ["eff_fire1"]);
+    assert_eq!(mao_formats::attractors::effect_of(&fire[0].0).map(|e| e.id), Some(0x899));
+    assert!(connectors(70481).iter().any(|c| mao_formats::attractors::effect_of(&c.0).is_some()));
+}
+
 #[test]
 fn every_index_entry_is_walked_in_order() {
     let Some(db) = database() else { return };

@@ -15,6 +15,7 @@ pub mod appearance;
 pub mod npc;
 pub mod item;
 pub mod archive;
+pub mod attractors;
 pub mod catanim;
 pub mod catmesh;
 pub mod mesh;

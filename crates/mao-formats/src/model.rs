@@ -467,7 +467,7 @@ fn simple_mesh(a: &Archive, s: &Stream, name: &str, world: Matrix, out: &mut Vec
     Ok(())
 }
 
-fn walk(a: &Archive, index: i32, parent: &Matrix, depth: usize, root: Root, out: &mut Vec<Part>, chain: &mut Vec<Step>, anims: &mut Vec<Option<Animated>>) -> Result<(), Error> {
+fn walk(a: &Archive, index: i32, parent: &Matrix, depth: usize, root: Root, out: &mut Vec<Part>, chain: &mut Vec<Step>, anims: &mut Vec<Option<Animated>>, connectors: &mut Vec<(String, Matrix)>) -> Result<(), Error> {
     if depth > 64 {
         return Err(Error::Shape("a frame tree deeper than 64"));
     }
@@ -500,6 +500,10 @@ fn walk(a: &Archive, index: i32, parent: &Matrix, depth: usize, root: Root, out:
         Root::None if depth == 0 => Step { trs: IDENTITY, saved: saved_anim_matrix(frame), keys: keys(a, frame).map(std::sync::Arc::new), zero_translation: false },
         _ => Step { trs: trs_of(frame), saved: saved_anim_matrix(frame), keys: keys(a, frame).map(std::sync::Arc::new), zero_translation: root == Root::Rotation && depth == 0 },
     });
+    // (the frame's connector, an `RRefFrameConnector` with a name: where something is attached, or an effect is made)
+    if let Some(c) = frame.int("0", "conn").filter(|c| *c >= 0).and_then(|c| a.objects.get(c as usize)) {
+        connectors.push((string(c, "name"), world));
+    }
     if a.class(index as usize) == Some("RTriMesh_t") {
         if let Some(data) = frame.int("0", "data").and_then(|d| a.objects.get(d as usize)) {
             let name = string(data, "name");
@@ -522,7 +526,7 @@ fn walk(a: &Archive, index: i32, parent: &Matrix, depth: usize, root: Root, out:
         }
     }
     for child in refs(frame, "chld") {
-        walk(a, child, &world, depth + 1, root, out, chain, anims)?;
+        walk(a, child, &world, depth + 1, root, out, chain, anims, connectors)?;
     }
     chain.pop();
     Ok(())
@@ -776,10 +780,21 @@ fn build_animated(mesh: &MeshObject, root: Root) -> Result<(Model, Vec<Option<An
     let a = &mesh.archive;
     let (mut parts, mut anims, mut chain) = (Vec::new(), Vec::new(), Vec::new());
     for root_frame in refs(&a.root, "obj") {
-        walk(a, root_frame, &IDENTITY, 0, root, &mut parts, &mut chain, &mut anims)?;
+        walk(a, root_frame, &IDENTITY, 0, root, &mut parts, &mut chain, &mut anims, &mut Vec::new())?;
     }
     let _ = kind::OBJECT;
     Ok((Model { parts, instances: Vec::new(), water: None, lod_groups: Vec::new() }, anims))
+}
+
+/// The connectors of a mesh placed in the world (a statel): each one's name and the matrix of the frame it is on, in the
+/// mesh's own space as [`build_placed`] has the parts (at rest: a frame's animation is not run).
+pub fn connectors_placed(mesh: &MeshObject) -> Result<Vec<(String, Matrix)>, Error> {
+    let a = &mesh.archive;
+    let (mut parts, mut anims, mut chain, mut connectors) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    for root_frame in refs(&a.root, "obj") {
+        walk(a, root_frame, &IDENTITY, 0, Root::Rotation, &mut parts, &mut chain, &mut anims, &mut connectors)?;
+    }
+    Ok(connectors)
 }
 
 /// [`build_dynel`]'s parts with their animations (a door's leaves, a Whom-Pah's creature), one per part.

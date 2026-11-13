@@ -166,6 +166,9 @@ pub struct Update {
     /// With a new playfield: the feet of its waterfalls (server coordinates, Y up) and the fall effect (gfx 0x30d6) drawn at each,
     /// as Gamecode's FUN_100afc4c makes it from the environment's effect 2 (`liquid::fall_effects`); none for a playfield without.
     pub falls: Option<(Vec<[f32; 3]>, Option<mao_formats::gfx::Visual>)>,
+    /// With a new playfield: its statels' own effects (`crate::statel_effects`: a campfire's fire, a chimney's smoke, a
+    /// lamp's halo), each effect with the places it burns at (the viewer's world, Z up).
+    pub statel_effects: Option<Vec<(mao_formats::gfx::Visual, Vec<[f32; 3]>)>>,
     /// The eye's jolts from strikes near (the quake's kick, `Quake::jolt`).
     pub jolts: Vec<f32>,
     /// The characters' landings (server coordinates, Y up): the environment's effect 0x2c at each (`Sky::landing`).
@@ -477,6 +480,22 @@ pub fn headless_on(model: &Model, textures: &Textures, out: &str, ui: Option<(&H
         }
         eprintln!("camera: under a liquid of type {kind}");
     }
+    // `MAO_STATEL_EFFECTS=<seconds>` (with `MAO_GFX`): the statels' own effects (`crate::statel_effects`) that long in.
+    if let (Ok(age), Ok(file)) = (std::env::var("MAO_STATEL_EFFECTS"), std::env::var("MAO_GFX")) {
+        let gfx = mao_formats::files::read(std::path::Path::new(&file)).ok().and_then(|d| mao_formats::gfx::Gfx::parse(&d).ok());
+        if let (Some(g), Ok(age)) = (gfx, age.parse::<f32>()) {
+            let e = camera.eye();
+            let before = scene.particles.len();
+            for (effect, at) in crate::STATEL_EFFECTS.lock().unwrap().iter().filter(|(e, _)| e.colour.is_none() && e.radius.is_none()) {
+                if let Some(v) = g.visual(effect.id) {
+                    scene.particles.extend(crate::effects::placed_particles(&v, *at, age, [e.x, e.y, e.z]));
+                }
+            }
+            eprintln!("statel effects: {} sparks", scene.particles.len() - before);
+            let mut tried = std::collections::HashSet::new();
+            load_sprites(&mut renderer, &gpu, textures, &scene.particles, &mut tried);
+        }
+    }
     // `MAO_FALLS=<seconds>` (with `MAO_GFX`): the fall effect at the playfield's waterfalls' feet, that long in.
     if let (Ok(age), Ok(file)) = (std::env::var("MAO_FALLS"), std::env::var("MAO_GFX")) {
         let visual = std::fs::read(&file).ok().and_then(|d| mao_formats::gfx::Gfx::parse(&d).ok()).and_then(|g| g.visual(0x30d6));
@@ -626,6 +645,8 @@ struct App {
     placed: std::collections::HashMap<u64, (std::time::Instant, [f32; 3], mao_formats::gfx::Visual)>,
     /// The waterfalls' feet (Z up) and the fall effect drawn at each since the playfield came, when it has any.
     falls: Option<(std::time::Instant, Vec<[f32; 3]>, mao_formats::gfx::Visual)>,
+    /// The playfield's statels' own effects: when they began, the effect, its places.
+    statel_effects: Vec<(std::time::Instant, mao_formats::gfx::Visual, Vec<[f32; 3]>)>,
     /// The area's fog as the environment gives it, before the camera's own (under a liquid) is gathered into it.
     area_fog_base: Option<([f32; 3], f32)>,
     /// The lightning's flashes and bolts under way.
@@ -868,7 +889,7 @@ pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<()
     let settings = Settings::load();
     crate::ui::set_debug_overlay(settings.debug_overlay);
     crate::font::set_enabled(settings.original_font);
-    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, world_in: false, last_follow: std::time::Instant::now(), auras: Vec::new(), placed: Default::default(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), flares: Vec::new(), falls: None, area_fog_base: None, sky: Default::default(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), fxs_frame: None, script_meshes: Default::default(), named_sheets: Default::default(), trails: Default::default(), motions: Default::default(), shake: (0.0, 0), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, zones: None, collision: None, camera_body: crate::vehicle::Body::without_gravity(), look_target: Default::default(), interior: None, rooms_shown: Vec::new(), room_hint: None, attractor_at: std::time::Instant::now(), casters: Vec::new(), character_parts: Vec::new(), highlight_runs: Default::default(), highlight_fades: Default::default(), follow_shift: [0.0; 3], environment: Default::default(), quake: Default::default(), quake_offset: [0.0; 3], wind: Default::default(), wind_at: std::time::Instant::now(), perf_memory_at: std::time::Instant::now() - std::time::Duration::from_secs(10), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, sight_kept: Vec::new(), sight_frame: 0, applied_shadows: settings.shadows, applied_vsync: settings.vsync, focused: true, frame_due: std::time::Instant::now(), keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), script_moves: Default::default(), camera_script: std::env::var("MAO_CAMERA_SCRIPT").ok().map_or_else(Vec::new, |v| v.split(',').filter_map(|s| s.split_once(':').and_then(|(t, c)| Some((t.trim().parse().ok()?, c.trim().to_string())))).collect()), script_clock: std::time::Instant::now(), script_held: Vec::new(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
+    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, world_in: false, last_follow: std::time::Instant::now(), auras: Vec::new(), placed: Default::default(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), flares: Vec::new(), falls: None, statel_effects: Vec::new(), area_fog_base: None, sky: Default::default(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), fxs_frame: None, script_meshes: Default::default(), named_sheets: Default::default(), trails: Default::default(), motions: Default::default(), shake: (0.0, 0), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, zones: None, collision: None, camera_body: crate::vehicle::Body::without_gravity(), look_target: Default::default(), interior: None, rooms_shown: Vec::new(), room_hint: None, attractor_at: std::time::Instant::now(), casters: Vec::new(), character_parts: Vec::new(), highlight_runs: Default::default(), highlight_fades: Default::default(), follow_shift: [0.0; 3], environment: Default::default(), quake: Default::default(), quake_offset: [0.0; 3], wind: Default::default(), wind_at: std::time::Instant::now(), perf_memory_at: std::time::Instant::now() - std::time::Duration::from_secs(10), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, sight_kept: Vec::new(), sight_frame: 0, applied_shadows: settings.shadows, applied_vsync: settings.vsync, focused: true, frame_due: std::time::Instant::now(), keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), script_moves: Default::default(), camera_script: std::env::var("MAO_CAMERA_SCRIPT").ok().map_or_else(Vec::new, |v| v.split(',').filter_map(|s| s.split_once(':').and_then(|(t, c)| Some((t.trim().parse().ok()?, c.trim().to_string())))).collect()), script_clock: std::time::Instant::now(), script_held: Vec::new(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
     // (entering the game: the loading screen, `ServerLogin3DModule_t::InitialiseMessage`)
     if app.live.is_some() {
         // (started from the character list, whose window has had the screen up since Play was pressed: it goes on from
@@ -1713,6 +1734,9 @@ impl ApplicationHandler for App {
                                 self.flares.push((std::time::Instant::now(), at, flare));
                             }
                         }
+                        if let Some(list) = u.statel_effects.take() {
+                            self.statel_effects = list.into_iter().map(|(visual, places)| (std::time::Instant::now(), visual, places)).collect();
+                        }
                         if let Some((feet, visual)) = u.falls.take() {
                             self.falls = visual.filter(|_| !feet.is_empty()).map(|v| (std::time::Instant::now(), feet.into_iter().map(|p| [p[0], p[2], p[1]]).collect(), v));
                         }
@@ -2213,6 +2237,19 @@ impl ApplicationHandler for App {
                     }
                     // (the waterfalls' feet: the fall effect at each, an environment effect, hidden past 80 units from the eye as
                     // its mode is)
+                    // (the statels' own effects: environment effects; each place a little apart in time so that they do not
+                    // flicker as one, and only those within 150 units of the eye, a limit of this client's)
+                    if crate::prefs::effect_category_active(crate::prefs::ENVIRONMENT) {
+                        let eye = w.camera.eye();
+                        for (began, visual, places) in &self.statel_effects {
+                            let age = began.elapsed().as_secs_f32();
+                            for (i, at) in places.iter().enumerate() {
+                                if (at[0] - eye.x).powi(2) + (at[1] - eye.y).powi(2) + (at[2] - eye.z).powi(2) < 150.0 * 150.0 {
+                                    sparks.extend(crate::effects::placed_particles(visual, *at, age + (i % 16) as f32 * 0.37, [eye.x, eye.y, eye.z]));
+                                }
+                            }
+                        }
+                    }
                     if let Some((began, feet, visual)) = &self.falls {
                         if crate::prefs::effect_category_active(crate::prefs::ENVIRONMENT) {
                             let eye = w.camera.eye();

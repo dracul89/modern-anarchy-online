@@ -713,6 +713,45 @@ pub(crate) fn add_props(game: &str, db: &ResourceDatabase, playfield: u32, model
     add_props_with(game, db, playfield, model, None)
 }
 
+/// The statels' effects of the playfield an offline picture is made of (`map`), for `MAO_STATEL_EFFECTS`.
+pub(crate) static STATEL_EFFECTS: std::sync::Mutex<Vec<(mao_formats::attractors::Effect, [f32; 3])>> = std::sync::Mutex::new(Vec::new());
+
+/// The effects the playfield's statels carry on their meshes' connectors (`mao_formats::attractors`: a campfire's fire,
+/// a lamp's halo, a chimney's smoke): each with its place in the viewer's world (Z up), the connector's frame through
+/// the statel's placement as the parts go.
+pub(crate) fn statel_effects(game: &str, db: &ResourceDatabase, playfield: u32) -> Vec<(mao_formats::attractors::Effect, [f32; 3])> {
+    // (a generated building's statels are moved room by room: not followed here)
+    if generated_rooms(db, playfield).is_some() {
+        return Vec::new();
+    }
+    let path = Path::new(game).join(format!("cd_image/data/statels/{playfield}.pf"));
+    let Some(statels) = mao_formats::files::read(&path).ok().and_then(|file| mao_formats::statels::parse(&file).ok()) else { return Vec::new() };
+    let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
+    // (each mesh's effects once: the connectors that name one, with their frames)
+    let mut meshes: std::collections::HashMap<u32, Vec<(mao_formats::attractors::Effect, mao_formats::model::Matrix)>> = std::collections::HashMap::new();
+    let mut out = Vec::new();
+    for s in &statels {
+        let effects = meshes.entry(s.mesh).or_insert_with(|| {
+            let Some(object) = db.get(Id { kind: 0xf6951, instance: s.mesh }).ok().flatten() else { return Vec::new() };
+            // (the prefix's bytes first: few meshes have any)
+            if !object.windows(4).any(|w| w == b"eff_") {
+                return Vec::new();
+            }
+            let Some(connectors) = mesh::parse(&object).ok().and_then(|m| model::connectors_placed(&m).ok()) else { return Vec::new() };
+            connectors.into_iter().filter_map(|(name, frame)| Some((mao_formats::attractors::effect_of(&name)?, frame))).collect()
+        });
+        if effects.is_empty() {
+            continue;
+        }
+        let place = model::multiply(&model::trs_matrix(s.position, s.rotation, s.scale_xyz), &swap);
+        for (effect, frame) in effects.iter() {
+            let m = model::multiply(frame, &place);
+            out.push((*effect, [m[12], m[13], m[14]]));
+        }
+    }
+    out
+}
+
 /// A statel's part that moves (its mesh's animation turns it, hides it or scrolls its texture: a Whom-Pah's glowing
 /// tower): drawn each frame at the time, [`net`]'s overlay, at the statel's place.
 pub(crate) struct AnimatedPart {
@@ -1017,6 +1056,26 @@ fn run(args: &[String]) -> Result<(), String> {
     if let [_, word, which] = args {
         if word == "web" {
             return browser::test_window(if which == "market" { browser::Mode::Market } else { browser::Mode::ItemStore });
+        }
+    }
+    // `statel-effects <game> <playfield>`: the effects the playfield's statels carry on their connectors, by template: how
+    // many places, whether the effects' file has the template and of what kind, and the first place (viewer's world).
+    if let [game, word, playfield] = args {
+        if word == "statel-effects" {
+            let db = ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?;
+            let number = find_playfield(&db, playfield)?;
+            let gfx = mao_formats::files::read(Path::new(game).join("Setupf").join("gfxtweak.bin")).ok().and_then(|d| mao_formats::gfx::Gfx::parse(&d).ok());
+            let mut by_id: std::collections::BTreeMap<i32, Vec<[f32; 3]>> = std::collections::BTreeMap::new();
+            let effects = statel_effects(game, &db, number);
+            for (e, at) in &effects {
+                by_id.entry(e.id).or_default().push(*at);
+            }
+            for (id, places) in &by_id {
+                let kind = gfx.as_ref().and_then(|g| g.visual(*id)).map(|v| format!("{v:?}").chars().take_while(|c| c.is_alphanumeric()).collect::<String>());
+                println!("effect {id} ({id:#x}): {} places, template {:?}, first at {:.1?}", places.len(), kind, places[0]);
+            }
+            println!("{} effects, {} with a colour or a radius of their own", effects.len(), effects.iter().filter(|(e, _)| e.colour.is_some() || e.radius.is_some()).count());
+            return Ok(());
         }
     }
     // `dynels <game> <playfield> <kind hex>`: the built-in things of one identity type in a playfield.
@@ -1580,6 +1639,7 @@ fn run(args: &[String]) -> Result<(), String> {
             let mut model = load_terrain(&db, number).unwrap_or_default();
             if std::env::var_os("MAO_NO_PROPS").is_none() {
                 add_props(game, &db, number, &mut model);
+                *STATEL_EFFECTS.lock().unwrap() = statel_effects(game, &db, number);
             }
             if std::env::var_os("MAO_NO_PROPS").is_none() {
                 if model.instances.is_empty() {

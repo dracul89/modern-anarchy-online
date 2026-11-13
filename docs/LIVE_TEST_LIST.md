@@ -225,6 +225,10 @@ account with `net <game> create`, in Arete Landing; scripted, other new players 
   both orders); Shift+click shows the info (inventory, wear window, a bag); a worn bag opens and closes by right
   clicks; in a bag a click takes an item up and a click on the inventory takes it out; in a corpse a click takes
   the item; Shift+T opens and closes the tradeskill window.
+- [ ] The statels' own effects (2026-11-12): campfires and bonfires burn, chimneys and vents smoke, plain halos
+  glow (Newland Desert, Andromeda, Arete's camps); the frame rate near many of them; nothing odd where a red halo
+  now stands (a name the original's table lacks gets one). Lamps whose halo has a colour of its own (Jobe) still
+  have none.
 - [ ] The helpers named "invis" (2026-11-12): no light-blue slabs under the Market Search terminals of Rome Blue,
   Rome Green and West Athens, no white floors or coloured blocks in the ACG and Temple of Three Winds dungeons, no
   grey pyramid in a campfire or red cross where a halo belongs (seen gone in offline pictures of Rome Blue only).

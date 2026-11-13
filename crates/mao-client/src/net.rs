@@ -4857,6 +4857,8 @@ pub(crate) struct Area {
     pub(crate) interior: Option<Arc<crate::interior::Interior>>,
     /// The feet of the waterfalls (x, height, z), for the fall effect (`liquid::fall_effects`).
     pub(crate) falls: Vec<[f32; 3]>,
+    /// The statels' own effects (`crate::statel_effects`): each one's template and its place in the viewer's world.
+    pub(crate) statel_effects: Vec<(i32, [f32; 3])>,
 }
 
 pub(crate) fn load_area(game: &str, db: &Arc<ResourceDatabase>, playfield: u32) -> Result<Area, String> {
@@ -4959,6 +4961,12 @@ pub(crate) fn load_area_with(game: &str, db: &Arc<ResourceDatabase>, playfield: 
         }
     };
     let falls = anarchy.as_ref().map_or(Vec::new(), |a| crate::liquid::fall_effects(&a.water, &closest));
+    // (the statels' own effects: a campfire's fire, a chimney's smoke, a lamp's halo. The ones whose name gives them a
+    // colour or a radius of their own are left out until it is read how the original puts those on the effect.)
+    let statel_effects: Vec<(i32, [f32; 3])> = crate::statel_effects(game, db, playfield).into_iter().filter(|(e, _)| e.colour.is_none() && e.radius.is_none()).map(|(e, at)| (e.id, at)).collect();
+    if !statel_effects.is_empty() {
+        eprintln!("playfield {playfield}: {} statel effects", statel_effects.len());
+    }
     if !falls.is_empty() {
         eprintln!("playfield {playfield}: the fall effect at {} places", falls.len());
     }
@@ -4966,7 +4974,7 @@ pub(crate) fn load_area_with(game: &str, db: &Arc<ResourceDatabase>, playfield: 
     if let Some(e) = &base_environment {
         eprintln!("playfield {playfield}: environment weather {:?} ambient {:?} fog {:?} density {}", &e[..8], &e[19..22], &e[22..25], e[25]);
     }
-    Ok(Area { scene, terrain, collision, booths, areas, base_environment, teleportals, zones, animated, interior, falls })
+    Ok(Area { scene, terrain, collision, booths, areas, base_environment, teleportals, zones, animated, interior, falls, statel_effects })
 }
 
 /// The label over each whompah booth: where it leads, when that is known.
@@ -5007,7 +5015,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     let _ = ITEM_DB.set(db.clone());
     crate::effects::load_calibration(game);
     let textures = crate::Textures::new(db.clone());
-    let Area { scene, terrain, collision, booths, areas, base_environment, teleportals, zones, animated, interior, falls } = load_area_with(game, &db, playfield, Some(&textures))?;
+    let Area { scene, terrain, collision, booths, areas, base_environment, teleportals, zones, animated, interior, falls, statel_effects } = load_area_with(game, &db, playfield, Some(&textures))?;
     // The rooms of an interior: where the character is among them, which doors it may pass, which rooms are drawn.
     let mut interior = interior;
     let mut room_state = crate::interior::RoomState::default();
@@ -5458,6 +5466,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut pending_scene: Option<Model> = None;
         // (the new playfield's waterfalls' feet, for the viewer's fall effects)
         let mut pending_falls: Option<Vec<[f32; 3]>> = Some(falls);
+        let mut pending_statel_effects: Option<Vec<(i32, [f32; 3])>> = Some(statel_effects);
         let first_inventory = state.inventory.take();
         if let Some(entries) = &first_inventory {
             state.worn = entries.clone();
@@ -6049,6 +6058,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             pending_scene = Some(scene);
                             booths = area.booths;
                             pending_falls = Some(area.falls);
+                            pending_statel_effects = Some(area.statel_effects);
                             areas = area.areas;
                             state.grid = is_grid(&areas);
                             base_environment = area.base_environment;
@@ -6061,6 +6071,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             (terrain, collision) = (None, Default::default());
                             pending_scene = Some(Model::default());
                             pending_falls = Some(Vec::new());
+                            pending_statel_effects = Some(Vec::new());
                             booths = Vec::new();
                             pending_labels = Some(Vec::new());
                         }
@@ -8128,6 +8139,14 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     messages_only: false,
                     target_nanos,
                     scene: pending_scene.take(),
+                    // (grouped by template, each with the effect itself when the effects' file has it)
+                    statel_effects: pending_statel_effects.take().map(|list| {
+                        let mut by_id: std::collections::BTreeMap<i32, Vec<[f32; 3]>> = std::collections::BTreeMap::new();
+                        for (id, at) in list {
+                            by_id.entry(id).or_default().push(at);
+                        }
+                        by_id.into_iter().filter_map(|(id, places)| Some((gfx.as_ref()?.visual(id)?, places))).collect()
+                    }),
                     falls: pending_falls.take().map(|feet| (feet, gfx.as_ref().and_then(|g| g.visual(0x30d6)))),
                     interior: pending_interior.take(),
                     rooms_shown: pending_rooms_shown.take(),
