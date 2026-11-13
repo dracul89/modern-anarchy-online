@@ -5593,7 +5593,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         // (which worn items let their wearer fly, by template: looked up once each)
         let mut flight_items: std::collections::HashMap<u32, bool> = std::collections::HashMap::new();
         // (an item to wear or take off because it was "used": the move, made by the move's own code at the next turn)
-        let mut wear_by_use: Option<(u32, u32)> = None;
+        let mut wear_by_use: std::collections::VecDeque<(u32, u32)> = std::collections::VecDeque::new();
         let mut shop_booth: Option<(u32, u32)> = None;
         // (the backpack places put into the open shop's trade: gone from the backpack when the trade completes. The server
         // says nothing more of them: a sale's log has `AddItem` for each place, then `Complete`, then the shop opened anew.)
@@ -7298,7 +7298,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             }
             // An item dragged to another place: ask the server, and show the change at once; the server's refusal takes it back
             // (`World::moves_asked`).
-            let mut wanted_move = wear_by_use.take();
+            let mut wanted_move = wear_by_use.pop_front();
             if keys.mv.0 != move_seen {
                 move_seen = keys.mv.0;
                 wanted_move = Some((keys.mv.1, keys.mv.2));
@@ -7383,10 +7383,18 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     } else {
                         (inventory::BACKPACK_FIRST..inventory::BACKPACK_FIRST + 30).find(|&p| !taken(p))
                     };
-                    wear_by_use = to.map(|to| (e.slot, to));
-                    if crate::gear::traced() {
-                        eprintln!("items: the use of place {} ({}) is a move: {:?}", e.slot, e.low_id, wear_by_use);
+                    // (a place that is taken is emptied first: what is worn there goes into the backpack's first free place,
+                    // then the item is worn, FUN_10047732 / FUN_1004b3ee before the move in `N3Msg_UseItem`; one move a turn)
+                    if let Some(to) = to {
+                        if e.slot >= inventory::BACKPACK_FIRST && taken(to) {
+                            match (inventory::BACKPACK_FIRST..inventory::BACKPACK_FIRST + 30).find(|&p| p != e.slot && !taken(p)) {
+                                Some(free) => wear_by_use.push_back((to, free)),
+                                None => state.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, crate::feedback::plain("Feedback_InventoryFull"))),
+                            }
+                        }
+                        wear_by_use.push_back((e.slot, to));
                     }
+                    eprintln!("items: the use of place {} (item {}) is a move: {:?}", e.slot, e.low_id, wear_by_use);
                 } else {
                     if crate::gear::traced() {
                         eprintln!("items: the use of place {} sent to the server", keys.fire.1);
@@ -7499,6 +7507,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             let worn_flight = state.worn.iter().filter(|e| e.slot < 64).any(|e| {
                 *flight_items.entry(e.low_id).or_insert_with(|| gear_db.get(mao_formats::resource::Id { kind: mao_formats::item::TEMPLATE, instance: e.low_id }).ok().flatten().is_some_and(|d| mao_formats::item::grants_flight(&d)))
             });
+            if (state.nano_flying || worn_flight) != state.own_flying {
+                eprintln!("flight: {} (a program {}, a worn item {})", if state.nano_flying || worn_flight { "on" } else { "off" }, state.nano_flying, worn_flight);
+            }
             state.own_flying = state.nano_flying || worn_flight;
             let flying = state.own_flying;
             if flying != was_flying {

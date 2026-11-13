@@ -694,6 +694,10 @@ impl ItemWindows {
             if clicks > 0 {
                 multilist::select(tree, list, Some(slot));
             }
+            // (said in the game's log: a Ctrl+click that did not split says what it saw)
+            if clicks > 0 && ctx.input(|i| i.modifiers.ctrl || i.modifiers.command) {
+                eprintln!("items: Ctrl+click on place {} ({:?}): count {}, {} clicks, ctrl {ctrl}, shift {shift}, in hand {:?}", item.slot, item.name, item.count, clicks, held);
+            }
             match click(clicks, shift, ctrl, held.is_some(), item.slot >= BACKPACK_FIRST && item.count > 1) {
                 Click::Info => events.infos.push(format!("itemref://{}/{}/{}", item.item_id, item.high_id, item.quality)),
                 // (the second click of two: the first one's split box goes)
