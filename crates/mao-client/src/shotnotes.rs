@@ -26,7 +26,8 @@ pub fn text(heading: &[String], target: Option<&str>) -> String {
     let looks = LOOKS.lock().unwrap_or_else(|e| e.into_inner());
     let mut out = heading.join("\n");
     out.push('\n');
-    let is_target = |name: &str| target.is_some_and(|t| !t.is_empty() && name == t);
+    // (the target's line has more after the name: "Male Watcher  HP 7422/7422  (2 m)")
+    let is_target = |name: &str| target.is_some_and(|t| !name.is_empty() && (t == name || t.starts_with(&format!("{name}  "))));
     for (id, (name, line, bytes)) in looks.iter().filter(|(_, l)| is_target(&l.0)) {
         out.push_str(&format!("\ntarget {id:#x} {name:?}\n  {line}\n  bytes {bytes}\n"));
     }
@@ -43,7 +44,7 @@ mod tests {
     fn the_target_comes_first_with_its_bytes() {
         super::set(7, "Male Watcher", "template none".into(), &[0xab, 0x01]);
         super::set(9, "Somebody", "template 0x12".into(), &[0xcd]);
-        let text = super::text(&["playfield Jobe".to_string()], Some("Male Watcher"));
+        let text = super::text(&["playfield Jobe".to_string()], Some("Male Watcher  HP 7422/7422  (2 m)"));
         let (target, others) = (text.find("target 0x7 \"Male Watcher\"").unwrap(), text.find("0x9 \"Somebody\": template 0x12").unwrap());
         assert!(text.starts_with("playfield Jobe\n") && target < others);
         assert!(text.contains("bytes ab01") && !text.contains("cd\n"));

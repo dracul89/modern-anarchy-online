@@ -810,6 +810,21 @@ target_info = T
     }
 
     #[test]
+    fn the_message_log_is_read_and_written() {
+        let s = Settings::from_text("[keys]
+version = 2
+quit = Ctrl+Q
+
+[debug]
+; a note: with = in it
+log_messages = on
+");
+        assert!(s.log_messages);
+        assert!(Settings::from_text(&s.to_text()).log_messages);
+        assert!(!Settings::from_text(&Settings::default().to_text()).log_messages);
+    }
+
+    #[test]
     fn options_are_set_by_name() {
         let mut s = Settings::default();
         assert_eq!(s.set_option("vsync", "on"), "vsync is now on.");

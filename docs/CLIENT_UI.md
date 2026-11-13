@@ -3475,3 +3475,34 @@ with a build that has the notes).
 - "equipping a yalmaha or ganimedes does nothing";
 - "camera is still jittery when running or jumping" (`MAO_CAMERA_TRACE=1` is the tool; no cause known);
 - the Male Watcher without its gear (a screenshot with it selected: `shotnotes`).
+
+**From the first session with a log and notes (2026-11-13, morning; the user on Cotangent).**
+
+- **An NPC wears the meshes its update lists** (the user: the Male Watchers "should be wearing helmets"). The notes
+  of a screenshot in Old Athen gave the Watcher's update: template 0x661b, five clothes, and the worn meshes
+  `(head's place, opifex_male_helmet_techarmour, texture 0x7be0)` and `(right hand, hellspinner_shock_cannon)`.
+  Players' worn meshes were attached (`wear`), a creature's with a template were not: `creature_parts` drew the
+  template's own head and nothing else. It now takes the update's list: a mesh in the head's place stands for the
+  template's head, the others go on their attachment points. Offline picture of the template with that list
+  (`MAO_CREATURE_GEAR=80:4e6d:7be0,1:25a1d:0 mao-client <game> creature 661b out.png`): the helmet on, the cannon
+  in the hand. Every NPC with listed meshes changes with this (Arete's dock workers carry their tools); how a
+  two-handed gun is held at rest was not compared with the original.
+- **What was sold leaves the backpack when the trade completes.** The log of a sale: `Trade` `AddItem` naming the
+  character, container 0x68 and the place, once for each item; `Complete`; then the shop opened anew. The server
+  says nothing more of the items, and the client kept them until the next full inventory (a zoning). The places
+  put into an open shop's trade are now remembered (taken out again by `RemoveItem`, forgotten at a decline or a
+  new opening) and removed from the backpack at `Complete`. Not tried live.
+- **A shop's window closes when its place is left.** The log shows the server leaving the trade open when the
+  character walks off and answering "You are too far away" to what is tried from afar. Where the original ends it
+  was not found (Gamecode's range test FUN_1005a1e7 is called when a trade starts; no caller for an open one was
+  found). The client now declines the trade and closes the window once the character is more than 8 units from
+  where it stood when the shop opened: the rule and the distance are this client's. Not tried live.
+- The screenshot's notes match the target by its name (the target's line has its health and distance after it).
+  The message log is now read by the game itself (`[debug] log_messages`), and the log says "message log: on/off":
+  the first run with the setting had none of the server's messages in it, and why the login's process did not pass
+  it on is not known.
+
+**Still open from that session:** a right click on an item that can be worn should wear it (now: use); a Yalmaha
+or Ganimedes equipped does not put the character into flight (the user: the Ganimedes shows on the back; for a
+Yalmaha the player shrinks, flies and is replaced by the vehicle); "weird slabs" in the tradeskill part of the clan
+shop (`ord_smarket_clan_advanced`); the camera's jitter.

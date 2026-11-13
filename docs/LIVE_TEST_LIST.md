@@ -225,6 +225,10 @@ account with `net <game> create`, in Arete Landing; scripted, other new players 
   both orders); Shift+click shows the info (inventory, wear window, a bag); a worn bag opens and closes by right
   clicks; in a bag a click takes an item up and a click on the inventory takes it out; in a corpse a click takes
   the item; Shift+T opens and closes the tradeskill window.
+- [ ] From the session of 2026-11-13 morning: the Male Watchers of Old Athen wear their helmets and hold their
+  cannons (and other NPCs their tools, the right way round); an item sold to a shop is gone from the inventory as
+  the trade completes; a shop's window closes about 8 units from where it was opened; `game-log.txt` begins with
+  "message log: on" and holds "server n3" lines.
 - [ ] The user's list of 2026-11-13: a loot line in the chat reads as a sentence (not `~&!!!...`); the right
   button held on an inventory item opens its menu (Look At, Use, Create Reference, Delete), and Create Reference
   puts the item's link into the chat's line, which others can click once it is sent; `game-log.txt` appears beside

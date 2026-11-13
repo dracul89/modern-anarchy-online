@@ -3646,7 +3646,7 @@ impl Characters {
     /// animations its record names), in Y-up local space.
     /// A dead one (`dying`: the death's action) plays its death once and lies in its last pose: the template's animation for the
     /// action (FUN_1003cac9 asks the creature's own set), else along FUN_10010b3c's fallbacks (`die-knees` to `die-pain`).
-    fn creature_parts(&mut self, id: u32, template: u32, action: mao_formats::appearance::Action, _phase: f32, rate: f32, textures: &[(String, u32)], clothes: &[(String, u32)], deform: Option<(&mao_formats::gfx::Deform, f32)>, dying: Option<u32>, swing: Option<(u32, u32, Instant, u32, u32)>) -> Option<Vec<Part>> {
+    fn creature_parts(&mut self, id: u32, template: u32, action: mao_formats::appearance::Action, _phase: f32, rate: f32, textures: &[(String, u32)], clothes: &[(String, u32)], deform: Option<(&mao_formats::gfx::Deform, f32)>, dying: Option<u32>, swing: Option<(u32, u32, Instant, u32, u32)>, gear: &[(u8, u32, u32)]) -> Option<Vec<Part>> {
         use mao_formats::resource::Id;
         let db = self.db.clone();
         let entry = self.creatures.entry(template).or_insert_with(|| load_template(&db, template));
@@ -3778,9 +3778,14 @@ impl Characters {
                 part.material.textures = vec![(0xf6954, *instance)];
             }
         }
-        if let (Some(head), Some(attractor)) = (head, mesh.attractor("head")) {
+        // (the meshes the creature's update lists are worn as a player's are, `wear`: a helmet in the head's place, with
+        // which the template's own head is not drawn, what is in the hands, on the shoulders and the back. The Male
+        // Watchers of Old Athen stood bare-headed: their update names `opifex_male_helmet_techarmour` for the head.)
+        let custom_head = gear.iter().any(|g| g.0 == mao_net::n3::HEAD_REPLACED);
+        if let (Some(head), Some(attractor), false) = (head, mesh.attractor("head"), custom_head) {
             parts.extend(mesh.attach(&bones, attractor, head));
         }
+        parts.extend(wear(&db, &mut self.statics, mesh, &bones, gear));
         for p in &mut parts {
             p.world = model::IDENTITY;
         }
@@ -4356,7 +4361,12 @@ pub(crate) fn creature_preview(db: Arc<ResourceDatabase>, template: u32, out: &s
         "run" => mao_formats::appearance::Action::Run,
         _ => mao_formats::appearance::Action::Idle,
     };
-    let parts = chars.creature_parts(0, template, action, 0.0, 1.0, &[], &[], None, None, None).ok_or("that template has no mesh")?;
+    // (`MAO_CREATURE_GEAR=<position>:<mesh>:<texture>,...` in hex: the worn meshes of an update, as `shown_meshes` gives them)
+    let gear: Vec<(u8, u32, u32)> = std::env::var("MAO_CREATURE_GEAR").unwrap_or_default().split(',').filter_map(|g| {
+        let v: Vec<u32> = g.split(':').filter_map(|n| u32::from_str_radix(n.trim(), 16).ok()).collect();
+        (v.len() == 3).then(|| (v[0] as u8, v[1], v[2]))
+    }).collect();
+    let parts = chars.creature_parts(0, template, action, 0.0, 1.0, &[], &[], None, None, None, &gear).ok_or("that template has no mesh")?;
     let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     let model = Model { instances: (0..parts.len()).map(|i| (i, swap)).collect(), parts, water: None, lod_groups: Vec::new() };
     crate::viewer::headless(&model, &crate::Textures::new(db), out)
@@ -4451,7 +4461,7 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
             let action = if moving { mao_formats::appearance::Action::Walk } else { mao_formats::appearance::Action::Idle };
             // (an attack swings the weapon the server said the creature holds in the place it names)
             let swing = world.swings.get(&id).and_then(|&(slot, began, pick, class)| Some((*world.weapons.get(&(id, slot as u8))?, slot, began, pick, class)));
-            if let Some(parts) = chars.creature_parts(id, info.template.unwrap(), action, (id % 997) as f32 * 3.0, 1.0, &info.textures, &info.clothes, deform, world.held_action(id), swing) {
+            if let Some(parts) = chars.creature_parts(id, info.template.unwrap(), action, (id % 997) as f32 * 3.0, 1.0, &info.textures, &info.clothes, deform, world.held_action(id), swing, &info.meshes) {
                 // (the creature at the size its update gives it, a percentage of its template's: the original's dynel
                 // takes its `Scale` stat as the body's scale, `SetBodyScale`, Gamecode FUN_100892ca; the bosses of Arete
                 // Landing are ordinary creatures at 600)
@@ -4481,7 +4491,7 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
                 _ if speed > 2.2 => Action::Run,
                 _ => Action::Walk,
             };
-            if let Some(parts) = chars.creature_parts(id, creature, action, (id % 997) as f32 * 3.0, MORPH_ANIM_RATE, &[], &[], deform, world.held_action(id), None) {
+            if let Some(parts) = chars.creature_parts(id, creature, action, (id % 997) as f32 * 3.0, MORPH_ANIM_RATE, &[], &[], deform, world.held_action(id), None, &[]) {
                 push_character(&mut model, &mut casters, &mut ranges, id, parts, place, id == world.own, chars.frames.get(&id));
                 continue;
             }
@@ -5490,7 +5500,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut offset = ground_offset(&terrain, start);
         let mut base = start[1];
         let clock = Instant::now();
-        let tracing = std::env::var("MAO_TRACE").is_ok_and(|v| v == "1");
+        // (`MAO_TRACE=1`, or the settings' `[debug] log_messages`: the first run with the setting had no message in its log,
+        // so the game reads the setting itself and says which it found)
+        let tracing = std::env::var("MAO_TRACE").is_ok_and(|v| v == "1") || crate::settings::Settings::load().log_messages;
+        eprintln!("message log: {} (settings {})", if tracing { "on" } else { "off" }, crate::settings::Settings::path().display());
         let mut last_report = Instant::now();
         let mut fresh = false;
         state.arrival = None;
@@ -5568,6 +5581,11 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         // (the mission journal: the server's whole list when it sends one, and the missions it dropped)
         let (mut pending_mission_log, mut pending_missions_removed): (Option<Vec<crate::missionlog::Mission>>, Vec<(u32, u32)>) = (None, Vec::new());
         let mut shop_booth: Option<(u32, u32)> = None;
+        // (the backpack places put into the open shop's trade: gone from the backpack when the trade completes. The server
+        // says nothing more of them: a sale's log has `AddItem` for each place, then `Complete`, then the shop opened anew.)
+        let mut shop_sold: Vec<u32> = Vec::new();
+        // (where the character stood when the shop opened: see `SHOP_REACH`)
+        let mut shop_opened_at: Option<[f32; 3]> = None;
         // (the player a trade is open with)
         let mut player_trade: Option<u32> = None;
         let (mut shop_rates, mut shop_rows, mut pending_shop_changes) = (crate::shop::Rates { buy: 0, sell: 0, kind: 0 }, Vec::<crate::shop::Row>::new(), Vec::<crate::shop::Change>::new());
@@ -5851,6 +5869,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                 shop_rows = stock.iter().map(|s| crate::shop::Row { item: [0; 4], name: s.name.clone(), icon: s.icon.clone(), count: 1, quality: s.quality, price: s.price }).collect();
                                 let name = table.map(|d| d.4.clone()).filter(|n| !n.is_empty()).or_else(|| state.vendor_names.get(&m.identity.1).cloned()).or_else(|| item.map(|i| i.name)).unwrap_or_default();
                                 shop_booth = Some(m.identity);
+                                shop_opened_at = Some(position);
+                                shop_sold.clear();
                                 pending_shop = Some(crate::shop::ShopState { shop: m.identity, name, stock });
                             }
                         }
@@ -5887,14 +5907,27 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                 }
                             }
                             5 if item[0] == n3::CHARACTER && item[2] == 0x68 => {
+                                if shop_booth.is_some() && item[1] == own && !shop_sold.contains(&item[3]) {
+                                    shop_sold.push(item[3]);
+                                }
                                 if let Some(entry) = state.worn.iter().find(|e| e.slot == item[3]) {
                                     let literacy = state.stats.get(&161).copied().unwrap_or(0);
                                     let icon = |id: u32| gear_textures.get(mao_formats::item::ICON_TYPE, id).map(|x| std::sync::Arc::new(crate::gear::Icon { id, width: x.width as usize, height: x.height as usize, rgba: x.rgba }));
                                     pending_shop_changes.push(crate::shop::Change::Sold(crate::shop::sold_row(&gear_db, &icon, item, entry, shop_rates, literacy)));
                                 }
                             }
-                            6 => pending_shop_changes.push(crate::shop::Change::Removed(item)),
+                            6 => {
+                                if item[2] == 0x68 {
+                                    shop_sold.retain(|place| *place != item[3]);
+                                }
+                                pending_shop_changes.push(crate::shop::Change::Removed(item));
+                            }
                             4 if shop_booth.is_some() => {
+                                if !shop_sold.is_empty() {
+                                    state.worn.retain(|e| !shop_sold.contains(&e.slot));
+                                    state.inventory = Some(state.worn.clone());
+                                    shop_sold.clear();
+                                }
                                 pending_shop_changes.push(crate::shop::Change::Complete);
                                 shop_reuse = Some(Instant::now() + Duration::from_millis(300));
                             }
@@ -6773,11 +6806,27 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     }
                 }
             }
+            // (a shop walked away from: its trade is declined and its window closed. The server only answers "You are too
+            // far away" to what is tried from afar and leaves the trade open; where the original's client ends it was not
+            // found, and the distance is this client's.)
+            const SHOP_REACH: f32 = 8.0;
+            if shop_booth.is_some()
+                && let Some(at) = shop_opened_at
+                && ((at[0] - position[0]).powi(2) + (at[2] - position[2]).powi(2)).sqrt() > SHOP_REACH
+            {
+                let _ = connection.send(&n3::trade_decline(own));
+                shop_booth = None;
+                shop_opened_at = None;
+                shop_sold.clear();
+                pending_shop_changes.push(crate::shop::Change::Left);
+            }
             while let Ok(command) = shop_rx.try_recv() {
                 match command {
                     crate::shop::ShopCommand::Close => {
                         let _ = connection.send(&n3::trade_decline(own));
                         shop_booth = None;
+                        shop_opened_at = None;
+                        shop_sold.clear();
                         player_trade = None;
                     }
                     // (a player trade: `N3Msg_TradeSetCash`, action 7 with the credits second; `N3Msg_TradeConfirm`, action 3)
