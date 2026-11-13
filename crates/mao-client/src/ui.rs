@@ -1331,6 +1331,13 @@ impl Ui {
                 // of one whose window was closed here shows it again: nothing is sent for either, the client knows
                 // what is in a bag it has opened. Worn or carried alike. Where the original closes a backpack on its
                 // second use was not found: its `InventoryGUIModule_c::CloseContainer` is called when a bag is taken up)
+                // (a bag taken up is closed: the original's pick-up handler, FUN_100cc6e8, calls `CloseContainer`)
+                if let Some(place) = crate::gear::held()
+                    && let Some(bag) = hud.gear.iter().find(|g| g.slot == place && g.bag).map(|g| g.container)
+                    && let Some(window) = bag_windows.get_mut(&bag)
+                {
+                    window.open = false;
+                }
                 for place in events.uses {
                     let bag = hud.gear.iter().find(|g| g.slot == place && g.bag).map(|g| g.container).filter(|c| hud.bags.iter().any(|b| b.identity == *c));
                     match bag.and_then(|c| bag_windows.get_mut(&c)) {

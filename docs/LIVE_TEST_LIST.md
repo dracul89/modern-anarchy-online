@@ -225,6 +225,10 @@ account with `net <game> create`, in Arete Landing; scripted, other new players 
   both orders); Shift+click shows the info (inventory, wear window, a bag); a worn bag opens and closes by right
   clicks; in a bag a click takes an item up and a click on the inventory takes it out; in a corpse a click takes
   the item; Shift+T opens and closes the tradeskill window.
+- [ ] The inventory, from the original's code (2026-11-13): a right click on armour, a weapon or an implant in the
+  backpack wears it and on a worn one takes it off; on a consumable or a bag it uses or opens; the menu comes by
+  the right button held about a third of a second (Look At, Create Reference, Delete); a bag picked up closes its
+  window. A Ganimedes jetpack worn puts the character into flight.
 - [ ] The camera (2026-11-13): `/setoption camera_mode free` and how it feels against `rubber` and `lock` at
   turning, running and jumping; whether the jitter is still there in the free camera.
 - [ ] From the session of 2026-11-13 morning: the Male Watchers of Old Athen wear their helmets and hold their

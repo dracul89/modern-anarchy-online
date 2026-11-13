@@ -3528,3 +3528,31 @@ flight from the running programs only; the game loop now also takes it from the 
 (`worn_flight` in `net.rs`). Not tried live: no test character has such an item, and whether the worn list is
 brought up to date at the moment of equipping (not only at a zoning) was not seen. A Yalmaha is not done: by the
 user's word the player shrinks, flies and is replaced by the vehicle, which wants its wear event read the same way.
+
+**The inventory against the original's code (2026-11-13; the user: "Analyze the original code for inventory and
+provide something close to that").** The reading is `docs/INVENTORY_ORIGINAL.md` (GUI.dll's item lists, the
+inventory, wear and container views, Gamecode's use and move functions; each statement with its function, and a
+table of sixteen differences). It corrects two notes above: the inventory's lists take the **old** mouse path
+whatever `UseNewMouseFunc` says (the flag at +0x319 is set for the nano, shortcut and action lists only), where an
+item is taken up as the left button comes **up** on its cell; and FUN_100cae1b is the right click's handler, whose
+Ctrl is the trade's add. Done from it so far:
+
+- **A right click wears or takes off what cannot be used.** The list always asks for a use; Gamecode's
+  `N3Msg_UseItem` (0x10028883) looks at the item's `Can` flags (stat 30): without 8, "use", an own item is not used
+  but moved: one in the backpack to its wear page (stat 76: 1 weapons, 2 clothes sixteen on, 3 and 5 implants
+  thirty-two on) at its place (stat 88), one that is worn into the backpack's first free place; one with neither
+  goes nowhere and nothing is sent. `net.rs` does the same where a use is carried out (another place the item's
+  flags, stat 298, allow is taken when its own is taken and that one free: this client's). Tried live: the test
+  character's helmet went on (place 18) by a use and off again by the next; a piece of junk sent nothing.
+- **An item's menu is the original's** (FUN_100caf07): the right button held 0.3 s (`MouseButtonHoldDelay`), with
+  Look At, Create Reference and Delete; no entry to use it, and Shift+right click is a plain use.
+- **A bag taken up is closed** (FUN_100cc6e8 → `CloseContainer`).
+
+Left from the table, in the order a player would notice: placing items by hand, the swap on a taken cell and the
+kept places (the client packs the items in their places' order); splitting and joining stacks (`N3Msg_SplitItem`,
+`N3Msg_JoinItems`); an item in hand with a plain right click is `UseItemOnItem` and only with Shift the tradeskill
+combine (the client sends the combine always); dropping on the ground and using on a character; closing a bag's
+window or using an open bag sends the use again (the client only hides the window); Ctrl+right click adds to any
+trade; an unfit wear place leaves the item in hand; a corpse has no right click and no "Take all"; the windows'
+own menus (List Mode, Auto Arrange, Labels On Top, Unlock All Items); the tooltip and the count's look. Also seen:
+`wear_refusal` tests the place's bit without the page (a drag onto a place of the wrong page is not refused here).

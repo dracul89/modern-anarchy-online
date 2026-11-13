@@ -5585,6 +5585,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let (mut pending_mission_log, mut pending_missions_removed): (Option<Vec<crate::missionlog::Mission>>, Vec<(u32, u32)>) = (None, Vec::new());
         // (which worn items let their wearer fly, by template: looked up once each)
         let mut flight_items: std::collections::HashMap<u32, bool> = std::collections::HashMap::new();
+        // (an item to wear or take off because it was "used": the move, made by the move's own code at the next turn)
+        let mut wear_by_use: Option<(u32, u32)> = None;
         let mut shop_booth: Option<(u32, u32)> = None;
         // (the backpack places put into the open shop's trade: gone from the backpack when the trade completes. The server
         // says nothing more of them: a sale's log has `AddItem` for each place, then `Complete`, then the shop opened anew.)
@@ -7271,9 +7273,12 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             }
             // An item dragged to another place: ask the server, and show the change at once; the server's refusal takes it back
             // (`World::moves_asked`).
+            let mut wanted_move = wear_by_use.take();
             if keys.mv.0 != move_seen {
                 move_seen = keys.mv.0;
-                let (from, to) = (keys.mv.1, keys.mv.2);
+                wanted_move = Some((keys.mv.1, keys.mv.2));
+            }
+            if let Some((from, to)) = wanted_move {
                 // (to a wear place only what may be worn there: the original asks itself before it asks the server)
                 let refusal = state.worn.iter().find(|e| e.slot == from).filter(|_| to < inventory::BACKPACK_FIRST).and_then(|e| state.wear_refusal(e, to, &gear_db));
                 if let Some(Some(name)) = refusal {
@@ -7326,9 +7331,45 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 if let Some(bag) = state.worn.iter().find(|e| e.slot == keys.fire.1 && e.is_bag()).map(|e| e.container) {
                     state.silent_bags.remove(&bag);
                 }
-                uses += 1;
-                let _ = connection.send(&n3::use_object(own, uses, (0x68, keys.fire.1)));
-                state.start_item_timer(keys.fire.1, 3);
+                // (Gamecode's `N3Msg_UseItem` 0x10028883: an own item whose `Can` flags (stat 30) lack 8, "use", is not used
+                // at all: one in the backpack is worn, one that is worn is taken off into the backpack, both as a move; an
+                // item that can go nowhere is left alone.)
+                let item = state.worn.iter().find(|e| e.slot == keys.fire.1 && !e.is_bag()).cloned();
+                let unusable = item.as_ref().is_some_and(|e| template_stat(e.low_id, 30).is_some_and(|can| can & 8 == 0));
+                if let (true, Some(e)) = (unusable, item) {
+                    let taken = |place: u32| state.worn.iter().any(|w| w.slot == place);
+                    let to = if e.slot >= inventory::BACKPACK_FIRST {
+                        // (the wear page from stat 76: 1 the weapons' places, 2 the clothes' sixteen on, 3 and 5 the implants'
+                        // thirty-two on; the place from stat 88, or another of the places the item's flags, stat 298, allow
+                        // when that one is taken and one of those is free)
+                        let stat = |k: u32| template_stat(e.low_id, k).unwrap_or(0);
+                        let base = match stat(76) {
+                            1 => Some(0u32),
+                            2 => Some(16),
+                            3 | 5 => Some(32),
+                            _ => None,
+                        };
+                        let own_place = stat(88).clamp(0, 15) as u32;
+                        let allowed: Vec<u32> = (1..16u32).filter(|slot| stat(298) & (1 << slot) != 0).collect();
+                        base.filter(|_| own_place > 0 || !allowed.is_empty()).map(|base| {
+                            let first = if own_place > 0 { own_place } else { allowed[0] };
+                            if taken(base + first) { allowed.iter().copied().find(|slot| !taken(base + slot)).unwrap_or(first) + base } else { base + first }
+                        })
+                    } else {
+                        (inventory::BACKPACK_FIRST..inventory::BACKPACK_FIRST + 30).find(|&p| !taken(p))
+                    };
+                    wear_by_use = to.map(|to| (e.slot, to));
+                    if crate::gear::traced() {
+                        eprintln!("items: the use of place {} ({}) is a move: {:?}", e.slot, e.low_id, wear_by_use);
+                    }
+                } else {
+                    if crate::gear::traced() {
+                        eprintln!("items: the use of place {} sent to the server", keys.fire.1);
+                    }
+                    uses += 1;
+                    let _ = connection.send(&n3::use_object(own, uses, (0x68, keys.fire.1)));
+                    state.start_item_timer(keys.fire.1, 3);
+                }
             }
             // The mission request goes out a second after the walk ends (or 6 s into a session without one).
             if mission_request.is_some() && mission_wait.is_none() && goto.is_none() && clock.elapsed() > Duration::from_secs(6) {

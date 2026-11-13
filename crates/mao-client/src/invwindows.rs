@@ -278,9 +278,10 @@ impl InspectWindow {
 }
 
 impl ItemWindows {
-    /// An item's menu: look at it, use it, put a link to it into the chat's line, destroy it.
-    fn item_menu() -> [(String, bool); 4] {
-        ["Look At", "Use", "Create Reference", "Delete"].map(|label| (label.to_string(), true))
+    /// An item's menu as the original's (GUI.dll FUN_100caf07: LookAtItem, CreateReference, DeleteItem; no entry to use
+    /// it): look at it, put a link to it into the chat's line, destroy it.
+    fn item_menu() -> [(String, bool); 3] {
+        ["Look At", "Create Reference", "Delete"].map(|label| (label.to_string(), true))
     }
 
     fn build(&mut self, ctx: &egui::Context) {
@@ -425,7 +426,8 @@ impl ItemWindows {
         // own menu where it was clicked)
         // (the right button held on an item for a moment opens its menu, and letting go then is not a use; the user's word
         // for the original's: "long right click on item should give a menu with look at item, delete and create reference")
-        const HOLD: std::time::Duration = std::time::Duration::from_millis(400);
+        // (`MouseButtonHoldDelay`, 0.3 s: the original's list raises its menu signal then, FUN_10041c04)
+        const HOLD: std::time::Duration = std::time::Duration::from_millis(300);
         if ctx.input(|i| i.pointer.button_pressed(egui::PointerButton::Secondary)) {
             self.right_held = hovered_item.as_ref().map(|(slot, _)| (*slot, std::time::Instant::now()));
         }
@@ -458,11 +460,8 @@ impl ItemWindows {
                     events.combines.push((from, *slot));
                     crate::gear::put_down();
                 }
-            } else if ctx.input(|i| i.modifiers.shift) {
-                self.menu = Some((*slot, at));
-                self.popup = Some(crate::chrome::menu_at(ctx, at, &Self::item_menu()));
-                self.confirm = None;
             } else {
+                // (with Shift too: the original's menu comes by the held button only)
                 events.uses.push(*slot);
             }
         }
@@ -496,8 +495,7 @@ impl ItemWindows {
         {
             match k {
                 0 => events.infos.push(format!("itemref://{}/{}/{}", item.item_id, item.high_id, item.quality)),
-                1 => events.uses.push(slot),
-                2 => {
+                1 => {
                     if crate::gear::traced() {
                         eprintln!("items: a reference to place {slot}: {}", reference(item));
                     }
