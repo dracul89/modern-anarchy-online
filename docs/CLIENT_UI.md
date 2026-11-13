@@ -3405,3 +3405,29 @@ Seen in an offline picture of a Newland Desert campfire at 3 and at 40 seconds (
 Arete came up with its 46 effects and no complaint; the fires themselves were not looked at live.
 `mao-client <game> statel-effects <playfield>` lists a playfield's effects by template;
 `MAO_STATEL_EFFECTS=<seconds> MAO_GFX=<game>/Setupf/gfxtweak.bin` puts them into an offline `map` picture.
+
+**The market's search: the name field, and the refused session (2026-11-13, the user's report: "market name
+search field is unusable", three dots where the field belongs; `browser.rs`).** Two things, both from the page
+being made for the original's browser (Awesomium, a WebKit of 2012):
+
+- **The text fields' widths.** The search page's name field is `<input type="text" size=51>` in a table cell of
+  55% of a 720 pixel page, and the cells have `overflow: hidden; text-overflow: ellipsis`. Today's engine makes a
+  field `size` times the width of a "0" (7.4 pixels for the page's 13 px Arial): 390 pixels, measured, in a cell
+  with 340 for it, and it then draws the cell's three dots in the field's place. The old engine counted `size`
+  times the font's average character width plus the difference between its widest character and the average
+  (WebKit's `RenderTextControl`), which is about 280 pixels and fits; the quality fields (`size=1`) came out wide
+  enough for a number there and 11 pixels here. The market's pages now get a script (`INPUT_WIDTHS`) that gives
+  every sized text field without a width of its own the old width, also the fields the page makes later. The two
+  figures (5 and 27 pixels) are worked out from Arial's tables, not measured in the original; the item store and
+  the other pages are left as they were.
+- **"403 Invalid session".** The web view kept its cookies between runs of the client, and the market refuses a
+  cookie of an earlier game session (seen three times in a row on the test character, and gone with an empty
+  profile). The original clears the cookies each time it sets its browser up (`awe_webcore_clear_cookies` after
+  `awe_webcore_initialize` in GUI.dll's `Reinitialize` 0x1010bbd7); the web view is now opened in its private mode,
+  which keeps nothing.
+
+Seen in pictures of a test window (PrintWindow shows the page too): the dots before, the field after, and the
+page loading with the old cookies still on disk. **Not tried:** typing a name and running a search. For tests: the
+script step `market@` opens the market's page away from a terminal; with `MAO_BROWSER_TRACE` the page now also
+tells each text field's box against its table cell; scratch `live2.py` and `win_shot_live.py` run the free test
+character with its settings in a scratch folder, beside the user's own game.

@@ -203,9 +203,19 @@ pub fn page_script(language: &str) -> String {
     )
 }
 
+/// The market's pages were laid out for the original's browser (Awesomium, a WebKit of 2012), which made a text field
+/// with a `size` narrower than today's engines do: `size` times the font's average character width plus the difference
+/// between its widest character and the average (WebKit's `RenderTextControl`: about 5 and 27 pixels for the pages' 13 px
+/// Arial), where today's count `size` times the width of a "0" (7.4). The search page's name field (`size=51`) comes out
+/// 390 pixels wide in a table cell that has 340 for it, and the cell's `text-overflow: ellipsis` then draws three dots in
+/// the field's place; the quality fields (`size=1`) come out too narrow for a number. This gives every sized text field,
+/// also the ones the page makes later, the old width as near as it is known here: the two figures are worked out from
+/// Arial's own tables, not measured in the original.
+const INPUT_WIDTHS: &str = "(function(){function fix(root){if(!root.querySelectorAll){return;}var l=root.querySelectorAll('input[size]');for(var i=0;i<l.length;i++){var x=l[i],k=(x.getAttribute('type')||'text').toLowerCase();if((k==='text'||k==='password')&&!x.style.width&&x.size>0){var f=parseFloat(getComputedStyle(x).fontSize)||13.33,a=Math.floor(f*0.441),m=Math.round(f*2);x.style.width=(x.size*a+m-a)+'px';}}}document.addEventListener('DOMContentLoaded',function(){fix(document);new MutationObserver(function(list){for(var i=0;i<list.length;i++){for(var j=0;j<list[i].addedNodes.length;j++){var n=list[i].addedNodes[j];if(n.nodeType===1){fix(n.parentNode||n);}}}}).observe(document.documentElement,{childList:true,subtree:true});});})();";
+
 /// With `MAO_BROWSER_TRACE`: the page's errors, what is clicked and what it asks of the `AnarchyOnline` object that
 /// is not there, said through the page's message channel.
-const TRACE_SCRIPT: &str = "(function(){function t(s){try{window.ipc.postMessage('trace:'+s);}catch(e){}}window.addEventListener('error',function(e){t('error '+e.message+' at '+e.filename+':'+e.lineno);});document.addEventListener('click',function(e){var x=e.target;t('click <'+x.tagName+' id='+x.id+' class='+x.className+'> '+(x.outerHTML||'').slice(0,300));},true);try{window.AnarchyOnline=new Proxy(window.AnarchyOnline,{get:function(o,k){if(!(k in o)){t('AnarchyOnline.'+String(k)+' asked for');}return o[k];}});}catch(e){}var ce=console.error;console.error=function(){t('console.error '+Array.prototype.join.call(arguments,' '));return ce.apply(console,arguments);};})();";
+const TRACE_SCRIPT: &str = "(function(){function t(s){try{window.ipc.postMessage('trace:'+s);}catch(e){}}window.addEventListener('error',function(e){t('error '+e.message+' at '+e.filename+':'+e.lineno);});document.addEventListener('click',function(e){var x=e.target;t('click <'+x.tagName+' id='+x.id+' class='+x.className+'> '+(x.outerHTML||'').slice(0,300));},true);try{window.AnarchyOnline=new Proxy(window.AnarchyOnline,{get:function(o,k){if(!(k in o)){t('AnarchyOnline.'+String(k)+' asked for');}return o[k];}});}catch(e){}var ce=console.error;console.error=function(){t('console.error '+Array.prototype.join.call(arguments,' '));return ce.apply(console,arguments);};window.addEventListener('load',function(){setTimeout(function(){var l=document.querySelectorAll('input[type=text]');for(var i=0;i<l.length&&i<8;i++){var x=l[i],c=x.closest('td'),r=x.getBoundingClientRect(),q=c?c.getBoundingClientRect():null,f=getComputedStyle(x);t('input '+x.name+' size='+x.size+' box '+Math.round(r.left)+'..'+Math.round(r.right)+' ('+Math.round(r.width)+'x'+Math.round(r.height)+') font '+f.fontSize+' '+f.fontFamily+(q?' cell '+Math.round(q.left)+'..'+Math.round(q.right)+' overflow '+getComputedStyle(c).textOverflow:''));}},400);});})();";
 
 /// The page loads through this protocol: on Windows `aomarket://localhost/<path>` is served as
 /// `http://aomarket.localhost/<path>`, and every request to it is passed on to the site with the game's headers
@@ -378,8 +388,13 @@ impl Page {
         let (nav_site, nav_queue) = (site.clone(), redirected.clone());
         let home = proxy_url(&site, request.mode.home()).unwrap_or_else(|| request.mode.home().to_string());
         let view = wry::WebViewBuilder::new_with_web_context(&mut context)
+            // (nothing of an earlier page is kept: the original clears the cookies when it sets its browser up,
+            // `awe_webcore_clear_cookies` in GUI.dll's `Reinitialize` 0x1010bbd7. The market answers "403 Invalid session"
+            // to a cookie of an earlier game session.)
+            .with_incognito(true)
             .with_bounds(rect(bounds))
             .with_initialization_script(page_script("en"))
+            .with_initialization_script(if matches!(request.mode, Mode::Market) { INPUT_WIDTHS } else { "" })
             .with_initialization_script(proxy_script(&site))
             .with_initialization_script(if std::env::var_os("MAO_BROWSER_TRACE").is_some() { TRACE_SCRIPT } else { "" })
             .with_asynchronous_custom_protocol(PROXY_SCHEME.into(), move |_, request, responder| {
@@ -507,6 +522,8 @@ mod tests {
         assert_eq!(get("X-Anarchy-Appearance"), Some("1 2 3 4"));
         assert_eq!(get("X-Platform"), Some("Native"));
         assert!(page_script("en").contains("OpenMarketSendWindow"));
+        // (the market's text fields: only the sized ones without a width of their own, also those added later)
+        assert!(INPUT_WIDTHS.contains("input[size]") && INPUT_WIDTHS.contains("!x.style.width") && INPUT_WIDTHS.contains("MutationObserver"));
     }
 
     #[test]

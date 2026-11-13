@@ -753,6 +753,8 @@ impl Ui {
                     self.injected.push_back(vec![egui::Event::ModifiersChanged(egui::Modifiers::NONE)]);
                 }
             }
+            // (`market@`: the market's page as a market terminal's use opens it, for a test away from a terminal)
+            "market" => self.browser.show_page(crate::browser::request(crate::browser::Mode::Market)),
             "usebag" => self.script_bag = Some(argument.trim().parse().unwrap_or(1)),
             // (`scanbags@`: the item finder's "Look into my bags")
             "scanbags" => crate::itemindex::ask_scan(),

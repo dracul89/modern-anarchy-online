@@ -225,6 +225,9 @@ account with `net <game> create`, in Arete Landing; scripted, other new players 
   both orders); Shift+click shows the info (inventory, wear window, a bag); a worn bag opens and closes by right
   clicks; in a bag a click takes an item up and a click on the inventory takes it out; in a corpse a click takes
   the item; Shift+T opens and closes the tradeskill window.
+- [ ] The market's search (2026-11-13): the name field is a field (not three dots), a name typed into it finds
+  items; the Advanced fields (quality, price) are wide enough to read; the page opens on a second and a third
+  login without "403 Invalid session".
 - [ ] The statels' own effects (2026-11-12): campfires and bonfires burn, chimneys and vents smoke, plain halos
   glow (Newland Desert, Andromeda, Arete's camps); the frame rate near many of them; nothing odd where a red halo
   now stands (a name the original's table lacks gets one). Lamps whose halo has a colour of its own (Jobe) still
