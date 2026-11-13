@@ -3506,3 +3506,16 @@ with a build that has the notes).
 or Ganimedes equipped does not put the character into flight (the user: the Ganimedes shows on the back; for a
 Yalmaha the player shrinks, flies and is replaced by the vehicle); "weird slabs" in the tradeskill part of the clan
 shop (`ord_smarket_clan_advanced`); the camera's jitter.
+
+**The camera's default is the original's free camera (2026-11-13; the user: "not a fan of the WoW style camera
+movement").** The camera was already the original's (`camera.rs`: N3.dll's steered `CameraVehicle_t`s), but a new
+settings file chose the rubber camera, whose preferred place turns with the character, so the camera swings in
+behind it at every turn. The original's own choice when nothing is preferred is mode 1, the free camera
+(FUN_10021859): it keeps its direction and is pulled along at its distance. A new settings file now has it
+(`camera_mode = trail`), and `/setoption camera_mode free | rubber | lock` changes it in the game at once and for
+the games to come. A file written before keeps its `rubber` until the command is used. What a fresh install of the
+original writes into its own preferences was not looked at. `/setoption log_messages on | off` does the same for
+the message log: a settings file is the user's own process's to write (what this assistant writes under
+`%APPDATA%` lands in a private copy the game never reads, which is why the log stayed off twice). Both commands
+tried live on the test character: the settings file had the two lines and the log its "server n3" lines.
+The user's own build is made with the `hide-console` feature since that day (no console window, as the packages).

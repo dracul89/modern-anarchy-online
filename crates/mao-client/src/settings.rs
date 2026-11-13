@@ -549,7 +549,7 @@ pub const DEFAULT_SHADOWLANDS_MAP: &str = "SLmap/SLmap.txt";
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { mode: WindowMode::Windowed, width: 1280, height: 800, adapter: String::new(), game_dir: String::new(), fps_limit: 0, background_fps: 30, shadows: mao_render::Shadows::High, texture_compression: true, monitor: 0, vsync: false, render_scale: 1.0, sharpness: 0.2, antialiasing: mao_render::Antialiasing::default(), ui_scale: 1.0, view_distance: 1800.0, char_distance: 0.0, auto_loot: false, theme: "original".into(), aou_mod: String::new(), gui_dir: String::new(), debug_overlay: false, perf_overlay: false, log_messages: false, original_font: true, camera_mode: "rubber".into(), planet_map: DEFAULT_PLANET_MAP.into(), shadowlands_map: DEFAULT_SHADOWLANDS_MAP.into(), pet_buttons: true, fixed_pet_buttons: false, keymap: Keymap::default() }
+        Settings { mode: WindowMode::Windowed, width: 1280, height: 800, adapter: String::new(), game_dir: String::new(), fps_limit: 0, background_fps: 30, shadows: mao_render::Shadows::High, texture_compression: true, monitor: 0, vsync: false, render_scale: 1.0, sharpness: 0.2, antialiasing: mao_render::Antialiasing::default(), ui_scale: 1.0, view_distance: 1800.0, char_distance: 0.0, auto_loot: false, theme: "original".into(), aou_mod: String::new(), gui_dir: String::new(), debug_overlay: false, perf_overlay: false, log_messages: false, original_font: true, camera_mode: "trail".into(), planet_map: DEFAULT_PLANET_MAP.into(), shadowlands_map: DEFAULT_SHADOWLANDS_MAP.into(), pet_buttons: true, fixed_pet_buttons: false, keymap: Keymap::default() }
     }
 }
 
@@ -603,6 +603,23 @@ impl Settings {
                 self.auto_loot = on(value);
                 true
             }
+            // (the camera: the original's free camera, which keeps its direction and is pulled along (`free`, the file's
+            // `trail`), the rubber one that swings in behind the character as it turns, or the locked one)
+            "camera_mode" | "camera" => match value.to_lowercase().as_str() {
+                "free" | "trail" => {
+                    self.camera_mode = "trail".to_string();
+                    true
+                }
+                "rubber" => {
+                    self.camera_mode = "rubber".to_string();
+                    true
+                }
+                "lock" | "locked" => {
+                    self.camera_mode = "lock".to_string();
+                    true
+                }
+                _ => return "camera_mode needs free, rubber or lock.".to_string(),
+            },
             // (the server's messages in the game's log, from now on and in the games to come)
             "log_messages" if !value.is_empty() => {
                 self.log_messages = on(value);
@@ -615,7 +632,7 @@ impl Settings {
             "ui_scale" => number(value, 0.6, 2.0).map(|n| self.ui_scale = n).is_some(),
             "view_distance" | "viewdist" => number(value, 200.0, 4000.0).map(|n| self.view_distance = n).is_some(),
             "char_distance" | "chardist" => number(value, 0.0, 4000.0).map(|n| self.char_distance = n).is_some(),
-            _ => return format!("No setting called {name:?} (vsync, render_scale, sharpness, antialiasing, ui_scale, view_distance, char_distance, auto_loot, log_messages)."),
+            _ => return format!("No setting called {name:?} (vsync, render_scale, sharpness, antialiasing, ui_scale, view_distance, char_distance, auto_loot, camera_mode, log_messages)."),
         };
         if done {
             format!("{name} is now {value}.")
@@ -831,6 +848,15 @@ log_messages = on
 ");
         assert!(s.log_messages);
         assert!(Settings::from_text(&s.to_text()).log_messages);
+        // (the camera: the original's free one unless another is chosen, by its name in the game too)
+        assert_eq!(Settings::default().camera_mode, "trail");
+        let mut c = Settings::default();
+        assert_eq!(c.set_option("camera_mode", "rubber"), "camera_mode is now rubber.");
+        assert_eq!(c.camera_mode, "rubber");
+        c.set_option("camera", "free");
+        assert_eq!(c.camera_mode, "trail");
+        assert!(c.set_option("camera_mode", "orbit").contains("needs free, rubber or lock"));
+        assert_eq!(Settings::from_text(&c.to_text()).camera_mode, "trail");
         // (and by its name in the game: `/setoption log_messages on`)
         let mut t = Settings::default();
         assert_eq!(t.set_option("log_messages", "on"), "log_messages is now on.");

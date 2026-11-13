@@ -2713,6 +2713,11 @@ impl ApplicationHandler for App {
                             }
                             crate::chatwindow::Out::SetOption { name, value } => {
                                 let line = self.settings.set_option(&name, &value);
+                                // (a camera chosen so takes over at once)
+                                let mode = camera_mode(&self.settings.camera_mode);
+                                if self.steering.mode != mode && self.steering.mode != crate::camera::Mode::First {
+                                    self.steering.set_mode(mode);
+                                }
                                 ui.chat.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, line));
                                 self.settings.save();
                             }
