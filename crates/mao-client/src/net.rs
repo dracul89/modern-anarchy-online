@@ -5504,6 +5504,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         // so the game reads the setting itself and says which it found)
         let tracing = std::env::var("MAO_TRACE").is_ok_and(|v| v == "1") || crate::settings::Settings::load().log_messages;
         eprintln!("message log: {} (settings {})", if tracing { "on" } else { "off" }, crate::settings::Settings::path().display());
+        crate::settings::LOG_MESSAGES.store(tracing, std::sync::atomic::Ordering::Relaxed);
         let mut last_report = Instant::now();
         let mut fresh = false;
         state.arrival = None;
@@ -5760,7 +5761,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             }
                         }
                     }
-                    if tracing {
+                    // (also once the setting is turned on in the game: `/setoption log_messages on`)
+                    if tracing || crate::settings::LOG_MESSAGES.load(std::sync::atomic::Ordering::Relaxed) {
                         trace(&frame, clock);
                     }
                     if let Some(m) = Message::parse(&frame).filter(|m| m.kind == 0x333b2867) {

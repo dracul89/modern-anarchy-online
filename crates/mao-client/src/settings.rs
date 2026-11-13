@@ -277,6 +277,10 @@ pub const ACTIONS: &[(Action, &str, &str)] = &[
 /// first versions used keys of this client's own).
 pub const KEYMAP_VERSION: u32 = 2;
 
+/// Whether the server's messages go into the game's log now (`[debug] log_messages`, `/setoption log_messages on`,
+/// `MAO_TRACE=1`): set when the game starts and when the setting is changed in it.
+pub static LOG_MESSAGES: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// A key with the modifiers that must be held.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Binding {
@@ -599,13 +603,19 @@ impl Settings {
                 self.auto_loot = on(value);
                 true
             }
+            // (the server's messages in the game's log, from now on and in the games to come)
+            "log_messages" if !value.is_empty() => {
+                self.log_messages = on(value);
+                LOG_MESSAGES.store(self.log_messages, std::sync::atomic::Ordering::Relaxed);
+                true
+            }
             "render_scale" => number(value, 0.4, 1.0).map(|n| self.render_scale = n).is_some(),
             "sharpness" => number(value, 0.0, 2.0).map(|n| self.sharpness = n).is_some(),
             "antialiasing" | "aa" => mao_render::Antialiasing::from_name(value).map(|a| self.antialiasing = a).is_some(),
             "ui_scale" => number(value, 0.6, 2.0).map(|n| self.ui_scale = n).is_some(),
             "view_distance" | "viewdist" => number(value, 200.0, 4000.0).map(|n| self.view_distance = n).is_some(),
             "char_distance" | "chardist" => number(value, 0.0, 4000.0).map(|n| self.char_distance = n).is_some(),
-            _ => return format!("No setting called {name:?} (vsync, render_scale, sharpness, antialiasing, ui_scale, view_distance, char_distance, auto_loot)."),
+            _ => return format!("No setting called {name:?} (vsync, render_scale, sharpness, antialiasing, ui_scale, view_distance, char_distance, auto_loot, log_messages)."),
         };
         if done {
             format!("{name} is now {value}.")
@@ -821,6 +831,12 @@ log_messages = on
 ");
         assert!(s.log_messages);
         assert!(Settings::from_text(&s.to_text()).log_messages);
+        // (and by its name in the game: `/setoption log_messages on`)
+        let mut t = Settings::default();
+        assert_eq!(t.set_option("log_messages", "on"), "log_messages is now on.");
+        assert!(t.log_messages && LOG_MESSAGES.load(std::sync::atomic::Ordering::Relaxed));
+        t.set_option("log_messages", "off");
+        assert!(!t.log_messages && !LOG_MESSAGES.load(std::sync::atomic::Ordering::Relaxed));
         assert!(!Settings::from_text(&Settings::default().to_text()).log_messages);
     }
 
