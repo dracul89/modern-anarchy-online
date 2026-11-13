@@ -19,7 +19,7 @@ fn main() {
         }
         println!("{} {}: {}", p.number, p.name.trim(), hits.len());
         for s in hits.iter().take(if all { usize::MAX } else { 3 }) {
-            println!("  mesh {} at ({:.1}, {:.1}, {:.1}) rot {:.3?} scale {:.2?}", s.mesh, s.position[0], s.position[1], s.position[2], s.rotation, s.scale_xyz);
+            println!("  mesh {} at ({:.1}, {:.1}, {:.1}) rot {:.3?} scale {:.2?} flags {:#x}{}", s.mesh, s.position[0], s.position[1], s.position[2], s.rotation, s.scale_xyz, s.flags, if s.unread_rotation { " (a matrix of its own, not read)" } else { "" });
         }
     }
 }
