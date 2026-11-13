@@ -293,6 +293,19 @@ impl Launcher {
         if let Some((x, y)) = window_at {
             command.env("MAO_WINDOW_AT", format!("{x},{y}"));
         }
+        // (the game's own lines go to `game-log.txt` beside the settings, the run before kept as `game-log.previous.txt`:
+        // what the game says of a playfield, an error or, with `[debug] log_messages`, the server's messages. Nothing of
+        // the account is in it: the name and password are in the process's environment only.)
+        let log = crate::settings::Settings::path().with_file_name("game-log.txt");
+        let _ = std::fs::rename(&log, log.with_file_name("game-log.previous.txt"));
+        if let Ok(file) = std::fs::File::create(&log)
+            && let Ok(second) = file.try_clone()
+        {
+            command.stdout(file).stderr(second);
+        }
+        if crate::settings::Settings::load().log_messages {
+            command.env("MAO_TRACE", "1");
+        }
         let child = command.spawn().map_err(|e| e.to_string())?;
         Ok(Entering { child, marker, since: std::time::Instant::now() })
     }

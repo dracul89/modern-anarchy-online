@@ -84,6 +84,8 @@ pub struct Events {
     pub trade_adds: Vec<u32>,
     /// The backpack item in hand used on another by a right click: a tradeskill combine, `(the item, the one it went on)`.
     pub combines: Vec<(u32, u32)>,
+    /// Item links for the chat's line (the menu's "Create Reference"): the markup of each.
+    pub references: Vec<String>,
 }
 
 #[derive(Default)]
@@ -95,11 +97,18 @@ pub struct ItemWindows {
     pub wear_closed: bool,
     /// The item whose menu is open, and the place awaiting a second click to be destroyed.
     menu: Option<(u32, egui::Pos2)>,
+    /// The item the right button went down on, and when: held there, its menu opens.
+    right_held: Option<(u32, std::time::Instant)>,
     popup: Option<crate::gui::popup::PopupMenu>,
     confirm: Option<u32>,
 }
 
 /// What a click on an item of a grid does.
+/// An item's link as the chat sends it (the menu's "Create Reference").
+pub fn reference(item: &GearItem) -> String {
+    format!("<a href=\"itemref://{}/{}/{}\">{}</a>", item.item_id, item.high_id, item.quality, item.name)
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Click {
     TakeUp,
@@ -269,6 +278,11 @@ impl InspectWindow {
 }
 
 impl ItemWindows {
+    /// An item's menu: look at it, use it, put a link to it into the chat's line, destroy it.
+    fn item_menu() -> [(String, bool); 4] {
+        ["Look At", "Use", "Create Reference", "Delete"].map(|label| (label.to_string(), true))
+    }
+
     fn build(&mut self, ctx: &egui::Context) {
         let mut inventory = GridView::new(ctx, PACK_PLACES as i32, 5);
         multilist::set_max_items(&mut inventory.tree, inventory.list, PACK_PLACES as i32);
@@ -409,7 +423,34 @@ impl ItemWindows {
         // use signal); with an item in hand, that item is used on the one clicked (`UseItemOnItem`: the one in hand is
         // the source, so the order of the two matters) and goes back to its place; Shift+right click opens the client's
         // own menu where it was clicked)
+        // (the right button held on an item for a moment opens its menu, and letting go then is not a use; the user's word
+        // for the original's: "long right click on item should give a menu with look at item, delete and create reference")
+        const HOLD: std::time::Duration = std::time::Duration::from_millis(400);
+        if ctx.input(|i| i.pointer.button_pressed(egui::PointerButton::Secondary)) {
+            self.right_held = hovered_item.as_ref().map(|(slot, _)| (*slot, std::time::Instant::now()));
+        }
+        if !ctx.input(|i| i.pointer.secondary_down()) && !ctx.input(|i| i.pointer.button_released(egui::PointerButton::Secondary)) {
+            self.right_held = None;
+        }
+        if let Some((held, since)) = self.right_held {
+            ctx.request_repaint();
+            if since.elapsed() >= HOLD
+                && dragged.is_none()
+                && self.menu.is_none()
+                && let (Some((slot, _)), Some(at)) = (&hovered_item, pointer)
+                && *slot == held
+            {
+                if crate::gear::traced() {
+                    eprintln!("items: the menu of place {held} opened by the held right button");
+                }
+                self.menu = Some((held, at));
+                self.popup = Some(crate::chrome::menu_at(ctx, at, &Self::item_menu()));
+                self.confirm = None;
+                self.right_held = None;
+            }
+        }
         if let (Some((slot, _)), Some(at)) = (&hovered_item, pointer)
+            && self.menu.is_none()
             && ctx.input(|i| i.pointer.secondary_clicked())
         {
             if let Some(from) = dragged {
@@ -419,7 +460,7 @@ impl ItemWindows {
                 }
             } else if ctx.input(|i| i.modifiers.shift) {
                 self.menu = Some((*slot, at));
-                self.popup = Some(crate::chrome::menu_at(ctx, at, &[("Info".to_string(), true), ("Use".to_string(), true), ("Delete".to_string(), true)]));
+                self.popup = Some(crate::chrome::menu_at(ctx, at, &Self::item_menu()));
                 self.confirm = None;
             } else {
                 events.uses.push(*slot);
@@ -456,6 +497,12 @@ impl ItemWindows {
             match k {
                 0 => events.infos.push(format!("itemref://{}/{}/{}", item.item_id, item.high_id, item.quality)),
                 1 => events.uses.push(slot),
+                2 => {
+                    if crate::gear::traced() {
+                        eprintln!("items: a reference to place {slot}: {}", reference(item));
+                    }
+                    events.references.push(reference(item));
+                }
                 _ => self.confirm = Some(slot),
             }
         }

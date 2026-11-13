@@ -755,6 +755,17 @@ impl Ui {
             }
             // (`market@`: the market's page as a market terminal's use opens it, for a test away from a terminal)
             "market" => self.browser.show_page(crate::browser::request(crate::browser::Mode::Market)),
+            // (`rhold@x;y`: the right button held at a place for about a second, then let go)
+            "rhold" => {
+                let Some(pos) = at() else { return false };
+                self.injected.push_back(vec![egui::Event::PointerMoved(pos)]);
+                self.injected.push_back(vec![egui::Event::PointerMoved(pos)]);
+                self.injected.push_back(vec![press(pos, egui::PointerButton::Secondary, true)]);
+                for _ in 0..90 {
+                    self.injected.push_back(vec![egui::Event::PointerMoved(pos)]);
+                }
+                self.injected.push_back(vec![press(pos, egui::PointerButton::Secondary, false)]);
+            }
             "usebag" => self.script_bag = Some(argument.trim().parse().unwrap_or(1)),
             // (`scanbags@`: the item finder's "Look into my bags")
             "scanbags" => crate::itemindex::ask_scan(),
@@ -1336,6 +1347,10 @@ impl Ui {
                 requests.item_combines.extend(events.combines);
                 for url in events.infos {
                     info_view.show_url(&url);
+                }
+                // (an item's link for the chat's line: the menu's "Create Reference")
+                for link in events.references {
+                    chat_window.add_text(&link);
                 }
                 if shop.open
                     && let Some(&slot) = events.trade_adds.last()

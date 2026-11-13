@@ -106,6 +106,8 @@ pub struct GearEvents {
     pub trade_adds: Vec<u32>,
     /// The backpack item in hand used on another by a right click on it: (the item, the one it went on).
     pub combines: Vec<(u32, u32)>,
+    /// Item links for the chat's line (the item menu's "Create Reference").
+    pub references: Vec<String>,
 }
 
 /// How many places the backpack has.
@@ -351,7 +353,7 @@ impl GearWindow {
     /// The inventory and wear windows; what was done with the items.
     pub fn show(&mut self, ctx: &egui::Context, open: &mut bool, items: &[GearItem], stats: &std::collections::BTreeMap<u32, i64>, palette: &Palette) -> GearEvents {
         let e = self.windows.show(ctx, open, items, stats, palette, &mut self.textures);
-        GearEvents { moves: e.moves, uses: e.uses, deletes: e.deletes, infos: e.infos, trade_adds: e.trade_adds, combines: e.combines }
+        GearEvents { moves: e.moves, uses: e.uses, deletes: e.deletes, infos: e.infos, trade_adds: e.trade_adds, combines: e.combines, references: e.references }
     }
 
     /// The inspect window (opened by each new inspection); the info pages asked for.

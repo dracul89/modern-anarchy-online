@@ -3444,3 +3444,34 @@ step is not used while the user is at the machine).
 
 **The Male Watcher without its gear is open:** its update is needed first (a screenshot with it selected, taken
 with a build that has the notes).
+
+**The user's list of 2026-11-13 (a play session on Laxative): what was done and what waits.**
+
+- **The garbled loot line** ("~&!!!...Laxative...NanoCrystal (...)...Remains of ...~" in the chat). The chat
+  server's lines can hold packed texts (`~&`, a text.mdb text's category and number, its arguments, a closing `~`),
+  and only the game server's lines were unpacked. GUI.dll's `HandleGroupMessage` 0x1008692a,
+  `HandleVicinityMessage` 0x10086c53 and `HandlePrivateMessage` 0x10087e59 each pass the text through LDB.dll's
+  `RemoteFormat::ParseString` before it is laid out; the client's four kinds of chat lines (a notice, vicinity, a
+  tell, a group's) now do too (`net.rs` `unpacked`). Not seen live: nobody looted beside the test character.
+- **An item's menu by a held right button** (the user: "long right click on item should give a menu with look at
+  item, delete and create reference"). The right button held on an inventory item for 0.4 s opens the menu, and
+  letting go then is not a use; Shift+right click opens the same menu as before. Its entries: Look At (the item's
+  info), Use, Create Reference (the item's link, `<a href="itemref://low/high/quality">name</a>`, added to the
+  chat's line), Delete (asks first). The original's own item menu was not found in the decompile: the entries and
+  the hold are the user's word for it, the 0.4 s is this client's. The link stands in the chat's line as its
+  markup until the line is sent. Tried live by script (`rhold@x;y`): the menu opened and the item was not used;
+  the entries were not clicked.
+- **The game's log.** A game started from the login now writes its own lines to `game-log.txt` beside the settings
+  (the run before is kept as `game-log.previous.txt`), and `[debug] log_messages = on` in `mao.ini` adds the
+  server's messages as they come (`MAO_TRACE`). Nothing of the account is in it. This is for the reports below,
+  which cannot be found out from a picture.
+
+**Open from that list, each waiting for a log of it happening** (`log_messages = on`, do the thing, tell the time):
+- "sale didn't register right" (a shop's window: what was done and what the window showed is not known yet);
+- "shop window should close when out of range": Gamecode has no distance check of its own for an open shop that
+  was found (`Feedback_TargetOutsideRangeForTrade` is said only when a trade starts, `N3Msg_TradeStart`
+  0x10019148); the window is closed by the trade's end (FUN_10066be9, FUN_10066ade), so the server's message at
+  walking away is what has to be seen;
+- "equipping a yalmaha or ganimedes does nothing";
+- "camera is still jittery when running or jumping" (`MAO_CAMERA_TRACE=1` is the tool; no cause known);
+- the Male Watcher without its gear (a screenshot with it selected: `shotnotes`).

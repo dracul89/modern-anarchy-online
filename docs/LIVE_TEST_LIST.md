@@ -225,6 +225,11 @@ account with `net <game> create`, in Arete Landing; scripted, other new players 
   both orders); Shift+click shows the info (inventory, wear window, a bag); a worn bag opens and closes by right
   clicks; in a bag a click takes an item up and a click on the inventory takes it out; in a corpse a click takes
   the item; Shift+T opens and closes the tradeskill window.
+- [ ] The user's list of 2026-11-13: a loot line in the chat reads as a sentence (not `~&!!!...`); the right
+  button held on an inventory item opens its menu (Look At, Use, Create Reference, Delete), and Create Reference
+  puts the item's link into the chat's line, which others can click once it is sent; `game-log.txt` appears beside
+  the settings after a game. Open, each wanting a log: a shop sale, the shop window at walking away, a Yalmaha or
+  Ganimedes equipped, the camera's jitter at running and jumping.
 - [ ] A screenshot's notes (2026-11-13): a screenshot in the game leaves a `.txt` of the same name beside the
   picture, with the selected target's look first. Wanted: one of the Male Watcher in Jobe, selected (it is drawn
   without its gear; the cause is not known yet).

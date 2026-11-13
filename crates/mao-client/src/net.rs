@@ -780,6 +780,17 @@ static SPEECH: std::sync::Mutex<Vec<(u8, String, Vec<u8>)>> = std::sync::Mutex::
 /// Commands for the server (`/stuck` and the like), sent by the game loop.
 static SERVER_COMMANDS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 
+/// A chat line with its packed texts unpacked (`~&`, a text.mdb text's category and number and its arguments, up to a
+/// `~`): GUI.dll's `HandleGroupMessage` 0x1008692a, `HandleVicinityMessage` 0x10086c53 and `HandlePrivateMessage`
+/// 0x10087e59 each pass the text through LDB.dll's `RemoteFormat::ParseString` before it is laid out. The line that tells
+/// who looted what from which remains comes so.
+fn unpacked(text: String) -> String {
+    match crate::feedback::texts() {
+        Some(texts) if text.contains("~&") => mao_formats::ldb::parse_string(texts, &text),
+        _ => text,
+    }
+}
+
 /// The universal effects a mesh carries: its connectors named `eff_universal_<id>` (DisplaySystem's
 /// `GenericMeshObject_t`, `fxgmo.rs` `light_attractors`: each puts its number and its place on the environment's
 /// attractor stack, which Gamecode's `_EffectHandler_t::RunFunction` 0x100d2423 takes off and makes with `CreateEffect2`).
@@ -5240,6 +5251,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                 None
                             }
                             Some(Packet::Notice { name, text, blob }) => {
+                                // (packed texts in it are unpacked first: `RemoteFormat::ParseString`, as the original's handler does)
+                                let text = unpacked(text);
                                 // (`HandleVicinityMessage` → FUN_1008cdb3: its voice line, if any)
                                 crate::voices::vicinity_message(&mut voices, &name, &blob);
                                 // (an NPC that answers a use with a spoken line has answered: `NPC_SPOKE`)
@@ -5249,12 +5262,13 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                 Some(Line::new(Kind::System, mao_net::chat::plain(&text)).with_markup("", &text))
                             }
                             Some(Packet::Vicinity { sender, text, blob }) => {
+                                let text = unpacked(text);
                                 let who = names.get(&sender).cloned().unwrap_or_else(|| format!("{sender:x}"));
                                 crate::voices::vicinity_message(&mut voices, &who, &blob);
                                 Some(Line { kind: Kind::Channel, text: format!("{who}: {}", mao_net::chat::plain(&text)), from: Some(who.clone()), markup: None, group: crate::chatgroups::VICINITY.to_string(), at: None }.with_markup(&format!("{}: ", crate::chatwindow::name_link(&who)), &text))
                             }
                             Some(Packet::Tell { sender, text, blob }) => {
-                                let raw = text;
+                                let raw = unpacked(text);
                                 let text = mao_net::chat::plain(&raw);
                                 match names.get(&sender) {
                                     // (the automatic answer of a character that is away, `HandlePrivateMessage`'s kind
@@ -5274,6 +5288,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             // (a voice line in a channel that allows none is dropped, line and all: `HandleGroupMessage`)
                             Some(Packet::Message { channel, blob, .. }) if channel_flags.get(&channel.1).is_some_and(|f| f & 0x40 != 0) && crate::voices::parse(&blob).0.is_some_and(|v| !v.line.is_empty()) => None,
                             Some(Packet::Message { channel, sender, text, blob }) => {
+                                let text = unpacked(text);
                                 let who = names.get(&sender).cloned().unwrap_or_else(|| format!("{sender:x}"));
                                 let place = channels.get(&channel.1).map(|c| c.1.clone()).unwrap_or_default();
                                 // (its voice line, if it carries one: `HandleGroupMessage` → FUN_1008cdb3, by the group's kind)

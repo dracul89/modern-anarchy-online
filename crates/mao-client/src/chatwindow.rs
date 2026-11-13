@@ -820,6 +820,17 @@ impl ChatWindow {
     }
 
     /// Puts text in the input line and starts typing there (the previews use it).
+    /// Text added to the end of the line being typed (an item's link from its menu), a space before it when the line has
+    /// text.
+    pub fn add_text(&mut self, text: &str) {
+        if !self.input.is_empty() && !self.input.ends_with(' ') {
+            self.input.push(' ');
+        }
+        self.input.push_str(text);
+        self.keep_list = true;
+        self.focus();
+    }
+
     pub fn type_text(&mut self, text: &str) {
         self.input = text.to_string();
         self.keep_list = true;
