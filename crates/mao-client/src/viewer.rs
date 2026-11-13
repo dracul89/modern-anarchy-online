@@ -2527,6 +2527,17 @@ impl ApplicationHandler for App {
                     let dir = Settings::path().with_file_name("screenshots");
                     let path = dir.join(format!("{name}.png"));
                     let saved = std::fs::create_dir_all(&dir).is_ok() && image::save_buffer(&path, &pixels, width, height, image::ColorType::Rgba8).is_ok();
+                    // (the picture's notes, `shotnotes`: where it was taken and what the server said of the characters' looks)
+                    if saved && self.live.is_some() {
+                        let eye = camera.eye();
+                        let heading = [
+                            format!("screenshot {name}"),
+                            format!("place {:?}, the character at {:?} (x, height, z)", self.hud.location, self.hud.position),
+                            format!("camera eye ({:.1}, {:.1}, {:.1}) (x, z, height)", eye.x, eye.y, eye.z),
+                            format!("target {:?}", self.hud.target),
+                        ];
+                        let _ = std::fs::write(dir.join(format!("{name}.txt")), crate::shotnotes::text(&heading, self.hud.target.as_deref()));
+                    }
                     self.hud.say(if saved { format!("Screenshot saved: {}", path.display()) } else { "The screenshot could not be saved".to_string() });
                 }
                 prof_t = crate::prof::lap("scene", prof_t);

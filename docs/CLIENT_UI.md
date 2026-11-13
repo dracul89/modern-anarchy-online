@@ -3431,3 +3431,16 @@ page loading with the old cookies still on disk. **Not tried:** typing a name an
 script step `market@` opens the market's page away from a terminal; with `MAO_BROWSER_TRACE` the page now also
 tells each text field's box against its table cell; scratch `live2.py` and `win_shot_live.py` run the free test
 character with its settings in a scratch folder, beside the user's own game.
+
+**A screenshot's notes (2026-11-13; `shotnotes.rs`).** A picture of a character drawn wrong (the user's "male
+watcher is unequipped", in Jobe, where no test character stands) says nothing of what the server sent for it. The
+network side now keeps each character's last full update as a line (its template, scale, textures, clothes and
+worn meshes) with the update's bytes, up to 1,500 characters, and a screenshot taken in the game writes
+`<the picture's name>.txt` beside the picture: the place, the character's and the camera's positions, the selected
+target's look with its bytes, then the other known characters' lines. The file stays in the screenshots' folder;
+nothing is sent anywhere. `MAO_LOOKS=<part of a name>` (or `*`) prints the same lines to the log as the updates
+come. The text is tested (`shotnotes::tests`); a screenshot with notes was not taken in a live run (the screenshot
+step is not used while the user is at the machine).
+
+**The Male Watcher without its gear is open:** its update is needed first (a screenshot with it selected, taken
+with a build that has the notes).

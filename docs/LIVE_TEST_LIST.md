@@ -225,6 +225,9 @@ account with `net <game> create`, in Arete Landing; scripted, other new players 
   both orders); Shift+click shows the info (inventory, wear window, a bag); a worn bag opens and closes by right
   clicks; in a bag a click takes an item up and a click on the inventory takes it out; in a corpse a click takes
   the item; Shift+T opens and closes the tradeskill window.
+- [ ] A screenshot's notes (2026-11-13): a screenshot in the game leaves a `.txt` of the same name beside the
+  picture, with the selected target's look first. Wanted: one of the Male Watcher in Jobe, selected (it is drawn
+  without its gear; the cause is not known yet).
 - [ ] The market's search (2026-11-13): the name field is a field (not three dots), a name typed into it finds
   items; the Advanced fields (quality, price) are wide enough to read; the page opens on a second and a third
   login without "403 Invalid session".

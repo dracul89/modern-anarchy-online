@@ -3006,6 +3006,22 @@ impl World {
             self.rotations.insert(m.identity.1, q);
         }
         if let Some(info) = m.entity_info() {
+            // (kept for a screenshot's notes: `shotnotes`)
+            crate::shotnotes::set(
+                m.identity.1,
+                &info.name,
+                format!("kind {:#x} flags {:#x} flags2 {:#x} breed {} sex {} side {} template {:?} scale {:?} at {:.1?} textures {:?} clothes {:?} meshes {:x?}", m.kind, info.flags, info.flags2, info.breed, info.sex, info.side, info.template.map(|t| format!("{t:#x}")), info.scale, info.position, info.textures, info.clothes, info.meshes),
+                &m.data,
+            );
+            // (MAO_LOOKS=<part of a name>, or `*` for all: what the update says of the character's look, with its bytes)
+            if let Ok(wanted) = std::env::var("MAO_LOOKS") {
+                if wanted == "*" || info.name.to_lowercase().contains(&wanted.to_lowercase()) {
+                    eprintln!("look: {:#x} {:?} kind {:#x} flags {:#x} flags2 {:#x} breed {} sex {} side {} template {:?} scale {:?} textures {:?} clothes {:?} meshes {:x?}", m.identity.1, info.name, m.kind, info.flags, info.flags2, info.breed, info.sex, info.side, info.template.map(|t| format!("{t:#x}")), info.scale, info.textures, info.clothes, info.meshes);
+                    if wanted != "*" {
+                        eprintln!("look bytes: {}", m.data.iter().map(|b| format!("{b:02x}")).collect::<String>());
+                    }
+                }
+            }
             // (MAO_COMBAT_LOG: a creature whose update gives the client no template and no humanoid body, with its bytes)
             if info.template.is_none() && !info.is_humanoid() && std::env::var_os("MAO_COMBAT_LOG").is_some() {
                 eprintln!("no template: {:#x} {:?} flags {:#x} breed {} kind {:#x}: {}", m.identity.1, info.name, info.flags, info.breed, m.kind, m.data.iter().map(|b| format!("{b:02x}")).collect::<String>());

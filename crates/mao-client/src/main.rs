@@ -45,6 +45,7 @@ mod craftguide;
 mod charcreate;
 mod launchwindow;
 mod launchskin;
+mod shotnotes;
 mod hall;
 mod dimensions;
 mod loading;
