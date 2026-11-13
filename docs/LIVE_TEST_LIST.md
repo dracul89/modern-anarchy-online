@@ -223,6 +223,8 @@ account with `net <game> create`, in Arete Landing; scripted, other new players 
   both orders); Shift+click shows the info (inventory, wear window, a bag); a worn bag opens and closes by right
   clicks; in a bag a click takes an item up and a click on the inventory takes it out; in a corpse a click takes
   the item; Shift+T opens and closes the tradeskill window.
+- [ ] The occluder's bodies (2026-11-12): no pink or purple see-through boxes in Jobe Research, Nascense Frontier,
+  South of Elysium, the ICC Shuttleport and Adonis City (seen gone in offline pictures of Jobe Research only).
 - [ ] The launcher's own background (2026-11-12): in its settings, GUI page, Launcher group, choose "Stars and the
   steel emblem" and OK: the sky comes at once, the emblem small at the lower left under the page; untick the news
   page: the emblem large in the middle; a few stars change their brightness; "A picture of your own" with a file;

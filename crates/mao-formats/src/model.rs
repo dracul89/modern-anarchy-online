@@ -106,9 +106,34 @@ pub fn is_foliage_name(name: &str) -> bool {
     lower.split(|c: char| !c.is_ascii_alphabetic()).filter(|w| w.len() >= 3).any(|w| ENDS.iter().any(|e| w.ends_with(e)) || STARTS.iter().any(|s| w.starts_with(s)))
 }
 
+/// Whether a triangle mesh's data is one of the occluder's bodies, by its name: the boxes a level designer put where a wall
+/// or a building hides what is behind it. randy31's `RTriMesh_t::Process` (0x10049554) tests the name's first five characters
+/// for `[OCC]` the first time it runs, keeps the answer in the mesh (+0x1be), and from then on returns before the mesh is
+/// drawn or its frame's children are processed, unless `Debugger_t::m_nDebuggerMode` has bit 2 (the "OcclusionBodies" render
+/// debug). The bodies' material is a half see-through magenta without a texture.
+pub fn is_occluder_name(name: &str) -> bool {
+    name.as_bytes().starts_with(b"[OCC]")
+}
+
+/// `MAO_OCCLUDERS=show`: the occluder's bodies are drawn, as the original's "OcclusionBodies" render debug draws them.
+fn occluders_shown() -> bool {
+    static SHOWN: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *SHOWN.get_or_init(|| std::env::var("MAO_OCCLUDERS").is_ok_and(|v| v == "show"))
+}
+
 #[cfg(test)]
 mod foliage_tests {
-    use super::is_foliage_name;
+    use super::{is_foliage_name, is_occluder_name};
+
+    #[test]
+    fn occluder_bodies_are_told_by_their_first_five_characters() {
+        for name in ["[OCC]", "[OCC]wall", "[OCC]16x16"] {
+            assert!(is_occluder_name(name), "{name}");
+        }
+        for name in ["", "[OCC", "[occ]", " [OCC]", "OCC]", "[1]glass", "wall[OCC]"] {
+            assert!(!is_occluder_name(name), "{name}");
+        }
+    }
 
     #[test]
     fn plants_are_told_from_lookalikes() {
@@ -452,6 +477,11 @@ fn walk(a: &Archive, index: i32, parent: &Matrix, depth: usize, root: Root, out:
     if a.class(index as usize) == Some("RTriMesh_t") {
         if let Some(data) = frame.int("0", "data").and_then(|d| a.objects.get(d as usize)) {
             let name = string(data, "name");
+            // (an occluder's body: neither it nor what hangs under its frame is drawn)
+            if is_occluder_name(&name) && !occluders_shown() {
+                chain.pop();
+                return Ok(());
+            }
             for m in refs(data, "mesh") {
                 if let Some(s) = a.objects.get(m as usize) {
                     let before = out.len();

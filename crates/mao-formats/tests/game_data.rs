@@ -24,6 +24,25 @@ fn known_objects() {
     assert!(db.get(Id { kind: 0xf6954, instance: 0x1727 }).unwrap().is_none());
 }
 
+/// The occluder's bodies (`[OCC]8x8`, `[OCC]16x16`, `[OCC]32x32`: 83 of them stand in Jobe Research) have nothing to draw.
+#[test]
+fn occluder_bodies_have_no_parts() {
+    let Some(db) = database() else { return };
+    if std::env::var_os("MAO_OCCLUDERS").is_some() {
+        return;
+    }
+    for instance in [229608, 229609, 229610] {
+        let object = db.get(Id { kind: 0xf6951, instance }).unwrap().unwrap();
+        let mesh = mao_formats::mesh::parse(&object).unwrap();
+        assert!(mao_formats::model::build_placed(&mesh).unwrap().parts.is_empty(), "mesh {instance}");
+        let (model, anims) = mao_formats::model::build_placed_animated(&mesh).unwrap();
+        assert!(model.parts.is_empty() && anims.is_empty(), "mesh {instance}");
+    }
+    // (a building beside them keeps its parts)
+    let object = db.get(Id { kind: 0xf6951, instance: 214235 }).unwrap().unwrap();
+    assert_eq!(mao_formats::model::build_placed(&mao_formats::mesh::parse(&object).unwrap()).unwrap().parts.len(), 51);
+}
+
 #[test]
 fn every_index_entry_is_walked_in_order() {
     let Some(db) = database() else { return };

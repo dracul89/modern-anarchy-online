@@ -3310,3 +3310,18 @@ click and by Escape, used by a right click, used on another (the server said "No
 of junk), a bag opened, closed and shown again by three right clicks. **Not tried:** a worn bag, Shift+click (the
 script's clicks hold no keys), Shift+T, an item in hand set on a hotbar slot or put into a bag or a shop by a
 click, and everything in a bag, the bank and a corpse.
+
+**The occluder's bodies are not drawn (2026-11-12, the user's screenshots of Jobe: pink and purple see-through
+boxes round the buildings; `mao_formats::model`).** Three meshes of the database, `[OCC]8x8`, `[OCC]16x16` and
+`[OCC]32x32`, are boxes a level designer stood where a wall or a building hides what is behind it: 774 statels in
+six playfields (Jobe Research 83, Nascense Frontier 107, South of Elysium 62 and its test twin 62, the ICC
+Shuttleport 51, Adonis City 409). Their one triangle mesh is named `[OCC]` and its material is a half see-through
+magenta with no texture, which is what was on the screen. The original never draws them: randy31's
+`RTriMesh_t::Process` (0x10049554) tests the first five characters of the mesh data's name for `[OCC]` the first
+time it runs, keeps the answer in the mesh, and from then on returns before the mesh is drawn or its frame's
+children are processed, unless the debugger's mode has bit 2 (the "OcclusionBodies" render debug). The mesh
+reader does the same (`model::is_occluder_name`, in `walk`): a mesh with that name gives no parts, in every window
+that draws a mesh. `MAO_OCCLUDERS=show` draws them, as the debug mode does. The original also hands these bodies to
+its occluder (`HMOccluder_t`), which leaves out what stands behind them; this client has no occlusion culling, so
+nothing is left out here. Seen in offline pictures of Jobe Research before and after (6165 parts, then 6082);
+`cargo run -p mao-formats --example occluders -- <game>` lists the meshes and the playfields. Not seen live.
