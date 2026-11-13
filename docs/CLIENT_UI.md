@@ -3519,3 +3519,12 @@ the message log: a settings file is the user's own process's to write (what this
 `%APPDATA%` lands in a private copy the game never reads, which is why the log stayed off twice). Both commands
 tried live on the test character: the settings file had the two lines and the log its "server n3" lines.
 The user's own build is made with the `hide-console` feature since that day (no console window, as the packages).
+
+**A worn item can put its wearer into flight (2026-11-13; the user: "equipped ganimedes showed on my back but never
+put me in flight mode").** The Ganimedes Personal Jetpack's wear event (event 14 of item 290215) has the spell
+0xcf4c with the flying bit (stat 73, bit 2), the same one a hoverboard's program has (`item::grants_flight`), beside
+a run speed modifier and eleven 0xcf2d spells that pick the back mesh by breed, sex and build. The client took
+flight from the running programs only; the game loop now also takes it from the items in the worn places
+(`worn_flight` in `net.rs`). Not tried live: no test character has such an item, and whether the worn list is
+brought up to date at the moment of equipping (not only at a zoning) was not seen. A Yalmaha is not done: by the
+user's word the player shrinks, flies and is replaced by the vehicle, which wants its wear event read the same way.
