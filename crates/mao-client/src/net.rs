@@ -315,6 +315,8 @@ struct World {
     own_walking: bool,
     /// One's own character flies: a running program lets it (`mao_formats::item::grants_flight`).
     own_flying: bool,
+    /// The part of `own_flying` that comes from the running programs (the other is a worn item's: the game loop joins them).
+    nano_flying: bool,
     /// Each walked creature's last path (when it came, its start, its end) and its speed as the paths show it.
     path_seen: BTreeMap<u32, (Instant, [f32; 3], [f32; 3])>,
     path_speeds: BTreeMap<u32, f32>,
@@ -1264,7 +1266,7 @@ impl World {
                 Some(nano) => self.riding.insert(self.own, nano),
                 None => self.riding.remove(&self.own),
             };
-            self.own_flying = self.nanos.iter().any(|&n| db.get(id(0xfde85, n)).ok().flatten().is_some_and(|d| mao_formats::item::grants_flight(&d)));
+            self.nano_flying = self.nanos.iter().any(|&n| db.get(id(0xfde85, n)).ok().flatten().is_some_and(|d| mao_formats::item::grants_flight(&d)));
         }
     }
 
@@ -5581,6 +5583,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut npc_asked: Option<((u32, u32), Instant, bool)> = None;
         // (the mission journal: the server's whole list when it sends one, and the missions it dropped)
         let (mut pending_mission_log, mut pending_missions_removed): (Option<Vec<crate::missionlog::Mission>>, Vec<(u32, u32)>) = (None, Vec::new());
+        // (which worn items let their wearer fly, by template: looked up once each)
+        let mut flight_items: std::collections::HashMap<u32, bool> = std::collections::HashMap::new();
         let mut shop_booth: Option<(u32, u32)> = None;
         // (the backpack places put into the open shop's trade: gone from the backpack when the trade completes. The server
         // says nothing more of them: a sale's log has `AddItem` for each place, then `Complete`, then the shop opened anew.)
@@ -7423,6 +7427,13 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             // Flying (fly mode 7, FUN_1006e4f8): falling off and the body lifted half a metre as it starts (`SetRelPos` by
             // 0x1015e0e4); the vehicle faces its motion (`Vehicle_t`'s orientation mode 4, FUN_1000c616), so going forward
             // follows the elevation the right button gave it.
+            // (flight comes from a running program or from something worn: a Ganimedes jetpack's wear event has the same
+            // spell 0xcf4c with the flying bit as a hoverboard's program, `item::grants_flight`. The worn places are those
+            // under the backpack's first, 64.)
+            let worn_flight = state.worn.iter().filter(|e| e.slot < 64).any(|e| {
+                *flight_items.entry(e.low_id).or_insert_with(|| gear_db.get(mao_formats::resource::Id { kind: mao_formats::item::TEMPLATE, instance: e.low_id }).ok().flatten().is_some_and(|d| mao_formats::item::grants_flight(&d)))
+            });
+            state.own_flying = state.nano_flying || worn_flight;
             let flying = state.own_flying;
             if flying != was_flying {
                 was_flying = flying;
