@@ -12,9 +12,13 @@
 //! three to a row, titled with the bag's name, which the window's menu (FUN_100cbace) can change ("Rename":
 //! FUN_100cb852's "Enter backpack name." box with OK, "Reset to default" and Cancel; the original keeps the name in
 //! the bag's own file, `Containers/Container_<type>x<instance>.xml`, here in `backpacks.ini` beside `mao.ini`). It
-//! does not close when empty and has no "Take all". Not ported for these windows: the menu's List Mode and Auto
-//! Arrange, items placed by hand (`item_position_map`), closing by Escape (`esc_backpacks`), and telling the server
-//! that a bag was closed (the original's message was not identified).
+//! does not close when empty and has no "Take all". Its items stand where they are put (`item_position_map`; here
+//! `places.rs`): the item taken up let go on an empty cell of the same backpack moves there, on another item the two
+//! change cells and the other is in hand (FUN_100cc855; nothing is sent). Not ported for these windows: stacks joined
+//! or split inside a backpack (two like stacks change cells as any two items do), an inventory item shown at the cell
+//! it was let go on, the menu's List Mode and Auto Arrange, closing by Escape (`esc_backpacks`), and telling the
+//! server that a bag was closed (the original's message was not identified). The bank, corpses and chests are
+//! arranged as they were, in their places' order.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Mutex;
@@ -124,8 +128,8 @@ pub struct LootWindow {
     empty_since: Option<((u32, u32), u32, std::time::Instant)>,
     /// The window's views (the `ItemContainerView_c`'s grid), for the container they were built for.
     views: Option<(Tree, Id, Id, (u32, u32))>,
-    /// The items last put in the grid (their places, counts and icons).
-    shown: Vec<(u32, u16, Option<u32>)>,
+    /// The items last put in the grid (their places, counts, icons and, in one's own backpack, cells).
+    shown: Vec<(u32, u16, Option<u32>, Option<(usize, usize)>)>,
     /// The place of the item taken up out of the grid, and the frame it was taken up in (the click that takes it up
     /// does not also put it down).
     dragging: Option<u32>,
@@ -179,6 +183,10 @@ impl LootWindow {
         tree.get_mut(root).layout = Layout::Base;
         let list = crate::gui::multilist::create_grid(&mut tree, "ItemContainerView", max_items(view.identity.0, view.own), columns(view.identity.0));
         tree.add_child(root, list);
+        // (one's own backpack is not arranged, FUN_100ce55d: each item at the cell it is given, `places.rs`)
+        if view.own {
+            crate::gui::multilist::set_grid(&mut tree, list, |m| m.auto_arrange = false);
+        }
         self.views = Some((tree, root, list, view.identity));
         self.shown.clear();
     }
@@ -202,23 +210,29 @@ impl LootWindow {
         if self.views.as_ref().is_none_or(|v| v.3 != view.identity) {
             self.build(ctx, view);
         }
-        // (the items in the grid in their places' order, as `AddItem` puts them; auto arranged)
+        // (the items in the grid in their places' order, as `AddItem` puts them; auto arranged, but for one's own
+        // backpack: there each item stands at its own cell, counted along the rows the window's width makes: the one
+        // it was put in by hand, else the first free one)
         let mut items: Vec<&GearItem> = view.items.iter().collect();
         items.sort_by_key(|i| i.slot);
-        let now: Vec<(u32, u16, Option<u32>)> = items.iter().map(|i| (i.slot, i.count, i.icon.as_ref().map(|c| c.id))).collect();
         let textures = &mut self.textures;
         let (tree, root, list, _) = self.views.as_mut()?;
         let (root, list) = (*root, *list);
+        crate::gui::multilist::update(tree, list);
+        let grid_columns = crate::gui::multilist::grid_columns(tree, list).unwrap_or(3).max(1);
+        let cells = if view.own { crate::places::arrange(view.identity, &items.iter().map(|i| i.slot).collect::<Vec<_>>(), BAG_PLACES, None) } else { crate::places::Cells::new() };
+        let now: Vec<(u32, u16, Option<u32>, Option<(usize, usize)>)> = items.iter().map(|i| (i.slot, i.count, i.icon.as_ref().map(|c| c.id), cells.get(&i.slot).map(|c| (c % grid_columns, c / grid_columns)))).collect();
         if self.shown != now {
             let rows: Vec<crate::gui::multilist::Item> = items
                 .iter()
-                .map(|i| crate::gui::multilist::Item {
+                .zip(&now)
+                .map(|(i, shown)| crate::gui::multilist::Item {
                     id: i.slot as i64,
                     icon: i.icon.as_ref().map(|icon| textures.entry(icon.id).or_insert_with(|| ctx.load_texture(format!("loot-icon-{}", icon.id), egui::ColorImage::from_rgba_unmultiplied([icon.width, icon.height], &icon.rgba), egui::TextureOptions::LINEAR)).id()),
                     count: i.count as u32,
                     cells: vec![(1, crate::gui::multilist::CellView::Text(i.name.clone()))],
                     keys: vec![(1, i.name.clone())],
-                    pos: None,
+                    pos: shown.3,
                     left: None,
                     colour: None,
                 })
@@ -226,7 +240,7 @@ impl LootWindow {
             crate::gui::multilist::set_items(tree, list, rows);
             self.shown = now;
         }
-        crate::gui::multilist::update(tree, list);
+        let mut hovered_cell: Option<usize> = None;
         let skin = crate::skin::skin(ctx);
         let cols = columns(view.identity.0);
         // (room for the columns and the scroll bar, and up to six rows: the bank's, or as many as the items fill)
@@ -292,6 +306,8 @@ impl LootWindow {
                     }
                 }
                 let hovered = ui.input(|i| i.pointer.hover_pos()).and_then(|at| crate::gui::multilist::item_at(tree, list, response.rect.min, at));
+                // (the cell under the pointer, with an item or not: where an item of the backpack is put by hand)
+                hovered_cell = ui.input(|i| i.pointer.hover_pos()).and_then(|at| crate::gui::multilist::cell_at(tree, list, response.rect.min, at)).map(|(x, y)| y * grid_columns + x).filter(|c| *c < BAG_PLACES);
                 // (a right click takes the item: the list's use signal, FUN_1004141b's button 2; not with an inventory
                 // item in hand, whose right click is a use of it on another)
                 if let Some(slot) = hovered
@@ -363,6 +379,31 @@ impl LootWindow {
                     && r.contains(at)
                 {
                     take = Some(Take::One { handle: view.handle, place });
+                }
+                // (let go on a cell of its own backpack, FUN_100cc855: an empty cell takes the item
+                // (`MultiListView_c::MoveItem`, the client's own matter); on another item the two change cells and
+                // the other is in hand)
+                if view.own
+                    && shown.as_ref().is_some_and(|s| s.response.contains_pointer())
+                    && let Some(cell) = hovered_cell
+                {
+                    match crate::places::at(&cells, cell) {
+                        None => {
+                            crate::places::put(view.identity, place, cell);
+                            if crate::gear::traced() {
+                                eprintln!("items: the container's place {place} put into cell {cell}");
+                            }
+                        }
+                        Some(other) if other != place => {
+                            crate::places::exchange(view.identity, place, other);
+                            if crate::gear::traced() {
+                                eprintln!("items: the container's places {place} and {other} change cells: place {place} into cell {cell}, the other in hand");
+                            }
+                            self.dragging = Some(other);
+                            self.taken_up = ctx.cumulative_frame_nr();
+                        }
+                        Some(_) => {}
+                    }
                 }
             }
         }

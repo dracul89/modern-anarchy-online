@@ -295,7 +295,7 @@ impl TradeskillWindow {
 /// Interface: the source used in 3 processes, the target in 1, BreakingEntry 60 needed, a quality 1 result), on these
 /// sample items (backpack places 0x4b and 0x5b).
 pub fn preview() -> (TradeskillWindow, Vec<GearItem>) {
-    let item = |slot, name: &str, quality| GearItem { slot, item_id: 1, high_id: 1, count: 1, quality, bag: false, container: (0, 0), flags: 0, name: name.into(), description: String::new(), icon: None, effects: Vec::new(), actions: Vec::new() };
+    let item = |slot, name: &str, quality| GearItem { slot, item_id: 1, high_id: 1, count: 1, quality, bag: false, container: (0, 0), flags: 0, can: 0, name: name.into(), description: String::new(), icon: None, effects: Vec::new(), actions: Vec::new() };
     let items = vec![item(0x4b, "Lock Pick", 1), item(0x5b, "Nano Programming Interface", 1)];
     let mut w = TradeskillWindow { open: true, ..TradeskillWindow::default() };
     (w.source, w.target) = (Some(0x4b), Some(0x5b));

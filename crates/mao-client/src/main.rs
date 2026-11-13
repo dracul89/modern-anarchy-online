@@ -88,6 +88,7 @@ mod loginviews;
 mod look;
 mod layout;
 mod loot;
+mod places;
 mod nanoprograms;
 mod perks;
 mod requirements;
@@ -2179,8 +2180,13 @@ fn run(args: &[String]) -> Result<(), String> {
                                 .lines()
                                 .filter_map(|l| {
                                     let v: Vec<u32> = l.split_whitespace().filter_map(|x| x.parse().ok()).collect();
-                                    let [slot, low_id, high_id, quality] = v[..] else { return None };
-                                    Some(mao_net::inventory::Entry { slot, flags: 1, count: 1, container: (0, 0), low_id, high_id, quality, extra: 0 })
+                                    // (a fifth number is how many: a stack)
+                                    let (slot, low_id, high_id, quality, count) = match v[..] {
+                                        [slot, low_id, high_id, quality] => (slot, low_id, high_id, quality, 1),
+                                        [slot, low_id, high_id, quality, count] => (slot, low_id, high_id, quality, count as u16),
+                                        _ => return None,
+                                    };
+                                    Some(mao_net::inventory::Entry { slot, flags: 1, count, container: (0, 0), low_id, high_id, quality, extra: 0 })
                                 })
                                 .collect();
                             hud.gear = gear::from_entries(&db, &textures, &entries, std::env::var("MAO_LEVEL").ok().and_then(|l| l.parse().ok()).unwrap_or(220));

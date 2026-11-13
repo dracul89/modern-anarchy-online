@@ -2273,6 +2273,13 @@ impl World {
                         self.inventory = Some(self.worn.clone());
                     }
                 }
+                // `JoinItems` from the server (0x35, the answer to the client's own: FUN_1005d61f's case 14 hands the target and
+                // the parameters to FUN_1004a12e): the parameters' stack `(0x68, place)` goes into the target's and is gone
+                0x35 if word(9) == 0x68 && word(17) == 0x68 => {
+                    if crate::places::join_entries(&mut self.worn, word(13), word(21)) {
+                        self.inventory = Some(self.worn.clone());
+                    }
+                }
                 // a perk action gone (0xb6, after an untraining: its item template, number and code)
                 0xb6 => {
                     self.perk_actions.retain(|p| p.1 != word(17));
@@ -5656,6 +5663,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut vehicle_cache: std::collections::HashMap<u32, bool> = std::collections::HashMap::new();
         let mut delete_seen = 0u8;
         let mut combine_seen = 0u8;
+        let mut join_seen = 0u8;
+        let mut split_seen = 0u8;
         let mut cancel_seen = 0u8;
         let mut train_perk_seen = 0u8;
         let mut pet_seen = 0u8;
@@ -7221,6 +7230,22 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             if keys.combine.0 != combine_seen {
                 combine_seen = keys.combine.0;
                 let _ = connection.send(&n3::use_item_on_item(own, (0x68, keys.combine.1), (0x68, keys.combine.2)));
+            }
+            // (two stacks made one: asked of the server, whose answer, the same action, is what joins them here
+            // (`N3Msg_JoinItems` 0x1001bb2a only sends))
+            if keys.join.0 != join_seen {
+                join_seen = keys.join.0;
+                let _ = connection.send(&n3::join_items(own, (0x68, keys.join.1), (0x68, keys.join.2)));
+            }
+            // (a stack split: made here at once, as the original makes it before it tells the server (`N3Msg_SplitItem`
+            // 0x1001bd13 calls FUN_1004a2bf, then sends): the new stack at the backpack's first free place)
+            if keys.split.0 != split_seen {
+                split_seen = keys.split.0;
+                let (_, place, count) = keys.split;
+                if crate::places::split_entry(&mut state.worn, place, count, inventory::BACKPACK_FIRST, crate::gear::PACK_SLOTS).is_some() {
+                    let _ = connection.send(&n3::split_item(own, (0x68, place), count));
+                    pending_gear = Some(crate::gear::from_entries(&gear_db, &gear_textures, &state.worn, state.stats.get(&0x36).copied().unwrap_or(1)));
+                }
             }
             // An item destroyed: asked of the server and taken out of the inventory window at once.
             if keys.delete.0 != delete_seen {

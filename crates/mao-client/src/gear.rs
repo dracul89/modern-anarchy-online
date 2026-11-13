@@ -33,6 +33,8 @@ pub struct GearItem {
     pub container: (u32, u32),
     /// The template's flags (stat 0: NoDrop and the like).
     pub flags: u32,
+    /// The template's `Can` flags (stat 0x1e: 0x200 stackable, 0x1000000 not to be split).
+    pub can: u32,
     pub name: String,
     pub description: String,
     pub icon: Option<Arc<Icon>>,
@@ -54,10 +56,28 @@ pub static DRAGGED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32:
 /// interface clears when the frame is over, not the frame's number: what follows the frame's drawing, the use of an
 /// item on the world, already counts the next one.)
 static TAKEN_UP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// How many of the stack in hand are being split off it (0: the item itself is in hand). The original's drag object
+/// carries a `split_count` (GUI.dll FUN_100cc6e8), and everything but an empty cell of the stack's own container
+/// turns such a drag away (FUN_100cc855, FUN_100e220f, FUN_100cbcb5, FUN_100e015f).
+static SPLIT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
 /// The inventory place of the item in hand.
 pub fn held() -> Option<u32> {
     Some(DRAGGED.load(std::sync::atomic::Ordering::Relaxed)).filter(|&d| d != u32::MAX)
+}
+
+/// How many of the stack in hand are being split off (0: none, the item itself is in hand).
+pub fn split_count() -> u32 {
+    if held().is_some() { SPLIT.load(std::sync::atomic::Ordering::Relaxed) } else { 0 }
+}
+
+/// Takes `count` of the stack of an inventory place into the hand: a split, made when they are put into an empty cell.
+pub fn pick_up_split(place: u32, count: u32) {
+    pick_up(place);
+    if traced() {
+        eprintln!("items: {count} of place {place} in hand, to be split off");
+    }
+    SPLIT.store(count, std::sync::atomic::Ordering::Relaxed);
 }
 
 /// `MAO_ITEM_TRACE=1`: what is done with the items by the mouse is printed (for tests by script).
@@ -72,6 +92,7 @@ pub fn pick_up(place: u32) {
         eprintln!("items: place {place} taken up");
     }
     DRAGGED.store(place, std::sync::atomic::Ordering::Relaxed);
+    SPLIT.store(0, std::sync::atomic::Ordering::Relaxed);
     TAKEN_UP.store(true, std::sync::atomic::Ordering::Relaxed);
 }
 
@@ -86,10 +107,17 @@ pub fn put_down() {
         eprintln!("items: place {} put down", held().unwrap_or(0));
     }
     DRAGGED.store(u32::MAX, std::sync::atomic::Ordering::Relaxed);
+    SPLIT.store(0, std::sync::atomic::Ordering::Relaxed);
 }
 
 /// Whether the item in hand is let go this frame: the left button released, other than by the click that took it up.
+/// Not a split in hand: nothing takes one but an empty cell of its own container ([`hand_opening`]).
 pub fn letting_go(ctx: &egui::Context) -> bool {
+    split_count() == 0 && hand_opening(ctx)
+}
+
+/// Whether what is in hand, an item or a split of one, is let go this frame.
+pub fn hand_opening(ctx: &egui::Context) -> bool {
     held().is_some() && !TAKEN_UP.load(std::sync::atomic::Ordering::Relaxed) && ctx.input(|i| i.pointer.button_released(egui::PointerButton::Primary))
 }
 
@@ -108,6 +136,12 @@ pub struct GearEvents {
     pub combines: Vec<(u32, u32)>,
     /// Item links for the chat's line (the item menu's "Create Reference").
     pub references: Vec<String>,
+    /// Two stacks to make one: (the stack that stays, the one in hand that goes into it).
+    pub joins: Vec<(u32, u32)>,
+    /// A stack to split: (its place, how many to take off it).
+    pub splits: Vec<(u32, u32)>,
+    /// Feedback lines to tell (the game's text names).
+    pub feedback: Vec<&'static str>,
 }
 
 /// How many places the backpack has.
@@ -254,6 +288,7 @@ pub fn from_entries(db: &ResourceDatabase, textures: &crate::Textures, entries: 
                 bag: e.is_bag(),
                 container: if e.is_bag() { e.container } else { (0, 0) },
                 flags: template.as_ref().and_then(|t| t.stat(0)).unwrap_or(0),
+                can: template.as_ref().and_then(|t| t.stat(30)).unwrap_or(0),
                 name: template.as_ref().map_or_else(|| format!("Item #{:x}", e.low_id), |t| t.name.clone()),
                 description: template.map(|t| t.description).unwrap_or_default(),
                 icon,
@@ -343,6 +378,11 @@ impl GearWindow {
         }
     }
 
+    /// Opens the box that asks how many to split off the stack at a place, as Ctrl+click on it does (the previews use it).
+    pub fn ask_split(&mut self, place: u32) {
+        self.windows.ask_split(place);
+    }
+
     pub fn texture(&mut self, ctx: &egui::Context, icon: &Icon) -> egui::TextureId {
         self.textures
             .entry(icon.id)
@@ -353,7 +393,7 @@ impl GearWindow {
     /// The inventory and wear windows; what was done with the items.
     pub fn show(&mut self, ctx: &egui::Context, open: &mut bool, items: &[GearItem], stats: &std::collections::BTreeMap<u32, i64>, palette: &Palette) -> GearEvents {
         let e = self.windows.show(ctx, open, items, stats, palette, &mut self.textures);
-        GearEvents { moves: e.moves, uses: e.uses, deletes: e.deletes, infos: e.infos, trade_adds: e.trade_adds, combines: e.combines, references: e.references }
+        GearEvents { moves: e.moves, uses: e.uses, deletes: e.deletes, infos: e.infos, trade_adds: e.trade_adds, combines: e.combines, references: e.references, joins: e.joins, splits: e.splits, feedback: e.feedback }
     }
 
     /// The inspect window (opened by each new inspection); the info pages asked for.

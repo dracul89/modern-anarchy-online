@@ -225,6 +225,9 @@ account with `net <game> create`, in Arete Landing; scripted, other new players 
   both orders); Shift+click shows the info (inventory, wear window, a bag); a worn bag opens and closes by right
   clicks; in a bag a click takes an item up and a click on the inventory takes it out; in a corpse a click takes
   the item; Shift+T opens and closes the tradeskill window.
+- [ ] Placing by hand and stacks (2026-11-13; by script: a move to an empty cell, a swap, a split and a join):
+  by hand: items stay where they are put after a relog; the same in a bag's window; Ctrl+click on a stack, the
+  count box, and the split stack on an empty cell; a stack onto a like stack joins them.
 - [ ] The inventory, from the original's code (2026-11-13): a right click on armour, a weapon or an implant in the
   backpack wears it and on a worn one takes it off; on a consumable or a bag it uses or opens; the menu comes by
   the right button held about a third of a second (Look At, Create Reference, Delete); a bag picked up closes its

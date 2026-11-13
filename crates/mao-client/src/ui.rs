@@ -246,6 +246,10 @@ pub struct Requests {
     pub item_deletes: Vec<u32>,
     /// Backpack items used on others (tradeskill combines): (the item, the one it went on).
     pub item_combines: Vec<(u32, u32)>,
+    /// Two backpack stacks to make one: (the stack that stays, the one that goes into it).
+    pub item_joins: Vec<(u32, u32)>,
+    /// A backpack stack to split: (its place, how many to take off it).
+    pub item_splits: Vec<(u32, u32)>,
     /// An action clicked in the Action window.
     pub action: Option<hotbar::Action>,
     /// A control center target button: 0 yourself, 1 the next hostile.
@@ -1326,7 +1330,14 @@ impl Ui {
                 if crate::gear::traced() && !(events.uses.is_empty() && events.combines.is_empty() && events.infos.is_empty() && events.moves.is_empty()) {
                     eprintln!("items: uses {:?}, used on {:?}, moves {:?}, infos {:?}", events.uses, events.combines, events.moves, events.infos);
                 }
+                if crate::gear::traced() && !(events.joins.is_empty() && events.splits.is_empty() && events.feedback.is_empty()) {
+                    eprintln!("items: joins {:?}, splits {:?}, told {:?}", events.joins, events.splits, events.feedback);
+                }
                 requests.item_moves.extend(events.moves);
+                // (stacks joined and split, and what the game says of one it does not make)
+                requests.item_joins.extend(events.joins);
+                requests.item_splits.extend(events.splits);
+                requests.feedback.extend(events.feedback);
                 // (a bag's use opens its window; the use of a bag whose window is up closes that window instead, and
                 // of one whose window was closed here shows it again: nothing is sent for either, the client knows
                 // what is in a bag it has opened. Worn or carried alike. Where the original closes a backpack on its
@@ -1397,8 +1408,9 @@ impl Ui {
             requests.use_on = Some(((0x68, dragged), (at.x * k, at.y * k)));
         }
         // (the hand is empty once the item is let go, wherever; Escape puts it back, and so does the inventory
-        // window going, which is where the item in hand is drawn)
-        if letting_go || self.ctx.input(|i| i.key_pressed(egui::Key::Escape)) || !self.window_open("inventory") {
+        // window going, which is where the item in hand is drawn. A split in hand the same: it is used on nothing in
+        // the world (`letting_go` is not true of it), and let go anywhere but on an empty cell it is given up)
+        if crate::gear::hand_opening(&self.ctx) || self.ctx.input(|i| i.key_pressed(egui::Key::Escape)) || !self.window_open("inventory") {
             crate::gear::put_down();
         }
         crate::gear::end_frame();
@@ -1483,6 +1495,10 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
     let (mut gear_open, mut gear) = (hud.gear_open, crate::gear::GearWindow::default());
     if let Ok(tab) = std::env::var("MAO_GEAR_TAB") {
         gear.select_tab(&tab);
+    }
+    // (MAO_SPLIT=<place>: the box that asks how many to split off the stack at that place, as Ctrl+click opens it)
+    if let Some(place) = std::env::var("MAO_SPLIT").ok().and_then(|p| p.parse().ok()) {
+        gear.ask_split(place);
     }
     let mut hotbars = hud.preview_hotbars.clone();
     let mut preview_mission = hud.mission_preview.lock().ok().and_then(|mut m| m.take());
@@ -1765,6 +1781,12 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
                 options_window(&ctx, &mut open, &mut rebinding, settings, &mut requests, &palette, &themes);
             }
         });
+        // (the item in hand as the game's frames end: put down by the click after the one that took it up, so that
+        // MAO_CLICK can place an item by hand for a picture)
+        if crate::gear::hand_opening(&ctx) {
+            crate::gear::put_down();
+        }
+        crate::gear::end_frame();
         let mut textures = output.textures_delta;
         for (id, deltas) in &textures.set {
             for delta in deltas {

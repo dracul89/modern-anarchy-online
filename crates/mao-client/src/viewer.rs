@@ -69,6 +69,10 @@ pub struct Input {
     pub delete: (u8, u32),
     /// A backpack item used on another (a tradeskill combine): a counter that steps with each, the item and the one it went on.
     pub combine: (u8, u32, u32),
+    /// Two backpack stacks to make one: a counter that steps with each, the stack that stays and the one that goes into it.
+    pub join: (u8, u32, u32),
+    /// A backpack stack to split: a counter that steps with each, the stack's place and how many to take off it.
+    pub split: (u8, u32, u32),
     /// Follow the target (a counter that steps with each `/follow`).
     pub follow: u8,
     /// Say what is known of the target (a counter that steps with each `/inspect`).
@@ -2907,6 +2911,12 @@ impl ApplicationHandler for App {
                     }
                     for (from, onto) in requests.item_combines.drain(..) {
                         self.keys.combine = (self.keys.combine.0.wrapping_add(1), from, onto);
+                    }
+                    for (onto, held) in requests.item_joins.drain(..) {
+                        self.keys.join = (self.keys.join.0.wrapping_add(1), onto, held);
+                    }
+                    for (place, count) in requests.item_splits.drain(..) {
+                        self.keys.split = (self.keys.split.0.wrapping_add(1), place, count);
                     }
                     for place in requests.item_deletes.drain(..) {
                         self.keys.delete = (self.keys.delete.0.wrapping_add(1), place);

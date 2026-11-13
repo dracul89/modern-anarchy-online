@@ -709,6 +709,22 @@ pub fn cell_at(tree: &Tree, id: Id, origin: egui::Pos2, at: egui::Pos2) -> Optio
     tree.control::<Rows>(rows)?.grid.as_ref()?.cell_at(Point::new(at.x - r.min.x, at.y - r.min.y))
 }
 
+/// The columns a grid's cells stand in at its width now (`RecalcCellCount`), for a window that counts its cells along
+/// the rows.
+pub fn grid_columns(tree: &Tree, id: Id) -> Option<usize> {
+    let (_, _, rows) = parts(tree, id)?;
+    Some(tree.control::<Rows>(rows)?.grid.as_ref()?.cols())
+}
+
+/// A grid cell's rectangle on screen (the window's content at `origin`): `GridPosToViewPos`.
+pub fn cell_rect(tree: &Tree, id: Id, origin: egui::Pos2, cell: (usize, usize)) -> Option<egui::Rect> {
+    let (_, _, rows) = parts(tree, id)?;
+    let r = super::host::screen_rect(tree, rows, origin);
+    let g = tree.control::<Rows>(rows)?.grid.as_ref()?;
+    let (x, y) = g.place(cell);
+    Some(egui::Rect::from_min_size(r.min + egui::vec2(x, y), egui::vec2(g.cell_px().0, g.cell_px().1)))
+}
+
 /// `SetMaxItemCount`.
 pub fn set_max_items(tree: &mut Tree, id: Id, max_items: i32) {
     let Some((_, _, rows)) = parts(tree, id) else { return };

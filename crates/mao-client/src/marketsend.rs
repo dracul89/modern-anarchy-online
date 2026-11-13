@@ -159,7 +159,7 @@ mod tests {
 
     #[test]
     fn deposits_follow_the_originals_rules() {
-        let item = |slot, flags, bag| GearItem { slot, item_id: 1, high_id: 1, count: 1, quality: 1, bag, container: (0, 0), flags, name: String::new(), description: String::new(), icon: None, effects: Vec::new(), actions: Vec::new() };
+        let item = |slot, flags, bag| GearItem { slot, item_id: 1, high_id: 1, count: 1, quality: 1, bag, container: (0, 0), flags, can: 0, name: String::new(), description: String::new(), icon: None, effects: Vec::new(), actions: Vec::new() };
         assert_eq!(refusal(&item(70, 0, false)), None);
         assert_eq!(refusal(&item(6, 0, false)), Some("Feedback_MarketItemMustBeInBackpack"));
         assert_eq!(refusal(&item(70, NO_DROP, false)), Some("Feedback_MarketNoNodrops"));

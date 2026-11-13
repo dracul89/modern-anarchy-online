@@ -701,6 +701,38 @@ pub fn use_item_on_item(character: u32, item: (u32, u32), target: (u32, u32)) ->
     Message { kind: 0x5e477770, identity: (CHARACTER, character), data }.frame(character)
 }
 
+/// `CharacterAction` `0x35` (`N3Msg_JoinItems`, Gamecode 0x1001bb2a): two stacks made one. Built with FUN_10072a88 as
+/// [`use_item_on_item`] is (the target identity, 0, the action, the parameters' identity): the target is the stack that
+/// stays, the one the held stack was let go on, and the parameters name the held stack, which goes into it (GUI.dll
+/// 0x100ccbc3: the held item's identity pushed first, so the second argument; the server's answer is the same action,
+/// which FUN_1004a12e carries out: the parameters' item is added to the target's and removed). From the code alone: no
+/// capture has one.
+pub fn join_items(character: u32, onto: (u32, u32), held: (u32, u32)) -> Frame {
+    let mut data = vec![0u8; 5];
+    data[4] = 0x35;
+    data.extend_from_slice(&[0; 4]);
+    for word in [onto.0, onto.1, held.0, held.1] {
+        data.extend_from_slice(&word.to_be_bytes());
+    }
+    data.extend_from_slice(&[0; 2]);
+    Message { kind: 0x5e477770, identity: (CHARACTER, character), data }.frame(character)
+}
+
+/// `CharacterAction` `0x34` (`N3Msg_SplitItem`, Gamecode 0x1001bd13): `count` taken off a stack as a stack of its own.
+/// The target is the stack's identity and the parameters are `(0, count)` (the function's local pair `-0x18` zero,
+/// `-0x14` the count, handed to FUN_10072a88 as the parameters). The client has split its own copy before it sends
+/// (FUN_1004a2bf: the new stack at the first free place). From the code alone: no capture has one.
+pub fn split_item(character: u32, item: (u32, u32), count: u32) -> Frame {
+    let mut data = vec![0u8; 5];
+    data[4] = 0x34;
+    data.extend_from_slice(&[0; 4]);
+    for word in [item.0, item.1, 0, count] {
+        data.extend_from_slice(&word.to_be_bytes());
+    }
+    data.extend_from_slice(&[0; 2]);
+    Message { kind: 0x5e477770, identity: (CHARACTER, character), data }.frame(character)
+}
+
 /// The tradeskill window's `CharacterAction`s (Gamecode builds them with FUN_10072a88 as for [`use_item_on_item`]: the action,
 /// 0, a first identity, a second one as the two parameters): `N3Msg_InsertSourceAnalyzerItem` (0x10029a53) is `0xdc`
 /// (`TradeskillSourceChanged`) with nobody first and the item second (none: taken out), `N3Msg_InsertTargetAnalyzerItem`
@@ -1218,6 +1250,16 @@ mod tests {
     fn a_combine_is_the_captured_shape() {
         let data = Message::parse(&use_item_on_item(0x4bc82, (0x68, 0x56), (0x68, 0x43))).unwrap().data;
         assert_eq!(data.iter().map(|b| format!("{b:02x}")).collect::<String>(), "000000005100000000000000680000005600000068000000430000");
+    }
+
+    #[test]
+    fn stacks_join_and_split_as_gamecode_builds_them() {
+        // (the held stack at place 0x45 let go on the one at 0x41: the target stays, the parameters' goes into it)
+        let data = Message::parse(&join_items(0x4bc82, (0x68, 0x41), (0x68, 0x45))).unwrap().data;
+        assert_eq!(data.iter().map(|b| format!("{b:02x}")).collect::<String>(), "000000003500000000000000680000004100000068000000450000");
+        // (seven taken off the stack at place 0x41: the parameters are zero and the count)
+        let data = Message::parse(&split_item(0x4bc82, (0x68, 0x41), 7)).unwrap().data;
+        assert_eq!(data.iter().map(|b| format!("{b:02x}")).collect::<String>(), "000000003400000000000000680000004100000000000000070000");
     }
 
     #[test]

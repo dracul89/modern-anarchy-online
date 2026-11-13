@@ -20,6 +20,14 @@
 //! Shift+click shows the item's info; Ctrl+double click puts it into an open trade (FUN_100cae1b); Shift+right click
 //! opens the client's own menu (Info, Use, Delete). There is no use by double click any more: the first click of two
 //! has the item in hand.
+//!
+//! The backpack's items stand where they are put (`places.rs`; the original's drop handler FUN_100cc855): the item in
+//! hand let go on an empty cell of the inventory moves there, which is the client's own matter (nothing is sent: a
+//! cell is not the item's place on the server); let go on another item the two join when they are stacks of one kind
+//! (`N3Msg_JoinItems`), else they change cells and the other is in hand. Ctrl+click on a stack asks how many to take
+//! off it (the original's split mode counts by the mouse's way sideways while the button is down, FUN_10041926 /
+//! FUN_10041ca4; here a small box asks for the number), and that many, in hand, let go on an empty cell become a
+//! stack of their own (`N3Msg_SplitItem`); anywhere else the split is given up.
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -59,7 +67,8 @@ struct GridView {
     tree: Tree,
     root: Id,
     list: Id,
-    shown: Vec<(u32, u16, Option<u32>)>,
+    /// The items last put in the grid: their places, counts, icons and cells.
+    shown: Vec<(u32, u16, Option<u32>, Option<(usize, usize)>)>,
 }
 
 impl GridView {
@@ -86,6 +95,12 @@ pub struct Events {
     pub combines: Vec<(u32, u32)>,
     /// Item links for the chat's line (the menu's "Create Reference"): the markup of each.
     pub references: Vec<String>,
+    /// The stack in hand let go on another of its kind: `(the stack that stays, the one in hand)`.
+    pub joins: Vec<(u32, u32)>,
+    /// A split let go on an empty cell: `(the stack, how many to take off it)`.
+    pub splits: Vec<(u32, u32)>,
+    /// What the game says of a join or a split it does not make (its texts' names).
+    pub feedback: Vec<&'static str>,
 }
 
 #[derive(Default)]
@@ -101,6 +116,11 @@ pub struct ItemWindows {
     right_held: Option<(u32, std::time::Instant)>,
     popup: Option<crate::gui::popup::PopupMenu>,
     confirm: Option<u32>,
+    /// The stack a split is asked of (Ctrl+click), and the count typed so far.
+    split_box: Option<(u32, String)>,
+    /// A backpack place about to get an item (a split's new stack, an item taken off), the cell it was let go on,
+    /// and since when: the item is shown there when it comes (the original's `+0x150`, FUN_100ce25d).
+    awaited: Option<(u32, usize, std::time::Instant)>,
 }
 
 /// What a click on an item of a grid does.
@@ -114,15 +134,20 @@ pub enum Click {
     TakeUp,
     Info,
     Trade,
+    /// A split of the stack is asked for.
+    Split,
     Nothing,
 }
 
-/// A click's meaning by its count (0: a press that moved, a drag), the keys held and whether an item is in hand
-/// already. The original's lists look at the qualifiers first (FUN_10041aa4: Shift or Ctrl held, nothing is taken up).
-pub fn click(clicks: u32, shift: bool, ctrl: bool, holding: bool) -> Click {
+/// A click's meaning by its count (0: a press that moved, a drag), the keys held, whether an item is in hand
+/// already and whether the item is a stack of the backpack (more than one). The original's lists look at the
+/// qualifiers first (FUN_10041aa4: Shift or Ctrl held, nothing is taken up; FUN_10041926: Ctrl on a stack of more
+/// than one starts a split).
+pub fn click(clicks: u32, shift: bool, ctrl: bool, holding: bool, stack: bool) -> Click {
     match (shift, ctrl) {
         (true, _) if clicks > 0 => Click::Info,
         (false, true) if clicks > 1 => Click::Trade,
+        (false, true) if clicks == 1 && stack && !holding => Click::Split,
         (false, false) if !holding => Click::TakeUp,
         _ => Click::Nothing,
     }
@@ -144,7 +169,7 @@ fn entry(item: &GearItem, textures: &mut HashMap<u32, egui::TextureHandle>, ctx:
 
 /// Puts the items into a grid when they changed.
 fn fill(view: &mut GridView, items: &[(&GearItem, Option<(usize, usize)>)], textures: &mut HashMap<u32, egui::TextureHandle>, ctx: &egui::Context) {
-    let now: Vec<(u32, u16, Option<u32>)> = items.iter().map(|(i, _)| (i.slot, i.count, i.icon.as_ref().map(|c| c.id))).collect();
+    let now: Vec<(u32, u16, Option<u32>, Option<(usize, usize)>)> = items.iter().map(|(i, pos)| (i.slot, i.count, i.icon.as_ref().map(|c| c.id), *pos)).collect();
     if view.shown != now {
         let rows = items.iter().map(|(i, pos)| entry(i, textures, ctx, *pos)).collect();
         multilist::set_items(&mut view.tree, view.list, rows);
@@ -284,9 +309,16 @@ impl ItemWindows {
         ["Look At", "Create Reference", "Delete"].map(|label| (label.to_string(), true))
     }
 
+    /// Asks how many to split off the stack at a backpack place: the box Ctrl+click opens.
+    pub fn ask_split(&mut self, place: u32) {
+        self.split_box = Some((place, "1".to_string()));
+    }
+
     fn build(&mut self, ctx: &egui::Context) {
         let mut inventory = GridView::new(ctx, PACK_PLACES as i32, 5);
         multilist::set_max_items(&mut inventory.tree, inventory.list, PACK_PLACES as i32);
+        // (one's own container is not arranged, FUN_100ce55d: each item at the cell it is given, `places.rs`)
+        multilist::set_grid(&mut inventory.tree, inventory.list, |m| m.auto_arrange = false);
         self.inventory = Some(inventory);
         self.wear = wear_grids(ctx);
         // (the tab shown when the window last went, `WearViewConfig`'s `selected_tab`: FUN_100e1ce0 saves it, FUN_100e24b8 reads it)
@@ -303,7 +335,11 @@ impl ItemWindows {
         let skin = crate::skin::skin(ctx);
         let accent = crate::chrome::rgb(palette.accent);
         let by_slot: HashMap<u32, &GearItem> = items.iter().map(|i| (i.slot, i)).collect();
-        let released = crate::gear::letting_go(ctx);
+        // (what is in hand let go: an item, or so many of a stack to be split off it, which only an empty cell of the
+        // inventory takes)
+        let mut released = crate::gear::hand_opening(ctx);
+        let split = crate::gear::split_count();
+        let stack = |i: &GearItem| crate::places::Stack { place: i.slot, low: i.item_id, high: i.high_id, quality: i.quality, can: i.can, count: i.count as u32 };
         let pointer = ctx.input(|i| i.pointer.hover_pos());
         // (the item in hand; one that is no longer there, used up or moved by the server, leaves the hand)
         let mut dragged = crate::gear::held();
@@ -318,9 +354,18 @@ impl ItemWindows {
         pack.sort_by_key(|i| i.slot);
         let mut is_open = *open;
         if let Some(view) = self.inventory.as_mut() {
-            let rows: Vec<(&GearItem, Option<(usize, usize)>)> = pack.iter().map(|i| (*i, None)).collect();
-            fill(view, &rows, textures, ctx);
             multilist::update(&mut view.tree, view.list);
+            // (each item at its own cell, counted along the rows the window's width makes: the one it was put in by
+            // hand, the one awaited for it, else the first free one; before the items have come nothing is forgotten)
+            let columns = multilist::grid_columns(&view.tree, view.list).unwrap_or(5).max(1);
+            let places: Vec<u32> = pack.iter().map(|i| i.slot).collect();
+            let cells = if items.is_empty() { crate::places::Cells::new() } else { crate::places::arrange(crate::places::INVENTORY, &places, PACK_PLACES as usize, self.awaited.map(|a| (a.0, a.1))) };
+            if self.awaited.is_some_and(|(place, _, since)| by_slot.contains_key(&place) || since.elapsed() > std::time::Duration::from_secs(5)) {
+                self.awaited = None;
+            }
+            let mut hovered_cell: Option<usize> = None;
+            let rows: Vec<(&GearItem, Option<(usize, usize)>)> = pack.iter().map(|i| (*i, cells.get(&i.slot).map(|c| (c % columns, c / columns)))).collect();
+            fill(view, &rows, textures, ctx);
             let (w, h) = multilist::grid::size(PACK_PLACES as usize, 5);
             let (tree, root, list) = (&mut view.tree, view.root, view.list);
             let shown = crate::chrome::window(ctx, palette, "Inventory", "Inventory", &mut is_open, |w2| w2.default_pos(crate::layout::pos("Inventory", egui::pos2(40.0, 70.0))).default_size(egui::vec2(w + 32.0, h.min(4.0 * multilist::grid::STEP + 12.0))).resizable(true), |ui| {
@@ -330,6 +375,8 @@ impl ItemWindows {
                 {
                     hovered_item = Some((slot as u32, String::new()));
                 }
+                // (the cell under the pointer, with an item or not: where what is in hand is let go)
+                hovered_cell = pointer.and_then(|at| multilist::cell_at(tree, list, response.rect.min, at)).map(|(x, y)| y * columns + x).filter(|c| *c < PACK_PLACES as usize);
                 // (`MAO_ITEM_TRACE`: where each item is, in the window's pixels, for a script's clicks; told when it changes)
                 if crate::gear::traced() {
                     let k = ui.ctx().pixels_per_point();
@@ -352,19 +399,86 @@ impl ItemWindows {
                         eprintln!("items: the inventory's items: {told:?}");
                         ui.ctx().data_mut(|d| d.insert_temp(id, told));
                     }
+                    // (and the empty cells in view, for a script's placing by hand)
+                    let free: Vec<String> = (0..PACK_PLACES as usize)
+                        .filter(|c| crate::places::at(&cells, *c).is_none())
+                        .filter_map(|c| multilist::cell_rect(tree, list, response.rect.min, (c % columns, c / columns)).map(|r| (c, r.center())))
+                        .filter(|(_, at)| rect.contains(*at))
+                        .map(|(c, at)| format!("{c} at {:.0};{:.0}", at.x * k, at.y * k))
+                        .collect();
+                    let id = egui::Id::unique("item-trace-free-cells");
+                    if ui.ctx().data(|d| d.get_temp::<Vec<String>>(id)).as_ref() != Some(&free) {
+                        eprintln!("items: the inventory's empty cells: {free:?}");
+                        ui.ctx().data_mut(|d| d.insert_temp(id, free));
+                    }
                 }
                 response
             });
-            // (an item from the wear window let go over the inventory goes back into the backpack: the first free place)
+            // (what is in hand let go over the inventory, FUN_100cc855)
             if let (Some(from), Some(shown)) = (dragged, &shown)
                 && released
-                && from < BACKPACK_FIRST
                 && shown.response.contains_pointer()
-                && let Some(free) = (BACKPACK_FIRST..BACKPACK_FIRST + PACK_PLACES).find(|p| !by_slot.contains_key(p))
             {
-                events.moves.push((from, free));
+                let free = (BACKPACK_FIRST..BACKPACK_FIRST + PACK_PLACES).find(|p| !by_slot.contains_key(p));
+                let onto: Option<&GearItem> = hovered_cell.and_then(|c| crate::places::at(&cells, c)).and_then(|p| by_slot.get(&p).copied());
+                if from < BACKPACK_FIRST {
+                    // (an item from the wear window goes back into the backpack: the first free place, shown in the
+                    // cell it was let go on when that is empty)
+                    if let Some(free) = free {
+                        events.moves.push((from, free));
+                        if let (Some(cell), None) = (hovered_cell, onto) {
+                            self.awaited = Some((free, cell, std::time::Instant::now()));
+                        }
+                    }
+                } else if let (Some(cell), Some(held)) = (hovered_cell, by_slot.get(&from).copied()) {
+                    use crate::places::Placing;
+                    match (crate::places::placing(&stack(held), split, onto.map(stack).as_ref()), onto) {
+                        // (an empty cell takes the item: `MultiListView_c::MoveItem`, the client's own matter)
+                        (Placing::Move, _) => {
+                            crate::places::put(crate::places::INVENTORY, from, cell);
+                            if crate::gear::traced() {
+                                eprintln!("items: place {from} put into cell {cell}");
+                            }
+                        }
+                        // (two stacks of a kind: the one in hand goes into the other, `N3Msg_JoinItems(the other, the held)`)
+                        (Placing::Join, Some(other)) => {
+                            events.joins.push((other.slot, from));
+                            if crate::gear::traced() {
+                                eprintln!("items: place {from} joined to the stack at place {}", other.slot);
+                            }
+                        }
+                        // (anything else: the two change cells and the other is in hand, taken up as by a click
+                        // (FUN_100cc6e8: a bag's window closes); stacks of one kind and another level are told so)
+                        (Placing::Swap, Some(other)) => {
+                            if crate::places::other_level(&stack(held), &stack(other)) {
+                                events.feedback.push("Feedback_CanOnlyStackItemsOfSameLevel");
+                            }
+                            crate::places::exchange(crate::places::INVENTORY, from, other.slot);
+                            if crate::gear::traced() {
+                                eprintln!("items: places {from} and {} change cells: place {from} into cell {cell}, the other in hand", other.slot);
+                            }
+                            crate::gear::pick_up(other.slot);
+                            dragged = Some(other.slot);
+                            released = false;
+                        }
+                        // (so many of the stack become a stack of their own, shown in this cell: `N3Msg_SplitItem`,
+                        // which looks first whether the item may be split and a place is free)
+                        (Placing::Split, _) => match crate::places::split_refusal(&stack(held), split, free.is_some()) {
+                            Some(why) => events.feedback.extend(why),
+                            None => {
+                                events.splits.push((from, split));
+                                self.awaited = free.map(|place| (place, cell, std::time::Instant::now()));
+                                if crate::gear::traced() {
+                                    eprintln!("items: {split} of place {from} split off into cell {cell}");
+                                }
+                            }
+                        },
+                        // (let go on itself, or a split on an item: back in place)
+                        _ => {}
+                    }
+                }
             }
-            Self::events_of(&mut view.tree, view.list, &mut events, items, dragged);
+            Self::events_of(&mut view.tree, view.list, &mut events, items, dragged, &mut self.split_box);
         }
         *open = is_open;
         if !is_open {
@@ -395,8 +509,8 @@ impl ItemWindows {
                         if let Some(slot) = multilist::item_at(tree, list, response.rect.min, at) {
                             hovered_item = Some((slot as u32, cell_label(&WEAR_TABS[t], slot as u32)));
                         }
-                        // (an item let go over a wear cell is worn there)
-                        if dragged.is_some() && released && let Some(cell) = multilist::cell_at(tree, list, response.rect.min, at) {
+                        // (an item let go over a wear cell is worn there; not a split, FUN_100e220f)
+                        if dragged.is_some() && released && split == 0 && let Some(cell) = multilist::cell_at(tree, list, response.rect.min, at) {
                             let tab = &WEAR_TABS[t];
                             drop_on = tab.cells.iter().find(|c| (c.1, c.2) == cell).map(|c| tab.base + c.0);
                         }
@@ -413,7 +527,7 @@ impl ItemWindows {
                 events.moves.push((from, to));
             }
             for view in self.wear.iter_mut() {
-                Self::events_of(&mut view.tree, view.list, &mut events, items, dragged);
+                Self::events_of(&mut view.tree, view.list, &mut events, items, dragged, &mut self.split_box);
             }
             if !wear_open {
                 self.wear_closed = true;
@@ -456,7 +570,10 @@ impl ItemWindows {
             && ctx.input(|i| i.pointer.secondary_clicked())
         {
             if let Some(from) = dragged {
-                if from != *slot && from >= BACKPACK_FIRST && *slot >= BACKPACK_FIRST {
+                if split > 0 {
+                    // (a split is used on nothing: the right button ends it, FUN_100cc855)
+                    crate::gear::put_down();
+                } else if from != *slot && from >= BACKPACK_FIRST && *slot >= BACKPACK_FIRST {
                     events.combines.push((from, *slot));
                     crate::gear::put_down();
                 }
@@ -478,6 +595,7 @@ impl ItemWindows {
         // (the item in hand can be set on a hotbar slot: the slots take a drag's load, which goes with every button let
         // go, so it is given again while the item is held)
         if let Some(item) = dragged.and_then(|from| by_slot.get(&from))
+            && split == 0
             && !egui::DragAndDrop::has_any_payload(ctx)
         {
             egui::DragAndDrop::set_payload(ctx, crate::hotbar::Action::Item { id: item.item_id, name: item.name.clone(), icon: item.icon.as_ref().map(|i| i.id) });
@@ -486,7 +604,12 @@ impl ItemWindows {
         if let (Some(from), Some(at)) = (dragged, pointer)
             && let Some(icon) = by_slot.get(&from).and_then(|i| i.icon.as_ref()).and_then(|icon| textures.get(&icon.id))
         {
-            ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::unique("dragged-item"))).image(icon.id(), egui::Rect::from_center_size(at, egui::vec2(40.0, 40.0)), egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)), egui::Color32::from_white_alpha(200));
+            let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::unique("dragged-item")));
+            painter.image(icon.id(), egui::Rect::from_center_size(at, egui::vec2(40.0, 40.0)), egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)), egui::Color32::from_white_alpha(200));
+            // (a split in hand: how many, in the stack count's yellow at the icon's top right)
+            if crate::gear::split_count() > 0 {
+                painter.text(at + egui::vec2(20.0, -20.0), egui::Align2::RIGHT_TOP, crate::gear::split_count().to_string(), egui::FontId::proportional(12.0), egui::Color32::YELLOW);
+            }
         }
         // (an item's menu: the client's own entries, in the original's popup; deleting asks first)
         if let Some(k) = crate::chrome::menu(ctx, palette, "item-menu", &mut self.popup)
@@ -521,12 +644,45 @@ impl ItemWindows {
                 None => self.confirm = None,
             }
         }
+        // (a split asked for: how many of the stack; OK has that many in hand, to be put into an empty cell)
+        if let Some((place, typed)) = self.split_box.as_mut() {
+            let place = *place;
+            let count = by_slot.get(&place).map_or(0, |i| i.count as u32);
+            let mut asking = count > 1;
+            let mut answer = None;
+            let text = |name: &str, own: &str| crate::gui::xml::ldb_named(10000, name, own);
+            crate::chrome::window(ctx, palette, "split-stack", "Split stack", &mut asking, |w| w.resizable(false).pivot(egui::Align2::CENTER_CENTER).default_pos(ctx.content_rect().center()), |ui| {
+                ui.label(format!("How many of the {count}?"));
+                let field = crate::chrome::text_edit(ui, palette, egui::TextEdit::singleline(typed).desired_width(80.0));
+                crate::chrome::focus_when_new(ctx, "split-stack", &field);
+                if field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    answer = Some(true);
+                }
+                ui.horizontal(|ui| {
+                    if crate::chrome::button(ui, palette, &text("MsgBox_OK", "OK"), true).clicked() {
+                        answer = Some(true);
+                    }
+                    if crate::chrome::button(ui, palette, &text("MsgBox_Cancel", "Cancel"), true).clicked() {
+                        answer = Some(false);
+                    }
+                });
+            });
+            if answer == Some(true)
+                && let Some(n) = crate::places::split_count(typed, count)
+            {
+                crate::gear::pick_up_split(place, n);
+            }
+            if answer.is_some() || !asking {
+                self.split_box = None;
+            }
+        }
         events
     }
 
     /// A grid's clicks and drags: a click takes the item up, as a drag does (with one in hand already, `held`, the click
-    /// is the one that puts that down); Shift+click shows its info; Ctrl+double click puts it into the trade.
-    fn events_of(tree: &mut Tree, list: Id, events: &mut Events, items: &[GearItem], held: Option<u32>) {
+    /// is the one that puts that down); Shift+click shows its info; Ctrl+double click puts it into the trade;
+    /// Ctrl+click on a stack of the backpack asks how many to split off it (`split_box`).
+    fn events_of(tree: &mut Tree, list: Id, events: &mut Events, items: &[GearItem], held: Option<u32>, split_box: &mut Option<(u32, String)>) {
         let Some(ctx) = tree.measure.ctx.clone() else { return };
         let (ctrl, shift) = ctx.input(|i| (i.modifiers.ctrl, i.modifiers.shift));
         for (_, event) in multilist::take_events(tree) {
@@ -538,9 +694,20 @@ impl ItemWindows {
             if clicks > 0 {
                 multilist::select(tree, list, Some(slot));
             }
-            match click(clicks, shift, ctrl, held.is_some()) {
+            match click(clicks, shift, ctrl, held.is_some(), item.slot >= BACKPACK_FIRST && item.count > 1) {
                 Click::Info => events.infos.push(format!("itemref://{}/{}/{}", item.item_id, item.high_id, item.quality)),
-                Click::Trade => events.trade_adds.push(item.slot),
+                // (the second click of two: the first one's split box goes)
+                Click::Trade => {
+                    *split_box = None;
+                    events.trade_adds.push(item.slot);
+                }
+                Click::Split => {
+                    if crate::gear::traced() {
+                        eprintln!("items: a split of place {} asked for", item.slot);
+                    }
+                    // (the same box as `ask_split`'s)
+                    *split_box = Some((item.slot, "1".to_string()));
+                }
                 Click::TakeUp => {
                     crate::gear::pick_up(item.slot);
                     egui::DragAndDrop::set_payload(&ctx, crate::hotbar::Action::Item { id: item.item_id, name: item.name.clone(), icon: item.icon.as_ref().map(|i| i.id) });
@@ -560,16 +727,24 @@ mod tests {
     #[test]
     fn a_click_takes_up_shows_or_trades() {
         // (a plain click or a drag takes the item up; not with one in hand already)
-        assert_eq!(click(1, false, false, false), Click::TakeUp);
-        assert_eq!(click(0, false, false, false), Click::TakeUp);
-        assert_eq!(click(1, false, false, true), Click::Nothing);
-        assert_eq!(click(2, false, false, true), Click::Nothing);
+        assert_eq!(click(1, false, false, false, false), Click::TakeUp);
+        assert_eq!(click(0, false, false, false, false), Click::TakeUp);
+        assert_eq!(click(1, false, false, true, false), Click::Nothing);
+        assert_eq!(click(2, false, false, true, false), Click::Nothing);
+        // (a stack is taken up whole by a plain click)
+        assert_eq!(click(1, false, false, false, true), Click::TakeUp);
         // (Shift: the item's info, whatever is in hand; a drag with Shift held is nothing)
-        assert_eq!(click(1, true, false, false), Click::Info);
-        assert_eq!(click(1, true, false, true), Click::Info);
-        assert_eq!(click(0, true, false, false), Click::Nothing);
+        assert_eq!(click(1, true, false, false, false), Click::Info);
+        assert_eq!(click(1, true, false, true, false), Click::Info);
+        assert_eq!(click(1, true, true, false, true), Click::Info);
+        assert_eq!(click(0, true, false, false, false), Click::Nothing);
         // (Ctrl: the second click of two puts it into the trade; nothing is taken up with Ctrl held)
-        assert_eq!(click(1, false, true, false), Click::Nothing);
-        assert_eq!(click(2, false, true, false), Click::Trade);
+        assert_eq!(click(1, false, true, false, false), Click::Nothing);
+        assert_eq!(click(2, false, true, false, false), Click::Trade);
+        // (Ctrl+click on a stack asks for a split; not with something in hand, not by a drag; the second click trades)
+        assert_eq!(click(1, false, true, false, true), Click::Split);
+        assert_eq!(click(1, false, true, true, true), Click::Nothing);
+        assert_eq!(click(0, false, true, false, true), Click::Nothing);
+        assert_eq!(click(2, false, true, false, true), Click::Trade);
     }
 }

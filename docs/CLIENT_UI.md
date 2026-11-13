@@ -3547,12 +3547,38 @@ Ctrl is the trade's add. Done from it so far:
 - **An item's menu is the original's** (FUN_100caf07): the right button held 0.3 s (`MouseButtonHoldDelay`), with
   Look At, Create Reference and Delete; no entry to use it, and Shift+right click is a plain use.
 - **A bag taken up is closed** (FUN_100cc6e8 → `CloseContainer`).
+- **Items stand where they are put** (FUN_100cc855; `places.rs`, `invwindows.rs`, `loot.rs`). The item in hand let
+  go on an empty cell of the inventory moves there: the client's own matter, nothing is sent (a cell is not the
+  item's place on the server). On another item the two join when they are stacks of one kind, else they change
+  cells and the other is in hand. The cells are kept in `places.ini` beside `mao.ini` (`<type> <instance> <place>
+  <cell>` a line, zeros for the inventory: one map for every character), an item without one takes the first free
+  cell, and the cell of an item that is gone is forgotten. A cell is counted along the rows (the grid takes the
+  columns its window is wide), where the original keeps a column and a row. One's own backpacks the same (move and
+  swap; no join or split inside a bag yet, and an inventory item put into a bag takes the first free cell); the bank,
+  corpses and chests are arranged as before.
+- **Stacks.** Join (`N3Msg_JoinItems` 0x1001bb2a, both stackable, `Can` 0x200, one template and quality, no more
+  than 50000 together): `CharacterAction` 0x35, the target the stack let go on and the parameters the one in hand
+  (`n3::join_items`); the server's answer, the same action, is what makes them one here (FUN_1004a12e). Split:
+  Ctrl+click on a stack opens a box for the count (the original counts by the mouse's way sideways while the
+  button is down; this box is the client's own), OK has that many in hand, and an empty cell of the inventory makes
+  them a stack there: the client splits its own list at once (FUN_1004a2bf, the new stack at the first free place)
+  and sends `CharacterAction` 0x34 with the parameters `(0, count)` (`n3::split_item`); anywhere else, the right
+  button or Escape gives the split up. Both messages are from the code alone (no capture has one): **not tried
+  live**. Offline: `MAO_UI_PREVIEW=gear MAO_ENTRIES=<file> MAO_ITEM_TRACE=1 MAO_CLICK="x,y;x,y"` clicks an item and
+  then a cell (the trace tells the items' and the empty cells' pixels and what was done); a fifth number on a line
+  of the entries file is a stack's count, and `MAO_SPLIT=<place>` opens the split box.
 
-Left from the table, in the order a player would notice: placing items by hand, the swap on a taken cell and the
-kept places (the client packs the items in their places' order); splitting and joining stacks (`N3Msg_SplitItem`,
-`N3Msg_JoinItems`); an item in hand with a plain right click is `UseItemOnItem` and only with Shift the tradeskill
+Left from the table, in the order a player would notice: an item in hand with a plain right click is `UseItemOnItem` and only with Shift the tradeskill
 combine (the client sends the combine always); dropping on the ground and using on a character; closing a bag's
 window or using an open bag sends the use again (the client only hides the window); Ctrl+right click adds to any
 trade; an unfit wear place leaves the item in hand; a corpse has no right click and no "Take all"; the windows'
 own menus (List Mode, Auto Arrange, Labels On Top, Unlock All Items); the tooltip and the count's look. Also seen:
 `wear_refusal` tests the place's bit without the page (a drag onto a place of the wrong page is not refused here).
+
+**Placing by hand and the stacks, tried live (2026-11-13; Maotesttwo, by script with `MAO_ITEM_TRACE`).** An item
+in hand clicked onto an empty cell stayed there and `places.ini` had its cell; clicked onto another item the two
+changed cells and the other was in hand; Ctrl+click on a stack of arrows, the count box answered with Enter and a
+click on an empty cell split one arrow off, and the next login had the two stacks (the server took the split,
+action 0x34, as it was built from the decompile); the small stack clicked onto the big one joined them (0x35), one
+stack in the list at once and at the next login. Not tried: the same in a bag's window, a join of stacks of
+different quality, the count box used by hand.
