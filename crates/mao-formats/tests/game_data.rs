@@ -290,6 +290,52 @@ fn a_hoverboard_program_puts_each_body_on_its_board() {
     assert_eq!(template.animation(mao_formats::appearance::Action::Idle), index.find(0xf6953, "Hoverboard_a_male_idle_stand_001.ani"));
 }
 
+/// What flies is what has the fly spell, 0xcf92 (FUN_100a8107): the hoverbikes' programs, a jetpack's and a Yalmaha's wear
+/// event. The hoverboards' programs do not have it (they have only the 0xcf4c with flag 2 that every one of these carries),
+/// nor does a weapon. A Yalmaha's wear event also names the craft its wearer becomes and its scale; the craft's template
+/// has no animation for the fly action (0xb3, 179), so flying plays its walk (FUN_10010b3c's fallback, 100). Every player
+/// body has the fly action's animation.
+#[test]
+fn the_fly_spell_grants_flight() {
+    use mao_formats::item::{craft, grants_flight, worn_grants_flight, WEAR_EVENT};
+    let Some(db) = database() else { return };
+    let index = mao_formats::instances::Instances::parse(&db.get(Id { kind: 0xf424a, instance: 1 }).unwrap().unwrap()).unwrap();
+    let program = |nano: u32| db.get(Id { kind: mao_formats::item::NANO_TEMPLATE, instance: nano }).unwrap().unwrap();
+    let item = |t: u32| db.get(Id { kind: mao_formats::item::TEMPLATE, instance: t }).unwrap().unwrap();
+    let flag_two = |data: &[u8]| mao_formats::spell::lists(data).iter().any(|(_, spells)| spells.iter().any(|s| s.kind == 0xcf4c && s.stat(73) & 2 != 0));
+    // (Phasefront Spectre - Green, Banshee - Red (the 08:42 capture's list), Wraith X2-45 - Desert)
+    for nano in [270836, 270995, 270645] {
+        assert!(grants_flight(&program(nano)) && flag_two(&program(nano)), "{nano}");
+        assert!(mao_formats::item::is_vehicle_program(&program(nano)), "{nano}");
+    }
+    // (Phasefront Phantom - Beige, Ghost - Green, Chimera - Standard: boards)
+    for nano in [270431, 270327, 284003] {
+        assert!(!grants_flight(&program(nano)) && flag_two(&program(nano)), "{nano}");
+    }
+    // (Ganimedes Personal Jetpack, Yalmaha XL - 29478, Yalmaha - 29500 - The Poniard; an Ofab Peregrine does not fly)
+    for t in [290215, 96088, 202453] {
+        assert!(worn_grants_flight(&item(t)) && grants_flight(&item(t)), "{t}");
+    }
+    assert!(!worn_grants_flight(&item(301709)) && !grants_flight(&item(301709)));
+    assert!(!worn_grants_flight(&program(270836)));
+    assert_eq!(craft(&item(96088), WEAR_EVENT), Some((99470, 20)));
+    assert_eq!(craft(&item(202453), WEAR_EVENT), Some((203161, 20)));
+    assert_eq!(craft(&item(96088), 0), None);
+    assert_eq!(craft(&item(290215), WEAR_EVENT), None);
+    // (the Yalmaha as a program; a hoverbike's `ChangeMesh` spells have criteria, a polymorph's no scale)
+    assert_eq!(craft(&program(301669), 0), Some((99470, 20)));
+    assert_eq!(craft(&program(270836), 0), None);
+    let template = mao_formats::npc::Template::parse(&db.get(Id { kind: mao_formats::npc::TEMPLATE, instance: 99470 }).unwrap().unwrap()).unwrap();
+    assert_eq!(template.mesh, index.find(0xf6952, "sleek_vehicle_cat.cir"));
+    assert!(template.animation(mao_formats::appearance::Action::Hover).is_some());
+    assert_eq!(template.animation(mao_formats::appearance::Action::Hover), template.animation(mao_formats::appearance::Action::Walk));
+    use mao_formats::appearance::{animation_name, Action, ATROX, FEMALE, MALE, SOLITUS};
+    for (breed, sex) in [(SOLITUS, MALE), (SOLITUS, FEMALE), (ATROX, 1)] {
+        let file = animation_name(breed, sex, Action::Hover);
+        assert!(index.find(0xf6953, &file).is_some(), "{file}");
+    }
+}
+
 #[test]
 fn a_bundle_runs_every_child() {
     use mao_formats::gfx::Visual;

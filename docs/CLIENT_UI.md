@@ -3529,6 +3529,37 @@ flight from the running programs only; the game loop now also takes it from the 
 brought up to date at the moment of equipping (not only at a zoning) was not seen. A Yalmaha is not done: by the
 user's word the player shrinks, flies and is replaced by the vehicle, which wants its wear event read the same way.
 
+**Flight by the original's code (2026-11-13, not tried live).** The note above named the wrong spell. What switches
+a character to fly mode (7) is spell **0xcf92** (Gamecode FUN_100a8107: movement action 0x1d applied, 0x27 when its
+list ends); the 0xcf4c with flag 2 only takes a state flag of stat 224 away. `item::grants_flight` and
+`item::worn_grants_flight` now test for 0xcf92, so the hoverbikes' programs (Spectre, Banshee, Wraith and their kin,
+30 of the vehicle programs), the jetpacks and the Yalmahas fly, and the hoverboards' programs (Phantom, Ghost,
+Chimera, Loungemaster) **no longer do**: they have no 0xcf92, and a board rides over the ground
+(`cargo run -p mao-formats --example vehicleprograms`). The server's spell list is read too
+(`spelllist::Outcome::Fly`, kept per character in `World::flying`: the only way another character is known to fly);
+the client's own reading of the running programs and of the worn items stays beside it, since no capture shows the
+list for a worn item, at login or after a zoning. In flight:
+- the body plays the fly action, 0xb3 `hover-norm` (`appearance::Action::Hover`), standing and moving alike
+  (FUN_1005d0b1, FUN_1006e4f8, FUN_1006c5ae), at its own rate; a board's or bike's rider keeps the vehicle body's
+  own animations here (the original asks the body's template for 0xb3 and falls to its walk, 100);
+- the speed is `7 + RunSpeed / 275` within 1.5 and 15, backwards and sideways too (`fly_speed`, FUN_1006f9eb's
+  mode 7), and a sidestep while going forward is no faster;
+- the right button's vertical movement pitches by N3.dll's `VehicleForwardUpdate` rule (`viewer::fly_pitch`): a turn
+  is kept while the cosines of the old and the new elevation multiply to more than 0.001, so the pitch stops near
+  88° instead of at 1.4 rad, and, as in the original, a slow drag back from a pitch a fast one took past 88.2° is
+  dropped until a larger step comes. The mouse's 0.005 rad a pixel is unchanged (`MouseTurnSensitivity` is not a
+  setting of this client). The body is still drawn level and the camera does not tilt while the button pitches, so a
+  drag shows nothing until the character moves forward.
+- **A worn Yalmaha** (a wear list with a `ChangeMesh` without criteria and a 0xcf76 of stat 360: `item::craft`; the
+  four Yalmaha programs have the same list) makes one's own character the craft: its NPC template drawn in the
+  character's place by the polymorph's road (the original's is the same, stat 359 from FUN_100a7aa2) at the scale
+  the list sets, 20 % (`World::crafts`), playing the template's walk while it flies. "Yalmaha XL" is template 99470,
+  `sleek_vehicle_cat.cir`, 11.4 units long and so 2.3 m at 20 %; whether that is its size in the original was not
+  checked against a picture. Another character's Yalmaha is not known to the client (it is not told what others wear).
+Not done: the entering effect (2000, colour 0xfff0e0ff), the ways flight ends besides the list (character action
+0xac, the kind-5 areas, state flag 0x2000000), the mode's refusal of sit, sneak and crawl, the criteria operators 70
+and 112, the pitched body.
+
 **The inventory against the original's code (2026-11-13; the user: "Analyze the original code for inventory and
 provide something close to that").** The reading is `docs/INVENTORY_ORIGINAL.md` (GUI.dll's item lists, the
 inventory, wear and container views, Gamecode's use and move functions; each statement with its function, and a

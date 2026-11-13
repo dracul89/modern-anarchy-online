@@ -31,7 +31,11 @@
 //!   FUN_1005a02c(1), is not.)
 //! * 0xcf22 (FUN_100a4f8a): stat 0 set to stat 39 (689 on pets, 359 MonsterData on two NPCs in the captures), except the
 //!   stats it leaves alone. Ported: [`Outcome::SetStat`], kept for one's own character only (the client has no stats of others).
-//! * Not ported (rare in the captures): 0xcf92 (FUN_100a8107: a vehicle's animations 0x1d / 0x27), 0xcf4c (FUN_100a7c79: state
+//! * 0xcf92 (FUN_100a8107, a hoverbike's program: "Phasefront Banshee - Red" in the 08:42 capture): on a character, its
+//!   movement is handed the action 0x1d (`SwitchToFlyModeTransitionAction_t`, FUN_1006cb58's case: mode 7), or 0x27
+//!   (`LeaveFlyModeTransitionAction_t`) when the list is ending. Ported: [`Outcome::Fly`]. (It first makes a crawling,
+//!   sitting, sleeping or lounging character get up, 0x28 / 0x29 / 0x2a / 0x25: not ported.)
+//! * Not ported (rare in the captures): 0xcf4c (FUN_100a7c79: state
 //!   flag of stat 0x49), 0xcf44 (FUN_100a7aa2: stat 0x167), 0xcf7d (FUN_100a83d8: feedback lines), 0xcf35 (FUN_100a517a, an
 //!   item's modify), and 0xcf16 runs (left out).
 //! * 0xcfff (FUN_100a9af8): its string 0 told in the notification window (`GlobalSignals_c` +0x298), see
@@ -103,6 +107,9 @@ pub enum Outcome {
     /// A 0xcfff spell (FUN_100a9af8): a line for the notification window, told on the client's own character (range 0) or
     /// within the range (stat 11, metres) of it ([`crate::notifications::spell_line`]).
     Text { spell: Spell },
+    /// 0xcf92 (FUN_100a8107) on a character: it switches to fly mode (movement action 0x1d) when the spell is applied and
+    /// leaves it (0x27) when the list ends.
+    Fly { begin: bool },
 }
 
 /// What the spell runner needs to know of the world besides the criteria's stats.
@@ -225,6 +232,8 @@ pub fn fire(run: &mut Run, scene: &dyn Scene, now: f64) -> Vec<Outcome> {
         }
         // (FUN_100a9af8: string 0 told in the notification window, by the range rule of `notifications::spell_line`)
         0xcfff if !run.ending => vec![Outcome::Text { spell: spell.clone() }],
+        // (FUN_100a8107: on a `SimpleChar_t` only; 0x1d, or 0x27 from an ending list)
+        mao_formats::item::FLY_SPELL if run.on.0 == crate::requirements::CHARACTER => vec![Outcome::Fly { begin: !run.ending }],
         _ => Vec::new(),
     }
 }
@@ -576,13 +585,16 @@ mod tests {
                             Outcome::Stun { begin: false, .. } => "stun ends",
                             Outcome::SetStat { .. } => "stat",
                             Outcome::Text { .. } => "text",
+                            Outcome::Fly { begin: true } => "fly",
+                            Outcome::Fly { begin: false } => "fly ends",
                         })
                         .or_default() += 1;
                 }
             }
         }
         assert_eq!(lists, 4128);
-        assert_eq!(tally, [("effect", 576), ("stun", 720), ("stun ends", 716), ("stat", 36)].into_iter().collect());
+        // (the two flights of the 08:42 capture: a Banshee's and a Wraith's program begun and ended)
+        assert_eq!(tally, [("effect", 576), ("stun", 720), ("stun ends", 716), ("stat", 36), ("fly", 2), ("fly ends", 2)].into_iter().collect());
     }
 
     /// 0xcf82 (the duel buffs' "Stun") and 0xcf22.
@@ -610,6 +622,17 @@ mod tests {
         // (the profession is not set this way)
         let set = list(vec![spell(0xcf22, 1, 0, 2, &[(0, 0x3c), (39, 5)])], false);
         assert!(shown(&set).is_empty());
+    }
+
+    /// 0xcf92 (FUN_100a8107): a hoverbike's list switches its character to fly mode, the same list ending switches it back;
+    /// on anything but a character it does nothing.
+    #[test]
+    fn the_fly_spell() {
+        let fly = |ending: bool| list(vec![spell(0xcf35, 1, 0, 1, &[(0, 156), (39, 800)]), spell(0xcf4c, 1, 0, 1, &[(73, 2), (25, 0)]), spell(0xcf92, 1, 0, 1, &[])], ending);
+        assert_eq!(shown(&fly(false)), vec![Outcome::Fly { begin: true }]);
+        assert_eq!(shown(&fly(true)), vec![Outcome::Fly { begin: false }]);
+        let mut q = Queue::default();
+        assert!(run(&fly(false), (0xc73d, 7), &World::default(), &mut q, 0.0).is_empty() && q.runs.is_empty());
     }
 
     /// `MAO_GAME`: the robot's two effects are a flare (0xa8e3, kind 1005, four seconds) and a star burst at the pelvis (0xa871,

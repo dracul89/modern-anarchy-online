@@ -270,6 +270,10 @@ struct World {
     riding: BTreeMap<u32, u32>,
     /// The vehicle program of each other character and when its buff was last announced.
     riding_until: BTreeMap<u32, (u32, Instant)>,
+    /// The craft a character has become, as (NPC template, body scale in percent): a worn Yalmaha's `ChangeMesh` without
+    /// criteria and its scale (`mao_formats::item::craft`), or the same of a running program. Only one's own is known: the
+    /// client is not told what another character wears.
+    crafts: BTreeMap<u32, (u32, u32)>,
     /// Health and maximum from the info packets (the server answers an info request with them).
     health: BTreeMap<u32, (i64, i64)>,
     /// The character's pets by their place in the pet window (`PetWindowModule_c`'s map: `AddPet` 0x1007f0f9 puts a new pet
@@ -313,10 +317,16 @@ struct World {
     own_moving: bool,
     /// One's own movement mode is walking (the walk/run toggle; the original's mode 2, else 3).
     own_walking: bool,
-    /// One's own character flies: a running program lets it (`mao_formats::item::grants_flight`).
+    /// One's own character flies (the original's fly mode, 7): the server ran the fly spell on it (`flying`), or, the
+    /// client's own reading where no list came, a running program or a worn item has the spell
+    /// (`mao_formats::item::grants_flight`).
     own_flying: bool,
-    /// The part of `own_flying` that comes from the running programs (the other is a worn item's: the game loop joins them).
+    /// The part of `own_flying` that comes from the running programs (the others are a worn item's and the server's
+    /// spell list: the game loop joins them).
     nano_flying: bool,
+    /// The characters a spell list of the server's switched to fly mode (spell 0xcf92, `spelllist::Outcome::Fly`), until the
+    /// list ends, they leave or the playfield changes. The only way the client knows that another character flies.
+    flying: std::collections::BTreeSet<u32>,
     /// Each walked creature's last path (when it came, its start, its end) and its speed as the paths show it.
     path_seen: BTreeMap<u32, (Instant, [f32; 3], [f32; 3])>,
     path_speeds: BTreeMap<u32, f32>,
@@ -1027,10 +1037,18 @@ impl World {
     }
 
     /// What the spell runs did (`spelllist::Outcome`): effects to start, stuns on the state flags, stats set on one's own
-    /// character (the client keeps no stats of others).
+    /// character (the client keeps no stats of others), fly mode switched on or off.
     fn spell_outcomes(&mut self, out: Vec<(crate::requirements::Holder, crate::spelllist::Outcome)>) {
         for (on, outcome) in out {
             match outcome {
+                // (FUN_100a8107: the movement's 0x1d or 0x27; the game loop does the rest for one's own character)
+                crate::spelllist::Outcome::Fly { begin } => {
+                    if begin {
+                        self.flying.insert(on.1);
+                    } else {
+                        self.flying.remove(&on.1);
+                    }
+                }
                 crate::spelllist::Outcome::Effect { effect, seconds } => self.spell_effects_made.push((on.1, effect, seconds)),
                 crate::spelllist::Outcome::Stun { begin, npc } => {
                     // (FUN_1004496c starts the counts from stat 224; one's own taken as 6, free to move, when the server did not
@@ -1064,6 +1082,12 @@ impl World {
         let out = queue.tick(&*self, now);
         self.spell_queue = queue;
         self.spell_outcomes(out);
+    }
+
+    /// A character is in fly mode: one's own as the game loop has it (`own_flying`); another only when the server's spell
+    /// list said so (`flying`).
+    fn flies(&self, id: u32) -> bool {
+        if id == self.own { self.own_flying } else { self.flying.contains(&id) }
     }
 
     /// One's own character cannot move: a stun took both of its state flags 2 and 4 (`N3Msg_MouseMovement`, FUN_1006bd94).
@@ -1268,7 +1292,20 @@ impl World {
                 Some(nano) => self.riding.insert(self.own, nano),
                 None => self.riding.remove(&self.own),
             };
+            // (a running program with the fly spell 0xcf92, a hoverbike's: the client's own reading, beside the server's list)
             self.nano_flying = self.nanos.iter().any(|&n| db.get(id(0xfde85, n)).ok().flatten().is_some_and(|d| mao_formats::item::grants_flight(&d)));
+            // A worn Yalmaha (or its program) turns the character into the craft, at the scale its list sets (the worn places
+            // are those under the backpack's first, 64).
+            let craft = self
+                .worn
+                .iter()
+                .filter(|e| e.slot < 64)
+                .find_map(|e| mao_formats::item::craft(&db.get(id(mao_formats::item::TEMPLATE, e.low_id)).ok().flatten()?, mao_formats::item::WEAR_EVENT))
+                .or_else(|| self.nanos.iter().find_map(|&n| mao_formats::item::craft(&db.get(id(0xfde85, n)).ok().flatten()?, 0)));
+            match craft {
+                Some(craft) => self.crafts.insert(self.own, craft),
+                None => self.crafts.remove(&self.own),
+            };
         }
     }
 
@@ -1656,6 +1693,7 @@ impl World {
                 self.spell_effects.remove(&id);
                 self.spell_queue.forget((crate::requirements::CHARACTER, id));
                 self.state_flags.remove(&id);
+                self.flying.remove(&id);
                 self.entities.remove(&id);
                 self.paths.remove(&id);
                 self.fighting.remove(&id);
@@ -3550,26 +3588,38 @@ const SWIM_SINK: f32 = 0.01;
 /// How far a flying vehicle's body is lifted as flight starts (FUN_1006e4f8's `SetRelPos` by `_DAT_1015e0e4`).
 const FLY_LIFT: f32 = 0.5;
 
+/// A craft's body scale (`World::crafts`: the `Scale` stat in hundredths, `SetBodyScale`), applied before its place as a
+/// creature's own scale is.
+fn craft_scale(percent: u32) -> mao_formats::model::Matrix {
+    let k = percent as f32 / 100.0;
+    [k, 0.0, 0.0, 0.0, 0.0, k, 0.0, 0.0, 0.0, 0.0, k, 0.0, 0.0, 0.0, 0.0, 1.0]
+}
+
 /// Walking's speed (`CharVehicle_t` in mode 2, FUN_1006f9eb: `_DAT_1015e7ac`). Sneaking (mode 6) takes the same: FUN_1006f9eb has
 /// no case of its own for it and falls to walking's (`LAB_1006fd78`), forwards and backwards alike.
 const WALK_SPEED: f32 = 1.5;
 
-/// A character's movement mode as `CharVehicle_t` keeps it (FUN_10070a2f): walking (2), running (3), swimming (4), sneaking (6).
+/// A character's movement mode as `CharVehicle_t` keeps it (FUN_10070a2f): walking (2), running (3), swimming (4), sneaking (6),
+/// flying (7).
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Mode {
     Walk,
     Run,
     Swim,
     Sneak,
+    Fly,
 }
 
 /// The movement animation of a character (FUN_1006c370), `None` standing in a plain mode: swimming plays `swim` or `idle-swim`;
 /// in the walking, running and sneaking modes a sidestep its `walk-left`/`walk-right` (0x86, 0x87); sneaking plays the sneak
 /// action (0x66) moving, backwards too (the original plays it reversed), and standing; else backing the back animations and
-/// moving the walk or the run.
+/// moving the walk or the run. Flying plays the fly action (0xb3 `hover-norm`) whatever the character does: the switch to
+/// the mode starts it (FUN_1006e4f8), the standing chooser FUN_1006c5ae plays it instead of asking FUN_1006c370, and the
+/// forward, back and sidestep starts set nothing in mode 7 (FUN_1006ef8d, FUN_1006f122).
 fn movement_action(mode: Mode, moving: bool, strafe: i8, backing: bool) -> Option<mao_formats::appearance::Action> {
     use mao_formats::appearance::Action;
     match strafe {
+        _ if mode == Mode::Fly => Some(Action::Hover),
         _ if mode == Mode::Swim => Some(if moving { Action::Swim } else { Action::IdleSwim }),
         -1 if moving => Some(Action::StrafeLeft),
         1 if moving => Some(Action::StrafeRight),
@@ -3626,6 +3676,18 @@ pub(crate) fn movement_speeds(stats: &BTreeMap<u32, i64>) -> (f32, f32) {
     let ratio = if max_health > 0.0 { health / (max_health * 0.15) } else { 1.0 };
     let effective = if ratio < 1.0 { ratio * (run_speed + 1000.0) - 1000.0 } else { run_speed };
     ((effective / 275.0 + 5.0).clamp(1.5, 13.0), (effective / 392.857_1 + 3.0).clamp(1.05, 9.1))
+}
+
+/// The speed a flying character moves at, in units a second (FUN_1006f9eb's case of mode 7): `RunSpeed / 275 + 7`
+/// (0x10161ac0 on the reference speed 0x10161a84), 15 when over 15 (0x10161ab8, 0x10161a80) and at least 1.5 (0x1015e7ac),
+/// with the same `RunSpeed` (stat 156, falling off below 15% health, FUN_1006f2fc) as running. The case does not ask the
+/// direction (FUN_10070a37), so backwards is as fast as forwards, and the sidesteps take the mode's speed too.
+pub(crate) fn fly_speed(stats: &BTreeMap<u32, i64>) -> f32 {
+    let stat = |n: u32| stats.get(&n).copied().unwrap_or(0) as f32;
+    let (run_speed, health, max_health) = (stat(156), stat(27), stat(1));
+    let ratio = if max_health > 0.0 { health / (max_health * 0.15) } else { 1.0 };
+    let effective = if ratio < 1.0 { ratio * (run_speed + 1000.0) - 1000.0 } else { run_speed };
+    (effective / 275.0 + 7.0).clamp(1.5, 15.0)
 }
 
 impl Characters {
@@ -4364,12 +4426,13 @@ pub(crate) fn character_model_shaped(db: &Arc<ResourceDatabase>, breed: i32, sex
 /// `creature <game> <npc template> <out.png>`: a creature as the world draws it (what a polymorph turns a character into).
 pub(crate) fn creature_preview(db: Arc<ResourceDatabase>, template: u32, out: &str) -> Result<(), String> {
     let mut chars = Characters::new(db.clone())?;
-    // (`MAO_ACTION=left|right|walk|run` shows another animation)
+    // (`MAO_ACTION=left|right|walk|run|hover` shows another animation; `hover` is a flying craft's, a worn Yalmaha's template)
     let action = match std::env::var("MAO_ACTION").unwrap_or_default().as_str() {
         "left" => mao_formats::appearance::Action::StrafeLeft,
         "right" => mao_formats::appearance::Action::StrafeRight,
         "walk" => mao_formats::appearance::Action::Walk,
         "run" => mao_formats::appearance::Action::Run,
+        "hover" => mao_formats::appearance::Action::Hover,
         _ => mao_formats::appearance::Action::Idle,
     };
     // (`MAO_CREATURE_GEAR=<position>:<mesh>:<texture>,...` in hex: the worn meshes of an update, as `shown_meshes` gives them)
@@ -4489,12 +4552,18 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
         }
         // (a polymorphed character is drawn as the creature it became; in the Grid everyone is its triangle: the stat getter
         // FUN_10059399 sets `Features` bit 0x800 there and FUN_100524b2 then takes FUN_10058088's template)
-        let creature = if world.grid { Some(GRID_TEMPLATE) } else { world.morphs.get(&id).copied() };
+        // (a character wearing a Yalmaha is drawn as the craft, by the same road: the wear list's `ChangeMesh` without criteria
+        // sets `MonsterData` as a polymorph's does, FUN_100a7aa2, and its 0xcf76 the `Scale` stat the body is drawn at,
+        // `SetBodyScale`; flying, the craft plays its template's animation for the fly action, which for want of one is its
+        // walk, FUN_10010b3c's fallback of 0xb3, `Template::animation_candidates`)
+        let craft = world.crafts.get(&id).copied().filter(|_| !world.grid && !world.morphs.contains_key(&id));
+        let creature = if world.grid { Some(GRID_TEMPLATE) } else { world.morphs.get(&id).copied().or(craft.map(|c| c.0)) };
         if let (Some(creature), Some(chars)) = (creature, characters.as_mut()) {
             let moving = if id == world.own { world.own_moving } else { world.last_move.get(&id).is_some_and(|t| t.elapsed() < Duration::from_millis(700)) };
             let speed = world.speeds.get(&id).copied().unwrap_or(0.0);
             use mao_formats::appearance::Action;
             let action = match world.strafing.get(&id).copied().unwrap_or(0) {
+                _ if craft.is_some() && world.flies(id) => Action::Hover,
                 _ if !moving => Action::Idle,
                 -1 => Action::StrafeLeft,
                 1 => Action::StrafeRight,
@@ -4503,6 +4572,10 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
                 _ => Action::Walk,
             };
             if let Some(parts) = chars.creature_parts(id, creature, action, (id % 997) as f32 * 3.0, MORPH_ANIM_RATE, &[], &[], deform, world.held_action(id), None, &[]) {
+                let place = match craft {
+                    Some((_, scale)) => model::multiply(&craft_scale(scale), &place),
+                    None => place,
+                };
                 push_character(&mut model, &mut casters, &mut ranges, id, parts, place, id == world.own, chars.frames.get(&id));
                 continue;
             }
@@ -4529,7 +4602,14 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
             // animations; walking is 1.5 units a second and running from 3 (backwards) or 5, so 2.2 tells them apart.
             // (one's own character runs or walks by its mode, as the original's FUN_1006c370 does; the others by their speed)
             let running = if id == world.own { !world.own_walking } else { speed > 2.2 };
-            let mode = if world.swimming.contains(&id) {
+            // (a character running a vehicle program rides its board or bike)
+            let vehicle = world.riding.get(&id).and_then(|&nano| chars.vehicle(nano, info.breed, info.sex));
+            // (fly mode: one's own as the game loop has it; another's only when the server's spell list said so, `flying`.
+            // A board's or bike's rider is left with the vehicle body's own movement animations here.)
+            let flies = world.flies(id);
+            let mode = if flies && vehicle.is_none() {
+                Mode::Fly
+            } else if world.swimming.contains(&id) {
                 Mode::Swim
             } else if world.sneaking.contains(&id) {
                 Mode::Sneak
@@ -4542,8 +4622,6 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
             let scale = if id == world.own { world.stats.get(&360).copied().filter(|&s| s > 0).unwrap_or(100) as f32 } else { 100.0 };
             let jumped = world.jumped.get(&id).map(|t| t.elapsed());
             // (A phase per entity keeps a crowd from moving in step.)
-            // (a character running a vehicle program rides its board or bike)
-            let vehicle = world.riding.get(&id).and_then(|&nano| chars.vehicle(nano, info.breed, info.sex));
             // (a wielded weapon hangs on its hand, in a fight or out of one: Gamecode's FUN_1009cda2, when the weapon is
             // wielded, adds the mesh its stat 209 names (not 12, which is the box an item lies on the ground as) to the
             // character's mesh at attractor place 1 for wear place 6 and 2 for place 8 (`AddAttractorMesh`), and takes it
@@ -6107,6 +6185,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     // stat 224, FUN_1004496c)
                     state.spell_queue = Default::default();
                     state.state_flags.clear();
+                    // (and their movement starts in its plain mode: whether the server runs a flyer's list again in the new
+                    // playfield was not seen; the running program or the worn item keeps one's own character flying)
+                    state.flying.clear();
                     // Zoned from a booth: that booth leads here.
                     if let Some((pf, booth, when)) = near_booth.take() {
                         if when.elapsed() < Duration::from_secs(20) && pf != playfield {
@@ -7476,9 +7557,29 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             state.backing.insert(own, walk < 0);
             // (a sneaking character does not tell the vicinity that it is away: `afk.rs`)
             crate::afk::SNEAKING.store(state.sneaking.contains(&own), std::sync::atomic::Ordering::Relaxed);
-            // (the speeds the original moves at, from the character's RunSpeed and health)
+            // Flying (fly mode 7). The original switches to it when the server's spell list runs spell 0xcf92 on the character
+            // and back when that list ends (FUN_100a8107; `spelllist::Outcome::Fly`, kept in `flying`). Where no list came
+            // (whether the server sends one for something worn, or at login and after zoning, was not seen) the client reads
+            // the same spell itself: in a running program (`nano_flying`) or in the wear event of something worn, a Ganimedes
+            // jetpack or a Yalmaha (`item::worn_grants_flight`; the worn places are those under the backpack's first, 64).
+            let worn_flight = state.worn.iter().filter(|e| e.slot < 64).any(|e| {
+                *flight_items.entry(e.low_id).or_insert_with(|| gear_db.get(mao_formats::resource::Id { kind: mao_formats::item::TEMPLATE, instance: e.low_id }).ok().flatten().is_some_and(|d| mao_formats::item::worn_grants_flight(&d)))
+            });
+            // (`MAO_FORCE_FLY=1`: flight without a program or an item, to try the flying itself on a character that has neither)
+            let worn_flight = worn_flight || std::env::var_os("MAO_FORCE_FLY").is_some();
+            let listed_flight = state.flying.contains(&own);
+            if (state.nano_flying || worn_flight || listed_flight) != state.own_flying {
+                eprintln!("flight: {} (the server's spell list {}, a program {}, a worn item {})", if state.own_flying { "off" } else { "on" }, listed_flight, state.nano_flying, worn_flight);
+            }
+            state.own_flying = state.nano_flying || worn_flight || listed_flight;
+            let flying = state.own_flying;
+            // (the speeds the original moves at, from the character's RunSpeed and health; fly mode has its own, forwards,
+            // backwards and sideways alike, whatever the walk/run toggle says)
             #[allow(non_snake_case)]
-            let (SPEED, BACK_SPEED) = if state.swimming.contains(&own) {
+            let (SPEED, BACK_SPEED) = if flying {
+                let s = fly_speed(&state.stats);
+                (s, s)
+            } else if state.swimming.contains(&own) {
                 let s = swim_speed(&state.stats);
                 (s, s)
             } else if state.own_walking || state.sneaking.contains(&own) {
@@ -7501,22 +7602,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 (vx, vz) = (vx * SPEED / total, vz * SPEED / total);
             }
             let speed = (vx * vx + vz * vz).sqrt() * if walk < 0 { -1.0 } else { 1.0 };
-            // Flying (fly mode 7, FUN_1006e4f8): falling off and the body lifted half a metre as it starts (`SetRelPos` by
+            // The switch to fly mode (FUN_1006e4f8): falling off and the body lifted half a metre as it starts (`SetRelPos` by
             // 0x1015e0e4); the vehicle faces its motion (`Vehicle_t`'s orientation mode 4, FUN_1000c616), so going forward
             // follows the elevation the right button gave it.
-            // (flight comes from a running program or from something worn: a Ganimedes jetpack's wear event has the same
-            // spell 0xcf4c with the flying bit as a hoverboard's program, `item::grants_flight`. The worn places are those
-            // under the backpack's first, 64.)
-            let worn_flight = state.worn.iter().filter(|e| e.slot < 64).any(|e| {
-                *flight_items.entry(e.low_id).or_insert_with(|| gear_db.get(mao_formats::resource::Id { kind: mao_formats::item::TEMPLATE, instance: e.low_id }).ok().flatten().is_some_and(|d| mao_formats::item::grants_flight(&d)))
-            });
-            // (`MAO_FORCE_FLY=1`: flight without a program or an item, to try the flying itself on a character that has neither)
-            let worn_flight = worn_flight || std::env::var_os("MAO_FORCE_FLY").is_some();
-            if (state.nano_flying || worn_flight) != state.own_flying {
-                eprintln!("flight: {} (a program {}, a worn item {})", if state.nano_flying || worn_flight { "on" } else { "off" }, state.nano_flying, worn_flight);
-            }
-            state.own_flying = state.nano_flying || worn_flight;
-            let flying = state.own_flying;
             if flying != was_flying {
                 was_flying = flying;
                 if flying {
@@ -7570,11 +7658,18 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 // holds it up)
                 let (rise_share, level_share) = elevation.sin_cos();
                 let forward = velocity[0].hypot(velocity[1]) * if walk < 0 { -1.0 } else { 1.0 };
-                let (dx, dz) = ((velocity[0] * level_share + heading.cos() * sideways) * dt, (velocity[1] * level_share - heading.sin() * sideways) * dt);
+                let (mut lx, mut lz, mut climb) = (velocity[0] * level_share + heading.cos() * sideways, velocity[1] * level_share - heading.sin() * sideways, forward * rise_share);
+                // (the fly speed is the vehicle's top speed, `SetMaxVel`, for the whole of its motion: a sidestep while going
+                // forward is no faster, as on the ground)
+                let total = (lx * lx + lz * lz + climb * climb).sqrt();
+                if total > SPEED {
+                    (lx, lz, climb) = (lx * SPEED / total, lz * SPEED / total, climb * SPEED / total);
+                }
+                let (dx, dz) = (lx * dt, lz * dt);
                 if keys.noclip || !collision.blocked(position[0] + dx, position[2] + dz, position[1], 0.4, 1.8, 0.5) {
                     (position[0], position[2]) = (position[0] + dx, position[2] + dz);
                 }
-                position[1] += forward * rise_share * dt;
+                position[1] += climb * dt;
                 let floor = if keys.noclip { f32::MIN } else { collision.floor(position[0], position[2], position[1], 0.6, 0.6).unwrap_or(f32::MIN) };
                 position[1] = position[1].max(ground(&terrain, position).max(floor));
                 (base, rise, offset) = (position[1], 0.0, 0.0);
@@ -10696,6 +10791,69 @@ mod movement_tests {
             let name = mao_formats::appearance::animation_name(breed, sex, Action::Sneak);
             assert!(chars.loop_points(breed, sex, Action::Sneak).is_some(), "{name}");
         }
+    }
+
+    /// Flying (mode 7). The speed, FUN_1006f9eb: `RunSpeed / 275 + 7`, 15 at most and 1.5 at least. The animation: the fly
+    /// action standing, moving, backing and sidestepping alike, not scaled by the speed. `MAO_GAME`: every body has the
+    /// `hover-norm` animation, a whole loop of 2533 ms without loop notes, and `parts` poses a flying body by it (the feet
+    /// drawn up under the body, not the standing pose).
+    #[test]
+    fn flying_has_its_speed_and_the_hover_action() {
+        use mao_formats::appearance::{Action, ATROX, FEMALE, MALE};
+        let stats = |rs: i64, hp: i64, max: i64| BTreeMap::from([(156u32, rs), (27u32, hp), (1u32, max)]);
+        assert!((fly_speed(&stats(0, 100, 100)) - 7.0).abs() < 0.001);
+        assert!((fly_speed(&stats(275, 100, 100)) - 8.0).abs() < 0.001);
+        assert!((fly_speed(&stats(1100, 100, 100)) - 11.0).abs() < 0.001);
+        // (15 at RunSpeed 2200 and over; running stops at 13)
+        assert!((fly_speed(&stats(2200, 100, 100)) - 15.0).abs() < 0.001);
+        assert!((fly_speed(&stats(5000, 100, 100)) - 15.0).abs() < 0.001);
+        // (no stats at all: the reference speed)
+        assert!((fly_speed(&BTreeMap::new()) - 7.0).abs() < 0.001);
+        // (nearly dead, 1% health: the fall-off of FUN_1006f2fc, 3.67; the floor is 1.5)
+        assert!((fly_speed(&stats(275, 1, 100)) - 3.673).abs() < 0.01, "{}", fly_speed(&stats(275, 1, 100)));
+        assert!((fly_speed(&stats(-2000, 100, 100)) - 1.5).abs() < 0.001);
+        for (moving, strafe, backing) in [(false, 0, false), (true, 0, false), (true, 0, true), (true, -1, false), (true, 1, false)] {
+            assert_eq!(movement_action(Mode::Fly, moving, strafe, backing), Some(Action::Hover));
+        }
+        assert_eq!(Action::Hover.reference_speed(), None);
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let db = std::sync::Arc::new(ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap());
+        let mut chars = Characters::new(db).unwrap();
+        for (breed, sex) in [(1, MALE), (1, FEMALE), (ATROX, 1)] {
+            let name = mao_formats::appearance::animation_name(breed, sex, Action::Hover);
+            assert_eq!(chars.loop_points(breed, sex, Action::Hover), Some((0.0, 2533.0, 2533.0)), "{name}");
+        }
+        // (the posed body: hovering is not the standing pose)
+        let lowest = |parts: &[Part]| parts.iter().flat_map(|p| p.vertices.iter().map(|v| v.position)).fold([f32::MAX; 3], |a, p| [a[0].min(p[0]), a[1].min(p[1]), a[2].min(p[2])]);
+        let standing = chars.parts(1, 1, MALE, None, None, 0.0, 0.0, 100.0, &[], &[], &[], None, None, None, false, None, None, None).unwrap();
+        let hovering = chars.parts(2, 1, MALE, movement_action(Mode::Fly, false, 0, false), None, 0.0, 0.0, 100.0, &[], &[], &[], None, None, None, false, None, None, None).unwrap();
+        assert_eq!(chars.movement_keys.get(&2).map(|k| k.0), Some(Action::Hover));
+        assert_ne!(lowest(&standing), lowest(&hovering));
+    }
+
+    /// `MAO_GAME`: a worn Yalmaha XL (96088, in a place under the backpack's) makes one's own character its craft, NPC
+    /// template 99470 at scale 20; in the backpack or taken off it does not. The craft's body loads and, flying, plays the
+    /// template's walk (it has no animation for the fly action, 179).
+    #[test]
+    fn a_worn_yalmaha_is_its_craft() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let db = std::sync::Arc::new(ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap());
+        let entry = |slot: u32| inventory::Entry { slot, flags: 1, count: 1, container: (0, 0), low_id: 96088, high_id: 96088, quality: 1, extra: 0 };
+        let mut w = World { own: 7, worn: vec![entry(15)], mods_dirty: true, ..World::default() };
+        w.refresh_mods(&db);
+        assert_eq!(w.crafts.get(&7), Some(&(99470, 20)));
+        (w.worn, w.mods_dirty) = (vec![entry(70)], true);
+        w.refresh_mods(&db);
+        assert_eq!(w.crafts.get(&7), None);
+        let mut chars = Characters::new(db).unwrap();
+        let parts = chars.creature_parts(7, 99470, mao_formats::appearance::Action::Hover, 0.0, 1.0, &[], &[], None, None, None, &[]).unwrap();
+        let walk = chars.creatures.get(&99470).unwrap().as_ref().unwrap().0.animation(mao_formats::appearance::Action::Walk).unwrap();
+        assert_eq!(chars.movement_keys.get(&7).map(|k| (k.0, k.2)), Some((mao_formats::appearance::Action::Hover, walk)));
+        // (the craft at its scale: some two metres long, a fifth of the body's 11.4)
+        let k = craft_scale(20)[0];
+        let (lo, hi) = parts.iter().flat_map(|p| p.vertices.iter().map(|v| v.position)).fold(([f32::MAX; 3], [f32::MIN; 3]), |(lo, hi), p| ([lo[0].min(p[0]), lo[1].min(p[1]), lo[2].min(p[2])], [hi[0].max(p[0]), hi[1].max(p[1]), hi[2].max(p[2])]));
+        let longest = (0..3).map(|i| (hi[i] - lo[i]) * k).fold(0.0f32, f32::max);
+        assert!((2.0..2.6).contains(&longest), "{longest}");
     }
 
     #[test]

@@ -94,8 +94,11 @@ Wailing Wastes (551) → the Garden of Lord Galahad (4692) → Inferno (4605) �
 Every zoning is the server's `43197d22` (the place, the rotation and the playfield to go to) then the usual redirect.
 
 - **Flying** (Andromeda, 1.4–5.7 min, a Phasefront Banshee): no fly-mode (0x1d) or mouse-steer (0x2b) message; the full
-  reports carry the pitched rotation and the height follows it (21 to 185). Every Phasefront vehicle program has spell
-  0xcf4c with 73 = 2 (`mao_formats::item::grants_flight`). Ported (commit 2f817f7).
+  reports carry the pitched rotation and the height follows it (21 to 185). The server's spell list of the program
+  (#305, ended by #526) carries spell 0xcf92, which is what switches the character to fly mode (FUN_100a8107;
+  `spelllist::Outcome::Fly`, `mao_formats::item::grants_flight`): the hoverbikes' programs have it, the hoverboards' do
+  not (the 0xcf4c with 73 = 2 that every vehicle program has only takes a state flag away). Ported (commit 2f817f7; the
+  signal corrected 2026-11-13).
 - **Perk actions** (the Inferno fights): `CharacterAction` 0xb4 lists each perk action at entry (item template, number,
   four-letter code); the client's 0xb3 uses one; the server's 0x50 queues it (the attack time), 0xcf locks a group (the
   template's lock-skill spell 0xcfc3: Quick Bash group 201 for 25 s) and 0xce frees it. Ported (commit 448d6b5).

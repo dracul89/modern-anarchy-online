@@ -225,6 +225,11 @@ account with `net <game> create`, in Arete Landing; scripted, other new players 
   both orders); Shift+click shows the info (inventory, wear window, a bag); a worn bag opens and closes by right
   clicks; in a bag a click takes an item up and a click on the inventory takes it out; in a corpse a click takes
   the item; Shift+T opens and closes the tradeskill window.
+- [ ] Flight as the original has it (2026-11-13; `docs/FLIGHT_ORIGINAL.md`): a Ganimedes jetpack worn: the hover
+  pose standing and moving, a half-metre rise, the right button's up and down pitching the flight and forward
+  climbing along it, the flight's own speed; a Yalmaha worn: the craft in the character's place at a fifth of
+  its size; a hoverboard no longer flies (its program has no fly spell), a hoverbike does. Tried by a forced
+  flight on the test character only (it climbed at a set pitch); the pose seen in offline pictures.
 - [ ] Placing by hand and stacks (2026-11-13; by script: a move to an empty cell, a swap, a split and a join):
   by hand: items stay where they are put after a relog; the same in a bag's window; Ctrl+click on a stack, the
   count box, and the split stack on an empty cell; a stack onto a like stack joins them.

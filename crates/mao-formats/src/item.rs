@@ -190,11 +190,42 @@ pub fn is_vehicle_program(template: &[u8]) -> bool {
     change_mesh_spells(template).iter().any(|(criteria, _)| criteria.iter().any(|c| matches!(c.0, 4 | 12 | 59) && c.2 == 0))
 }
 
-/// Whether a program lets its target fly: one of its spells is 0xcf4c (Gamecode's FUN_100a7c79: the movement flags of
-/// stat 224, spell stat 73) with flag 2. Every Phasefront vehicle program (the flying boards and bikes) has it; the
-/// original flies in its fly mode (7, FUN_1006e4f8: falling off, `Vehicle_t`'s orientation mode 4) while one runs.
+/// Whether a program or a worn item lets its target fly: one of its spells is 0xcf92 (Gamecode's FUN_100a8107, which hands
+/// the character's movement the action 0x1d, `SwitchToFlyModeTransitionAction_t`, when it is applied and 0x27,
+/// `LeaveFlyModeTransitionAction_t`, when its list ends). The original flies in its fly mode (7, FUN_1006e4f8: falling off,
+/// `Vehicle_t`'s orientation mode 4) meanwhile. The hoverbikes' programs have it (Phasefront Spectre 270836), a Ganimedes
+/// jetpack (290215) and the Yalmahas (96088) in their wear event; the hoverboards' programs (Phantom 270431, Ghost 270327,
+/// Chimera 284003) do not: a board rides over the ground. (Not the 0xcf4c with flag 2 all of these carry: FUN_100a7c79
+/// only takes a state flag of stat 224 away, FUN_10044c71, and never touches the movement mode.)
 pub fn grants_flight(template: &[u8]) -> bool {
-    crate::spell::lists(template).iter().any(|(_, spells)| spells.iter().any(|s| s.kind == 0xcf4c && s.stat(73) & 2 != 0))
+    crate::spell::lists(template).iter().any(|(_, spells)| spells.iter().any(|s| s.kind == FLY_SPELL))
+}
+
+/// The spell that switches a character to fly mode and back (FUN_100a8107).
+pub const FLY_SPELL: u32 = 0xcf92;
+
+/// The event of an item's spells that run while it is worn (`Wear`).
+pub const WEAR_EVENT: u32 = 14;
+
+/// [`grants_flight`] for something worn: the spell is in its wear event, the list that runs while the item is on.
+pub fn worn_grants_flight(template: &[u8]) -> bool {
+    crate::spell::lists(template).iter().any(|(event, spells)| *event == WEAR_EVENT && spells.iter().any(|s| s.kind == FLY_SPELL))
+}
+
+/// The craft a worn item or a program turns its wearer into, as (NPC template, body scale in percent): a spell list (`event`:
+/// [`WEAR_EVENT`] of an item, 0 of a program) with a `ChangeMesh` (0xcf44) that has no criteria and a temporary set (0xcf76)
+/// of stat 360 `Scale`. The Yalmahas: "Yalmaha XL" 96088 has template 99470 (`sleek_vehicle_cat.cir`, the whole craft with
+/// no rider to be seen) at 20. The original's FUN_100a7aa2 sets stat 359 `MonsterData` to the template on a player whose
+/// stat is still 0, and the stat's handler takes the template's mesh and animations (FUN_1005a3b1 case 0x167 → FUN_10052686);
+/// FUN_100a95c7 sets the scale stat, which its handler holds to 20 at least (case 0x168), and the body is drawn at a
+/// hundredth of it (`SetBodyScale`). (A polymorph program's `ChangeMesh` has no criteria either, but no scale with it:
+/// [`polymorph_template`]. A hoverboard's or hoverbike's has criteria on the body: [`vehicle_template`].)
+pub fn craft(template: &[u8], event: u32) -> Option<(u32, u32)> {
+    let lists = crate::spell::lists(template);
+    let spells = || lists.iter().filter(|(e, _)| *e == event).flat_map(|(_, spells)| spells.iter());
+    let body = spells().find(|s| s.kind == 0xcf44 && s.criteria.is_empty()).map(|s| s.stat(39)).filter(|&t| t > 0)?;
+    let scale = spells().find(|s| s.kind == 0xcf76 && s.stat(0) == 360).map(|s| s.stat(39))?;
+    Some((body as u32, scale.max(20) as u32))
 }
 
 /// What an item's action needs: the item's trailing tables hold, after each event's spells, the marker `22, 36, 2018`, the action

@@ -219,7 +219,8 @@ pub struct Update {
     pub target_bars: Option<Vec<crate::ui::TargetBar>>,
     /// The character's items, when they arrive.
     pub gear: Option<Vec<crate::gear::GearItem>>,
-    /// Whether one's own character flies (a flying vehicle program runs), when it changes.
+    /// Whether one's own character flies (fly mode: the fly spell of a program, of something worn or of the server's list),
+    /// when it changes.
     pub flying: Option<bool>,
     /// An inspected character's name and worn items.
     pub inspected: Option<(String, Vec<crate::gear::GearItem>)>,
@@ -949,8 +950,25 @@ fn press_slot(ui: &mut Ui, slot: usize, keys: &mut Input, hud: &mut Hud) {
     }
 }
 
-/// How far a flying vehicle pitches up or down (the camera's own limit, `PITCH_LIMIT`).
-const FLY_PITCH_LIMIT: f32 = 1.4;
+/// How far the mouse turns the character and the camera, in radians a pixel (the original scales the movement by the
+/// interface's `MouseTurnSensitivity`, GUI.dll FUN_1002ccbe, a value this client has no setting for: `camera.rs`).
+const MOUSE_TURN: f32 = 0.005;
+
+/// A flying character's elevation after the mouse pitched it by `by` radians (N3.dll's `n3Dynel_t::VehicleForwardUpdate`,
+/// 0x10004ebd, which `N3Msg_MovementChanged` calls for the mouse's 0x2b): the body is turned about its own right axis, and
+/// the turned rotation is kept only while the level part of the new forward still points the way the old one's did, their
+/// product above 0.001 (0x1003c8a0); a turn that fails is dropped whole, not cut short. The level part of the forward is the
+/// cosine of the elevation, so the elevation stops just short of straight up or down (88.2° by small steps) and never
+/// passes it. (As in the original, a large step can come nearer the pole than small ones can leave again: from there only a
+/// step back below `acos(0.001 / cos(elevation))` is taken.)
+fn fly_pitch(pitch: f32, by: f32) -> f32 {
+    let turned = pitch + by;
+    if pitch.cos() * turned.cos() > 0.001 {
+        turned
+    } else {
+        pitch
+    }
+}
 
 /// What is under a point of the window (physical pixels): the first pickable the line from the eye through it meets, as a
 /// click picks.
@@ -1035,15 +1053,16 @@ impl ApplicationHandler for App {
         }
         let Some(w) = self.state.as_mut() else { return };
         // The mouse look goes to the game's camera at the next frame (across: right positive; up: mouse up positive).
-        self.mouse_look.0 += dx as f32 * 0.005;
+        self.mouse_look.0 += dx as f32 * MOUSE_TURN;
         // (`MouseLookInverted`: the option panel's Mouse page, Gamecode's `StaticMouseLookInvertCallback`)
         let invert = if crate::prefs::on("MouseLookInverted") { -1.0 } else { 1.0 };
         // (flying, `N3Msg_MouseMovement` in fly mode: the right button's vertical movement pitches the vehicle, not the
-        // camera, `MouseCameraControl(0, 0)`, and goes to the vehicle with the across movement, 0x2b)
+        // camera, `MouseCameraControl(0, 0)`, and goes to the vehicle with the across movement, 0x2b; how far it may
+        // pitch is `fly_pitch`)
         if self.hud.flying && self.buttons[1] && !(self.modifiers.shift_key() || self.modifiers.control_key()) {
-            self.keys.pitch = (self.keys.pitch - invert * dy as f32 * 0.005).clamp(-FLY_PITCH_LIMIT, FLY_PITCH_LIMIT);
+            self.keys.pitch = fly_pitch(self.keys.pitch, -invert * dy as f32 * MOUSE_TURN);
         } else {
-            self.mouse_look.1 -= invert * dy as f32 * 0.005;
+            self.mouse_look.1 -= invert * dy as f32 * MOUSE_TURN;
         }
         // (the right button turns the character, `N3Msg_MouseMovement`; with Shift or Ctrl only the camera, as the left does)
         if self.buttons[1] && !(self.modifiers.shift_key() || self.modifiers.control_key()) {
@@ -3001,6 +3020,32 @@ impl ApplicationHandler for App {
 #[cfg(test)]
 mod camera_tests {
     use super::*;
+
+    /// `VehicleForwardUpdate`'s rule: the mouse pitches a flyer up to just short of straight up or down and never over; a
+    /// step that would pass the limit is dropped whole.
+    #[test]
+    fn a_flyer_pitches_short_of_straight_up() {
+        // (a drag up of a thousand pixels, a pixel an event: it stops at 88.2°, where the cosine's square is 0.001)
+        let mut pitch = 0.0;
+        for _ in 0..1000 {
+            pitch = fly_pitch(pitch, MOUSE_TURN);
+        }
+        assert!(pitch < std::f32::consts::FRAC_PI_2 && (pitch.to_degrees() - 88.2).abs() < 0.3, "{}", pitch.to_degrees());
+        // (and comes down again, and goes as far down)
+        assert!(fly_pitch(pitch, -2.0 * MOUSE_TURN) < pitch);
+        for _ in 0..2000 {
+            pitch = fly_pitch(pitch, -MOUSE_TURN);
+        }
+        assert!(pitch > -std::f32::consts::FRAC_PI_2 && (pitch.to_degrees() + 88.2).abs() < 0.3, "{}", pitch.to_degrees());
+        // (the old limit of 1.4 is passed; a step over the top is not taken at all)
+        assert_eq!(fly_pitch(1.4, 0.1), 1.4 + 0.1);
+        assert_eq!(fly_pitch(1.5, 0.2), 1.5);
+        // (near the pole a small step back is dropped too, as the original's product rule has it; a larger one is taken)
+        assert_eq!(fly_pitch(1.55, -0.005), 1.55);
+        assert_eq!(fly_pitch(1.55, -0.05), 1.55 - 0.05);
+        assert_eq!(fly_pitch(0.0, 3.0), 0.0);
+        assert_eq!(fly_pitch(0.3, -0.1), 0.3 - 0.1);
+    }
 
     #[test]
     fn a_windows_place_is_two_numbers() {

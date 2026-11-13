@@ -54,7 +54,15 @@ pub enum Action {
     /// (FUN_1006c370 picks it both ways: at rest the rate is left at 1, as FUN_1007009f sets none for a speed of 0).
     Sneak,
     SneakStand,
+    /// Flying (`CharVehicle_t` mode 7): the character's fly action (`SimpleChar_t`'s +0x1dc part +8, set to 0xb3 `hover-norm`
+    /// by the constructor FUN_1005d0b1 through FUN_1003c646). The switch to fly mode starts it (FUN_1006e4f8) and the standing
+    /// chooser plays it again (FUN_1006c5ae); the forward, back and sidestep starts set no other in the mode (FUN_1006ef8d),
+    /// so it shows standing and moving alike, looping at its own rate (FUN_1007009f, the speed's scale, is not called for it).
+    Hover,
 }
+
+/// The original's action number of the flying animation ([`Action::Hover`], `hover-norm`).
+pub const HOVER_ACTION: u32 = 0xb3;
 
 impl Action {
     /// The speed, in units a second, at which the original plays the action's animation at its calibrated rate (`CharVehicle_t`'s
@@ -94,6 +102,8 @@ pub fn animation_name(breed: u8, sex: u8, action: Action) -> String {
         Action::Swim => "swim",
         Action::IdleSwim => "idle-swim",
         Action::Sneak | Action::SneakStand => "sneakcool",
+        // (action 0xb3 in [`ACTION_NAMES`]; every player body has the file, so its fallback to the walk, 100, is never taken)
+        Action::Hover => "hover-norm",
     };
     format!("{prefix}_{stem}_01_01.ani")
 }
@@ -229,5 +239,18 @@ mod tests {
         assert_eq!(animation_name(OPIFEX, MALE, Action::Walk), "male_walk_01_01.ani");
         assert_eq!(animation_name(ATROX, 1, Action::Run), "athrox_run_01_01.ani");
         assert_eq!(animation_name(SOLITUS, MALE, Action::LandRun), "male_jump-land-run_01_01.ani");
+    }
+
+    /// Flying is action 0xb3, `hover-norm`: the file [`animation_name`] gives is the one FUN_10010cc2 asks for first, it falls
+    /// back to the walk (FUN_10010b3c), and it is not scaled by the speed.
+    #[test]
+    fn the_hover_action() {
+        assert_eq!(action_name(HOVER_ACTION), Some(("hover-norm", 3)));
+        assert_eq!(action_fallback(HOVER_ACTION), 100);
+        for (breed, sex, file) in [(SOLITUS, MALE, "male_hover-norm_01_01.ani"), (NANOMAGE, FEMALE, "female_hover-norm_01_01.ani"), (ATROX, 1, "athrox_hover-norm_01_01.ani")] {
+            assert_eq!(animation_name(breed, sex, Action::Hover), file);
+            assert_eq!(action_animation_names(breed, sex, HOVER_ACTION).unwrap().0[0], file);
+        }
+        assert_eq!(Action::Hover.reference_speed(), None);
     }
 }
