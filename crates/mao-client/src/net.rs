@@ -935,7 +935,9 @@ impl World {
     fn wear_refusal(&self, entry: &inventory::Entry, to: u32, db: &ResourceDatabase) -> Option<Option<&'static str>> {
         let stat = |k: u32| template_stat(entry.low_id, k).unwrap_or(0) as u32;
         let slot = to % 16;
-        if !matches!(stat(76), 1 | 2 | 3 | 5) || slot == 0 || stat(298) & (1 << slot) == 0 || stat(30) & 4 == 0 {
+        // (not by the `Can` flags' wear bit, 4: a garden key has only 1, carry, and is worn all the same; a move the server
+        // will not have comes back as it was)
+        if !matches!(stat(76), 1 | 2 | 3 | 5) || slot == 0 || stat(298) & (1 << slot) == 0 {
             return Some(None);
         }
         let own = (crate::requirements::CHARACTER, self.own);
