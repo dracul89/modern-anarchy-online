@@ -34,9 +34,9 @@ rows were brought up to date on the day this was saved. A few gaps listed here m
 | Chat | dragging tabs, the transparency sliders, the log window, the per-window menu in the configuration |
 | Friends | the flashing row for unread tells, tell windows listed under Chat Windows, the chat window's own menu |
 | Inventory, bags, bank | `labels_on_top` for the wear and inspect windows |
-| Info view | nano radius, shop price, some names on a character's page |
+| Info view | shop price, some names on a character's page (the nano radius is not a gap: see below) |
 | Skills | the suggested distribution |
-| NCU and nano programs | the radius column, Auto Arrange, placing by hand, kept column widths and sort |
+| NCU and nano programs | Auto Arrange, placing by hand, kept column widths and sort (the radius column is not a gap: see below) |
 | Special actions | placing by hand; backstab never seen live |
 | Mail | Return To Sender, C.O.D., kept column widths |
 | Missions | kept columns and the active mission, Update Team Members, the shadow knowledge reward row |
@@ -49,6 +49,14 @@ rows were brought up to date on the day this was saved. A few gaps listed here m
 | Options | `HotKeys.xml`; most settings are kept but not yet acted on |
 | Progress dialog | not shown while a character is entered |
 | Character viewer, targeting, tradeskill, knowledge, factions, research | small pieces each; see the table |
+
+**The nano radius is nothing in the original (read 2026-11-12).** The info view's "Radius" row and the lists'
+radius column come from `N3Msg_GetFormularRadius` (Gamecode 0x1001655a), which returns the word at +0xb8 of the
+nano's `NanoItem_t`. That word is set to 0 where the object is made (FUN_10086142) and no write to it was found
+in the object's loader (0x10086774), in the set-up after loading (FUN_100a49b1, which fills +0xb0 and +0xbc) or in
+the function that finds the object (FUN_100a4b10); the info view leaves the row out when the value is 0
+(GUI.dll FUN_1003683d, FUN_10036fbb). So the row is never shown and the column holds nothing, as here. Not proved
+over the whole of Gamecode: a write through another path would change this.
 
 ## Waiting for a new capture of the original client
 
