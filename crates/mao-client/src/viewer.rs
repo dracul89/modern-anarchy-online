@@ -1894,6 +1894,11 @@ impl ApplicationHandler for App {
                         while self.camera_script.first().is_some_and(|(t, _)| self.script_clock.elapsed().as_secs_f32() >= *t) {
                             let (_, what) = self.camera_script.remove(0);
                             // (a step for the interface: its argument may hold a slash, as a chat command does)
+                            // (`pitch@<radians>`: the flying character's elevation, as the right button's mouse gives it)
+                            if let Some(v) = what.strip_prefix("pitch@") {
+                                self.keys.pitch = v.trim().parse().unwrap_or(0.0);
+                                continue;
+                            }
                             if what.contains('@') {
                                 if !w.ui.as_mut().is_some_and(|ui| ui.script(&what)) {
                                     eprintln!("camera script: no step {what:?}");

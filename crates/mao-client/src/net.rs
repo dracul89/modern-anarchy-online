@@ -5594,6 +5594,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let (mut pending_mission_log, mut pending_missions_removed): (Option<Vec<crate::missionlog::Mission>>, Vec<(u32, u32)>) = (None, Vec::new());
         // (which worn items let their wearer fly, by template: looked up once each)
         let mut flight_items: std::collections::HashMap<u32, bool> = std::collections::HashMap::new();
+        let mut fly_traced = Instant::now();
         // (an item to wear or take off because it was "used": the move, made by the move's own code at the next turn)
         let mut wear_by_use: std::collections::VecDeque<(u32, u32)> = std::collections::VecDeque::new();
         let mut shop_booth: Option<(u32, u32)> = None;
@@ -7509,6 +7510,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             let worn_flight = state.worn.iter().filter(|e| e.slot < 64).any(|e| {
                 *flight_items.entry(e.low_id).or_insert_with(|| gear_db.get(mao_formats::resource::Id { kind: mao_formats::item::TEMPLATE, instance: e.low_id }).ok().flatten().is_some_and(|d| mao_formats::item::grants_flight(&d)))
             });
+            // (`MAO_FORCE_FLY=1`: flight without a program or an item, to try the flying itself on a character that has neither)
+            let worn_flight = worn_flight || std::env::var_os("MAO_FORCE_FLY").is_some();
             if (state.nano_flying || worn_flight) != state.own_flying {
                 eprintln!("flight: {} (a program {}, a worn item {})", if state.nano_flying || worn_flight { "on" } else { "off" }, state.nano_flying, worn_flight);
             }
@@ -7546,6 +7549,11 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 }
             }
             let elevation = if flying { keys.pitch } else { 0.0 };
+            // (`MAO_FLY_TRACE=1`: where the flying character is, every second; with the message log on, every third)
+            if flying && (std::env::var_os("MAO_FLY_TRACE").is_some() && fly_traced.elapsed() >= Duration::from_secs(1) || crate::settings::LOG_MESSAGES.load(std::sync::atomic::Ordering::Relaxed) && fly_traced.elapsed() >= Duration::from_secs(3)) {
+                fly_traced = Instant::now();
+                eprintln!("flight: height {:.2} at ({:.1}, {:.1}), pitch {:.2}, speed ({:.2}, {:.2}), walk {walk}", position[1], position[0], position[2], keys.pitch, velocity[0], velocity[1]);
+            }
             own_pitch.set(elevation);
             let start_jump = (keys.jump || std::mem::take(&mut autoplay_jump)) && !was_jumping && !airborne && !state.swimming.contains(&own) && !flying;
             was_jumping = keys.jump;
