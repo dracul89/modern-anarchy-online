@@ -3613,3 +3613,12 @@ click on an empty cell split one arrow off, and the next login had the two stack
 action 0x34, as it was built from the decompile); the small stack clicked onto the big one joined them (0x35), one
 stack in the list at once and at the next login. Not tried: the same in a bag's window, a join of stacks of
 different quality, the count box used by hand.
+
+**A swap by right click goes one move at a time (2026-11-13; the user: swapping from the Ganimedes to a garden key,
+"the key gets unequipped right after").** The log of it: the jetpack's taking off was answered by the server, the
+key's wearing, sent in the next turn, never was, and the key came back to the backpack. The two moves of a swap now
+go one after the other's answer and a moment (0.6 s; 3 s at most without an answer), a wear place still taken when
+its turn comes ends the swap, and a taking off the server took is now marked as answered (only moves out of the
+backpack were). Tried live on the test character's two pairs of shorts: both moves answered, 0.64 s apart, and
+kept at the next login. Why the server left the key's wearing unanswered is not known (the same pair of moves the
+other way round, key off and jetpack on, was taken); the original sends both at once.

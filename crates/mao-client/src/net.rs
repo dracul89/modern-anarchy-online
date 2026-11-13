@@ -2612,6 +2612,11 @@ impl World {
                 if source.0 == 0x68 {
                     self.moves_asked.retain(|m| m.0 != source.1);
                 }
+                // (and one from a wear page, 0x65 weapons, 0x66 clothes, 0x67 implants, 0x73 social: a taking off the server
+                // took; the asked moves from the worn places are done with)
+                if matches!(source.0, 0x65 | 0x66 | 0x67 | 0x73) {
+                    self.moves_asked.retain(|m| m.0 >= inventory::BACKPACK_FIRST);
+                }
                 // `(0x6e, 0)` to `(0x6e, own)`: the overflow window's item comes into the inventory
                 if source == (0x6e, 0) && target == (0x6e, self.own) {
                     if let Some(entry) = self.overflow_item.take() {
@@ -5675,6 +5680,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut fly_traced = Instant::now();
         // (an item to wear or take off because it was "used": the move, made by the move's own code at the next turn)
         let mut wear_by_use: std::collections::VecDeque<(u32, u32)> = std::collections::VecDeque::new();
+        let mut wear_gate = Instant::now() - Duration::from_secs(5);
         let mut shop_booth: Option<(u32, u32)> = None;
         // (the backpack places put into the open shop's trade: gone from the backpack when the trade completes. The server
         // says nothing more of them: a sale's log has `AddItem` for each place, then `Complete`, then the shop opened anew.)
@@ -7382,7 +7388,21 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             }
             // An item dragged to another place: ask the server, and show the change at once; the server's refusal takes it back
             // (`World::moves_asked`).
-            let mut wanted_move = wear_by_use.pop_front();
+            // (the moves a use asked for go one at a time: the next only when the server has answered the one before and a
+            // moment after it. The user's log of a jetpack swapped for a key: the key's wearing, sent in the turn after
+            // the jetpack's taking off, was never answered and the key came back. A wear place still taken when its turn
+            // comes, the taking off refused, ends the swap.)
+            let mut wanted_move = None;
+            if (state.moves_asked.is_empty() && wear_gate.elapsed() >= Duration::from_millis(600)) || wear_gate.elapsed() >= Duration::from_secs(3) {
+                if let Some((from, to)) = wear_by_use.pop_front() {
+                    if to < inventory::BACKPACK_FIRST && state.worn.iter().any(|w| w.slot == to) {
+                        wear_by_use.clear();
+                    } else {
+                        wanted_move = Some((from, to));
+                        wear_gate = Instant::now();
+                    }
+                }
+            }
             if keys.mv.0 != move_seen {
                 move_seen = keys.mv.0;
                 wanted_move = Some((keys.mv.1, keys.mv.2));
