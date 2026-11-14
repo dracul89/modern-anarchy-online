@@ -1013,6 +1013,8 @@ impl ApplicationHandler for Launch {
                         gfx.window.request_redraw();
                     }
                 }
+                // (a window not on the screen is given no frame on macOS: nothing is wrong with the surface then)
+                wgpu::CurrentSurfaceTexture::Occluded | wgpu::CurrentSurfaceTexture::Timeout => {}
                 _ => gfx.surface.configure(&gfx.gpu.device, &gfx.config),
             },
             _ => {

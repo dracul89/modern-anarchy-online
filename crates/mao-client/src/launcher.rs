@@ -785,7 +785,17 @@ impl ApplicationHandler for Launcher {
                         gfx.window.request_redraw();
                     }
                 }
-                _ => gfx.surface.configure(&gfx.gpu.device, &gfx.config),
+                // (no frame given: on macOS a window that is not on the screen, as this one is for a moment when it
+                // opens and whenever it is covered or on another desktop, gets none. The next frame is asked for all the
+                // same, a little later: each frame asks for the one after it, and with nothing asked here the window
+                // stayed empty from then on. The surface is set up anew only when that is what was wrong.)
+                other => {
+                    if !matches!(other, wgpu::CurrentSurfaceTexture::Occluded | wgpu::CurrentSurfaceTexture::Timeout) {
+                        gfx.surface.configure(&gfx.gpu.device, &gfx.config);
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(16));
+                    gfx.window.request_redraw();
+                }
             },
             _ => {
                 if consumed {
