@@ -15,6 +15,7 @@
 # The system's own libraries are used, not copies: glibc (as new as the build machine's or newer), ALSA (libasound2),
 # a Vulkan driver, X11 or Wayland; see docs/PLATFORMS.md. The file is put together by appimagetool: $APPIMAGETOOL when
 # set, else the one on the PATH, else the release named below is downloaded into the build's own folder.
+# appimagetool wants desktop-file-validate (the desktop-file-utils package) to check the menu entry.
 # The folder and .tar.gz for a terminal are tools/package.sh's.
 set -eu
 out=${1:-dist}

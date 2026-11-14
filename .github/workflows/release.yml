@@ -120,9 +120,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Linux build packages (ALSA's headers for the sound)
+      - name: Linux build packages (ALSA's headers for the sound; the AppImage tool checks the menu entry)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev pkg-config
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev pkg-config desktop-file-utils
 
       - name: Rust (stable)
         run: |
