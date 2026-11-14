@@ -106,8 +106,13 @@ impl Gpu {
             .map_err(|e| e.to_string())?,
         };
         // (timestamps where the device has them: the frame's time on the card, for the performance overlay)
+        // (Metal on Apple's own chips has them between passes only, not at any point of an encoder: `GpuTimer` takes
+        // either)
         let timing = wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS;
-        let mut required_features = if adapter.features().contains(timing) { timing } else { wgpu::Features::empty() };
+        let mut required_features = adapter.features() & timing;
+        if !required_features.contains(wgpu::Features::TIMESTAMP_QUERY) {
+            required_features = wgpu::Features::empty();
+        }
         // (block-compressed textures where the device has them: see `block_levels`)
         // (`MAO_PLAIN_TEXTURES=1` keeps every texture plain, whatever the settings say: to compare)
         let bc = adapter.features().contains(wgpu::Features::TEXTURE_COMPRESSION_BC) && std::env::var_os("MAO_PLAIN_TEXTURES").is_none();
@@ -1297,20 +1302,25 @@ struct GpuTimer {
     next: usize,
     /// Nanoseconds per tick.
     period: f32,
+    /// Whether a time can be marked at any point of the frame's commands. Where it cannot (Metal on Apple's chips, which
+    /// marks them where a pass begins and ends), the frame's own passes carry the marks: the first its start, each
+    /// its end, so that the last one's stays. (Passes made only to carry them did not serve: one with nothing to do is
+    /// given no time, and ones that clear a pixel are run when the card likes, not where they stand.)
+    inside: bool,
 }
 
 impl GpuTimer {
     fn new(gpu: &Gpu) -> Option<GpuTimer> {
-        let needed = wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS;
-        if !gpu.device.features().contains(needed) {
+        if !gpu.device.features().contains(wgpu::Features::TIMESTAMP_QUERY) {
             return None;
         }
+        let inside = gpu.device.features().contains(wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS);
         let queries = gpu.device.create_query_set(&wgpu::QuerySetDescriptor { label: Some("frame time"), ty: wgpu::QueryType::Timestamp, count: 2 });
         let resolve = gpu.device.create_buffer(&wgpu::BufferDescriptor { label: Some("frame time"), size: 16, usage: wgpu::BufferUsages::QUERY_RESOLVE | wgpu::BufferUsages::COPY_SRC, mapped_at_creation: false });
         let readbacks = (0..4)
             .map(|_| (gpu.device.create_buffer(&wgpu::BufferDescriptor { label: Some("frame time"), size: 16, usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ, mapped_at_creation: false }), Default::default()))
             .collect();
-        Some(GpuTimer { queries, resolve, readbacks, next: 0, period: gpu.queue.get_timestamp_period(), })
+        Some(GpuTimer { queries, resolve, readbacks, next: 0, period: gpu.queue.get_timestamp_period(), inside })
     }
 
     /// The latest time read back (milliseconds), freeing the buffers that hold one.
@@ -1334,6 +1344,13 @@ impl GpuTimer {
             self.next = (self.next + 1) % self.readbacks.len();
         }
         latest
+    }
+
+    /// Marks the frame's start (`index` 0) or end (1) in `encoder`, where a time can be marked at any point.
+    fn mark(&self, encoder: &mut wgpu::CommandEncoder, index: u32) {
+        if self.inside {
+            encoder.write_timestamp(&self.queries, index);
+        }
     }
 
     /// The slot this frame writes into, if one is free.
@@ -2401,6 +2418,7 @@ impl Renderer {
                 if let Some(r) = gpu.instance.generate_report() {
                     let h = &r.hub;
                     eprintln!("gpu: buffers {} textures {} views {} bind groups {} samplers {} pipelines {} encoders {} command buffers {} query sets {}", h.buffers.num_allocated, h.textures.num_allocated, h.texture_views.num_allocated, h.bind_groups.num_allocated, h.samplers.num_allocated, h.render_pipelines.num_allocated, h.command_encoders.num_allocated, h.command_buffers.num_allocated, h.query_sets.num_allocated);
+                    eprintln!("gpu: frame time {:?} ms (timestamps: {:?})", self.gpu_ms, gpu.device.features() & (wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS));
                 }
             }
         }
@@ -2409,10 +2427,13 @@ impl Renderer {
                 if let Some(ms) = t.collect() {
                     self.gpu_ms = Some(ms);
                 }
-                t.slot().inspect(|_| encoder.write_timestamp(&t.queries, 0))
+                t.slot().inspect(|_| t.mark(&mut encoder, 0))
             }
             None => None,
         };
+        // (the marks on the frame's passes, where that is how the card takes them: `GpuTimer::inside`)
+        let boundary = self.timer.as_ref().filter(|t| timing.is_some() && !t.inside).map(|t| &t.queries);
+        let stamp = |begin: bool| boundary.map(|query_set| wgpu::RenderPassTimestampWrites { query_set, beginning_of_pass_write_index: begin.then_some(0), end_of_pass_write_index: Some(1) });
         if redraw_shadows {
             // The shadow map: what the sun sees (always cleared, so a frame with shadows off reads "lit").
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -2423,7 +2444,7 @@ impl Renderer {
                     depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(1.0), store: wgpu::StoreOp::Store }),
                     stencil_ops: None,
                 }),
-                timestamp_writes: None,
+                timestamp_writes: stamp(true),
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
@@ -2471,7 +2492,7 @@ impl Renderer {
                     depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(1.0), store: if screen.is_some() { wgpu::StoreOp::Store } else { depth_store } }),
                     stencil_ops: None,
                 }),
-                timestamp_writes: None,
+                timestamp_writes: stamp(!redraw_shadows),
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
@@ -2545,7 +2566,7 @@ impl Renderer {
                             depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Load, store: depth_store }),
                             stencil_ops: None,
                         }),
-                        timestamp_writes: None,
+                        timestamp_writes: stamp(false),
                         occlusion_query_set: None,
                         multiview_mask: None,
                     });
@@ -2647,7 +2668,7 @@ impl Renderer {
                 label: Some("taa"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment { view: out, depth_slice: None, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), store: wgpu::StoreOp::Store } })],
                 depth_stencil_attachment: None,
-                timestamp_writes: None,
+                timestamp_writes: stamp(false),
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
@@ -2676,7 +2697,7 @@ impl Renderer {
                 label: Some("copy"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment { view: target, depth_slice: None, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), store: wgpu::StoreOp::Store } })],
                 depth_stencil_attachment: None,
-                timestamp_writes: None,
+                timestamp_writes: stamp(false),
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
@@ -2712,7 +2733,7 @@ impl Renderer {
                     label: Some("fsr"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment { view: output, depth_slice: None, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), store: wgpu::StoreOp::Store } })],
                     depth_stencil_attachment: None,
-                    timestamp_writes: None,
+                    timestamp_writes: stamp(false),
                     occlusion_query_set: None,
                     multiview_mask: None,
                 });
@@ -2723,7 +2744,7 @@ impl Renderer {
         }
         lap(3, "render-post");
         if let (Some(slot), Some(t)) = (timing, self.timer.as_ref()) {
-            encoder.write_timestamp(&t.queries, 1);
+            t.mark(&mut encoder, 1);
             encoder.resolve_query_set(&t.queries, 0..2, &t.resolve, 0);
             encoder.copy_buffer_to_buffer(&t.resolve, 0, &t.readbacks[slot].0, 0, 16);
         }
@@ -2999,7 +3020,7 @@ mod tests {
             let mut renderer = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm);
             let scene = renderer.upload(&gpu, model, &mut |_, _| None);
             let image = renderer.render_to_image(&gpu, &scene, &camera, 160, 120);
-            image.chunks(4).filter(|p| p[0] > 2 * p[1].max(p[2]) && p[0] > 40).count()
+            image.chunks(4).filter(|p| p[0] as u16 > 2 * p[1].max(p[2]) as u16 && p[0] > 40).count()
         };
         assert!(red(&square(false, false)) > 500, "the front is drawn");
         assert_eq!(red(&square(true, false)), 0, "the back is not");
@@ -3022,7 +3043,7 @@ mod tests {
             let mut renderer = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm);
             let scene = renderer.upload(&gpu, model, &mut |_, _| None);
             let image = renderer.render_to_image(&gpu, &scene, &camera, 320, 120);
-            let red = image.chunks(4).filter(|p| p[0] > 2 * p[1].max(p[2]) && p[0] > 40).count();
+            let red = image.chunks(4).filter(|p| p[0] as u16 > 2 * p[1].max(p[2]) as u16 && p[0] > 40).count();
             (red, renderer.stats.calls, renderer.stats.drawn)
         };
         let (one, calls, drawn) = picture(&Model { parts: vec![square(2.0)], instances: vec![(0, at(0.0))], ..Default::default() });
@@ -3115,7 +3136,7 @@ mod tests {
         assert!(scene.overlay[0].vertex_id == scene.overlay[1].vertex_id && scene.overlay[0].geometry != scene.overlay[1].geometry);
         let (first_indices, first_vertices) = (scene.overlay[0].indices.clone(), scene.overlay[0].vertices.clone());
         // (both colours are in the picture, apart: left and right of the middle or above and below it)
-        let count = |image: &[u8], red: bool| image.chunks(4).filter(|p| if red { p[0] > 2 * p[1].max(p[2]) && p[0] > 40 } else { p[2] > 2 * p[0].max(p[1]) && p[2] > 40 }).count();
+        let count = |image: &[u8], red: bool| image.chunks(4).filter(|p| if red { p[0] as u16 > 2 * p[1].max(p[2]) as u16 && p[0] > 40 } else { p[2] as u16 > 2 * p[0].max(p[1]) as u16 && p[2] > 40 }).count();
         let image = renderer.render_to_image(&gpu, &scene, &camera, 160, 120);
         assert!(count(&image, true) > 30 && count(&image, false) > 30, "{} red, {} blue", count(&image, true), count(&image, false));
         // (moved: the same buffers, the vertices written anew)
