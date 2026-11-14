@@ -24,6 +24,8 @@ Two workflows in `.github/workflows`:
    - `ModernAnarchyOnline-0.2.0-windows-x64.zip`
    - `ModernAnarchyOnline-0.2.0-windows-x64-setup.exe`: an installer (Inno Setup, `tools/installer.iss`) with a Start
      menu entry, an optional desktop shortcut and an uninstaller; for one user unless asked otherwise; not signed
+   - `ModernAnarchyOnline-0.2.0-windows-arm64.zip` and `...-windows-arm64-setup.exe` (when the ARM64 build went
+     through): the same two for Windows on ARM64 processors; that installer installs on ARM64 machines only
    - `ModernAnarchyOnline-0.2.0-linux-x86_64.tar.gz` (when the Linux build went through)
    - `ModernAnarchyOnline-0.2.0-linux-x86_64.AppImage`, with it: the client, its skins, icon and menu entry in one
      file to make executable and run (`tools/package-appimage.sh`; the system's own glibc, ALSA and Vulkan are used)
@@ -65,6 +67,10 @@ build machines only have what is committed.
 
 - **Windows x64** is the system the client is made and played on. Its build and tests have to pass, in CI and for a
   release.
+- **Windows ARM64** (`aarch64-pc-windows-msvc`) is built in the Release workflow only, on the x64 machine for the
+  other processor (`tools/package.ps1 -Target aarch64-pc-windows-msvc`, `iscc /DArch=arm64`), so its tests are not
+  run and the client has not been started there. Its job may fail without stopping a release. An ARM64 machine also
+  runs the x64 package, under Windows' emulation.
 - **Linux x86-64** is built and tested in both workflows, but the client has not been played there
   (`docs/PLATFORMS.md`). Its jobs may fail without failing the run or stopping a release: a release then simply has
   no Linux archive. Look at the job's log the first times.

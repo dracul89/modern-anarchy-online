@@ -15,14 +15,21 @@
   With -Version the zip is named for a release: ModernAnarchyOnline-<version>-windows-x64.zip (the release workflow,
   .github/workflows/release.yml, calls it so; see docs/RELEASING.md).
 
+  With -Target the client is built for another kind of machine than this one: aarch64-pc-windows-msvc is Windows on
+  ARM64 (the target has to be there: rustup target add aarch64-pc-windows-msvc, and Visual Studio's ARM64 build
+  tools), and the zip is then named ...-windows-arm64.zip.
+
 .EXAMPLE
   .\tools\package.ps1
 .EXAMPLE
   .\tools\package.ps1 -Version 0.2.0
+.EXAMPLE
+  .\tools\package.ps1 -Version 0.2.0 -Target aarch64-pc-windows-msvc
 #>
 param(
     [string]$Out = 'dist',
-    [string]$Version = ''
+    [string]$Version = '',
+    [string]$Target = ''
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
@@ -31,13 +38,18 @@ try {
     # (cargo's warnings go to stderr, which Windows PowerShell would take as an error)
     $ErrorActionPreference = 'Continue'
     # (hide-console: no console window beside the client when it is started from Explorer)
-    cargo build --release --locked -p mao-client --features hide-console 2>&1 | Out-Host
+    if ($Target) {
+        cargo build --release --locked -p mao-client --features hide-console --target $Target 2>&1 | Out-Host
+    } else {
+        cargo build --release --locked -p mao-client --features hide-console 2>&1 | Out-Host
+    }
     $ErrorActionPreference = 'Stop'
     if ($LASTEXITCODE -ne 0) { throw 'the build failed' }
     $dir = Join-Path $root "$Out/ModernAnarchyOnline"
     if (Test-Path $dir) { Remove-Item -Recurse -Force $dir }
     New-Item -ItemType Directory -Force $dir | Out-Null
-    Copy-Item target/release/mao-client.exe $dir
+    $built = if ($Target) { "target/$Target/release/mao-client.exe" } else { 'target/release/mao-client.exe' }
+    Copy-Item $built $dir
     Copy-Item -Recurse assets $dir
     Copy-Item tools/package-readme.txt (Join-Path $dir 'README.txt')
     Get-ChildItem -Path $root -File -Filter 'LICENSE*' | Copy-Item -Destination $dir
@@ -66,7 +78,10 @@ if errorlevel 1 (
 )
 '@
     Set-Content -Encoding ascii -Path (Join-Path $dir 'play.bat') -Value $bat
-    $name = if ($Version) { "ModernAnarchyOnline-$Version-windows-x64" } else { 'ModernAnarchyOnline' }
+    # (what the client was built for: the target's, else this machine's)
+    $for = if ($Target) { $Target } else { "$env:PROCESSOR_ARCHITECTURE" }
+    $arch = if ($for -match '^(aarch64|arm64)') { 'arm64' } else { 'x64' }
+    $name = if ($Version) { "ModernAnarchyOnline-$Version-windows-$arch" } else { 'ModernAnarchyOnline' }
     $zip = Join-Path $root "$Out/$name.zip"
     if (Test-Path $zip) { Remove-Item $zip }
     Compress-Archive -Path $dir -DestinationPath $zip

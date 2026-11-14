@@ -8,6 +8,8 @@
 #
 # What is built:
 #   Windows x64   always; it has to build and pass its tests, or there is no release.
+#   Windows ARM64 for a tag, or when ticked in a run started by hand: built on the x64 machine for the other processor
+#                 (aarch64-pc-windows-msvc), so its tests are not run. May fail without stopping the release.
 #   Linux x86-64  for a tag, or when ticked in a run started by hand; may fail without stopping the release.
 #   macOS arm64   only when the repository variable RELEASE_MACOS is "true" (Settings, Secrets and variables, Actions,
 #                 Variables), or when ticked in a run started by hand: its minutes count ten times on a private
@@ -24,6 +26,10 @@ on:
     inputs:
       linux:
         description: Build the Linux package
+        type: boolean
+        default: true
+      windows_arm64:
+        description: Build the Windows ARM64 package
         type: boolean
         default: true
       macos:
@@ -65,6 +71,7 @@ jobs:
           EVENT: ${{ github.event_name }}
           WANT_LINUX: ${{ inputs.linux }}
           WANT_MACOS: ${{ inputs.macos }}
+          WANT_WINDOWS_ARM64: ${{ inputs.windows_arm64 }}
           TAG_MACOS: ${{ vars.RELEASE_MACOS }}
         run: |
           # The workspace's version: the first `version = "..."` under [workspace.package].
@@ -75,6 +82,7 @@ jobs:
           fi
           linux=false
           macos=false
+          windows_arm64=false
           if [ "$EVENT" = push ]; then
             if [ "$GITHUB_REF_NAME" != "v$version" ]; then
               echo "::error::the tag is $GITHUB_REF_NAME but Cargo.toml's version is $version: the tag has to be v$version (set the version, commit, and tag that commit)"
@@ -82,6 +90,7 @@ jobs:
             fi
             release=true
             linux=true
+            windows_arm64=true
             if [ "$TAG_MACOS" = true ]; then macos=true; fi
           else
             # (a run started by hand: a build of the branch, named for its commit, and no release)
@@ -89,8 +98,13 @@ jobs:
             release=false
             if [ "$WANT_LINUX" = true ]; then linux=true; fi
             if [ "$WANT_MACOS" = true ]; then macos=true; fi
+            if [ "$WANT_WINDOWS_ARM64" = true ]; then windows_arm64=true; fi
           fi
           matrix='{"id":"windows-x64","name":"Windows x64","os":"windows-latest","required":true,"tests":true}'
+          if [ "$windows_arm64" = true ]; then
+            # (built on the x64 machine for the other processor: what it makes cannot be run there, so no tests)
+            matrix="$matrix,"'{"id":"windows-arm64","name":"Windows ARM64","os":"windows-latest","required":false,"tests":false,"target":"aarch64-pc-windows-msvc","arch":"arm64"}'
+          fi
           if [ "$linux" = true ]; then
             matrix="$matrix,"'{"id":"linux-x86_64","name":"Linux x86-64","os":"ubuntu-latest","required":false,"tests":true}'
           fi
@@ -104,7 +118,7 @@ jobs:
             echo "matrix={\"include\":[$matrix]}"
           } >> "$GITHUB_OUTPUT"
           echo "### Modern Anarchy Online $version" >> "$GITHUB_STEP_SUMMARY"
-          echo "release: $release, Linux: $linux, macOS: $macos" >> "$GITHUB_STEP_SUMMARY"
+          echo "release: $release, Windows ARM64: $windows_arm64, Linux: $linux, macOS: $macos" >> "$GITHUB_STEP_SUMMARY"
 
   package:
     name: ${{ matrix.name }}
@@ -117,6 +131,9 @@ jobs:
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     env:
       VERSION: ${{ needs.plan.outputs.version }}
+      # (empty when the client is built for the machine it is built on)
+      TARGET: ${{ matrix.target }}
+      ARCH: ${{ matrix.arch }}
     steps:
       - uses: actions/checkout@v7
 
@@ -128,12 +145,13 @@ jobs:
         run: |
           rustup toolchain install stable --profile minimal --no-self-update
           rustup default stable
+          if [ -n "$TARGET" ]; then rustup target add "$TARGET"; fi
           rustc --version
           cargo --version
 
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: release-build
+          shared-key: release-build-${{ matrix.id }}
           # (a tag's run reads what main's runs kept; it keeps nothing of its own)
           save-if: ${{ github.event_name != 'push' }}
 
@@ -144,7 +162,7 @@ jobs:
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: ./tools/package.ps1 -Version $env:VERSION
+        run: ./tools/package.ps1 -Version $env:VERSION -Target "$env:TARGET"
 
       # (the folder just made as an installer: tools/installer.iss, Inno Setup, which is fetched when the machine has none)
       - name: Package (Windows installer)
@@ -157,7 +175,8 @@ jobs:
             choco install innosetup -y --no-progress
             if ($LASTEXITCODE -ne 0) { throw 'Inno Setup could not be installed' }
           }
-          & $iscc "/DVersion=$env:VERSION" tools\installer.iss
+          $arch = if ($env:ARCH) { $env:ARCH } else { 'x64' }
+          & $iscc "/DVersion=$env:VERSION" "/DArch=$arch" tools\installer.iss
           if ($LASTEXITCODE -ne 0) { throw 'the installer was not made' }
 
       - name: Package (Linux, macOS)
@@ -225,6 +244,10 @@ jobs:
             # (what stands above the notes GitHub writes from the commits since the last release)
             {
               echo "A client for Anarchy Online: it needs an installed copy of the game and an account. On Windows run the -setup.exe (an installer with a Start menu entry; not signed, so SmartScreen asks first: More info, Run anyway), or unpack the .zip anywhere and see README.txt in it."
+              if ls ModernAnarchyOnline-*-windows-arm64* > /dev/null 2>&1; then
+                echo
+                echo "The windows-arm64 files are for Windows on ARM64 processors (Snapdragon X and the like); every other Windows machine takes windows-x64. The ARM64 build has not been played."
+              fi
               if ls ModernAnarchyOnline-*.AppImage > /dev/null 2>&1; then
                 echo
                 echo "On Linux the .AppImage is one file: make it executable (chmod +x) and start it."

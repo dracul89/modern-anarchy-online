@@ -5,11 +5,23 @@
 ;   tools\package.ps1 -Version 0.2.0
 ;   iscc /DVersion=0.2.0 tools\installer.iss        -> dist\ModernAnarchyOnline-0.2.0-windows-x64-setup.exe
 ;
+; For Windows on ARM64 the folder is made with package.ps1's -Target aarch64-pc-windows-msvc and the installer with
+; /DArch=arm64 (-> ...-windows-arm64-setup.exe): that one installs on ARM64 machines only. The x64 one installs there
+; too, and the client then runs under Windows' x64 emulation.
+;
 ; The release workflow (.github/workflows/release.yml) does both; see docs/RELEASING.md. The installer is not signed:
 ; Windows SmartScreen asks before it runs ("More info", "Run anyway"). Nothing of the game is in it, and the client's
 ; settings (%APPDATA%\ModernAnarchyOnline) are left where they are when it is removed.
 #ifndef Version
   #define Version "0.0.0"
+#endif
+#ifndef Arch
+  #define Arch "x64"
+#endif
+#if Arch == "arm64"
+  #define Machines "arm64"
+#else
+  #define Machines "x64compatible"
 #endif
 ; (the numbers alone for the file's version resource: 0.2.0-rc.1 is 0.2.0 there)
 #define Numbers Copy(Version, 1, Pos("-", Version + "-") - 1)
@@ -27,14 +39,14 @@ DefaultGroupName=Modern Anarchy Online
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
-ArchitecturesAllowed=x64compatible
-ArchitecturesInstallIn64BitMode=x64compatible
+ArchitecturesAllowed={#Machines}
+ArchitecturesInstallIn64BitMode={#Machines}
 LicenseFile=..\LICENSE
 SetupIconFile=..\assets\icon\mao.ico
 UninstallDisplayIcon={app}\mao-client.exe
 UninstallDisplayName=Modern Anarchy Online
 OutputDir=..\dist
-OutputBaseFilename=ModernAnarchyOnline-{#Version}-windows-x64-setup
+OutputBaseFilename=ModernAnarchyOnline-{#Version}-windows-{#Arch}-setup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
