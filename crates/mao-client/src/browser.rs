@@ -184,8 +184,8 @@ impl Browser {
             area = Some(rect);
             // (the page is WebView2's, which only Windows has: elsewhere the room says so, with the address to open by hand,
             // though a browser outside the game won't send the site the game's headers)
-            #[cfg(not(windows))]
-            ui.put(rect, egui::Label::new(format!("The in-game web pages need the Windows web view (WebView2), which this system doesn't have.
+            #[cfg(not(any(windows, target_os = "macos")))]
+            ui.put(rect, egui::Label::new(format!("The in-game web pages need the system's web view (WebView2 on Windows, WebKit on macOS), which this system doesn't have.
 
 The page was {}", mode.home())).wrap());
         });
@@ -222,11 +222,15 @@ const TRACE_SCRIPT: &str = "(function(){function t(s){try{window.ipc.postMessage
 /// ([`forward`]): what Awesomium's header rule does for the original. (WebView2's own request hook is a COM call this
 /// client's `unsafe`-free code can't make.)
 pub const PROXY_SCHEME: &str = "aomarket";
+#[cfg(not(target_os = "macos"))]
 pub const PROXY_ORIGIN: &str = "http://aomarket.localhost";
+/// (macOS's web view serves the protocol under its own name)
+#[cfg(target_os = "macos")]
+pub const PROXY_ORIGIN: &str = "aomarket://localhost";
 
 /// The site's address of a request to the proxy (either way WebView2 names it).
 pub fn site_url(site: &str, uri: &str) -> String {
-    let path = [PROXY_ORIGIN, "aomarket://localhost"].iter().find_map(|p| uri.strip_prefix(p)).unwrap_or(uri);
+    let path = ["http://aomarket.localhost", "aomarket://localhost"].iter().find_map(|p| uri.strip_prefix(p)).unwrap_or(uri);
     format!("{}{}", site.trim_end_matches('/'), if path.is_empty() { "/" } else { path })
 }
 
@@ -278,7 +282,7 @@ pub fn decoded(encoding: &str, bytes: Vec<u8>) -> Vec<u8> {
 
 /// One request to the proxy passed on to the site with the game's headers; the answer with the site's addresses made the
 /// proxy's. Runs on its own thread (the protocol answers asynchronously).
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 fn forward(site: &str, game_headers: &[(String, String)], request: wry::http::Request<Vec<u8>>) -> wry::http::Response<Vec<u8>> {
     use std::io::Read;
     let url = site_url(site, &request.uri().to_string());
@@ -357,7 +361,7 @@ fn forward(site: &str, game_headers: &[(String, String)], request: wry::http::Re
 }
 
 /// The page: a WebView2 child of the game window, its site reached through the proxy.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 pub struct Page {
     view: wry::WebView,
     _context: wry::WebContext,
@@ -376,7 +380,7 @@ pub struct Page {
     trial: Option<std::time::Instant>,
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 impl Page {
     /// Opens a request's home page over `window` at `bounds` (physical pixels: x, y, width, height). The page's data (its
     /// cookies and cache) are kept in `data` (the original's `/Browser` folder).
@@ -493,7 +497,7 @@ pub fn loading_page(mode: Mode, home: &str) -> String {
     )
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 fn rect((x, y, w, h): (i32, i32, u32, u32)) -> wry::Rect {
     wry::Rect { position: wry::dpi::PhysicalPosition::new(x, y).into(), size: wry::dpi::PhysicalSize::new(w.max(1), h.max(1)).into() }
 }
@@ -546,8 +550,8 @@ mod tests {
 
     #[test]
     fn the_loading_page_goes_on_to_the_home_page() {
-        let page = loading_page(Mode::Market, "http://aomarket.localhost/market/");
-        assert!(page.contains("<h3>Market</h3>") && page.contains("location.replace(\"http://aomarket.localhost/market/\")"));
+        let page = loading_page(Mode::Market, &format!("{PROXY_ORIGIN}/market/"));
+        assert!(page.contains("<h3>Market</h3>") && page.contains(&format!("location.replace(\"{PROXY_ORIGIN}/market/\")")));
     }
 
     #[test]
@@ -555,17 +559,17 @@ mod tests {
         let site = Mode::Market.site();
         assert_eq!(site_url(site, "http://aomarket.localhost/market/?q=1"), "http://aomarket.funcom.com/market/?q=1");
         assert_eq!(site_url(site, "aomarket://localhost/market/"), "http://aomarket.funcom.com/market/");
-        assert_eq!(proxy_url(site, "http://aomarket.funcom.com/market/x").as_deref(), Some("http://aomarket.localhost/market/x"));
+        assert_eq!(proxy_url(site, "http://aomarket.funcom.com/market/x").as_deref(), Some(format!("{PROXY_ORIGIN}/market/x").as_str()));
         assert_eq!(proxy_url(site, "http://example.com/"), None);
-        assert_eq!(rewrite_text(site, "<a href=\"http://aomarket.funcom.com/a\">"), "<a href=\"http://aomarket.localhost/a\">");
-        assert_eq!(rewrite_text(site, r#"{"u":"http:\/\/aomarket.funcom.com\/b"}"#), r#"{"u":"http:\/\/aomarket.localhost\/b"}"#);
+        assert_eq!(rewrite_text(site, "<a href=\"http://aomarket.funcom.com/a\">"), format!("<a href=\"{PROXY_ORIGIN}/a\">"));
+        assert_eq!(rewrite_text(site, r#"{"u":"http:\/\/aomarket.funcom.com\/b"}"#), format!(r#"{{"u":"{}\/b"}}"#, PROXY_ORIGIN.replace('/', "\\/")));
         assert_eq!(rewrite_cookie("sid=1; Domain=.funcom.com; Path=/"), "sid=1; Path=/");
     }
 }
 
 /// `mao-client web store|market`: a window with nothing but the page (no game, so the headers are zeros), to see the page
 /// and its proxy work.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 pub fn test_window(mode: Mode) -> Result<(), String> {
     use winit::application::ApplicationHandler;
     use winit::event::WindowEvent;

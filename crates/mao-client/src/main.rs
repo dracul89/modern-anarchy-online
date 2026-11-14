@@ -93,7 +93,7 @@ mod nanoprograms;
 mod perks;
 mod requirements;
 // (the web page itself is WebView2, Windows only: elsewhere the window says so and the page's helpers go unused)
-#[cfg_attr(not(windows), allow(dead_code))]
+#[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
 mod browser;
 mod marketsend;
 mod prefs;
@@ -1054,7 +1054,7 @@ fn run(args: &[String]) -> Result<(), String> {
         }
     }
     // `<game> web store|market`: the in-game web page alone in a window (`browser::test_window`).
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     if let [_, word, which] = args {
         if word == "web" {
             return browser::test_window(if which == "market" { browser::Mode::Market } else { browser::Mode::ItemStore });

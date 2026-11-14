@@ -155,7 +155,7 @@ struct Gfx {
     frames: u32,
     /// The page of a login's error (`LoginBrowserWindow_c`'s `BrowserView_c`): a WebView2 child over the Browser
     /// window's inside.
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     page: Option<(wry::WebView, wry::WebContext)>,
     /// The page's address, its place in the window's pixels and whether it shows.
     page_state: (String, (i32, i32, u32, u32), bool),
@@ -499,7 +499,7 @@ impl Launcher {
 
 impl Launcher {
     /// The error's page follows its window: opened when the window is first there, moved with it, put away when it goes.
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     fn place_page(&mut self, gfx: &mut Gfx) {
         let k = self.scale;
         match self.browser_view.area.zip(self.error_page.clone()).filter(|_| !self.error_plain) {
@@ -552,7 +552,7 @@ impl ApplicationHandler for Launcher {
     /// With a page in the window (a window of its own with its own messages) the frames asked for from inside a frame
     /// stop coming, and with them the login's buttons: asked for here too, as the launcher's window does.
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "macos"))]
         if let Some(gfx) = self.gfx.as_ref().filter(|g| g.page.is_some()) {
             gfx.window.request_redraw();
             event_loop.set_control_flow(winit::event_loop::ControlFlow::WaitUntil(std::time::Instant::now() + std::time::Duration::from_millis(16)));
@@ -599,7 +599,7 @@ impl ApplicationHandler for Launcher {
             hall_character: false,
             started: std::time::Instant::now(),
             frames: 0,
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "macos"))]
             page: None,
             page_state: Default::default(),
         });
@@ -753,7 +753,7 @@ impl ApplicationHandler for Launcher {
                     gfx.gpu.queue.present(frame);
                     // (the error's page, once the frame is given back: opening it sets the surface up anew, which a frame
                     // still held does not allow)
-                    #[cfg(windows)]
+                    #[cfg(any(windows, target_os = "macos"))]
                     self.place_page(&mut gfx);
                     // (a character chosen: the game starts in a process of its own, which logs in and reads the playfield
                     // before it has a window. This window stays for that time with the loading screen up, where it

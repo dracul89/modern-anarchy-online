@@ -6,6 +6,7 @@
 #
 #   Modern Anarchy Online.app/Contents/
 #     Info.plist                 the name, the version (the workspace's, from Cargo.toml), the icon, macOS 11 or newer
+#                                (and plain HTTP allowed: the launcher's news page and the game's sites are not HTTPS)
 #     MacOS/mao-client           the client
 #     Resources/mao.icns         the icon, made here from assets/icon/mao_1024.png
 #     Resources/assets/          the bundled skins (the client looks there: theme.rs, bundled_gui_dir)
@@ -64,6 +65,7 @@ cat > "$app/Contents/Info.plist" <<PLIST
   <key>LSMinimumSystemVersion</key><string>11.0</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.role-playing-games</string>
   <key>NSHighResolutionCapable</key><true/>
+  <key>NSAppTransportSecurity</key><dict><key>NSAllowsArbitraryLoads</key><true/></dict>
   <key>NSSupportsAutomaticGraphicsSwitching</key><true/>
 </dict>
 </plist>

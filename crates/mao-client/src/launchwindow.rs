@@ -144,7 +144,9 @@ fn load_pictures(ctx: &egui::Context, game: &Path, prefs: &Prefs) -> Pictures {
 fn open_outside(what: &str) {
     #[cfg(windows)]
     let _ = std::process::Command::new("rundll32").args(["url.dll,FileProtocolHandler", what]).spawn();
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    let _ = std::process::Command::new("open").arg(what).spawn();
+    #[cfg(not(any(windows, target_os = "macos")))]
     let _ = std::process::Command::new("xdg-open").arg(what).spawn();
 }
 
@@ -647,7 +649,7 @@ struct Gfx {
     gpu: Gpu,
     ui: Ui,
     pictures: Option<Pictures>,
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     page: Option<(wry::WebView, wry::WebContext)>,
     page_shown: bool,
     frames: u32,
@@ -851,7 +853,7 @@ pub fn limit_name(fps: u32, none: &str) -> String {
     if fps == 0 { none.to_string() } else { format!("{fps} a second") }
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 pub(crate) fn open_page(window: &Window, address: &str, bounds: wry::Rect) -> Option<(wry::WebView, wry::WebContext)> {
     let data = Settings::path().parent().map_or_else(|| PathBuf::from("Browser"), |d| d.join("Browser"));
     let mut context = wry::WebContext::new(Some(data));
@@ -875,7 +877,7 @@ pub(crate) fn open_page(window: &Window, address: &str, bounds: wry::Rect) -> Op
 }
 
 /// The page's place in the window, in the window's own pixels.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 fn page_bounds(size: winit::dpi::PhysicalSize<u32>) -> wry::Rect {
     let height = (size.height as f32 * PAGE_HEIGHT / HEIGHT).round() as u32;
     wry::Rect { position: wry::dpi::PhysicalPosition::new(0, 0).into(), size: wry::dpi::PhysicalSize::new(size.width.max(1), height.max(1)).into() }
@@ -915,7 +917,7 @@ impl ApplicationHandler for Launch {
             gpu,
             ui,
             pictures: None,
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "macos"))]
             page: None,
             page_shown: true,
             frames: 0,
@@ -933,7 +935,7 @@ impl ApplicationHandler for Launch {
                 gfx.config.width = size.width.max(1);
                 gfx.config.height = size.height.max(1);
                 gfx.surface.configure(&gfx.gpu.device, &gfx.config);
-                #[cfg(windows)]
+                #[cfg(any(windows, target_os = "macos"))]
                 if let Some((view, _)) = &gfx.page {
                     let _ = view.set_bounds(page_bounds(size));
                 }
@@ -957,7 +959,7 @@ impl ApplicationHandler for Launch {
                     }
                     if page_may_show != gfx.page_shown {
                         gfx.page_shown = page_may_show;
-                        #[cfg(windows)]
+                        #[cfg(any(windows, target_os = "macos"))]
                         if let Some((page, _)) = &gfx.page {
                             let _ = page.set_visible(page_may_show);
                             if !page_may_show {
@@ -988,7 +990,7 @@ impl ApplicationHandler for Launch {
                     // it when the page came after the third frame; the surface is set up anew after it for the same reason)
                     gfx.frames += 1;
                     let drawing_since = *gfx.first_frame.get_or_insert_with(Instant::now);
-                    #[cfg(windows)]
+                    #[cfg(any(windows, target_os = "macos"))]
                     if !gfx.page_tried && self.prefs.page && gfx.frames >= 10 && drawing_since.elapsed() > Duration::from_millis(500) && std::env::var_os("MAO_LAUNCH_NO_PAGE").is_none() {
                         gfx.page_tried = true;
                         if let Some(address) = dimensions::page_address(Path::new(&self.game)) {

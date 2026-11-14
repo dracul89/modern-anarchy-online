@@ -602,7 +602,7 @@ struct View {
     /// The interface (heads-up display, options): in a live window.
     ui: Option<Ui>,
     /// The web page over the window (the market's), while its window is open.
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     page: Option<crate::browser::Page>,
 }
 
@@ -1156,7 +1156,7 @@ impl ApplicationHandler for App {
             scene,
             camera,
             ui,
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "macos"))]
             page: None,
         });
     }
@@ -2640,7 +2640,7 @@ impl ApplicationHandler for App {
                     let (frame, mut requests) = ui.run(&w.window, &mut self.settings, &self.hud, &project);
                     prof_t = crate::prof::lap("ui", prof_t);
                     // (the web page follows its window: opened when it opens, moved with it, gone when it closes)
-                    #[cfg(windows)]
+                    #[cfg(any(windows, target_os = "macos"))]
                     match ui.browser_bounds() {
                         Some(bounds) => {
                             // (a page for another request replaces it, the old one let go only once the new one is up so that

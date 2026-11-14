@@ -40,8 +40,10 @@ flate2 = "1.1.10"
 
 # The in-game web pages (the market terminal's: GUI.dll's BrowserWindow_c, Awesomium there): WebView2 through wry, its
 # site's requests passed on with the game's headers by a plain HTTP client.
-[target.'cfg(windows)'.dependencies]
+[target.'cfg(any(windows, target_os = "macos"))'.dependencies]
 wry = { version = "=0.53.5", default-features = false, features = ["protocol"] }
+
+[target.'cfg(windows)'.dependencies]
 # The screenshot key's picture: the game window as it shows on the screen, its open windows and web page too.
 xcap = { version = "=0.7.1", default-features = false }
 

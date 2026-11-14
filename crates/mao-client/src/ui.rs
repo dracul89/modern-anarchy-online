@@ -650,7 +650,7 @@ impl Ui {
     }
 
     /// Where the web page goes, in the window's physical pixels (x, y, width, height), while its window is open.
-    #[cfg_attr(not(windows), allow(dead_code))]
+    #[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
     pub fn browser_bounds(&self) -> Option<(i32, i32, u32, u32)> {
         let r = self.browser.area?;
         let k = self.ctx.pixels_per_point();
