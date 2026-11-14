@@ -1053,11 +1053,16 @@ fn run(args: &[String]) -> Result<(), String> {
             return Ok(());
         }
     }
-    // `<game> web store|market`: the in-game web page alone in a window (`browser::test_window`).
+    // `<game> web store|market|rewards|service`: the in-game web page alone in a window (`browser::test_window`).
     #[cfg(any(windows, target_os = "macos"))]
     if let [_, word, which] = args {
         if word == "web" {
-            return browser::test_window(if which == "market" { browser::Mode::Market } else { browser::Mode::ItemStore });
+            return browser::test_window(match which.as_str() {
+                "market" => browser::Mode::Market,
+                "rewards" => browser::Mode::DailyRewards,
+                "service" => browser::Mode::Petition,
+                _ => browser::Mode::ItemStore,
+            });
         }
     }
     // `statel-effects <game> <playfield>`: the effects the playfield's statels carry on their connectors, by template: how

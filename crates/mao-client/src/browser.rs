@@ -245,6 +245,18 @@ pub fn rewrite_text(site: &str, text: &str) -> String {
     text.replace(origin, PROXY_ORIGIN).replace(&origin.replace('/', "\\/"), &PROXY_ORIGIN.replace('/', "\\/"))
 }
 
+/// A page's addresses that name a host and no protocol (`src="//cdnjs.cloudflare.com/x.js"`) given `http:`, the
+/// protocol the site's own pages have. Under the proxy's own protocol, as macOS serves it, such an address would be
+/// asked of the proxy's protocol at that host, where there is nothing: the daily rewards' page lost a script that way
+/// (qtip), its start-up stopped at the first use of it, and the claim button did nothing.
+pub fn with_protocols(text: &str) -> String {
+    let mut out = text.to_string();
+    for before in ["src=\"", "src='", "href=\"", "href='", "url(", "url(\"", "url('"] {
+        out = out.replace(&format!("{before}//"), &format!("{before}http://"));
+    }
+    out
+}
+
 /// A cookie the site sets, for the proxy's host: without its `Domain` (the browser would refuse funcom.com's for localhost).
 pub fn rewrite_cookie(cookie: &str) -> String {
     cookie.split(';').filter(|part| !part.trim_start().to_ascii_lowercase().starts_with("domain=")).collect::<Vec<_>>().join(";")
@@ -283,15 +295,26 @@ pub fn decoded(encoding: &str, bytes: Vec<u8>) -> Vec<u8> {
 /// One request to the proxy passed on to the site with the game's headers; the answer with the site's addresses made the
 /// proxy's. Runs on its own thread (the protocol answers asynchronously).
 #[cfg(any(windows, target_os = "macos"))]
-fn forward(site: &str, game_headers: &[(String, String)], request: wry::http::Request<Vec<u8>>) -> wry::http::Response<Vec<u8>> {
+fn forward(site: &str, game_headers: &[(String, String)], jar: &CookieJar, request: wry::http::Request<Vec<u8>>) -> wry::http::Response<Vec<u8>> {
     use std::io::Read;
     let url = site_url(site, &request.uri().to_string());
     // (a site that does not answer is said to be so in seconds, not after the system's own ~21 s connect time-out)
     let agent = ureq::AgentBuilder::new().redirects(0).timeout_connect(std::time::Duration::from_secs(8)).timeout(std::time::Duration::from_secs(30)).build();
     let mut out = agent.request(request.method().as_str(), &url);
     // (what the page sends that the site needs: its cookies, what it posts, what it takes; the addresses made the site's)
+    // (macOS: WebKit keeps no cookies for a protocol of the program's own, so the page sends none back and the site
+    // forgot the session with every request. They are kept here instead and sent with each request: `CookieJar`.)
+    let own_cookies = cfg!(target_os = "macos");
+    if own_cookies {
+        if let Some(line) = jar.header() {
+            out = out.set("cookie", &line);
+        }
+    }
     for (name, value) in request.headers() {
         let name = name.as_str();
+        if name == "cookie" && own_cookies {
+            continue;
+        }
         if ["cookie", "content-type", "accept", "accept-language", "user-agent", "x-requested-with"].contains(&name) {
             if let Ok(v) = value.to_str() {
                 out = out.set(name, v);
@@ -326,6 +349,9 @@ fn forward(site: &str, game_headers: &[(String, String)], request: wry::http::Re
             continue;
         }
         for value in answer.all(&name) {
+            if lower == "set-cookie" && own_cookies {
+                jar.take(value);
+            }
             let value = match lower.as_str() {
                 "set-cookie" => rewrite_cookie(value),
                 "location" => proxy_url(site, value).unwrap_or_else(|| value.to_string()),
@@ -355,7 +381,11 @@ fn forward(site: &str, game_headers: &[(String, String)], request: wry::http::Re
         let _ = std::fs::write(std::path::Path::new(&folder).join(format!("{n:03}-{}", &name[name.len().saturating_sub(80)..])), &bytes);
     }
     if kind.starts_with("text/") || kind.contains("javascript") || kind.contains("json") {
-        bytes = rewrite_text(site, &String::from_utf8_lossy(&bytes)).into_bytes();
+        let mut text = rewrite_text(site, &String::from_utf8_lossy(&bytes));
+        if !PROXY_ORIGIN.starts_with("http") && (kind.starts_with("text/html") || kind.starts_with("text/css")) {
+            text = with_protocols(&text);
+        }
+        bytes = text.into_bytes();
     }
     response.body(bytes).unwrap_or_default()
 }
@@ -380,6 +410,33 @@ pub struct Page {
     trial: Option<std::time::Instant>,
 }
 
+/// The site's cookies, kept by the proxy for a page (where the web view keeps none for the proxy's protocol: macOS).
+#[derive(Default)]
+pub struct CookieJar(std::sync::Mutex<Vec<(String, String)>>);
+
+impl CookieJar {
+    /// A `Set-Cookie` line taken in: the cookie kept under its name, or dropped when the site takes it back (an empty
+    /// value, or `Max-Age=0`).
+    pub fn take(&self, set_cookie: &str) {
+        let mut parts = set_cookie.split(';');
+        let Some((name, value)) = parts.next().and_then(|first| first.split_once('=')) else { return };
+        let (name, value) = (name.trim().to_string(), value.trim().to_string());
+        let gone = value.is_empty() || parts.any(|p| p.trim().to_ascii_lowercase().replace(' ', "") == "max-age=0");
+        if let Ok(mut cookies) = self.0.lock() {
+            cookies.retain(|(n, _)| *n != name);
+            if !gone && !name.is_empty() {
+                cookies.push((name, value));
+            }
+        }
+    }
+
+    /// The `Cookie` line for a request, when there is any cookie.
+    pub fn header(&self) -> Option<String> {
+        let cookies = self.0.lock().ok()?;
+        (!cookies.is_empty()).then(|| cookies.iter().map(|(n, v)| format!("{n}={v}")).collect::<Vec<_>>().join("; "))
+    }
+}
+
 #[cfg(any(windows, target_os = "macos"))]
 impl Page {
     /// Opens a request's home page over `window` at `bounds` (physical pixels: x, y, width, height). The page's data (its
@@ -390,6 +447,7 @@ impl Page {
         let redirected: std::sync::Arc<std::sync::Mutex<Vec<String>>> = Default::default();
         let (proxy_site, game_headers) = (site.clone(), std::sync::Arc::new(request.headers.clone()));
         let (nav_site, nav_queue) = (site.clone(), redirected.clone());
+        let jar: std::sync::Arc<CookieJar> = Default::default();
         let home = proxy_url(&site, request.mode.home()).unwrap_or_else(|| request.mode.home().to_string());
         let view = wry::WebViewBuilder::new_with_web_context(&mut context)
             // (nothing of an earlier page is kept: the original clears the cookies when it sets its browser up,
@@ -402,8 +460,8 @@ impl Page {
             .with_initialization_script(proxy_script(&site))
             .with_initialization_script(if std::env::var_os("MAO_BROWSER_TRACE").is_some() { TRACE_SCRIPT } else { "" })
             .with_asynchronous_custom_protocol(PROXY_SCHEME.into(), move |_, request, responder| {
-                let (site, headers) = (proxy_site.clone(), game_headers.clone());
-                std::thread::spawn(move || responder.respond(forward(&site, &headers, request)));
+                let (site, headers, jar) = (proxy_site.clone(), game_headers.clone(), jar.clone());
+                std::thread::spawn(move || responder.respond(forward(&site, &headers, &jar, request)));
             })
             .with_navigation_handler(move |url| match proxy_url(&nav_site, &url) {
                 Some(proxied) => {
@@ -564,6 +622,15 @@ mod tests {
         assert_eq!(rewrite_text(site, "<a href=\"http://aomarket.funcom.com/a\">"), format!("<a href=\"{PROXY_ORIGIN}/a\">"));
         assert_eq!(rewrite_text(site, r#"{"u":"http:\/\/aomarket.funcom.com\/b"}"#), format!(r#"{{"u":"{}\/b"}}"#, PROXY_ORIGIN.replace('/', "\\/")));
         assert_eq!(rewrite_cookie("sid=1; Domain=.funcom.com; Path=/"), "sid=1; Path=/");
+        assert_eq!(with_protocols(r#"<script src="//cdn.example/x.js"></script><a href='//a.example/'>, url(//b.example/i.png) src="/local.js""#), r#"<script src="http://cdn.example/x.js"></script><a href='http://a.example/'>, url(http://b.example/i.png) src="/local.js""#);
+        let jar = CookieJar::default();
+        assert_eq!(jar.header(), None);
+        jar.take("sid=1; Domain=.funcom.com; Path=/");
+        jar.take("lang=en");
+        jar.take("sid=2; HttpOnly");
+        assert_eq!(jar.header().as_deref(), Some("lang=en; sid=2"));
+        jar.take("lang=; Max-Age=0");
+        assert_eq!(jar.header().as_deref(), Some("sid=2"));
     }
 }
 
