@@ -149,12 +149,18 @@ jobs:
         if: runner.os != 'Windows'
         run: sh tools/package.sh dist "$VERSION"
 
+      # (the same build as an application in a disk image: tools/package-macos.sh)
+      - name: Package (macOS application)
+        if: runner.os == 'macOS'
+        run: sh tools/package-macos.sh dist "$VERSION"
+
       - uses: actions/upload-artifact@v7
         with:
           name: package-${{ matrix.id }}
           path: |
             dist/ModernAnarchyOnline-*.zip
             dist/ModernAnarchyOnline-*.tar.gz
+            dist/ModernAnarchyOnline-*.dmg
           if-no-files-found: error
           # (the archives are compressed already)
           compression-level: 0
@@ -200,6 +206,8 @@ jobs:
               echo
               echo "The files' SHA-256 sums are in SHA256SUMS.txt."
               if ls ModernAnarchyOnline-*.tar.gz > /dev/null 2>&1; then
+                echo
+                echo "On macOS the .dmg holds the application: open it and drag the application onto Applications. It is not signed with a developer's certificate, so the first time open it with a right click, Open."
                 echo
                 echo "The Linux and macOS archives come from the same build process as the Windows one but have seen little or no play."
               fi

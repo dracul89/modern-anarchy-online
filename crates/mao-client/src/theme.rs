@@ -132,10 +132,11 @@ pub fn text_colors(xml: &str) -> Vec<(String, Rgb)> {
 }
 
 /// The skins bundled with the client (`assets/gui`: the AOU skins, each a `Gui/<skin>` folder of the original's): next to
-/// the program or in the folder it runs from, else the source tree's.
+/// the program (in a macOS application, whose program is `Contents/MacOS/mao-client`, in its `Contents/Resources`) or in
+/// the folder it runs from, else the source tree's.
 pub fn bundled_gui_dir() -> Option<PathBuf> {
-    let exe = std::env::current_exe().ok().and_then(|e| e.parent().map(|p| p.join("assets/gui")));
-    let candidates = [exe, Some(PathBuf::from("assets/gui")), Some(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/gui"))];
+    let beside = |below: &str| std::env::current_exe().ok().and_then(|e| e.parent().map(|p| p.join(below)));
+    let candidates = [beside("assets/gui"), beside("../Resources/assets/gui"), Some(PathBuf::from("assets/gui")), Some(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/gui"))];
     candidates.into_iter().flatten().find(|d| d.is_dir())
 }
 

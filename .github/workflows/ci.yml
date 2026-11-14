@@ -1,8 +1,10 @@
 # Builds the workspace and runs its tests on every push to main and on every pull request.
 #
 # Windows is the system the client is developed and played on: its job has to pass. Linux is built and tested too, but
-# the client has not been played there, so that job may fail without failing the run. macOS runs only when asked for
-# (Actions tab, "Run workflow", the box ticked): on a private repository its minutes count ten times.
+# the client has not been played there, so that job may fail without failing the run. macOS is built on every run
+# (a build that breaks there shows at once) and may fail the same way; its tests run only when asked for (Actions tab,
+# "Run workflow", the box ticked): the Windows and Linux jobs run them, and on a private repository a macOS minute
+# counts as ten.
 #
 # No game is installed on the build machines, so the tests that read the game's files skip themselves (MAO_GAME is not
 # set), and the render tests run on the machine's software graphics device or skip when there is none.
@@ -24,7 +26,7 @@ on:
   workflow_dispatch:
     inputs:
       macos:
-        description: Also build and test on macOS (ten times the minutes on a private repository)
+        description: Also run the tests on macOS (it is built on every run)
         type: boolean
         default: false
 
@@ -56,7 +58,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(inputs.macos && '[{"name":"Windows","os":"windows-latest","required":true},{"name":"Linux","os":"ubuntu-latest","required":false},{"name":"macOS","os":"macos-latest","required":false}]' || '[{"name":"Windows","os":"windows-latest","required":true},{"name":"Linux","os":"ubuntu-latest","required":false}]') }}
+        include:
+          - { name: Windows, os: windows-latest, required: true, tests: true }
+          - { name: Linux, os: ubuntu-latest, required: false, tests: true }
+          - { name: macOS, os: macos-latest, required: false, tests: false }
     steps:
       - uses: actions/checkout@v7
 
@@ -80,4 +85,5 @@ jobs:
         run: cargo build --workspace --release --locked
 
       - name: Test
+        if: matrix.tests || inputs.macos
         run: cargo test --workspace --release --locked

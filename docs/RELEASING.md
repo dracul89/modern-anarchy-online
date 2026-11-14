@@ -4,7 +4,7 @@ Two workflows in `.github/workflows`:
 
 | Workflow | Runs when | What it does |
 |---|---|---|
-| `ci.yml` (CI) | a push to `main`, a pull request, or by hand | builds the workspace and runs its tests on Windows and Linux |
+| `ci.yml` (CI) | a push to `main`, a pull request, or by hand | builds the workspace and runs its tests on Windows and Linux; builds it on macOS |
 | `release.yml` (Release) | a tag `v<version>` is pushed, or by hand | tests, packages the client, and for a tag drafts a GitHub release with the archives |
 
 ## Making a release
@@ -23,7 +23,9 @@ Two workflows in `.github/workflows`:
    is through, a **draft** release is on the repository's Releases page with:
    - `ModernAnarchyOnline-0.2.0-windows-x64.zip`
    - `ModernAnarchyOnline-0.2.0-linux-x86_64.tar.gz` (when the Linux build went through)
-   - `ModernAnarchyOnline-0.2.0-macos-arm64.tar.gz` (only when asked for, below)
+   - `ModernAnarchyOnline-0.2.0-macos-arm64.tar.gz` (while the repository variable `RELEASE_MACOS` is `true`, below)
+   - `ModernAnarchyOnline-0.2.0-macos-arm64.dmg`, with it: the application (`Modern Anarchy Online.app`, icon and
+     all) in a disk image to drag onto Applications, made by `tools/package-macos.sh`; signed ad hoc only
    - `SHA256SUMS.txt`
    - notes written by GitHub from the commits since the last release, under a few lines of ours.
 5. Read the draft over, edit the notes, and press **Publish**. Nothing is public before that; a draft can be deleted,
@@ -62,10 +64,11 @@ build machines only have what is committed.
 - **Linux x86-64** is built and tested in both workflows, but the client has not been played there
   (`docs/PLATFORMS.md`). Its jobs may fail without failing the run or stopping a release: a release then simply has
   no Linux archive. Look at the job's log the first times.
-- **macOS (Apple silicon)** is built only when asked for, because on a private repository a macOS minute counts as
-  ten: tick the box when starting either workflow by hand, or set the repository variable `RELEASE_MACOS` to `true`
-  (Settings, Secrets and variables, Actions, Variables) to have every tagged release build it. The program is not
-  signed or notarized.
+- **macOS (Apple silicon)** is built in every CI run, without its tests (the box of a run started by hand adds
+  them), and its job may fail without failing the run. Every tagged release packages it while the repository variable
+  `RELEASE_MACOS` is `true` (Settings, Secrets and variables, Actions, Variables), as it is set now; a Release run
+  started by hand packages it when the box is ticked. On a private repository a macOS minute counts as ten: there,
+  clear the variable and take the macOS entry out of `ci.yml`'s matrix. The program is not signed or notarized.
 
 ## Trying it without a release
 
