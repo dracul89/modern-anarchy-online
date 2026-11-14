@@ -2392,6 +2392,18 @@ impl Renderer {
         let mut encoder = gpu.device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
         // (the card's time for this frame: what earlier frames measured read back, and this one's start marked)
         let _ = gpu.device.poll(wgpu::PollType::Poll);
+        // (`MAO_GPU_REPORT=1`: what the device holds, every other second: a count that only climbs is a leak)
+        if std::env::var_os("MAO_GPU_REPORT").is_some() {
+            static LAST: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+            let mut last = LAST.lock().unwrap();
+            if last.is_none_or(|t| t.elapsed().as_secs() >= 2) {
+                *last = Some(std::time::Instant::now());
+                if let Some(r) = gpu.instance.generate_report() {
+                    let h = &r.hub;
+                    eprintln!("gpu: buffers {} textures {} views {} bind groups {} samplers {} pipelines {} encoders {} command buffers {} query sets {}", h.buffers.num_allocated, h.textures.num_allocated, h.texture_views.num_allocated, h.bind_groups.num_allocated, h.samplers.num_allocated, h.render_pipelines.num_allocated, h.command_encoders.num_allocated, h.command_buffers.num_allocated, h.query_sets.num_allocated);
+                }
+            }
+        }
         let timing = match self.timer.as_mut() {
             Some(t) => {
                 if let Some(ms) = t.collect() {

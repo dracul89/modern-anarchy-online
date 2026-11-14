@@ -12,7 +12,7 @@ below that is about run time is what the code does, not something seen working.
 | Rendering | wgpu: Direct3D 12 or Vulkan, as wgpu picks | wgpu: Vulkan on Linux (OpenGL ES as wgpu's fallback), Metal on macOS. No code changes. |
 | Window and input | winit | winit (X11 and Wayland on Linux: `egui-winit`'s `x11` and `wayland` features) |
 | Sound and music | rodio / cpal on WASAPI | rodio / cpal on ALSA (Linux; PulseAudio and PipeWire through their ALSA plug-ins) and CoreAudio (macOS). No code changes. |
-| In-game web pages (item store, market, customer service, daily rewards) | WebView2 through `wry`, with the game's headers passed on by `ureq` | **Not available.** The window opens with a line saying so and the page's address. `wry` and `ureq` are `cfg(windows)` dependencies. |
+| In-game web pages (item store, market, customer service, daily rewards) | WebView2 through `wry`, with the game's headers passed on by `ureq` | **Not available.** The window opens with a line saying so and the page's address. `wry` is a `cfg(windows)` dependency (`ureq` is on every system: the launcher downloads the dimension list with it). |
 | Screenshot key | the window as it shows on the screen (`xcap`), web page included | the scene and the HUD rendered offscreen (the fallback Windows uses when the capture fails). `xcap` is a `cfg(windows)` dependency. |
 | `mao-client <game> web store\|market` (the page alone in a window) | yes | compiled out |
 | Interface font (Verdana) | `%WINDIR%\Fonts\verdana.ttf` | macOS: `/System/Library/Fonts/Supplemental`, `/Library/Fonts`, `~/Library/Fonts`. Linux: the Microsoft core fonts packages' folders (`/usr/share/fonts/truetype/msttcorefonts`, `/usr/share/fonts/msttcore`, `/usr/share/fonts/TTF`, ...) and `~/.local/share/fonts`, `~/.fonts`; `Verdana.ttf` or `verdana.ttf`. Without it, egui's own font, as on a Windows without Verdana. |
@@ -108,5 +108,9 @@ folder on a case-sensitive file system, connects and plays. Specifically worth c
 - the game folder from Proton or a copied install opening: the database, the login screen's GUI files and sounds;
 - sound: the cpal device and the 44.1 kHz streams on PipeWire / PulseAudio-through-ALSA and CoreAudio;
 - Wayland: window size and scaling (`pixels_per_point`), cursor grab for mouse look;
-- macOS: Retina scaling, the Cmd key where the code reads Ctrl, and the quarantine prompt;
+- macOS: Retina scaling, the Cmd key where the code reads Ctrl, and the quarantine prompt. (Seen on a Mac: the game
+  builds, links, logs in and loads the world. Its window, made hidden until its first frame, never showed: wgpu's Metal
+  backend gives a window that is not on the screen no frame (`CurrentSurfaceTexture::Occluded`), so the window is now
+  shown when that is the answer. `MAO_GPU_REPORT=1` prints what the device holds; `MAO_ALWAYS_REDRAW=1` draws the
+  offline views frame after frame.)
 - `play.sh`'s search on a real Steam / Proton install.

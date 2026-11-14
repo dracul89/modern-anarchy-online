@@ -1080,7 +1080,8 @@ impl ApplicationHandler for App {
         if let Some(id) = self.state.as_ref().filter(|w| w.window.is_visible() == Some(false)).map(|w| w.window.id()) {
             self.window_event(event_loop, id, WindowEvent::RedrawRequested);
         }
-        if self.live.is_some() {
+        // (`MAO_ALWAYS_REDRAW=1`: the offline views drawn frame after frame as the game is, for measuring them)
+        if self.live.is_some() || std::env::var_os("MAO_ALWAYS_REDRAW").is_some() {
             // (the settings' frame limit, a lower one while the window is not in front; with none, as fast as the present
             // mode allows. The original stopped at 100 fps.)
             match crate::settings::frame_limit(self.settings.fps_limit, self.settings.background_fps, self.focused) {
@@ -2414,6 +2415,18 @@ impl ApplicationHandler for App {
                 }
                 let frame = match w.surface.get_current_texture() {
                     wgpu::CurrentSurfaceTexture::Success(frame) | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
+                    // (macOS: a window not on the screen is given no picture to draw into, so the window that waits hidden
+                    // for its first frame would wait for ever, drawing nothing and setting the surface up anew at every
+                    // turn, which cost graphics memory by the gigabyte. It is shown, and its next frame is drawn. A window
+                    // that is truly out of sight, minimized or on another desktop, is left alone and asked again shortly.)
+                    wgpu::CurrentSurfaceTexture::Occluded | wgpu::CurrentSurfaceTexture::Timeout => {
+                        if w.window.is_visible() == Some(false) {
+                            w.window.set_visible(true);
+                        } else {
+                            std::thread::sleep(std::time::Duration::from_millis(5));
+                        }
+                        return;
+                    }
                     _ => {
                         w.surface.configure(&w.gpu.device, &w.config);
                         return;

@@ -31,14 +31,16 @@ rodio = { version = "0.23", default-features = false, features = ["playback", "v
 winit = "0.30.13"
 sysinfo = { version = "0.40.1", default-features = false, features = ["system"] }
 rfd = "=0.15.4"
+# The dimension list's download (plain HTTP, as the original asks for it) and, on Windows, the in-game web pages'
+# requests; on every system, since the launcher downloads the list on each.
+ureq = { version = "=2.12.1", default-features = false }
+# (what a site sends compressed is opened before its addresses are rewritten)
+flate2 = "1.1.10"
 
 
 # The in-game web pages (the market terminal's: GUI.dll's BrowserWindow_c, Awesomium there): WebView2 through wry, its
 # site's requests passed on with the game's headers by a plain HTTP client.
 [target.'cfg(windows)'.dependencies]
-ureq = { version = "=2.12.1", default-features = false }
-# (what a site sends compressed is opened before its addresses are rewritten)
-flate2 = "1.1.10"
 wry = { version = "=0.53.5", default-features = false, features = ["protocol"] }
 # The screenshot key's picture: the game window as it shows on the screen, its open windows and web page too.
 xcap = { version = "=0.7.1", default-features = false }
