@@ -22,7 +22,11 @@ Two workflows in `.github/workflows`:
 4. The Release workflow starts (Actions tab). It refuses a tag that is not `v` + the version in `Cargo.toml`. When it
    is through, a **draft** release is on the repository's Releases page with:
    - `ModernAnarchyOnline-0.2.0-windows-x64.zip`
+   - `ModernAnarchyOnline-0.2.0-windows-x64-setup.exe`: an installer (Inno Setup, `tools/installer.iss`) with a Start
+     menu entry, an optional desktop shortcut and an uninstaller; for one user unless asked otherwise; not signed
    - `ModernAnarchyOnline-0.2.0-linux-x86_64.tar.gz` (when the Linux build went through)
+   - `ModernAnarchyOnline-0.2.0-linux-x86_64.AppImage`, with it: the client, its skins, icon and menu entry in one
+     file to make executable and run (`tools/package-appimage.sh`; the system's own glibc, ALSA and Vulkan are used)
    - `ModernAnarchyOnline-0.2.0-macos-arm64.tar.gz` (while the repository variable `RELEASE_MACOS` is `true`, below)
    - `ModernAnarchyOnline-0.2.0-macos-arm64.dmg`, with it: the application (`Modern Anarchy Online.app`, icon and
      all) in a disk image to drag onto Applications, made by `tools/package-macos.sh`; signed ad hoc only

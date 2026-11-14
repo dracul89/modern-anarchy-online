@@ -1,5 +1,6 @@
 # Makes a release from a tag: `git tag v0.2.0 && git push origin v0.2.0` builds the client, runs the tests, packages it
-# (tools/package.ps1, tools/package.sh) and puts the archives into a DRAFT release on GitHub with notes written from the
+# (tools/package.ps1 and tools/installer.iss, tools/package.sh and tools/package-appimage.sh, tools/package-macos.sh)
+# and puts the archives and installers into a DRAFT release on GitHub with notes written from the
 # commits. Nothing is public until the draft is published by hand. The steps for a person are in docs/RELEASING.md.
 #
 # The tag has to be the workspace's version (Cargo.toml, [workspace.package] version) with a "v" before it; a version
@@ -145,9 +146,28 @@ jobs:
         shell: pwsh
         run: ./tools/package.ps1 -Version $env:VERSION
 
+      # (the folder just made as an installer: tools/installer.iss, Inno Setup, which is fetched when the machine has none)
+      - name: Package (Windows installer)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source
+          if (-not $iscc) { $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress
+            if ($LASTEXITCODE -ne 0) { throw 'Inno Setup could not be installed' }
+          }
+          & $iscc "/DVersion=$env:VERSION" tools\installer.iss
+          if ($LASTEXITCODE -ne 0) { throw 'the installer was not made' }
+
       - name: Package (Linux, macOS)
         if: runner.os != 'Windows'
         run: sh tools/package.sh dist "$VERSION"
+
+      # (the same build as one file to run: tools/package-appimage.sh)
+      - name: Package (Linux AppImage)
+        if: runner.os == 'Linux'
+        run: sh tools/package-appimage.sh dist "$VERSION"
 
       # (the same build as an application in a disk image: tools/package-macos.sh)
       - name: Package (macOS application)
@@ -161,6 +181,8 @@ jobs:
             dist/ModernAnarchyOnline-*.zip
             dist/ModernAnarchyOnline-*.tar.gz
             dist/ModernAnarchyOnline-*.dmg
+            dist/ModernAnarchyOnline-*-setup.exe
+            dist/ModernAnarchyOnline-*.AppImage
           if-no-files-found: error
           # (the archives are compressed already)
           compression-level: 0
@@ -202,7 +224,11 @@ jobs:
           else
             # (what stands above the notes GitHub writes from the commits since the last release)
             {
-              echo "A client for Anarchy Online: it needs an installed copy of the game and an account. Unpack the archive anywhere and see README.txt in it."
+              echo "A client for Anarchy Online: it needs an installed copy of the game and an account. On Windows run the -setup.exe (an installer with a Start menu entry; not signed, so SmartScreen asks first: More info, Run anyway), or unpack the .zip anywhere and see README.txt in it."
+              if ls ModernAnarchyOnline-*.AppImage > /dev/null 2>&1; then
+                echo
+                echo "On Linux the .AppImage is one file: make it executable (chmod +x) and start it."
+              fi
               echo
               echo "The files' SHA-256 sums are in SHA256SUMS.txt."
               if ls ModernAnarchyOnline-*.tar.gz > /dev/null 2>&1; then
