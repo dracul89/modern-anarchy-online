@@ -2884,11 +2884,27 @@ impl World {
                 self.fighting.retain(|&e, _| e == own);
             }
         }
-        if m.kind == 0x195e496e && m.data.len() >= 12 && m.identity.1 != self.own {
+        // `SetPos` (`195e496e`, `SetPosIIR_c`: reader FUN_1007733b, handler FUN_100773a3): a lead byte, the place, a byte
+        // (the place becomes the last allowed one), an int and a byte. The handler puts the dynel there with the rotation
+        // it has (`SetRelPosRot`), the client's own character like any other, and says `Feedback_CrowdLimiting` to the
+        // client's own when the int is set. (Until 2026-11-15 the place was read from the first byte on, a byte early:
+        // a creature the server set down went to a place of numbers like 6e-39, the world's corner; and the client's
+        // own character was not moved at all.)
+        if m.kind == 0x195e496e && m.data.len() >= 13 {
             let f = |at: usize| f32::from_be_bytes(m.data[at..at + 4].try_into().unwrap());
-            self.paths.remove(&m.identity.1);
-            if let Some(e) = self.entities.get_mut(&m.identity.1) {
-                e.0 = [f(0), f(4), f(8)];
+            let p = [f(1), f(5), f(9)];
+            if p.iter().all(|v| v.is_finite() && v.abs() < 1.0e6) {
+                self.paths.remove(&m.identity.1);
+                if m.identity.1 == self.own {
+                    let q = self.rotations.get(&self.own).copied().unwrap_or([0.0, 0.0, 0.0, 1.0]);
+                    self.entities.entry(self.own).or_insert((p, 0)).0 = p;
+                    self.own_teleport = Some((p, q));
+                    if m.data.len() >= 18 && m.data[14..18] != [0; 4] {
+                        self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, crate::feedback::plain("Feedback_CrowdLimiting")));
+                    }
+                } else if let Some(e) = self.entities.get_mut(&m.identity.1) {
+                    e.0 = p;
+                }
             }
         }
         // `SetWantedDirection` (`60201d0e`, aosharp's name): a character turned to face a direction (a byte, then x y z: the
@@ -10775,6 +10791,23 @@ mod door_tests {
         w.names.insert(0x7b1abca9, ("B".into(), false));
         w.add(&Message { kind: 0x3129233b, identity: (0xc350, 0x7b1a00b3), data: hex("0000000bd30000c3507b1ab8330000c3507b1abca9000187620000c3507b1a00b3") }.frame(1));
         assert_eq!(w.landed, vec![(0x7b1ab833, 0x18762), (0x7b1abca9, 0x18762)]);
+    }
+
+    /// `SetPos` as the 16:55 capture has it for a creature (19 bytes): the place follows a lead byte; the client's own
+    /// character is put there too.
+    #[test]
+    fn set_pos_puts_a_character_down() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let own = 7;
+        let mut w = World { own, ..World::default() };
+        w.entities.insert(0x7b1a6433, ([1.0, 2.0, 3.0], 0));
+        w.add(&Message { kind: 0x195e496e, identity: (0xc350, 0x7b1a6433), data: hex("00455fb8e84100e148445068c4010000000000") }.frame(1));
+        let p = w.entities[&0x7b1a6433].0;
+        assert!((p[0] - 3579.557).abs() < 0.01 && (p[1] - 8.055).abs() < 0.01 && (p[2] - 833.637).abs() < 0.01, "{p:?}");
+        assert!(w.own_teleport.is_none());
+        w.add(&Message { kind: 0x195e496e, identity: (0xc350, own), data: hex("00455fb8e84100e148445068c4010000000000") }.frame(1));
+        assert_eq!(w.own_teleport.map(|t| t.0), Some(p));
+        assert!(w.game_lines.is_empty());
     }
 
     /// An item the server moves out of a corpse to the character takes the backpack's first free place, and with a

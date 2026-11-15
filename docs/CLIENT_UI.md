@@ -3752,3 +3752,11 @@ all, a rule of this client's from the time a shuttle's door looked out of place;
 record's mesh or its template's everywhere. The ring moves as a door does, when the character comes to it. Seen
 with it: the plain "Door" template's small white leaf stands in the hatch of the shuttles at ICC's landing
 platforms. New tool: `--example pfdynels` showed the record.
+
+**The server's `SetPos` (2026-11-15).** Read while looking at the throw above: `SetPosIIR_c` (reader FUN_1007733b,
+handler FUN_100773a3) is a lead byte, the place, a byte, an int and a byte, and the handler puts the dynel there with
+the rotation it has, the client's own character like any other (with `Feedback_CrowdLimiting` said when the int is
+set). The client read the place from the first byte on, a byte early, so a creature the server set down went to a
+place of numbers like 6e-39 (the "no place of this world" of an earlier note; 310 such messages in the captures),
+and it did not move its own character at all. Both are as the original now (`set_pos_puts_a_character_down`, from
+the 16:55 capture's bytes).
