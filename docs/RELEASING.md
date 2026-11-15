@@ -28,7 +28,8 @@ Two workflows in `.github/workflows`:
      through): the same two for Windows on ARM64 processors; that installer installs on ARM64 machines only
    - `ModernAnarchyOnline-0.2.0-linux-x86_64.tar.gz` (when the Linux build went through)
    - `ModernAnarchyOnline-0.2.0-linux-x86_64.AppImage`, with it: the client, its skins, icon and menu entry in one
-     file to make executable and run (`tools/package-appimage.sh`; the system's own glibc, ALSA and Vulkan are used)
+     file to make executable and run (`tools/package-appimage.sh`; the system's own glibc, ALSA and Vulkan are used;
+     both Linux files need glibc 2.35 or newer, the build machine being Ubuntu 22.04)
    - `ModernAnarchyOnline-0.2.0-macos-arm64.tar.gz` (while the repository variable `RELEASE_MACOS` is `true`, below)
    - `ModernAnarchyOnline-0.2.0-macos-arm64.dmg`, with it: the application (`Modern Anarchy Online.app`, icon and
      all) in a disk image to drag onto Applications, made by `tools/package-macos.sh`; signed ad hoc only on the build machines. Run on a Mac whose keychain

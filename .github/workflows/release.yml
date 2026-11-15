@@ -10,7 +10,8 @@
 #   Windows x64   always; it has to build and pass its tests, or there is no release.
 #   Windows ARM64 for a tag, or when ticked in a run started by hand: built on the x64 machine for the other processor
 #                 (aarch64-pc-windows-msvc), so its tests are not run. May fail without stopping the release.
-#   Linux x86-64  for a tag, or when ticked in a run started by hand; may fail without stopping the release.
+#   Linux x86-64  for a tag, or when ticked in a run started by hand; may fail without stopping the release. Built on
+#                 Ubuntu 22.04, so that it runs on a glibc of 2.35 or newer.
 #   macOS arm64   only when the repository variable RELEASE_MACOS is "true" (Settings, Secrets and variables, Actions,
 #                 Variables), or when ticked in a run started by hand: its minutes count ten times on a private
 #                 repository. May fail without stopping the release.
@@ -106,7 +107,10 @@ jobs:
             matrix="$matrix,"'{"id":"windows-arm64","name":"Windows ARM64","os":"windows-latest","required":false,"tests":false,"target":"aarch64-pc-windows-msvc","arch":"arm64"}'
           fi
           if [ "$linux" = true ]; then
-            matrix="$matrix,"'{"id":"linux-x86_64","name":"Linux x86-64","os":"ubuntu-latest","required":false,"tests":true}'
+            # (the oldest Ubuntu GitHub offers, not the latest: a program needs a glibc at least as new as the one it
+            # was built against, and 22.04's is 2.35, which Ubuntu 22.04, Debian 12, Fedora 36, SteamOS 3 and
+            # everything newer have. When that machine is withdrawn, the next oldest, or a container of it.)
+            matrix="$matrix,"'{"id":"linux-x86_64","name":"Linux x86-64","os":"ubuntu-22.04","required":false,"tests":true}'
           fi
           if [ "$macos" = true ]; then
             # (no tests there: the Windows and Linux jobs run them, and a macOS minute is ten)
