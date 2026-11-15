@@ -2693,12 +2693,8 @@ impl World {
                 if let Some(key) = bag_key {
                     let place = source.1 & 0xffff;
                     let taken = self.bags.get_mut(&key).and_then(|b| b.entries.iter().position(|e| e.slot == place).map(|at| b.entries.remove(at)));
-                    if let Some(mut entry) = taken {
-                        if let Some(free) = (inventory::BACKPACK_FIRST..inventory::BACKPACK_FIRST + crate::gear::PACK_SLOTS).find(|s| !self.worn.iter().any(|e| e.slot == *s)) {
-                            entry.slot = free;
-                            self.worn.push(entry);
-                            self.inventory = Some(self.worn.clone());
-                        }
+                    if let Some(entry) = taken {
+                        self.take_in(entry);
                         self.bags_changed = true;
                     }
                 }
@@ -2726,15 +2722,13 @@ impl World {
                     let place = bank_item.unwrap_or(source.1 & 0xffff);
                     if let Some(loot) = self.loot.as_mut() {
                         if let Some(at) = loot.entries.iter().position(|e| e.slot == place) {
+                            #[allow(unused_mut)]
                             let mut entry = loot.entries.remove(at);
                             if std::env::var_os("MAO_COMBAT_LOG").is_some() {
                                 eprintln!("combat: took item {} (place {place}) from the container", entry.low_id);
                             }
-                            if let Some(free) = (inventory::BACKPACK_FIRST..inventory::BACKPACK_FIRST + crate::gear::PACK_SLOTS).find(|s| !self.worn.iter().any(|e| e.slot == *s)) {
-                                entry.slot = free;
-                                self.worn.push(entry);
-                                self.inventory = Some(self.worn.clone());
-                            }
+                            entry.slot = 0;
+                            self.take_in(entry);
                             self.loot_changed = true;
                         }
                     }
@@ -3319,6 +3313,33 @@ impl World {
     fn stand_up(&mut self, id: u32) {
         self.seated.remove(&id);
         self.resting.remove(&id);
+    }
+
+    /// An item the server moved out of a container to the character with no place named (0x6f), as Gamecode's
+    /// FUN_1004ac4b takes it in: one that stacks (its `Can` flags, stat 30, have 0x200 and not 0x1000000) joins the stack
+    /// of the same item in the backpack when there is one and the two together are no more than 50000; else it takes
+    /// the backpack's first free place; and with none it is not taken in at all. The last cannot happen while the
+    /// client's list is the server's (the server had room, or it would not have moved the item): it is said in the log
+    /// with the list, to find the entry that is one too many (the user's loot of 2026-11-15 went missing this way).
+    fn take_in(&mut self, entry: inventory::Entry) {
+        let can = template_stat(entry.low_id, 30).unwrap_or(0);
+        if can & 0x200 != 0 && can & 0x100_0000 == 0 {
+            let stack = self
+                .worn
+                .iter_mut()
+                .filter(|e| e.slot >= inventory::BACKPACK_FIRST && (e.low_id, e.high_id, e.quality) == (entry.low_id, entry.high_id, entry.quality) && e.container == (0, 0))
+                .min_by_key(|e| e.slot);
+            if let Some(stack) = stack.filter(|s| s.count as u32 + entry.count as u32 <= 50000) {
+                stack.count += entry.count;
+                self.inventory = Some(self.worn.clone());
+                return;
+            }
+        }
+        let room = (inventory::BACKPACK_FIRST..inventory::BACKPACK_FIRST + crate::gear::PACK_SLOTS).any(|s| !self.worn.iter().any(|e| e.slot == s));
+        if !room {
+            eprintln!("items: no free place for item {} (QL {}) the server moved in; the backpack as the client has it: {:?}", entry.low_id, entry.quality, self.worn.iter().filter(|e| e.slot >= inventory::BACKPACK_FIRST).map(|e| (e.slot, e.low_id, e.quality, e.count)).collect::<Vec<_>>());
+        }
+        self.add_to_backpack(entry);
     }
 
     /// The overflow's list changed: its window, when it is up, shows the new one.
@@ -7481,15 +7502,16 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 // (out of the overflow: `N3Msg_MoveItemToInventory((0x6e, place), 1, 0x6f)`, Gamecode 0x10027bac; nothing
                 // moves here until the server's `ContainerAddItem` comes, and with a full inventory nothing is sent)
                 let overflow = state.loot.as_ref().is_some_and(|l| l.identity.0 == crate::loot::OVERFLOW && l.handle == handle);
-                for place in places {
+                // (`N3Msg_MoveItemToInventory`, Gamecode 0x10027bac: with no free place in the inventory from 0x40 on the
+                // game says `Feedback_InventoryFull` and nothing is sent, whatever the item comes out of: a corpse, a
+                // chest, the bank, the overflow. Until 2026-11-15 a corpse's item was asked for all the same.)
+                let room = (inventory::BACKPACK_FIRST..inventory::BACKPACK_FIRST + crate::gear::PACK_SLOTS).any(|s| !state.worn.iter().any(|e| e.slot == s));
+                if !room && !places.is_empty() {
+                    state.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, crate::feedback::plain("Feedback_InventoryFull")));
+                }
+                for place in places.into_iter().filter(|_| room) {
                     if overflow {
-                        let room = (inventory::BACKPACK_FIRST..inventory::BACKPACK_FIRST + crate::gear::PACK_SLOTS).any(|s| !state.worn.iter().any(|e| e.slot == s));
-                        if room {
-                            let _ = connection.send(&n3::move_to_inventory(own, (crate::loot::OVERFLOW, place), 0x6f));
-                        } else {
-                            state.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, crate::feedback::plain("Feedback_InventoryFull")));
-                            break;
-                        }
+                        let _ = connection.send(&n3::move_to_inventory(own, (crate::loot::OVERFLOW, place), 0x6f));
                         continue;
                     }
                     match &bank {
@@ -9234,6 +9256,48 @@ pub fn run(args: &[String]) -> Result<(), String> {
             let from: [f32; 3] = [x.parse().map_err(|_| "bad x")?, y.parse().map_err(|_| "bad y")?, z.parse().map_err(|_| "bad z")?];
             let ground = crate::vehicle::Ground { zones: area.zones.clone().unwrap_or_default(), terrain: area.terrain.clone().map(|t| { let s = t.height_scale; (t, s) }), offset: 0.0 };
             println!("closest from there: {:?}", ground.closest(from));
+            // MAO_HUNT=<half-width>,<speed>: bodies run from a grid of places round the point, every way, at several frame
+            // times; any run that takes one further than its speed allows is printed (a hunt for a step that overshoots).
+            if let Some([half, speed]) = std::env::var("MAO_HUNT").ok().and_then(|v| <[f32; 2]>::try_from(v.split(',').filter_map(|p| p.parse().ok()).collect::<Vec<f32>>()).ok()) {
+                let mut found = 0;
+                let mut runs = 0u64;
+                let mut gx = -half;
+                while gx <= half {
+                    let mut gz = -half;
+                    while gz <= half {
+                        for k in 0..16 {
+                            let a = k as f32 * std::f32::consts::FRAC_PI_8 + 0.07;
+                            for dt in [1.0 / 240.0, 1.0 / 144.0, 1.0 / 60.0, 1.0 / 30.0, 0.1, 0.25, 0.4, 0.9] {
+                                let start = [from[0] + gx, from[1] + 3.0, from[2] + gz];
+                                let (mut body, mut pos, mut events) = (crate::vehicle::Body::default(), start, Vec::new());
+                                // (let it land first)
+                                for _ in 0..40 {
+                                    body.run(&ground, &mut pos, [0.0, 0.0], 0.05, &mut events);
+                                }
+                                let mut t = 0.0;
+                                while t < 3.0 {
+                                    let before = pos;
+                                    body.run(&ground, &mut pos, [a.cos() * speed, a.sin() * speed], dt, &mut events);
+                                    runs += 1;
+                                    let went = ((pos[0] - before[0]).powi(2) + (pos[2] - before[2]).powi(2)).sqrt();
+                                    if went > speed * dt * 1.5 + 0.5 || !pos.iter().all(|v| v.is_finite()) {
+                                        found += 1;
+                                        if found <= 40 {
+                                            println!("overshoot: from {before:?} to {pos:?} ({went:.1} m in {dt:.4} s at {speed}), heading ({:.2}, {:.2}), falling {}", a.cos(), a.sin(), body.falling);
+                                        }
+                                        break;
+                                    }
+                                    t += dt;
+                                }
+                            }
+                        }
+                        gz += 1.0;
+                    }
+                    gx += 1.0;
+                }
+                println!("{found} overshoots in {runs} runs");
+                return Ok(());
+            }
             for k in 0..8 {
                 let a = k as f32 * std::f32::consts::FRAC_PI_4;
                 let (mut body, mut pos, mut events) = (crate::vehicle::Body::default(), from, Vec::new());
@@ -10703,6 +10767,27 @@ mod door_tests {
         w.names.insert(0x7b1abca9, ("B".into(), false));
         w.add(&Message { kind: 0x3129233b, identity: (0xc350, 0x7b1a00b3), data: hex("0000000bd30000c3507b1ab8330000c3507b1abca9000187620000c3507b1a00b3") }.frame(1));
         assert_eq!(w.landed, vec![(0x7b1ab833, 0x18762), (0x7b1abca9, 0x18762)]);
+    }
+
+    /// An item the server moves out of a corpse to the character takes the backpack's first free place, and with a
+    /// backpack that is full in the client's list it is not taken in (the original's FUN_1004ac4b returns there too).
+    #[test]
+    fn a_looted_item_takes_a_free_place_or_none() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let own = 0x4deb97f9;
+        let entry = |slot: u32| inventory::Entry { slot, flags: 0, count: 1, container: (0, 0), low_id: 1, high_id: 1, quality: 1, extra: 0 };
+        let mut w = World { own, ..World::default() };
+        w.worn = (inventory::BACKPACK_FIRST..inventory::BACKPACK_FIRST + crate::gear::PACK_SLOTS - 1).map(entry).collect();
+        w.loot = Some(Loot { identity: (0xc76a, 0x1052004), handle: 0x71, entries: vec![entry(0), entry(1)] });
+        // (the user's log of 2026-11-15: from the container of handle 0x71, place 1, to the character, no place named)
+        w.add(&Message { kind: CONTAINER_ADD_ITEM, identity: (0xc350, own), data: hex("000000006b007100010000c3504deb97f90000006f") }.frame(1));
+        assert_eq!(w.worn.len() as u32, crate::gear::PACK_SLOTS);
+        assert_eq!(w.worn.last().map(|e| e.slot), Some(inventory::BACKPACK_FIRST + crate::gear::PACK_SLOTS - 1));
+        assert_eq!(w.loot.as_ref().map(|l| l.entries.len()), Some(1));
+        // (the backpack is full now: the next one leaves the corpse and is not taken in)
+        w.add(&Message { kind: CONTAINER_ADD_ITEM, identity: (0xc350, own), data: hex("000000006b007100000000c3504deb97f90000006f") }.frame(1));
+        assert_eq!(w.worn.len() as u32, crate::gear::PACK_SLOTS);
+        assert_eq!(w.loot.as_ref().map(|l| l.entries.len()), Some(0));
     }
 
     /// A city playfield's list of houses (the start of the user's log of 2026-11-15, one house of its eighty): kept for

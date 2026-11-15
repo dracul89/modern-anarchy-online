@@ -3719,3 +3719,36 @@ server announces at the next visit.
 Not done: a house built or taken down while the character is in the city (`AOTransportSignal` 0x62741e15, codes 2
 and 9, with the building effect 0x30e8): no such message has been seen, and whether it has a lead byte is a guess.
 The far twin where a mesh has none in the database (15 of 25 looked at) is simply the full mesh.
+
+**Taking an item with a full inventory (2026-11-15; the user: "it allowed me to loot even though I had no space left
+in inventory and never spawned or went to overflow").** Their log: the take was sent, the server moved the item to
+the character (`ContainerAddItem` from the corpse's handle, no place named), and the client, whose list of the
+backpack had thirty items, dropped it without a word. Two things of the original's were missing. `N3Msg_MoveItemToInventory`
+(Gamecode 0x10027bac) asks nothing with a full inventory: it says `Feedback_InventoryFull` and sends nothing, for a
+corpse, a chest, the bank or the overflow alike; the take does that now. And the item the server moves in is taken
+as FUN_1004ac4b takes it (`World::take_in`): one that stacks (its `Can` flags have 0x200 and not 0x1000000) joins the
+stack of the same item in the backpack, the two no more than 50000 together; else the first free place; with none it
+is not taken in. **Not explained:** the server had room for the item where the client's list had none, so the
+client's list held one entry too many from the login on (nothing changed it before the loot). When that happens
+again the log names the item and lists the backpack as the client has it ("items: no free place for item ..."), to
+find the entry; a relog shows the server's list.
+
+**Thrown forward into the water (2026-11-15; the user: "the server placed me in the water then slingshotted me back").**
+Their log shows it was the client: walking a hillside in playfield 4310 it reported itself 74 m further on in under a
+second, over a lake, fell in, and twenty seconds later the server, which had never taken that place, pulled it back.
+A hunt (`MAO_HUNT=<half-width>,<speed>` with `net <game> caught <playfield> x y z`: bodies run from a grid of places
+every way at several frame times) found such steps on that hillside, 40 to 80 m in one. The cause was one comparison
+in the port of the vehicle's sweep (`vehicle.rs` `advance`, Vehicle.dll FUN_1000b2e5): the original ends the sweep when
+a step is as long as the distance left or longer ("below or equal"); the port had "below", so a step of exactly the
+distance left was taken whole, nothing was left to count down, and every further pass ran against the budget alone,
+which on the ground is 10000: up to ten metres a pass. With the original's comparison the hunt finds none in 6.8
+million runs where it found dozens. Not done: the server's own `SetPos` for the client's character is still not
+taken (it is for the others).
+
+**Jobe's teleporters (2026-11-15; the user: "there should be a teleporter to jobe platform").** They are doors of the
+playfield's table with the template "Teleporting Ring", whose mesh (44891, a ring with two glow rings and a light,
+animated over 1.4 s) hangs under each sign. `static_props` gave an outdoor door without a mesh of its own none at
+all, a rule of this client's from the time a shuttle's door looked out of place; it is gone, and a door has its
+record's mesh or its template's everywhere. The ring moves as a door does, when the character comes to it. Seen
+with it: the plain "Door" template's small white leaf stands in the hatch of the shuttles at ICC's landing
+platforms. New tool: `--example pfdynels` showed the record.

@@ -233,6 +233,12 @@ account with `net <game> create`, in Arete Landing; scripted, other new players 
 - [ ] Placing by hand and stacks (2026-11-13; by script: a move to an empty cell, a swap, a split and a join):
   by hand: items stay where they are put after a relog; the same in a bag's window; Ctrl+click on a stack, the
   count box, and the split stack on an empty cell; a stack onto a like stack joins them.
+- [ ] A corpse looted with a full inventory (2026-11-15): the game says the inventory is full and the item stays in
+  the corpse. A looted stack joins the stack of the same item.
+- [ ] Walking and running on hillsides (2026-11-15): no sudden throw forward (Shadowlands, playfield 4310, the slope
+  north of the lake near 807, 1171).
+- [ ] Jobe Harbor (2026-11-15): a ring hangs under the "Jobe Platform" sign and pulses when walked under; the same
+  under the other signs.
 - [ ] A mail's item taken (2026-11-15): the item's picture leaves the mail, Cash shows 0, Take All goes off and
   Delete comes on.
 - [ ] The overflow (2026-11-15): with a full inventory, something given (a mission reward, a claim) opens a window
