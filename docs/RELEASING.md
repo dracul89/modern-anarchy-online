@@ -117,3 +117,8 @@ requests and runs started by hand.
   repository's root; `rustup` then takes that version everywhere, the workflows included.
 - `--locked` everywhere: a build that would change `Cargo.lock` fails instead, so what is released is what was
   committed.
+
+## Dependency alerts
+
+- **tokio** (2026-11-14): 1.54.0 to 1.54.1 in `Cargo.lock`. It is in the lock for the web target only (through `wasm-bindgen-futures`).
+- **rand, affected 0.7.0 up to 0.8.6** (2026-11-14): dismissed as not used. The lock's rand 0.7.3 comes only through `wry` 0.53.5's Android-only HTML parser (`kuchikiki`, whose `selectors` generates code with `phf_codegen` 0.8 at build time); no platform this project builds compiles it. `wry` 0.54.4 drops that parser and builds here, but a launcher test with it misbehaved and the bump was put back: it wants a careful trial of the launcher and the in-game pages first.
