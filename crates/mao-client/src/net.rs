@@ -495,6 +495,10 @@ struct World {
     /// The places a grid exit leads to, when the server sends them (for the teleport target window), and the list's
     /// token, which goes back with the answer.
     grid_list: Option<mao_net::grid::List>,
+    /// The city controller's session (from the server's "open a GUI session" to its "close"), and whether it changed
+    /// (or ended) since the window was last told.
+    city: Option<crate::cityterminal::Session>,
+    city_changed: bool,
     grid_token: Vec<u8>,
     /// The usable objects the server announces (doors, mail terminals, booths: identity type
     /// 0xc76a, message `4f474e05`) with their positions; targeted with Ctrl+Tab and used with E.
@@ -2846,6 +2850,60 @@ impl World {
         }
         if m.kind == mao_net::destinations::DESTINATION_LIST {
             self.destinations = mao_net::destinations::parse(&m.data);
+        }
+        // `AOTransportSignalIIR_c`: a city's signals (`mao_net::city`). The houses' changes are for everyone in the
+        // playfield; the session's are heard between its opening and its close only (the receivers Gamecode's
+        // FUN_1012be1d registers as code 5 is taken, which is taken only with no session open). The original also
+        // holds the opening's `CityID_t` against the playfield's own; here the server's is taken as it comes. (Every
+        // signal goes to the log whole: no capture has one.)
+        if m.kind == mao_net::city::TRANSPORT_SIGNAL {
+            use mao_net::city::Signal;
+            let signal = mao_net::city::signal(&m.data);
+            eprintln!("city: signal {signal:?} ({} bytes: {})", m.data.len(), m.data.iter().map(|b| format!("{b:02x}")).collect::<String>());
+            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64);
+            match signal {
+                Some(Signal::HouseAdded(house)) => {
+                    if !self.houses.contains(&house) {
+                        self.houses.push(house);
+                        self.houses_changed = true;
+                    }
+                }
+                Some(Signal::HouseRemoved(x, z)) => {
+                    let before = self.houses.len();
+                    self.houses.retain(|h| h.tile() != (x, z));
+                    self.houses_changed |= self.houses.len() != before;
+                }
+                Some(Signal::DemolishStarted(x, z)) => {
+                    for house in self.houses.iter_mut().filter(|h| h.tile() == (x, z)) {
+                        house.flag = true;
+                    }
+                }
+                Some(open @ Signal::Open { .. }) => {
+                    if self.city.is_none() {
+                        self.city = crate::cityterminal::Session::open(&open);
+                        self.city_changed = true;
+                    }
+                }
+                Some(Signal::Close(_)) => self.city_changed |= self.city.take().is_some(),
+                Some(other) => {
+                    if let Some(session) = self.city.as_mut() {
+                        self.city_changed |= session.apply(&other, now);
+                    }
+                }
+                None => {}
+            }
+        }
+        // `CityAdvantagesIIR_t` (Gamecode FUN_10038e61), for the client's own character: a line for each advantage,
+        // numbered from 1: the item as a link and after it text category 1000's `ActiveAdvantage` or
+        // `DisabledAdvantage`.
+        if m.kind == mao_net::city::ADVANTAGES && m.identity == (0xc350, self.own) {
+            for (n, a) in mao_net::city::advantages(&m.data).unwrap_or_default().iter().enumerate() {
+                let name = template_name(a.low).unwrap_or_else(|| format!("Item {}", a.low));
+                let state = crate::feedback::texts().and_then(|t| t.named(1000, if a.active { "ActiveAdvantage" } else { "DisabledAdvantage" })).unwrap_or(if a.active { " (active)" } else { " (disabled)" });
+                let plain = format!("{}) {name}{state}", n + 1);
+                let markup = format!("{}) <a href=\"itemref://{}/{}/{}\">{}</a>{state}", n + 1, a.low, a.high, a.quality, name.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;"));
+                self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, plain).with_markup("", &markup));
+            }
         }
         // `GridDestinationSelectIIR_t` (Gamecode FUN_10129529), for a character: the list and its token are kept and the
         // teleport target window comes up. (The whole message goes to the log: the first one seen was kept in part only,
@@ -5850,6 +5908,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         }
         let mut pending_destinations = state.destinations.take();
         let mut pending_teleport: Option<Vec<crate::teleport::Row>> = None;
+        let mut pending_city: Option<Option<crate::cityterminal::Session>> = None;
         let (mut mission_wait, mut mission_used): (Option<Instant>, bool) = (None, false);
         let (mut mission_seen, mut pending_missions, mut pending_mission_status): (u8, Option<Vec<crate::mission::Offer>>, Option<String>) = (0, None, None);
         // Mail: the answer's count and notes for the window, when the inbox request is due, and when the last send went out.
@@ -5944,6 +6003,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut split_seen = 0u8;
         let mut cancel_seen = 0u8;
         let mut grid_seen = 0u8;
+        let mut city_seen = 0u8;
         let mut train_perk_seen = 0u8;
         let mut pet_seen = 0u8;
         let mut duel_seen = 0u8;
@@ -6286,6 +6346,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     if let Some(list) = state.grid_list.take() {
                         pending_teleport = Some(crate::teleport::rows(&list, &names));
                     }
+                    if std::mem::take(&mut state.city_changed) {
+                        pending_city = Some(state.city.clone());
+                    }
                     if let Some(entries) = state.inventory.take() {
                         state.worn = entries.clone();
                         if !std::mem::replace(&mut backpack_logged, true) {
@@ -6389,6 +6452,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     // (the city's houses go with the playfield: `~PlayfieldAnarchy_t` empties the holder)
                     state.houses.clear();
                     state.houses_changed = false;
+                    // (and the controller's session with them: the window goes)
+                    state.city_changed |= state.city.take().is_some();
                     houses_drawn = false;
                     pending_keep_camera = false;
                     // (the overflow goes with the character's object, made anew empty in the new playfield, and its
@@ -7560,6 +7625,21 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     let _ = connection.send(&mao_net::grid::selected(own, &state.grid_token, Some(pick)));
                 }
                 let _ = connection.send(&mao_net::grid::selected(own, &state.grid_token, None));
+            }
+            // The city controller's window (`mao_net::city`): its close request, the list of the city's advantages
+            // (`N3Msg_OrgShowCity`: the organisation command 0x1f with no target and no text) and the cloaking
+            // device's switch. Each names the city by the number the session's opening gave.
+            if keys.city.0 != city_seen {
+                city_seen = keys.city.0;
+                if let Some(city) = state.city.as_ref().map(|s| s.city.city.1) {
+                    use crate::cityterminal::Command;
+                    eprintln!("city: the window asks {:?} (city {city:#x})", keys.city.1);
+                    let _ = match keys.city.1 {
+                        Command::Close => connection.send(&mao_net::city::close_session(own, city)),
+                        Command::Advantages => connection.send(&n3::org_command(own, mao_net::city::ORG_SHOW_CITY, (0, 0), 0, "", false)),
+                        Command::ToggleCloak => connection.send(&mao_net::city::toggle_cloak(own, city)),
+                    };
+                }
             }
             // A running nano cancelled: asked of the server and taken off the NCU window at once.
             if keys.cancel.0 != cancel_seen {
@@ -9046,6 +9126,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     missions_removed: std::mem::take(&mut pending_missions_removed),
                     mail_flags: pending_mail_flags.take(),
                     teleport: pending_teleport.take(),
+                    city: pending_city.take(),
                     mail_status: pending_mail_status.take(),
                     destinations: pending_destinations.take(),
                     heading: Some(heading),
@@ -10966,6 +11047,44 @@ mod door_tests {
         w.add(&Message { kind: CONTAINER_ADD_ITEM, identity: (0xc350, own), data: hex("000000006b007100000000c3504deb97f90000006f") }.frame(1));
         assert_eq!(w.worn.len() as u32, crate::gear::PACK_SLOTS);
         assert_eq!(w.loot.as_ref().map(|l| l.entries.len()), Some(0));
+    }
+
+    /// A city's signals (made up to the original's readers: no capture has one): the controller's session opens with
+    /// code 5, takes the server's word while it lasts and ends with code 7 or with the playfield; what comes outside
+    /// a session is not kept; the houses' changes reach the list the scene is made from.
+    #[test]
+    fn a_citys_signals_open_the_session_and_change_the_houses() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let own = 0x4deb97f9;
+        let mut w = World { own, ..World::default() };
+        let mut tell = |w: &mut World, body: &str| w.add(&Message { kind: mao_net::city::TRANSPORT_SIGNAL, identity: (0xc350, own), data: hex(body) }.frame(1));
+        let city = "0000c4190000c0000020e1660000c79e0000177a";
+        // (the charge before any session: not heard)
+        tell(&mut w, "000000000f3f000000");
+        assert!(w.city.is_none() && !w.city_changed);
+        tell(&mut w, &format!("0000000005{city}0000c3504deb97f9000000020000000300000000000641206e616d65"));
+        let s = w.city.clone().expect("the session");
+        assert_eq!((s.gui_type, s.lease, s.org.as_str(), s.city.city), (2, 3, "A name", (0xc419, 0xc000)));
+        assert!(std::mem::take(&mut w.city_changed));
+        tell(&mut w, "000000000f3f000000");
+        tell(&mut w, "000000000e00000001ffffffff");
+        tell(&mut w, "000000000a00e4e1c0");
+        let s = w.city.clone().unwrap();
+        assert_eq!((s.charge, s.cloak, s.cloak_possible, s.upkeep), (0.5, 1, true, 15_000_000));
+        assert!(std::mem::take(&mut w.city_changed));
+        // (a second opening while one is open is not taken)
+        tell(&mut w, &format!("0000000005{city}0000c3504deb97f90000000200000001000000000000"));
+        assert_eq!(w.city.as_ref().map(|s| s.lease), Some(3));
+        tell(&mut w, &format!("0000000007{city}"));
+        assert!(w.city.is_none() && std::mem::take(&mut w.city_changed));
+        // (a house built, its demolishing begun, the house gone)
+        tell(&mut w, "00000000024459000040a0000044a000000000010e00000f4268006a0003");
+        assert_eq!((w.houses.len(), w.houses[0].tile(), w.houses[0].flag), (1, (217, 320), false));
+        assert!(std::mem::take(&mut w.houses_changed));
+        tell(&mut w, "0000000008000000d900000140");
+        assert!(w.houses[0].flag);
+        tell(&mut w, "0000000009000000d900000140");
+        assert!(w.houses.is_empty() && w.houses_changed);
     }
 
     /// A grid exit's list of places (the head of the one in the user's log of 2026-11-15, the rest made up to the

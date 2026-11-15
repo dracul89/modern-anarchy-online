@@ -372,7 +372,7 @@ pub struct DockClicks {
 }
 
 /// `FormatNumeric`: the number with the thousands grouped (the user's locale's grouping; commas here).
-fn grouped(v: i64) -> String {
+pub(crate) fn grouped(v: i64) -> String {
     let digits = v.unsigned_abs().to_string();
     let mut out = String::new();
     for (i, c) in digits.chars().enumerate() {

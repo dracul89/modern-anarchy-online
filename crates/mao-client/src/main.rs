@@ -106,6 +106,7 @@ mod skillwindow;
 mod stats;
 mod trickle_data;
 mod chrome;
+mod cityterminal;
 mod rollup;
 mod aoprefs;
 mod combat;

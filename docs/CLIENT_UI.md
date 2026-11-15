@@ -3837,3 +3837,25 @@ opens are the next piece (see below, when it is there).
 server's `DoorFullUpdate`s of five of its doors: the doors the client computes from the houses' places, turns and
 templates stand where the server's do to the centimetre (`houses::tests`, `landcontrol::tests::a_real_citys_houses`).
 The placing and facing of city buildings is no longer a guess.
+
+**The city controller's window (2026-11-15; the user: "This is the only way to start alien raids, and manage org
+city buildings").** The reading is `docs/CITY_CONTROLLER_ORIGINAL.md`. The controller is a `CityTerminal_t`, used as
+any terminal; the server answers with `AOTransportSignal` (0x62741e15) code 5, which opens a session and GUI.dll's
+`CityTerminalWindow_c` (`cityterminal.rs` on `Views/CityTerminal.xml`; `mao_net::city` the messages, every number
+checked against its class name's hash). While the session lasts the server's codes 6, 10, 13, 14, 15 and 16 fill it
+(lease mode, upkeep, seconds to the next bill, the cloaking device, the charge, the owner); code 7 ends it, and so does
+leaving the playfield. Done for GUI type 2:
+the upkeep tab (the game's help text, owner, the next bill's long date, the upkeep, the charge bar, "dump city
+advantages", which is the organisation command 0x1f and whose answer `CityAdvantages` 0x365e555b is written to the
+chat as numbered item links); the cloaking device's tab (a toggle button, down while the device is on, enabled with
+lease mode 3 while the server lets it be switched; **a press sends the request at once, as the original's does: it
+asks nothing first, and the cloak off is what lets the aliens come**); the one-tab window of lease mode 1; and the
+close request (the window stays till the server's code 7). The original has no "start raid" control, no guest list
+and no button that pays the upkeep: the cloak's switch is the raid's. The houses' signals (2 built, 8 demolishing
+begun, 9 gone) change the city's houses in the scene now. **Not done:** the city's map (`BuildingMapView_c`), so the
+build and demolish tabs show their texts and their buttons with nothing to press them on (building is a building
+item dragged from the inventory onto the map; demolishing a house chosen on it); GUI type 1, the dialog that buys a
+city's land; the Escape option `esc_cityterminal`. Shown before the server tells it: no bill date (the original
+would write its last stamp's date). **Not tried live**: no capture has any of these messages; every signal is written
+to the log whole ("city: signal ..."). `MAO_UI_PREVIEW=cityterminal` (with `MAO_CITY_TAB=<n>`) shows the window on a
+made-up session.

@@ -241,7 +241,10 @@ account with `net <game> create`, in Arete Landing; scripted, other new players 
   headquarters), with their doors, and the way out leads back to the city. The log's "an owned building's inside ..."
   line is wanted for a test.
 - [ ] The city's controller (2026-11-15): a click anywhere on it selects it ("City Controller" in the target bar); a
-  double click uses it.
+  double click uses it and its window opens: the upkeep tab shows the owner, the next bill's date, the upkeep and the
+  charge; "Dump city advantages" lists them in the chat; the close cross closes it (a moment later: the server's
+  answer does). The cloak's button shows the device's state. **Pressing it switches the cloak at once.** The log's
+  "city: signal ..." lines are wanted for tests.
 - [ ] The Grid's "Organisation City" and "Notum Controller" exits (2026-11-15): a window titled "Vehicle" lists the
   places (the city, the tower fields) with their playfields; "Go!" with a row selected takes the character there;
   "Close" does nothing more. The log's "grid: the destinations' list ..." line is wanted for a test.

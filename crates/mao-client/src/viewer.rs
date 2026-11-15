@@ -86,6 +86,8 @@ pub struct Input {
     /// The teleport target window's answer: a counter that steps with each, and the row picked (its number, playfield and
     /// identity) or none.
     pub grid: (u8, crate::teleport::Answer),
+    /// What the city controller's window asks for: a counter that steps with each, and the command.
+    pub city: (u8, crate::cityterminal::Command),
     /// A perk rank to train or untrain: a counter that steps with each, the rank and whether to train it.
     pub train_perk: (u8, u32, bool),
     /// A command to the pets (`/pet`): a counter that steps with each, and the `PetCommand` number.
@@ -270,6 +272,8 @@ pub struct Update {
     pub mail_flags: Option<(u32, u32)>,
     /// The places a grid exit leads to, when the server sends them (the teleport target window's rows).
     pub teleport: Option<Vec<crate::teleport::Row>>,
+    /// The city controller's session as it opens or changes (`Some(None)`: it ended).
+    pub city: Option<Option<crate::cityterminal::Session>>,
     /// A shop the server opened (stock), and a note for the shop window.
     pub shop: Option<crate::shop::ShopState>,
     pub shop_status: Option<String>,
@@ -1657,6 +1661,9 @@ impl ApplicationHandler for App {
                             if let Some(rows) = u.teleport.take() {
                                 ui.teleport.set(rows);
                             }
+                            if let Some(session) = u.city.take() {
+                                ui.city_terminal.set(session);
+                            }
                             if let Some(n) = u.mail_count.take() {
                                 ui.mail.count = Some(n);
                                 ui.mail.status = format!("The inbox holds {n} messages.");
@@ -2941,6 +2948,9 @@ impl ApplicationHandler for App {
                     }
                     if let Some(answer) = requests.teleport.take() {
                         self.keys.grid = (self.keys.grid.0.wrapping_add(1), answer);
+                    }
+                    if let Some(command) = requests.city.take() {
+                        self.keys.city = (self.keys.city.0.wrapping_add(1), command);
                     }
                     // (the info view's item pages: N3's item descriptions, built here from the database; a mission's from the
                     // journal's list)
