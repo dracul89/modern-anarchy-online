@@ -499,6 +499,8 @@ struct World {
     /// (or ended) since the window was last told.
     city: Option<crate::cityterminal::Session>,
     city_changed: bool,
+    /// The controller's map is to be told the houses and the building items again.
+    city_map_due: bool,
     grid_token: Vec<u8>,
     /// The usable objects the server announces (doors, mail terminals, booths: identity type
     /// 0xc76a, message `4f474e05`) with their positions; targeted with Ctrl+Tab and used with E.
@@ -2866,22 +2868,26 @@ impl World {
                     if !self.houses.contains(&house) {
                         self.houses.push(house);
                         self.houses_changed = true;
+                        self.city_map_due = true;
                     }
                 }
                 Some(Signal::HouseRemoved(x, z)) => {
                     let before = self.houses.len();
                     self.houses.retain(|h| h.tile() != (x, z));
                     self.houses_changed |= self.houses.len() != before;
+                    self.city_map_due = true;
                 }
                 Some(Signal::DemolishStarted(x, z)) => {
                     for house in self.houses.iter_mut().filter(|h| h.tile() == (x, z)) {
                         house.flag = true;
                     }
+                    self.city_map_due = true;
                 }
                 Some(open @ Signal::Open { .. }) => {
                     if self.city.is_none() {
                         self.city = crate::cityterminal::Session::open(&open);
                         self.city_changed = true;
+                        self.city_map_due = true;
                     }
                 }
                 Some(Signal::Close(_)) => self.city_changed |= self.city.take().is_some(),
@@ -5909,6 +5915,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut pending_destinations = state.destinations.take();
         let mut pending_teleport: Option<Vec<crate::teleport::Row>> = None;
         let mut pending_city: Option<Option<crate::cityterminal::Session>> = None;
+        let mut pending_city_map: Option<crate::citymap::Data> = None;
         let (mut mission_wait, mut mission_used): (Option<Instant>, bool) = (None, false);
         let (mut mission_seen, mut pending_missions, mut pending_mission_status): (u8, Option<Vec<crate::mission::Offer>>, Option<String>) = (0, None, None);
         // Mail: the answer's count and notes for the window, when the inbox request is due, and when the last send went out.
@@ -6350,6 +6357,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         pending_city = Some(state.city.clone());
                     }
                     if let Some(entries) = state.inventory.take() {
+                        state.city_map_due |= state.city.is_some();
                         state.worn = entries.clone();
                         if !std::mem::replace(&mut backpack_logged, true) {
                             backpack_line(&entries);
@@ -7154,6 +7162,13 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 }
                 houses_drawn = !state.houses.is_empty();
             }
+            // The controller's map: the city's houses, the backpack's building items and the playfield's zones.
+            if std::mem::take(&mut state.city_map_due)
+                && let Some(city) = state.city.as_ref().map(|s| s.city.city.1)
+            {
+                let backpack: Vec<(u32, u32)> = state.worn.iter().filter(|e| e.slot >= inventory::BACKPACK_FIRST).map(|e| (e.slot, e.low_id)).collect();
+                pending_city_map = Some(crate::houses::map_data(&thread_db, current, city, &state.houses, &backpack, &template_stat));
+            }
             // The mail windows: check the inbox at the nearest known terminal, or send a mail.
             while let Ok(command) = mail_rx.try_recv() {
                 match command {
@@ -7638,6 +7653,18 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         Command::Close => connection.send(&mao_net::city::close_session(own, city)),
                         Command::Advantages => connection.send(&n3::org_command(own, mao_net::city::ORG_SHOW_CITY, (0, 0), 0, "", false)),
                         Command::ToggleCloak => connection.send(&mao_net::city::toggle_cloak(own, city)),
+                        // (`ClientRequestDemolish`: the house's tile as the playfield's list has it)
+                        Command::Demolish(x, z) => connection.send(&mao_net::city::demolish(own, city, (x, z))),
+                        // (`ClientRequestBuild` for each waiting house, the headquarters first: its template, its tile,
+                        // its turn and the building item by its place in the inventory, `(0x68, place)`)
+                        Command::Construct => {
+                            let builds: Vec<crate::citymap::Build> = std::mem::take(&mut *crate::cityterminal::BUILDS.lock().unwrap_or_else(|e| e.into_inner()));
+                            for b in &builds {
+                                eprintln!("city: build template {:#x} on tile ({}, {}) turned {} with the item of place {}", b.template, b.tile.0, b.tile.1, b.rotation, b.slot);
+                                let _ = connection.send(&mao_net::city::build(own, city, (mao_formats::house::KIND, b.template), b.tile, b.rotation, (0x68, b.slot)));
+                            }
+                            Ok(())
+                        }
                     };
                 }
             }
@@ -9127,6 +9154,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     mail_flags: pending_mail_flags.take(),
                     teleport: pending_teleport.take(),
                     city: pending_city.take(),
+                    city_map: pending_city_map.take(),
                     mail_status: pending_mail_status.take(),
                     destinations: pending_destinations.take(),
                     heading: Some(heading),

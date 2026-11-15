@@ -23,7 +23,7 @@ const WALL: u16 = 0x4000;
 
 /// The white veil the original's playfield map lays under the ground's textures (`PFMapGroundRenderer_c`, FUN_10047964:
 /// a quad of 0xbbffffff blended over the shadow textures): its strength.
-const VEIL: u8 = 0xbb;
+pub(crate) const VEIL: u8 = 0xbb;
 
 /// How far around the character the map is revealed, in world units.
 const REVEAL: f32 = 75.0;
@@ -398,6 +398,12 @@ impl AutoMap {
         }
         self.dirty = false;
         self.last_upload = std::time::Instant::now();
+    }
+
+    /// The playfield's ground from above, for another view that draws it (the city controller's map): the texture
+    /// and the world units it spans.
+    pub fn ground_texture(&self) -> Option<(egui::TextureId, [f32; 2])> {
+        self.ground.as_ref().map(|(texture, extent)| (texture.id(), *extent))
     }
 
     /// Paints the map into `rect`: the world point `center` in its middle, `px_per_unit` pixels to a world unit,

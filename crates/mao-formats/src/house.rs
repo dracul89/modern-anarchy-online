@@ -50,8 +50,13 @@ pub struct Template {
     pub inside: u32,
     pub tiles_x: i32,
     pub tiles_z: i32,
+    /// The tiles of the footprint's rectangle the house covers (`HouseLayout_c`'s bits, city.dll 0x10013f65): tile
+    /// (x, z) is bit `z * tiles_x + x`, low bit first. Every template but one headquarters covers all of its.
+    pub mask: Vec<u8>,
     pub visuals: Vec<Visual>,
     pub doors: Vec<Door>,
+    /// Where the house's guards stand (its guard records' places, as the doors' are measured).
+    pub guards: Vec<[f32; 3]>,
     /// The collision surface's bytes (none for a house without one).
     pub surface: Vec<u8>,
 }
@@ -110,6 +115,36 @@ fn turned(p: [f32; 3], degrees: i32) -> [f32; 3] {
     [p[0] * c + p[2] * s, p[1], -p[0] * s + p[2] * c]
 }
 
+/// [`Template::rotate_local`] for a footprint of `tiles`.
+pub fn rotate_in(tiles: (i32, i32), p: [f32; 3], degrees: i32) -> [f32; 3] {
+    let c = [tiles.0 as f32 * TILE * 0.5, 0.0, tiles.1 as f32 * TILE * 0.5];
+    let moved = turned([p[0] - c[0], p[1] - c[1], p[2] - c[2]], degrees);
+    let middle = turned(c, degrees);
+    [moved[0] + middle[0].abs(), moved[1] + middle[1].abs(), moved[2] + middle[2].abs()]
+}
+
+/// Whether a footprint's mask has its tile (x, z) of `tiles` (`HouseLayout_c::GetTile`, city.dll 0x1001368d).
+pub fn covers(mask: &[u8], tiles: (i32, i32), x: i32, z: i32) -> bool {
+    (0..tiles.0).contains(&x) && (0..tiles.1).contains(&z) && {
+        let bit = (z * tiles.0 + x) as usize;
+        mask.get(bit / 8).is_some_and(|b| b >> (bit % 8) & 1 == 1)
+    }
+}
+
+/// Whether a footprint turned by `degrees` covers its tile (x, z), counted from the turned footprint's least corner
+/// (`HouseLayout_c`'s turning constructor, city.dll 0x10013bc9: a quarter turn sends (x, z) to (tiles z - 1 - z, x),
+/// a half to (tiles x - 1 - x, tiles z - 1 - z), three quarters to (z, tiles x - 1 - x); another turn covers nothing).
+pub fn covers_turned(mask: &[u8], tiles: (i32, i32), degrees: i32, x: i32, z: i32) -> bool {
+    let (sx, sz) = match degrees {
+        0 => (x, z),
+        90 => (z, tiles.1 - 1 - x),
+        180 => (tiles.0 - 1 - x, tiles.1 - 1 - z),
+        270 => (tiles.0 - 1 - z, x),
+        _ => return false,
+    };
+    covers(mask, tiles, sx, sz)
+}
+
 impl Template {
     /// The record (the whole database object, its head included); none when it is not a version 4 one or it ends early.
     pub fn parse(record: &[u8]) -> Option<Template> {
@@ -127,17 +162,23 @@ impl Template {
         if bits < 0 || tiles_x <= 0 || tiles_z <= 0 {
             return None;
         }
-        r.take((bits as usize).div_ceil(8))?;
+        let mask = r.take((bits as usize).div_ceil(8))?.to_vec();
         let visuals = (0..r.count()?).map(|_| Some(Visual { mesh: r.u32()?, position: r.place()?, rotation: r.i32()? })).collect::<Option<Vec<_>>>()?;
         let doors = (0..r.count()?).map(|_| Some(Door { template: r.u32()?, position: r.place()?, rotation: r.i32()?.wrapping_neg() })).collect::<Option<Vec<_>>>()?;
-        for _ in 0..r.count()? {
-            r.take(24)?;
-        }
+        // (a guard: four bytes of a name, a level, the place and a turn)
+        let guards = (0..r.count()?)
+            .map(|_| {
+                r.take(8)?;
+                let place = r.place()?;
+                r.i32()?;
+                Some(place)
+            })
+            .collect::<Option<Vec<_>>>()?;
         for _ in 0..r.count()? {
             r.text()?;
             r.u32()?;
         }
-        Some(Template { kind, inside, tiles_x, tiles_z, visuals, doors, surface: record[r.at..].to_vec() })
+        Some(Template { kind, inside, tiles_x, tiles_z, mask, visuals, doors, guards, surface: record[r.at..].to_vec() })
     }
 
     /// A place inside the template for a house turned by `degrees` (`CityHouseTemplate_c::RotateLocalPos`,
@@ -145,10 +186,12 @@ impl Template {
     /// footprint has it, so that the result is again measured from the least corner. For a quarter turn (x, z)
     /// becomes (Lz - z, x), for a half (Lx - x, Lz - z), for three quarters (z, Lx - x).
     pub fn rotate_local(&self, p: [f32; 3], degrees: i32) -> [f32; 3] {
-        let c = [self.tiles_x as f32 * TILE * 0.5, 0.0, self.tiles_z as f32 * TILE * 0.5];
-        let moved = turned([p[0] - c[0], p[1] - c[1], p[2] - c[2]], degrees);
-        let middle = turned(c, degrees);
-        [moved[0] + middle[0].abs(), moved[1] + middle[1].abs(), moved[2] + middle[2].abs()]
+        rotate_in((self.tiles_x, self.tiles_z), p, degrees)
+    }
+
+    /// Whether the unturned footprint covers its tile (x, z).
+    pub fn covers(&self, x: i32, z: i32) -> bool {
+        covers(&self.mask, (self.tiles_x, self.tiles_z), x, z)
     }
 
     /// The collision surface's triangles for a house turned by `degrees`, measured from the house's place
@@ -167,6 +210,26 @@ impl Template {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The one headquarters with an L of a footprint (template 0x6a0000's mask: ten by ten, the rows z 0 to 4 with
+    /// x 0 to 4 only), turned.
+    #[test]
+    fn a_footprints_tiles_turn_with_the_house() {
+        let mask = [0x1f, 0x7c, 0xf0, 0xc1, 0x07, 0x1f, 0xfc, 0xff, 0xff, 0xff, 0xff, 0xff, 0x0f];
+        let t = (10, 10);
+        let count = |degrees: i32| (0..10).flat_map(|z| (0..10).map(move |x| (x, z))).filter(|&(x, z)| covers_turned(&mask, t, degrees, x, z)).count();
+        assert_eq!([count(0), count(90), count(180), count(270), count(45)], [75, 75, 75, 75, 0]);
+        assert!(covers(&mask, t, 4, 0) && !covers(&mask, t, 5, 0) && covers(&mask, t, 9, 5) && !covers(&mask, t, 10, 5));
+        // (the clear corner, x 5..9 by z 0..4, goes to x 5..9 by z 5..9 with a quarter turn: (x, z) to (9 - z, x))
+        assert!(!covers_turned(&mask, t, 90, 9, 9) && !covers_turned(&mask, t, 90, 5, 5) && covers_turned(&mask, t, 90, 4, 9) && covers_turned(&mask, t, 90, 9, 4));
+        // (and to x 0..4 by z 5..9 with a half turn, x 0..4 by z 0..4 with three quarters)
+        assert!(!covers_turned(&mask, t, 180, 0, 9) && covers_turned(&mask, t, 180, 0, 0));
+        assert!(!covers_turned(&mask, t, 270, 0, 0) && covers_turned(&mask, t, 270, 9, 0));
+        // (a footprint that is not square: three by two, its tile (2, 0) alone clear)
+        let l = [0b111011];
+        assert!(covers_turned(&l, (3, 2), 90, 1, 0) && !covers_turned(&l, (3, 2), 90, 1, 2) && covers_turned(&l, (3, 2), 90, 0, 2));
+        assert!(!covers_turned(&l, (3, 2), 90, 2, 0));
+    }
 
     #[test]
     fn a_place_turns_about_the_footprints_middle() {

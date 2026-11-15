@@ -1,5 +1,6 @@
 //! A city's controller window, GUI.dll's `CityTerminalWindow_c` (FUN_100e7847 on `Views/CityTerminal.xml`), and the
-//! session behind it, city.dll's `CityClientInterface_c`. The whole reading is `docs/CITY_CONTROLLER_ORIGINAL.md`.
+//! session behind it, city.dll's `CityClientInterface_c`. The readings are `docs/CITY_CONTROLLER_ORIGINAL.md` and
+//! `docs/CITY_MAP_ORIGINAL.md`.
 //!
 //! The controller is used as any terminal is; the server answers with `AOTransportSignal` code 5 (`mao_net::city`),
 //! which opens the session and the window (`CityTerminalGUIModule_c::SlotOpenCityTerminal`, FUN_100e6c24). While the
@@ -16,13 +17,23 @@
 //!   while the device is on, enabled with lease mode 3 while the server lets it be switched; a press sends the
 //!   request at once, FUN_100e72a2: the original asks nothing first).
 //!
+//! The map (`BuildingMapView_c`; its keeping is `citymap.rs`): the ground from above, 2 pixels to a world unit, over
+//! the city's zones and 50 units round them, in a scroll view; on it the zones' tiles a house may stand on, the
+//! houses (yellow; blue-green once their demolishing began; the selected one bright), the houses about to be built
+//! (green where they may stand, red where not) and a dot for each door (blue) and guard (red). A building item of the
+//! inventory let go on the map (build mode) waits there as a house about to be built, its least corner on the tile
+//! under the pointer; it can be dragged, turned ("Rotate") and taken off ("Delete"). "Construct" asks the server for
+//! every waiting house at once, the headquarters first; "Demolish" for the selected standing house's demolishing.
+//! **Neither asks first, as the original's do not, and neither can be taken back.** The map only shows, and the
+//! buttons are not there, unless the lease mode is 3 and the opening's third word 0 or 1.
+//!
 //! The window's close request (FUN_100e7203) only asks the server to end the session: the window stays till the
 //! server's code 7.
 //!
-//! **Not here yet:** the city's map (`BuildingMapView_c`), so the build and demolish tabs show their texts and their
-//! buttons, none of which can be pressed without a house chosen on the map; and GUI type 1, the dialog that buys the
-//! land.
+//! **Not here:** GUI type 1, the dialog that buys the land; the lock the original puts on an item that waits on the
+//! map (here such an item is not taken a second time); the pointer's place as a tip over the map.
 
+use crate::citymap::{Build, Geometry, Map, Mode, Refusal, TILE};
 use crate::gui::view::{Id, Tree};
 use crate::theme::Palette;
 use mao_net::city::{CityId, Signal};
@@ -75,6 +86,12 @@ impl Session {
     pub fn full(&self) -> bool {
         self.lease == 3
     }
+
+    /// Whether the map may build and demolish (`HouseBuildView_c`'s read-only flag, FUN_100e7e89, the other way
+    /// round): lease mode 3 and the opening's third word 0 or 1.
+    pub fn may_build(&self) -> bool {
+        self.lease == 3 && self.third <= 1
+    }
 }
 
 /// What the window asks of the network loop.
@@ -87,7 +104,15 @@ pub enum Command {
     Advantages,
     /// The cloaking device switched the other way.
     ToggleCloak,
+    /// The standing house on this tile to be demolished.
+    Demolish(i32, i32),
+    /// The houses in [`BUILDS`] to be built.
+    Construct,
 }
+
+/// The houses "Construct" asks for, till the network loop takes them (the command itself carries nothing: the loop's
+/// input is one small value a frame).
+pub static BUILDS: std::sync::Mutex<Vec<Build>> = std::sync::Mutex::new(Vec::new());
 
 /// The next bill's date as the original writes it (`strftime("%#x")`, the long date of the user's locale: here the
 /// English one, "Sunday, November 15, 2026").
@@ -97,18 +122,38 @@ pub fn long_date(unix: i64) -> String {
     format!("{}, {} {:02}, {}", local.weekday(), local.month(), local.day(), local.year())
 }
 
+/// What a tab shows: a view of its own, or the house view in one of its modes.
+#[derive(Clone, Copy, PartialEq)]
+enum Page {
+    View(usize),
+    Houses(Mode),
+}
+
 struct Views {
-    /// The tabs' names and views.
-    tabs: Vec<(String, Tree, Id)>,
+    trees: Vec<(Tree, Id)>,
+    /// The tabs' names and pages.
+    tabs: Vec<(String, Page)>,
+    /// The tree with the map's dock (the house view, or the inspect panel).
+    map: Option<usize>,
+}
+
+/// The mouse on the map (`BuildingMapView_c` +0x4b8): a pending node dragged (the pointer's place from the node's
+/// least corner as the drag began), or the map scrolled.
+#[derive(Clone, Copy, PartialEq)]
+enum Drag {
+    Node([f32; 2]),
+    Scroll,
 }
 
 #[derive(Default)]
 pub struct CityTerminalWindow {
     pub session: Option<Session>,
+    pub map: Map,
     views: Option<Views>,
     /// What the views were last filled from.
     shown: Option<Session>,
     tab: usize,
+    drag: Option<Drag>,
 }
 
 fn set_text(tree: &mut Tree, root: Id, name: &str, text: &str) {
@@ -133,75 +178,125 @@ fn add_charge_bar(tree: &mut Tree, root: Id) {
     }
 }
 
+/// The text of a drop's refusal (the original's error box).
+fn refusal_text(refusal: &Refusal) -> String {
+    match refusal {
+        Refusal::NotAHouse => crate::gui::xml::ldb_named(10000, "OnlyDropHousesOnMap", "Only building items can be put on the map."),
+        Refusal::Side(side) => {
+            let name = crate::feedback::texts().and_then(|t| t.get(2005, *side as i32)).unwrap_or("another side").to_string();
+            let text = crate::gui::xml::ldb_named(10002, "CityTerminal_HouseCanOnlyBeBuiltBy", "This building can only be built by %s.");
+            mao_formats::ldb::format(&text, &[mao_formats::ldb::Arg::Text(&name)])
+        }
+        Refusal::Limit(key) => crate::gui::xml::ldb_named(10000, key, "The city cannot have another building of this kind."),
+    }
+}
+
 impl CityTerminalWindow {
     /// The server's word on the session: `Some` as it opens or changes, `None` as it ends.
     pub fn set(&mut self, session: Option<Session>) {
         // (a window of another kind is closed first: the views are made anew)
-        if session.as_ref().map(|s| (s.gui_type, s.lease == 1)) != self.session.as_ref().map(|s| (s.gui_type, s.lease == 1)) {
+        let kind = |s: &Session| (s.gui_type, s.lease == 1, s.may_build());
+        if session.as_ref().map(kind) != self.session.as_ref().map(kind) {
             self.views = None;
             self.tab = 0;
+        }
+        if session.is_none() {
+            self.map = Map::default();
+            self.drag = None;
+        }
+        if let Some(s) = &session {
+            self.map.no_market = s.city.model.0 == 0xc79e;
         }
         self.session = session;
         self.shown = None;
     }
 
-    /// A sample for a headless preview.
+    /// The network loop's word on the houses, the building items and the zones.
+    pub fn set_map(&mut self, data: crate::citymap::Data) {
+        self.map.set(data);
+    }
+
+    /// A sample for a headless preview: a made-up session over made-up zones, two houses standing and two waiting.
     pub fn sample() -> CityTerminalWindow {
+        use crate::citymap::{Buildable, Data, Node, Shape, Zones};
         let mut w = CityTerminalWindow::default();
         w.set(Some(Session { city: CityId { city: (0xc419, 0xc000), playfield: 1, model: (0xc79e, 6010) }, gui_type: 2, lease: 3, third: 0, org: "An organisation".into(), upkeep: 15_000_000, bill: Some(1_794_750_000), cloak: 1, cloak_possible: true, charge: 0.6 }));
         w.tab = std::env::var("MAO_CITY_TAB").ok().and_then(|t| t.parse().ok()).unwrap_or(0);
+        let shape = |kind: i32, tiles: (i32, i32)| Shape { kind, tiles, mask: vec![0xff; ((tiles.0 * tiles.1 + 7) / 8) as usize], doors: vec![[tiles.0 as f32 * 2.0, 0.0, 1.0]], guards: vec![[2.0, 0.0, tiles.1 as f32 * 4.0 - 2.0]] };
+        let standing = |kind: i32, tiles: (i32, i32), tile: (i32, i32), demolishing: bool| Node { item: None, template: kind as u32, shape: shape(kind, tiles), tile, rotation: 0, demolishing, valid: true };
+        let zones = Zones((0..3).flat_map(|z| (0..4).map(move |x| ((210 + x * 10, 280 + z * 10), if (x + z) % 2 == 0 { [0xff; 13] } else { [0x55; 13] }))).collect());
+        w.set_map(Data {
+            houses: vec![standing(1, (8, 6), (211, 301), false), standing(0, (4, 4), (222, 301), true)],
+            buildables: vec![Buildable { slot: 70, template: 50, side: None, shape: shape(0, (5, 3)) }, Buildable { slot: 71, template: 51, side: None, shape: shape(0, (3, 3)) }],
+            zones,
+            tiles: (600, 600),
+            costs: (500_000_000, 15_000_000),
+        });
+        let _ = w.map.drop_item(70, (231, 302), None);
+        let _ = w.map.drop_item(71, (224, 303), None);
+        w.map.select(Some(0));
         w
     }
 
     fn load(ctx: &egui::Context, session: &Session) -> Option<Views> {
         let dirs: Vec<std::path::PathBuf> = crate::skin::skin(ctx).map(|s| s.dirs().into_iter().map(|d| d.to_path_buf()).collect()).unwrap_or_default();
+        let text = dirs.iter().find_map(|d| mao_formats::files::read(d.join("Views").join("CityTerminal.xml")).ok())?;
+        let document = crate::gui::xml::parse(&String::from_utf8_lossy(&text));
         let view = |name: &str| {
-            let (mut tree, root) = crate::gui::load_view(&dirs, "CityTerminal.xml", name)?;
+            let mut tree = Tree::default();
             tree.measure = crate::gui::font::Measure { ctx: Some(ctx.clone()) };
+            let root = crate::gui::create(&mut tree, &crate::gui::xml::view_element(&document, name)?)?;
             Some((tree, root))
         };
         let caption = |name: &str, own: &str| crate::gui::xml::ldb_named(10000, name, own);
-        let long = |name: &str, own: &str| crate::gui::xml::ldb_named(10002, name, own);
-        let mut tabs = Vec::new();
+        let (mut trees, mut tabs, map);
+        (trees, tabs) = (Vec::new(), Vec::new());
         if session.lease == 1 {
             let (mut tree, root) = view("InspectCityPanel")?;
             add_charge_bar(&mut tree, root);
-            tabs.push((caption("CityTerminal", "City Terminal"), tree, root));
+            map = Some(0);
+            trees.push((tree, root));
+            tabs.push((caption("CityTerminal", "City Terminal"), Page::View(0)));
         } else {
             let (mut tree, root) = view("UpkeepController")?;
             add_charge_bar(&mut tree, root);
-            set_text(&mut tree, root, "InfoTextView", &long("CityTerminal_UpkeepControllerHelpText", ""));
-            tabs.push((caption("UpkeepController", "Upkeep"), tree, root));
-            // (`HouseBuildView_c`: the map's view and the control view beside it, once for each of its two tabs here)
-            for (key, own, text, page) in [("BuildHouses", "Build", "CityTerminal_BuildMapInfoText", 0), ("DemolishHouses", "Demolish", "CityTerminal_DemolishInfoText", 1)] {
-                let (mut tree, root) = view("CityMapControlView")?;
-                set_text(&mut tree, root, "InfoTextView", &long(text, ""));
-                if let Some(selector) = tree.find(root, "ButtonSelector") {
-                    crate::gui::selector::set_value(&mut tree, selector, page);
-                }
-                // (no map yet: nothing can be chosen, so nothing can be pressed)
-                for button in ["RotateButton", "DeleteButton", "ConstructButton", "DemolishButton"] {
-                    if let Some(id) = tree.find(root, button) {
-                        tree.get_mut(id).enabled = false;
-                    }
-                }
-                tabs.push((caption(key, own), tree, root));
+            set_text(&mut tree, root, "InfoTextView", &crate::gui::xml::ldb_named(10002, "CityTerminal_UpkeepControllerHelpText", ""));
+            trees.push((tree, root));
+            tabs.push((caption("UpkeepController", "Upkeep"), Page::View(0)));
+            // (`HouseBuildView_c` FUN_100e8108: the map's view with the control view beside it, shown by two tabs; the
+            // control view is not there when the map only shows)
+            let (mut tree, root) = view("CityMapView")?;
+            if session.may_build()
+                && let Some(controls) = crate::gui::xml::view_element(&document, "CityMapControlView").and_then(|e| crate::gui::create(&mut tree, &e))
+            {
+                tree.add_child(root, controls);
             }
+            map = Some(1);
+            trees.push((tree, root));
+            tabs.push((caption("BuildHouses", "Build"), Page::Houses(Mode::Build)));
+            tabs.push((caption("DemolishHouses", "Demolish"), Page::Houses(Mode::Demolish)));
             let (mut tree, root) = view("CloakingController")?;
             if let Some(id) = tree.find(root, "EnableCloakingDeviceButton")
                 && let Some(b) = tree.control_mut::<crate::gui::controls::Button>(id)
             {
                 b.toggle = true;
             }
-            tabs.push((caption("Misc", "Misc"), tree, root));
+            trees.push((tree, root));
+            tabs.push((caption("Misc", "Misc"), Page::View(2)));
         }
-        Some(Views { tabs })
+        // (the map's dock takes the room there is: the original puts a scroll view in it, which does)
+        for (tree, root) in &mut trees {
+            if let Some(dock) = tree.find(*root, "MapViewDock") {
+                tree.get_mut(dock).max_extend = crate::gui::geom::Point::new(16000.0, 16000.0);
+            }
+        }
+        Some(Views { trees, tabs, map })
     }
 
     /// The views filled from the session (the slots of the interface's signals: FUN_100e91af, FUN_100e92a4,
     /// FUN_100e91c6, FUN_100e9242, FUN_100e918e, FUN_100e70c5).
     fn fill(views: &mut Views, s: &Session) {
-        for (_, tree, root) in &mut views.tabs {
+        for (tree, root) in &mut views.trees {
             let root = *root;
             set_text(tree, root, "OrgNameView", &s.org);
             set_text(tree, root, "UpkeepDateView", &s.bill.map(long_date).unwrap_or_default());
@@ -223,13 +318,147 @@ impl CityTerminalWindow {
         }
     }
 
-    /// Draws the window; what it asks for.
-    pub fn show(&mut self, ctx: &egui::Context, palette: &Palette) -> Option<Command> {
+    /// The house view's mode (FUN_100e7f62): its text, its page of buttons, and which of them can be pressed
+    /// (FUN_100e7eb2, FUN_100e7ec9).
+    fn house_controls(tree: &mut Tree, root: Id, map: &Map) {
+        let (text, page) = match map.mode {
+            Mode::Demolish => ("CityTerminal_DemolishInfoText", 1),
+            _ => ("CityTerminal_BuildMapInfoText", 0),
+        };
+        set_text(tree, root, "InfoTextView", &crate::gui::xml::ldb_named(10002, text, ""));
+        if let Some(selector) = tree.find(root, "ButtonSelector")
+            && crate::gui::selector::value(tree, selector) != page
+        {
+            crate::gui::selector::set_value(tree, selector, page);
+            tree.relayout = true;
+        }
+        for (button, enabled) in [("RotateButton", map.pending_selected()), ("DeleteButton", map.pending_selected()), ("ConstructButton", map.can_construct), ("DemolishButton", map.standing_selected())] {
+            if let Some(id) = tree.find(root, button) {
+                tree.get_mut(id).enabled = enabled;
+            }
+        }
+    }
+
+    /// The map in its dock: drawn, and the mouse on it.
+    fn show_map(&mut self, ui: &mut egui::Ui, ground: Option<(egui::TextureId, [f32; 2])>, own_side: Option<i64>) {
+        let Some(g) = Geometry::new(&self.map.zones, self.map.tiles) else { return };
+        let skin = crate::skin::skin(ui.ctx());
+        let (map, drag) = (&mut self.map, &mut self.drag);
+        egui::ScrollArea::both().id_salt("city-map").auto_shrink([false, false]).scroll_source(egui::scroll_area::ScrollSource { drag: egui::scroll_area::DragScroll::Never, ..egui::scroll_area::ScrollSource::ALL }).show(ui, |ui| {
+            let (rect, response) = ui.allocate_exact_size(egui::vec2(g.size[0], g.size[1]), egui::Sense::click_and_drag());
+            let visible = ui.clip_rect();
+            let painter = ui.painter_at(rect.intersect(visible));
+            let at = |p: [f32; 2]| rect.min + egui::vec2(p[0], p[1]);
+            // (black, then the ground from above under its veil, as the playfield map draws it)
+            painter.rect_filled(rect, 0.0, egui::Color32::BLACK);
+            if let Some((texture, extent)) = ground {
+                let (low, right) = (g.top - g.size[1] / crate::citymap::SCALE, g.left + g.size[0] / crate::citymap::SCALE);
+                let uv = egui::Rect::from_min_max(egui::pos2(g.left / extent[0], g.top / extent[1]), egui::pos2(right / extent[0], low / extent[1]));
+                let mut mesh = egui::Mesh::with_texture(texture);
+                mesh.add_rect_with_uv(rect, uv, egui::Color32::from_gray(crate::automap::VEIL));
+                painter.add(egui::Shape::mesh(mesh));
+            }
+            // (the overlay's tiles, a later one in place of an earlier: the zones, the standing houses, the waiting
+            // ones, the selected one; FUN_100e3fe7's words as colours)
+            let colour = |r: u8, gr: u8, b: u8, a: u8| egui::Color32::from_rgba_unmultiplied(r, gr, b, a);
+            let mut tiles: std::collections::HashMap<(i32, i32), egui::Color32> = map.zones.tiles().map(|t| (t, colour(0, 0, 255, 68))).collect();
+            let selected = map.selected;
+            for (_, n) in map.nodes.iter().enumerate().filter(|(i, n)| !n.pending() && Some(*i) != selected) {
+                tiles.extend(n.tiles().map(|t| (t, if n.demolishing { colour(0, 136, 136, 136) } else { colour(136, 136, 0, 136) })));
+            }
+            for (_, n) in map.nodes.iter().enumerate().filter(|(i, n)| n.pending() && Some(*i) != selected) {
+                tiles.extend(n.tiles().map(|t| (t, if n.valid { colour(0, 136, 0, 136) } else { colour(136, 0, 0, 136) })));
+            }
+            if let Some(n) = selected.and_then(|i| map.nodes.get(i)) {
+                let c = match (n.pending(), n.valid) {
+                    (false, _) => colour(255, 255, 0, 136),
+                    (true, true) => colour(0, 255, 0, 136),
+                    (true, false) => colour(255, 0, 0, 136),
+                };
+                tiles.extend(n.tiles().map(|t| (t, c)));
+            }
+            let side = TILE * crate::citymap::SCALE;
+            for (tile, c) in &tiles {
+                let r = egui::Rect::from_min_size(at(g.tile_pixel(*tile)), egui::vec2(side, side));
+                if r.intersects(visible) {
+                    painter.rect_filled(r, 0.0, *c);
+                }
+            }
+            // (a dot for each door, then for each guard, of every node: `GFX_GUI_MAPDOT_BLUE` and `_RED`, 4 pixels)
+            for (guards, picture, own) in [(false, "GFX_GUI_MAPDOT_BLUE", colour(60, 120, 255, 255)), (true, "GFX_GUI_MAPDOT_RED", colour(255, 60, 60, 255))] {
+                for n in &map.nodes {
+                    for local in if guards { &n.shape.guards } else { &n.shape.doors } {
+                        let r = egui::Rect::from_center_size(at(g.marker_pixel(n.place(*local))), egui::vec2(4.0, 4.0));
+                        if !skin.as_deref().is_some_and(|s| s.draw_in(&painter, picture, r, egui::Color32::WHITE)) {
+                            painter.rect_filled(r, 0.0, own);
+                        }
+                    }
+                }
+            }
+            // The mouse (FUN_100e56a8, FUN_100e4abf, FUN_100e34e9).
+            let pointer = ui.input(|i| i.pointer.interact_pos()).filter(|p| rect.contains(*p) && visible.contains(*p));
+            let content = |p: egui::Pos2| [p.x - rect.min.x, p.y - rect.min.y];
+            let held = crate::gear::DRAGGED.load(std::sync::atomic::Ordering::Relaxed);
+            if map.mode == Mode::Build && held != u32::MAX {
+                // (an inventory item let go over the map: a house to build with its least corner on that tile, or an
+                // error box. The hand is emptied either way.)
+                if crate::gear::letting_go(ui.ctx())
+                    && let Some(p) = pointer
+                {
+                    if let Err(refusal) = map.drop_item(held, g.tile_at(content(p)), own_side) {
+                        crate::chrome::alert(refusal_text(&refusal));
+                    }
+                    crate::gear::DRAGGED.store(u32::MAX, std::sync::atomic::Ordering::Relaxed);
+                }
+                return;
+            }
+            let (pressed, down) = ui.input(|i| (i.pointer.primary_pressed(), i.pointer.primary_down()));
+            if pressed && let Some(p) = pointer {
+                let p = content(p);
+                *drag = Some(Drag::Scroll);
+                if map.mode != Mode::View {
+                    let hit = map.hit(g.tile_at(p));
+                    if hit != map.selected {
+                        map.select(hit);
+                    }
+                    // (a waiting house under the pointer in build mode is dragged, held where it was taken)
+                    if map.mode == Mode::Build
+                        && let Some(n) = hit.and_then(|i| map.nodes.get(i)).filter(|n| n.pending())
+                    {
+                        let corner = [(n.tile.0 as f32 * TILE - g.left) * crate::citymap::SCALE, (g.top - n.tile.1 as f32 * TILE) * crate::citymap::SCALE];
+                        *drag = Some(Drag::Node([p[0] - corner[0], p[1] - corner[1]]));
+                    }
+                }
+            }
+            if !down {
+                *drag = None;
+            }
+            match *drag {
+                Some(Drag::Node(anchor)) => {
+                    if let Some(p) = ui.input(|i| i.pointer.interact_pos()) {
+                        let p = content(p);
+                        map.move_selected(g.tile_at([p[0] - anchor[0], p[1] - anchor[1]]));
+                    }
+                }
+                Some(Drag::Scroll) => {
+                    let delta = response.drag_delta();
+                    if delta != egui::Vec2::ZERO {
+                        ui.scroll_with_delta(delta);
+                    }
+                }
+                None => {}
+            }
+        });
+    }
+
+    /// Draws the window; what it asks for. `ground` is the playfield's ground from above (the playfield map's
+    /// picture and the world units it spans); `own_side` the character's side (stat 33).
+    pub fn show(&mut self, ctx: &egui::Context, palette: &Palette, ground: Option<(egui::TextureId, [f32; 2])>, own_side: Option<i64>) -> Option<Command> {
         let Some(session) = self.session.clone() else {
             self.views = None;
             return None;
         };
-        // (GUI type 2 only: type 1, the buying of the land, is not here yet)
+        // (GUI type 2 only: type 1, the buying of the land, is not here)
         if session.gui_type != 2 {
             return None;
         }
@@ -249,17 +478,49 @@ impl CityTerminalWindow {
         let mut is_open = true;
         let size = egui::vec2(499.0, 499.0);
         let middle = ctx.content_rect().center() - size / 2.0;
-        let tabs = &mut views.tabs;
+        // (the map's dock on the screen, when the open tab has it)
+        let mut dock = None;
+        let (tabs, trees, map_tree) = (&views.tabs, &mut views.trees, views.map);
+        let may_build = session.may_build();
+        let map = &mut self.map;
         crate::chrome::window(ctx, palette, "CityTerminal", "", &mut is_open, |w| w.default_size(size).resizable(true).default_pos(crate::layout::pos("CityTerminal", middle)), |ui| {
             crate::chrome::tab_view(ui, palette, &names, &mut tab, |ui, tab| {
-                if let Some((_, tree, root)) = tabs.get_mut(tab) {
-                    crate::gui::host::show(ui, tree, *root, skin.as_deref(), palette);
+                let Some(&(_, page)) = tabs.get(tab) else { return };
+                let index = match page {
+                    Page::View(i) => i,
+                    Page::Houses(_) => 1,
+                };
+                // (the map's mode follows the tab, FUN_100e7169; it only shows where nothing may be built)
+                if Some(index) == map_tree {
+                    map.mode = match page {
+                        Page::Houses(mode) if may_build => mode,
+                        _ => Mode::View,
+                    };
+                }
+                let Some((tree, root)) = trees.get_mut(index) else { return };
+                if matches!(page, Page::Houses(_)) {
+                    Self::house_controls(tree, *root, map);
+                }
+                let response = crate::gui::host::show(ui, tree, *root, skin.as_deref(), palette);
+                if Some(index) == map_tree
+                    && let Some(id) = tree.find(*root, "MapViewDock")
+                {
+                    let f = tree.window_frame(id);
+                    let rect = egui::Rect::from_min_max(response.rect.min + egui::vec2(f.left, f.top), response.rect.min + egui::vec2(f.right + 1.0, f.bottom + 1.0));
+                    dock = Some((ui.layer_id(), ui.clip_rect(), rect));
                 }
             });
         });
         self.tab = tab;
+        if let Some((layer, clip, rect)) = dock {
+            // (drawn after the window's own views, in their layer, inside the dock)
+            let mut ui = egui::Ui::new(ctx.clone(), egui::Id::new("city-map-dock"), egui::UiBuilder::new().layer_id(layer).max_rect(rect));
+            ui.set_clip_rect(rect.intersect(clip));
+            self.show_map(&mut ui, ground, own_side);
+        }
+        let views = self.views.as_mut()?;
         let mut command = None;
-        for (_, tree, _) in tabs.iter_mut() {
+        for (tree, _) in views.trees.iter_mut() {
             for (id, signal) in std::mem::take(&mut tree.signals) {
                 if signal != crate::gui::host::Signal::Clicked {
                     continue;
@@ -270,6 +531,20 @@ impl CityTerminalWindow {
                         command = Some(Command::ToggleCloak);
                         // (the button shows the server's word, not the press: it turns when code 14 comes)
                         self.shown = None;
+                    }
+                    "RotateButton" => self.map.rotate(),
+                    "DeleteButton" => self.map.delete(),
+                    "ConstructButton" => {
+                        let builds = self.map.construct();
+                        if !builds.is_empty() {
+                            BUILDS.lock().unwrap_or_else(|e| e.into_inner()).extend(builds);
+                            command = Some(Command::Construct);
+                        }
+                    }
+                    "DemolishButton" => {
+                        if let Some((x, z)) = self.map.demolish() {
+                            command = Some(Command::Demolish(x, z));
+                        }
                     }
                     _ => {}
                 }
@@ -293,7 +568,7 @@ mod tests {
     #[test]
     fn the_session_takes_the_servers_signals() {
         let mut s = Session::open(&open()).unwrap();
-        assert!(s.full() && !s.cloak_possible && s.bill.is_none());
+        assert!(s.full() && s.may_build() && !s.cloak_possible && s.bill.is_none());
         assert!(s.apply(&Signal::Upkeep(15_000_000), 100));
         assert!(s.apply(&Signal::BillIn(3600), 100));
         assert_eq!((s.upkeep, s.bill), (15_000_000, Some(3700)));
@@ -308,8 +583,11 @@ mod tests {
         assert!(s.apply(&Signal::OrgName("Another".into()), 100) && s.org == "Another");
         // (the same again changes nothing; a lease mode below 3 enables nothing)
         assert!(!s.apply(&Signal::Charge(0.25), 100));
-        assert!(s.apply(&Signal::Lease(2), 100) && !s.full());
+        assert!(s.apply(&Signal::Lease(2), 100) && !s.full() && !s.may_build());
         assert_eq!(Session::open(&Signal::Lease(3)), None);
+        // (lease mode 3 with the third word past 1: everything but the map's building)
+        let s = Session { third: 2, ..Session::open(&open()).unwrap() };
+        assert!(s.full() && !s.may_build());
     }
 
     #[test]
@@ -317,6 +595,7 @@ mod tests {
         let mut w = CityTerminalWindow::default();
         let s = Session::open(&open()).unwrap();
         w.set(Some(s.clone()));
+        assert!(w.map.no_market);
         w.tab = 3;
         // (the same kind: the tab stays)
         w.set(Some(Session { charge: 0.5, ..s.clone() }));
@@ -325,7 +604,7 @@ mod tests {
         w.set(Some(Session { lease: 1, ..s }));
         assert_eq!(w.tab, 0);
         w.set(None);
-        assert!(w.session.is_none());
+        assert!(w.session.is_none() && w.map.nodes.is_empty());
     }
 
     #[test]

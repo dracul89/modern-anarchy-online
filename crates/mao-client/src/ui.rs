@@ -1335,7 +1335,7 @@ impl Ui {
                 requests.teleport = teleport_window.show(&ctx, palette);
             }
             if city_terminal.session.is_some() {
-                requests.city = city_terminal.show(&ctx, palette);
+                requests.city = city_terminal.show(&ctx, palette, automap.ground_texture(), hud.stats.get(&33).copied());
             }
             for url in gear.show_inspect(&ctx, &hud.inspected, &hud.stats, palette) {
                 info_view.show_url(&url);
@@ -1797,7 +1797,7 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
                 window.show(&ctx, &palette);
             }
             if let Some(window) = preview_city.as_mut() {
-                window.show(&ctx, &palette);
+                window.show(&ctx, &palette, None, None);
             }
             if gear_open {
                 let _ = gear.show(&ctx, &mut gear_open, &hud.gear, &hud.stats, &palette);

@@ -88,6 +88,43 @@ pub(crate) fn add(db: &ResourceDatabase, houses: &[House], scene: &mut Model, co
     eprintln!("city: {} houses, {placed} meshes placed, {walls} triangles of their surfaces", houses.len());
 }
 
+/// What the city's map draws and tests of a house's template: its type, its footprint and its doors' and guards'
+/// places.
+pub(crate) fn shape(db: &ResourceDatabase, template: u32) -> Option<crate::citymap::Shape> {
+    let record = db.get(Id { kind: mao_formats::house::KIND, instance: template }).ok().flatten()?;
+    let t = mao_formats::house::Template::parse(&record)?;
+    Some(crate::citymap::Shape { kind: t.kind, tiles: (t.tiles_x, t.tiles_z), mask: t.mask, doors: t.doors.iter().map(|d| d.position).collect(), guards: t.guards })
+}
+
+/// The map's data: the city's houses as the map's nodes; the building items of the backpack (an item whose
+/// `HouseTemplate`, stat 620, names a house template that reads) with the side each is for (stat 33); and the zones,
+/// the playfield's size and the land's costs from the playfield's city record (the controller that is the city's:
+/// the high half of its instance is the city's number).
+pub(crate) fn map_data(db: &ResourceDatabase, playfield: u32, city: u32, houses: &[House], backpack: &[(u32, u32)], stat: &dyn Fn(u32, u32) -> Option<i64>) -> crate::citymap::Data {
+    let mut shapes: HashMap<u32, Option<crate::citymap::Shape>> = HashMap::new();
+    let mut shape_of = |template: u32| shapes.entry(template).or_insert_with(|| shape(db, template)).clone();
+    let nodes = houses
+        .iter()
+        .filter_map(|h| Some(crate::citymap::Node { item: None, template: h.template.1, shape: shape_of(h.template.1)?, tile: h.tile(), rotation: h.rotation.rem_euclid(360), demolishing: h.flag, valid: true }))
+        .collect();
+    let buildables = backpack
+        .iter()
+        .filter_map(|&(slot, low)| {
+            let template = stat(low, 620).filter(|&t| t > 0)? as u32;
+            Some(crate::citymap::Buildable { slot, template, side: stat(low, 33), shape: shape_of(template)? })
+        })
+        .collect();
+    let record = db.get(Id { kind: mao_formats::citydata::KIND, instance: playfield }).ok().flatten().and_then(|r| mao_formats::citydata::parse(&r));
+    let controller = record.as_ref().and_then(|r| r.controllers.iter().find(|c| c.identity.1 >> 16 == city).or(r.controllers.first()));
+    crate::citymap::Data {
+        houses: nodes,
+        buildables,
+        zones: crate::citymap::Zones(controller.map(|c| c.zones.iter().map(|z| (z.corner, z.mask)).collect()).unwrap_or_default()),
+        tiles: record.as_ref().map_or((0, 0), |r| r.tiles),
+        costs: controller.map_or((0, 0), |c| (c.purchase_cost, c.upkeep)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     /// `MAO_GAME`: a city's nine houses (the whole list of the user's log of 2026-11-15) have their doors where the
@@ -111,6 +148,18 @@ mod tests {
             }
         }
         assert_eq!(doors.len(), 6);
+        // (the same city on the controller's map: every house lies in the city's zones as the original's test wants
+        // a new one to, no two share a tile, and the view is the original's 842 by 1082 pixels)
+        let data = super::map_data(&db, 6010, 0xc000, &houses, &[], &|_, _| None);
+        assert_eq!((data.houses.len(), data.zones.0.len(), data.tiles, data.costs), (9, 74, (600, 600), (500_000_000, 15_000_000)));
+        for (i, a) in data.houses.iter().enumerate() {
+            assert!(data.zones.can_build(a), "house {i} at {:?} turned {} is not in the zones", a.tile, a.rotation);
+            for b in &data.houses[i + 1..] {
+                assert!(!a.intersects(b), "houses at {:?} and {:?} share a tile", a.tile, b.tile);
+            }
+        }
+        let g = crate::citymap::Geometry::new(&data.zones, data.tiles).unwrap();
+        assert_eq!((g.left, g.top, g.size), (790.0, 1611.0, [842.0, 1082.0]));
         for told in [[1043.87f32, 7.94, 1265.85], [1073.77, 6.35, 1254.19], [1029.77, 7.94, 1268.04], [1029.82, 7.94, 1276.06], [915.68, 6.45, 1301.29]] {
             assert!(doors.iter().any(|d| (0..3).all(|k| (d[k] - told[k]).abs() < 0.02)), "no door at {told:?}: {doors:?}");
         }

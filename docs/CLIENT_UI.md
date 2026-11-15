@@ -3859,3 +3859,28 @@ city's land; the Escape option `esc_cityterminal`. Shown before the server tells
 would write its last stamp's date). **Not tried live**: no capture has any of these messages; every signal is written
 to the log whole ("city: signal ..."). `MAO_UI_PREVIEW=cityterminal` (with `MAO_CITY_TAB=<n>`) shows the window on a
 made-up session.
+
+**The city's map: building and demolishing (2026-11-15; the user: "Build the map now").** The reading is
+`docs/CITY_MAP_ORIGINAL.md`; the keeping is `citymap.rs`, the drawing and the mouse `cityterminal.rs`. GUI.dll's
+`BuildingMapView_c` is the playfield map's ground renderer with an overlay of tiles: the ground from above (the
+picture the playfield map already has, `AutoMap::ground_texture`) at 2 pixels a world unit, +z up, over the city's
+zones and 50 units round them (842 by 1082 pixels in playfield 6010) in a scroll view. New formats:
+`mao_formats::citydata` (the playfield's city record, type 0xf4267: the zones a house may stand on, ten tiles by ten
+each with a mask, and the land's price and upkeep; 74 zones with 2569 set tiles in 6010) and the house template's
+footprint mask and guards (`house.rs`; one headquarters is an L, every other template a full rectangle). On the map:
+the zones' tiles, the houses (yellow, blue-green once their demolishing began, the selected one bright), the houses
+about to be built (green where they may stand, red where not) and a dot at each door (blue) and guard (red). A click
+selects the house under it (not one being demolished); a drag elsewhere scrolls. In build mode a building item of the
+inventory (stat 620 names its house template) let go on the map waits there with its least corner on the tile under
+the pointer, unless it is no building item, of another side, or past its type's limit (one headquarters, market,
+grid, guard house, uplink, cloaking device and tax office a city, one of each unique house; no market at all in an
+instanced city), which the original's error boxes say; it is dragged, turned by "Rotate", taken off by "Delete".
+"Construct" is enabled when something waits, there is a headquarters, no two houses share a tile and every waiting
+one lies in the zones (`CanBuildLayout`); it sends `ClientRequestBuild` for each, the headquarters first (template,
+tile, turn, and the item as `(0x68, place)`). "Demolish" sends `ClientRequestDemolish` with the selected standing
+house's tile. **Both go at once, with no question, as the original's do; neither can be taken back.** The map only
+shows, without the buttons, unless the lease mode is 3 and the opening's third word 0 or 1. Checked against the
+user's real city: all nine houses lie in the zones by the original's test and none share a tile. **Not tried live.**
+Not done: the land-buying dialog (GUI type 1); the inventory's lock on an item that waits on the map (such an item is
+not taken a second time instead); the pointer's place as a tip. A guess kept from the reading: the building item's
+identity in the request is its inventory place.

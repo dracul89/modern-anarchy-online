@@ -63,6 +63,36 @@ fn hidden_helpers_have_no_parts() {
     assert!(lava.iter().all(|p| !mao_formats::model::is_hidden_name(&p.name)));
 }
 
+/// Playfield 6010's city record: one controller (the table's `(0xc418, 0xc000177a)`) with the land's price and
+/// upkeep, one landing point and 74 zones of which 2569 tiles are set, between tiles x 213..284 and z 288..386; and
+/// the house templates' footprints and guards: only the first headquarters leaves tiles of its rectangle clear (75 of
+/// 100), and it has two guards.
+#[test]
+fn the_citys_zones_and_the_footprints_read() {
+    let Some(db) = database() else { return };
+    let city = mao_formats::citydata::parse(&db.get(Id { kind: mao_formats::citydata::KIND, instance: 6010 }).unwrap().unwrap()).unwrap();
+    assert_eq!((city.tiles, city.controllers.len()), ((600, 600), 1));
+    let c = &city.controllers[0];
+    assert_eq!((c.identity, c.purchase_cost, c.upkeep, c.landings.len(), c.zones.len()), ((0xc418, 0xc000_177a), 500_000_000, 15_000_000, 1, 74));
+    let set: Vec<(i32, i32)> = c.zones.iter().flat_map(|z| (0..10).flat_map(move |dz| (0..10).filter(move |&dx| z.set(dx, dz)).map(move |dx| (z.corner.0 + dx, z.corner.1 + dz)))).collect();
+    assert_eq!(set.len(), 2569);
+    let span = |k: fn(&(i32, i32)) -> i32| (set.iter().map(k).min().unwrap(), set.iter().map(k).max().unwrap());
+    assert_eq!((span(|t| t.0), span(|t| t.1)), ((213, 284), (288, 386)));
+    let mut clear = Vec::new();
+    for id in db.ids().unwrap().filter_map(Result::ok).filter(|i| i.kind == mao_formats::house::KIND) {
+        let Some(t) = mao_formats::house::Template::parse(&db.get(id).unwrap().unwrap()) else { continue };
+        let covered = (0..t.tiles_z).flat_map(|z| (0..t.tiles_x).map(move |x| (x, z))).filter(|&(x, z)| t.covers(x, z)).count() as i32;
+        assert_eq!(t.mask.len() as i32, (t.tiles_x * t.tiles_z + 7) / 8, "{:#x}", id.instance);
+        if covered != t.tiles_x * t.tiles_z {
+            clear.push((id.instance, covered, t.guards.len()));
+        }
+        for g in &t.guards {
+            assert!(g[0] > -8.0 && g[0] < t.tiles_x as f32 * 4.0 + 8.0 && g[2] > -8.0 && g[2] < t.tiles_z as f32 * 4.0 + 8.0, "{:#x}: a guard at {g:?}", id.instance);
+        }
+    }
+    assert_eq!(clear, [(0x6a0000, 75, 2)]);
+}
+
 /// The player cities' house templates: 83 of the format's version 4 (two older ones are left unread), each with its
 /// meshes in the database and a surface that reads; the first is a headquarters on 10 by 10 tiles with one mesh.
 #[test]

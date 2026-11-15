@@ -245,6 +245,10 @@ account with `net <game> create`, in Arete Landing; scripted, other new players 
   charge; "Dump city advantages" lists them in the chat; the close cross closes it (a moment later: the server's
   answer does). The cloak's button shows the device's state. **Pressing it switches the cloak at once.** The log's
   "city: signal ..." lines are wanted for tests.
+- [ ] The controller's map (2026-11-15), looking only: the Build and Demolish tabs show the city from above with its
+  plots (blue), the houses where they stand (yellow) and their door dots; north is up; a drag scrolls; a click on a
+  house selects it. **"Demolish Building" and "Construct Buildings" act at once and cannot be undone.** A building
+  item let go on the map (Build tab) shows green on a free plot and red elsewhere; "Rotate" and "Delete" work on it.
 - [ ] The Grid's "Organisation City" and "Notum Controller" exits (2026-11-15): a window titled "Vehicle" lists the
   places (the city, the tower fields) with their playfields; "Go!" with a row selected takes the character there;
   "Close" does nothing more. The log's "grid: the destinations' list ..." line is wanted for a test.

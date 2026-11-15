@@ -274,6 +274,9 @@ pub struct Update {
     pub teleport: Option<Vec<crate::teleport::Row>>,
     /// The city controller's session as it opens or changes (`Some(None)`: it ended).
     pub city: Option<Option<crate::cityterminal::Session>>,
+    /// The city's houses, the backpack's building items and the zones, for the controller's map, when the houses or
+    /// the inventory change while the session is open.
+    pub city_map: Option<crate::citymap::Data>,
     /// A shop the server opened (stock), and a note for the shop window.
     pub shop: Option<crate::shop::ShopState>,
     pub shop_status: Option<String>,
@@ -1663,6 +1666,9 @@ impl ApplicationHandler for App {
                             }
                             if let Some(session) = u.city.take() {
                                 ui.city_terminal.set(session);
+                            }
+                            if let Some(data) = u.city_map.take() {
+                                ui.city_terminal.set_map(data);
                             }
                             if let Some(n) = u.mail_count.take() {
                                 ui.mail.count = Some(n);

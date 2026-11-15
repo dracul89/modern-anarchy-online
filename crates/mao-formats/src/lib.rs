@@ -4,6 +4,7 @@
 pub mod bounds;
 pub mod collision;
 pub mod surface;
+pub mod citydata;
 pub mod house;
 pub mod zones;
 pub mod ctree;
