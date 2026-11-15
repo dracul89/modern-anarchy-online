@@ -115,7 +115,14 @@ impl Statel {
     /// The rotation packed in the flags (`A >> 7`, with `A & 1` clear): a
     /// pitch of `v % 180 - 90` degrees (`v` first reduced by 0x163f500 when
     /// it is at least that, the pitch then 180 - 90), a yaw of the next
-    /// `% 360` and a roll of what's left, in degrees, about Y, then X, then Z.
+    /// `% 360` and a roll of what's left, in degrees: the turn about Y first,
+    /// then the pitch about the world's X, then the roll about the world's Z.
+    /// N3.dll (FUN_10026e66 and FUN_1002777a, where 0x163f500 is tested) builds the
+    /// yaw's quaternion and "multiplies" the pitch's and the roll's onto it with
+    /// FUN_10003dc3, whose `a *= b` is Hamilton's `b * a`: the product is
+    /// roll * pitch * yaw. (Until 2026-11-15 this was yaw * pitch * roll: the
+    /// same for a statel turned about one axis, wrong for one turned and
+    /// tilted, like the bridge pieces between ICC's landing platforms.)
     fn unpack_rotation(flags: i32) -> Quat {
         let mut v = (flags as u32) >> 7;
         let pitch = if v >= 0x163f500 {
@@ -132,7 +139,7 @@ impl Statel {
         let a = axis_angle([0.0, 1.0, 0.0], radians(yaw as f32));
         let b = axis_angle([1.0, 0.0, 0.0], radians(pitch as f32 - 90.0));
         let c = axis_angle([0.0, 0.0, 1.0], radians(roll as f32));
-        quat_mul(quat_mul(a, b), c)
+        quat_mul(c, quat_mul(b, a))
     }
 }
 
@@ -289,4 +296,38 @@ pub fn parse_zoned(file: &[u8]) -> Result<(Vec<Statel>, Vec<Option<Vec<Statel>>>
         zones_out.push(result);
     }
     Ok((out, zones_out))
+}
+
+#[cfg(test)]
+mod rotation_tests {
+    use super::*;
+
+    fn rotated(q: Quat, v: [f32; 3]) -> [f32; 3] {
+        // (q v q*: Hamilton's rotation)
+        let p = quat_mul(quat_mul(q, [v[0], v[1], v[2], 0.0]), [-q[0], -q[1], -q[2], q[3]]);
+        [p[0], p[1], p[2]]
+    }
+
+    fn packed(yaw: u32, pitch: i32, roll: u32) -> i32 {
+        ((((roll * 360 + yaw) * 180 + (pitch + 90) as u32) << 7) as i32) & !1
+    }
+
+    /// The two bridge pieces between ICC's landing platforms (playfield 655, mesh 295990, a piece that rises along
+    /// its length): one stands as it is with a pitch of 26 degrees, its twin is turned half round with a pitch of -26.
+    /// The pitch is about the world's X after the turn, so both lie flat the same way; in the other order one of them
+    /// stood up at twice the slope.
+    #[test]
+    fn a_turned_statel_pitches_about_the_worlds_axis() {
+        let a = Statel::unpack_rotation(packed(0, 26, 0));
+        let b = Statel::unpack_rotation(packed(180, -26, 0));
+        let slope = 26.0f32.to_radians();
+        // the piece's own length: along -z and rising
+        let length = [0.0, slope.sin(), -slope.cos()];
+        let (ya, yb) = (rotated(a, length)[1], rotated(b, length)[1]);
+        assert!((ya - yb).abs() < 1e-4, "{ya} {yb}");
+        // a turn alone is as before
+        let turn = Statel::unpack_rotation(packed(90, 0, 0));
+        let x = rotated(turn, [0.0, 0.0, 1.0]);
+        assert!((x[0] - 1.0).abs() < 1e-5 && x[2].abs() < 1e-5, "{x:?}");
+    }
 }
