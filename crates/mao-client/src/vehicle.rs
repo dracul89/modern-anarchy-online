@@ -504,6 +504,62 @@ impl Body {
     }
 }
 
+/// A move of the swept sphere along `step`, its horizontal part counted against `across`, the whole against `budget`:
+/// whether they are used up (none for a step of no length).
+fn advance(centre: &mut V3, step: V3, across: &mut f32, budget: &mut f32, top: &mut f32) -> Option<bool> {
+    let flat = lsq([step[0], 0.0, step[2]]);
+    let flat = if 0.0 < flat { flat.sqrt() } else { flat };
+    if *across <= 0.0 || flat <= 0.0 {
+        let length = lsq(step);
+        if length <= 0.0 {
+            return None;
+        }
+        let length = length.sqrt();
+        if length <= 0.0 {
+            return None;
+        }
+        // (`<=`, as the original compares: see below)
+        if *budget <= length {
+            *centre = add(*centre, scale(step, *budget / length));
+            if *top < centre[1] {
+                *top = centre[1];
+            }
+            *budget = 0.0;
+            *across = 0.0;
+            return Some(true);
+        }
+        *centre = add(*centre, step);
+        if *top < centre[1] {
+            *top = centre[1];
+        }
+        *across -= flat;
+        *budget -= length;
+    } else {
+        // (`<=`: the original's compare, an x87 "below or equal" (FUN_1000b2e5 at 0x1000ba..: `*param_4 < local_8 !=
+        // (*param_4 == local_8)` in the decompile). A step that is exactly the distance left ends the sweep. With `<`,
+        // as this was until 2026-11-15, such a step was taken whole, nothing was left to use up, and every further
+        // pass slid on against the budget alone, which on the ground is 10000: up to ten metres a pass. A character
+        // walking a hillside in the Shadowlands was thrown 74 m forward over a lake; the server never took it and
+        // pulled it back twenty seconds later.)
+        if *across <= flat {
+            *centre = add(*centre, scale(step, *across / flat));
+            if *top < centre[1] {
+                *top = centre[1];
+            }
+            *budget = 0.0;
+            *across = 0.0;
+            return Some(true);
+        }
+        *centre = add(*centre, step);
+        if *top < centre[1] {
+            *top = centre[1];
+        }
+        *across -= flat;
+        *budget -= lsq(step).sqrt();
+    }
+    Some(false)
+}
+
 /// FUN_1000b2e5: the sphere at `centre` (radius `r`) swept along `dir` towards a point 10 ahead, sliding along what it
 /// meets, `iterations` times at most, until `across` (the horizontal distance) or `budget` (the whole) is used; `top` the
 /// highest centre reached. `mode` over 1 first measures the room on each side (rays of `r` across the direction) and
@@ -513,53 +569,6 @@ impl Body {
 fn sweep(centre: &mut V3, r: f32, dir: V3, across: &mut f32, budget: &mut f32, ground: &Ground, top: &mut f32, mode: i32, iterations: i32, slope: f32) {
     let mut target = add(*centre, scale(dir, 10.0));
     let mut iterations = iterations;
-    // (a move along `step`, its horizontal part counted against `across`, the whole against `budget`; true: used up)
-    let advance = |centre: &mut V3, step: V3, across: &mut f32, budget: &mut f32, top: &mut f32| -> Option<bool> {
-        let flat = lsq([step[0], 0.0, step[2]]);
-        let flat = if 0.0 < flat { flat.sqrt() } else { flat };
-        if *across <= 0.0 || flat <= 0.0 {
-            let length = lsq(step);
-            if length <= 0.0 {
-                return None;
-            }
-            let length = length.sqrt();
-            if length <= 0.0 {
-                return None;
-            }
-            if *budget < length {
-                *centre = add(*centre, scale(step, *budget / length));
-                if *top < centre[1] {
-                    *top = centre[1];
-                }
-                *budget = 0.0;
-                *across = 0.0;
-                return Some(true);
-            }
-            *centre = add(*centre, step);
-            if *top < centre[1] {
-                *top = centre[1];
-            }
-            *across -= flat;
-            *budget -= length;
-        } else {
-            if *across < flat {
-                *centre = add(*centre, scale(step, *across / flat));
-                if *top < centre[1] {
-                    *top = centre[1];
-                }
-                *budget = 0.0;
-                *across = 0.0;
-                return Some(true);
-            }
-            *centre = add(*centre, step);
-            if *top < centre[1] {
-                *top = centre[1];
-            }
-            *across -= flat;
-            *budget -= lsq(step).sqrt();
-        }
-        Some(false)
-    };
     loop {
         if iterations < 1 {
             return;
@@ -687,6 +696,24 @@ fn sweep(centre: &mut V3, r: f32, dir: V3, across: &mut f32, budget: &mut f32, g
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A step that is exactly the distance left ends the sweep's count, as the original's "below or equal" has it: left to
+    /// run on, the next steps were held by the budget alone (10000 on the ground) and the body flew.
+    #[test]
+    fn a_step_of_just_the_distance_left_uses_it_up() {
+        let (mut centre, mut across, mut budget, mut top) = ([0.0f32; 3], 0.038_894_53f32, 10000.0f32, 0.0f32);
+        let step = [0.038_894_53f32, 0.0, 0.0];
+        assert_eq!(advance(&mut centre, step, &mut across, &mut budget, &mut top), Some(true));
+        assert_eq!((across, budget), (0.0, 0.0));
+        assert_eq!(centre, step);
+        // (a shorter step leaves the rest; with nothing left across the budget counts, to the same rule)
+        let (mut across, mut budget) = (1.0f32, 10000.0f32);
+        assert_eq!(advance(&mut centre, [0.25, 0.0, 0.0], &mut across, &mut budget, &mut top), Some(false));
+        assert_eq!(across, 0.75);
+        let (mut across, mut budget) = (0.0f32, 0.5f32);
+        assert_eq!(advance(&mut centre, [0.0, 0.5, 0.0], &mut across, &mut budget, &mut top), Some(true));
+        assert_eq!(budget, 0.0);
+    }
 
     /// A floor at y 0.5 over x, z 0..40 and a wall at x 20 (facing -x), as zone triangles (y up).
     fn ground() -> Ground {
