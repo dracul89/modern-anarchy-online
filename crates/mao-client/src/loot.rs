@@ -107,6 +107,11 @@ pub fn window_name(view: &LootView) -> String {
 
 /// The identity type of a corpse.
 pub const CORPSE: u32 = 0xc76a;
+/// The identity type of the character's overflow (and the handle of its list in an `InventoryUpdate`). Its window is
+/// the original's container window (GUI.dll `InventoryView_c`, as for a bag that is not one's own): a click, left or
+/// right, moves the item into the inventory (FUN_100cc6e8, FUN_100cae1b), nothing can be put into it, and it stays up
+/// when it is empty.
+pub const OVERFLOW: u32 = 0x6e;
 /// The identity type of the bank (`BankIIR_t`'s `BankEntry_t`, FUN_10125b1b).
 pub const BANK: u32 = 0xdead;
 
@@ -195,7 +200,7 @@ impl LootWindow {
         let mut take = None;
         let mut open = self.open;
         // (FUN_100ccefe: an empty corpse or chest closes after a second; the bank and one's own backpack stay)
-        if view.items.is_empty() && !matches!(view.identity.0, BANK | ORGANIZATION) && !view.own {
+        if view.items.is_empty() && !matches!(view.identity.0, BANK | ORGANIZATION | OVERFLOW) && !view.own {
             if self.empty_since.is_none_or(|e| (e.0, e.1) != (view.identity, view.handle)) {
                 self.empty_since = Some((view.identity, view.handle, std::time::Instant::now()));
             }
@@ -410,7 +415,7 @@ impl LootWindow {
         // An inventory item dropped on the window goes in (not into a corpse).
         if let Some(shown) = shown {
             let dragged = crate::gear::DRAGGED.load(std::sync::atomic::Ordering::Relaxed);
-            if dragged != u32::MAX && view.identity.0 != CORPSE && crate::gear::letting_go(ctx) && shown.response.contains_pointer() {
+            if dragged != u32::MAX && !matches!(view.identity.0, CORPSE | OVERFLOW) && crate::gear::letting_go(ctx) && shown.response.contains_pointer() {
                 take = Some(Take::Put { identity: view.identity, from: dragged });
             }
         }
@@ -489,6 +494,7 @@ pub fn title(kind: u32) -> &'static str {
         CORPSE => "Corpse",
         0xc749 => "Bag",
         BANK => "Bank",
+        OVERFLOW => "Overflow",
         ORGANIZATION => "Organization contract",
         _ => "Container",
     }

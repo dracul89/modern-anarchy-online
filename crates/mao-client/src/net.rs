@@ -469,9 +469,11 @@ struct World {
     /// An instanced playfield's runs of ids for its built-in objects (kind, first table index, count, first id: the playfield
     /// message's [`Message::instance_runs`]); empty where the table's ids are the server's.
     instance_runs: Vec<(u32, u32, u32, u32)>,
-    /// The item a `TemplateAction` into the overflow window (`0x6e`) named: it comes into the inventory with the
-    /// `ContainerAddItem` from `(0x6e, 0)` that follows (a quest item, a reward; aosharp's `RegisterLastItem`).
-    overflow_item: Option<inventory::Entry>,
+    /// The character's overflow (`0x6e`): what was given with no room for it, or is on its way in (Gamecode: a second
+    /// `NewInventory_t` of the character, made empty with it, FUN_1004b5f1). A `TemplateAction` into it puts an item at
+    /// its first free place (FUN_1004d68c), the server's `ContainerAddItem` from `(0x6e, place)` brings one into the
+    /// inventory (FUN_1003917d), and an `InventoryUpdate` with the handle 0x6e gives the whole list and opens its window.
+    overflow: Vec<inventory::Entry>,
     /// The doors of the playfield by number: the key of the door's model in `props` and its position (from the dynel table).
     door_slots: BTreeMap<u8, (u32, [f32; 3])>,
     /// The server's ids of the doors (from their status messages) and until when each door (by number) stays open.
@@ -943,6 +945,10 @@ impl World {
     /// met, with the feedback text's name. Not here: the original's locked equipment, the implants' own rule
     /// (FUN_10044dd8), the social armour's (FUN_10080aff) and the belt's places for decks (FUN_10046f26).
     fn wear_refusal(&self, entry: &inventory::Entry, to: u32, db: &ResourceDatabase) -> Option<Option<&'static str>> {
+        // (nothing is put on while the overflow's first place holds something: Gamecode FUN_1004bd28, 0x1004cab6)
+        if self.overflow.iter().any(|e| e.slot == 0) {
+            return Some(Some("Feedback_WearingDisabledWhenItemsInOverflow"));
+        }
         let stat = |k: u32| template_stat(entry.low_id, k).unwrap_or(0) as u32;
         let slot = to % 16;
         // (not by the `Can` flags' wear bit, 4: a garden key has only 1, carry, and is worn all the same; a move the server
@@ -2476,15 +2482,22 @@ impl World {
                     // a window only for a `Chest_t`; for a `SimpleChar_t` it hands the list to FUN_100479e7, which takes it as
                     // the character's inventory when the handle is 0x68 and as its overflow when it is 0x6e. The server sends
                     // it after a claimed reward and at times after entering; the captures' two and the user's are all 0x68.
-                    // The overflow's list has no window in this client yet and is only counted in the log.)
+                    // The overflow's list replaces the client's and, when its window is not up, opens it and says
+                    // `Feedback_InventoryOverflowed`: the only way that window opens.)
                     let handle = p.value.get("Handle").and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
                     if identity.1 == self.own && handle == 0x68 {
                         eprintln!("items: the server's list of the character's own items, {} of them", entries.len());
                         self.moves_asked.clear();
                         self.worn = entries.clone();
                         self.inventory = Some(entries);
-                    } else if identity.1 == self.own && handle == 0x6e {
-                        eprintln!("items: the server's list of the overflow, {} items (no window for it yet)", entries.len());
+                    } else if identity.1 == self.own && handle == crate::loot::OVERFLOW {
+                        eprintln!("items: the server's list of the overflow, {} items", entries.len());
+                        self.overflow = entries;
+                        if self.loot.as_ref().is_none_or(|l| l.identity.0 != crate::loot::OVERFLOW) {
+                            self.loot = Some(Loot { identity: (crate::loot::OVERFLOW, self.own), handle: crate::loot::OVERFLOW, entries: Vec::new() });
+                            self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, crate::feedback::plain("Feedback_InventoryOverflowed")));
+                        }
+                        self.overflow_changed();
                     }
                 } else if identity.0 == crate::loot::BAG && self.worn.iter().any(|e| e.container == identity) {
                     // (one's own backpack: a window of its own, GUI.dll's `N3Msg_IsItemMine` branch of FUN_100ccefe)
@@ -2613,8 +2626,11 @@ impl World {
                     self.add_to_backpack(entry);
                 } else {
                     let placement = p.value.get("Placement").and_then(|v| v.get("Type")).and_then(mao_net::schema::Value::as_int).unwrap_or(0);
-                    if placement == 0x6e {
-                        self.overflow_item = Some(inventory::Entry { slot: 0, flags: 0, count: 1, container: (0, 0), low_id: int("ItemLowId"), high_id: int("ItemHighId"), quality: int("Quality"), extra: 0 });
+                    if placement == crate::loot::OVERFLOW as i64 {
+                        // (at the overflow's first free place; no window and no line for it, FUN_1004d68c)
+                        let slot = (0..).find(|s| !self.overflow.iter().any(|e| e.slot == *s)).unwrap_or(0);
+                        self.overflow.push(inventory::Entry { slot, flags: 0, count: 1, container: (0, 0), low_id: int("ItemLowId"), high_id: int("ItemHighId"), quality: int("Quality"), extra: 0 });
+                        self.overflow_changed();
                     }
                 }
             }
@@ -2632,10 +2648,14 @@ impl World {
                 if matches!(source.0, 0x65 | 0x66 | 0x67 | 0x73) {
                     self.moves_asked.retain(|m| m.0 >= inventory::BACKPACK_FIRST);
                 }
-                // `(0x6e, 0)` to `(0x6e, own)`: the overflow window's item comes into the inventory
-                if source == (0x6e, 0) && target == (0x6e, self.own) {
-                    if let Some(entry) = self.overflow_item.take() {
+                // from `(0x6e, place)`: the overflow's item at that place comes into the inventory's first free place
+                // (FUN_1003917d: the message's target and place are not looked at; with no room nothing happens)
+                if source.0 == crate::loot::OVERFLOW {
+                    let room = (inventory::BACKPACK_FIRST..inventory::BACKPACK_FIRST + crate::gear::PACK_SLOTS).any(|s| !self.worn.iter().any(|e| e.slot == s));
+                    if let Some(at) = self.overflow.iter().position(|e| e.slot == source.1).filter(|_| room) {
+                        let entry = self.overflow.remove(at);
                         self.add_to_backpack(entry);
+                        self.overflow_changed();
                     }
                 }
                 // `(0x68, place)` into one of one's own open backpacks: the item leaves the inventory for the bag's first
@@ -3282,6 +3302,14 @@ impl World {
     fn stand_up(&mut self, id: u32) {
         self.seated.remove(&id);
         self.resting.remove(&id);
+    }
+
+    /// The overflow's list changed: its window, when it is up, shows the new one.
+    fn overflow_changed(&mut self) {
+        if let Some(l) = self.loot.as_mut().filter(|l| l.identity.0 == crate::loot::OVERFLOW) {
+            l.entries = self.overflow.clone();
+            self.loot_changed = true;
+        }
     }
 
     /// What using `(kind, id)` uses: a dead body's corpse, else itself.
@@ -6202,6 +6230,13 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     state.rotations.clear_all();
                     state.entities.clear();
                     state.props.clear();
+                    // (the overflow goes with the character's object, made anew empty in the new playfield, and its
+                    // window with the other containers', FUN_1005aa4f)
+                    state.overflow.clear();
+                    if state.loot.as_ref().is_some_and(|l| l.identity.0 == crate::loot::OVERFLOW) {
+                        state.loot = None;
+                        state.loot_changed = true;
+                    }
                     // (a new playfield makes the characters anew: their spell queues go and their state flags start again from
                     // stat 224, FUN_1004496c)
                     state.spell_queue = Default::default();
@@ -7387,7 +7422,20 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 let places: Vec<u32> = if place == u32::MAX { state.loot.iter().flat_map(|l| l.entries.iter().map(|e| e.slot)).collect() } else { vec![place] };
                 // (the bank's items by its own way of naming them: only when it is the bank's window that asks, handle 0)
                 let bank = state.loot.as_ref().filter(|l| l.identity.0 == crate::loot::BANK && l.handle == handle).map(|l| l.entries.clone());
+                // (out of the overflow: `N3Msg_MoveItemToInventory((0x6e, place), 1, 0x6f)`, Gamecode 0x10027bac; nothing
+                // moves here until the server's `ContainerAddItem` comes, and with a full inventory nothing is sent)
+                let overflow = state.loot.as_ref().is_some_and(|l| l.identity.0 == crate::loot::OVERFLOW && l.handle == handle);
                 for place in places {
+                    if overflow {
+                        let room = (inventory::BACKPACK_FIRST..inventory::BACKPACK_FIRST + crate::gear::PACK_SLOTS).any(|s| !state.worn.iter().any(|e| e.slot == s));
+                        if room {
+                            let _ = connection.send(&n3::move_to_inventory(own, (crate::loot::OVERFLOW, place), 0x6f));
+                        } else {
+                            state.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, crate::feedback::plain("Feedback_InventoryFull")));
+                            break;
+                        }
+                        continue;
+                    }
                     match &bank {
                         // (`N3Msg_MoveItemToInventory` with the item's place in the bank, `BankByRef` (0x69), as aosharp's
                         // clientless `Bank` names its items)
@@ -10614,11 +10662,19 @@ mod door_tests {
         assert!(w.loot.is_none() && !w.loot_changed);
         assert_eq!(w.worn.len(), 1);
         assert_eq!(w.inventory.as_ref().map(Vec::len), Some(1));
-        // (the overflow's list leaves the inventory alone)
+        // (the overflow's list leaves the inventory alone and opens its own window, with the game's line for it)
         w.worn = vec![entry(64), entry(65)];
         w.add(&Message { kind: INVENTORY_UPDATE, identity: (0xc350, own), data: list("0000006e") }.frame(1));
-        assert!(w.loot.is_none() && !w.loot_changed);
         assert_eq!(w.worn.len(), 2);
+        assert_eq!(w.loot.as_ref().map(|l| (l.identity, l.entries.len())), Some(((crate::loot::OVERFLOW, own), 1)));
+        assert!(w.loot_changed && w.game_lines.len() == 1);
+        // (nothing is worn meanwhile; the server's move of the item, named by its place there, brings it in)
+        let place = w.overflow[0].slot;
+        assert!(w.overflow.iter().any(|e| e.slot == 0) == (place == 0));
+        w.add(&Message { kind: CONTAINER_ADD_ITEM, identity: (0xc350, own), data: hex(&format!("000000006e{place:08x}0000006e{own:08x}0000006f")) }.frame(1));
+        assert!(w.overflow.is_empty());
+        assert_eq!(w.worn.len(), 3);
+        assert_eq!(w.loot.as_ref().map(|l| l.entries.len()), Some(0));
     }
 
     /// The 16:55 capture's sale: `InventoryUpdated` to the shop and to the character; only the character's refreshes the inventory.
