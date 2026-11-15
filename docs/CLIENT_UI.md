@@ -4004,3 +4004,23 @@ just before, which the original does not (the terminal is still used first when 
 this client's own). Test: `the_sliders_make_the_requests_bytes`. **Not tried live** (a request costs credits, and the
 test character's playfield has no terminal). Not done: the original keeps the sliders between sessions
 (`MissionSelectionViewConfig`), and shows the six others only with its "advanced options" button down.
+
+**A clicked offer marks the planet map (2026-11-15; the user: "missions should send a marker (waypoint) to the planet
+map when I click on them to see the location").** The original's terminal window does it (`MissionSelectionView_c`):
+
+- The list's selection changing (GUI.dll FUN_100d0704): with an offer selected whose place is known
+  (`N3Msg_GetQuestWorldPos`), the window sends the signal the journal's "Upload to map" sends, with the offer, its
+  place and its playfield. The receiver (FUN_10067d5f) takes away the waypoint it has, keeps the new one with the
+  mission it is of, and tells the two lines ("MissionWptUploaded", then how it shows here). With no offer selected the
+  window sends the other signal, and the waypoint goes if it is that offer's (FUN_10067956); the window going sends
+  it too (FUN_100d04fe).
+- A new mission (`InventoryGUIModule_c::SlotGotNewMission`, 0x100c742e) uploads its place by itself: the original's
+  Accept closes the window, which takes the offer's waypoint away, and the accepted mission's comes with the mission.
+
+Ported: `MissionWindow::mark` (asked every frame, the window open or not), `missionlog::upload_lines` and
+`waypoint_goes`, `Hud::waypoint_of` (the mission or offer a waypoint is of), `MissionLog::news`. The dot is the planet
+map's white one and the compass's yellow mark, as for the journal's upload; the planet map's Mission button centres on
+it. Tests: `a_selected_offer_marks_the_map`, `a_new_mission_is_uploaded`. **Not tried live.** A guess: what makes the
+original's new-mission signal was not read; here a mission is new when the server's list has one that the list before
+did not have (the session's first list is not news). Not done: the offer's right-click menu (its page, and "Upload to
+map" again), the window closing at Accept, the tip the original shows at a new mission (`OnReceiveMission`).

@@ -2879,8 +2879,14 @@ impl ApplicationHandler for App {
                             let _ = live.mission_log.send(command);
                         }
                     }
+                    // (FUN_10067956: a waypoint goes for its own mission; FUN_10067d5f: a new one takes the old one's place)
+                    if let Some(gone) = requests.waypoint_gone.take() {
+                        if crate::missionlog::waypoint_goes(self.hud.waypoint_of, gone) {
+                            (self.hud.waypoint, self.hud.waypoint_of) = (None, None);
+                        }
+                    }
                     if let Some(waypoint) = requests.waypoint.take() {
-                        self.hud.waypoint = Some(waypoint);
+                        (self.hud.waypoint, self.hud.waypoint_of) = (Some(waypoint), requests.waypoint_of.take());
                     }
                     for line in std::mem::take(&mut requests.lines) {
                         self.hud.say(line);

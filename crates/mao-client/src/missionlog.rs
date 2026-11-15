@@ -195,10 +195,26 @@ fn info_text(name: &str) -> String {
     .to_string()
 }
 
+/// What an upload tells (FUN_10067d5f): that the waypoint is uploaded, and how it shows here: as a dot when the
+/// place is in the playfield the character is in, else that it is elsewhere.
+pub fn upload_lines(place_playfield: u32, playfield: u32) -> [String; 2] {
+    [text("MissionWptUploaded"), text(if place_playfield == playfield { "MissionShownAsDot" } else { "MissionNotInArea" })]
+}
+
+/// Whether a waypoint goes when this mission's is to be taken away (FUN_10067956): it is that mission's, or no
+/// mission is named.
+pub fn waypoint_goes(of: Option<(u32, u32)>, taken: (u32, u32)) -> bool {
+    of == Some(taken) || taken == (0, 0)
+}
+
 #[derive(Default)]
 pub struct MissionLog {
     pub open: bool,
     pub missions: Vec<Mission>,
+    /// Whether the server's list has come once, and the missions that came new after it, whose places are still to
+    /// be uploaded (`InventoryGUIModule_c::SlotGotNewMission`, GUI.dll 0x100c742e).
+    listed: bool,
+    fresh: Vec<(u32, u32)>,
     /// The active mission (`MissionView_c` +0x1a4): the one last uploaded to the map, the list's selected row.
     active: Option<(u32, u32)>,
     /// The mission whose deletion awaits an answer.
@@ -214,8 +230,9 @@ pub struct MissionLog {
 #[derive(Default)]
 pub struct Shown {
     pub commands: Vec<Command>,
-    /// A waypoint uploaded, and the lines to tell.
+    /// A waypoint uploaded, the mission it is of, and the lines to tell.
     pub waypoint: Option<(u32, [f32; 3])>,
+    pub waypoint_of: Option<(u32, u32)>,
     pub lines: Vec<String>,
     /// A mission's page for the info view (its URL).
     pub info: Option<String>,
@@ -224,6 +241,10 @@ pub struct Shown {
 impl MissionLog {
     /// The server's full list.
     pub fn set(&mut self, missions: Vec<Mission>) {
+        // (a mission that was not in the list before is a new one; the first list of a session is not news)
+        if std::mem::replace(&mut self.listed, true) {
+            self.fresh.extend(missions.iter().map(|m| m.id).filter(|id| !self.missions.iter().any(|m| m.id == *id)));
+        }
         self.missions = missions;
         // (FUN_100d347d: an active mission no longer in the list is not shown as one)
         if self.active.is_some_and(|a| !self.missions.iter().any(|m| m.id == a)) {
@@ -239,15 +260,26 @@ impl MissionLog {
         }
     }
 
+    /// A new mission's place is uploaded by itself (`SlotGotNewMission`: when the mission names a place; one without
+    /// tells nothing). The window need not be open.
+    fn news(&mut self, playfield: u32) -> Shown {
+        let mut shown = Shown::default();
+        for id in std::mem::take(&mut self.fresh) {
+            if self.missions.iter().any(|m| m.id == id && m.place.is_some()) {
+                self.upload(id, playfield, &mut shown);
+            }
+        }
+        shown
+    }
+
     /// FUN_10067d5f: the mission's place as the waypoint, and what is told; the mission becomes the active one
     /// (FUN_100d341a).
     fn upload(&mut self, id: (u32, u32), playfield: u32, shown: &mut Shown) {
         let Some(m) = self.missions.iter().find(|m| m.id == id) else { return };
         match m.place {
             Some((pf, p)) => {
-                shown.waypoint = Some((pf, p));
-                shown.lines.push(text("MissionWptUploaded"));
-                shown.lines.push(text(if pf == playfield { "MissionShownAsDot" } else { "MissionNotInArea" }));
+                (shown.waypoint, shown.waypoint_of) = (Some((pf, p)), Some(id));
+                shown.lines.extend(upload_lines(pf, playfield));
                 self.active = Some(id);
             }
             None => shown.lines.push(text("NoWptInfo")),
@@ -270,7 +302,7 @@ impl MissionLog {
     /// The window: the `MissionListView_c` list of the missions (icon, name, time left), the active one selected; a click
     /// shows the mission in the info view (FUN_100d2cfa), a right click opens its menu (FUN_100d3123).
     pub fn show(&mut self, ctx: &egui::Context, palette: &Palette, playfield: u32) -> Shown {
-        let mut shown = Shown::default();
+        let mut shown = self.news(playfield);
         if !self.open {
             return shown;
         }
@@ -433,6 +465,26 @@ mod tests {
 
     fn mission(deadlines: &[u32]) -> Mission {
         Mission { id: (MISSION_TYPE, 7), title: "A mission".into(), description: "Go there\\nand back".into(), icon: None, place: None, flags: 2, credits: 0, xp: 0, rewards: Vec::new(), deadlines: deadlines.to_vec() }
+    }
+
+    /// A mission that comes new is uploaded by itself; the session's first list is not, nor a list with the same
+    /// missions again; and a waypoint goes for its own mission or for none named.
+    #[test]
+    fn a_new_mission_is_uploaded() {
+        let with = |id: u32, place: Option<(u32, [f32; 3])>| Mission { id: (MISSION_TYPE, id), place, ..mission(&[]) };
+        let mut log = MissionLog::default();
+        log.set(vec![with(1, Some((655, [1.0, 2.0, 3.0])))]);
+        assert!(log.news(655).waypoint.is_none());
+        log.set(vec![with(1, Some((655, [1.0, 2.0, 3.0])))]);
+        assert!(log.news(655).waypoint.is_none());
+        log.set(vec![with(1, Some((655, [1.0, 2.0, 3.0]))), with(2, Some((540, [4.0, 5.0, 6.0]))), with(3, None)]);
+        let shown = log.news(655);
+        assert_eq!((shown.waypoint, shown.waypoint_of), (Some((540, [4.0, 5.0, 6.0])), Some((MISSION_TYPE, 2))));
+        assert_eq!(shown.lines, upload_lines(540, 655));
+        assert_eq!(log.active, Some((MISSION_TYPE, 2)));
+        assert!(log.news(655).waypoint.is_none());
+        assert!(waypoint_goes(Some((MISSION_TYPE, 2)), (MISSION_TYPE, 2)) && waypoint_goes(Some((MISSION_TYPE, 2)), (0, 0)) && waypoint_goes(None, (0, 0)));
+        assert!(!waypoint_goes(Some((MISSION_TYPE, 2)), (MISSION_TYPE, 3)) && !waypoint_goes(None, (MISSION_TYPE, 3)));
     }
 
     /// `N3Msg_QuestRemainingTime`: the last deadline still ahead counts, a passed one or none leaves -1; the list shows

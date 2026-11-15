@@ -62,8 +62,10 @@ pub struct Hud {
     pub position: Option<[f32; 3]>,
     /// The playfield the character is in (for the planet map).
     pub playfield: u32,
-    /// The waypoint uploaded from a mission (`missionlog.rs`): its playfield and place, server coordinates.
+    /// The waypoint uploaded from a mission (`missionlog.rs`): its playfield and place, server coordinates; and the
+    /// mission or the terminal's offer it is of.
     pub waypoint: Option<(u32, [f32; 3])>,
+    pub waypoint_of: Option<(u32, u32)>,
     pub heading: f32,
     pub camera_yaw: f32,
     /// The character's name and stats (by stat number), for the Stats window.
@@ -226,6 +228,10 @@ pub struct Requests {
     /// What the mission journal sends (a deletion), the waypoint it uploaded and the lines it tells.
     pub mission_log: Vec<crate::missionlog::Command>,
     pub waypoint: Option<(u32, [f32; 3])>,
+    /// The mission the uploaded waypoint is of, and a mission whose waypoint is to go (a terminal's offer no longer
+    /// selected).
+    pub waypoint_of: Option<(u32, u32)>,
+    pub waypoint_gone: Option<(u32, u32)>,
     pub lines: Vec<String>,
     /// Lines the chat window sends.
     pub chat: Vec<crate::chatwindow::Out>,
@@ -1292,6 +1298,21 @@ impl Ui {
                     requests.mission = Some(command);
                 }
             }
+            // (a selected offer's place goes to the map and the compass, and away again with the selection or the window)
+            match mission.mark() {
+                Some(crate::mission::Mark::Upload { id, playfield, place }) => {
+                    (requests.waypoint, requests.waypoint_of) = (Some((playfield, place)), Some(id));
+                    requests.lines.extend(crate::missionlog::upload_lines(playfield, hud.playfield));
+                }
+                Some(crate::mission::Mark::Remove { id }) => {
+                    // (one uploaded this very frame and not yet with the viewer goes here)
+                    if requests.waypoint.is_some() && crate::missionlog::waypoint_goes(requests.waypoint_of, id) {
+                        (requests.waypoint, requests.waypoint_of) = (None, None);
+                    }
+                    requests.waypoint_gone = Some(id);
+                }
+                None => {}
+            }
             if shop.open {
                 if let Some(command) = shop.show(&ctx, gear, &hud.gear, palette) {
                     requests.shop = Some(command);
@@ -1311,7 +1332,7 @@ impl Ui {
             let shown = mission_log.show(&ctx, palette, hud.playfield);
             requests.mission_log.extend(shown.commands);
             if shown.waypoint.is_some() {
-                requests.waypoint = shown.waypoint;
+                (requests.waypoint, requests.waypoint_of) = (shown.waypoint, shown.waypoint_of);
             }
             requests.lines.extend(shown.lines);
             if let Some(url) = shown.info {

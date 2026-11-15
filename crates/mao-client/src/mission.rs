@@ -223,6 +223,16 @@ pub fn next_step(fits: Option<usize>, answered: bool, since_answer: Option<std::
     }
 }
 
+/// What the offers do to the waypoint on the planet map and the compass (GUI.dll FUN_100d0704, the list's
+/// selection changing; FUN_100d04fe, the window going).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Mark {
+    /// An offer was selected: its place is uploaded, as the journal's "Upload to map" does.
+    Upload { id: (u32, u32), playfield: u32, place: [f32; 3] },
+    /// No offer is selected any more, or the window went: the waypoint goes if it is this offer's.
+    Remove { id: (u32, u32) },
+}
+
 /// What the window asks the network thread to do (carried in `Input`).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Command {
@@ -284,6 +294,8 @@ pub struct MissionWindow {
     pub sliders: [i32; 7],
     pub offers: Vec<Offer>,
     pub selected: Option<usize>,
+    /// The offer that was selected when [`MissionWindow::mark`] last looked.
+    marked: Option<(u32, u32)>,
     /// What the player is told ("Asking the booth ...", "No booth in reach").
     pub status: String,
     /// The helper: the two boxes' text (parts of reward names, parts of place names), whether to keep asking until an
@@ -300,7 +312,7 @@ pub struct MissionWindow {
 
 impl Default for MissionWindow {
     fn default() -> MissionWindow {
-        MissionWindow { open: false, sliders: SLIDERS_AT_FIRST, offers: Vec::new(), selected: None, status: String::new(), want_items: String::new(), want_places: String::new(), keep_asking: false, limit: DEFAULT_LIMIT, helper_loaded: false, answers: 0, roll: None }
+        MissionWindow { open: false, sliders: SLIDERS_AT_FIRST, offers: Vec::new(), selected: None, marked: None, status: String::new(), want_items: String::new(), want_places: String::new(), keep_asking: false, limit: DEFAULT_LIMIT, helper_loaded: false, answers: 0, roll: None }
     }
 }
 
@@ -311,6 +323,21 @@ impl MissionWindow {
         self.selected = None;
         self.offers = offers;
         self.answers = self.answers.wrapping_add(1);
+    }
+
+    /// What the selection does to the waypoint; asked every frame, the window open or not. The original's list tells
+    /// its window when the selection changes (FUN_100d0704): with an offer selected whose place is known
+    /// (`N3Msg_GetQuestWorldPos`), the place is uploaded to the map and the compass (the signal the journal's "Upload
+    /// to map" sends); with none selected the offer's waypoint is taken away, as it is when the window goes
+    /// (FUN_100d04fe). An offer without a place uploads nothing and leaves what is there.
+    pub fn mark(&mut self) -> Option<Mark> {
+        let now = self.selected.filter(|_| self.open).and_then(|s| self.offers.get(s)).map(|o| (o.id, o.destination));
+        let before = std::mem::replace(&mut self.marked, now.map(|n| n.0));
+        match (before, now) {
+            (was, Some((id, (playfield, place)))) if was != Some(id) => (playfield != 0).then_some(Mark::Upload { id, playfield, place }),
+            (Some(id), None) => Some(Mark::Remove { id }),
+            _ => None,
+        }
     }
 
     /// The helper's settings from a picture's or a test's hand (not read from the file after).
@@ -517,6 +544,37 @@ impl MissionWindow {
 mod helper_tests {
     use super::*;
     use std::time::Duration;
+
+    fn offer(id: u32, playfield: u32) -> Offer {
+        Offer { id: (0xdac3, id), title: String::new(), description: String::new(), credits: 0, xp: 0, rewards: Vec::new(), icon: None, destination: (playfield, [id as f32, 0.0, 2.0]), playfield: String::new() }
+    }
+
+    /// A click on an offer uploads its place, another offer's replaces it, and the waypoint is taken away when no
+    /// offer is selected or the window goes (GUI.dll FUN_100d0704, FUN_100d04fe).
+    #[test]
+    fn a_selected_offer_marks_the_map() {
+        let mut w = MissionWindow { open: true, ..Default::default() };
+        assert_eq!(w.mark(), None);
+        w.set_offers(vec![offer(1, 655), offer(2, 540), offer(3, 0)]);
+        assert_eq!(w.mark(), None);
+        w.selected = Some(0);
+        assert_eq!(w.mark(), Some(Mark::Upload { id: (0xdac3, 1), playfield: 655, place: [1.0, 0.0, 2.0] }));
+        // (once a selection, not every frame)
+        assert_eq!(w.mark(), None);
+        w.selected = Some(1);
+        assert_eq!(w.mark(), Some(Mark::Upload { id: (0xdac3, 2), playfield: 540, place: [2.0, 0.0, 2.0] }));
+        // (an offer without a place uploads nothing; the window going takes that offer's away, which is none)
+        w.selected = Some(2);
+        assert_eq!(w.mark(), None);
+        w.open = false;
+        assert_eq!(w.mark(), Some(Mark::Remove { id: (0xdac3, 3) }));
+        assert_eq!(w.mark(), None);
+        // (a new answer from the terminal leaves nothing selected)
+        (w.open, w.selected) = (true, Some(1));
+        assert!(matches!(w.mark(), Some(Mark::Upload { .. })));
+        w.set_offers(vec![offer(4, 655)]);
+        assert_eq!(w.mark(), Some(Mark::Remove { id: (0xdac3, 2) }));
+    }
 
     /// The request's bytes are the original's: its window's first values give the request of the capture of 2026-11-08
     /// (`06` and six zeros), and the capture of 2026-10-21 (`02 14 a1 1e b8 1c 00`) is a low difficulty with sliders
