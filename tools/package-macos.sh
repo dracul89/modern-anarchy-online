@@ -14,8 +14,18 @@
 #
 #   tools/package-macos.sh [out-dir] [version]          (default: dist, and the version in Cargo.toml)
 #
-# The application is signed ad hoc (no certificate), which lets it run where it was built; one downloaded from
-# elsewhere is still held back by the system until allowed (right click, Open; or System Settings, Privacy & Security).
+# Signing. With a "Developer ID Application" certificate in the keychain (an Apple Developer account makes one: Xcode,
+# Settings, Accounts, Manage Certificates) the application and the disk image are signed with it, hardened runtime and
+# a timestamp; MAO_SIGN_IDENTITY names another certificate, and MAO_SIGN_IDENTITY=- asks for none. With
+# MAO_NOTARY_PROFILE as well, the disk image is sent to Apple's notary service and its ticket attached, after which a
+# downloaded copy opens without the system's warning. The profile is a name the credentials were stored under, once:
+#
+#   xcrun notarytool store-credentials mao-notary --apple-id <the account's address> --team-id <the team's ten characters>
+#   MAO_NOTARY_PROFILE=mao-notary tools/package-macos.sh
+#
+# (it asks for an app-specific password, made at account.apple.com, Sign-In and Security, and keeps it in the keychain).
+# Without a certificate the application is signed ad hoc, which lets it run where it was built; one downloaded from
+# elsewhere is then held back by the system until allowed (right click, Open; or System Settings, Privacy & Security).
 # It is for the machine's own processor (Apple silicon on the build machines). The folder and .tar.gz for a terminal
 # are tools/package.sh's; see docs/PLATFORMS.md.
 set -eu
@@ -71,7 +81,16 @@ cat > "$app/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 plutil -lint "$app/Contents/Info.plist" >/dev/null
-codesign --force --deep --sign - "$app"
+
+# The certificate to sign with: the one named, else the keychain's first Developer ID Application, else none (ad hoc).
+identity=${MAO_SIGN_IDENTITY:-$(security find-identity -v -p codesigning 2>/dev/null | sed -n 's/.*"\(Developer ID Application: [^"]*\)".*/\1/p' | head -1)}
+identity=${identity:--}
+if [ "$identity" = - ]; then
+  codesign --force --deep --sign - "$app"
+else
+  codesign --force --options runtime --timestamp --sign "$identity" "$app"
+fi
+codesign --verify --strict "$app"
 
 # The disk image: the application and a link to /Applications, compressed and read-only.
 stage=$(mktemp -d)
@@ -81,5 +100,19 @@ image="$root/$out/ModernAnarchyOnline-$version-macos-$(uname -m).dmg"
 rm -f "$image"
 hdiutil create -volname "Modern Anarchy Online" -srcfolder "$stage" -fs HFS+ -format UDZO -ov "$image" >/dev/null
 rm -rf "$stage"
+signed="ad hoc (no certificate)"
+if [ "$identity" != - ]; then
+  codesign --force --timestamp --sign "$identity" "$image"
+  signed="with a Developer ID certificate"
+  if [ -n "${MAO_NOTARY_PROFILE:-}" ]; then
+    # (Apple's check of the image and what is in it: some minutes; then the ticket is attached to the image)
+    xcrun notarytool submit "$image" --keychain-profile "$MAO_NOTARY_PROFILE" --wait
+    xcrun stapler staple "$image"
+    signed="$signed, notarized"
+  else
+    echo "not notarized: MAO_NOTARY_PROFILE is not set (see the top of this script)"
+  fi
+fi
 echo "packaged: $app ($version)"
 echo "disk image: $image"
+echo "signed: $signed"
