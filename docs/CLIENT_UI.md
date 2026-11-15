@@ -3809,3 +3809,31 @@ request). So a "Go!" sends two answers; the original does. Not drawn: the window
 tried live:** the list in the user's log was kept in part only (28 of 54 bytes: one place, playfield 6010, a name
 that starts "City Grid"), so the tests' lists are made up past that; the client writes the whole message to the log
 now ("grid: the destinations' list ..."). `MAO_UI_PREVIEW=teleport` shows the window with two made-up rows.
+
+**Inside an organisation's buildings (2026-11-15; the user: "the inside of organsition buildings are not mapped
+out").** Their log: through a silo's door the server zoned them to a playfield the client numbered 3637258 and drew
+nothing for ("collision 0 triangles"; their picture is the dark with the characters in it). The playfield message's
+proxy was of a type the client had not met, 0xc79d, and its second word (0x37800a) is the instance's number, not a
+playfield of the game's data. Gamecode's `GetPlayfieldFactory` (0x1001886c) gives that type its own factory,
+`AnarchyBuildingPlayfieldFactoryClient_t`, whose making of the playfield (FUN_1011f23e) first reads the object after
+the proxy, `OwnedBuildingGeneratorData_t`: the object's identity and a word, a version, then the playfield whose
+rooms the inside is (`ReadPlayfield` gets `(0xf4241, it)`), then the playfield the building stands in, a word, a
+place and a list of fixtures. `Message::owned_building` reads it and `arrival` draws that playfield: 4350 "Notum Silo
+Inside" and 4349 "Superior Neutral org hq" are the insides of the two the user entered, by their house templates'
+`inside` word, which is that number (a guess of `docs/CITIES_ORIGINAL.md` no more). **Not tried live**, and the log
+had kept 28 of the message's 138 bytes: the playfield's number is taken at byte 58 by the original's order of reads,
+which no captured message confirms yet; the client writes the whole message to the log now ("an owned building's
+inside ..."). Not read: the fixtures (what an organisation has put in the building).
+
+**A city's controller under the mouse (2026-11-15; the user: "the city controller should be targettable and
+usable").** It was both by the code, as every object of a playfield's table is, but the mouse picked such an object
+by a cylinder of a terminal's size on its place (0.8 by 2.2), and the controller is 19 units wide and 27 high: only
+its foot could be clicked. A table object is picked by its mesh's size now when that is larger
+(`table_pick_sizes`; `--example meshsize` measures a mesh). Its use goes to the server as any object's
+(`n3::use_object` on the identity the playfield message's runs give it). What the server answers and the window it
+opens are the next piece (see below, when it is there).
+
+**The city's houses checked (2026-11-15).** The user's log has their city's whole list (nine houses) and the
+server's `DoorFullUpdate`s of five of its doors: the doors the client computes from the houses' places, turns and
+templates stand where the server's do to the centimetre (`houses::tests`, `landcontrol::tests::a_real_citys_houses`).
+The placing and facing of city buildings is no longer a guess.

@@ -87,3 +87,32 @@ pub(crate) fn add(db: &ResourceDatabase, houses: &[House], scene: &mut Model, co
     }
     eprintln!("city: {} houses, {placed} meshes placed, {walls} triangles of their surfaces", houses.len());
 }
+
+#[cfg(test)]
+mod tests {
+    /// `MAO_GAME`: a city's nine houses (the whole list of the user's log of 2026-11-15) have their doors where the
+    /// server announced them (the `DoorFullUpdate`s of the same log, the five doors in sight), to the centimetre: the
+    /// houses' places, their turns and the templates' door places are read right.
+    #[test]
+    fn the_doors_of_a_real_city_stand_where_the_server_puts_them() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let db = mao_formats::resource::ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap();
+        let hex = "000000094459000040a0000044a000000000010e00000f4268006a00034459000040a0000044a980000000000000000f4268006a0011446f000040a0000044b58000000000b400000f4268006a00014480800040a00000449e00000000005a00000f4268006a00184480800040a00000449f00000000005a00000f4268006a001a4482000040a00000449e0000000000b400000f4268006a00194485000040a00000449b80000000000000000f4268006a00024487800040a0000044a980000000000000000f4268006a000b448a000040a0000044b080000000000000000f4268006a000e";
+        let blob: Vec<u8> = (0..hex.len() / 2).map(|i| u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).unwrap()).collect();
+        let houses = mao_net::landcontrol::houses(&blob).unwrap();
+        assert_eq!(houses.len(), 9);
+        let mut doors = Vec::new();
+        for house in &houses {
+            let record = db.get(mao_formats::resource::Id { kind: house.template.0, instance: house.template.1 }).unwrap().expect("the template");
+            let template = mao_formats::house::Template::parse(&record).expect("a template that reads");
+            for d in &template.doors {
+                let p = template.rotate_local(d.position, house.rotation);
+                doors.push([house.position[0] + p[0], house.position[1] + p[1], house.position[2] + p[2]]);
+            }
+        }
+        assert_eq!(doors.len(), 6);
+        for told in [[1043.87f32, 7.94, 1265.85], [1073.77, 6.35, 1254.19], [1029.77, 7.94, 1268.04], [1029.82, 7.94, 1276.06], [915.68, 6.45, 1301.29]] {
+            assert!(doors.iter().any(|d| (0..3).all(|k| (d[k] - told[k]).abs() < 0.02)), "no door at {told:?}: {doors:?}");
+        }
+    }
+}

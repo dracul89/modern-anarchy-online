@@ -244,4 +244,15 @@ mod tests {
         // (80 houses are 2004 bytes, the length the log's message gave)
         assert_eq!(4 + House::SIZE * 80, 0x7d4);
     }
+
+    /// A whole list (the user's city in their log of 2026-11-15: nine houses in 229 bytes).
+    #[test]
+    fn a_real_citys_houses() {
+        let list = houses(&hex("000000094459000040a0000044a000000000010e00000f4268006a00034459000040a0000044a980000000000000000f4268006a0011446f000040a0000044b58000000000b400000f4268006a00014480800040a00000449e00000000005a00000f4268006a00184480800040a00000449f00000000005a00000f4268006a001a4482000040a00000449e0000000000b400000f4268006a00194485000040a00000449b80000000000000000f4268006a00024487800040a0000044a980000000000000000f4268006a000b448a000040a0000044b080000000000000000f4268006a000e")).unwrap();
+        assert_eq!(list.len(), 9);
+        assert_eq!(list[0], House { position: [868.0, 5.0, 1280.0], rotation: 270, flag: false, template: (0xf4268, 0x6a0003) });
+        assert_eq!(list[2], House { position: [956.0, 5.0, 1452.0], rotation: 180, flag: false, template: (0xf4268, 0x6a0001) });
+        assert_eq!(list.iter().map(|h| h.template.1 & 0xffff).collect::<Vec<_>>(), [3, 0x11, 1, 0x18, 0x1a, 0x19, 2, 0xb, 0xe]);
+        assert!(list.iter().all(|h| !h.flag && h.rotation % 90 == 0));
+    }
 }

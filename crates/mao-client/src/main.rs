@@ -593,6 +593,39 @@ pub(crate) fn table_dynels(db: &ResourceDatabase, playfield: u32) -> Vec<(u32, u
         .collect()
 }
 
+/// How large each of the playfield's built-in objects stands, for the mouse (the original casts the mouse's line
+/// against the dynel itself; here it is a cylinder on the object's place): the half of its mesh's greater width and the
+/// mesh's height, by the object's kind and instance. A city's controller is 19 units wide and 27 high, and with a
+/// terminal's cylinder (0.8 by 2.2) only its foot could be clicked.
+pub(crate) fn table_pick_sizes(db: &ResourceDatabase, playfield: u32) -> std::collections::HashMap<(u32, u32), (f32, f32)> {
+    let Some(object) = db.get(Id { kind: mao_formats::dynels::KIND, instance: playfield }).ok().flatten() else { return Default::default() };
+    let records = mao_formats::dynels::parse(&object);
+    let mut measured: std::collections::HashMap<u32, Option<(f32, f32)>> = std::collections::HashMap::new();
+    static_props(db, playfield)
+        .into_iter()
+        .filter_map(|(key, (mesh, ..), _)| {
+            let d = records.get((key & 0x00ff_ffff) as usize)?;
+            let size = (*measured.entry(mesh).or_insert_with(|| {
+                let model = load_model_dynel(db, Id { kind: 0xf6951, instance: mesh }).ok()?;
+                let (mut wide, mut top) = (0.0f32, 0.0f32);
+                for part in &model.parts {
+                    let m = &part.world;
+                    for v in &part.vertices {
+                        let p = v.position;
+                        let x = p[0] * m[0] + p[1] * m[4] + p[2] * m[8] + m[12];
+                        let y = p[0] * m[1] + p[1] * m[5] + p[2] * m[9] + m[13];
+                        let z = p[0] * m[2] + p[1] * m[6] + p[2] * m[10] + m[14];
+                        wide = wide.max(x.abs()).max(z.abs());
+                        top = top.max(y);
+                    }
+                }
+                Some((wide, top))
+            }))?;
+            Some(((d.kind, d.instance), size))
+        })
+        .collect()
+}
+
 /// The kind of mission each of a playfield's mission terminals gives (`QuestOriginator_e`, the terminal's stat 490: its
 /// record's own or its template's), by the terminal's number in the dynel table. 1 and 2 are the neutral terminals'
 /// (one's own missions and a team's), 3 and 4 Omni-Tek's, 5 and 6 the clans' (`terminals`, an example in
@@ -2518,6 +2551,19 @@ mod warp_stone_tests {
             eprintln!("  {:#x} {:#x} {:?} {} {}", d.0, d.1, d.2, d.3, d.4);
         }
         assert!(stone.is_some());
+    }
+
+    /// `MAO_GAME`: a city's controller (`(0xc418, 0xc000177a)` of playfield 6010's table) is picked by its mesh's size, 19
+    /// units wide and 27 high, and its guest key machine by its own.
+    #[test]
+    fn a_citys_controller_is_as_large_as_its_mesh_for_the_mouse() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let db = mao_formats::resource::ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap();
+        let sizes = crate::table_pick_sizes(&db, 6010);
+        let (wide, top) = sizes[&(0xc418, 0xc000_177a)];
+        assert!((9.0..10.5).contains(&wide) && (26.0..28.0).contains(&top), "{wide} {top}");
+        let (wide, top) = sizes[&(0xc73d, 0xc001_177a)];
+        assert!(wide < 1.0 && (4.0..5.0).contains(&top), "{wide} {top}");
     }
 
     /// `MAO_GAME`: the Shadowlands' portal statues (the garden's "Passage to ..." items, the Wailing Wastes' Shining Ancient

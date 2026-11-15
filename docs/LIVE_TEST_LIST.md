@@ -237,6 +237,11 @@ account with `net <game> create`, in Arete Landing; scripted, other new players 
   fought; pressed again while recharging the game says the skill is locked with the time left; the icon counts
   down on the hotbar and in the Actions window; "ready again" is said when it is; a key or slot for a special the
   weapon does not give says it is not available. Search says it is searching.
+- [ ] Inside a city's buildings (2026-11-15): through a building's door the rooms are there (the silo, the
+  headquarters), with their doors, and the way out leads back to the city. The log's "an owned building's inside ..."
+  line is wanted for a test.
+- [ ] The city's controller (2026-11-15): a click anywhere on it selects it ("City Controller" in the target bar); a
+  double click uses it.
 - [ ] The Grid's "Organisation City" and "Notum Controller" exits (2026-11-15): a window titled "Vehicle" lists the
   places (the city, the tower fields) with their playfields; "Go!" with a row selected takes the character there;
   "Close" does nothing more. The log's "grid: the destinations' list ..." line is wanted for a test.

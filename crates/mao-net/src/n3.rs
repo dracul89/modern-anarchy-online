@@ -67,6 +67,17 @@ pub const GAME_TIME: u32 = 0x5f52412e;
 /// The first thing the client sends after entering.
 pub const READY: u32 = 0x570c2039;
 
+/// The inside of an owned building ([`Message::owned_building`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct OwnedBuilding {
+    /// The instance's number (the proxy's).
+    pub instance: u32,
+    /// The playfield whose rooms it is.
+    pub template: u32,
+    /// The playfield the building stands in and a place there, when the message says (version 4).
+    pub outside: Option<((u32, u32), [f32; 3])>,
+}
+
 /// A generated building's layout ([`Message::generated`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Generated {
@@ -1885,12 +1896,36 @@ impl Message {
             return None;
         }
         let f = |at: usize| f32::from_be_bytes(self.data[at..at + 4].try_into().unwrap());
-        // (a generated building's playfield is drawn from its template playfield, which the generator data names)
-        let template = match self.generated() {
-            Some(g) => Some(g.template),
-            None => (self.data.len() >= 26 && self.data[17] == b'a').then(|| u32::from_be_bytes(self.data[22..26].try_into().unwrap())).filter(|&t| t != 0),
+        // (a generated building's playfield is drawn from its template playfield, which the generator data names; so is an
+        // owned building's inside)
+        let template = match (self.generated(), self.owned_building()) {
+            (Some(g), _) => Some(g.template),
+            (None, Some(b)) => Some(b.template),
+            (None, None) => (self.data.len() >= 26 && self.data[17] == b'a').then(|| u32::from_be_bytes(self.data[22..26].try_into().unwrap())).filter(|&t| t != 0),
         };
         Some((template.unwrap_or(self.identity.1), [f(5), f(9), f(13)]))
+    }
+
+    /// The inside of a building someone owns (an organisation city's house: the proxy type `0xc79d`), from the
+    /// [`PLAYFIELD`] message's object after the proxy: `OwnedBuildingGeneratorData_t` as Gamecode's
+    /// `AnarchyBuildingPlayfieldFactoryClient_t` reads it before it makes the playfield (FUN_1011f23e; the object's own
+    /// reader is FUN_101217c0): the object's identity and a word, the version, the playfield whose rooms the inside is
+    /// (`ReadPlayfield` is given `(0xf4241, it)`), and with version 4 the playfield the building stands in (an identity),
+    /// a word and a place (three floats); a list of fixtures and more follow, which nothing here reads. The proxy's own
+    /// second word is the instance's number (0x37800a for a silo in the user's log of 2026-11-15), not a playfield of
+    /// the game's data.
+    pub fn owned_building(&self) -> Option<OwnedBuilding> {
+        let d = &self.data;
+        if self.kind != PLAYFIELD || d.len() < 62 || d[17] != b'a' {
+            return None;
+        }
+        let w = |at: usize| u32::from_be_bytes(d[at..at + 4].try_into().unwrap());
+        let version = w(54);
+        if w(18) != 0xc79d || !(1..=4).contains(&version) || w(58) == 0 {
+            return None;
+        }
+        let outside = (version == 4 && d.len() >= 86).then(|| ((w(62), w(66)), [f32::from_bits(w(74)), f32::from_bits(w(78)), f32::from_bits(w(82))]));
+        Some(OwnedBuilding { instance: w(22), template: w(58), outside })
     }
 
     /// A generated building's layout (a mission dungeon: the proxy type `0xc79f` or `0xc7a1`), from the [`PLAYFIELD`] message's
@@ -2187,6 +2222,28 @@ mod zoning_tests {
     use super::*;
 
     /// The announcement of West Athens from a capture.
+    /// The way into a city's silo (the head of the message in the user's log of 2026-11-15, which kept 28 of its 138
+    /// bytes: the proxy `0xc79d`, the instance 0x37800a; the rest made up to the original's reader): the playfield to
+    /// draw is the one the building's data names, not the instance's number.
+    #[test]
+    fn an_owned_buildings_inside_is_its_templates_playfield() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let mut data = hex("000000000442cf9f2840c0a3d1427c0aa0610000c79d0037800a0000");
+        // (the proxy's other words; the object's identity and word; version 4; the playfield 4350; the city's playfield
+        // and a word; a place)
+        data.extend_from_slice(&hex("00010000000000009c500020e067"));
+        data.extend_from_slice(&hex(concat!("0000c79d0037800a00000000", "00000004", "000010fe", "0000c79c0000177a", "00000000", "4465000040a0000044a00000")));
+        data.extend_from_slice(&[0; 20]);
+        let m = Message { kind: PLAYFIELD, identity: (0x9c50, 0x20e067), data };
+        let b = m.owned_building().unwrap();
+        assert_eq!((b.instance, b.template, b.outside), (0x37800a, 4350, Some(((0xc79c, 6010), [916.0, 5.0, 1280.0]))));
+        assert_eq!(m.arrival().map(|a| a.0), Some(4350));
+        assert_eq!(m.generated(), None);
+        // (cut before the data, it is the proxy's number as before)
+        let short = Message { data: m.data[..42].to_vec(), ..m.clone() };
+        assert_eq!((short.owned_building(), short.arrival().map(|a| a.0)), (None, Some(0x37800a)));
+    }
+
     #[test]
     fn arrival_from_capture() {
         let data: Vec<u8> = [0u8, 0, 0, 0, 4, 0x44, 0x2f, 0xdf, 0xf2, 0x41, 0x20, 0x1d, 0x07, 0x43, 0xd4, 0x61, 0x42, 0x61, 0, 0, 0xc7, 0x9c, 0, 0, 2, 0x21].to_vec();

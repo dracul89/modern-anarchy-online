@@ -502,6 +502,9 @@ struct World {
     /// The playfield's built-in terminals, booths and signs (`crate::table_dynels`): picked with the mouse, used and
     /// described like the others.
     table: Vec<(u32, u32, [f32; 3], u32, String)>,
+    /// How large each of them stands, for the mouse (`crate::table_pick_sizes`: a radius and a height by kind and
+    /// instance).
+    table_sizes: std::collections::HashMap<(u32, u32), (f32, f32)>,
     /// The kind of mission each of the playfield's mission terminals gives, by its table number (`mission_terminals`).
     mission_kinds: std::collections::HashMap<u32, u8>,
     /// Pages for the info view (a target's description), until taken.
@@ -1477,6 +1480,11 @@ impl World {
         }
         if let Some(arrival) = m.arrival() {
             eprintln!("playfield message: identity ({:x},{:x}) -> playfield {} at {:?}", m.identity.0, m.identity.1, arrival.0, arrival.1);
+            // (an owned building's inside, an organisation city's house: the whole message goes to the log, of which the
+            // first one seen was kept in part only)
+            if m.data.get(18..22) == Some(&[0, 0, 0xc7, 0x9d]) {
+                eprintln!("  an owned building's inside: {:?}; the message's {} bytes: {}", m.owned_building(), m.data.len(), m.data.iter().map(|b| format!("{b:02x}")).collect::<String>());
+            }
             // (a generated building, a mission dungeon: its rooms stand in for the template playfield's)
             let building = m.generated();
             if let Some(b) = &building {
@@ -5340,6 +5348,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     state.prop_anim.extend(crate::static_prop_anims(&db, playfield).into_iter().map(|(k, (play, pos))| (k, (play, pos, Instant::now()))));
     state.approach_doors = crate::approach_doors(&db, playfield);
     state.table = crate::table_dynels(&db, playfield);
+    state.table_sizes = crate::table_pick_sizes(&db, playfield);
     state.mission_kinds = crate::mission_terminals(&db, playfield);
     profile!("[profile] static_props {:?}", started_props.elapsed());
     // (the collision is shared with the viewer, for the camera's lines of sight where the playfield has no surfaces)
@@ -6421,6 +6430,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             state.approach_doors = crate::approach_doors(&thread_db, playfield);
                             state.animated_statels = Arc::new(area.animated);
                             state.table = crate::table_dynels(&thread_db, playfield);
+                            state.table_sizes = crate::table_pick_sizes(&thread_db, playfield);
                             state.mission_kinds = crate::mission_terminals(&thread_db, playfield);
                             let mut scene = area.scene;
                             if terrain.is_none() && crate::load_rooms(&thread_db, playfield).is_none() {
@@ -8947,8 +8957,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                 (kind_of(id), *id, [p[0], p[2], p[1]], r, h, false)
                             })
                             .chain(state.table.iter().map(|&(kind, id, p, _, _)| {
-                                let (r, h) = size(kind);
-                                (kind, id, [p[0], p[2], p[1]], r, h, false)
+                                // (no smaller than before, and as large as its mesh stands: a city's controller)
+                                let (r, h): (f32, f32) = size(kind);
+                                let (wide, top) = state.table_sizes.get(&(kind, id)).copied().unwrap_or((0.0, 0.0));
+                                (kind, id, [p[0], p[2], p[1]], r.max(wide), h.max(top), false)
                             }))
                             .chain(state.entities.iter().filter(|(id, _)| **id != own).map(|(id, (p, _))| {
                                 // (as large as its mesh stands: a cylinder of a person's size missed the large and overlapped
