@@ -190,7 +190,8 @@ struct PartUniform {
     /// parts, at 0 not at all). A character under a highlight effect; otherwise [`NO_TINT`].
     tint: [f32; 4],
     /// The material's blending ([`blend_of`]): x: 0 opaque, 1 blended by alpha, 2 added; y: its alpha test's reference
-    /// (under 0: none); z: its opacity; w: 1 when it writes no depth.
+    /// (under 0: none, and an unblended material is then drawn whole whatever its texture's alpha); z: its opacity;
+    /// w: 1 when it writes no depth.
     blend: [f32; 4],
 }
 
@@ -199,17 +200,22 @@ fn blend_of(material: &mao_formats::model::Material) -> [f32; 4] {
     use mao_formats::model::Blend;
     // (MAO_NO_BLEND=1: every material cut out as before, to compare)
     static OFF: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    let mode = match material.blend {
-        _ if *OFF.get_or_init(|| std::env::var_os("MAO_NO_BLEND").is_some()) => 0.0,
+    // (a material that neither blends nor tests its alpha is drawn whole: the original's device has the alpha test off
+    // (randy31 `randy.rs`: state 15 is 0) and a material read from a mesh keeps just the states it was stored with
+    // (`FAFMaterial_t`'s reader). Until 2026-11-15 such a material was cut out at half alpha here: the city
+    // controller's band of machinery, whose texture's alpha is a noise of black and white, was full of holes. 42 of
+    // the 11,228 meshes have one: `cargo run -p mao-formats --example opaquealpha`.)
+    let (mode, cut) = match material.blend {
+        _ if *OFF.get_or_init(|| std::env::var_os("MAO_NO_BLEND").is_some()) => (0.0, material.alpha_ref.unwrap_or(0.5)),
         // (plants stay cut out at a half: blended, their crowns thin to a veil with distance, as the texture's smaller
         // levels average its alpha down, where the original's trees stand dense in its screenshots. Why the original's
         // do not thin is not known: whether its plant textures have smaller levels at all was not read.)
-        _ if material.foliage => 0.0,
-        Blend::None => 0.0,
-        Blend::Alpha => 1.0,
-        Blend::Add => 2.0,
+        _ if material.foliage => (0.0, material.alpha_ref.unwrap_or(0.5)),
+        Blend::None => (0.0, material.alpha_ref.unwrap_or(-1.0)),
+        Blend::Alpha => (1.0, material.alpha_ref.unwrap_or(-1.0)),
+        Blend::Add => (2.0, material.alpha_ref.unwrap_or(-1.0)),
     };
-    [mode, material.alpha_ref.unwrap_or(-1.0), material.opacity, material.no_z_write as u32 as f32]
+    [mode, cut, material.opacity, material.no_z_write as u32 as f32]
 }
 
 /// The pipeline a blended part is drawn with: by its uniform's blend (alpha or added) and whether it writes depth.

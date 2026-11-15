@@ -122,7 +122,11 @@ fn fs_shadow(in: VertexOut) {
     let flags = parts[in.part].flags;
     if flags.x > 0.5 && flags.y < 0.5 {
         let t = textureSampleLevel(tex, samp, in.uv, 0.0);
-        if t.a < 0.5 {
+        // (a blended part casts its shadow where it is at least half there; an unblended one where its alpha test
+        // passes, and whole when it has none)
+        let blend = parts[in.part].blend;
+        let cut = select(blend.y, 0.5, blend.x > 0.5);
+        if cut >= 0.0 && t.a < cut {
             discard;
         }
     }
@@ -180,7 +184,8 @@ fn shade(in: VertexOut) -> vec4<f32> {
     // diffuse before the colour is multiplied in.
     var baked = 0.0;
     // (a blended material's alpha is its texture's, times its opacity: Direct3D's default alpha stage, texture times
-    // diffuse; it is cut by its own alpha test, where an unblended one is cut at a half. This client's own: a pixel
+    // diffuse; it is cut by its own alpha test, as an unblended one is, which without one is drawn whole (plants are
+    // given a test at a half by `blend_of`). This client's own: a pixel
     // that would show nothing, alpha under 0.02, is not drawn either, so that it writes no depth; the original writes
     // it, and what is drawn behind it later is hidden by nothing.)
     var alpha = tint.a;
@@ -191,7 +196,7 @@ fn shade(in: VertexOut) -> vec4<f32> {
                 discard;
             }
             alpha = alpha * t.a;
-        } else if t.a < select(0.5, blend.y, blend.y >= 0.0) && flags.y < 0.5 {
+        } else if blend.y >= 0.0 && t.a < blend.y && flags.y < 0.5 {
             discard;
         }
         if flags.y > 1.5 {
