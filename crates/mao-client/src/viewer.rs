@@ -222,6 +222,8 @@ pub struct Update {
     pub messages: Vec<String>,
     /// The current target (name and distance), for the target frame.
     pub target: Option<String>,
+    /// The selected target's id (`Hud::selected`).
+    pub selected: Option<u32>,
     /// The same target for the original's target frame: name, health, distance and what it is.
     pub target_bars: Option<Vec<crate::ui::TargetBar>>,
     /// The character's items, when they arrive.
@@ -996,6 +998,34 @@ fn pick(hud: &Hud, camera: mao_render::Camera, radius: f32, size: (u32, u32), at
         .map(|(_, k)| k)
 }
 
+/// Everything pickable the line from the eye meets, nearest first, as the original's camera keeps it for the mouse
+/// (`n3Camera_t` +0x244, filled and sorted when the mouse moves). The character itself is on it only where nothing
+/// else is (this client's rule: the camera looks over its shoulder).
+fn on_line(pickables: &[(u32, u32, [f32; 3], f32, f32, bool)], from: mao_render::glam::Vec3, dir: mao_render::glam::Vec3) -> Vec<(u32, u32)> {
+    let mut met: Vec<((bool, f32), (u32, u32))> = pickables.iter().filter_map(|&(kind, id, feet, r, h, last)| ray_cylinder(from, dir, feet, r, h).map(|t| ((last, t), (kind, id)))).collect();
+    met.sort_by(|a, b| a.0 .0.cmp(&b.0 .0).then(a.0 .1.total_cmp(&b.0 .1)));
+    if met.iter().any(|m| !m.0 .0) {
+        met.retain(|m| !m.0 .0);
+    }
+    met.into_iter().map(|m| m.1).collect()
+}
+
+/// What a left click selects (`n3Camera_t::GetNextTarget`, asked with the selected target by GUI.dll FUN_1002cfac): the
+/// one after the selected target on the line, round to the first again, or the first when the selected one is not on
+/// it. So a second click in the same place takes what stands behind the first.
+fn next_on_line(line: &[(u32, u32)], selected: Option<u32>) -> Option<(u32, u32)> {
+    match selected.and_then(|s| line.iter().position(|l| l.1 == s)) {
+        Some(at) => line.get((at + 1) % line.len()).copied(),
+        None => line.first().copied(),
+    }
+}
+
+/// What is under the mouse for a right click (`n3Camera_t::GetObjectUnderColLine`): the selected target when the
+/// line meets it, else the first on the line.
+fn under_line(line: &[(u32, u32)], selected: Option<u32>) -> Option<(u32, u32)> {
+    selected.and_then(|s| line.iter().copied().find(|l| l.1 == s)).or_else(|| line.first().copied())
+}
+
 fn heading_from_yaw(yaw: f32) -> f32 {
     (-yaw.cos()).atan2(-yaw.sin())
 }
@@ -1251,20 +1281,19 @@ impl ApplicationHandler for App {
                     let (camera, radius) = (w.camera, w.scene.radius);
                     let aspect = size.width as f32 / size.height.max(1) as f32;
                     let (cx, cy) = (self.last.0 as f32, self.last.1 as f32);
-                    // (the first thing the line from the eye through the pointer meets, as the original's camera line
-                    // finds the first dynel on it: each a cylinder standing on its feet)
+                    // (what the line from the eye through the pointer meets, each a cylinder standing on its feet. The
+                    // original, GUI.dll FUN_1002cfac: a left click selects the one after the selected target on the
+                    // line, so clicking again takes what stands behind; a right click uses the selected target when the
+                    // line meets it, else the first. This client's own: a second left click within half a second is a
+                    // double click and uses what the first one took, without stepping on.)
                     let (from, dir) = camera.ray(cx / size.width.max(1) as f32, cy / size.height.max(1) as f32, aspect, radius);
-                    let nearest = self
-                        .hud
-                        .pickables
-                        .iter()
-                        .filter_map(|&(kind, id, feet, r, h, last)| ray_cylinder(from, dir, feet, r, h).map(|t| ((last, t), (kind, id))))
-                        .min_by(|a, b| a.0 .0.cmp(&b.0 .0).then(a.0 .1.total_cmp(&b.0 .1)));
-                    if log {
-                        eprintln!("  first on the line {nearest:?} of {}", self.hud.pickables.len());
-                    }
-                    if let Some((_, (kind, id))) = nearest {
-                        let double = use_it || self.last_click.is_some_and(|(last, at)| last == id && at.elapsed() < std::time::Duration::from_millis(500));
+                    let line = on_line(&self.hud.pickables, from, dir);
+                    let again = self.last_click.filter(|(_, at)| at.elapsed() < std::time::Duration::from_millis(500)).and_then(|(id, _)| line.iter().copied().find(|l| l.1 == id));
+                    let picked = if use_it { under_line(&line, self.hud.selected) } else { again.or_else(|| next_on_line(&line, self.hud.selected)) };
+                    // (for the log: what a click met and took, by id)
+                    eprintln!("click ({}): on the line {:x?}, selected {:x?}, took {:x?}", if use_it { "right" } else { "left" }, line.iter().map(|l| l.1).collect::<Vec<_>>(), self.hud.selected, picked.map(|p| p.1));
+                    if let Some((kind, id)) = picked {
+                        let double = use_it || again.is_some();
                         self.last_click = Some((id, std::time::Instant::now()));
                         self.keys.pick = (self.keys.pick.0.wrapping_add(1), kind, id, double);
                     }
@@ -1609,6 +1638,7 @@ impl ApplicationHandler for App {
                             self.hud.say(m);
                         }
                         self.hud.target = u.target.take();
+                        self.hud.selected = u.selected;
                         if let Some(bars) = u.target_bars.take() {
                             self.hud.target_bars = bars;
                         }
@@ -3114,6 +3144,30 @@ mod camera_tests {
         // looking down on it: its top
         let t = ray_cylinder(Vec3::new(0.1, 0.0, 10.0), -Vec3::Z, [0.0, 0.0, 0.0], 0.5, 2.0).unwrap();
         assert!((t - 8.0).abs() < 1e-4);
+    }
+
+    /// A click steps along what the mouse's line meets, as the original's `GetNextTarget`: an NPC in front of a pad
+    /// (the user's of 2026-11-15, a shuttle's ring behind an NPC in Tir County), one's own character behind both.
+    #[test]
+    fn a_second_click_takes_what_stands_behind() {
+        use mao_render::glam::Vec3;
+        let (npc, pad, own) = ((0xc350, 0x7b23d5c0), (0xc73d, 0xc0070287), (0xc350, 7));
+        let pickables = [(pad.0, pad.1, [20.0, 0.0, 0.0], 2.0, 2.2, false), (own.0, own.1, [2.0, 0.0, 0.0], 0.5, 1.9, true), (npc.0, npc.1, [15.0, 0.0, 0.0], 0.5, 1.9, false), (0xc350, 9, [15.0, 9.0, 0.0], 0.5, 1.9, false)];
+        let line = on_line(&pickables, Vec3::new(0.0, 0.0, 1.0), Vec3::X);
+        // (nearest first; one's own character is left out where anything else is met)
+        assert_eq!(line, [npc, pad]);
+        assert_eq!(next_on_line(&line, None), Some(npc));
+        assert_eq!(next_on_line(&line, Some(npc.1)), Some(pad));
+        assert_eq!(next_on_line(&line, Some(pad.1)), Some(npc));
+        assert_eq!(next_on_line(&line, Some(0x1234)), Some(npc));
+        // (a right click uses the selected one when the line meets it, else the first)
+        assert_eq!(under_line(&line, Some(pad.1)), Some(pad));
+        assert_eq!(under_line(&line, Some(0x1234)), Some(npc));
+        assert_eq!(under_line(&line, None), Some(npc));
+        // (alone on the line, a thing is taken again and again; with nothing else, one's own character)
+        assert_eq!(next_on_line(&[pad], Some(pad.1)), Some(pad));
+        assert_eq!(on_line(&pickables[1..2], Vec3::new(0.0, 0.0, 1.0), Vec3::X), [own]);
+        assert_eq!((next_on_line(&[], Some(7)), under_line(&[], None)), (None, None));
     }
 
     #[test]

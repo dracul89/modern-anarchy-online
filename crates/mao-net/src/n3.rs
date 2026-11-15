@@ -1021,9 +1021,14 @@ pub fn mail_send(character: u32, recipient: &str, subject: &str, body: &str, ite
 /// terminal window's seven (difficulty, good/bad, order/chaos, open/hidden, physical/mystical,
 /// head-on/stealth, credits/xp; 255 leaves one to the server), `scope` is 1 for a solo booth and 2 for
 /// a team one, `terminal` the terminal's identity (type 0xdac1). The server answers with the same
-/// message holding the offered missions. (From the AOSharp definitions; not yet seen in a capture.)
+/// message holding the offered missions.
+///
+/// The original's, in the capture of 2026-11-08 at ICC's neutral terminal: `00 04`, `06 00 00 00 00 00 00`, four zero
+/// bytes, `01`, `0000dac1 c000028f`, `00`. This was written from the AOSharp definitions before that capture, with a
+/// first byte of 1, and the server answered none of them (the user at the same terminal, 2026-11-15: the uses echoed,
+/// no offers).
 pub fn quest_alternative(character: u32, sliders: [u8; 7], scope: u8, terminal: (u32, u32)) -> Frame {
-    let mut data = vec![1u8, 4];
+    let mut data = vec![0u8, 4];
     data.extend_from_slice(&sliders);
     data.extend_from_slice(&0u32.to_be_bytes());
     data.push(scope);
@@ -2233,6 +2238,17 @@ mod zoning_tests {
     use super::*;
 
     /// The announcement of West Athens from a capture.
+    /// The request for missions is the original's, byte for byte (the capture of 2026-11-08: character 0x39c16ee4 at
+    /// ICC's neutral terminal, difficulty 6 and the other sliders at 0).
+    #[test]
+    fn the_mission_request_is_the_originals() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let frame = quest_alternative(0x39c16ee4, [6, 0, 0, 0, 0, 0, 0], 1, (0xdac1, 0xc000028f));
+        let m = Message::parse(&frame).unwrap();
+        assert_eq!((m.kind, m.identity), (0x5c436609, (CHARACTER, 0x39c16ee4)));
+        assert_eq!(m.data, hex("00040600000000000000000000010000dac1c000028f00"));
+    }
+
     /// The ways into an org city's notum silo and its headquarters, whole, from the user's log of 2026-11-15 (the first
     /// log kept 28 bytes and the rest of this test was made up to the original's reader; the real ones agree with it):
     /// the playfield to draw is the one the building's data names (4350 and 4349), not the instance's number, and the

@@ -245,6 +245,12 @@ account with `net <game> create`, in Arete Landing; scripted, other new players 
   charge; "Dump city advantages" lists them in the chat; the close cross closes it (a moment later: the server's
   answer does). The cloak's button shows the device's state. **Pressing it switches the cloak at once.** The log's
   "city: signal ..." lines are wanted for tests.
+- [ ] Clicking past what stands in front (2026-11-15): at the shuttle in Tir County (1814, 2644), click the ring
+  under the shuttle's door with an NPC before it: the first click takes the NPC, a second one in the same place (after
+  half a second) the ring; a right click then uses the ring and the shuttle takes the character to ICC. A double click
+  on a lone booth or NPC still uses it.
+- [ ] Missions at ICC's neutral terminal (2026-11-15): use the right one of the two (the individual's), Request
+  Missions: offers come. The log has "missions: asked (0xdac1, ...) for kind 1 ..." and the server's answer.
 - [ ] Leaving a Yalmaha (2026-11-15): put it on, fly through a zone border or a door, take it off: the character has
   its size again. In the air the craft is faster than running was by its 300 `RunSpeed` (about one unit a second), and
   running on foot is faster than in earlier builds (worn items, programs and the attributes count now); the server

@@ -7474,6 +7474,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             // terminal's of the capture, whatever the terminal.)
                             let scope = std::env::var("MAO_MISSION_SCOPE").ok().and_then(|v| v.parse().ok()).or_else(|| state.mission_kinds.get(&serial).copied()).unwrap_or(crate::mission::DEFAULT_SCOPE);
                             let _ = connection.send(&n3::quest_alternative(own, cmd.sliders, scope, booth));
+                            eprintln!("missions: asked ({:#x}, {:#x}) for kind {scope} with {:?}", booth.0, booth.1, cmd.sliders);
                             mission_asked = Some(Instant::now());
                         }
                         None if refused.is_some() => {}
@@ -9276,6 +9277,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         }
                         bars
                     }),
+                    selected: target,
                     target: target.and_then(|t| Some(format!("{}{}  ({:.0} m)", state.names.get(&t)?.0, state.health.get(&t).map(|(hp, max)| format!("  HP {hp}/{max}")).or_else(|| state.last_hp.get(&t).map(|hp| format!("  HP {hp}"))).unwrap_or_default(), ((state.position_of(t)?[0] - position[0]).powi(2) + (state.position_of(t)?[2] - position[2]).powi(2)).sqrt()))),
                 };
                 for (target, d) in deforms_landed.into_inner() {

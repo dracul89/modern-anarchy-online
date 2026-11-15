@@ -113,6 +113,8 @@ pub struct Hud {
     pub log: VecDeque<(Instant, String)>,
     /// The current target, for the target frame.
     pub target: Option<String>,
+    /// The selected target's id, for the mouse (a click steps on from it, a right click prefers it).
+    pub selected: Option<u32>,
     /// The target for the original's frame at the top: name, level, health, distance and what it is.
     pub target_bars: Vec<TargetBar>,
     /// The character's items (the inventory window), and whether a headless preview shows it.

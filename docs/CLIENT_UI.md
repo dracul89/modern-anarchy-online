@@ -3956,3 +3956,29 @@ the original has kept for a character that logs in on its craft (the server's st
 character would stay small after leaving it until the server says otherwise). The log now has a line when the server
 tells one's own `MonsterData` or `Scale` ("own stat 360 from the server: ..."). Not done: another player's craft from
 its update (the template and scale are there for a player too), `MonsterData`'s own handling in the temporary set.
+
+**A click steps along the mouse's line; the mission request's first byte (2026-11-15; the user: "using the teleporter
+behind windcaller Karrec was hard to target and use", "missions aren't working in ICC").**
+
+- *The click.* The teleporter is the ring of a shuttle's door in Tir County (playfield 647, the table's "Shuttle Door"
+  at 1814, 2644): a flat ring on the ground with NPCs standing before it. The log has nine clicks from the ramp above
+  it, every one answered with the info of one of three characters, and none on the ring: a click took the first thing
+  the line from the eye met, and that was whoever stood in front. The original keeps everything the line meets, nearest
+  first (`n3Camera_t` +0x244), and GUI.dll's click (FUN_1002cfac) asks `GetNextTarget` with the selected target: the
+  one after it on the line, round to the first again, or the first when the selected one is not on the line. So a
+  second click in the same place takes what stands behind. A right click uses what `GetObjectUnderColLine` gives: the
+  selected target when the line meets it, else the first. Ported so (`viewer.rs`: `on_line`, `next_on_line`,
+  `under_line`; the selected target's id now goes to the window, `Hud::selected`). This client's own and kept: a second
+  left click within half a second is a double click and uses what the first took, without stepping on. The original's
+  other two left clicks are not ported: with Shift it opens the info page, with Ctrl or Alt on a character it switches
+  the fight to it. Every click now writes a line to the log ("click (left): on the line [...], selected ..., took
+  ..."). Not known: whether the original's list has one's own character (here it is on the line only where nothing
+  else is), and the shapes it meets (here cylinders).
+- *The missions.* The request (`QuestAlternative`) began with a byte of 1, from the AOSharp definitions it was written
+  from; the original's, captured on 2026-11-08 at the very terminal the user stood at (ICC's "Basic Individual Mission
+  Terminal"), begins with 0. The user's log has the terminal's use echoed seven times and no offers once. The request
+  is now the original's byte for byte (`n3::quest_alternative`, test `the_mission_request_is_the_originals`), and each
+  one writes a line to the log ("missions: asked ..."). The one error box in that log, "You need to be in a team to
+  use a team mission booth", is the original's own rule: the nearer of the two terminals there is the team's.
+
+Tests: `a_second_click_takes_what_stands_behind`, `the_mission_request_is_the_originals`. **Not tried live.**
