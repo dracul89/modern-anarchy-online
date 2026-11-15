@@ -3636,3 +3636,60 @@ not go in, `Feedback_InventoryOverflowed`). `net.rs` now does the first: the lis
 no window opens. The two such messages in the captures (16:55 #781, events #76) are 0x68 too. **Not done:** the
 overflow's list (0x6e) is only counted in the log; this client has no overflow window. Not tried live: a claim shows
 on a paid account only.
+
+**A taken mail shows nothing left (2026-11-15; the user: "when removing an item from mail the icon stays the mail
+after showing in my inventory").** Their log: the mail came with flags 0x7c and an item, the take was answered with two
+flag changes, 0x7d and 0x7f. The client kept the flags but went on drawing the item. GUI.dll: the mail's fill
+(FUN_10107b87) shows the item and the money only while bit 1 of the flags, "taken", is clear, and enables Take All
+while there is something to take and Delete only when there is not; the flags' change for the open mail with that
+bit set (FUN_10106eaa) empties the item's place, writes "0" into Cash and COD, turns Take All and Return To Sender
+off and Delete on. `mailmessage.rs` does both now (`left_in`). Different from before: Delete in an open mail is off
+while its things are untaken, as in the original (the inbox's own Delete is as it was).
+
+**The overflow (2026-11-15; the user: "How are we handling inventory overflow?").** It was not handled: an item the
+server named into it was kept aside until the server moved it in, and nothing else. The reading is
+`docs/OVERFLOW_ORIGINAL.md`. The original has no overflow window of its own: the character has a second item list
+(identity type 0x6e), and its window is the ordinary container window. Done from it in `net.rs` / `loot.rs`:
+
+- the list (`World::overflow`): a `TemplateAction` into it adds the item at its first free place, with no window and
+  no line; the server's `ContainerAddItem` from `(0x6e, place)` brings that item into the inventory's first free
+  place (the message's target and place are not looked at; with no room nothing happens); an `InventoryUpdate` that
+  names the character with the handle 0x6e replaces the list, and when the window is not up opens it and says
+  `Feedback_InventoryOverflowed`; zoning empties it and closes the window;
+- the window (titled "Overflow"): a click or a right click on an item asks the server to move it in
+  (`ClientMoveItemToInventory` with `(0x6e, place)` and 0x6f) and nothing moves until the server answers; with a
+  full inventory nothing is sent and the game's `Feedback_InventoryFull` is said; nothing can be dropped into it; it
+  stays up when empty;
+- nothing is put on while the overflow's first place holds something (`Feedback_WearingDisabledWhenItemsInOverflow`).
+
+Not done: the refusal of a unique item one already has (left to the server); the window's title from the game's own
+text; list mode. This client's own: the container window's "Take all" stands in the overflow's too. Not tried live:
+it needs a full inventory and a given item.
+
+**A statel turned and tilted (2026-11-15; the user: "the ramps for the shuttles platform are messed up", and the
+"weird slabs" in the clan shops' tradeskill part).** A statel's rotation is packed as a yaw, a pitch and a roll in
+degrees. N3.dll (FUN_10026e66, FUN_1002777a) makes the yaw's quaternion and multiplies the pitch's and the roll's
+onto it with FUN_10003dc3, whose `a *= b` is Hamilton's `b * a`: the product is roll * pitch * yaw, the turn about Y
+first and the pitch and the roll after it about the world's axes. `mao_formats::statels` had yaw * pitch * roll: the
+same for a statel turned about one axis only, which is nearly all of them, and wrong for the rest. Between ICC's
+landing platforms two bridge pieces (`icc_bridge_slant01`, a piece that rises 26 degrees along its length) lie
+mirrored, one with a pitch of 26 and its twin turned half round with a pitch of -26: both lie flat as a bridge in
+the right order; in the wrong one the twin stood up at 52 degrees. The clan shops' `sa_metalplate` plates (playfields
+1180 to 1182), turned on edge and tilted, are the dark triangular walls beside the ramps in the user's pictures of
+the original; they lay about as slabs. Offline renders of both places match now. The collision is built from the
+same rotations and follows.
+
+**A texture's alpha without a blend or a test (2026-11-15; the user: "city controller doesn't look right").** The
+controller (`ai_buildings_city_controller`, mesh 251929, a built-in object of a city's playfield, type 0xc418) has a
+band of dark machinery under its head whose texture carries an alpha channel of black and white noise; the band was
+drawn full of holes. The client cut every unblended textured part out at half alpha. The original does not: its
+device has the alpha test off (randy31 `randy.rs`, state 15 = 0) and a material read from a mesh keeps the states it
+was stored with (`FAFMaterial_t`'s reader runs no alpha mode), so a material that sets neither blending (27) nor an
+alpha test (15 with 24) is drawn whole. `mao-render` does that now (`blend_of`: the cut's reference is the
+material's own or none; plants keep their half). 42 of the 11,228 meshes have such a material
+(`cargo run -p mao-formats --example opaquealpha -- <game>`): the three city controllers, the cloak towers and the
+swimming pools of the cities, Omni-Trans signs, the QO screens and servers, a yellow cab, earmuffs.
+
+New tools: `--example pfdynels -- <game> <playfield>` (a playfield's built-in objects with their templates' names
+and meshes), `--example rawget -- <game> <kind hex> <instance hex> <out>` (one record's bytes; a texture as its
+picture file).
