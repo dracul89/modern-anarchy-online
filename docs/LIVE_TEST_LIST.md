@@ -250,7 +250,10 @@ account with `net <game> create`, in Arete Landing; scripted, other new players 
   half a second) the ring; a right click then uses the ring and the shuttle takes the character to ICC. A double click
   on a lone booth or NPC still uses it.
 - [ ] Missions at ICC's neutral terminal (2026-11-15): use the right one of the two (the individual's), Request
-  Missions: offers come. The log has "missions: asked (0xdac1, ...) for kind 1 ..." and the server's answer.
+  Missions: offers come. The log has "missions: asked (0xdac1, ...) for kind 1 with [6, 0, 0, 0, 0, 0, 0]" (the
+  sliders untouched) and the server's answer. (Tried by the user the same day with the first byte put right: no
+  answer at ICC nor at Old Athen; the sliders' bytes were out of the server's range. Fixed after, not tried.) Then
+  with sliders moved to both ends: offers come still, and the easy end gives lower missions than the hard end.
 - [ ] Leaving a Yalmaha (2026-11-15): put it on, fly through a zone border or a door, take it off: the character has
   its size again. In the air the craft is faster than running was by its 300 `RunSpeed` (about one unit a second), and
   running on foot is faster than in earlier builds (worn items, programs and the attributes count now); the server

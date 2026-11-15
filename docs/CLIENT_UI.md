@@ -3982,3 +3982,25 @@ behind windcaller Karrec was hard to target and use", "missions aren't working i
   use a team mission booth", is the original's own rule: the nearer of the two terminals there is the team's.
 
 Tests: `a_second_click_takes_what_stands_behind`, `the_mission_request_is_the_originals`. **Not tried live.**
+
+**The mission window's sliders (2026-11-15, later; the user: "missions are still not working").** The log of the try
+has the request with the first byte put right, at ICC seven times and at Old Athen once, and no answer to any. The
+request's seven slider bytes were the fault: the client's window had the difficulty from 0 to 7 and the six others
+from 0 to 255 with 128 for the middle, a guess from one capture. The original's:
+
+- The window (GUI.dll FUN_100d10fc) has the difficulty from 0 to 100, at 50 when nothing is kept for it, and the six
+  others from -100 to 100, at 0.
+- `N3Msg_GenerateMissions` (Gamecode 0x10016276) makes the request's difficulty `floor(slider * 11/101 + 1)`, 1 to 11,
+  and puts the six others in as signed bytes (`DimensionValues_t::SetValue`, Gamedata.dll 0x100021eb, takes -100 to
+  100 only).
+- The message's reading (`operator>>` 0x100022fd, and `ACGQuestIIR_t` FUN_100c9f49: the same code the server has)
+  throws the message away when a difficulty is outside 1 to 11 or one of the six outside -100 to 100. A byte of 128 is
+  -128: every request of this client's was thrown away, unless a player had moved all six sliders.
+
+Both captures fit: `06` and six zeros is the window untouched (2026-11-08), `02 14 a1 1e b8 1c 00` a low difficulty
+with 20, -95, 30, -72, 28, 0 (2026-10-21). Ported so: `mission::SLIDERS`, `SLIDERS_AT_FIRST`, `request_bytes`. And the
+Request Missions button sends the request alone, as the original's (FUN_100d09cb): it used the terminal a second time
+just before, which the original does not (the terminal is still used first when the window was opened another way,
+this client's own). Test: `the_sliders_make_the_requests_bytes`. **Not tried live** (a request costs credits, and the
+test character's playfield has no terminal). Not done: the original keeps the sliders between sessions
+(`MissionSelectionViewConfig`), and shows the six others only with its "advanced options" button down.

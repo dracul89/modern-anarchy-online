@@ -7465,10 +7465,15 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     }
                     match nearest.filter(|_| refused.is_none()) {
                         Some((_, serial)) => {
-                            uses += 1;
                             let booth = state.used(0xdac1, serial);
-                            send(&mut connection, movement::HEADING, heading, position, &mut sent);
-                            let _ = connection.send(&n3::use_object(own, uses, booth));
+                            // (the original's button sends the request and nothing else: the terminal was used to open
+                            // the window. This client's own: a window opened another way uses the terminal first.)
+                            if mission_booth != Some(serial) {
+                                uses += 1;
+                                send(&mut connection, movement::HEADING, heading, position, &mut sent);
+                                let _ = connection.send(&n3::use_object(own, uses, booth));
+                                mission_booth = Some(serial);
+                            }
                             // (the request names the terminal's own kind of mission: `MissionGenerateInfo_t`'s eighth
                             // number, which `N3Msg_GenerateMissions` 0x10016276 sends on. It was always 5, the clan
                             // terminal's of the capture, whatever the terminal.)

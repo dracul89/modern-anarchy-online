@@ -53,9 +53,28 @@ pub fn request_refused(level: i64, credits: i64) -> Option<String> {
     })
 }
 
-/// The seven sliders: (left label, right label, largest value). The captured values (2, 20, 161, 30, 184,
-/// 28, 0) fit a difficulty of 0-7 and 0-255 for the others, which is a guess until more captures show it.
-pub const SLIDERS: [(&str, &str, u8); 7] = [("Easy", "Hard", 7), ("Good", "Bad", 255), ("Order", "Chaos", 255), ("Open", "Hidden", 255), ("Physical", "Mystical", 255), ("Head on", "Stealth", 255), ("Credits", "XP", 255)];
+/// The seven sliders: (left label, right label, least and greatest value), as the original's window makes them
+/// (GUI.dll FUN_100d10fc): the difficulty from 0 to 100, the six others from -100 to 100.
+pub const SLIDERS: [(&str, &str, i32, i32); 7] = [("Easy", "Hard", 0, 100), ("Good", "Bad", -100, 100), ("Order", "Chaos", -100, 100), ("Open", "Hidden", -100, 100), ("Physical", "Mystical", -100, 100), ("Head on", "Stealth", -100, 100), ("Credits", "XP", -100, 100)];
+
+/// Where the original's window has its sliders when nothing is kept for them (GUI.dll FUN_100d10fc): the difficulty in
+/// the middle, the six others at 0.
+pub const SLIDERS_AT_FIRST: [i32; 7] = [50, 0, 0, 0, 0, 0, 0];
+
+/// The request's seven bytes from the sliders, as `N3Msg_GenerateMissions` (Gamecode 0x10016276) makes them: the
+/// difficulty is `floor(slider * 11/101 + 1)`, 1 to 11 (the two constants are doubles at 0x10158430 and 0x10156eb8,
+/// used as floats); each of the six others is a signed byte, and one outside -100 to 100 stays 0
+/// (`DimensionValues_t::SetValue`, Gamedata.dll 0x100021eb). The server reads them by the same rule
+/// (`operator>>`, 0x100022fd) and takes no request with a value outside: this client sent 128 for a slider in the
+/// middle, and no request of its was ever answered.
+pub fn request_bytes(sliders: [i32; 7]) -> [u8; 7] {
+    let mut bytes = [0u8; 7];
+    bytes[0] = (sliders[0] as f32 * (11.0f64 / 101.0) as f32 + 1.0).floor().clamp(1.0, 11.0) as u8;
+    for i in 1..7 {
+        bytes[i] = if (-100..=100).contains(&sliders[i]) { sliders[i] as i8 as u8 } else { 0 };
+    }
+    bytes
+}
 
 /// A reward item of an offer.
 pub struct Reward {
@@ -261,7 +280,8 @@ pub fn offers_from(value: &Value, item: &dyn Fn(i64) -> Option<(String, Option<A
 /// The window's state.
 pub struct MissionWindow {
     pub open: bool,
-    pub sliders: [u8; 7],
+    /// The sliders' values ([`SLIDERS`]); [`request_bytes`] makes the request's bytes of them.
+    pub sliders: [i32; 7],
     pub offers: Vec<Offer>,
     pub selected: Option<usize>,
     /// What the player is told ("Asking the booth ...", "No booth in reach").
@@ -280,7 +300,7 @@ pub struct MissionWindow {
 
 impl Default for MissionWindow {
     fn default() -> MissionWindow {
-        MissionWindow { open: false, sliders: [2, 128, 128, 128, 128, 128, 128], offers: Vec::new(), selected: None, status: String::new(), want_items: String::new(), want_places: String::new(), keep_asking: false, limit: DEFAULT_LIMIT, helper_loaded: false, answers: 0, roll: None }
+        MissionWindow { open: false, sliders: SLIDERS_AT_FIRST, offers: Vec::new(), selected: None, status: String::new(), want_items: String::new(), want_places: String::new(), keep_asking: false, limit: DEFAULT_LIMIT, helper_loaded: false, answers: 0, roll: None }
     }
 }
 
@@ -334,7 +354,7 @@ impl MissionWindow {
                     self.status = format!("An offer fits, after {} request{}.", roll.requests, if roll.requests == 1 { "" } else { "s" });
                 }
                 Next::Ask => {
-                    command = Command { what: 1, sliders: self.sliders, mission: (0, 0) };
+                    command = Command { what: 1, sliders: request_bytes(self.sliders), mission: (0, 0) };
                     self.roll = Some(Roll { requests: roll.requests + 1, answers: self.answers, asked: std::time::Instant::now(), answered: None });
                     self.status = format!("Nothing fitting yet: asking again ({} of at most {}) ...", roll.requests + 1, self.limit);
                 }
@@ -384,11 +404,11 @@ impl MissionWindow {
                 }
             });
             ui.add_space(4.0);
-            for (i, (left, right, max)) in SLIDERS.iter().enumerate() {
+            for (i, (left, right, min, max)) in SLIDERS.iter().enumerate() {
                 ui.horizontal(|ui| {
                     ui.add_sized([60.0, 16.0], egui::Label::new(*left));
                     ui.spacing_mut().slider_width = 150.0;
-                    ui.add(egui::Slider::new(&mut self.sliders[i], 0..=*max).show_value(false));
+                    ui.add(egui::Slider::new(&mut self.sliders[i], *min..=*max).show_value(false));
                     ui.label(*right);
                 });
             }
@@ -399,7 +419,7 @@ impl MissionWindow {
                         self.status = "Stopped.".into();
                     }
                 } else if crate::chrome::button(ui, palette, "Request Missions", true).clicked() {
-                    command = Command { what: 1, sliders: self.sliders, mission: (0, 0) };
+                    command = Command { what: 1, sliders: request_bytes(self.sliders), mission: (0, 0) };
                     self.status = "Asking the booth ...".into();
                     // (with the helper told to keep asking, and something to look for)
                     if self.keep_asking && !wanted.is_empty() {
@@ -471,7 +491,7 @@ impl MissionWindow {
                 let can = self.selected.is_some_and(|s| s < self.offers.len());
                 if crate::chrome::button(ui, palette, "Accept Mission", can).clicked() {
                     if let Some(offer) = self.selected.and_then(|s| self.offers.get(s)) {
-                        command = Command { what: 2, sliders: self.sliders, mission: offer.id };
+                        command = Command { what: 2, sliders: request_bytes(self.sliders), mission: offer.id };
                         self.status = format!("Accepting {} ...", offer.title);
                     }
                 }
@@ -497,6 +517,24 @@ impl MissionWindow {
 mod helper_tests {
     use super::*;
     use std::time::Duration;
+
+    /// The request's bytes are the original's: its window's first values give the request of the capture of 2026-11-08
+    /// (`06` and six zeros), and the capture of 2026-10-21 (`02 14 a1 1e b8 1c 00`) is a low difficulty with sliders
+    /// moved both ways. No byte is outside what the server takes.
+    #[test]
+    fn the_sliders_make_the_requests_bytes() {
+        assert_eq!(request_bytes(SLIDERS_AT_FIRST), [6, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(request_bytes([14, 20, -95, 30, -72, 28, 0]), [0x02, 0x14, 0xa1, 0x1e, 0xb8, 0x1c, 0x00]);
+        assert_eq!((request_bytes([0; 7])[0], request_bytes([100, 0, 0, 0, 0, 0, 0])[0]), (1, 11));
+        assert_eq!(request_bytes([50, -100, 100, 128, -128, 101, -101]), [6, 0x9c, 100, 0, 0, 0, 0]);
+        for d in 0..=100 {
+            for v in -100..=100 {
+                let b = request_bytes([d, v, v, v, v, v, v]);
+                assert!((1..=11).contains(&b[0]) && b[1..].iter().all(|&x| (x as i8 as i32 + 100) as u32 <= 200));
+            }
+        }
+        assert_eq!(SLIDERS.map(|s| (s.2, s.3)), [(0, 100), (-100, 100), (-100, 100), (-100, 100), (-100, 100), (-100, 100), (-100, 100)]);
+    }
 
     #[test]
     fn an_offer_fits_by_its_rewards_and_its_place() {

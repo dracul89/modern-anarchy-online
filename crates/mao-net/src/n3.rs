@@ -1018,10 +1018,11 @@ pub fn mail_send(character: u32, recipient: &str, subject: &str, body: &str, ite
 }
 
 /// `QuestAlternative` (`5c436609`): asks a mission terminal for missions. The sliders are the
-/// terminal window's seven (difficulty, good/bad, order/chaos, open/hidden, physical/mystical,
-/// head-on/stealth, credits/xp; 255 leaves one to the server), `scope` is 1 for a solo booth and 2 for
-/// a team one, `terminal` the terminal's identity (type 0xdac1). The server answers with the same
-/// message holding the offered missions.
+/// terminal window's seven as the message has them (`ACGQuestIIR_t`, Gamecode FUN_100ca0f1 / FUN_100c9f49): the
+/// difficulty, 1 to 11, and six signed bytes from -100 to 100 (good/bad, order/chaos, open/hidden, physical/mystical,
+/// head-on/stealth, credits/xp). The server takes no request with a value outside those. `scope` is the terminal's
+/// kind of mission (1 to 8), `terminal` its identity (type 0xdac1). The server answers with the same message holding
+/// the offered missions.
 ///
 /// The original's, in the capture of 2026-11-08 at ICC's neutral terminal: `00 04`, `06 00 00 00 00 00 00`, four zero
 /// bytes, `01`, `0000dac1 c000028f`, `00`. This was written from the AOSharp definitions before that capture, with a
