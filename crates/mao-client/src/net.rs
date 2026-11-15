@@ -2471,7 +2471,22 @@ impl World {
                 if std::env::var_os("MAO_COMBAT_LOG").is_some() && entries.is_empty() {
                     eprintln!("combat: container ({:#x}, {:#x}) is empty", identity.0, identity.1);
                 }
-                if identity.0 == crate::loot::BAG && self.worn.iter().any(|e| e.container == identity) {
+                if identity.0 == 0xc350 {
+                    // (a character's own list, not a container: Gamecode's `InventoryUpdateIIR_t` handler, FUN_100a0957, opens
+                    // a window only for a `Chest_t`; for a `SimpleChar_t` it hands the list to FUN_100479e7, which takes it as
+                    // the character's inventory when the handle is 0x68 and as its overflow when it is 0x6e. The server sends
+                    // it after a claimed reward and at times after entering; the captures' two and the user's are all 0x68.
+                    // The overflow's list has no window in this client yet and is only counted in the log.)
+                    let handle = p.value.get("Handle").and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
+                    if identity.1 == self.own && handle == 0x68 {
+                        eprintln!("items: the server's list of the character's own items, {} of them", entries.len());
+                        self.moves_asked.clear();
+                        self.worn = entries.clone();
+                        self.inventory = Some(entries);
+                    } else if identity.1 == self.own && handle == 0x6e {
+                        eprintln!("items: the server's list of the overflow, {} items (no window for it yet)", entries.len());
+                    }
+                } else if identity.0 == crate::loot::BAG && self.worn.iter().any(|e| e.container == identity) {
                     // (one's own backpack: a window of its own, GUI.dll's `N3Msg_IsItemMine` branch of FUN_100ccefe)
                     let handle = p.value.get("Handle").and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
                     self.bags.insert(identity, Loot { identity, handle, entries });
@@ -10583,6 +10598,27 @@ mod door_tests {
         w.names.insert(0x7b1abca9, ("B".into(), false));
         w.add(&Message { kind: 0x3129233b, identity: (0xc350, 0x7b1a00b3), data: hex("0000000bd30000c3507b1ab8330000c3507b1abca9000187620000c3507b1a00b3") }.frame(1));
         assert_eq!(w.landed, vec![(0x7b1ab833, 0x18762), (0x7b1abca9, 0x18762)]);
+    }
+
+    /// An `InventoryUpdate` that names the character itself (the 16:55 capture's first, cut to one item; a claimed daily
+    /// reward brings one): the character's items anew, and no container's window.
+    #[test]
+    fn the_characters_own_list_is_no_container() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let own = 0x7b1a0021;
+        let mut w = World { own, ..World::default() };
+        let entry = |slot: u32| inventory::Entry { slot, flags: 0, count: 1, container: (0, 0), low_id: 1, high_id: 1, quality: 1, extra: 0 };
+        w.worn = vec![entry(64), entry(65)];
+        let list = |handle: &str| hex(&format!("010000005e00000003000007e200000006000200010000c74a25f1e6f40001dae30001dae300000001000000000000c3507b1a0021{handle}00000000"));
+        w.add(&Message { kind: INVENTORY_UPDATE, identity: (0xc350, own), data: list("00000068") }.frame(1));
+        assert!(w.loot.is_none() && !w.loot_changed);
+        assert_eq!(w.worn.len(), 1);
+        assert_eq!(w.inventory.as_ref().map(Vec::len), Some(1));
+        // (the overflow's list leaves the inventory alone)
+        w.worn = vec![entry(64), entry(65)];
+        w.add(&Message { kind: INVENTORY_UPDATE, identity: (0xc350, own), data: list("0000006e") }.frame(1));
+        assert!(w.loot.is_none() && !w.loot_changed);
+        assert_eq!(w.worn.len(), 2);
     }
 
     /// The 16:55 capture's sale: `InventoryUpdated` to the shop and to the character; only the character's refreshes the inventory.

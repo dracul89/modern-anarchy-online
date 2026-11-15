@@ -3624,3 +3624,15 @@ its turn comes ends the swap, and a taking off the server took is now marked as 
 backpack were). Tried live on the test character's two pairs of shorts: both moves answered, 0.64 s apart, and
 kept at the next login. Why the server left the key's wearing unanswered is not known (the same pair of moves the
 other way round, key off and jetpack on, was taken); the original sends both at once.
+
+**The character's own item list is no container (2026-11-15; the user: "when retrieving my daily special another
+window like inventory showed up but wasn't that").** Their log: after the claim the server names the reward into the
+overflow (`35505644`), moves it in (`47537a24`) and then sends an `InventoryUpdate` (`4e536976`) of 2621 bytes, 81
+items, whose `InventoryIdentity` is the character and whose handle is 0x68; the client took every such message for a
+container that was opened and showed the whole inventory in the loot window. Gamecode's handler (`InventoryUpdateIIR_t`,
+FUN_100a0957) opens a container only when the identity is a `Chest_t`; for a `SimpleChar_t` it hands the list to
+FUN_100479e7, which makes it the character's inventory (handle 0x68) or its overflow (handle 0x6e; when that list will
+not go in, `Feedback_InventoryOverflowed`). `net.rs` now does the first: the list replaces the character's items and
+no window opens. The two such messages in the captures (16:55 #781, events #76) are 0x68 too. **Not done:** the
+overflow's list (0x6e) is only counted in the log; this client has no overflow window. Not tried live: a claim shows
+on a paid account only.

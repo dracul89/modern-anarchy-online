@@ -233,6 +233,8 @@ account with `net <game> create`, in Arete Landing; scripted, other new players 
 - [ ] Placing by hand and stacks (2026-11-13; by script: a move to an empty cell, a swap, a split and a join):
   by hand: items stay where they are put after a relog; the same in a bag's window; Ctrl+click on a stack, the
   count box, and the split stack on an empty cell; a stack onto a like stack joins them.
+- [ ] A daily reward claimed (2026-11-15): the item comes into the inventory and no second window with the
+  inventory's items opens; the log says "items: the server's list of the character's own items".
 - [ ] The inventory, from the original's code (2026-11-13): a right click on armour, a weapon or an implant in the
   backpack wears it and on a worn one takes it off; on a consumable or a bag it uses or opens; the menu comes by
   the right button held about a third of a second (Look At, Create Reference, Delete); a bag picked up closes its
