@@ -27,6 +27,8 @@ pub struct MessageWindow {
     item: Option<u32>,
     /// The received mail shown (once its text came).
     filled: Option<u32>,
+    /// The received mail shown as taken: nothing left in it.
+    taken: Option<u32>,
     /// What to put in a new mail's fields when it is built (a reply's).
     prefill: Option<(String, String)>,
     pub status: String,
@@ -35,7 +37,7 @@ pub struct MessageWindow {
 
 impl Default for MessageWindow {
     fn default() -> MessageWindow {
-        MessageWindow { open: false, mode: Mode::Compose, item: None, filled: None, prefill: None, status: String::new(), window: None }
+        MessageWindow { open: false, mode: Mode::Compose, item: None, filled: None, taken: None, prefill: None, status: String::new(), window: None }
     }
 }
 
@@ -53,6 +55,15 @@ fn enable(tree: &mut Tree, root: Id, name: &str, on: bool) {
     if let Some(id) = tree.find(root, name) {
         tree.get_mut(id).enabled = on;
     }
+}
+
+/// What a received mail still holds for the window: the money to show and whether there is something to take
+/// (GUI.dll FUN_10107b87: bit 1 of the flags is "taken", and a taken mail shows no item and no money).
+fn left_in(m: &mail::Mail) -> (u32, bool) {
+    if m.flags & mail::TAKEN != 0 {
+        return (0, false);
+    }
+    (m.credits, m.credits > 0 || m.item.is_some())
 }
 
 impl MessageWindow {
@@ -143,16 +154,33 @@ impl MessageWindow {
             set_field(&mut w.tree, root, "From", &m.sender);
             set_field(&mut w.tree, root, "Subject", &m.subject);
             set_field(&mut w.tree, root, "MessageText", &m.body);
-            set_field(&mut w.tree, root, "Cash", &m.credits.to_string());
-            let taken = m.flags & mail::TAKEN != 0;
-            enable(&mut w.tree, root, "TakeButton", !taken && (m.credits > 0 || m.item.is_some()));
-            enable(&mut w.tree, root, "Delete", true);
+            // (a mail whose things were taken shows neither item nor money; Delete only when nothing is left to take, the
+            // original's two `View::Enable` in a pair)
+            let (cash, to_take) = left_in(m);
+            set_field(&mut w.tree, root, "Cash", &cash.to_string());
+            enable(&mut w.tree, root, "TakeButton", to_take);
+            enable(&mut w.tree, root, "Delete", !to_take);
             self.filled = Some(id);
+            self.taken = (m.flags & mail::TAKEN != 0).then_some(id);
+        }
+        // the server's word that the mail's things were taken (the flags' change, FUN_10106eaa: the item's place emptied,
+        // the money fields "0", Take All and Return To Sender off, Delete on)
+        if let Mode::Read(id) = self.mode
+            && self.filled == Some(id)
+            && self.taken != Some(id)
+            && opened.is_some_and(|o| o.mail.id == id && o.mail.flags & mail::TAKEN != 0)
+        {
+            set_field(&mut w.tree, root, "Cash", "0");
+            set_field(&mut w.tree, root, "COD", "0");
+            enable(&mut w.tree, root, "TakeButton", false);
+            enable(&mut w.tree, root, "Delete", true);
+            enable(&mut w.tree, root, "ReturnButton", false);
+            self.taken = Some(id);
         }
         // the item: a received mail's, a new one's from the backpack
         if let Some(slot) = w.tree.find(root, "ItemView") {
             let shown = match self.mode {
-                Mode::Read(_) => opened.and_then(|o| o.item.as_ref()).and_then(|(name, icon)| icon.as_ref().map(|icon| crate::gui::itemslot::SlotItem { texture: gear.texture(ctx, icon), name: name.clone() })),
+                Mode::Read(_) => opened.filter(|o| o.mail.flags & mail::TAKEN == 0).and_then(|o| o.item.as_ref()).and_then(|(name, icon)| icon.as_ref().map(|icon| crate::gui::itemslot::SlotItem { texture: gear.texture(ctx, icon), name: name.clone() })),
                 Mode::Compose => self.item.and_then(|s| items.iter().find(|i| i.slot == s)).and_then(|it| it.icon.as_ref().map(|icon| crate::gui::itemslot::SlotItem { texture: gear.texture(ctx, icon), name: it.name.clone() })),
             };
             crate::gui::itemslot::set_item(&mut w.tree, slot, shown);
@@ -221,5 +249,27 @@ impl MessageWindow {
         }
         self.open = is_open;
         command
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The user's mail of 2026-11-15: flags 0x7c with an item, then 0x7d and 0x7f from the server as it was taken.
+    #[test]
+    fn a_taken_mail_holds_nothing() {
+        let mut m = mail::Mail { id: 1, sender_id: 0, sender: String::new(), subject: String::new(), sent: 0, expires: 0, flags: 0x7c, credits: 0, item: Some((1, 1, 1)), body: String::new() };
+        assert_eq!(left_in(&m), (0, true));
+        m.flags = 0x7d;
+        assert_eq!(left_in(&m), (0, true));
+        m.flags = 0x7f;
+        assert_eq!(left_in(&m), (0, false));
+        m.item = None;
+        m.flags = 0x7c;
+        m.credits = 500;
+        assert_eq!(left_in(&m), (500, true));
+        m.credits = 0;
+        assert_eq!(left_in(&m), (0, false));
     }
 }
