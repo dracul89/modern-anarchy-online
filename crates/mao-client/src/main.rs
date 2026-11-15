@@ -467,20 +467,18 @@ pub(crate) fn generated_rooms(db: &ResourceDatabase, playfield: u32) -> Option<(
 pub(crate) fn static_props(db: &ResourceDatabase, playfield: u32) -> Vec<(u32, (u32, [f32; 3], [f32; 4]), Option<u8>)> {
     let Some(object) = db.get(Id { kind: mao_formats::dynels::KIND, instance: playfield }).ok().flatten() else { return Vec::new() };
     let mut meshes: std::collections::HashMap<u32, Option<u32>> = std::collections::HashMap::new();
-    // (a playfield of rooms: its doors without a mesh of their own take their template's, below)
-    let rooms = load_rooms(db, playfield).is_some();
     mao_formats::dynels::parse(&object)
         .into_iter()
         .enumerate()
         .filter_map(|(i, d)| {
-            // The record's own mesh first: the doors of a city each have their own. Outdoors a door without one is a shuttle, a
-            // Whom-Pah or a dungeon entrance whose visual is a statel: it gets nothing (the template's `door_omni_med_blue2` put a
-            // white door there). Among rooms it is a doorway's door, and its template's mesh is the door: a shop's seven have the
-            // template "Door" (0x49604), whose `door_icc_standard1` fills the doorway's frame to the pixel. Without it the
-            // doorway stood open on the dark, the room behind a shut door not being drawn.
+            // The record's own mesh first: the doors of a city each have their own. A door without one has its template's: a
+            // shop's seven have the template "Door" (0x49604), whose `door_icc_standard1` fills the doorway's frame to the
+            // pixel, and Jobe's teleporters are doors with the template "Teleporting Ring", whose mesh is the ring that hangs
+            // under each sign. (Until 2026-11-15 an outdoor door without a mesh of its own got none, a rule of this client's
+            // made when a shuttle's door, the plain "Door" template's small white leaf in the hatch, looked out of place: the
+            // user missed the ring to the Jobe platform.)
             let mesh = match d.stat(mao_formats::item::stat::MESH).filter(|&m| m > 0) {
                 Some(m) => m,
-                None if d.kind == 0xc748 && !rooms => return None,
                 None => (*meshes.entry(d.template).or_insert_with(|| {
                     let data = db.get(Id { kind: mao_formats::item::TEMPLATE, instance: d.template }).ok().flatten()?;
                     mao_formats::item::Item::parse(&data)?.stat(mao_formats::item::stat::MESH).filter(|&m| m > 0)
