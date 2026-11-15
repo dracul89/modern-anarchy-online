@@ -5696,8 +5696,13 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut pending_falls: Option<Vec<[f32; 3]>> = Some(falls);
         let mut pending_statel_effects: Option<Vec<(i32, [f32; 3])>> = Some(statel_effects);
         let first_inventory = state.inventory.take();
+        // (the backpack as the login gave it, for the log: place, item, quality, count and the flags; a loot of 2026-11-15
+        // found the client's list one entry longer than the server's)
+        let backpack_line = |entries: &[inventory::Entry]| eprintln!("items: at entry {} in all, the backpack: {:?}", entries.len(), entries.iter().filter(|e| e.slot >= inventory::BACKPACK_FIRST).map(|e| (e.slot, e.low_id, e.quality, e.count, e.flags)).collect::<Vec<_>>());
+        let mut backpack_logged = first_inventory.is_some();
         if let Some(entries) = &first_inventory {
             state.worn = entries.clone();
+            backpack_line(entries);
             if std::env::var_os("MAO_COMBAT_LOG").is_some() {
                 for e in entries.iter().filter(|e| e.slot >= inventory::BACKPACK_FIRST) {
                     eprintln!("combat: inventory place {:#x}: {:x} {}", e.slot, e.low_id, template_name(e.low_id).unwrap_or_default());
@@ -6183,6 +6188,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     }
                     if let Some(entries) = state.inventory.take() {
                         state.worn = entries.clone();
+                        if !std::mem::replace(&mut backpack_logged, true) {
+                            backpack_line(&entries);
+                        }
                         if std::env::var_os("MAO_COMBAT_LOG").is_some() {
                             for e in entries.iter().filter(|e| e.slot >= inventory::BACKPACK_FIRST) {
                                 eprintln!("combat: inventory place {:#x}: {:x} {}", e.slot, e.low_id, template_name(e.low_id).unwrap_or_default());
