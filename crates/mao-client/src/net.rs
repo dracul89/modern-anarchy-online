@@ -420,6 +420,9 @@ struct World {
     sneaking: std::collections::BTreeSet<u32>,
     /// The specials the server timed (skill stat, seconds; 0 = ready again), not yet given to the hotbars.
     special_events: Vec<(u32, f32)>,
+    /// The skills the server has locked (`SpecialUsed`, Gamecode FUN_10064fb4's list): until when, by the stat. A locked
+    /// special is not asked for again: the game's wait line instead (`feedback::unable_to_perform`).
+    special_locks: std::collections::HashMap<u32, Instant>,
     /// Damage and healing events not yet shown as floating numbers: (target id, amount, stat).
     damage: Vec<(u32, i64, u32)>,
     /// Lines the server's game messages made (damage, healing, "You successfully perform ..."), for the chat window.
@@ -2268,10 +2271,28 @@ impl World {
         if m.kind == 0x5e477770 && m.identity.1 == self.own && m.data.len() >= 25 {
             let word = |at: usize| u32::from_be_bytes(m.data[at..at + 4].try_into().unwrap());
             match m.data[4] {
-                0xaa => self.special_events.push((word(17), word(21) as f32)),
+                0xaa => {
+                    self.special_events.push((word(17), word(21) as f32));
+                    self.special_locks.insert(word(17), Instant::now() + Duration::from_secs(word(21) as u64));
+                }
+                // (the server's own wait line, case 0x2a: a skill's stat and the seconds left, or a perk's number in the
+                // target's instance; the 16:55 capture's `...00000072 00000005`)
+                0x84 => {
+                    let name = if word(17) != 0 {
+                        crate::feedback::skill_name(word(17))
+                    } else {
+                        crate::actions_data::ACTIONS.iter().find(|a| a.4 == word(13) && a.1 == crate::actions::Kind::Perk).map_or_else(|| "That action".to_string(), |a| a.2.to_string())
+                    };
+                    self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, crate::feedback::unable_to_perform(&name, word(21) as f32)));
+                }
                 // `SetNanoDuration`: the nano `(0xcf1b, id)` is on the character (the first parameter) for that long (ms)
                 0x62 if word(9) == 0xcf1b && word(17) == self.own => self.nano_duration(word(13), word(21)),
-                0xa4 => self.special_events.push((word(21), 0.0)),
+                0xa4 => {
+                    self.special_events.push((word(21), 0.0));
+                    self.special_locks.remove(&word(21));
+                    // (case 0x38: the game says the skill is ready again)
+                    self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, crate::feedback::skill_available(word(21))));
+                }
                 // `UploadNano` (0xcc, after a nano crystal was used): the nano `(0xcf1b, id)` in the parameters is now one of the
                 // character's programs (FUN_1005d61f's case 0x56: FUN_10050100 adds it to the nano holder at +0x1c0, then signal 6
                 // refreshes the lists); the crystal itself goes with the `DeleteItem` (0x70) that follows
@@ -3356,6 +3377,38 @@ impl World {
             eprintln!("items: no free place for item {} (QL {}) the server moved in; the backpack as the client has it: {:?}", entry.low_id, entry.quality, self.worn.iter().filter(|e| e.slot >= inventory::BACKPACK_FIRST).map(|e| (e.slot, e.low_id, e.quality, e.count)).collect::<Vec<_>>());
         }
         self.add_to_backpack(entry);
+    }
+
+    /// Why a special attack, Reload or Search is not carried out, as the original refuses it before anything is sent:
+    /// `Some(Some(line))` with the game's line, `Some(None)` silently, `None` when it may go.
+    /// `N3Msg_PerformSpecialAction` (FUN_100427d6, FUN_10042fc9): an action that is not in the character's list says
+    /// `Feedback_ActionIsNotAvailable`. Search (FUN_1003fc96) and the attacks (`N3Msg_SecondarySpecialAttack`,
+    /// 0x100281fc) give the wait line while the server has their skill locked. An attack needs a target (none:
+    /// nothing is said), which is not oneself, not dead, and the attacker not swimming (FUN_10069a9f).
+    /// Not checked here, left to the server: the held weapon's "can" bit for the special (Brawl 0x2000000 and Dimach
+    /// 0x4000000 among them), the special's range and the line of sight, the queue of specials not yet swung.
+    fn special_refusal(&self, number: u32, target: Option<u32>) -> Option<Option<String>> {
+        if self.specials_told.as_ref().is_some_and(|s| !s.contains(&number)) && number != crate::actions::SEARCH {
+            return Some(Some(crate::feedback::plain("Feedback_ActionIsNotAvailable")));
+        }
+        let stat = if number == crate::actions::SEARCH { 0x88 } else { number };
+        let locked = |stat: u32| self.special_locks.get(&stat).map(|until| until.saturating_duration_since(Instant::now()).as_secs_f32()).filter(|left| *left > 0.0);
+        if number == crate::actions::RELOAD {
+            return None;
+        }
+        if number != crate::actions::SEARCH {
+            let Some(t) = target else { return Some(None) };
+            if t == self.own {
+                return Some(Some(crate::feedback::plain("Feedback_YouCantAttackYourself")));
+            }
+            if self.swimming.contains(&self.own) {
+                return Some(Some(crate::feedback::plain("Feedback_YouCantAttackWhileSwimming")));
+            }
+            if self.dead.contains_key(&t) {
+                return Some(Some(crate::feedback::plain("Feedback_TargetIsAlreadyDead")));
+            }
+        }
+        locked(stat).map(|left| Some(crate::feedback::unable_to_perform(&crate::feedback::skill_name(stat), left)))
     }
 
     /// The overflow's list changed: its window, when it is up, shows the new one.
@@ -7262,47 +7315,56 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 special_seen = keys.special.0;
                 let id = keys.special.1;
                 let name = crate::actions_data::ACTIONS.iter().find(|a| a.0 == id).map_or("that action", |a| a.2);
+                // (the special attacks, Reload and Search by their numbers, as `N3Msg_PerformSpecialAction` does them,
+                // FUN_100427d6 and FUN_10042fc9: one that is not in the character's list is not available; a skill the
+                // server has locked gets the game's wait line and nothing is sent; `World::special_refusal`)
+                let number = crate::actions::number_of(id);
+                let told = |text: String, lines: &mut Vec<crate::chatwindow::Line>| lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, text));
+                let numbered = number.filter(|n| crate::actions::ATTACKS.contains(n) || *n == crate::actions::RELOAD || *n == crate::actions::SEARCH);
+                if let Some(n) = numbered {
+                    // (while fighting the special goes at the one fought, not at the selection: 0x100281fc)
+                    let aim = state.fighting.get(&own).copied().or(target);
+                    match state.special_refusal(n, aim) {
+                        Some(Some(text)) => told(text, &mut state.game_lines),
+                        Some(None) => {}
+                        None if n == crate::actions::RELOAD => {
+                            let _ = connection.send(&n3::action(own, 0xd2));
+                        }
+                        None if n == crate::actions::SEARCH => {
+                            // (FUN_1003fc96: the game's line, then `CharacterAction` 0x42; the effect 0xb01c on the
+                            // character is not drawn. Until 2026-11-15 this sent 0x66, which no capture had shown.)
+                            told(crate::feedback::plain("Feedback_SearchingForHiddenObjects"), &mut state.game_lines);
+                            let _ = connection.send(&n3::action(own, 0x42));
+                        }
+                        None => {
+                            if let Some(t) = aim {
+                                let _ = connection.send(&n3::special_attack(own, t, n));
+                            }
+                        }
+                    }
+                }
                 match name {
+                    _ if numbered.is_some() => {}
                     "Stand" => {
                         let _ = connection.send(&n3::action(own, n3::STAND));
                     }
                     "Sneak" => {
-                        let _ = connection.send(&n3::action(own, 0xa3));
-                    }
-                    "Search" => {
-                        let _ = connection.send(&n3::action(own, 0x66));
-                    }
-                    "Reload" => {
-                        let _ = connection.send(&n3::action(own, 0xd2));
-                    }
-                    // The weapon specials are skills: the message names the skill's stat.
-                    "Brawl" | "Dimach" | "Burst" | "Fling Shot" | "Full Auto" => match target {
-                        Some(t) => {
-                            let stat = match name {
-                                "Brawl" => 142,
-                                "Dimach" => 144,
-                                "Burst" => 148,
-                                "Fling Shot" => 150,
-                                _ => 167,
-                            };
-                            let _ = connection.send(&n3::special_attack(own, t, stat));
-                            pending_messages.push(format!("{name} at {}", state.names.get(&t).map_or("the target", |n| n.0.as_str())));
+                        // (`N3Msg_TryEnterSneakMode`, 0x10029581: not in a vehicle; one who sneaks already leaves it, the
+                        // toggled entry's movement action 0x24)
+                        if state.sneaking.contains(&own) {
+                            send(&mut connection, 0x24, heading, position, &mut sent);
+                        } else if state.stats.get(&0x296).copied().unwrap_or(0) != 0 {
+                            told(crate::feedback::plain("Feedback_YouCantSneakInVehicle"), &mut state.game_lines);
+                        } else {
+                            let _ = connection.send(&n3::action(own, 0xa3));
                         }
-                        None => pending_messages.push(format!("{name} needs a target (Tab selects one)")),
-                    },
+                    }
                     "Start Combat" => match target {
                         Some(t) => {
                             let _ = connection.send(&n3::attack(own, t));
                             pending_messages.push(format!("Attacking {}", state.names.get(&t).map_or("the target", |n| n.0.as_str())));
                         }
                         None => pending_messages.push("No target (Tab selects one)".into()),
-                    },
-                    // (a special attack the server listed that the catalogue does not name: its skill's stat, as the others)
-                    _ if name == "that action" && crate::actions::number_of(id).is_some_and(|n| state.specials_told.as_ref().is_some_and(|s| s.contains(&n))) => match target {
-                        Some(t) => {
-                            let _ = connection.send(&n3::special_attack(own, t, crate::actions::number_of(id).unwrap_or(0)));
-                        }
-                        None => pending_messages.push("That attack needs a target (Tab selects one)".into()),
                     },
                     // (a perk action the server listed: `N3Msg_PerformSpecialAction`'s 0xc78e case, FUN_100427d6, a `UsePerk`)
                     _ if state.perk_actions.iter().any(|p| p.0 == id) => {
@@ -10791,6 +10853,35 @@ mod door_tests {
         w.names.insert(0x7b1abca9, ("B".into(), false));
         w.add(&Message { kind: 0x3129233b, identity: (0xc350, 0x7b1a00b3), data: hex("0000000bd30000c3507b1ab8330000c3507b1abca9000187620000c3507b1a00b3") }.frame(1));
         assert_eq!(w.landed, vec![(0x7b1ab833, 0x18762), (0x7b1abca9, 0x18762)]);
+    }
+
+    /// A special attack is refused as the original refuses it: one not in the list, one whose skill the server has
+    /// locked (`SpecialUsed`, until `SpecialAvailable`), one at oneself or at the dead; with no target nothing is said.
+    #[test]
+    fn a_special_is_refused_as_the_original_refuses_it() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let own = 0x4bc80;
+        let mut w = World { own, specials_told: Some(vec![142, 144, 148]), ..World::default() };
+        assert_eq!(w.special_refusal(148, Some(9)), None);
+        assert_eq!(w.special_refusal(148, None), Some(None));
+        assert!(matches!(w.special_refusal(150, Some(9)), Some(Some(_))), "fling shot is not in the list");
+        assert!(matches!(w.special_refusal(148, Some(own)), Some(Some(_))));
+        w.dead.insert(9, (0, Instant::now()));
+        assert!(matches!(w.special_refusal(148, Some(9)), Some(Some(_))));
+        w.dead.clear();
+        // (the user's log of 2026-11-15: `SpecialUsed`, stat 0x8c (140) for 0x3c seconds; then `SpecialAvailable`)
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("00000000aa0000000000000000000000000000008c0000003c0000") }.frame(1));
+        assert!(w.special_locks.contains_key(&140));
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("00000000aa000000000000000000000000000000940000001e0000") }.frame(1));
+        assert!(matches!(w.special_refusal(148, Some(9)), Some(Some(_))), "burst is locked");
+        assert_eq!(w.special_refusal(142, Some(9)), None);
+        let lines = w.game_lines.len();
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("00000000a400000000000000000000000000000000000000940000") }.frame(1));
+        assert_eq!(w.special_refusal(148, Some(9)), None);
+        assert_eq!(w.game_lines.len(), lines + 1);
+        // (Search: its own skill's lock, 0x88; Reload: only that it is in the list)
+        assert_eq!(w.special_refusal(crate::actions::SEARCH, None), None);
+        assert!(matches!(w.special_refusal(crate::actions::RELOAD, None), Some(Some(_))));
     }
 
     /// `SetPos` as the 16:55 capture has it for a creature (19 bytes): the place follows a lead byte; the client's own

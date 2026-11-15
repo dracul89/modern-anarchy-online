@@ -174,6 +174,12 @@ pub const QUICK: &[(&str, &str, u32, &str)] = &[
     ("action_reload", "V", 245003, "Reload"),
     ("action_pick_up", "R", 49578, "Pick-Up"),
     ("action_sneak", "H", 49575, "Sneak"),
+    // (the original binds these four too, GUI.dll 0x1006951c: ActionSneakAttack, ActionFastAttack, ActionAimedShot,
+    // ActionBowSpecialAttack; no keys of the original's were read for them, so they start without one)
+    ("action_sneak_attack", "", 0x1f83a, "Sneak Attack"),
+    ("action_fast_attack", "", 0x14126, "Fast Attack"),
+    ("action_aimed_shot", "", 0x14127, "Aimed Shot"),
+    ("action_bow_special_attack", "", 0x1e159, "Bow Special Attack"),
 ];
 
 /// Every action with its name in the settings file and its default keys.
@@ -259,6 +265,10 @@ pub const ACTIONS: &[(Action, &str, &str)] = &[
     (Action::Quick(5), "action_reload", "V"),
     (Action::Quick(6), "action_pick_up", "R"),
     (Action::Quick(7), "action_sneak", "H"),
+    (Action::Quick(8), "action_sneak_attack", ""),
+    (Action::Quick(9), "action_fast_attack", ""),
+    (Action::Quick(10), "action_aimed_shot", ""),
+    (Action::Quick(11), "action_bow_special_attack", ""),
     // The chat.
     (Action::ChatInput, "chat_input", "Enter"),
     (Action::ChatCommand, "chat_command", "Slash"),

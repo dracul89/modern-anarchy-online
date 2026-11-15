@@ -3760,3 +3760,35 @@ set). The client read the place from the first byte on, a byte early, so a creat
 place of numbers like 6e-39 (the "no place of this world" of an earlier note; 310 such messages in the captures),
 and it did not move its own character at all. Both are as the original now (`set_pos_puts_a_character_down`, from
 the 16:55 capture's bytes).
+
+**The special actions against the original (2026-11-15; the user: "can we [check] against original code for all the
+specials and add any missing ones?").** The reading is `docs/SPECIALS_ORIGINAL.md`. **None is missing:** the 26
+actions of `actions::TEMPLATES` are FUN_10042b17's, the seven a weapon gives (`WEAPON_CAN`) are FUN_1009e84b's, and
+Backstab, Reload, Brawl and Dimach and the perk actions come and go by the original's rules. What differed was what
+happens when one is used. Done:
+
+- **Refusals before anything is sent** (`World::special_refusal`; `N3Msg_PerformSpecialAction` FUN_100427d6 and
+  `N3Msg_SecondarySpecialAttack` 0x100281fc): an action that is not in the character's list says
+  `Feedback_ActionIsNotAvailable` (a hotbar slot or a key for Burst with no burst weapon on was sent all the same); a
+  special whose skill the server has locked gets the game's wait line (`UnableToPerformActionSkill`, with the time
+  left) and is not sent; an attack at oneself, at the dead or while swimming gets the game's line; with no target
+  nothing is said (the client's own "needs a target" lines are gone). While fighting a special goes at the one
+  fought, not at the selection.
+- **The server's lock** (`CharacterAction` 0xaa and 0xa4) is kept by the skill (`World::special_locks`); 0xa4 says
+  `Feedback_SkillAvailable` with the skill's name, and the server's own wait line (0x84) is shown.
+- **The recharge on the icons**: the hotbar found a special's skill by its name and had no Aimed Shot, Sneak Attack,
+  bow's special attack or Backstab; it is by the action's number now (`hotbar::special_stat`), and the Actions
+  window's tiles count down too (`actions::lock_left`), which only the perks' did.
+- **Search** sends `CharacterAction` 0x42 (FUN_1003fc96) with the game's line; it sent 0x66, which no capture had
+  shown. Its lock (skill 0x88) gives the wait line.
+- **Sneak** leaves sneaking when the character sneaks already (movement action 0x24) and is refused in a vehicle.
+- **Keys** can be bound to Sneak Attack, Fast Attack, Aimed Shot and the bow's special attack (`action_sneak_attack`
+  and so on; without a key at first: the original's own keys for them were not read).
+
+Left from the report's list: the six tiles that should change with the character's state (Sit or Stand, Walk or
+Run, Sneak or Stop Sneaking, Start or End Combat, Suspended Animation or Disrupt, Crawl or its stop) and the tiles
+that still do nothing (Use, Pick-Up, Walk, Suspended Animation, Crawl); the held weapon's "can" bit for a special
+(the original refuses Brawl and Dimach with a weapon that lacks their bits: left to the server here until that is
+seen live), the special's range and the line of sight; the queue of specials not yet swung; `CharacterAction` 0xb2,
+0x14 and 0xfc; the icon's time text; the special attack at an attackable item (the message names a character).
+Not tried live against a target.

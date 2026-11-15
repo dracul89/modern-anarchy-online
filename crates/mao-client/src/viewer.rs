@@ -1730,6 +1730,7 @@ impl ApplicationHandler for App {
                             let now = ui.now();
                             for (stat, seconds) in std::mem::take(&mut u.special_cooldowns) {
                                 ui.hotbars.set_special_cooldown(stat, seconds as f64, now);
+                                crate::actions::set_lock(stat, seconds);
                             }
                         }
                         for (world, text, kind) in std::mem::take(&mut u.floaters) {

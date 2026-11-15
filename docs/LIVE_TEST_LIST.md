@@ -233,6 +233,10 @@ account with `net <game> create`, in Arete Landing; scripted, other new players 
 - [ ] Placing by hand and stacks (2026-11-13; by script: a move to an empty cell, a swap, a split and a join):
   by hand: items stay where they are put after a relog; the same in a bag's window; Ctrl+click on a stack, the
   count box, and the split stack on an empty cell; a stack onto a like stack joins them.
+- [ ] The special attacks (2026-11-15): Brawl, Burst, Aimed Shot, Sneak Attack and the rest go off at the target
+  fought; pressed again while recharging the game says the skill is locked with the time left; the icon counts
+  down on the hotbar and in the Actions window; "ready again" is said when it is; a key or slot for a special the
+  weapon does not give says it is not available. Search says it is searching.
 - [ ] A corpse looted with a full inventory (2026-11-15): the game says the inventory is full and the item stays in
   the corpse. A looted stack joins the stack of the same item.
 - [ ] Walking and running on hillsides (2026-11-15): no sudden throw forward (Shadowlands, playfield 4310, the slope

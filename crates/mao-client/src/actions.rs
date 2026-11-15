@@ -103,6 +103,34 @@ pub fn number_of(template: u32) -> Option<u32> {
 /// word is set, which the server's `CharacterAction` 0xb5 sets (FUN_10068976 → FUN_1009c5c8): `World::backstab`.
 pub const WEAPON_CAN: [(u32, u32); 7] = [(0x800, 148), (0x1000, 150), (0x2000, 167), (0x4000, 151), (0x20000, 146), (0x8000, 121), (0x40000, 147)];
 
+/// The special attacks' numbers, each its skill's stat: what `N3Msg_PerformSpecialAction` (FUN_100427d6) hands to
+/// `N3Msg_SecondarySpecialAttack` with the target (Brawl and Dimach as the character's own, the rest as a weapon's).
+pub const ATTACKS: [u32; 10] = [121, 142, 144, 146, 147, 148, 150, 151, 167, 489];
+
+/// Search's number.
+pub const SEARCH: u32 = 0x86;
+
+/// The skills the server has locked, for the tiles' countdowns: until when and for how long in all, by the stat
+/// (`SpecialUsed` and `SpecialAvailable`, as the hotbar's slots follow them; the original's `N3Msg_GetActionProgress`).
+static LOCKS: std::sync::Mutex<Vec<(u32, std::time::Instant, f32)>> = std::sync::Mutex::new(Vec::new());
+
+/// The server locked a skill for `seconds` (0: it is ready again).
+pub fn set_lock(stat: u32, seconds: f32) {
+    let mut locks = LOCKS.lock().unwrap_or_else(|e| e.into_inner());
+    locks.retain(|l| l.0 != stat);
+    if seconds > 0.0 {
+        locks.push((stat, std::time::Instant::now() + std::time::Duration::from_secs_f32(seconds), seconds));
+    }
+}
+
+/// What is left of an action's lock and its whole length, in seconds: a special attack's by its skill.
+pub fn lock_left(id: u32) -> Option<(f32, f32)> {
+    let stat = number_of(id).filter(|n| ATTACKS.contains(n))?;
+    let locks = LOCKS.lock().unwrap_or_else(|e| e.into_inner());
+    let &(_, until, total) = locks.iter().find(|l| l.0 == stat)?;
+    Some((until.saturating_duration_since(std::time::Instant::now()).as_secs_f32(), total)).filter(|l| l.0 > 0.0)
+}
+
 /// Sneak attack's number and backstab's, which goes with it for a character the server allows it.
 pub const SNEAK_ATTACK: u32 = 146;
 pub const BACKSTAB: u32 = 489;
@@ -252,12 +280,12 @@ impl ActionsWindow {
             .filter(|a| a.1 == Kind::Perk || shows(a.0, listed.as_deref()))
             .map(|&(id, kind, name, _, _)| {
                 let icon = self.icons.get(icon_name(kind, name)).cloned();
-                (hotbar::Action::Special { id, name: name.to_string(), icon: icon.as_ref().map(|i| i.id) }, name.to_string(), icon, (if kind == Kind::Weapon { "Weapon attack" } else if kind == Kind::Perk { "Perk action" } else { "Character action" }).to_string(), None)
+                (hotbar::Action::Special { id, name: name.to_string(), icon: icon.as_ref().map(|i| i.id) }, name.to_string(), icon, (if kind == Kind::Weapon { "Weapon attack" } else if kind == Kind::Perk { "Perk action" } else { "Character action" }).to_string(), lock_left(id))
             })
             .collect();
         // (a listed special the catalogue does not have: named and pictured by its action's template)
         for s in specials.unwrap_or_default().iter().filter(|s| !ACTIONS.iter().any(|a| a.0 == s.template)) {
-            actions.push((hotbar::Action::Special { id: s.template, name: s.name.clone(), icon: None }, s.name.clone(), s.icon.clone(), if s.description.is_empty() { "Weapon attack".to_string() } else { s.description.clone() }, None));
+            actions.push((hotbar::Action::Special { id: s.template, name: s.name.clone(), icon: None }, s.name.clone(), s.icon.clone(), if s.description.is_empty() { "Weapon attack".to_string() } else { s.description.clone() }, lock_left(s.template)));
         }
         for p in perks {
             let left = p.free_at.map(|(t, total)| (t.saturating_duration_since(now).as_secs_f32(), total)).filter(|&(s, _)| s > 0.0);

@@ -398,6 +398,26 @@ pub fn death(reason: i64) -> Option<String> {
     Some(plain(name))
 }
 
+/// A skill is ready again (the server's `CharacterAction` 0xa4, Gamecode FUN_1005d61f's case 0x38): the skill's full
+/// name, text category 2002, fed to `Feedback_SkillAvailable`.
+pub fn skill_available(stat: u32) -> String {
+    let name = texts().and_then(|t| t.get(2002, stat as i32)).map(str::to_string).unwrap_or_else(|| crate::skills::stat_name(stat));
+    line("Feedback_SkillAvailable", &[Arg::Text(&name)])
+}
+
+/// The wait line for a locked skill or perk (Gamecode FUN_10064847: text category 1000's `UnableToPerformActionSkill`
+/// fed the name, then the hours, minutes and seconds left). A skill's name is text category 2003's.
+pub fn unable_to_perform(name: &str, seconds: f32) -> String {
+    let left = seconds.max(0.0).ceil() as i64;
+    let text = texts().and_then(|t| t.named(1000, "UnableToPerformActionSkill")).unwrap_or("%s: not ready for another %d h %d min %d s.");
+    ldb::format(text, &[Arg::Text(name), Arg::Int(left / 3600), Arg::Int(left / 60 % 60), Arg::Int(left % 60)])
+}
+
+/// A skill's short name (text category 2003), as the wait line names it.
+pub fn skill_name(stat: u32) -> String {
+    texts().and_then(|t| t.get(2003, stat as i32)).map(str::to_string).unwrap_or_else(|| crate::skills::stat_name(stat))
+}
+
 /// A feedback line with one number (`%d`), as FUN_10012c3e feeds it.
 pub fn with_number(name: &str, n: i64) -> String {
     line(name, &[Arg::Int(n)])

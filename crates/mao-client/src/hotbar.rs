@@ -120,17 +120,13 @@ impl Default for Hotbars {
     }
 }
 
-/// The skill stat the server names a weapon special by (its `SpecialUsed` and `SpecialAvailable` messages), from the action's name.
-pub fn special_stat(name: &str) -> Option<u32> {
-    Some(match name {
-        "Brawl" => 142,
-        "Dimach" => 144,
-        "Fast Attack" => 147,
-        "Burst" => 148,
-        "Fling Shot" => 150,
-        "Full Auto" => 167,
-        _ => return None,
-    })
+/// The skill stat the server names a special attack by (its `SpecialUsed` and `SpecialAvailable` messages): the
+/// action's own number, which for the special attacks is the skill's stat (`actions::TEMPLATES`: 121 the bow's, 142
+/// Brawl, 144 Dimach, 146 Sneak Attack, 147 Fast Attack, 148 Burst, 150 Fling Shot, 151 Aimed Shot, 167 Full Auto,
+/// 489 Backstab). By the action's id, not its name: until 2026-11-15 Aimed Shot, Sneak Attack, the bow's special
+/// attack and Backstab were not among the names, and their slots never showed a recharge.
+pub fn special_stat(id: u32) -> Option<u32> {
+    crate::actions::number_of(id).filter(|n| crate::actions::ATTACKS.contains(n))
 }
 
 impl Hotbars {
@@ -139,7 +135,7 @@ impl Hotbars {
     pub fn set_special_cooldown(&mut self, stat: u32, seconds: f64, now: f64) {
         for slot in &mut self.slots {
             for entry in &mut slot.entries {
-                if matches!(&entry.action, Action::Special { name, .. } if special_stat(name) == Some(stat)) {
+                if matches!(&entry.action, Action::Special { id, .. } if special_stat(*id) == Some(stat)) {
                     entry.ready_at = now + seconds;
                 }
             }
