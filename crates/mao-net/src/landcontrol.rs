@@ -113,6 +113,47 @@ pub fn all_cities(data: &[u8]) -> Option<Vec<u8>> {
     data.get(3..3 + n).map(<[u8]>::to_vec)
 }
 
+/// One house of a player city (`BaseClientHouseData_t`, 25 bytes on the wire, read by city.dll 0x1000dec3): its place,
+/// the least corner of the tiles it stands on as it is turned; its rotation in degrees (quarter turns); a flag (set when
+/// the byte is 1: a demolition under way, by what sets it later); and its template, a database record of type 0xf4268.
+/// A house has no identity of its own: it is known by its tile, `(x / 4, z / 4)` rounded down.
+#[derive(Clone, Debug, PartialEq)]
+pub struct House {
+    pub position: [f32; 3],
+    pub rotation: i32,
+    pub flag: bool,
+    pub template: (u32, u32),
+}
+
+impl House {
+    pub const SIZE: usize = 25;
+
+    pub fn parse(record: &[u8]) -> Option<House> {
+        let word = |at: usize| Some(u32::from_be_bytes(record.get(at..at + 4)?.try_into().ok()?));
+        let float = |at: usize| word(at).map(f32::from_bits);
+        Some(House { position: [float(0)?, float(4)?, float(8)?], rotation: word(12)? as i32, flag: *record.get(16)? == 1, template: (word(17)?, word(21)?) })
+    }
+
+    /// The tile the house is known by (`GetTilePos`, 0x100011a7).
+    pub fn tile(&self) -> (i32, i32) {
+        ((self.position[0] / 4.0).floor() as i32, (self.position[2] / 4.0).floor() as i32)
+    }
+}
+
+/// The houses of [`all_cities`]' blob (`PlayfieldCityHolderClient_c::UpdateNewHouses`, city.dll 0x10016317): a plain
+/// count, then that many [`House`]s. An empty blob is no houses. The original does not check the count against the
+/// length; here a blob that does not hold exactly its count is refused.
+pub fn houses(blob: &[u8]) -> Option<Vec<House>> {
+    if blob.is_empty() {
+        return Some(Vec::new());
+    }
+    let count = u32::from_be_bytes(blob.get(..4)?.try_into().ok()?) as usize;
+    if blob.len() != 4 + House::SIZE * count {
+        return None;
+    }
+    blob[4..].chunks_exact(House::SIZE).map(House::parse).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -186,5 +227,21 @@ mod tests {
         apply_update(&mut list, site, None);
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].site, (0xc354, 3));
+    }
+
+    /// The start of the user's log of 2026-11-15 (playfield 6010, 80 houses in 2007 bytes; the log kept 28 of them):
+    /// the first house, with a template's instance put after it.
+    #[test]
+    fn a_citys_houses() {
+        let message = hex("01001d000000014459000040a00000449900000000005a00000f4268006a0000");
+        let blob = all_cities(&message).unwrap();
+        let list = houses(&blob).unwrap();
+        assert_eq!(list, vec![House { position: [868.0, 5.0, 1224.0], rotation: 90, flag: false, template: (0xf4268, 0x6a0000) }]);
+        assert_eq!(list[0].tile(), (217, 306));
+        assert_eq!(houses(&all_cities(&hex("010000")).unwrap()), Some(Vec::new()));
+        // (a count that the bytes do not hold)
+        assert_eq!(houses(&hex("00000002445900004")), None);
+        // (80 houses are 2004 bytes, the length the log's message gave)
+        assert_eq!(4 + House::SIZE * 80, 0x7d4);
     }
 }

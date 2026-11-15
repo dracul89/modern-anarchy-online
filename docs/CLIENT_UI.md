@@ -3693,3 +3693,29 @@ swimming pools of the cities, Omni-Trans signs, the QO screens and servers, a ye
 New tools: `--example pfdynels -- <game> <playfield>` (a playfield's built-in objects with their templates' names
 and meshes), `--example rawget -- <game> <kind hex> <instance hex> <out>` (one record's bytes; a texture as its
 picture file).
+
+**A player city's buildings (2026-11-15; the user: "org city buildings don't show").** The client kept the server's
+list of a city's houses (`PlayfieldAllCities`, 2007 bytes in the user's city) and drew nothing. The reading of the
+original is `docs/CITIES_ORIGINAL.md` (city.dll, Gamecode's city holder; each statement with its function). In short:
+the list is a count and 25 bytes a house, its place (the least corner of the tiles it stands on), its rotation in
+degrees and its template, a database record of type 0xf4268 (83 of them) that holds the tiles, the meshes with their
+places and rotations, where the doors go and a collision surface. The original makes no object of the game for a
+house: a plain visual mesh for each of the template's meshes, as a statel's, and the surface added to the playfield's.
+
+Done: `mao_net::landcontrol::houses` (the list), `mao_formats::house` (the template, `rotate_local`, the surface through
+`surface::parse_bare`), `crate::houses::add` (the meshes into the playfield's scene with their far twins, the surfaces
+into the collision and the walked surfaces). The list comes right after the playfield's own message, so the houses
+go into the scene before it is sent; a list that comes later has the playfield read again and the scene sent anew
+with the camera kept (`Update::keep_camera`). Zoning empties the list.
+
+Checked: all 83 templates read, their meshes are in the database and their surfaces read and lie within their turned
+footprints (`the_house_templates_read`); the turn of a place against a run of the original's own arithmetic; and an
+offline picture of five made-up houses in playfield 6010 (`MAO_HOUSES=<hex of the list>` with the `map` view), which
+stand upright on the plots. **Not checked against the original's picture or a real list:** the user's log kept only
+the first 28 bytes. The client now writes a whole list to the log ("city: the houses' list ...") and, for each house,
+where its doors should be by the same arithmetic ("city: house N ... doors [...]"), to hold against the doors the
+server announces at the next visit.
+
+Not done: a house built or taken down while the character is in the city (`AOTransportSignal` 0x62741e15, codes 2
+and 9, with the building effect 0x30e8): no such message has been seen, and whether it has a lead byte is a guess.
+The far twin where a mesh has none in the database (15 of 25 looked at) is simply the full mesh.

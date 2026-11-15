@@ -461,8 +461,12 @@ struct World {
     land_map_changed: bool,
     lc_district: Option<(String, i32, i32)>,
     lc_district_changed: bool,
-    /// The player cities' houses blob of each playfield (`PlayfieldAllCities`), not drawn (no city code is ported).
+    /// The player cities' houses blob of each playfield (`PlayfieldAllCities`).
     cities: BTreeMap<u32, Vec<u8>>,
+    /// The houses of the playfield the character is in (`crate::houses`), and whether the list changed since they were
+    /// last put into the scene.
+    houses: Vec<mao_net::landcontrol::House>,
+    houses_changed: bool,
     /// The terminals the server announces (`SimpleItemFullUpdate` on a `0xc73d` with a place): in an instance (ICC's shops) the
     /// playfield's own terminals go by these ids, not by their dynel table's.
     terminals: BTreeMap<u32, [f32; 3]>,
@@ -1621,6 +1625,19 @@ impl World {
         if m.kind == mao_net::landcontrol::ALL_CITIES
             && let Some(blob) = mao_net::landcontrol::all_cities(&m.data)
         {
+            // (the message is the playfield's the character has just come into: its houses are the ones to draw. The whole
+            // of a list that has any is written to the log: the captures have none, and a test wants one.)
+            if !blob.is_empty() {
+                eprintln!("city: the houses' list of {:x}:{:x}, {} bytes: {}", m.identity.0, m.identity.1, blob.len(), blob.iter().map(|b| format!("{b:02x}")).collect::<String>());
+            }
+            match mao_net::landcontrol::houses(&blob) {
+                Some(houses) if houses != self.houses => {
+                    self.houses = houses;
+                    self.houses_changed = true;
+                }
+                Some(_) => {}
+                None => eprintln!("city: the houses' list does not hold its count"),
+            }
             self.cities.insert(m.identity.1, blob);
         }
         // A missed attack at or by the character.
@@ -5148,7 +5165,12 @@ pub(crate) fn load_area_with(game: &str, db: &Arc<ResourceDatabase>, playfield: 
     if let Some(e) = &base_environment {
         eprintln!("playfield {playfield}: environment weather {:?} ambient {:?} fog {:?} density {}", &e[..8], &e[19..22], &e[22..25], e[25]);
     }
-    Ok(Area { scene, terrain, collision, booths, areas, base_environment, teleportals, zones, animated, interior, falls, statel_effects })
+    let mut area = Area { scene, terrain, collision, booths, areas, base_environment, teleportals, zones, animated, interior, falls, statel_effects };
+    // (`MAO_HOUSES=<hex>`: a city's houses for the offline views, `crate::houses::from_env`)
+    if let Some(houses) = crate::houses::from_env() {
+        crate::houses::add(db, &houses, &mut area.scene, &mut area.collision, area.zones.as_mut().and_then(Arc::get_mut));
+    }
+    Ok(area)
 }
 
 /// The label over each whompah booth: where it leads, when that is known.
@@ -5646,6 +5668,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut fresh = false;
         state.arrival = None;
         let mut pending_scene: Option<Model> = None;
+        // (a scene sent again with a city's houses in it: the camera stays where it is; and whether the scene the viewer
+        // has, or is about to get, holds houses)
+        let (mut pending_keep_camera, mut houses_drawn) = (false, false);
         // (the new playfield's waterfalls' feet, for the viewer's fall effects)
         let mut pending_falls: Option<Vec<[f32; 3]>> = Some(falls);
         let mut pending_statel_effects: Option<Vec<(i32, [f32; 3])>> = Some(statel_effects);
@@ -6230,6 +6255,11 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     state.rotations.clear_all();
                     state.entities.clear();
                     state.props.clear();
+                    // (the city's houses go with the playfield: `~PlayfieldAnarchy_t` empties the holder)
+                    state.houses.clear();
+                    state.houses_changed = false;
+                    houses_drawn = false;
+                    pending_keep_camera = false;
                     // (the overflow goes with the character's object, made anew empty in the new playfield, and its
                     // window with the other containers', FUN_1005aa4f)
                     state.overflow.clear();
@@ -6902,6 +6932,30 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     let _ = connection.send(&n3::set_target(own, id));
                     let _ = connection.send(&n3::info_request(own, id));
                 }
+            }
+            // A city's houses came (or changed): into the playfield's scene and collision. When the playfield's own scene
+            // has not gone to the viewer yet, the usual case since the list comes right after the playfield's message,
+            // they are added to it; else the playfield is read again with them.
+            if std::mem::take(&mut state.houses_changed) && (houses_drawn || !state.houses.is_empty()) {
+                let fresh = !houses_drawn && pending_scene.is_some() && Arc::get_mut(&mut collision).is_some() && zones.as_mut().is_none_or(|z| Arc::get_mut(z).is_some());
+                if fresh {
+                    if let (Some(scene), Some(c)) = (pending_scene.as_mut(), Arc::get_mut(&mut collision)) {
+                        crate::houses::add(&thread_db, &state.houses, scene, c, zones.as_mut().and_then(Arc::get_mut));
+                    }
+                } else {
+                    match load_area_with(&game_dir, &thread_db, current, Some(&thread_textures)) {
+                        Ok(mut area) => {
+                            crate::houses::add(&thread_db, &state.houses, &mut area.scene, &mut area.collision, area.zones.as_mut().and_then(Arc::get_mut));
+                            collision = Arc::new(area.collision);
+                            zones = area.zones;
+                            state.animated_statels = Arc::new(area.animated);
+                            pending_scene = Some(area.scene);
+                            pending_keep_camera = true;
+                        }
+                        Err(e) => eprintln!("city: the playfield could not be read again for its houses: {e}"),
+                    }
+                }
+                houses_drawn = !state.houses.is_empty();
             }
             // The mail windows: check the inbox at the nearest known terminal, or send a mail.
             while let Ok(command) = mail_rx.try_recv() {
@@ -8496,6 +8550,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 let update = crate::viewer::Update {
                     messages_only: false,
                     target_nanos,
+                    keep_camera: std::mem::take(&mut pending_keep_camera) && pending_scene.is_some(),
                     scene: pending_scene.take(),
                     // (grouped by template, each with the effect itself when the effects' file has it)
                     statel_effects: pending_statel_effects.take().map(|list| {
@@ -10646,6 +10701,24 @@ mod door_tests {
         w.names.insert(0x7b1abca9, ("B".into(), false));
         w.add(&Message { kind: 0x3129233b, identity: (0xc350, 0x7b1a00b3), data: hex("0000000bd30000c3507b1ab8330000c3507b1abca9000187620000c3507b1a00b3") }.frame(1));
         assert_eq!(w.landed, vec![(0x7b1ab833, 0x18762), (0x7b1abca9, 0x18762)]);
+    }
+
+    /// A city playfield's list of houses (the start of the user's log of 2026-11-15, one house of its eighty): kept for
+    /// the scene, and marked as changed once.
+    #[test]
+    fn a_citys_houses_are_kept_for_the_scene() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let mut w = World { own: 7, ..World::default() };
+        let list = Message { kind: mao_net::landcontrol::ALL_CITIES, identity: (0x9c50, 0x20e129), data: hex("01001d000000014459000040a00000449900000000005a00000f4268006a0000") };
+        w.add(&list.frame(1));
+        assert!(w.houses_changed);
+        assert_eq!(w.houses.iter().map(|h| (h.position, h.rotation, h.template.1)).collect::<Vec<_>>(), [([868.0, 5.0, 1224.0], 90, 0x6a0000)]);
+        // (the same list again changes nothing; a playfield without houses takes them away)
+        w.houses_changed = false;
+        w.add(&list.frame(1));
+        assert!(!w.houses_changed);
+        w.add(&Message { kind: mao_net::landcontrol::ALL_CITIES, identity: (0x9c50, 0x28f), data: hex("010000") }.frame(1));
+        assert!(w.houses_changed && w.houses.is_empty());
     }
 
     /// An `InventoryUpdate` that names the character itself (the 16:55 capture's first, cut to one item; a claimed daily

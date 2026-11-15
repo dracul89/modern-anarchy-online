@@ -88,6 +88,7 @@ mod loginviews;
 mod look;
 mod layout;
 mod loot;
+mod houses;
 mod places;
 mod nanoprograms;
 mod perks;
@@ -1654,6 +1655,10 @@ fn run(args: &[String]) -> Result<(), String> {
                     model.instances.extend((0..ground).map(|i| (i, model::IDENTITY)));
                 }
                 add_static_props(&db, number, &mut model);
+                // (`MAO_HOUSES=<hex>`: a city's houses)
+                if let Some(list) = houses::from_env() {
+                    houses::add(&db, &list, &mut model, &mut mao_formats::collision::Collision::default(), None);
+                }
             }
             // An interior or dungeon: the shell of its rooms, seen against the dark as the live view shows it.
             if let Some(shell) = load_room_shell(&db, number) {

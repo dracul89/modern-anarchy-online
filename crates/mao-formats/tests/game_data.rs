@@ -63,6 +63,37 @@ fn hidden_helpers_have_no_parts() {
     assert!(lava.iter().all(|p| !mao_formats::model::is_hidden_name(&p.name)));
 }
 
+/// The player cities' house templates: 83 of the format's version 4 (two older ones are left unread), each with its
+/// meshes in the database and a surface that reads; the first is a headquarters on 10 by 10 tiles with one mesh.
+#[test]
+fn the_house_templates_read() {
+    let Some(db) = database() else { return };
+    let ids: Vec<Id> = db.ids().unwrap().filter_map(Result::ok).filter(|i| i.kind == mao_formats::house::KIND).collect();
+    let mut read = 0;
+    for id in &ids {
+        let record = db.get(*id).unwrap().unwrap();
+        let Some(t) = mao_formats::house::Template::parse(&record) else { continue };
+        read += 1;
+        assert!(!t.visuals.is_empty(), "{:#x}", id.instance);
+        for v in &t.visuals {
+            assert!(db.get(Id { kind: 0xf6951, instance: v.mesh }).unwrap().is_some(), "{:#x}: mesh {}", id.instance, v.mesh);
+        }
+        if t.surface.len() >= 4 {
+            let triangles = t.triangles(90).unwrap_or_else(|| panic!("{:#x}: the surface", id.instance));
+            // (inside the turned footprint, give or take a balcony)
+            let (lx, lz) = (t.tiles_z as f32 * 4.0, t.tiles_x as f32 * 4.0);
+            for v in triangles.iter().flatten() {
+                assert!(v[0] > -8.0 && v[0] < lx + 8.0 && v[2] > -8.0 && v[2] < lz + 8.0, "{:#x}: {v:?} outside {lx} by {lz}", id.instance);
+            }
+        }
+    }
+    assert_eq!((ids.len(), read), (85, 83));
+    let first = mao_formats::house::Template::parse(&db.get(Id { kind: mao_formats::house::KIND, instance: 0x6a0000 }).unwrap().unwrap()).unwrap();
+    assert_eq!((first.kind, first.tiles_x, first.tiles_z, first.inside), (1, 10, 10, 4342));
+    assert_eq!(first.visuals.iter().map(|v| (v.mesh, v.rotation)).collect::<Vec<_>>(), [(36126, 90)]);
+    assert_eq!(first.doors.iter().map(|d| (d.template, d.rotation)).collect::<Vec<_>>(), [(41565, -90)]);
+}
+
 /// A campfire's mesh has one connector, `eff_fire1`, which names the fire 2201; a torch has its own.
 #[test]
 fn a_campfire_names_its_fire() {

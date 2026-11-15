@@ -240,6 +240,8 @@ account with `net <game> create`, in Arete Landing; scripted, other new players 
   be worn while it holds something.
 - [ ] ICC's landing platforms (Andromeda, 2026-11-15): the bridge pieces between the platforms lie flat and can be
   walked. The clan shops' tradeskill part: dark triangular walls beside the ramps, no slabs lying about.
+- [ ] A player city (2026-11-15): its buildings stand on their plots, facing as in the original, each door the
+  server shows in a doorway; the walls stop the character. The log's "city: house ..." lines name each door's place.
 - [ ] A city's controller (2026-11-15): the band under its head is solid dark machinery.
 - [ ] A daily reward claimed (2026-11-15): the item comes into the inventory and no second window with the
   inventory's items opens; the log says "items: the server's list of the character's own items".

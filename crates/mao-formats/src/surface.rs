@@ -357,6 +357,19 @@ fn read_tree(r: &mut Reader, volumes: u32, surface: &mut Surface) -> Option<()> 
     Some(())
 }
 
+/// A surface without the object's head and without a way out or an end mark after it: a city house template's
+/// (city.dll FUN_100216c5 reads the same tree: the version's symbol, the volume count, and with any volumes the rest).
+pub fn parse_bare(bytes: &[u8]) -> Option<Surface> {
+    let mut r = Reader { range: 1, code: 0, bytes, at: 0, broken: false };
+    r.uniform(15);
+    let volumes = r.count();
+    let mut surface = Surface::default();
+    if volumes != 0 {
+        read_tree(&mut r, volumes, &mut surface)?;
+    }
+    (!r.broken).then_some(surface)
+}
+
 /// Reads a surface object (the whole database object, its head included);
 /// none if it is not a version 5 surface or its stream breaks.
 pub fn parse(object: &[u8]) -> Option<Surface> {

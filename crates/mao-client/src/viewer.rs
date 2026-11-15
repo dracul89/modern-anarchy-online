@@ -114,6 +114,8 @@ pub struct Update {
     pub messages_only: bool,
     /// A new playfield to replace the one drawn (zoning).
     pub scene: Option<Model>,
+    /// The scene is the playfield the character is in already, drawn again (a city's houses came): no new camera.
+    pub keep_camera: bool,
     /// With a new playfield: its rooms when it is an interior (`Some(None)` when it has none), for the camera's attractors and
     /// the rooms' parts.
     pub interior: Option<Option<std::sync::Arc<crate::interior::Interior>>>,
@@ -1802,9 +1804,12 @@ impl ApplicationHandler for App {
                     // (a scene, an environment or a daylight comes once, in one update: one that came before the last must
                     // not be lost with it, or a zoning's new playfield is never drawn and the loading screen stays)
                     let (mut scene, mut environment, mut daylight) = (None, None, None);
+                    // (a new camera unless every scene of the lot is the same playfield again)
+                    let mut keep_camera = true;
                     for u in updates.iter_mut().filter(|u| !u.messages_only) {
                         if let Some(s) = u.scene.take() {
                             scene = Some(s);
+                            keep_camera &= u.keep_camera;
                         }
                         if let Some(e) = u.environment.take() {
                             environment = Some(e);
@@ -1816,6 +1821,7 @@ impl ApplicationHandler for App {
                     let latest = updates.into_iter().filter(|u| !u.messages_only).last();
                     if let Some(mut update) = latest {
                         (update.scene, update.environment, update.daylight) = (scene, environment, daylight);
+                        update.keep_camera = keep_camera && update.scene.is_some();
                         // (the first world update after logging in: the world is in, and the loading screen goes once
                         // the window shows it, `StartClosingLoadscreenMessage`: see `LOAD_CLOSED`; the login's playfield
                         // was drawn before the window opened, so no scene comes with it)
@@ -1878,7 +1884,7 @@ impl ApplicationHandler for App {
                         // the same when the server sets the character down elsewhere in the playfield it is in, which is
                         // the playfield's message again and so the original's `SetMainDynel` again: until 2026-11-11 the
                         // old camera was left to find its way from where the character died)
-                        if let (true, Some(p)) = (update.scene.is_some() || update.new_camera, update.own) {
+                        if let (true, Some(p)) = ((update.scene.is_some() && !update.keep_camera) || update.new_camera, update.own) {
                             self.steering.create(p, self.heading);
                         }
                         if let Some(p) = update.own {
