@@ -325,6 +325,16 @@ impl MissionWindow {
         self.answers = self.answers.wrapping_add(1);
     }
 
+    /// A mission was accepted: the window goes, with its offers. The original's Accept button (GUI.dll FUN_100d0c61)
+    /// sends `N3Msg_SelectMission` and deletes the window (its first virtual function, the one
+    /// `SlotCloseMissionSelection` calls); the next use of a terminal makes a new one, with no offers. With fewer than
+    /// two free places in the inventory it shows its error box instead and the window stays ([`slots_refused`]).
+    pub fn accepted(&mut self) {
+        (self.open, self.selected, self.roll) = (false, None, None);
+        self.offers.clear();
+        self.status.clear();
+    }
+
     /// What the selection does to the waypoint; asked every frame, the window open or not. The original's list tells
     /// its window when the selection changes (FUN_100d0704): with an offer selected whose place is known
     /// (`N3Msg_GetQuestWorldPos`), the place is uploaded to the map and the compass (the signal the journal's "Upload
@@ -574,6 +584,22 @@ mod helper_tests {
         assert!(matches!(w.mark(), Some(Mark::Upload { .. })));
         w.set_offers(vec![offer(4, 655)]);
         assert_eq!(w.mark(), Some(Mark::Remove { id: (0xdac3, 2) }));
+    }
+
+    /// Accepting a mission closes the window and leaves it without offers; the accepted offer's waypoint goes with it
+    /// (the mission's own comes with the mission).
+    #[test]
+    fn accepting_closes_the_window() {
+        let mut w = MissionWindow { open: true, ..Default::default() };
+        w.set_offers(vec![offer(1, 655), offer(2, 540)]);
+        w.selected = Some(1);
+        assert!(matches!(w.mark(), Some(Mark::Upload { .. })));
+        w.accepted();
+        assert!(!w.open && w.offers.is_empty() && w.selected.is_none() && w.status.is_empty() && !w.rolling());
+        assert_eq!(w.mark(), Some(Mark::Remove { id: (0xdac3, 2) }));
+        // (opened again at a terminal: nothing of the old offers)
+        w.open = true;
+        assert_eq!(w.mark(), None);
     }
 
     /// The request's bytes are the original's: its window's first values give the request of the capture of 2026-11-08

@@ -6008,6 +6008,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut pending_city_map: Option<crate::citymap::Data> = None;
         let (mut mission_wait, mut mission_used): (Option<Instant>, bool) = (None, false);
         let (mut mission_seen, mut pending_missions, mut pending_mission_status): (u8, Option<Vec<crate::mission::Offer>>, Option<String>) = (0, None, None);
+        let mut pending_mission_accepted = false;
         // Mail: the answer's count and notes for the window, when the inbox request is due, and when the last send went out.
         let (mut pending_mail_count, mut pending_mail_status): (Option<usize>, Option<String>) = (None, None);
         // Shops: the stock to show, a note, the open booth and the trade's bag (from the server's Trade open).
@@ -7494,7 +7495,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         }
                         None => {
                             let _ = connection.send(&n3::create_quest(own, cmd.mission));
-                            pending_mission_status = Some("Mission requested; see the mission log.".into());
+                            // (the original's button deletes its window after the sending, FUN_100d0c61)
+                            pending_mission_accepted = true;
                         }
                     }
                 }
@@ -9238,6 +9240,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     nanos: std::mem::take(&mut state.nano_list_changed).then(|| crate::ncu::describe(&gear_db, &gear_textures, &state.nano_times, state.stats.get(&0x36).copied().unwrap_or(1), state.nano_times_at.unwrap_or_else(Instant::now))),
                     missions: pending_missions.take(),
                     mission_status: pending_mission_status.take(),
+                    mission_accepted: std::mem::take(&mut pending_mission_accepted),
                     mail_count: pending_mail_count.take(),
                     mail_entries: pending_mail_entries.take(),
                     mail_opened: pending_mail_opened.take(),

@@ -4024,3 +4024,12 @@ it. Tests: `a_selected_offer_marks_the_map`, `a_new_mission_is_uploaded`. **Not 
 original's new-mission signal was not read; here a mission is new when the server's list has one that the list before
 did not have (the session's first list is not news). Not done: the offer's right-click menu (its page, and "Upload to
 map" again), the window closing at Accept, the tip the original shows at a new mission (`OnReceiveMission`).
+
+**Accept closes the terminal's window (2026-11-15; the user: "accpting a mission doesn't clear the mission window").**
+The original's Accept button (GUI.dll FUN_100d0c61) sends `N3Msg_SelectMission` and then deletes its window (its first
+virtual function, the one `SlotCloseMissionSelection` calls with 1); the next use of a terminal makes a new window
+with no offers. With fewer than two free inventory places it shows its error box instead and the window stays. Here
+the window stayed with its offers and a status line. Now the network thread tells the window when the acceptance is
+sent (`Update::mission_accepted`) and `MissionWindow::accepted` closes it and drops the offers; the refusal leaves it
+as before. The accepted offer's waypoint goes with the window and the mission's own comes with the mission (the
+paragraph above). Test: `accepting_closes_the_window`. **Not tried live.**

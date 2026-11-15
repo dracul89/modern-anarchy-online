@@ -265,6 +265,8 @@ pub struct Update {
     pub missions: Option<Vec<crate::mission::Offer>>,
     /// A message for the mission window's status line.
     pub mission_status: Option<String>,
+    /// A mission was accepted (the request is sent): the mission window goes.
+    pub mission_accepted: bool,
     /// The inbox's message count when the server reports it, and a note for the mail window.
     pub mail_count: Option<usize>,
     pub mail_status: Option<String>,
@@ -1651,6 +1653,9 @@ impl ApplicationHandler for App {
                             }
                             if let Some(status) = u.mission_status.take() {
                                 ui.mission.status = status;
+                            }
+                            if std::mem::take(&mut u.mission_accepted) {
+                                ui.mission.accepted();
                             }
                             if let Some(entries) = u.mail_entries.take() {
                                 ui.mail.set_entries(entries);
