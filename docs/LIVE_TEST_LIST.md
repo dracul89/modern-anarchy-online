@@ -249,7 +249,7 @@ account with `net <game> create`, in Arete Landing; scripted, other new players 
   under the shuttle's door with an NPC before it: the first click takes the NPC, a second one in the same place (after
   half a second) the ring; a right click then uses the ring and the shuttle takes the character to ICC. A double click
   on a lone booth or NPC still uses it.
-- [ ] Missions at ICC's neutral terminal (2026-11-15): use the right one of the two (the individual's), Request
+- [ ] Missions at ICC's neutral terminal (2026-11-15; at Old Athen's clan terminal the user's log of 16:33 has three requests with the fixed sliders, each answered): use the right one of the two (the individual's), Request
   Missions: offers come. The log has "missions: asked (0xdac1, ...) for kind 1 with [6, 0, 0, 0, 0, 0, 0]" (the
   sliders untouched) and the server's answer. (Tried by the user the same day with the first byte put right: no
   answer at ICC nor at Old Athen; the sliders' bytes were out of the server's range. Fixed after, not tried.) Then
