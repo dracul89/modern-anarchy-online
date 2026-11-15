@@ -1,5 +1,7 @@
 # Client visuals, window and interface
 
+*The pictures this file names under `shots/` are the client's own offline renders. They are not kept in the repository (the folder is ignored since 2026-11-14): the names record what was looked at.*
+
 What was built for "enhance the visuals, foliage, AOU mod, key bindings, window
 modes, whompah labels", what was verified and what is still open.
 
