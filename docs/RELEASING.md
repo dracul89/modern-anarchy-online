@@ -33,7 +33,9 @@ Two workflows in `.github/workflows`:
    - `ModernAnarchyOnline-0.2.0-macos-arm64.dmg`, with it: the application (`Modern Anarchy Online.app`, icon and
      all) in a disk image to drag onto Applications, made by `tools/package-macos.sh`; signed ad hoc only on the build machines. Run on a Mac whose keychain
      has a Developer ID Application certificate, with `MAO_NOTARY_PROFILE` set, the script signs and notarizes the
-     image (the top of the script says how), and that file can replace the release's
+     image (the top of the script says how), and that file can replace the draft's, with its line in
+     `SHA256SUMS.txt`, before the draft is published (a published release's files cannot be changed while the
+     repository keeps its releases immutable)
    - `SHA256SUMS.txt`
    - notes written by GitHub from the commits since the last release, under a few lines of ours.
 5. Read the draft over, edit the notes, and press **Publish**. Nothing is public before that; a draft can be deleted,
