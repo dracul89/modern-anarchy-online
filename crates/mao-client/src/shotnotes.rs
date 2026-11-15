@@ -13,6 +13,11 @@ static LOOKS: Mutex<BTreeMap<u32, (String, String, String)>> = Mutex::new(BTreeM
 const KEPT: usize = 1500;
 
 /// A character's look from its full update.
+/// A new playfield: the characters known are the old one's.
+pub fn clear() {
+    LOOKS.lock().unwrap().clear();
+}
+
 pub fn set(id: u32, name: &str, line: String, bytes: &[u8]) {
     let mut looks = LOOKS.lock().unwrap_or_else(|e| e.into_inner());
     if looks.len() >= KEPT && !looks.contains_key(&id) {

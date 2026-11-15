@@ -6255,6 +6255,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     state.rotations.clear_all();
                     state.entities.clear();
                     state.props.clear();
+                    // (a screenshot's notes listed the last playfield's characters in the next one: seen 2026-11-15)
+                    crate::shotnotes::clear();
                     // (the city's houses go with the playfield: `~PlayfieldAnarchy_t` empties the holder)
                     state.houses.clear();
                     state.houses_changed = false;
