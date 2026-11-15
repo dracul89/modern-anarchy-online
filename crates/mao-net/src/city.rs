@@ -195,7 +195,25 @@ mod tests {
         assert_eq!(map_to_key("CityAdvantagesIIR_t"), ADVANTAGES);
     }
 
-    /// Made up to the original's readers: no capture has one of these.
+    /// The signals of one use of a real city's controller, from the user's log of 2026-11-15 (the character's number and
+    /// the org's name changed, the name's length kept): the opening for a member who may build (GUI 2, lease mode 3,
+    /// third word 0), the upkeep, the time to the bill, the cloak (on, and not to be toggled: the time is negative), the
+    /// charge, and the close. They read as the made-up ones below were built to.
+    #[test]
+    fn a_real_citys_signals_read() {
+        let id = CityId { city: (0xc419, 0xc000), playfield: 0x195006, model: (0xc79e, 0x177a) };
+        let open = hex("01000000050000c4190000c000001950060000c79e0000177a0000c350000000070000000200000003000000000009416e6f7267206f7267");
+        assert_eq!(open.len(), 56);
+        assert_eq!(signal(&open), Some(Signal::Open { city: id, identity: (0xc350, 7), gui_type: 2, lease: 3, third: 0, org: "Anorg org".into() }));
+        assert_eq!(signal(&hex("010000000a05204180")), Some(Signal::Upkeep(86_000_000)));
+        assert_eq!(signal(&hex("010000000d000609c1")), Some(Signal::BillIn(395_713)));
+        assert_eq!(signal(&hex("010000000e00000001faa82f5e")), Some(Signal::Cloak { state: 1, time: -89_641_122 }));
+        assert_eq!(signal(&hex("010000000f3f55872f")), Some(Signal::Charge(0.834094)));
+        assert_eq!(signal(&hex("01000000070000c4190000c000001950060000c79e0000177a")), Some(Signal::Close(id)));
+    }
+
+    /// Made up to the original's readers, before a log had any (the real ones are above; no log has yet a house built or
+    /// demolished, the lease or the org's name).
     #[test]
     fn the_signals_read() {
         let city = "0000c4190000c0000020e166" .to_string() + "0000c79e0000177a";

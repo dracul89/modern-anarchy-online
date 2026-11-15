@@ -3884,3 +3884,46 @@ user's real city: all nine houses lie in the zones by the original's test and no
 Not done: the land-buying dialog (GUI type 1); the inventory's lock on an item that waits on the map (such an item is
 not taken a second time instead); the pointer's place as a tip. A guess kept from the reading: the building item's
 identity in the request is its inventory place.
+
+**The org headquarters' inside (2026-11-15; the user: "the floors are too high hiding the walls and fish tanks, the
+bar has several objects out of position and the two teleporters should be taking me to other rooms").** Five things,
+found from the user's two screenshots and the log of the visit (which now has the whole messages):
+
+- *A placed mesh's root frame.* The lobby's mesh (`ai_buildings_inside_lobby`, 252279) is stored about its middle and
+  its root frame's saved matrix lifts it 4.99; the client dropped that lift, so the tunnel stood half under the floor
+  and the room's own floor cut it at mid height. The original: a statel's `VisualMesh_t` has a frame of its own that
+  takes the place (N3 FUN_1002435c: `SetAnimMatrix` when the statel has one, `SetPosition`, `SetRotation`,
+  `SetScale`), and the loaded mesh's root goes under it "at the origin, unrotated" (DisplaySystem FUN_1006d7b9,
+  `asyncmesh.rs` `attach`: `SetPosition(0)`, `SetRotation(none)`); its scale and its saved matrix stay. So a placed
+  mesh's root gives its matrix whole and its scale, and nothing else, a statel's as a dynel's (`model::walk`,
+  `Root::Placed`). Until now a statel's root kept "its rotation and scale, not its position", and the matrix's shift
+  went with the position. `--example rootframes` counts them: of the 7,245 meshes the statels use, 1,205 have a
+  shifting matrix on the root (98 by 5 units or more), none a rotation or a scale of its own. The same rule put the
+  bar's bottles 1.1 m beside their places (`bottle-brown`, 18492, 536 statels), the lounge's curtains across the
+  floor, and the commonest grass tuft (206509, 20,018 statels) 2.9 m from its spot. Checked: the lobby's floor comes
+  out at the statel's height 8.40, and the server stands the character on it at 8.435.
+- *The rooms' textures.* A tile value's texture number with the top bit set is a mesh texture, type `0xf6954`, of the
+  number without the bit (`VisualRoom_t::AddMaterial`, displaysystem `rdb.rs`); the headquarters' and the notum silo's
+  rooms name all of theirs so. Read as room textures (`0xf6959`) none was found and the floors and walls were blank
+  white (`rooms::texture_identity`).
+- *The elevators.* They are no doors and no machines to use: the server moves the character (`N3Teleport`) from the
+  hall to the tactical room or the laboratory when it walks into one. The client took the move and then undid it: the
+  two rooms share no doorway, and the step after was refused as a crossing without a door. A place the server gives
+  is no step (`RoomState::placed`, from `n3TeleportIIR_t::Activate`'s `SetRelPosRot`); the log had "the server moved
+  us to [262.3, 1.8, 196.1]" four times while the reports kept coming from the elevator.
+- *The built-in objects' ids.* An owned building's playfield message has the runs of ids an instanced shop's has,
+  after its own data (the count at byte 106): `Message::instance_runs` reads them, so the headquarters' machines (the
+  grid terminal, the two entrances) are used by the server's ids. Its doors take the number of the table record their
+  run names (`World::door_number`): the four are the records 4, 7, 9 and 10 with the numbers 3, 2, 0 and 1, and
+  counted along the ids the server's word on one door went to another.
+- *Logging in inside.* The character list's playfield is the building's own number, which has nothing to draw; the
+  login's playfield message names the template. It was thrown away as "the playfield already drawn"; one that names
+  another playfield is kept and zoned into ("playfield 3637254: collision 0 triangles" in the log).
+
+Tests from the real messages: `an_owned_buildings_inside_is_its_templates_playfield` (the silo's 138 bytes and the
+headquarters' 258: the template is the word at byte 58, as read), `a_real_citys_signals_read` (the controller's
+opening, upkeep, bill, cloak, charge and close, as the made-up ones had them),
+`an_owned_buildings_doors_take_their_table_records_numbers`, `a_teleport_between_rooms_without_a_doorway_is_kept`,
+`a_placed_mesh_keeps_its_roots_matrix`, `an_owned_buildings_rooms_take_mesh_textures`. Seen in offline pictures
+only (`map 4349`); **not tried live.** Not done: a statel's own matrix (`unread_rotation` in `statels.rs`, the
+original's `SetAnimMatrix`); the elevators' sound and effect.

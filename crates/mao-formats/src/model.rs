@@ -485,20 +485,26 @@ fn walk(a: &Archive, index: i32, parent: &Matrix, depth: usize, root: Root, out:
     // and no animation keeps the matrix in a holder of its own). Thirteen of the 656 meshes the playfields' built-in things use
     // have one: flat things modelled upright and laid down or turned by it (the 4 m ring that marks a shuttle's door, which also
     // scrolls its texture and stood on its edge without it, posters, wall panels, buttons).
+    //
+    // 2026-11-15: a statel is the same thing to the original as a dynel here. Its `VisualMesh_t` has a frame of its own
+    // that takes the place (N3 FUN_1002435c: `SetPosition`, `SetRotation`, `SetScale`), and the loaded mesh's root is
+    // put under it "at the origin, unrotated" (DisplaySystem FUN_1006d7b9, `asyncmesh.rs` `attach`: the root's position
+    // and rotation are overwritten, its scale and its saved matrix are not). Until then a statel's root kept its
+    // rotation and scale but lost the *matrix's* translation with the position, which is not a pivot to drop: the
+    // exporter stores the vertices about their middle and the matrix puts them back. 1,205 of the 7,245 meshes the
+    // statels use have such a shift (`--example rootframes`), no root has a rotation or a scale of its own: the org
+    // headquarters' lobby stood 4.99 under its floor with only the top half of its tunnel showing, a bar's bottles
+    // 1.1 m beside their shelves, the commonest grass tuft (20,018 statels) 2.9 m from its place.
     let world = match root {
-        Root::Rotation if depth == 0 => {
-            let mut m = local_matrix(a, frame);
-            m[12] = 0.0;
-            m[13] = 0.0;
-            m[14] = 0.0;
-            multiply(&m, parent)
+        Root::Placed | Root::None if depth == 0 => {
+            let scale = root_scale(frame);
+            multiply(&saved_anim_matrix(frame).map_or(scale, |m| multiply(&m, &scale)), parent)
         }
-        Root::None if depth == 0 => saved_anim_matrix(frame).map_or(*parent, |m| multiply(&m, parent)),
         _ => multiply(&local_matrix(a, frame), parent),
     };
     chain.push(match root {
-        Root::None if depth == 0 => Step { trs: IDENTITY, saved: saved_anim_matrix(frame), keys: keys(a, frame).map(std::sync::Arc::new), zero_translation: false },
-        _ => Step { trs: trs_of(frame), saved: saved_anim_matrix(frame), keys: keys(a, frame).map(std::sync::Arc::new), zero_translation: root == Root::Rotation && depth == 0 },
+        Root::Placed | Root::None if depth == 0 => Step { trs: root_scale(frame), saved: saved_anim_matrix(frame), keys: keys(a, frame).map(std::sync::Arc::new) },
+        _ => Step { trs: trs_of(frame), saved: saved_anim_matrix(frame), keys: keys(a, frame).map(std::sync::Arc::new) },
     });
     // (the frame's connector, an `RRefFrameConnector` with a name: where something is attached, or an effect is made)
     if let Some(c) = frame.int("0", "conn").filter(|c| *c >= 0).and_then(|c| a.objects.get(c as usize)) {
@@ -626,8 +632,6 @@ pub struct Step {
     trs: Matrix,
     saved: Option<Matrix>,
     keys: Option<std::sync::Arc<Keys>>,
-    /// The root of a placed mesh: its position left out (see `walk`).
-    zero_translation: bool,
 }
 
 /// A part whose frames (its own or one above it) are animated: its world matrix at a time, as the original's
@@ -656,12 +660,7 @@ impl Animated {
                 }
                 None => s.saved,
             };
-            let mut m = anim.map_or(s.trs, |a| multiply(&a, &s.trs));
-            if s.zero_translation {
-                m[12] = 0.0;
-                m[13] = 0.0;
-                m[14] = 0.0;
-            }
+            let m = anim.map_or(s.trs, |a| multiply(&a, &s.trs));
             world = multiply(&m, &world);
         }
         (world, visible)
@@ -703,6 +702,13 @@ impl Animated {
     pub fn length(&self) -> f32 {
         self.chain.iter().filter_map(|s| s.keys.as_ref().map(|k| k.length)).fold(0.0, f32::max)
     }
+}
+
+/// What is left of a placed mesh's root frame's own transform once the game has put it "at the origin, unrotated": its
+/// scale.
+fn root_scale(frame: &Stream) -> Matrix {
+    let scale = float_field(frame, "scale").and_then(|v| v.first().copied()).unwrap_or(1.0);
+    trs_matrix([0.0; 3], [0.0, 0.0, 0.0, 1.0], [scale; 3])
 }
 
 /// A frame's own transform: its rotation, scale and position.
@@ -749,7 +755,7 @@ pub fn build(mesh: &MeshObject) -> Result<Model, Error> {
 /// The drawable parts of a mesh object placed in the world (a statel, a door, a machine): the root frame's position is left out
 /// (see `walk`).
 pub fn build_placed(mesh: &MeshObject) -> Result<Model, Error> {
-    build_with(mesh, Root::Rotation)
+    build_with(mesh, Root::Placed)
 }
 
 /// The drawable parts of a mesh object that is a dynel of the playfield (a door, a machine): the game sets the root frame's
@@ -758,14 +764,44 @@ pub fn build_dynel(mesh: &MeshObject) -> Result<Model, Error> {
     build_with(mesh, Root::None)
 }
 
+/// A mesh's root frame as stored: what the exporter left in its local transform and the matrix it was saved with.
+pub struct RootFrame {
+    pub position: [f32; 3],
+    pub rotation: [f32; 4],
+    pub scale: f32,
+    pub anim_matrix: Option<Matrix>,
+    /// The frame has an animation of its own.
+    pub animated: bool,
+}
+
+/// The root frames of a mesh (one, as a rule), for surveys of what the placement rules leave out.
+pub fn root_frames(mesh: &MeshObject) -> Vec<RootFrame> {
+    let a = &mesh.archive;
+    refs(&a.root, "obj")
+        .into_iter()
+        .filter_map(|i| (i >= 0).then(|| a.objects.get(i as usize)).flatten())
+        .map(|frame| {
+            let p = float_field(frame, "local_pos").filter(|p| p.len() == 3).unwrap_or(vec![0.0; 3]);
+            let q = float_field(frame, "local_rot").filter(|q| q.len() == 4).unwrap_or(vec![0.0, 0.0, 0.0, 1.0]);
+            RootFrame {
+                position: [p[0], p[1], p[2]],
+                rotation: [q[0], q[1], q[2], q[3]],
+                scale: float_field(frame, "scale").and_then(|v| v.first().copied()).unwrap_or(1.0),
+                anim_matrix: saved_anim_matrix(frame),
+                animated: keys(a, frame).is_some(),
+            }
+        })
+        .collect()
+}
+
 /// How much of a mesh's root frame transform applies.
 #[derive(Clone, Copy, PartialEq)]
 enum Root {
     /// All of it (attached meshes).
     Full,
-    /// Its rotation and scale, not its position (statels).
-    Rotation,
-    /// None of it (dynels: the game overwrites the root's local transform with the object's place).
+    /// Its scale and its saved matrix, not its position or rotation (statels: see `walk`).
+    Placed,
+    /// The same (dynels: the game overwrites the root's position and rotation with the object's place).
     None,
 }
 
@@ -792,7 +828,7 @@ pub fn connectors_placed(mesh: &MeshObject) -> Result<Vec<(String, Matrix)>, Err
     let a = &mesh.archive;
     let (mut parts, mut anims, mut chain, mut connectors) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     for root_frame in refs(&a.root, "obj") {
-        walk(a, root_frame, &IDENTITY, 0, Root::Rotation, &mut parts, &mut chain, &mut anims, &mut connectors)?;
+        walk(a, root_frame, &IDENTITY, 0, Root::Placed, &mut parts, &mut chain, &mut anims, &mut connectors)?;
     }
     Ok(connectors)
 }
@@ -804,5 +840,5 @@ pub fn build_dynel_animated(mesh: &MeshObject) -> Result<(Model, Vec<Option<Anim
 
 /// [`build_placed`]'s parts with their animations, one per part.
 pub fn build_placed_animated(mesh: &MeshObject) -> Result<(Model, Vec<Option<Animated>>), Error> {
-    build_animated(mesh, Root::Rotation)
+    build_animated(mesh, Root::Placed)
 }

@@ -509,6 +509,17 @@ pub struct Grid {
 /// The quality type of the room textures.
 pub const TEXTURE: u32 = 0xf6959;
 
+/// The type of the meshes' textures, which a room takes one of when its number has the top bit.
+pub const MESH_TEXTURE: u32 = 0xf6954;
+
+/// The texture resource a tile value's number names: a room texture (type `0xf6959`), or, with the top bit set, a
+/// mesh texture (type `0xf6954`) of the number without that bit (`VisualRoom_t::AddMaterial`, displaysystem
+/// `rdb.rs`). The org headquarters' and the notum silo's rooms name all of theirs that way; read as room textures
+/// there were none, and their floors and walls were drawn blank (2026-11-15).
+pub fn texture_identity(number: u32) -> (u32, u32) {
+    if number & 0x8000_0000 != 0 { (MESH_TEXTURE, number & 0x7fff_ffff) } else { (TEXTURE, number) }
+}
+
 fn decode(body: &[u8]) -> Option<image::DynamicImage> {
     let start = body.windows(4).position(|w| w == b"\x89PNG")?;
     image::load_from_memory(&body[start..]).ok()
@@ -700,7 +711,7 @@ pub fn room_parts(grid: &Grid, room: &Room, material: &Material, pieces: &HashMa
     let textured = |texture: Option<u32>| {
         let mut material = material.clone();
         if let Some(t) = texture {
-            material.textures = vec![(TEXTURE, t)];
+            material.textures = vec![texture_identity(t)];
             material.diffuse = [1.0; 3];
             material.ambient = [1.0; 3];
         }
@@ -970,6 +981,12 @@ pub fn model_by_room(grid: &Grid, rooms: &RoomPlayfield, material: &Material, pi
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_texture_number_with_the_top_bit_is_a_mesh_texture() {
+        assert_eq!(texture_identity(0x48a61), (TEXTURE, 0x48a61));
+        assert_eq!(texture_identity(0x8003c070), (MESH_TEXTURE, 0x3c070));
+    }
 
     fn object(rooms: &[Vec<u8>]) -> Vec<u8> {
         let mut d = vec![0u8; OBJECT_HEAD];

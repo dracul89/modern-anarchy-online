@@ -1961,12 +1961,23 @@ impl Message {
     /// first record's id (the others counting on from it). Empty for a playfield whose objects keep their table ids.
     /// From live bytes (ICC 1186: terminal runs `(0xc73d, 54, 2, 0x58c197d5)` and `(0xc73d, 59, 1, 0x58c197d7)`, the bank
     /// being record 55).
+    ///
+    /// An owned building's inside ([`Message::owned_building`]) has the same runs after its own data: the outside's
+    /// place (byte 74), five words, then the number of runs at byte 106 (the user's log of 2026-11-15: a notum silo's
+    /// 138 bytes with one run, its door; the org headquarters' 258 with seven, which follow its dynel table's twelve
+    /// records kind for kind). Read as an ordinary playfield's, the headquarters' terminals kept their table ids.
     pub fn instance_runs(&self) -> Vec<(u32, u32, u32, u32)> {
         if self.kind != PLAYFIELD {
             return Vec::new();
         }
         let w = |at: usize| self.data.get(at..at + 4).map(|b| u32::from_be_bytes(b.try_into().unwrap()));
-        let Some(start) = (17..self.data.len().saturating_sub(3)).find(|&at| w(at) == Some(0xc77d)) else { return Vec::new() };
+        let start = match self.owned_building() {
+            Some(_) => 90,
+            None => match (17..self.data.len().saturating_sub(3)).find(|&at| w(at) == Some(0xc77d)) {
+                Some(at) => at,
+                None => return Vec::new(),
+            },
+        };
         let Some(count) = w(start + 16) else { return Vec::new() };
         (0..count.min(256) as usize)
             .map_while(|k| {
@@ -2222,26 +2233,57 @@ mod zoning_tests {
     use super::*;
 
     /// The announcement of West Athens from a capture.
-    /// The way into a city's silo (the head of the message in the user's log of 2026-11-15, which kept 28 of its 138
-    /// bytes: the proxy `0xc79d`, the instance 0x37800a; the rest made up to the original's reader): the playfield to
-    /// draw is the one the building's data names, not the instance's number.
+    /// The ways into an org city's notum silo and its headquarters, whole, from the user's log of 2026-11-15 (the first
+    /// log kept 28 bytes and the rest of this test was made up to the original's reader; the real ones agree with it):
+    /// the playfield to draw is the one the building's data names (4350 and 4349), not the instance's number, and the
+    /// runs give the building's built-in objects the server's ids.
     #[test]
     fn an_owned_buildings_inside_is_its_templates_playfield() {
         let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
-        let mut data = hex("000000000442cf9f2840c0a3d1427c0aa0610000c79d0037800a0000");
-        // (the proxy's other words; the object's identity and word; version 4; the playfield 4350; the city's playfield
-        // and a word; a place)
-        data.extend_from_slice(&hex("00010000000000009c500020e067"));
-        data.extend_from_slice(&hex(concat!("0000c79d0037800a00000000", "00000004", "000010fe", "0000c79c0000177a", "00000000", "4465000040a0000044a00000")));
-        data.extend_from_slice(&[0; 20]);
-        let m = Message { kind: PLAYFIELD, identity: (0x9c50, 0x20e067), data };
+        let silo = hex(concat!(
+            "000000000442cf9f2840c0a3d1427c0aa0610000c79d0037800a000000000000000000009c500020e186",
+            "0000c77b0037800a0000000100000004000010fe0000c79e0000177a0c01f9bf4459000040a0000044a00000",
+            "000186a0000000003f9608d0000000000000000000000001",
+            "0000c74800000001000000000000000110c85800",
+            "ffffffffffffffff"
+        ));
+        assert_eq!(silo.len(), 138);
+        let m = Message { kind: PLAYFIELD, identity: (0x9c50, 0x20e186), data: silo };
         let b = m.owned_building().unwrap();
-        assert_eq!((b.instance, b.template, b.outside), (0x37800a, 4350, Some(((0xc79c, 6010), [916.0, 5.0, 1280.0]))));
+        assert_eq!((b.instance, b.template, b.outside), (0x37800a, 4350, Some(((0xc79e, 6010), [868.0, 5.0, 1280.0]))));
         assert_eq!(m.arrival().map(|a| a.0), Some(4350));
         assert_eq!(m.generated(), None);
+        assert_eq!(m.instance_runs(), [(0xc748, 0, 1, 0x10c85800)]);
         // (cut before the data, it is the proxy's number as before)
         let short = Message { data: m.data[..42].to_vec(), ..m.clone() };
         assert_eq!((short.owned_building(), short.arrival().map(|a| a.0)), (None, Some(0x37800a)));
+        assert_eq!(short.instance_runs(), []);
+
+        let headquarters = hex(concat!(
+            "0000000004434fcddf4106f5c342fe890b610000c79d00378006000000000000000000009c500020e0e6",
+            "0000c77b003780060000000100000004000010fd0000c79e0000177a0c01f9bd446f000040a0000044b58000",
+            "000186a000000000041ccfd0000000010000006400000007",
+            "0000c73d0000000100000000000000045968636d",
+            "0000c74800000001000000040000000110c86e88",
+            "0000c73d00000001000000050000000259686371",
+            "0000c74800000001000000070000000110c86e89",
+            "0000c73d00000001000000080000000159686373",
+            "0000c74800000001000000090000000210c86e8a",
+            "0000c73d000000010000000b0000000159686374",
+            "ffffffffffffffff"
+        ));
+        assert_eq!(headquarters.len(), 258);
+        let m = Message { kind: PLAYFIELD, identity: (0x9c50, 0x20e0e6), data: headquarters };
+        let b = m.owned_building().unwrap();
+        assert_eq!((b.instance, b.template, b.outside), (0x378006, 4349, Some(((0xc79e, 6010), [956.0, 5.0, 1452.0]))));
+        let (playfield, at) = m.arrival().unwrap();
+        assert_eq!(playfield, 4349);
+        assert!((at[0] - 207.80).abs() < 0.01 && (at[1] - 8.435).abs() < 0.001 && (at[2] - 127.27).abs() < 0.01);
+        // (the playfield's dynel table: four machines, a door, two machines, a door, a machine, two doors, a machine)
+        assert_eq!(
+            m.instance_runs(),
+            [(0xc73d, 0, 4, 0x5968636d), (0xc748, 4, 1, 0x10c86e88), (0xc73d, 5, 2, 0x59686371), (0xc748, 7, 1, 0x10c86e89), (0xc73d, 8, 1, 0x59686373), (0xc748, 9, 2, 0x10c86e8a), (0xc73d, 11, 1, 0x59686374)]
+        );
     }
 
     #[test]

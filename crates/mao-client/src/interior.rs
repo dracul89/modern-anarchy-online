@@ -81,6 +81,32 @@ impl RoomState {
         }
     }
 
+    /// The server put the character somewhere (a teleport within the playfield, a move it refused): the character is in
+    /// whichever room that place is in, whatever the doors say, and the next step finds it. `n3TeleportIIR_t::Activate`
+    /// sets the dynel's place (`SetRelPosRot`); only the vehicle's own moves are held to the doors
+    /// (`IsDynelRoomTransitionAllowed`). Without this the org headquarters' two elevators did nothing: the server moved
+    /// the character from the hall into the tactical room, no doorway joins the two, and the step after took it back to
+    /// where it had stood, over and over (the user's log, 2026-11-15: "the server moved us to [262.3, 1.8, 196.1]" four
+    /// times with the reports still coming from the elevator).
+    pub fn placed(&mut self) {
+        self.current = None;
+    }
+
+    /// The character's step among the rooms: `position` after the move. A step into another room that the doors do not
+    /// allow is undone (the place it last stood in its room is returned); any other is kept, with the room it is in now.
+    pub fn step(&mut self, interior: &Interior, position: [f32; 3], noclip: bool, open: &dyn Fn(u8) -> bool) -> [f32; 3] {
+        let to = interior.room_at(position, self.current);
+        match (self.current, to) {
+            (Some(from), Some(to)) if from != to && !noclip && !self.allowed(interior, from, to, open) => self.last_position,
+            (_, Some(to)) => {
+                self.current = Some(to);
+                self.last_position = position;
+                position
+            }
+            _ => position,
+        }
+    }
+
     /// The doors of the doorway between `a` and `b`.
     fn doors(&self, a: usize, b: usize) -> &[u8] {
         self.links.get(&(a.min(b), a.max(b))).map_or(&[], Vec::as_slice)
@@ -160,6 +186,28 @@ mod tests {
             assert!(!state.allowed(&interior, a, b, &|_| false));
         }
         assert_eq!(crate::approach_doors(&db, 1186).len(), 7);
+    }
+
+    /// `MAO_GAME`: the org headquarters (playfield 4349). Its elevators are no doorways: the server moves the character
+    /// from the hall (room 1) to the tactical room (room 5), which no door joins. A step there is undone; a place the
+    /// server gave is kept (the places are the user's log's, 2026-11-15).
+    #[test]
+    fn a_teleport_between_rooms_without_a_doorway_is_kept() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let db = mao_formats::resource::ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap();
+        let (_, interior) = crate::load_room_shell_parts(&db, 4349).unwrap();
+        let (elevator, tactical) = ([193.55, 6.72, 203.71], [262.33783, 1.8149999, 196.05162]);
+        assert_eq!((interior.room_at(elevator, None), interior.room_at(tactical, None)), (Some(1), Some(5)));
+        let mut state = RoomState::default();
+        let open = |_: u8| true;
+        assert_eq!(state.step(&interior, elevator, false, &open), elevator);
+        assert_eq!(state.current, Some(1));
+        // (as a step of the character's own it is undone)
+        assert_eq!(state.step(&interior, tactical, false, &open), elevator);
+        // (as the server's it stands)
+        state.placed();
+        assert_eq!(state.step(&interior, tactical, false, &open), tactical);
+        assert_eq!(state.current, Some(5));
     }
 
     #[test]

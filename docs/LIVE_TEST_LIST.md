@@ -245,6 +245,14 @@ account with `net <game> create`, in Arete Landing; scripted, other new players 
   charge; "Dump city advantages" lists them in the chat; the close cross closes it (a moment later: the server's
   answer does). The cloak's button shows the device's state. **Pressing it switches the cloak at once.** The log's
   "city: signal ..." lines are wanted for tests.
+- [ ] The org headquarters' inside (2026-11-15): the lobby has its red carpet, chequered floor and the fish tanks
+  behind glass at both sides, and the tunnel's arches stand whole; the bar's bottles stand on the shelves and its
+  curtains hang at the booths; walking into either elevator in the hall puts the character in the tactical room or
+  the laboratory and it stays there, and the elevator there brings it back; each door opens as the character comes to
+  it (the right one); logging out and in again inside the building shows the building.
+- [ ] Scenery elsewhere after the same change (2026-11-15): about 1,200 scenery meshes moved to where their stored
+  matrix puts them (bottles, grass tufts, pipes, rubble, poles). Anything that now floats or stands beside where it
+  should be is worth a screenshot.
 - [ ] The controller's map (2026-11-15), looking only: the Build and Demolish tabs show the city from above with its
   plots (blue), the houses where they stand (yellow) and their door dots; north is up; a drag scrolls; a click on a
   house selects it. **"Demolish Building" and "Construct Buildings" act at once and cannot be undone.** A building

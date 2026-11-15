@@ -9,6 +9,7 @@ fn main() {
     let rooms = mao_formats::rooms::parse(&db.get(Id { kind: mao_formats::rooms::KIND, instance: playfield }).unwrap().unwrap()).unwrap().unwrap();
     let map = mao_formats::tilemap::parse_new(&db.get(Id { kind: 0xf4249, instance: rooms.tilemap }).unwrap().unwrap()).unwrap();
     let grid = mao_formats::rooms::Grid::new(&map).unwrap();
+    println!("cell {} wide, step {}, {} layers; the tile values' textures: {:x?}", grid.scale, grid.step, grid.layers, grid.palette);
     let mut pieces = std::collections::HashMap::new();
     for id in grid.pieces_needed(&rooms) {
         if let Some(piece) = db.get(Id { kind: mao_formats::dungeon::PIECE, instance: id as u32 }).ok().flatten().and_then(|o| mao_formats::dungeon::parse_piece(&o)) {

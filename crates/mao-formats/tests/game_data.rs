@@ -63,6 +63,61 @@ fn hidden_helpers_have_no_parts() {
     assert!(lava.iter().all(|p| !mao_formats::model::is_hidden_name(&p.name)));
 }
 
+/// A placed mesh keeps the matrix its root frame was saved with, shift and all (`model::walk`): the org
+/// headquarters' lobby (mesh 252279, stored about its middle) stands on its floor, ten units tall, and a bar's brown
+/// bottle (18492) stands on its own spot, not 1.1 m beside it.
+#[test]
+fn a_placed_mesh_keeps_its_roots_matrix() {
+    let Some(db) = database() else { return };
+    let extent = |instance: u32| {
+        let mesh = mao_formats::mesh::parse(&db.get(Id { kind: 0xf6951, instance }).unwrap().unwrap()).unwrap();
+        let model = mao_formats::model::build_placed(&mesh).unwrap();
+        let (mut lo, mut hi) = ([f32::MAX; 3], [f32::MIN; 3]);
+        for p in &model.parts {
+            let m = &p.world;
+            for v in &p.vertices {
+                let q = v.position;
+                let w = [q[0] * m[0] + q[1] * m[4] + q[2] * m[8] + m[12], q[0] * m[1] + q[1] * m[5] + q[2] * m[9] + m[13], q[0] * m[2] + q[1] * m[6] + q[2] * m[10] + m[14]];
+                for k in 0..3 {
+                    lo[k] = lo[k].min(w[k]);
+                    hi[k] = hi[k].max(w[k]);
+                }
+            }
+        }
+        (lo, hi)
+    };
+    let (lo, hi) = extent(252279);
+    assert!(lo[1].abs() < 0.05 && (hi[1] - 10.0).abs() < 0.05, "the lobby from {lo:?} to {hi:?}");
+    let (lo, hi) = extent(18492);
+    assert!((lo[0] + hi[0]).abs() < 0.1 && (lo[2] + hi[2]).abs() < 0.1 && lo[1].abs() < 0.05, "the bottle from {lo:?} to {hi:?}");
+    // (the root frames the survey reads: the lobby's has no turn or scale of its own, and a matrix that lifts it 4.99)
+    let mesh = mao_formats::mesh::parse(&db.get(Id { kind: 0xf6951, instance: 252279 }).unwrap().unwrap()).unwrap();
+    let roots = mao_formats::model::root_frames(&mesh);
+    assert_eq!(roots.len(), 1);
+    assert_eq!((roots[0].position, roots[0].rotation, roots[0].scale), ([0.0; 3], [0.0, 0.0, 0.0, 1.0], 1.0));
+    assert!((roots[0].anim_matrix.unwrap()[13] - 4.986).abs() < 0.01);
+}
+
+/// The org headquarters' rooms (playfield 4349) name their textures as mesh textures, the top bit set
+/// (`rooms::texture_identity`): the lobby's floor is drawn with texture 245872 of type 0xf6954, under the lobby's mesh.
+#[test]
+fn an_owned_buildings_rooms_take_mesh_textures() {
+    let Some(db) = database() else { return };
+    let rooms = mao_formats::rooms::parse(&db.get(Id { kind: mao_formats::rooms::KIND, instance: 4349 }).unwrap().unwrap()).unwrap().unwrap();
+    let map = mao_formats::tilemap::parse_new(&db.get(Id { kind: 0xf4249, instance: rooms.tilemap }).unwrap().unwrap()).unwrap();
+    let grid = mao_formats::rooms::Grid::new(&map).unwrap();
+    assert!(grid.palette[1..].iter().filter(|&&t| t & 0x8000_0000 != 0).count() > 30, "{:x?}", grid.palette);
+    let lobby = rooms.rooms.iter().find(|r| r.name == "Lobby").unwrap();
+    let parts = mao_formats::rooms::room_parts(&grid, lobby, &Default::default(), &Default::default());
+    assert!(!parts.is_empty());
+    for part in &parts {
+        assert_eq!(part.material.textures, [(mao_formats::rooms::MESH_TEXTURE, 245872)]);
+        assert!(db.get(Id { kind: part.material.textures[0].0, instance: part.material.textures[0].1 }).unwrap().is_some());
+        // (8.21 and a step: under the mesh's floor at 8.4)
+        assert!(part.vertices.iter().all(|v| v.position[2] < 8.45));
+    }
+}
+
 /// Playfield 6010's city record: one controller (the table's `(0xc418, 0xc000177a)`) with the land's price and
 /// upkeep, one landing point and 74 zones of which 2569 tiles are set, between tiles x 213..284 and z 288..386; and
 /// the house templates' footprints and guards: only the first headquarters leaves tiles of its rectangle clear (75 of

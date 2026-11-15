@@ -1341,6 +1341,16 @@ impl World {
         if id >> 24 == 0xc0 {
             return Some((id >> 16) as u8);
         }
+        // (where the playfield message has the runs: the table record the id stands for, and that record's own number.
+        // The org headquarters' four doors are the table's records 4, 7, 9 and 10 with the numbers 3, 2, 0 and 1: counted
+        // along the run of ids, the server's word on the way out's door opened the auditorium's, 2026-11-15.)
+        for &(kind, first, count, first_id) in &self.instance_runs {
+            if kind == DOOR_TYPE && id >= first_id && id - first_id < count {
+                if let Some(&n) = self.door_props.get(&(0xfe00_0000 | (first + (id - first_id)))) {
+                    return Some(n);
+                }
+            }
+        }
         // the run of consecutive ids this one is in
         let mut first = id;
         while first > 0 && self.door_ids.contains(&(first - 1)) {
@@ -5394,6 +5404,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     // The rooms of an interior: where the character is among them, which doors it may pass, which rooms are drawn.
     let mut interior = interior;
     let mut room_state = crate::interior::RoomState::default();
+    // The server put the character somewhere since the rooms were last looked at (`RoomState::placed`).
+    let mut room_placed = false;
     let mut pending_interior: Option<Option<Arc<crate::interior::Interior>>> = Some(interior.clone());
     let mut rooms_shown: Vec<bool> = Vec::new();
     let mut pending_rooms_shown: Option<Vec<bool>> = None;
@@ -5846,7 +5858,14 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         crate::settings::LOG_MESSAGES.store(tracing, std::sync::atomic::Ordering::Relaxed);
         let mut last_report = Instant::now();
         let mut fresh = false;
-        state.arrival = None;
+        // (the playfield message of the login names the playfield already drawn, as a rule, and is done with. Inside an
+        // owned building it does not: the character list's playfield is the building's own number, which has nothing to
+        // draw, and the message names the template playfield to draw, `Message::owned_building`. Such a message is kept
+        // for the loop below, which zones into it: logged in inside the org headquarters the user stood in an empty
+        // world, "playfield 3637254: collision 0 triangles", 2026-11-15.)
+        if state.arrival.is_some_and(|a| a.0 == playfield) {
+            state.arrival = None;
+        }
         let mut pending_scene: Option<Model> = None;
         // (a scene sent again with a city's houses in it: the camera stays where it is; and whether the scene the viewer
         // has, or is about to get, holds houses)
@@ -6406,6 +6425,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     rise = 0.0;
                     jumping = false;
                     body_reset = true;
+                    room_placed = true;
                 }
             }
             // The server moved us within the playfield (`N3Teleport`, a generated mission's move): at the destination with its
@@ -6421,6 +6441,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 rise = 0.0;
                 jumping = false;
                 body_reset = true;
+                // (among rooms the destination's room is the character's now: the org headquarters' elevators go
+                // between rooms no doorway joins, and the step after took the character back, 2026-11-15)
+                room_placed = true;
             }
             // Zoning: the server announces the new playfield and where we arrive.
             if let Some((playfield, arrival)) = state.arrival.take() {
@@ -6432,6 +6455,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     rise = 0.0;
                     jumping = false;
                     body_reset = true;
+                    room_placed = true;
                     state.entities.insert(own, (position, 0));
                     pending_camera = true;
                 }
@@ -8016,17 +8040,11 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 room_state.register(interior, &state.door_slots);
                 let now = Instant::now();
                 let open = |n: u8| state.doors_open.get(&n).is_some_and(|until| *until > now);
-                let to = interior.room_at(position, room_state.current);
-                match (room_state.current, to) {
-                    (Some(from), Some(to)) if from != to && !keys.noclip && !room_state.allowed(interior, from, to, &open) => {
-                        position = room_state.last_position;
-                    }
-                    (_, Some(to)) => {
-                        room_state.current = Some(to);
-                        room_state.last_position = position;
-                    }
-                    _ => {}
+                // (a place the server gave is no step: the room there is the character's, door or no door)
+                if std::mem::take(&mut room_placed) {
+                    room_state.placed();
                 }
+                position = room_state.step(interior, position, keys.noclip, &open);
                 let shown = room_state.shown(interior, now, &open);
                 if shown != rooms_shown {
                     rooms_shown = shown.clone();
@@ -11113,6 +11131,29 @@ mod door_tests {
         assert!(w.houses[0].flag);
         tell(&mut w, "0000000009000000d900000140");
         assert!(w.houses.is_empty() && w.houses_changed);
+    }
+
+    /// `MAO_GAME`: the org headquarters' doors (playfield 4349) by the runs of its playfield message (the user's log of
+    /// 2026-11-15): each of the server's ids is the table record its run names, and has that record's number, which is
+    /// not its place in the run of ids. The numbers are the doors' the scene draws and the rooms' doorways know.
+    #[test]
+    fn an_owned_buildings_doors_take_their_table_records_numbers() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let db = ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap();
+        let mut w = World::default();
+        w.instance_runs = vec![(0xc73d, 0, 4, 0x5968636d), (0xc748, 4, 1, 0x10c86e88), (0xc73d, 5, 2, 0x59686371), (0xc748, 7, 1, 0x10c86e89), (0xc73d, 8, 1, 0x59686373), (0xc748, 9, 2, 0x10c86e8a), (0xc73d, 11, 1, 0x59686374)];
+        w.set_static_props(crate::static_props(&db, 4349));
+        for id in 0x10c86e88..=0x10c86e8bu32 {
+            w.door_ids.insert(id);
+        }
+        // (the lounge's door, the auditorium's, the way out and the lobby's inner door)
+        assert_eq!([0x10c86e88u32, 0x10c86e89, 0x10c86e8a, 0x10c86e8b].map(|id| w.door_number(id)), [Some(3), Some(2), Some(0), Some(1)]);
+        // (the way out's door stands at the lobby's outer end)
+        let at = w.door_slots[&0].1;
+        assert!((at[0] - 205.0).abs() < 0.1 && (at[2] - 120.0).abs() < 0.1, "{at:?}");
+        // (without the runs the ids count along: the old rule, still an instance's without them)
+        w.instance_runs.clear();
+        assert_eq!(w.door_number(0x10c86e8a), Some(2));
     }
 
     /// A grid exit's list of places (the head of the one in the user's log of 2026-11-15, the rest made up to the
