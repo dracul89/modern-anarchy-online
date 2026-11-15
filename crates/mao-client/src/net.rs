@@ -6021,7 +6021,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         // way round it: the original has nothing of the kind.
         let mut npc_asked: Option<((u32, u32), Instant, bool)> = None;
         // (the mission journal: the server's whole list when it sends one, and the missions it dropped)
-        let (mut pending_mission_log, mut pending_missions_removed): (Option<Vec<crate::missionlog::Mission>>, Vec<(u32, u32)>) = (None, Vec::new());
+        let (mut pending_mission_log, mut pending_missions_removed): (Vec<crate::missionlog::Arrived>, Vec<(u32, u32)>) = (Vec::new(), Vec::new());
         // (which worn items let their wearer fly, by template: looked up once each)
         let mut flight_items: std::collections::HashMap<u32, bool> = std::collections::HashMap::new();
         let mut fly_traced = Instant::now();
@@ -6387,12 +6387,20 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             _ => {}
                         }
                     }
-                    // The mission journal (`missionlog.rs`): `QuestFullUpdate` is the whole list, `Quest` action 1 a deletion.
+                    // The mission journal (`missionlog.rs`): `QuestFullUpdate` adds its missions to the list (it is not the
+                    // whole list: an accepted mission comes alone), `Quest` action 1 is a deletion.
                     if let Some(m) = Message::parse(&frame).filter(|m| m.kind == 0x465a4061 || m.kind == 0x212c487a) {
                         if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
                             if m.kind == 0x465a4061 {
                                 let icon = |id: u32| gear_textures.get(mao_formats::item::ICON_TYPE, id).map(|t| std::sync::Arc::new(crate::gear::Icon { id, width: t.width as usize, height: t.height as usize, rgba: t.rgba }));
-                                pending_mission_log = Some(crate::missionlog::missions_from(&p.value, &icon));
+                                // (the message's last byte, the schema's `Unknown28`: the missions are new. The original
+                                // then says so, Gamecode FUN_10056cdd, and the journal uploads the place.)
+                                let new = p.value.get("Unknown28").and_then(mao_net::schema::Value::as_int).unwrap_or(0) != 0;
+                                let missions = crate::missionlog::missions_from(&p.value, &icon);
+                                if new && !missions.is_empty() {
+                                    state.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, crate::feedback::plain("Feedback_YouGotANewMission")));
+                                }
+                                pending_mission_log.push(crate::missionlog::Arrived::Missions(missions, new));
                             } else if p.value.get("Action").and_then(mao_net::schema::Value::as_int) == Some(1) {
                                 let id = p.value.get("Mission").map(|i| (i.get("Type").and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32, i.get("Instance").and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32));
                                 pending_missions_removed.extend(id);
@@ -6536,6 +6544,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     // the playfield message at login, draws no new one, so it must not raise the screen)
                     crate::loading::begin(Duration::ZERO, crate::loading::ZONE_FADE_OUT);
                     eprintln!("zoning to playfield {playfield}");
+                    // (the character is a new one with no missions; the server tells them again)
+                    pending_mission_log.push(crate::missionlog::Arrived::Zoned);
                     // (nobody is followed into another playfield, and a walk begun in the old one is over: a target left
                     // behind was still followed, to wherever its number stood in the new playfield; seen live 2026-11-10)
                     following = None;
@@ -9248,7 +9258,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     shop_status: pending_shop_status.take(),
                     shop_changes: std::mem::take(&mut pending_shop_changes),
                     npc_chat: std::mem::take(&mut pending_npc_chat),
-                    mission_log: pending_mission_log.take(),
+                    mission_log: std::mem::take(&mut pending_mission_log),
                     missions_removed: std::mem::take(&mut pending_missions_removed),
                     mail_flags: pending_mail_flags.take(),
                     teleport: pending_teleport.take(),

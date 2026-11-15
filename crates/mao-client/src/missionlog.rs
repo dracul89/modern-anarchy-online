@@ -14,9 +14,13 @@
 //! last uploaded to the map (FUN_100d341a), until it goes (FUN_100d3441). A click on a row shows the mission in the
 //! info view (FUN_100d2cfa: `itemid://<type>/<instance>`), whose page is FUN_100360d5 ([`MissionLog::page`]).
 //!
-//! The server keeps the list in `QuestFullUpdate` (`465a4061`, every mission: its identity, flags, title, text, reward,
+//! The server tells the missions in `QuestFullUpdate` (`465a4061`: each mission's identity, flags, title, text, reward,
 //! icon and the actions to do, each with a deadline, a playfield and a place) and drops one with `Quest` action Delete
-//! (`212c487a`). A row's menu (FUN_100d3123) is "Look at Mission", "Upload to map" (when the mission names a place:
+//! (`212c487a`). A `QuestFullUpdate` is not the whole list: the original adds the message's missions to the
+//! character's (`QuestFullUpdateIIR_t`, Gamecode FUN_100acfde: FUN_10056cdd for each), and the server sends an
+//! accepted mission alone, with the message's last byte 1: the mission is new, which tells
+//! "Feedback_YouGotANewMission" and uploads its place (`SlotGotNewMission`). After a zoning the character is a new one
+//! with no missions, and the server sends them again (last byte 0). See [`Arrived`]. A row's menu (FUN_100d3123) is "Look at Mission", "Upload to map" (when the mission names a place:
 //! `N3Msg_GetQuestWorldPos`), "Update Team Members" (only a team mission's: `N3Msg_IsTeamMission`, the flags' bit 8) and
 //! "Delete Mission" (asked first: "ReallyWant2DeleteMission"). Uploading (FUN_10067d5f) puts the place on the planet map
 //! and the compass and says so: "MissionWptUploaded", then "MissionShownAsDot" in the mission's playfield, else
@@ -207,13 +211,21 @@ pub fn waypoint_goes(of: Option<(u32, u32)>, taken: (u32, u32)) -> bool {
     of == Some(taken) || taken == (0, 0)
 }
 
+/// What the network thread tells the journal, in the order it came.
+pub enum Arrived {
+    /// A zoning: the list starts empty again (the original's character is made anew, and the server sends its
+    /// missions again).
+    Zoned,
+    /// A `QuestFullUpdate`'s missions, and its last byte: these missions are new.
+    Missions(Vec<Mission>, bool),
+}
+
 #[derive(Default)]
 pub struct MissionLog {
     pub open: bool,
     pub missions: Vec<Mission>,
-    /// Whether the server's list has come once, and the missions that came new after it, whose places are still to
-    /// be uploaded (`InventoryGUIModule_c::SlotGotNewMission`, GUI.dll 0x100c742e).
-    listed: bool,
+    /// The missions that came as new, whose places are still to be uploaded
+    /// (`InventoryGUIModule_c::SlotGotNewMission`, GUI.dll 0x100c742e).
     fresh: Vec<(u32, u32)>,
     /// The active mission (`MissionView_c` +0x1a4): the one last uploaded to the map, the list's selected row.
     active: Option<(u32, u32)>,
@@ -239,12 +251,28 @@ pub struct Shown {
 }
 
 impl MissionLog {
-    /// The server's full list.
-    pub fn set(&mut self, missions: Vec<Mission>) {
-        // (a mission that was not in the list before is a new one; the first list of a session is not news)
-        if std::mem::replace(&mut self.listed, true) {
-            self.fresh.extend(missions.iter().map(|m| m.id).filter(|id| !self.missions.iter().any(|m| m.id == *id)));
+    /// What the server sent. A message's missions are added to the list (Gamecode FUN_10056cdd), they do not replace
+    /// it: a second mission accepted stands beside the first. This client's own: one that is in the list already takes
+    /// its old row's place (the original adds without looking, its list being empty after a zoning).
+    pub fn arrived(&mut self, what: Arrived) {
+        match what {
+            Arrived::Zoned => self.missions.clear(),
+            Arrived::Missions(missions, new) => {
+                for m in missions {
+                    if new {
+                        self.fresh.push(m.id);
+                    }
+                    match self.missions.iter_mut().find(|have| have.id == m.id) {
+                        Some(have) => *have = m,
+                        None => self.missions.push(m),
+                    }
+                }
+            }
         }
+    }
+
+    /// A whole list at once (a picture's or a test's).
+    pub fn set(&mut self, missions: Vec<Mission>) {
         self.missions = missions;
         // (FUN_100d347d: an active mission no longer in the list is not shown as one)
         if self.active.is_some_and(|a| !self.missions.iter().any(|m| m.id == a)) {
@@ -467,17 +495,41 @@ mod tests {
         Mission { id: (MISSION_TYPE, 7), title: "A mission".into(), description: "Go there\\nand back".into(), icon: None, place: None, flags: 2, credits: 0, xp: 0, rewards: Vec::new(), deadlines: deadlines.to_vec() }
     }
 
-    /// A mission that comes new is uploaded by itself; the session's first list is not, nor a list with the same
-    /// missions again; and a waypoint goes for its own mission or for none named.
+    /// The missions stack: a second accepted mission comes alone in its message and stands beside the first (the
+    /// user's of 2026-11-15: one accepted in Old Athen, one in ICC, and the journal had the second only). A mission
+    /// told again takes its own row; a zoning empties the list for the server's telling it again.
+    #[test]
+    fn a_second_mission_stands_beside_the_first() {
+        let with = |id: u32, title: &str| Mission { id: (MISSION_TYPE, id), title: title.into(), ..mission(&[]) };
+        let ids = |log: &MissionLog| log.missions.iter().map(|m| (m.id.1, m.title.clone())).collect::<Vec<_>>();
+        let mut log = MissionLog::default();
+        log.arrived(Arrived::Missions(vec![with(1, "first")], true));
+        log.arrived(Arrived::Missions(vec![with(2, "second")], true));
+        assert_eq!(ids(&log), [(1, "first".to_string()), (2, "second".to_string())]);
+        log.arrived(Arrived::Missions(vec![with(1, "first, told again")], false));
+        assert_eq!(ids(&log), [(1, "first, told again".to_string()), (2, "second".to_string())]);
+        log.remove((MISSION_TYPE, 1));
+        assert_eq!(ids(&log), [(2, "second".to_string())]);
+        log.arrived(Arrived::Zoned);
+        assert!(log.missions.is_empty());
+        log.arrived(Arrived::Missions(vec![with(2, "second"), with(3, "third")], false));
+        assert_eq!(ids(&log).len(), 2);
+    }
+
+    /// A mission that comes as new (the message's last byte) is uploaded by itself; one told again (after a zoning)
+    /// is not; and a waypoint goes for its own mission or for none named.
     #[test]
     fn a_new_mission_is_uploaded() {
         let with = |id: u32, place: Option<(u32, [f32; 3])>| Mission { id: (MISSION_TYPE, id), place, ..mission(&[]) };
         let mut log = MissionLog::default();
-        log.set(vec![with(1, Some((655, [1.0, 2.0, 3.0])))]);
+        log.arrived(Arrived::Missions(vec![with(1, Some((655, [1.0, 2.0, 3.0])))], false));
         assert!(log.news(655).waypoint.is_none());
-        log.set(vec![with(1, Some((655, [1.0, 2.0, 3.0])))]);
+        log.arrived(Arrived::Zoned);
+        log.arrived(Arrived::Missions(vec![with(1, Some((655, [1.0, 2.0, 3.0])))], false));
         assert!(log.news(655).waypoint.is_none());
-        log.set(vec![with(1, Some((655, [1.0, 2.0, 3.0]))), with(2, Some((540, [4.0, 5.0, 6.0]))), with(3, None)]);
+        log.arrived(Arrived::Missions(vec![with(2, Some((540, [4.0, 5.0, 6.0])))], true));
+        log.arrived(Arrived::Missions(vec![with(3, None)], true));
+        assert_eq!(log.missions.len(), 3);
         let shown = log.news(655);
         assert_eq!((shown.waypoint, shown.waypoint_of), (Some((540, [4.0, 5.0, 6.0])), Some((MISSION_TYPE, 2))));
         assert_eq!(shown.lines, upload_lines(540, 655));

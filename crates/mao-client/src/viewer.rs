@@ -211,8 +211,8 @@ pub struct Update {
     pub shop_changes: Vec<crate::shop::Change>,
     /// What the server said in NPC chats (`npcchat.rs`).
     pub npc_chat: Vec<crate::npcchat::Event>,
-    /// The mission journal's whole list, when the server sent it, and the missions it dropped.
-    pub mission_log: Option<Vec<crate::missionlog::Mission>>,
+    /// What the server sent for the mission journal (missions, a zoning), in its order, and the missions it dropped.
+    pub mission_log: Vec<crate::missionlog::Arrived>,
     pub missions_removed: Vec<(u32, u32)>,
     /// A web page to open (the market terminal used).
     pub browser: Option<crate::browser::Request>,
@@ -1681,8 +1681,8 @@ impl ApplicationHandler for App {
                             for change in std::mem::take(&mut u.shop_changes) {
                                 ui.shop.apply(change);
                             }
-                            if let Some(list) = u.mission_log.take() {
-                                ui.mission_log.set(list);
+                            for what in std::mem::take(&mut u.mission_log) {
+                                ui.mission_log.arrived(what);
                             }
                             for id in std::mem::take(&mut u.missions_removed) {
                                 ui.mission_log.remove(id);

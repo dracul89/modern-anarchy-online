@@ -4033,3 +4033,20 @@ the window stayed with its offers and a status line. Now the network thread tell
 sent (`Update::mission_accepted`) and `MissionWindow::accepted` closes it and drops the offers; the refusal leaves it
 as before. The accepted offer's waypoint goes with the window and the mission's own comes with the mission (the
 paragraph above). Test: `accepting_closes_the_window`. **Not tried live.**
+
+**The missions stack in the journal (2026-11-15; the user: "missions should be able to stack in the missions window
+not replace another").** The journal took every `QuestFullUpdate` for the whole list. It is not: the user's log has one
+mission accepted in Old Athen and one in ICC, and the second message holds the second mission alone. The original's
+handling (`QuestFullUpdateIIR_t`, Gamecode FUN_100acfde) adds each of the message's missions to the character's list
+(FUN_10056cdd) and never empties it. The message's last byte (the schema's `Unknown28`) says the missions are new: 1
+at an acceptance, 0 when the server tells the missions again after a zoning (both in the log). With it the original
+says "Feedback_YouGotANewMission" and sends the signal `SlotGotNewMission` answers, which uploads the place.
+
+Ported: `missionlog::Arrived` (the missions of a message with that byte, or a zoning) and `MissionLog::arrived`; the
+network thread sends them in their order. A zoning empties the list, as the original's character is made anew there,
+and the server's telling fills it again (seen twice in the log, right after the zoning). This client's own: a mission
+that is in the list already takes its old row instead of a second one. The new-mission upload now goes by the byte
+(the guess of the paragraph before last is gone), and the feedback line is told. Tests:
+`a_second_mission_stands_beside_the_first`, `a_new_mission_is_uploaded`. **Not tried live.** Not known: whether the
+server tells several missions in one message or in one each after a zoning (either works here); the original's other
+condition for the new-mission line (a flag of the character, +0x140) is not looked at.
