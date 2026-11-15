@@ -233,6 +233,8 @@ pub struct Requests {
     pub item_moves: Vec<(u32, u32)>,
     /// A running nano the player cancelled in the NCU window.
     pub cancel_nano: Option<u32>,
+    /// The teleport target window closed: the row picked, or none.
+    pub teleport: Option<crate::teleport::Answer>,
     /// A test script's `target@<id>`: the character to select.
     pub select_id: Option<u32>,
     /// A thing of the playfield's table to use (its kind and number): a test script's double click.
@@ -312,6 +314,7 @@ pub struct Ui {
     duel_told: u32,
     pub mission: crate::mission::MissionWindow,
     pub mail: crate::mailbox::MailWindow,
+    pub teleport: crate::teleport::TeleportWindow,
     pub shop: crate::shop::ShopWindow,
     pub npc_chat: crate::npcchat::NpcChatWindow,
     /// The mission journal (`mission_window`) and the planet map.
@@ -585,7 +588,7 @@ impl Ui {
         let state = egui_winit::State::new(ctx.clone(), egui::ViewportId::ROOT, window, Some(window.scale_factor() as f32), window.theme(), Some(gpu.device.limits().max_texture_dimension_2d as usize));
         // (the widest picture the card takes, not egui's own 2048: on a screen of two pixels to the point a skin's long strip, GFX_GUI_CONTROLCENTER_WING_LEFT, is 6000 across, and egui stops the program over a wider one)
         let renderer = egui_wgpu::Renderer::new(&gpu.device, format, egui_wgpu::RendererOptions::default());
-        let mut ui = Ui { ctx, state, renderer, open_seen: Vec::new(), injected: Default::default(), script_bag: None, script_invite: None, script_target: None, script_object: None, script_cast: None, script_use: None, script_move: None, duel_done: 0, duel_told: 0, options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), shop: Default::default(), npc_chat: Default::default(), mission_log: Default::default(), planet: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), team: Default::default(), pets: Default::default(), tradeskill: Default::default(), research: Default::default(), extras: Default::default(), faction: Default::default(), raid: Default::default(), lft: Default::default(), knowledge: Default::default(), ncu: Default::default(), target_ncu: [crate::ncu::TargetNcu::new(false), crate::ncu::TargetNcu::new(true)], friends: Default::default(), programs: Default::default(), perks: Default::default(), help: Default::default(), tips: Default::default(), info: Default::default(), browser: Default::default(), market_send: Default::default(), control_center: None, option_panel: Default::default(), loot: Default::default(), bag_windows: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0, perf: Default::default() };
+        let mut ui = Ui { ctx, state, renderer, open_seen: Vec::new(), injected: Default::default(), script_bag: None, script_invite: None, script_target: None, script_object: None, script_cast: None, script_use: None, script_move: None, duel_done: 0, duel_told: 0, options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), teleport: Default::default(), shop: Default::default(), npc_chat: Default::default(), mission_log: Default::default(), planet: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), team: Default::default(), pets: Default::default(), tradeskill: Default::default(), research: Default::default(), extras: Default::default(), faction: Default::default(), raid: Default::default(), lft: Default::default(), knowledge: Default::default(), ncu: Default::default(), target_ncu: [crate::ncu::TargetNcu::new(false), crate::ncu::TargetNcu::new(true)], friends: Default::default(), programs: Default::default(), perks: Default::default(), help: Default::default(), tips: Default::default(), info: Default::default(), browser: Default::default(), market_send: Default::default(), control_center: None, option_panel: Default::default(), loot: Default::default(), bag_windows: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0, perf: Default::default() };
         // (the windows the player left open come back open; the first time, the planet map, open in the original's default
         // layout at the top left)
         for name in crate::layout::load_open().unwrap_or_else(|| vec!["map".to_string()]) {
@@ -995,6 +998,7 @@ impl Ui {
         let (gear_open, gear, whompah_open) = (&mut self.gear_open, &mut self.gear, &mut self.whompah_open);
         let (mission, mail, shop, actions, automap, stats_window, skills_window, ncu_window, chat_window) = (&mut self.mission, &mut self.mail, &mut self.shop, &mut self.actions, &mut self.automap, &mut self.stats, &mut self.skills, &mut self.ncu, &mut self.chat);
         let team_window = &mut self.team;
+        let teleport_window = &mut self.teleport;
         let pet_window = &mut self.pets;
         let tradeskill_window = &mut self.tradeskill;
         let research_window = &mut self.research;
@@ -1323,6 +1327,9 @@ impl Ui {
                     chat_window.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, line));
                 }
             }
+            if teleport_window.open {
+                requests.teleport = teleport_window.show(&ctx, palette);
+            }
             for url in gear.show_inspect(&ctx, &hud.inspected, &hud.stats, palette) {
                 info_view.show_url(&url);
             }
@@ -1504,6 +1511,8 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
     let mut hotbars = hud.preview_hotbars.clone();
     let mut preview_mission = hud.mission_preview.lock().ok().and_then(|mut m| m.take());
     let mut preview_mail = hud.mail_preview.lock().ok().and_then(|mut m| m.take());
+    // (MAO_UI_PREVIEW=teleport: the teleport target window with two made-up rows)
+    let mut preview_teleport = (std::env::var("MAO_UI_PREVIEW").as_deref() == Ok("teleport")).then(crate::teleport::TeleportWindow::sample);
     let mut preview_shop = hud.shop_preview.lock().ok().and_then(|mut m| m.take());
     let mut preview_npc_chat = hud.npc_chat_preview.lock().ok().and_then(|mut m| m.take());
     let mut preview_mission_log = hud.mission_log_preview.lock().ok().and_then(|mut m| m.take());
@@ -1774,6 +1783,9 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
             }
             if let Some(window) = preview_mail.as_mut() {
                 window.show(&ctx, &mut gear, &hud.gear, &palette);
+            }
+            if let Some(window) = preview_teleport.as_mut() {
+                window.show(&ctx, &palette);
             }
             if gear_open {
                 let _ = gear.show(&ctx, &mut gear_open, &hud.gear, &hud.stats, &palette);

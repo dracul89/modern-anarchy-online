@@ -126,6 +126,7 @@ mod mailbox;
 mod mailmessage;
 mod tips;
 mod team;
+mod teleport;
 mod pets;
 mod tradeskill;
 mod research;

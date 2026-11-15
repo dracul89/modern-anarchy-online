@@ -237,6 +237,9 @@ account with `net <game> create`, in Arete Landing; scripted, other new players 
   fought; pressed again while recharging the game says the skill is locked with the time left; the icon counts
   down on the hotbar and in the Actions window; "ready again" is said when it is; a key or slot for a special the
   weapon does not give says it is not available. Search says it is searching.
+- [ ] The Grid's "Organisation City" and "Notum Controller" exits (2026-11-15): a window titled "Vehicle" lists the
+  places (the city, the tower fields) with their playfields; "Go!" with a row selected takes the character there;
+  "Close" does nothing more. The log's "grid: the destinations' list ..." line is wanted for a test.
 - [ ] A corpse looted with a full inventory (2026-11-15): the game says the inventory is full and the item stays in
   the corpse. A looted stack joins the stack of the same item.
 - [ ] Walking and running on hillsides (2026-11-15): no sudden throw forward (Shadowlands, playfield 4310, the slope

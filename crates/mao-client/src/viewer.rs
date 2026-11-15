@@ -83,6 +83,9 @@ pub struct Input {
     pub select_id: (u8, u32),
     /// A running nano to cancel: a counter that steps with each and the nano's id.
     pub cancel: (u8, u32),
+    /// The teleport target window's answer: a counter that steps with each, and the row picked (its number, playfield and
+    /// identity) or none.
+    pub grid: (u8, crate::teleport::Answer),
     /// A perk rank to train or untrain: a counter that steps with each, the rank and whether to train it.
     pub train_perk: (u8, u32, bool),
     /// A command to the pets (`/pet`): a counter that steps with each, and the `PetCommand` number.
@@ -265,6 +268,8 @@ pub struct Update {
     pub mail_entries: Option<Vec<mao_net::mail::Entry>>,
     pub mail_opened: Option<crate::mailbox::Opened>,
     pub mail_flags: Option<(u32, u32)>,
+    /// The places a grid exit leads to, when the server sends them (the teleport target window's rows).
+    pub teleport: Option<Vec<crate::teleport::Row>>,
     /// A shop the server opened (stock), and a note for the shop window.
     pub shop: Option<crate::shop::ShopState>,
     pub shop_status: Option<String>,
@@ -1649,6 +1654,9 @@ impl ApplicationHandler for App {
                             if let Some((id, flags)) = u.mail_flags.take() {
                                 ui.mail.set_flags(id, flags);
                             }
+                            if let Some(rows) = u.teleport.take() {
+                                ui.teleport.set(rows);
+                            }
                             if let Some(n) = u.mail_count.take() {
                                 ui.mail.count = Some(n);
                                 ui.mail.status = format!("The inbox holds {n} messages.");
@@ -2930,6 +2938,9 @@ impl ApplicationHandler for App {
                     }
                     if let Some(nano) = requests.cancel_nano.take() {
                         self.keys.cancel = (self.keys.cancel.0.wrapping_add(1), nano);
+                    }
+                    if let Some(answer) = requests.teleport.take() {
+                        self.keys.grid = (self.keys.grid.0.wrapping_add(1), answer);
                     }
                     // (the info view's item pages: N3's item descriptions, built here from the database; a mission's from the
                     // journal's list)

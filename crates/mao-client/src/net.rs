@@ -492,6 +492,10 @@ struct World {
     props: BTreeMap<u32, (u32, [f32; 3], [f32; 4])>,
     /// The travel list of the playfield, from the server (until taken).
     destinations: Option<mao_net::destinations::DestinationList>,
+    /// The places a grid exit leads to, when the server sends them (for the teleport target window), and the list's
+    /// token, which goes back with the answer.
+    grid_list: Option<mao_net::grid::List>,
+    grid_token: Vec<u8>,
     /// The usable objects the server announces (doors, mail terminals, booths: identity type
     /// 0xc76a, message `4f474e05`) with their positions; targeted with Ctrl+Tab and used with E.
     objects: BTreeMap<u32, [f32; 3]>,
@@ -2834,6 +2838,19 @@ impl World {
         }
         if m.kind == mao_net::destinations::DESTINATION_LIST {
             self.destinations = mao_net::destinations::parse(&m.data);
+        }
+        // `GridDestinationSelectIIR_t` (Gamecode FUN_10129529), for a character: the list and its token are kept and the
+        // teleport target window comes up. (The whole message goes to the log: the first one seen was kept in part only,
+        // and a test wants one.)
+        if m.kind == mao_net::grid::DESTINATION_SELECT && m.identity.0 == 0xc350 {
+            eprintln!("grid: the destinations' list for {:x}:{:x}, {} bytes: {}", m.identity.0, m.identity.1, m.data.len(), m.data.iter().map(|b| format!("{b:02x}")).collect::<String>());
+            match mao_net::grid::parse(&m.data) {
+                Some(list) => {
+                    self.grid_token = list.token.clone();
+                    self.grid_list = Some(list);
+                }
+                None => eprintln!("grid: the list does not read"),
+            }
         }
         if m.kind == 0x260f3671 {
             if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
@@ -5823,6 +5840,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             }
         }
         let mut pending_destinations = state.destinations.take();
+        let mut pending_teleport: Option<Vec<crate::teleport::Row>> = None;
         let (mut mission_wait, mut mission_used): (Option<Instant>, bool) = (None, false);
         let (mut mission_seen, mut pending_missions, mut pending_mission_status): (u8, Option<Vec<crate::mission::Offer>>, Option<String>) = (0, None, None);
         // Mail: the answer's count and notes for the window, when the inbox request is due, and when the last send went out.
@@ -5916,6 +5934,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut join_seen = 0u8;
         let mut split_seen = 0u8;
         let mut cancel_seen = 0u8;
+        let mut grid_seen = 0u8;
         let mut train_perk_seen = 0u8;
         let mut pet_seen = 0u8;
         let mut duel_seen = 0u8;
@@ -6254,6 +6273,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     state.refresh_mods(&gear_db);
                     if let Some(list) = state.destinations.take() {
                         pending_destinations = Some(list);
+                    }
+                    if let Some(list) = state.grid_list.take() {
+                        pending_teleport = Some(crate::teleport::rows(&list, &names));
                     }
                     if let Some(entries) = state.inventory.take() {
                         state.worn = entries.clone();
@@ -7517,6 +7539,17 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             if keys.train_perk.0 != train_perk_seen {
                 train_perk_seen = keys.train_perk.0;
                 let _ = connection.send(&n3::train_perk(own, keys.train_perk.1, keys.train_perk.2));
+            }
+            // The teleport target window's answer (`N3Msg_GridDestinationSelected`, Gamecode 0x100181e3): the row picked
+            // with the list's token, and after it the answer that says none, which the window's close request sends each
+            // time it closes, after a "Go!" too (GUI.dll FUN_100fffb8 and FUN_100ffedf).
+            if keys.grid.0 != grid_seen {
+                grid_seen = keys.grid.0;
+                if let Some(pick) = keys.grid.1 {
+                    eprintln!("grid: row {} picked (playfield {}, {:x}:{:x})", pick.0, pick.1, pick.2.0, pick.2.1);
+                    let _ = connection.send(&mao_net::grid::selected(own, &state.grid_token, Some(pick)));
+                }
+                let _ = connection.send(&mao_net::grid::selected(own, &state.grid_token, None));
             }
             // A running nano cancelled: asked of the server and taken off the NCU window at once.
             if keys.cancel.0 != cancel_seen {
@@ -9000,6 +9033,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     mission_log: pending_mission_log.take(),
                     missions_removed: std::mem::take(&mut pending_missions_removed),
                     mail_flags: pending_mail_flags.take(),
+                    teleport: pending_teleport.take(),
                     mail_status: pending_mail_status.take(),
                     destinations: pending_destinations.take(),
                     heading: Some(heading),
@@ -10920,6 +10954,29 @@ mod door_tests {
         w.add(&Message { kind: CONTAINER_ADD_ITEM, identity: (0xc350, own), data: hex("000000006b007100000000c3504deb97f90000006f") }.frame(1));
         assert_eq!(w.worn.len() as u32, crate::gear::PACK_SLOTS);
         assert_eq!(w.loot.as_ref().map(|l| l.entries.len()), Some(0));
+    }
+
+    /// A grid exit's list of places (the head of the one in the user's log of 2026-11-15, the rest made up to the
+    /// layout's lengths): kept for the teleport target window, its token for the answer.
+    #[test]
+    fn a_grid_exits_places_are_kept_for_the_window() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let own = 0x4deb97f9;
+        let mut w = World { own, ..World::default() };
+        let mut data = hex("01000007e20000177a0000c4190000c0000012436974792047726964");
+        data.extend_from_slice(b"123456789");
+        data.extend_from_slice(&hex("00000000000000006100000004deadbeef"));
+        w.add(&Message { kind: mao_net::grid::DESTINATION_SELECT, identity: (0xc350, own), data }.frame(1));
+        let list = w.grid_list.take().expect("the list");
+        assert_eq!(list.entries.iter().map(|d| (d.playfield, d.identity)).collect::<Vec<_>>(), [(6010, (0xc419, 0xc000))]);
+        assert_eq!(w.grid_token, hex("deadbeef"));
+        let names = [(6010, "A city's playfield".to_string())].into_iter().collect();
+        let rows = crate::teleport::rows(&list, &names);
+        assert_eq!((rows[0].location.as_str(), rows[0].playfield_name.as_str()), ("City Grid123456789", "A city's playfield"));
+        // (one that does not read leaves the last list's token alone and brings no window up)
+        w.add(&Message { kind: mao_net::grid::DESTINATION_SELECT, identity: (0xc350, own), data: hex("0100000001") }.frame(1));
+        assert!(w.grid_list.is_none());
+        assert_eq!(w.grid_token, hex("deadbeef"));
     }
 
     /// A city playfield's list of houses (the start of the user's log of 2026-11-15, one house of its eighty): kept for

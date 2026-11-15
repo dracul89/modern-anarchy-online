@@ -3792,3 +3792,20 @@ that still do nothing (Use, Pick-Up, Walk, Suspended Animation, Crawl); the held
 seen live), the special's range and the line of sight; the queue of specials not yet swung; `CharacterAction` 0xb2,
 0x14 and 0xfc; the icon's time text; the special attack at an attackable item (the message names a character).
 Not tried live against a target.
+
+**The teleport target window (2026-11-15; the user: "in the grid the notum controller and organisation city should
+open a window to let you select either org city or any towers field your org has control of").** Their log had the
+server's message at the Grid's organisation city exit, of a kind the client did not know: 0x0639474d, which is
+`GridDestinationSelectIIR_t` through `n3InfoItemRemote_t::MapToKey` (N3.dll 0x10009826: the class name's bytes XORed
+into a word; `mao_net::grid::map_to_key`). It carries a list (a playfield, an identity, a name and two words nothing
+reads, per place) and a token of the server's (`mao_net::grid`; Gamecode FUN_101295f0, FUN_1012905a, FUN_1013d67a).
+The handler (FUN_10129529) keeps both and turns on GUI.dll's `TeleportTarget_c` (FUN_10100022), which is
+`teleport.rs` now: `Views/TeleportTarget.xml` in a window titled "Vehicle" (the original's own title for it), 500 by
+420 in the screen's middle, a list of "Location" (the place's name) and "Playfield" (the playfield's name, "unknown
+pf" without one), "Go!" and "Close". A click selects a row; "Go!" with a row selected answers with
+`GridSelectedIIR_t` (0x3a322a4a: the token, the row's number, its playfield and identity) and closes the window; and
+every close, after a "Go!" too, answers row -1 with playfield 0 and identity (0, 0) (FUN_100ffedf, the window's close
+request). So a "Go!" sends two answers; the original does. Not drawn: the window's one tab, "Target List". **Not
+tried live:** the list in the user's log was kept in part only (28 of 54 bytes: one place, playfield 6010, a name
+that starts "City Grid"), so the tests' lists are made up past that; the client writes the whole message to the log
+now ("grid: the destinations' list ..."). `MAO_UI_PREVIEW=teleport` shows the window with two made-up rows.

@@ -18,6 +18,7 @@ pub mod create;
 pub mod crypto;
 pub mod destinations;
 pub mod frame;
+pub mod grid;
 pub mod inventory;
 pub mod landcontrol;
 pub mod mail;
