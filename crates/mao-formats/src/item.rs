@@ -212,6 +212,13 @@ pub fn worn_grants_flight(template: &[u8]) -> bool {
     crate::spell::lists(template).iter().any(|(event, spells)| *event == WEAR_EVENT && spells.iter().any(|s| s.kind == FLY_SPELL))
 }
 
+/// The stats an item sets for as long as it is worn: its wear list's temporary sets (0xcf76: stat 0 to stat 39) that
+/// have no criteria. The Yalmahas' set `Scale` (360) to 20. (One with criteria is left out: none was looked at.)
+pub fn worn_sets(template: &[u8]) -> Vec<(u32, i32)> {
+    let lists = crate::spell::lists(template);
+    lists.iter().filter(|(e, _)| *e == WEAR_EVENT).flat_map(|(_, spells)| spells.iter()).filter(|s| s.kind == 0xcf76 && s.criteria.is_empty() && s.stat(0) > 0).map(|s| (s.stat(0) as u32, s.stat(39))).collect()
+}
+
 /// The craft a worn item or a program turns its wearer into, as (NPC template, body scale in percent): a spell list (`event`:
 /// [`WEAR_EVENT`] of an item, 0 of a program) with a `ChangeMesh` (0xcf44) that has no criteria and a temporary set (0xcf76)
 /// of stat 360 `Scale`. The Yalmahas: "Yalmaha XL" 96088 has template 99470 (`sleek_vehicle_cat.cir`, the whole craft with

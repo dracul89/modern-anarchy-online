@@ -3927,3 +3927,32 @@ opening, upkeep, bill, cloak, charge and close, as the made-up ones had them),
 `a_placed_mesh_keeps_its_roots_matrix`, `an_owned_buildings_rooms_take_mesh_textures`. Seen in offline pictures
 only (`map 4349`); **not tried live.** Not done: a statel's own matrix (`unread_rotation` in `statels.rs`, the
 original's `SetAnimMatrix`); the elevators' sound and effect.
+
+**Leaving a Yalmaha, and the speeds (2026-11-15; the user: "leaving yalmaha does not restore size ... Not sure I saw
+runspeed increase either").** The screenshot has the character on foot at about a fifth of its size. Two things, both
+from the original's reading of a stat:
+
+- *The size.* A Yalmaha's wear list has, beside the craft's template, a temporary set (spell 0xcf76) of `Scale` (360)
+  to 20. The original runs the list on the client (FUN_100a95c7): beginning, the value the stat had is kept, unless one
+  is kept already, and the stat is set (FUN_10064d77); the list ending, the kept value is put back (FUN_1006420f). The
+  client drew the craft at the list's scale and never touched the stat, and the server sends none for it at taking
+  the craft off (the log of the flight has only the two item messages there). Its full list at a zoning has the 20,
+  though (the character's own update in the screenshot's notes names template 99470 at scale 20): so after a zoning on
+  the craft the stat was 20 for good. Now `World::temp_stat` keeps and gives back as the original does, for the worn
+  items' wear lists (`item::worn_sets`, begun and ended as the worn list changes: the server sends no spell list for
+  what is worn) and for a spell list of the server's (`spelllist::Outcome::TempStat`). The kept values last the
+  session, so a zoning does not lose them.
+- *The speeds.* The original reads `RunSpeed` and the greatest health for the movement's speeds in mode 3
+  (FUN_1006f2fc; the stat container's FUN_10059399 → FUN_10064d46): the stored value, the modifier map's part and the
+  attributes' trickle, the number the skill window shows. The client used the stored value alone, so a Yalmaha's 300
+  did nothing, and neither did any other worn `RunSpeed`, a program's, or the trickle: the flight's log has 7.44 units
+  a second, which is the trained 121 and nothing else. `moving_stats` reads them as the original (`derived::shown_one`),
+  for running, swimming and flying. The body's `Scale` is read the same way (the callers of `SetBodyScale` ask mode 3).
+  **Every character now runs faster than before**, by what it wears and its attributes give.
+
+Tests: `leaving_a_yalmaha_gives_the_size_back` (the user's Yalmaha, worn, a zoning's list in between, taken off; the
+300 in the flight's speed), `the_temporary_set`, `one_shown_value_is_the_tables`. **Not tried live.** Not known: what
+the original has kept for a character that logs in on its craft (the server's stored value is then the 20; here the
+character would stay small after leaving it until the server says otherwise). The log now has a line when the server
+tells one's own `MonsterData` or `Scale` ("own stat 360 from the server: ..."). Not done: another player's craft from
+its update (the template and scale are there for a player too), `MonsterData`'s own handling in the temporary set.

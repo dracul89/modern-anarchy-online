@@ -245,6 +245,11 @@ account with `net <game> create`, in Arete Landing; scripted, other new players 
   charge; "Dump city advantages" lists them in the chat; the close cross closes it (a moment later: the server's
   answer does). The cloak's button shows the device's state. **Pressing it switches the cloak at once.** The log's
   "city: signal ..." lines are wanted for tests.
+- [ ] Leaving a Yalmaha (2026-11-15): put it on, fly through a zone border or a door, take it off: the character has
+  its size again. In the air the craft is faster than running was by its 300 `RunSpeed` (about one unit a second), and
+  running on foot is faster than in earlier builds (worn items, programs and the attributes count now); the server
+  does not pull the character back while running. Then log out on the craft, log in and take it off: is the character
+  small? (Not known what the original does; the log's "own stat 360 from the server" lines will tell.)
 - [ ] The org headquarters' inside (2026-11-15): the lobby has its red carpet, chequered floor and the fish tanks
   behind glass at both sides, and the tunnel's arches stand whole; the bar's bottles stand on the shelves and its
   curtains hang at the booths; walking into either elevator in the hall puts the character in the tactical room or

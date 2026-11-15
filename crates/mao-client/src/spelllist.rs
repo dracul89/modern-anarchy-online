@@ -104,6 +104,10 @@ pub enum Outcome {
     Stun { begin: bool, npc: bool },
     /// 0xcf22 (FUN_100a4f8a): the stat set to the value (vtable +0x40, or +0x44 for a stat the dynel does not have yet).
     SetStat { stat: u32, value: i32 },
+    /// 0xcf76 (FUN_100a95c7) on a character: the stat set to the value for as long as the list lasts. Beginning, the value
+    /// the stat had is kept, unless one is kept for it already (FUN_10064d77); the list ending puts the kept value back
+    /// (FUN_1006420f). A Yalmaha's `Scale` of 20.
+    TempStat { stat: u32, value: i32, begin: bool },
     /// A 0xcfff spell (FUN_100a9af8): a line for the notification window, told on the client's own character (range 0) or
     /// within the range (stat 11, metres) of it ([`crate::notifications::spell_line`]).
     Text { spell: Spell },
@@ -234,6 +238,9 @@ pub fn fire(run: &mut Run, scene: &dyn Scene, now: f64) -> Vec<Outcome> {
         0xcfff if !run.ending => vec![Outcome::Text { spell: spell.clone() }],
         // (FUN_100a8107: on a `SimpleChar_t` only; 0x1d, or 0x27 from an ending list)
         mao_formats::item::FLY_SPELL if run.on.0 == crate::requirements::CHARACTER => vec![Outcome::Fly { begin: !run.ending }],
+        // (FUN_100a95c7: on a character, FUN_100aa80d; stat 0x167 `MonsterData` also has its mesh taken anew, FUN_10052686,
+        // not ported)
+        0xcf76 if run.on.0 == crate::requirements::CHARACTER && spell.stat(0) > 0 => vec![Outcome::TempStat { stat: spell.stat(0) as u32, value: spell.stat(39), begin: !run.ending }],
         _ => Vec::new(),
     }
 }
@@ -584,6 +591,7 @@ mod tests {
                             Outcome::Stun { begin: true, .. } => "stun",
                             Outcome::Stun { begin: false, .. } => "stun ends",
                             Outcome::SetStat { .. } => "stat",
+                            Outcome::TempStat { .. } => "stat for a while",
                             Outcome::Text { .. } => "text",
                             Outcome::Fly { begin: true } => "fly",
                             Outcome::Fly { begin: false } => "fly ends",
@@ -622,6 +630,15 @@ mod tests {
         // (the profession is not set this way)
         let set = list(vec![spell(0xcf22, 1, 0, 2, &[(0, 0x3c), (39, 5)])], false);
         assert!(shown(&set).is_empty());
+    }
+
+    /// 0xcf76 (FUN_100a95c7): a list sets a stat for as long as it lasts, and ending says so.
+    #[test]
+    fn the_temporary_set() {
+        let set = |ending: bool| list(vec![spell(0xcf76, 1, 0, 1, &[(0, 360), (39, 20)])], ending);
+        assert_eq!(shown(&set(false)), vec![Outcome::TempStat { stat: 360, value: 20, begin: true }]);
+        assert_eq!(shown(&set(true)), vec![Outcome::TempStat { stat: 360, value: 20, begin: false }]);
+        assert!(run(&set(false), (0xc73d, 7), &World::default(), &mut Queue::default(), 0.0).is_empty());
     }
 
     /// 0xcf92 (FUN_100a8107): a hoverbike's list switches its character to fly mode, the same list ending switches it back;

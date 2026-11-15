@@ -274,6 +274,12 @@ struct World {
     /// criteria and its scale (`mao_formats::item::craft`), or the same of a running program. Only one's own is known: the
     /// client is not told what another character wears.
     crafts: BTreeMap<u32, (u32, u32)>,
+    /// The values one's own stats had before a list set them for a while (the original's map at the stat helper's +8,
+    /// FUN_10064d77 / FUN_1006420f; `None`: the stat was not held). See [`World::temp_stat`].
+    saved_stats: BTreeMap<u32, Option<i64>>,
+    /// The stats the worn items' wear lists set (`mao_formats::item::worn_sets`), as last worked out: a stat coming into
+    /// it begins a temporary set, one leaving it ends it.
+    worn_sets: BTreeMap<u32, i64>,
     /// Health and maximum from the info packets (the server answers an info request with them).
     health: BTreeMap<u32, (i64, i64)>,
     /// The character's pets by their place in the pet window (`PetWindowModule_c`'s map: `AddPet` 0x1007f0f9 puts a new pet
@@ -1088,6 +1094,11 @@ impl World {
                         self.stats_changed = true;
                     }
                 }
+                crate::spelllist::Outcome::TempStat { stat, value, begin } => {
+                    if on.1 == self.own {
+                        self.temp_stat(stat, begin.then_some(value as i64));
+                    }
+                }
                 crate::spelllist::Outcome::Text { spell } => {
                     let distance = self.position_of(on.1).zip(self.position_of(self.own)).map(|(a, b)| ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt());
                     if let Some(line) = crate::notifications::spell_line(&spell, false, on.1 == self.own, distance) {
@@ -1292,6 +1303,32 @@ impl World {
         let _ = before;
     }
 
+    /// A stat of one's own set for as long as a list lasts (spell 0xcf76, FUN_100a95c7), or the list's end (`None`).
+    /// Beginning (FUN_10064d77): the stored value is kept, unless one is kept for the stat already, and the stat is set.
+    /// Ending (FUN_1006420f): the kept value is put back and forgotten; with none kept nothing is done. A Yalmaha's wear
+    /// list sets `Scale` (360) to 20 so, and taking it off gives the body its size back. (The kept values live as long as
+    /// the session: a character that logs in on its craft has the 20 as its stored value, and what the original has kept
+    /// for it then is not known.)
+    fn temp_stat(&mut self, stat: u32, value: Option<i64>) {
+        match value {
+            Some(value) => {
+                let stored = self.stats.get(&stat).copied();
+                self.saved_stats.entry(stat).or_insert(stored);
+                self.stats.insert(stat, value);
+            }
+            None => match self.saved_stats.remove(&stat) {
+                Some(Some(kept)) => {
+                    self.stats.insert(stat, kept);
+                }
+                Some(None) => {
+                    self.stats.remove(&stat);
+                }
+                None => return,
+            },
+        }
+        self.stats_changed = true;
+    }
+
     /// Works out the bonuses to the stored stats again when the worn items, perks or active nanos changed.
     fn refresh_mods(&mut self, db: &ResourceDatabase) {
         if std::mem::take(&mut self.mods_dirty) {
@@ -1332,6 +1369,27 @@ impl World {
                 Some(craft) => self.crafts.insert(self.own, craft),
                 None => self.crafts.remove(&self.own),
             };
+            // The worn items' wear lists run on the client (the server sends no list for them): their temporary sets end
+            // when the item comes off and begin when it goes on (`temp_stat`).
+            let sets: BTreeMap<u32, i64> = self
+                .worn
+                .iter()
+                .filter(|e| e.slot < 64)
+                .filter_map(|e| db.get(id(mao_formats::item::TEMPLATE, e.low_id)).ok().flatten())
+                .flat_map(|data| mao_formats::item::worn_sets(&data))
+                .map(|(stat, value)| (stat, value as i64))
+                .collect();
+            let before = std::mem::replace(&mut self.worn_sets, sets.clone());
+            for (&stat, value) in &before {
+                if sets.get(&stat) != Some(value) {
+                    self.temp_stat(stat, None);
+                }
+            }
+            for (&stat, &value) in &sets {
+                if before.get(&stat) != Some(&value) {
+                    self.temp_stat(stat, Some(value));
+                }
+            }
         }
     }
 
@@ -1474,6 +1532,10 @@ impl World {
             if let (Some(s), Some(v)) = (item.get("Item1").and_then(mao_net::schema::Value::as_int), item.get("Item2").and_then(mao_net::schema::Value::as_int)) {
                 if std::env::var_os("MAO_STATS").is_some() && matches!(s, 1 | 11 | 27 | 214 | 221) {
                     eprintln!("stat {s} = {v} (was {:?})", self.stats.get(&(s as u32)));
+                }
+                // (what the server says of the body's template and scale, for the log: a craft's list sets both on the client)
+                if matches!(s, 359 | 360) && self.stats.get(&(s as u32)) != Some(&v) {
+                    eprintln!("own stat {s} from the server: {v} (was {:?}, kept {:?})", self.stats.get(&(s as u32)), self.saved_stats.get(&(s as u32)));
                 }
                 if self.stats.insert(s as u32, v) != Some(v) {
                     self.stats_changed = true;
@@ -3921,6 +3983,14 @@ fn turn_rate(stats: &BTreeMap<u32, i64>, moving: bool) -> f32 {
     }
 }
 
+/// The stats the movement's speeds are worked out from, as the original reads them (FUN_1006f2fc): `RunSpeed` (0x9c) and
+/// the greatest health (1) in mode 3, the shown value (`derived::shown_one`: what is trained, what the worn items, perks
+/// and programs add, and the attributes' trickle), and the health (0x1b), which is the character's own number in every
+/// mode. Until 2026-11-15 the stored values were used, and a vehicle's `RunSpeed` did nothing.
+pub(crate) fn moving_stats(stats: &BTreeMap<u32, i64>, modifiers: &BTreeMap<u32, i64>) -> BTreeMap<u32, i64> {
+    [(156, crate::derived::shown_one(stats, modifiers, 156)), (1, crate::derived::shown_one(stats, modifiers, 1)), (27, stats.get(&27).copied().unwrap_or(0))].into()
+}
+
 /// The speeds a character moves at, in units a second, as `CharVehicle_t` sets them (FUN_1006f9eb, FUN_1006f2fc): running
 /// forward `RunSpeed / 275 + 5` within 1.5 and 13, running backwards `RunSpeed / 392.86 + 3` within 1.05 and 9.1, where
 /// `RunSpeed` (stat 156) falls off below 15% health (`ratio * (RunSpeed + 1000) - 1000`); walking is 1.5.
@@ -4873,7 +4943,8 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
                 Mode::Walk
             };
             let action = movement_action(mode, moving, world.strafing.get(&id).copied().unwrap_or(0), world.backing.get(&id).copied().unwrap_or(false));
-            let scale = if id == world.own { world.stats.get(&360).copied().filter(|&s| s > 0).unwrap_or(100) as f32 } else { 100.0 };
+            // (the `Scale` stat read in mode 3, as the callers of `SetBodyScale` read it: the stored value and what is worn adds)
+            let scale = if id == world.own { Some(crate::derived::shown_one(&world.stats, &world.item_mods, 360)).filter(|&s| s > 0).unwrap_or(100) as f32 } else { 100.0 };
             let jumped = world.jumped.get(&id).map(|t| t.elapsed());
             // (A phase per entity keeps a crowd from moving in step.)
             // (a wielded weapon hangs on its hand, in a fight or out of one: Gamecode's FUN_1009cda2, when the weapon is
@@ -7996,17 +8067,18 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             let flying = state.own_flying;
             // (the speeds the original moves at, from the character's RunSpeed and health; fly mode has its own, forwards,
             // backwards and sideways alike, whatever the walk/run toggle says)
+            let speed_stats = moving_stats(&state.stats, &state.item_mods);
             #[allow(non_snake_case)]
             let (SPEED, BACK_SPEED) = if flying {
-                let s = fly_speed(&state.stats);
+                let s = fly_speed(&speed_stats);
                 (s, s)
             } else if state.swimming.contains(&own) {
-                let s = swim_speed(&state.stats);
+                let s = swim_speed(&speed_stats);
                 (s, s)
             } else if state.own_walking || state.sneaking.contains(&own) {
                 (WALK_SPEED, WALK_SPEED)
             } else {
-                movement_speeds(&state.stats)
+                movement_speeds(&speed_stats)
             };
             // (`CharVehicle_t`'s steering, FUN_10071537: pushed along the facing, forwards or back, with the maximum force, which
             // FUN_1006f9eb makes `2 × mass × the maximum speed`, so full speed comes in half a second; a stop or a change of
@@ -11490,6 +11562,42 @@ mod movement_tests {
         let hovering = chars.parts(2, 1, MALE, movement_action(Mode::Fly, false, 0, false), None, 0.0, 0.0, 100.0, &[], &[], &[], None, None, None, false, None, None, None).unwrap();
         assert_eq!(chars.movement_keys.get(&2).map(|k| k.0), Some(Action::Hover));
         assert_ne!(lowest(&standing), lowest(&hovering));
+    }
+
+    /// `MAO_GAME`: a Yalmaha's wear list sets the body's `Scale` to 20 for as long as it is worn, and adds 300 `RunSpeed`
+    /// (the user's of 2026-11-15, "Yalmaha XL - 29478", 117322, worn in place 1). Taken off, the scale is what it was, also
+    /// when the server's full list said 20 in between (a zoning on the craft), and the speed in the air is the craft's
+    /// 300 faster than without it.
+    #[test]
+    fn leaving_a_yalmaha_gives_the_size_back() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let db = ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap();
+        let entry = |slot: u32| inventory::Entry { slot, flags: 1, count: 1, container: (0, 0), low_id: 117322, high_id: 117322, quality: 30, extra: 0 };
+        let mut w = World { own: 7, worn: vec![entry(93)], mods_dirty: true, ..World::default() };
+        w.stats.extend([(360, 100), (156, 121), (27, 3840), (1, 3805), (0x36, 87)]);
+        w.refresh_mods(&db);
+        assert_eq!((w.stats[&360], w.item_mods.get(&156), w.saved_stats.is_empty()), (100, None, true));
+        let on_foot = fly_speed(&moving_stats(&w.stats, &w.item_mods));
+        (w.worn, w.mods_dirty) = (vec![entry(1)], true);
+        w.refresh_mods(&db);
+        assert_eq!((w.stats[&360], w.item_mods.get(&156), w.saved_stats.get(&360)), (20, Some(&300), Some(&Some(100))));
+        assert!((fly_speed(&moving_stats(&w.stats, &w.item_mods)) - on_foot - 300.0 / 275.0).abs() < 0.001);
+        // (zoning: the server's list of the stats has the 20; the worn list comes again, unchanged)
+        w.stats.insert(360, 20);
+        (w.worn, w.mods_dirty) = (vec![entry(1)], true);
+        w.refresh_mods(&db);
+        assert_eq!((w.stats[&360], w.saved_stats.get(&360)), (20, Some(&Some(100))));
+        (w.worn, w.mods_dirty) = (vec![entry(93)], true);
+        w.refresh_mods(&db);
+        assert_eq!((w.stats[&360], w.item_mods.get(&156), w.saved_stats.is_empty(), w.crafts.get(&7)), (100, None, true, None));
+        // (a stat that was not held is not held again; a list's end with nothing kept does nothing)
+        w.temp_stat(500, Some(3));
+        w.temp_stat(500, Some(4));
+        assert_eq!(w.stats[&500], 4);
+        w.temp_stat(500, None);
+        assert_eq!(w.stats.get(&500), None);
+        w.temp_stat(360, None);
+        assert_eq!(w.stats[&360], 100);
     }
 
     /// `MAO_GAME`: a worn Yalmaha XL (96088, in a place under the backpack's) makes one's own character its craft, NPC

@@ -234,9 +234,39 @@ pub fn shown(stored: &BTreeMap<u32, i64>, modifiers: &BTreeMap<u32, i64>) -> BTr
     totals(&breakdown(stored, modifiers, &BTreeMap::new(), &BTreeMap::new(), &BTreeMap::new()))
 }
 
+/// One stat's shown value, as [`shown`] has it, without working out all the others: the original's read of a stat in
+/// mode 3 (the stat container's FUN_10059399 → FUN_10064d46: the stored value and the modifier map's part for it, with
+/// the attributes' trickle for a skill). The movement reads `RunSpeed` so (FUN_1006f2fc) and the body its `Scale`.
+pub fn shown_one(stored: &BTreeMap<u32, i64>, modifiers: &BTreeMap<u32, i64>, stat: u32) -> i64 {
+    let bonus = modifiers.get(&stat).copied().unwrap_or(0);
+    let attributes = ATTRIBUTES.map(|a| stored.get(&a).copied().unwrap_or(0) + modifiers.get(&a).copied().unwrap_or(0));
+    match crate::trickle_data::WEIGHTS.iter().find(|w| w.0 == stat).filter(|_| attributes.iter().any(|&a| a > 0)) {
+        Some((_, weights)) => {
+            let unknown = if modifiers.contains_key(&stat) { 0 } else { DEFAULT_SKILL };
+            stored.get(&stat).copied().unwrap_or(unknown) + bonus + trickle(weights, &attributes)
+        }
+        None => stored.get(&stat).copied().unwrap_or(0) + bonus,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// One stat's shown value is what the whole table has for it: a trained skill, an untrained one with and without a
+    /// bonus, an attribute and a stat that is neither.
+    #[test]
+    fn one_shown_value_is_the_tables() {
+        let stored: BTreeMap<u32, i64> = [(0x10, 100), (0x11, 300), (0x12, 250), (0x13, 100), (0x14, 80), (0x15, 100), (156, 121), (1, 3805), (360, 100)].into();
+        let modifiers: BTreeMap<u32, i64> = [(156, 300), (0x11, 20), (1, 40), (103, 7)].into();
+        let all = shown(&stored, &modifiers);
+        for stat in [156u32, 0x11, 1, 360, 103, 104] {
+            assert_eq!(shown_one(&stored, &modifiers, stat), all[&stat], "stat {stat}");
+        }
+        // (RunSpeed: the trained 121, the worn 300 and what strength, agility, stamina and sense give)
+        assert_eq!(shown_one(&stored, &modifiers, 156), 121 + 300 + trickle(&[20, 40, 40, 0, 10, 0], &[100, 320, 250, 100, 80, 100]));
+        assert_eq!(shown_one(&BTreeMap::new(), &BTreeMap::new(), 156), 0);
+    }
 
     #[test]
     fn the_shown_value_adds_the_modifier_to_the_stored_one() {
