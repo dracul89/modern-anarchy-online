@@ -19,7 +19,12 @@
 //!
 //! **The buy-only shops** (2026-11-16). The trade's kind is decided as it starts (Gamecode FUN_1006692a, which
 //! raises `InventoryGUIModule_c::SlotStartTrade`): 0 with a player, 1 with a shop whose type (stat 156, 61 when it
-//! has none: FUN_10099ae4) is the Computer Literacy kind, 2 with any other shop. Kind 2 is the view `ShopBuy`,
+//! has none: FUN_10099ae4) is 61, 2 with any other shop. **The type is the stat the shop is paid in**: 61 is the
+//! character's credits, and what a character can afford is its stat of the shop's type against the cost (Gamecode
+//! FUN_1009a69a). The game's data has four other types, all of them points (`shopkinds` lists them, 2026-11-16):
+//! 68 (the veterans' vendor), 669 (the twenty Ofab vendors), 672 (the three Phasefront vendors) and 695 (the ICC
+//! reward terminal). Nothing is sold to a shop for points, which is why such a trade has no list of one's own;
+//! Computer Literacy moves the prices at a shop of credits only. Kind 2 is the view `ShopBuy`,
 //! which has the stock and the bought items and no "Sold items" list, and the view's own flag at +0x1a8 is put
 //! out: nothing of one's own goes in ([`Rates::buy_only`]). Not seen at such a shop: the view was checked against
 //! the game's file only.
@@ -31,8 +36,9 @@ use crate::theme::Palette;
 
 /// An item's stat read as none (the original's 1234567890).
 const NO_VALUE: u32 = 1_234_567_890;
-/// The shop type (stat 156) whose prices follow Computer Literacy: the default when the shop has none.
-const COMPUTER_LITERACY_SHOP: i64 = 0x3d;
+/// The shop type (stat 156) of a shop paid in credits (the type is the stat paid from, and 61 is the character's
+/// credits): the default when the shop has none. Only here do the prices follow Computer Literacy.
+const CREDITS_SHOP: i64 = 0x3d;
 
 /// One item for sale, with what it costs this character.
 pub struct Slot {
@@ -110,13 +116,13 @@ impl Rates {
     /// From the shop's template (the original's `GetSkill` falls back to it): a type of 0 or none is 61.
     pub fn of(template: &mao_formats::item::Item) -> Rates {
         let stat = |s: u32| template.stat(s).map(|v| v as i32 as i64);
-        Rates { buy: stat(427).unwrap_or(0), sell: stat(426).unwrap_or(0), kind: stat(156).filter(|&k| k != 0).unwrap_or(COMPUTER_LITERACY_SHOP) }
+        Rates { buy: stat(427).unwrap_or(0), sell: stat(426).unwrap_or(0), kind: stat(156).filter(|&k| k != 0).unwrap_or(CREDITS_SHOP) }
     }
 
-    /// Whether the shop only sells (Gamecode FUN_10099b27, FUN_1006692a): its type is not the Computer Literacy
-    /// kind. A shop whose type is not known (0) is taken for that kind, as one without the stat is.
+    /// Whether the shop only sells (Gamecode FUN_10099b27, FUN_1006692a): it is not paid in credits. A shop whose
+    /// type is not known (0) is taken for one of credits, as one without the stat is.
     pub fn buy_only(&self) -> bool {
-        self.kind != 0 && self.kind != COMPUTER_LITERACY_SHOP
+        self.kind != 0 && self.kind != CREDITS_SHOP
     }
 }
 
@@ -182,7 +188,7 @@ fn literacy(computer_literacy: i64) -> i64 {
 /// 90) in percent at a shop of type 61.
 pub fn buy_price(value: i64, rates: Rates, computer_literacy: i64) -> i64 {
     let price = (value as f64 * rates.buy as f64 / 100.0) as i64;
-    if rates.kind != COMPUTER_LITERACY_SHOP {
+    if rates.kind != CREDITS_SHOP {
         return price;
     }
     let discount = literacy(computer_literacy).min(90);
@@ -197,7 +203,7 @@ pub fn sell_price(value: i64, divisor: Option<u32>, count: u32, rates: Rates, co
     if let Some(d) = divisor.filter(|&d| d != NO_VALUE && (d as i32) > 0) {
         v /= d as f32;
     }
-    if rates.kind == COMPUTER_LITERACY_SHOP {
+    if rates.kind == CREDITS_SHOP {
         let bonus = (literacy(computer_literacy) as f64 * v as f64 / 100.0) as i64;
         v = (bonus as f64 + v as f64) as f32;
     }
@@ -573,7 +579,7 @@ mod tests {
     #[test]
     fn prices_follow_the_vending_machine() {
         // (Old Athens' booths: the template 0x184f1 sells at 105 % and buys at 4 %, type 61 by default)
-        let rates = Rates { buy: 105, sell: 4, kind: COMPUTER_LITERACY_SHOP };
+        let rates = Rates { buy: 105, sell: 4, kind: CREDITS_SHOP };
         // 1000 at 105 % is 1050; 400 Computer Literacy is 10 points, 10 % off
         assert_eq!(buy_price(1000, rates, 400), 945);
         // (3000 and more Computer Literacy is 75 points; the cap of 90 is never reached)
@@ -604,12 +610,13 @@ mod tests {
         assert!(tree.find(root, "OurInventoryDock").is_none() && tree.find(root, "OurCashView").is_none());
     }
 
-    /// A shop of another type than the Computer Literacy one only sells; one without a type, or of none known, is
-    /// that kind.
+    /// A shop paid in something else than credits only sells; one without a type, or of none known, is paid in
+    /// credits. `MAO_GAME`: the veterans' vendor (0x3f2ea) is paid in stat 68 and an Ofab vendor (0x41142) in 669,
+    /// so they only sell; Old Athens' booth (0x184f1) takes credits.
     #[test]
     fn a_shop_of_another_type_only_sells() {
         let rates = |kind| Rates { buy: 100, sell: 10, kind };
-        assert!(!rates(COMPUTER_LITERACY_SHOP).buy_only() && !rates(0).buy_only());
+        assert!(!rates(CREDITS_SHOP).buy_only() && !rates(0).buy_only());
         assert!(rates(0x3e).buy_only() && rates(1).buy_only());
         let mut w = ShopWindow::default();
         assert_eq!(w.wanted_view(), "ShopTrade");
@@ -617,6 +624,11 @@ mod tests {
         assert_eq!(w.wanted_view(), "ShopBuy");
         w.partner = Some(7);
         assert_eq!(w.wanted_view(), "PlayerTrade");
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let db = mao_formats::resource::ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap();
+        let of = |instance: u32| Rates::of(&template(&db, instance).unwrap());
+        assert_eq!((of(0x3f2ea).kind, of(0x41142).kind, of(0x184f1).kind), (68, 669, CREDITS_SHOP));
+        assert!(of(0x3f2ea).buy_only() && of(0x41142).buy_only() && !of(0x184f1).buy_only());
     }
 
     #[test]
