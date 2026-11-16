@@ -912,6 +912,13 @@ pub fn org_command(command: u8, targeted: bool, text: String) {
     ORG_COMMANDS.lock().unwrap_or_else(|e| e.into_inner()).push((command, at, text, false));
 }
 
+/// `/rp` typed, how many times: the game loop turns the mark over for each (`n3::ROLE_PLAY`).
+static ROLE_PLAYS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+pub fn role_play() {
+    ROLE_PLAYS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
 /// An organization box's answer (`orgboxes::Ask::answer`), sent by the game loop.
 pub fn org_answer(command: u8, at: crate::orgboxes::At, flag: bool) {
     ORG_COMMANDS.lock().unwrap_or_else(|e| e.into_inner()).push((command, at, String::new(), flag));
@@ -5693,6 +5700,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     let mut befriending: Vec<String> = Vec::new();
                     // (the private chat group's requests waiting for a name's id: the name, and the request)
                     let mut private_asked: Vec<(String, u8)> = Vec::new();
+                    let mut name_request: Option<String> = None;
                     // names of characters a tell window is to open for once the chat server has said it knows them
                     let mut tell_asked: Vec<String> = Vec::new();
                     // the senders whose voice lines were heard lately
@@ -5758,7 +5766,16 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                     }
                                 });
                                 for what in requests {
-                                    chat.send(&mao_net::chat::private_request_packet(what, id))?;
+                                    // (0: `/cc info`; 1: `/name`, whose new name waits beside)
+                                    match what {
+                                        0 => chat.send(&mao_net::chat::info_request_packet(id))?,
+                                        1 => {
+                                            if let Some(new_name) = name_request.take() {
+                                                chat.send(&mao_net::chat::name_request_packet(id, &new_name))?;
+                                            }
+                                        }
+                                        _ => chat.send(&mao_net::chat::private_request_packet(what, id))?,
+                                    }
                                 }
                                 if befriending.contains(&name.to_lowercase()) {
                                     befriending.retain(|w| *w != name.to_lowercase());
@@ -5932,7 +5949,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                         chat.send(&mao_net::chat::lookup_packet(&name))?;
                                     }
                                 },
-                                Out::Camp | Out::Sit | Out::Perf | Out::Pet(_) | Out::Duel(_) | Out::PetDuel(_) | Out::Server(_) | Out::FxScript(_) | Out::Quit | Out::Follow | Out::Inspect | Out::Window { .. } | Out::ToggleWindow { .. } | Out::Assist { .. } | Out::Waypoint { .. } | Out::SelectSelf | Out::SetOption { .. } | Out::DValue { .. } | Out::TextCommand { .. } | Out::OrgCommand { .. } | Out::ViewDist(_) | Out::CharDist(_) => {}
+                                Out::Camp | Out::Sit | Out::Perf | Out::Pet(_) | Out::Duel(_) | Out::PetDuel(_) | Out::Server(_) | Out::FxScript(_) | Out::Quit | Out::Follow | Out::Inspect | Out::Window { .. } | Out::ToggleWindow { .. } | Out::Assist { .. } | Out::Waypoint { .. } | Out::SelectSelf | Out::SetOption { .. } | Out::DValue { .. } | Out::TextCommand { .. } | Out::OrgCommand { .. } | Out::RolePlay | Out::ViewDist(_) | Out::CharDist(_) => {}
                                 Out::Befriend { name } => match ids.get(&name.to_lowercase()) {
                                     Some(&id) => {
                                         chat.send(&mao_net::chat::buddy_add_packet(id, false))?;
@@ -5955,6 +5972,36 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                         chat.send(&mao_net::chat::lookup_packet(&name))?;
                                     }
                                 },
+                                // (`/cc`: the chat server's command, the chat window's number 0 as for the game's
+                                // text commands; `/cc info <name>` waits for the name like the requests above)
+                                Out::Cc { words } => {
+                                    eprintln!("chat server command {words:?}");
+                                    chat.send(&mao_net::chat::command_packet(&words, 0))?
+                                }
+                                Out::CcInfo { name } => {
+                                    CHAT_LINES.lock().unwrap().push(Line::new(Kind::System, format!("Asking the chat server about {name}.")));
+                                    match ids.get(&name.to_lowercase()).copied() {
+                                        Some(id) => chat.send(&mao_net::chat::info_request_packet(id))?,
+                                        None => {
+                                            private_asked.push((name.to_lowercase(), 0));
+                                            chat.send(&mao_net::chat::lookup_packet(&name))?;
+                                        }
+                                    }
+                                }
+                                // (`/name`: a tell to the renaming character, whose id is asked for first; the
+                                // original's line when it goes)
+                                Out::NameRequest { name } => {
+                                    eprintln!("name change request: {name:?}");
+                                    CHAT_LINES.lock().unwrap().push(Line::new(Kind::System, crate::gui::xml::ldb_named(10001, "ChatCmdFeedback_Name_SendingNameChangeRequest", "Sending the name change request.")));
+                                    match ids.get(mao_net::chat::NAME_REQUEST).copied() {
+                                        Some(id) => chat.send(&mao_net::chat::name_request_packet(id, &name))?,
+                                        None => {
+                                            name_request = Some(name);
+                                            private_asked.push((mao_net::chat::NAME_REQUEST.to_string(), 1));
+                                            chat.send(&mao_net::chat::lookup_packet(mao_net::chat::NAME_REQUEST))?;
+                                        }
+                                    }
+                                }
                                 // (a line typed in a window whose output group is a channel)
                                 Out::PrivateJoin { owner } => chat.send(&mao_net::chat::private_join_packet(owner))?,
                                 Out::PrivateDecline { owner } => chat.send(&mao_net::chat::private_leave_packet(owner))?,
@@ -6949,6 +6996,12 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             for (action, value) in std::mem::take(&mut *TEXT_COMMANDS.lock().unwrap_or_else(|e| e.into_inner())) {
                 eprintln!("[{:6.1}] text command {action:#x} ({value})", clock.elapsed().as_secs_f32());
                 let _ = connection.send(&n3::text_command(own, action, 0, value));
+            }
+            // (`/rp`: the stat's value with its bit turned over, as the original sends it; the server sets the stat)
+            for _ in 0..ROLE_PLAYS.swap(0, std::sync::atomic::Ordering::Relaxed) {
+                let value = state.stats.get(&(n3::ROLE_PLAY_STAT as _)).copied().unwrap_or(0) as u32 ^ n3::ROLE_PLAY_BIT;
+                eprintln!("[{:6.1}] /rp: stat {} to {value:#x}", clock.elapsed().as_secs_f32(), n3::ROLE_PLAY_STAT);
+                let _ = connection.send(&n3::text_command(own, n3::ROLE_PLAY, 0, value));
             }
             for (command, at, text, flag) in std::mem::take(&mut *ORG_COMMANDS.lock().unwrap_or_else(|e| e.into_inner())) {
                 let at = match at {

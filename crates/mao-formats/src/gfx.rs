@@ -158,6 +158,23 @@ impl Record {
     }
 }
 
+/// The templates switched off (`/gfx disable <number>`): the storage's set at +0x10, which its lookup asks first.
+static DISABLED: std::sync::Mutex<std::collections::BTreeSet<i32>> = std::sync::Mutex::new(std::collections::BTreeSet::new());
+static ANY_DISABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// `N3Msg_EnableGFX` (Gamecode 0x100166bd, FUN_101070a9): a template's number is put in the set of switched-off
+/// templates or taken out of it. A switched-off template is not found by [`Gfx::get`], so nothing is made of it.
+pub fn set_enabled(id: i32, on: bool) {
+    if let Ok(mut disabled) = DISABLED.lock() {
+        if on {
+            disabled.remove(&id);
+        } else {
+            disabled.insert(id);
+        }
+        ANY_DISABLED.store(!disabled.is_empty(), std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
 /// All the templates, by id.
 #[derive(Debug, Default)]
 pub struct Gfx {
@@ -199,7 +216,12 @@ impl Gfx {
         Ok(gfx)
     }
 
+    /// The template of an id (Gamecode FUN_10107068, the storage's lookup): none for an id `/gfx disable` has put
+    /// in the storage's set of switched-off templates ([`set_enabled`]).
     pub fn get(&self, id: i32) -> Option<&Record> {
+        if ANY_DISABLED.load(std::sync::atomic::Ordering::Relaxed) && DISABLED.lock().is_ok_and(|d| d.contains(&id)) {
+            return None;
+        }
         self.by_id.get(&id).map(|&i| &self.records[i])
     }
 
@@ -2606,6 +2628,18 @@ impl Gfx {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A template switched off is not found, and found again when switched on (`/gfx`).
+    #[test]
+    fn a_switched_off_template_is_not_found() {
+        let words: Vec<i32> = vec![1, 987_654, 2001, 1, 5];
+        let gfx = Gfx::parse(&words.iter().flat_map(|w| w.to_le_bytes()).collect::<Vec<u8>>()).unwrap();
+        assert!(gfx.get(987_654).is_some());
+        set_enabled(987_654, false);
+        assert!(gfx.get(987_654).is_none());
+        set_enabled(987_654, true);
+        assert!(gfx.get(987_654).is_some());
+    }
 
     #[test]
     fn a_global_smoke_reads_its_words() {

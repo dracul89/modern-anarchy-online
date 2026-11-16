@@ -262,6 +262,11 @@ account with `net <game> create`, in Arete Landing; scripted, other new players 
 - [ ] The missions stack (2026-11-15): with one mission in the journal (Ctrl+4), accept a second at a terminal: both
   are listed, the chat says a new mission was got, and the new one's place is uploaded. Zone: both are still listed.
   Delete one: the other stays.
+- [ ] The chat server's commands (2026-11-16), on a test character: `/cc addbuddy <a test character's name>`
+  adds the friend (or the `Befriend` script does); `/cc info <name>`: the log shows what packet the server answers
+  with; `/rp`: the log has "/rp: stat 673 to ..." and the stat changes (the mark over the head, if any);
+  `/gfx disable <number>` of a running effect's template stops new ones of it, `enable` brings them back;
+  `/bank close` shuts the bank's window. **`/name` is not to be tried on a character that is to keep its name.**
 - [ ] The organization's boxes (2026-11-16), **only in an organization made for testing, with test characters**:
   `/org leave` asks in a warning box (No sends nothing, Yes leaves); `/org disband` asks with the game's text; an
   invitation from another character comes as a box naming the organization and its tax; a promotion asks the

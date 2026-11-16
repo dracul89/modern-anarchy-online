@@ -2786,6 +2786,7 @@ impl ApplicationHandler for App {
                             crate::chatwindow::Out::Server(text) => crate::net::server_command(text),
                             crate::chatwindow::Out::TextCommand { action, value } => crate::net::text_command(action, value),
                             crate::chatwindow::Out::OrgCommand { command, targeted, text } => crate::net::org_command(command, targeted, text),
+                            crate::chatwindow::Out::RolePlay => crate::net::role_play(),
                             crate::chatwindow::Out::FxScript(line) => crate::net::fxs_command(line),
                             crate::chatwindow::Out::Perf => {
                                 self.settings.perf_overlay = !self.settings.perf_overlay;

@@ -169,8 +169,10 @@ Not carried out, and why (the handler is the one registered after each name; an 
 - `/tower` (FUN_100b375a: `create`, and `terminate` with a tower selected, go to Fanatic's own
   `ClientInterface_c::Command`; the rest to `N3Msg_TextCommand`), `/terminate` (FUN_100b3a69: a yes/no box, then
   Fanatic), `/gfx <n> <on|off>` (FUN_100b3863, `N3Msg_EnableGFX`): Notum Wars and the effects' switches.
+- (Carried out on 2026-11-16, none sent to a server: `/cc`, `/cc info`, `/rp`, `/name`, `/gfx enable|disable
+  <number>`, `/bank close`; `docs/CLIENT_UI.md`, "The chat commands". `/bug` is left out on purpose.)
 - `/cc` (FUN_100ba6f4: `/cc info <name>` is a private message of kind 1, the rest a list of words sent to the chat
-  server by FUN_1016caf7; neither packet is decoded). The original's `Befriend` script file is a `/cc` line.
+  server by FUN_1016caf7). The original's `Befriend` script file is a `/cc` line.
 - `/name <new name>` (FUN_100baba6: a private message of kind 5, "Sending name change request."): not decoded, and
   not something to try on a character.
 - `/rp` (FUN_100b27c2: the character's stat 673 with bit 0x200 turned over, sent through `N3Msg_EventFeedback`

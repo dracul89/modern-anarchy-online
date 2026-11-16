@@ -237,6 +237,50 @@ pub fn away_reply_packet(target: u32, text: &str) -> Vec<u8> {
     tell_of_kind(target, text, AWAY_REPLY)
 }
 
+/// `/cc info <name>`: GUI.dll FUN_100ba6f4 queues a private message of kind 1 for the name, and FUN_10089940,
+/// when the name's id is known, sends packet 110 for it (FUN_1016cada, packed as `IM`): the character's id and a
+/// map of two entries, `commane` (so spelt) to `ccinfo` and `destination` to `chatserver`. A map (FUN_101716d5's
+/// `M`) is its length in a byte, then each entry in the keys' order: a byte with the key's length in its high half
+/// and the top of the value's length in its low half, a byte with the rest of the value's length, the key, the
+/// value. What the server answers was not seen. Built from the disassembly: no capture has one.
+pub fn info_request_packet(target: u32) -> Vec<u8> {
+    let mut payload = target.to_be_bytes().to_vec();
+    payload.push(2);
+    for (key, value) in [("commane", "ccinfo"), ("destination", "chatserver")] {
+        payload.push((key.len() as u8) << 4 | (value.len() >> 8) as u8);
+        payload.push(value.len() as u8);
+        payload.extend_from_slice(key.as_bytes());
+        payload.extend_from_slice(value.as_bytes());
+    }
+    framed(110, payload)
+}
+
+/// The character `/name` writes to.
+pub const NAME_REQUEST: &str = "name-request";
+
+/// `/name <new name>` (GUI.dll FUN_100baba6 queues a private message of kind 5 for the character
+/// [`NAME_REQUEST`]; FUN_10089940 sends it as a tell whose text is the new name and whose blob is empty).
+/// Built from the disassembly: no capture has one, and it was never sent.
+pub fn name_request_packet(target: u32, new_name: &str) -> Vec<u8> {
+    let mut payload = target.to_be_bytes().to_vec();
+    str16(&mut payload, new_name);
+    payload.extend_from_slice(&[0, 0]);
+    framed(30, payload)
+}
+
+/// `/cc <words>`: the chat server's command packet (120). GUI.dll FUN_100ba6f4 hands the words after `/cc`, each
+/// with its `%` arguments put in, and the chat window's number to FUN_1016caf7, which packs them as `sI`
+/// (FUN_101716d5: a list of texts, its length in two bytes and each text with its own; then the number). The
+/// original's `Befriend` script is `/cc addbuddy %1`. Built from the disassembly: no capture has one.
+pub fn command_packet(words: &[String], window: u32) -> Vec<u8> {
+    let mut payload = (words.len() as u16).to_be_bytes().to_vec();
+    for word in words {
+        str16(&mut payload, word);
+    }
+    payload.extend_from_slice(&window.to_be_bytes());
+    framed(120, payload)
+}
+
 fn tell_of_kind(target: u32, text: &str, kind: u8) -> Vec<u8> {
     let mut payload = target.to_be_bytes().to_vec();
     str16(&mut payload, text);
@@ -479,6 +523,10 @@ mod tests {
         assert_eq!(&tell[4..8], &hex("630193db")[..]);
         assert_eq!(&tell[8..], &hex("00026869000100")[..]);
         assert_eq!(&away_reply_packet(0x630193db, "hi")[8..], &hex("00026869000106")[..]);
+        // (`/cc info`: packet 110 with the id and the two-entry map; `/name`: a tell with an empty blob; `/cc addbuddy Zed` with the window's number)
+        assert_eq!(info_request_packet(0x630193db), hex("006e002b630193db02 7006 636f6d6d616e65 6363696e666f b00a 64657374696e6174696f6e 63686174736572766572".replace(' ', "").as_str()));
+        assert_eq!(name_request_packet(0x630193db, "Zed"), hex("001e000b630193db00035a65640000"));
+        assert_eq!(command_packet(&["addbuddy".into(), "Zed".into()], 2), hex("00780015000200086164646275646479 00035a6564 00000002".replace(' ', "").as_str()));
         let line = channel_packet(0x87, 0x028f0211, "yo");
         assert_eq!(&line[..4], &hex("0041000c")[..]);
         assert_eq!(&line[4..9], &hex("87028f0211")[..]);

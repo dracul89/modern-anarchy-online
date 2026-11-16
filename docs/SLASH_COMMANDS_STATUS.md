@@ -11,16 +11,18 @@ short list.
 |---|---|
 | `/raid <command>` (create, list, listlocal, move, lootaccess, locks) | The message is identified (`RaidCmdIIR_c`, `4e525e58`) but not ported. `/raid` here opens the raid window, which the original's command does not. Cannot be verified without a raid. |
 | `/tower`, `/terminate` | Notum Wars: `/tower` needs a service tower and runs a script; `/terminate` asks in a box first. Cannot be verified without a tower site. |
-| `/cc` | The chat server's command packets are not decoded (GUI.dll FUN_100ba6f4, FUN_1016caf7). The original's `Befriend` script file is a `/cc` line, so that script does not work yet. |
-| `/rp` | Turns the role-playing mark over (stat 673, bit 0x200, through `N3Msg_EventFeedback` 0x46); the message it goes out in is not read. |
 | `/reclaim` | Opens the reclaim window (`N3Msg_ToggleReclaim`), which the client does not have. |
-| `/name <new name>` | A rename request to the server; not decoded. Not to be tried on a character that is to keep its name. |
-| `/gfx <n> on\|off`, `/bug` | Not read further. |
+| `/bug` | Left out on purpose (2026-11-16): the original reports to its makers' bug database about their own client. |
 | `/items delete <n>` | Left out on purpose: it has the server delete an item of the account. |
-| `/bank close`, `/bank open` | `close` shuts the bank's window (not done); `open` is a game master's in the original and does nothing here. |
+| `/bank open` | A game master's in the original; does nothing here. |
 
 ## Carried out, but the result is unknown or unseen
 
+- (2026-11-16, from the original's code, **none sent to a server**) `/cc <words>` (the chat server's command
+  packet 120; the `Befriend` script is `/cc addbuddy %1`), `/cc info <name>` (packet 110; the answer is not
+  read), `/rp` (`CharacterAction` 0xa6 with stat 673's bit 0x200 turned over), `/name <new name>` (a tell to
+  `name-request`; **not to be tried on a character that is to keep its name**). `/gfx enable|disable <number>`
+  and `/bank close` send nothing and are done.
 - `/bank info` and `/items`: sent and not refused; nothing was shown in answer, so what they return is not known.
 - `/team loot` inside a team (asking for the order; `all`, `leader`, `alpha` from the leader): needs two
   characters in a team.
@@ -56,6 +58,5 @@ short list.
 ## Suggested order for what is left
 
 1. (Done 2026-11-16: `/org leave` and `/org disband`.)
-2. `/cc`: the most useful next, since it makes the `Befriend` script work; it needs the chat library's packet
-   read out of GUI.dll.
+2. (Done 2026-11-16: `/cc`.)
 3. `/raid` and `/tower`: can be ported from the code, not verified without a raid or a tower site.

@@ -4238,3 +4238,37 @@ test, `org_commands_come_to_their_messages`. **Nothing of this was sent to a ser
 four server messages' layouts are from the reader's code (Gamecode FUN_10126d95) alone. Not done: the timer the
 original looks at before accepting an invitation (it says the time left instead of asking the server); the leave
 and promotion boxes come up at the pointer, not in the middle.
+
+## The chat commands `/cc`, `/rp`, `/name`, `/gfx`, `/bank close` (2026-11-16)
+
+Second and third of the user's "do all of the Readable from the decompile now". Each handler was read down to
+what it sends before anything was written; **none was sent to a server**.
+
+- **`/cc <words>`** (GUI.dll FUN_100ba6f4): the words after it, each with its `%` arguments put in, go to the chat
+  server in packet 120 (FUN_1016caf7; packed `sI`: the list of texts and the chat window's number, 0 here).
+  `mao_net::chat::command_packet`. The original's `Befriend` script file is `/cc addbuddy %1`, so that script now
+  runs. Without a word the original says its syntax is wrong; here the usage line.
+- **`/cc info <name>`** (exactly those three words): not a command packet. The name is looked up and packet 110
+  goes with the character's id and a map of two entries, `commane` (so spelt in the program) to `ccinfo` and
+  `destination` to `chatserver` (`info_request_packet`). The original says it is asking, in a line of the
+  program's; here a line in this client's words. **What the server answers is not known**: nothing reads an answer
+  yet, so it would show in the log as an unread packet.
+- **`/rp`** (FUN_100b27c2, Gamecode `N3Msg_EventFeedback` 0x1001cc3d): the character's stat 673 with bit 0x200
+  turned over, sent as `CharacterAction` 0xa6 with the new value as the second identity's number
+  (`n3::ROLE_PLAY`). The server is expected to set the stat; what it answers is not seen.
+- **`/name <new name>`** (FUN_100baba6, FUN_10089940): a tell to the character called `name-request` whose text is
+  the new name and whose blob is empty; the game's `ChatCmdFeedback_Name_SendingNameChangeRequest` is said.
+  **Not to be tried on a character that is to keep its name.**
+- **`/gfx enable|disable <number>`** (FUN_100b3863, `N3Msg_EnableGFX`): an earlier note here had the words the
+  other way round. Nothing is sent: the effect template of that number is put in, or taken out of, the storage's
+  set of switched-off templates, and a switched-off template is not found by the lookup every effect starts with
+  (Gamecode FUN_10107068; here `mao_formats::gfx::Gfx::get` and `set_enabled`). A first word that is neither,
+  written just so, does nothing, as in the original.
+- **`/bank close`**: shuts the container window while it shows the bank. `/bank open` is a game master's and does
+  nothing.
+- **`/bug` is knowingly not carried out.** The original asks in a box and hands the text to
+  `BugReport_t::SendUserMadeBugReport`: its makers' own bug database, about their own client. A report from this
+  client would be a false one, so the command says so and sends nothing.
+
+Tests: `the_sent_packets_are_framed` (the three packets' bytes), the command lines in `chat_commands` and
+`chatwindow`, `a_switched_off_template_is_not_found`.

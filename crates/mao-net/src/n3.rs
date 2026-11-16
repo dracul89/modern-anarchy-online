@@ -345,6 +345,13 @@ pub const TEXT_BORN: u8 = 0x86;
 pub const TEXT_TEAM_LOOT: u8 = 0x91;
 pub const TEXT_TEAM_LOOT_SET: u8 = 0x7f;
 pub const TEXT_BANK_INFO: u8 = 0x5c;
+/// `/rp` (GUI.dll FUN_100b27c2 turns bit 0x200 of the character's stat 673 over and hands the new value to
+/// `N3Msg_EventFeedback` with the event 0x46; Gamecode 0x1001cc3d sends it, when it differs from the stat, as this
+/// action with the value as the second identity's number). Sent with [`text_command`] and no window.
+pub const ROLE_PLAY: u8 = 0xa6;
+/// The stat `/rp` turns a bit of, and the bit.
+pub const ROLE_PLAY_STAT: u32 = 673;
+pub const ROLE_PLAY_BIT: u32 = 0x200;
 
 /// `OrgClientIIR_c` (`7f4b3108`, `n3InfoItemRemote_t::MapToKey("OrgClientIIR_c")`: the name's bytes laid over one
 /// another four by four): one of the organization's commands (Gamecode FUN_101266b4 makes it, FUN_1012653f packs

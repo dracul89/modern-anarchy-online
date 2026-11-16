@@ -161,6 +161,14 @@ pub enum Out {
     /// `/invite` (3), `/kick` (4), `/leave` (5): a request about a private chat group by a character's name, which
     /// the chat connection looks up first.
     PrivateByName { what: u8, name: String },
+    /// `/cc <words>`: a command for the chat server, its words with their `%` arguments put in.
+    Cc { words: Vec<String> },
+    /// `/cc info <name>`: the chat server asked about the character named.
+    CcInfo { name: String },
+    /// `/rp`: the role-playing mark turned over (the game's connection sends it).
+    RolePlay,
+    /// `/name <new name>`: the request written to the renaming character.
+    NameRequest { name: String },
     /// `/assist`: fight the opponent of the target, or of the character named.
     Assist { name: Option<String> },
     Waypoint { x: f32, z: f32 },
@@ -1230,10 +1238,27 @@ impl ChatWindow {
             }
             // (FUN_1003fe10's `bank`: `info` asks the server; `open` is a game master's; `close` shuts the bank's
             // window, which this client leaves to the window; any other word does nothing)
+            // (`close` shuts the bank's window, in the client alone; `open` is a game master's)
             Parsed::Bank { word } => match word.as_str() {
                 "info" => Some(Out::TextCommand { action: mao_net::n3::TEXT_BANK_INFO, value: 0 }),
+                "close" => Some(Out::Window { name: "bank".into(), open: false }),
                 _ => None,
             },
+            Parsed::RolePlay => Some(Out::RolePlay),
+            Parsed::NameRequest { name } => Some(Out::NameRequest { name: self.expand(&name) }),
+            // (`N3Msg_EnableGFX`: the template's number in or out of the set of switched-off templates; the original
+            // says nothing)
+            Parsed::Gfx { on, number } => {
+                mao_formats::gfx::set_enabled(number, on);
+                None
+            }
+            // (FUN_100b6019 asks in a box and then hands the text to `BugReport_t::SendUserMadeBugReport`, the
+            // original's report to its makers about their own client: not sent from this one)
+            Parsed::Bug => {
+                self.push(Line::new(Kind::System, "/bug is the original client's report to Funcom about itself; this client does not send one."));
+                None
+            }
+            Parsed::Nothing => None,
             // (FUN_100b6a54: both distances)
             Parsed::BothDist { characters, view } => {
                 self.outs.push(Out::CharDist(characters.min(4000)));
@@ -1252,6 +1277,15 @@ impl ChatWindow {
                 None
             }
             Parsed::PrivateByName { what, name } => Some(Out::PrivateByName { what, name: self.expand(&name) }),
+            // (FUN_100ba6f4: exactly `info` and one more word is the request about that character; anything else is
+            // the chat server's command, each word expanded on its own)
+            Parsed::Cc { words } => {
+                if words.len() == 2 && words[0].eq_ignore_ascii_case("info") {
+                    Some(Out::CcInfo { name: self.expand(&words[1]) })
+                } else {
+                    Some(Out::Cc { words: words.iter().map(|w| self.expand(w)).collect() })
+                }
+            }
             Parsed::Assist { name } => Some(Out::Assist { name: name.map(|n| self.expand(&n)) }),
             Parsed::Waypoint { x, z } => {
                 self.push(Line::new(Kind::System, format!("Walking to {x:.0}, {z:.0} (any movement key stops).")));
@@ -1841,6 +1875,11 @@ mod tests {
         assert_eq!(w.run("/items"), Some(Out::TextCommand { action: 0xf4, value: 0 }));
         assert_eq!(w.run("/org info"), Some(Out::OrgCommand { command: 5, targeted: true, text: String::new() }));
         assert_eq!(w.run("/org kick Somebody"), Some(Out::OrgCommand { command: 0xd, targeted: true, text: "Somebody".into() }));
+        assert_eq!(w.run("/cc addbuddy Zed"), Some(Out::Cc { words: vec!["addbuddy".into(), "Zed".into()] }));
+        assert_eq!(w.run("/cc INFO Zed"), Some(Out::CcInfo { name: "Zed".into() }));
+        assert_eq!(w.run("/cc info"), Some(Out::Cc { words: vec!["info".into()] }));
+        assert_eq!((w.run("/rp"), w.run("/name Zed")), (Some(Out::RolePlay), Some(Out::NameRequest { name: "Zed".into() })));
+        assert_eq!((w.run("/bank close"), w.run("/bank open"), w.run("/bug it broke badly, twenty letters")), (Some(Out::Window { name: "bank".into(), open: false }), None, None));
         assert_eq!((w.run("/org"), w.run("/org leave")), (None, None));
         assert_eq!(w.run("/bank info"), Some(Out::TextCommand { action: 0x5c, value: 0 }));
         assert_eq!((w.run("/bank open"), w.run("/bank")), (None, None));

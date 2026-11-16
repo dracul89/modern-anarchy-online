@@ -879,6 +879,13 @@ impl Ui {
             }
             return true;
         }
+        // (`/bank close`: the container window while it shows the bank; nothing opens it by name)
+        if name == "bank" {
+            if !open && self.loot.kind() == Some(crate::loot::BANK) {
+                self.loot.open = false;
+            }
+            return !open;
+        }
         // (the help assistant, which keeps its own window: `helpwindow.rs`)
         if matches!(name.as_str(), "assistant" | "guides" | "ask") {
             crate::helpwindow::set_open(open);

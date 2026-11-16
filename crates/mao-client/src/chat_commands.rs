@@ -130,6 +130,18 @@ pub enum Parsed {
     MessageBox { text: String },
     /// `/invite` (3), `/kick` (4), `/leave` (5): a private chat group's request by a character's name.
     PrivateByName { what: u8, name: String },
+    /// `/cc <words>`: a command for the chat server.
+    Cc { words: Vec<String> },
+    /// `/rp`: the role-playing mark turned over.
+    RolePlay,
+    /// `/name <new name>`: a request to have the character renamed.
+    NameRequest { name: String },
+    /// `/gfx enable|disable <number>`: an effect template switched on or off.
+    Gfx { on: bool, number: i32 },
+    /// `/bug`: the original's report to its makers, which this client does not send.
+    Bug,
+    /// A command that, as written, does nothing in the original either.
+    Nothing,
     /// `/assist`: fight the target's (or the named one's) opponent.
     Assist { name: Option<String> },
     /// `/open <window>` and `/close [window]`: show or hide a window (`close` alone hides them all).
@@ -543,6 +555,37 @@ pub fn parse(line: &str) -> Parsed {
                 }),
             }
         }
+        // `/rp` (FUN_100b27c2).
+        "rp" => Parsed::RolePlay,
+        // `/name <new name>` (FUN_100baba6: the first word after it; without one, the usage).
+        "name" => match text.split_whitespace().next() {
+            Some(name) => Parsed::NameRequest { name: name.to_string() },
+            None => Parsed::Usage("/name <new name>"),
+        },
+        // `/gfx enable|disable <number>` (FUN_100b3863: fewer than two words is an error; a first word that is
+        // neither, written just so, does nothing; the number is read as C's `atoi` reads it).
+        "gfx" => {
+            let mut words = text.split_whitespace();
+            match (words.next(), words.next()) {
+                (Some(what), Some(number)) => {
+                    let digits: String = number.chars().enumerate().take_while(|&(k, c)| c.is_ascii_digit() || (k == 0 && (c == '-' || c == '+'))).map(|(_, c)| c).collect();
+                    let number = digits.parse().unwrap_or(0);
+                    match what {
+                        "enable" => Parsed::Gfx { on: true, number },
+                        "disable" => Parsed::Gfx { on: false, number },
+                        _ => Parsed::Nothing,
+                    }
+                }
+                _ => Parsed::Usage("/gfx enable|disable <number>"),
+            }
+        }
+        "bug" => Parsed::Bug,
+        // `/cc <words>` (FUN_100ba6f4): the words go to the chat server; without one the original says its syntax
+        // is wrong.
+        "cc" => {
+            let words: Vec<String> = text.split_whitespace().map(str::to_string).collect();
+            if words.is_empty() { Parsed::Usage("/cc <command> [words]") } else { Parsed::Cc { words } }
+        }
         // `/assist [name]` (FUN_100b81b4 -> `N3Msg_AssistFight`): fight whomever the target, or the named one, fights.
         "assist" => Parsed::Assist { name: text.split_whitespace().next().map(str::to_string) },
         // (the server's own commands, sent to it as they are typed: the original lists `/perks` and `/perk` with
@@ -661,7 +704,11 @@ mod tests {
         assert_eq!(parse("hello world"), Parsed::Vicinity { command: "say", text: "hello world".into() });
         assert_eq!(parse("/s HEY"), Parsed::Vicinity { command: "shout", text: "HEY".into() });
         assert_eq!(parse("/help"), Parsed::Help);
-        assert_eq!(parse("/gfx 1 on"), Parsed::Unsupported("gfx".into()));
+        assert_eq!((parse("/gfx disable 1017"), parse("/gfx enable 12x")), (Parsed::Gfx { on: false, number: 1017 }, Parsed::Gfx { on: true, number: 12 }));
+        assert_eq!((parse("/gfx 1 on"), parse("/gfx Enable 3"), parse("/gfx enable")), (Parsed::Nothing, Parsed::Nothing, Parsed::Usage("/gfx enable|disable <number>")));
+        assert_eq!((parse("/rp"), parse("/name Zed now"), parse("/name"), parse("/bug it broke")), (Parsed::RolePlay, Parsed::NameRequest { name: "Zed".into() }, Parsed::Usage("/name <new name>"), Parsed::Bug));
+        assert_eq!(parse("/cc addbuddy  Zed"), Parsed::Cc { words: vec!["addbuddy".into(), "Zed".into()] });
+        assert_eq!(parse("/cc"), Parsed::Usage("/cc <command> [words]"));
         assert_eq!(parse("/afk  back at nine "), Parsed::Afk { text: "back at nine".into() });
         assert_eq!(parse("/macro Heal /pet heal  now"), Parsed::Macro { name: "Heal".into(), command: "/pet heal  now".into() });
         assert_eq!(parse("/macro Heal"), Parsed::Usage("/macro <name> <command>"));
