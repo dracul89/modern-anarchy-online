@@ -262,6 +262,9 @@ account with `net <game> create`, in Arete Landing; scripted, other new players 
 - [ ] The missions stack (2026-11-15): with one mission in the journal (Ctrl+4), accept a second at a terminal: both
   are listed, the chat says a new mission was got, and the new one's place is uploaded. Zone: both are still listed.
   Delete one: the other stays.
+- [ ] The booths' names from their signs (2026-11-16): the Whom-Pah window's list at a station never visited
+  (and the map's dots) names every booth's destination, the same as the sign over it; take one: it leads there,
+  and the log has no "has a sign to ... and led to ..." line.
 - [ ] The equipment's lock (2026-11-16): `/setoption LockEquipment true`, then try to put something on and to
   take something off: the game's line about locked equipment, nothing moves; between two backpack places an item
   still moves. `/setoption LockEquipment false`: as before.

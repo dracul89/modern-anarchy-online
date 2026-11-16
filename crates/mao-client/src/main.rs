@@ -1748,7 +1748,7 @@ fn run(args: &[String]) -> Result<(), String> {
                             hud.nameplates.push(nametag::Tag { at: [449.0 + dx, 313.0 + dz, 10.3], name: name.to_string(), org, brackets, health, consider, own: false, hidden: false });
                         }
                     }
-                    hud.labels = net::booth_labels(number, &whompah_booths(game, &db, number), &destinations, &names).into_iter().map(|(p, text)| ui::Label { world: mao_render::glam::Vec3::from(p), text }).collect();
+                    hud.labels = net::booth_labels(number, &whompah_booths(game, &db, number), &whompah::signs(game, &db, number), &destinations, &names).into_iter().map(|(p, text)| ui::Label { world: mao_render::glam::Vec3::from(p), text }).collect();
                     hud.target = Some("Rollerrat  (12 m)".into());
                     hud.target_bars = vec![
                         ui::TargetBar { hostile: true, selected: false, title: "Fighting Target".into(), name_colour: 0xff4444, fill: nametag::consider_colour(0.8), target_of: Some("Tsunamisbot".into()), name: "Rollerrat".into(), level: Some(14), hp: Some((1890, 2400)), distance: 12.0, kind: automap::DotKind::Hostile },

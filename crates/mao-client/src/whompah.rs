@@ -1,11 +1,14 @@
 //! Where each whompah booth leads.
 //!
-//! The server decides a booth's destination, and nothing in the client's
-//! game data says which, so the client learns it the way a player does: when
-//! the server zones a character that stands at a booth, the playfield it
-//! arrives in is that booth's destination. What is learned is kept in
-//! `whompah.ini` beside the settings (one `playfield x z = destination` line
-//! per booth) and the labels over the booths read it.
+//! The server decides a booth's destination. The client learns it the way a
+//! player does: when the server zones a character that stands at a booth, the
+//! playfield it arrives in is that booth's destination. What is learned is
+//! kept in `whompah.ini` beside the settings (one `playfield x z =
+//! destination` line per booth).
+//!
+//! The game's data says it too, on the booths' signs ([`signs`], since
+//! 2026-11-16): a booth not yet taken is labelled by its sign. What was
+//! learned from the server goes first.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -93,6 +96,89 @@ impl Destinations {
     }
 }
 
+/// The Jobe platform's playfield.
+pub const JOBE: u32 = 4530;
+
+/// Where a booth's sign says it leads: the playfield, and the station's own name where the sign names a place in
+/// the playfield and not the playfield.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Sign {
+    pub playfield: u32,
+    pub station: Option<&'static str>,
+}
+
+/// The signs: the part of the texture's name after `new_whompa_sign_` (or `..._signs_`), the playfield the booth
+/// under it leads to, and the station's name where the texture names a town. The playfields are not in the names;
+/// they follow from the game's own data, in which the network is the same both ways (the station a sign leads to
+/// has a sign back: `the_signs_lead_both_ways`), together with the playfields' names and the one booth checked
+/// against the server (Old Athen's `tir`). Three playfields have two stations each (Broken Shores and The Reck,
+/// one of each side; The Longest Road, whose clan one is Bliss).
+const SIGNS: &[(&str, u32, Option<&str>)] = &[
+    ("20k", 630, Some("20K")),
+    ("2ho", 635, Some("2HO")),
+    ("4_holes", 760, None),
+    ("avalon", 505, None),
+    ("bliss", 795, Some("Bliss")),
+    ("borealis", 800, None),
+    ("broken_shores_clan", 665, None),
+    ("broken_shores_omni", 665, None),
+    ("central_artery_valley", 590, None),
+    ("galway", 685, None),
+    ("hope", 560, Some("Hope")),
+    ("icc_hq", 655, Some("ICC")),
+    ("jobe", JOBE, None),
+    ("mutant_domain", 696, None),
+    ("newland", 566, None),
+    ("newland_desert", 565, None),
+    ("old_athens", 540, None),
+    ("perpetual_wastelands", 570, None),
+    ("reck_clan", 750, None),
+    ("reck_ot", 750, None),
+    ("rome", 730, Some("Rome")),
+    ("southern_artery_valley", 610, None),
+    ("southern_fouls_hills", 615, None),
+    ("stret_west_bank", 790, None),
+    ("the_longest_road", 795, None),
+    ("tir", 640, None),
+    ("varmint_woods", 600, None),
+    ("wailing_wastes", 551, None),
+    ("wine", 605, Some("Wine")),
+    ("omni_ent", 705, None),
+    ("omnitrade", 710, None),
+];
+
+/// Where the sign of this texture leads, when the texture is a booth's sign.
+pub fn sign_destination(texture: &str) -> Option<Sign> {
+    let name = texture.to_lowercase();
+    if sign_is_jobe(&name) {
+        return Some(Sign { playfield: JOBE, station: None });
+    }
+    let name = name.strip_suffix(".png").unwrap_or(&name).trim_end_matches('.');
+    let key = name.strip_prefix("new_whompa_signs_").or_else(|| name.strip_prefix("new_whompa_sign_"))?;
+    SIGNS.iter().find(|s| s.0 == key).map(|&(_, playfield, station)| Sign { playfield, station })
+}
+
+/// The booths' signs of a playfield (x, height, z, and where each leads): every booth has a statel of
+/// `sign_whompa_default` at its own place whose texture is named for the destination.
+pub fn signs(game: &str, db: &mao_formats::resource::ResourceDatabase, playfield: u32) -> Vec<([f32; 3], Sign)> {
+    let textures: std::collections::HashMap<u32, Sign> = db
+        .get(mao_formats::resource::Id { kind: 0xf424a, instance: 1 })
+        .ok()
+        .flatten()
+        .and_then(|o| mao_formats::instances::Instances::parse(&o).ok())
+        .map(|index| index.iter().filter(|&(kind, _, _)| kind == 0xf6954).filter_map(|(_, name, instance)| Some((instance, sign_destination(name)?))).collect())
+        .unwrap_or_default();
+    let path = std::path::Path::new(game).join(format!("cd_image/data/statels/{playfield}.pf"));
+    let Ok(file) = mao_formats::files::read(&path) else { return Vec::new() };
+    let Ok(statels) = mao_formats::statels::parse(&file) else { return Vec::new() };
+    statels.iter().filter_map(|s| Some((s.position, s.extras.iter().find_map(|e| textures.get(&e.2).copied())?))).collect()
+}
+
+/// The sign of the booth at (x, z): the one within two units.
+pub fn sign_at(signs: &[([f32; 3], Sign)], x: f32, z: f32) -> Option<Sign> {
+    signs.iter().find(|s| (s.0[0] - x).hypot(s.0[2] - z) < 2.0).map(|s| s.1)
+}
+
 /// Whether a texture's name is the sign of a booth to Jobe. Every booth has a sign over it (a statel of
 /// `sign_whompa_default` at the booth's place) with the texture of where it leads: `new_whompa_sign_tir`,
 /// `new_whompa_sign_newland`, and `new_whompa_sign_jobe` for the Jobe platform (the older stations have
@@ -105,17 +191,12 @@ pub fn sign_is_jobe(texture: &str) -> bool {
 /// The booths of a playfield that lead to Jobe (x, height, z): the statels whose texture is a Jobe sign's
 /// ([`sign_is_jobe`]). The server alone decides where a booth leads; the sign is what the game's data says of it.
 pub fn jobe_booths(game: &str, db: &mao_formats::resource::ResourceDatabase, playfield: u32) -> Vec<[f32; 3]> {
-    let signs: std::collections::HashSet<u32> = db
-        .get(mao_formats::resource::Id { kind: 0xf424a, instance: 1 })
-        .ok()
-        .flatten()
-        .and_then(|o| mao_formats::instances::Instances::parse(&o).ok())
-        .map(|index| index.iter().filter(|&(kind, name, _)| kind == 0xf6954 && sign_is_jobe(name)).map(|(_, _, instance)| instance).collect())
-        .unwrap_or_default();
-    let path = std::path::Path::new(game).join(format!("cd_image/data/statels/{playfield}.pf"));
-    let Ok(file) = mao_formats::files::read(&path) else { return Vec::new() };
-    let Ok(statels) = mao_formats::statels::parse(&file) else { return Vec::new() };
-    statels.iter().filter(|s| s.extras.iter().any(|e| signs.contains(&e.2))).map(|s| s.position).collect()
+    to_jobe(&signs(game, db, playfield))
+}
+
+/// The places of the signs that lead to Jobe.
+pub fn to_jobe(signs: &[([f32; 3], Sign)]) -> Vec<[f32; 3]> {
+    signs.iter().filter(|s| s.1.playfield == JOBE).map(|s| s.0).collect()
 }
 
 /// Whether a character at `position` (x, height, z), touching a booth, is at one to Jobe that it cannot take: its
@@ -159,6 +240,50 @@ mod tests {
         assert_eq!(places(540), [(4490, 3177)]);
         assert_eq!(places(655), [(31831, 8660)]);
         assert_eq!(places(640), []);
+    }
+
+    /// The signs' names are read whatever their case and their ending, and a texture that is no sign is none.
+    #[test]
+    fn a_signs_name_is_its_destination() {
+        assert_eq!(sign_destination("new_whompa_sign_tir.png"), Some(Sign { playfield: 640, station: None }));
+        assert_eq!(sign_destination("new_whompa_sign_20K.png"), Some(Sign { playfield: 630, station: Some("20K") }));
+        assert_eq!(sign_destination("new_whompa_signs_omnitrade.png"), Some(Sign { playfield: 710, station: None }));
+        assert_eq!(sign_destination("new_whompa_sign_perpetual_wastelands..png"), Some(Sign { playfield: 570, station: None }));
+        assert_eq!(sign_destination("teleportersigns_omni-whompa_jobe.png"), Some(Sign { playfield: JOBE, station: None }));
+        assert_eq!((sign_destination("whompa_new_omni.png"), sign_destination("whompa_signs_from_jobe.png"), sign_destination("new_whompa_sign_nowhere.png")), (None, None, None));
+        let signs = [([449.0, 8.0, 317.7], Sign { playfield: JOBE, station: None }), ([444.2, 8.0, 313.0], Sign { playfield: 640, station: None })];
+        assert_eq!((sign_at(&signs, 444.9, 312.6).map(|s| s.playfield), sign_at(&signs, 454.0, 313.0)), (Some(640), None));
+        assert_eq!(to_jobe(&signs), [[449.0, 8.0, 317.7]]);
+    }
+
+    /// `MAO_GAME`: every sign the game has placed is known, every booth of a station has its sign, the booth
+    /// checked against the server reads as it was found, and the network is the same both ways: where a sign leads,
+    /// a sign leads back (but for the Jobe platform, whose signs are of another kind).
+    #[test]
+    fn the_signs_lead_both_ways() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let game = game.to_string_lossy().to_string();
+        let db = mao_formats::resource::ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap();
+        let index = db.get(mao_formats::resource::Id { kind: 0xf424a, instance: 1 }).unwrap().and_then(|o| mao_formats::instances::Instances::parse(&o).ok()).unwrap();
+        // (the one sign texture that names no place is the blank one the sign's mesh comes with)
+        let unknown: Vec<&str> = index.iter().filter(|&(kind, name, _)| kind == 0xf6954 && name.to_lowercase().starts_with("new_whompa_sign") && sign_destination(name).is_none()).map(|(_, name, _)| name).collect();
+        assert_eq!(unknown, ["new_whompa_signs_default.png"]);
+        let stations: Vec<u32> = SIGNS.iter().map(|s| s.1).filter(|&p| p != JOBE).collect();
+        let all: std::collections::HashMap<u32, Vec<([f32; 3], Sign)>> = stations.iter().map(|&p| (p, signs(&game, &db, p))).collect();
+        assert_eq!(sign_at(&all[&540], 444.2, 313.0), Some(Sign { playfield: 640, station: None }));
+        let mut counted = 0;
+        for (&from, list) in &all {
+            assert!(!list.is_empty(), "no signs in {from}");
+            for (at, sign) in list {
+                counted += 1;
+                assert_ne!(sign.playfield, from, "a sign of {from} at {at:?} leads to its own playfield");
+                if sign.playfield != JOBE {
+                    assert!(all[&sign.playfield].iter().any(|back| back.1.playfield == from), "{from} leads to {} at {at:?}, and nothing leads back", sign.playfield);
+                }
+            }
+        }
+        // (77 booths with a sign; one of them has its sign's texture twice)
+        assert_eq!(counted, 77);
     }
 
     #[test]

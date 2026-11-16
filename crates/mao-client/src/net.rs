@@ -5445,8 +5445,8 @@ pub(crate) struct Area {
     pub(crate) collision: mao_formats::collision::Collision,
     /// The whompah booths (x, height, z).
     pub(crate) booths: Vec<[f32; 3]>,
-    /// Those of them that lead to Jobe, by their signs (`whompah::jobe_booths`).
-    pub(crate) jobe_booths: Vec<[f32; 3]>,
+    /// Their signs: where each says its booth leads (`whompah::signs`).
+    pub(crate) booth_signs: Vec<([f32; 3], crate::whompah::Sign)>,
     /// The playfield's areas and their environments (light and fog by where the character stands), and the playfield's
     /// own environment bytes (the base the areas blend into).
     pub(crate) areas: Vec<mao_formats::areas::Area>,
@@ -5534,7 +5534,7 @@ pub(crate) fn load_area_with(game: &str, db: &Arc<ResourceDatabase>, playfield: 
     profile!("[profile] area {playfield}: collision {:?} (after {before_collision:?})", started.elapsed());
     eprintln!("playfield {playfield}: collision {} triangles", collision.len());
     let mut booths = crate::whompah_booths(game, db, playfield);
-    let jobe_booths = crate::whompah::jobe_booths(game, db, playfield);
+    let booth_signs = crate::whompah::signs(game, db, playfield);
     if terrain.is_none() {
         // An interior's way out is marked by its door blocker: offer it like a booth (labelled, and the Go button walks there).
         booths.extend(crate::door_markers(game, db, playfield));
@@ -5579,7 +5579,7 @@ pub(crate) fn load_area_with(game: &str, db: &Arc<ResourceDatabase>, playfield: 
     if let Some(e) = &base_environment {
         eprintln!("playfield {playfield}: environment weather {:?} ambient {:?} fog {:?} density {}", &e[..8], &e[19..22], &e[22..25], e[25]);
     }
-    let mut area = Area { scene, terrain, collision, booths, jobe_booths, areas, base_environment, teleportals, zones, animated, interior, falls, statel_effects };
+    let mut area = Area { scene, terrain, collision, booths, booth_signs, areas, base_environment, teleportals, zones, animated, interior, falls, statel_effects };
     // (`MAO_HOUSES=<hex>`: a city's houses for the offline views, `crate::houses::from_env`)
     if let Some(houses) = crate::houses::from_env() {
         crate::houses::add(db, &houses, &mut area.scene, &mut area.collision, area.zones.as_mut().and_then(Arc::get_mut));
@@ -5587,14 +5587,21 @@ pub(crate) fn load_area_with(game: &str, db: &Arc<ResourceDatabase>, playfield: 
     Ok(area)
 }
 
-/// The label over each whompah booth: where it leads, when that is known.
-pub(crate) fn booth_labels(playfield: u32, booths: &[[f32; 3]], destinations: &crate::whompah::Destinations, names: &std::collections::HashMap<u32, String>) -> Vec<([f32; 3], String)> {
+/// The label of each whompah booth (the Whom-Pah window's list and the map's dots): where it leads, as the server
+/// showed when the booth was taken, else as the booth's sign says (with the station's own name where the sign has
+/// one), else nothing.
+pub(crate) fn booth_labels(playfield: u32, booths: &[[f32; 3]], signs: &[([f32; 3], crate::whompah::Sign)], destinations: &crate::whompah::Destinations, names: &std::collections::HashMap<u32, String>) -> Vec<([f32; 3], String)> {
+    let named = |to: u32| names.get(&to).cloned().unwrap_or_else(|| format!("playfield {to}"));
     booths
         .iter()
         .map(|b| {
-            let text = match destinations.get(playfield, b[0], b[2]) {
-                Some(to) => format!("Whom-Pah  >  {}", names.get(&to).cloned().unwrap_or_else(|| format!("playfield {to}"))),
-                None => "Whom-Pah".to_string(),
+            let sign = crate::whompah::sign_at(signs, b[0], b[2]);
+            let text = match (destinations.get(playfield, b[0], b[2]), sign) {
+                (Some(to), Some(crate::whompah::Sign { playfield: signed, station: Some(station) })) if signed == to => format!("Whom-Pah  >  {station} ({})", named(to)),
+                (Some(to), _) => format!("Whom-Pah  >  {}", named(to)),
+                (None, Some(crate::whompah::Sign { playfield: to, station: Some(station) })) => format!("Whom-Pah  >  {station} ({})", named(to)),
+                (None, Some(sign)) => format!("Whom-Pah  >  {}", named(sign.playfield)),
+                (None, None) => "Whom-Pah".to_string(),
             };
             // Over the booth, Z-up.
             ([b[0], b[2], b[1] + 3.4], text)
@@ -5625,7 +5632,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     let _ = ITEM_DB.set(db.clone());
     crate::effects::load_calibration(game);
     let textures = crate::Textures::new(db.clone());
-    let Area { scene, terrain, collision, booths, jobe_booths, areas, base_environment, teleportals, zones, animated, interior, falls, statel_effects } = load_area_with(game, &db, playfield, Some(&textures))?;
+    let Area { scene, terrain, collision, booths, booth_signs, areas, base_environment, teleportals, zones, animated, interior, falls, statel_effects } = load_area_with(game, &db, playfield, Some(&textures))?;
     // The rooms of an interior: where the character is among them, which doors it may pass, which rooms are drawn.
     let mut interior = interior;
     let mut room_state = crate::interior::RoomState::default();
@@ -5659,9 +5666,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     let _ = PLAYFIELD_NAMES.set(names.clone());
     let mut destinations = crate::whompah::Destinations::load();
     let mut booths = booths;
-    let mut jobe_booths = jobe_booths;
+    let mut booth_signs = booth_signs;
     let mut booth_playfield = playfield;
-    let mut pending_labels = Some(booth_labels(playfield, &booths, &destinations, &names));
+    let mut pending_labels = Some(booth_labels(playfield, &booths, &booth_signs, &destinations, &names));
     let mut pending_location = names.get(&playfield).cloned();
     let mut pending_messages: Vec<String> = Vec::new();
     // The booth the character stood at last, and when.
@@ -6788,6 +6795,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     if let Some((pf, booth, when)) = near_booth.take() {
                         if when.elapsed() < Duration::from_secs(20) && pf != playfield {
                             let to = names.get(&playfield).cloned().unwrap_or_else(|| format!("playfield {playfield}"));
+                            // (the sign's word against the server's: said in the log when they differ)
+                            if let Some(sign) = crate::whompah::sign_at(&booth_signs, booth[0], booth[2]).filter(|s| pf == booth_playfield && s.playfield != playfield) {
+                                eprintln!("Whom-Pah: the booth of {pf} at ({:.1}, {:.1}) has a sign to {} and led to {playfield}", booth[0], booth[2], sign.playfield);
+                            }
                             if destinations.learn(pf, booth[0], booth[2], playfield) {
                                 pending_messages.push(format!("Whom-Pah: this booth leads to {to} (remembered)"));
                             } else {
@@ -6819,14 +6830,14 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             }
                             pending_scene = Some(scene);
                             booths = area.booths;
-                            jobe_booths = area.jobe_booths;
+                            booth_signs = area.booth_signs;
                             pending_falls = Some(area.falls);
                             pending_statel_effects = Some(area.statel_effects);
                             areas = area.areas;
                             state.grid = is_grid(&areas);
                             base_environment = area.base_environment;
                             booth_playfield = playfield;
-                            pending_labels = Some(booth_labels(playfield, &booths, &destinations, &names));
+                            pending_labels = Some(booth_labels(playfield, &booths, &booth_signs, &destinations, &names));
                             goto = None;
                         }
                         Err(e) => {
@@ -6836,7 +6847,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             pending_falls = Some(Vec::new());
                             pending_statel_effects = Some(Vec::new());
                             booths = Vec::new();
-                            jobe_booths = Vec::new();
+                            booth_signs = Vec::new();
                             pending_labels = Some(Vec::new());
                         }
                     }
@@ -8780,6 +8791,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     // (the booth to Jobe, by an account without Shadowlands: the server answers such a try with nothing, so
                     // the client says why, in the game's own words for that expansion. The try is sent all the same.)
                     let expansions = state.stats.contains_key(&54).then(|| state.stats.get(&389).copied().unwrap_or(0));
+                    let jobe_booths = crate::whompah::to_jobe(&booth_signs);
                     if jobe_booths.iter().any(|b| (b[0] - position[0]).hypot(b[2] - position[2]) < 2.0) {
                         eprintln!("the booth to Jobe: the account's expansions (stat 389) are {expansions:?}");
                     }

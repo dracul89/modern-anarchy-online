@@ -4318,3 +4318,26 @@ Fifth of the user's "do all of the Readable from the decompile now". `N3Msg_IsIt
   `Feedback_ThisItemRequiresComputerDeck`); social armour against other armour (two rules, by a flag of the
   character's and by the worn pieces' stat 702); an item that is not one's own. They are listed in
   `World::wear_refusal`'s head. The server refuses each of these moves and the client takes the move back.
+
+## Every Whom-Pah booth named from its sign (2026-11-16)
+
+Sixth of the user's "do all of the Readable from the decompile now" (this one is read from the game's data, not
+from the program). A booth's destination was only known once the character had been through it (`whompah.ini`);
+any other booth read plain "Whom-Pah" in the Whom-Pah window's list and on the map.
+
+Every booth has a sign statel at its own place whose texture is named for where it leads
+(`new_whompa_sign_tir.png`, `..._bliss.png`, `new_whompa_signs_omnitrade.png` ...): 77 booths in 27 playfields, 31
+names. The names do not say playfields; the table `whompah::SIGNS` gives each its playfield, and it is not a guess:
+in the game's data the network is the same both ways (where a sign leads, a sign leads back), which with the
+playfields' own names fixes every entry, and the one booth checked against the server (Old Athen's, to Tir) reads
+as it was found. Three playfields have two stations: Broken Shores and The Reck (one of each side), and The
+Longest Road, whose clan station is Bliss. Signs that name a town are labelled with it: "Whom-Pah > Bliss (The
+Longest Road)", "20K (Pleasant Meadows)", "2HO (Stret East Bank)", "Hope (Mort)", "Wine (Belial Forest)", "ICC
+(Andromeda)", "Rome (Rome Park)".
+
+`whompah::signs`, `sign_destination`, `sign_at`; `net::booth_labels` takes what the server showed first, then the
+sign. When a booth is taken and its sign said another playfield, the log says so ("has a sign to ... and led to
+..."). The Jobe booths of yesterday are the signs that lead to playfield 4530 (a third one turned up: Rome's).
+Tests: `a_signs_name_is_its_destination`, `the_signs_lead_both_ways` (`MAO_GAME`: every placed sign known, the
+network both ways, 77 signs). Tool: `cargo run -p mao-formats --example whompasigns -- <game>`. **Not looked at in
+the window** (no picture taken; the list's text is the label's).
