@@ -8,6 +8,9 @@
 //! origin (31022, 24880, `_DAT_101b1260` / `_DAT_101b1258`), scaled by the level's rectangle over the map's extent
 //! (18751 by 24115, `_DAT_101b1250` / `_DAT_101b1248`) and the playfield's scales, from the rectangle's left; the
 //! vertical is turned over (north up).
+//!
+//! A map can be made here too: [`pack`] cuts a picture into a level's tiles and [`PlanetMap::index_text`] writes the
+//! index (the `planetmapbuild` example makes a map's folder of pictures, a `.psd`'s flattened one among them).
 
 use std::path::Path;
 
@@ -90,7 +93,49 @@ pub fn discover(roots: &[std::path::PathBuf]) -> Vec<Found> {
     out
 }
 
+/// A level made of a picture: its tiles (`texture_size` a side, the last column's and row's filled out with black)
+/// as PNGs one behind the other, the columns in turn and each from its top, and the level that names their places.
+/// The level's file and rectangle are left for the caller.
+pub fn pack(picture: &image::RgbaImage, texture_size: u32) -> Option<(Vec<u8>, Level)> {
+    let (w, h) = picture.dimensions();
+    if texture_size == 0 || w == 0 || h == 0 {
+        return None;
+    }
+    let (cols, rows) = (w.div_ceil(texture_size), h.div_ceil(texture_size));
+    let mut level = Level { file: String::new(), texture_size, size: (w, h), tiles: (cols, rows), rect: [0, 0, w as i32, h as i32], positions: Vec::new() };
+    let mut out = Vec::new();
+    for col in 0..cols {
+        for row in 0..rows {
+            let mut tile = image::RgbImage::new(texture_size, texture_size);
+            for y in 0..texture_size.min(h - row * texture_size) {
+                for x in 0..texture_size.min(w - col * texture_size) {
+                    let p = picture.get_pixel(col * texture_size + x, row * texture_size + y).0;
+                    tile.put_pixel(x, y, image::Rgb([p[0], p[1], p[2]]));
+                }
+            }
+            level.positions.push(out.len() as u64);
+            let mut png = std::io::Cursor::new(Vec::new());
+            tile.write_to(&mut png, image::ImageFormat::Png).ok()?;
+            out.extend(png.into_inner());
+        }
+    }
+    Some((out, level))
+}
+
 impl PlanetMap {
+    /// The index file of this map (its name, type, coordinates file and levels), as [`PlanetMap::parse_index`] and
+    /// the original read it.
+    pub fn index_text(&self) -> String {
+        let mut out = format!("Name \"{}\"\r\nType {}\r\nCoordsFile {}\r\n", self.name, self.kind, self.coords_file);
+        for l in &self.levels {
+            out += &format!("\r\nFile {}\r\nTextureSize {}\r\n\r\nSize {} {}\r\nTiles {} {}\r\nMapRect {} {} {} {}\r\n", l.file, l.texture_size, l.size.0, l.size.1, l.tiles.0, l.tiles.1, l.rect[0], l.rect[1], l.rect[2], l.rect[3]);
+            for p in &l.positions {
+                out += &format!("FilePos {p}\r\n");
+            }
+        }
+        out
+    }
+
     /// The default (Rubi-Ka) map's index and coordinates under the game directory.
     pub fn load(game: &Path) -> Option<PlanetMap> {
         PlanetMap::open(&game.join("cd_image").join("textures").join("PlanetMap"), "normal/PlanetMapIndexNormal.txt")
@@ -278,5 +323,51 @@ mod tests {
         let (px, py) = map.pixel(1, 540, 300.0, 200.0).unwrap();
         let (wx, wz) = map.world(1, 540, px, py).unwrap();
         assert!((wx - 300.0).abs() < 0.05 && (wz - 200.0).abs() < 0.05, "{wx} {wz}");
+    }
+
+    /// A picture made a level and read again: the tiles go down each column in turn, the last column's and row's
+    /// are filled out, the index names every tile's place, and a rectangle whose top is not the picture's top (the
+    /// Atlas of Rubi-Ka's two small levels) places a position as much lower.
+    #[test]
+    fn a_picture_is_packed_and_read_again() {
+        let picture = image::RgbaImage::from_fn(200, 300, |x, y| image::Rgba([x as u8, y as u8, (x / 128 + 10 * (y / 128)) as u8, 255]));
+        let (bin, mut level) = pack(&picture, 128).unwrap();
+        assert_eq!((level.size, level.tiles, level.positions.len()), ((200, 300), (2, 3), 6));
+        level.file = "made/made1.bin".into();
+        level.rect = [10, 3, 190, 290];
+        let root = std::env::temp_dir().join(format!("mao-planetmap-pack-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("made")).unwrap();
+        std::fs::write(root.join("made").join("made1.bin"), &bin).unwrap();
+        let map = PlanetMap { name: "A made map".into(), kind: "Rubika".into(), coords_file: "made/made.xml".into(), levels: vec![level.clone()], root: root.clone(), ..Default::default() };
+        let text = map.index_text();
+        std::fs::write(root.join("made").join("made.txt"), &text).unwrap();
+        std::fs::write(root.join("made").join("made.xml"), r#"<root><Playfield id="540" x="31022" xscale="1.0" z="24880" zscale="1.0"/></root>"#).unwrap();
+
+        let read = PlanetMap::parse_index(&text);
+        assert_eq!((read.name.as_str(), read.kind.as_str(), read.coords_file.as_str()), ("A made map", "Rubika", "made/made.xml"));
+        assert_eq!(read.levels.len(), 1);
+        let l = &read.levels[0];
+        assert_eq!((l.file.as_str(), l.texture_size, l.size, l.tiles, l.rect, &l.positions), ("made/made1.bin", 128, (200, 300), (2, 3), [10, 3, 190, 290], &level.positions));
+
+        // (tile 4 is the second column's second: the picture from 128, 128; tile 5 its third, 44 rows of picture)
+        let tile = map.tile(0, 4).unwrap();
+        assert_eq!(tile.dimensions(), (128, 128));
+        assert_eq!(tile.get_pixel(0, 0).0, [128, 128, 11, 255]);
+        assert_eq!(tile.get_pixel(71, 5).0, [199, 133, 11, 255]);
+        assert_eq!(tile.get_pixel(72, 5).0, [0, 0, 0, 255]);
+        let tile = map.tile(0, 5).unwrap();
+        assert_eq!(tile.get_pixel(3, 43).0, [131, 43, 21, 255]);
+        assert_eq!(tile.get_pixel(3, 44).0, [0, 0, 0, 255]);
+        assert_eq!(map.tile_place(0, 5), Some((1, 2)));
+        assert!(map.tile(0, 6).is_none());
+
+        // (found in its folder, and opened with its coordinates)
+        let found = discover(&[root.clone()]);
+        assert_eq!(found, vec![Found { root: root.clone(), index: "made/made.txt".into(), name: "A made map".into(), kind: "Rubika".into() }]);
+        let opened = PlanetMap::open(&root, "made/made.txt").unwrap();
+        // (the map's origin: the rectangle's left, and its bottom less the top once more)
+        let (px, py) = opened.pixel(0, 540, 0.0, 0.0).unwrap();
+        assert!((px - 10.0).abs() < 0.01 && (py - (287.0 - 3.0)).abs() < 0.01, "{px} {py}");
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

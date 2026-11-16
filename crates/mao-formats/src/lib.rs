@@ -30,6 +30,7 @@ pub mod animstack;
 pub mod areas;
 pub mod dungeon;
 pub mod planetmap;
+pub mod psd;
 pub mod weather;
 pub mod rooms;
 pub mod dynels;

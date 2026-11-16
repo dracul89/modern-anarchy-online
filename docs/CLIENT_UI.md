@@ -3157,6 +3157,41 @@ biggest level of 2048 pixels a side at most. `mao_formats::planetmap::discover` 
 example lists them (`cargo run -p mao-formats --example planetmaps -- <folders> [--image <index> <level> <out.png>]`).
 Preview: `MAO_UI_PREVIEW=planetmap MAO_WAYPOINT=566,444,340`.
 
+**The maps were not in the user's folder until 2026-11-15.** The copies of 2026-10-29 went to a private copy of
+`%APPDATA%` that only this assistant's tools see, so the game the user played showed the game's own maps: its older
+Saavick's (the same index path) and its Shadowlands map, never SLmap. Found when the user downloaded SLmap again
+("I downloaded two additional maps for the client please work on integrating them"). Saavick's, SLmap and the Atlas
+below are now copied by a process outside that view, and the folder was listed from outside to see them there.
+
+**The Atlas of Rubi-Ka, made a map from its source pictures (2026-11-15).** The user's download is the Atlas'
+source (v1.3.1): four Photoshop files, no index, no tiles, no coordinates. What was made of it:
+
+- `mao_formats::psd::flattened` reads a `.psd`'s flattened picture (8-bit RGB, raw or PackBits rows);
+  `planetmap::pack` cuts a picture into a level's 128-pixel PNG tiles, column by column;
+  `PlanetMap::index_text` writes the index. The `planetmapbuild` example makes a map's folder of pictures:
+  `cargo run --release -p mao-formats --example planetmapbuild -- <maps folder> AoRK "Atlas of Rubi-Ka v1.3.1" Rubika
+  assets/planetmaps/AoRK.xml AoRK_map1.psd 4 1 360 459 AoRK_map2.psd 54 3 944 1148 AoRK_map3.psd 8 0 3568 4582
+  AoRK_map4.psd 8 0 3568 4582`. The pictures and the map made of them are not in the repository; the numbers are.
+- The levels: the Whom-Pah overview (384 by 512), the overview with its legends (1152 by 1280), the detail map and
+  the grey one of the outdoor encounters (3584 by 4608 each).
+- **The rectangles and the coordinates are measured, not the Atlas' own** (its released index and coordinates file
+  were not at hand). Saavick's map is drawn over the same ground pictures, so patches of Saavick's big level were
+  matched in the Atlas' detail picture (normalised cross-correlation): the Atlas lies 212 pixels left and 12 down of
+  Saavick's, and most playfields are drawn a little bigger or smaller (up to 2 %). For each outdoor playfield a
+  line was put through the offsets of the patches inside its ground (east and north apart; the ground's size from
+  the tile-map, the `pfsizes` example), and the playfield's `x`, `xscale`, `z`, `zscale` follow from Saavick's and
+  that line: `assets/planetmaps/AoRK.xml` (54 playfields, numbers only). The two overview levels are the detail
+  picture shrunk by 4 and by 10 exactly and moved by (52, -3) and (3, -1) pixels (matched the same way), which gives
+  their rectangles; a rectangle's top is counted as `PlanetMap::pixel` counts it.
+- **Guesses and gaps.** The towns drawn another way on the two maps had no match and keep Saavick's place moved by
+  the common offset (Old Athen, West Athen, Rome's three, Omni-1 Trade, the Omni arena); so do the U-turn
+  playfields, which the Atlas does not draw. The fit leaves about a pixel of the detail level (5 m) in most
+  playfields, more where a playfield's picture is not one stretch (not measured further). The Atlas' own drawings
+  of the alien sectors and the Unicorn outpost (in the western desert) have no coordinates yet, and it has no
+  dungeons: there the window shows the map without the arrow. The outlines of every playfield were drawn over the
+  three levels and looked at; `MAO_UI_PREVIEW=planetmap` with the Atlas chosen shows the arrow in Old Athen.
+  **Not tried live.**
+
 ## Everyone is a blue triangle in the Grid (2026-10-29)
 
 In a playfield whose first area is named "Grid" (`PlayfieldAnarchy_t::IsGrid` 0x101222d7: the Grid, 152, and the Fixer
