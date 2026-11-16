@@ -1,8 +1,14 @@
 # Each outdoor playfield's place on the Atlas of Rubi-Ka's detail picture, measured against Saavick's map (whose
 # coordinates are known): patches of Saavick's big level inside the playfield's ground are matched in the Atlas'
 # picture, a line is put through the offsets found (east and north apart), and the playfield's coordinates for the
-# Atlas follow from it. The Atlas' detail level is given the rectangle LEFT_A, TOP_A with Saavick's width and height.
-# usage: python -I calib2.py <saavick level picture> <atlas picture> <saavick coords.xml> <sizes.txt> <out coords.xml>
+# Atlas follow from it. The Atlas' detail level is given Saavick's rectangle moved BASE[0] pixels left (8 0 3568
+# 4582); the 12 pixels it lies lower are put in the coordinates. This made assets/planetmaps/AoRK.xml (see "The Atlas
+# of Rubi-Ka" in docs/CLIENT_UI.md). Needs numpy and Pillow.
+#
+# usage: python planetmap_fit.py <saavick level picture> <atlas picture> <saavick coords.xml> <sizes.txt> <out coords.xml>
+#   <saavick level picture>: Saavick's third level whole (the `planetmaps` example's --image, level 2)
+#   <atlas picture>: the Atlas' detail picture (AoRK_map3) as a PNG
+#   <sizes.txt>: the `pfsizes` example's lines for the playfields of the coordinates file
 import re
 import sys
 
