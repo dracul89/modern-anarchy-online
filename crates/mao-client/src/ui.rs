@@ -16,7 +16,8 @@ use crate::gear::{GearItem, GearWindow};
 use crate::hotbar::{self, Hotbars};
 use crate::theme::{self, Palette};
 
-/// Text floating over a point of the world (a whompah booth's destination).
+/// A Whom-Pah booth (or an interior's way out) and what is known of where it leads: a line of the Whom-Pah window and a
+/// dot of the corner map. Until 2026-11-15 it was also drawn as a tag floating over the booth.
 pub struct Label {
     pub world: Vec3,
     pub text: String,
@@ -2120,15 +2121,8 @@ fn hud_layer(ctx: &egui::Context, hud: &Hud, project: &dyn Fn(Vec3) -> Option<[f
     let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Background, egui::Id::unique("labels")));
     // (dead: the world fades to white under the labels and the windows)
     crate::whiteout::draw(ctx, &painter, screen);
-    for label in &hud.labels {
-        let Some([x, y]) = project(label.world) else { continue };
-        let at = egui::pos2(screen.left() + x * screen.width(), screen.top() + y * screen.height());
-        let galley = painter.layout_no_wrap(label.text.clone(), egui::FontId::proportional(14.0), egui::Color32::WHITE);
-        let rect = egui::Rect::from_min_size(egui::pos2(at.x - galley.size().x * 0.5, at.y - galley.size().y), galley.size());
-        painter.rect_filled(rect.expand(4.0), 4.0, egui::Color32::from_black_alpha(150));
-        painter.rect_stroke(rect.expand(4.0), 4.0, egui::Stroke::new(1.0, accent), egui::StrokeKind::Outside);
-        painter.galley(rect.min, galley, egui::Color32::WHITE);
-    }
+    // (no tags over the Whom-Pah booths: each booth's own sign says where it leads, and the tags stood over them on
+    // top of everything. The booths' labels still fill the Whom-Pah window and the corner map's dots.)
     // A nano program landing: rings that widen and fade around the target.
     for g in &hud.glows {
         let age = g.born.elapsed().as_secs_f32() / GLOW_LIFE;

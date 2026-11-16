@@ -4207,3 +4207,12 @@ Tests: `the_jobe_booth_asks_for_shadowlands`, `the_games_jobe_booths` (`MAO_GAME
 server sends stat 389 to a free account's character with bit 1 clear (and to a paying one with it set) is not
 seen; the log's line at the next try shows it. Not done: the signs would give every booth's destination without
 learning it (the labels over the booths still come from `whompah.ini`).
+
+## No tags over the Whom-Pah booths (2026-11-15)
+
+The user: "now that whompah signs are showing you correctly can we remove the tag thing". The client drew a tag over
+every booth ("Whom-Pah > Tir", or plain "Whom-Pah" where the destination was not learned yet, and over an interior's
+way out), on top of everything in the world; it was this client's own, from before the booths' signs had their
+textures. The signs say where each booth leads, so the tags are no longer drawn (`ui.rs`, the labels' loop). The
+booths' labels are still made: they fill the Whom-Pah window (its Go button walks to a booth) and the corner map's
+dots. Looked at: Old Athen with the interface (`MAO_UI_PREVIEW=1`), no tags over the station.
