@@ -2062,7 +2062,7 @@ fn run(args: &[String]) -> Result<(), String> {
                                     let stock: Vec<shop::Slot> = list.iter().map(|s| shop::slot(&db, &icon, (int(s, "ItemLowId"), int(s, "ItemHighId"), int(s, "Quality")), rates, 400)).collect();
                                     let row = |i: usize| stock.get(i).map(|s| shop::Row { item: [0xc75b, 0xc000021c, 0x6f, i as u32], name: s.name.clone(), icon: s.icon.clone(), count: 1, quality: s.quality, price: s.price });
                                     let bought: Vec<shop::Row> = [0, 2].into_iter().filter_map(row).collect();
-                                    window.set(shop::ShopState { shop: (0xc75b, 0xc000021c), name: "Clan Basic Startup Equipment".into(), stock });
+                                    window.set(shop::ShopState { shop: (0xc75b, 0xc000021c), name: "Clan Basic Startup Equipment".into(), stock, buy_only: std::env::var_os("MAO_SHOP_BUY_ONLY").is_some() });
                                     for r in bought {
                                         window.apply(shop::Change::Bought(r));
                                     }

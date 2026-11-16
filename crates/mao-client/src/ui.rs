@@ -1419,7 +1419,9 @@ impl Ui {
                 for link in events.references {
                     chat_window.add_text(&link);
                 }
+                // (not into a shop that only sells: `shop.rs`, the buy-only shops)
                 if shop.open
+                    && !(shop.buy_only && shop.partner.is_none())
                     && let Some(&slot) = events.trade_adds.last()
                 {
                     requests.shop = Some(crate::shop::ShopCommand::Sell(slot));

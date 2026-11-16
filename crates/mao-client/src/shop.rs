@@ -16,6 +16,13 @@
 //! (stat 74 at its quality, [`value_at`]) times the shop's stat 427 / 100, less a Computer Literacy discount ([`buy_price`],
 //! FUN_10099e9b); your items fetch their value times the shop's stat 426 / 100, plus a Computer Literacy bonus
 //! ([`sell_price`], FUN_1009a12d). The shop's stats are its template's (`StaticInstance`).
+//!
+//! **The buy-only shops** (2026-11-16). The trade's kind is decided as it starts (Gamecode FUN_1006692a, which
+//! raises `InventoryGUIModule_c::SlotStartTrade`): 0 with a player, 1 with a shop whose type (stat 156, 61 when it
+//! has none: FUN_10099ae4) is the Computer Literacy kind, 2 with any other shop. Kind 2 is the view `ShopBuy`,
+//! which has the stock and the bought items and no "Sold items" list, and the view's own flag at +0x1a8 is put
+//! out: nothing of one's own goes in ([`Rates::buy_only`]). Not seen at such a shop: the view was checked against
+//! the game's file only.
 
 use std::sync::Arc;
 
@@ -105,6 +112,12 @@ impl Rates {
         let stat = |s: u32| template.stat(s).map(|v| v as i32 as i64);
         Rates { buy: stat(427).unwrap_or(0), sell: stat(426).unwrap_or(0), kind: stat(156).filter(|&k| k != 0).unwrap_or(COMPUTER_LITERACY_SHOP) }
     }
+
+    /// Whether the shop only sells (Gamecode FUN_10099b27, FUN_1006692a): its type is not the Computer Literacy
+    /// kind. A shop whose type is not known (0) is taken for that kind, as one without the stat is.
+    pub fn buy_only(&self) -> bool {
+        self.kind != 0 && self.kind != COMPUTER_LITERACY_SHOP
+    }
 }
 
 /// A shop that was opened: the booth, its name and its stock.
@@ -112,6 +125,8 @@ pub struct ShopState {
     pub shop: (u32, u32),
     pub name: String,
     pub stock: Vec<Slot>,
+    /// The shop takes nothing in (`Rates::buy_only`): the view `ShopBuy`.
+    pub buy_only: bool,
 }
 
 /// FUN_100cb909: a value between the low and high templates' at a quality, on the line between their qualities
@@ -238,8 +253,10 @@ pub struct ShopWindow {
     pub partner_credits: i64,
     pub confirmed: (bool, bool),
     asking: bool,
-    /// The view the window was built from (`ShopTrade` or `PlayerTrade`).
+    /// The view the window was built from (`ShopTrade`, `ShopBuy` or `PlayerTrade`).
     view: &'static str,
+    /// The shop only sells: nothing of one's own goes in.
+    pub buy_only: bool,
     /// The credits last sent, and a confirm waiting for the frame after them.
     credits_sent: i64,
     pending_confirm: bool,
@@ -253,6 +270,7 @@ const ROW: f32 = 26.0;
 impl ShopWindow {
     pub fn set(&mut self, state: ShopState) {
         self.partner = None;
+        self.buy_only = state.buy_only;
         self.shop = state.shop;
         self.name = state.name;
         self.stock = state.stock;
@@ -308,10 +326,21 @@ impl ShopWindow {
         }
     }
 
+    /// The view of the trade's kind (FUN_100e1074).
+    fn wanted_view(&self) -> &'static str {
+        if self.partner.is_some() {
+            "PlayerTrade"
+        } else if self.buy_only {
+            "ShopBuy"
+        } else {
+            "ShopTrade"
+        }
+    }
+
     /// FUN_100e1074 and the docks: `ShopTrade` (or, trading with a player, `PlayerTrade`) of the skin's `TradeGUI.xml`, the
     /// docks and the fields given room.
     fn load(&mut self, ctx: &egui::Context) {
-        let view = if self.partner.is_some() { "PlayerTrade" } else { "ShopTrade" };
+        let view = self.wanted_view();
         self.view = view;
         let dirs: Vec<std::path::PathBuf> = crate::skin::skin(ctx).map(|s| s.dirs().into_iter().map(|d| d.to_path_buf()).collect()).unwrap_or_default();
         let Some((mut tree, root)) = crate::gui::load_view(&dirs, "TradeGUI.xml", view) else { return };
@@ -337,7 +366,7 @@ impl ShopWindow {
 
     /// Draws the window; returns what to send, if anything.
     pub fn show(&mut self, ctx: &egui::Context, gear: &mut GearWindow, _items: &[GearItem], palette: &Palette) -> Option<ShopCommand> {
-        let wanted = if self.partner.is_some() { "PlayerTrade" } else { "ShopTrade" };
+        let wanted = self.wanted_view();
         if self.window.is_none() || self.view != wanted {
             self.load(ctx);
         }
@@ -370,6 +399,7 @@ impl ShopWindow {
         let root = w.root;
         let tree = &mut w.tree;
         let (stock, bought, sold, selected, info_url) = (&self.stock, &self.bought, &self.sold, &mut self.selected, &mut self.info_url);
+        let buy_only = self.buy_only && self.partner.is_none();
         let name = if self.name.is_empty() { format!("Booth {:x}", self.shop.1 & 0xffff) } else { self.name.clone() };
         let (partner_credits, confirmed) = (self.partner_credits, self.confirmed);
         // (the partner's credits in their field, `PartnerCashView`, which the player does not type in)
@@ -477,7 +507,7 @@ impl ShopWindow {
             // (an inventory item dropped on any of the three lists goes in: in shop mode FUN_100e121e gives each list's
             // drop signal, +0x2dc, FUN_100e015f, which adds an "inventory/item" drag to the trade)
             let dropped = |area: &Option<egui::Rect>| area.is_some_and(|a| crate::gear::letting_go(ui.ctx()) && ui.input(|i| i.pointer.interact_pos().is_some_and(|p| a.contains(p))));
-            if dragged != u32::MAX && [&stock_area, &bought_area, &sold_area].into_iter().any(dropped) {
+            if dragged != u32::MAX && !buy_only && [&stock_area, &bought_area, &sold_area].into_iter().any(dropped) {
                 command = Some(ShopCommand::Sell(dragged));
             }
         });
@@ -565,6 +595,28 @@ mod tests {
         for name in ["PartnerName", "ShopInventoryDock", "PartnerInventoryDock", "OurInventoryDock", "PartnerCashView", "OurCashView", "AcceptButton", "DeclineButton"] {
             assert!(tree.find(root, name).is_some(), "{name}");
         }
+        // (the buy-only view: the stock and the bought items, and no place for one's own)
+        let dir = std::path::Path::new(&game).join("cd_image/gui/Default");
+        let (tree, root) = crate::gui::load_view(&[dir], "TradeGUI.xml", "ShopBuy").unwrap();
+        for name in ["PartnerName", "ShopInventoryDock", "PartnerInventoryDock", "PartnerCashView", "AcceptButton", "DeclineButton"] {
+            assert!(tree.find(root, name).is_some(), "{name}");
+        }
+        assert!(tree.find(root, "OurInventoryDock").is_none() && tree.find(root, "OurCashView").is_none());
+    }
+
+    /// A shop of another type than the Computer Literacy one only sells; one without a type, or of none known, is
+    /// that kind.
+    #[test]
+    fn a_shop_of_another_type_only_sells() {
+        let rates = |kind| Rates { buy: 100, sell: 10, kind };
+        assert!(!rates(COMPUTER_LITERACY_SHOP).buy_only() && !rates(0).buy_only());
+        assert!(rates(0x3e).buy_only() && rates(1).buy_only());
+        let mut w = ShopWindow::default();
+        assert_eq!(w.wanted_view(), "ShopTrade");
+        w.buy_only = true;
+        assert_eq!(w.wanted_view(), "ShopBuy");
+        w.partner = Some(7);
+        assert_eq!(w.wanted_view(), "PlayerTrade");
     }
 
     #[test]

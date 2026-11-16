@@ -262,6 +262,9 @@ account with `net <game> create`, in Arete Landing; scripted, other new players 
 - [ ] The missions stack (2026-11-15): with one mission in the journal (Ctrl+4), accept a second at a terminal: both
   are listed, the chat says a new mission was got, and the new one's place is uploaded. Zone: both are still listed.
   Delete one: the other stays.
+- [ ] A shop that only sells (2026-11-16): at a shop of a special kind (not the plain startup and general
+  shops) the window has no "Sold items" list and an inventory item dropped on it stays where it was; buying
+  works as elsewhere. A plain shop still has all three lists.
 - [ ] Mail with cash on delivery (2026-11-16; a paying account's test character writing to another test
   character): a number in C.O.D. asks before sending and the receiver sees it in the C.O.D. field; Take All asks
   before paying; Return To Sender sends the mail back and it leaves the list. A negative number in either money

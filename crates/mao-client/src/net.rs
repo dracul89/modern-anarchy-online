@@ -6531,7 +6531,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                 shop_booth = Some(m.identity);
                                 shop_opened_at = Some(position);
                                 shop_sold.clear();
-                                pending_shop = Some(crate::shop::ShopState { shop: m.identity, name, stock });
+                                pending_shop = Some(crate::shop::ShopState { shop: m.identity, name, stock, buy_only: shop_rates.buy_only() });
                             }
                         }
                     }

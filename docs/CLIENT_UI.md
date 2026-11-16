@@ -4366,3 +4366,18 @@ The two boxes' titles ("ConfirmSendMail", "MailTakeItems") are what the code han
 `cash_on_delivery_and_the_way_back`, `a_mail_is_returned_and_its_credits_are_signed`, `mail_matches_the_capture`.
 **Nothing of this was sent to a server**: no capture has a C.O.D. mail or a returned one, and sending needs a
 paying account. Kept from before and this client's own: a mail without a recipient or a subject is not sent.
+
+## The shops that only sell: the `ShopBuy` view (2026-11-16)
+
+Second of the window gaps. The trade view has three kinds (GUI.dll FUN_100e1074): with a player, with a shop, and
+`ShopBuy`, which the client never used. Which one a trade gets is decided as it starts (Gamecode FUN_1006692a,
+raising `InventoryGUIModule_c::SlotStartTrade`): a shop whose type (stat 156; 61 when it has none, FUN_10099ae4)
+is the Computer Literacy kind is a `ShopTrade`, **any other shop is a `ShopBuy`**: the stock and the bought
+items, no "Sold items" list, and nothing of one's own goes in (the view's flag at +0x1a8).
+
+Here: `shop::Rates::buy_only`, `ShopState::buy_only`, `ShopWindow::wanted_view`; an item dropped on such a
+shop's lists or sent to it from the inventory's menu is not put in. Tests: `a_shop_of_another_type_only_sells`,
+`the_skin_has_the_shop_view` (the game's `ShopBuy` view has no place for one's own items). Looked at: the preview
+with the captured stock, both ways (`MAO_UI_PREVIEW=shop MAO_CAPTURE=<log>`, and `MAO_SHOP_BUY_ONLY=1` for the
+buy-only view): Shop and Bought Items over the buttons, no Sold Items. **Not seen at such a shop live**: which
+shops have another type was not surveyed. Not done: the lists' kept columns (`shop_listview_config`).

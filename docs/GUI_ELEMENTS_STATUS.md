@@ -40,7 +40,7 @@ rows were brought up to date on the day this was saved. A few gaps listed here m
 | Special actions | placing by hand; backstab never seen live |
 | Mail | kept column widths (Return To Sender and C.O.D. ported 2026-11-16, not tried live) |
 | Missions | kept columns and the active mission, Update Team Members, the shadow knowledge reward row |
-| Shops and trade | the `ShopBuy` mode and the list configs; the partner's item names in a player trade; the out-of-range check |
+| Shops and trade | the list configs; the partner's item names in a player trade; the out-of-range check (`ShopBuy` ported 2026-11-16) |
 | NPC chat | the Shop button's trade with the NPC |
 | Team | invite and kick from the window, the team's side |
 | Pets | the icon list of a pet's nanos, Remember Pet Names |
