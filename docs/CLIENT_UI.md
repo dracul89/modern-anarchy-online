@@ -4163,3 +4163,21 @@ before, while the character itself ran steady in the middle of the picture. Two 
 
 The second holds for everyone's tag. **Not looked at in a running game** (the recording was the user's; no new one was
 made).
+
+## No take-off before the server has taken the flying item (2026-11-15)
+
+The user: "fix the takeoff flicker when the server refuses a flying item". An item's move is shown in the list at once
+and taken back when the server refuses it (`World::moves_asked`); the client's own reading of flight (something worn
+whose wear event has the flight spell) went by the list as shown. So the jetpack the server would not have lifted the
+character for the second until the refusal came (the log's "flight: on" and "off", five times). The original flies
+when the server's spell list says so, which can only come after the move is taken.
+
+Now `net::worn_flight` goes by where each item was before the moves still asked: a flying item put on lifts the
+character when the server has taken the move, one taken off sets it down when the server has taken that, and in a
+swap each of the two counts where it was until the answer. Test: `a_worn_item_flies_when_the_server_has_agreed`.
+**Not tried live.** With it a take-off waits for the server's answer, a tenth of a second or so. A move the server
+never answers (seen once with a key swapped in right after a taking off) leaves the item counted where it was.
+Not done: the original asks itself whether the item can be worn before it asks the server
+(`N3Msg_IsItemPossibleToWear`, the item's own check at its +0x5c); the client's `wear_refusal` judges the wear action
+(6) only, and which action the original judges for an item of the weapons' page (the jetpack's is wield, 8) was not
+read, so the jetpack is still asked of the server and refused there, with the server's line.

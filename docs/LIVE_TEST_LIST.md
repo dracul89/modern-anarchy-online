@@ -262,6 +262,9 @@ account with `net <game> create`, in Arete Landing; scripted, other new players 
 - [ ] The missions stack (2026-11-15): with one mission in the journal (Ctrl+4), accept a second at a terminal: both
   are listed, the chat says a new mission was got, and the new one's place is uploaded. Zone: both are still listed.
   Delete one: the other stays.
+- [ ] No take-off on a refusal (2026-11-15): use a flying item the character cannot wear (the jetpack under the
+  skill): the server's line comes, the item goes back, and the character never leaves the ground. Put a Yalmaha on
+  and take it off: it lifts and lands as before, a moment after the click.
 - [ ] The name at a run (2026-11-15): select yourself and run, turn, jump: the name and its brackets stay over the
   head without shaking and can be read; others' names do not bob as they run either.
 - [ ] An item of several actions (2026-11-15): the Ganimedes Personal Jetpack's window (and any item that had no

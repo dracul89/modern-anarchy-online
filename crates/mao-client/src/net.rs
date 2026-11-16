@@ -3966,6 +3966,18 @@ fn vehicle_step(velocity: [f32; 2], heading: f32, walk: i8, pushed: i8, top: f32
     v
 }
 
+/// Whether something worn lets the character fly (`grants` by its template), for the client's own reading of flight.
+/// A move is shown in the list at once and taken back when the server refuses it (`World::moves_asked`); flight goes
+/// by where each item was before the moves still asked, the place the server has agreed to. So a flying item put on
+/// lifts the character only when the server has taken the move, and one taken off sets it down only then. (Read from
+/// the list as shown, the character took off, was refused a second later and fell back: the user's jetpack of
+/// 2026-11-15, five times over. The original flies when the server's spell list says so, which comes after the move.)
+fn worn_flight(worn: &[inventory::Entry], asked: &[(u32, u32, bool)], grants: &mut dyn FnMut(u32) -> bool) -> bool {
+    // (an item at a move's `to` came from its `from`; with a swap, the one now at `from` came from `to`)
+    let agreed = |slot: u32| asked.iter().find_map(|&(from, to, swapped)| if slot == to { Some(from) } else if swapped && slot == from { Some(to) } else { None }).unwrap_or(slot);
+    worn.iter().filter(|e| agreed(e.slot) < inventory::BACKPACK_FIRST).any(|e| grants(e.low_id))
+}
+
 /// The movement message for the turn keys changing from `before` to `now` (-1 left, 1 right, 0 neither): the new
 /// turn's start, else the stop of the one that ended (`movement::TURN_RIGHT_START` has the original's numbers).
 fn turn_message(before: i8, now: i8) -> u8 {
@@ -8159,8 +8171,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             // (whether the server sends one for something worn, or at login and after zoning, was not seen) the client reads
             // the same spell itself: in a running program (`nano_flying`) or in the wear event of something worn, a Ganimedes
             // jetpack or a Yalmaha (`item::worn_grants_flight`; the worn places are those under the backpack's first, 64).
-            let worn_flight = state.worn.iter().filter(|e| e.slot < 64).any(|e| {
-                *flight_items.entry(e.low_id).or_insert_with(|| gear_db.get(mao_formats::resource::Id { kind: mao_formats::item::TEMPLATE, instance: e.low_id }).ok().flatten().is_some_and(|d| mao_formats::item::worn_grants_flight(&d)))
+            // (by the places the server has agreed to, not by a move still asked: `worn_flight`)
+            let worn_flight = worn_flight(&state.worn, &state.moves_asked, &mut |template| {
+                *flight_items.entry(template).or_insert_with(|| gear_db.get(mao_formats::resource::Id { kind: mao_formats::item::TEMPLATE, instance: template }).ok().flatten().is_some_and(|d| mao_formats::item::worn_grants_flight(&d)))
             });
             // (`MAO_FORCE_FLY=1`: flight without a program or an item, to try the flying itself on a character that has neither)
             let worn_flight = worn_flight || std::env::var_os("MAO_FORCE_FLY").is_some();
@@ -11774,6 +11787,30 @@ mod movement_tests {
         assert_eq!(cast_seconds(300, None, 0, -100), 4.0);
         assert_eq!(cast_seconds(300, Some(100), 2000, 100), 1.0);
         assert_eq!(cast_seconds(300, Some(1_234_567_890), 2000, 0), 0.0);
+    }
+
+    /// A flying item lifts the character when the server has taken its move to a wear place, not while the move is
+    /// only asked; taken off, it sets the character down when the server has taken that; and in a swap each item
+    /// counts where it was until the answer.
+    #[test]
+    fn a_worn_item_flies_when_the_server_has_agreed() {
+        let entry = |slot: u32, low_id: u32| inventory::Entry { slot, flags: 1, count: 1, container: (0, 0), low_id, high_id: low_id, quality: 1, extra: 0 };
+        let mut wings = |template: u32| template == 7;
+        // (in the backpack: no; worn and nothing asked: yes)
+        assert!(!worn_flight(&[entry(73, 7)], &[], &mut wings));
+        assert!(worn_flight(&[entry(1, 7)], &[], &mut wings));
+        // (shown at place 1 by a move from 73 still asked: not yet; the server took it: now)
+        assert!(!worn_flight(&[entry(1, 7)], &[(73, 1, false)], &mut wings));
+        assert!(worn_flight(&[entry(1, 7)], &[], &mut wings));
+        // (taken off, the move to the backpack still asked: still flying)
+        assert!(worn_flight(&[entry(80, 7)], &[(1, 80, false)], &mut wings));
+        assert!(!worn_flight(&[entry(80, 7)], &[], &mut wings));
+        // (swapped for a key at 73: the wings count at 1 and the key at 73 until the answer)
+        let swapped = [entry(73, 7), entry(1, 9)];
+        assert!(worn_flight(&swapped, &[(73, 1, true)], &mut wings));
+        assert!(!worn_flight(&swapped, &[], &mut wings));
+        // (another item's move does not matter)
+        assert!(worn_flight(&[entry(1, 7), entry(5, 9)], &[(70, 5, false)], &mut wings));
     }
 
     /// The turn keys' messages are the original's: a left turn is 12 and ends with 14, a right one 9 and 11; and one
