@@ -912,6 +912,19 @@ pub fn org_command(command: u8, targeted: bool, text: String) {
     ORG_COMMANDS.lock().unwrap_or_else(|e| e.into_inner()).push((command, at, text, false));
 }
 
+/// The original's `LockEquipment` value (a character's preference, false in the game's `CharPrefs.xml`), which the
+/// interface keeps up to date: while it is on nothing is put on or taken off (`equipment_locked`).
+pub static LOCK_EQUIPMENT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Whether a move between the places `from` and `to` is stopped by the equipment's lock, the first thing Gamecode's
+/// `N3Msg_IsItemPossibleToWear` (0x10026c57) and `N3Msg_IsItemPossibleToUnWear` (0x100268df) ask (FUN_100266c9): a
+/// move onto a wear place or off one while `LockEquipment` is on. The original then says
+/// `Feedback_EquipmentLocked` and sends nothing. (Its other lock, the list of single locked tabs `EquipmentLocks`
+/// that the wear window's tabs set, is not here: this client's wear window has no such locks.)
+fn equipment_locked(locked: bool, from: u32, to: u32) -> bool {
+    locked && (from < inventory::BACKPACK_FIRST || to < inventory::BACKPACK_FIRST)
+}
+
 /// `/rp` typed, how many times: the game loop turns the mark over for each (`n3::ROLE_PLAY`).
 static ROLE_PLAYS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
@@ -981,8 +994,19 @@ impl World {
     /// anything is sent: `None` when it can; `Some(None)` when it cannot and nothing is said (not a weapon, armour,
     /// implant or spirit by its class, stat 76; a place its placement mask, stat 298, does not have, FUN_10080659; no
     /// "wear" among its "can" flags, FUN_10081d5f); `Some(text)` when its requirements to wear it (action 6) are not
-    /// met, with the feedback text's name. Not here: the original's locked equipment, the implants' own rule
-    /// (FUN_10044dd8), the social armour's (FUN_10080aff) and the belt's places for decks (FUN_10046f26).
+    /// met, with the feedback text's name. **Action 6 is the only one judged**, for a weapon too (`WeaponItem_t`'s
+    /// check, FUN_10087a42, is the same test of action 6, and an item without one passes: FUN_100816f6); a weapon's
+    /// wield requirements (action 8, FUN_1009c967) are another question, which this function's caller does not
+    /// ask. So an item whose only requirements are to wield it (the Ganimedes jetpack) is asked of the server by
+    /// the original as well, and refused there. The equipment's lock is asked before this (`equipment_locked`).
+    /// Not here, read on 2026-11-16 and left to the server, since each needs something of the character the client
+    /// does not keep and a wrong no would stop the player: an implant needs bit 0x10 of the character's stat 224
+    /// (FUN_10044dd8, else `Feedback_AccessingImplants`; the bit is raised by a spell the client does not run); a
+    /// weapon on the places 9 to 14 needs that many deck places, stat 45 (FUN_10046f26, else
+    /// `Feedback_ThisItemRequiresComputerDeck`); social armour against other armour (FUN_10081d5f's
+    /// `Feedback_SocialArmorAndOtherArmor`, by a flag of the character's at +0x138, and FUN_10080aff's
+    /// `Feedback_SocialArmorNoOtherArmor`, by the item's flag 0x100 and the worn pieces' stat 702); an item that is
+    /// not one's own (`Feedback_ItemNotOwnedByYou`).
     fn wear_refusal(&self, entry: &inventory::Entry, to: u32, db: &ResourceDatabase) -> Option<Option<&'static str>> {
         // (nothing is put on while the overflow's first place holds something: Gamecode FUN_1004bd28, 0x1004cab6)
         if self.overflow.iter().any(|e| e.slot == 0) {
@@ -8102,8 +8126,13 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 wanted_move = Some((keys.mv.1, keys.mv.2));
             }
             if let Some((from, to)) = wanted_move {
-                // (to a wear place only what may be worn there: the original asks itself before it asks the server)
-                let refusal = state.worn.iter().find(|e| e.slot == from).filter(|_| to < inventory::BACKPACK_FIRST).and_then(|e| state.wear_refusal(e, to, &gear_db));
+                // (to a wear place only what may be worn there: the original asks itself before it asks the server; and
+                // nothing on or off while the equipment is locked)
+                let refusal = if equipment_locked(LOCK_EQUIPMENT.load(std::sync::atomic::Ordering::Relaxed), from, to) {
+                    Some(Some("Feedback_EquipmentLocked"))
+                } else {
+                    state.worn.iter().find(|e| e.slot == from).filter(|_| to < inventory::BACKPACK_FIRST).and_then(|e| state.wear_refusal(e, to, &gear_db))
+                };
                 if let Some(Some(name)) = refusal {
                     state.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, crate::feedback::plain(name)));
                 }
@@ -11934,6 +11963,15 @@ mod movement_tests {
         assert!(!worn_flight(&swapped, &[], &mut wings));
         // (another item's move does not matter)
         assert!(worn_flight(&[entry(1, 7), entry(5, 9)], &[(70, 5, false)], &mut wings));
+    }
+
+    /// The equipment's lock stops a move onto a wear place and off one, and nothing between the backpack's places.
+    #[test]
+    fn the_locked_equipment_stays_as_it_is() {
+        let pack = inventory::BACKPACK_FIRST;
+        assert!(equipment_locked(true, pack + 3, 6) && equipment_locked(true, 6, pack + 3) && equipment_locked(true, 6, 8));
+        assert!(!equipment_locked(true, pack + 3, pack + 9));
+        assert!(!equipment_locked(false, pack + 3, 6) && !equipment_locked(false, 6, pack + 3));
     }
 
     /// The mouse's steering sends its turn's start only as the side changes and the side's stop when it ends, as a

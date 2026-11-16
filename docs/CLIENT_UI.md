@@ -4293,3 +4293,28 @@ movement straight up or down as one to the right; when the steering begins durin
 turn and starts the strafe (here the same messages come from the keys being counted as strafe keys); at its end it
 sends both strafe stops where a converted key was held (here the one that was running). Not ported: the limit on
 the mouse's turn the original applies while stat 224's bits 2 or 4 are set and stat 267 is there.
+
+## The original's own wear check, read to its end (2026-11-16)
+
+Fifth of the user's "do all of the Readable from the decompile now". `N3Msg_IsItemPossibleToWear` (Gamecode
+0x10026c57) and what it calls were read whole. What that changes:
+
+- **A correction to the note of 2026-11-15** ("the original asks itself whether the item can be worn ... the
+  jetpack is still asked of the server"): there is nothing more to do for the jetpack. The check judges the
+  item's **wear** requirements (action 6) and nothing else, for a weapon too (`WeaponItem_t`'s check FUN_10087a42
+  is the same test; an item with no action 6 passes, FUN_100816f6). The wield requirements (action 8,
+  FUN_1009c967) are not asked there. So the original asks the server about the jetpack as this client does, and
+  is refused there.
+- **Ported: the equipment's lock.** The first thing the check asks (FUN_100266c9), and the take-off check with it
+  (`N3Msg_IsItemPossibleToUnWear` 0x100268df): while the value `LockEquipment` is on, nothing goes onto a wear
+  place or off one, and the game's `Feedback_EquipmentLocked` is said. `net::equipment_locked`; the value is the
+  original's (false in the game's `CharPrefs.xml`), set here with `/setoption LockEquipment true`. Test:
+  `the_locked_equipment_stays_as_it_is`. Not here: the original's second lock, single tabs locked from the wear
+  window (`EquipmentLocks`); this client's wear window has no such locks.
+- **Read and knowingly left to the server**, because each needs something of the character the client does not
+  keep, and a wrong "no" would stop the player where the original lets them: an implant needs bit 0x10 of stat
+  224 (set at a surgery clinic by a spell the client does not run; else `Feedback_AccessingImplants`); a weapon
+  on the places 9 to 14 needs that many deck places (stat 45, the belt's; else
+  `Feedback_ThisItemRequiresComputerDeck`); social armour against other armour (two rules, by a flag of the
+  character's and by the worn pieces' stat 702); an item that is not one's own. They are listed in
+  `World::wear_refusal`'s head. The server refuses each of these moves and the client takes the move back.

@@ -262,6 +262,9 @@ account with `net <game> create`, in Arete Landing; scripted, other new players 
 - [ ] The missions stack (2026-11-15): with one mission in the journal (Ctrl+4), accept a second at a terminal: both
   are listed, the chat says a new mission was got, and the new one's place is uploaded. Zone: both are still listed.
   Delete one: the other stays.
+- [ ] The equipment's lock (2026-11-16): `/setoption LockEquipment true`, then try to put something on and to
+  take something off: the game's line about locked equipment, nothing moves; between two backpack places an item
+  still moves. `/setoption LockEquipment false`: as before.
 - [ ] Steering with the mouse (2026-11-16): run with the right button held and swing the mouse left and right
   near a Whom-Pah cluster and along a wall: no rubber-banding, no zoning from beside a booth; another client
   sees the character turn smoothly. With the button held, the turn keys step sideways. The log's "sent move"
