@@ -478,6 +478,29 @@ impl Keymap {
         self.bindings.insert(action, keys.split(',').filter_map(parse_binding).collect());
     }
 
+    /// The key this client has one of the original's key commands on (the `KEY_...` ids of the skins'
+    /// `OptionPanel/HotKeys.xml`, the option window's "Fixed keys"): none for a command this client does not have
+    /// (the chat's history keys, its reply key, the place said to the chat) or has no key for.
+    pub fn original_key(&self, id: &str) -> Option<String> {
+        let action = match id {
+            "KEY_NEXT_FRIENDLY_TARGET" => Action::NextFriendlyTarget,
+            "KEY_PREV_FRIENDLY_TARGET" => Action::PrevFriendlyTarget,
+            "KEY_NEXT_HOSTILE_TARGET" => Action::NextHostileTarget,
+            "KEY_PREV_HOSTILE_TARGET" => Action::PrevHostileTarget,
+            "KEY_COMMAND_ROTATE_CAMERA_LEFT" => Action::CameraRotateLeft,
+            "KEY_COMMAND_ROTATE_CAMERA_RIGHT" => Action::CameraRotateRight,
+            "KEY_COMMAND_ROTATE_CAMERA_UP" => Action::CameraRotateUp,
+            "KEY_COMMAND_ROTATE_CAMERA_DOWN" => Action::CameraRotateDown,
+            "KEY_COMMAND_ZOOM_CAMERA_IN" => Action::CameraZoomIn,
+            "KEY_COMMAND_ZOOM_CAMERA_OUT" => Action::CameraZoomOut,
+            "KEY_COMMAND_CAMERA_SET_PREFERRED_POS" => Action::CameraSavePreferred,
+            "KEY_COMMAND_CAMERA_RESET" => Action::CameraReset,
+            _ => return None,
+        };
+        let names: Vec<String> = self.bindings_of(action).iter().map(binding_name).collect();
+        (!names.is_empty()).then(|| names.join(", "))
+    }
+
     /// The bindings of an action (none when it is unbound).
     pub fn bindings_of(&self, action: Action) -> Vec<Binding> {
         self.bindings.get(&action).cloned().unwrap_or_default()

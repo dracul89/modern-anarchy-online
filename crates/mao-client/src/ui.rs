@@ -1080,7 +1080,7 @@ impl Ui {
                         requests.chat.push(line);
                     }
                 }
-                option_panel.show(&ctx, palette, &mut cc.store, &hud.stats);
+                option_panel.show(&ctx, palette, &mut cc.store, &hud.stats, &|id| settings.keymap.original_key(id));
                 if std::mem::take(&mut option_panel.client_settings) {
                     *options_open = true;
                 }
@@ -1625,6 +1625,10 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
     if let Some(n) = std::env::var("MAO_OPTION_PAGE").ok().and_then(|v| v.parse().ok()) {
         preview_panel.select(n);
     }
+    // (`MAO_OPTION_TAB=<n>`: the option window's tab, for a picture)
+    if let Some(n) = std::env::var("MAO_OPTION_TAB").ok().and_then(|v| v.parse().ok()) {
+        preview_panel.select_tab(n);
+    }
     let mut last = None;
     // Several frames: the first lays out and uploads the fonts, and the windows
     // fade in over the next ones; the last is what is drawn.
@@ -1686,7 +1690,7 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
             match preview_cc.as_mut() {
                 Some(cc) => {
                     cc.show(&ctx, &palette, &hud.stats, &|_| false);
-                    preview_panel.show(&ctx, &palette, &mut cc.store, &hud.stats);
+                    preview_panel.show(&ctx, &palette, &mut cc.store, &hud.stats, &|id| settings.keymap.original_key(id));
                     if crate::vitals::show_docked(&ctx, hud.camera_yaw, &hud.stats, &hud.stat_parts, &palette, &cc.docks).rollup {
                         cc.toggle_rollup();
                     }

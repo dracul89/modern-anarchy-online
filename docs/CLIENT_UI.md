@@ -4381,3 +4381,21 @@ shop's lists or sent to it from the inventory's menu is not put in. Tests: `a_sh
 with the captured stock, both ways (`MAO_UI_PREVIEW=shop MAO_CAPTURE=<log>`, and `MAO_SHOP_BUY_ONLY=1` for the
 buy-only view): Shop and Bought Items over the buttons, no Sold Items. **Not seen at such a shop live**: which
 shops have another type was not surveyed. Not done: the lists' kept columns (`shop_listview_config`).
+
+## The option window's tabs and its "Fixed keys" (2026-11-16)
+
+Third of the window gaps: `OptionPanel/HotKeys.xml` was not used. The original's option window (GUI.dll
+FUN_100c4315) has three tabs: "Preferences" (the pages of `Root.xml`, which was all the client had), "Fixed keys"
+when `HotKeys.xml` holds anything (`HotKeyPanel_c` FUN_100bf5a2, filled by FUN_100beee3: a tree of `HotKeyGroup`s
+holding `HotKey`s, each a label and a key command's id with the key the command is on), and "Key bindings" (its
+editor of every key, FUN_100bcfb3).
+
+Here (`gui/options.rs`): the window has the tabs; "Fixed keys" reads the skin's file (`fixed_keys`) and shows
+each command with **this client's** key for it (`Keymap::original_key`: the four target keys and the eight
+camera keys; the chat's history, reply and coordinates commands have no counterpart here and show no key). The
+game's own file has three groups of 4, 4 and 8 commands. "Key bindings" is not the original's editor: it says
+that this client's keys are set in its own settings window and has the button to it. Tests:
+`a_hot_keys_file_is_groups_of_key_commands`, `the_games_fixed_keys` (`MAO_GAME`). Looked at:
+`MAO_UI_PREVIEW=optionpanel MAO_OPTION_TAB=1`. Not done: the original's key editor and its "enter a key" box
+(FUN_100bf286); the fixed keys are shown and not changed here, which is what "fixed" means in the file, but
+whether the original lets its fixed list be edited was not read.

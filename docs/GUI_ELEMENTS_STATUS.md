@@ -14,9 +14,10 @@ rows were brought up to date on the day this was saved. A few gaps listed here m
 - Reclaim.
 - Notum Wars: tower build menu, laser target, airstrike, battle station, signup terminal, mech select, teleport
   target.
-- The organization module's own views (the organization name view, the upkeep views). Its boxes for leaving,
-  disbanding, invitations, promotions and the two tax questions are ported since 2026-11-16 (`orgboxes.rs`), none
-  seen live.
+- (Not a gap any more, 2026-11-16: the organization module's boxes for leaving, disbanding, invitations,
+  promotions and the two tax questions are in `orgboxes.rs`, none seen live. The "organization name view" and
+  the "upkeep views" listed here before are not that module's: they are the city controller's panels, which
+  `cityterminal.rs` has had since 2026-11-15.)
 
 ## The client's own stand-in, not the original's
 
@@ -46,7 +47,7 @@ rows were brought up to date on the day this was saved. A few gaps listed here m
 | Pets | the icon list of a pet's nanos, Remember Pet Names |
 | Planet map | the Build and War buttons and the coordinate row, the planet map's own playfield view |
 | Notifications | the saved frame and clickable links |
-| Options | `HotKeys.xml`; most settings are kept but not yet acted on |
+| Options | the original's key editor ("Key bindings" leads to this client's own); most settings are kept but not yet acted on (the tabs and "Fixed keys" from `HotKeys.xml` since 2026-11-16) |
 | Progress dialog | not shown while a character is entered |
 | Character viewer, targeting, tradeskill, knowledge, factions, research | small pieces each; see the table |
 

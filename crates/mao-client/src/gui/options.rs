@@ -10,6 +10,15 @@
 //! `value_scale`) at the right and a slider over the setting's range under them; `OptionRadioButtonGroup` its label and
 //! its `RadioButton`s, each standing for its `value`. A view's `view_enable_expression` enables it while it holds.
 //! What the player changes is kept in their preferences (`Store::set_user`).
+//!
+//! The window's tabs (FUN_100c4315): "Preferences" (the pages above), "Fixed keys" when the skin's
+//! `OptionPanel/HotKeys.xml` has anything, and "Key bindings". The fixed keys (`HotKeyPanel_c` FUN_100bf5a2, filled
+//! by FUN_100beee3) are a tree of `HotKeyGroup`s (their `label` a text of category 700) holding `HotKey`s: a label
+//! and the key command's id (`down_id`, as `id:KEY_...`), each shown with the key the command is on
+//! (`InputConfig_t::GetHotkey`). Here the key is this client's own for the same command ([`fixed_keys`], and the
+//! caller's `key_of`); a command this client has no key for shows none. The original's "Key bindings" tab is its
+//! editor of every key (FUN_100bcfb3), which is not ported: this client's keys are set in its own settings window,
+//! and the tab leads there.
 
 use std::collections::BTreeMap;
 
@@ -283,6 +292,55 @@ pub fn page_dirs(skin_dirs: &[std::path::PathBuf]) -> Vec<std::path::PathBuf> {
     out
 }
 
+/// A key command of the "Fixed keys" tab: its label and the original's id for it (`KEY_...`, without `id:`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FixedKey {
+    pub label: String,
+    pub id: String,
+}
+
+/// A group of the "Fixed keys" tab: the folders it stands in (their labels, outermost first) and its keys.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KeyGroup {
+    pub path: Vec<String>,
+    pub keys: Vec<FixedKey>,
+}
+
+/// The groups of a `HotKeys.xml` (FUN_100beee3): every `HotKeyGroup` that holds `HotKey`s, in the file's order.
+/// A label beginning with `#` is the text of that name in category 700; an element without a label is left out,
+/// with all it holds.
+pub fn fixed_keys(text: &str) -> Vec<KeyGroup> {
+    fn walk(e: &Element, path: &[String], out: &mut Vec<KeyGroup>) {
+        let mut keys = Vec::new();
+        for c in &e.children {
+            let label = c.text("label", "");
+            if label.is_empty() {
+                continue;
+            }
+            let label = super::xml::ldb_text(&label);
+            if c.name.eq_ignore_ascii_case("HotKeyGroup") {
+                if !keys.is_empty() {
+                    out.push(KeyGroup { path: path.to_vec(), keys: std::mem::take(&mut keys) });
+                }
+                let mut inner = path.to_vec();
+                inner.push(label);
+                walk(c, &inner, out);
+            } else if c.name.eq_ignore_ascii_case("HotKey") {
+                let id = c.text("down_id", "");
+                keys.push(FixedKey { label, id: id.strip_prefix("id:").unwrap_or(&id).to_string() });
+            }
+        }
+        if !keys.is_empty() {
+            out.push(KeyGroup { path: path.to_vec(), keys });
+        }
+    }
+    let mut out = Vec::new();
+    for root in super::xml::parse(text) {
+        walk(&root, &[], &mut out);
+    }
+    out
+}
+
 #[derive(Default)]
 pub struct OptionPanel {
     pub open: bool,
@@ -291,12 +349,18 @@ pub struct OptionPanel {
     pages: Vec<Page>,
     selected: usize,
     loaded: bool,
+    /// The "Fixed keys" tab's groups (the skin's `OptionPanel/HotKeys.xml`).
+    fixed: Vec<KeyGroup>,
+    /// The open tab.
+    tab: usize,
 }
 
 impl OptionPanel {
     /// The pages of the first skin folder whose `OptionPanel/Root.xml` has any.
     fn load(&mut self, dirs: &[std::path::PathBuf]) {
         self.loaded = true;
+        // (the fixed keys: the first skin folder whose `HotKeys.xml` has any)
+        self.fixed = dirs.iter().filter_map(|d| mao_formats::files::read_to_string(d.join("OptionPanel/HotKeys.xml")).ok()).map(|text| fixed_keys(&text)).find(|groups| !groups.is_empty()).unwrap_or_default();
         for d in page_dirs(dirs) {
             let Ok(text) = mao_formats::files::read_to_string(d.join("OptionPanel/Root.xml")) else { continue };
             let doc = super::xml::parse(&text);
@@ -317,12 +381,18 @@ impl OptionPanel {
         }
     }
 
+    /// Opens the n-th tab.
+    pub fn select_tab(&mut self, n: usize) {
+        self.tab = n;
+    }
+
     /// Picks the n-th page.
     pub fn select(&mut self, n: usize) {
         self.selected = n;
     }
 
-    pub fn show(&mut self, ctx: &egui::Context, palette: &crate::theme::Palette, store: &mut Store, stats: &BTreeMap<u32, i64>) {
+    /// `key_of` names the key a key command of the original is on in this client (by the command's `KEY_...` id).
+    pub fn show(&mut self, ctx: &egui::Context, palette: &crate::theme::Palette, store: &mut Store, stats: &BTreeMap<u32, i64>, key_of: &dyn Fn(&str) -> Option<String>) {
         if !self.open {
             return;
         }
@@ -332,9 +402,49 @@ impl OptionPanel {
             self.load(&dirs);
         }
         let mut open = self.open;
-        let (pages, selected, client_settings) = (&mut self.pages, &mut self.selected, &mut self.client_settings);
+        let (pages, selected, client_settings, fixed, tab) = (&mut self.pages, &mut self.selected, &mut self.client_settings, &self.fixed, &mut self.tab);
         // (the original's window is "Preferences", `OptionWindowConfig` 200,200 to 1009,683 by default: 809 by 483)
         crate::chrome::window(ctx, palette, "Option panel", "Preferences", &mut open, |w| w.default_size([800.0, 480.0]).resizable(true), |ui| {
+            // (the tabs, FUN_100c4315: the fixed keys only when the skin's file has any)
+            let names: Vec<&str> = if fixed.is_empty() { vec!["Preferences", "Key bindings"] } else { vec!["Preferences", "Fixed keys", "Key bindings"] };
+            let mut now = (*tab).min(names.len() - 1);
+            crate::chrome::tab_view(ui, palette, &names, &mut now, |ui, t| {
+            if names[t] == "Fixed keys" {
+                let height = ui.available_height().max(200.0);
+                crate::chrome::scroll(ui, palette, egui::ScrollArea::vertical().id_salt("option-fixed-keys").max_height(height).auto_shrink([false, false]), |ui| {
+                    // (a folder's label is drawn as the text it is, markup and all: the game's "Fixed keys" is green)
+                    let mut folders: &[String] = &[];
+                    for group in fixed {
+                        let (inner, outer) = group.path.split_last().map_or(("", &[][..]), |(last, rest)| (last.as_str(), rest));
+                        if outer != folders {
+                            for label in outer {
+                                super::controls::markup(ui, palette, label, super::font::FontId::NORMAL, crate::chrome::rgb(palette.text));
+                            }
+                            folders = outer;
+                        }
+                        egui::CollapsingHeader::new(mao_net::chat::plain(inner)).id_salt(("fixed-keys", &group.path)).default_open(true).show(ui, |ui| {
+                            for key in &group.keys {
+                                ui.horizontal(|ui| {
+                                    ui.label(&key.label);
+                                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                        ui.add_space(12.0);
+                                        ui.label(key_of(&key.id).unwrap_or_default());
+                                    });
+                                });
+                            }
+                        });
+                    }
+                });
+                return;
+            }
+            if names[t] == "Key bindings" {
+                ui.add_space(8.0);
+                ui.label("This client's keys are set in its own settings window.");
+                if crate::chrome::button(ui, palette, "Client settings", true).clicked() {
+                    *client_settings = true;
+                }
+                return;
+            }
             if pages.is_empty() {
                 ui.label("No option pages were found: the game's own OptionPanel/Root.xml is empty and no AOU skin is at hand.");
                 return;
@@ -391,6 +501,8 @@ impl OptionPanel {
                 read_back(&page.tree, store);
                 page.tree.signals.clear();
             });
+            });
+            *tab = now;
         });
         self.open = open;
     }
@@ -399,6 +511,45 @@ impl OptionPanel {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A hot keys file's groups and keys, in order; an element without a label is left out with what it holds.
+    #[test]
+    fn a_hot_keys_file_is_groups_of_key_commands() {
+        let text = r#"<?xml version="1.0" ?><root>
+            <HotKeyGroup label="Fixed" mode="fixed">
+                <HotKeyGroup label="Chat">
+                    <HotKey down_id="id:KEY_COMMAND_START_CHAT_REPLY_INPUT" label="Reply"/>
+                    <HotKey down_id="id:KEY_HIDDEN"/>
+                </HotKeyGroup>
+                <HotKeyGroup>
+                    <HotKey down_id="id:KEY_LOST" label="Lost"/>
+                </HotKeyGroup>
+                <HotKeyGroup label="Targets">
+                    <HotKey down_id="id:KEY_NEXT_HOSTILE_TARGET" label="Next"/>
+                    <HotKey down_id="KEY_PREV_HOSTILE_TARGET" label="Previous"/>
+                </HotKeyGroup>
+            </HotKeyGroup>
+        </root>"#;
+        let key = |label: &str, id: &str| FixedKey { label: label.into(), id: id.into() };
+        assert_eq!(
+            fixed_keys(text),
+            vec![
+                KeyGroup { path: vec!["Fixed".into(), "Chat".into()], keys: vec![key("Reply", "KEY_COMMAND_START_CHAT_REPLY_INPUT")] },
+                KeyGroup { path: vec!["Fixed".into(), "Targets".into()], keys: vec![key("Next", "KEY_NEXT_HOSTILE_TARGET"), key("Previous", "KEY_PREV_HOSTILE_TARGET")] },
+            ]
+        );
+        assert!(fixed_keys("").is_empty() && fixed_keys("<root/>").is_empty());
+    }
+
+    /// `MAO_GAME`: the game's own file has the three groups, each key command with a label.
+    #[test]
+    fn the_games_fixed_keys() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let text = mao_formats::files::read_to_string(std::path::Path::new(&game).join("cd_image/gui/Default/OptionPanel/HotKeys.xml")).unwrap();
+        let groups = fixed_keys(&text);
+        assert_eq!(groups.iter().map(|g| g.keys.len()).collect::<Vec<_>>(), [4, 4, 8]);
+        assert!(groups.iter().all(|g| g.path.len() == 2 && g.keys.iter().all(|k| k.id.starts_with("KEY_") && !k.label.is_empty())));
+    }
 
     #[test]
     fn controls_follow_and_set_their_settings() {
