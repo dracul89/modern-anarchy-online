@@ -1986,6 +1986,12 @@ impl ApplicationHandler for App {
                                 self.keys.pitch = v.trim().parse().unwrap_or(0.0);
                                 continue;
                             }
+                            // (`face@<radians>`: the heading the held right button's mouse steers the character to;
+                            // `face@off`: the button let go)
+                            if let Some(v) = what.strip_prefix("face@") {
+                                self.keys.face = v.trim().parse().ok();
+                                continue;
+                            }
                             if what.contains('@') {
                                 if !w.ui.as_mut().is_some_and(|ui| ui.script(&what)) {
                                     eprintln!("camera script: no step {what:?}");

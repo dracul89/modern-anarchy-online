@@ -33,6 +33,13 @@
 //! sends 50 to invite and 51 to kick (`u32 character`), 52 to join and 53 to leave or decline (`u32 owner`) and 57 a line
 //! (`u32 owner, str16 text, str16 blob`). One invitation and its end are in a capture; the rest is from the decompile.
 //!
+//! The server's own lines (GUI.dll's reader FUN_1016d6f4; both become a `ppj::Client_c::SystemMessage_t`): 36
+//! `S2C_SYS_MESSAGE` is a `str16`, the line; 37 `S2C_SYS_MESSAGE_LOCAL_FMT` ("IIID") is `u32 character, u32 window,
+//! u32 message, str16 fill-ins`: the line is the game's text of category 20000 and that number, and the fill-ins are
+//! fed into it in order, each a letter and its value: `I` a `u32` number, `S` a `str16`, `l` a `u32` that is another
+//! text of the category. Any other letter and the whole line is dropped. Seen live on 2026-11-16: the answer to
+//! `/cc addbuddy` comes as 37, with the new friend as the character and the friend's name the one fill-in.
+//!
 //! Vicinity speech goes through the game connection, not this one; packets not decoded come out as [`Packet::Other`].
 
 use std::net::{TcpStream, ToSocketAddrs};
@@ -59,6 +66,9 @@ pub enum Packet {
     Message { channel: (u8, u32), sender: u32, text: String, blob: Vec<u8> },
     /// A friend: its id, whether it is online, and the type string the client gave it (a byte 1 for a friend).
     Buddy { id: u32, online: bool, kind: String },
+    /// A character is off the friends list (41, `S2C_REM_BUDDY`, a `u32`: GUI.dll's reader FUN_1016d6f4 takes the
+    /// character out of its list). Seen live on 2026-11-16 as the answer to `/cc rembuddy`.
+    BuddyRemoved { id: u32 },
     /// An invitation to a character's private chat group (50).
     PrivateInvite { owner: u32 },
     /// The end of the client's membership of a private group (51 kicked, 53 left).
@@ -70,8 +80,27 @@ pub enum Packet {
     PrivateMessage { owner: u32, sender: u32, text: String, blob: Vec<u8> },
     /// A character declined the client's invitation (58).
     PrivateRefused { owner: u32, character: u32 },
+    /// The server's own line (36).
+    System { text: String },
+    /// A numbered line of the server's with its fill-ins (37): the character it is about (0 for none), the chat
+    /// window it is for (0 for none), the text's number in the game's category 20000, and what is fed into it.
+    SystemText { character: u32, window: u32, message: u32, fills: Vec<Fill> },
     Other { kind: u16, data: Vec<u8> },
 }
+
+/// One fill-in of a numbered line of the server's ([`Packet::SystemText`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Fill {
+    /// `I`: a number.
+    Number(u32),
+    /// `S`: a text.
+    Text(String),
+    /// `l`: the number of another text of the same category.
+    Message(u32),
+}
+
+/// The category of the game's texts the server's numbered lines are in (GUI.dll FUN_1016d6f4).
+pub const SYSTEM_TEXTS: i32 = 20000;
 
 struct Cursor<'a> {
     data: &'a [u8],
@@ -125,6 +154,7 @@ pub fn parse(kind: u16, data: &[u8]) -> Packet {
             60 => Packet::Channel { kind: c.u8()?, id: c.u32()?, name: c.text()?, flags: c.u32().unwrap_or(0) },
             61 => Packet::ChannelGone { kind: c.u8()?, id: c.u32()? },
             40 => Packet::Buddy { id: c.u32()?, online: c.u32()? != 0, kind: c.raw_text()? },
+            41 => Packet::BuddyRemoved { id: c.u32()? },
             30 => {
                 let (sender, text) = (c.u32()?, c.text()?);
                 Packet::Tell { sender, text, blob: c.blob().unwrap_or_default() }
@@ -138,6 +168,21 @@ pub fn parse(kind: u16, data: &[u8]) -> Packet {
                 Packet::PrivateMessage { owner, sender, text, blob: c.blob().unwrap_or_default() }
             }
             58 => Packet::PrivateRefused { owner: c.u32()?, character: c.u32()? },
+            36 => Packet::System { text: c.text()? },
+            37 => {
+                let (character, window, message, data) = (c.u32()?, c.u32()?, c.u32()?, c.blob()?);
+                let mut f = Cursor { data: &data, at: 0 };
+                let mut fills = Vec::new();
+                while f.at < data.len() {
+                    fills.push(match f.u8()? {
+                        b'I' => Fill::Number(f.u32()?),
+                        b'S' => Fill::Text(f.text()?),
+                        b'l' => Fill::Message(f.u32()?),
+                        _ => return None,
+                    });
+                }
+                Packet::SystemText { character, window, message, fills }
+            }
             65 => {
                 let (channel, sender, text) = ((c.u8()?, c.u32()?), c.u32()?, c.text()?);
                 Packet::Message { channel, sender, text, blob: c.blob().unwrap_or_default() }
@@ -514,6 +559,16 @@ mod tests {
         assert_eq!(parse(40, &[0, 9, 33, 53, 0, 0, 0, 1, 0, 1, 1]), Packet::Buddy { id: 598325, online: true, kind: "\u{1}".into() });
         assert_eq!(parse(5, &[]), Packet::LoginOk);
         assert!(matches!(parse(99, &[1, 2]), Packet::Other { kind: 99, .. }));
+        // (the server's own lines: one as it is, one a numbered text with a text, a number and another text fed in;
+        // a fill-in of an unknown letter drops the line)
+        assert_eq!(parse(36, &hex("00026869")), Packet::System { text: "hi".into() });
+        assert_eq!(parse(41, &hex("00092135")), Packet::BuddyRemoved { id: 598325 });
+        assert_eq!(
+            parse(37, &hex("00000007000000000000006400105300035a656449000000056c00000009")),
+            Packet::SystemText { character: 7, window: 0, message: 100, fills: vec![Fill::Text("Zed".into()), Fill::Number(5), Fill::Message(9)] }
+        );
+        assert_eq!(parse(37, &hex("0000000700000000000000640000")), Packet::SystemText { character: 7, window: 0, message: 100, fills: Vec::new() });
+        assert!(matches!(parse(37, &hex("0000000700000000000000640005780000000")), Packet::Other { kind: 37, .. }));
     }
 
     #[test]

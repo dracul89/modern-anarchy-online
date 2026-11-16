@@ -4373,15 +4373,19 @@ paying account. Kept from before and this client's own: a mail without a recipie
 Second of the window gaps. The trade view has three kinds (GUI.dll FUN_100e1074): with a player, with a shop, and
 `ShopBuy`, which the client never used. Which one a trade gets is decided as it starts (Gamecode FUN_1006692a,
 raising `InventoryGUIModule_c::SlotStartTrade`): a shop whose type (stat 156; 61 when it has none, FUN_10099ae4)
-is the Computer Literacy kind is a `ShopTrade`, **any other shop is a `ShopBuy`**: the stock and the bought
-items, no "Sold items" list, and nothing of one's own goes in (the view's flag at +0x1a8).
+is 61 is a `ShopTrade`, **any other shop is a `ShopBuy`**: the stock and the bought
+items, no "Sold items" list, and nothing of one's own goes in (the view's flag at +0x1a8). (This section first
+called 61 "the Computer Literacy kind". **The type is the stat the shop is paid in, and 61 is credits**: see "The
+test character's run" below.)
 
 Here: `shop::Rates::buy_only`, `ShopState::buy_only`, `ShopWindow::wanted_view`; an item dropped on such a
 shop's lists or sent to it from the inventory's menu is not put in. Tests: `a_shop_of_another_type_only_sells`,
 `the_skin_has_the_shop_view` (the game's `ShopBuy` view has no place for one's own items). Looked at: the preview
 with the captured stock, both ways (`MAO_UI_PREVIEW=shop MAO_CAPTURE=<log>`, and `MAO_SHOP_BUY_ONLY=1` for the
-buy-only view): Shop and Bought Items over the buttons, no Sold Items. **Not seen at such a shop live**: which
-shops have another type was not surveyed. Not done: the lists' kept columns (`shop_listview_config`).
+buy-only view): Shop and Bought Items over the buttons, no Sold Items. **Not seen at such a shop live.** Which
+shops they are is surveyed since (`shopkinds`): the vendors paid in points. Not done: the lists' kept columns
+(`shop_listview_config`), and the money shown at such a shop (the cost is drawn as a plain number, with nothing
+saying it is points and not credits).
 
 ## The option window's tabs and its "Fixed keys" (2026-11-16)
 
@@ -4431,3 +4435,53 @@ whether the original lets its fixed list be edited was not read.
 
 Tests: `lines_become_commands` and the `/name` lines in `chat_commands` (the whole request; `PIECES` names known
 commands only).
+
+## The test character's run of 2026-11-16: the new commands live, and what it found
+
+The free account's test character (Arete Landing) was taken through what was built from the decompile earlier
+that day, unattended, with the log and pictures of the client's own window (`win_shot_live.py`, PrintWindow).
+
+**What works as built:**
+
+- `/rp`: the server sets stat 673 as asked (543 with the bit, 31 without; told back twice each time).
+- **Steering with the mouse**: a turn to the right sends 10, a swing to the other side 13, the letting go 14
+  (the left's stop), nothing while the turn goes on the same way. Sent from a new script step, `face@<radians>`
+  and `face@off`, which steer as the held right button's mouse does. Not seen from a second client.
+- **The equipment's lock**: `/setoption LockEquipment true`, then a helmet to the head: the game's line about
+  locked equipment and nothing sent; with the lock off the helmet goes on.
+- **`/org leave`** on a character in no organization: the warning box at the pointer, Yes sends command 0x10 and
+  the server says the character is in none. (Leaving a real organization was not tried.)
+- `/cc addbuddy <name>` and `/cc rembuddy <name>` add and remove a friend; `/cc help` lists the chat server's
+  commands for a player: `help [command]`, `addbuddy <player>`, `rembuddy <player>`, `rembuddy ?`. **`/cc info
+  <name>` is not among them and gets no answer at all** (packet 110 goes and nothing comes back): it is
+  probably not a player's command.
+
+**What was wrong, and is mended:**
+
+- **The chat server's own lines were not read.** It answers `/cc` with packet 37, `S2C_SYS_MESSAGE_LOCAL_FMT`
+  (GUI.dll's reader FUN_1016d6f4, "IIID"): a character, a chat window, the number of a text in the game's
+  category 20000 and its fill-ins, each a letter and a value (`I` a number, `S` a text, `l` another text's
+  number), fed into the text in order (`LDBformat`). Packet 36, `S2C_SYS_MESSAGE`, is a line as it is. Both
+  become a `SystemMessage_t`, and `ChatGUIModule_c::HandleSystemMessage` (0x1008633c) puts one that is about a
+  character and for no window among that character's tells, with no name in front, and any other out as a system
+  line. Here: `chat::Packet::System` and `SystemText` with `chat::Fill`, `net::chat_system_text`. The window a
+  line is for is not followed. Tests: `the_chat_servers_numbered_lines`, the packets in `the_captured_packets`.
+- **A friend taken off by the server stayed on the list.** Packet 41, `S2C_REM_BUDDY` (the character's id), was
+  not read; the reader takes the character out of its list, and so does the friends list now
+  (`Packet::BuddyRemoved`). Seen: the friend under Offline Friends after the add, gone after the remove.
+- **The shop "type" is the stat the shop is paid in.** The survey the `ShopBuy` section lacked (`cargo run -p
+  mao-formats --example shopkinds -- <game>`): of the 730 item templates with shop prices, 705 have type 61 or
+  none, 1 has 68, 20 have 669, 3 have 672 and 1 has 695, and the others are the vendors paid in points (the
+  veterans', the Ofab ones, the Phasefront ones, the ICC reward terminal). Gamecode agrees: what a character can
+  afford is its stat of the shop's type against the cost (FUN_1009a69a), and Computer Literacy moves the prices
+  only where the type is 61 (FUN_10099e9b, FUN_1009a12d). 61 is the character's credits. The code said "the
+  Computer Literacy kind"; it is `CREDITS_SHOP` now, and `a_shop_of_another_type_only_sells` checks two of the
+  vendors and a plain booth against the game's data. No behaviour changed.
+
+Not a fault, noted so it is not chased again: the strip of plain lines at the bottom of the screen in the test
+layout is the client's own message strip, which writes each chat line as plain text, so a several-line answer
+reads as one paragraph there; in the chat window the same line breaks where the server broke it
+(`MAO_UI_PREVIEW=chat MAO_CHAT_LINE='one\ntwo <b>'`, new, shows a server line as it comes).
+
+Left as they were found: the test character wears the helmet now; the friend was removed again; the lock is off
+(it was set in the test's own settings folder).

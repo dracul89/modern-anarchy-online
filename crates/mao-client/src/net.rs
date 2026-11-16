@@ -820,6 +820,31 @@ static SPEECH: std::sync::Mutex<Vec<(u8, String, Vec<u8>)>> = std::sync::Mutex::
 /// Commands for the server (`/stuck` and the like), sent by the game loop.
 static SERVER_COMMANDS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 
+/// A numbered line of the chat server's with its fill-ins fed in (`S2C_SYS_MESSAGE_LOCAL_FMT`, GUI.dll FUN_1016d6f4:
+/// `LDBface::GetText(20000, number)` into an `LDBformat`, each fill-in fed in its order, a text's number among them
+/// looked up in the same category first). `get` gives a text of that category. `None` when the game has no such text.
+fn chat_system_text(get: &dyn Fn(i32) -> Option<String>, message: u32, fills: &[mao_net::chat::Fill]) -> Option<String> {
+    use mao_net::chat::Fill;
+    let text = get(message as i32)?;
+    let texts: Vec<String> = fills
+        .iter()
+        .map(|f| match f {
+            Fill::Text(t) => t.clone(),
+            Fill::Message(n) => get(*n as i32).unwrap_or_default(),
+            Fill::Number(_) => String::new(),
+        })
+        .collect();
+    let fed: Vec<mao_formats::ldb::Arg> = fills
+        .iter()
+        .zip(&texts)
+        .map(|(f, t)| match f {
+            Fill::Number(n) => mao_formats::ldb::Arg::Int(i64::from(*n as i32)),
+            _ => mao_formats::ldb::Arg::Text(t),
+        })
+        .collect();
+    Some(mao_formats::ldb::format(&text, &fed))
+}
+
 /// A chat line with its packed texts unpacked (`~&`, a text.mdb text's category and number and its arguments, up to a
 /// `~`): GUI.dll's `HandleGroupMessage` 0x1008692a, `HandleVicinityMessage` 0x10086c53 and `HandlePrivateMessage`
 /// 0x10087e59 each pass the text through LDB.dll's `RemoteFormat::ParseString` before it is laid out. The line that tells
@@ -5771,6 +5796,11 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         {
                             eprintln!("chat tell from {sender:#x}: {text:?} blob {blob:02x?}");
                         }
+                        if std::env::var_os("MAO_TRACE_CHAT").is_some()
+                            && let Some(p @ (Packet::System { .. } | Packet::SystemText { .. })) = &packet
+                        {
+                            eprintln!("chat {p:?}");
+                        }
                         let line = match packet {
                             // (no character of that name: the answer's id is all ones. FUN_1008a2c1 says so with
                             // `ChatCmdFeedback_UnknownUser` and drops what waited for the name. A tell sent on to that id
@@ -5924,6 +5954,15 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                 buddies.0 += 1;
                                 changed.then(|| Line::new(Kind::System, format!("{shown} {}.", if online { "is now online" } else { "has gone offline" })))
                             }
+                            // (the server has taken a character off the list: the list drops it. The server's own line
+                            // about it comes apart, as a numbered text.)
+                            Some(Packet::BuddyRemoved { id }) => {
+                                let mut buddies = BUDDIES.lock().unwrap();
+                                if buddies.1.remove(&id).is_some() {
+                                    buddies.0 += 1;
+                                }
+                                None
+                            }
                             // Private chat groups (GUI.dll's chat library, FUN_1016d6f4): a group goes by its owner's name.
                             Some(Packet::PrivateInvite { owner }) => {
                                 crate::chatgroups::invite(owner, &names.get(&owner).cloned().unwrap_or_else(|| format!("#{owner}")));
@@ -5958,6 +5997,27 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                 crate::chatgroups::note(&group, 0x0e);
                                 let who = names.get(&sender).cloned().unwrap_or_else(|| format!("{sender:x}"));
                                 Some(Line { kind: Kind::Channel, text: format!("[{group}] {who}: {}", mao_net::chat::plain(&text)), from: Some(who.clone()), markup: None, group: group.clone(), at: None }.with_markup(&format!("[{group}] {}: ", crate::chatwindow::name_link(&who)), &text))
+                            }
+                            // (the server's own lines, `ChatGUIModule_c::HandleSystemMessage` 0x1008633c: one about a
+                            // character and for no window goes among that character's tells with no name in front
+                            // (FUN_100a681d with an empty name, as the answer of one who is away); any other is a
+                            // system line. The window a line is for is not followed: it goes where system lines go.)
+                            Some(Packet::System { text }) => Some(Line::new(Kind::System, mao_net::chat::plain(&text)).with_markup("", &text)),
+                            Some(Packet::SystemText { character, window, message, fills }) => {
+                                let get = |n: i32| crate::feedback::texts().and_then(|t| t.get(mao_net::chat::SYSTEM_TEXTS, n)).map(str::to_string);
+                                match chat_system_text(&get, message, &fills) {
+                                    Some(raw) => {
+                                        let text = mao_net::chat::plain(&raw);
+                                        match names.get(&character) {
+                                            Some(who) if window == 0 && character != 0 => Some(Line { kind: Kind::AwayReply, text, from: Some(who.clone()), markup: None, group: String::new(), at: None }.with_markup("", &raw)),
+                                            _ => Some(Line::new(Kind::System, text).with_markup("", &raw)),
+                                        }
+                                    }
+                                    None => {
+                                        eprintln!("chat: the server's line {message} is not in the game's texts ({fills:?})");
+                                        None
+                                    }
+                                }
                             }
                             Some(Packet::Other { kind, data }) => {
                                 eprintln!("chat packet {kind}: {}", data.iter().map(|b| format!("{b:02x}")).collect::<String>());
@@ -11996,6 +12056,21 @@ mod movement_tests {
         assert!(equipment_locked(true, pack + 3, 6) && equipment_locked(true, 6, pack + 3) && equipment_locked(true, 6, 8));
         assert!(!equipment_locked(true, pack + 3, pack + 9));
         assert!(!equipment_locked(false, pack + 3, 6) && !equipment_locked(false, 6, pack + 3));
+    }
+
+    /// A numbered line of the chat server's: its fill-ins go in in their order, a number as a number, a text's
+    /// number as that text; a line the game has no text for is none.
+    #[test]
+    fn the_chat_servers_numbered_lines() {
+        use mao_net::chat::Fill;
+        let get = |n: i32| match n {
+            100 => Some("%s gave %d to %s.".to_string()),
+            9 => Some("the bank".to_string()),
+            _ => None,
+        };
+        assert_eq!(chat_system_text(&get, 100, &[Fill::Text("Zed".into()), Fill::Number(5), Fill::Message(9)]).as_deref(), Some("Zed gave 5 to the bank."));
+        assert_eq!(chat_system_text(&get, 100, &[Fill::Text("Zed".into()), Fill::Number(u32::MAX), Fill::Message(8)]).as_deref(), Some("Zed gave -1 to ."));
+        assert_eq!(chat_system_text(&get, 101, &[]), None);
     }
 
     /// The mouse's steering sends its turn's start only as the side changes and the side's stop when it ends, as a

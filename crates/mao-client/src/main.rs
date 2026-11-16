@@ -1970,6 +1970,12 @@ fn run(args: &[String]) -> Result<(), String> {
                         // (a line with markup: a coloured word and an item link, as the server sends them)
                         let raw = "selling <a href=\"itemref://200653/200653/1\">Training Pistol</a>, <font color=#ffcc00>cheap</font>";
                         window.push(Line::new(Kind::Channel, format!("[Trade] Mothra: {}", mao_net::chat::plain(raw))).with_markup("[Trade] Mothra: ", raw).in_group("Trade"));
+                        // (MAO_CHAT_LINE=<text>: a line of the server's as it comes, markup and all; `\n` in it is a
+                        // line's end)
+                        if let Ok(raw) = std::env::var("MAO_CHAT_LINE") {
+                            let raw = raw.replace("\\n", "\n");
+                            window.push(Line::new(Kind::System, mao_net::chat::plain(&raw)).with_markup("", &raw));
+                        }
                         if let Ok(text) = std::env::var("MAO_CHAT_INPUT") {
                             window.type_text(&text);
                         }

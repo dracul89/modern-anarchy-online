@@ -262,9 +262,11 @@ account with `net <game> create`, in Arete Landing; scripted, other new players 
 - [ ] The missions stack (2026-11-15): with one mission in the journal (Ctrl+4), accept a second at a terminal: both
   are listed, the chat says a new mission was got, and the new one's place is uploaded. Zone: both are still listed.
   Delete one: the other stays.
-- [ ] A shop that only sells (2026-11-16): at a shop of a special kind (not the plain startup and general
-  shops) the window has no "Sold items" list and an inventory item dropped on it stays where it was; buying
-  works as elsewhere. A plain shop still has all three lists.
+- [ ] A shop that only sells (2026-11-16): at a vendor paid in points (the veterans' vendor, an Ofab vendor, a
+  Phasefront vendor, the ICC reward terminal: `shopkinds` lists them) the window has no "Sold items" list and an
+  inventory item dropped on it stays where it was; buying works as elsewhere, **costs points, so only with the
+  user's say-so**. A plain shop still has all three lists. Also to look at there: how the cost reads (it is a
+  plain number; nothing says points).
 - [ ] Mail with cash on delivery (2026-11-16; a paying account's test character writing to another test
   character): a number in C.O.D. asks before sending and the receiver sees it in the C.O.D. field; Take All asks
   before paying; Return To Sender sends the mail back and it leaves the list. A negative number in either money
@@ -272,22 +274,29 @@ account with `net <game> create`, in Arete Landing; scripted, other new players 
 - [ ] The booths' names from their signs (2026-11-16): the Whom-Pah window's list at a station never visited
   (and the map's dots) names every booth's destination, the same as the sign over it; take one: it leads there,
   and the log has no "has a sign to ... and led to ..." line.
-- [ ] The equipment's lock (2026-11-16): `/setoption LockEquipment true`, then try to put something on and to
-  take something off: the game's line about locked equipment, nothing moves; between two backpack places an item
-  still moves. `/setoption LockEquipment false`: as before.
+- [x] The equipment's lock (2026-11-16, the test character, scripted): `/setoption LockEquipment true`, then a
+  helmet to the head: the game's line about locked equipment, nothing moved; `/setoption LockEquipment false`:
+  the helmet went on. Not tried: taking something off, and a move between two backpack places with the lock on.
+- [x] The mouse's turn messages (2026-11-16, the test character, the script's `face@` step): 10 as the
+  steering starts to the right, 13 as it swings left, 14 as it is let go, nothing in between. The rest of the
+  next item is still open.
 - [ ] Steering with the mouse (2026-11-16): run with the right button held and swing the mouse left and right
   near a Whom-Pah cluster and along a wall: no rubber-banding, no zoning from beside a booth; another client
   sees the character turn smoothly. With the button held, the turn keys step sideways. The log's "sent move"
   lines show 10 and 13 as the mouse changes sides and 11 or 14 as the button is let go.
-- [ ] The chat server's commands (2026-11-16), on a test character: `/cc addbuddy <a test character's name>`
-  adds the friend (or the `Befriend` script does); `/cc info <name>`: the log shows what packet the server answers
-  with; `/rp`: the log has "/rp: stat 673 to ..." and the stat changes (the mark over the head, if any);
+- [x] The chat server's commands (2026-11-16, the test character, scripted): `/cc addbuddy <name>` adds the
+  friend and `/cc rembuddy <name>` takes it off, each with the server's line in chat and the friends list
+  following (two unread packets found and read: 37 and 41); `/cc help` lists the commands; `/cc info <name>` gets
+  no answer; `/rp`: the server sets stat 673 (543, then 31).
+- [ ] Still open of those: the `Befriend` script file; the role-play mark as another character sees it;
   `/gfx disable <number>` of a running effect's template stops new ones of it, `enable` brings them back;
   `/bank close` shuts the bank's window. **`/name` is not to be tried on a character that is to keep its name.**
 - [x] `/name` (2026-11-16, on the character the user named for it): `/name help`, `policy` and `status` are
   answered by the name service in tells; `/name nick <name>` was taken into its queue ("may take up to 24 hours
   ... changed while you are offline"). The first try sent one word and was refused: fixed (the whole of what
   follows the command goes). Not seen: the name changed afterwards, and `/name delete all`.
+- [x] `/org leave` on a character in no organization (2026-11-16, the test character): the warning box, Yes
+  sends the command and the server says the character is in none.
 - [ ] The organization's boxes (2026-11-16), **only in an organization made for testing, with test characters**:
   `/org leave` asks in a warning box (No sends nothing, Yes leaves); `/org disband` asks with the game's text; an
   invitation from another character comes as a box naming the organization and its tax; a promotion asks the
