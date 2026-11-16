@@ -4085,3 +4085,41 @@ that is in the list already takes its old row instead of a second one. The new-m
 `a_second_mission_stands_beside_the_first`, `a_new_mission_is_uploaded`. **Not tried live.** Not known: whether the
 server tells several missions in one message or in one each after a zoning (either works here); the original's other
 condition for the new-mission line (a flag of the character, +0x140) is not looked at.
+
+## The turn messages and the word of one's own death (2026-11-15)
+
+The user: "dying takes too long to respawn. on a related note can fix zoning when walk by a teleporter but not in".
+Both were in their log of that evening (the message log was on): zoned to Omni-1 Trade from ICC while jumping past
+the Whom-Pahs, killed there three seconds on, and set down in West Athen 59.8 s after the death.
+
+**The teleporter.** The server's teleport message (`43197d22`) begins with the place it has the character at. For the
+death it is the character's own last place; for the Whom-Pah it is (3177.6, 870.6), half a metre from the northern
+booth, while this client had the character seven metres off at (3172.3, 874.8) and had told the server so. So the
+server keeps its own copy of the character and moves it itself, and the two had parted. Why: the turn messages. The
+original's transition table (Gamecode FUN_1006cb58) has case 9 `TurnRightStart` (10 the mouse's), 11 the right turn's
+stop, 0xc `TurnLeftStart` (0xd the mouse's), 0xe the left turn's stop; the captures agree (the heading grows from a
+9 to its 11 and falls from a 12 to its 14, and they come in pairs: 876/885 and 852/852 in the long Arete capture).
+This client sent a left turn as 9, a right one as 11 and every stop as 12, from a guess of the first captures. So
+every turn by the keys ended with "left turn begun" to the server, which turned its copy of the character on and on
+while it ran: a circle of a few metres beside the real path, until the next message. The copy walked into the booth.
+(It is likely what others saw of this client's characters too, and it may be behind other oddities of the server's
+answers near things; none was looked at again.)
+
+Now `movement::TURN_RIGHT_START` 9, `TURN_RIGHT_STOP` 11, `TURN_LEFT_START` 12, `TURN_LEFT_STOP` 14, and
+`net::turn_message` picks by the keys before and now (test `the_turn_messages_are_the_originals`). The client's
+`HEADING` (a new heading while standing, 14) is the left turn's stop and stays. **The landing's message is gone:**
+the client sent 16 (`JumpStop`) as the character landed; the original sends no 16 in any capture (some 870 jumps)
+and nothing else at a landing. Not done: the mouse's turns (10 and 13; the client sends the full report 22 as the
+heading turns, which the original also does). **Not tried live.**
+
+**The death.** The original's `CharDie_t` runs each frame (Gamecode FUN_1007bad5): it waits for the death's animation
+to play out (FUN_1003c6e7 of its handle); for the client's own character it then makes an effect (3000) and counts
+three seconds (`_DAT_1015e6dc` = 3.0); then it sends `CharacterAction` 0x98 (the protocol's `Die`: no target, no
+parameters) and is done. This client never sent it, and the server moved the dead character after a minute, which
+looks like its own time-out. Now `net::OwnDeath` does the same (`Characters::death_played` asks the death's animation
+on the character's stack; a death never seen to end counts as played out after 6 s, this client's own) and
+`n3::DIE` is sent; the log says "the death has played out: telling the server". The white of the death
+(`whiteout.rs`) begins when the death has played out and rises over the three seconds instead of the minute; that
+the original's effect 3000 is that white is a guess (the effect was not read). Test:
+`the_own_death_is_told_three_seconds_after_it_played_out`. **Not tried live**: no capture has the original's own
+death, so that the server answers the 0x98 at once is read from the code only.

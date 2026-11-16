@@ -262,6 +262,12 @@ account with `net <game> create`, in Arete Landing; scripted, other new players 
 - [ ] The missions stack (2026-11-15): with one mission in the journal (Ctrl+4), accept a second at a terminal: both
   are listed, the chat says a new mission was got, and the new one's place is uploaded. Zone: both are still listed.
   Delete one: the other stays.
+- [ ] Turning and the teleporters (2026-11-15): run and jump round a Whom-Pah cluster (ICC's four) turning with the
+  keys, close by but never in a booth: no zoning. Walk into one: it zones as before. A second character watching
+  sees the first turn and stop turning as it does (no spinning, no walking in circles).
+- [ ] Dying (2026-11-15): die: the character falls, the world goes white over three seconds once it lies, and the
+  server sets it down at the place of return right after (seconds, not a minute); the log has "the death has played
+  out: telling the server".
 - [ ] The planet maps (2026-11-15): the planet map's list (P) has Saavick's, Saavick's 2x, the game's default,
   Dovve's and the Atlas of Rubi-Ka v1.3.1; in the Shadowlands SLmap v2.22 Normal and Wide and the game's. With the
   Atlas chosen: its four levels by zoom, and the arrow is where the character stands (try a place the map names: a

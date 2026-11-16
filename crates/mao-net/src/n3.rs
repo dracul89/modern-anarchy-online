@@ -26,13 +26,22 @@ pub mod movement {
     pub const STRAFE_RIGHT_STOP: u8 = 6;
     pub const STRAFE_LEFT_START: u8 = 7;
     pub const STRAFE_LEFT_STOP: u8 = 8;
-    pub const TURN_LEFT_START: u8 = 9;
-    pub const TURN_RIGHT_START: u8 = 11;
-    pub const TURN_STOP: u8 = 12;
-    /// The jump's start and its end (`JumpStartTransitionAction_t`, `JumpStopTransitionAction_t`: cases 0xf and 0x10 of the
-    /// original's transition table, FUN_1006cb58; the captures show 15 as the height begins to rise).
+    /// The turns, by the original's transition table (Gamecode FUN_1006cb58): case 9 is `TurnRightStartTransitionAction_t`
+    /// (10 the mouse's), 11 the right turn's stop (taken only while turning right), 0xc `TurnLeftStartTransitionAction_t`
+    /// (0xd the mouse's), 0xe the left turn's stop. The captures agree: the heading (twice the angle of the rotation's y
+    /// and w) grows from a 9 to its 11 and falls from a 12 to its 14, and the 9s and 11s, the 12s and 14s come in pairs.
+    /// Until 2026-11-15 a left turn was sent as 9, a right one as 11 and every stop as 12: the server took each stop for
+    /// a left turn begun and walked its own copy of the character round in a circle from there, into whatever stood
+    /// beside the path (the user was zoned by a Whom-Pah seven metres off: the server's place for the character in its
+    /// teleport message was the booth's).
+    pub const TURN_RIGHT_START: u8 = 9;
+    pub const TURN_RIGHT_STOP: u8 = 11;
+    pub const TURN_LEFT_START: u8 = 12;
+    pub const TURN_LEFT_STOP: u8 = 14;
+    /// The jump's start (`JumpStartTransitionAction_t`, case 0xf of the table; the captures show 15 as the height begins
+    /// to rise). Its end, case 0x10 (`JumpStopTransitionAction_t`), is the character's own business: the original sends
+    /// no 16 in any capture (some 870 jumps), and nothing else as it lands.
     pub const JUMP_START: u8 = 15;
-    pub const JUMP_STOP: u8 = 16;
     pub const JUMP: u8 = JUMP_START;
     /// The full position report: the original sends it after 5 s in motion without another movement message, when the heading
     /// turns more than 0.17 rad within 0.25 s, and at once to ask the server to zone (a teleport try, when the character touches
@@ -47,8 +56,8 @@ pub mod movement {
     /// `LeaveSwimModeTransitionAction_t`: the character asks for them as its vehicle enters and leaves deep liquid).
     pub const SWIM_MODE: u8 = 0x1a;
     pub const LEAVE_SWIM: u8 = 0x23;
-    /// A new heading while standing.
-    pub const HEADING: u8 = 14;
+    /// A new heading while standing: the left turn's stop, which carries the heading.
+    pub const HEADING: u8 = TURN_LEFT_STOP;
     /// Sitting down on the ground and getting up (`SwitchToSitGroundModeTransitionAction_t`, `LeaveSitModeTransitionAction_t`:
     /// `N3Msg_StartCamping` sends the first, `N3Msg_MovementChanged(0x1e)`).
     pub const SIT: u8 = 30;
@@ -178,6 +187,12 @@ pub const STAND: u8 = 0x57;
 pub const LOGOUT: u8 = 0x78;
 /// `N3Msg_StopCamping` (Gamecode 0x1001cb63): the timed logout given up (CharacterAction 0x79).
 pub const STOP_LOGOUT: u8 = 0x79;
+
+/// The character tells the server it lies dead (`CharacterAction` 0x98, the protocol's `Die`): the original's `CharDie_t`
+/// sends it for the client's own character three seconds after its death's animation has played out (its frame,
+/// Gamecode FUN_1007bad5: `FUN_10072a88(identity, no target, 0, 0x98, no parameters, "")`), and the server then sets the
+/// character down where it comes back to life. Without it the server waits a minute.
+pub const DIE: u8 = 0x98;
 
 /// A `5e477770` action message (the action byte after four zero bytes, 27
 /// bytes of data).

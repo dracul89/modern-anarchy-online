@@ -2,18 +2,19 @@
 //! it comes back to life.
 //!
 //! From the user's description of the original (2026-11-11: "the screen fades to white then you teleport to spawn",
-//! when dying). The original's code for it was looked for and not found (not in GUI.dll's `DeadMessage` or
-//! `TeleportStartedMessage`, not among Gamecode's `VisualFader_t`s, which are the weather's and the playfield's black
-//! one), so the times here are this client's guesses: the white rises over the minute the server leaves the dead
-//! character lying ([`RISE`]) and clears over [`CLEAR`] after the arrival. Only the world goes white: the windows and
-//! the chat stay as they are.
+//! when dying). The original's `CharDie_t` (its frame, Gamecode FUN_1007bad5) makes an effect, 3000, on the client's
+//! own character when its death's animation has played out, and three seconds later tells the server, which sets the
+//! character down where it comes back to life (`net.rs`, `OwnDeath`). That the effect is the white is a guess (the
+//! effect itself was not read); so the white begins when the death has played out and rises over those three seconds
+//! ([`RISE`]), and clears over [`CLEAR`] after the arrival, this client's own time. Only the world goes white: the
+//! windows and the chat stay as they are.
 
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-/// How long the white takes to cover the world (the server moved the dead character 60 s after its death in the live
-/// runs of 2026-11-11).
-pub const RISE: Duration = Duration::from_secs(60);
+/// How long the white takes to cover the world: the three seconds between the death played out and the word to the
+/// server. (It was a minute until 2026-11-15: the minute the server left a character lying that never sent the word.)
+pub const RISE: Duration = Duration::from_secs(3);
 /// How long it takes to clear once the character is alive again.
 pub const CLEAR: Duration = Duration::from_millis(1500);
 

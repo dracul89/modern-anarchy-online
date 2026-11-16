@@ -1774,9 +1774,9 @@ impl World {
             if m.identity.1 == self.own {
                 // (dead until the server says there is health again or puts the character somewhere: its health is
                 // nothing, as FUN_1005b3d8 sets it, whatever the last message of it said)
+                // (the white begins when the death has played out: `OwnDeath`)
                 self.own_dead = true;
                 self.dead_health = 0;
-                crate::whiteout::begin();
                 if self.stats.insert(27, 0) != Some(0) {
                     self.stats_changed = true;
                 }
@@ -3966,6 +3966,69 @@ fn vehicle_step(velocity: [f32; 2], heading: f32, walk: i8, pushed: i8, top: f32
     v
 }
 
+/// The movement message for the turn keys changing from `before` to `now` (-1 left, 1 right, 0 neither): the new
+/// turn's start, else the stop of the one that ended (`movement::TURN_RIGHT_START` has the original's numbers).
+fn turn_message(before: i8, now: i8) -> u8 {
+    use mao_net::n3::movement;
+    match (before, now) {
+        (_, -1) => movement::TURN_LEFT_START,
+        (_, 1) => movement::TURN_RIGHT_START,
+        (-1, _) => movement::TURN_LEFT_STOP,
+        _ => movement::TURN_RIGHT_STOP,
+    }
+}
+
+/// The course of one's own death, as the original's `CharDie_t` runs it each frame (Gamecode FUN_1007bad5): it waits
+/// for the death's animation to play out (FUN_1003c6e7 of its handle), then makes an effect on the client's own
+/// character (3000: taken here for the white the world fades to, a guess) and counts three seconds (`_DAT_1015e6dc`),
+/// then sends `CharacterAction` 0x98 ([`mao_net::n3::DIE`]) and is done. The server answers with the character set
+/// down where it comes back to life; a client that never sends it lies dead for a minute (the user's log of
+/// 2026-11-15: dead at 98.77 s, moved at 158.60 s).
+#[derive(Default)]
+struct OwnDeath {
+    died: Option<Instant>,
+    played: Option<Instant>,
+    told: bool,
+}
+
+#[derive(Debug, PartialEq)]
+enum DeathStep {
+    Nothing,
+    /// The death has played out: the white begins.
+    Whiten,
+    /// Three seconds on: the server is told.
+    Tell,
+}
+
+impl OwnDeath {
+    /// The seconds between the death played out and the word to the server.
+    const WAIT: Duration = Duration::from_secs(3);
+    /// A death whose animation is not known to have ended counts as played out after this long (this client's own:
+    /// a character with no death animation, or one that is not drawn).
+    const UNSEEN: Duration = Duration::from_secs(6);
+
+    /// A frame: `dead` while the character lies dead, `played` whether its death's animation has run to its end (none
+    /// while none is posed).
+    fn step(&mut self, dead: bool, played: Option<bool>, now: Instant) -> DeathStep {
+        if !dead {
+            *self = OwnDeath::default();
+            return DeathStep::Nothing;
+        }
+        let died = *self.died.get_or_insert(now);
+        match self.played {
+            None if played == Some(true) || now.duration_since(died) >= Self::UNSEEN => {
+                self.played = Some(now);
+                DeathStep::Whiten
+            }
+            Some(at) if !self.told && now.duration_since(at) >= Self::WAIT => {
+                self.told = true;
+                DeathStep::Tell
+            }
+            _ => DeathStep::Nothing,
+        }
+    }
+}
+
 /// The movement keys of a seated character: forward, back, the sidesteps and the jump do nothing (it neither moves nor
 /// stands up for them; the turn keys are left as they are).
 fn seated_keys(_forward: bool, _back: bool, _strafe: i8, _jump: bool) -> (bool, bool, i8, bool) {
@@ -4037,6 +4100,17 @@ impl Characters {
                 })
             })
             .as_ref()
+    }
+
+    /// Whether a character's death has played out: its movement is the death's (segment 9, held at its end) and has
+    /// run its length (the original asks the animation's handle, FUN_1003c6e7). None while no death is posed for it.
+    fn death_played(&self, id: u32) -> Option<bool> {
+        if self.movement_keys.get(&id)?.1 != 9 {
+            return None;
+        }
+        let handle = *self.movement_handles.get(&id)?;
+        let (stack, _) = self.stacks.get(&id)?;
+        Some(stack.entries.iter().find(|e| e.handle == handle).is_none_or(|e| e.elapsed >= (e.end - e.start).abs()))
     }
 
     /// The parts of a creature or NPC from its template (the CAT mesh and
@@ -5513,6 +5587,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     let mut near_booth: Option<(u32, [f32; 3], Instant)> = None;
     // A teleport try under way: when it began (the original's `TeleportTrier_t`, 30 s before it gives up).
     let mut teleport_try: Option<Instant> = None;
+    let mut own_death = OwnDeath::default();
     let game_dir = game.to_string();
     let thread_db = db.clone();
     let mut current = playfield;
@@ -6673,6 +6748,16 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 state.own_dead = false;
                 state.dead.remove(&own);
                 crate::whiteout::clear(false);
+            }
+            // (the death's course: the white once the death has played out, and three seconds on the word to the server,
+            // which sets the character down where it comes back to life)
+            match own_death.step(state.own_dead, characters.as_ref().and_then(|c| c.death_played(own)), Instant::now()) {
+                DeathStep::Whiten => crate::whiteout::begin(),
+                DeathStep::Tell => {
+                    eprintln!("[{:7.2}] the death has played out: telling the server (action 0x98)", clock.elapsed().as_secs_f32());
+                    let _ = connection.send(&n3::action(own, n3::DIE));
+                }
+                DeathStep::Nothing => {}
             }
             // (the playfield stopped for a zoning: the character stands still until the playfield message; after 30 s, the
             // `TeleportTrier_t`'s time, it is let go, a safety of this client's: the original stays stopped)
@@ -8150,7 +8235,6 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             own_pitch.set(elevation);
             let start_jump = (keys.jump || std::mem::take(&mut autoplay_jump)) && !was_jumping && !airborne && !state.swimming.contains(&own) && !flying;
             was_jumping = keys.jump;
-            let mut landed = false;
             // The original's vehicle where the playfield has its collision surfaces (`vehicle.rs`: `Vehicle_t::Run` and
             // `EnsureSurfaceAlignment` against `n3TilemapSurface_t`); the client's own steps elsewhere (a generated dungeon,
             // or noclip).
@@ -8205,7 +8289,6 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         // (`LandNow`'s callback, FUN_1006f442: the jump's stop when the character was jumping)
                         crate::vehicle::Event::Landed(_) if jumping => {
                             jumping = false;
-                            landed = true;
                         }
                         crate::vehicle::Event::Swim | crate::vehicle::Event::LeaveSwim => {
                             let swim = event == crate::vehicle::Event::Swim;
@@ -8258,7 +8341,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 base = (ground(&terrain, position) + offset).max(floor);
                 rise = height - base;
                 if airborne && vy <= 0.0 && rise <= 0.0 {
-                    (airborne, rise, landed) = (false, 0.0, true);
+                    (airborne, rise) = (false, 0.0);
                 } else if airborne && rise < 0.0 {
                     rise = 0.0;
                 } else if !airborne {
@@ -8565,15 +8648,12 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 }
             }
             if keys.turn != turning {
-                match keys.turn {
-                    -1 => send_kind(movement::TURN_LEFT_START, &mut connection),
-                    1 => send_kind(movement::TURN_RIGHT_START, &mut connection),
-                    _ => send_kind(movement::TURN_STOP, &mut connection),
-                }
-            } else if (due && !sent_this_pass.get()) || landed {
+                send_kind(turn_message(turning, keys.turn), &mut connection);
+            } else if due && !sent_this_pass.get() {
                 // (a movement message just sent this pass counts as the last one: no report on its heels)
-                // (the periodic report is the original's full one, 0x16; 15 is what the captures show as the character lands)
-                send_kind(if landed { movement::JUMP_STOP } else { movement::FULL }, &mut connection);
+                // (the periodic report is the original's full one, 0x16. Nothing is sent as the character lands: the
+                // original sends no jump's stop, see `movement::JUMP_START`)
+                send_kind(movement::FULL, &mut connection);
             }
             if keys.strafe != strafing {
                 // The strafe start and stop types (the protocol's `MovementType`: `StrafeRightStart` 5, `StrafeRightStop` 6,
@@ -11689,13 +11769,45 @@ mod movement_tests {
         assert_eq!(cast_seconds(300, Some(1_234_567_890), 2000, 0), 0.0);
     }
 
+    /// The turn keys' messages are the original's: a left turn is 12 and ends with 14, a right one 9 and 11; and one
+    /// turn's key let go for the other's starts the other.
+    #[test]
+    fn the_turn_messages_are_the_originals() {
+        assert_eq!((turn_message(0, -1), turn_message(-1, 0)), (12, 14));
+        assert_eq!((turn_message(0, 1), turn_message(1, 0)), (9, 11));
+        assert_eq!((turn_message(-1, 1), turn_message(1, -1)), (9, 12));
+    }
+
+    /// One's own death: nothing while its animation plays, the white when it has played out, the word to the server
+    /// three seconds on and once only; a death never seen to end counts as played out after six seconds; alive again,
+    /// the next death starts anew.
+    #[test]
+    fn the_own_death_is_told_three_seconds_after_it_played_out() {
+        let t = Instant::now();
+        let s = Duration::from_secs_f32;
+        let mut d = OwnDeath::default();
+        assert_eq!(d.step(false, None, t), DeathStep::Nothing);
+        assert_eq!(d.step(true, None, t), DeathStep::Nothing);
+        assert_eq!(d.step(true, Some(false), t + s(1.0)), DeathStep::Nothing);
+        assert_eq!(d.step(true, Some(true), t + s(2.0)), DeathStep::Whiten);
+        assert_eq!(d.step(true, Some(true), t + s(4.9)), DeathStep::Nothing);
+        assert_eq!(d.step(true, Some(true), t + s(5.0)), DeathStep::Tell);
+        assert_eq!(d.step(true, Some(true), t + s(30.0)), DeathStep::Nothing);
+        // (alive, then dead again with no animation seen)
+        assert_eq!(d.step(false, None, t + s(40.0)), DeathStep::Nothing);
+        assert_eq!(d.step(true, None, t + s(50.0)), DeathStep::Nothing);
+        assert_eq!(d.step(true, None, t + s(55.9)), DeathStep::Nothing);
+        assert_eq!(d.step(true, None, t + s(56.0)), DeathStep::Whiten);
+        assert_eq!(d.step(true, None, t + s(59.0)), DeathStep::Tell);
+    }
+
     #[test]
     fn sitting_is_held_until_getting_up() {
         let mut w = World { own: 1, ..World::default() };
         w.add(&n3::position_update(7, n3::movement::SIT, 0.0, [1.0, 2.0, 3.0], 0));
         assert_eq!(w.held_action(7), Some(0xd5));
         // (turning on the spot keeps it seated)
-        for kind in [n3::movement::TURN_LEFT_START, n3::movement::TURN_RIGHT_START, n3::movement::TURN_STOP, n3::movement::HEADING] {
+        for kind in [n3::movement::TURN_LEFT_START, n3::movement::TURN_RIGHT_START, n3::movement::TURN_RIGHT_STOP, n3::movement::HEADING] {
             w.add(&n3::position_update(7, kind, 1.0, [1.0, 2.0, 3.0], 0));
             assert_eq!(w.held_action(7), Some(0xd5));
         }
