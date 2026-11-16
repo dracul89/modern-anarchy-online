@@ -262,6 +262,10 @@ account with `net <game> create`, in Arete Landing; scripted, other new players 
 - [ ] The missions stack (2026-11-15): with one mission in the journal (Ctrl+4), accept a second at a terminal: both
   are listed, the chat says a new mission was got, and the new one's place is uploaded. Zone: both are still listed.
   Delete one: the other stays.
+- [ ] The Jobe Whom-Pah without Shadowlands (2026-11-15): a free account's character walks into the booth to Jobe
+  (Old Athen's southern one, ICC's eastern one): an error box says the Shadowlands expansion is needed, once a touch;
+  the log has "the booth to Jobe: the account's expansions (stat 389) are ...". A character with Shadowlands gets
+  no box and zones. The other booths: no box.
 - [ ] No take-off on a refusal (2026-11-15): use a flying item the character cannot wear (the jetpack under the
   skill): the server's line comes, the item goes back, and the character never leaves the ground. Put a Yalmaha on
   and take it off: it lifts and lands as before, a moment after the click.

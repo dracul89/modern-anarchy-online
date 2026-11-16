@@ -5380,6 +5380,8 @@ pub(crate) struct Area {
     pub(crate) collision: mao_formats::collision::Collision,
     /// The whompah booths (x, height, z).
     pub(crate) booths: Vec<[f32; 3]>,
+    /// Those of them that lead to Jobe, by their signs (`whompah::jobe_booths`).
+    pub(crate) jobe_booths: Vec<[f32; 3]>,
     /// The playfield's areas and their environments (light and fog by where the character stands), and the playfield's
     /// own environment bytes (the base the areas blend into).
     pub(crate) areas: Vec<mao_formats::areas::Area>,
@@ -5467,6 +5469,7 @@ pub(crate) fn load_area_with(game: &str, db: &Arc<ResourceDatabase>, playfield: 
     profile!("[profile] area {playfield}: collision {:?} (after {before_collision:?})", started.elapsed());
     eprintln!("playfield {playfield}: collision {} triangles", collision.len());
     let mut booths = crate::whompah_booths(game, db, playfield);
+    let jobe_booths = crate::whompah::jobe_booths(game, db, playfield);
     if terrain.is_none() {
         // An interior's way out is marked by its door blocker: offer it like a booth (labelled, and the Go button walks there).
         booths.extend(crate::door_markers(game, db, playfield));
@@ -5511,7 +5514,7 @@ pub(crate) fn load_area_with(game: &str, db: &Arc<ResourceDatabase>, playfield: 
     if let Some(e) = &base_environment {
         eprintln!("playfield {playfield}: environment weather {:?} ambient {:?} fog {:?} density {}", &e[..8], &e[19..22], &e[22..25], e[25]);
     }
-    let mut area = Area { scene, terrain, collision, booths, areas, base_environment, teleportals, zones, animated, interior, falls, statel_effects };
+    let mut area = Area { scene, terrain, collision, booths, jobe_booths, areas, base_environment, teleportals, zones, animated, interior, falls, statel_effects };
     // (`MAO_HOUSES=<hex>`: a city's houses for the offline views, `crate::houses::from_env`)
     if let Some(houses) = crate::houses::from_env() {
         crate::houses::add(db, &houses, &mut area.scene, &mut area.collision, area.zones.as_mut().and_then(Arc::get_mut));
@@ -5557,7 +5560,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     let _ = ITEM_DB.set(db.clone());
     crate::effects::load_calibration(game);
     let textures = crate::Textures::new(db.clone());
-    let Area { scene, terrain, collision, booths, areas, base_environment, teleportals, zones, animated, interior, falls, statel_effects } = load_area_with(game, &db, playfield, Some(&textures))?;
+    let Area { scene, terrain, collision, booths, jobe_booths, areas, base_environment, teleportals, zones, animated, interior, falls, statel_effects } = load_area_with(game, &db, playfield, Some(&textures))?;
     // The rooms of an interior: where the character is among them, which doors it may pass, which rooms are drawn.
     let mut interior = interior;
     let mut room_state = crate::interior::RoomState::default();
@@ -5591,6 +5594,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     let _ = PLAYFIELD_NAMES.set(names.clone());
     let mut destinations = crate::whompah::Destinations::load();
     let mut booths = booths;
+    let mut jobe_booths = jobe_booths;
     let mut booth_playfield = playfield;
     let mut pending_labels = Some(booth_labels(playfield, &booths, &destinations, &names));
     let mut pending_location = names.get(&playfield).cloned();
@@ -6708,6 +6712,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             }
                             pending_scene = Some(scene);
                             booths = area.booths;
+                            jobe_booths = area.jobe_booths;
                             pending_falls = Some(area.falls);
                             pending_statel_effects = Some(area.statel_effects);
                             areas = area.areas;
@@ -6724,6 +6729,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             pending_falls = Some(Vec::new());
                             pending_statel_effects = Some(Vec::new());
                             booths = Vec::new();
+                            jobe_booths = Vec::new();
                             pending_labels = Some(Vec::new());
                         }
                     }
@@ -8639,6 +8645,17 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     teleport_try = Some(Instant::now());
                     send_kind(movement::FULL, &mut connection);
                     eprintln!("[{:6.1}] teleport try at a door, from {position:?}", clock.elapsed().as_secs_f32());
+                    // (the booth to Jobe, by an account without Shadowlands: the server answers such a try with nothing, so
+                    // the client says why, in the game's own words for that expansion. The try is sent all the same.)
+                    let expansions = state.stats.contains_key(&54).then(|| state.stats.get(&389).copied().unwrap_or(0));
+                    if jobe_booths.iter().any(|b| (b[0] - position[0]).hypot(b[2] - position[2]) < 2.0) {
+                        eprintln!("the booth to Jobe: the account's expansions (stat 389) are {expansions:?}");
+                    }
+                    if crate::whompah::needs_shadowlands(&jobe_booths, position, expansions) {
+                        crate::chrome::alert(crate::feedback::plain("Feedback_YouMustHaveExpansionpack1"));
+                        // (the text goes to a box, not to a chat line: its chat group is not left for the next line)
+                        let _ = crate::feedback::take_group();
+                    }
                 }
                 Some(began) if began.elapsed() >= Duration::from_secs(30) => {
                     teleport_try = None;

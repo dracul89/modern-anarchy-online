@@ -93,9 +93,73 @@ impl Destinations {
     }
 }
 
+/// Whether a texture's name is the sign of a booth to Jobe. Every booth has a sign over it (a statel of
+/// `sign_whompa_default` at the booth's place) with the texture of where it leads: `new_whompa_sign_tir`,
+/// `new_whompa_sign_newland`, and `new_whompa_sign_jobe` for the Jobe platform (the older stations have
+/// `teleportersigns_omni-whompa_jobe`). The signs inside Jobe, of the ways back, are `whompa_signs_from_jobe`.
+pub fn sign_is_jobe(texture: &str) -> bool {
+    let name = texture.to_lowercase();
+    name.contains("whompa") && name.contains("jobe") && !name.contains("from_jobe")
+}
+
+/// The booths of a playfield that lead to Jobe (x, height, z): the statels whose texture is a Jobe sign's
+/// ([`sign_is_jobe`]). The server alone decides where a booth leads; the sign is what the game's data says of it.
+pub fn jobe_booths(game: &str, db: &mao_formats::resource::ResourceDatabase, playfield: u32) -> Vec<[f32; 3]> {
+    let signs: std::collections::HashSet<u32> = db
+        .get(mao_formats::resource::Id { kind: 0xf424a, instance: 1 })
+        .ok()
+        .flatten()
+        .and_then(|o| mao_formats::instances::Instances::parse(&o).ok())
+        .map(|index| index.iter().filter(|&(kind, name, _)| kind == 0xf6954 && sign_is_jobe(name)).map(|(_, _, instance)| instance).collect())
+        .unwrap_or_default();
+    let path = std::path::Path::new(game).join(format!("cd_image/data/statels/{playfield}.pf"));
+    let Ok(file) = mao_formats::files::read(&path) else { return Vec::new() };
+    let Ok(statels) = mao_formats::statels::parse(&file) else { return Vec::new() };
+    statels.iter().filter(|s| s.extras.iter().any(|e| signs.contains(&e.2))).map(|s| s.position).collect()
+}
+
+/// Whether a character at `position` (x, height, z), touching a booth, is at one to Jobe that it cannot take: its
+/// account's expansions (stat 389, none while the stats are not known) lack Shadowlands, bit 1 (the original's text
+/// for a condition on that bit is `Feedback_YouMustHaveExpansionpack1`, Gamecode FUN_1000556a: bit 0 the Notum Wars
+/// booster, 1 Shadowlands, 3 Alien Invasion, 5 Lost Eden, 7 Legacy of the Xan). The server says nothing to such a
+/// character in the booth (the user's log of 2026-11-15: four tries, no answer), so the client says it.
+pub fn needs_shadowlands(jobe_booths: &[[f32; 3]], position: [f32; 3], expansions: Option<i64>) -> bool {
+    expansions.is_some_and(|e| e & 2 == 0) && jobe_booths.iter().any(|b| (b[0] - position[0]).hypot(b[2] - position[2]) < 2.0 && (b[1] - position[1]).abs() < 4.0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The Jobe booth is known by its sign, and an account without Shadowlands touching it is told; one with
+    /// Shadowlands, one whose stats are not known yet, and anyone at another booth are not.
+    #[test]
+    fn the_jobe_booth_asks_for_shadowlands() {
+        assert!(sign_is_jobe("new_whompa_sign_jobe.png") && sign_is_jobe("teleportersigns_omni-whompa_jobe.png"));
+        assert!(!sign_is_jobe("new_whompa_sign_tir.png") && !sign_is_jobe("whompa_signs_from_jobe.png") && !sign_is_jobe("jobe_building_whompa.abiff.png_from_jobe"));
+        let booths = [[449.0, 8.0, 317.7]];
+        let at = [448.9, 8.3, 318.2];
+        assert!(needs_shadowlands(&booths, at, Some(0)));
+        assert!(needs_shadowlands(&booths, at, Some(1)));
+        assert!(!needs_shadowlands(&booths, at, Some(2)));
+        assert!(!needs_shadowlands(&booths, at, Some(0xab)));
+        assert!(!needs_shadowlands(&booths, at, None));
+        // (the booth to Tir, five units off; and a door a floor up)
+        assert!(!needs_shadowlands(&booths, [444.2, 8.3, 313.0], Some(0)));
+        assert!(!needs_shadowlands(&booths, [448.9, 14.0, 318.2], Some(0)));
+    }
+
+    /// `MAO_GAME`: Old Athen's fourth booth and ICC's eastern one are the ones to Jobe, and Tir has none.
+    #[test]
+    fn the_games_jobe_booths() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let game = game.to_string_lossy().to_string();
+        let db = mao_formats::resource::ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap();
+        let places = |pf: u32| jobe_booths(&game, &db, pf).iter().map(|b| ((b[0] * 10.0).round() as i32, (b[2] * 10.0).round() as i32)).collect::<Vec<_>>();
+        assert_eq!(places(540), [(4490, 3177)]);
+        assert_eq!(places(655), [(31831, 8660)]);
+        assert_eq!(places(640), []);
+    }
 
     #[test]
     fn known_booths_and_learning() {

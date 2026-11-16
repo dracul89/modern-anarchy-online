@@ -4181,3 +4181,29 @@ Not done: the original asks itself whether the item can be worn before it asks t
 (`N3Msg_IsItemPossibleToWear`, the item's own check at its +0x5c); the client's `wear_refusal` judges the wear action
 (6) only, and which action the original judges for an item of the weapons' page (the jetpack's is wield, 8) was not
 read, so the jetpack is still asked of the server and refused there, with the server's line.
+
+## The Jobe Whom-Pah says it needs Shadowlands (2026-11-15)
+
+The user: "when a free player tries to enter the jobe whompah give an error that they need the Shadowlands expansion".
+Their log has four tries at Old Athen's fourth booth and nothing from the server for any of them: it neither zones
+such a character nor says why. **This is the client's own addition**, not the original's: what the original shows a
+free account in that booth was not seen (no capture), and its door code was not found to ask anything of the
+expansions.
+
+- **Which booth leads to Jobe** is in the game's data after all: every booth has a sign over it (a statel of
+  `sign_whompa_default` at the booth's place) with a texture named for where it leads (`new_whompa_sign_tir`,
+  `..._newland`, `..._omnitrade`, `..._wailing_wastes` ...), and Jobe's is `new_whompa_sign_jobe` (older stations:
+  `teleportersigns_omni-whompa_jobe`). `whompah::jobe_booths` finds the statels with such a texture;
+  `Area::jobe_booths`. In the game's files: Old Athen (449.0, 317.7), ICC (3183.1, 866.0), which the learned
+  `whompah.ini` agrees with (the booth's four doors share one template, "Dummy Whom-Pah noselect", and say nothing).
+- **Whether the account has Shadowlands**: stat 389, bit 1 (the original's text for a condition on that bit is
+  `Feedback_YouMustHaveExpansionpack1`, Gamecode FUN_1000556a; bit 0 is the Notum Wars booster, 3 Alien Invasion,
+  5 Lost Eden, 7 Legacy of the Xan). A stat the server did not send counts as 0 once the character's stats are in.
+- **The error**: as the teleport try starts at such a booth (`whompah::needs_shadowlands`), an error box with the
+  game's own text of that name (text.mdb, category 110). The try is sent all the same, so an account wrongly judged
+  still zones. The log says what the stat was: "the booth to Jobe: the account's expansions (stat 389) are ...".
+
+Tests: `the_jobe_booth_asks_for_shadowlands`, `the_games_jobe_booths` (`MAO_GAME`). **Not tried live**: that the
+server sends stat 389 to a free account's character with bit 1 clear (and to a paying one with it set) is not
+seen; the log's line at the next try shows it. Not done: the signs would give every booth's destination without
+learning it (the labels over the booths still come from `whompah.ini`).
