@@ -63,7 +63,10 @@ pub enum MailCommand {
     /// Take a mail's item and credits.
     Take(u32),
     Delete(u32),
-    Send { recipient: String, subject: String, body: String, item: (u32, u32), credits: u32, express: bool },
+    /// Return a mail to its sender.
+    Return(u32),
+    /// `credits` below 0 is cash on delivery.
+    Send { recipient: String, subject: String, body: String, item: (u32, u32), credits: i32, express: bool },
 }
 
 /// A mail that was opened, with its attached item's name and icon from the game's database.
@@ -304,9 +307,9 @@ mod tests {
 
     #[test]
     fn a_mail_with_its_item_still_in_it_is_not_deleted() {
-        use mao_net::mail::{HAS_CREDITS, HAS_ITEM, READ, TAKEN};
-        assert!(deletable(0) && deletable(READ) && deletable(HAS_CREDITS | READ));
-        assert!(!deletable(HAS_ITEM) && !deletable(HAS_ITEM | HAS_CREDITS | READ));
+        use mao_net::mail::{EXPRESS, HAS_ITEM, READ, TAKEN};
+        assert!(deletable(0) && deletable(READ) && deletable(EXPRESS | READ));
+        assert!(!deletable(HAS_ITEM) && !deletable(HAS_ITEM | EXPRESS | READ));
         assert!(deletable(HAS_ITEM | TAKEN | READ));
         let entry = |id: u32, flags: u32| Entry { id, sender_id: 1, sender: "Shop".into(), subject: "s".into(), sent: 0, expires: 0, flags, express: false };
         let mut w = MailWindow::default();

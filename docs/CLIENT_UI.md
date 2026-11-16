@@ -4341,3 +4341,28 @@ sign. When a booth is taken and its sign said another playfield, the log says so
 Tests: `a_signs_name_is_its_destination`, `the_signs_lead_both_ways` (`MAO_GAME`: every placed sign known, the
 network both ways, 77 signs). Tool: `cargo run -p mao-formats --example whompasigns -- <game>`. **Not looked at in
 the window** (no picture taken; the list's text is the label's).
+
+## Mail: cash on delivery and Return To Sender (2026-11-16)
+
+First of the window gaps in the user's "do all of the Readable from the decompile now". From GUI.dll's message
+window (FUN_10107fc8, FUN_10107b87, FUN_1010733d, FUN_10106692, the return handler at 0x101063d4) and Gamecode's
+`N3Msg_ReturnMail` (0x10023a8c):
+
+- **A mail's credits are signed.** A negative amount is cash on delivery: what the receiver pays to take the
+  mail's things. The client read the number unsigned and had no field for it.
+- **Sending.** The Credits field's number goes if it is 1 or more, else the C.O.D. field's negated. A negative
+  number in either field: the game's `Feedback_MailNoNegative`. A text over 2000 letters (4000 bytes) or a subject
+  over 64: `Feedback_TextSubjectTooLong`. The name goes with a capital and small letters. With money or a C.O.D.
+  the window asks first (the game's `ConfirmSendMail` and `ConfirmSendMailCOD`, naming the amount, the item or
+  "no item", and the name).
+- **Receiving.** Money sent along shows in Credits and a C.O.D. in its own field, the other "0". Take All on a
+  C.O.D. mail asks first (`ConfirmTakeMailItems` with the amount). The delivery choice shows how the mail came:
+  bit 5 of its flags is "express" (the client had taken that bit for "has credits").
+- **Return To Sender** is on for a mail not yet taken, not barred from it (bit 4 of its flags), that has an item or
+  something to pay; it sends the mail message's action 7 with the mail's number (`mail::return_to_sender`) and
+  the list is asked for again.
+
+The two boxes' titles ("ConfirmSendMail", "MailTakeItems") are what the code hands its windows. Tests:
+`cash_on_delivery_and_the_way_back`, `a_mail_is_returned_and_its_credits_are_signed`, `mail_matches_the_capture`.
+**Nothing of this was sent to a server**: no capture has a C.O.D. mail or a returned one, and sending needs a
+paying account. Kept from before and this client's own: a mail without a recipient or a subject is not sent.

@@ -1062,9 +1062,10 @@ pub fn mail_count(data: &[u8]) -> Option<(i16, usize)> {
 
 /// `Mail` (`333b2867`) sending a mail: action 6, the recipient, subject and body (each with an `i16`
 /// length), the attached item's identity (an inventory slot is `(0x68, slot)`; `(0, 0)` for none), the
-/// credits and whether it goes express. Free accounts are refused ("Sending mail is limited to paying
-/// customers"): the server answers with a `FormatFeedback`.
-pub fn mail_send(character: u32, recipient: &str, subject: &str, body: &str, item: (u32, u32), credits: u32, express: bool) -> Frame {
+/// credits and whether it goes express. The credits are signed: a negative number is cash on delivery, what the
+/// receiver is to pay (GUI.dll FUN_1010733d hands `N3Msg_SendMail` the C.O.D. field's number negated). Free accounts
+/// are refused ("Sending mail is limited to paying customers"): the server answers with a `FormatFeedback`.
+pub fn mail_send(character: u32, recipient: &str, subject: &str, body: &str, item: (u32, u32), credits: i32, express: bool) -> Frame {
     let mut data = vec![0u8, 0, 6];
     for text in [recipient, subject, body] {
         data.extend_from_slice(&(text.len() as u16).to_be_bytes());
@@ -1458,6 +1459,8 @@ mod tests {
         assert_eq!(hex(mail_request(0x4c2e2)), "0000010000000000000000");
         // The captured send: to "Muggles", subject "hi", no body, the item in inventory slot 0x44, express.
         assert_eq!(hex(mail_send(0x4c2e2, "Muggles", "hi", "", (0x68, 0x44), 0, true)), "00000600074d7567676c657300026869000000000068000000440000000001");
+        // (cash on delivery: the amount negated)
+        assert_eq!(hex(mail_send(0x4c2e2, "Muggles", "hi", "", (0x68, 0x44), -500, false)), "00000600074d7567676c65730002686900000000006800000044fffffe0c00");
     }
 
     /// The end of a player's full update in the original's capture of 2026-10-30: five clothes, none worn, then one

@@ -35,10 +35,10 @@ rows were brought up to date on the day this was saved. A few gaps listed here m
 | Friends | the flashing row for unread tells, tell windows listed under Chat Windows, the chat window's own menu |
 | Inventory, bags, bank | `labels_on_top` for the wear and inspect windows |
 | Info view | shop price, some names on a character's page (the nano radius is not a gap: see below) |
-| Skills | the suggested distribution |
+| Skills | the refusal for a "temporarily changed" skill (the suggested distribution was already in: `ipdist.rs`) |
 | NCU and nano programs | Auto Arrange, placing by hand, kept column widths and sort (the radius column is not a gap: see below) |
 | Special actions | placing by hand; backstab never seen live |
-| Mail | Return To Sender, C.O.D., kept column widths |
+| Mail | kept column widths (Return To Sender and C.O.D. ported 2026-11-16, not tried live) |
 | Missions | kept columns and the active mission, Update Team Members, the shadow knowledge reward row |
 | Shops and trade | the `ShopBuy` mode and the list configs; the partner's item names in a player trade; the out-of-range check |
 | NPC chat | the Shop button's trade with the NPC |

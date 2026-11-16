@@ -262,6 +262,10 @@ account with `net <game> create`, in Arete Landing; scripted, other new players 
 - [ ] The missions stack (2026-11-15): with one mission in the journal (Ctrl+4), accept a second at a terminal: both
   are listed, the chat says a new mission was got, and the new one's place is uploaded. Zone: both are still listed.
   Delete one: the other stays.
+- [ ] Mail with cash on delivery (2026-11-16; a paying account's test character writing to another test
+  character): a number in C.O.D. asks before sending and the receiver sees it in the C.O.D. field; Take All asks
+  before paying; Return To Sender sends the mail back and it leaves the list. A negative number in either money
+  field is refused with the game's line. A mail with money sent along still shows it in Credits.
 - [ ] The booths' names from their signs (2026-11-16): the Whom-Pah window's list at a station never visited
   (and the map's dots) names every booth's destination, the same as the sign over it; take one: it leads there,
   and the log has no "has a sign to ... and led to ..." line.

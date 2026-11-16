@@ -7531,6 +7531,12 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     crate::mailbox::MailCommand::Take(id) => {
                         let _ = connection.send(&mao_net::mail::take(own, id));
                     }
+                    // (`N3Msg_ReturnMail`: the mail goes back; the list again a moment later, as after a delete)
+                    crate::mailbox::MailCommand::Return(id) => {
+                        eprintln!("mail {id:#x} returned to its sender");
+                        let _ = connection.send(&mao_net::mail::return_to_sender(own, id));
+                        inbox_due = Some(Instant::now() + Duration::from_millis(600));
+                    }
                     crate::mailbox::MailCommand::Delete(id) => {
                         let _ = connection.send(&mao_net::mail::delete(own, id));
                         // The list again, a moment later (the server doesn't push it).

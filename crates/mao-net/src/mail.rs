@@ -5,7 +5,9 @@
 //! * action 1, then `i32 0, i32 id`: with id 0 the inbox list is wanted, otherwise that mail is opened (read);
 //! * action 3, `i32 0, i32 id`: take the mail's attachments;
 //! * action 5, `i32 0, i32 id`: delete the mail;
-//! * action 6: send ([`crate::n3::mail_send`]).
+//! * action 6: send ([`crate::n3::mail_send`]);
+//! * action 7, `i32 0, i32 id`: return the mail to its sender (`N3Msg_ReturnMail`, Gamecode 0x10023a8c: the same
+//!   message as the take and the delete with the number 7; from the code, no capture has one).
 //!
 //! Server to client:
 //! * action 0: the inbox, an array counted `(n + 1) * 0x3f1` of [`Entry`];
@@ -14,7 +16,14 @@
 //! * action 8: a mail was accepted for sending (`i16 6, i32 0, u8 1, i32 id, i32 0`).
 //!
 //! The flags seen: `0x28` for an unread mail with an item and credits, `0x29` once opened, `0x2b` once the
-//! item was taken (so, as a reading of three values: bit 0 read, bit 1 taken, bit 3 an item, bit 5 credits).
+//! item was taken (bit 0 read, bit 1 taken, bit 3 an item). The original's message window (GUI.dll FUN_10107b87)
+//! reads three more: bit 5 sets its delivery choice, so it is "sent express" (the captured mail was, and its list
+//! entry's express byte says so too; until 2026-11-16 this was taken for "has credits"); bit 4 switches Return To
+//! Sender off; bit 6 lays a picture over the text.
+//!
+//! **A mail's credits are signed**: a positive number is money sent along, a negative one is cash on delivery,
+//! what the receiver pays to take the mail's things (the window shows it in its C.O.D. field and asks before
+//! taking; a sender's C.O.D. goes out as the negative number, FUN_1010733d).
 
 use crate::frame::Frame;
 use crate::n3::{Message, CHARACTER};
@@ -22,7 +31,9 @@ use crate::n3::{Message, CHARACTER};
 pub const READ: u32 = 0x01;
 pub const TAKEN: u32 = 0x02;
 pub const HAS_ITEM: u32 = 0x08;
-pub const HAS_CREDITS: u32 = 0x20;
+/// The mail cannot be returned to its sender.
+pub const NO_RETURN: u32 = 0x10;
+pub const EXPRESS: u32 = 0x20;
 
 /// One line of the inbox.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -48,7 +59,8 @@ pub struct Mail {
     pub sent: u32,
     pub expires: u32,
     pub flags: u32,
-    pub credits: u32,
+    /// The money in it; negative, what is to be paid on taking it (cash on delivery).
+    pub credits: i32,
     /// The attached item: (low id, high id, quality).
     pub item: Option<(u32, u32, u32)>,
     pub body: String,
@@ -121,7 +133,7 @@ pub fn parse_mail(data: &[u8]) -> Option<Mail> {
     let (id, sender_id, sender, subject, sent, expires, flags) = entry_fields(&mut c)?;
     // A byte after the flags (the list has the express flag there), then the credits.
     c.take(1)?;
-    let credits = c.u32()?;
+    let credits = c.u32()? as i32;
     let (low, high, quality) = (c.u32()?, c.u32()?, c.u32()?);
     c.u32()?;
     c.u32()?;
@@ -162,6 +174,11 @@ pub fn delete(character: u32, id: u32) -> Frame {
     request(character, 5, id)
 }
 
+/// Returns a mail to its sender.
+pub fn return_to_sender(character: u32, id: u32) -> Frame {
+    request(character, 7, id)
+}
+
 /// A unix time as `YYYY-MM-DD HH:MM` (UTC).
 pub fn time_text(unix: u32) -> String {
     let secs = unix as i64;
@@ -198,6 +215,19 @@ mod tests {
         assert_eq!((e.id, e.sender_id, e.sender.as_str(), e.subject.as_str()), (0x0156_0006, 0x4bc80, "Conjecture", "hello there"));
         assert_eq!((e.sent, e.expires, e.flags, e.express), (0x6adadeb6, 0x6aed53b6, 0x28, true));
         assert_eq!(parse_list(&hex("000000000003f1")).unwrap(), vec![]);
+    }
+
+    /// A returned mail is the take's message with the number 7; a mail's credits are signed.
+    #[test]
+    fn a_mail_is_returned_and_its_credits_are_signed() {
+        let (take, back) = (take(7, 0x0156_0006), return_to_sender(7, 0x0156_0006));
+        assert_eq!(take.body.len(), back.body.len());
+        assert!(take.body.ends_with(&[0, 0, 3, 0, 0, 0, 0, 1, 0x56, 0, 6]) && back.body.ends_with(&[0, 0, 7, 0, 0, 0, 0, 1, 0x56, 0, 6]));
+        // (the captured mail with its credits made -40000: cash on delivery)
+        let mut bytes = hex(OPENED);
+        let at = bytes.windows(4).position(|w| w == 40_000u32.to_be_bytes()).unwrap();
+        bytes[at..at + 4].copy_from_slice(&(-40_000i32).to_be_bytes());
+        assert_eq!(parse_mail(&bytes).unwrap().credits, -40_000);
     }
 
     #[test]
