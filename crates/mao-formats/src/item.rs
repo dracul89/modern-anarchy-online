@@ -235,10 +235,15 @@ pub fn craft(template: &[u8], event: u32) -> Option<(u32, u32)> {
     Some((body as u32, scale.max(20) as u32))
 }
 
-/// What an item's action needs: the item's trailing tables hold, after each event's spells, the marker `22, 36, 2018`, the action
-/// (3 = use, 6 = wear, 8 = wield) and a criteria list: `(n + 1) * 0x3f1`, then `n` criteria `(stat, value, operator)` in reverse
-/// Polish order (a comparison pushes its result, operator 4 is AND and 3 is OR of the two before it). Operators: 0 equal, 1 less than,
-/// 2 greater than (strict: a requirement of level 215 is stored as "level > 214"), 24 unequal, 22 bit-and; 93 is "has the perk".
+/// What an item's action needs: the item's trailing tables hold, after each event's spells, the actions' chunk: `22, 36`, the
+/// number of actions as `(count + 1) * 0x3f1`, then each action: its kind (3 = use, 6 = wear, 8 = wield) and a criteria list,
+/// `(n + 1) * 0x3f1`, then `n` criteria `(stat, value, operator)` in reverse Polish order (a comparison pushes its result,
+/// operator 4 is AND and 3 is OR of the two before it). Operators: 0 equal, 1 less than, 2 greater than (strict: a requirement
+/// of level 215 is stored as "level > 214"), 24 unequal, 22 bit-and; 93 is "has the perk".
+///
+/// Until 2026-11-15 only a chunk of one action was read (the third word taken for a marker, 2018): an item with two or more
+/// had none, and nothing said what it asked (the Ganimedes Personal Jetpack's wield asks Vehicle Navigation, Airborne over
+/// 80, and its use something else).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Action {
     pub kind: u32,
@@ -395,16 +400,31 @@ pub fn actions(template: &[u8]) -> Vec<Action> {
     let mut out = Vec::new();
     let mut at = 0;
     while at + 20 <= template.len() {
-        if [word(at), word(at + 4), word(at + 8)] == [22, 36, 2018] {
-            let (kind, count) = (word(at + 12), word(at + 16));
-            if count % 0x3f1 == 0 && (2..=41).contains(&(count / 0x3f1)) {
-                let n = (count / 0x3f1 - 1) as usize;
-                if at + 20 + 12 * n <= template.len() {
-                    let criteria = (0..n).map(|k| (word(at + 20 + 12 * k), word(at + 24 + 12 * k) as i32, word(at + 28 + 12 * k))).collect();
-                    out.push(Action { kind, criteria });
-                    at += 20 + 12 * n;
-                    continue;
+        let actions = word(at + 8);
+        if [word(at), word(at + 4)] == [22, 36] && actions % 0x3f1 == 0 && (2..=9).contains(&(actions / 0x3f1)) {
+            // (every action of the chunk has to be whole, else these words are something else)
+            let mut found = Vec::new();
+            let mut p = at + 12;
+            for _ in 0..actions / 0x3f1 - 1 {
+                if p + 8 > template.len() {
+                    break;
                 }
+                let (kind, count) = (word(p), word(p + 4));
+                if count % 0x3f1 != 0 || !(2..=41).contains(&(count / 0x3f1)) || kind > 0xffff {
+                    break;
+                }
+                let n = (count / 0x3f1 - 1) as usize;
+                if p + 8 + 12 * n > template.len() {
+                    break;
+                }
+                let criteria = (0..n).map(|k| (word(p + 8 + 12 * k), word(p + 12 + 12 * k) as i32, word(p + 16 + 12 * k))).collect();
+                found.push(Action { kind, criteria });
+                p += 8 + 12 * n;
+            }
+            if found.len() as u32 == actions / 0x3f1 - 1 {
+                out.extend(found);
+                at = p;
+                continue;
             }
         }
         at += 1;
@@ -538,6 +558,18 @@ mod tests {
         // the comparisons are strict: "above 200" is level 201 and up, "below 201" is level 200 and down
         assert_eq!(modifiers_at(&bytes, 200), vec![(168, 200), (0x5b, 7)]);
         assert_eq!(modifiers_at(&bytes, 201), vec![(168, 500), (0x5b, 7)]);
+    }
+
+    /// The actions' chunk names how many actions it has: an item with two has both read (it had none), one whose second
+    /// action is cut short has none, and a chunk of one is read as before.
+    #[test]
+    fn a_chunk_of_several_actions_is_read() {
+        let bytes = |words: &[u32]| words.iter().flat_map(|w| w.to_le_bytes()).collect::<Vec<u8>>();
+        let two = [7, 22, 36, 3 * 0x3f1, 8, 4 * 0x3f1, 139, 80, 2, 16, 10, 2, 0, 0, 4, 136, 2 * 0x3f1, 531, 0, 0, 99];
+        assert_eq!(actions(&bytes(&two)), vec![Action { kind: 8, criteria: vec![(139, 80, 2), (16, 10, 2), (0, 0, 4)] }, Action { kind: 136, criteria: vec![(531, 0, 0)] }]);
+        assert_eq!(actions(&bytes(&two[..two.len() - 3])), vec![]);
+        let one = [22, 36, 2 * 0x3f1, 6, 2 * 0x3f1, 54, 14, 2];
+        assert_eq!(actions(&bytes(&one)), vec![Action { kind: 6, criteria: vec![(54, 14, 2)] }]);
     }
 
     #[test]

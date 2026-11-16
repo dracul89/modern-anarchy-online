@@ -262,6 +262,9 @@ account with `net <game> create`, in Arete Landing; scripted, other new players 
 - [ ] The missions stack (2026-11-15): with one mission in the journal (Ctrl+4), accept a second at a terminal: both
   are listed, the chat says a new mission was got, and the new one's place is uploaded. Zone: both are still listed.
   Delete one: the other stays.
+- [ ] An item of several actions (2026-11-15): the Ganimedes Personal Jetpack's window (and any item that had no
+  "To wield" or "To wear" lines before) lists what it asks, the unmet in red: Vehicle Navigation, Airborne 81 among
+  them.
 - [ ] Turning and the teleporters (2026-11-15): run and jump round a Whom-Pah cluster (ICC's four) turning with the
   keys, close by but never in a booth: no zoning. Walk into one: it zones as before. A second character watching
   sees the first turn and stop turning as it does (no spinning, no walking in circles).

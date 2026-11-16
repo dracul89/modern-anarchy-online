@@ -300,6 +300,10 @@ mod tests {
         let actions = |t: u32| mao_formats::item::actions(&db.get(mao_formats::resource::Id { kind: mao_formats::item::TEMPLATE, instance: t }).unwrap().unwrap());
         let criteria = |t: u32, kind: u32| actions(t).into_iter().find(|a| a.kind == kind).unwrap().criteria;
         let perks = HashSet::new();
+        // (an item of two actions, which the reader took for one of none: the Ganimedes Personal Jetpack, 290215, is
+        // wielded with Vehicle Navigation, Airborne (139) above 80 among its conditions; its other action is 136)
+        assert_eq!(actions(290215).iter().map(|a| a.kind).collect::<Vec<_>>(), [8, 136]);
+        assert!(criteria(290215, 8).contains(&(139, 80, 2)));
         let sleeves = criteria(21955, 6);
         assert_eq!(sleeves, vec![(18, 540, 2), (16, 490, 2), (0, 0, 4), (33, 2, 0), (0, 0, 4)]);
         let mut stats: BTreeMap<u32, i64> = [(18, 541), (16, 491), (33, 2)].into_iter().collect();

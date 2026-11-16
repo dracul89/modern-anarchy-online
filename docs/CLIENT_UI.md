@@ -4123,3 +4123,22 @@ on the character's stack; a death never seen to end counts as played out after 6
 the original's effect 3000 is that white is a guess (the effect was not read). Test:
 `the_own_death_is_told_three_seconds_after_it_played_out`. **Not tried live**: no capture has the original's own
 death, so that the server answers the 0x98 at once is read from the code only.
+
+## An item of several actions says what it asks (2026-11-15)
+
+The user: "not able to equip ganimedes on Arctangent". Their log has the try five times over: the item (290215, the
+Ganimedes Personal Jetpack) used from the backpack, the client moving it to its place, and the server's answer each
+time, a `FormatFeedback` that unpacks to the game's own line: the character's Vehicle Navigation, Airborne has to be at
+least 81. So the server refuses, and by the item's own condition: the template's wield action holds `(139, 80, 2)`,
+that skill above 80.
+
+What was wrong here is that the client did not know it. `mao_formats::item::actions` took `22, 36, 2018` for a marker
+before each action; the third word is the number of actions, `(count + 1) * 1009`, and 2018 is a chunk of one. An item
+with two or more actions had none read: 1,903 templates have two, 8 three and 1 four (the `itemactions` example's
+`survey`), the jetpack among them (wield, 8, and an action 136). Their item windows showed no "To wield" or "To wear"
+lines, so nothing but the server's line in the chat said why such an item would not go on. Now the whole chunk is read
+(every action of it has to be whole, else the words are taken for something else), and the window's lines turn the
+list's "not" (operator 42) over the condition before it instead of printing it as a condition of its own. Tests:
+`a_chunk_of_several_actions_is_read`, the jetpack in `real_item_criteria`, the "not" in `gear`'s requirement test.
+**Not looked at in the window** (no picture was made). Not done: the client still takes off for a moment when a flying
+item is used and the server then refuses it (the log's "flight: on" and "off" a second apart).

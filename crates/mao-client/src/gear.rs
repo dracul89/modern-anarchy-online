@@ -340,6 +340,13 @@ pub fn requirement_lines(criteria: &[(u32, i32, u32)], stats: &std::collections:
                     stack.push((vec![(format!("{} or {}", join(&a.0), join(&b.0)), holds)], holds));
                 }
             }
+            // (not: the one before it turned over)
+            0x2a => {
+                let Some(a) = stack.pop() else { return Vec::new() };
+                let holds = a.1.map(|h| !h);
+                let text = a.0.iter().map(|(t, _)| t.clone()).collect::<Vec<_>>().join(" and ");
+                stack.push((vec![(format!("not: {text}"), holds)], holds));
+            }
             0x12 | 0x13 | 0x15 | 0x1a | 0x64 | 0x6e => on_self = op == 0x13,
             _ => {
                 let name = crate::skills::stat_name(stat);
@@ -424,5 +431,9 @@ mod tests {
         assert_eq!(lines.iter().map(|l| l.1).collect::<Vec<_>>(), vec![None, Some(false), None]);
         // (none of these flags)
         assert_eq!(requirement_lines(&[(389, 2, 107)], &[(389, 4)].into()), vec![("Stat 389 has none of flags 2".to_string(), Some(true))]);
+        // (not: the one before it turned over; the list goes on with what stands under it. A vehicle skill of 60 where
+        // above 80 is asked: not met)
+        let lines = requirement_lines(&[(54, 20, 24), (0, 0, 42), (139, 80, 2), (0, 0, 4)], &[(54, 20), (139, 60)].into());
+        assert_eq!(lines, vec![("not: Level not 20".to_string(), Some(true)), (format!("{} 81", crate::skills::stat_name(139)), Some(false))]);
     }
 }
