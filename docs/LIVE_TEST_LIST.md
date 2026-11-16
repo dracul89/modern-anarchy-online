@@ -262,6 +262,10 @@ account with `net <game> create`, in Arete Landing; scripted, other new players 
 - [ ] The missions stack (2026-11-15): with one mission in the journal (Ctrl+4), accept a second at a terminal: both
   are listed, the chat says a new mission was got, and the new one's place is uploaded. Zone: both are still listed.
   Delete one: the other stays.
+- [ ] Steering with the mouse (2026-11-16): run with the right button held and swing the mouse left and right
+  near a Whom-Pah cluster and along a wall: no rubber-banding, no zoning from beside a booth; another client
+  sees the character turn smoothly. With the button held, the turn keys step sideways. The log's "sent move"
+  lines show 10 and 13 as the mouse changes sides and 11 or 14 as the button is let go.
 - [ ] The chat server's commands (2026-11-16), on a test character: `/cc addbuddy <a test character's name>`
   adds the friend (or the `Befriend` script does); `/cc info <name>`: the log shows what packet the server answers
   with; `/rp`: the log has "/rp: stat 673 to ..." and the stat changes (the mark over the head, if any);

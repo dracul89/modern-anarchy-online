@@ -38,6 +38,14 @@ pub mod movement {
     pub const TURN_RIGHT_STOP: u8 = 11;
     pub const TURN_LEFT_START: u8 = 12;
     pub const TURN_LEFT_STOP: u8 = 14;
+    /// The mouse's turns (cases 10 and 0xd, `MouseTurnRightStartTransitionAction_t` and its left twin). Steering
+    /// with the mouse (`N3Msg_MouseMovement`, Gamecode 0x100196b3) sends one only as the turn changes sides: a
+    /// movement to the right while the character turns left or not at all sends 10, one to the left while it turns
+    /// right or not at all sends 13, and every other movement only turns the character where it is (the periodic
+    /// report tells the server). Letting go (`N3Msg_EndMouseMovement` 0x10019aa0) sends the stop of the side it was
+    /// on, 11 or 14. A capture's steering reads 13, 10, 13, 10 ... as the mouse wavers, then 11.
+    pub const MOUSE_TURN_RIGHT_START: u8 = 10;
+    pub const MOUSE_TURN_LEFT_START: u8 = 13;
     /// The jump's start (`JumpStartTransitionAction_t`, case 0xf of the table; the captures show 15 as the height begins
     /// to rise). Its end, case 0x10 (`JumpStopTransitionAction_t`), is the character's own business: the original sends
     /// no 16 in any capture (some 870 jumps), and nothing else as it lands.

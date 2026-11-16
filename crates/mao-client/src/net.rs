@@ -4001,6 +4001,24 @@ fn worn_flight(worn: &[inventory::Entry], asked: &[(u32, u32, bool)], grants: &m
     worn.iter().filter(|e| agreed(e.slot) < inventory::BACKPACK_FIRST).any(|e| grants(e.low_id))
 }
 
+/// The mouse's steering for one pass, as `N3Msg_MouseMovement` (Gamecode 0x100196b3) and `N3Msg_EndMouseMovement`
+/// (0x10019aa0) have it: `side` is the turn the mouse has the character on (-1 left, 1 right, 0 none) and `steered`
+/// how far the mouse turned it this pass (positive to the right; `None` when the mouse does not steer). The side
+/// after it, and the movement message to send: the mouse turn's start as the side changes, the side's stop when
+/// the steering ends, nothing while it goes on the same way. (The original counts a movement straight up or down as
+/// one to the right; this goes by the turn alone.)
+fn mouse_turn(side: i8, steered: Option<f32>) -> (i8, Option<u8>) {
+    use mao_net::n3::movement;
+    match steered {
+        Some(turn) if turn > 0.0 && side != 1 => (1, Some(movement::MOUSE_TURN_RIGHT_START)),
+        Some(turn) if turn < 0.0 && side != -1 => (-1, Some(movement::MOUSE_TURN_LEFT_START)),
+        Some(_) => (side, None),
+        None if side == 1 => (0, Some(movement::TURN_RIGHT_STOP)),
+        None if side == -1 => (0, Some(movement::TURN_LEFT_STOP)),
+        None => (0, None),
+    }
+}
+
 /// The movement message for the turn keys changing from `before` to `now` (-1 left, 1 right, 0 neither): the new
 /// turn's start, else the stop of the one that ended (`movement::TURN_RIGHT_START` has the original's numbers).
 fn turn_message(before: i8, now: i8) -> u8 {
@@ -6268,6 +6286,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let (mut following, mut follow_seen): (Option<u32>, u8) = (None, 0);
         let (mut position, mut heading) = (start, heading);
         let (mut moving, mut turning, mut strafing) = (0i8, 0i8, 0i8);
+        // (the side the mouse's steering has the character turning to: `mouse_turn`)
+        let mut mouse_side = 0i8;
         const JUMP_SPEED: f32 = 7.0;
         const GRAVITY: f32 = 10.0;
         let (mut airborne, mut rise, mut vy, mut was_jumping) = (false, 0.0f32, 0.0f32, false);
@@ -6826,6 +6846,12 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 }
             }
             keys = raw;
+            // (while the mouse steers, the turn keys step sideways: `N3Msg_MovementChanged` 0x10018bc4 makes 12 a 7, 9 a
+            // 5 and their stops 8 and 6 while its mouse-look flag is up)
+            if keys.face.is_some() && keys.turn != 0 {
+                keys.strafe = (keys.strafe + keys.turn).clamp(-1, 1);
+                keys.turn = 0;
+            }
             // (dead: no moving, as the original clears its movement input mode, until health comes back or a playfield is entered)
             if state.own_dead && state.stats.get(&27).is_some_and(|&h| h > state.dead_health.max(0)) {
                 state.own_dead = false;
@@ -8219,6 +8245,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             // Walk: integrate the position and tell the server.
             let dt = last_tick.elapsed().as_secs_f32();
             last_tick = Instant::now();
+            // (the mouse's steering: how far it turned the character this pass, for the message below)
+            let steered = keys.face.map(|face| (face - heading + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI);
+            let (side, mouse_message) = mouse_turn(mouse_side, steered);
+            mouse_side = side;
             if let Some(face) = keys.face {
                 heading = face;
             }
@@ -8751,6 +8781,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     (1, 0) => send_kind(movement::FORWARD_STOP, &mut connection),
                     _ => send_kind(movement::BACKWARD_STOP, &mut connection),
                 }
+            }
+            if let Some(kind) = mouse_message {
+                send_kind(kind, &mut connection);
             }
             if keys.turn != turning {
                 send_kind(turn_message(turning, keys.turn), &mut connection);
@@ -11901,6 +11934,22 @@ mod movement_tests {
         assert!(!worn_flight(&swapped, &[], &mut wings));
         // (another item's move does not matter)
         assert!(worn_flight(&[entry(1, 7), entry(5, 9)], &[(70, 5, false)], &mut wings));
+    }
+
+    /// The mouse's steering sends its turn's start only as the side changes and the side's stop when it ends, as a
+    /// capture's steering reads: 13, 10, 13, 10 as the mouse wavers, then 11.
+    #[test]
+    fn the_mouse_turns_are_the_originals() {
+        let mut side = 0;
+        let mut sent = Vec::new();
+        for steered in [Some(-0.1), Some(-0.2), Some(0.1), Some(0.0), Some(0.3), Some(-0.1), Some(0.2), None, None] {
+            let (now, message) = mouse_turn(side, steered);
+            side = now;
+            sent.extend(message);
+        }
+        assert_eq!(sent, [13, 10, 13, 10, 11]);
+        // (steering that only went left ends with the left turn's stop; none sends nothing)
+        assert_eq!((mouse_turn(0, Some(-0.1)), mouse_turn(-1, None), mouse_turn(0, None), mouse_turn(0, Some(0.0))), ((-1, Some(13)), (0, Some(14)), (0, None), (0, None)));
     }
 
     /// The turn keys' messages are the original's: a left turn is 12 and ends with 14, a right one 9 and 11; and one

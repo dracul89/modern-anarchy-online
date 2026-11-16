@@ -4272,3 +4272,24 @@ what it sends before anything was written; **none was sent to a server**.
 
 Tests: `the_sent_packets_are_framed` (the three packets' bytes), the command lines in `chat_commands` and
 `chatwindow`, `a_switched_off_template_is_not_found`.
+
+## Steering with the mouse sends the original's messages (2026-11-16)
+
+Fourth of the user's "do all of the Readable from the decompile now". Until now the right button's steering sent
+only the periodic full report as the heading turned. The original (`N3Msg_MouseMovement`, Gamecode 0x100196b3;
+`N3Msg_EndMouseMovement` 0x10019aa0; `N3Msg_MovementChanged` 0x10018bc4):
+
+- A mouse movement to the right while the character turns left or not at all sends movement 10
+  (`MouseTurnRightStart`); one to the left while it turns right or not at all sends 13. Any other movement only
+  turns the character where it is (the movement 0x2b, which is not sent: it marks a report as due). So a steering
+  sends 13, 10, 13, 10 as the mouse wavers, which is what the capture of 2026-11-09 has.
+- Letting the button go sends the stop of the side the turn was on: 11, or 14.
+- While the mouse steers, the turn keys step sideways: 12 becomes 7, 9 becomes 5, and their stops 8 and 6.
+
+Here: `net::mouse_turn` (the side, and the message when it changes or ends), the turn keys counted as strafe keys
+while `keys.face` is set, `movement::MOUSE_TURN_RIGHT_START` and `MOUSE_TURN_LEFT_START`. Test:
+`the_mouse_turns_are_the_originals`. **Not tried live.** Differences kept small and known: the original counts a
+movement straight up or down as one to the right; when the steering begins during a key turn it first stops that
+turn and starts the strafe (here the same messages come from the keys being counted as strafe keys); at its end it
+sends both strafe stops where a converted key was held (here the one that was running). Not ported: the limit on
+the mouse's turn the original applies while stat 224's bits 2 or 4 are set and stat 267 is there.
