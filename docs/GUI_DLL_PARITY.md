@@ -212,7 +212,9 @@ answered "You are not authorized to perform that command. (Your request has been
   0xc (the target) or 0xd (a name), invite 0xe, tax 0x11, bank 0x12 (`add` 0x13, `remove` 0x14), debt 0x16,
   history 0x17, objective 0x18, description 0x19, name 0x1a, governingform 0x1b, stopvote 0x1c, city 0x1f. `help`
   and any other word say the game's `OrgCommandHelp` ("Invalid /org command ..."); `leave` and `disband` ask
-  first in boxes (`N3Msg_OrgLeaveConfirmed`, `N3Msg_OrgDisbandConfirmed`) and are not carried out here.
+  first in boxes (`N3Msg_OrgLeaveConfirmed`, `N3Msg_OrgDisbandConfirmed`), ported on 2026-11-16 with the module's
+  four other boxes (`orgboxes.rs`: the invitation, the two tax questions and the promotion, raised by `OrgServer`
+  types 5, 7, 8 and 9); none was sent to or seen from a server.
   **Tried live:** `info`, `ranks` and `contract` only read (outside an organization each is answered with a line;
   in one, `ranks` with a line, `info` and `contract` with `OrgServer` messages of types 2 and 1, shown as
   said below). **`history` is not a question: it sets the organization's history text**, as

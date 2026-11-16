@@ -262,6 +262,10 @@ account with `net <game> create`, in Arete Landing; scripted, other new players 
 - [ ] The missions stack (2026-11-15): with one mission in the journal (Ctrl+4), accept a second at a terminal: both
   are listed, the chat says a new mission was got, and the new one's place is uploaded. Zone: both are still listed.
   Delete one: the other stays.
+- [ ] The organization's boxes (2026-11-16), **only in an organization made for testing, with test characters**:
+  `/org leave` asks in a warning box (No sends nothing, Yes leaves); `/org disband` asks with the game's text; an
+  invitation from another character comes as a box naming the organization and its tax; a promotion asks the
+  leader to confirm. The log has "organization box: ..." and "organization question from the server: ...".
 - [ ] The Jobe Whom-Pah without Shadowlands (2026-11-15): a free account's character walks into the booth to Jobe
   (Old Athen's southern one, ICC's eastern one): an error box says the Shadowlands expansion is needed, once a touch;
   the log has "the booth to Jobe: the account's expansions (stat 389) are ...". A character with Shadowlands gets

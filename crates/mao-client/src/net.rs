@@ -905,10 +905,16 @@ pub fn text_command(action: u8, value: u32) {
 
 /// The organization's commands waiting to be sent (`n3::org_command`): the number, whether the target goes with it,
 /// the text.
-static ORG_COMMANDS: std::sync::Mutex<Vec<(u8, bool, String)>> = std::sync::Mutex::new(Vec::new());
+static ORG_COMMANDS: std::sync::Mutex<Vec<(u8, crate::orgboxes::At, String, bool)>> = std::sync::Mutex::new(Vec::new());
 
 pub fn org_command(command: u8, targeted: bool, text: String) {
-    ORG_COMMANDS.lock().unwrap_or_else(|e| e.into_inner()).push((command, targeted, text));
+    let at = if targeted { crate::orgboxes::At::Target } else { crate::orgboxes::At::Nobody };
+    ORG_COMMANDS.lock().unwrap_or_else(|e| e.into_inner()).push((command, at, text, false));
+}
+
+/// An organization box's answer (`orgboxes::Ask::answer`), sent by the game loop.
+pub fn org_answer(command: u8, at: crate::orgboxes::At, flag: bool) {
+    ORG_COMMANDS.lock().unwrap_or_else(|e| e.into_inner()).push((command, at, String::new(), flag));
 }
 
 /// A command for the server (`n3::server_command`), sent by the game loop.
@@ -3193,6 +3199,16 @@ impl World {
                 }
                 self.loot = Some(Loot { identity: organization, handle: 0, entries });
                 self.loot_changed = true;
+            }
+        }
+        // The organization's questions (`OrgServer` types 5, 7, 8 and 9): boxes of the interface, `orgboxes`.
+        if m.kind == 0x64582a07
+            && m.identity.1 == self.own
+            && let Some(asked) = n3::org_ask(&m.data)
+        {
+            eprintln!("organization question from the server: {asked:?}");
+            if let Some(question) = crate::orgboxes::from_server(asked, |id| self.names.get(&id).map(|n| n.0.clone())) {
+                crate::orgboxes::ask(question);
             }
         }
         // An organization benefit: type 6, then (after the organization's identity) a quality and a low and high item template.
@@ -6934,10 +6950,14 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 eprintln!("[{:6.1}] text command {action:#x} ({value})", clock.elapsed().as_secs_f32());
                 let _ = connection.send(&n3::text_command(own, action, 0, value));
             }
-            for (command, targeted, text) in std::mem::take(&mut *ORG_COMMANDS.lock().unwrap_or_else(|e| e.into_inner())) {
-                let at = target.filter(|_| targeted).map_or((0, 0), |t| (state.types.get(&t).copied().unwrap_or(n3::CHARACTER), t));
-                eprintln!("[{:6.1}] organization command {command:#x} at {:x}:{:x} {text:?}", clock.elapsed().as_secs_f32(), at.0, at.1);
-                let _ = connection.send(&n3::org_command(own, command, at, 0, &text, false));
+            for (command, at, text, flag) in std::mem::take(&mut *ORG_COMMANDS.lock().unwrap_or_else(|e| e.into_inner())) {
+                let at = match at {
+                    crate::orgboxes::At::Nobody => (0, 0),
+                    crate::orgboxes::At::Target => target.map_or((0, 0), |t| (state.types.get(&t).copied().unwrap_or(n3::CHARACTER), t)),
+                    crate::orgboxes::At::Identity(identity) => identity,
+                };
+                eprintln!("[{:6.1}] organization command {command:#x} at {:x}:{:x} {text:?} {flag}", clock.elapsed().as_secs_f32(), at.0, at.1);
+                let _ = connection.send(&n3::org_command(own, command, at, 0, &text, flag));
             }
             for text in std::mem::take(&mut *SERVER_COMMANDS.lock().unwrap_or_else(|e| e.into_inner())) {
                 let at = target.map_or((0, 0), |t| (state.types.get(&t).copied().unwrap_or(n3::CHARACTER), t));

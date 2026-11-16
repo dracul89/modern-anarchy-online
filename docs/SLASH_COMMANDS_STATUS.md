@@ -9,7 +9,6 @@ short list.
 
 | Command | Why |
 |---|---|
-| `/org leave`, `/org disband` | The original asks in a confirmation box first (`N3Msg_OrgLeaveConfirmed`, `N3Msg_OrgDisbandConfirmed`); the boxes are not ported. Can be done from the original's code alone. |
 | `/raid <command>` (create, list, listlocal, move, lootaccess, locks) | The message is identified (`RaidCmdIIR_c`, `4e525e58`) but not ported. `/raid` here opens the raid window, which the original's command does not. Cannot be verified without a raid. |
 | `/tower`, `/terminate` | Notum Wars: `/tower` needs a service tower and runs a script; `/terminate` asks in a box first. Cannot be verified without a tower site. |
 | `/cc` | The chat server's command packets are not decoded (GUI.dll FUN_100ba6f4, FUN_1016caf7). The original's `Befriend` script file is a `/cc` line, so that script does not work yet. |
@@ -25,6 +24,9 @@ short list.
 - `/bank info` and `/items`: sent and not refused; nothing was shown in answer, so what they return is not known.
 - `/team loot` inside a team (asking for the order; `all`, `leader`, `alpha` from the leader): needs two
   characters in a team.
+- `/org leave` and `/org disband` (2026-11-16): each asks in its box first, as the original; a yes sends command
+  0x10 (leave) or 6 (disband, with the selected target). **Never sent; to be tried only in an organization made
+  for testing.**
 - Every `/org` sub-command except `info`, `ranks` and `contract`: `invite`, `kick [name]`, `promote`, `demote`,
   `bank [add|remove <n>]`, `tax`, `debt`, `city`, `startvote`, `vote`, `stopvote`, and the ones that set a text
   (`name`, `description`, `objective`, `history`, `governingform`, `create`). Ported from the original's code and
@@ -53,7 +55,7 @@ short list.
 
 ## Suggested order for what is left
 
-1. `/org leave` and `/org disband`: from the original's code alone.
+1. (Done 2026-11-16: `/org leave` and `/org disband`.)
 2. `/cc`: the most useful next, since it makes the `Befriend` script work; it needs the chat library's packet
    read out of GUI.dll.
 3. `/raid` and `/tower`: can be ported from the code, not verified without a raid or a tower site.

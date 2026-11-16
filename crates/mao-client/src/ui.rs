@@ -2163,6 +2163,7 @@ fn hud_layer(ctx: &egui::Context, hud: &Hud, project: &dyn Fn(Vec3) -> Option<[f
     timer_bars(ctx, screen);
     // (the error boxes: `chrome::alert`)
     crate::chrome::show_alerts(ctx, palette);
+    crate::orgboxes::show(ctx, palette);
     // (the loading screen over everything while the world comes in)
     crate::loading::draw(ctx, screen);
     let frame = || egui::Frame::new().fill(egui::Color32::from_black_alpha(130)).corner_radius(4).inner_margin(6);

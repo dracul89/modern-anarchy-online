@@ -464,6 +464,36 @@ pub fn org_contract(data: &[u8]) -> Option<((u32, u32), Vec<crate::inventory::En
     Some((organization, entries))
 }
 
+/// A question an `OrgServer` message has the interface ask (Gamecode FUN_10126d95 reads them, FUN_10126f5a hands them
+/// on: types 5, 7 and 8 as the interface's messages 0xf9, 0xfa and 0xfb, type 9 as `GlobalSignals_c` +0x24c). After
+/// the type and the two identities, type 5 has a text and a number, types 7 and 8 a number, type 9 nothing.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum OrgAsk {
+    /// Type 5: an invitation into the organization of that name, with its tax.
+    Invitation { organization: (u32, u32), name: String, tax: u32 },
+    /// Type 7: leaving, with tax still owed.
+    LeavePayTax { organization: (u32, u32), tax: u32 },
+    /// Type 8: the organization's tax has changed.
+    TaxChanged { tax: u32 },
+    /// Type 9: a promotion to confirm; the member is the message's first identity.
+    Promotion { member: (u32, u32) },
+}
+
+/// An `OrgServer` message of type 5, 7, 8 or 9 read ([`OrgAsk`]). Built from the disassembly: no capture has one.
+pub fn org_ask(data: &[u8]) -> Option<OrgAsk> {
+    let kind = *data.get(1)?;
+    let mut first = OrgReader { data, at: 2 };
+    let member = (first.u32()?, first.u32()?);
+    let (mut r, organization) = org_server(data, kind)?;
+    match kind {
+        5 => Some(OrgAsk::Invitation { organization, name: r.text()?, tax: r.u32()? }),
+        7 => Some(OrgAsk::LeavePayTax { organization, tax: r.u32()? }),
+        8 => Some(OrgAsk::TaxChanged { tax: r.u32()? }),
+        9 => Some(OrgAsk::Promotion { member }),
+        _ => None,
+    }
+}
+
 /// The organization commands whose message carries a text (FUN_1012653f's and FUN_101265fe's cases).
 pub const ORG_WITH_TEXT: [u8; 13] = [1, 7, 9, 0xd, 0x11, 0x13, 0x14, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c];
 
@@ -2419,6 +2449,16 @@ mod text_command_tests {
         let with_item = [head(1), (2 * 0x3f1u32).to_be_bytes().to_vec(), item, vec![1]].concat();
         assert_eq!(org_contract(&with_item).unwrap().1, vec![crate::inventory::Entry { slot: 0x40, flags: 1, count: 1, container: (0, 0), low_id: 1000, high_id: 1001, quality: 50, extra: 0 }]);
         assert_eq!((org_contract(&info), org_info(&contract)), (None, None));
+        // (the questions: an invitation with the name and the tax, the two about the tax, a promotion of the first
+        // identity; the info and the contract are none of them)
+        let asked = |kind: u8, member: u32, rest: Vec<u8>| [&[0, kind][..], &0xc350u32.to_be_bytes(), &member.to_be_bytes(), &0xdeaau32.to_be_bytes(), &1u32.to_be_bytes(), &rest].concat();
+        assert_eq!(org_ask(&asked(5, 7, [text("Us"), 3u32.to_be_bytes().to_vec()].concat())), Some(OrgAsk::Invitation { organization: (0xdeaa, 1), name: "Us".into(), tax: 3 }));
+        assert_eq!(org_ask(&asked(7, 7, 500u32.to_be_bytes().to_vec())), Some(OrgAsk::LeavePayTax { organization: (0xdeaa, 1), tax: 500 }));
+        assert_eq!(org_ask(&asked(8, 7, 9u32.to_be_bytes().to_vec())), Some(OrgAsk::TaxChanged { tax: 9 }));
+        assert_eq!(org_ask(&asked(9, 7, Vec::new())), Some(OrgAsk::Promotion { member: (0xc350, 7) }));
+        assert_eq!((org_ask(&asked(5, 7, text("Us"))), org_ask(&asked(7, 7, vec![0, 0])), org_ask(&info), org_ask(&contract)), (None, None, None, None));
+        // (a confirmed promotion is command 10 with the byte 1)
+        assert_eq!(org_command(1, 10, (0xc350, 7), 0, "", true).body.ends_with(&[0, 10, 0, 0, 0xc3, 0x50, 0, 0, 0, 7, 0, 0, 0, 0, 1]), true);
         // (an organization command: number, identity, window; a text only for those that have one; a byte for 10)
         assert_eq!(org_command(1, 5, (0xc350, 7), 2, "ignored", false).body.ends_with(&[0, 5, 0, 0, 0xc3, 0x50, 0, 0, 0, 7, 0, 0, 0, 2]), true);
         assert_eq!(org_command(1, 0xd, (0, 0), 0, "Abc", false).body.ends_with(&[0, 0xd, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, b'A', b'b', b'c']), true);

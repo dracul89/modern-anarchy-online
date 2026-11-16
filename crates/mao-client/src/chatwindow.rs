@@ -1195,8 +1195,8 @@ impl ChatWindow {
                     None
                 }
                 crate::orgcommands::Step::Send { command, targeted, text } => Some(Out::OrgCommand { command, targeted, text }),
-                crate::orgcommands::Step::NotDone(line) => {
-                    self.push(Line::new(Kind::System, line));
+                crate::orgcommands::Step::Ask(question) => {
+                    crate::orgboxes::ask(question);
                     None
                 }
                 crate::orgcommands::Step::Nothing => None,

@@ -14,9 +14,9 @@ rows were brought up to date on the day this was saved. A few gaps listed here m
 - Reclaim.
 - Notum Wars: tower build menu, laser target, airstrike, battle station, signup terminal, mech select, teleport
   target.
-- The organization module's own views (the organization name view, the upkeep views) and its boxes for leaving,
-  disbanding, invitations and promotions. Only the `/org` commands, the info page and the contract's window
-  exist.
+- The organization module's own views (the organization name view, the upkeep views). Its boxes for leaving,
+  disbanding, invitations, promotions and the two tax questions are ported since 2026-11-16 (`orgboxes.rs`), none
+  seen live.
 
 ## The client's own stand-in, not the original's
 

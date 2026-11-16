@@ -9,7 +9,8 @@
 //! * `help`, and a word that is no command, say the game's `OrgCommandHelp`; `startvote` and `vote` without a text
 //!   say `OrgVoteHelp` and `OrgVoteHelpInfo`.
 //! * `leave` and `disband` ask first (boxes the interface shows, answered through `N3Msg_OrgLeaveConfirmed` and
-//!   `N3Msg_OrgDisbandConfirmed`): not carried out here.
+//!   `N3Msg_OrgDisbandConfirmed`): [`crate::orgboxes`], which sends command 0x10 with nobody for a leave and
+//!   command 6 with the selected target for a disbanding. **Neither was sent to a server.**
 //!
 //! Tried live on 2026-11-12: `info`, `ranks` and `contract` only read. Outside an organization the server answers
 //! each with a line; in one, `ranks` is answered with a line (a packed text with the ranks after it), and `info`
@@ -31,8 +32,8 @@ pub enum Step {
     Say(String),
     /// The message to send: the command's number, whether the selected target goes with it, and its text.
     Send { command: u8, targeted: bool, text: String },
-    /// A command this client does not carry out yet.
-    NotDone(&'static str),
+    /// A question box first, whose yes sends the message (`leave`, `disband`).
+    Ask(crate::orgboxes::Ask),
     Nothing,
 }
 
@@ -97,8 +98,8 @@ pub fn step(rest: &str) -> Step {
         "vote" => send(9, true, text),
         "stopvote" => send(0x1c, true, ""),
         "city" => send(0x1f, false, ""),
-        "leave" => Step::NotDone("/org leave asks first, in a box this client has not: not carried out yet."),
-        "disband" => Step::NotDone("/org disband asks first, in a box this client has not: not carried out yet."),
+        "leave" => Step::Ask(crate::orgboxes::Ask::Leave),
+        "disband" => Step::Ask(crate::orgboxes::Ask::Disband),
         _ => Step::Say(game_text("OrgCommandHelp")),
     }
 }
@@ -131,7 +132,8 @@ mod tests {
         assert_eq!(step("hello everybody"), Step::Say(game_text("OrgCommandHelp")));
         assert_eq!(step(""), Step::Say(game_text("OrgCommandHelp")));
         assert_eq!((step("startvote"), step("vote")), (Step::Say(game_text("OrgVoteHelp")), Step::Say(game_text("OrgVoteHelpInfo"))));
-        assert!(matches!(step("leave"), Step::NotDone(_)) && matches!(step("disband"), Step::NotDone(_)));
+        // (leaving and disbanding ask first)
+        assert_eq!((step("leave"), step("Disband now")), (Step::Ask(crate::orgboxes::Ask::Leave), Step::Ask(crate::orgboxes::Ask::Disband)));
         // (the commands that set a text are sent with none when none is given, as the original sends them: that
         // empties the text)
         assert_eq!((sent("history"), sent("description"), sent("objective")), ((0x17, true, String::new()), (0x19, true, String::new()), (0x18, true, String::new())));

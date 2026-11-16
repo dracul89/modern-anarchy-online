@@ -4216,3 +4216,25 @@ way out), on top of everything in the world; it was this client's own, from befo
 textures. The signs say where each booth leads, so the tags are no longer drawn (`ui.rs`, the labels' loop). The
 booths' labels are still made: they fill the Whom-Pah window (its Go button walks to a booth) and the corner map's
 dots. Looked at: Old Athen with the interface (`MAO_UI_PREVIEW=1`), no tags over the station.
+
+## The organization's question boxes (2026-11-16)
+
+The user: "do all of the Readable from the decompile now". First of that list: `/org leave` and `/org disband`,
+which the original asks about in boxes before it sends anything. GUI.dll's `OrganizationGUIModule_c` has six such
+boxes, all ported (`orgboxes.rs`; the table of who raises each, its title, its text and what its yes sends is in
+the module's head):
+
+- `/org leave`: a warning box; yes sends the organization command 0x10 with nobody. The box's line is this
+  client's own words: the original's is written into GUI.dll, not into the game's texts.
+- `/org disband`: the game's `Org_ConfirmDisband`; yes sends command 6 with the selected target.
+- From the server (`OrgServer` types 5, 7, 8 and 9, `mao_net::n3::org_ask`): an invitation (yes: command 0xf with
+  the organization), tax owed on leaving (yes 0x1d, **anything else 0x1e**), the tax changed (yes: 0x10 with the
+  selected target), a promotion to confirm (yes: command 10 with the member and the byte 1; only when the member
+  is in sight, since the box names them).
+
+The titles "OrgDisband", "OrgLeave" and "OrgJoin" look like names but are what the original's code hands its
+windows as titles. Tests: `the_boxes_answers_are_the_originals`, the `org_ask` lines in `mao-net`'s text command
+test, `org_commands_come_to_their_messages`. **Nothing of this was sent to a server or seen come from one**: the
+four server messages' layouts are from the reader's code (Gamecode FUN_10126d95) alone. Not done: the timer the
+original looks at before accepting an invitation (it says the time left instead of asking the server); the leave
+and promotion boxes come up at the pointer, not in the middle.
