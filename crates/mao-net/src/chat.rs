@@ -258,9 +258,10 @@ pub fn info_request_packet(target: u32) -> Vec<u8> {
 /// The character `/name` writes to.
 pub const NAME_REQUEST: &str = "name-request";
 
-/// `/name <new name>` (GUI.dll FUN_100baba6 queues a private message of kind 5 for the character
-/// [`NAME_REQUEST`]; FUN_10089940 sends it as a tell whose text is the new name and whose blob is empty).
-/// Built from the disassembly: no capture has one, and it was never sent.
+/// `/name <request>` (GUI.dll FUN_100baba6 queues a private message of kind 5 for the character
+/// [`NAME_REQUEST`]; FUN_10089940 sends it as a tell whose text is all that followed the command and whose blob is
+/// empty). Built from the disassembly and sent live on 2026-11-16: the character exists (id 0x2001, a service of
+/// the chat server's) and answers with tells of its own; `nick <name>` was taken into its queue.
 pub fn name_request_packet(target: u32, new_name: &str) -> Vec<u8> {
     let mut payload = target.to_be_bytes().to_vec();
     str16(&mut payload, new_name);

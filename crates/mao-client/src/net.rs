@@ -5765,6 +5765,12 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         {
                             eprintln!("chat name {name:?}: id {id:#x}");
                         }
+                        // (a tell as it came, its markup and all)
+                        if std::env::var_os("MAO_TRACE_CHAT").is_some()
+                            && let Some(Packet::Tell { sender, text, blob }) = &packet
+                        {
+                            eprintln!("chat tell from {sender:#x}: {text:?} blob {blob:02x?}");
+                        }
                         let line = match packet {
                             // (no character of that name: the answer's id is all ones. FUN_1008a2c1 says so with
                             // `ChatCmdFeedback_UnknownUser` and drops what waited for the name. A tell sent on to that id

@@ -284,6 +284,10 @@ account with `net <game> create`, in Arete Landing; scripted, other new players 
   with; `/rp`: the log has "/rp: stat 673 to ..." and the stat changes (the mark over the head, if any);
   `/gfx disable <number>` of a running effect's template stops new ones of it, `enable` brings them back;
   `/bank close` shuts the bank's window. **`/name` is not to be tried on a character that is to keep its name.**
+- [x] `/name` (2026-11-16, on the character the user named for it): `/name help`, `policy` and `status` are
+  answered by the name service in tells; `/name nick <name>` was taken into its queue ("may take up to 24 hours
+  ... changed while you are offline"). The first try sent one word and was refused: fixed (the whole of what
+  follows the command goes). Not seen: the name changed afterwards, and `/name delete all`.
 - [ ] The organization's boxes (2026-11-16), **only in an organization made for testing, with test characters**:
   `/org leave` asks in a warning box (No sends nothing, Yes leaves); `/org disband` asks with the game's text; an
   invitation from another character comes as a box naming the organization and its tax; a promotion asks the
@@ -511,8 +515,9 @@ nothing was lost). The client sends such a command with an empty text when none 
 
 Also not carried out, and to be tried live when they are (none was ever sent): `/cc info <name>` and `/cc addbuddy
 <name>` (the original's `Befriend` script file is such a line), `/rp` (seen by another character: the role-playing
-mark), `/reclaim` (its window, at a reclaim terminal), `/gfx <n> on|off`. `/name <new name>` asks the server to
-rename the character: not to be tried on a character that is to keep its name.
+mark), `/reclaim` (its window, at a reclaim terminal), `/gfx <n> on|off`. `/name <request>` asks the name service
+to rename the character (sent live 2026-11-16, see above): not to be tried on a character that is to keep its
+name.
 
 ## Away from the keyboard (2026-11-12)
 

@@ -4256,9 +4256,10 @@ what it sends before anything was written; **none was sent to a server**.
 - **`/rp`** (FUN_100b27c2, Gamecode `N3Msg_EventFeedback` 0x1001cc3d): the character's stat 673 with bit 0x200
   turned over, sent as `CharacterAction` 0xa6 with the new value as the second identity's number
   (`n3::ROLE_PLAY`). The server is expected to set the stat; what it answers is not seen.
-- **`/name <new name>`** (FUN_100baba6, FUN_10089940): a tell to the character called `name-request` whose text is
-  the new name and whose blob is empty; the game's `ChatCmdFeedback_Name_SendingNameChangeRequest` is said.
-  **Not to be tried on a character that is to keep its name.**
+- **`/name <request>`** (FUN_100baba6, FUN_10089940): a tell to the character called `name-request` whose text is
+  **all that follows the command** and whose blob is empty; the game's
+  `ChatCmdFeedback_Name_SendingNameChangeRequest` is said. **Tried live on 2026-11-16** (see "`/name` live"
+  below). **Not to be tried on a character that is to keep its name.**
 - **`/gfx enable|disable <number>`** (FUN_100b3863, `N3Msg_EnableGFX`): an earlier note here had the words the
   other way round. Nothing is sent: the effect template of that number is put in, or taken out of, the storage's
   set of switched-off templates, and a switched-off template is not found by the lookup every effect starts with
@@ -4399,3 +4400,34 @@ that this client's keys are set in its own settings window and has the button to
 `MAO_UI_PREVIEW=optionpanel MAO_OPTION_TAB=1`. Not done: the original's key editor and its "enter a key" box
 (FUN_100bf286); the fixed keys are shown and not changed here, which is what "fixed" means in the file, but
 whether the original lets its fixed list be edited was not read.
+
+## `/name` live, and how the original cuts a command's line (2026-11-16)
+
+`/name` was sent for the first time, on a character of the user's that they named for it. What came of it:
+
+- **The first try was refused, and that was this client's fault.** `/name Buzzleton` got the tell "Please check
+  your request, it was not handled properly by this system" from `Name-Request` (the chat server knows the
+  character: id 0x2001; it also shows as a friend come online for a moment). `/name help` then gave the service's
+  own language: `nick <name>`, `first <name>`, `last <name>`, `<first|last> remove`, `policy`, `status`,
+  `delete all`, `delete <id>`. A request is two words, and the client sent the first word only.
+- **Why.** The original does not cut a line into all its words. Each command is registered with a number of
+  pieces (GUI.dll FUN_100bb3e0, FUN_100b2ac9, FUN_100b4001 hand it to FUN_100a3c6a, which keeps it at +8 of the
+  command's record); the runner FUN_100a3d83 gives that number to `String::Tokenize` (Utils.dll 0x1000e2a6), which
+  cuts at blanks until one piece fewer than the number is had and makes **all the rest the last piece**. `/name`
+  has 2, so its second piece is everything after the command; the handler's "second word" was read as one word.
+  The numbers are in `chat_commands::PIECES`. The same mistake sat in `/invite`, `/kick`, `/leave` and `/ignore`
+  (all 2): what follows them is the name, whole. A quoted piece keeps its quotes; that is not followed here (only
+  the group commands keep quoted names).
+- **With the whole request sent:** `/name policy` (nick changes only below level 20 or for a name against the
+  policy; first and last names at any level), `/name status` ("no name requests in the queue"), `/name nick
+  Buzzleton` ("entered into the queue. It may take up to 24 hours ... changed while you are offline") and
+  `/name status` again ("Nick name to be changed to buzzleton", with the request's number). `/name delete all`
+  takes a request back; that was not sent.
+- The service's help writes its placeholders in angle brackets, and they do not show ("/name  " for "/name
+  <type> <request>"). That is the original's doing too: `HTMLParser_c::_ParseTag` (0x1015cced) takes a tag of a
+  name it does not know for one of the kind it gives `section` (5) and says the tag was read, so it is not text.
+  Only an empty tag and an `a` without `href` are left as text.
+- `MAO_TRACE_CHAT=1` now also prints each tell as it came (sender, text with its markup, blob).
+
+Tests: `lines_become_commands` and the `/name` lines in `chat_commands` (the whole request; `PIECES` names known
+commands only).

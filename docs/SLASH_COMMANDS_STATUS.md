@@ -20,8 +20,10 @@ short list.
 
 - (2026-11-16, from the original's code, **none sent to a server**) `/cc <words>` (the chat server's command
   packet 120; the `Befriend` script is `/cc addbuddy %1`), `/cc info <name>` (packet 110; the answer is not
-  read), `/rp` (`CharacterAction` 0xa6 with stat 673's bit 0x200 turned over), `/name <new name>` (a tell to
-  `name-request`; **not to be tried on a character that is to keep its name**). `/gfx enable|disable <number>`
+  read), `/rp` (`CharacterAction` 0xa6 with stat 673's bit 0x200 turned over), `/name <request>` (a tell to
+  `name-request` with all that follows the command; **sent live 2026-11-16**: `nick <name>`, `first`, `last`,
+  `policy`, `status`, `delete all`, `help` are the service's words, and a nick request was queued; **not to be
+  tried on a character that is to keep its name**). `/gfx enable|disable <number>`
   and `/bank close` send nothing and are done.
 - `/bank info` and `/items`: sent and not refused; nothing was shown in answer, so what they return is not known.
 - `/team loot` inside a team (asking for the order; `all`, `leader`, `alpha` from the leader): needs two

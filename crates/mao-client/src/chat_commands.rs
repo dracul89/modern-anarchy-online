@@ -304,6 +304,23 @@ fn group_name(text: &str) -> Option<(&str, &str)> {
     (end > 0).then(|| (&text[..end], text[end..].trim()))
 }
 
+/// How many pieces the original cuts a command's line into (GUI.dll's registrations, FUN_100bb3e0, FUN_100b2ac9
+/// and FUN_100b4001, hand the number to FUN_100a3c6a; the runner FUN_100a3d83 gives it to `String::Tokenize`,
+/// Utils.dll 0x1000e2a6): the line is cut at blanks until one piece fewer than the number is had, and **all that
+/// is left is the last piece**, blanks and all. So `/name`, with 2, gets everything after the command as one
+/// piece, and `/tell`, with 3, the name and then the whole text. -1 is no limit (`/cc`). A piece that begins with a
+/// double quote runs to the next quote that a blank or the line's end follows, and keeps its quotes.
+///
+/// Read on 2026-11-16, after a live `/name` showed the first word alone was being sent. Commands not listed were
+/// not read (the organization's and the team's are registered elsewhere).
+pub const PIECES: &[(&str, i32)] = &[
+    ("fxscript", 3), ("help", 2), ("selectself", 1), ("bug", 2), ("showfile", 2), ("tipoftheday", 2), ("option", 3), ("setoption", 3),
+    ("dvalue", 3), ("open", 2), ("toggle", 2), ("close", 2), ("assist", 2), ("text", 2), ("camp", 1), ("quit", 1), ("chardist", 2),
+    ("viewdist", 2), ("char&viewdist", 3), ("cc", -1), ("afk", 2), ("tell", 3), ("reply", 2), ("r", 2), ("petition", 2), ("name", 2),
+    ("invite", 2), ("kick", 2), ("leave", 2), ("ignore", 2), ("voice", 2), ("macro", 3), ("petduel", 2), ("duel", 2), ("lft", 2),
+    ("filter", 3), ("waypoint", 4), ("inspect", 2), ("emote", 2), ("gfx", 3), ("tower", 2),
+];
+
 pub fn parse(line: &str) -> Parsed {
     let line = line.trim();
     if line.is_empty() {
@@ -334,7 +351,7 @@ pub fn parse(line: &str) -> Parsed {
                 Parsed::Reply { text: text.to_string() }
             }
         }
-        "ignore" => Parsed::Ignore { name: text.split_whitespace().next().unwrap_or("").to_string() },
+        "ignore" => Parsed::Ignore { name: text.to_string() },
         "camp" => Parsed::Camp,
         "stuck" | "anon" | "list" | "shop" => Parsed::Server { text: rest.to_string() },
         "sit" => Parsed::Sit,
@@ -546,7 +563,8 @@ pub fn parse(line: &str) -> Parsed {
                 "kick" => 4,
                 _ => 5,
             };
-            match text.split_whitespace().next() {
+            // (two pieces, [`PIECES`]: all that follows the command is the name)
+            match Some(text).filter(|t| !t.is_empty()) {
                 Some(name) => Parsed::PrivateByName { what, name: name.to_string() },
                 None => Parsed::Usage(match what {
                     3 => "/invite <nick>",
@@ -557,10 +575,13 @@ pub fn parse(line: &str) -> Parsed {
         }
         // `/rp` (FUN_100b27c2).
         "rp" => Parsed::RolePlay,
-        // `/name <new name>` (FUN_100baba6: the first word after it; without one, the usage).
-        "name" => match text.split_whitespace().next() {
-            Some(name) => Parsed::NameRequest { name: name.to_string() },
-            None => Parsed::Usage("/name <new name>"),
+        // `/name <request>` (FUN_100baba6: the second piece of the line, which is all that follows the command,
+        // [`PIECES`]; without one, the usage, which the original writes as `<new name>`). The request is the name
+        // service's own language, seen live on 2026-11-16: `nick <name>`, `first <name>`, `last <name>`,
+        // `<first|last> remove`, `policy`, `status`, `delete all`, `delete <id>`, `help`.
+        "name" => match text {
+            "" => Parsed::Usage("/name <new name>"),
+            request => Parsed::NameRequest { name: request.to_string() },
         },
         // `/gfx enable|disable <number>` (FUN_100b3863: fewer than two words is an error; a first word that is
         // neither, written just so, does nothing; the number is read as C's `atoi` reads it).
@@ -659,7 +680,7 @@ mod tests {
         assert_eq!(parse("/messagebox Dinner is ready"), Parsed::MessageBox { text: "Dinner is ready".into() });
         assert_eq!(parse("/petition"), Parsed::Window { name: "petition".into(), open: true });
         assert_eq!(parse("/invite Somebody"), Parsed::PrivateByName { what: 3, name: "Somebody".into() });
-        assert_eq!(parse("/kick Somebody now"), Parsed::PrivateByName { what: 4, name: "Somebody".into() });
+        assert_eq!(parse("/kick Somebody now"), Parsed::PrivateByName { what: 4, name: "Somebody now".into() });
         assert_eq!(parse("/leave Somebody"), Parsed::PrivateByName { what: 5, name: "Somebody".into() });
         assert_eq!(parse("/kick"), Parsed::Usage("/kick <nick>"));
         assert_eq!(parse("/assist"), Parsed::Assist { name: None });
@@ -706,7 +727,11 @@ mod tests {
         assert_eq!(parse("/help"), Parsed::Help);
         assert_eq!((parse("/gfx disable 1017"), parse("/gfx enable 12x")), (Parsed::Gfx { on: false, number: 1017 }, Parsed::Gfx { on: true, number: 12 }));
         assert_eq!((parse("/gfx 1 on"), parse("/gfx Enable 3"), parse("/gfx enable")), (Parsed::Nothing, Parsed::Nothing, Parsed::Usage("/gfx enable|disable <number>")));
-        assert_eq!((parse("/rp"), parse("/name Zed now"), parse("/name"), parse("/bug it broke")), (Parsed::RolePlay, Parsed::NameRequest { name: "Zed".into() }, Parsed::Usage("/name <new name>"), Parsed::Bug));
+        assert_eq!((parse("/rp"), parse("/name Zed now"), parse("/name"), parse("/bug it broke")), (Parsed::RolePlay, Parsed::NameRequest { name: "Zed now".into() }, Parsed::Usage("/name <new name>"), Parsed::Bug));
+        // (two pieces: the whole of what follows is the request, and the name of the private group's commands)
+        assert_eq!(parse("/name nick  Zed"), Parsed::NameRequest { name: "nick  Zed".into() });
+        assert_eq!(parse("/invite Zed now"), Parsed::PrivateByName { what: 3, name: "Zed now".into() });
+        assert!(PIECES.iter().all(|(c, _)| known(c).is_some()), "{:?}", PIECES.iter().filter(|(c, _)| known(c).is_none()).collect::<Vec<_>>());
         assert_eq!(parse("/cc addbuddy  Zed"), Parsed::Cc { words: vec!["addbuddy".into(), "Zed".into()] });
         assert_eq!(parse("/cc"), Parsed::Usage("/cc <command> [words]"));
         assert_eq!(parse("/afk  back at nine "), Parsed::Afk { text: "back at nine".into() });
