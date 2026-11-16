@@ -5588,6 +5588,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     // A teleport try under way: when it began (the original's `TeleportTrier_t`, 30 s before it gives up).
     let mut teleport_try: Option<Instant> = None;
     let mut own_death = OwnDeath::default();
+    // (the heights the name tags stand over, kept steady: `nametag::steady_height`)
+    let mut tag_heights: std::collections::HashMap<u32, f32> = std::collections::HashMap::new();
     let game_dir = game.to_string();
     let thread_db = db.clone();
     let mut current = playfield;
@@ -8895,6 +8897,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 casters.extend(own_casters);
                 // (each body's size as it stands, for its name tag and the mouse: `blobshadow::Size`)
                 let sizes: std::collections::HashMap<u32, crate::blobshadow::Size> = casters.iter().filter(|c| c.id != 0).map(|c| (c.id, c.size)).collect();
+                tag_heights.retain(|id, _| *id == own || state.entities.contains_key(id));
+                for (id, size) in &sizes {
+                    crate::nametag::steady_height(&mut tag_heights, *id, Some(size.height));
+                }
                 let deforms_landed: std::cell::RefCell<Vec<(u32, mao_formats::gfx::Deform)>> = std::cell::RefCell::new(Vec::new());
                 // (the speed over the time the position itself took: the position is the last step's, `last_tick`, not this
                 // moment's, which comes some milliseconds later, after the characters are posed; and the window is told that
@@ -9209,7 +9215,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             let side = info.map_or_else(|| state.stats.get(&33).copied().unwrap_or(0) as u8, |i| i.side);
                             let level = if id == own { own_level } else { state.levels.get(&id).map_or(0, |l| *l as i64) };
                             Some(crate::nametag::Tag {
-                                at: [p[0], p[2], p[1] + crate::nametag::height(sizes.get(&id).map(|s| s.height))],
+                                at: [p[0], p[2], p[1] + crate::nametag::height(tag_heights.get(&id).copied())],
+                                own: id == own,
                                 name,
                                 org: state.orgs.get(&id).filter(|_| orgs_shown).map(|o| (o.clone(), side)),
                                 brackets,

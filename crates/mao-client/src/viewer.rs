@@ -1967,6 +1967,10 @@ impl ApplicationHandler for App {
                         let (px, pz) = (x + vx * ahead, z + vz * ahead);
                         w.scene.move_follow(&w.gpu, mao_render::glam::Vec3::new(vx * ahead, vz * ahead, 0.0));
                         self.follow_shift = [vx * ahead, vz * ahead, 0.0];
+                        // (and its name tag with it: `nametag::Tag::own`)
+                        for t in self.hud.nameplates.iter_mut().filter(|t| t.own) {
+                            (t.at[0], t.at[1]) = (px, pz);
+                        }
                         // The player's feet: plants bend away from them.
                         w.scene.player = Some(mao_render::glam::Vec3::new(px, pz, y));
                         // The game's camera: the original's steered vehicle (see `camera.rs`), looking at the head, in the

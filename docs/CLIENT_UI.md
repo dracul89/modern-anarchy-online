@@ -4142,3 +4142,24 @@ list's "not" (operator 42) over the condition before it instead of printing it a
 `a_chunk_of_several_actions_is_read`, the jetpack in `real_item_criteria`, the "not" in `gear`'s requirement test.
 **Not looked at in the window** (no picture was made). Not done: the client still takes off for a moment when a flying
 item is used and the server then refuses it (the log's "flight: on" and "off" a second apart).
+
+## The name over one's own character holds still at a run (2026-11-15)
+
+The user, with a recording: "name is hard to read when moving". Frame by frame (thirty a second) the name over the
+running character stood up to fifteen pixels left or right and eight up or down of where it had stood a frame
+before, while the character itself ran steady in the middle of the picture. Two causes:
+
+- **Sideways.** The window lets the own character and the camera glide on between the network thread's updates, at the
+  speed it was walking (`move_follow`); the name tag stood where the last update had the character and jumped on with
+  the next. Now a tag knows it is the own character's (`nametag::Tag::own`) and the window puts it where it draws the
+  character, each frame.
+- **Up and down.** The tag stands over the body's height plus 0.4. The original measures that height once, of the mesh
+  at rest (`N3Msg_GetMeshHeight` in GUI.dll FUN_10025603, when the tag is made); here it was the height of the body as
+  posed that frame (`blobshadow::Size`, a sphere round its points), which changes with every stride. Now
+  `nametag::steady_height` keeps the first height seen of a character and takes another only when it is a fifth off or
+  more (another mesh or scale). This client's own rule, standing in for the mesh at rest, which is not measured here:
+  a character first seen in the middle of a stride keeps that stride's height, a few hundredths off. Test:
+  `a_tags_height_is_kept_steady`.
+
+The second holds for everyone's tag. **Not looked at in a running game** (the recording was the user's; no new one was
+made).

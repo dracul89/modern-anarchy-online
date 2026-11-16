@@ -29,6 +29,27 @@ pub struct Tag {
     /// Behind a wall from the camera: the original's tag is a sprite in the world (`VisualSprite_t`, FUN_100258b3), which
     /// what stands in front of it hides; here the playfield's surfaces between the eye and the tag (set each frame).
     pub hidden: bool,
+    /// The client's own character's tag: the window moves it on with the character between the network thread's
+    /// updates (the character glides at the frame rate; its tag stood where the last update had it and jumped on
+    /// with the next: some fifteen pixels to and fro at a run, the user's recording of 2026-11-15).
+    pub own: bool,
+}
+
+/// The body's height a tag stands over, kept steady: the original measures the mesh at rest, once
+/// (`N3Msg_GetMeshHeight` in FUN_10025603, when the tag is made), while the size here is of the body as it is posed
+/// (`blobshadow::Size`), which changes with every frame of a run: the tag bobbed some eight pixels up and down. So
+/// the first height seen of a character is kept, and replaced only by one a fifth off or more (another mesh, another
+/// scale). `now` is this frame's posed height, none when the body is not drawn.
+pub fn steady_height(kept: &mut std::collections::HashMap<u32, f32>, id: u32, now: Option<f32>) -> Option<f32> {
+    let now = now.filter(|h| *h > 0.0);
+    match (kept.get(&id).copied(), now) {
+        (Some(k), Some(n)) if (n - k).abs() <= 0.2 * k => Some(k),
+        (_, Some(n)) => {
+            kept.insert(id, n);
+            Some(n)
+        }
+        (k, None) => k,
+    }
 }
 
 /// How many frames a tag's place behind or before the walls is kept: a line through the playfield's surfaces is costly
@@ -162,12 +183,31 @@ pub fn draw(ctx: &egui::Context, painter: &egui::Painter, screen: egui::Rect, ta
 
 #[cfg(test)]
 mod tests {
+    /// A tag's height does not follow the running body's pose: the first height is kept through the small changes of
+    /// a run, another mesh's (a fifth off or more) takes its place, and a body not drawn keeps what it had.
+    #[test]
+    fn a_tags_height_is_kept_steady() {
+        use super::steady_height;
+        let mut kept = std::collections::HashMap::new();
+        assert_eq!(steady_height(&mut kept, 7, None), None);
+        assert_eq!(steady_height(&mut kept, 7, Some(1.9)), Some(1.9));
+        for posed in [2.0, 1.75, 2.2, 1.6] {
+            assert_eq!(steady_height(&mut kept, 7, Some(posed)), Some(1.9), "{posed}");
+        }
+        assert_eq!(steady_height(&mut kept, 7, None), Some(1.9));
+        assert_eq!(steady_height(&mut kept, 7, Some(0.0)), Some(1.9));
+        // (a vehicle's body, then the person's again; another character has its own)
+        assert_eq!(steady_height(&mut kept, 7, Some(4.0)), Some(4.0));
+        assert_eq!(steady_height(&mut kept, 7, Some(1.9)), Some(1.9));
+        assert_eq!(steady_height(&mut kept, 8, Some(3.0)), Some(3.0));
+    }
+
     /// The tags' lines of sight: all of those in view the first time, a quarter of them each frame after, none for a tag
     /// out of view; a tag whose name changed at its place is looked at again at once.
     #[test]
     fn the_lines_of_sight_are_spread_over_the_frames() {
         use super::{update_sight, Tag, SIGHT_EVERY};
-        let tag = |name: &str, x: f32| Tag { at: [x, 0.0, 0.0], name: name.into(), org: None, brackets: None, health: None, consider: 0.0, hidden: false };
+        let tag = |name: &str, x: f32| Tag { at: [x, 0.0, 0.0], name: name.into(), org: None, brackets: None, health: None, consider: 0.0, hidden: false, own: false };
         let mut tags: Vec<Tag> = (0..8).map(|i| tag(&format!("n{i}"), i as f32)).collect();
         let mut kept = Vec::new();
         // (the tags at x of 6 and more are out of view; those at an odd x are behind a wall)
