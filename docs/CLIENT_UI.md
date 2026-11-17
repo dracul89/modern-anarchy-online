@@ -4646,3 +4646,20 @@ the helmet's `face` parts that head's `head` material. One departure, said in th
 the texture on the face's own material; here the head's whole material is taken, because the face's own colour
 is the modeller's blue. Seen offline for both helmets (`MAO_CREATURE_GEAR=80:<helmet>:0,81:<head>:0` with the
 `creature` command); not seen live.
+
+## A shop the server alone puts there: the Junk Shop (2026-11-16, the user's report: "junk shop isn't visible")
+
+Arete Landing's Junk Shop (Alex Gibbs's, for the tradeskill quest) is not one of the playfield's own machines: its
+dynel table has the ICC machines and no Junk Shop. The server announces it (`VendingMachineFullUpdate`, at
+3527.4, 5.2, 858.1, beside the ICC Ammunition machine) with its template (`StaticInstance` 297281) and neither a
+`Mesh` stat nor a `NameTemplate`. The client drew a machine only when its announcement had a model or the
+playfield had its own copy, and named it only by its name template: this one was there to be clicked, unseen,
+as "Booth d835".
+
+Now a machine with no model in its announcement and no copy in the playfield gets its template's `Mesh` stat
+(for the Junk Shop mesh 6546, `clan_fillobject_automat`), and a machine with no name template is named as its
+template is. Test `a_shop_the_server_alone_puts_there_has_its_templates_model` (the original's captured
+announcement, `MAO_GAME`); the model was looked at by itself offline. **Not seen in the world**: where it
+stands and which way it faces are the announcement's, as for the other machines.
+
+New: `cargo run -p mao-formats --example templatestat -- <game> <stat> <template>...`.

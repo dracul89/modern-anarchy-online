@@ -821,4 +821,6 @@ These were written before this list; some may have been seen working since witho
   the recharger and the stims show their numbers from the first arrival on and count down with each use.
 - [ ] Helmets' faces (2026-11-16): Flint Novak and the dockworkers in Arete Landing have a face under the mining
   helmet, not a blue patch; a player's helmet with an open face likewise.
-- [ ] Still open from the user's list of 2026-11-16: the Wounded Dockworker lying, the junk shop, bounding boxes.
+- [ ] The Junk Shop (2026-11-16): in Arete Landing beside the ICC Ammunition machine near Alex Gibbs, a small
+  vending machine named "Junk Shop" stands the right way up and opens as a shop.
+- [ ] Still open from the user's list of 2026-11-16: the Wounded Dockworker lying, bounding boxes.

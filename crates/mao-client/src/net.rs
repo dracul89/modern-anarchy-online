@@ -1739,16 +1739,28 @@ impl World {
                         Some(mao_net::schema::Value::List(stats)) => stats.iter().find(|s| s.get("Item1").and_then(mao_net::schema::Value::as_int) == Some(12)).and_then(|s| s.get("Item2")?.as_int()),
                         _ => None,
                     };
+                    let at = [f("X"), f("Y"), f("Z")];
+                    let near = |p: &(u32, [f32; 3], [f32; 4])| (p.1[0] - at[0]).powi(2) + (p.1[1] - at[1]).powi(2) + (p.1[2] - at[2]).powi(2) <= 2.0;
+                    let r = |n: &str| match p.value.get("Rotation").and_then(|q| q.get(n)) {
+                        Some(mao_net::schema::Value::Float(x)) => *x as f32,
+                        _ => 0.0,
+                    };
                     if let Some(mesh) = mesh.filter(|&m| m > 0) {
                         // (an announced model takes the place of the playfield's own copy (its dynel table's); the
                         // usual announcement has none, only the template (`StaticInstance`), and the table's stays)
-                        let at = [f("X"), f("Y"), f("Z")];
-                        self.props.retain(|k, p| *k < 0xfe00_0000 || (p.1[0] - at[0]).powi(2) + (p.1[1] - at[1]).powi(2) + (p.1[2] - at[2]).powi(2) > 2.0);
-                        let r = |n: &str| match p.value.get("Rotation").and_then(|q| q.get(n)) {
-                            Some(mao_net::schema::Value::Float(x)) => *x as f32,
-                            _ => 0.0,
+                        self.props.retain(|k, p| *k < 0xfe00_0000 || !near(p));
+                        self.props.insert(m.identity.1, (mesh as u32, at, [r("X"), r("Y"), r("Z"), r("W")]));
+                    } else if !self.props.iter().any(|(k, p)| *k >= 0xfe00_0000 && near(p)) {
+                        // (a machine the server alone puts there, with no copy in the playfield's table: Arete
+                        // Landing's Junk Shop. Its model is its template's `Mesh` stat, as any stat an object has
+                        // not got itself is its template's; it was not drawn at all, though it could be clicked)
+                        let template = match p.value.get("Stats") {
+                            Some(mao_net::schema::Value::List(stats)) => stats.iter().find(|s| s.get("Item1").and_then(mao_net::schema::Value::as_int) == Some(23)).and_then(|s| s.get("Item2")?.as_int()),
+                            _ => None,
                         };
-                        self.props.insert(m.identity.1, (mesh as u32, [f("X"), f("Y"), f("Z")], [r("X"), r("Y"), r("Z"), r("W")]));
+                        if let Some(mesh) = template.and_then(|t| template_stat(t as u32, 12)).filter(|&m| m > 0) {
+                            self.props.insert(m.identity.1, (mesh as u32, at, [r("X"), r("Y"), r("Z"), r("W")]));
+                        }
                     }
                     if let Some(mao_net::schema::Value::List(stats)) = p.value.get("Stats") {
                         if let Some(t) = stats.iter().find(|s| s.get("Item1").and_then(mao_net::schema::Value::as_int) == Some(23)).and_then(|s| s.get("Item2")?.as_int()) {
@@ -1764,7 +1776,8 @@ impl World {
                         _ => None,
                     };
                     let name_template = stat(446).filter(|&t| t > 0 && t != 1_234_567_890).map(|t| t as u32);
-                    let name = name_template.and_then(template_name);
+                    // (a machine with no name template is named as its own template is: the Junk Shop)
+                    let name = name_template.and_then(template_name).or_else(|| stat(23).filter(|&t| t > 0).and_then(|t| template_name(t as u32)));
                     // (its skin: FUN_1008746a gives the visual `OverrideTexture` (336) after the mesh, `SetOverrideTexture`;
                     // the stat as the dynel has it, else its name template's: the ICC shops' sign is in that texture)
                     let skin = stat(336).filter(|&t| t > 0).map(|t| t as u32).or_else(|| name_template.and_then(|t| template_stat(t, 336)).filter(|&t| t > 0).map(|t| t as u32));
@@ -11320,6 +11333,28 @@ mod door_tests {
         w.npc_given = vec![0x40];
         w.add(&Message { kind: 0x7864401d, identity: (0xc350, own), data: hex("0000020000c3507b0828870000000100000000") }.frame(1));
         assert!(w.npc_given.is_empty() && w.worn.len() == 1);
+    }
+
+    /// The original's capture: Arete Landing's Junk Shop is announced by the server with its template and no model,
+    /// and the playfield has no copy of it; it gets its template's model. A machine the playfield has a copy of
+    /// keeps that copy alone (`MAO_GAME`).
+    #[test]
+    fn a_shop_the_server_alone_puts_there_has_its_templates_model() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let _ = ITEM_DB.set(Arc::new(mao_formats::resource::ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap()));
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let shop = "000000000b0000000000000000455c75b040a6120844568742000000003f35f98600000000bf340f150020da15000f424f00000000006f0000237900000000800232010000001700048941000002bd00000001000002be00048941000002bf000489410000019c00000001000001f500000002000001f400000000000000000000000200000032000003f100000003";
+        let mut w = World { own: 1, ..World::default() };
+        w.add(&Message { kind: 0x7f544905, identity: (0xc75b, 0x1324d835), data: hex(shop) }.frame(1));
+        let prop = w.props.get(&0x1324d835).expect("the shop is drawn");
+        assert_eq!(Some(prop.0 as i64), template_stat(0x48941, 12));
+        assert!((prop.1[0] - 3527.36).abs() < 0.01 && (prop.1[2] - 858.11).abs() < 0.01);
+        assert_eq!(w.names.get(&0x1324d835).map(|n| n.0.as_str()), Some("Junk Shop"));
+        // (the same announcement where the playfield has its own machine: that one stays, no second is added)
+        let mut w = World { own: 1, ..World::default() };
+        w.props.insert(0xfe00_0007, (296027, [3527.4, 5.2, 858.1], [0.0, 0.0, 0.0, 1.0]));
+        w.add(&Message { kind: 0x7f544905, identity: (0xc75b, 0x1324d835), data: hex(shop) }.frame(1));
+        assert!(!w.props.contains_key(&0x1324d835) && w.props.len() == 1);
     }
 
     /// The Arete Landing capture: a quest item named into the overflow window comes in with its `ContainerAddItem`, and a
