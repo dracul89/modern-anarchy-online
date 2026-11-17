@@ -10,7 +10,8 @@ Two workflows in `.github/workflows`:
 ## Making a release
 
 1. Set the version: `version = "0.2.0"` under `[workspace.package]` in `Cargo.toml` (every crate takes it from there;
-   the client says it in chat). Build once so that `Cargo.lock` takes the new version, and commit both.
+   the client says it in chat). Build once so that `Cargo.lock` takes the new version. Write the version's section
+   in `CHANGELOG.md` (`## 0.2.0 (date)`, what changed as a player meets it). Commit the three.
 2. Push `main` and let CI pass.
 3. Tag that commit with the same version and push the tag:
 
@@ -38,7 +39,8 @@ Two workflows in `.github/workflows`:
      `SHA256SUMS.txt`, before the draft is published (a published release's files cannot be changed while the
      repository keeps its releases immutable)
    - `SHA256SUMS.txt`
-   - notes written by GitHub from the commits since the last release, under a few lines of ours.
+   - notes: a few lines of ours, then the version's section of `CHANGELOG.md` as the tag has it ("What is new in
+     0.2.0"; left out when the file has no such section), then GitHub's link to the commits since the last release.
 5. Read the draft over, edit the notes, and press **Publish**. Nothing is public before that; a draft can be deleted,
    and so can the tag (`git push origin :v0.2.0`), to start over.
 

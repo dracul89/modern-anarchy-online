@@ -59,7 +59,8 @@ windows (all of them can be moved, and keep their places): `I` or Ctrl+1 invento
 (specials, perks, socials: drag to a hotbar), Ctrl+4 missions, Ctrl+6 map, Ctrl+7 friends, Ctrl+8 nano programs
 (click to cast, drag to a hotbar), Ctrl+9 stats, Ctrl+0 NCU, Shift+P perks. Chat has tabs for tells, channels,
 system and combat, a log in `chat/` and the original's command list with completion. Shops, bags, corpses and bank
-terminals open their own windows; `mao-client <game> play` is a launcher with a login form and the character list.
+terminals open their own windows; `mao-client <game> play` is a launcher with a login form, the character list and
+the original's character creation.
 
 What the client does today: logs in (the Diffie-Hellman and TEA exchange of the
 original), enters a character, loads the playfield (ground, props, collision),
@@ -97,7 +98,7 @@ Funcom's; nothing of the game is in the repository or in a package.
 ## Builds and releases
 Every push to `main` is built and tested on GitHub (`.github/workflows/ci.yml`), and pushing a tag `v<version>` makes a
 draft release with the packaged client (`.github/workflows/release.yml`, `tools/package.ps1`, `tools/package.sh`):
-see `docs/RELEASING.md`.
+see `docs/RELEASING.md`. What each release changed is in `CHANGELOG.md`.
 
 Tests that need game data run when `MAO_GAME` points at an installed game.
 See `docs/ROADMAP.md` for findings and what's next.
