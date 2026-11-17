@@ -252,13 +252,18 @@ impl Launcher {
                 let version = version.map_err(|e| Failure { text: format!("version.id: {e}"), page: None })?;
                 // (`SlotLoginAccount`: `ConnectToLH` failing is error 1, the login handler not found)
                 let mut connection = Connection::connect(server.as_str()).map_err(|e| Failure { text: e.to_string(), page: Some((1, 0)) })?;
-                let list = session::login(&mut connection, &user, &password, &version).map_err(|e| Failure {
+                let (list, account) = session::login_account(&mut connection, &user, &password, &version).map_err(|e| Failure {
                     page: match &e {
                         session::Error::Refused { kind, code, .. } => Some((*kind, code.unwrap_or(0))),
                         _ => None,
                     },
                     text: e.to_string(),
                 })?;
+                // (the account's expansions: the character creation offers the Keeper and the Shade by them)
+                if let Some((slots, flags)) = account {
+                    eprintln!("account: {slots} character slots, expansion flags {flags:#x}");
+                }
+                crate::charcreate::set_expansions(account.map(|a| a.1));
                 // (the login connection must be gone before the game's own login)
                 connection.close();
                 Ok(list)
@@ -989,6 +994,10 @@ pub fn run(game: &str) -> Result<(), String> {
         launcher.selected = Some(std::env::var("MAO_LAUNCHER_PICK").ok().filter(|n| list.iter().any(|c| &c.name == n)).unwrap_or_else(|| list[0].name.clone()));
         launcher.stage = Stage::Characters(list.clone());
         // (MAO_LAUNCHER_CREATE=<step 0-3>: the New Character screens at that step, a Nanomage female Metaphysicist chosen)
+        // (MAO_LAUNCHER_EXPANSIONS=<flags>: the account's expansion flags, which a login would bring)
+        if let Some(flags) = std::env::var("MAO_LAUNCHER_EXPANSIONS").ok().and_then(|v| v.parse().ok()) {
+            crate::charcreate::set_expansions(Some(flags));
+        }
         // (MAO_LAUNCHER_CREATE=intro: the creation from its start, as New Character begins it)
         if std::env::var("MAO_LAUNCHER_CREATE").is_ok_and(|v| v == "intro") {
             launcher.stage = Stage::Create(Box::default(), list.clone());

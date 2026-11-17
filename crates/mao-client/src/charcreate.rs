@@ -196,6 +196,22 @@ pub enum Outcome {
     Created(String),
 }
 
+/// The account's expansion flags as the login's character list gave them (-1: not known).
+static EXPANSIONS: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(-1);
+
+/// The login's expansion flags (GUI.dll's value `ExpansionFlags`, set by `CharSelectWindow_c::SlotCharListReceived`).
+pub fn set_expansions(flags: Option<u32>) {
+    EXPANSIONS.store(flags.map_or(-1, i64::from), std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Whether the account may make a Keeper or a Shade: the Shadowlands' bit of its expansion flags
+/// (`ProfessionScene_t` 0x101216d1 and its `SlotNextPressed` 0x10121035: `ExpansionFlags & 2`; the original also lets
+/// them through when the client's `nSLProfsEnabled` is set, which nothing here knows of). An account whose flags are
+/// not known is let through: the server decides then.
+pub fn shadowlands_professions(flags: i64) -> bool {
+    flags < 0 || flags & 2 != 0
+}
+
 /// What the launcher tells the views of the world it draws: the box each breed figure fills (the renderer's frame),
 /// and where the chosen character's head is (the game's frame).
 #[derive(Clone, Default)]
@@ -632,6 +648,7 @@ impl Creating {
         let mut leave = false;
         let mut sounds: Vec<&'static str> = Vec::new();
         let heads = self.breed_and_sex().map(|(breed, sex)| heads_of(game, breed, sex)).unwrap_or_default();
+        let shadowlands = shadowlands_professions(EXPANSIONS.load(std::sync::atomic::Ordering::Relaxed));
         let busy = self.pending.is_some();
         egui::Area::new(egui::Id::new("character-creation")).fixed_pos(screen.min).order(egui::Order::Background).show(ctx, |ui| {
             ui.set_clip_rect(screen);
@@ -753,7 +770,9 @@ impl Creating {
                         let sprite = format!("GFX_GUI_CC_NEW_PROF{}", i + 1);
                         let stem = [sprite.clone(), sprite.clone(), sprite.clone()];
                         let height = canvas.skin.as_ref().and_then(|s| s.get(&sprite)).map_or(32.0, |s| s.size.y);
-                        if canvas.button(&format!("profession{i}"), &stem, [place::PROFESSIONS[0], y], true, (&format!("Inspect{name}"), &profession_description(name))) && self.profession != i as i32 + 1 {
+                        // (the Keeper and the Shade, the fifth and sixth, are switched off without the Shadowlands)
+                        let allowed = !matches!(i, 4 | 5) || shadowlands;
+                        if canvas.button(&format!("profession{i}"), &stem, [place::PROFESSIONS[0], y], allowed, (&format!("Inspect{name}"), &profession_description(name))) && self.profession != i as i32 + 1 {
                             orders.push(Order::Profession { from: self.profession });
                             self.profession = i as i32 + 1;
                             sounds.push(voice);
@@ -766,7 +785,15 @@ impl Creating {
                     }
                     if canvas.button("next", &pictures("NEXT"), place::NEXT, self.profession > 0, ("ButtonNext", "ProfNext")) {
                         sounds.push("SM_Sandy_CC_GUI_Select");
-                        orders.push(Order::ProfessionNext);
+                        // (`SlotNextPressed`: a Keeper or a Shade chosen without the Shadowlands goes no further: the
+                        // error's sound and the text `CharCreation_SLOnlyProfession`)
+                        if matches!(self.profession, 5 | 6) && !shadowlands {
+                            sounds.push("SM_Sandy_CC_GUI_Error");
+                            self.message = crate::feedback::texts().and_then(|t| t.named(1003, "CharCreation_SLOnlyProfession")).map(plain_text).unwrap_or_else(|| "CharCreation_SLOnlyProfession".to_string());
+                        } else {
+                            self.message.clear();
+                            orders.push(Order::ProfessionNext);
+                        }
                     }
                     let (head, body) = match (&canvas.over, self.profession) {
                         (Some((_, head, body)), _) => (head.clone(), body.clone()),
@@ -776,7 +803,11 @@ impl Creating {
                             (format!("{name}Selected"), profession_description(name))
                         }
                     };
-                    canvas.text_area(place::PROFESSION_TEXT, &plain_text(&text(&head)), &plain_text(&text(&body)));
+                    if self.message.is_empty() || canvas.over.is_some() {
+                        canvas.text_area(place::PROFESSION_TEXT, &plain_text(&text(&head)), &plain_text(&text(&body)));
+                    } else {
+                        canvas.text_area(place::PROFESSION_TEXT, &self.message, "");
+                    }
                 }
                 Scene::Name => {
                     canvas.label(&plain_text(&text("BannerEnterName")), place::BANNER, 4);
@@ -929,6 +960,7 @@ mod tests {
         let missing: Vec<&String> = names.iter().filter(|n| texts.named(600, n).is_none()).collect();
         assert!(missing.is_empty(), "{missing:?}");
         assert!(texts.named(1003, "CharCreation_ExitQuestion").is_some());
+        assert!(texts.named(1003, "CharCreation_SLOnlyProfession").is_some());
         let skin = crate::skin::Layer::open(&game.join("cd_image/gui/Default")).unwrap();
         let mut sprites: Vec<String> = ["EXIT", "NEXT", "BACK", "SHORT", "MEDIUM", "TALL", "SMALL", "LARGE", "NEXTHEAD", "PREVHEAD", "NAME", "RK"].iter().flat_map(|s| pictures(s)).collect();
         sprites.extend((1..=14).map(|n| format!("GFX_GUI_CC_NEW_PROF{n}")));
@@ -951,6 +983,13 @@ mod tests {
         names.extend(PROFESSION_NAMES.iter().map(|p| p.1));
         let missing: Vec<&&str> = names.iter().filter(|n| sandy.source_of(mao_formats::sound::sound_id(n)).is_none()).collect();
         assert!(missing.is_empty(), "{missing:?}");
+    }
+
+    /// The Keeper and the Shade go by the Shadowlands' bit; an account whose flags are not known is let through.
+    #[test]
+    fn the_shadowlands_professions() {
+        assert!(!shadowlands_professions(0) && !shadowlands_professions(1) && !shadowlands_professions(0x1d));
+        assert!(shadowlands_professions(2) && shadowlands_professions(0x7f) && shadowlands_professions(-1));
     }
 
     #[test]

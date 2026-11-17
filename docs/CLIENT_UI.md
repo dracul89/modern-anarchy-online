@@ -4538,8 +4538,16 @@ for a scene) with `MAO_CC_SCRIPT=<seconds>:<step>,...` runs it by itself (steps 
 figure's selection glow; picking by the figure's mesh (its box is used); the head's place from its attractor (the
 figure's top less 0.12 is used); the half second a scene waits before the next begins; the two later lines after
 a creation (`DockingCompleted`, `ContinuingDNA`: when they show was not read) and `TextWindowFade_t`'s own timing
-(a second's fade here); the ambience is started once (the original asks for it every frame); Keeper and Shade
-are not refused without the expansion and the expansion's extra heads are not offered (this client does not know
-the account's `ExpansionFlags`; the server decides, as before); the choices are kept while the launcher runs,
+(a second's fade here); the ambience is started once (the original asks for it every frame); the expansion's
+extra heads are not offered; the choices are kept while the launcher runs,
 not written down as the original's preferences are; the profession text area's height (156 units of the lowest
 resolution in the original, a fifth of the window here); the camera's debug display.
+
+**The Keeper and the Shade need the Shadowlands (2026-11-16, the user's report: a free account could pick them).**
+The login's character list ends with the account's character slots and its expansion flags
+(`CharSelectWindow_c::SlotCharListReceived` 0x1000ebd5 keeps the flags as the value `ExpansionFlags`);
+`mao_net::session::login_account` gives them now, and the launcher's log has a line of them. As
+`ProfessionScene_t` does, the two buttons are switched off when bit 2 is not set, and Next with one of them
+chosen (a choice kept from another account) plays the error's sound and shows `CharCreation_SLOnlyProfession`
+(`charcreate::shadowlands_professions`). Read from the two test accounts: the free one has flags 0x1, the paid one
+0xab. Not ported: the original's other way in, the client's `nSLProfsEnabled` (where it is set was not read).

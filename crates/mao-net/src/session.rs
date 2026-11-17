@@ -130,13 +130,26 @@ impl Connection {
 /// Log in and list the account's characters. `version` is the first line of
 /// the game's `version.id`.
 pub fn login(connection: &mut Connection, user: &str, password: &str, version: &str) -> Result<Vec<Character>, Error> {
+    login_account(connection, user, password, version).map(|(list, _)| list)
+}
+
+/// What follows the characters in the list: the account's character slots and its expansion flags (GUI.dll's
+/// `CharSelectWindow_c::SlotCharListReceived` 0x1000ebd5 takes them so: the slots for "x/y slots available", the flags
+/// as the value `ExpansionFlags`, whose bit 2 is the Shadowlands).
+pub fn account_trailer(rest: &[u8]) -> Option<(u32, u32)> {
+    let word = |at: usize| Some(u32::from_be_bytes(rest.get(at..at + 4)?.try_into().ok()?));
+    Some((word(0)?, word(4)?))
+}
+
+/// [`login`], with the account's slots and expansion flags when the list has them.
+pub fn login_account(connection: &mut Connection, user: &str, password: &str, version: &str) -> Result<(Vec<Character>, Option<(u32, u32)>), Error> {
     connection.send(&system::init_auth(user, version))?;
     let challenge = system::challenge(&connection.receive()?)?;
     let response = crate::crypto::response(user, &challenge, password).map_err(Error::Random)?;
     connection.send(&system::auth_client(user, &response))?;
     let reply = connection.receive()?;
     match system::character_list(&reply) {
-        Ok((list, _rest)) => Ok(list),
+        Ok((list, rest)) => Ok((list, account_trailer(&rest))),
         Err(_) => {
             let (kind, payload) = system::split(&reply)?;
             Err(Error::Refused { kind, code: refusal_code(payload), text: String::from_utf8_lossy(payload).chars().filter(|c| !c.is_control()).collect() })
@@ -194,6 +207,14 @@ pub fn enter_world(ticket: &system::Ticket) -> Result<Connection, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The list's trailer as the captures have it: the slots, the expansion flags, a zero.
+    #[test]
+    fn the_account_trailer() {
+        assert_eq!(account_trailer(&[0, 0, 0, 8, 0, 0, 0, 0x7f, 0, 0, 0, 0]), Some((8, 0x7f)));
+        assert_eq!(account_trailer(&[0, 0, 0, 8]), None);
+        assert_eq!(account_trailer(&[]), None);
+    }
 
     #[test]
     fn a_refusal_has_its_code() {

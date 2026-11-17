@@ -40,7 +40,10 @@ fn login(game: &str) -> Result<(Connection, Vec<Character>), String> {
     let (user, password) = credentials()?;
     let server = std::env::var("MAO_SERVER").unwrap_or_else(|_| session::RUBI_KA.to_string());
     let mut connection = Connection::connect(server.as_str()).map_err(|e| e.to_string())?;
-    let list = session::login(&mut connection, &user, &password, &version(game)?).map_err(|e| e.to_string())?;
+    let (list, account) = session::login_account(&mut connection, &user, &password, &version(game)?).map_err(|e| e.to_string())?;
+    if let Some((slots, flags)) = account {
+        eprintln!("account: {slots} character slots, expansion flags {flags:#x}");
+    }
     Ok((connection, list))
 }
 
