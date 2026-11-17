@@ -393,13 +393,13 @@ impl Canvas<'_> {
         id
     }
 
-    /// `SceneBase_t::MakeButton` (0x101226f3): the three pictures, the first one's size (scaled) round the place.
-    /// The original scales the width by the window's width over 1024 and the height by its height over 768, which
-    /// pulls the buttons wide in a wide window; here both go by the height. Gives whether it was clicked.
+    /// `SceneBase_t::MakeButton` (0x101226f3): the three pictures, the first one's size round the place, its width
+    /// scaled by the window's width over 1024 and its height by the window's height over 768 (so a wide window pulls
+    /// the buttons wide, as in the original: the user's choice of 2026-11-16). Gives whether it was clicked.
     fn button(&mut self, key: &str, stem: &[String; 3], at: [f32; 2], enabled: bool, info: (&str, &str)) -> bool {
         let Some(skin) = self.skin.clone() else { return false };
         let Some(normal) = skin.get(&stem[0]) else { return false };
-        let size = normal.size * self.scale;
+        let size = egui::vec2(normal.size.x * self.size.x / 1024.0, normal.size.y * self.scale);
         let middle = self.at(at);
         let rect = egui::Rect::from_min_size(egui::pos2((middle.x - size.x * 0.5).floor(), (middle.y - size.y * 0.5).floor()), size);
         let sense = if self.live && enabled { egui::Sense::click() } else { egui::Sense::hover() };

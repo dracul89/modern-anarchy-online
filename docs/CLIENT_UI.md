@@ -4522,9 +4522,10 @@ where it is here:
   original too.
 
 **This port's own choices, to be told apart from the original:** a wide window sees the same height as a 4:3 one
-(the hall's rule, the user's choice of 2026-11-11), where the original cuts the figures at the knees; the buttons
-are scaled by the window's height both ways, where the original pulls them wide by the window's width over 1024;
-the fonts are egui's Verdana.
+(the hall's rule, the user's choice of 2026-11-11), where the original cuts the figures at the knees; the fonts
+are egui's Verdana. The buttons are the original's: their width goes by the window's width over 1024 and their
+height by its height over 768, so a wide window pulls them wide (first built unstretched; asked, the user chose
+the original's on 2026-11-16).
 
 **Seen:** all of it in a demo window with no login (pictures at 1280 by 900 and at 2560 by 720 beside the
 capture's own shots of 2026-10-30, shots 36 to 108): the intro, the way down, the four scenes, the face's camera,
