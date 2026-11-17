@@ -315,7 +315,7 @@ fn camera_override(camera: &mut Camera) {
     }
     let v: Vec<f32> = text.split(',').filter_map(|n| n.trim().parse().ok()).collect();
     if let [x, y, z, distance, yaw, pitch] = v[..] {
-        *camera = Camera { target: mao_render::glam::Vec3::new(x, y, z), distance, yaw, pitch, half_height: None };
+        *camera = Camera { target: mao_render::glam::Vec3::new(x, y, z), distance, yaw, pitch, half_height: None, up: None };
     }
 }
 
@@ -1188,7 +1188,7 @@ impl ApplicationHandler for App {
         }
         let mut camera = Camera::fit(&scene);
         if let Some(([x, y, z], distance)) = self.live.as_ref().and_then(|l| l.focus.map(|f| (f, l.distance))) {
-            camera = Camera { target: mao_render::glam::Vec3::new(x, y, z), distance, yaw: 0.6, pitch: 0.5, half_height: None };
+            camera = Camera { target: mao_render::glam::Vec3::new(x, y, z), distance, yaw: 0.6, pitch: 0.5, half_height: None, up: None };
         }
         window.request_redraw();
         self.home = Some(camera);

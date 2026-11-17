@@ -833,6 +833,18 @@ pub fn connectors_placed(mesh: &MeshObject) -> Result<Vec<(String, Matrix)>, Err
     Ok(connectors)
 }
 
+/// The connectors of a mesh as [`build`] has its parts (the whole root transform applies): each one's name and the
+/// matrix of the frame it is on, at rest. The character creation's meshes name the places its figures stand on this
+/// way (`breed_0` to `breed_6`, `character_0` ...: GUI.dll's `CCCharacter_t::MoveToConnector`).
+pub fn connectors(mesh: &MeshObject) -> Result<Vec<(String, Matrix)>, Error> {
+    let a = &mesh.archive;
+    let (mut parts, mut anims, mut chain, mut connectors) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    for root_frame in refs(&a.root, "obj") {
+        walk(a, root_frame, &IDENTITY, 0, Root::Full, &mut parts, &mut chain, &mut anims, &mut connectors)?;
+    }
+    Ok(connectors)
+}
+
 /// [`build_dynel`]'s parts with their animations (a door's leaves, a Whom-Pah's creature), one per part.
 pub fn build_dynel_animated(mesh: &MeshObject) -> Result<(Model, Vec<Option<Animated>>), Error> {
     build_animated(mesh, Root::None)

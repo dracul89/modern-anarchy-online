@@ -812,12 +812,15 @@ pub struct Camera {
     /// Half the view's height at unit distance, when it is not the original's rule (90 degrees across the window, so the
     /// height follows the window's shape): the login's hall keeps its height in a wide window (`hall.rs` of the client).
     pub half_height: Option<f32>,
+    /// The camera's upright when it is not the world's (Z): a camera that rolls, as the character creation's does on
+    /// its way down through the station.
+    pub up: Option<Vec3>,
 }
 
 impl Camera {
     /// A camera that sees the whole scene.
     pub fn fit(scene: &Scene) -> Camera {
-        Camera { target: scene.center, distance: scene.radius * 2.0, yaw: 0.6, pitch: 0.35, half_height: None }
+        Camera { target: scene.center, distance: scene.radius * 2.0, yaw: 0.6, pitch: 0.35, half_height: None, up: None }
     }
 
     /// A camera at `eye` looking at `target` (world, Z up).
@@ -826,7 +829,7 @@ impl Camera {
         let distance = d.length().max(0.01);
         let pitch = (d.z / distance).clamp(-1.0, 1.0).asin();
         let yaw = if d.x.abs() + d.y.abs() > 1e-9 { d.y.atan2(d.x) } else { 0.0 };
-        Camera { target, distance, yaw, pitch, half_height: None }
+        Camera { target, distance, yaw, pitch, half_height: None, up: None }
     }
 
     /// Where the camera is.
@@ -865,7 +868,7 @@ impl Camera {
         // The original's view is 90° across (`VisualCamera_t::SetViewPlaneWindow(1.5708, aspect)`: the window's half width is
         // tan(45°) at unit distance, its height that over the aspect), so the vertical field follows the window's shape.
         let fov_y = 2.0 * self.half_height.unwrap_or(1.0 / aspect.max(0.1)).atan();
-        perspective(fov_y, aspect, near, far) * look_at(eye, self.target, Vec3::Z)
+        perspective(fov_y, aspect, near, far) * look_at(eye, self.target, self.up.unwrap_or(Vec3::Z))
     }
 }
 
@@ -3013,7 +3016,7 @@ mod tests {
         if std::env::var_os("MAO_CULL").is_some() {
             return;
         }
-        let camera = Camera { target: Vec3::ZERO, distance: 30.0, yaw: 0.3, pitch: 1.2, half_height: None };
+        let camera = Camera { target: Vec3::ZERO, distance: 30.0, yaw: 0.3, pitch: 1.2, half_height: None, up: None };
         // (a red square on the ground, its corners counter-clockwise seen from above as the terrain's are, or the other
         // way round)
         let square = |reversed: bool, two_sided: bool| {
@@ -3039,7 +3042,7 @@ mod tests {
     fn the_same_part_in_several_places_is_one_call() {
         // (skipped on a machine without a graphics device)
         let Some((_turn, gpu)) = test_gpu() else { return };
-        let camera = Camera { target: Vec3::ZERO, distance: 40.0, yaw: 0.0, pitch: 1.4, half_height: None };
+        let camera = Camera { target: Vec3::ZERO, distance: 40.0, yaw: 0.0, pitch: 1.4, half_height: None, up: None };
         let square = |half: f32| {
             let vertices = [[-half, -half, 0.0], [half, -half, 0.0], [half, half, 0.0], [-half, half, 0.0]].iter().map(|&p| mao_formats::model::Vertex { position: p, normal: [0.0, 0.0, 1.0], uv: [0.0, 0.0], colour: mao_formats::model::Vertex::UNBAKED }).collect();
             mao_formats::model::Part { name: String::new(), world: Mat4::IDENTITY.to_cols_array(), vertices, indices: vec![0, 1, 2, 0, 2, 3], material: mao_formats::model::Material { diffuse: [1.0, 0.0, 0.0], opacity: 1.0, two_sided: true, ..Default::default() } }
@@ -3101,7 +3104,7 @@ mod tests {
         if !gpu.bc {
             return;
         }
-        let camera = Camera { target: Vec3::ZERO, distance: 30.0, yaw: 0.3, pitch: 1.3, half_height: None };
+        let camera = Camera { target: Vec3::ZERO, distance: 30.0, yaw: 0.3, pitch: 1.3, half_height: None, up: None };
         let vertices = [([-10.0, -10.0, 0.0], [0.0, 0.0]), ([10.0, -10.0, 0.0], [1.0, 0.0]), ([10.0, 10.0, 0.0], [1.0, 1.0]), ([-10.0, 10.0, 0.0], [0.0, 1.0])].iter().map(|&(p, uv)| mao_formats::model::Vertex { position: p, normal: [0.0, 0.0, 1.0], uv, colour: mao_formats::model::Vertex::UNBAKED }).collect();
         let material = mao_formats::model::Material { diffuse: [1.0; 3], opacity: 1.0, two_sided: true, textures: vec![(1, 1)], ..Default::default() };
         let model = Model { parts: vec![mao_formats::model::Part { name: String::new(), world: Mat4::IDENTITY.to_cols_array(), vertices, indices: vec![0, 1, 2, 0, 2, 3], material }], ..Default::default() };
@@ -3127,7 +3130,7 @@ mod tests {
     fn the_characters_share_their_buffers_from_upload_to_upload() {
         // (skipped on a machine without a graphics device)
         let Some((_turn, gpu)) = test_gpu() else { return };
-        let camera = Camera { target: Vec3::ZERO, distance: 40.0, yaw: 0.0, pitch: 1.4, half_height: None };
+        let camera = Camera { target: Vec3::ZERO, distance: 40.0, yaw: 0.0, pitch: 1.4, half_height: None, up: None };
         let square = |at: f32, half: f32, colour: [f32; 3]| {
             let vertices = [[at - half, -half, 0.0], [at + half, -half, 0.0], [at + half, half, 0.0], [at - half, half, 0.0]].iter().map(|&p| mao_formats::model::Vertex { position: [p[1], p[0], p[2]], normal: [0.0, 0.0, 1.0], uv: [0.0, 0.0], colour: mao_formats::model::Vertex::UNBAKED }).collect();
             mao_formats::model::Part { name: String::new(), world: Mat4::IDENTITY.to_cols_array(), vertices, indices: vec![0, 2, 1, 0, 3, 2], material: mao_formats::model::Material { diffuse: colour, opacity: 1.0, two_sided: true, ..Default::default() } }
@@ -3160,7 +3163,7 @@ mod tests {
 
     #[test]
     fn the_screen_centre_looks_at_the_target() {
-        let c = Camera { target: Vec3::new(10.0, 5.0, 1.0), distance: 8.0, yaw: 0.7, pitch: 0.3, half_height: None };
+        let c = Camera { target: Vec3::new(10.0, 5.0, 1.0), distance: 8.0, yaw: 0.7, pitch: 0.3, half_height: None, up: None };
         let (from, dir) = c.ray(0.5, 0.5, 16.0 / 9.0, 100.0);
         let want = (c.target - c.eye()).normalize();
         assert!(dir.dot(want) > 0.9999, "{dir:?} {want:?}");
@@ -3197,7 +3200,7 @@ mod tests {
         // (skipped on a machine without a graphics device)
         let Some((_turn, gpu)) = test_gpu() else { return };
         let format = wgpu::TextureFormat::Rgba8Unorm;
-        let camera = Camera { target: Vec3::new(-6.0, 0.0, 0.0), distance: 40.0, yaw: 0.3, pitch: 1.2, half_height: None };
+        let camera = Camera { target: Vec3::new(-6.0, 0.0, 0.0), distance: 40.0, yaw: 0.3, pitch: 1.2, half_height: None, up: None };
         let (start, moved) = (Vec3::new(0.0, 6.0, 0.0), Vec3::new(5.0, 6.0, 0.0));
         let picture = |renderer: &mut Renderer, scene: &mut Scene, at: Vec3| {
             scene.player = Some(at);
@@ -3248,7 +3251,7 @@ mod tests {
         let Some((_turn, gpu)) = test_gpu() else { return };
         let format = wgpu::TextureFormat::Rgba8Unorm;
         let (w, h) = (160, 120);
-        let still = Camera { target: Vec3::new(0.0, 0.0, 4.0), distance: 30.0, yaw: 0.3, pitch: 0.4, half_height: None };
+        let still = Camera { target: Vec3::new(0.0, 0.0, 4.0), distance: 30.0, yaw: 0.3, pitch: 0.4, half_height: None, up: None };
         let turned = Camera { yaw: 0.55, ..still };
         let mut renderer = Renderer::new(&gpu, format);
         let mut scene = renderer.upload(&gpu, &pillar_scene(), &mut |_, _| None);

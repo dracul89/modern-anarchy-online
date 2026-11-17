@@ -797,3 +797,11 @@ These were written before this list; some may have been seen working since witho
   answer above the results that names its sources by number; with a wrong address, the reason in red and the
   results still there. Which small model answers well is for trying.
 - The game does not hitch when the window opens or while a site is being read.
+- [ ] Character creation in the original's scenes (2026-11-16), from New Character on the character list: the
+  intro in space with its music and two lines of text (Escape ends it, and Escape again the way down); the breed
+  scene: the mouse over a figure names it, a click chooses it (its voice line, it steps to the front left), Next;
+  appearance: the head's arrows, the three heights and builds, the camera at the face while the mouse is at the
+  head, Back and Next; profession: a button flies the camera to that profession's figure and plays its line; name:
+  Suggest Name, a bad name's text, the Rubi-Ka button makes the character, then the walk to the shuttle and the
+  game. The exit button asks first; after No nothing changed, after Yes the list is back and New Character has the
+  choices still. To judge by ear: the sounds' loudness, and whether the ambience keeps running.

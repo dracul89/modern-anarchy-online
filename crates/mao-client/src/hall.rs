@@ -21,11 +21,12 @@
 //! choice, asked for by the user.
 //!
 //! The character creation's own cameras are the game folder's `CharCreateCamera.dat` (`CameraCount`, then for each an
-//! `ID` of one to four numbers, `Pos`, `Rot` as a quaternion and `degFOV`): [`places`] reads them; nothing uses them
-//! yet (the creation screens still show the character alone).
+//! `ID` of one to five numbers, `Pos`, `Rot` as a quaternion and `degFOV`): [`places`] reads them, and `ccscene.rs`
+//! flies between them. The creation's world is here too: [`creation`] (its meshes and connectors) and
+//! [`on_connector`] (a figure stood on one).
 //!
-//! Not done: the picked character turned by the mouse, the creation's seven breed figures (`CCCharacter_t`) and its
-//! camera moves, the hall's nano effect running, the figures' animations (each mesh loops in the original).
+//! Not done: the picked character turned by the mouse, the hall's nano effect running, the figures' animations (each
+//! mesh loops in the original).
 
 use mao_formats::model::Model;
 use mao_formats::resource::{Id, ResourceDatabase};
@@ -149,9 +150,107 @@ pub fn model(db: &ResourceDatabase) -> Option<Model> {
     (!hall.parts.is_empty()).then_some(hall)
 }
 
+/// The character creation's world (`ccscene.rs`): the station and the intro's mesh as one model, the profession
+/// hall's four meshes as another (shown from the profession scene on), and the main mesh's connectors, on which the
+/// figures stand.
+pub struct Creation {
+    pub station: Model,
+    pub professions: Model,
+    /// Each connector's name and its frame's matrix, in the meshes' own space (Y up).
+    pub connectors: Vec<(String, mao_formats::model::Matrix)>,
+}
+
+impl Creation {
+    pub fn connector(&self, name: &str) -> Option<&mao_formats::model::Matrix> {
+        self.connectors.iter().find(|(n, _)| n == name).map(|(_, m)| m)
+    }
+}
+
+/// The creation's meshes (those the database has).
+pub fn creation(db: &ResourceDatabase) -> Option<Creation> {
+    let index = mao_formats::instances::Instances::parse(&db.get(Id { kind: 0xf424a, instance: 1 }).ok()??).ok()?;
+    let (mut station, mut professions, mut connectors) = (Model::default(), Model::default(), Vec::new());
+    for (i, name) in crate::ccscene::MESHES.iter().enumerate() {
+        let Some(instance) = index.find(0xf6951, name) else { continue };
+        let Some(object) = db.get(Id { kind: 0xf6951, instance }).ok().flatten() else { continue };
+        let Ok(mesh) = mao_formats::mesh::parse(&object) else { continue };
+        if i == 0 {
+            connectors = mao_formats::model::connectors(&mesh).unwrap_or_default();
+        }
+        if let Ok(built) = mao_formats::model::build(&mesh) {
+            if crate::ccscene::of_the_hall(i) { &mut professions } else { &mut station }.parts.extend(built.parts);
+        }
+    }
+    station.instances = (0..station.parts.len()).map(|i| (i, SWAP)).collect();
+    professions.instances = (0..professions.parts.len()).map(|i| (i, SWAP)).collect();
+    (!station.parts.is_empty()).then_some(Creation { station, professions, connectors })
+}
+
+/// A turn about an axis as a matrix.
+fn turn(axis: [f32; 3], angle: f32) -> mao_formats::model::Matrix {
+    let (s, c) = (angle * 0.5).sin_cos();
+    mao_formats::model::trs_matrix([0.0; 3], [axis[0] * s, axis[1] * s, axis[2] * s, c], [1.0; 3])
+}
+
+/// A character's model (its parts in the game's frame, at the origin) stood on a connector, as GUI.dll's
+/// `CCCharacter_t::MoveToConnector` (0x1011b2f4) stands one: at the connector's place, turned as the connector is and
+/// then by the two turns the function adds (half a turn about X, -0.5 about Y: its constants 0x101c4070, 0x101c406c).
+/// `MAO_CC_TURN=x,y` tries other angles.
+pub fn on_connector(mut character: Model, connector: &mao_formats::model::Matrix, scale: f32) -> Model {
+    let angles = std::env::var("MAO_CC_TURN").ok().map(|t| t.split(',').filter_map(|n| n.trim().parse::<f32>().ok()).collect::<Vec<f32>>()).filter(|v| v.len() == 2);
+    let (x, y) = angles.map_or((std::f32::consts::PI, -0.5), |v| (v[0], v[1]));
+    let size = mao_formats::model::trs_matrix([0.0; 3], [0.0, 0.0, 0.0, 1.0], [scale; 3]);
+    let turned = mao_formats::model::multiply(&mao_formats::model::multiply(&size, &turn([0.0, 1.0, 0.0], y)), &turn([1.0, 0.0, 0.0], x));
+    let matrix = mao_formats::model::multiply(&mao_formats::model::multiply(&turned, connector), &SWAP);
+    character.instances = (0..character.parts.len()).map(|i| (i, matrix)).collect();
+    character
+}
+
+/// The box a model's instances fill, in the renderer's frame (none for an empty model).
+pub fn extent(model: &Model) -> Option<([f32; 3], [f32; 3])> {
+    let (mut lo, mut hi) = ([f32::MAX; 3], [f32::MIN; 3]);
+    for &(part, instance) in &model.instances {
+        let Some(p) = model.parts.get(part) else { continue };
+        let m = mao_formats::model::multiply(&p.world, &instance);
+        for v in &p.vertices {
+            let q = v.position;
+            for k in 0..3 {
+                let c = q[0] * m[k] + q[1] * m[4 + k] + q[2] * m[8 + k] + m[12 + k];
+                lo[k] = lo[k].min(c);
+                hi[k] = hi[k].max(c);
+            }
+        }
+    }
+    (lo[0] <= hi[0]).then_some((lo, hi))
+}
+
+/// Where a line from `from` along `along` enters a box, as the distance along it (none when it misses).
+pub fn line_meets_box(from: [f32; 3], along: [f32; 3], lo: [f32; 3], hi: [f32; 3]) -> Option<f32> {
+    let (mut near, mut far) = (0.0f32, f32::MAX);
+    for k in 0..3 {
+        if along[k].abs() < 1e-9 {
+            if from[k] < lo[k] || from[k] > hi[k] {
+                return None;
+            }
+            continue;
+        }
+        let (a, b) = ((lo[k] - from[k]) / along[k], (hi[k] - from[k]) / along[k]);
+        near = near.max(a.min(b));
+        far = far.min(a.max(b));
+    }
+    (near <= far).then_some(near)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_line_and_a_box() {
+        assert_eq!(line_meets_box([0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, -1.0, -1.0], [3.0, 1.0, 1.0]), Some(2.0));
+        assert_eq!(line_meets_box([0.0, 5.0, 0.0], [1.0, 0.0, 0.0], [2.0, -1.0, -1.0], [3.0, 1.0, 1.0]), None);
+        assert_eq!(line_meets_box([0.0, 0.0, 0.0], [-1.0, 0.0, 0.0], [2.0, -1.0, -1.0], [3.0, 1.0, 1.0]), None);
+    }
 
     #[test]
     fn the_camera_file_gives_its_places() {

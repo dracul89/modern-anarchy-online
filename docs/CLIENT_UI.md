@@ -4485,3 +4485,60 @@ reads as one paragraph there; in the chat window the same line breaks where the 
 
 Left as they were found: the test character wears the helmet now; the friend was removed again; the lock is off
 (it was set in the test's own settings folder).
+
+## Character creation as the original's four scenes (2026-11-16, `ccscene.rs`, `charcreate.rs`)
+
+The New Character window of 2026-10-29 is gone. In its place is GUI.dll's `CharCreateModule_t` (0x1011cbcf): the
+station's world, a camera that flies between the scenes, and the scenes' own views. What the original does, and
+where it is here:
+
+- **The world** (`hall::creation`): the module's six meshes (its table at 0x102724e4: the station, the two of
+  the profession hall, the intro's `charactercreation_seq01`, the nano effect, the adventurer). The hall's four
+  show only from the profession scene on. The seven breed figures (`SlotMeshReady`: each breed's body at the middle
+  build and height, table 0x10272490) stand on the main mesh's connectors `breed_0` to `breed_6`, the chosen
+  character on `character_0` (breed scene), `character_1` (appearance) or `character_3` (name), turned as
+  `CCCharacter_t::MoveToConnector` turns it (`hall::on_connector`; `mao_formats::model::connectors` is new). What
+  comes and goes is the station scene's overlay, rebuilt when it changes (`Launcher::creation_camera`).
+- **The camera** (`ccscene::CameraFile`, `Mover`): `CharCreateCamera.dat` has 53 cameras and 23 transitions; the
+  mover is the module's camera control (step FUN_1011698d): eased time, one speed along the path, most of the old
+  camera kept each frame, Escape to the end. The renderer's camera can roll now (`Camera::up`): the way down
+  through the station does.
+- **The states** (`ccscene::Director`, the module's `FrameProcess`): the intro in space (transition `5 1`, the
+  opening music, the two lines of text after 4 s), the way down (`1 1 1`), then breed, appearance, profession and
+  name **in that order** (the old window had profession before appearance), and after the server has made the
+  character the walk to the shuttle (`4 3`) before the game starts. Each scene's camera orders are in
+  `Director::go`, read from the scenes' `SlotNextPressed` / `SlotPrevPressed`, `MoveCamereToHead`,
+  `MoveCameraToFullView` and `ProfessionChanged`.
+- **The views** (`Creating::show`): every button, label and text area at the place its constructor gives it
+  (`charcreate::place`, shares of the window), with the skin's `GFX_GUI_CC_*` pictures (the numbers the code passes
+  are AFCM.dll's table of names: `gfxids.py` in the notes), the purple 0x6666aa boxes, and the texts of category
+  600 by the names the DLL uses. The breed is picked by clicking a figure (the line from the eye through the mouse
+  against each figure's box); the mouse over a button or a figure changes the text and plays the mouse-over sound;
+  the mouse over the head's area takes the camera to the face. A scene's views show only while the scene runs, as
+  `StopScene` and `StartScene` have it. The exit button asks first (`AskExitMessage`, the box "ExitCC").
+- **Sounds**: the scenes' voice lines, each breed's and profession's line, the select, mouse-over and error
+  sounds, the ambience, by the original's names; the launcher starts the sound module when the creation begins.
+  Two names the name scene asks for (`SM_Sandy_CC_Nick`, `SM_Sandy_CC_Name`) are in no sound file: silent in the
+  original too.
+
+**This port's own choices, to be told apart from the original:** a wide window sees the same height as a 4:3 one
+(the hall's rule, the user's choice of 2026-11-11), where the original cuts the figures at the knees; the buttons
+are scaled by the window's height both ways, where the original pulls them wide by the window's width over 1024;
+the fonts are egui's Verdana.
+
+**Seen:** all of it in a demo window with no login (pictures at 1280 by 900 and at 2560 by 720 beside the
+capture's own shots of 2026-10-30, shots 36 to 108): the intro, the way down, the four scenes, the face's camera,
+the profession's cameras, the walk to the shuttle. `MAO_LAUNCHER_DEMO=1 MAO_LAUNCHER_CREATE=intro` (or `0` to `3`
+for a scene) with `MAO_CC_SCRIPT=<seconds>:<step>,...` runs it by itself (steps in `charcreate.rs`).
+**Not tried:** a creation sent to the server through the new scenes (the messages are the old ones), the mouse
+(the script chooses directly), the sounds by ear (the runs were silent).
+
+**Not done:** the meshes' own animations (the profession figures and the intro's ships stand still); the breed
+figure's selection glow; picking by the figure's mesh (its box is used); the head's place from its attractor (the
+figure's top less 0.12 is used); the half second a scene waits before the next begins; the two later lines after
+a creation (`DockingCompleted`, `ContinuingDNA`: when they show was not read) and `TextWindowFade_t`'s own timing
+(a second's fade here); the ambience is started once (the original asks for it every frame); Keeper and Shade
+are not refused without the expansion and the expansion's extra heads are not offered (this client does not know
+the account's `ExpansionFlags`; the server decides, as before); the choices are kept while the launcher runs,
+not written down as the original's preferences are; the profession text area's height (156 units of the lowest
+resolution in the original, a fifth of the window here); the camera's debug display.

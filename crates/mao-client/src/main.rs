@@ -43,6 +43,7 @@ mod damage;
 mod extras;
 mod itemindex;
 mod craftguide;
+mod ccscene;
 mod charcreate;
 mod launchwindow;
 mod launchskin;

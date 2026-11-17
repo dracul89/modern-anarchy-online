@@ -23,7 +23,7 @@ rows were brought up to date on the day this was saved. A few gaps listed here m
 
 - Shortcut bars: the hotbar is this client's design.
 - Mission selection (the terminal's window).
-- Character creation's screens.
+- ~~Character creation's screens.~~ Ported 2026-11-16 (`ccscene.rs`).
 - The Help and Whom-Pah windows.
 
 ## Ported, with these gaps

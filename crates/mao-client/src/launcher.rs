@@ -151,6 +151,8 @@ struct Gfx {
     hall: Option<Option<(Scene, crate::hall::Place)>>,
     /// The character list's character stands in the hall (the hall scene's overlay holds it).
     hall_character: bool,
+    /// The character creation's world (`ccscene.rs`); `Some(None)` once it was looked for and not found.
+    creation: Option<Option<CreationGfx>>,
     started: std::time::Instant,
     frames: u32,
     /// The page of a login's error (`LoginBrowserWindow_c`'s `BrowserView_c`): a WebView2 child over the Browser
@@ -159,6 +161,16 @@ struct Gfx {
     page: Option<(wry::WebView, wry::WebContext)>,
     /// The page's address, its place in the window's pixels and whether it shows.
     page_state: (String, (i32, i32, u32, u32), bool),
+}
+
+/// The creation's world on the graphics card: the station's scene (its overlay holds what comes and goes: the
+/// profession hall, the breed figures, the chosen character), the seven breed figures' models, and what the overlay
+/// holds now.
+struct CreationGfx {
+    scene: Scene,
+    world: crate::hall::Creation,
+    figures: Vec<Option<mao_formats::model::Model>>,
+    shown: String,
 }
 
 struct Launcher {
@@ -197,6 +209,8 @@ struct Launcher {
     /// A character just made: once the list comes back with it, it is played (the original logs a new character straight in,
     /// `Client_t::ProcessMessage`'s 0x11).
     play_new: Option<String>,
+    /// A creation that was left: its choices are there the next time (the original keeps them in its preferences).
+    kept_creation: Option<Box<crate::charcreate::Creating>>,
     /// The character played is a new one (the loading screen's `welcome_to_rubika.jpg`).
     new_character: bool,
     /// The character picked in the list (shown in the window; Play starts it).
@@ -393,7 +407,7 @@ impl Launcher {
         }
         if new_character {
             if let Stage::Characters(list) = &self.stage {
-                self.stage = Stage::Create(Box::default(), list.clone());
+                self.stage = Stage::Create(self.kept_creation.take().unwrap_or_default(), list.clone());
             }
         }
         // (making a character: the four steps; made, the list is fetched again with it selected)
@@ -406,11 +420,18 @@ impl Launcher {
         let palette_now = self.palette.clone();
         let game = self.game.clone();
         let mut made = None;
-        if let Stage::Create(creating, list) = &mut self.stage {
+        let mut left = false;
+        if let Stage::Create(creating, _) = &mut self.stage {
             match creating.show(ctx, &palette_now, &account, &game) {
                 crate::charcreate::Outcome::Stay => {}
-                crate::charcreate::Outcome::Back => self.stage = Stage::Characters(list.clone()),
+                crate::charcreate::Outcome::Back => left = true,
                 crate::charcreate::Outcome::Created(name) => made = Some(name),
+            }
+        }
+        if left {
+            if let Stage::Create(creating, list) = std::mem::replace(&mut self.stage, Stage::Form) {
+                self.kept_creation = Some(creating);
+                self.stage = Stage::Characters(list);
             }
         }
         if let Some(name) = made {
@@ -494,6 +515,81 @@ impl Launcher {
             gfx.hall = Some(built);
         }
         matches!(gfx.hall, Some(Some(_)))
+    }
+
+    /// The creation's world, built the first time it is asked for: the station's scene and the seven breed figures
+    /// (`CharCreateModule_t::InitialiseMessage` and `SlotMeshReady`: each breed's body at the middle build and height,
+    /// its first head).
+    fn creation_ready(&self, gfx: &mut Gfx) -> bool {
+        if gfx.creation.is_none() && self.shot.is_none() {
+            if gfx.db.is_none() {
+                if let Ok(db) = ResourceDatabase::open_game(std::path::Path::new(&self.game)) {
+                    let db = Arc::new(db);
+                    gfx.db = Some((db.clone(), crate::Textures::new(db)));
+                }
+            }
+            let built = gfx.db.as_ref().and_then(|(db, textures)| {
+                let world = crate::hall::creation(db)?;
+                let mut scene = gfx.renderer.upload(&gfx.gpu, &world.station, &mut |k, i| textures.get_for_upload(k, i));
+                scene.sky = ([0.0, 0.0, 0.0], [0.0, 0.0, 0.0]);
+                scene.fog = (4000.0, 5000.0);
+                let figures = (1..=7).map(|choice| crate::charcreate::breed_and_sex(choice).and_then(|(breed, sex)| crate::net::character_model_shaped(db, breed, sex, None, 1, 100.0))).collect();
+                Some(CreationGfx { scene, world, figures, shown: String::new() })
+            });
+            gfx.creation = Some(built);
+        }
+        matches!(gfx.creation, Some(Some(_)))
+    }
+
+    /// The creation's camera for this frame, with the world's overlay brought up to what the scenes show now: the
+    /// profession hall, the breed figures on their connectors and the chosen character on the scene's.
+    fn creation_camera(&mut self, gfx: &mut Gfx, size: (u32, u32)) -> Option<Camera> {
+        let Stage::Create(creating, _) = &mut self.stage else { return None };
+        let (Some(Some(c)), Some((db, textures))) = (gfx.creation.as_mut(), gfx.db.as_ref()) else { return None };
+        let d = creating.director.as_ref()?;
+        let chosen = creating.breed_and_sex().map(|(breed, sex)| (breed, sex, creating.head, creating.build, creating.height));
+        let key = format!("{} {} {} {chosen:?}", d.figures, d.professions, d.connector);
+        if key != c.shown {
+            c.shown = key;
+            let mut overlay = mao_formats::model::Model::default();
+            let mut add = |m: &mao_formats::model::Model| {
+                let base = overlay.parts.len();
+                overlay.parts.extend(m.parts.iter().cloned());
+                overlay.instances.extend(m.instances.iter().map(|&(part, at)| (part + base, at)));
+            };
+            if d.professions {
+                add(&c.world.professions);
+            }
+            creating.world = crate::charcreate::World::default();
+            if d.figures {
+                for (i, name) in crate::ccscene::BREED_CONNECTORS.iter().enumerate() {
+                    if let (Some(Some(figure)), Some(connector)) = (c.figures.get(i), c.world.connector(name)) {
+                        let stood = crate::hall::on_connector(figure.clone(), connector, 1.0);
+                        creating.world.figures[i] = crate::hall::extent(&stood);
+                        add(&stood);
+                    }
+                }
+            }
+            if let (Some((breed, sex, _, build, height)), Some(connector)) = (chosen, c.world.connector(d.connector)) {
+                // (the chosen head: the look's gear at attachment 0)
+                let look = creating.head_mesh(&self.game).map(|mesh| crate::look::Look { name: String::new(), breed: breed as u8, sex: sex as u8, clothes: Vec::new(), textures: Vec::new(), gear: vec![(0, mesh, 0)] });
+                if let Some(model) = crate::net::character_model_shaped(db, breed, sex, look.as_ref(), build, crate::charcreate::height(height) as f32) {
+                    let stood = crate::hall::on_connector(model, connector, 1.0);
+                    // (the head, for the face's camera: the figure's top less a head's half, in the game's frame)
+                    if let Some((lo, hi)) = crate::hall::extent(&stood) {
+                        creating.world.head = Some([(lo[0] + hi[0]) * 0.5, hi[2] - 0.12, (lo[1] + hi[1]) * 0.5]);
+                    }
+                    add(&stood);
+                }
+            }
+            gfx.renderer.reupload_overlay(&gfx.gpu, &mut c.scene, &overlay, &mut |k, i| textures.get_for_upload(k, i));
+        }
+        let (eye, forward, up) = d.mover.view();
+        let eye = mao_render::glam::Vec3::from(eye);
+        let mut camera = Camera::looking(eye, eye + mao_render::glam::Vec3::from(forward) * 10.0);
+        camera.up = Some(mao_render::glam::Vec3::from(up));
+        camera.half_height = Some(crate::hall::half_height(d.mover.fov, size.0 as f32 / size.1.max(1) as f32));
+        Some(camera)
     }
 }
 
@@ -597,6 +693,7 @@ impl ApplicationHandler for Launcher {
             db: None,
             hall: None,
             hall_character: false,
+            creation: None,
             started: std::time::Instant::now(),
             frames: 0,
             #[cfg(any(windows, target_os = "macos"))]
@@ -625,9 +722,12 @@ impl ApplicationHandler for Launcher {
                     // (the game is starting: the loading screen's black over everything, nothing drawn under it)
                     let entering = self.entering.is_some();
                     // the character picked in the list is built once and turned slowly
+                    // (the creation's world, once it is there: its scenes are drawn in it, `creation_camera`)
+                    let creation = !entering && matches!(self.stage, Stage::Create(..)) && self.creation_ready(&mut gfx);
                     let want = match &self.stage {
                         Stage::Characters(list) => self.selected.as_ref().and_then(|n| list.iter().find(|c| &c.name == n)).cloned(),
-                        // (the breed being made, as the list shows a character)
+                        Stage::Create(..) if creation => None,
+                        // (without the creation's meshes: the breed being made, as the list shows a character)
                         Stage::Create(creating, _) => creating.breed_and_sex().map(|(breed, sex)| Character { name: format!("(new {breed} {sex} {} {} {})", creating.head, creating.build, creating.height), breed, sex, width: creating.build, height: crate::charcreate::height(creating.height), ..Default::default() }),
                         _ => None,
                     };
@@ -701,7 +801,11 @@ impl ApplicationHandler for Launcher {
                         gfx.camera = Some(camera);
                         gfx.scene = Some(scene);
                     }
-                    if let (Some(scene), Some(camera), false) = (&gfx.scene, gfx.camera.as_mut(), entering) {
+                    let creation_camera = if creation { self.creation_camera(&mut gfx, size) } else { None };
+                    if let (Some(camera), Some(Some(c))) = (creation_camera, gfx.creation.as_ref()) {
+                        gfx.renderer.draw(&gfx.gpu, &c.scene, &camera, &view, size);
+                        gfx.ui.paint(&gfx.gpu, &view, size, ui_frame);
+                    } else if let (Some(scene), Some(camera), false) = (&gfx.scene, gfx.camera.as_mut(), entering) {
                         camera.yaw = 0.9 + gfx.started.elapsed().as_secs_f32() * 0.5;
                         if let Some(out) = self.shot.clone().filter(|_| gfx.frames >= 12) {
                             camera.yaw = 0.9;
@@ -842,6 +946,7 @@ pub fn run(game: &str) -> Result<(), String> {
         start_error: None,
         chosen: None,
         play_new: None,
+        kept_creation: None,
         new_character: false,
         selected: None,
         shot: std::env::var("MAO_LAUNCHER_SHOT").ok(),
@@ -884,9 +989,13 @@ pub fn run(game: &str) -> Result<(), String> {
         launcher.selected = Some(std::env::var("MAO_LAUNCHER_PICK").ok().filter(|n| list.iter().any(|c| &c.name == n)).unwrap_or_else(|| list[0].name.clone()));
         launcher.stage = Stage::Characters(list.clone());
         // (MAO_LAUNCHER_CREATE=<step 0-3>: the New Character screens at that step, a Nanomage female Metaphysicist chosen)
+        // (MAO_LAUNCHER_CREATE=intro: the creation from its start, as New Character begins it)
+        if std::env::var("MAO_LAUNCHER_CREATE").is_ok_and(|v| v == "intro") {
+            launcher.stage = Stage::Create(Box::default(), list.clone());
+        }
         if let Some(step) = std::env::var("MAO_LAUNCHER_CREATE").ok().and_then(|v| v.parse().ok()) {
             let mut creating = crate::charcreate::Creating::default();
-            (creating.step, creating.breed, creating.profession, creating.name) = (step, 5, 1, "Zibblet".into());
+            (creating.start_scene, creating.breed, creating.profession, creating.name) = (Some(step), 5, 1, "Zibblet".into());
             // (MAO_LAUNCHER_BREED / _PROFESSION: other choices than the Nanomage female Meta-Physicist)
             creating.breed = std::env::var("MAO_LAUNCHER_BREED").ok().and_then(|v| v.parse().ok()).unwrap_or(creating.breed);
             creating.profession = std::env::var("MAO_LAUNCHER_PROFESSION").ok().and_then(|v| v.parse().ok()).unwrap_or(creating.profession);
