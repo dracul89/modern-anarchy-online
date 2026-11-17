@@ -37,6 +37,21 @@ fn dirs(ctx: &egui::Context) -> Vec<std::path::PathBuf> {
     crate::skin::skin(ctx).map(|s| s.dirs().into_iter().map(|d| d.to_path_buf()).collect()).unwrap_or_default()
 }
 
+/// The account's character slots as the login's character list gave them (-1: not known).
+static SLOTS: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(-1);
+
+/// The login's count of character slots (the list's trailer: `mao_net::session::login_account`).
+pub fn set_slots(slots: Option<u32>) {
+    SLOTS.store(slots.map_or(-1, i64::from), std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The character screen's line under the list, as `CharSelectWindow_c::SlotCharListReceived` (0x1000ebd5) writes it:
+/// the text `AvailableCharSlots` (category 10000) with the slots left and the slots in all. A character takes a
+/// slot when the number after it in the list has bit 1 (the window counts those).
+pub fn slots_line(text: &str, slots: i64, taking: i64) -> String {
+    mao_formats::ldb::format(text, &[mao_formats::ldb::Arg::Int(slots - taking), mao_formats::ldb::Arg::Int(slots)])
+}
+
 fn set_text(tree: &mut Tree, at: Id, name: &str, value: &str) {
     let Some(id) = tree.find(at, name) else { return };
     if let Some(t) = tree.control_mut::<crate::gui::controls::TextView>(id) {
@@ -379,7 +394,18 @@ impl CharSelectScreen {
         if let Some(b) = tree.find(root, "delete_btn") {
             tree.get_mut(b).enabled = selected.is_some() && self.delete.is_none();
         }
-        set_text(tree, root, "slots_available", &format!("{} characters", list.len()));
+        // (the slots left of the account's, and New Character only while one is left; an account whose slots are not
+        // known, as in the pictures the tests take, has the count of its characters there)
+        let slots = SLOTS.load(std::sync::atomic::Ordering::Relaxed);
+        let taking = list.iter().filter(|c| c.flag & 1 != 0).count() as i64;
+        if slots >= 0 {
+            set_text(tree, root, "slots_available", &slots_line(&crate::gui::xml::ldb_named(10000, "AvailableCharSlots", "%d of %d character slots available"), slots, taking));
+            if let Some(b) = tree.find(root, "create_btn") {
+                tree.get_mut(b).enabled = taking < slots;
+            }
+        } else {
+            set_text(tree, root, "slots_available", &format!("{} characters", list.len()));
+        }
         let skin = crate::skin::skin(ctx);
         let screen = ctx.content_rect();
         egui::Area::new(egui::Id::unique("character-selection")).fixed_pos(screen.min).order(egui::Order::Background).show(ctx, |ui| {
@@ -443,5 +469,20 @@ impl CharSelectScreen {
             }
         }
         action
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The slots line: the slots left, then the slots in all, in the game's own text (`MAO_GAME`).
+    #[test]
+    fn the_slots_line() {
+        assert_eq!(slots_line("%d/%d slots", 8, 7), "1/8 slots");
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let texts = mao_formats::ldb::Texts::parse(&std::fs::read(std::path::Path::new(&game).join("cd_image/text/text.mdb")).unwrap()).unwrap();
+        let line = slots_line(texts.named(10000, "AvailableCharSlots").expect("the text"), 18, 17);
+        assert!(line.contains('1') && line.contains("18"), "{line}");
     }
 }

@@ -4569,3 +4569,38 @@ identity its data begins with, not the message's own (which is the receiver's).
 **Tried live** (the test character, a player standing by): `/inspect <number>` brought the Inspect window with
 that player's deck and hud items and the player's name in the title. Not tried: the click on the link itself
 (the same command), a creature.
+
+## A new character's first arrival: the inventory was one place off (2026-11-16, the user's report)
+
+The user: on a character just made, equipping and the starter nanos did not work until a relog. Reproduced with
+a new test character and a full trace (`MAO_TRACE_FULL=1`, new: every byte of a traced message).
+
+On a first arrival the character's own list is empty and the server hands the starting items over one by one: a
+`TemplateAction` (`35505644`) naming the item into the overflow, then a `ContainerAddItem` (`47537a24`) that
+brings it into the inventory's first free place. **One of them, the survival pack, is a backpack and comes
+another way**: a message of its own (`465a5d73`, on the pack's container identity, type 0xc749: the owner, the
+playfield, and the item's stats), then the same `ContainerAddItem`. The client did nothing with that message, so
+the pack took the fifth place on the server and none here, and every item after it was one place off: "use the
+nano crystals" asked the server to use the pack (it opened the pack, which was seen in the trace), "wear the
+staff" asked it to wear the crystals. A relog mended it because the character's list then has the places.
+
+Now `backpack_given` reads the announcement (the owner must be the character, and the two bytes after the
+playfield's words must be 0x71 0x6f, which the captures have for a pack on its way in and not for one already
+in the list) and the pack waits in the overflow like the other items, so the `ContainerAddItem` places it.
+Test `a_new_characters_pack_takes_its_place` replays the original's capture of 2026-10-30. **Checked live** only
+as far as this: the fault was reproduced on a new character (the pack opened at the "crystals'" place), and on
+its relog the server's list has the pack fifth and the crystals sixth, as the fix now numbers them; the starter
+nano then cast and the belt went on. **A first arrival with the fix was not run** (it needs another new
+character).
+
+Along the way, about the same starting kit: the belt needs Computer Literacy 20, which the starter nano
+(Composite Utility Expertise) gives; the kits need First Aid and Treatment and a seated character. Those are the
+server's rules and its lines are in the combat channel.
+
+## The character list's slots line (2026-11-16, the user's report)
+
+Under the list the original writes the text `AvailableCharSlots` (category 10000) with the slots left and the
+slots in all (`CharSelectWindow_c::SlotCharListReceived` 0x1000ebd5; a character takes a slot when the number
+after it in the list has bit 1), and New Character is off when none is left. The client wrote "N characters".
+The slots come with the login's character list (`mao_net::session::login_account`, `loginviews::set_slots`,
+`slots_line`). Seen in the demo window with `MAO_LAUNCHER_SLOTS=8`; not seen after a real login.

@@ -137,12 +137,12 @@ fn trace(frame: &frame::Frame, clock: Instant) {
     const BULK: [u32; 12] = [0x54111123, 0x2b333d6e, 0x271b3a6b, 0x3b1d2268, 0x36510078, 0x4c7d403b, 0x3b11256f, 0x46002f16, 0x465a5d73, 0x260f3671, 0x195e496e, 0x1d3c0f1c];
     let t = clock.elapsed().as_secs_f32();
     if let Some(m) = Message::parse(frame) {
-        // (MAO_TRACE_ALL=1: the bulk messages' kinds and identities too)
+        // (MAO_TRACE_ALL=1: the bulk messages' kinds and identities too; MAO_TRACE_FULL=1: every byte of a message, where 28 are shown)
         if BULK.contains(&m.kind) && std::env::var_os("MAO_TRACE_ALL").is_some() {
             eprintln!("[{t:7.2}] server bulk {:08x} from {:x}:{:x} ({} bytes)", m.kind, m.identity.0, m.identity.1, m.data.len());
         }
         if !BULK.contains(&m.kind) {
-            let head: String = m.data.iter().take(if m.kind == 0x52526858 { 64 } else if m.kind == 0x64582a07 { 400 } else { 28 }).map(|b| format!("{b:02x}")).collect();
+            let head: String = m.data.iter().take(if m.kind == 0x52526858 { 64 } else if m.kind == 0x64582a07 { 400 } else if std::env::var_os("MAO_TRACE_FULL").is_some() { usize::MAX } else { 28 }).map(|b| format!("{b:02x}")).collect();
             eprintln!("[{t:7.2}] server n3 {:08x} from {:x}:{:x} ({} bytes) {head}", m.kind, m.identity.0, m.identity.1, m.data.len());
         }
     } else if frame.kind != frame::PING {
@@ -676,6 +676,26 @@ const SKILL: u32 = 0x3e205660;
 const ADD_TEMPLATE: u32 = 0x052e2f0c;
 /// `TemplateAction`: an item template named to a place (into the overflow window: the next item to come in).
 const TEMPLATE_ACTION: u32 = 0x35505644;
+/// A backpack's own announcement (its identity is the container's, type 0xc749): who owns it, where it is, and its
+/// stats, the item's template among them.
+const BACKPACK_ANNOUNCE: u32 = 0x465a5d73;
+
+/// A backpack announced as given to `own` and not yet put anywhere: the item it is (low id, high id, quality).
+///
+/// The message, as the captures have it: a byte, a word 0xb, the owner's identity, the playfield, two words, then
+/// two bytes that are 0x71 0x6f for a backpack on its way into the inventory (a new character's survival pack on
+/// its first arrival; the same pack reads 0x0e 0x33 at every later login, when the character's own list has it),
+/// two words, a word, and pairs of a stat and its value: 23 and 702 the low template, 703 the high one, 701 the
+/// quality.
+fn backpack_given(data: &[u8], own: u32) -> Option<(u32, u32, u32)> {
+    let word = |at: usize| data.get(at..at + 4).map(|w| u32::from_be_bytes(w.try_into().unwrap()));
+    if (word(5)?, word(9)?) != (0xc350, own) || data.get(25..27)? != [0x71, 0x6f] {
+        return None;
+    }
+    let stat = |wanted: u32| (39..data.len().saturating_sub(7)).step_by(8).find(|&at| word(at) == Some(wanted)).and_then(|at| word(at + 4));
+    let low = stat(702).or_else(|| stat(23))?;
+    Some((low, stat(703).unwrap_or(low), stat(701).unwrap_or(1)))
+}
 
 /// The items of a parsed `InventoryUpdate`'s `Items` list.
 fn inventory_from_schema_items(list: Option<&mao_net::schema::Value>) -> Vec<inventory::Entry> {
@@ -2829,6 +2849,18 @@ impl World {
                         self.overflow_changed();
                     }
                 }
+            }
+        }
+        // A backpack given to the character (a new character's survival pack, on its first arrival): it waits in the
+        // overflow as the items named by `TemplateAction` do, and the `ContainerAddItem` that follows brings it into
+        // the inventory. Without it the pack took a place on the server that the client did not count, and every
+        // item after it was used, worn and moved one place off until the next login.
+        if m.kind == BACKPACK_ANNOUNCE && m.identity.0 == inventory::BAG {
+            let known = self.worn.iter().chain(&self.overflow).any(|e| e.container == m.identity);
+            if let Some((low_id, high_id, quality)) = backpack_given(&m.data, self.own).filter(|_| !known) {
+                let slot = (0..).find(|s| !self.overflow.iter().any(|e| e.slot == *s)).unwrap_or(0);
+                self.overflow.push(inventory::Entry { slot, flags: 0, count: 1, container: m.identity, low_id, high_id, quality, extra: 0 });
+                self.overflow_changed();
             }
         }
         if m.kind == CONTAINER_ADD_ITEM && m.identity.1 == self.own {
@@ -11155,6 +11187,38 @@ mod door_tests {
         assert_eq!(w.bags[&bag].entries.iter().map(|e| e.low_id).collect::<Vec<_>>(), [200]);
         assert_eq!(w.worn.last().map(|e| (e.slot, e.low_id)), Some((inventory::BACKPACK_FIRST + 1, 300)));
         assert!(w.bags_changed && w.loot.as_ref().is_some_and(|l| l.entries.len() == 1));
+    }
+
+    /// The Arete Landing capture's first arrival of a new character: between the items named into the overflow the
+    /// survival pack is announced as a backpack of its own, and its `ContainerAddItem` brings it in. It takes the place
+    /// the server gives it, so the nano crystals after it are where the server has them (they were one place off, and
+    /// "use the crystal" opened the pack). The same pack's announcement at a later login, and another character's
+    /// pack, add nothing.
+    #[test]
+    fn a_new_characters_pack_takes_its_place() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let own = 0x7b1a0021;
+        let mut w = World { own, ..World::default() };
+        let named = |low: u32, count: u32| Message { kind: TEMPLATE_ACTION, identity: (0xc350, own), data: hex(&format!("00{low:08x}{low:08x}{count:08x}00000001000000570000006e000000000000000000000000")) }.frame(1);
+        let comes_in = Message { kind: CONTAINER_ADD_ITEM, identity: (0xc350, own), data: hex("000000006e000000000000006e7b1a00210000006f") }.frame(1);
+        let pack = "000000000b0000c3507b1a00210020da15000f424f00000000716f00001b9700000000040000010000001700048811000002bd00000001000002be00048811000002bf000488110000019c00000001000000000000000200000032000003f100000003";
+        w.add(&named(0x4758b, 1));
+        w.add(&comes_in);
+        w.add(&Message { kind: BACKPACK_ANNOUNCE, identity: (0xc749, 0xbbe634a), data: hex(pack) }.frame(1));
+        w.add(&comes_in);
+        w.add(&named(0x46147, 0x19));
+        w.add(&comes_in);
+        let places: Vec<(u32, u32, bool)> = w.worn.iter().map(|e| (e.slot, e.low_id, e.is_bag())).collect();
+        assert_eq!(places, vec![(0x40, 0x4758b, false), (0x41, 0x48811, true), (0x42, 0x46147, false)]);
+        assert_eq!(w.worn[1].container, (0xc749, 0xbbe634a));
+        assert!(w.overflow.is_empty());
+        // (a later login's announcement of the pack, which the character's list has by then; and a stranger's pack)
+        w.add(&Message { kind: BACKPACK_ANNOUNCE, identity: (0xc749, 0xbbe634a), data: hex(&pack.replace("716f", "0e33")) }.frame(1));
+        w.add(&Message { kind: BACKPACK_ANNOUNCE, identity: (0xc749, 0xbbe634b), data: hex(&pack.replace("7b1a0021", "7b1a0022")) }.frame(1));
+        w.add(&Message { kind: BACKPACK_ANNOUNCE, identity: (0xc749, 0xbbe634a), data: hex(pack) }.frame(1));
+        assert!(w.overflow.is_empty() && w.worn.len() == 3);
+        assert_eq!(backpack_given(&hex(pack), own), Some((0x48811, 0x48811, 1)));
+        assert_eq!(backpack_given(&hex(pack), own + 1), None);
     }
 
     /// The Arete Landing capture: a quest item named into the overflow window comes in with its `ContainerAddItem`, and a

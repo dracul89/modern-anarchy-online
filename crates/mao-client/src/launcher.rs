@@ -264,6 +264,7 @@ impl Launcher {
                     eprintln!("account: {slots} character slots, expansion flags {flags:#x}");
                 }
                 crate::charcreate::set_expansions(account.map(|a| a.1));
+                crate::loginviews::set_slots(account.map(|a| a.0));
                 // (the login connection must be gone before the game's own login)
                 connection.close();
                 Ok(list)
@@ -994,6 +995,10 @@ pub fn run(game: &str) -> Result<(), String> {
         launcher.selected = Some(std::env::var("MAO_LAUNCHER_PICK").ok().filter(|n| list.iter().any(|c| &c.name == n)).unwrap_or_else(|| list[0].name.clone()));
         launcher.stage = Stage::Characters(list.clone());
         // (MAO_LAUNCHER_CREATE=<step 0-3>: the New Character screens at that step, a Nanomage female Metaphysicist chosen)
+        // (MAO_LAUNCHER_SLOTS=<n>: the account's character slots, which a login would bring)
+        if let Some(slots) = std::env::var("MAO_LAUNCHER_SLOTS").ok().and_then(|v| v.parse().ok()) {
+            crate::loginviews::set_slots(Some(slots));
+        }
         // (MAO_LAUNCHER_EXPANSIONS=<flags>: the account's expansion flags, which a login would bring)
         if let Some(flags) = std::env::var("MAO_LAUNCHER_EXPANSIONS").ok().and_then(|v| v.parse().ok()) {
             crate::charcreate::set_expansions(Some(flags));

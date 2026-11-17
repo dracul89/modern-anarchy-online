@@ -810,3 +810,9 @@ These were written before this list; some may have been seen working since witho
   the link was tried live; the click was not.)
 - [ ] Keeper and Shade on a free account (2026-11-16): in the profession scene the two buttons are dark and do
   nothing; on the paid account they work. The launcher's log has "account: N character slots, expansion flags".
+- [ ] A new character's first arrival (2026-11-16): make a character, and in the first session, without a relog:
+  the survival pack shows in the inventory (fifth), right click on the nano crystals uploads the program (it is
+  in the nano window at once), casting it works, the belt then goes on, the weapon goes to the hand. Before the
+  fix all of these went to the wrong item until a relog.
+- [ ] The character list's slots line (2026-11-16): after a login it reads as the original's, slots left of
+  slots in all (the free test account: 8 in all); New Character is dark when none is left.
