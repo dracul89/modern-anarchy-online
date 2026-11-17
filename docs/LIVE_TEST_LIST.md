@@ -819,5 +819,6 @@ These were written before this list; some may have been seen working since witho
 - [ ] Quest hand-ins on a new character (2026-11-16): the thing given to the NPC leaves the inventory when the
   trade is taken; the next reward lands where the freed place is; Alex Gibbs takes the Bio Analyzing Computer;
   the recharger and the stims show their numbers from the first arrival on and count down with each use.
-- [ ] Still open from the user's list of 2026-11-16: helmets' blue spot, the Wounded Dockworker lying, the junk
-  shop, bounding boxes.
+- [ ] Helmets' faces (2026-11-16): Flint Novak and the dockworkers in Arete Landing have a face under the mining
+  helmet, not a blue patch; a player's helmet with an open face likewise.
+- [ ] Still open from the user's list of 2026-11-16: the Wounded Dockworker lying, the junk shop, bounding boxes.

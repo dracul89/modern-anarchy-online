@@ -4630,3 +4630,19 @@ the test character, `sclick@`).
 standing where he should lie (his announcement has a state byte, 8 where the standing NPCs have 1 or 3, that the
 client does not read: the place to start); the junk shop not showing; "some of the bounding boxes seem off"
 (which ones was not said).
+
+## A helmet's face (2026-11-16, the user's report: "helmets ... leave a blue spot")
+
+Flint Novak's mining helmet (`opifex_male_helmet_mining_01`, and the Atrox one the dockworkers wear) is two
+parts: `helmet`, and `face`, whose material has no texture and a plain blue colour and whose texture
+coordinates are the head texture's. DisplaySystem fills it in (FUN_100739a2, when a mesh comes to the head's
+place): a mesh there with a part named `head` gives its first material's texture as the character's face
+texture (FUN_1007388b), and every mesh at the head's place with a part named `face` gets that texture put on
+it (FUN_1006d3e2). The head is in the update's mesh list beside the helmet (flags 4 beside the helmet's 2), and
+`shown_meshes` threw it away.
+
+Now `shown_meshes` keeps the head a helmet stands in for as `n3::FACE_DONOR` (not drawn), and `net::wear` gives
+the helmet's `face` parts that head's `head` material. One departure, said in the code: the original puts only
+the texture on the face's own material; here the head's whole material is taken, because the face's own colour
+is the modeller's blue. Seen offline for both helmets (`MAO_CREATURE_GEAR=80:<helmet>:0,81:<head>:0` with the
+`creature` command); not seen live.

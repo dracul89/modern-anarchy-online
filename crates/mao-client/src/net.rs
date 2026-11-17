@@ -3987,7 +3987,17 @@ fn attractor_name(position: u8) -> String {
 pub(crate) fn wear(db: &ResourceDatabase, cache: &mut std::collections::HashMap<u32, Option<Model>>, body: &mao_formats::catmesh::CatMesh, bones: &[mao_formats::catmesh::BoneMatrix], gear: &[(u8, u32, u32)]) -> Vec<Part> {
     use mao_formats::resource::Id;
     let mut parts = Vec::new();
+    // (the head a helmet stands in for, `n3::FACE_DONOR`: its `head` part's material is the helmet's face. The original
+    // puts the head's texture on the face's own material; that material is the modeller's plain blue, so the whole of
+    // the head's is taken here)
+    let face = gear.iter().find(|g| g.0 == mao_net::n3::FACE_DONOR).and_then(|g| {
+        let head = cache.entry(g.1).or_insert_with(|| crate::load_model_attached(db, Id { kind: 0xf6951, instance: g.1 }).ok());
+        head.as_ref().and_then(|m| m.parts.iter().find(|p| p.name.contains("head")).map(|p| p.material.clone()))
+    });
     for &(position, mesh, texture) in gear {
+        if position == mao_net::n3::FACE_DONOR {
+            continue;
+        }
         let Some(point) = body.attractor(&attractor_name(position)) else { continue };
         let piece = cache.entry(mesh).or_insert_with(|| crate::load_model_attached(db, Id { kind: 0xf6951, instance: mesh }).ok());
         if let Some(piece) = piece {
@@ -3995,6 +4005,11 @@ pub(crate) fn wear(db: &ResourceDatabase, cache: &mut std::collections::HashMap<
             if texture != 0 {
                 for part in &mut worn {
                     part.material.textures = vec![(0xf6954, texture)];
+                }
+            }
+            if let (mao_net::n3::HEAD_REPLACED, Some(face)) = (position, &face) {
+                for part in worn.iter_mut().filter(|p| p.name.contains("face")) {
+                    part.material = face.clone();
                 }
             }
             parts.extend(worn);

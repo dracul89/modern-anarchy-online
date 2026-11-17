@@ -1485,11 +1485,13 @@ mod tests {
         // (from the captures: a helmet with flags 2 beside the character's own head with 4; glasses with 0 beside
         // the head; a weapon in a hand, shoulder pads, a back piece)
         let helmet = [(2, 0, 214482, 0), (4, 0, 223946, 0), (2, 1, 0x8ad6, 0), (0, 3, 0x2d27, 0x4a0b1), (0, 4, 0x2d27, 0x4a0b1)];
-        assert_eq!(shown_meshes(&helmet), vec![(HEAD_REPLACED, 214482, 0), (1, 0x8ad6, 0), (3, 0x2d27, 0x4a0b1), (4, 0x2d27, 0x4a0b1)]);
+        assert_eq!(shown_meshes(&helmet), vec![(HEAD_REPLACED, 214482, 0), (FACE_DONOR, 223946, 0), (1, 0x8ad6, 0), (3, 0x2d27, 0x4a0b1), (4, 0x2d27, 0x4a0b1)]);
         let glasses = [(0, 0, 234533, 0), (4, 0, 40250, 0), (0, 5, 0x2cff, 0)];
         assert_eq!(shown_meshes(&glasses), vec![(0, 234533, 0), (0, 40250, 0), (5, 0x2cff, 0)]);
         // (the head listed first changes nothing; of two helmets the later; a mesh listed twice is there once)
-        assert_eq!(shown_meshes(&[(4, 0, 40250, 0), (2, 0, 20063, 0), (2, 0, 205110, 0), (4, 0, 40250, 0)]), vec![(HEAD_REPLACED, 205110, 0)]);
+        assert_eq!(shown_meshes(&[(4, 0, 40250, 0), (2, 0, 20063, 0), (2, 0, 205110, 0), (4, 0, 40250, 0)]), vec![(HEAD_REPLACED, 205110, 0), (FACE_DONOR, 40250, 0)]);
+        // (a helmet with no head listed beside it has no face to borrow)
+        assert_eq!(shown_meshes(&[(2, 0, 205110, 0)]), vec![(HEAD_REPLACED, 205110, 0)]);
         assert_eq!(shown_meshes(&[(0, 5, 7, 0), (0, 5, 7, 0)]), vec![(5, 7, 0)]);
     }
 
@@ -1880,6 +1882,14 @@ fn cloth_list(rest: &[u8]) -> Vec<(String, u32)> {
 /// own head is not drawn with it. See [`shown_meshes`].
 pub const HEAD_REPLACED: u8 = 0x80;
 
+/// The position given to the head a helmet stands in for: it is not drawn, but its `head` part's texture is what the
+/// helmet's `face` part is drawn with (DisplaySystem FUN_100739a2: a mesh come to the head's place that has a part
+/// named `head` gives its first material's texture as the character's face texture, FUN_1007388b, and every mesh at
+/// the head's place with a part named `face` gets that texture put on it, FUN_1006d3e2). A mining helmet's own
+/// `face` part has a material with no texture and a plain blue colour: without this the wearer's face was a blue
+/// patch.
+pub const FACE_DONOR: u8 = 0x81;
+
 /// Which of a character's listed meshes are drawn, from (flags, position, mesh, texture) in the list's order. What
 /// the lists call a layer is a set of flags, and DisplaySystem shows by them (`CharacterMesh::AddAttractorMesh` keeps
 /// each place's meshes with bit 1 before the others, FUN_10071e5d, and drops a mesh already at its place, FUN_100734b0;
@@ -1892,6 +1902,8 @@ pub const HEAD_REPLACED: u8 = 0x80;
 pub fn shown_meshes(list: &[(u8, u8, u32, u32)]) -> Vec<(u8, u32, u32)> {
     let mut places: std::collections::BTreeMap<u8, (Option<(u32, u32)>, Vec<(u32, u32)>)> = Default::default();
     let mut seen: Vec<(u8, u32)> = Vec::new();
+    // (the character's own head: the mesh at the head's place with bit 2 of its flags)
+    let mut head = None;
     for &(flags, position, mesh, texture) in list {
         if seen.contains(&(position, mesh)) {
             continue;
@@ -1901,13 +1913,22 @@ pub fn shown_meshes(list: &[(u8, u8, u32, u32)]) -> Vec<(u8, u32, u32)> {
         if flags & 2 != 0 {
             place.0 = Some((mesh, texture));
         } else {
+            if position == 0 && flags & 4 != 0 && head.is_none() {
+                head = Some(mesh);
+            }
             place.1.push((mesh, texture));
         }
     }
     let mut out = Vec::new();
     for (position, (main, others)) in places {
         match main {
-            Some((mesh, texture)) => out.push((if position == 0 { HEAD_REPLACED } else { position }, mesh, texture)),
+            Some((mesh, texture)) => {
+                out.push((if position == 0 { HEAD_REPLACED } else { position }, mesh, texture));
+                // (the head it stands in for, for the helmet's face: [`FACE_DONOR`])
+                if let (0, Some(head)) = (position, head) {
+                    out.push((FACE_DONOR, head, 0));
+                }
+            }
             None => out.extend(others.into_iter().map(|(mesh, texture)| (position, mesh, texture))),
         }
     }
