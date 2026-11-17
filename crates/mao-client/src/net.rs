@@ -304,6 +304,10 @@ struct World {
     /// The characters sitting on the ground (their `SwitchToSit` movement, until a `LeaveSit` or another movement): drawn
     /// in the sitting-down animation (action 0xd5, `ground-start`), held.
     seated: std::collections::BTreeSet<u32>,
+    /// The creatures announced sitting on the ground (`EntityInfo::move_mode` 8): they are there already, so they hold
+    /// the ground's idle (action 0xd7) and do not sit down first. Arete Landing's Wounded Dockworkers are these: their
+    /// template names `idle-sleep-ground` for that action, and they lie flat (the original's shot 474 of 2026-10-30).
+    grounded: std::collections::BTreeSet<u32>,
     /// The seated characters sleeping or lounging: their `WaitState` (stat 430), 0xf sleeping and 0x10 lounging, as the
     /// transitions `SwitchToSleepMode` (FUN_1006ec48) and `SwitchToLoungeMode` (FUN_1006edf2) set it. A `SocialActionCmd`
     /// of 0x44 or 0x45 (FUN_1007aec0) hands the movement controller 0x21 or 0x22; `CharacterAction` 0x57 (case 22) then
@@ -3525,6 +3529,16 @@ impl World {
             if let Some((health, max)) = info.health {
                 self.health.insert(m.identity.1, (health as i64, max as i64));
             }
+            // (a creature announced on the ground, or no longer)
+            match info.move_mode {
+                Some(8) => {
+                    self.grounded.insert(m.identity.1);
+                }
+                Some(_) => {
+                    self.grounded.remove(&m.identity.1);
+                }
+                None => {}
+            }
             let player = info.is_player();
             self.names.insert(m.identity.1, (info.name.clone(), player));
             self.infos.insert(m.identity.1, info);
@@ -3672,13 +3686,14 @@ impl World {
             0x10 => Some(0xef),
             _ => None,
         };
-        self.dead.get(&id).map(|d| d.0).or_else(|| self.resting.get(&id).copied().and_then(resting)).or_else(|| self.seated.contains(&id).then_some(0xd5))
+        self.dead.get(&id).map(|d| d.0).or_else(|| self.resting.get(&id).copied().and_then(resting)).or_else(|| self.seated.contains(&id).then_some(0xd5)).or_else(|| self.grounded.contains(&id).then_some(0xd7))
     }
 
     /// A character stands up: no longer seated, nor sleeping or lounging.
     fn stand_up(&mut self, id: u32) {
         self.seated.remove(&id);
         self.resting.remove(&id);
+        self.grounded.remove(&id);
     }
 
     /// An item the server moved out of a container to the character with no place named (0x6f), as Gamecode's
@@ -4337,6 +4352,8 @@ impl Characters {
         let (record, mesh, head) = entry.as_ref()?;
         // (an action with variants: the one this character picks, standing in for FUN_10045976's `rand()` at each start)
         let seed = id;
+        // (a body with no idle for the ground, 0xd7, holds the end of sitting down, 0xd5, as the seated do)
+        let dying = dying.map(|a| if a == 0xd7 && record.variant(0xd7, seed).is_none() { 0xd5 } else { a });
         let death = dying.and_then(|mut a| {
             for _ in 0..8 {
                 if let Some(anim) = record.variant(a, seed) {
@@ -5051,7 +5068,9 @@ pub(crate) fn creature_preview(db: Arc<ResourceDatabase>, template: u32, out: &s
         let v: Vec<u32> = g.split(':').filter_map(|n| u32::from_str_radix(n.trim(), 16).ok()).collect();
         (v.len() == 3).then(|| (v[0] as u8, v[1], v[2]))
     }).collect();
-    let parts = chars.creature_parts(0, template, action, 0.0, 1.0, &[], &[], None, None, None, &gear).ok_or("that template has no mesh")?;
+    // (`MAO_HELD=<action, hex>`: the action the body holds, as a seated or dead one does: d5 is sitting down's)
+    let held = std::env::var("MAO_HELD").ok().and_then(|v| u32::from_str_radix(v.trim(), 16).ok());
+    let parts = chars.creature_parts(0, template, action, 0.0, 1.0, &[], &[], None, held, None, &gear).ok_or("that template has no mesh")?;
     let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     let model = Model { instances: (0..parts.len()).map(|i| (i, swap)).collect(), parts, water: None, lod_groups: Vec::new() };
     crate::viewer::headless(&model, &crate::Textures::new(db), out)
@@ -11355,6 +11374,23 @@ mod door_tests {
         w.props.insert(0xfe00_0007, (296027, [3527.4, 5.2, 858.1], [0.0, 0.0, 0.0, 1.0]));
         w.add(&Message { kind: 0x7f544905, identity: (0xc75b, 0x1324d835), data: hex(shop) }.frame(1));
         assert!(!w.props.contains_key(&0x1324d835) && w.props.len() == 1);
+    }
+
+    /// The original's capture: a Wounded Dockworker is announced on the ground and holds the ground's idle (which its
+    /// template makes lying flat); announced again in another mode it stands; Rex Larsson holds nothing.
+    #[test]
+    fn a_creature_announced_on_the_ground_lies_there() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let mut w = World { own: 1, ..World::default() };
+        let wounded = "003a0a224acb0020da15455ffedf4223dc28444ff918000000003f35f9ab000000003f340eef0000058813576f756e64656420446f636b776f726b657200108c120100000000890bb80000000100201400048448005a001f000000001c0000000000000000800000000801000100010001000100000002000000009cc21e000003f1000017a600000000000482830000000000000001000482810000000000000002000482820000000000000003000482800000000000000004000482840000000000000bd3000003213600000000020000009cc200000000040000000000";
+        w.add(&Message { kind: 0x271b3a6b, identity: (0xc350, 0x7b082893), data: hex(wounded) }.frame(1));
+        w.add(&Message { kind: 0x271b3a6b, identity: (0xc350, 0x7b082888), data: hex("003a0a224acb0020da1545628236424efae14444e52c00000000bf35a481000000003f3464d8000006280c526578204c617273736f6e00108c120100000000890bb80000000f01ff00000065da0061001f000000001c8000000000000000800000000101000100010001000100000002000000009ef334000003f1000017a600000000000482830000000000000001000482810000000000000002000482820000000000000003000482800000000000000004000482840000000000000bd3000003214000000000020000009ef300000000040000000000") }.frame(1));
+        assert_eq!((w.held_action(0x7b082893), w.held_action(0x7b082888)), (Some(0xd7), None));
+        // (the block's byte 12 is the mode: 8 on the ground, 3 the ordinary creatures')
+        let up = wounded.replace("0000001c0000000000000000800000000801", "0000001c0000000000000000800000000301");
+        assert_ne!(up, wounded);
+        w.add(&Message { kind: 0x271b3a6b, identity: (0xc350, 0x7b082893), data: hex(&up) }.frame(1));
+        assert_eq!(w.held_action(0x7b082893), None);
     }
 
     /// The Arete Landing capture: a quest item named into the overflow window comes in with its `ContainerAddItem`, and a

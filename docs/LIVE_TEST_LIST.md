@@ -823,4 +823,6 @@ These were written before this list; some may have been seen working since witho
   helmet, not a blue patch; a player's helmet with an open face likewise.
 - [ ] The Junk Shop (2026-11-16): in Arete Landing beside the ICC Ammunition machine near Alex Gibbs, a small
   vending machine named "Junk Shop" stands the right way up and opens as a shop.
-- [ ] Still open from the user's list of 2026-11-16: the Wounded Dockworker lying, bounding boxes.
+- [ ] The wounded lie (2026-11-16): Arete Landing's Wounded Dockworkers and Wounded Clan Protesters lie on the
+  ground; the standing dockworkers and Flint Novak stand; a seated NPC (the ICC Secretary) sits.
+- [ ] Still open from the user's list of 2026-11-16: bounding boxes (which ones was not said).

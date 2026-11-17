@@ -1676,6 +1676,12 @@ pub struct EntityInfo {
     /// A creature's family (its first field after the second flags word and the `i32`, `+0xb2`), what the pet window asks as
     /// stat 455 `NPCFamily` (FUN_1007d29c: 0x60 is a healing pet; the capture's attack pets are 0x5f).
     pub family: Option<u16>,
+    /// The movement mode a creature is announced in: after its template, scale and two more fields the update has a
+    /// counted block (28 bytes, which Gamecode's reader FUN_1007916d copies out whole with FUN_10067b62), whose
+    /// byte 12 it is. In the captures: 1 for the NPCs that never move (shopkeepers, terminals, turrets), 2 and 3 for
+    /// the walking and running ones, and 8, sitting on the ground, for the wounded dockworkers and protesters of
+    /// Arete Landing and a few seated NPCs.
+    pub move_mode: Option<u8>,
 }
 
 /// Where the template id sits after the flags: a few bytes after the second
@@ -1693,11 +1699,23 @@ fn npc_template(post: &[u8]) -> Option<u32> {
 /// 0x1000000.
 fn npc_template_and_scale(post: &[u8]) -> Option<(u32, u16)> {
     let read = |p: usize| (u32::from_be_bytes(post[p..p + 4].try_into().unwrap()), u16::from_be_bytes([post[p + 4], post[p + 5]]));
+    npc_template_place(post).map(read)
+}
+
+/// Where a creature's template is in what follows its name (see [`npc_template_and_scale`]).
+fn npc_template_place(post: &[u8]) -> Option<usize> {
+    let read = |p: usize| (u32::from_be_bytes(post[p..p + 4].try_into().unwrap()), u16::from_be_bytes([post[p + 4], post[p + 5]]));
     let range = || 8..post.len().saturating_sub(7).min(72);
     range()
         .find(|&p| post[p + 4] == 0 && post[p + 6] == 0 && post[p + 7] == 0x1f)
         .or_else(|| range().find(|&p| post[p] == 0 && post[p + 4] < 0x10 && post[p + 6] == 0 && post[p + 7] == 0x1f && read(p).0 != 0 && read(p).1 != 0))
-        .map(read)
+}
+
+/// A creature's movement mode ([`EntityInfo::move_mode`]): after the template (4 bytes), the scale (2), a word (2)
+/// and a byte comes the block's length, 28, and the mode is the block's byte 12.
+fn npc_move_mode(post: &[u8]) -> Option<u8> {
+    let p = npc_template_place(post)?;
+    (post.get(p + 9..p + 13)? == [0, 0, 0, 0x1c]).then(|| post.get(p + 25).copied()).flatten()
 }
 
 /// A creature's family, and its health and maximum, from its entity message, `at` just past the second flags word and the
@@ -2168,11 +2186,12 @@ impl Message {
             Some((template, scale)) => (Some(template), Some(scale)),
             None => (None, None),
         };
+        let move_mode = d.get(at - 8..).and_then(npc_move_mode).filter(|_| flags & 1 != 0);
         let (family, health) = match creature_fields(d, at, flags) {
             Some((family, health)) if flags & 1 != 0 => (Some(family), Some(health)),
             _ => (None, None),
         };
-        Some(EntityInfo { version, flags, playfield, fighting, position, rotation, breed, sex, side, name, flags2, unknown_a0: model, textures, clothes, meshes, template, scale, health, family })
+        Some(EntityInfo { version, flags, playfield, fighting, position, rotation, breed, sex, side, name, flags2, unknown_a0: model, textures, clothes, meshes, template, scale, health, family, move_mode })
     }
 }
 
@@ -2297,6 +2316,18 @@ mod entity_tests {
         assert_eq!((info.breed, info.sex), (2, 3));
         assert!(info.is_player());
         assert_eq!(info.unknown_a0, Some(0xf7e));
+    }
+
+    /// The original's capture of 2026-10-30, Arete Landing: a Wounded Dockworker is announced sitting on the ground
+    /// (movement mode 8), Rex Larsson rooted (1); the dockworker's helmet and the head it stands in for are both kept.
+    #[test]
+    fn a_wounded_dockworker_is_announced_on_the_ground() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let wounded = Message { kind: ENTITY_INFO, identity: (CHARACTER, 0x7b082893), data: hex("003a0a224acb0020da15455ffedf4223dc28444ff918000000003f35f9ab000000003f340eef0000058813576f756e64656420446f636b776f726b657200108c120100000000890bb80000000100201400048448005a001f000000001c0000000000000000800000000801000100010001000100000002000000009cc21e000003f1000017a600000000000482830000000000000001000482810000000000000002000482820000000000000003000482800000000000000004000482840000000000000bd3000003213600000000020000009cc200000000040000000000") }.entity_info().unwrap();
+        assert_eq!((wounded.name.as_str(), wounded.template, wounded.scale, wounded.move_mode), ("Wounded Dockworker", Some(0x48448), Some(90), Some(8)));
+        assert_eq!(wounded.meshes, vec![(HEAD_REPLACED, 0x32136, 0), (FACE_DONOR, 0x9cc2, 0)]);
+        let rex = Message { kind: ENTITY_INFO, identity: (CHARACTER, 0x7b082888), data: hex("003a0a224acb0020da1545628236424efae14444e52c00000000bf35a481000000003f3464d8000006280c526578204c617273736f6e00108c120100000000890bb80000000f01ff00000065da0061001f000000001c8000000000000000800000000101000100010001000100000002000000009ef334000003f1000017a600000000000482830000000000000001000482810000000000000002000482820000000000000003000482800000000000000004000482840000000000000bd3000003214000000000020000009ef300000000040000000000") }.entity_info().unwrap();
+        assert_eq!((rex.name.as_str(), rex.move_mode), ("Rex Larsson", Some(1)));
     }
 
     /// The 2026-10-31 15:05 capture's pets (#290 and the drone): their health and maximum, as their info packets give them.

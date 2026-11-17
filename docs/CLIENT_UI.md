@@ -4663,3 +4663,25 @@ announcement, `MAO_GAME`); the model was looked at by itself offline. **Not seen
 stands and which way it faces are the announcement's, as for the other machines.
 
 New: `cargo run -p mao-formats --example templatestat -- <game> <stat> <template>...`.
+
+## Creatures announced on the ground: the Wounded Dockworker lies (2026-11-16, the user's report)
+
+A character's announcement (`SimpleCharFullUpdate`) has, after the template, the scale, a word and a byte, a
+counted block of 28 bytes that Gamecode's reader copies out whole (FUN_1007916d, FUN_10067b62). Its byte 12 is the
+movement mode the character is in. Over the four captures' 4140 creature announcements: 3 for most (running), 2
+for some (walking), 1 for the NPCs that never move (Rex Larsson, terminals, turrets), 4 once, and **8, sitting on
+the ground**, for Arete Landing's Wounded Dockworkers and Wounded Clan Protesters and a handful of seated NPCs.
+The client did not read it, so they stood.
+
+Why the wounded *lie*: their template (0x48448) names its own animations for the ground's actions: sitting down
+(0xd5) is `die-pain`, the ground's idle (0xd7) is `idle-sleep-ground`. The original's shot 474 of 2026-10-30 has
+one flat on the deck.
+
+Now `EntityInfo::move_mode` reads the byte (`npc_move_mode`), and a creature announced with 8 is `grounded`: it
+holds the ground's idle, 0xd7 (0xd5's end for a body that has no 0xd7), without sitting down first, until it is
+announced otherwise or stands up. Seen offline (`MAO_HELD=d7` with the `creature` command, new, holds an action);
+not seen live. Not done: players announced sitting (their update's fields before the block differ and were not
+read); the idle is held at its end where the original loops it.
+
+New: `cargo run -p mao-formats --example creatureanims -- <game> <npc template>` lists a creature's actions and
+animation files.
