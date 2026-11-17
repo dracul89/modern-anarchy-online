@@ -118,6 +118,9 @@ pub enum Parsed {
     Follow,
     /// `/inspect`: say what is known of the current target (level, profession, health).
     Inspect,
+    /// `/inspect <a character's number>` (GUI.dll FUN_100b280d): ask for what that character wears. The info page's
+    /// "Inspect Equipment" link is this command.
+    InspectEquipment { id: u32 },
     /// `/text`: a line of one's own chat.
     Text { text: String },
     /// `/showfile`: a file for the info view.
@@ -371,7 +374,10 @@ pub fn parse(line: &str) -> Parsed {
             None => Parsed::Usage("/voice <sound name>"),
         },
         "follow" => Parsed::Follow,
-        "inspect" => Parsed::Inspect,
+        "inspect" => match text.trim().parse::<u32>() {
+            Ok(id) => Parsed::InspectEquipment { id },
+            Err(_) => Parsed::Inspect,
+        },
         // (`/raid` and `/lft` open their windows, as the original's commands do)
         "raid" | "lft" => Parsed::Window { name: command.to_lowercase(), open: true },
         "open" => Parsed::Window { name: text.to_string(), open: true },
@@ -660,6 +666,8 @@ mod tests {
         assert_eq!(parse("/sit"), Parsed::Sit);
         assert_eq!(parse("/follow"), Parsed::Follow);
         assert_eq!(parse("/inspect"), Parsed::Inspect);
+        assert_eq!(parse("/inspect 2065585191"), Parsed::InspectEquipment { id: 2065585191 });
+        assert_eq!(parse("/inspect Somebody"), Parsed::Inspect);
         assert_eq!(parse("/open skills"), Parsed::Window { name: "skills".into(), open: true });
         assert_eq!(parse("/raid"), Parsed::Window { name: "raid".into(), open: true });
         assert_eq!(parse("/damage"), Parsed::Window { name: "damage".into(), open: true });

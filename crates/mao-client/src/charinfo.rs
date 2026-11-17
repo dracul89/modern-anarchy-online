@@ -17,6 +17,8 @@ use crate::gui::iteminfo::section;
 /// What a character's page is made of.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Character {
+    /// The character's number (its identity's instance): the inspect link carries it.
+    pub id: u32,
     pub name: String,
     pub first: String,
     pub last: String,
@@ -121,10 +123,23 @@ pub fn page(c: &Character) -> String {
     for (name, value) in [("DuelKills", c.duel_wins), ("DuelDeaths", c.duel_losses), ("SoloKills", c.solo_kills), ("TeamKills", c.team_kills)] {
         out += &section(&label(name), &format!(" {value}"), 0);
     }
+    // (FUN_1003482c: the link is the command with the character's number, which `/inspect` reads with `strtoul`)
     if !c.own {
-        out += &format!("<br><a href=\"chatcmd:///inspect {}\">Inspect Equipment</a>", c.name);
+        out += &format!("<br><a href=\"chatcmd:///inspect {}\">Inspect Equipment</a>", c.id);
     }
     out
+}
+
+/// The characters whose equipment was asked for (`/inspect <number>`) and not yet sent for.
+static ASKED: std::sync::Mutex<Vec<u32>> = std::sync::Mutex::new(Vec::new());
+
+/// `/inspect <number>`: the net thread sends the request (`mao_net::n3::inspect_request`).
+pub fn ask_equipment(id: u32) {
+    ASKED.lock().unwrap_or_else(|e| e.into_inner()).push(id);
+}
+
+pub fn take_equipment_asks() -> Vec<u32> {
+    std::mem::take(&mut *ASKED.lock().unwrap_or_else(|e| e.into_inner()))
 }
 
 #[cfg(test)]
@@ -133,7 +148,7 @@ mod tests {
 
     #[test]
     fn the_page_follows_the_originals_order() {
-        let c = Character { name: "Zed".into(), first: "Zachary".into(), last: "Edwards".into(), breed: 2, sex: 3, profession: 4, title_level: 3, level: 205, side: Some(1), org: Some("The Guild".into()), rank: Some("Member".into()), duel_wins: 2, ..Default::default() };
+        let c = Character { id: 77, name: "Zed".into(), first: "Zachary".into(), last: "Edwards".into(), breed: 2, sex: 3, profession: 4, title_level: 3, level: 205, side: Some(1), org: Some("The Guild".into()), rank: Some("Member".into()), duel_wins: 2, ..Default::default() };
         let page = page(&c);
         if std::env::var_os("MAO_PRINT").is_some() {
             println!("{page}");
@@ -146,6 +161,7 @@ mod tests {
             at += found;
         }
         // (no shadow level under 201, no inspect link for the client's own character, no title line without a title)
+        assert!(page.contains("chatcmd:///inspect 77\">Inspect Equipment"));
         let own = super::page(&Character { name: "Me".into(), level: 60, own: true, ..Default::default() });
         assert!(!own.contains("Inspect") && own.contains(">60<") && !own.contains("TitleLevel") && own.contains("\"Me\""));
         assert_eq!(level(200).matches("font color=CCInfoHeader").count(), 1);

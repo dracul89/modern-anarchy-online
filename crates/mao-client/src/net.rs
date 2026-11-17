@@ -2538,7 +2538,9 @@ impl World {
             }
         }
         if m.kind == 0x5a585f65 {
-            self.inspected = Some((m.identity.1, mao_net::n3::inspect_items(&m.data)));
+            // (the message is one's own; whom it is about is the identity it begins with)
+            let who = m.data.get(5..9).map_or(m.identity.1, |w| u32::from_be_bytes(w.try_into().unwrap()));
+            self.inspected = Some((who, mao_net::n3::inspect_items(&m.data)));
         }
         // An info packet: the health and its maximum of the character or creature it describes.
         if m.kind == 0x4d38242e {
@@ -2563,6 +2565,7 @@ impl World {
                             let id = m.identity.1;
                             let entity = self.infos.get(&id);
                             crate::charinfo::page(&crate::charinfo::Character {
+                                id,
                                 name: name.clone(),
                                 first: detail.first,
                                 last: detail.last,
@@ -7043,6 +7046,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     (me.health, me.nano) = ((stat(27), stat(1)), (stat(214), stat(221)));
                 }
             });
+            // (`/inspect <number>`, the info page's "Inspect Equipment": what that character wears is asked for)
+            for who in crate::charinfo::take_equipment_asks() {
+                let _ = connection.send(&n3::inspect_request(own, who));
+            }
             for command in crate::team::take_commands() {
                 let _ = match command {
                     crate::team::Command::Reply(who, join) => connection.send(&n3::team_reply(own, who, join)),

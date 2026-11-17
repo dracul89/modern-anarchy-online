@@ -4551,3 +4551,21 @@ The login's character list ends with the account's character slots and its expan
 chosen (a choice kept from another account) plays the error's sound and shows `CharCreation_SLOnlyProfession`
 (`charcreate::shadowlands_professions`). Read from the two test accounts: the free one has flags 0x1, the paid one
 0xab. Not ported: the original's other way in, the client's `nSLProfsEnabled` (where it is set was not read).
+
+## Inspecting another character's equipment (2026-11-16, the user's report: "I wasn't able to inspect other players")
+
+The Inspect window was there and the server's answer was read, but **nothing ever asked the server**. The
+original's chain: the info page of another character ends with the link `chatcmd:///inspect <the character's
+number>` (GUI.dll FUN_1003482c; ours carried the name), `/inspect` with an argument reads it with `strtoul` and
+calls `N3Msg_Inspect` on the identity (50000, number) (FUN_100b280d), and Gamecode sends a `CharacterAction` with
+action 0x105 on that character (`n3EngineClientAnarchy_t::N3Msg_Inspect` 0x1001ddd4). Here:
+`mao_net::n3::inspect_request`, `chat_commands::Parsed::InspectEquipment`, `charinfo::ask_equipment`; the link
+carries the number. The answer's window was titled with one's own name: whom an `Inspect` message is about is the
+identity its data begins with, not the message's own (which is the receiver's).
+
+`/inspect` with no argument does nothing in the original (it wants the number); here it stays this client's own
+"tell me about my target", which opens the info page with the link.
+
+**Tried live** (the test character, a player standing by): `/inspect <number>` brought the Inspect window with
+that player's deck and hud items and the player's name in the title. Not tried: the click on the link itself
+(the same command), a creature.

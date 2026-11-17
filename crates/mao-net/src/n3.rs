@@ -617,6 +617,21 @@ pub fn character_info(data: &[u8]) -> Option<CharacterInfo> {
     Some(info)
 }
 
+/// `CharacterAction` (`5e477770`) action `0x105`: asks for what a character wears (Gamecode's
+/// `n3EngineClientAnarchy_t::N3Msg_Inspect` 0x1001ddd4: the action on the character's identity, nothing else). GUI.dll
+/// sends it for `/inspect <the character's number>` (FUN_100b280d), which is what the info page's "Inspect Equipment"
+/// link runs; the answer is `Inspect` (`5a585f65`, [`inspect_items`]).
+pub fn inspect_request(character: u32, target: u32) -> Frame {
+    let mut data = vec![0u8; 5];
+    data[1..5].copy_from_slice(&0x105u32.to_be_bytes());
+    data.extend_from_slice(&[0; 4]);
+    for word in [CHARACTER, target, 0, 0] {
+        data.extend_from_slice(&word.to_be_bytes());
+    }
+    data.extend_from_slice(&[0; 2]);
+    Message { kind: 0x5e477770, identity: (CHARACTER, character), data }.frame(character)
+}
+
 /// One worn item of an `Inspect` answer.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Inspected {

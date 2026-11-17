@@ -1294,6 +1294,10 @@ impl ChatWindow {
             Parsed::SelectSelf => Some(Out::SelectSelf),
             Parsed::SetOption { name, value } => Some(Out::SetOption { name, value }),
             Parsed::Inspect => Some(Out::Inspect),
+            Parsed::InspectEquipment { id } => {
+                crate::charinfo::ask_equipment(id);
+                None
+            }
             Parsed::ViewDist { distance: Some(d) } => {
                 self.push(Line::new(Kind::System, format!("View distance {}.", d.clamp(200, 4000))));
                 Some(Out::ViewDist(d.clamp(200, 4000)))

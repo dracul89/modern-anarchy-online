@@ -805,3 +805,8 @@ These were written before this list; some may have been seen working since witho
   Suggest Name, a bad name's text, the Rubi-Ka button makes the character, then the walk to the shuttle and the
   game. The exit button asks first; after No nothing changed, after Yes the list is back and New Character has the
   choices still. To judge by ear: the sounds' loudness, and whether the ambience keeps running.
+- [ ] Inspecting a player (2026-11-16): target a player, `/inspect` (the info page), click "Inspect Equipment"
+  at its end: the Inspect window with what the player wears, the player's name in its title. (The command behind
+  the link was tried live; the click was not.)
+- [ ] Keeper and Shade on a free account (2026-11-16): in the profession scene the two buttons are dark and do
+  nothing; on the paid account they work. The launcher's log has "account: N character slots, expansion flags".
