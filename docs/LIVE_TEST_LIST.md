@@ -816,3 +816,8 @@ These were written before this list; some may have been seen working since witho
   fix all of these went to the wrong item until a relog.
 - [ ] The character list's slots line (2026-11-16): after a login it reads as the original's, slots left of
   slots in all (the free test account: 8 in all); New Character is dark when none is left.
+- [ ] Quest hand-ins on a new character (2026-11-16): the thing given to the NPC leaves the inventory when the
+  trade is taken; the next reward lands where the freed place is; Alex Gibbs takes the Bio Analyzing Computer;
+  the recharger and the stims show their numbers from the first arrival on and count down with each use.
+- [ ] Still open from the user's list of 2026-11-16: helmets' blue spot, the Wounded Dockworker lying, the junk
+  shop, bounding boxes.

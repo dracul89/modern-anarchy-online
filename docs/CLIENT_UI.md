@@ -4604,3 +4604,29 @@ slots in all (`CharSelectWindow_c::SlotCharListReceived` 0x1000ebd5; a character
 after it in the list has bit 1), and New Character is off when none is left. The client wrote "N characters".
 The slots come with the login's character list (`mao_net::session::login_account`, `loginviews::set_slots`,
 `slots_line`). Seen in the demo window with `MAO_LAUNCHER_SLOTS=8`; not seen after a real login.
+
+## The inventory out of step after a quest's hand-in (2026-11-16, the user's reports from a new character)
+
+Three faults, read from the user's log of the session and the original's capture of 2026-10-30:
+
+- **A thing given to an NPC stayed.** The trade with an NPC is `KnubotTrade` naming an inventory place, then
+  `KnubotFinishTrade`; the server's only word after it is `KnubotRejectedItems`, the items it gives back (none, as
+  a rule). Nothing says "the item is gone": the original takes it out itself. The client kept it, and worse
+  followed: the server's place was free again and the client's was not, so the next item to come took another
+  place here than there, and the next NPC was given the wrong thing (the user's "Alex Gibbs doesn't accept the
+  Bio Analyzing Computer": three trades, each answered as if nothing had been given). Now the given places are
+  kept (`World::npc_given`) and taken out when the answer comes, save what is given back.
+- **Stacks came without their number.** `TemplateAction`'s word after the quality is how many (a new character's
+  recharger 50, its stims 25); the client took every item named so for one.
+- **A use did not count down.** `TemplateAction` with action 3 at an inventory place is that many of the stack
+  used (the last one goes with the `DeleteItem` that follows).
+
+Test `stacks_and_things_given_away`. **Not tried live** (it needs a quest's hand-in on a new character).
+
+Looked at and not a fault here: Shift and a click on an inventory item opens its info page (tried by script on
+the test character, `sclick@`).
+
+**Reported the same day and not done:** helmets that leave a blue spot (Flint Novak's); the Wounded Dockworker
+standing where he should lie (his announcement has a state byte, 8 where the standing NPCs have 1 or 3, that the
+client does not read: the place to start); the junk shop not showing; "some of the bounding boxes seem off"
+(which ones was not said).
