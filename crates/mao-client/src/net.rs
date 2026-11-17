@@ -219,6 +219,9 @@ struct World {
     /// The server has said the character can backstab (`CharacterAction` 0xb5): a sneak attack weapon in a hand
     /// then gives Backstab too.
     backstab: bool,
+    /// The inventory places put into the trade with an NPC that is under way (`KnubotTrade`): the server says nothing
+    /// when it takes them, only which items it gives back (`KnubotRejectedItems`).
+    npc_given: Vec<u32>,
     specials_told: Option<Vec<u32>>,
     perk_locks: BTreeMap<u32, (Instant, f32)>,
     perk_actions_changed: bool,
@@ -2842,13 +2845,55 @@ impl World {
                     self.add_to_backpack(entry);
                 } else {
                     let placement = p.value.get("Placement").and_then(|v| v.get("Type")).and_then(mao_net::schema::Value::as_int).unwrap_or(0);
+                    let place = p.value.get("Placement").and_then(|v| v.get("Instance")).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
+                    // (the word after the quality is how many: a new character's recharger comes as 50, its stims as 25;
+                    // the next word is what is done: 0x57 the item named to the place, 3 that many used at it)
+                    let (many, what) = (int("Unknown1"), int("Unknown2"));
                     if placement == crate::loot::OVERFLOW as i64 {
                         // (at the overflow's first free place; no window and no line for it, FUN_1004d68c)
                         let slot = (0..).find(|s| !self.overflow.iter().any(|e| e.slot == *s)).unwrap_or(0);
-                        self.overflow.push(inventory::Entry { slot, flags: 0, count: 1, container: (0, 0), low_id: int("ItemLowId"), high_id: int("ItemHighId"), quality: int("Quality"), extra: 0 });
+                        self.overflow.push(inventory::Entry { slot, flags: 0, count: many.clamp(1, u32::from(u16::MAX)) as u16, container: (0, 0), low_id: int("ItemLowId"), high_id: int("ItemHighId"), quality: int("Quality"), extra: 0 });
                         self.overflow_changed();
+                    } else if placement == 0x68 && what == 3 {
+                        // (a use of the stack at an inventory place: a recharger's or a stim's charge gone. The last one
+                        // goes with the `DeleteItem` that follows, so a stack is never counted down to nothing here.)
+                        if let Some(e) = self.worn.iter_mut().find(|e| e.slot == place && e.low_id == int("ItemLowId") && u32::from(e.count) > many) {
+                            e.count -= many as u16;
+                            self.inventory = Some(self.worn.clone());
+                        }
                     }
                 }
+            }
+        }
+        // A trade with an NPC (the original's capture of 2026-10-30: `KnubotTrade` names an inventory place, the trade
+        // is finished, and the server's only word is `KnubotRejectedItems`, the items it gives back, none as a rule):
+        // what was given and not given back has left the inventory. The client kept it, so a quest's item stayed after
+        // it was handed in, and the next item to come took another place here than on the server.
+        if m.kind == 0x7864401d && m.identity.1 == self.own {
+            self.npc_given.clear();
+        }
+        if m.kind == 0x2d212407 && m.identity.1 == self.own {
+            let mut back: Vec<(u32, u32, u32)> = match mao_net::schema::Schema::global().parse_n3(m.kind, &m.data).ok().and_then(|p| p.value.get("Items").cloned()) {
+                Some(mao_net::schema::Value::List(items)) => items.iter().map(|i| { let int = |f: &str| i.get(f).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32; (int("LowId"), int("HighId"), int("Quality")) }).collect(),
+                _ => Vec::new(),
+            };
+            let given = std::mem::take(&mut self.npc_given);
+            let before = self.worn.len();
+            self.worn.retain(|e| {
+                if !given.contains(&e.slot) {
+                    return true;
+                }
+                // (one given back stays where it was)
+                match back.iter().position(|b| *b == (e.low_id, e.high_id, e.quality)) {
+                    Some(at) => {
+                        back.remove(at);
+                        true
+                    }
+                    None => false,
+                }
+            });
+            if self.worn.len() != before {
+                self.inventory = Some(self.worn.clone());
             }
         }
         // A backpack given to the character (a new character's survival pack, on its first arrival): it waits in the
@@ -7676,9 +7721,17 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     }
                     crate::npcchat::Command::TradeItem(npc, slot, add) => {
                         let _ = connection.send(&n3::npc_trade_item(own, npc, if add { 0 } else { 1 }, slot));
+                        state.npc_given.retain(|s| *s != slot);
+                        if add {
+                            state.npc_given.push(slot);
+                        }
                     }
                     crate::npcchat::Command::FinishTrade(npc, credits, accept) => {
                         let _ = connection.send(&n3::npc_trade_finish(own, npc, credits, accept));
+                        // (declined: everything is one's own again)
+                        if !accept {
+                            state.npc_given.clear();
+                        }
                     }
                     crate::npcchat::Command::Close(npc) => {
                         let _ = connection.send(&n3::npc_chat_close(own, npc));
@@ -11219,6 +11272,39 @@ mod door_tests {
         assert!(w.overflow.is_empty() && w.worn.len() == 3);
         assert_eq!(backpack_given(&hex(pack), own), Some((0x48811, 0x48811, 1)));
         assert_eq!(backpack_given(&hex(pack), own + 1), None);
+    }
+
+    /// A new character's recharger comes as a stack of 50 (the word after the quality), a use of it takes one off
+    /// (the original's capture: action 3 at the inventory place), and an item given to an NPC is gone when the trade
+    /// is over unless the NPC gives it back.
+    #[test]
+    fn stacks_and_things_given_away() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let own = 0x7b1a0021;
+        let mut w = World { own, ..World::default() };
+        let comes_in = Message { kind: CONTAINER_ADD_ITEM, identity: (0xc350, own), data: hex("000000006e000000000000006e7b1a00210000006f") }.frame(1);
+        w.add(&Message { kind: TEMPLATE_ACTION, identity: (0xc350, own), data: hex("000004710a0004710a0000000100000032000000570000006e000000000000000000000000") }.frame(1));
+        w.add(&comes_in);
+        w.add(&Message { kind: TEMPLATE_ACTION, identity: (0xc350, own), data: hex("0000048aa100048aa10000000a00000001000000570000006e000000000000000000000000") }.frame(1));
+        w.add(&comes_in);
+        assert_eq!(w.worn.iter().map(|e| (e.slot, e.low_id, e.quality, e.count)).collect::<Vec<_>>(), vec![(0x40, 0x4710a, 1, 50), (0x41, 0x48aa1, 10, 1)]);
+        // (a use of the recharger: one of the fifty)
+        w.inventory = None;
+        w.add(&Message { kind: TEMPLATE_ACTION, identity: (0xc350, own), data: hex("000004710a0004710a0000000100000001000000030000006800000040000000000000000000") }.frame(1));
+        assert_eq!(w.worn[0].count, 49);
+        assert!(w.inventory.is_some());
+        // (a use of the single item: it stays until its `DeleteItem`)
+        w.add(&Message { kind: TEMPLATE_ACTION, identity: (0xc350, own), data: hex("0000048aa100048aa10000000a00000001000000030000006800000041000000000000000000") }.frame(1));
+        assert_eq!(w.worn[1].count, 1);
+        // (the second item given to an NPC, the trade taken: it is gone, the first stays)
+        w.npc_given = vec![0x41];
+        w.add(&Message { kind: 0x2d212407, identity: (0xc350, own), data: hex("0000020000c3507b0828870000000000000000") }.frame(1));
+        assert_eq!(w.worn.iter().map(|e| e.slot).collect::<Vec<_>>(), vec![0x40]);
+        assert!(w.npc_given.is_empty());
+        // (a new trade begins with nothing given)
+        w.npc_given = vec![0x40];
+        w.add(&Message { kind: 0x7864401d, identity: (0xc350, own), data: hex("0000020000c3507b0828870000000100000000") }.frame(1));
+        assert!(w.npc_given.is_empty() && w.worn.len() == 1);
     }
 
     /// The Arete Landing capture: a quest item named into the overflow window comes in with its `ContainerAddItem`, and a
