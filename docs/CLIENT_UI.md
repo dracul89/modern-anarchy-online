@@ -4882,3 +4882,27 @@ Seen offline: the inventory with First Aid locked beside the same with nothing l
 live. Not done: an item with a wait of its own that locks no skill; a program is not shown locked for want of
 nano points; and the two lines a locked special's key tells at times ("Action is not available." before the wait
 line) were not looked into.
+
+## Buying from a shopkeeper who talks: the Shop button (2026-11-18, the user's Antonio Stacklund)
+
+The report: "could not shop with Antonio Stacklund who sells special items. Please make sure any shopkeeper can
+shop." His window came up with his talk and the four buttons, and no way led to his shop.
+
+In the original's capture of 2026-10-30 every shopkeeper of Arete Landing is the same: the chat is opened
+(`KnubotOpenChatWindow`), and a second or two later the client sends a plain use of the NPC (`GenericCmd`, action
+3, the NPC as its target), to which the server answers at once with the shop's list (`58362220` of a `(0xc75b,
+..)`) and the trade's opening: Antonio Stacklund, Barry the Food Vendor, Marco Spida, eleven times in all, and
+later presses with the chat still up open the shop again. That use is the window's **Shop** button: its handler
+(GUI.dll 0x10058b34, a label the decompile does not list as a function) is `N3Msg_UseItem` with the NPC and
+`false`.
+
+The client had the button switched off ("not known here"). Now it sends the use, and the shop's window opens as
+for any vending machine: the server's list is read whoever sends it.
+
+With it: the shop an NPC keeps is announced as the NPC's (`VendingMachineFullUpdate` with the NPC's identity where
+a machine's place would be, and its template, 0x3ca30 for Antonio's, which gives the prices). The client read a
+place of nothing from it and set a thing to be targeted down at the playfield's corner; an announcement without a
+place now sets nothing down and keeps the template.
+
+Not seen live. A shopkeeper that does not talk at all (none in the captures) is still used with a double click,
+which opens the chat first: the original's own choice between talking and using was not read.

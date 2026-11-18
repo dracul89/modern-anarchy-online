@@ -1795,7 +1795,13 @@ impl World {
                         Some(mao_net::schema::Value::Float(x)) => *x as f32,
                         _ => 0.0,
                     };
-                    self.vendors.insert(m.identity.1, [f("X"), f("Y"), f("Z")]);
+                    // (a shop an NPC keeps is announced as that NPC's, with the NPC's identity and no place: nothing of it
+                    // stands in the world, the NPC is used instead. It was set down at the playfield's corner, (0, 0, 0),
+                    // as a thing to be targeted.)
+                    let placed = [f("X"), f("Y"), f("Z")] != [0.0; 3];
+                    if placed {
+                        self.vendors.insert(m.identity.1, [f("X"), f("Y"), f("Z")]);
+                    }
                     // The machine's model is the `Mesh` stat (12); the booth faces the way its rotation says.
                     let mesh = match p.value.get("Stats") {
                         Some(mao_net::schema::Value::List(stats)) => stats.iter().find(|s| s.get("Item1").and_then(mao_net::schema::Value::as_int) == Some(12)).and_then(|s| s.get("Item2")?.as_int()),
@@ -1807,7 +1813,8 @@ impl World {
                         Some(mao_net::schema::Value::Float(x)) => *x as f32,
                         _ => 0.0,
                     };
-                    if let Some(mesh) = mesh.filter(|&m| m > 0) {
+                    if !placed {
+                    } else if let Some(mesh) = mesh.filter(|&m| m > 0) {
                         // (an announced model takes the place of the playfield's own copy (its dynel table's); the
                         // usual announcement has none, only the template (`StaticInstance`), and the table's stays)
                         self.props.retain(|k, p| *k < 0xfe00_0000 || !near(p));
@@ -1830,7 +1837,9 @@ impl World {
                         }
                     }
                     // Shops can be targeted (Ctrl+Tab) and used (E) like the other objects.
-                    self.objects.insert(m.identity.1, [f("X"), f("Y"), f("Z")]);
+                    if placed {
+                        self.objects.insert(m.identity.1, [f("X"), f("Y"), f("Z")]);
+                    }
                     // (its name: SimpleItem_t's FUN_100809a0 takes the `NameTemplate` stat's (446) item template's name, the
                     // `StaticInstance` being the machine all the shops share, "Specialist Commerce")
                     let stat = |key: i64| match p.value.get("Stats") {
@@ -7935,6 +7944,14 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             state.npc_given.clear();
                         }
                     }
+                    // (Shop, GUI.dll 0x10058b34: `N3Msg_UseItem` on the NPC. The server opens the shop the NPC keeps, a
+                    // `(0xc75b, ..)` it has announced as the NPC's, with the shop's list; an NPC that keeps none answers
+                    // with the use's echo alone.)
+                    crate::npcchat::Command::Shop(npc) => {
+                        uses += 1;
+                        send(&mut connection, movement::HEADING, heading, position, &mut sent);
+                        let _ = connection.send(&n3::use_object(own, uses, npc));
+                    }
                     crate::npcchat::Command::Close(npc) => {
                         let _ = connection.send(&n3::npc_chat_close(own, npc));
                         if chat_npc == Some(npc) {
@@ -12661,6 +12678,18 @@ mod movement_tests {
         assert!(left.is_empty(), "{left:x?}");
         assert!(lost.is_empty(), "the own character was taken out of the world by {lost:?}");
         assert!(!w.corpses.contains_key(&w.own), "the own character is a corpse's body");
+    }
+
+    /// The original's capture: the shop Antonio Stacklund keeps is announced as his (the NPC's identity where a
+    /// machine's place would be). Its template is kept for the prices, and nothing is drawn or set down for it: the
+    /// NPC is the shop.
+    #[test]
+    fn an_npcs_shop_is_no_machine_in_the_world() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let mut w = World { own: 1, ..World::default() };
+        w.add(&Message { kind: 0x7f544905, identity: (0xc75b, 0x1324d839), data: hex("000000000b0000c3507b0828a10020da15000f424f000000000040000023790000000080023203000000170003ca30000002bd00000001000002be0003ca30000002bf0003ca300000019c00000001000001f500000002000001f400000000000000000000000200000032000003f100000003") }.frame(1));
+        assert_eq!(w.vendor_templates.get(&0x1324d839), Some(&0x3ca30));
+        assert!(w.props.get(&0x1324d839).is_none() && w.objects.get(&0x1324d839).is_none() && w.vendors.get(&0x1324d839).is_none());
     }
 
     #[test]

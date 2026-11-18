@@ -826,6 +826,8 @@ These were written before this list; some may have been seen working since witho
 - [ ] The wounded lie (2026-11-16): Arete Landing's Wounded Dockworkers and Wounded Clan Protesters lie on the
   ground; the standing dockworkers and Flint Novak stand; a seated NPC (the ICC Secretary) sits.
 - [ ] Still open from the user's list of 2026-11-16: bounding boxes (which ones was not said).
+- [ ] A shopkeeper who talks (2026-11-18): Antonio Stacklund's window has the Shop button (the fourth); a press
+  opens his shop with its list and prices, and buying works; the same for Barry the Food Vendor and Marco Spida.
 - [ ] Oneself in a fight (2026-11-17): fighting something in melee, a click on one's own character selects it (the
   fight goes on), a stim then heals, and a click on the creature selects it again.
 - [ ] Locked things (2026-11-17): after a stim the stims and kits in the inventory and on the hotbar are grey

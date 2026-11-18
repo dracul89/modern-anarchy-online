@@ -4,7 +4,10 @@
 //! The view is, top to bottom, the conversation (a `TextView_c` with HTML, flags 0x6c: mouse input, selection, multiline,
 //! word wrap; scrolling), the separator (`GFX_GUI_NPCCHAT_SEPERATOR`, 0x120), the answers (another such text view) and a
 //! button bar (FUN_10059eee): Desc (0x3f, `N3Msg_NPCChatRequestDescription`, FUN_10058cdb), Info (0x44, the NPC's
-//! `charid://` page, FUN_10058ad5), Give (0x42, `N3Msg_NPCChatStartTrade`, FUN_10058d16) and Shop (0x49). The server opens
+//! `charid://` page, FUN_10058ad5), Give (0x42, `N3Msg_NPCChatStartTrade`, FUN_10058d16) and Shop (0x49: the handler at
+//! 0x10058b34 is `N3Msg_UseItem` with the NPC and `false`, a plain use of the NPC, to which the server opens the NPC's
+//! shop: the captures' Antonio Stacklund, Barry the Food Vendor and Marco Spida, each used a second or two after the
+//! chat was opened, and the shop's list came at once). The server opens
 //! the window (`KnubotOpenChatWindow`), appends lines (`KnubotAppendText`: the text and its kind) and gives the answers
 //! (`KnubotAnswerList`); a clicked answer is `KnubotAnswer` with its place in the list, and closing the window is
 //! `KnubotCloseChatWindow`. A conversation starts with the client's own `KnubotOpenChatWindow` to the NPC (as aosharp
@@ -52,6 +55,8 @@ pub enum Command {
     TradeItem((u32, u32), u32, bool),
     /// The trade ended: the credits, accepted or declined.
     FinishTrade((u32, u32), u32, bool),
+    /// Shop: the NPC is used, and the server opens its shop when it keeps one.
+    Shop((u32, u32)),
 }
 
 /// The NPC's trade bar while it is open.
@@ -218,10 +223,8 @@ impl NpcChatWindow {
                 b.pictures = Some([normal.to_string(), pressed.to_string()]);
             }
         }
-        // (Shop: the NPC's shop, which the server opens as a shop trade when there is one; not known here)
-        if let Some(id) = tree.find(root, "Shop") {
-            tree.get_mut(id).enabled = false;
-        }
+        // (Shop is a button like the others: until 2026-11-18 it was switched off here, "not known", and a shopkeeper
+        // who also talks, as Arete Landing's all do, could not be bought from at all)
         self.tree = Some((tree, root));
     }
 
@@ -299,6 +302,7 @@ impl NpcChatWindow {
                 ("Desc", Signal::Clicked) => commands.push(Command::Describe(self.npc)),
                 ("Info", Signal::Clicked) => self.info_url = Some(format!("charid://{}/{}", self.npc.0, self.npc.1)),
                 ("Give", Signal::Clicked) if self.trade.is_none() => commands.push(Command::StartTrade(self.npc)),
+                ("Shop", Signal::Clicked) => commands.push(Command::Shop(self.npc)),
                 _ => {}
             }
         }

@@ -6,6 +6,11 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 ## Unreleased
 
+### Shops
+
+- A shopkeeper who talks can be bought from: the Shop button of the NPC's window opens the shop, as the original's
+  does. It was switched off, and Arete Landing's shopkeepers could not be bought from at all.
+
 ### Fights
 
 - In a fight a click on one's own character selects it (to use a stim on oneself); the creature fought was always
