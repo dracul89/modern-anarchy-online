@@ -1500,6 +1500,12 @@ impl Ui {
 
     /// Paints a frame over what is already in `target`.
     pub fn paint(&mut self, gpu: &Gpu, target: &wgpu::TextureView, size: (u32, u32), frame: Frame) {
+        self.paint_over(gpu, target, size, frame, wgpu::LoadOp::Load);
+    }
+
+    /// Paints the interface over what `target` holds, or (`LoadOp::Clear`) as all the frame there is: the launcher's
+    /// window, whose frame is then one pass and one submission.
+    pub fn paint_over(&mut self, gpu: &Gpu, target: &wgpu::TextureView, size: (u32, u32), frame: Frame, load: wgpu::LoadOp<wgpu::Color>) {
         let screen = egui_wgpu::ScreenDescriptor { size_in_pixels: [size.0, size.1], pixels_per_point: frame.pixels_per_point };
         for (id, deltas) in &frame.textures.set {
             for delta in deltas {
@@ -1512,7 +1518,7 @@ impl Ui {
             let mut pass = encoder
                 .begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("interface"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment { view: target, depth_slice: None, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store } })],
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment { view: target, depth_slice: None, resolve_target: None, ops: wgpu::Operations { load, store: wgpu::StoreOp::Store } })],
                     depth_stencil_attachment: None,
                     timestamp_writes: None,
                     occlusion_query_set: None,

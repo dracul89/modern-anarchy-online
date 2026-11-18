@@ -4,6 +4,18 @@ What each release changed, as a player meets it. The commits have the detail, an
 thing was read from the original client. The release workflow puts a version's section at the top of that release's
 notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Releases page only.
 
+## Unreleased
+
+### The launcher
+
+- No flash at its start: the window opens with its picture in it, and the news page comes in whole instead of as a
+  white sheet first.
+- When the launcher or the login cannot go on, a box says why and where the details are; they used to end with
+  nothing on the screen. The launcher's own window keeps a crash log now, as the login and the game did.
+- The launcher opens on a machine whose graphics device cannot be started as usual (at the last with the system's
+  software device), so that another device can be chosen in its settings; a picture or the news page that fails
+  leaves the plain window with its settings and PLAY.
+
 ## 0.1.4 (2026-11-17)
 
 ### Character creation

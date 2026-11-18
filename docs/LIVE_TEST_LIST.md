@@ -826,3 +826,6 @@ These were written before this list; some may have been seen working since witho
 - [ ] The wounded lie (2026-11-16): Arete Landing's Wounded Dockworkers and Wounded Clan Protesters lie on the
   ground; the standing dockworkers and Flint Novak stand; a seated NPC (the ICC Secretary) sits.
 - [ ] Still open from the user's list of 2026-11-16: bounding boxes (which ones was not said).
+- [ ] The launcher (2026-11-17): it opens with its picture in it, the page comes whole with no white or black
+  flash, also after the settings were open over it; closing it shows no white. On the machine that reported the
+  crash: what the box says, and that machine's `crash.log`.

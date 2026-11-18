@@ -2320,7 +2320,10 @@ fn main() -> ExitCode {
         }
     }
     // (the two runs a player makes, the launcher and the game it starts, leave a crash log: `crash.rs`)
-    let part = if args.get(1).map(String::as_str) == Some("play") {
+    // (the launcher's own window too, `launch`: it left nothing behind when it went, and it is what a player starts)
+    let part = if args.is_empty() || args.last().map(String::as_str) == Some("launch") && args.len() <= 2 {
+        Some("launch-window")
+    } else if args.get(1).map(String::as_str) == Some("play") {
         Some("launcher")
     } else if args.first().map(String::as_str) == Some("net") && args.get(2).map(String::as_str) == Some("enter") {
         Some("game")
@@ -2341,6 +2344,10 @@ fn main() -> ExitCode {
             eprintln!("mao-client: {e}");
             if let Some(part) = part {
                 crash::end(part, Some(&e));
+                // (the launcher and the login have no other way to say why they went: the game's window has its own)
+                if part != "game" {
+                    crash::tell(&e);
+                }
             }
             ExitCode::FAILURE
         }

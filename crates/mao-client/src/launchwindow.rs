@@ -32,6 +32,23 @@
 //! | Client-to-Server and Dimension-check time-outs | the same two, kept in `launcher.ini` (the login's progress bar and the dimension download use them) |
 //! | Automatically report disconnects to Funcom | gone |
 //!
+//! What it does so as not to fail or flicker (2026-11-17, after a report of a crash and the user's of a flash):
+//!
+//! - The window is made hidden and shows with its first frame in it: put up at once it stood empty for the second the
+//!   graphics take to start. A window that has no frame after two seconds shows as it is.
+//! - The page is made beside the window's inside, where nothing of it shows, and is moved into its place when it has
+//!   loaded (or after [`PAGE_WAIT`]): a web view put up at once is a white sheet for half a second, on a dark window,
+//!   and one hidden and then shown is white for a moment all the same. It is moved away, not hidden, while the
+//!   settings are open, for the same reason.
+//! - A frame is one pass and one submission, and the frame after the surface was set up anew (which the page's
+//!   opening asks for) is drawn at once: no black frame between.
+//! - The window is taken off the screen before it is taken down.
+//! - A window, a surface or a graphics device that cannot be had ends the run with its reason, which is told in a box
+//!   (`crash.rs`); the device is asked for leniently (`Gpu::lenient`: at the last the system's software device), since
+//!   the launcher is where another device is chosen.
+//! - The pictures and the page run guarded: a failure there leaves the plain window, which still has its settings and
+//!   PLAY.
+//!
 //! Not done: patching (the original turns PLAY into PATCH when the versions differ; here the difference is only
 //! told), the end-user licence dialog. (The page of an error code, `ERRORURL`, is the login's: `launcher.rs`.)
 
@@ -55,6 +72,13 @@ use crate::ui::Ui;
 const WIDTH: f32 = 794.0;
 const HEIGHT: f32 = 575.0;
 const PAGE_HEIGHT: f32 = 428.0;
+/// How long the page is waited for before it is shown as far as it has come.
+#[cfg(any(windows, target_os = "macos"))]
+const PAGE_WAIT: Duration = Duration::from_secs(8);
+/// How long a loaded page is left to paint itself before it is moved in (at the moment it says it has loaded it is
+/// still a white sheet for a tenth of a second or two).
+#[cfg(any(windows, target_os = "macos"))]
+const PAGE_SETTLE: Duration = Duration::from_millis(300);
 /// Where the controls are in it (measured on the original's window).
 const LIST: [f32; 4] = [403.0, 473.0, 240.0, 20.0];
 const SETTINGS_BUTTON: [f32; 4] = [661.0, 470.0, 112.0, 26.0];
@@ -95,6 +119,8 @@ fn picture(ctx: &egui::Context, file: &Path) -> Option<egui::TextureHandle> {
 
 fn load_pictures(ctx: &egui::Context, game: &Path, prefs: &Prefs) -> Pictures {
     use crate::launchskin::{self, Background};
+    // (`MAO_LAUNCH_PANIC=pictures`: the pictures fail, to see the window without them)
+    assert!(std::env::var("MAO_LAUNCH_PANIC").as_deref() != Ok("pictures"), "made to fail (MAO_LAUNCH_PANIC=pictures)");
     let mut pictures = Pictures::default();
     let mut wanted = launchskin::background(&prefs.background);
     if let Background::Picture(file) = &wanted {
@@ -651,11 +677,32 @@ struct Gfx {
     pictures: Option<Pictures>,
     #[cfg(any(windows, target_os = "macos"))]
     page: Option<(wry::WebView, wry::WebContext)>,
-    page_shown: bool,
     frames: u32,
     /// When the window drew its first frame, and whether the page was opened since.
     first_frame: Option<Instant>,
     page_tried: bool,
+    /// The window is on the screen (it is made hidden and shows with its first frame), and when it was made.
+    shown: bool,
+    created: Instant,
+    /// The page: set by it when it has loaded, when it was opened, and whether it is on the screen now.
+    #[cfg(any(windows, target_os = "macos"))]
+    page_loaded: Arc<std::sync::atomic::AtomicBool>,
+    #[cfg(any(windows, target_os = "macos"))]
+    page_opened: Option<Instant>,
+    /// When the page was first seen to have loaded.
+    #[cfg(any(windows, target_os = "macos"))]
+    page_loaded_at: Option<Instant>,
+    #[cfg(any(windows, target_os = "macos"))]
+    page_up: bool,
+}
+
+impl Gfx {
+    fn show(&mut self) {
+        if !self.shown {
+            self.shown = true;
+            self.window.set_visible(true);
+        }
+    }
 }
 
 struct Launch {
@@ -678,6 +725,8 @@ struct Launch {
     /// The settings chose another background: the pictures are made anew.
     new_pictures: bool,
     started: Instant,
+    /// The window or its graphics could not be started: the run ends with this.
+    failed: Option<String>,
     /// `MAO_LAUNCH_QUIT=<seconds>`: the window closes by itself (for pictures of it).
     quit_after: Option<f32>,
     play_after: Option<f32>,
@@ -701,7 +750,13 @@ impl Launch {
     /// The window's inside, drawn each frame; says whether the page may be shown over its top.
     fn screen(&mut self, ctx: &egui::Context, pictures: &Pictures, monitor: &dyn Fn() -> Screens) -> bool {
         if let Some(rx) = &self.list {
-            if let Ok(result) = rx.try_recv() {
+            // (a download that ended without a word, its thread gone, is one that failed)
+            let got = match rx.try_recv() {
+                Ok(result) => Some(result),
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => Some(Err("the download ended without an answer".to_string())),
+                Err(std::sync::mpsc::TryRecvError::Empty) => None,
+            };
+            if let Some(result) = got {
                 self.list = None;
                 match result {
                     Ok(text) => {
@@ -717,6 +772,10 @@ impl Launch {
             }
         }
         let screen = ctx.content_rect();
+        // (a window of no size, as a minimized one is told to be on some systems: nothing to lay out)
+        if screen.width() < 8.0 || screen.height() < 8.0 {
+            return self.dialog.is_none() && self.prefs.page;
+        }
         let k = screen.width() / WIDTH;
         let at = |r: [f32; 4]| egui::Rect::from_min_size(screen.min + egui::vec2(r[0], r[1]) * k, egui::vec2(r[2], r[3]) * k);
         let whole = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
@@ -854,10 +913,19 @@ pub fn limit_name(fps: u32, none: &str) -> String {
 }
 
 #[cfg(any(windows, target_os = "macos"))]
-pub(crate) fn open_page(window: &Window, address: &str, bounds: wry::Rect) -> Option<(wry::WebView, wry::WebContext)> {
+/// `loaded`: the page sets this when it has loaded (for a caller that made it out of sight, to move it in then).
+pub(crate) fn open_page(window: &Window, address: &str, bounds: wry::Rect, loaded: Option<Arc<std::sync::atomic::AtomicBool>>) -> Option<(wry::WebView, wry::WebContext)> {
     let data = Settings::path().parent().map_or_else(|| PathBuf::from("Browser"), |d| d.join("Browser"));
     let mut context = wry::WebContext::new(Some(data));
-    let view = wry::WebViewBuilder::new_with_web_context(&mut context)
+    let mut builder = wry::WebViewBuilder::new_with_web_context(&mut context);
+    if let Some(loaded) = loaded {
+        builder = builder.with_on_page_load_handler(move |event, _| {
+            if matches!(event, wry::PageLoadEvent::Finished) {
+                loaded.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+        });
+    }
+    let view = builder
         .with_bounds(bounds)
         .with_background_color((12, 12, 12, 255))
         .with_url(address)
@@ -883,34 +951,25 @@ fn page_bounds(size: winit::dpi::PhysicalSize<u32>) -> wry::Rect {
     wry::Rect { position: wry::dpi::PhysicalPosition::new(0, 0).into(), size: wry::dpi::PhysicalSize::new(size.width.max(1), height.max(1)).into() }
 }
 
-impl ApplicationHandler for Launch {
-    /// The window is drawn about sixty times a second whatever else happens: asking for the next frame from inside a frame
-    /// alone stopped once the page (a window of its own with its own messages) was there, and with it the buttons.
-    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        if let Some(gfx) = &self.gfx {
-            gfx.window.request_redraw();
-        }
-        event_loop.set_control_flow(winit::event_loop::ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(16)));
-    }
-
-    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        if self.gfx.is_some() {
-            return;
-        }
-        let window = Arc::new(
-            event_loop
-                .create_window(Window::default_attributes().with_title(title(&self.local_version, "")).with_window_icon(crate::icon::window_icon()).with_inner_size(LogicalSize::new(WIDTH, HEIGHT)).with_resizable(false).with_enabled_buttons(winit::window::WindowButtons::CLOSE | winit::window::WindowButtons::MINIMIZE))
-                .expect("a window"),
-        );
+impl Launch {
+    /// The window (hidden: it shows with its first frame) and what draws in it; what could not be had otherwise.
+    fn open(&self, event_loop: &ActiveEventLoop) -> Result<Gfx, String> {
+        let attributes = Window::default_attributes()
+            .with_title(title(&self.local_version, ""))
+            .with_window_icon(crate::icon::window_icon())
+            .with_inner_size(LogicalSize::new(WIDTH, HEIGHT))
+            .with_resizable(false)
+            .with_enabled_buttons(winit::window::WindowButtons::CLOSE | winit::window::WindowButtons::MINIMIZE)
+            .with_visible(false);
+        let window = Arc::new(event_loop.create_window(attributes).map_err(|e| format!("The launcher's window could not be opened: {e}"))?);
         let instance = wgpu::Instance::default();
-        let surface = instance.create_surface(window.clone()).expect("a surface");
-        let gpu = Gpu::new(instance, Some(&surface)).expect("a graphics device");
+        let surface = instance.create_surface(window.clone()).map_err(|e| format!("The launcher's window cannot be drawn to: {e}"))?;
+        let gpu = Gpu::lenient(&instance, &surface).map_err(|e| format!("No graphics device could be started (the client needs Direct3D 12, Vulkan or Metal): {e}"))?;
         let size = window.inner_size();
-        let config = surface.get_default_config(&gpu.adapter, size.width.max(1), size.height.max(1)).expect("a surface format");
+        let config = surface.get_default_config(&gpu.adapter, size.width.max(1), size.height.max(1)).ok_or("The graphics device cannot draw to the launcher's window.")?;
         surface.configure(&gpu.device, &config);
         let ui = Ui::new(&window, &gpu, config.format, &self.settings);
-        window.request_redraw();
-        self.gfx = Some(Gfx {
+        Ok(Gfx {
             window,
             surface,
             config,
@@ -919,104 +978,178 @@ impl ApplicationHandler for Launch {
             pictures: None,
             #[cfg(any(windows, target_os = "macos"))]
             page: None,
-            page_shown: true,
             frames: 0,
             first_frame: None,
             page_tried: false,
-        });
+            shown: false,
+            created: Instant::now(),
+            #[cfg(any(windows, target_os = "macos"))]
+            page_loaded: Arc::default(),
+            #[cfg(any(windows, target_os = "macos"))]
+            page_opened: None,
+            #[cfg(any(windows, target_os = "macos"))]
+            page_loaded_at: None,
+            #[cfg(any(windows, target_os = "macos"))]
+            page_up: false,
+        })
+    }
+
+    /// One frame of the window.
+    fn draw(&mut self, gfx: &mut Gfx, event_loop: &ActiveEventLoop) {
+        // (a minimized window has no size to draw at)
+        if gfx.window.is_minimized() == Some(true) {
+            return;
+        }
+        match gfx.surface.get_current_texture() {
+            wgpu::CurrentSurfaceTexture::Success(frame) | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => {
+                let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
+                let size = (gfx.config.width, gfx.config.height);
+                let game = self.game.clone();
+                let window = gfx.window.clone();
+                let monitor = move || screens(&window);
+                let pictures = &mut gfx.pictures;
+                let mut page_may_show = true;
+                let ui_frame = gfx.ui.run_custom(&gfx.window, &mut |ctx| {
+                    let pictures = pictures.get_or_insert_with(|| crate::crash::guarded("the launcher's pictures", || load_pictures(ctx, Path::new(&game), &self.prefs)).unwrap_or_default());
+                    page_may_show = self.screen(ctx, pictures, &monitor);
+                });
+                if std::mem::take(&mut self.new_pictures) {
+                    gfx.pictures = None;
+                }
+                // (the page is on the screen once it has loaded, and not while the settings are open over it)
+                #[cfg(not(any(windows, target_os = "macos")))]
+                let _ = page_may_show;
+                #[cfg(any(windows, target_os = "macos"))]
+                if let Some((page, _)) = &gfx.page {
+                    if gfx.page_loaded_at.is_none() && gfx.page_loaded.load(std::sync::atomic::Ordering::Relaxed) {
+                        gfx.page_loaded_at = Some(Instant::now());
+                    }
+                    let loaded = gfx.page_loaded_at.is_some_and(|t| t.elapsed() > PAGE_SETTLE) || gfx.page_opened.is_some_and(|t| t.elapsed() > PAGE_WAIT);
+                    let wanted = page_may_show && loaded;
+                    if wanted != gfx.page_up {
+                        gfx.page_up = wanted;
+                        let size = gfx.window.inner_size();
+                        let _ = page.set_bounds(if wanted { page_bounds(size) } else { page_away(size) });
+                        if !wanted {
+                            let _ = page.focus_parent();
+                        }
+                    }
+                }
+                let wanted = title(&self.local_version, self.dimension().map_or("", |d| d.version.as_str()));
+                if wanted != self.titled {
+                    gfx.window.set_title(&wanted);
+                    self.titled = wanted;
+                }
+                // (one pass: cleared and painted, with nothing presented between)
+                gfx.ui.paint_over(&gfx.gpu, &view, size, ui_frame, wgpu::LoadOp::Clear(wgpu::Color { r: 0.0, g: 0.0, b: 0.0, a: 1.0 }));
+                gfx.window.pre_present_notify();
+                gfx.gpu.queue.present(frame);
+                gfx.show();
+                // (the page is opened once the window has been drawing itself for half a second: opened before the
+                // first frame, the window's own drawing never showed under it, and once in a dozen starts neither did
+                // it when the page came after the third frame; the surface is set up anew after it for the same reason)
+                gfx.frames += 1;
+                // (`MAO_LAUNCH_PANIC=frame`: the window fails at its thirtieth frame, to see what a person is told)
+                assert!(gfx.frames != 30 || std::env::var("MAO_LAUNCH_PANIC").as_deref() != Ok("frame"), "made to fail (MAO_LAUNCH_PANIC=frame)");
+                let drawing_since = *gfx.first_frame.get_or_insert_with(Instant::now);
+                #[cfg(any(windows, target_os = "macos"))]
+                if !gfx.page_tried && self.prefs.page && gfx.frames >= 10 && drawing_since.elapsed() > Duration::from_millis(500) && std::env::var_os("MAO_LAUNCH_NO_PAGE").is_none() {
+                    gfx.page_tried = true;
+                    if let Some(address) = dimensions::page_address(Path::new(&self.game)) {
+                        // (out of sight until it has loaded; a page that cannot be made is done without)
+                        let (window, loaded, bounds) = (gfx.window.clone(), gfx.page_loaded.clone(), page_away(gfx.window.inner_size()));
+                        gfx.page = crate::crash::guarded("the launcher's page", move || open_page(&window, &address, bounds, Some(loaded))).flatten();
+                        gfx.page_opened = Some(Instant::now());
+                        gfx.page_up = false;
+                        gfx.surface.configure(&gfx.gpu.device, &gfx.config);
+                        // (the surface set up anew holds nothing: its next frame now, not a sixtieth of a second on)
+                        return self.draw(gfx, event_loop);
+                    }
+                }
+                // (`MAO_LAUNCH_PLAY=<seconds>`: PLAY presses itself, for a test of the way into the login)
+                if self.play_after.is_some_and(|s| self.started.elapsed().as_secs_f32() > s) && self.list.is_none() && self.game_ok {
+                    self.play = true;
+                }
+                if self.play || self.restart || self.quit_after.is_some_and(|s| self.started.elapsed().as_secs_f32() > s) {
+                    gfx.window.set_visible(false);
+                    event_loop.exit();
+                } else {
+                    gfx.window.request_redraw();
+                }
+            }
+            // (a window not on the screen is given no frame on macOS: nothing is wrong with the surface then; a window
+            // still hidden shows, since it may be given none before it does)
+            wgpu::CurrentSurfaceTexture::Occluded | wgpu::CurrentSurfaceTexture::Timeout => gfx.show(),
+            _ => {
+                gfx.show();
+                gfx.surface.configure(&gfx.gpu.device, &gfx.config);
+            }
+        }
+    }
+}
+
+/// The page's place while it is not to be seen: its own size, beside the window's inside (a child window is cut
+/// off at its parent's edge).
+#[cfg(any(windows, target_os = "macos"))]
+fn page_away(size: winit::dpi::PhysicalSize<u32>) -> wry::Rect {
+    let mut bounds = page_bounds(size);
+    bounds.position = wry::dpi::PhysicalPosition::new(-(size.width.max(1) as i32) - 64, 0).into();
+    bounds
+}
+
+impl ApplicationHandler for Launch {
+    /// The window is drawn about sixty times a second whatever else happens: asking for the next frame from inside a frame
+    /// alone stopped once the page (a window of its own with its own messages) was there, and with it the buttons.
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        if let Some(mut gfx) = self.gfx.take() {
+            if gfx.shown {
+                gfx.window.request_redraw();
+            } else if gfx.created.elapsed() > Duration::from_secs(2) {
+                gfx.show();
+            } else {
+                // (a window not on the screen yet is asked for no frame by the system: its first is drawn from here)
+                self.draw(&mut gfx, event_loop);
+            }
+            self.gfx = Some(gfx);
+        }
+        event_loop.set_control_flow(winit::event_loop::ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(16)));
+    }
+
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.gfx.is_some() || self.failed.is_some() {
+            return;
+        }
+        match self.open(event_loop) {
+            Ok(gfx) => self.gfx = Some(gfx),
+            Err(e) => {
+                self.failed = Some(e);
+                event_loop.exit();
+            }
+        }
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
         let Some(mut gfx) = self.gfx.take() else { return };
         let consumed = gfx.ui.event(&gfx.window, &event);
         match event {
-            WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::CloseRequested => {
+                // (off the screen first: the page, taken down, is a white sheet for a moment)
+                gfx.window.set_visible(false);
+                event_loop.exit();
+            }
+            // (a window minimized is told a size of nothing on Windows: the surface keeps the size it had)
+            WindowEvent::Resized(size) if size.width == 0 || size.height == 0 => {}
             WindowEvent::Resized(size) => {
                 gfx.config.width = size.width.max(1);
                 gfx.config.height = size.height.max(1);
                 gfx.surface.configure(&gfx.gpu.device, &gfx.config);
                 #[cfg(any(windows, target_os = "macos"))]
                 if let Some((view, _)) = &gfx.page {
-                    let _ = view.set_bounds(page_bounds(size));
+                    let _ = view.set_bounds(if gfx.page_up { page_bounds(size) } else { page_away(size) });
                 }
                 gfx.window.request_redraw();
             }
-            WindowEvent::RedrawRequested => match gfx.surface.get_current_texture() {
-                wgpu::CurrentSurfaceTexture::Success(frame) | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => {
-                    let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
-                    let size = (gfx.config.width, gfx.config.height);
-                    let game = self.game.clone();
-                    let window = gfx.window.clone();
-                    let monitor = move || screens(&window);
-                    let pictures = &mut gfx.pictures;
-                    let mut page_may_show = true;
-                    let ui_frame = gfx.ui.run_custom(&gfx.window, &mut |ctx| {
-                        let pictures = pictures.get_or_insert_with(|| load_pictures(ctx, Path::new(&game), &self.prefs));
-                        page_may_show = self.screen(ctx, pictures, &monitor);
-                    });
-                    if std::mem::take(&mut self.new_pictures) {
-                        gfx.pictures = None;
-                    }
-                    if page_may_show != gfx.page_shown {
-                        gfx.page_shown = page_may_show;
-                        #[cfg(any(windows, target_os = "macos"))]
-                        if let Some((page, _)) = &gfx.page {
-                            let _ = page.set_visible(page_may_show);
-                            if !page_may_show {
-                                let _ = page.focus_parent();
-                            }
-                        }
-                    }
-                    let wanted = title(&self.local_version, self.dimension().map_or("", |d| d.version.as_str()));
-                    if wanted != self.titled {
-                        gfx.window.set_title(&wanted);
-                        self.titled = wanted;
-                    }
-                    let mut encoder = gfx.gpu.device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-                    drop(encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: Some("launcher background"),
-                        color_attachments: &[Some(wgpu::RenderPassColorAttachment { view: &view, depth_slice: None, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.0, g: 0.0, b: 0.0, a: 1.0 }), store: wgpu::StoreOp::Store } })],
-                        depth_stencil_attachment: None,
-                        timestamp_writes: None,
-                        occlusion_query_set: None,
-                        multiview_mask: None,
-                    }));
-                    gfx.gpu.queue.submit(Some(encoder.finish()));
-                    gfx.ui.paint(&gfx.gpu, &view, size, ui_frame);
-                    gfx.window.pre_present_notify();
-                    gfx.gpu.queue.present(frame);
-                    // (the page is opened once the window has been drawing itself for half a second: opened before the
-                    // first frame, the window's own drawing never showed under it, and once in a dozen starts neither did
-                    // it when the page came after the third frame; the surface is set up anew after it for the same reason)
-                    gfx.frames += 1;
-                    let drawing_since = *gfx.first_frame.get_or_insert_with(Instant::now);
-                    #[cfg(any(windows, target_os = "macos"))]
-                    if !gfx.page_tried && self.prefs.page && gfx.frames >= 10 && drawing_since.elapsed() > Duration::from_millis(500) && std::env::var_os("MAO_LAUNCH_NO_PAGE").is_none() {
-                        gfx.page_tried = true;
-                        if let Some(address) = dimensions::page_address(Path::new(&self.game)) {
-                            gfx.page = open_page(&gfx.window, &address, page_bounds(gfx.window.inner_size()));
-                            gfx.surface.configure(&gfx.gpu.device, &gfx.config);
-                            if !gfx.page_shown {
-                                if let Some((page, _)) = &gfx.page {
-                                    let _ = page.set_visible(false);
-                                }
-                            }
-                        }
-                    }
-                    // (`MAO_LAUNCH_PLAY=<seconds>`: PLAY presses itself, for a test of the way into the login)
-                    if self.play_after.is_some_and(|s| self.started.elapsed().as_secs_f32() > s) && self.list.is_none() && self.game_ok {
-                        self.play = true;
-                    }
-                    if self.play || self.restart || self.quit_after.is_some_and(|s| self.started.elapsed().as_secs_f32() > s) {
-                        event_loop.exit();
-                    } else {
-                        gfx.window.request_redraw();
-                    }
-                }
-                // (a window not on the screen is given no frame on macOS: nothing is wrong with the surface then)
-                wgpu::CurrentSurfaceTexture::Occluded | wgpu::CurrentSurfaceTexture::Timeout => {}
-                _ => gfx.surface.configure(&gfx.gpu.device, &gfx.config),
-            },
+            WindowEvent::RedrawRequested => self.draw(&mut gfx, event_loop),
             _ => {
                 if consumed {
                     gfx.window.request_redraw();
@@ -1065,6 +1198,7 @@ pub fn run(named: Option<&str>) -> Result<(), String> {
         game_ok,
         restart: false,
         new_pictures: false,
+        failed: None,
         started: Instant::now(),
         quit_after: std::env::var("MAO_LAUNCH_QUIT").ok().and_then(|v| v.parse().ok()),
         play_after: std::env::var("MAO_LAUNCH_PLAY").ok().and_then(|v| v.parse().ok()),
@@ -1097,15 +1231,20 @@ pub fn run(named: Option<&str>) -> Result<(), String> {
         dialog.tab = tab.min(2);
         launch.dialog = Some(dialog);
     }
-    let event_loop = EventLoop::new().map_err(|e| e.to_string())?;
-    event_loop.run_app(&mut launch).map_err(|e| e.to_string())?;
+    let event_loop = EventLoop::new().map_err(|e| format!("The launcher's window could not be opened: {e}"))?;
+    event_loop.run_app(&mut launch).map_err(|e| format!("The launcher's window ended with an error: {e}"))?;
+    if let Some(e) = launch.failed.take() {
+        return Err(e);
+    }
     if launch.prefs != prefs {
         launch.prefs.save();
     }
     if launch.restart {
         launch.gfx = None;
-        let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-        std::process::Command::new(exe).arg("launch").spawn().map_err(|e| e.to_string())?;
+        // (this run is over before the next starts, or the next would take it for one that never ended: `crash.rs`)
+        crate::crash::end("launch-window", None);
+        let exe = std::env::current_exe().map_err(|e| format!("The launcher could not find its own program to start again: {e}"))?;
+        std::process::Command::new(exe).arg("launch").spawn().map_err(|e| format!("The launcher could not be started again: {e}"))?;
         return Ok(());
     }
     if !launch.play {
@@ -1117,8 +1256,8 @@ pub fn run(named: Option<&str>) -> Result<(), String> {
     }
     // (this run is over before the login starts, or the login would take it for one that never ended: `crash.rs`)
     crate::crash::end("launcher", None);
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    std::process::Command::new(exe).args([game, "play"]).env("MAO_SERVER", dimension.server()).env("MAO_DIMENSION", &dimension.name).spawn().map_err(|e| e.to_string())?;
+    let exe = std::env::current_exe().map_err(|e| format!("The login could not be started: the launcher cannot find its own program ({e})"))?;
+    std::process::Command::new(exe).args([game, "play"]).env("MAO_SERVER", dimension.server()).env("MAO_DIMENSION", &dimension.name).spawn().map_err(|e| format!("The login could not be started: {e}"))?;
     Ok(())
 }
 

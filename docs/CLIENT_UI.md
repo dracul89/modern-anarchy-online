@@ -4685,3 +4685,46 @@ read); the idle is held at its end where the original loops it.
 
 New: `cargo run -p mao-formats --example creatureanims -- <game> <npc template>` lists a creature's actions and
 animation files.
+
+## The launcher hardened (2026-11-17, the user's report of a flash and someone's of a crash)
+
+Nothing more was known of either, so the launcher's window was started in a scratch settings folder and its own
+picture taken every 40 ms (`PrintWindow`, nothing else of the screen), and every place it could end was read.
+
+What flashed, and what is done about it (`launchwindow.rs`):
+
+- **The page was a white sheet for half a second** on the dark window, half a second after the window came: a web
+  view put up at once is white until its page has drawn. Made hidden and shown when loaded, it was still white for a
+  tenth of a second in three starts of four. Now it is made beside the window's inside, where a child window is cut
+  off, and moved into its place 300 ms after it says it has loaded (or after eight seconds, as far as it has come).
+  It is moved away, not hidden, while the settings are open. Ten starts of ten showed the sky and then the whole page.
+- **The window stood empty for up to a second** while the graphics started. It is made hidden and shows with its
+  first frame in it (drawn from the wait, since the system asks a hidden window for no frame); after two seconds
+  without one it shows as it is.
+- **A black frame now and then** (two in seven seconds in the pictures): the frame was a clearing pass and the
+  interface's pass, submitted one after the other. It is one pass now (`Ui::paint_over` with a clear), and none was
+  seen in twelve seconds. The frame after the page's opening, for which the surface is set up anew, is drawn at once.
+- The window is taken off the screen before it is taken down (the page going was white for a moment).
+
+What could end it without a word, and what is done (`crash.rs`, `main.rs`, `launcher.rs`, `mao_render::Gpu`):
+
+- **The launcher's own window left no crash log at all**: only the login (`play`) and the game did. It is a run of
+  its own now (`launch-window`, marker `run-launch-window.txt`).
+- **The packaged program has no console**, so a panic or an error ended the launcher or the login with nothing on
+  the screen: to a player, PLAY pressed and nothing came. Both are told in a box of the system's now (`crash::tell`:
+  what happened and where `crash.log` is), once a run, for a panic of the main thread and for the error a run of the
+  launcher or the login ends with. The box is the packaged build's (`hide-console`); `MAO_ERROR_BOX=1` asks for it in
+  any build and `=0` forbids it. A game that ends badly is not told by the login that waited for it.
+- **A window, a surface or a graphics device that could not be had was a panic** (`expect`) in the launcher and in
+  the login. They end the run with their reason now. The launcher asks for its device leniently (`Gpu::lenient`): the
+  settings' or the system's choice, then the same with only the limits the device has, then the system's software
+  device; it is where another device is chosen, so it should open on anything. The login and the game ask as before.
+- **The pictures and the page** (the game's background, the buttons out of `Anarchy.exe`, the emblem, the web view)
+  run guarded (`crash::guarded`): a failure there is logged and leaves the plain window with its settings and PLAY.
+- A dimension download whose thread went without an answer is a failed one (it left "Getting the dimensions..." up);
+  a window of no size lays nothing out; a size of nothing (a minimized window on Windows) does not set the surface up.
+
+To see them: `MAO_GPU_FAIL=<1-3>` (the first n devices fail), `MAO_LAUNCH_PANIC=frame` or `=pictures`, with
+`MAO_ERROR_BOX=1` for the box. Seen in a test window on this machine only (Windows, an AMD card and the software
+device). Not seen: the box on macOS, the hidden start on Linux and macOS, another machine's fault, whatever it was.
+Not done: the login's window still shows before its first frame; minimizing and restoring showed no fault.

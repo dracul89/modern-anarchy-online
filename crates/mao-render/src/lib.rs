@@ -83,7 +83,35 @@ impl Renderer {
 impl Gpu {
     /// A device for rendering to textures (or to `surface`, when given).
     pub fn new(instance: wgpu::Instance, surface: Option<&wgpu::Surface<'_>>) -> Result<Gpu, String> {
-        let wanted = PREFERRED_ADAPTER.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        Gpu::start(instance, surface, false, false)
+    }
+
+    /// A device for a window that has to open whatever the machine has (the launcher's: it is where the graphics
+    /// device is chosen): as [`Gpu::new`], and when that fails the same with only the limits the device has, and
+    /// then the system's software device. The error of all three when none starts.
+    /// (`MAO_GPU_FAIL=<n>`: the first n of them fail, to see the others.)
+    pub fn lenient(instance: &wgpu::Instance, surface: &wgpu::Surface<'_>) -> Result<Gpu, String> {
+        let fail: usize = std::env::var("MAO_GPU_FAIL").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+        let mut errors: Vec<String> = Vec::new();
+        for (n, (software, name)) in [(false, "the graphics device"), (false, "the graphics device with its own limits"), (true, "the software device")].into_iter().enumerate() {
+            let made = if n < fail { Err("made to fail (MAO_GPU_FAIL)".to_string()) } else { Gpu::start(instance.clone(), Some(surface), software, n > 0) };
+            match made {
+                Ok(gpu) => {
+                    if n > 0 {
+                        eprintln!("{}: this window draws with {name} ({})", errors.join("; "), adapter_name(&gpu.adapter));
+                    }
+                    return Ok(gpu);
+                }
+                Err(e) => errors.push(format!("{name}: {e}")),
+            }
+        }
+        Err(errors.join("; "))
+    }
+
+    /// `software`: the system's software device whatever the settings name; `own_limits`: the device is asked for no
+    /// more than it has (the interface alone needs little), where the game's renderer asks for the usual limits.
+    fn start(instance: wgpu::Instance, surface: Option<&wgpu::Surface<'_>>, software: bool, own_limits: bool) -> Result<Gpu, String> {
+        let wanted = if software { String::new() } else { PREFERRED_ADAPTER.lock().unwrap_or_else(|e| e.into_inner()).clone() };
         let chosen = if wanted.is_empty() {
             None
         } else {
@@ -100,7 +128,7 @@ impl Gpu {
                 compatible_surface: surface,
                 // (`MAO_SOFTWARE_GPU=1`: the system's software device, which is all a build machine without a
                 // graphics card has; to see here what the render tests do there)
-                force_fallback_adapter: std::env::var_os("MAO_SOFTWARE_GPU").is_some(),
+                force_fallback_adapter: software || std::env::var_os("MAO_SOFTWARE_GPU").is_some(),
                 ..Default::default()
             }))
             .map_err(|e| e.to_string())?,
@@ -119,7 +147,8 @@ impl Gpu {
         if bc {
             required_features |= wgpu::Features::TEXTURE_COMPRESSION_BC;
         }
-        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor { required_features, ..Default::default() })).map_err(|e| e.to_string())?;
+        let required_limits = if own_limits { wgpu::Limits::downlevel_defaults().using_resolution(adapter.limits()) } else { wgpu::Limits::default() };
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor { required_features, required_limits, ..Default::default() })).map_err(|e| e.to_string())?;
         Ok(Gpu { instance, adapter, device, queue, bc })
     }
 

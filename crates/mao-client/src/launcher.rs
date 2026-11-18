@@ -202,6 +202,8 @@ struct Launcher {
     entering: Option<Entering>,
     /// The game could not be started.
     start_error: Option<String>,
+    /// The login's own window or its graphics could not be started: the run ends with this.
+    window_error: Option<String>,
     /// The character to play.
     chosen: Option<String>,
     /// Quit was pressed.
@@ -609,7 +611,7 @@ impl Launcher {
                 let bounds = ((r.min.x * k).round() as i32, (r.min.y * k).round() as i32, ((r.width() * k).round() as u32).max(1), ((r.height() * k).round() as u32).max(1));
                 let rect = wry::Rect { position: wry::dpi::PhysicalPosition::new(bounds.0, bounds.1).into(), size: wry::dpi::PhysicalSize::new(bounds.2, bounds.3).into() };
                 if gfx.page.is_none() {
-                    gfx.page = crate::launchwindow::open_page(&gfx.window, &address, rect);
+                    gfx.page = crate::launchwindow::open_page(&gfx.window, &address, rect, None);
                     match &gfx.page {
                         Some((view, _)) => {
                             // (the keyboard left with the login's fields, `LoginWindow_c::Focus`; the surface set up anew,
@@ -663,22 +665,35 @@ impl ApplicationHandler for Launcher {
     }
 
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        if self.gfx.is_some() {
+        if self.gfx.is_some() || self.window_error.is_some() {
             return;
+        }
+        // (a window or a graphics device that cannot be had ends the run with its reason, which the person is told)
+        macro_rules! or_end {
+            ($made:expr, $what:literal) => {
+                match $made {
+                    Ok(made) => made,
+                    Err(e) => {
+                        self.window_error = Some(format!(concat!($what, ": {}"), e));
+                        event_loop.exit();
+                        return;
+                    }
+                }
+            };
         }
         // (the login is the game's window already in the original: the size and the mode of the settings; the pictures the
         // tests take keep the small window)
         let small = self.shot.is_some();
         let size = if small { PhysicalSize::new(1000, 640) } else { PhysicalSize::new(self.settings.width, self.settings.height) };
-        let window = Arc::new(event_loop.create_window(Window::default_attributes().with_title("Modern Anarchy Online").with_window_icon(crate::icon::window_icon()).with_inner_size(size)).expect("a window"));
+        let window = Arc::new(or_end!(event_loop.create_window(Window::default_attributes().with_title("Modern Anarchy Online").with_window_icon(crate::icon::window_icon()).with_inner_size(size)), "The login's window could not be opened"));
         if !small {
             crate::viewer::apply_mode(&window, self.settings.mode, self.settings.monitor);
         }
         let instance = wgpu::Instance::default();
-        let surface = instance.create_surface(window.clone()).expect("a surface");
-        let gpu = Gpu::new(instance, Some(&surface)).expect("a graphics device");
+        let surface = or_end!(instance.create_surface(window.clone()), "The login's window cannot be drawn to");
+        let gpu = or_end!(Gpu::new(instance, Some(&surface)), "No graphics device could be started (the client needs Direct3D 12, Vulkan or Metal)");
         let size = window.inner_size();
-        let config = surface.get_default_config(&gpu.adapter, size.width.max(1), size.height.max(1)).expect("a surface format");
+        let config = or_end!(surface.get_default_config(&gpu.adapter, size.width.max(1), size.height.max(1)).ok_or("no format they share"), "The graphics device cannot draw to the login's window");
         surface.configure(&gpu.device, &config);
         // (a picture of the screen is drawn off screen in a format both the scene and the interface can use)
         let format = if self.shot.is_some() { wgpu::TextureFormat::Rgba8UnormSrgb } else { config.format };
@@ -950,6 +965,7 @@ pub fn run(game: &str) -> Result<(), String> {
         scale: 1.0,
         entering: None,
         start_error: None,
+        window_error: None,
         chosen: None,
         play_new: None,
         kept_creation: None,
@@ -1030,6 +1046,9 @@ pub fn run(game: &str) -> Result<(), String> {
     event_loop.run_app(&mut launcher).map_err(|e| e.to_string())?;
     // (the login's window went when a character was chosen, inside the loop: see there)
     launcher.gfx = None;
+    if let Some(e) = launcher.window_error.take() {
+        return Err(e);
+    }
     if let Some(e) = launcher.start_error.take() {
         return Err(format!("the game could not be started: {e}"));
     }
@@ -1054,6 +1073,8 @@ pub fn run(game: &str) -> Result<(), String> {
     } else if status.success() {
         Ok(())
     } else {
+        // (the game's own ending, which its own process tells or logs: no box from this one)
+        crate::crash::no_box();
         Err(format!("the game ended with {status}"))
     }
 }
