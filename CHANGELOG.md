@@ -74,6 +74,10 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
   of being tried and refused by the server.
 - Steps are quiet while sneaking.
 
+### World
+
+- Doors make their sounds as they open and close.
+
 ## 0.1.5 (2026-11-17)
 
 ### The launcher

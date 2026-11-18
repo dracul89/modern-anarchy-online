@@ -848,9 +848,15 @@ These were written before this list; some may have been seen working since witho
   screen `/start https://...` asks first; in a window it opens at once.
 - [ ] An item between two templates (2026-11-18): the mission belt's page (quality 30) says 3 deck places; compare
   a few such items' pages with the game's (value, range, price).
+- [x] Action tiles, tried live the same night on Maotesttwo (pictures of the client's own window): the Stand tile
+  sat the character down; the Suspended Animation tile started the timed logout ("Timed logout started", the bar)
+  and a second click stopped it ("Timed logout aborted": the server answered the 0x79). The Faction window opened
+  with titles. Still to try: Use, Start/End Combat, Walk/Run, and Brawl with a pistol.
 - [ ] Action tiles (2026-11-18): click Use with a target, Start Combat (and again to stop), Stand (sits, then
   stands), Walk (the pace changes), Suspended Animation (the logout bar starts; again: it stops). With only a pistol
   in the hands click Brawl: "unavailable"; with a melee weapon or bare hands it goes out.
+- [ ] Doors' sounds (2026-11-18): walk through Arete Landing's doors and a shop's: each opens and closes with its
+  sound (some doors are silent in the game too). Tell me if a door chatters.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

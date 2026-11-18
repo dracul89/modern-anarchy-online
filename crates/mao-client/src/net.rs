@@ -567,6 +567,10 @@ struct World {
     door_props: BTreeMap<u32, u8>,
     /// Each door's last change: opening (true) or closing, and when (its animation runs from then).
     door_motion: BTreeMap<u8, (bool, Instant)>,
+    /// Each door's sounds, opening and closing (`door_sound_pair`; 0: none), and the ones due to be played, with
+    /// their doors' places.
+    door_sounds: BTreeMap<u8, (u32, u32)>,
+    door_sounds_due: Vec<(u32, [f32; 3])>,
 }
 
 /// A fighting character turning to face its target, as its state machine does: `CharFight_t` (FUN_1007bd5f, its step
@@ -1070,6 +1074,24 @@ impl crate::requirements::Context for World {
     fn flying_forbidden(&self, _: crate::requirements::Holder) -> Option<bool> {
         Some(self.no_flying)
     }
+}
+
+/// A door's sounds, opening and closing, from its template's sound set (the item's +0x88 map, chunk 0x14): Gamecode
+/// FUN_10080319 opens with the set's class 0x83, else 0x64; FUN_100803b4 closes with 0x84, else 0x66 (FUN_10045976
+/// picks one of a class's values; every door template has one). 0 where the set has neither: a quarter of the door
+/// templates are silent.
+fn door_sound_pair(db: &ResourceDatabase, template: u32) -> (u32, u32) {
+    let Some(data) = db.get(mao_formats::resource::Id { kind: mao_formats::item::TEMPLATE, instance: template }).ok().flatten() else { return (0, 0) };
+    let sets = mao_formats::item::class_sets(&data, 0x14);
+    let of = |class: u32| sets.iter().find(|s| s.0 == class).and_then(|s| s.1.first().copied()).filter(|&id| id != 0);
+    (of(0x83).or_else(|| of(0x64)).unwrap_or(0), of(0x84).or_else(|| of(0x66)).unwrap_or(0))
+}
+
+/// The sounds of a playfield's own doors (its dynel table's), by the door's number.
+fn table_door_sounds(db: &ResourceDatabase, playfield: u32) -> BTreeMap<u8, (u32, u32)> {
+    let Some(object) = db.get(mao_formats::resource::Id { kind: mao_formats::dynels::KIND, instance: playfield }).ok().flatten() else { return Default::default() };
+    let mut pairs: std::collections::HashMap<u32, (u32, u32)> = std::collections::HashMap::new();
+    mao_formats::dynels::parse(&object).into_iter().filter(|d| d.kind == 0xc748).map(|d| ((d.instance >> 16) as u8, *pairs.entry(d.template).or_insert_with(|| door_sound_pair(db, d.template)))).collect()
 }
 
 /// Whether a playfield's record says flying is not allowed there (`playfield::flag_words`).
@@ -1724,6 +1746,11 @@ impl World {
                 None if !open => {}
                 _ => {
                     self.door_motion.insert(n, (open, now));
+                    // (the door's sound at its place, before its animation: FUN_10080319, FUN_100803b4)
+                    let id = self.door_sounds.get(&n).map_or(0, |pair| if open { pair.0 } else { pair.1 });
+                    if id != 0 {
+                        self.door_sounds_due.push((id, self.door_slots[&n].1));
+                    }
                 }
             }
         }
@@ -3330,6 +3357,9 @@ impl World {
             let template = stat(23).filter(|&t| t > 0);
             if let Some(template) = template {
                 self.door_templates.insert(m.identity.1, template);
+                if let (Some(n), Some(db)) = (self.door_number(m.identity.1), ITEM_DB.get()) {
+                    self.door_sounds.insert(n, door_sound_pair(db, template));
+                }
                 if let Some(mesh) = template_stat(template, 12).filter(|&mesh| mesh > 0) {
                     let rotation = [f(25), f(29), f(33), f(37)];
                     let rotation = if rotation == [0.0; 4] { [0.0, 0.0, 0.0, 1.0] } else { rotation };
@@ -6189,6 +6219,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     state.prop_textures.extend(crate::static_prop_textures(&db, playfield));
     state.prop_anim.extend(crate::static_prop_anims(&db, playfield).into_iter().map(|(k, (play, pos))| (k, (play, pos, Instant::now()))));
     state.approach_doors = crate::approach_doors(&db, playfield);
+    state.door_sounds = table_door_sounds(&db, playfield);
     state.table = crate::table_dynels(&db, playfield);
     state.table_sizes = crate::table_pick_sizes(&db, playfield);
     state.mission_kinds = crate::mission_terminals(&db, playfield);
@@ -7395,6 +7426,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             state.prop_textures.extend(crate::static_prop_textures(&thread_db, playfield));
                             state.prop_anim.extend(crate::static_prop_anims(&thread_db, playfield).into_iter().map(|(k, (play, pos))| (k, (play, pos, Instant::now()))));
                             state.approach_doors = crate::approach_doors(&thread_db, playfield);
+                            state.door_sounds = table_door_sounds(&thread_db, playfield);
                             state.animated_statels = Arc::new(area.animated);
                             state.table = crate::table_dynels(&thread_db, playfield);
                             state.table_sizes = crate::table_pick_sizes(&thread_db, playfield);
@@ -9728,6 +9760,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                 crate::audio::with(|m| m.play_game_sound(id, at, 0.0, 1.0, 0, 0.0, pitch as i32, 1, 0, [0.0; 3]));
                             }
                         }
+                    }
+                    // (a door opening or closing: its template's sound at its place, as `Door_t` plays it)
+                    for (id, at) in std::mem::take(&mut state.door_sounds_due) {
+                        crate::audio::with(|m| m.play_game_sound(id, at, 0.0, 1.0, 0, 0.0, 100, 1, 0, [0.0; 3]));
                     }
                     for id in std::mem::take(&mut state.died) {
                         let Some(at) = (if id == own { Some(position) } else { state.position_of(id) }) else { continue };
@@ -13114,6 +13150,31 @@ mod movement_tests {
         assert_eq!(w.special_refusal(150, Some(9)), None);
         w.worn.push(entry(8, 121969));
         assert_eq!((w.special_refusal(142, Some(9)), w.special_refusal(144, Some(9))), (None, None));
+    }
+
+    /// A door's sound is due when it opens and when it closes, at the door's place; a door without a sound of that
+    /// kind says nothing. `MAO_GAME`: the common door template's pair.
+    #[test]
+    fn a_door_sounds_as_it_opens_and_closes() {
+        let mut w = World { own: 7, ..World::default() };
+        let at = [10.0, 0.0, 20.0];
+        w.door_slots.insert(3, (0x10c80003, at));
+        w.door_slots.insert(4, (0x10c80004, [50.0, 0.0, 50.0]));
+        w.door_sounds.insert(3, (11, 22));
+        w.door_sounds.insert(4, (0, 44));
+        w.doors_open.insert(3, Instant::now() + Duration::from_secs(60));
+        w.doors_open.insert(4, Instant::now() + Duration::from_secs(60));
+        w.tick_doors([500.0, 0.0, 500.0]);
+        assert_eq!(std::mem::take(&mut w.door_sounds_due), vec![(11, at)]);
+        w.tick_doors([500.0, 0.0, 500.0]);
+        assert!(w.door_sounds_due.is_empty());
+        w.doors_open.clear();
+        w.tick_doors([500.0, 0.0, 500.0]);
+        assert_eq!(std::mem::take(&mut w.door_sounds_due), vec![(22, at), (44, [50.0, 0.0, 50.0])]);
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let db = mao_formats::resource::ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap();
+        assert_eq!(door_sound_pair(&db, 41565), (0xcfde8382, 0xc16f0487));
+        assert!(!table_door_sounds(&db, 6553).is_empty());
     }
 
     #[test]

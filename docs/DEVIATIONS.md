@@ -3169,6 +3169,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: doors silent, close after a fixed 5 s, a player the original lets through finds a locked door shut, no feedback
 - Where: `crates/mao-client/src/main.rs:553`; `docs/CLIENT_UI.md:831`; `docs/ORIGINAL_AUDIT.md:40`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-18, overnight): the doors' opening and closing sounds are played (from the template's sound set: classes 0x83/0x64 and 0x84/0x66; the entry's 'stat 131' is wrong). The entry's closing time is a misreading: the original has no timer (a door closes when no character touches it; stat 335 is a count of seconds before it lets through), so the client's five seconds are kept. The locked door's question is not done.
 
 #### `ZON-018` City signals not checked against the city id
 

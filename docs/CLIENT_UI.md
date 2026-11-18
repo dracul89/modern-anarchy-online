@@ -5177,3 +5177,29 @@ Noticed and not changed: the original stands a seated character up with `Charact
 captures: sit is the movement 0x1e, stand is 0x57), where this client's X key sends the movement 0x25; the server
 has taken that so far.
 Tests: `a_weapon_lets_its_own_specials_through`, `a_special_needs_a_weapon_that_lets_it` (`MAO_GAME`).
+
+### Doors have their sounds; what the original's "closing time" really is (ZON-017 in part)
+
+- **Sounds.** A door's sound is not a stat ("stat 131, else 100" in the notes): it is the door template's sound
+  set (the item's +0x88 map, chunk 0x14, which `mao_formats::item::class_sets` reads). Opening (Gamecode
+  FUN_10080319) plays the set's class 0x83, else 0x64; closing (FUN_100803b4) class 0x84, else 0x66; each with
+  `PlayGameSound(id, the door's place, 0.0, 1.0, 0, 0.0, 100, 1, 0, (0, 0, 0))`, before the animation. Of the 95
+  door templates 28 have the first pair, 36 the second and 25 are silent. Here: `door_sound_pair`,
+  `table_door_sounds` for a playfield's own doors and the same for the doors the server announces; a sound is due
+  at each change `tick_doors` notes. Not heard (nobody was there to listen). Not done: the touch's own sound
+  (class 0x6f, six templates).
+- **The closing time, read and left as it is.** The original has no closing timer: `Door_t`'s run (FUN_1007ff44)
+  closes an open door in the first frame in which no character's body touches it (unless the server's "stay
+  open" byte holds it), and stat 335 is not a time but a count of whole seconds a touching character waits before
+  the door lets it through or sends it on (1 on every door). The server's `DoorStatusUpdate`s are snapshots as
+  things come into range, not events. This client holds a door open for five seconds from the last time one's own
+  character was within four metres, and a door the server showed open for a day: both are its own, kept tonight
+  since the doors work as they are and a door that flaps at the edge of its reach would be worse than one that
+  closes late. The notes that call stat 335 a closing time are wrong.
+- **Read and left**: the locked door's question (FUN_1007fad8: a key item, the door's requirements, a key list, an
+  access card, an owned building and its team; its only line is for a full inventory) is not small and wants a
+  locked door live. Found beside it and not changed: a door's "open" and "locked" are bits 0x80 and 0x40 of its
+  stat 0, not of stat 259 as the client reads them (stat 259's bit 0x40 marks a door that keeps its template's
+  flags: one template, an always-open door, which the client takes for locked); and a status message's lock byte
+  is ignored.
+Test: `a_door_sounds_as_it_opens_and_closes`.
