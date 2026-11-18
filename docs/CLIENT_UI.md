@@ -2845,7 +2845,8 @@ The character is the original's steered vehicle now (Gamecode `CharVehicle_t`, V
 - **Turning by key** (FUN_1006ca4f setting the vehicle's +0x368, the rotation steering FUN_10071795): `TurnSpeed` (stat 267)
   / 11000 radians a second, halved while moving; with the stat at 0, 3.5 standing and 1.5 moving (`turn_rate`; the client
   turned at an invented 2.0).
-- **Walk and run** (`MOVEMENT_TOGGLEWALK`, default key here Numpad /, rebindable as `toggle_walk`): walking is 1.5 a second
+- **Walk and run** (`MOVEMENT_TOGGLEWALK`, default key Backspace as the shipped `CharPrefs.xml` has it (Numpad /
+  until 2026-11-18), rebindable as `toggle_walk`): walking is 1.5 a second
   both ways (mode 2); the switch is sent as the movement codes 0x18 (walk) and 0x19 (run); one's own character plays the
   walk or the run by the mode, as FUN_1006c370.
 - `/follow` now starts again only a metre past its distance (it started and stopped every step at the edge once starting
@@ -5320,7 +5321,7 @@ Two things the reading turned up:
   until a key is rebound there.
 - **This client's defaults are not the shipped file's in five keys**: walk/run is Backspace there (NumpadDivide
   here), sneak attack J, fast attack N, aimed shot O and the bow's special Period have keys there and none here,
-  and O is this client's map overlay. Not changed: reading an untouched file in whole would have moved them
+  and O is this client's map overlay. (Changed the same day, see the next part.) Reading an untouched file in whole would have moved them
   silently, which is why only changed keys are taken over.
 
 The character's folder is looked for under every install's `Prefs` and every user folder in it (the old lookup
@@ -5330,3 +5331,18 @@ original's actions this client has none for (the team and pet selection keys, `W
 others).
 Tests: `keybindings::tests` (six), `a_characters_own_keys_lie_over_the_clients`,
 `a_characters_own_file_is_found_by_its_number`.
+
+### The five default keys are the shipped file's ("match the original", the same day)
+
+Asked whether the five differing defaults should follow the shipped `CharPrefs.xml`, the user said "Match the
+original". So, since version 3 of the key table (`settings::KEYMAP_VERSION`): walk/run is Backspace (was Numpad /),
+sneak attack J, fast attack N, aimed shot O and the bow's special attack Period (they had no key), and the map
+overlay, this client's own, has no key (it had O; it can be given one in the options' Keys list).
+
+A settings file written before is not thrown away for it (another version's keys used to be replaced by the
+defaults in whole): a version 2 file is read as it is and brought up to date (`settings::MOVED_DEFAULTS`): each of
+the six actions that still has its old default gets the new one, unless another action of the file has that key; a
+key the player chose stays. So someone who never touched these keys gets the original's, the overlay off O
+included, and someone who put the overlay on O and F6, or J on the jump, keeps that and the action that wanted
+the key stays without one. The file is written as version 3 at the next save.
+Test: `the_older_key_table_is_brought_up_to_date`.

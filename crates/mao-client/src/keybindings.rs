@@ -18,7 +18,8 @@
 //! Here: at the game's start the character's file is read ([`apply`]) and, for each of this client's actions that
 //! has a counterpart ([`PROVIDERS`]), the keys are taken over **when they differ from the shipped default's**: a
 //! character whose keys were never changed in the original changes nothing here. (The rule is this client's: its
-//! own defaults are not the shipped file's in every key, and reading an untouched file in whole would move those.)
+//! own defaults are not the shipped file's in every key (the mouse's, the client's own windows), and a key the
+//! player set here must not be moved by a file the original last wrote long ago.)
 //! They lie over the client's own keys for the session and are not written to `mao.ini`
 //! (`settings::Keymap::set_character`); an action whose key was changed in this client keeps that key, and nothing
 //! is ever written to the original's folder.

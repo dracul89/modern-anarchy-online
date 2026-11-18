@@ -93,6 +93,9 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 - Keys rebound in the original client are taken over for that character (the keyboard keys of the actions this
   client has), unless the key was changed here too.
+- Five default keys now match the game's: walk/run on Backspace (was Numpad /), sneak attack J, fast attack N,
+  aimed shot O, bow special attack Period. The map overlay, which had O, has no key until you give it one (Options,
+  Keys). Keys you had changed yourself are kept.
 
 ## 0.1.5 (2026-11-17)
 

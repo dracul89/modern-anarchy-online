@@ -175,13 +175,12 @@ pub const QUICK: &[(&str, &str, u32, &str)] = &[
     ("action_pick_up", "R", 49578, "Pick-Up"),
     ("action_sneak", "H", 49575, "Sneak"),
     // (the original binds these four too, GUI.dll 0x1006951c: ActionSneakAttack, ActionFastAttack, ActionAimedShot,
-    // ActionBowSpecialAttack. The shipped `CharPrefs.xml` has J, N, O and Period for them, read on 2026-11-18
-    // (`keybindings.rs`); they still start without a key here: O is this client's map overlay, and a change of the
-    // defaults is the user's to decide)
-    ("action_sneak_attack", "", 0x1f83a, "Sneak Attack"),
-    ("action_fast_attack", "", 0x14126, "Fast Attack"),
-    ("action_aimed_shot", "", 0x14127, "Aimed Shot"),
-    ("action_bow_special_attack", "", 0x1e159, "Bow Special Attack"),
+    // ActionBowSpecialAttack: J, N, O and Period in the shipped `CharPrefs.xml`, read on 2026-11-18 (`keybindings.rs`)
+    // and this client's defaults since, at the user's word: until then they started without a key)
+    ("action_sneak_attack", "J", 0x1f83a, "Sneak Attack"),
+    ("action_fast_attack", "N", 0x14126, "Fast Attack"),
+    ("action_aimed_shot", "O", 0x14127, "Aimed Shot"),
+    ("action_bow_special_attack", "Period", 0x1e159, "Bow Special Attack"),
 ];
 
 /// Every action with its name in the settings file and its default keys.
@@ -222,7 +221,8 @@ pub const ACTIONS: &[(Action, &str, &str)] = &[
     (Action::ActionsWindow, "actions_window", "Ctrl+2"),
     (Action::MissionWindow, "mission_window", "Ctrl+4"),
     (Action::PlanetMapWindow, "planet_map", "P, Ctrl+6"),
-    (Action::MapOverlay, "map_overlay", "O"),
+    // (this client's own, without a key since 2026-11-18: it had O, which is the original's aimed shot)
+    (Action::MapOverlay, "map_overlay", ""),
     (Action::FriendsWindow, "friends_window", "Ctrl+7"),
     (Action::ProgramsWindow, "programs_window", "Ctrl+8"),
     (Action::StatsWindow, "stats_window", "Ctrl+9"),
@@ -240,7 +240,8 @@ pub const ACTIONS: &[(Action, &str, &str)] = &[
     (Action::Screenshot, "screenshot", "F12"),
     (Action::Coordinates, "coordinates", "F9"),
     (Action::AutoRun, "auto_run", "Numpad0"),
-    (Action::ToggleWalk, "toggle_walk", "NumpadDivide"),
+    // (`MOVEMENT_TOGGLEWALK`'s key in the shipped `CharPrefs.xml`; Numpad / here until 2026-11-18)
+    (Action::ToggleWalk, "toggle_walk", "Backspace"),
     // The shortcut bar: the keys 1 to 0 use the slots of the shown bar, Alt+1 to Alt+6 show another bar.
     (Action::HotbarSlot(0), "hotbar_slot_1", "1"),
     (Action::HotbarSlot(1), "hotbar_slot_2", "2"),
@@ -267,10 +268,10 @@ pub const ACTIONS: &[(Action, &str, &str)] = &[
     (Action::Quick(5), "action_reload", "V"),
     (Action::Quick(6), "action_pick_up", "R"),
     (Action::Quick(7), "action_sneak", "H"),
-    (Action::Quick(8), "action_sneak_attack", ""),
-    (Action::Quick(9), "action_fast_attack", ""),
-    (Action::Quick(10), "action_aimed_shot", ""),
-    (Action::Quick(11), "action_bow_special_attack", ""),
+    (Action::Quick(8), "action_sneak_attack", "J"),
+    (Action::Quick(9), "action_fast_attack", "N"),
+    (Action::Quick(10), "action_aimed_shot", "O"),
+    (Action::Quick(11), "action_bow_special_attack", "Period"),
     // The chat.
     (Action::ChatInput, "chat_input", "Enter"),
     (Action::ChatCommand, "chat_command", "Slash"),
@@ -286,8 +287,23 @@ pub const ACTIONS: &[(Action, &str, &str)] = &[
 ];
 
 /// The version of the key table in the settings file: a file written for another version has its keys replaced by the defaults (the
-/// first versions used keys of this client's own).
-pub const KEYMAP_VERSION: u32 = 2;
+/// first versions used keys of this client's own), but for version 2's, which are kept and brought up to date
+/// ([`MOVED_DEFAULTS`]).
+pub const KEYMAP_VERSION: u32 = 3;
+
+/// The default keys that changed from version 2 of the key table to version 3 (2026-11-18, the user's "match the
+/// original": the shipped `CharPrefs.xml`'s keys for walk/run and four special attacks, and the map overlay off O,
+/// which is the aimed shot's there): the action, its keys in version 2 and its keys now. A version 2 file's action
+/// that still has its old default gets the new one, when no other action of the file has that key; a key the player
+/// chose stays.
+pub const MOVED_DEFAULTS: &[(Action, &str, &str)] = &[
+    (Action::MapOverlay, "O", ""),
+    (Action::ToggleWalk, "NumpadDivide", "Backspace"),
+    (Action::Quick(8), "", "J"),
+    (Action::Quick(9), "", "N"),
+    (Action::Quick(10), "", "O"),
+    (Action::Quick(11), "", "Period"),
+];
 
 /// Whether the server's messages go into the game's log now (`[debug] log_messages`, `/setoption log_messages on`,
 /// `MAO_TRACE=1`): set when the game starts and when the setting is changed in it.
@@ -785,7 +801,13 @@ impl Settings {
                 _ => eprintln!("settings line {}: unknown setting {key:?}", n + 1),
             }
         }
-        if key_version == KEYMAP_VERSION {
+        if key_version == KEYMAP_VERSION || key_version == 2 {
+            // (a version 2 file starts from version 2's defaults, so an action it has no line for is as it was)
+            if key_version == 2 {
+                for &(action, old, _) in MOVED_DEFAULTS {
+                    settings.keymap.set(action, old);
+                }
+            }
             for (n, name, value) in key_lines {
                 match ACTIONS.iter().find(|(_, n, _)| *n == name) {
                     Some(&(action, _, _)) => {
@@ -800,6 +822,17 @@ impl Settings {
                         settings.keymap.set(action, &value);
                     }
                     None => eprintln!("settings line {}: unknown action {name:?}", n + 1),
+                }
+            }
+            // (version 2's keys brought up to date: `MOVED_DEFAULTS`, in its order, so the overlay lets go of O
+            // before the aimed shot asks for it)
+            if key_version == 2 {
+                let keys = |text: &str| -> Vec<Binding> { text.split(',').filter_map(parse_binding).collect() };
+                for &(action, old, new) in MOVED_DEFAULTS {
+                    let free = keys(new).iter().all(|b| ACTIONS.iter().all(|&(other, _, _)| other == action || !settings.keymap.bindings_of(other).contains(b)));
+                    if settings.keymap.bindings_of(action) == keys(old) && free {
+                        settings.keymap.set(action, new);
+                    }
                 }
             }
         } else if !key_lines.is_empty() {
@@ -1039,6 +1072,45 @@ log_messages = on
         assert_eq!(settings.keymap.action(KeyCode::Space, none), Some(Action::Jump));
         // (read back, the file has no trace of the character's keys)
         assert_eq!(Settings::from_text(&text).keymap.keys(Action::Attack), "Q");
+    }
+
+    /// The keys that are the shipped file's since version 3 of the key table, and a version 2 file brought up to
+    /// date: an action still on its old default gets the new one; a key the player chose stays; a new key another
+    /// action of the file has is not taken.
+    #[test]
+    fn the_older_key_table_is_brought_up_to_date() {
+        let k = Keymap::default();
+        assert_eq!((k.keys(Action::ToggleWalk), k.keys(Action::MapOverlay)), ("Backspace".to_string(), String::new()));
+        assert_eq!((k.keys(Action::Quick(8)), k.keys(Action::Quick(9)), k.keys(Action::Quick(10)), k.keys(Action::Quick(11))), ("J".to_string(), "N".to_string(), "O".to_string(), "Period".to_string()));
+        for &(action, _, new) in MOVED_DEFAULTS {
+            assert_eq!(k.keys(action), new);
+        }
+        // (a version 2 file as this client wrote it, untouched: every one of the six moves)
+        let mut old = Settings::default();
+        for &(action, keys, _) in MOVED_DEFAULTS {
+            old.keymap.set(action, keys);
+        }
+        let untouched = old.to_text().replace(&format!("version = {KEYMAP_VERSION}"), "version = 2");
+        assert!(untouched.contains("\nmap_overlay = O\n") && untouched.contains("\ntoggle_walk = NumpadDivide\n") && untouched.contains("\naction_aimed_shot = \n"));
+        let k = Settings::from_text(&untouched).keymap;
+        for &(action, _, new) in MOVED_DEFAULTS {
+            assert_eq!(k.keys(action), new);
+        }
+        assert_eq!(k.action(KeyCode::KeyO, ModifiersState::empty()), Some(Action::Quick(10)));
+        // (the player's own choices: the overlay kept on O, so the aimed shot stays without a key; walk/run moved
+        // to another key stays there; J given to the jump, so the sneak attack does not take it)
+        let chosen = untouched.replace("\ntoggle_walk = NumpadDivide\n", "\ntoggle_walk = F7\n").replace("\njump = Space\n", "\njump = Space, J\n").replace("\nmap_overlay = O\n", "\nmap_overlay = O, F6\n");
+        let k = Settings::from_text(&chosen).keymap;
+        assert_eq!((k.keys(Action::ToggleWalk), k.keys(Action::MapOverlay), k.keys(Action::Quick(10)), k.keys(Action::Quick(8)), k.keys(Action::Quick(9))), ("F7".to_string(), "O, F6".to_string(), String::new(), String::new(), "N".to_string()));
+        // (a version 2 file without the lines is as version 2 was, then brought up to date the same)
+        let bare = Settings::from_text("[keys]\nversion = 2\nattack = F\n").keymap;
+        assert_eq!((bare.keys(Action::Attack), bare.keys(Action::ToggleWalk), bare.keys(Action::Quick(10))), ("F".to_string(), "Backspace".to_string(), "O".to_string()));
+        // (a file of the version before, or after, has its keys replaced by the defaults, as before)
+        assert_eq!(Settings::from_text("[keys]\nversion = 1\nattack = F\n").keymap.keys(Action::Attack), "Q");
+        // (and one written now is read as it is: an aimed shot unbound here stays unbound)
+        let mut now = Settings::default();
+        now.keymap.set(Action::Quick(10), "");
+        assert_eq!(Settings::from_text(&now.to_text()).keymap.keys(Action::Quick(10)), "");
     }
 
     #[test]

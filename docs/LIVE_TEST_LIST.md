@@ -869,6 +869,9 @@ These were written before this list; some may have been seen working since witho
   leader says the raid was made. Send me the log: no raid message was ever sent to the server before.
 - [ ] Keys from the original (2026-11-18): rebind a key in the original client for a character, log that
   character in here: the Keys list shows it and the log has a "keys:" line.
+- [ ] The five default keys (2026-11-18): Backspace switches walk and run; in Options, Keys: Sneak Attack J, Fast
+  Attack N, Aimed Shot O, Bow Special Attack Period, the map overlay without a key, and any key you had changed
+  yourself as you left it.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a
