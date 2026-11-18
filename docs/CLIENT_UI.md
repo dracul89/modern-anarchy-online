@@ -5653,3 +5653,41 @@ confirmed in the code was ported, and no default look changes by it:
 - The Direct3D 7 ground and texture options, the advertisements, the hotbar and fade options, and
   `AutoTargetMOB` / `AutoTargetPvP` / `DisableXPGain` (their message was never seen).
 Tests: `the_fog_mode_thins_the_fog`, `a_bit_box_shows_and_sets_its_bit`, `escape_closes_by_the_original_options`.
+
+## The launcher closing on Direct3D 12: "Invalid surface" (2026-11-18)
+
+A player of the released 0.1.5 sent the error box and the crash log: the launcher closed about a second after it
+opened, with wgpu saying "In Surface::configure: Invalid surface". Reproduced here, mended, and tried again.
+
+### What it was
+
+The launcher opens its news page (a WebView2 child window) half a second after its first frame and sets its surface
+up anew right after (`launchwindow.rs`, `Launch::draw`). That was done inside the frame's own block, with the frame
+presented but **the view of its picture still alive**. Direct3D 12 does not make a window's pictures anew
+(`ResizeBuffers`) while anything still refers to one of them; wgpu reports that as "Invalid surface", and an error
+nobody catches is a panic. Vulkan lets it pass, which is why it was never seen here: this machine draws with Vulkan,
+by the system's choice and by its settings. A machine whose choice is Direct3D 12 lost the launcher at every start.
+
+- **Reproduced** with the Direct3D 12 device named in a scratch `mao.ini` (`adapter = <name> (Dx12)`) and
+  `launch_probe.py`: the same error, 2.4 s after the start, in `Launch::draw` under `window_event`.
+- **Mended**: the view is let go before the surface is set up anew. Tried again the same way: the launcher stays
+  and its page comes.
+- **The login window had the same fault** (`launcher.rs`): the error page of a refused login is opened, and the
+  surface set up anew, with the frame's view alive. On Direct3D 12 a wrong password closed the login
+  (`MAO_LAUNCHER_DEMO=error` showed it). Mended the same way and tried.
+- **Found with it: the game's own process never asked for the device of the settings.** Only the launcher and the
+  login called `mao_render::prefer_adapter`; the game, a process of its own, drew with the system's choice whatever
+  was chosen on the launcher's Visual page. It asks now, and prints `graphics device: <name> (<backend>)` at its
+  start. With that, one test login (Maotesttwo) was run on Direct3D 12 through the login hall into the game: the
+  scene and the interface draw, nothing failed in 44 s. The game's other places that set the surface up anew (a
+  resize, the vertical sync, a lost surface) do it with no frame in hand.
+
+Not done: catching a failed surface set-up instead of ending (an error scope round it, a few tries, then the
+message); nothing was seen to need it once the two faults were out. How to try Direct3D 12 here again: the device's
+name with `(Dx12)` as `adapter =` in the scratch settings of `launch_probe.py` (`hardencfg`) or of
+`win_shot_live.py` (`inv/cfg`, whatever its own note says).
+
+A player on 0.1.5 can get past it until a new release: a file `launcher.ini` beside `mao.ini`
+(`%APPDATA%\\ModernAnarchyOnline`) with the line `page = off` keeps the launcher from opening its page, and with it
+from the fault (tried with the installed 0.1.5: it closes with the page on and stays with it off); the login
+then closes only at a refused password.

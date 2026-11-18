@@ -124,6 +124,13 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
   at once, both cloud options off hides the single clouds, and "wait for vertical sync" sets the client's VSync.
 - The helmet, shoulder pad and social tab boxes each keep their own setting (ticking one overwrote the others).
 
+### The launcher
+
+- The launcher no longer closes a second after opening ("Invalid surface") on machines that draw with Direct3D 12,
+  and the login no longer closes there at a refused password.
+- The graphics device chosen in the launcher's settings is now used by the game itself, not only by the launcher
+  and the login.
+
 ## 0.1.5 (2026-11-17)
 
 ### The launcher

@@ -1061,6 +1061,11 @@ impl Launch {
                         gfx.page = crate::crash::guarded("the launcher's page", move || open_page(&window, &address, bounds, Some(loaded))).flatten();
                         gfx.page_opened = Some(Instant::now());
                         gfx.page_up = false;
+                        // (nothing of the frame just shown may be held when the surface is set up anew: Direct3D 12
+                        // refuses to make the window's pictures anew while a view of one is alive, "Invalid surface",
+                        // which closed the launcher a second after it opened on every machine drawing with it;
+                        // Vulkan lets it pass)
+                        drop(view);
                         gfx.surface.configure(&gfx.gpu.device, &gfx.config);
                         // (the surface set up anew holds nothing: its next frame now, not a sixtieth of a second on)
                         return self.draw(gfx, event_loop);

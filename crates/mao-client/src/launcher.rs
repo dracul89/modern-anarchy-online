@@ -877,7 +877,9 @@ impl ApplicationHandler for Launcher {
                     gfx.window.pre_present_notify();
                     gfx.gpu.queue.present(frame);
                     // (the error's page, once the frame is given back: opening it sets the surface up anew, which a frame
-                    // still held does not allow)
+                    // still held does not allow, and neither does a view of it on Direct3D 12: "Invalid surface" closed
+                    // the login at a refused password there)
+                    drop(view);
                     #[cfg(any(windows, target_os = "macos"))]
                     self.place_page(&mut gfx);
                     // (a character chosen: the game starts in a process of its own, which logs in and reads the playfield

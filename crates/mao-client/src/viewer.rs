@@ -1195,7 +1195,11 @@ impl ApplicationHandler for App {
         eprintln!("window mode: {} (F11 or Alt+Enter change it)", self.settings.mode.name());
         let instance = wgpu::Instance::default();
         let surface = instance.create_surface(window.clone()).expect("a surface");
+        // (the graphics device of the settings: only the launcher and the login asked for it, so the game itself,
+        // a process of its own, drew with the system's choice whatever was chosen there)
+        mao_render::prefer_adapter(&self.settings.adapter);
         let gpu = Gpu::new(instance, Some(&surface)).expect("a graphics device");
+        eprintln!("graphics device: {}", mao_render::adapter_name(&gpu.adapter));
         let size = window.inner_size();
         let mut config = surface.get_default_config(&gpu.adapter, size.width.max(1), size.height.max(1)).expect("a surface format");
         config.present_mode = present_mode(&surface, &gpu, self.settings.vsync);
