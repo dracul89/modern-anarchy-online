@@ -46,6 +46,10 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
   the hotbar do; it used to do nothing.
 - Lock times follow the character's lock modifier (a stim's wait on a character with -20 % is shown as 32 s, not
   40 s).
+- The Actions window's Use, Start/End Combat, Sit/Stand, Walk/Run and Suspended Animation tiles work (they do
+  what their keys do); most of them only said their message was not known.
+- Brawl and Dimach say "Special attack is unavailable" when only ranged weapons are held, as in the game, instead
+  of being sent and refused.
 
 ### Windows
 

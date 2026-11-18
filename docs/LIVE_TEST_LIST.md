@@ -848,6 +848,9 @@ These were written before this list; some may have been seen working since witho
   screen `/start https://...` asks first; in a window it opens at once.
 - [ ] An item between two templates (2026-11-18): the mission belt's page (quality 30) says 3 deck places; compare
   a few such items' pages with the game's (value, range, price).
+- [ ] Action tiles (2026-11-18): click Use with a target, Start Combat (and again to stop), Stand (sits, then
+  stands), Walk (the pace changes), Suspended Animation (the logout bar starts; again: it stops). With only a pistol
+  in the hands click Brawl: "unavailable"; with a melee weapon or bare hands it goes out.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

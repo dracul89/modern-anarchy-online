@@ -840,6 +840,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Brawl and Dimach go out with any weapon; no client line for range, line of sight or queue
 - Where: `crates/mao-client/src/net.rs:3821`; `crates/mao-client/src/net.rs:3822`; `docs/CLIENT_UI.md:3823`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-18, overnight): the held weapon's bit is asked (Feedback_SpecialAttackIsUnavailable for Brawl and Dimach with only ranged weapons held); the range, the line of sight and the queue are still the server's.
 
 #### `CMB-023` Action tiles do not follow state; some tiles, CharacterAction 0xb2/0x14/0xfc, icon time text, special at attackable item undone
 
@@ -867,6 +868,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: some actions in the action window do nothing
 - Where: `crates/mao-client/src/net.rs:8214`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-18, overnight): the same port as WIN-112: only Pick-Up and Crawl still say so.
 
 #### `CMB-026` Alien-XP level-cap adjustment not done
 
@@ -5024,6 +5026,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: clicking those tiles shows a not-captured line and does nothing
 - Where: `crates/mao-client/src/net.rs:8214`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-18, overnight): Use, Start/End Combat, Sit/Stand, Walk/Run and Suspended Animation / Disrupt do what their keys do (the functions FUN_100427d6 calls for them); Pick-Up (ClientGetItem, in no capture) and Crawl (no crawling kept) still say they are not known.
 
 #### `WIN-113` Toggling character actions always show the same tile
 
@@ -5033,6 +5036,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: the tile does not change when you sit, run, fight or sneak
 - Where: `crates/mao-client/src/actions.rs:45`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-18, overnight): read in full (FUN_1004300e shows the other number of a pair; its callers by pair; both templates of each pair are in actions::TEMPLATES); the tiles now act by the state but do not change their picture: that touches the window, the hotbar and the HUD's update.
 
 #### `WIN-114` Window chrome: no "?" help button, docking, auto-fade, original titles or art
 

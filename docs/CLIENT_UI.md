@@ -5151,3 +5151,29 @@ places and a price of 4375 on its page, and the same item at quality 40 is named
 Left: the page's modifier and skill lists still read the low template's (the worn effects and the requirements
 are worked out between both already, `derived::effects` and `derived::actions`).
 Test: `an_item_between_two_templates` (`MAO_GAME`).
+
+### The action tiles that did nothing, and a special's weapon (WIN-112 / CMB-025 in part, CMB-022 in part)
+
+- **Tiles** (`N3Msg_PerformSpecialAction`'s FUN_100427d6, by the action's number): Use is `N3Msg_UseItem` on the
+  selection; Start and End Combat both `N3Msg_DefaultAttack`; Sit and Stand both `N3Msg_SitToggle`; Walk and Run
+  the pace's switch (`N3Msg_MovementChanged` 0x18 / 0x19); Suspended Animation `N3Msg_StartCamping` and Disrupt
+  `N3Msg_StopCamping` (`CharacterAction` 0x79 alone; the server's 0x7a ends the bar). Each of these has a key in
+  this client that does the same, so the tile presses the key (E, the attack key, X, the walk/run key, `/camp`),
+  and with a camp under way the Suspended Animation tile is its other side. Before, Use, Walk and Suspended
+  Animation said "its network message is not captured yet", Stand only stood a sleeper up, and Start Combat could
+  start a fight but not stop one.
+  Still saying so: Pick-Up (`N3Msg_GetItem` sends `ClientGetItem`, which no capture has) and Crawl (the client
+  keeps no crawling). Not done: the tiles changing their picture and name with the state (WIN-113: read in full,
+  FUN_1004300e and its callers; it touches the window, the hotbar and the HUD's update).
+- **A special's weapon** (`N3Msg_SecondarySpecialAttack` 0x100281fc, after the lock's wait line): with a weapon in a
+  hand, one of the held weapons has to have the special's bit among its "can" flags (FUN_1009aced: Brawl
+  0x2000000, Dimach 0x4000000 beside the weapons' own), else `Feedback_SpecialAttackIsUnavailable` and nothing is
+  sent; with bare hands nothing is asked. So Brawl and Dimach, which the server lists whatever is held, are not
+  available with only pistols or rifles in the hands (a Solar-Powered Pistol's flags have neither bit, a Dull
+  Katana's both). `actions::weapon_lets`, `World::special_refusal`. The special's range and the line of sight are
+  still the server's.
+
+Noticed and not changed: the original stands a seated character up with `CharacterAction` 0x57 (ten pairs in the
+captures: sit is the movement 0x1e, stand is 0x57), where this client's X key sends the movement 0x25; the server
+has taken that so far.
+Tests: `a_weapon_lets_its_own_specials_through`, `a_special_needs_a_weapon_that_lets_it` (`MAO_GAME`).

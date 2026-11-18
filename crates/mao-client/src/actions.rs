@@ -204,6 +204,20 @@ pub const BACKSTAB: u32 = 489;
 /// not -1 (the same function).
 pub const RELOAD: u32 = 110;
 
+/// Whether a weapon with these "can" flags lets its holder do the special attack of that number (Gamecode
+/// FUN_1009aced, asked of each held weapon by `N3Msg_SecondarySpecialAttack`, 0x100281fc): the seven of
+/// [`WEAPON_CAN`], Brawl by 0x2000000, Dimach by 0x4000000, and Backstab by the sneak attack's bit for a character
+/// the server allowed it.
+pub fn weapon_lets(can: u32, number: u32, backstab: bool) -> bool {
+    let bit = match number {
+        142 => 0x2000000,
+        144 => 0x4000000,
+        BACKSTAB if backstab => 0x20000,
+        _ => WEAPON_CAN.iter().find(|f| f.1 == number).map_or(0, |f| f.0),
+    };
+    can & bit != 0
+}
+
 /// The numbers of the actions a weapon with these "can" flags gives.
 pub fn weapon_numbers(can: u32) -> impl Iterator<Item = u32> {
     WEAPON_CAN.into_iter().filter(move |f| can & f.0 != 0).map(|f| f.1)
@@ -427,6 +441,16 @@ impl ActionsWindow {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A pistol's flags (0x1405) let no one brawl; a katana's (0x66000405) let one brawl and use Dimach; a burst
+    /// weapon bursts.
+    #[test]
+    fn a_weapon_lets_its_own_specials_through() {
+        assert!(!weapon_lets(0x1405, 142, false) && !weapon_lets(0x1405, 144, false));
+        assert!(weapon_lets(0x66000405, 142, false) && weapon_lets(0x66000405, 144, false));
+        assert!(weapon_lets(0x1405, 150, false) && !weapon_lets(0x1405, 148, false) && weapon_lets(0x805, 148, false));
+        assert!(!weapon_lets(0x20000, BACKSTAB, false) && weapon_lets(0x20000, BACKSTAB, true) && weapon_lets(0x20000, SNEAK_ATTACK, false));
+    }
 
     /// The Sit/Stand, Walk/Run, Sneak and Crawl tiles are among what a flyer cannot do; the fights' and Use are not.
     #[test]

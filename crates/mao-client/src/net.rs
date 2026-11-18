@@ -4010,8 +4010,12 @@ impl World {
     /// `Feedback_ActionIsNotAvailable`. Search (FUN_1003fc96) and the attacks (`N3Msg_SecondarySpecialAttack`,
     /// 0x100281fc) give the wait line while the server has their skill locked. An attack needs a target (none:
     /// nothing is said), which is not oneself, not dead, and the attacker not swimming (FUN_10069a9f).
-    /// Not checked here, left to the server: the held weapon's "can" bit for the special (Brawl 0x2000000 and Dimach
-    /// 0x4000000 among them), the special's range and the line of sight, the queue of specials not yet swung.
+    /// After the lock, the held weapons are asked (0x100281fc's sixth step): with a weapon in a hand (places 6 and
+    /// 8), one of them has to have the special's "can" bit (`actions::weapon_lets`: Brawl and Dimach want a weapon
+    /// that allows them, which a pistol does not), else `Feedback_SpecialAttackIsUnavailable`; with no weapon in
+    /// either hand nothing is asked.
+    /// Not checked here, left to the server: the special's range and the line of sight, the queue of specials not
+    /// yet swung.
     /// What is left of a skill's lock, in seconds; none when it is not locked (the character's lock list, Gamecode
     /// FUN_1006414f).
     fn skill_lock_left(&self, stat: u32) -> Option<f32> {
@@ -4060,7 +4064,17 @@ impl World {
                 return Some(Some(crate::feedback::plain("Feedback_TargetIsAlreadyDead")));
             }
         }
-        locked(stat).map(|left| Some(crate::feedback::unable_to_perform(&crate::feedback::skill_name(stat), left)))
+        if let Some(left) = locked(stat) {
+            return Some(Some(crate::feedback::unable_to_perform(&crate::feedback::skill_name(stat), left)));
+        }
+        if number != crate::actions::SEARCH {
+            // (a `WeaponItem_t` in a hand: an item of the weapons' class there)
+            let held: Vec<u32> = self.worn.iter().filter(|e| (e.slot == 6 || e.slot == 8) && template_stat(e.low_id, 76) == Some(1)).map(|e| template_stat(e.low_id, 30).unwrap_or(0) as u32).collect();
+            if !held.is_empty() && !held.iter().any(|&can| crate::actions::weapon_lets(can, number, self.backstab)) {
+                return Some(Some(crate::feedback::plain("Feedback_SpecialAttackIsUnavailable")));
+            }
+        }
+        None
     }
 
     /// The overflow's list changed: its window, when it is up, shows the new one.
@@ -8426,11 +8440,47 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 if grounded_only {
                     told(crate::feedback::plain("Feedback_ActionIsNotAvailable"), &mut state.game_lines);
                 }
+                // (the tiles whose doing a key has: FUN_100427d6 calls for them what the keys call, so the tile
+                // presses the key. Use is `N3Msg_UseItem` on the selection (E); Start and End Combat both
+                // `N3Msg_DefaultAttack` (the attack key: it stops a fight, else attacks the selection); Sit and Stand
+                // both `N3Msg_SitToggle` (X); Walk and Run the pace's switch; Suspended Animation
+                // `N3Msg_StartCamping` (`/camp`), and with a camp under way its other side, Disrupt,
+                // `N3Msg_StopCamping`: `CharacterAction` 0x79 and nothing else, the server's 0x7a ends the bar and
+                // says the line. The tiles do not yet change their picture with the state. Until 2026-11-18 Use,
+                // Walk and Suspended Animation said "not captured", Stand only stood a sleeper up and Start Combat
+                // could not stop a fight. Pick-Up (`ClientGetItem`, in no capture) and Crawl (no crawling is kept
+                // here) still say so.)
+                let camping = crate::ui::CAMP.lock().unwrap_or_else(|e| e.into_inner()).is_some();
+                let keyed = !grounded_only
+                    && match number {
+                        Some(3) => {
+                            seen[6] = seen[6].wrapping_sub(1);
+                            true
+                        }
+                        Some(0xb | 0x4e) => {
+                            seen[4] = seen[4].wrapping_sub(1);
+                            true
+                        }
+                        Some(0x4c | 0x4d) => {
+                            seen[5] = seen[5].wrapping_sub(1);
+                            true
+                        }
+                        Some(0x11 | 0x12) => {
+                            walk_toggle_seen = walk_toggle_seen.wrapping_sub(1);
+                            true
+                        }
+                        Some(0x51 | 0x52) if camping => {
+                            let _ = connection.send(&n3::action(own, n3::STOP_LOGOUT));
+                            true
+                        }
+                        Some(0x51) => {
+                            camp_seen = camp_seen.wrapping_sub(1);
+                            true
+                        }
+                        _ => false,
+                    };
                 match name {
-                    _ if numbered.is_some() || grounded_only => {}
-                    "Stand" => {
-                        let _ = connection.send(&n3::action(own, n3::STAND));
-                    }
+                    _ if numbered.is_some() || grounded_only || keyed => {}
                     "Sneak" => {
                         // (`N3Msg_TryEnterSneakMode`, 0x10029581: not in a vehicle; one who sneaks already leaves it, the
                         // toggled entry's movement action 0x24)
@@ -8442,13 +8492,6 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             let _ = connection.send(&n3::action(own, 0xa3));
                         }
                     }
-                    "Start Combat" => match target {
-                        Some(t) => {
-                            let _ = connection.send(&n3::attack(own, t));
-                            pending_messages.push(format!("Attacking {}", state.names.get(&t).map_or("the target", |n| n.0.as_str())));
-                        }
-                        None => pending_messages.push("No target (Tab selects one)".into()),
-                    },
                     // (a perk action the server listed: `N3Msg_PerformSpecialAction`'s 0xc78e case, FUN_100427d6, a `UsePerk`)
                     // (one whose lock runs is not used: FUN_100427d6 says the perk's wait line, FUN_10052fc4, and
                     // sends nothing)
@@ -13053,6 +13096,24 @@ mod movement_tests {
         assert_eq!((w.stats.get(&54), w.stats.get(&53)), (Some(&2), Some(&0x11b2)));
         let kinds: Vec<crate::chatwindow::Kind> = w.game_lines.iter().map(|l| l.kind).collect();
         assert_eq!(kinds, [crate::chatwindow::Kind::Combat, crate::chatwindow::Kind::System, crate::chatwindow::Kind::System]);
+    }
+
+    /// `MAO_GAME`: with only a pistol in the hands Brawl and Dimach are not available (the pistol's "can" flags
+    /// lack their bits) though the server lists them; a katana in the other hand lets both through, and so do bare
+    /// hands. The pistol's own fling shot is never refused by it.
+    #[test]
+    fn a_special_needs_a_weapon_that_lets_it() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let db = Arc::new(mao_formats::resource::ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap());
+        let _ = ITEM_DB.set(db);
+        let entry = |slot: u32, low_id: u32| inventory::Entry { slot, flags: 0, count: 1, container: (0, 0), low_id, high_id: low_id, quality: 1, extra: 0 };
+        let mut w = World { own: 7, specials_told: Some(vec![142, 144, 150]), ..World::default() };
+        assert_eq!((w.special_refusal(142, Some(9)), w.special_refusal(144, Some(9))), (None, None));
+        w.worn = vec![entry(6, 121567)];
+        assert!(matches!(w.special_refusal(142, Some(9)), Some(Some(_))) && matches!(w.special_refusal(144, Some(9)), Some(Some(_))));
+        assert_eq!(w.special_refusal(150, Some(9)), None);
+        w.worn.push(entry(8, 121969));
+        assert_eq!((w.special_refusal(142, Some(9)), w.special_refusal(144, Some(9))), (None, None));
     }
 
     #[test]
