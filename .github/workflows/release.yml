@@ -192,6 +192,46 @@ jobs:
         if: runner.os == 'Linux'
         run: sh tools/package-appimage.sh dist "$VERSION"
 
+      # The Developer ID certificate and Apple's notary account, when the repository has them as secrets
+      # (docs/RELEASING.md, "Signing the macOS application"): a keychain of this run's own holds them, and
+      # tools/package-macos.sh then signs the application and the image with the certificate and has Apple notarize
+      # the image. Without the secrets nothing happens here and the application is signed ad hoc. It comes after the
+      # build, so nothing that is compiled runs while the certificate is on the machine.
+      - name: Signing certificate (macOS)
+        if: runner.os == 'macOS'
+        env:
+          P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          P12_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          NOTARY_APPLE_ID: ${{ secrets.MACOS_NOTARY_APPLE_ID }}
+          NOTARY_TEAM_ID: ${{ secrets.MACOS_NOTARY_TEAM_ID }}
+          NOTARY_PASSWORD: ${{ secrets.MACOS_NOTARY_PASSWORD }}
+        run: |
+          if [ -z "$P12" ]; then
+            echo "no certificate among the repository's secrets: the application is signed ad hoc"
+            exit 0
+          fi
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          key=$(openssl rand -hex 24)
+          security create-keychain -p "$key" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$key" "$keychain"
+          # (Apple's intermediate certificate, which the machine may not have: the chain from ours to Apple's root)
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/DeveloperIDG2CA.cer" https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer
+          security import "$RUNNER_TEMP/DeveloperIDG2CA.cer" -k "$keychain"
+          printf '%s' "$P12" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" -P "$P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          rm -f "$RUNNER_TEMP/certificate.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$key" "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          security default-keychain -s "$keychain"
+          if ! security find-identity -v -p codesigning "$keychain" | grep -q "Developer ID Application"; then
+            echo "::error::the certificate in MACOS_CERTIFICATE_P12 is not a Developer ID Application certificate with its key"
+            exit 1
+          fi
+          # (the notary account under a name, in the same keychain; Apple is asked whether it is right)
+          xcrun notarytool store-credentials mao-notary --apple-id "$NOTARY_APPLE_ID" --team-id "$NOTARY_TEAM_ID" --password "$NOTARY_PASSWORD"
+          echo "MAO_NOTARY_PROFILE=mao-notary" >> "$GITHUB_ENV"
+
       # (the same build as an application in a disk image: tools/package-macos.sh)
       - name: Package (macOS application)
         if: runner.os == 'macOS'
@@ -240,6 +280,9 @@ jobs:
 
       - name: Draft the release (or add to the one the tag already has)
         working-directory: out
+        env:
+          # (whether the macOS job had a certificate to sign with: what the notes say of the disk image)
+          SIGNED_MACOS: ${{ secrets.MACOS_CERTIFICATE_P12 != '' }}
         run: |
           if gh release view "$TAG" > /dev/null 2>&1; then
             # (the workflow run again for the same tag: the files are replaced, the release's text is left as it is)
@@ -263,7 +306,11 @@ jobs:
               echo "The files' SHA-256 sums are in SHA256SUMS.txt."
               if ls ModernAnarchyOnline-*.tar.gz > /dev/null 2>&1; then
                 echo
-                echo "On macOS the .dmg holds the application: open it and drag the application onto Applications. It is not signed with a developer's certificate, so the first time open it with a right click, Open."
+                if [ "$SIGNED_MACOS" = true ]; then
+                  echo "On macOS the .dmg holds the application: open it and drag the application onto Applications. It is signed with a Developer ID and notarized by Apple, so it opens like any downloaded application. (The .tar.gz for a terminal is not signed so.)"
+                else
+                  echo "On macOS the .dmg holds the application: open it and drag the application onto Applications. It is not signed with a developer's certificate, so the first time open it with a right click, Open."
+                fi
                 echo
                 echo "The Linux and macOS archives come from the same build process as the Windows one but have seen little or no play."
               fi

@@ -33,11 +33,9 @@ Two workflows in `.github/workflows`:
      both Linux files need glibc 2.35 or newer, the build machine being Ubuntu 22.04)
    - `ModernAnarchyOnline-0.2.0-macos-arm64.tar.gz` (while the repository variable `RELEASE_MACOS` is `true`, below)
    - `ModernAnarchyOnline-0.2.0-macos-arm64.dmg`, with it: the application (`Modern Anarchy Online.app`, icon and
-     all) in a disk image to drag onto Applications, made by `tools/package-macos.sh`; signed ad hoc only on the build machines. Run on a Mac whose keychain
-     has a Developer ID Application certificate, with `MAO_NOTARY_PROFILE` set, the script signs and notarizes the
-     image (the top of the script says how), and that file can replace the draft's, with its line in
-     `SHA256SUMS.txt`, before the draft is published (a published release's files cannot be changed while the
-     repository keeps its releases immutable)
+     all) in a disk image to drag onto Applications, made by `tools/package-macos.sh`; signed with the
+     Developer ID certificate and notarized while the repository has the signing secrets ("Signing the macOS
+     application", below), else signed ad hoc
    - `SHA256SUMS.txt`
    - notes: a few lines of ours, then the version's section of `CHANGELOG.md` as the tag has it ("What is new in
      0.2.0"; left out when the file has no such section), then GitHub's link to the commits since the last release.
@@ -85,7 +83,37 @@ build machines only have what is committed.
   them), and its job may fail without failing the run. Every tagged release packages it while the repository variable
   `RELEASE_MACOS` is `true` (Settings, Secrets and variables, Actions, Variables), as it is set now; a Release run
   started by hand packages it when the box is ticked. On a private repository a macOS minute counts as ten: there,
-  clear the variable and take the macOS entry out of `ci.yml`'s matrix. The program is not signed or notarized.
+  clear the variable and take the macOS entry out of `ci.yml`'s matrix.
+
+## Signing the macOS application
+
+`tools/package-macos.sh` signs the application and the disk image with a Developer ID Application certificate when
+the keychain has one, and has Apple notarize the image when `MAO_NOTARY_PROFILE` names stored notary credentials
+(the top of the script says how, for a Mac of one's own). A notarized image opens on another Mac without the
+system's warning; one signed ad hoc does not.
+
+The Release workflow does the same when the repository has these five secrets (Settings, Secrets and variables,
+Actions, Secrets); without `MACOS_CERTIFICATE_P12` it signs ad hoc and says so in its log:
+
+| Secret | What |
+|---|---|
+| `MACOS_CERTIFICATE_P12` | the Developer ID Application certificate with its private key, exported from Keychain Access as a `.p12` (My Certificates, the certificate, Export) and base64-encoded |
+| `MACOS_CERTIFICATE_PASSWORD` | the password given to that export |
+| `MACOS_NOTARY_APPLE_ID` | the Apple account's address |
+| `MACOS_NOTARY_TEAM_ID` | the team's ten characters |
+| `MACOS_NOTARY_PASSWORD` | an app-specific password of that account (account.apple.com, Sign-In and Security) |
+
+```sh
+base64 -i DeveloperID.p12 | gh secret set MACOS_CERTIFICATE_P12
+gh secret set MACOS_CERTIFICATE_PASSWORD      # (asks for the value; so do the other three)
+```
+
+The certificate is put into a keychain of the run's own after the client is built, and the machine is thrown away
+with the run. Pull requests never see the secrets: the Release workflow runs for tags and by hand only. With a wrong
+certificate or a refused notarization the macOS job fails and the release has no macOS files; with the secrets
+absent, a notarized image made on a Mac can still replace the draft's, with its line in `SHA256SUMS.txt`, before
+the draft is published (a published release's files cannot be changed while the repository keeps its releases
+immutable). The certificate runs out after five years and the `.tar.gz` for a terminal is not signed this way.
 
 ## Trying it without a release
 
