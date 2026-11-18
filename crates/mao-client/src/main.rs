@@ -761,12 +761,11 @@ pub(crate) static STATEL_EFFECTS: std::sync::Mutex<Vec<(mao_formats::attractors:
 /// a lamp's halo, a chimney's smoke): each with its place in the viewer's world (Z up), the connector's frame through
 /// the statel's placement as the parts go.
 pub(crate) fn statel_effects(game: &str, db: &ResourceDatabase, playfield: u32) -> Vec<(mao_formats::attractors::Effect, [f32; 3])> {
-    // (a generated building's statels are moved room by room: not followed here)
-    if generated_rooms(db, playfield).is_some() {
-        return Vec::new();
-    }
-    let path = Path::new(game).join(format!("cd_image/data/statels/{playfield}.pf"));
-    let Some(statels) = mao_formats::files::read(&path).ok().and_then(|file| mao_formats::statels::parse(&file).ok()) else { return Vec::new() };
+    // (the statels where the playfield's props stand: an interior's by its rooms, a generated building's by the rooms
+    // it was built of. The original's effects hang on the mesh's connectors — `VisualMesh_t::GetEffectData`, Gamecode
+    // FUN_1010ca78 — so they go where the room's copy of the statel goes, FUN_100ca6f8's `SetPos` / `SetRot`. Until
+    // 2026-11-18 a generated building had none, and a shop's stood at their places inside the room's own frame.)
+    let Some(statels) = placed_statels(game, db, playfield) else { return Vec::new() };
     let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     // (each mesh's effects once: the connectors that name one, with their frames)
     let mut meshes: std::collections::HashMap<u32, Vec<(mao_formats::attractors::Effect, mao_formats::model::Matrix)>> = std::collections::HashMap::new();
@@ -803,9 +802,16 @@ pub(crate) struct AnimatedPart {
 /// [`add_props`], the parts that move left out of the model and given to `animated` instead (when there is one).
 pub(crate) fn add_props_with(game: &str, db: &ResourceDatabase, playfield: u32, model: &mut Model, mut animated: Option<&mut Vec<AnimatedPart>>) -> std::collections::HashMap<usize, u32> {
     let mut part_mesh = std::collections::HashMap::new();
+    let Some(statels) = placed_statels(game, db, playfield) else { return part_mesh };
+    add_statels(db, model, &statels, &mut animated, &mut part_mesh);
+    part_mesh
+}
+
+/// A playfield's statels where they stand: the playfield's own, and each zone's by its room.
+fn placed_statels(game: &str, db: &ResourceDatabase, playfield: u32) -> Option<Vec<mao_formats::statels::Statel>> {
     let path = Path::new(game).join(format!("cd_image/data/statels/{playfield}.pf"));
-    let Ok(file) = mao_formats::files::read(&path) else { return part_mesh };
-    let Ok((mut statels, zone_lists)) = mao_formats::statels::parse_zoned(&file) else { return part_mesh };
+    let file = mao_formats::files::read(&path).ok()?;
+    let (mut statels, zone_lists) = mao_formats::statels::parse_zoned(&file).ok()?;
     let (zones, failed) = (zone_lists.len(), zone_lists.iter().filter(|z| z.is_none()).count());
     if failed > 0 {
         eprintln!("{failed} of {zones} statel zones could not be read (their props are missing)");
@@ -846,6 +852,11 @@ pub(crate) fn add_props_with(game: &str, db: &ResourceDatabase, playfield: u32, 
             })
         });
     }
+    Some(statels)
+}
+
+/// [`add_props_with`]'s work on the placed statels.
+fn add_statels(db: &ResourceDatabase, model: &mut Model, statels: &[mao_formats::statels::Statel], animated: &mut Option<&mut Vec<AnimatedPart>>, part_mesh: &mut std::collections::HashMap<usize, u32>) {
     // Each mesh's parts go in once; a statel is an instance of each.
     // (A statel may carry texture overrides for some of its mesh's materials: those get their own copy of the parts.)
     let mut meshes: std::collections::HashMap<(u32, Vec<(u32, u32)>), Option<std::ops::Range<usize>>> = std::collections::HashMap::new();
@@ -860,7 +871,7 @@ pub(crate) fn add_props_with(game: &str, db: &ResourceDatabase, playfield: u32, 
     if std::env::var_os("MAO_STATEL_BOUNDS").is_some() {
         let far = statels.iter().filter(|s| s.position[0].abs() > 600.0 || s.position[2].abs() > 600.0).count();
         let (mut lo, mut hi) = ([f32::MAX; 3], [f32::MIN; 3]);
-        for s in &statels {
+        for s in statels {
             for k in 0..3 {
                 lo[k] = lo[k].min(s.position[k]);
                 hi[k] = hi[k].max(s.position[k]);
@@ -879,7 +890,7 @@ pub(crate) fn add_props_with(game: &str, db: &ResourceDatabase, playfield: u32, 
                 .and_then(|o| mao_formats::instances::Instances::parse(&o).ok())
                 .map(|index| index.iter().filter(|&(kind, _, _)| kind == 0xf6951).map(|(_, name, instance)| (instance, name.to_string())).collect())
                 .unwrap_or_default();
-            for s in &statels {
+            for s in statels {
                 let d = ((s.position[0] - x).powi(2) + (s.position[1] - y).powi(2) + (s.position[2] - z).powi(2)).sqrt();
                 if d < r {
                     eprintln!("near {d:.1}: mesh {} {:?} at {:?} rot {:?}", s.mesh, names.get(&s.mesh), s.position, s.rotation);
@@ -904,7 +915,7 @@ pub(crate) fn add_props_with(game: &str, db: &ResourceDatabase, playfield: u32, 
         .map(|index| index.iter().filter(|&(kind, name, _)| kind == 0xf6951 && name.to_lowercase().starts_with("primitive_")).map(|(_, _, instance)| instance).collect())
         .unwrap_or_default();
     let mut plants = 0usize;
-    for s in &statels {
+    for s in statels {
         if hidden.contains(&s.mesh) && std::env::var_os("MAO_HIDE_PRIMITIVES").is_some() {
             continue;
         }
@@ -972,7 +983,6 @@ pub(crate) fn add_props_with(game: &str, db: &ResourceDatabase, playfield: u32, 
         placed += 1;
     }
     eprintln!("{placed} of {} statels placed ({} meshes, {plants} of them plants)", statels.len(), meshes.keys().map(|k| k.0).collect::<std::collections::HashSet<_>>().len());
-    part_mesh
 }
 
 /// Where the whompah booths stand in a playfield (x, height, z as the statels
@@ -1112,13 +1122,19 @@ fn run(args: &[String]) -> Result<(), String> {
             let number = find_playfield(&db, playfield)?;
             let gfx = mao_formats::files::read(Path::new(game).join("Setupf").join("gfxtweak.bin")).ok().and_then(|d| mao_formats::gfx::Gfx::parse(&d).ok());
             let mut by_id: std::collections::BTreeMap<i32, Vec<[f32; 3]>> = std::collections::BTreeMap::new();
+            // (MAO_GENERATED=<a playfield message's data in hex>: the generated building it describes, as `map` takes it)
+            if let Ok(hex) = std::env::var("MAO_GENERATED") {
+                let data: Vec<u8> = (0..hex.len() / 2).filter_map(|i| u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).ok()).collect();
+                set_generated(mao_net::n3::Message { kind: mao_net::n3::PLAYFIELD, identity: (0x9c50, 0), data }.generated());
+            }
             let effects = statel_effects(game, &db, number);
             for (e, at) in &effects {
                 by_id.entry(e.id).or_default().push(*at);
             }
             for (id, places) in &by_id {
                 let kind = gfx.as_ref().and_then(|g| g.visual(*id)).map(|v| format!("{v:?}").chars().take_while(|c| c.is_alphanumeric()).collect::<String>());
-                println!("effect {id} ({id:#x}): {} places, template {:?}, first at {:.1?}", places.len(), kind, places[0]);
+                let own = effects.iter().filter(|(e, _)| e.id == *id && (e.colour.is_some() || e.radius.is_some())).count();
+                println!("effect {id} ({id:#x}): {} places ({own} with a colour or size of their own), template {:?}, first at {:.1?}", places.len(), kind, places[0]);
             }
             println!("{} effects, {} with a colour or a radius of their own", effects.len(), effects.iter().filter(|(e, _)| e.colour.is_some() || e.radius.is_some()).count());
             return Ok(());
@@ -2522,6 +2538,17 @@ mod generated_tests {
         let m = mao_net::n3::Message { kind: mao_net::n3::PLAYFIELD, identity: (0x9c50, 0x20da1b), data };
         super::set_generated(m.generated());
         let (rooms, sources) = super::generated_rooms(&db, 382).expect("the generated rooms");
+        // (the ship's statels carry effects, twenty smokes and a lamp's halo, and each stands in one of its rooms: a
+        // generated building had none at all before)
+        let effects = super::statel_effects(game.to_str().unwrap(), &db, 382);
+        assert_eq!(effects.len(), 21);
+        for (_, at) in &effects {
+            let inside = rooms.rooms.iter().any(|r| {
+                let half = (r.rect[2].saturating_sub(r.rect[0]).max(r.rect[3].saturating_sub(r.rect[1])) as f32) + 10.0;
+                (at[0] - r.position[0]).abs() <= half && (at[1] - r.position[2]).abs() <= half
+            });
+            assert!(inside, "{at:?}");
+        }
         super::set_generated(None);
         let template = super::template_rooms(&db, 382).unwrap();
         let object = db.get(mao_formats::resource::Id { kind: 0xf4249, instance: template.tilemap }).unwrap().unwrap();

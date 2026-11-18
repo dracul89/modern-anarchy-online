@@ -5829,3 +5829,57 @@ arranging, the inventory in its three states, the wear page with its labels unde
 `MAO_INV_LIST`, `MAO_INV_SORT=<n>`, `MAO_WEAR_LABELS=0`). **The mouse paths were not tried**: letting items go in
 list mode and in an arranged grid, and switching the arranging off, rest on the code alone.
 Tests: `the_arrange_menu_follows_the_container`.
+
+## Lamps that glow, effects in mission rooms (2026-11-18, the first batch with the new division of work)
+
+The user: "lets get started", after setting up the local model and saying which work is whose. I took the high
+entries that can be judged in offscreen pictures first: RND-136, RND-137 and DTH-013. Each was read by a reader on
+a smaller model with the rule that every claim names its file; the tracing and the checks were mine.
+None of it was seen in the live game.
+
+### Statel effects with a colour or a size of their own (RND-136)
+
+How the original puts the name's colour and size on the effect, which the notes had left unread:
+
+- The connector's name gives an `AttractorEffectData_t` its template, up to four colour values and a size
+  (DisplaySystem FUN_1006d49a; `mao_formats::attractors` has had that table). A statel's mesh keeps them
+  (`VisualMesh_t::GetEffectData`), Gamecode makes an `n3GenericEffect_t` for each (FUN_1010ca78), and when the
+  mesh shows, N3.dll's `n3GenericEffect_t::EnableVisibility` (0x1000806d, read by disassembly) hands the data to
+  the engine's slot 0x68, which is `_EffectHandler_t::EnableEffect` (Gamecode 0x100ce0dd).
+- `EnableEffect` makes the effect (slot 0x58: the template and the connector) and then, when the data's word has
+  bit 0, calls `SetEffectColor` (0x10016935) with the four values in the name's order, which calls the control's
+  `SetStartColor` **and** `SetStopColor` with the fourth value first: the name's fourth byte is the alpha. With bit
+  1 it calls `SetEffectSize` → `SetSize`.
+- What a control does with them is its own matter; the base class does nothing. The single quad
+  (`_GfxControlSprite_t`): the colour takes the place of both of its colours (FUN_100f5fa3, FUN_100f60e3: the
+  template's words 15 to 22), and a size above 0.01 multiplies its two widths and two heights (FUN_100f6102).
+
+`gfx::Visual::with_overrides` does that for the quad, and the effects are grouped by template, colour and size
+(`net::group_statel_effects`). **Every effect with a colour or size of its own in the two playfields looked at
+is template 7006, a quad** (Jobe Research: 180 of 181; Andromeda: 24 of 138), so the lamps there have their
+halos now; before, all of those were left out. Not done: the colour on fire, smoke and sparks (the original's
+controls take it; none was seen with one), which draw as their templates have them.
+Looked at in an offscreen picture of Jobe Research at dusk: white and red glows at the lamps where there were
+none. Tests: `a_halo_takes_its_connectors_colour_and_size`.
+
+### Statel effects in a generated building, and in rooms (RND-137, the first half)
+
+`statel_effects` returned nothing for a generated building (a mission's), and for an ordinary interior of rooms
+(a shop) it took the statels as the file has them, inside each room's own frame, so their effects stood at
+places that are nowhere in the world. The props themselves were placed by their rooms all along
+(`add_props_with`); the effects now go through the same placing (`placed_statels`: a zone's statels by its room,
+a generated building's by each room it was built of, `rooms::place_statel`). In the original the effects hang on
+the mesh's connectors, so they go wherever the room's copy of the statel goes (the generator's `SetPos` /
+`SetRot`, Gamecode FUN_100ca6f8).
+
+The Arete capture's alien ship (template playfield 382): 21 effects, twenty smokes and a lamp's halo, each inside
+one of its eight rooms; none before. `statel-effects <playfield>` takes `MAO_GENERATED=<hex>` as `map` does.
+Test: in `the_ship_rooms_meet_at_the_servers_doors`.
+
+**The entry's second half is left.** `eff_hologram`, `eff_space` and `eff_clear` are not effects but ways a mesh
+is drawn (DisplaySystem's `set_rendering_effect` 1, 2, 3: `visualmesh.rs` in the drop-in): the hologram a
+blended draw with two scrolling textures (resources 0x28022 and 0x28023, phases 0.2 and 0.15 a second) in place
+of the mesh's own; "space" a draw with other states; "clear" a clearing of the view before the mesh. This
+client has no draw of its own per mesh; which statels carry these names was not looked for. The templates
+12200, 12570 and 96003 are named by `eff_universal_<n>` connectors and are not in `gfxtweak.bin`; where the
+original has them was not found.

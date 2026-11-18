@@ -917,6 +917,8 @@ These were written before this list; some may have been seen working since witho
   grid**: it must stay where it was (no move), stacks must still join, and a Ctrl+click split must land in a free
   place. Same in a backpack. On a corpse the items are sorted by name. In the wear window, right click an empty
   slot: Labels On Top.
+- [ ] Lamp halos (2026-11-18): in Jobe Research (and Andromeda) the lamps have a glow, white or coloured, at dusk
+  and at night. In a mission building, vents smoke and lamps glow inside the rooms.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

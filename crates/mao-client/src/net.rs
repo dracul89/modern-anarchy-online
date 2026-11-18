@@ -6450,8 +6450,21 @@ pub(crate) struct Area {
     pub(crate) interior: Option<Arc<crate::interior::Interior>>,
     /// The feet of the waterfalls (x, height, z), for the fall effect (`liquid::fall_effects`).
     pub(crate) falls: Vec<[f32; 3]>,
-    /// The statels' own effects (`crate::statel_effects`): each one's template and its place in the viewer's world.
-    pub(crate) statel_effects: Vec<(i32, [f32; 3])>,
+    /// The statels' own effects (`crate::statel_effects`): each one's template, with the colour and size its
+    /// connector's name gives it, and its place in the viewer's world.
+    pub(crate) statel_effects: Vec<(mao_formats::attractors::Effect, [f32; 3])>,
+}
+
+/// The statels' effects grouped for the viewer: one effect for each template in each colour and size, with its places.
+/// (An effect the effects' file has no template for is dropped: 12200, 12570 and 96003 in the playfields looked at.)
+pub(crate) fn group_statel_effects(list: Vec<(mao_formats::attractors::Effect, [f32; 3])>, gfx: Option<&mao_formats::gfx::Gfx>) -> Vec<(mao_formats::gfx::Visual, Vec<[f32; 3]>)> {
+    type Key = (i32, Option<[u32; 4]>, Option<u32>);
+    let mut groups: std::collections::BTreeMap<Key, (mao_formats::attractors::Effect, Vec<[f32; 3]>)> = std::collections::BTreeMap::new();
+    for (effect, at) in list {
+        let key = (effect.id, effect.colour.map(|c| c.map(f32::to_bits)), effect.radius.map(f32::to_bits));
+        groups.entry(key).or_insert_with(|| (effect, Vec::new())).1.push(at);
+    }
+    groups.into_values().filter_map(|(effect, places)| Some((gfx?.visual(effect.id)?.with_overrides(effect.colour, effect.radius), places))).collect()
 }
 
 pub(crate) fn load_area(game: &str, db: &Arc<ResourceDatabase>, playfield: u32) -> Result<Area, String> {
@@ -6555,9 +6568,9 @@ pub(crate) fn load_area_with(game: &str, db: &Arc<ResourceDatabase>, playfield: 
         }
     };
     let falls = anarchy.as_ref().map_or(Vec::new(), |a| crate::liquid::fall_effects(&a.water, &closest));
-    // (the statels' own effects: a campfire's fire, a chimney's smoke, a lamp's halo. The ones whose name gives them a
-    // colour or a radius of their own are left out until it is read how the original puts those on the effect.)
-    let statel_effects: Vec<(i32, [f32; 3])> = crate::statel_effects(game, db, playfield).into_iter().filter(|(e, _)| e.colour.is_none() && e.radius.is_none()).map(|(e, at)| (e.id, at)).collect();
+    // (the statels' own effects: a campfire's fire, a chimney's smoke, a lamp's halo; the ones whose name gives them a
+    // colour or a size of their own with it, `Visual::with_overrides`)
+    let statel_effects: Vec<(mao_formats::attractors::Effect, [f32; 3])> = crate::statel_effects(game, db, playfield);
     if !statel_effects.is_empty() {
         eprintln!("playfield {playfield}: {} statel effects", statel_effects.len());
     }
@@ -7182,7 +7195,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let (mut pending_keep_camera, mut houses_drawn) = (false, false);
         // (the new playfield's waterfalls' feet, for the viewer's fall effects)
         let mut pending_falls: Option<Vec<[f32; 3]>> = Some(falls);
-        let mut pending_statel_effects: Option<Vec<(i32, [f32; 3])>> = Some(statel_effects);
+        let mut pending_statel_effects: Option<Vec<(mao_formats::attractors::Effect, [f32; 3])>> = Some(statel_effects);
         let first_inventory = state.inventory.take();
         // (the backpack as the login gave it, for the log: place, item, quality, count and the flags; a loot of 2026-11-15
         // found the client's list one entry longer than the server's)
@@ -10417,14 +10430,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     target_nanos,
                     keep_camera: std::mem::take(&mut pending_keep_camera) && pending_scene.is_some(),
                     scene: pending_scene.take(),
-                    // (grouped by template, each with the effect itself when the effects' file has it)
-                    statel_effects: pending_statel_effects.take().map(|list| {
-                        let mut by_id: std::collections::BTreeMap<i32, Vec<[f32; 3]>> = std::collections::BTreeMap::new();
-                        for (id, at) in list {
-                            by_id.entry(id).or_default().push(at);
-                        }
-                        by_id.into_iter().filter_map(|(id, places)| Some((gfx.as_ref()?.visual(id)?, places))).collect()
-                    }),
+                    // (grouped by template and by the colour and size of their own, each with the effect itself when
+                    // the effects' file has it)
+                    statel_effects: pending_statel_effects.take().map(|list| group_statel_effects(list, gfx.as_ref())),
                     falls: pending_falls.take().map(|feet| (feet, gfx.as_ref().and_then(|g| g.visual(0x30d6)))),
                     interior: pending_interior.take(),
                     rooms_shown: pending_rooms_shown.take(),

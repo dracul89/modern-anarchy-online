@@ -527,8 +527,8 @@ pub fn headless_on(model: &Model, textures: &Textures, out: &str, ui: Option<(&H
         if let (Some(g), Ok(age)) = (gfx, age.parse::<f32>()) {
             let e = camera.eye();
             let before = scene.particles.len();
-            for (effect, at) in crate::STATEL_EFFECTS.lock().unwrap().iter().filter(|(e, _)| e.colour.is_none() && e.radius.is_none()) {
-                if let Some(v) = g.visual(effect.id) {
+            for (effect, at) in crate::STATEL_EFFECTS.lock().unwrap().iter() {
+                if let Some(v) = g.visual(effect.id).map(|v| v.with_overrides(effect.colour, effect.radius)) {
                     scene.particles.extend(crate::effects::placed_particles(&v, *at, age, [e.x, e.y, e.z]));
                 }
             }

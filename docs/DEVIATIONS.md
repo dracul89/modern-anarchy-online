@@ -7039,7 +7039,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: those effects are filtered out (180 of Jobe Research's 181 halos, 24 of Andromeda's 138); lamps such as Jobe's have no halo
 - A player notices: lamps, campfires and chimneys without their glow or effect
 - Where: `crates/mao-client/src/net.rs:5867`; `crates/mao-client/src/net.rs:5868`; `docs/CLIENT_UI.md:3430`; `docs/LIVE_TEST_LIST.md:387`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18): How the original applies them was read: EnableEffect makes the effect, then the control's SetStartColor and SetStopColor get the same colour (the name's fourth byte is the alpha) and SetSize the size; on the single quad the colour replaces both colours and the size scales it. gfx::Visual::with_overrides does that for the quad, and every effect with a colour or size of its own in Jobe Research (180 of 181) and Andromeda (24 of 138) is that quad, so the lamps have their halos. Not done: the colour on fire, smoke and sparks (none seen with one). Looked at in an offscreen picture.
 
 #### `RND-137` Statels of generated buildings and rendering effects get no effects
 
@@ -7049,6 +7050,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: no fire, lamp or smoke effects in mission rooms and some places
 - Where: `crates/mao-client/src/main.rs:762`; `crates/mao-formats/src/attractors.rs:66`; `docs/CLIENT_UI.md:3437`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-18): Done: statel effects in a generated building (a mission's) and in an interior of rooms take the props' placing by their rooms; the Arete capture's alien ship has its 21 effects inside its rooms (none before, and a shop's stood at places inside their rooms' own frames). Left: eff_hologram, eff_space and eff_clear are ways a mesh is drawn (DisplaySystem's rendering effects 1 to 3), which this client has no draw for; the templates 12200, 12570 and 96003 are not in the effects' file and where the original has them was not found.
 
 #### `RND-138` Weather: cloud layer (and other weather sprites) not drawn
 

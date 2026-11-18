@@ -797,6 +797,30 @@ pub struct Sprite {
     pub pulse_rate: f32,
 }
 
+impl Visual {
+    /// An effect started on a mesh's connector with a colour or a size of its own (`AttractorEffectData_t`'s words, from
+    /// the connector's name: `attractors::Effect`). Gamecode's `_EffectHandler_t::EnableEffect` (0x100ce0dd) makes the
+    /// effect and then, through `n3EngineClientAnarchy_t::SetEffectColor` (0x10016935) and `SetEffectSize`, calls the
+    /// control's `SetStartColor` and `SetStopColor` with the same colour, the name's fourth byte first (the alpha), and
+    /// `SetSize`. What that does is each control's own matter, and most do nothing. The single quad's
+    /// (`_GfxControlSprite_t`, the lamps' halos): the colour takes the place of both its colours (FUN_100f5fa3 and
+    /// FUN_100f60e3 write the template's words 15 to 22), and a size above 0.01 scales its widths and heights
+    /// (FUN_100f6102: times the size over the size before, which starts at 1). The other kinds are left as they are
+    /// here: fire, smoke and sparks take the colour in the original (not read to the end), and none takes the size.
+    pub fn with_overrides(&self, colour: Option<[f32; 4]>, size: Option<f32>) -> Visual {
+        let mut visual = self.clone();
+        if let Visual::Sprite(s) = &mut visual {
+            if let Some(c) = colour {
+                (s.colour_a, s.colour_b) = ([c[3], c[0], c[1], c[2]], [c[3], c[0], c[1], c[2]]);
+            }
+            if let Some(k) = size.filter(|k| *k > 0.01) {
+                (s.width, s.height) = ((s.width.0 * k, s.width.1 * k), (s.height.0 * k, s.height.1 * k));
+            }
+        }
+        visual
+    }
+}
+
 impl Sprite {
     pub fn read(r: &Record) -> Option<Sprite> {
         if r.payload.len() < 27 || r.int(10) & 3 != 0 && r.int(10) & 3 != 3 {
@@ -2797,5 +2821,19 @@ mod tests {
         gfx.by_id.insert(lone.id, gfx.records.len());
         gfx.records.push(lone);
         assert!(matches!(gfx.visual(25004), Some(Visual::Highlight(_))));
+    }
+
+    /// A connector's own colour and size on a single quad: the colour, its fourth value first, is both of the quad's
+    /// colours; a size above 0.01 scales its widths and heights.
+    #[test]
+    fn a_halo_takes_its_connectors_colour_and_size() {
+        let halo = Visual::Sprite(Sprite { attach: 0, offset: [0.0; 3], duration: 0.0, material: 5, flags: 0, width: (1.0, 2.0), height: (3.0, 4.0), colour_a: [1.0, 1.0, 1.0, 1.0], colour_b: [0.5, 1.0, 1.0, 1.0], period: 1.0, cycles: 0, pulse: 0.25, pulse_rate: 1.0 });
+        let Visual::Sprite(s) = halo.with_overrides(Some([0.9, 0.2, 0.1, 0.6]), Some(2.0)) else { panic!() };
+        assert_eq!((s.colour_a, s.colour_b), ([0.6, 0.9, 0.2, 0.1], [0.6, 0.9, 0.2, 0.1]));
+        assert_eq!((s.width, s.height, s.pulse), ((2.0, 4.0), (6.0, 8.0), 0.25));
+        // (a size of 0.01 or less is not taken; nothing of its own: the template's own look)
+        let Visual::Sprite(s) = halo.with_overrides(None, Some(0.01)) else { panic!() };
+        assert_eq!((s.width, s.colour_a), ((1.0, 2.0), [1.0, 1.0, 1.0, 1.0]));
+        assert_eq!(halo.with_overrides(None, None), halo);
     }
 }

@@ -11,6 +11,10 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - It rains and snows: the weather's rain was not drawn at all (only heard, and seen as fog). Sand, dark, red and
   green storms are wind-blown streaks in their colours and tint the screen, flickering, as in the game.
 - Overcast weather dims the sky and the fog; the dimming used to follow the wrong weather value.
+- Lamps glow: the lights whose colour and size are set by the building itself (most of Jobe Research's, some in
+  Andromeda and elsewhere) have their halos, in their colours.
+- Mission buildings and shop interiors have their smoke, fire and lamp effects; missions had none, and a shop's
+  were drawn somewhere far off.
 
 ### Windows
 
