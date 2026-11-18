@@ -12,6 +12,9 @@ DLL with pefile (`pe.get_data(addr - image_base, 8)`; the float or the double, w
 Method for each item: find the original's function(s), read them, write the rule into the code with the address in a comment,
 then check a render. Never the other way round.
 
+The other side of this ledger, every place where the client is known **not** to do what the original does, is
+`docs/DEVIATIONS.md` (2026-11-18): 936 numbered entries to be decided one by one, port or leave.
+
 ## Done from the original (this pass)
 
 | Subsystem | Original | Client | Status |

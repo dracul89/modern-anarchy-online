@@ -100,5 +100,7 @@ Every push to `main` is built and tested on GitHub (`.github/workflows/ci.yml`),
 draft release with the packaged client (`.github/workflows/release.yml`, `tools/package.ps1`, `tools/package.sh`):
 see `docs/RELEASING.md`. What each release changed is in `CHANGELOG.md`.
 
+Where the client is known to depart from the original, entry by entry, is `docs/DEVIATIONS.md`.
+
 Tests that need game data run when `MAO_GAME` points at an installed game.
 See `docs/ROADMAP.md` for findings and what's next.
