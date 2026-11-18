@@ -1982,6 +1982,22 @@ fn hotbar_layer(ctx: &egui::Context, bars: &mut Hotbars, gear: &mut GearWindow, 
                     }
                     let border = if queued { egui::Color32::YELLOW } else if hovering { accent } else if shown.is_some() { lifted(palette.panel, 90) } else { egui::Color32::from_white_alpha(30) };
                     if let Some((action, cooldown, remaining)) = &shown {
+                        // (what the game has locked: a special's skill, the skill an item's use locks, the nano programs
+                        // while one is cast or recharges. The slot is greyed for the time left, whatever its own wait.)
+                        let lock = match action {
+                            hotbar::Action::Special { id, .. } => crate::actions::lock_left(*id),
+                            hotbar::Action::Item { id, .. } => crate::actions::item_lock_left(*id),
+                            hotbar::Action::Nano { id, .. } => crate::actions::nano_lock_left(*id),
+                            _ => None,
+                        };
+                        let longer = lock.filter(|l| l.0 > *remaining);
+                        let (remaining, cooldown) = match &longer {
+                            Some((left, total)) => (left, total),
+                            None => (remaining, cooldown),
+                        };
+                        if lock.is_some() {
+                            ctx.request_repaint_after(std::time::Duration::from_millis(100));
+                        }
                         let icon = match action {
                             hotbar::Action::Item { icon: Some(id), .. } => items.iter().find_map(|i| i.icon.as_ref().filter(|ic| ic.id == *id)).cloned(),
                             hotbar::Action::Special { icon: Some(id), .. } => actions.icon_by_instance(*id).cloned(),
@@ -1990,7 +2006,7 @@ fn hotbar_layer(ctx: &egui::Context, bars: &mut Hotbars, gear: &mut GearWindow, 
                         match icon {
                             Some(icon) => {
                                 let id = gear.texture(ctx, &icon);
-                                ui.painter().image(id, rect.shrink(3.0), egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
+                                ui.painter().image(id, rect.shrink(3.0), egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), if lock.is_some() { egui::Color32::from_gray(90) } else { egui::Color32::WHITE });
                             }
                             // (a macro's picture is its name in yellow, FUN_100402e8)
                             None if matches!(action, hotbar::Action::Macro { .. }) => {

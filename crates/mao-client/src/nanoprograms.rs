@@ -329,6 +329,8 @@ impl ProgramsWindow {
                 icon: p.icon.as_ref().map(|icon| textures.entry(icon.id).or_insert_with(|| ctx.load_texture(format!("program-icon-{}", icon.id), egui::ColorImage::from_rgba_unmultiplied([icon.width, icon.height], &icon.rgba), egui::TextureOptions::LINEAR)).id()),
                 cells,
                 keys,
+                // (no program runs while one is cast or recharges: faded for the time left)
+                left: crate::actions::lock_share(crate::actions::nano_lock_left(p.id)),
                 ..Default::default()
             })
             .collect();

@@ -162,7 +162,8 @@ fn entry(item: &GearItem, textures: &mut HashMap<u32, egui::TextureHandle>, ctx:
         cells: vec![(1, multilist::CellView::Text(item.name.clone()))],
         keys: vec![(1, item.name.clone())],
         pos,
-        left: None,
+        // (an item whose use is locked, a stim while First Aid is: faded for the time left, as a locked action is)
+        left: crate::actions::lock_share(crate::actions::item_lock_left(item.item_id)),
         colour: None,
     }
 }

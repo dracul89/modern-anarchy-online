@@ -826,6 +826,11 @@ These were written before this list; some may have been seen working since witho
 - [ ] The wounded lie (2026-11-16): Arete Landing's Wounded Dockworkers and Wounded Clan Protesters lie on the
   ground; the standing dockworkers and Flint Novak stand; a seated NPC (the ICC Secretary) sits.
 - [ ] Still open from the user's list of 2026-11-16: bounding boxes (which ones was not said).
+- [ ] Oneself in a fight (2026-11-17): fighting something in melee, a click on one's own character selects it (the
+  fight goes on), a stim then heals, and a click on the creature selects it again.
+- [ ] Locked things (2026-11-17): after a stim the stims and kits in the inventory and on the hotbar are grey
+  until "First Aid skill available."; a special's slot is grey with its seconds; after a nano the programs are
+  grey for the cast and recharge and "Nano programs available." follows.
 - [ ] Back from the dead (2026-11-17): after a death and the arrival at the reclaim terminal the health bar shows
   the health the server gives and rises again, a heal can be used on oneself, and `/camp` logs off; the own
   corpse lies where the character fell under its "Remains of" name.

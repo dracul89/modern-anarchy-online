@@ -8,6 +8,11 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 ### Fights
 
+- In a fight a click on one's own character selects it (to use a stim on oneself); the creature fought was always
+  taken instead.
+- What is locked is shown grey for as long: items in the inventory and on the hotbars while the skill their use
+  locks is locked (a stim while First Aid is), special attacks, and the nano programs while one is cast or
+  recharges; "Nano programs available." is said when they are free again, as the game says it of a skill.
 - Back from a death the character is itself again. It used to come back with no health shown, could not be healed
   and could not log off until the next login.
 - Every creature killed turns into its remains: one that died while running at the character kept its own name,

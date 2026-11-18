@@ -125,10 +125,47 @@ pub fn set_lock(stat: u32, seconds: f32) {
 
 /// What is left of an action's lock and its whole length, in seconds: a special attack's by its skill.
 pub fn lock_left(id: u32) -> Option<(f32, f32)> {
-    let stat = number_of(id).filter(|n| ATTACKS.contains(n))?;
+    skill_lock_left(number_of(id).filter(|n| ATTACKS.contains(n))?)
+}
+
+/// What is left of a skill's lock and its whole length, in seconds: any skill the server has locked (First Aid and
+/// Treatment after a stim or a kit, as well as the special attacks').
+pub fn skill_lock_left(stat: u32) -> Option<(f32, f32)> {
     let locks = LOCKS.lock().unwrap_or_else(|e| e.into_inner());
     let &(_, until, total) = locks.iter().find(|l| l.0 == stat)?;
     Some((until.saturating_duration_since(std::time::Instant::now()).as_secs_f32(), total)).filter(|l| l.0 > 0.0)
+}
+
+/// What is left of an item's lock: the longest of the locks on the skills its use locks (`net::lock_skills`: a
+/// stim's use locks First Aid, and the server refuses the stim for as long: "Unable to perform action, First Aid
+/// skill is locked"). The inventory and the hotbars fade such an item for that time.
+pub fn item_lock_left(template: u32) -> Option<(f32, f32)> {
+    longest(crate::net::lock_skills(mao_formats::item::TEMPLATE, template).into_iter().filter_map(skill_lock_left))
+}
+
+fn longest(locks: impl Iterator<Item = (f32, f32)>) -> Option<(f32, f32)> {
+    locks.max_by(|a, b| a.0.total_cmp(&b.0))
+}
+
+/// The character's nano programs are busy until then, and for how long in all: a cast under way and the program's
+/// recharge after it (`set_nano_lock`, from the client's own casts as the server starts them).
+static NANO_LOCK: std::sync::Mutex<Option<(std::time::Instant, f32)>> = std::sync::Mutex::new(None);
+
+/// A cast of the character's began: no program can be run for `seconds` (0: they are free).
+pub fn set_nano_lock(seconds: f32) {
+    *NANO_LOCK.lock().unwrap_or_else(|e| e.into_inner()) = (seconds > 0.0).then(|| (std::time::Instant::now() + std::time::Duration::from_secs_f32(seconds), seconds));
+}
+
+/// What is left of a nano program's lock: the cast and recharge under way, or a lock on a skill the program's own
+/// run locks, whichever is longer.
+pub fn nano_lock_left(nano: u32) -> Option<(f32, f32)> {
+    let busy = NANO_LOCK.lock().unwrap_or_else(|e| e.into_inner()).map(|(until, total)| (until.saturating_duration_since(std::time::Instant::now()).as_secs_f32(), total)).filter(|l| l.0 > 0.0);
+    longest(busy.into_iter().chain(crate::net::lock_skills(0xfde85, nano).into_iter().filter_map(skill_lock_left)))
+}
+
+/// The share of a lock's time that is gone, as the list views fade an icon by it (`multilist::Item::left`).
+pub fn lock_share(lock: Option<(f32, f32)>) -> Option<f32> {
+    lock.map(|(left, total)| 1.0 - left / total.max(1.0))
 }
 
 /// Sneak attack's number and backstab's, which goes with it for a character the server allows it.
@@ -359,6 +396,26 @@ impl ActionsWindow {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A skill the server locked is locked for anything that goes by it; the nano programs are busy for a cast's
+    /// time. (`MAO_GAME`: the starter's Health and Nano Stim locks First Aid, 123, and is locked with it.)
+    #[test]
+    fn a_locked_skill_locks_what_goes_by_it() {
+        set_lock(990_123, 40.0);
+        let (left, total) = skill_lock_left(990_123).unwrap();
+        assert!(left > 39.0 && total == 40.0);
+        assert_eq!(lock_share(Some((10.0, 40.0))), Some(0.75));
+        set_lock(990_123, 0.0);
+        assert_eq!(skill_lock_left(990_123), None);
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        crate::net::set_item_db(std::sync::Arc::new(mao_formats::resource::ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap()));
+        assert_eq!(crate::net::lock_skills(mao_formats::item::TEMPLATE, 291043), vec![123]);
+        assert_eq!(item_lock_left(291043), None);
+        set_lock(123, 40.0);
+        assert!(item_lock_left(291043).is_some_and(|l| l.0 > 39.0));
+        set_lock(123, 0.0);
+        assert_eq!(item_lock_left(291043), None);
+    }
 
     #[test]
     fn the_listed_specials_decide_which_skill_actions_show() {

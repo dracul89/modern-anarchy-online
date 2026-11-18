@@ -1710,6 +1710,17 @@ fn run(args: &[String]) -> Result<(), String> {
             let textures = Textures::new(db.clone());
             // MAO_UI_PREVIEW=1 (or `options`) paints the interface over the image.
             let preview = std::env::var("MAO_UI_PREVIEW").ok();
+            // (`MAO_LOCKS=<skill stat>:<seconds>,...` and `MAO_NANO_LOCK=<seconds>`: what the game has locked, for a
+            // picture of how the inventory, the hotbars and the nano programs show it: 123 is First Aid)
+            if preview.is_some() {
+                net::set_item_db(db.clone());
+                for (stat, seconds) in std::env::var("MAO_LOCKS").unwrap_or_default().split(',').filter_map(|l| l.split_once(':')).filter_map(|(s, t)| Some((s.trim().parse::<u32>().ok()?, t.trim().parse::<f32>().ok()?))) {
+                    actions::set_lock(stat, seconds);
+                }
+                if let Some(seconds) = std::env::var("MAO_NANO_LOCK").ok().and_then(|s| s.parse::<f32>().ok()) {
+                    actions::set_nano_lock(seconds);
+                }
+            }
             theme::set_game_dir(game);
             return match rest {
                 [flag, out] if flag == "--image" && preview.is_some() => {

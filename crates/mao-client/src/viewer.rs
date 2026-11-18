@@ -1001,14 +1001,15 @@ fn pick(hud: &Hud, camera: mao_render::Camera, radius: f32, size: (u32, u32), at
 }
 
 /// Everything pickable the line from the eye meets, nearest first, as the original's camera keeps it for the mouse
-/// (`n3Camera_t` +0x244, filled and sorted when the mouse moves). The character itself is on it only where nothing
-/// else is (this client's rule: the camera looks over its shoulder).
+/// (`n3Camera_t` +0x244, filled and sorted when the mouse moves). The character itself is last on it, behind
+/// whatever else the line meets (this client's rule: the camera looks over its shoulder, so a click at something
+/// past the character takes that first). Until 2026-11-17 it was left out where anything else was met, and in a
+/// fight, with the one fought standing behind the character on every such line, it could not be clicked at all:
+/// no stim on oneself without the select-self key. Now a click on the character takes it when what stands behind
+/// is the selected target already, as the stepping goes.
 fn on_line(pickables: &[(u32, u32, [f32; 3], f32, f32, bool)], from: mao_render::glam::Vec3, dir: mao_render::glam::Vec3) -> Vec<(u32, u32)> {
     let mut met: Vec<((bool, f32), (u32, u32))> = pickables.iter().filter_map(|&(kind, id, feet, r, h, last)| ray_cylinder(from, dir, feet, r, h).map(|t| ((last, t), (kind, id)))).collect();
     met.sort_by(|a, b| a.0 .0.cmp(&b.0 .0).then(a.0 .1.total_cmp(&b.0 .1)));
-    if met.iter().any(|m| !m.0 .0) {
-        met.retain(|m| !m.0 .0);
-    }
     met.into_iter().map(|m| m.1).collect()
 }
 
@@ -3176,11 +3177,17 @@ mod camera_tests {
         let (npc, pad, own) = ((0xc350, 0x7b23d5c0), (0xc73d, 0xc0070287), (0xc350, 7));
         let pickables = [(pad.0, pad.1, [20.0, 0.0, 0.0], 2.0, 2.2, false), (own.0, own.1, [2.0, 0.0, 0.0], 0.5, 1.9, true), (npc.0, npc.1, [15.0, 0.0, 0.0], 0.5, 1.9, false), (0xc350, 9, [15.0, 9.0, 0.0], 0.5, 1.9, false)];
         let line = on_line(&pickables, Vec3::new(0.0, 0.0, 1.0), Vec3::X);
-        // (nearest first; one's own character is left out where anything else is met)
-        assert_eq!(line, [npc, pad]);
+        // (nearest first; one's own character last, though it stands nearest)
+        assert_eq!(line, [npc, pad, own]);
         assert_eq!(next_on_line(&line, None), Some(npc));
         assert_eq!(next_on_line(&line, Some(npc.1)), Some(pad));
-        assert_eq!(next_on_line(&line, Some(pad.1)), Some(npc));
+        assert_eq!(next_on_line(&line, Some(pad.1)), Some(own));
+        assert_eq!(next_on_line(&line, Some(own.1)), Some(npc));
+        // (in a fight: the one fought is selected and stands behind the character; a click on the character takes it,
+        // and the next takes the one fought again)
+        let fight = on_line(&[pickables[1], pickables[2]], Vec3::new(0.0, 0.0, 1.0), Vec3::X);
+        assert_eq!(fight, [npc, own]);
+        assert_eq!((next_on_line(&fight, Some(npc.1)), next_on_line(&fight, Some(own.1))), (Some(own), Some(npc)));
         assert_eq!(next_on_line(&line, Some(0x1234)), Some(npc));
         // (a right click uses the selected one when the line meets it, else the first)
         assert_eq!(under_line(&line, Some(pad.1)), Some(pad));

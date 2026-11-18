@@ -4842,3 +4842,43 @@ too, and the walk or run mode is told again as on any arrival. Not seen live.
 
 How it was missed the first time: the replay runs the server's messages through the world and cannot see what the
 client fails to send. A fault after an arrival wants the log's count of moves sent and moves answered first.
+
+## Oneself as the target in a fight, and what is locked shown as locked (2026-11-17, the user's two asks)
+
+**"I'm not able to target self during combat to use stims."** The log of the fight has seven clicks in a row, each
+`on the line [the docker], took the docker`: the character itself was never on the line. A click's line holds what
+the line from the eye through the pointer meets, and this client's own rule left the character out of it wherever
+anything else was met ("the camera looks over its shoulder"). In a fight the one fought stands behind the character
+on every such line, so the character could not be clicked at all, and a stim went at the docker: "Item must be
+applied on a friendly target." Now the character is last on the line, not off it. The stepping does the rest
+(`GetNextTarget`: a click takes the one after the selected target): with the one fought selected, a click on the
+character takes the character, and the next takes the one fought again. A click at something past the character
+still takes that first. The select-self key and `/selectself` are as before; the fight goes on with the one fought
+whatever is selected.
+
+**"Anything that is locked should be greyed out and announce when available."** What the game locks, and where
+the client knows it from:
+
+| what | the lock | known from |
+|---|---|---|
+| a special attack | its skill, for the server's seconds | `CharacterAction` 0xaa (used) and 0xa4 (available) |
+| a stim, a kit, any item | the skills its use locks | the item's spells of function 53033: value 0 the skill, 39 the seconds; the starter's Health and Nano Stim locks First Aid (123) for 40 |
+| a nano program | every program while one is cast and for its recharge after | the client's own cast as the server starts it: the cast's time and the program's RechargeDelay (210) |
+| a nano program, too | the skills its own run locks | its spells of function 53033 |
+
+One list holds the skill locks (`actions::LOCKS`, all skills: it was read for the special attacks only), and three
+questions ask it: `lock_left` (a special), `item_lock_left`, `nano_lock_left`. Shown: the Actions window's tiles
+faded as before; **the inventory's items** and **the nano programs** now faded the same way (the list view's own
+fading of an icon, `ItemIconView_c` +0x174: the share of the time still to go is grey); **a hotbar's slot** grey
+with the seconds left, for a special, an item or a program, whatever the slot's own wait says.
+
+Told when it is over: a skill by the game's own line, as before ("First Aid skill available.", "Fling Shot skill
+available."), which covers the specials and the items that go by a skill; the nano programs by a line of this
+client's, "Nano programs available.", after a wait of two seconds or more (a quick program's would be said after
+every cast).
+
+Seen offline: the inventory with First Aid locked beside the same with nothing locked
+(`MAO_UI_PREVIEW=gear MAO_ENTRIES=<file> MAO_LOCKS=123:40`; `MAO_NANO_LOCK=<seconds>` for the programs). Not seen
+live. Not done: an item with a wait of its own that locks no skill; a program is not shown locked for want of
+nano points; and the two lines a locked special's key tells at times ("Action is not available." before the wait
+line) were not looked into.
