@@ -175,7 +175,9 @@ pub const QUICK: &[(&str, &str, u32, &str)] = &[
     ("action_pick_up", "R", 49578, "Pick-Up"),
     ("action_sneak", "H", 49575, "Sneak"),
     // (the original binds these four too, GUI.dll 0x1006951c: ActionSneakAttack, ActionFastAttack, ActionAimedShot,
-    // ActionBowSpecialAttack; no keys of the original's were read for them, so they start without one)
+    // ActionBowSpecialAttack. The shipped `CharPrefs.xml` has J, N, O and Period for them, read on 2026-11-18
+    // (`keybindings.rs`); they still start without a key here: O is this client's map overlay, and a change of the
+    // defaults is the user's to decide)
     ("action_sneak_attack", "", 0x1f83a, "Sneak Attack"),
     ("action_fast_attack", "", 0x14126, "Fast Attack"),
     ("action_aimed_shot", "", 0x14127, "Aimed Shot"),
@@ -435,6 +437,9 @@ pub fn binding_name(binding: &Binding) -> String {
 #[derive(Clone, Debug)]
 pub struct Keymap {
     bindings: HashMap<Action, Vec<Binding>>,
+    /// The keys the character playing rebound in the original client (`keybindings.rs`), which stand for the
+    /// session in place of this client's own keys of those actions. Not part of the settings file.
+    character: HashMap<Action, Vec<Binding>>,
 }
 
 impl Default for Keymap {
@@ -443,14 +448,38 @@ impl Default for Keymap {
         for &(action, _, keys) in ACTIONS {
             bindings.insert(action, keys.split(',').filter_map(parse_binding).collect());
         }
-        Keymap { bindings }
+        Keymap { bindings, character: HashMap::new() }
     }
 }
 
 impl Keymap {
-    /// The action a key press means, if any (bindings with more modifiers win).
+    /// An action's keys in force: the character's own from the original where it has any, else this client's.
+    fn of(&self, action: &Action) -> Option<&Vec<Binding>> {
+        self.character.get(action).or_else(|| self.bindings.get(action))
+    }
+
+    /// The action a key press means, if any (bindings with more modifiers win). An action with keys of the
+    /// character's own from the original comes before the others: there the rebindable keys are asked before the
+    /// fixed ones (`InputConfig_t::ProcessInput` 0x1001a759).
     pub fn action(&self, key: KeyCode, modifiers: ModifiersState) -> Option<Action> {
-        ACTIONS.iter().map(|&(a, _, _)| a).find(|a| self.bindings.get(a).is_some_and(|list| list.iter().any(|b| b.matches(key, modifiers))))
+        let hit = |a: &Action| self.of(a).is_some_and(|list| list.iter().any(|b| b.matches(key, modifiers)));
+        let actions = || ACTIONS.iter().map(|&(a, _, _)| a);
+        actions().filter(|a| self.character.contains_key(a)).find(hit).or_else(|| actions().find(hit))
+    }
+
+    /// Lays the keys a character rebound in the original over this client's, for the actions whose key was not
+    /// changed here (one that is no longer this client's default was chosen in this client, the later word). The
+    /// actions taken over.
+    pub fn set_character(&mut self, keys: HashMap<Action, Vec<Binding>>) -> Vec<Action> {
+        let defaults = Keymap::default();
+        self.character = keys.into_iter().filter(|(action, _)| self.bindings.get(action) == defaults.bindings.get(action)).collect();
+        ACTIONS.iter().map(|&(a, _, _)| a).filter(|a| self.character.contains_key(a)).collect()
+    }
+
+    /// An action's keys as the settings file keeps them: this client's own, without the character's from the
+    /// original.
+    pub fn saved_keys(&self, action: Action) -> String {
+        self.bindings.get(&action).map(|list| list.iter().map(binding_name).collect::<Vec<_>>().join(", ")).unwrap_or_default()
     }
 
     /// [`Keymap::action`] for a physical key (none for keys without a code).
@@ -463,18 +492,21 @@ impl Keymap {
 
     /// Every action a key release can end (modifiers don't matter on release).
     pub fn actions_for_key(&self, key: KeyCode) -> Vec<Action> {
-        ACTIONS.iter().map(|&(a, _, _)| a).filter(|a| self.bindings.get(a).is_some_and(|list| list.iter().any(|b| b.key == key))).collect()
+        ACTIONS.iter().map(|&(a, _, _)| a).filter(|a| self.of(a).is_some_and(|list| list.iter().any(|b| b.key == key))).collect()
     }
 
-    /// Makes `binding` the only key of `action`, taking it from any other action.
+    /// Makes `binding` the only key of `action`, taking it from any other action. (A key chosen here is this
+    /// client's: the character's own from the original no longer stands for the action.)
     pub fn assign(&mut self, action: Action, binding: Binding) {
-        for list in self.bindings.values_mut() {
+        for list in self.bindings.values_mut().chain(self.character.values_mut()) {
             list.retain(|b| *b != binding);
         }
+        self.character.remove(&action);
         self.bindings.insert(action, vec![binding]);
     }
 
     pub fn set(&mut self, action: Action, keys: &str) {
+        self.character.remove(&action);
         self.bindings.insert(action, keys.split(',').filter_map(parse_binding).collect());
     }
 
@@ -503,11 +535,11 @@ impl Keymap {
 
     /// The bindings of an action (none when it is unbound).
     pub fn bindings_of(&self, action: Action) -> Vec<Binding> {
-        self.bindings.get(&action).cloned().unwrap_or_default()
+        self.of(&action).cloned().unwrap_or_default()
     }
 
     pub fn keys(&self, action: Action) -> String {
-        self.bindings.get(&action).map(|list| list.iter().map(binding_name).collect::<Vec<_>>().join(", ")).unwrap_or_default()
+        self.of(&action).map(|list| list.iter().map(binding_name).collect::<Vec<_>>().join(", ")).unwrap_or_default()
     }
 }
 
@@ -686,7 +718,7 @@ impl Settings {
         out += "[keys]\n; one or more keys per action, separated by commas; Shift+, Ctrl+ and Alt+ combine\n";
         out += &format!("version = {KEYMAP_VERSION}\n");
         for &(action, name, _) in ACTIONS {
-            out += &format!("{name} = {}\n", self.keymap.keys(action));
+            out += &format!("{name} = {}\n", self.keymap.saved_keys(action));
         }
         out
     }
@@ -975,6 +1007,38 @@ log_messages = on
         assert_eq!(keymap.action(KeyCode::Space, ModifiersState::empty()), Some(Action::NoClip));
         assert_eq!(keymap.keys(Action::Jump), "");
         assert_eq!(keymap.keys(Action::NoClip), "Space");
+    }
+
+    /// The keys a character rebound in the original stand in place of this client's for the session: asked first,
+    /// shown as the action's keys, and not written to the settings. An action whose key was changed here keeps it;
+    /// a key chosen or cleared here afterwards is this client's again.
+    #[test]
+    fn a_characters_own_keys_lie_over_the_clients() {
+        let key = |text: &str| parse_binding(text).unwrap();
+        let none = ModifiersState::empty();
+        let mut settings = Settings::default();
+        settings.keymap.set(Action::Use, "G");
+        let taken = settings.keymap.set_character([(Action::Attack, vec![key("F")]), (Action::Use, vec![key("Y")]), (Action::Jump, Vec::new()), (Action::SitStand, vec![key("Q")])].into_iter().collect());
+        assert_eq!(taken, [Action::Jump, Action::Attack, Action::SitStand]);
+        let k = &settings.keymap;
+        assert_eq!((k.keys(Action::Attack), k.keys(Action::Use), k.keys(Action::Jump), k.keys(Action::SitStand)), ("F".to_string(), "G".to_string(), String::new(), "Q".to_string()));
+        assert_eq!((k.action(KeyCode::KeyF, none), k.action(KeyCode::Space, none), k.action(KeyCode::KeyG, none)), (Some(Action::Attack), None, Some(Action::Use)));
+        // (Q is the character's sit key now, though the client's own attack still has it underneath)
+        assert_eq!(k.action(KeyCode::KeyQ, none), Some(Action::SitStand));
+        // (a release ends every action the key has under any modifiers: the character's sit, and Ctrl+Q, but no longer the attack)
+        assert_eq!(k.actions_for_key(KeyCode::KeyQ), [Action::SitStand, Action::Quit]);
+        assert_eq!(k.bindings_of(Action::Attack), [key("F")]);
+        // (the settings file keeps the client's own)
+        let text = settings.to_text();
+        assert!(text.contains("\nattack = Q\n") && text.contains("\njump = Space\n") && text.contains("\nuse = G\n") && text.contains("\nsit_stand = X\n"));
+        // (a key chosen here takes the action back, and takes the key from the character's others)
+        settings.keymap.assign(Action::Attack, key("Q"));
+        let k = &settings.keymap;
+        assert_eq!((k.keys(Action::Attack), k.keys(Action::SitStand), k.action(KeyCode::KeyQ, none)), ("Q".to_string(), String::new(), Some(Action::Attack)));
+        settings.keymap.set(Action::Jump, "Space");
+        assert_eq!(settings.keymap.action(KeyCode::Space, none), Some(Action::Jump));
+        // (read back, the file has no trace of the character's keys)
+        assert_eq!(Settings::from_text(&text).keymap.keys(Action::Attack), "Q");
     }
 
     #[test]

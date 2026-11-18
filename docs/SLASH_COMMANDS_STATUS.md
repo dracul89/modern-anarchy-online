@@ -9,7 +9,7 @@ short list.
 
 | Command | Why |
 |---|---|
-| `/raid <command>` (create, list, listlocal, move, lootaccess, locks) | The message is identified (`RaidCmdIIR_c`, `4e525e58`) but not ported. `/raid` here opens the raid window, which the original's command does not. Cannot be verified without a raid. |
+| `/raid <command>` (create, list, listlocal, move, lootaccess, locks) | Ported 2026-11-18 from the code (`raidcommands.rs`, `RaidCmdIIR_c` `4e525e58`, the answer `RaidIIR_c`), but no raid message was ever sent to a server: cannot be verified without a team of two. |
 | `/tower`, `/terminate` | Notum Wars: `/tower` needs a service tower and runs a script; `/terminate` asks in a box first. Cannot be verified without a tower site. |
 | `/reclaim` | Opens the reclaim window (`N3Msg_ToggleReclaim`), which the client does not have. |
 | `/bug` | Left out on purpose (2026-11-16): the original reports to its makers' bug database about their own client. |
@@ -46,7 +46,7 @@ short list.
 
 ## Differs from the original, knowingly
 
-- `/raid` opens the raid window (above).
+- (`/raid` opened the raid window until 2026-11-18; it is the raid's commands now, and the window is `/open raid`.)
 - `/version` says the client's version; the original also asks the server for its own (action 0x9d).
 - `/tell` alone opens the target's tell window: the user's wish, not the original's.
 - A macro's or a filter rule's limits where the original loses data, and the script `%N` quirks kept as they are:
@@ -62,4 +62,4 @@ short list.
 
 1. (Done 2026-11-16: `/org leave` and `/org disband`.)
 2. (Done 2026-11-16: `/cc`.)
-3. `/raid` and `/tower`: can be ported from the code, not verified without a raid or a tower site.
+3. `/tower`: can be ported from the code, not verified without a tower site. (`/raid` was ported so on 2026-11-18.)

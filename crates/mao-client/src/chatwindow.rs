@@ -114,6 +114,8 @@ pub enum Out {
     /// One of the organization's commands (`mao_net::n3::org_command`): its number, whether the selected target
     /// goes with it, and its text.
     OrgCommand { command: u8, targeted: bool, text: String },
+    /// One of the raid's commands (`mao_net::n3::raid_command`): its number and its three identities.
+    RaidCommand { command: u32, ids: [(u32, u32); 3] },
     /// Open the tell window for a character, once the chat server knows the name (it comes back through
     /// `chatgroups::open_tell`).
     TellWindow { name: String },
@@ -1220,6 +1222,22 @@ impl ChatWindow {
                     None
                 }
                 crate::orgcommands::Step::Nothing => None,
+            },
+            // (`/raid`: `raidcommands.rs`. `listlocal` says the team's members here and sends nothing (FUN_10066446:
+            // nothing at all outside a team; the six teams of a raid it would list are not kept by this client))
+            Parsed::RaidCommand { text } => match crate::raidcommands::step(&self.expand(&text)) {
+                crate::raidcommands::Step::Nothing => None,
+                crate::raidcommands::Step::ListLocal => {
+                    let names = crate::team::with(|t| t.members.iter().map(|m| m.name.clone()).collect::<Vec<_>>());
+                    if !names.is_empty() {
+                        self.tell("Team members:");
+                        for name in names {
+                            self.tell(&name);
+                        }
+                    }
+                    None
+                }
+                crate::raidcommands::Step::Send { command, ids } => Some(Out::RaidCommand { command, ids }),
             },
             // (FUN_1003fe10's `team`: not in a team, said so; alone, its three lines of help; `loot` asks for the
             // order, and with a word after it the leader sets it, the word's number sent whatever it is: its table

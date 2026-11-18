@@ -40,6 +40,7 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
     ("played", "the time here, in Greenwich and in the game, the date, and from the server the time played"),
     ("born", "when the character was made, from the server"),
     ("team loot [all|leader|alpha]", "the team's loot order asked for, or set by its leader"),
+    ("raid create|locks|list|listlocal", "make a raid of your team (its leader's to do), ask for your raid locks, list the raid or the team; the raid's window is /open raid"),
     ("start <http address>", "open a web address outside the game"),
     ("afk [text]", "away from the keyboard: tells are answered with the text; alone, a box for the text, or back when away; /afk status"),
     ("t <text>", "your team's channel"),
@@ -199,6 +200,9 @@ pub enum Parsed {
     ItemsList,
     /// `/team [loot [all|leader|alpha]]` (Gamecode FUN_1003fe10): its words, in small letters.
     TeamCommand { words: Vec<String> },
+    /// `/raid <create|list|listlocal|move|lootaccess|locks> ...` (Gamecode FUN_1003fe10; `raidcommands.rs`): the
+    /// words after it, as typed.
+    RaidCommand { text: String },
     /// `/bank <open|close|info>` (Gamecode FUN_1003fe10): its first word.
     Bank { word: String },
     /// `/char&viewdist <characters> <view>` (GUI.dll FUN_100b6a54): both distances.
@@ -378,8 +382,11 @@ pub fn parse(line: &str) -> Parsed {
             Ok(id) => Parsed::InspectEquipment { id },
             Err(_) => Parsed::Inspect,
         },
-        // (`/raid` and `/lft` open their windows, as the original's commands do)
-        "raid" | "lft" => Parsed::Window { name: command.to_lowercase(), open: true },
+        // (`/lft` opens its window, as the original's command does. `/raid` does not: it is the raid's commands, a
+        // line for Gamecode's text interpreter, and until 2026-11-18 it opened the raid window here, which is
+        // `/open raid` and the control center's menu entry)
+        "lft" => Parsed::Window { name: command.to_lowercase(), open: true },
+        "raid" => Parsed::RaidCommand { text: text.to_string() },
         "open" => Parsed::Window { name: text.to_string(), open: true },
         "close" => Parsed::Window { name: text.to_string(), open: false },
         "selectself" => Parsed::SelectSelf,
@@ -669,7 +676,10 @@ mod tests {
         assert_eq!(parse("/inspect 2065585191"), Parsed::InspectEquipment { id: 2065585191 });
         assert_eq!(parse("/inspect Somebody"), Parsed::Inspect);
         assert_eq!(parse("/open skills"), Parsed::Window { name: "skills".into(), open: true });
-        assert_eq!(parse("/raid"), Parsed::Window { name: "raid".into(), open: true });
+        assert_eq!(parse("/raid"), Parsed::RaidCommand { text: String::new() });
+        assert_eq!(parse("/raid move 12 3"), Parsed::RaidCommand { text: "move 12 3".into() });
+        assert_eq!(parse("/lft"), Parsed::Window { name: "lft".into(), open: true });
+        assert_eq!(parse("/open raid"), Parsed::Window { name: "raid".into(), open: true });
         assert_eq!(parse("/damage"), Parsed::Window { name: "damage".into(), open: true });
         assert_eq!(parse("/dps"), Parsed::Window { name: "damage".into(), open: true });
         assert_eq!(parse("/find Treatment Kit"), Parsed::Window { name: "find Treatment Kit".into(), open: true });

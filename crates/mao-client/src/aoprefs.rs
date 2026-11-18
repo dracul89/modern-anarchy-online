@@ -84,6 +84,41 @@ pub fn prefs_dirs(character: u32) -> Option<(PathBuf, PathBuf)> {
     newest.map(|(_, root, dir)| (root, dir))
 }
 
+fn folders(dir: &Path) -> Vec<PathBuf> {
+    let mut found: Vec<PathBuf> = std::fs::read_dir(dir).map(|entries| entries.flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect()).unwrap_or_default();
+    found.sort();
+    found
+}
+
+/// The character's own `Prefs.xml` as the original keeps it, `<Prefs>/<user name>/Char<id>/Prefs.xml`
+/// (`ControlCenterModule_c::LoadUserConfig` 0x1006c3b1; the user's folder is an account's name or `derived`), for
+/// what has to be this character's and no other's: its keys (`keybindings.rs`). Looked for under `MAO_AO_PREFS`,
+/// else under every `%LOCALAPPDATA%/Funcom/Anarchy Online/*/*/Prefs`; where more than one install has the
+/// character, the file written last. None when the original has not played the character on this machine: no
+/// other character's file stands in, unlike [`prefs_dirs`]'s windows.
+pub fn character_prefs(character: u32) -> Option<PathBuf> {
+    let roots: Vec<PathBuf> = match std::env::var("MAO_AO_PREFS") {
+        Ok(dir) => vec![PathBuf::from(dir)],
+        Err(_) => {
+            let local = std::env::var("LOCALAPPDATA").ok()?;
+            folders(&Path::new(&local).join("Funcom/Anarchy Online")).iter().flat_map(|hash| folders(hash)).map(|install| install.join("Prefs")).collect()
+        }
+    };
+    character_prefs_in(&roots, character)
+}
+
+/// [`character_prefs`] under these `Prefs` folders.
+pub fn character_prefs_in(roots: &[PathBuf], character: u32) -> Option<PathBuf> {
+    let own = format!("Char{character}");
+    roots
+        .iter()
+        .flat_map(|root| folders(root))
+        .map(|user| user.join(&own).join("Prefs.xml"))
+        .filter_map(|file| Some((std::fs::metadata(&file).ok()?.modified().ok()?, file)))
+        .max_by_key(|(written, _)| *written)
+        .map(|(_, file)| file)
+}
+
 /// A `Rect(l,t,r,b)` value.
 pub fn rect(value: &str) -> Option<[f32; 4]> {
     let inner = value.trim().strip_prefix("Rect(")?.strip_suffix(')')?;
@@ -255,6 +290,27 @@ mod tests {
 </Archive>"#;
         assert_eq!(dock_area(area), Some((vec!["inventory_window".to_string()], [2709.0, 1233.0, 3290.0, 1408.0])));
         assert_eq!(rect("Rect(1,2,0,5)"), None);
+    }
+
+    /// A character's own file is found under any user's folder of any install, the one written last where two have
+    /// it; a character the original never played here has none (no other character's stands in).
+    #[test]
+    fn a_characters_own_file_is_found_by_its_number() {
+        let base = std::env::temp_dir().join(format!("mao-character-prefs-{}", std::process::id()));
+        let (first, second) = (base.join("one/Prefs"), base.join("two/Prefs"));
+        let files = [first.join("derived/Char5/Prefs.xml"), second.join("Someuser/Char5/Prefs.xml"), second.join("derived/Char6/Prefs.xml")];
+        for (k, file) in files.iter().enumerate() {
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(file, "<Root />").unwrap();
+            let written = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000 + 1000 * [2, 1, 3][k]);
+            std::fs::File::options().write(true).open(file).unwrap().set_modified(written).unwrap();
+        }
+        let roots = [first.clone(), second.clone()];
+        assert_eq!(character_prefs_in(&roots, 5), Some(files[0].clone()));
+        assert_eq!(character_prefs_in(&roots[1..], 5), Some(files[1].clone()));
+        assert_eq!(character_prefs_in(&roots, 6), Some(files[2].clone()));
+        assert_eq!(character_prefs_in(&roots, 7), None);
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]

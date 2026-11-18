@@ -1555,7 +1555,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: reads the Scale stat for one's own character and for creatures; every other player and humanoid NPC is 100; remains of a scaled creature not looked at
 - A player notices: scaled players and humanoids show at normal size
 - Where: `crates/mao-client/src/net.rs:5396`; `docs/CLIENT_UI.md:749`; `docs/ORIGINAL_AUDIT.md:59`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18): a player's scale is read from its full update (a short after its MonsterData word; the original sets it as stat 360 for every character, FUN_1007835c) and other players and humanoid NPCs are drawn at it, not below 20. Most players are 90 or 110, not 100. A player with a monster body (a polymorph, a Yalmaha at 20) keeps 100, since the client does not draw that body for others yet (MOV-020, RND-135; the field is read now). Not followed: a change of the stat after the update (a size nano). `FUN_100892ca` in the line above is the items' SetStat, not a character's. Not seen live.
 
 #### `NPC-029` Pet window: no running-nano list per pet, no Remember Pet Names
 
@@ -2112,7 +2113,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: Two like stacks change cells like any two items.
 - A player notices: Stacks cannot be merged or split inside a bag.
 - Where: `crates/mao-client/src/loot.rs:17`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18): a stack let go on a like stack of its backpack is joined (`N3Msg_JoinItems`), Ctrl+click splits (the inventory's count box) into an empty cell of the same backpack (`N3Msg_SplitItem`, the client's list first); a bag's item goes out as `(0x6b, handle << 16 | place)`. The captures have joins and a split in the inventory only: the server's answer inside a bag, and its place for the new stack, are Gamecode's reading and want one live try. Not done: the bank's stacks.
 
 #### `INV-049` Item use sent at once instead of after the item timer
 
@@ -2121,7 +2123,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: Sends the use at once while showing the timer.
 - A player notices: Item takes effect before its timer bar finishes.
 - Where: `crates/mao-client/src/net.rs:1365`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18): the line above is a misreading: the original also sends the use at the click (the engine sends the command in that frame), and it is the server that waits the ItemDelay (in the captures a one-second stim works 1.1 s after the use is sent). Sending late would have doubled every delay, so that was not ported. What did differ is: the timer bar now starts with the server's answer that allows the use (FUN_1007ccb3), not at the click. Not ported: the silent refusal of a second use while a timer runs, and `CharacterAction` 0x92, which the client takes for the end of this timer and the original for the equip timer's.
 
 #### `INV-050` No item menu in container windows
 
@@ -3715,7 +3718,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: /raid (with or without words) opens the client's raid window; the raid commands are not carried out
 - A player notices: /raid create, /raid list and the others do nothing; a window appears instead
 - Where: `crates/mao-client/src/chat_commands.rs:382`; `docs/GUI_DLL_PARITY.md:255`; `docs/SLASH_COMMANDS_STATUS.md:12`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18): `/raid` is the raid's commands as Gamecode's interpreter reads them (`raidcommands.rs`): create, list and locks send `RaidCmdIIR_c` with no check, move and lootaccess with their numbers, listlocal says the team, another word does nothing; the server's `RaidIIR_c` is read (the raid made; the lock list, said in chat). No raid message was ever sent to a server: the bytes are the code's alone. The raid window is `/open raid` and the control center's menu now.
 
 #### `CHT-049` Raid window shows only the own team and its buttons do nothing
 
@@ -8470,7 +8474,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: default keymap in settings::ACTIONS; per-character Prefs.xml not read.
 - A player notices: keys rebound in the original client do not carry over.
 - Where: `docs/GUI_DLL_PARITY.md:58`; `crates/mao-client/src/gui/dvalue.rs:7`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18): the character's `KeyBindings` archive (`<Prefs>/<user>/Char<id>/Prefs.xml`) is read at the game's start and the keys it changed from the shipped default are laid over the client's for the session (`keybindings.rs`), unless the key was changed here; never saved, the original's folder only read. No character on this machine has rebound a key there, so nothing changes yet. Found: the client's defaults differ from the shipped file in five keys (walk/run on Backspace there; sneak attack J, fast attack N, aimed shot O, bow special Period have no key here; O is the map overlay here): not changed. Not read: the fixed keys of `Login.cfg`, mouse buttons, actions the client has none for.
 
 #### `SET-032` Original's key editor not ported; Key bindings tab leads to the client's own settings
 

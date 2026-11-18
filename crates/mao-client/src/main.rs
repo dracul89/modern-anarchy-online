@@ -33,6 +33,8 @@ mod afk;
 mod chatfilter;
 mod macros;
 mod orgcommands;
+mod keybindings;
+mod raidcommands;
 mod orgboxes;
 mod scripts;
 mod interior;

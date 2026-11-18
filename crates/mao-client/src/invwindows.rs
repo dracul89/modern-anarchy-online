@@ -139,6 +139,37 @@ pub enum Click {
     Nothing,
 }
 
+/// The box that asks how many of a stack of `count` to split off it (this client's own: the original counts by the
+/// mouse's sideways movement, FUN_10041ca4), `name` one of `chrome::DIALOGS`. Nothing while it waits; then the count
+/// (`places::split_count`), or none when it was closed, cancelled, or what was typed is no number.
+pub fn split_dialog(ctx: &egui::Context, palette: &Palette, name: &'static str, typed: &mut String, count: u32) -> Option<Option<u32>> {
+    let mut asking = count > 1;
+    let mut answer = None;
+    let text = |name: &str, own: &str| crate::gui::xml::ldb_named(10000, name, own);
+    crate::chrome::window(ctx, palette, name, "Split stack", &mut asking, |w| w.resizable(false).pivot(egui::Align2::CENTER_CENTER).default_pos(ctx.content_rect().center()), |ui| {
+        ui.label(format!("How many of the {count}?"));
+        let field = crate::chrome::text_edit(ui, palette, egui::TextEdit::singleline(typed).desired_width(80.0));
+        crate::chrome::focus_when_new(ctx, name, &field);
+        if field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+            answer = Some(true);
+        }
+        ui.horizontal(|ui| {
+            if crate::chrome::button(ui, palette, &text("MsgBox_OK", "OK"), true).clicked() {
+                answer = Some(true);
+            }
+            if crate::chrome::button(ui, palette, &text("MsgBox_Cancel", "Cancel"), true).clicked() {
+                answer = Some(false);
+            }
+        });
+    });
+    match answer {
+        Some(true) => Some(crate::places::split_count(typed, count)),
+        Some(false) => Some(None),
+        None if !asking => Some(None),
+        None => None,
+    }
+}
+
 /// A click's meaning by its count (0: a press that moved, a drag), the keys held, whether an item is in hand
 /// already and whether the item is a stack of the backpack (more than one). The original's lists look at the
 /// qualifiers first (FUN_10041aa4: Shift or Ctrl held, nothing is taken up; FUN_10041926: Ctrl on a stack of more
@@ -649,31 +680,10 @@ impl ItemWindows {
         if let Some((place, typed)) = self.split_box.as_mut() {
             let place = *place;
             let count = by_slot.get(&place).map_or(0, |i| i.count as u32);
-            let mut asking = count > 1;
-            let mut answer = None;
-            let text = |name: &str, own: &str| crate::gui::xml::ldb_named(10000, name, own);
-            crate::chrome::window(ctx, palette, "split-stack", "Split stack", &mut asking, |w| w.resizable(false).pivot(egui::Align2::CENTER_CENTER).default_pos(ctx.content_rect().center()), |ui| {
-                ui.label(format!("How many of the {count}?"));
-                let field = crate::chrome::text_edit(ui, palette, egui::TextEdit::singleline(typed).desired_width(80.0));
-                crate::chrome::focus_when_new(ctx, "split-stack", &field);
-                if field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                    answer = Some(true);
+            if let Some(answer) = split_dialog(ctx, palette, "split-stack", typed, count) {
+                if let Some(n) = answer {
+                    crate::gear::pick_up_split(place, n);
                 }
-                ui.horizontal(|ui| {
-                    if crate::chrome::button(ui, palette, &text("MsgBox_OK", "OK"), true).clicked() {
-                        answer = Some(true);
-                    }
-                    if crate::chrome::button(ui, palette, &text("MsgBox_Cancel", "Cancel"), true).clicked() {
-                        answer = Some(false);
-                    }
-                });
-            });
-            if answer == Some(true)
-                && let Some(n) = crate::places::split_count(typed, count)
-            {
-                crate::gear::pick_up_split(place, n);
-            }
-            if answer.is_some() || !asking {
                 self.split_box = None;
             }
         }

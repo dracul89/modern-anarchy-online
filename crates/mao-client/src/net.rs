@@ -1005,6 +1005,13 @@ pub fn text_command(action: u8, value: u32) {
 /// the text.
 static ORG_COMMANDS: std::sync::Mutex<Vec<(u8, crate::orgboxes::At, String, bool)>> = std::sync::Mutex::new(Vec::new());
 
+/// The raid's commands asked for by `/raid` (`n3::raid_command`), sent by the game loop.
+static RAID_COMMANDS: std::sync::Mutex<Vec<(u32, [(u32, u32); 3])>> = std::sync::Mutex::new(Vec::new());
+
+pub fn raid_command(command: u32, ids: [(u32, u32); 3]) {
+    RAID_COMMANDS.lock().unwrap_or_else(|e| e.into_inner()).push((command, ids));
+}
+
 pub fn org_command(command: u8, targeted: bool, text: String) {
     let at = if targeted { crate::orgboxes::At::Target } else { crate::orgboxes::At::Nobody };
     ORG_COMMANDS.lock().unwrap_or_else(|e| e.into_inner()).push((command, at, text, false));
@@ -1501,10 +1508,49 @@ impl World {
         *crate::ui::TIMERS.lock().unwrap_or_else(|e| e.into_inner()) = self.timer_bars.shown(&self.timers);
     }
 
-    /// An item of the backpack used (`(0x68, place)`; action 3 a plain use, 5 on something): FUN_1007ccb3 → FUN_1003bcdc →
-    /// FUN_1003bb5a, unless an item timer runs: the item's ItemDelay (294) and RechargeDelay (210) as a kind-4 entry made the
-    /// running one (flag 2) — except a plain use of a bag or of an item whose two times are under 31 hundredths, which is used
-    /// at once (FUN_1003b8f3). (The original uses the item once the first phase is over; the client sends the use at once.)
+    /// Another character's body scale in percent: the `Scale` stat its full update set (`EntityInfo::scale`: a
+    /// player's too since 2026-11-18, before which every other player and humanoid NPC was drawn at 100), not below
+    /// 20, which is where `SimpleChar_t`'s SetStat (FUN_1005a3b1) holds stat 360; 100 for one not announced. A player
+    /// with a monster body (`MonsterData`: a polymorph, a Yalmaha at 20) keeps 100 here: the scale is that body's,
+    /// which this client does not yet draw for others from the update, and a person a fifth the size would be worse
+    /// than one of the wrong shape. Not followed: a change of the stat after the update (a size nano's temporary
+    /// modifier, which the original applies at once, FUN_10064a0e).
+    fn others_scale(&self, id: u32) -> f32 {
+        self.infos.get(&id).filter(|i| i.monster.unwrap_or(0) == 0).and_then(|i| i.scale).map_or(100.0, |s| (s as f32).max(20.0))
+    }
+
+    /// A stack of a bag of one's own split in the client's own list, as the original splits it before it tells the
+    /// server (Gamecode FUN_1004a2bf for an item `(0x6b, handle << 16 | place)`: the bag by the handle, `count` off
+    /// the stack, and a stack of `count` at the bag's first free place, counted from 0; the bag is signalled as
+    /// changed). The new stack's place; nothing when the bag or the stack is not there, the stack has no more than
+    /// `count`, or the bag is full.
+    fn split_in_bag(&mut self, handle: u32, place: u32, count: u32) -> Option<u32> {
+        let bag = self.bags.values_mut().find(|b| b.handle == handle)?;
+        let free = crate::places::split_entry(&mut bag.entries, place, count, 0, crate::loot::BAG_PLACES as u32)?;
+        self.bags_changed = true;
+        Some(free)
+    }
+
+    /// The server allowed a use of an item of the backpack (`(0x68, place)`; action 3 a plain use, 5 on something, 0x20
+    /// on a character): the use command's answer in state 1, FUN_1007ccb3 → FUN_1003bcdc → FUN_1003bb5a, which, unless
+    /// an item timer runs, makes the item's ItemDelay (294) and RechargeDelay (210) a kind-4 entry and the running one
+    /// (flag 2) — except a plain use of a bag or of an item whose two times are under 31 hundredths, which is used at
+    /// once (FUN_1003b8f3).
+    ///
+    /// The use itself goes to the server at the click, in the original as here (`N3Msg_UseItem` queues the command and
+    /// the engine sends it that frame, once FUN_1007ce00 let it through). It is the server that waits the ItemDelay
+    /// before the item works: in the captures a one-second stim's answer comes 0.38 s after the use and its effect
+    /// 1.1 s after, a recall beacon's five seconds after. The timer only shows that wait: when its first phase ends
+    /// the original takes the entry away and does its own, local, part of the use (FUN_1003badb: one off the stack),
+    /// and sends nothing. So the bar starts with the server's answer (until 2026-11-18 it started at the click, a
+    /// round trip early, and for a use the server refused too). The notes that said the original holds the use back
+    /// until the timer's first phase is over were a misreading.
+    ///
+    /// Not ported: the original refuses a new use silently while an item timer runs, before anything is sent
+    /// (FUN_1003b5b5's first test; here the use goes out and no second bar starts); and it does not end this timer on
+    /// the server's `CharacterAction` 0x92, which ends the equip timer (kind 6), where this client's 0x92 takes the
+    /// item timer away at every start of a move. Left together on purpose: with the 0x92 mistake mended alone, the
+    /// timer of an item without an ItemDelay used on something (a first phase of 1234567890 as read) would never go.
     fn start_item_timer(&mut self, place: u32, action: u32) {
         use crate::timers::{ITEM, TAKES_TURNS};
         if self.timers.has(ITEM) {
@@ -1839,6 +1885,15 @@ impl World {
             self.server_id = frame.source;
         }
         let Some(m) = Message::parse(frame) else { return };
+        // (the server's answer to a use of one's own: the use command back with its lead byte 0, its state (1 allowed,
+        // 2 refused), the reference, the action, a flag, the user and the item. Allowed, the item timer starts:
+        // `start_item_timer`.)
+        if m.kind == 0x52526858 && m.identity.1 == self.own && m.data.len() >= 33 && m.data[0] == 0 {
+            let word = |at: usize| u32::from_be_bytes(m.data[at..at + 4].try_into().unwrap());
+            if word(1) == 1 && matches!(word(9), 3 | 5 | 0x20) && word(25) == 0x68 {
+                self.start_item_timer(word(29), word(9));
+            }
+        }
         // (MAO_COMBAT_LOG: the fight's messages as they come)
         if std::env::var_os("MAO_COMBAT_LOG").is_some() && matches!(m.kind, 0x28494070 | 0x46002f16 | 0x4a41203e | 0x5c654b28 | 0x206b4b73 | 0x50544d19 | 0x1d3c0f1c | 0x754f1115 | 0x51492120) || (m.kind == 0x5e477770 && m.data.get(4) == Some(&0x63)) {
             if std::env::var_os("MAO_COMBAT_LOG").is_some() {
@@ -2847,6 +2902,16 @@ impl World {
                         self.inventory = Some(self.worn.clone());
                     }
                 }
+                // the same inside a bag (FUN_1004a12e: both of type 0x6b, the bag found by the target's handle, the
+                // instance's high word; the places are the low words; the bag is signalled as changed)
+                0x35 if word(9) == 0x6b && word(17) == 0x6b => {
+                    let (handle, onto, held) = (word(13) >> 16, word(13) & 0xffff, word(21) & 0xffff);
+                    if let Some(bag) = self.bags.values_mut().find(|b| b.handle == handle)
+                        && crate::places::join_entries(&mut bag.entries, onto, held)
+                    {
+                        self.bags_changed = true;
+                    }
+                }
                 // a perk action gone (0xb6, after an untraining: its item template, number and code)
                 0xb6 => {
                     self.perk_actions.retain(|p| p.1 != word(17));
@@ -3638,6 +3703,19 @@ impl World {
                     let nonzero: Vec<_> = lines.iter().filter_map(|l| Some((l.get("ResearchId")?.as_int()?, l.get("Unknown1")?.as_int()?, l.get("Unknown2")?.as_int()?, l.get("Unknown3")?.as_int()?))).filter(|l| l.1 != 0 || l.2 != 0 || l.3 != 0).collect();
                     eprintln!("research update from {:x}:{:x}: {} lines, non-zero {nonzero:?}", m.identity.0, m.identity.1, lines.len());
                 }
+            }
+        }
+        // The raid's answers (`RaidIIR_c`, Gamecode FUN_100a40c0), for one's own character: the raid made of the team
+        // (the game's line; the raid window's six teams are not kept here), and the lock list `/raid locks` asked
+        // for, said in the chat (FUN_100430c2 with the server's time now).
+        if m.kind == n3::RAID_ANSWER && m.identity.1 == self.own {
+            let lines = match n3::raid_answer(&m.data) {
+                Some(n3::RaidAnswer::Created) => vec![crate::feedback::plain("Feedback_RaidCreated")],
+                Some(n3::RaidAnswer::Locks(locks)) => crate::raidcommands::lock_lines(&locks, crate::gametime::server_now(), |id| PLAYFIELD_NAMES.get().and_then(|n| n.get(&id)).cloned()),
+                None => Vec::new(),
+            };
+            for line in lines {
+                self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, line));
             }
         }
         // The answers to `/org info` and `/org contract` (`OrgServer` types 2 and 1, Gamecode FUN_10126f5a): the info is a
@@ -5656,7 +5734,7 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
             };
             let action = movement_action(mode, moving, world.strafing.get(&id).copied().unwrap_or(0), world.backing.get(&id).copied().unwrap_or(false));
             // (the `Scale` stat read in mode 3, as the callers of `SetBodyScale` read it: the stored value and what is worn adds)
-            let scale = if id == world.own { Some(crate::derived::shown_one(&world.stats, &world.item_mods, 360)).filter(|&s| s > 0).unwrap_or(100) as f32 } else { 100.0 };
+            let scale = if id == world.own { Some(crate::derived::shown_one(&world.stats, &world.item_mods, 360)).filter(|&s| s > 0).unwrap_or(100) as f32 } else { world.others_scale(id) };
             let jumped = world.jumped.get(&id).map(|t| t.elapsed());
             // (A phase per entity keeps a crowd from moving in step.)
             // (a wielded weapon hangs on its hand, in a fight or out of one: Gamecode's FUN_1009cda2, when the weapon is
@@ -6604,7 +6682,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                         chat.send(&mao_net::chat::lookup_packet(&name))?;
                                     }
                                 },
-                                Out::Camp | Out::Sit | Out::Perf | Out::Pet(_) | Out::Duel(_) | Out::PetDuel(_) | Out::Server(_) | Out::FxScript(_) | Out::Quit | Out::Follow | Out::Inspect | Out::Window { .. } | Out::ToggleWindow { .. } | Out::Assist { .. } | Out::Waypoint { .. } | Out::SelectSelf | Out::SetOption { .. } | Out::DValue { .. } | Out::TextCommand { .. } | Out::OrgCommand { .. } | Out::RolePlay | Out::ViewDist(_) | Out::CharDist(_) => {}
+                                Out::Camp | Out::Sit | Out::Perf | Out::Pet(_) | Out::Duel(_) | Out::PetDuel(_) | Out::Server(_) | Out::FxScript(_) | Out::Quit | Out::Follow | Out::Inspect | Out::Window { .. } | Out::ToggleWindow { .. } | Out::Assist { .. } | Out::Waypoint { .. } | Out::SelectSelf | Out::SetOption { .. } | Out::DValue { .. } | Out::TextCommand { .. } | Out::OrgCommand { .. } | Out::RaidCommand { .. } | Out::RolePlay | Out::ViewDist(_) | Out::CharDist(_) => {}
                                 Out::Befriend { name } => match ids.get(&name.to_lowercase()) {
                                     Some(&id) => {
                                         chat.send(&mao_net::chat::buddy_add_packet(id, false))?;
@@ -6910,6 +6988,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut combine_seen = 0u8;
         let mut join_seen = 0u8;
         let mut split_seen = 0u8;
+        let mut bag_join_seen = 0u8;
+        let mut bag_split_seen = 0u8;
         let mut cancel_seen = 0u8;
         let mut grid_seen = 0u8;
         let mut city_seen = 0u8;
@@ -7703,6 +7783,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 eprintln!("[{:6.1}] organization command {command:#x} at {:x}:{:x} {text:?} {flag}", clock.elapsed().as_secs_f32(), at.0, at.1);
                 let _ = connection.send(&n3::org_command(own, command, at, 0, &text, flag));
             }
+            for (command, ids) in std::mem::take(&mut *RAID_COMMANDS.lock().unwrap_or_else(|e| e.into_inner())) {
+                eprintln!("[{:6.1}] raid command {command} {ids:x?}", clock.elapsed().as_secs_f32());
+                let _ = connection.send(&n3::raid_command(own, command, ids));
+            }
             for text in std::mem::take(&mut *SERVER_COMMANDS.lock().unwrap_or_else(|e| e.into_inner())) {
                 let at = target.map_or((0, 0), |t| (state.types.get(&t).copied().unwrap_or(n3::CHARACTER), t));
                 eprintln!("[{:6.1}] server command {text:?}", clock.elapsed().as_secs_f32());
@@ -8430,9 +8514,6 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 use_on_seen = keys.use_on.0;
                 uses += 1;
                 let _ = connection.send(&n3::use_item_on(own, uses, keys.use_on.1, keys.use_on.2));
-                if keys.use_on.1.0 == 0x68 {
-                    state.start_item_timer(keys.use_on.1.1, 5);
-                }
             }
             // The Action window and the hotbar: special actions and social actions.
             if keys.special.0 != special_seen {
@@ -8756,6 +8837,20 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     pending_gear = Some(crate::gear::from_entries(&gear_db, &gear_textures, &state.worn, state.stats.get(&0x36).copied().unwrap_or(1)));
                 }
             }
+            // (the same two inside a bag of one's own: an item of a bag is `(0x6b, handle << 16 | place)`, `Chest_t`'s
+            // FUN_1007e3e3; the join waits for the server's answer, the split is made here first: `World::split_in_bag`)
+            if keys.bag_join.0 != bag_join_seen {
+                bag_join_seen = keys.bag_join.0;
+                let (_, handle, onto, held) = keys.bag_join;
+                let _ = connection.send(&n3::join_items(own, (0x6b, handle << 16 | (onto & 0xffff)), (0x6b, handle << 16 | (held & 0xffff))));
+            }
+            if keys.bag_split.0 != bag_split_seen {
+                bag_split_seen = keys.bag_split.0;
+                let (_, handle, place, count) = keys.bag_split;
+                if state.split_in_bag(handle, place, count).is_some() {
+                    let _ = connection.send(&n3::split_item(own, (0x6b, handle << 16 | (place & 0xffff)), count));
+                }
+            }
             // An item destroyed: asked of the server and taken out of the inventory window at once.
             if keys.delete.0 != delete_seen {
                 delete_seen = keys.delete.0;
@@ -8964,7 +9059,6 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     }
                     uses += 1;
                     let _ = connection.send(&n3::use_object(own, uses, (0x68, keys.fire.1)));
-                    state.start_item_timer(keys.fire.1, 3);
                 }
             }
             // The mission request goes out a second after the walk ends (or 6 s into a session without one).
@@ -11872,6 +11966,99 @@ mod door_tests {
         assert_eq!(w.bags[&bag].entries.iter().map(|e| e.low_id).collect::<Vec<_>>(), [200]);
         assert_eq!(w.worn.last().map(|e| (e.slot, e.low_id)), Some((inventory::BACKPACK_FIRST + 1, 300)));
         assert!(w.bags_changed && w.loot.as_ref().is_some_and(|l| l.entries.len() == 1));
+    }
+
+    /// The raid's answers for one's own character are said in the chat: the raid made (type 0) and the lock list
+    /// (type 1; none here); another character's, and a type the client does not act on, say nothing.
+    #[test]
+    fn the_raids_answers_are_said() {
+        let mut w = World { own: 7, ..World::default() };
+        let said = |w: &mut World| std::mem::take(&mut w.game_lines).len();
+        w.add(&Message { kind: n3::RAID_ANSWER, identity: (0xc350, 7), data: vec![0, 0, 0] }.frame(1));
+        assert_eq!(said(&mut w), 1);
+        w.add(&Message { kind: n3::RAID_ANSWER, identity: (0xc350, 7), data: vec![0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0] }.frame(1));
+        assert_eq!(said(&mut w), 1);
+        w.add(&Message { kind: n3::RAID_ANSWER, identity: (0xc350, 9), data: vec![0, 0, 0] }.frame(1));
+        w.add(&Message { kind: n3::RAID_ANSWER, identity: (0xc350, 7), data: vec![0, 0, 2] }.frame(1));
+        assert_eq!(said(&mut w), 0);
+    }
+
+    /// The item timer starts with the server's answer that allows the use, not with the click: the use command back
+    /// in state 1 for one's own character. A refusal (state 2), one's own request as sent (lead byte 1), another
+    /// character's answer and an item not in the inventory start none. (Without the item's template its times are
+    /// not known, which makes a use on something a timer and a plain use none; `MAO_GAME`: the Arete capture's stim
+    /// of one second, used plainly, is a timer too.)
+    #[test]
+    fn the_item_timer_starts_with_the_servers_answer() {
+        let own = 0x7b1a0021;
+        let answer = |lead: u8, state: u32, action: u32, place: u32| {
+            let mut data = vec![lead];
+            for word in [state, 0x16, action, 0, 0xc350, own, 0x68, place] {
+                data.extend_from_slice(&word.to_be_bytes());
+            }
+            data
+        };
+        let entry = |slot: u32, low_id: u32| inventory::Entry { slot, flags: 0, count: 1, container: (0, 0), low_id, high_id: low_id, quality: 1, extra: 0 };
+        let mut w = World { own, ..World::default() };
+        w.worn.push(entry(0x48, 1));
+        let has = |w: &World| w.timers.has(crate::timers::ITEM);
+        w.add(&Message { kind: 0x52526858, identity: (0xc350, own), data: answer(0, 2, 5, 0x48) }.frame(1));
+        w.add(&Message { kind: 0x52526858, identity: (0xc350, own), data: answer(1, 0, 5, 0x48) }.frame(1));
+        w.add(&Message { kind: 0x52526858, identity: (0xc350, 9), data: answer(0, 1, 5, 0x48) }.frame(1));
+        w.add(&Message { kind: 0x52526858, identity: (0xc350, own), data: answer(0, 1, 5, 0x49) }.frame(1));
+        w.add(&Message { kind: 0x52526858, identity: (0xc350, own), data: answer(0, 1, 3, 0x48) }.frame(1));
+        assert!(!has(&w));
+        w.add(&Message { kind: 0x52526858, identity: (0xc350, own), data: answer(0, 1, 5, 0x48) }.frame(1));
+        assert!(has(&w));
+        // (the capture's own answer, #9072 of the Arete Landing one, is what `answer` builds)
+        assert_eq!(answer(0, 1, 3, 0x48).iter().map(|b| format!("{b:02x}")).collect::<String>(), "00000000010000001600000003000000000000c3507b1a00210000006800000048");
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let db = Arc::new(mao_formats::resource::ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap());
+        let _ = ITEM_DB.set(db);
+        let mut w = World { own, ..World::default() };
+        w.worn.push(entry(0x48, 297044));
+        w.add(&Message { kind: 0x52526858, identity: (0xc350, own), data: answer(0, 1, 3, 0x48) }.frame(1));
+        assert!(has(&w));
+    }
+
+    /// Another player is drawn at the scale its full update gives (the capture's own: 110, and one in a Yalmaha,
+    /// whose 20 is the craft's and leaves the person at 100); one never announced at 100.
+    #[test]
+    fn another_player_has_the_scale_it_was_announced_with() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let mut w = World { own: 7, ..World::default() };
+        w.add(&Message { kind: n3::ENTITY_INFO, identity: (0xc350, 21), data: hex("003a00204ac80020da154561917f42510f5b4444583a00000000bf70e0f5000000003ead5c330000058809414141414141414100001812410001000100000014000000000005000f0006000a00030003000301003c0000000000006e001f000000002a80") }.frame(1));
+        w.add(&Message { kind: n3::ENTITY_INFO, identity: (0xc350, 734), data: hex("003a00a06ac80000028f4549f000421000004464c00000000000bf536d47000000003f10579d0000064a0b414141414141414141410020181241000100010000074e0000000000050190018000fd0156016800ff700856000001848e0014003b010000002a80") }.frame(1));
+        assert_eq!((w.others_scale(21), w.others_scale(734), w.others_scale(99)), (110.0, 100.0, 100.0));
+        w.infos.get_mut(&21).unwrap().scale = Some(3);
+        assert_eq!(w.others_scale(21), 20.0);
+    }
+
+    /// Stacks inside a bag of one's own: a split is made in the bag's list at once (the new stack at the bag's first
+    /// free place, from 0), and the server's `JoinItems` answer, naming both as `(0x6b, handle << 16 | place)`, puts
+    /// one stack into the other. Another bag's handle, or an inventory identity, leaves the bag alone.
+    #[test]
+    fn stacks_split_and_join_inside_a_bag() {
+        let own = 0x7b1a0021;
+        let bag = (crate::loot::BAG, 0x4d);
+        let entry = |slot: u32, count: u16| inventory::Entry { slot, flags: 0, count, container: (0, 0), low_id: 300, high_id: 300, quality: 1, extra: 0 };
+        let mut w = World { own, ..World::default() };
+        w.bags.insert(bag, Loot { identity: bag, handle: 0x71, entries: vec![entry(0, 10), entry(2, 5)] });
+        assert_eq!(w.split_in_bag(0x72, 0, 3), None);
+        assert!(!w.bags_changed);
+        assert_eq!(w.split_in_bag(0x71, 0, 3), Some(1));
+        assert!(std::mem::take(&mut w.bags_changed));
+        assert_eq!(w.bags[&bag].entries.iter().map(|e| (e.slot, e.count)).collect::<Vec<_>>(), [(0, 7), (2, 5), (1, 3)]);
+        // (the whole stack is not split off)
+        assert_eq!(w.split_in_bag(0x71, 1, 3), None);
+        let join = |onto: (u32, u32), held: (u32, u32)| Message::parse(&n3::join_items(own, onto, held)).unwrap();
+        w.add(&join((0x6b, 0x72 << 16 | 2), (0x6b, 0x72 << 16 | 1)).frame(1));
+        w.add(&join((0x68, 2), (0x68, 1)).frame(1));
+        assert!(!w.bags_changed && w.bags[&bag].entries.len() == 3);
+        // (the three at place 1 go into the five at place 2)
+        w.add(&join((0x6b, 0x71 << 16 | 2), (0x6b, 0x71 << 16 | 1)).frame(1));
+        assert!(w.bags_changed);
+        assert_eq!(w.bags[&bag].entries.iter().map(|e| (e.slot, e.count)).collect::<Vec<_>>(), [(0, 7), (2, 8)]);
     }
 
     /// The Arete Landing capture's first arrival of a new character: between the items named into the overflow the

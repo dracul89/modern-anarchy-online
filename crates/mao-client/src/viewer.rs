@@ -73,6 +73,10 @@ pub struct Input {
     pub join: (u8, u32, u32),
     /// A backpack stack to split: a counter that steps with each, the stack's place and how many to take off it.
     pub split: (u8, u32, u32),
+    /// The same two inside a bag of one's own: a counter, the bag's handle, then the two places, or the place and
+    /// the count.
+    pub bag_join: (u8, u32, u32, u32),
+    pub bag_split: (u8, u32, u32, u32),
     /// Follow the target (a counter that steps with each `/follow`).
     pub follow: u8,
     /// Say what is known of the target (a counter that steps with each `/inspect`).
@@ -914,7 +918,11 @@ pub fn window_at(text: &str) -> Option<(i32, i32)> {
 
 pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<(), String> {
     let event_loop = EventLoop::new().map_err(|e| e.to_string())?;
-    let settings = Settings::load();
+    let mut settings = Settings::load();
+    // (in the game: the keys the character rebound in the original client, over this client's own: `keybindings.rs`)
+    if let (true, Some(character), Some(game)) = (live.is_some(), crate::layout::character(), crate::theme::game_dir()) {
+        crate::keybindings::apply(&mut settings.keymap, character, game);
+    }
     crate::ui::set_debug_overlay(settings.debug_overlay);
     crate::font::set_enabled(settings.original_font);
     let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, world_in: false, last_follow: std::time::Instant::now(), auras: Vec::new(), placed: Default::default(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), flares: Vec::new(), falls: None, statel_effects: Vec::new(), area_fog_base: None, sky: Default::default(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), fxs_frame: None, script_meshes: Default::default(), named_sheets: Default::default(), trails: Default::default(), motions: Default::default(), shake: (0.0, 0), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, zones: None, collision: None, camera_body: crate::vehicle::Body::without_gravity(), look_target: Default::default(), interior: None, rooms_shown: Vec::new(), room_hint: None, attractor_at: std::time::Instant::now(), casters: Vec::new(), character_parts: Vec::new(), highlight_runs: Default::default(), highlight_fades: Default::default(), follow_shift: [0.0; 3], environment: Default::default(), quake: Default::default(), quake_offset: [0.0; 3], wind: Default::default(), wind_at: std::time::Instant::now(), perf_memory_at: std::time::Instant::now() - std::time::Duration::from_secs(10), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, sight_kept: Vec::new(), sight_frame: 0, applied_shadows: settings.shadows, applied_vsync: settings.vsync, focused: true, frame_due: std::time::Instant::now(), keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), script_moves: Default::default(), camera_script: std::env::var("MAO_CAMERA_SCRIPT").ok().map_or_else(Vec::new, |v| v.split(',').filter_map(|s| s.split_once(':').and_then(|(t, c)| Some((t.trim().parse().ok()?, c.trim().to_string())))).collect()), script_clock: std::time::Instant::now(), script_held: Vec::new(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
@@ -2798,6 +2806,7 @@ impl ApplicationHandler for App {
                             crate::chatwindow::Out::Server(text) => crate::net::server_command(text),
                             crate::chatwindow::Out::TextCommand { action, value } => crate::net::text_command(action, value),
                             crate::chatwindow::Out::OrgCommand { command, targeted, text } => crate::net::org_command(command, targeted, text),
+                            crate::chatwindow::Out::RaidCommand { command, ids } => crate::net::raid_command(command, ids),
                             crate::chatwindow::Out::RolePlay => crate::net::role_play(),
                             crate::chatwindow::Out::FxScript(line) => crate::net::fxs_command(line),
                             crate::chatwindow::Out::Perf => {
@@ -2986,6 +2995,12 @@ impl ApplicationHandler for App {
                             }
                             crate::loot::Take::Put { identity, from } => {
                                 self.keys.put = (self.keys.put.0.wrapping_add(1), identity.0, identity.1, from);
+                            }
+                            crate::loot::Take::Join { handle, onto, held } => {
+                                self.keys.bag_join = (self.keys.bag_join.0.wrapping_add(1), handle, onto, held);
+                            }
+                            crate::loot::Take::Split { handle, place, count } => {
+                                self.keys.bag_split = (self.keys.bag_split.0.wrapping_add(1), handle, place, count);
                             }
                             crate::loot::Take::All { handle } => {
                                 self.keys.take = (self.keys.take.0.wrapping_add(1), handle, u32::MAX);

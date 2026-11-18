@@ -19,6 +19,9 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
   at times).
 - An item whose quality lies between two templates shows its own values on its page (deck places, ranges, price),
   and at the top quality it carries the higher template's name and icon, as in the game.
+- Stacks can be joined and split inside a backpack: drop a stack on a like one to join them, Ctrl+click a stack
+  to split some off into an empty cell.
+- An item's timer bar starts when the server allows the use, not at the click.
 
 ### Shops
 
@@ -77,6 +80,19 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 ### World
 
 - Doors make their sounds as they open and close.
+- Other players are drawn at their own height (most are a tenth shorter or taller than the middle size) instead
+  of all the same.
+
+### Chat
+
+- `/raid` now carries out the raid's commands (`create`, `locks`, `list`, `listlocal`, `move`, `lootaccess`) as in
+  the game, and the server's lock list is shown in the chat. It no longer opens the raid window: that is
+  `/open raid` or the control center's menu.
+
+### Settings
+
+- Keys rebound in the original client are taken over for that character (the keyboard keys of the actions this
+  client has), unless the key was changed here too.
 
 ## 0.1.5 (2026-11-17)
 

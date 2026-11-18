@@ -857,6 +857,18 @@ These were written before this list; some may have been seen working since witho
   in the hands click Brawl: "unavailable"; with a melee weapon or bare hands it goes out.
 - [ ] Doors' sounds (2026-11-18): walk through Arete Landing's doors and a shop's: each opens and closes with its
   sound (some doors are silent in the game too). Tell me if a door chatters.
+- [ ] Stacks in a backpack (2026-11-18): in an open backpack drop a stack on a like stack: one stack, the sum.
+  Ctrl+click a stack, give a number, click an empty cell: two stacks. Then close and open the bag again and relog:
+  the stacks are where they were shown (if not, tell me: the server's place for the new stack is a reading).
+- [ ] Other players' sizes (2026-11-18): in a crowd the players are of three heights, and none walks through the
+  floor or hangs above it; a player on a Yalmaha is not shrunk to a fifth.
+- [ ] The item timer (2026-11-18): use a stim: the bar starts a moment after the click and ends as the stim
+  works. A use the game refuses shows no bar.
+- [ ] `/raid` (2026-11-18, needs a team of your own two characters; `create` makes the team a raid for both):
+  `/raid locks` says the lock list or that there is none; `/raid listlocal` says the team; `/raid create` as the
+  leader says the raid was made. Send me the log: no raid message was ever sent to the server before.
+- [ ] Keys from the original (2026-11-18): rebind a key in the original client for a character, log that
+  character in here: the Keys list shows it and the log has a "keys:" line.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

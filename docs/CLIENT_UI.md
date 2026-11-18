@@ -746,8 +746,8 @@ high byte for a zero, so a creature of 256 percent or more had no template and n
 now, and the scale is kept and used: a creature is drawn at that share of its template's size, as the original's
 dynel takes its `Scale` stat for the body's scale (`SetBodyScale`, Gamecode FUN_100892ca). Until now every creature
 was drawn at its template's size, the cleaning robots at half of theirs. Seen live: the boss as in the original's
-picture. Not done: the same scale for the humanoid NPCs and for other players (whose updates were not read for it),
-the remains of a scaled creature (not looked at). `MAO_COMBAT_LOG=1` prints a "no template" line with the bytes of
+picture. (Other players and the humanoid NPCs have theirs since 2026-11-18: a player's update is read for it, see
+"Other players are drawn at their own size".) Not done: the remains of a scaled creature (not looked at). `MAO_COMBAT_LOG=1` prints a "no template" line with the bytes of
 any creature's update that gives the client neither a template nor a humanoid body, and a "no model" line for
 anything drawn as a marker; `creaturecheck` says whether every creature record's body reads (all but two do).
 
@@ -869,7 +869,7 @@ with a container window of the organization's contract, its advantages, to look 
 (`MAO_UI_PREVIEW=infopage MAO_INFO_URL=org` shows a made-up organization's page). **The
 commands that set a text (`history`, `description`, `objective`, `name`, `governingform`) are sent as typed, as
 the original sends them: with nothing after the word they empty that text.** `/items` asks the server for the account's items (it opened
-the inventory before; `/open inventory` does that). `/tower` and `/raid`'s commands are not carried out.
+the inventory before; `/open inventory` does that). `/tower`'s commands are not carried out (`/raid`'s are since 2026-11-18, see "`/raid` is the raid's commands").
 Previews:
 `MAO_UI_PREVIEW=macro` (a bar with two macros). Tried live: a macro made, set down by a click and pressed; a
 script found and one not found; the filter's and `/dvalue`'s lines; `/played` and `/born` with the server's
@@ -5203,3 +5203,130 @@ Tests: `a_weapon_lets_its_own_specials_through`, `a_special_needs_a_weapon_that_
   flags: one template, an always-open door, which the client takes for locked); and a status message's lock byte
   is ignored.
 Test: `a_door_sounds_as_it_opens_and_closes`.
+
+## Five "missing" entries the user picked (2026-11-18)
+
+The user, after the list of the catalog's 25 high "missing" entries: "port NPC-028, INV-048, INV-049, CHT-048 and
+SET-031". Each was read anew in the original by a reader, and the claims a port rests on were checked against the
+code and the captures before it was written. None of it was seen in the live game.
+
+### Stacks join and split inside a backpack (INV-048)
+
+GUI.dll's FUN_100cc855 is the one drop handler of every item view (the inventory, a backpack, the bank, the wear
+pages), so a backpack does what the inventory does:
+
+- **Join.** A stack let go on another item of its own backpack asks `N3Msg_JoinItems(the other, the held)`
+  (0x1001bb2a: both stackable, the same low and high template and quality, together no more than 50000); when that
+  says no the two change cells and the other is in hand, with `Feedback_CanOnlyStackItemsOfSameLevel` for one kind
+  at two levels. The client's own list changes only when the server answers with the same action (FUN_1004a12e).
+- **Split.** Ctrl+click on a stack asks how many (this client's box; the original counts by the mouse's sideways
+  movement while Ctrl is held, FUN_10041ca4); that many let go on an empty cell of the same backpack are split off
+  (`N3Msg_SplitItem` 0x1001bd13: `Feedback_YouCantSplitThisItem`, `Feedback_CantSplitAsInventoryIsFull`), the
+  client's list first (FUN_1004a2bf: the new stack at the bag's first free place, counted from 0), then the
+  message. Let go on an item, over another window or over the world, the split ends with nothing done.
+- **On the wire** an item of a bag is `(0x6b, handle << 16 | place)` (`Chest_t`'s FUN_1007e3e3; the handle is the
+  `InventoryUpdate`'s), in both messages; the bag's own identity is not in them. Across two containers nothing is
+  joined: a stack dropped from one into another is a plain move, in the original too.
+
+The Arete Landing capture has three joins and a split, all in the inventory (the server answers a join with the
+same bytes and a split with nothing): the builders' bytes are theirs. **None is inside a backpack**, so two things
+rest on Gamecode alone: that the server answers an in-bag join with the bag identities, and that it puts a split's
+new stack at the bag's first free place. If the second is wrong the bag's window and the server disagree until the
+bag is opened again. Not done: the bank's stacks (`(0x69, place)`: its window has no placing by hand here).
+Tests: `stacks_split_and_join_inside_a_bag`, `a_click_in_a_container_takes_or_takes_up`,
+`stacks_join_and_split_as_gamecode_builds_them`.
+
+### Other players are drawn at their own size (NPC-028)
+
+The scale is in every character's full update, a short right after its `MonsterData` word, and the original sets it
+as the `Scale` stat (360) of players and NPCs alike (the exec FUN_1007835c at 0x1007857b; `SimpleChar_t`'s SetStat
+holds it at 20 or more) and draws the body at a hundredth of it, read in mode 3 (FUN_10044eb0, FUN_1005c3ed,
+FUN_10058800). The catalog's `FUN_100892ca` is the items' SetStat, not a character's. The client read the scale for
+creatures only, by the shape of the bytes around it; a player's part of the message is now read as the reader
+FUN_1007916d reads it (`n3::player_monster_and_scale`): every one of the captures' 1404 player updates reads so.
+**Most players are not 100**: 580 are 90, 540 are 100 and 278 are 110 (character creation's three heights, by the
+look of it), so most other players become a tenth shorter or taller than they were drawn, their steps a little
+quicker or slower with it (`movement_rate` already took the scale), and their name tags move with them (this
+client's tags follow the posed body).
+
+A player with a monster body (`MonsterData` not 0: a polymorph, or a Yalmaha, template 99470 at scale 20) keeps 100:
+the scale is that body's, and this client does not draw it for others from the update yet (MOV-020, RND-135: the
+field is read now, `EntityInfo::monster`, and what is missing is knowing when the body is put away again). Not
+followed: a change of the stat after the update. The creatures that run the "increase size by 40" nano (the Arete
+bosses: their remains are announced at 640 where they were 600) are probably drawn 40 too small for that reason;
+not ported, a picture of the original beside ours would settle it.
+Tests: `a_player_is_announced_with_its_scale`, `another_player_has_the_scale_it_was_announced_with`.
+
+### The item timer starts with the server's answer (INV-049: the catalog's reading was wrong)
+
+The catalog said the original holds an item's use back until the first phase of the item timer is over. It does
+not. `N3Msg_UseItem` (0x10028883) queues the use command and the engine sends it in that frame, once the command's
+own check let it through (`n3Command_t::Activate` in state 0 → FUN_1007ce00). **It is the server that waits**: in
+the captures a one-second stim's answer comes 0.38 s after the use and its effect 1.1 s after; a recall beacon's
+(five seconds) effect comes 5.04 s after, a three-second chip's 3.07 s. The timer is the client's picture of that
+wait: the server's answer in state 1 starts it (FUN_1007ccb3 → FUN_1003bcdc → FUN_1003bb5a: ItemDelay, stat 294,
+as the first phase), and when the first phase ends the entry is taken away and the client does its own, local,
+part (FUN_1003badb: one off the stack); nothing is sent then, and the second phase never runs. Sending the use
+late, as the entry asked, would have made every item wait twice.
+
+What did differ, and is ported: the bar started at the click, a round trip early, and for a use the server refused
+too. It now starts with the answer (`World::add`'s arm for `52526858`: lead byte 0, state 1, action 3, 5 or 0x20,
+an inventory item). Not ported, noted at `start_item_timer`: the original refuses a new use silently while an item
+timer runs; and its `CharacterAction` 0x92 ends the equip timer (kind 6), not this one, where the client's takes
+the item timer away at every start of a move. The two are left together: mended alone, the second would leave the
+timer of an item without ItemDelay used on something running for ever.
+Test: `the_item_timer_starts_with_the_servers_answer`.
+
+### `/raid` is the raid's commands (CHT-048)
+
+`/raid` is a line for Gamecode's text interpreter (GUI.dll hands it over with `N3Msg_TextCommand`, as `/team` and
+`/org`); it never opened a window. The interpreter (FUN_1003fe10, the branch at 0x10040725) knows six words:
+`create` 1, `list` 2, `listlocal` 3, `move` 4, `lootaccess` 5, `locks` 6. No word, or another: nothing, and
+nothing said. `listlocal` says the team's members and sends nothing. The others send `RaidCmdIIR_c` (`4e525e58`;
+FUN_100a3a3f packs the number as a word and an identity, three identities for number 5): `create`, `list` and
+`locks` with no identity and no check at all; `move <character's number> <team 0-6>`; `lootaccess <corpse's
+number> <place> <character's number>`. `raidcommands.rs` has the parsing, with the original's oddity that a missing
+word reads as the word before it. The server's `RaidIIR_c` (`3b3b2878`) is read: type 0 says the game's
+`Feedback_RaidCreated`, type 1 is the lock list, said in the chat (playfield, number, time left; the words are the
+client's own, the original's are in its program).
+
+**None of it was sent to a server**: no capture has a raid message, so the bytes are the code's alone, like the
+organization's commands were before they were tried. `create` turns the team into a raid for all its members,
+`move` and `lootaccess` act on other players by raw numbers: they are the player's to type. What `list` brings
+back is not in the client's code (the server probably answers in chat). The raid window is no longer opened by
+`/raid`: it is `/open raid` and the control center's menu entry (the original also has a key for it, Ctrl+Shift+R,
+which this client has no action for). The window's two buttons still send nothing (CHT-049), though the message
+they need is here now (`N3Msg_CreateRaid` sends number 1 for a team's leader, `N3Msg_RequestRaidLocks` number 6).
+Tests: `the_raid_words_are_the_interpreters`, `move_and_lootaccess_read_their_numbers_as_c_does`,
+`the_lock_list_is_told_lock_by_lock`, `the_raid_commands_are_packed_as_gamecode_packs_them`,
+`the_raids_answers_are_said`.
+
+### A character's keys from the original (SET-031)
+
+The original keeps the rebindable keys per character, as the `KeyBindings` archive of
+`<Prefs>/<user name>/Char<id>/Prefs.xml`: binds of an `Input` (the game's key number with Shift 0x20000, Ctrl
+0x40000, Alt 0x80000) and a `Provider` (the action, by the hash of its name, FUN_10019281). The shipped default is
+the same archive in `gui/Default/CharPrefs.xml`. The loader (FUN_10018e37) takes the character's archive for all
+its keys and, when the shipped version is newer, adds the shipped binds of actions the file never names.
+`keybindings.rs` reads both and, at the game's start, lays the character's keys over the client's own **for the
+actions whose keys differ from the shipped default's** (`Keymap::set_character`): for the session, shown in the
+Keys list, asked before the client's other keys, and never written to `mao.ini`. A key changed in this client
+stays (it is the later word), and the original's folder is only read.
+
+Two things the reading turned up:
+
+- **No character on this machine has rebound a key in the original**: all 239 character files hold the shipped
+  binds (126 of them an older version without Shift+T, which the loader adds). So this changes nothing visible
+  until a key is rebound there.
+- **This client's defaults are not the shipped file's in five keys**: walk/run is Backspace there (NumpadDivide
+  here), sneak attack J, fast attack N, aimed shot O and the bow's special Period have keys there and none here,
+  and O is this client's map overlay. Not changed: reading an untouched file in whole would have moved them
+  silently, which is why only changed keys are taken over.
+
+The character's folder is looked for under every install's `Prefs` and every user folder in it (the old lookup
+knew `derived` only), the file written last where two have it, and no other character's stands in. Not read: the
+fixed keys (camera, Tab, chat: `KEY_...` lines of the account's `Login.cfg`), mouse buttons as keys, and the
+original's actions this client has none for (the team and pet selection keys, `WINDOW_TEAM`, `WINDOW_RAID` and
+others).
+Tests: `keybindings::tests` (six), `a_characters_own_keys_lie_over_the_clients`,
+`a_characters_own_file_is_found_by_its_number`.

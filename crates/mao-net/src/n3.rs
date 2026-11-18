@@ -365,6 +365,62 @@ pub const ROLE_PLAY: u8 = 0xa6;
 pub const ROLE_PLAY_STAT: u32 = 673;
 pub const ROLE_PLAY_BIT: u32 = 0x200;
 
+/// `RaidCmdIIR_c` (`n3InfoItemRemote_t::MapToKey` of the name) and the server's `RaidIIR_c`.
+pub const RAID_COMMAND: u32 = 0x4e525e58;
+pub const RAID_ANSWER: u32 = 0x3b3b2878;
+
+/// One of the raid's commands (Gamecode FUN_100a3a86 makes `RaidCmdIIR_c` for the own character, FUN_100a3a3f packs
+/// it: the command's number as a word, an identity, and for number 5 two more). The numbers: 1 make the team a
+/// raid, 2 list, 4 move a member (the identity is the character's number and the team's, 0 to 6), 5 a corpse's loot
+/// access (the corpse, the place in it with a flag, the character), 6 ask for the raid locks; 3 is never sent.
+/// `/raid` sends them (the text interpreter FUN_1003fe10) and so do the raid window's buttons and the corpse's
+/// looter menu (`N3Msg_CreateRaid` 0x1001856a, `N3Msg_RequestRaidLocks`, `N3Msg_MoveRaidMember`,
+/// `N3Msg_SetLootAccess`). Built from the code alone: no capture has one, and none was sent to a server yet.
+pub fn raid_command(character: u32, command: u32, ids: [(u32, u32); 3]) -> Frame {
+    let mut data = vec![0u8];
+    data.extend_from_slice(&command.to_be_bytes());
+    for id in &ids[..if command == 5 { 3 } else { 1 }] {
+        data.extend_from_slice(&id.0.to_be_bytes());
+        data.extend_from_slice(&id.1.to_be_bytes());
+    }
+    Message { kind: RAID_COMMAND, identity: (CHARACTER, character), data }.frame(character)
+}
+
+/// What the server's `RaidIIR_c` says (its reader FUN_100a3b2e: a short for the type, and for type 1 the lock list,
+/// FUN_1005731b: a word that has to be 1, the count, and for each lock two identities and a time, FUN_10057277).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RaidAnswer {
+    /// Type 0: the team is a raid now.
+    Created,
+    /// Type 1: the character's raid locks: the playfield's identity, a second identity and the server's time the
+    /// lock runs out at.
+    Locks(Vec<((u32, u32), (u32, u32), u32)>),
+}
+
+/// A [`RAID_ANSWER`]'s data read; nothing for a type the client does not act on (the original ignores them too).
+/// From the code alone: no capture has one.
+pub fn raid_answer(data: &[u8]) -> Option<RaidAnswer> {
+    let word = |at: usize| data.get(at..at + 4).map(|b| u32::from_be_bytes(b.try_into().unwrap()));
+    match u16::from_be_bytes(data.get(1..3)?.try_into().ok()?) {
+        0 => Some(RaidAnswer::Created),
+        1 => {
+            if word(3)? != 1 {
+                return Some(RaidAnswer::Locks(Vec::new()));
+            }
+            let count = word(7)? as usize;
+            Some(RaidAnswer::Locks(
+                (0..count.min(data.len() / 20))
+                    .map_while(|k| {
+                        let at = 11 + 20 * k;
+                        Some(((word(at)?, word(at + 4)?), (word(at + 8)?, word(at + 12)?), word(at + 16)?))
+                    })
+                    .collect(),
+            ))
+        }
+        _ => None,
+    }
+}
+
 /// `OrgClientIIR_c` (`7f4b3108`, `n3InfoItemRemote_t::MapToKey("OrgClientIIR_c")`: the name's bytes laid over one
 /// another four by four): one of the organization's commands (Gamecode FUN_101266b4 makes it, FUN_1012653f packs
 /// it: the command's number as a byte, an identity, the chat window's number, then a text for the commands in
@@ -795,8 +851,9 @@ pub fn use_item_on_item(character: u32, item: (u32, u32), target: (u32, u32)) ->
 /// [`use_item_on_item`] is (the target identity, 0, the action, the parameters' identity): the target is the stack that
 /// stays, the one the held stack was let go on, and the parameters name the held stack, which goes into it (GUI.dll
 /// 0x100ccbc3: the held item's identity pushed first, so the second argument; the server's answer is the same action,
-/// which FUN_1004a12e carries out: the parameters' item is added to the target's and removed). From the code alone: no
-/// capture has one.
+/// which FUN_1004a12e carries out: the parameters' item is added to the target's and removed). The Arete Landing
+/// capture has three in the inventory (`(0x68, place)` both; the server answers each with the same bytes); inside a
+/// bag both are `(0x6b, handle << 16 | place)`, which no capture has.
 pub fn join_items(character: u32, onto: (u32, u32), held: (u32, u32)) -> Frame {
     let mut data = vec![0u8; 5];
     data[4] = 0x35;
@@ -811,7 +868,8 @@ pub fn join_items(character: u32, onto: (u32, u32), held: (u32, u32)) -> Frame {
 /// `CharacterAction` `0x34` (`N3Msg_SplitItem`, Gamecode 0x1001bd13): `count` taken off a stack as a stack of its own.
 /// The target is the stack's identity and the parameters are `(0, count)` (the function's local pair `-0x18` zero,
 /// `-0x14` the count, handed to FUN_10072a88 as the parameters). The client has split its own copy before it sends
-/// (FUN_1004a2bf: the new stack at the first free place). From the code alone: no capture has one.
+/// (FUN_1004a2bf: the new stack at the first free place). The Arete Landing capture has one in the inventory (three
+/// off `(0x68, 0x41)`; the server answers nothing); a stack of a bag is `(0x6b, handle << 16 | place)`.
 pub fn split_item(character: u32, item: (u32, u32), count: u32) -> Frame {
     let mut data = vec![0u8; 5];
     data[4] = 0x34;
@@ -1348,6 +1406,35 @@ mod tests {
         assert_eq!(data.iter().map(|b| format!("{b:02x}")).collect::<String>(), "000000005100000000000000680000005600000068000000430000");
     }
 
+    /// The raid's commands as `RaidCmdIIR_c` packs them: the number and one identity, three for the loot access;
+    /// and the server's answer read: the raid made, and a lock list of two.
+    #[test]
+    fn the_raid_commands_are_packed_as_gamecode_packs_them() {
+        assert_eq!((crate::grid::map_to_key("RaidCmdIIR_c"), crate::grid::map_to_key("RaidIIR_c")), (RAID_COMMAND, RAID_ANSWER));
+        let hex = |f: Frame| {
+            let m = Message::parse(&f).unwrap();
+            assert_eq!((m.kind, m.identity), (RAID_COMMAND, (CHARACTER, 0x1234)));
+            m.data.iter().map(|b| format!("{b:02x}")).collect::<String>()
+        };
+        assert_eq!(hex(raid_command(0x1234, 2, [(0, 0); 3])), "00000000020000000000000000");
+        assert_eq!(hex(raid_command(0x1234, 1, [(0, 0); 3])), "00000000010000000000000000");
+        assert_eq!(hex(raid_command(0x1234, 6, [(0, 0), (1, 2), (3, 4)])), "00000000060000000000000000");
+        assert_eq!(hex(raid_command(0x1234, 4, [(0x12345678, 2), (0, 0), (0, 0)])), "00000000041234567800000002");
+        assert_eq!(hex(raid_command(0x1234, 5, [(0xc76a, 77), (3, 0), (50000, 0x1234)])), "00000000050000c76a0000004d00000003000000000000c35000001234");
+        assert_eq!(raid_answer(&[0, 0, 0]), Some(RaidAnswer::Created));
+        assert_eq!(raid_answer(&[0, 0, 2]), None);
+        assert_eq!(raid_answer(&[0, 0]), None);
+        let mut locks = vec![0u8, 0, 1];
+        for word in [1u32, 2, 0xc79d, 4365, 0, 12, 5000, 0xc79d, 9, 0, 1, 6000] {
+            locks.extend_from_slice(&word.to_be_bytes());
+        }
+        assert_eq!(raid_answer(&locks), Some(RaidAnswer::Locks(vec![((0xc79d, 4365), (0, 12), 5000), ((0xc79d, 9), (0, 1), 6000)])));
+        // (cut short: the locks that are whole; another version: none)
+        assert_eq!(raid_answer(&locks[..locks.len() - 3]), Some(RaidAnswer::Locks(vec![((0xc79d, 4365), (0, 12), 5000)])));
+        locks[6] = 2;
+        assert_eq!(raid_answer(&locks), Some(RaidAnswer::Locks(Vec::new())));
+    }
+
     #[test]
     fn stacks_join_and_split_as_gamecode_builds_them() {
         // (the held stack at place 0x45 let go on the one at 0x41: the target stays, the parameters' goes into it)
@@ -1356,6 +1443,14 @@ mod tests {
         // (seven taken off the stack at place 0x41: the parameters are zero and the count)
         let data = Message::parse(&split_item(0x4bc82, (0x68, 0x41), 7)).unwrap().data;
         assert_eq!(data.iter().map(|b| format!("{b:02x}")).collect::<String>(), "000000003400000000000000680000004100000000000000070000");
+        // (the Arete Landing capture's own: a join onto place 0x41 of the one at 0x49, and three split off 0x41)
+        let data = Message::parse(&join_items(0x4bc82, (0x68, 0x41), (0x68, 0x49))).unwrap().data;
+        assert_eq!(data.iter().map(|b| format!("{b:02x}")).collect::<String>(), "000000003500000000000000680000004100000068000000490000");
+        let data = Message::parse(&split_item(0x4bc82, (0x68, 0x41), 3)).unwrap().data;
+        assert_eq!(data.iter().map(|b| format!("{b:02x}")).collect::<String>(), "000000003400000000000000680000004100000000000000030000");
+        // (inside a bag of handle 0x71: the bag's items by the handle and their places)
+        let data = Message::parse(&join_items(0x4bc82, (0x6b, 0x71 << 16 | 2), (0x6b, 0x71 << 16 | 5))).unwrap().data;
+        assert_eq!(data.iter().map(|b| format!("{b:02x}")).collect::<String>(), "0000000035000000000000006b007100020000006b007100050000");
     }
 
     #[test]
@@ -1668,8 +1763,14 @@ pub struct EntityInfo {
     /// The NPC template (an object of type 0xfde97) of a creature or NPC:
     /// its record names the CAT mesh (entry 12) and the animations.
     pub template: Option<u32>,
-    /// A creature's body scale in percent (the two bytes after its template): 100 is the template's own size.
+    /// The body's scale in percent (the two bytes after the template or, for a player, after its `MonsterData`): 100
+    /// is the body's own size. The original sets it as the `Scale` stat (360) of every character, player or not
+    /// (`SimpleCharFullUpdateIIR_t`'s exec FUN_1007835c at 0x1007857b), and draws the body at a hundredth of it.
     pub scale: Option<u16>,
+    /// A player's `MonsterData` (stat 359, set by the creation callback FUN_1007803b for players too): the template
+    /// of the body it is drawn as when not its own (a polymorph, a Yalmaha), else 0. Nothing for a creature, whose
+    /// is its [`template`](Self::template).
+    pub monster: Option<u32>,
     /// A creature's health and its maximum (flag bit 0): Gamecode's reader (FUN_1007916d) takes, after the second flags word
     /// and an `i32`, the family, line-of-sight height and one more value (each a byte with flag bits 17, 19 and 25, else an
     /// `i16`), an `i16` and a byte when that is above zero, the level (a byte, an `i16` with bit 12), the maximum (`+0x98`: an
@@ -1712,6 +1813,45 @@ pub const PATH_RUN: u8 = 0x19;
 /// that moves by a byte with the fields in front.
 fn npc_template(post: &[u8]) -> Option<u32> {
     npc_template_and_scale(post).map(|t| t.0)
+}
+
+/// A player's `MonsterData` and body scale, read on from after the word at `+0xa0` as the full update's reader does
+/// (Gamecode FUN_1007916d, the branch of a character that is no NPC): a word and seven shorts; two strings when
+/// `flags2` has `0x400000`; with the flags' bit 26 a word (versions after 0x39) and a string, the organization's
+/// name; the level, a byte or with bit 12 a short; the most health, a short with bit 11, else a word; the health, a
+/// byte with bit 14, else as wide as the most; then `MonsterData`, a word, and the scale, a short. A string is a
+/// short's length and its bytes. Every one of the captures' 1404 player updates reads so (scales 90, 100 and 110,
+/// which look like character creation's three heights, and 20 and 80 with a monster body); the two-string path and
+/// version 0x39 are in none of them.
+fn player_monster_and_scale(d: &[u8], mut at: usize, version: u8, flags: u32, flags2: u32) -> Option<(u32, u16)> {
+    let take = |at: &mut usize, n: usize| -> Option<&[u8]> {
+        let b = d.get(*at..*at + n)?;
+        *at += n;
+        Some(b)
+    };
+    let string = |at: &mut usize| -> Option<()> {
+        let length = u16::from_be_bytes(take(at, 2)?.try_into().ok()?) as usize;
+        (length < 0x8000).then_some(())?;
+        take(at, length).map(|_| ())
+    };
+    take(&mut at, 4 + 14)?;
+    if flags2 & 0x40_0000 != 0 {
+        string(&mut at)?;
+        string(&mut at)?;
+    }
+    if flags & 0x400_0000 != 0 {
+        if version > 0x39 {
+            take(&mut at, 4)?;
+        }
+        string(&mut at)?;
+    }
+    take(&mut at, if flags & 0x1000 != 0 { 2 } else { 1 })?;
+    let wide = if flags & 0x800 != 0 { 2 } else { 4 };
+    take(&mut at, wide)?;
+    take(&mut at, if flags & 0x4000 != 0 { 1 } else { wide })?;
+    let monster = u32::from_be_bytes(take(&mut at, 4)?.try_into().ok()?);
+    let scale = u16::from_be_bytes(take(&mut at, 2)?.try_into().ok()?);
+    Some((monster, scale))
 }
 
 /// A creature's template and, in the two bytes after it, its body's scale in percent (the original's capture of
@@ -2219,13 +2359,18 @@ impl Message {
             Some((template, scale)) => (Some(template), Some(scale)),
             None => (None, None),
         };
+        // (a player's: no template, which would have it drawn as a creature, but its scale and its monster body)
+        let (monster, scale) = match player_monster_and_scale(d, at, version, flags, flags2).filter(|_| flags & 1 == 0) {
+            Some((monster, scale)) => (Some(monster), Some(scale)),
+            None => (None, scale),
+        };
         let move_mode = d.get(at - 8..).and_then(npc_move_mode).filter(|_| flags & 1 != 0);
         let run_speed = d.get(at - 8..).and_then(|post| npc_run_speed(post, flags)).filter(|_| flags & 1 != 0);
         let (family, health) = match creature_fields(d, at, flags) {
             Some((family, health)) if flags & 1 != 0 => (Some(family), Some(health)),
             _ => (None, None),
         };
-        Some(EntityInfo { version, flags, playfield, fighting, position, rotation, breed, sex, side, name, flags2, unknown_a0: model, textures, clothes, meshes, template, scale, health, family, move_mode, run_speed })
+        Some(EntityInfo { version, flags, playfield, fighting, position, rotation, breed, sex, side, name, flags2, unknown_a0: model, textures, clothes, meshes, template, scale, monster, health, family, move_mode, run_speed })
     }
 }
 
@@ -2350,6 +2495,31 @@ mod entity_tests {
         assert_eq!((info.breed, info.sex), (2, 3));
         assert!(info.is_player());
         assert_eq!(info.unknown_a0, Some(0xf7e));
+    }
+
+    /// A player's body scale and monster body, from the captures' full updates (cut after the scale, the names
+    /// overwritten): 110 and 90 of two players at Arete Landing; 110 behind an organization's name (the flags' bit
+    /// 26); 90 before visual flags that are not 0x1f (which the creatures' search by shape would not find); and a
+    /// player in a Yalmaha, template 99470 at 20. A player has no template; a creature no monster word.
+    #[test]
+    fn a_player_is_announced_with_its_scale() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let read = |s: &str| {
+            let info = Message { kind: ENTITY_INFO, identity: (CHARACTER, 0x1234), data: hex(s) }.entity_info().unwrap();
+            assert!(info.is_player() && info.template.is_none());
+            (info.monster, info.scale)
+        };
+        assert_eq!(read("003a00204ac80020da154561917f42510f5b4444583a00000000bf70e0f5000000003ead5c330000058809414141414141414100001812410001000100000014000000000005000f0006000a00030003000301003c0000000000006e001f000000002a80"), (Some(0), Some(110)));
+        assert_eq!(read("003a00004aca0020da15456190fb42510f5b4444b0b4000000003cdfb3c2000000003f7fe790000005880941414141414141410000181241000100010000002e00000000000500120009000d0006000600060100530000000000005a001f000000002a00"), (Some(0), Some(90)));
+        assert_eq!(
+            read("003a04004ace0020d9764368322242157fff43629101000000003f7fea4e000000003cd2c4940000074908414141414141410000181241000000ab000002cb02a5f892000500be00ca00b800ba00d500ba001de01300144f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f3b03960000000000006e001f000000002a00"),
+            (Some(0), Some(110))
+        );
+        assert_eq!(read("003a04006aca0000028f45455000424dc7ad4458800000000000bf3504f3800000003f3504f4000006600a4141414141414141410000181249000100010000141b000000000005017d017d017d01e8018001ac0019f81800054f4f4f4f4f7e06420000000000005a007f000000002a80"), (Some(0), Some(90)));
+        assert_eq!(read("003a00a06ac80000028f4549f000421000004464c00000000000bf536d47000000003f10579d0000064a0b414141414141414141410020181241000100010000074e0000000000050190018000fd0156016800ff700856000001848e0014003b010000002a80"), (Some(99470), Some(20)));
+        // (cut short before the scale: none, and the rest still read)
+        let short = Message { kind: ENTITY_INFO, identity: (CHARACTER, 0x1234), data: hex("003a00204ac80020da154561917f42510f5b4444583a00000000bf70e0f5000000003ead5c330000058809414141414141414100001812410001000100000014000000000005000f0006000a00030003000301003c00000000") }.entity_info().unwrap();
+        assert_eq!((short.monster, short.scale, short.unknown_a0), (None, None, Some(0x14)));
     }
 
     /// The original's capture of 2026-10-30, Arete Landing: a Wounded Dockworker is announced sitting on the ground

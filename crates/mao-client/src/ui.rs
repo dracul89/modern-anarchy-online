@@ -1146,6 +1146,7 @@ impl Ui {
                 for url in loot_window.infos.drain(..) {
                     info_view.show_url(&url);
                 }
+                requests.feedback.append(&mut loot_window.feedback);
                 if let (Some(place), Some(at)) = (loot_window.dropped_out.take(), ctx.input(|i| i.pointer.interact_pos())) {
                     let k = ctx.pixels_per_point();
                     requests.use_on = Some(((0x6b, view.handle << 16 | (place & 0xffff)), (at.x * k, at.y * k)));
@@ -1168,6 +1169,7 @@ impl Ui {
                 for url in window.infos.drain(..) {
                     info_view.show_url(&url);
                 }
+                requests.feedback.append(&mut window.feedback);
                 if let (Some(place), Some(at)) = (window.dropped_out.take(), ctx.input(|i| i.pointer.interact_pos())) {
                     let k = ctx.pixels_per_point();
                     requests.use_on = Some(((0x6b, view.handle << 16 | (place & 0xffff)), (at.x * k, at.y * k)));

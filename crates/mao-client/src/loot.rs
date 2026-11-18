@@ -14,11 +14,17 @@
 //! the bag's own file, `Containers/Container_<type>x<instance>.xml`, here in `backpacks.ini` beside `mao.ini`). It
 //! does not close when empty and has no "Take all". Its items stand where they are put (`item_position_map`; here
 //! `places.rs`): the item taken up let go on an empty cell of the same backpack moves there, on another item the two
-//! change cells and the other is in hand (FUN_100cc855; nothing is sent). Not ported for these windows: stacks joined
-//! or split inside a backpack (two like stacks change cells as any two items do), an inventory item shown at the cell
-//! it was let go on, the menu's List Mode and Auto Arrange, closing by Escape (`esc_backpacks`), and telling the
-//! server that a bag was closed (the original's message was not identified). The bank, corpses and chests are
-//! arranged as they were, in their places' order.
+//! change cells and the other is in hand (FUN_100cc855; nothing is sent). Stacks join and split inside a backpack as
+//! they do in the inventory (the same handler, FUN_100cc855, serves every item view): a stack let go on another of
+//! its backpack that joins with it (`places::joins`, what `N3Msg_JoinItems` asks) is joined, [`Take::Join`]; Ctrl+click
+//! on a stack asks how many (the inventory's box; the original counts by the mouse's sideways movement), and that
+//! many let go on an empty cell of the same backpack become a stack of their own there, [`Take::Split`]; a split in
+//! hand let go anywhere else ends without anything done. An item of a bag goes on the wire as
+//! `(0x6b, handle << 16 | place)` (`Chest_t`'s FUN_1007e3e3). Across two containers nothing is ever joined (a plain
+//! move). Not ported for these windows: an inventory item shown at the cell it was let go on, the menu's List Mode
+//! and Auto Arrange, closing by Escape (`esc_backpacks`), and telling the server that a bag was closed (the
+//! original's message was not identified). The bank, corpses and chests are arranged as they were, in their places'
+//! order (the bank's stacks are not joined or split by hand here: its window has no placing by hand).
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Mutex;
@@ -122,7 +128,15 @@ pub enum Take {
     All { handle: u32 },
     /// An inventory item (its place) dropped on the window: put it in the container.
     Put { identity: (u32, u32), from: u32 },
+    /// Two stacks of one's own backpack made one (`N3Msg_JoinItems(onto, held)`): their places in it.
+    Join { handle: u32, onto: u32, held: u32 },
+    /// `count` taken off the stack at `place` of one's own backpack as a stack of its own (`N3Msg_SplitItem`).
+    Split { handle: u32, place: u32, count: u32 },
 }
+
+/// The split asked for by Ctrl+click on a stack of a backpack: the backpack, the stack's place and the count being
+/// typed (one box for all the backpacks' windows).
+static SPLIT_BOX: Mutex<Option<((u32, u32), u32, String)>> = Mutex::new(None);
 
 #[derive(Default)]
 pub struct LootWindow {
@@ -148,6 +162,12 @@ pub struct LootWindow {
     /// A backpack's menu (`PopupMenu_c`'s look) and the name being typed in its rename box.
     popup: Option<crate::gui::popup::PopupMenu>,
     renaming: Option<String>,
+    /// How many of the stack taken up are in hand (a split to be made; 0: the whole item).
+    split: u32,
+    /// The place a split's new stack will take and the cell it was let go on, until it is there.
+    awaited: Option<(u32, usize, std::time::Instant)>,
+    /// Feedback lines to be said, by their names (a stack that may not be split, stacks of another level).
+    pub feedback: Vec<&'static str>,
 }
 
 /// The most items a container's grid shows slots for (`ItemContainerView_c` FUN_100ce55d: `SetMaxItemCount` 102 for the bank,
@@ -225,7 +245,10 @@ impl LootWindow {
         let (root, list) = (*root, *list);
         crate::gui::multilist::update(tree, list);
         let grid_columns = crate::gui::multilist::grid_columns(tree, list).unwrap_or(3).max(1);
-        let cells = if view.own { crate::places::arrange(view.identity, &items.iter().map(|i| i.slot).collect::<Vec<_>>(), BAG_PLACES, None) } else { crate::places::Cells::new() };
+        let cells = if view.own { crate::places::arrange(view.identity, &items.iter().map(|i| i.slot).collect::<Vec<_>>(), BAG_PLACES, self.awaited.map(|a| (a.0, a.1))) } else { crate::places::Cells::new() };
+        if self.awaited.is_some_and(|(place, _, since)| items.iter().any(|i| i.slot == place) || since.elapsed() > std::time::Duration::from_secs(5)) {
+            self.awaited = None;
+        }
         let now: Vec<(u32, u16, Option<u32>, Option<(usize, usize)>)> = items.iter().map(|i| (i.slot, i.count, i.icon.as_ref().map(|c| c.id), cells.get(&i.slot).map(|c| (c % grid_columns, c / grid_columns)))).collect();
         if self.shown != now {
             let rows: Vec<crate::gui::multilist::Item> = items
@@ -336,7 +359,7 @@ impl LootWindow {
         });
         // (a click: with Shift the item's info; in one's own backpack or the bank it takes the item up, which a drag
         // does too; in a corpse or chest it takes the item into the inventory)
-        let shift = ctx.input(|i| i.modifiers.shift);
+        let (shift, ctrl) = ctx.input(|i| (i.modifiers.shift, i.modifiers.ctrl));
         let hands_free = self.dragging.is_none() && crate::gear::held().is_none();
         for (_, event) in crate::gui::multilist::take_events(tree) {
             let (slot, clicked) = match event {
@@ -346,7 +369,9 @@ impl LootWindow {
             if clicked {
                 crate::gui::multilist::select(tree, list, Some(slot));
             }
-            match container_click(clicked, shift, view.own || view.identity.0 == BANK, hands_free) {
+            // (Ctrl on a stack of more than one of one's own backpack: a split, FUN_10041926)
+            let split = ctrl && view.own && view.items.iter().any(|i| i.slot as i64 == slot && i.count > 1);
+            match container_click(clicked, shift, view.own || view.identity.0 == BANK, hands_free, split) {
                 ContainerClick::Info => {
                     if crate::gear::traced() {
                         eprintln!("items: the container's place {slot}: its info");
@@ -361,6 +386,12 @@ impl LootWindow {
                     }
                 }
                 ContainerClick::Take => take = Some(Take::One { handle: view.handle, place: slot as u32 }),
+                ContainerClick::Split => {
+                    if crate::gear::traced() {
+                        eprintln!("items: a split of the container's place {slot} asked for");
+                    }
+                    *SPLIT_BOX.lock().unwrap_or_else(|e| e.into_inner()) = Some((view.identity, slot as u32, "1".to_string()));
+                }
                 ContainerClick::Nothing => {}
             }
         }
@@ -373,41 +404,75 @@ impl LootWindow {
             }
             if ctx.input(|i| i.pointer.button_released(egui::PointerButton::Primary)) && self.taken_up != ctx.cumulative_frame_nr() {
                 self.dragging = None;
+                let split = std::mem::take(&mut self.split);
                 if crate::gear::traced() {
                     eprintln!("items: the container's place {place} let go");
                 }
-                if !ctx.is_pointer_over_egui() {
+                // (a split in hand is made only in its own container: let go anywhere else the drag ends with nothing
+                // done, FUN_100cc855's `split_count > 0` branches)
+                if split == 0 && !ctx.is_pointer_over_egui() {
                     self.dropped_out = Some(place);
                 }
                 let inventory = ctx.memory(|m| m.area_rect(egui::Id::unique("Inventory")));
-                if let (Some(at), Some(r)) = (pointer, inventory)
+                if split == 0
+                    && let (Some(at), Some(r)) = (pointer, inventory)
                     && r.contains(at)
                 {
                     take = Some(Take::One { handle: view.handle, place });
                 }
                 // (let go on a cell of its own backpack, FUN_100cc855: an empty cell takes the item
-                // (`MultiListView_c::MoveItem`, the client's own matter); on another item the two change cells and
-                // the other is in hand)
+                // (`MultiListView_c::MoveItem`, the client's own matter), or with a split in hand that many of the
+                // stack as a stack of their own; on another item the two join as stacks when they can
+                // (`N3Msg_JoinItems`), else they change cells and the other is in hand; a split on an item ends)
                 if view.own
                     && shown.as_ref().is_some_and(|s| s.response.contains_pointer())
                     && let Some(cell) = hovered_cell
+                    && let Some(held) = view.items.iter().find(|i| i.slot == place)
                 {
-                    match crate::places::at(&cells, cell) {
-                        None => {
+                    use crate::places::Placing;
+                    let stack = |i: &GearItem| crate::places::Stack { place: i.slot, low: i.item_id, high: i.high_id, quality: i.quality, can: i.can, count: i.count as u32 };
+                    let onto = crate::places::at(&cells, cell).and_then(|p| view.items.iter().find(|i| i.slot == p));
+                    match (crate::places::placing(&stack(held), split, onto.map(stack).as_ref()), onto) {
+                        (Placing::Move, _) => {
                             crate::places::put(view.identity, place, cell);
                             if crate::gear::traced() {
                                 eprintln!("items: the container's place {place} put into cell {cell}");
                             }
                         }
-                        Some(other) if other != place => {
-                            crate::places::exchange(view.identity, place, other);
+                        (Placing::Join, Some(other)) => {
+                            take = Some(Take::Join { handle: view.handle, onto: other.slot, held: place });
                             if crate::gear::traced() {
-                                eprintln!("items: the container's places {place} and {other} change cells: place {place} into cell {cell}, the other in hand");
+                                eprintln!("items: the container's place {place} joined to the stack at place {}", other.slot);
                             }
-                            self.dragging = Some(other);
+                        }
+                        (Placing::Swap, Some(other)) => {
+                            if crate::places::other_level(&stack(held), &stack(other)) {
+                                self.feedback.push("Feedback_CanOnlyStackItemsOfSameLevel");
+                            }
+                            crate::places::exchange(view.identity, place, other.slot);
+                            if crate::gear::traced() {
+                                eprintln!("items: the container's places {place} and {} change cells: place {place} into cell {cell}, the other in hand", other.slot);
+                            }
+                            self.dragging = Some(other.slot);
                             self.taken_up = ctx.cumulative_frame_nr();
                         }
-                        Some(_) => {}
+                        // (`N3Msg_SplitItem` looks first whether the item may be split and a place of the backpack
+                        // is free, from its place 0; the new stack is shown in this cell)
+                        (Placing::Split, _) => {
+                            let free = (0..BAG_PLACES as u32).find(|p| !view.items.iter().any(|i| i.slot == *p));
+                            match crate::places::split_refusal(&stack(held), split, free.is_some()) {
+                                Some(why) => self.feedback.extend(why),
+                                None => {
+                                    take = Some(Take::Split { handle: view.handle, place, count: split });
+                                    self.awaited = free.map(|free| (free, cell, std::time::Instant::now()));
+                                    if crate::gear::traced() {
+                                        eprintln!("items: {split} of the container's place {place} split off into cell {cell}");
+                                    }
+                                }
+                            }
+                        }
+                        // (let go on itself, or a split on an item: back in place)
+                        _ => {}
                     }
                 }
             }
@@ -456,6 +521,26 @@ impl LootWindow {
                 self.renaming = None;
             }
         }
+        // (a split asked for by Ctrl+click: how many of the stack; OK has that many in hand, to be put into an empty
+        // cell of this backpack)
+        {
+            let mut asked = SPLIT_BOX.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some((_, place, typed)) = asked.as_mut().filter(|b| b.0 == view.identity) {
+                let place = *place;
+                let count = view.items.iter().find(|i| i.slot == place).map_or(0, |i| i.count as u32);
+                if let Some(answer) = crate::invwindows::split_dialog(ctx, palette, "split-stack-bag", typed, count) {
+                    if let Some(n) = answer {
+                        self.dragging = Some(place);
+                        self.split = n;
+                        self.taken_up = ctx.cumulative_frame_nr();
+                        if crate::gear::traced() {
+                            eprintln!("items: {n} of the container's place {place} in hand, to be split off");
+                        }
+                    }
+                    *asked = None;
+                }
+            }
+        }
         self.open = open;
         // (an organization's contract is only looked at here: what the original does with a click on one of its
         // items, or with an item dropped on it, was not read)
@@ -471,15 +556,20 @@ pub enum ContainerClick {
     /// The item goes into the inventory.
     Take,
     Info,
+    /// The box that asks how many of the stack to take off it.
+    Split,
     Nothing,
 }
 
 /// A click's (or, not `clicked`, a drag's) meaning: by Shift, by whether the container is one's own (a backpack, the
-/// bank) and by whether nothing is in hand yet.
-pub fn container_click(clicked: bool, shift: bool, own: bool, hands_free: bool) -> ContainerClick {
+/// bank), by whether nothing is in hand yet, and by `split`: Ctrl held on a stack of more than one of one's own
+/// backpack (the list's FUN_10041926: a split, and nothing is taken up).
+pub fn container_click(clicked: bool, shift: bool, own: bool, hands_free: bool, split: bool) -> ContainerClick {
     match (shift, own) {
         (true, _) if clicked => ContainerClick::Info,
         (true, _) => ContainerClick::Nothing,
+        (false, _) if split && clicked && hands_free => ContainerClick::Split,
+        (false, _) if split => ContainerClick::Nothing,
         (false, true) if hands_free => ContainerClick::TakeUp,
         (false, false) if clicked && hands_free => ContainerClick::Take,
         // (dragged out of a corpse or chest: taken up, and taken when let go over the inventory)
@@ -525,16 +615,22 @@ mod tests {
     #[test]
     fn a_click_in_a_container_takes_or_takes_up() {
         // (one's own backpack: onto the pointer; a corpse: into the inventory; Shift: the info)
-        assert_eq!(container_click(true, false, true, true), ContainerClick::TakeUp);
-        assert_eq!(container_click(true, false, false, true), ContainerClick::Take);
-        assert_eq!(container_click(true, true, true, true), ContainerClick::Info);
-        assert_eq!(container_click(true, true, false, false), ContainerClick::Info);
+        assert_eq!(container_click(true, false, true, true, false), ContainerClick::TakeUp);
+        assert_eq!(container_click(true, false, false, true, false), ContainerClick::Take);
+        assert_eq!(container_click(true, true, true, true, false), ContainerClick::Info);
+        assert_eq!(container_click(true, true, false, false, false), ContainerClick::Info);
         // (a drag takes up out of either; nothing with something in hand already, which the click puts down)
-        assert_eq!(container_click(false, false, false, true), ContainerClick::TakeUp);
-        assert_eq!(container_click(false, false, true, true), ContainerClick::TakeUp);
-        assert_eq!(container_click(true, false, true, false), ContainerClick::Nothing);
-        assert_eq!(container_click(true, false, false, false), ContainerClick::Nothing);
-        assert_eq!(container_click(false, true, true, true), ContainerClick::Nothing);
+        assert_eq!(container_click(false, false, false, true, false), ContainerClick::TakeUp);
+        assert_eq!(container_click(false, false, true, true, false), ContainerClick::TakeUp);
+        assert_eq!(container_click(true, false, true, false, false), ContainerClick::Nothing);
+        assert_eq!(container_click(true, false, false, false, false), ContainerClick::Nothing);
+        assert_eq!(container_click(false, true, true, true, false), ContainerClick::Nothing);
+        // (Ctrl on a stack of one's own backpack: the split box, by a click with free hands only; Shift still shows
+        // the info)
+        assert_eq!(container_click(true, false, true, true, true), ContainerClick::Split);
+        assert_eq!(container_click(false, false, true, true, true), ContainerClick::Nothing);
+        assert_eq!(container_click(true, false, true, false, true), ContainerClick::Nothing);
+        assert_eq!(container_click(true, true, true, true, true), ContainerClick::Info);
     }
 
     #[test]
