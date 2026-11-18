@@ -113,7 +113,7 @@ with the run. Pull requests never see the secrets: the Release workflow runs for
 certificate or a refused notarization the macOS job fails and the release has no macOS files; with the secrets
 absent, a notarized image made on a Mac can still replace the draft's, with its line in `SHA256SUMS.txt`, before
 the draft is published (a published release's files cannot be changed while the repository keeps its releases
-immutable). The certificate runs out after five years and the `.tar.gz` for a terminal is not signed this way.
+immutable). The present certificate runs out on 15 December 2027 (a new one is then exported and the two certificate secrets set again) and the `.tar.gz` for a terminal is not signed this way.
 
 ## Trying it without a release
 
